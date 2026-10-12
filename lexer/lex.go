@@ -482,7 +482,8 @@ func (l *Lexer) handleDigit() bool {
 }
 
 // handleComment lexes a line comment. Consecutive lines that each start with
-// "//" merge into one Comment token whose value joins them with newlines. A
+// "//" merge into one Comment token whose value joins them with newlines,
+// each line with its surrounding space trimmed. A
 // semicolon is inserted before the comment if the preceding token can end a
 // statement. Block comments are not supported: one is reported and skipped.
 func (l *Lexer) handleComment() bool {
@@ -524,9 +525,21 @@ func (l *Lexer) handleComment() bool {
 	}
 
 	l.addSemi(start)
-	l.addToken(Comment, strings.TrimSpace(val.String()), start, end)
+	l.addToken(Comment, trimCommentLines(val.String()), start, end)
 
 	return true
+}
+
+// trimCommentLines trims the surrounding space from each line of a merged
+// comment's text, so every line is treated as the first one is: "// a\n// b"
+// has the value "a\nb". The lines are kept, empty ones included, so the
+// value has as many lines as the comment.
+func trimCommentLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // skipBlockComment reports a block comment, which Tack does not support, and

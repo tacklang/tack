@@ -10,12 +10,6 @@ so every underline is followed by a trailing space. Fixing it changes every
 golden for an invalid program. `diag/render_test.go` pins the current output
 until then.
 
-## Merged comment lines keep inconsistent whitespace
-
-Consecutive `//` lines merge into one comment token. The merged value is
-trimmed as a whole, so `// a\n// b` becomes `"a\n b"`: the space after `//`
-is removed from the first line and kept on the others.
-
 ## Comments are only allowed between top-level declarations
 
 The lexer produces comment tokens anywhere, but the parser only accepts them

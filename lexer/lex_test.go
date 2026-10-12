@@ -451,6 +451,36 @@ var commentSpanCases = []struct {
 	{"// a\n\n", 0, 4},
 }
 
+// commentValueCases pin the value of the one comment token in each source:
+// every line has its surrounding space trimmed alike, the first as much as
+// the rest.
+var commentValueCases = []struct {
+	src  string
+	want string
+}{
+	{"// a\n// b", "a\nb"},
+	{"// a\n// b\n", "a\nb"},
+	{"//a\n//b", "a\nb"},
+	{"//   a  \n//\tb\t", "a\nb"},
+	{"// a\n//\n// b", "a\n\nb"},
+	{"// a\r\n// b\r\n", "a\nb"},
+	{"//\n//", "\n"},
+	{"// x // y\n// z", "x // y\nz"},
+}
+
+// TestCommentValues checks the value of merged comment lines.
+func TestCommentValues(t *testing.T) {
+	for _, tt := range commentValueCases {
+		t.Run(tt.src, func(t *testing.T) {
+			out := lex(t, tt.src)
+			checkInvariants(t, tt.src, out)
+			if got := out.tokens[0].Value(); got != tt.want {
+				t.Errorf("value of %q = %#v, want %#v", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestCommentOffsets checks a comment token ends right after its last byte,
 // whether a newline or the end of the input follows it.
 func TestCommentOffsets(t *testing.T) {
