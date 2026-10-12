@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/blank-nothing-bound-semicolon/main.tck:8:5: error: every name is _, so nothing is bound; make the call on its own
+07 |	func main() {
+08 |	    _, _ := pair();
+   |	    ^~~~~~~~~~~~~~
+09 |	}
+

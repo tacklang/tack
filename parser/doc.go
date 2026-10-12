@@ -68,8 +68,10 @@
 // node's span is tagged with the FileID the parser was created with.
 //
 // A node's span runs from the first byte of its first token to the last
-// byte of its last one. A statement's span takes in a semicolon written in
-// the source, but not one the lexer inserted at a line end: that one covers
-// no bytes and sits after the spaces before the newline or comment, which
-// the span would otherwise cover.
+// byte of its last one. No span covers a semicolon: one that ends a
+// statement or declaration is left out, whether it was written in the
+// source or the lexer inserted it at a line end, so a span ends at the last
+// token that is not a semicolon and never takes in the spaces, comment or
+// semicolon after it. The file's own span is the exception: it runs to the
+// end of the input.
 package parser

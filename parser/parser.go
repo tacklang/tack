@@ -89,13 +89,14 @@ func (p *Parser) peekPrev() *lexer.Token {
 	return &p.tokens[p.index-1]
 }
 
-// lastEnd returns the offset just past the last real token consumed. A
-// semicolon inserted at a line end is skipped: it covers no bytes and sits
-// after any spaces before the newline or comment, so a span ending there
-// would take in those spaces. An explicit semicolon is a real token.
+// lastEnd returns the offset just past the last token consumed that is not
+// a semicolon. No span covers the semicolon that ends a statement or
+// declaration, whether it was written in the source or inserted at a line
+// end. An inserted one covers no bytes but sits after any spaces before the
+// newline or comment, so a span ending there would take in those spaces.
 func (p *Parser) lastEnd() int {
 	tk := p.peekPrev()
-	if tk.Kind() == lexer.Semi && tk.OffsetStart() == tk.OffsetEnd() && p.index >= 2 {
+	if tk.Kind() == lexer.Semi && p.index >= 2 {
 		tk = &p.tokens[p.index-2]
 	}
 	return tk.OffsetEnd()
@@ -830,8 +831,8 @@ var compoundOps = map[lexer.TokenKind]ast.BinaryOp{
 }
 
 // endStmt consumes the semicolon that ends a statement, which may be left out
-// before a closing brace, and extends span to cover it if it was written
-// rather than inserted. It returns the diagnostics for anything else found
+// before a closing brace, and ends span at the last token before it, leaving
+// the semicolon out. It returns the diagnostics for anything else found
 // there.
 func (p *Parser) endStmt(span *ast.Span) []diag.Diagnostic {
 	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
