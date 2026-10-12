@@ -522,17 +522,17 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 		}}
 	}
 
+	if lit, ok := g.literal(e); ok {
+		return lit, nil
+	}
+
 	switch x := e.(type) {
-	case *ast.IntLit:
-		return strconv.FormatInt(x.Value, 10), nil
-	case *ast.StrLit:
-		return g.stringValue(x.Value), nil
-	case *ast.BoolLit:
-		return strconv.FormatBool(x.Value), nil
 	case *ast.Ident:
 		return g.identExpr(x)
 	case *ast.Binary:
 		return g.binaryExpr(x)
+	case *ast.Unary:
+		return g.unaryExpr(x)
 	case *ast.Call:
 		return g.callValue(x)
 	default:
@@ -541,6 +541,21 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 			Message:  fmt.Sprintf("unknown expression type: %T", e),
 			Span:     e.Spanned(),
 		}}
+	}
+}
+
+// literal renders an int, string or bool literal as C, and reports whether e
+// was one.
+func (g *generator) literal(e ast.Expr) (string, bool) {
+	switch x := e.(type) {
+	case *ast.IntLit:
+		return strconv.FormatInt(x.Value, 10), true
+	case *ast.StrLit:
+		return g.stringValue(x.Value), true
+	case *ast.BoolLit:
+		return strconv.FormatBool(x.Value), true
+	default:
+		return "", false
 	}
 }
 
@@ -574,6 +589,17 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
+}
+
+// unaryExpr renders a negation. It gets no parentheses of its own: C's ! binds
+// tighter than any binary operator, as Tack's does, and its operand comes out
+// already grouped, since every binary expression is parenthesised.
+func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
+	x, diags := g.expr(u.X, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return u.Op.String() + x, nil
 }
 
 // callValue renders a call used where a value is wanted, rejecting a callee

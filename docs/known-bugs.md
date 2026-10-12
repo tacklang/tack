@@ -41,7 +41,8 @@ than as an unsupported result list.
 ## A call that returns nothing is reported as type "invalid"
 
 Using a call to a function that returns nothing as an operand, as in
-`f() + 1` or `f() == true`, is reported as `cannot use invalid as int in +`.
+`f() + 1`, `f() == true` or `!f()`, is reported as
+`cannot use invalid as int in +` or `operator ! is not defined on invalid`.
 "invalid" is the checker's internal name for a missing type, not something a
 Tack programmer should see. The same call as an argument or a declared value
 already gets a proper message.

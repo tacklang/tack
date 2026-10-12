@@ -662,15 +662,19 @@ func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 func precedence(kind lexer.TokenKind) int {
 	switch kind {
 	case lexer.Mul, lexer.Div, lexer.Mod:
-		return 3
+		return 5
 	case lexer.Add, lexer.Sub:
-		return 2
+		return 4
 	case lexer.Equal,
 		lexer.NotEqual,
 		lexer.Less,
 		lexer.LessEqual,
 		lexer.Greater,
 		lexer.GreaterEqual:
+		return 3
+	case lexer.LogicalAnd:
+		return 2
+	case lexer.LogicalOr:
 		return 1
 	default:
 		return 0
@@ -689,6 +693,8 @@ var binaryOps = map[lexer.TokenKind]ast.BinaryOp{
 	lexer.LessEqual:    ast.Le,
 	lexer.Greater:      ast.Gt,
 	lexer.GreaterEqual: ast.Ge,
+	lexer.LogicalAnd:   ast.And,
+	lexer.LogicalOr:    ast.Or,
 }
 
 // parseExpr parses an expression whose operators bind at least as tightly as
@@ -727,10 +733,13 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseOperand parses an expression with no infix operator at its root: a
-// literal, a name, a call, or a parenthesised expression.
+// literal, a name, a call, a parenthesised expression, or a negation.
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
-	if p.peek().Kind() == lexer.LParen {
+	switch p.peek().Kind() {
+	case lexer.LParen:
 		return p.parseParenExpr()
+	case lexer.LogicalNot:
+		return p.parseNot()
 	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
@@ -744,6 +753,23 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	}
 
 	return p.parseLiteral()
+}
+
+// parseNot parses ! and the operand after it. The operand is parsed as an
+// operand, not a full expression, so ! binds tighter than any infix
+// operator: !a == b is (!a) == b.
+func (p *Parser) parseNot() (ast.Expr, []diag.Diagnostic) {
+	op := p.next()
+
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	return &ast.Unary{
+		Op:   ast.Not,
+		X:    x,
+		Span: ast.Span{File: p.fileID, Start: op.OffsetStart(), End: x.Spanned().End},
+	}, nil
 }
 
 // parseParenExpr parses a parenthesized expression and returns the inner

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/not-non-bool/main.tck:4:9: error: operator ! is not defined on int
+03 |	func main() {
+04 |	    if !5 {
+   |	        ^ 
+05 |	        exit(1)
+

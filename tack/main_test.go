@@ -769,3 +769,17 @@ func TestBuiltBoolsPrintsAndExits9(t *testing.T) {
 		t.Errorf("bools printed %q, want %q", out, "bools\n")
 	}
 }
+
+// The logical example prints only the operands that ran, so its output pins
+// short-circuit evaluation in a real build.
+func TestBuiltLogicalShortCircuitsAndExits13(t *testing.T) {
+	bin := buildWithClang(t, "logical")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 13 {
+		t.Errorf("logical exited with %v, want status 13", err)
+	}
+	if string(out) != "first\nsecond\n" {
+		t.Errorf("logical printed %q, want %q", out, "first\nsecond\n")
+	}
+}

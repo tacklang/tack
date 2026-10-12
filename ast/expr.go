@@ -113,8 +113,7 @@ const (
 	// Rem is %.
 	Rem
 
-	// The comparison operators yield a bool. They are kept last so that
-	// IsComparison is a single bound check.
+	// The comparison operators yield a bool.
 
 	// Eq is ==.
 	Eq
@@ -128,11 +127,20 @@ const (
 	Gt
 	// Ge is >=.
 	Ge
+
+	// The logical operators take two bools and yield a bool. The right
+	// operand is evaluated only when the left does not decide the result.
+
+	// And is &&.
+	And
+	// Or is ||.
+	Or
 )
 
 var binaryOpNames = map[BinaryOp]string{
 	Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%",
 	Eq: "==", Ne: "!=", Lt: "<", Le: "<=", Gt: ">", Ge: ">=",
+	And: "&&", Or: "||",
 }
 
 // String returns the operator as it is written in source.
@@ -143,9 +151,16 @@ func (o BinaryOp) String() string {
 	return "invalid operator"
 }
 
-// IsComparison reports whether the operator yields a bool rather than the type
-// of its operands.
-func (o BinaryOp) IsComparison() bool { return o >= Eq }
+// IsArithmetic reports whether the operator is one of + - * / %, which
+// yield the type of their operands.
+func (o BinaryOp) IsArithmetic() bool { return o >= Add && o <= Rem }
+
+// IsComparison reports whether the operator is one of == != < <= > >=, which
+// compare two operands of one type and yield a bool.
+func (o BinaryOp) IsComparison() bool { return o >= Eq && o <= Ge }
+
+// IsLogical reports whether the operator is && or ||.
+func (o BinaryOp) IsLogical() bool { return o == And || o == Or }
 
 // Binary is an infix operation, X Op Y.
 type Binary struct {
@@ -163,6 +178,41 @@ func (b *Binary) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the start of X through the end of Y.
 func (b *Binary) Spanned() Span { return b.Span }
 
+// UnaryOp is a prefix operator.
+type UnaryOp int
+
+const (
+	// InvalidUnaryOp is the zero value, never produced by the parser.
+	InvalidUnaryOp UnaryOp = iota
+
+	// Not is !, which negates a bool.
+	Not
+)
+
+// String returns the operator as it is written in source.
+func (o UnaryOp) String() string {
+	if o == Not {
+		return "!"
+	}
+	return "invalid operator"
+}
+
+// Unary is a prefix operation, Op X.
+type Unary struct {
+	X    Expr
+	Span Span // the operator through the end of X
+	Op   UnaryOp
+}
+
+var _ Expr = (*Unary)(nil)
+
+func (u *Unary) exprKey() exprKey { return _exprKey }
+
+func (u *Unary) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the operator through the end of X.
+func (u *Unary) Spanned() Span { return u.Span }
+
 // KindOf returns the type of an expression, or types.Invalid if it has none
 // the compiler can determine. It reads what earlier passes recorded: a literal
 // carries its type in its node, and an identifier carries it through the
@@ -178,12 +228,15 @@ func KindOf(expr Expr) types.Kind {
 	case *Ident:
 		return identKind(e)
 	case *Binary:
-		// A comparison yields a bool whatever it compared; arithmetic yields
-		// the type of its operands, which the checker has already agreed match.
-		if e.Op.IsComparison() {
+		// A comparison or logical operator yields a bool whatever its
+		// operands; arithmetic yields the type of its operands, which the
+		// checker has already agreed match.
+		if !e.Op.IsArithmetic() {
 			return types.Bool
 		}
 		return KindOf(e.X)
+	case *Unary:
+		return types.Bool
 	case *Call:
 		return callKind(e)
 	default:

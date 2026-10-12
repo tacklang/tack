@@ -78,6 +78,8 @@ func walkExpr(e Expr, v Visitor) {
 	case *Binary:
 		Walk(e.X, v)
 		Walk(e.Y, v)
+	case *Unary:
+		Walk(e.X, v)
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)

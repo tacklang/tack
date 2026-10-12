@@ -365,6 +365,8 @@ func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveCall(x, sc)
 	case *ast.Binary:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
+	case *ast.Unary:
+		return r.resolveExpr(x.X, sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
 	default:

@@ -211,11 +211,16 @@ which is true today because `main` is the only package there is.
   in scope, package-level ones included, and a variable that is never read is
   an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, parentheses,
-  and the infix
-  operators `+ - * / %` and `== != < <= > >=`, with Go's precedence.
+  the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
+  prefix `!`, with Go's precedence: `!` binds tightest, then arithmetic, then
+  comparisons, then `&&`, then `||`.
   Arithmetic takes `int` operands. A comparison takes two operands of the
   same type: two `int`s with any of the six, or two `bool`s with `==` and
   `!=`. Strings cannot be compared yet.
+- `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
+  right side runs only when the left does not decide the result, so
+  `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
+  is computed in full, so an error on either side is reported.
 - The types are `int`, `string`, and `bool`. A bool is `true`, `false`, or the
   result of a comparison. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.

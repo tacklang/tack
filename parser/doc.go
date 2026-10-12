@@ -9,8 +9,10 @@
 // bodies only.
 //
 // The parser is recursive descent, with expressions parsed by precedence
-// climbing using Go's operator precedence; every binary operator is
-// left-associative. A statement that starts with a name is told apart by the
+// climbing using Go's operator precedence (from loosest: ||, &&, the
+// comparisons, + and -, then * / and %); every binary operator is
+// left-associative. The prefix ! applies to the operand right after it, so it
+// binds tighter than any binary operator. A statement that starts with a name is told apart by the
 // token after it: := declares a variable, = assigns, and ( calls. The
 // keywords true and false are bool literals, so neither can start a statement
 // or be declared as a name. It stops at the first syntax error and returns

@@ -167,6 +167,8 @@ func isConstant(e ast.Expr) bool {
 		return true
 	case *ast.Binary:
 		return isConstant(x.X) && isConstant(x.Y)
+	case *ast.Unary:
+		return isConstant(x.X)
 	default:
 		return false
 	}
@@ -186,8 +188,10 @@ func zeroConst(kind types.Kind) any {
 	}
 }
 
-// fold evaluates a constant expression that has already been type-checked,
-// following Go's integer arithmetic: division truncates toward zero and a
+// fold evaluates a constant expression that has already been type-checked.
+// Every operand is evaluated, the right side of && and || included, so an
+// error in one is reported even where a running program would skip it, as
+// in Go. Arithmetic follows Go's integer arithmetic: division truncates toward zero and a
 // remainder takes the sign of the dividend. A result that does not fit in an
 // int, and a division or remainder by zero, is reported and reports false.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
@@ -208,23 +212,30 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 			return nil, false
 		}
 		return c.foldBinary(x, left, right)
+	case *ast.Unary:
+		operand, ok := c.fold(x.X)
+		if !ok {
+			return nil, false
+		}
+		b, ok := operand.(bool)
+		return !b, ok
 	default:
 		return nil, false
 	}
 }
 
 // foldBinary applies an operator to two constants of the same type: two
-// bools under == or !=, or two ints under any operator, as the checker has
-// already required. Operands of any other types fold to nothing rather than
-// guess.
+// bools under == != && or ||, or two ints under an arithmetic or comparison
+// operator, as the checker has already required. Operands of any other types
+// fold to nothing rather than guess.
 func (c *Checker) foldBinary(bin *ast.Binary, left, right any) (any, bool) {
 	switch x := left.(type) {
 	case bool:
 		y, ok := right.(bool)
-		if !ok || (bin.Op != ast.Eq && bin.Op != ast.Ne) {
+		if !ok {
 			return nil, false
 		}
-		return (x == y) == (bin.Op == ast.Eq), true
+		return foldBools(bin.Op, x, y)
 	case int64:
 		y, ok := right.(int64)
 		if !ok {
@@ -236,8 +247,27 @@ func (c *Checker) foldBinary(bin *ast.Binary, left, right any) (any, bool) {
 	}
 }
 
+// foldBools applies an operator to two bool constants.
+func foldBools(op ast.BinaryOp, x, y bool) (any, bool) {
+	switch op {
+	case ast.Eq:
+		return x == y, true
+	case ast.Ne:
+		return x != y, true
+	case ast.And:
+		return x && y, true
+	case ast.Or:
+		return x || y, true
+	default:
+		return nil, false
+	}
+}
+
 // foldInts applies an operator to two int constants.
 func (c *Checker) foldInts(bin *ast.Binary, a, b int64) (any, bool) {
+	if bin.Op.IsLogical() {
+		return nil, false
+	}
 	if bin.Op.IsComparison() {
 		return compareInts(bin.Op, a, b), true
 	}
@@ -433,18 +463,35 @@ func (c *Checker) checkExpr(e ast.Expr) {
 		c.checkExpr(x.X)
 		c.checkExpr(x.Y)
 		c.checkBinary(x)
+
+	case *ast.Unary:
+		c.checkExpr(x.X)
+		c.requireBool(x.X, x.Op)
 	}
 }
 
 // checkBinary requires int operands for every arithmetic operator, since
-// arithmetic on strings would need concatenation, which does not exist.
-// Comparisons are checked by checkComparison.
+// arithmetic on strings would need concatenation, which does not exist, and
+// bool operands for && and ||. Comparisons are checked by checkComparison.
 func (c *Checker) checkBinary(bin *ast.Binary) {
-	if bin.Op.IsComparison() {
+	switch {
+	case bin.Op.IsComparison():
 		c.checkComparison(bin)
-		return
+	case bin.Op.IsLogical():
+		c.requireBool(bin.X, bin.Op)
+		c.requireBool(bin.Y, bin.Op)
+	default:
+		c.requireInts(bin)
 	}
-	c.requireInts(bin)
+}
+
+// requireBool reports an operand of a logical operator that is not a bool,
+// covering only that operand, unless its type is unreliable because of an
+// error already reported.
+func (c *Checker) requireBool(operand ast.Expr, op fmt.Stringer) {
+	if got := ast.KindOf(operand); got != types.Bool && !alreadyReported(operand, got) {
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, got)
+	}
 }
 
 // requireInts reports each operand of bin that is not an int, unless its
@@ -502,7 +549,7 @@ func alreadyReported(e ast.Expr, kind types.Kind) bool {
 		return true
 	}
 	bin, ok := e.(*ast.Binary)
-	if !ok || bin.Op.IsComparison() {
+	if !ok || !bin.Op.IsArithmetic() {
 		return false
 	}
 	return ast.KindOf(bin.X) != types.Int || ast.KindOf(bin.Y) != types.Int
