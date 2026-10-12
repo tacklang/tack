@@ -121,8 +121,8 @@ func TestParsesAssignment(t *testing.T) {
 	if !ok {
 		t.Fatalf("statement is %T, want *ast.Assign", body[1])
 	}
-	if a.Target.Name != "x" {
-		t.Errorf("target = %q, want x", a.Target.Name)
+	if a.Target.(*ast.Ident).Name != "x" {
+		t.Errorf("target = %q, want x", a.Target.(*ast.Ident).Name)
 	}
 	if _, ok := a.Value.(*ast.Binary); !ok {
 		t.Errorf("value is %T, want *ast.Binary", a.Value)

@@ -249,7 +249,7 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 // means the function returns nothing, and the result is empty.
 func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
 	switch p.peek().Kind() {
-	case lexer.Ident:
+	case lexer.Ident, lexer.LBrack:
 		typ, diags := p.parseType()
 		if typ == nil {
 			return nil, diags
@@ -344,6 +344,9 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 		}}
 	}
 
+	if p.peek().Kind() == lexer.LBrack {
+		return p.parseArrayType(false)
+	}
 	typ, typDiags := p.parseIdent("type name")
 	if typ == nil {
 		return nil, typDiags
@@ -472,8 +475,12 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 // variable declaration, an assignment (plain or compound), an increment or
 // decrement, or a call.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
-	switch p.peekNext().Kind() {
+	indexed := p.peekNext().Kind() == lexer.LBrack
+	switch after := p.afterIndexes(0); after.Kind() {
 	case lexer.Define:
+		if indexed {
+			return nil, []diag.Diagnostic{p.diagInvalidToken("=", after)}
+		}
 		return p.parseShortVarDecl()
 	case lexer.Assign,
 		lexer.AddAssign,
@@ -483,12 +490,51 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.ModAssign:
 		return p.parseAssign()
 	case lexer.LParen:
+		if indexed {
+			return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+		}
 		return p.parseFuncCall()
 	case lexer.Inc, lexer.Dec:
-		return p.parseIncDec(), nil
+		return p.parseIncDec()
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// afterIndexes returns the token after the name n places ahead and every
+// bracketed index that follows it, a[i][j], so a statement that starts with
+// an element can be told apart by what comes after it. The brackets are
+// matched, so an index may hold brackets of its own.
+func (p *Parser) afterIndexes(n int) *lexer.Token {
+	k := n + 1
+	for p.peekAt(k).Kind() == lexer.LBrack {
+		depth := 0
+		for {
+			switch p.peekAt(k).Kind() {
+			case lexer.LBrack:
+				depth++
+			case lexer.RBrack:
+				depth--
+			case lexer.EOF:
+				return p.peekAt(k)
+			}
+			k++
+			if depth == 0 {
+				break
+			}
+		}
+	}
+	return p.peekAt(k)
+}
+
+// parseTarget parses what an assignment, increment or decrement writes: a
+// name, followed by any number of indexes, a[i][j].
+func (p *Parser) parseTarget() (ast.Expr, []diag.Diagnostic) {
+	name, diags := p.parseIdent("variable name")
+	if name == nil {
+		return nil, diags
+	}
+	return p.parseIndexes(name)
 }
 
 // atMulti reports whether the next tokens start a statement binding several
@@ -496,9 +542,9 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 func (p *Parser) atMulti() bool {
 	tk := p.peek()
 	if tk.Kind() == lexer.Keyword && tk.Value() == lexer.Mut {
-		return p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Comma
+		return p.peekNext().Kind() == lexer.Ident && p.afterIndexes(1).Kind() == lexer.Comma
 	}
-	return tk.Kind() == lexer.Ident && p.peekNext().Kind() == lexer.Comma
+	return tk.Kind() == lexer.Ident && p.afterIndexes(0).Kind() == lexer.Comma
 }
 
 // parseMulti parses a statement binding each result of a call: a
@@ -509,13 +555,13 @@ func (p *Parser) atMulti() bool {
 func (p *Parser) parseMulti() (ast.Stmt, []diag.Diagnostic) {
 	start := p.span(p.peek())
 
-	var vars []*ast.Var
+	var items []multiItem
 	for {
-		v, diags := p.parseMultiVarName()
-		if v == nil {
+		item, diags := p.parseMultiItem()
+		if item.target == nil {
 			return nil, diags
 		}
-		vars = append(vars, v)
+		items = append(items, item)
 
 		if p.peek().Kind() != lexer.Comma {
 			break
@@ -536,64 +582,101 @@ func (p *Parser) parseMulti() (ast.Stmt, []diag.Diagnostic) {
 	span := ast.Span{File: start.File, Start: start.Start, End: value.Spanned().End}
 
 	if op.Kind() == lexer.Define {
-		return &ast.MultiVar{Vars: vars, Value: value, Span: span}, nil
+		return multiVar(items, value, span)
 	}
-	return multiAssign(vars, value, span)
+	return multiAssign(items, value, span)
 }
 
-// multiAssign turns the names parsed for an assignment of several results
-// into its targets, reporting a name written with mut, which only a
+// multiItem is one entry in the list of a statement binding several values:
+// a name, or an element of a variable, with whether mut was written before
+// it and the span of both.
+type multiItem struct {
+	target  ast.Expr
+	span    ast.Span
+	mutable bool
+}
+
+// multiAssign turns the entries parsed for an assignment of several values
+// into its targets, reporting one written with mut, which only a
 // declaration may have.
 func multiAssign(
-	vars []*ast.Var,
+	items []multiItem,
 	value ast.Expr,
 	span ast.Span,
 ) (*ast.MultiAssign, []diag.Diagnostic) {
 	m := &ast.MultiAssign{Value: value, Span: span}
-	for _, v := range vars {
-		if v.Mutable {
+	for _, item := range items {
+		if item.mutable {
 			return nil, []diag.Diagnostic{{
 				Severity: diag.Error,
 				Message:  "cannot use mut in an assignment",
-				Span:     v.Span,
+				Span:     item.span,
 			}}
 		}
-		m.Targets = append(m.Targets, &ast.Ident{Name: v.Name, Span: v.NameSpan})
+		m.Targets = append(m.Targets, item.target)
 	}
 	return m, nil
 }
 
-// parseMultiVarName parses one name in a MultiVar, with the mut before it if
-// there is one, into a variable with no value of its own.
-func (p *Parser) parseMultiVarName() (*ast.Var, []diag.Diagnostic) {
+// parseMultiItem parses one entry in the list of a statement binding
+// several values: a name, or an element of a variable, with the mut before
+// it if there is one. Whether either is allowed depends on whether the
+// statement declares or assigns, which is not known yet.
+func (p *Parser) parseMultiItem() (multiItem, []diag.Diagnostic) {
 	start := p.peek()
 	mutable := start.Kind() == lexer.Keyword && start.Value() == lexer.Mut
 	if mutable {
 		p.next()
 	}
 
-	name, diags := p.parseIdent("variable name")
-	if name == nil {
-		return nil, diags
+	target, diags := p.parseTarget()
+	if target == nil {
+		return multiItem{}, diags
 	}
-	return &ast.Var{
-		Name:     name.Name,
-		NameSpan: name.Span,
-		Span:     ast.Span{File: p.fileID, Start: start.OffsetStart(), End: name.Span.End},
-		Mutable:  mutable,
+	return multiItem{
+		target:  target,
+		span:    ast.Span{File: p.fileID, Start: start.OffsetStart(), End: target.Spanned().End},
+		mutable: mutable,
 	}, nil
 }
 
+// multiVar turns the entries parsed for a declaration of several values
+// into its variables, each with no value of its own, reporting an element,
+// which only an assignment can have.
+func multiVar(items []multiItem, value ast.Expr, span ast.Span) (*ast.MultiVar, []diag.Diagnostic) {
+	m := &ast.MultiVar{Value: value, Span: span}
+	for _, item := range items {
+		name, ok := item.target.(*ast.Ident)
+		if !ok {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "only a name can be declared; use = to assign to an element",
+				Span:     item.target.Spanned(),
+			}}
+		}
+		m.Vars = append(m.Vars, &ast.Var{
+			Name:     name.Name,
+			NameSpan: name.Span,
+			Span:     item.span,
+			Mutable:  item.mutable,
+		})
+	}
+	return m, nil
+}
+
 // parseIncDec parses name++ or name--.
-func (p *Parser) parseIncDec() *ast.IncDec {
-	target, _ := p.parseIdent("variable name")
+func (p *Parser) parseIncDec() (*ast.IncDec, []diag.Diagnostic) {
+	target, diags := p.parseTarget()
+	if target == nil {
+		return nil, diags
+	}
 	op := p.next() // ++ or --
 
 	return &ast.IncDec{
 		Target: target,
 		Dec:    op.Kind() == lexer.Dec,
-		Span:   ast.Span{File: p.fileID, Start: target.Span.Start, End: op.OffsetEnd()},
-	}
+		Span:   ast.Span{File: p.fileID, Start: target.Spanned().Start, End: op.OffsetEnd()},
+	}, nil
 }
 
 // parseVarDecl parses a declaration that starts with var or mut: a name,
@@ -632,7 +715,9 @@ func (p *Parser) parseVarDecl() (*ast.Var, []diag.Diagnostic) {
 // parseVarTypeAndValue parses what follows a declared name: a type, = and a
 // value, or both, into v. Neither is a syntax error.
 func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
-	if kind := p.peek().Kind(); kind == lexer.Ident || kind == lexer.Ellipsis {
+	if kind := p.peek().
+		Kind(); kind == lexer.Ident || kind == lexer.Ellipsis ||
+		kind == lexer.LBrack {
 		typ, typDiags := p.parseType()
 		if typ == nil {
 			return typDiags
@@ -693,10 +778,13 @@ func (p *Parser) parseShortVarDecl() (*ast.Var, []diag.Diagnostic) {
 // parseAssign parses name = value, or a compound assignment such as
 // name += value.
 func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
-	target, _ := p.parseIdent("variable name")
+	target, diags := p.parseTarget()
+	if target == nil {
+		return nil, diags
+	}
 	op := p.next() // = or a compound assignment operator
 
-	a := &ast.Assign{Target: target, Op: compoundOps[op.Kind()], Span: target.Span}
+	a := &ast.Assign{Target: target, Op: compoundOps[op.Kind()], Span: target.Spanned()}
 
 	value, valueDiags := p.parseExpr(1)
 	if value == nil {
@@ -974,12 +1062,12 @@ func (p *Parser) atDeclOrUpdate() bool {
 	if p.peek().Kind() != lexer.Ident {
 		return false
 	}
-	switch p.peekNext().Kind() {
+	switch after := p.afterIndexes(0); after.Kind() {
 	case lexer.Define, lexer.Inc, lexer.Dec, lexer.Comma:
 		return true
 	default:
-		_, compound := compoundOps[p.peekNext().Kind()]
-		return compound || p.peekNext().Kind() == lexer.Assign
+		_, compound := compoundOps[after.Kind()]
+		return compound || after.Kind() == lexer.Assign
 	}
 }
 
@@ -1144,12 +1232,27 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 // and its operand.
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	switch p.peek().Kind() {
-	case lexer.LParen:
-		return p.parseParenExpr()
 	case lexer.LogicalNot:
 		return p.parseUnary(ast.Not)
 	case lexer.Sub:
 		return p.parseUnary(ast.Neg)
+	}
+
+	x, diags := p.parsePrimary()
+	if x == nil {
+		return nil, diags
+	}
+	return p.parseIndexes(x)
+}
+
+// parsePrimary parses an operand that indexes can follow: a parenthesized
+// expression, a call, an array literal, a name, or a literal.
+func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
+	switch p.peek().Kind() {
+	case lexer.LParen:
+		return p.parseParenExpr()
+	case lexer.LBrack:
+		return p.parseCompositeLit()
 	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
@@ -1163,6 +1266,133 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	}
 
 	return p.parseLiteral()
+}
+
+// parseIndexes parses any number of indexes after x, x[i][j], each an
+// element of what comes before it.
+func (p *Parser) parseIndexes(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	for p.peek().Kind() == lexer.LBrack {
+		p.next()
+		index, diags := p.parseExpr(1)
+		if index == nil {
+			return nil, diags
+		}
+		if ok, diags := p.expect(lexer.RBrack); !ok {
+			return nil, diags
+		}
+		x = &ast.Index{
+			X:     x,
+			Index: index,
+			Span: ast.Span{
+				File:  p.fileID,
+				Start: x.Spanned().Start,
+				End:   p.peekPrev().OffsetEnd(),
+			},
+		}
+	}
+	return x, nil
+}
+
+// parseCompositeLit parses an array literal: an array type, which may use
+// [...] for its length, then its elements in braces.
+func (p *Parser) parseCompositeLit() (ast.Expr, []diag.Diagnostic) {
+	typ, diags := p.parseArrayType(true)
+	if typ == nil {
+		return nil, diags
+	}
+	lit, diags := p.parseLitBody(typ, typ.Spanned().Start)
+	if lit == nil {
+		return nil, diags
+	}
+	return lit, nil
+}
+
+// parseLitBody parses the braces of an array literal and the elements in
+// them, separated by commas, with a comma allowed after the last, as a
+// literal written over several lines needs. An element that is itself only
+// braces is a literal whose type is left out, typ is nil, and comes from the
+// enclosing literal. The literal spans from start.
+func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []diag.Diagnostic) {
+	if ok, diags := p.expect(lexer.LCurl); !ok {
+		return nil, diags
+	}
+	lit := &ast.CompositeLit{TypeExpr: typ, Elems: make([]ast.Expr, 0)}
+
+	for p.peek().Kind() != lexer.RCurl {
+		if len(lit.Elems) > 0 {
+			if ok, diags := p.expect(lexer.Comma); !ok {
+				return nil, diags
+			}
+			if p.peek().Kind() == lexer.RCurl {
+				break
+			}
+		}
+
+		var (
+			elem  ast.Expr
+			diags []diag.Diagnostic
+		)
+		if tk := p.peek(); tk.Kind() == lexer.LCurl {
+			nested, nestedDiags := p.parseLitBody(nil, tk.OffsetStart())
+			if nested != nil {
+				elem = nested
+			}
+			diags = nestedDiags
+		} else {
+			elem, diags = p.parseExpr(1)
+		}
+		if elem == nil {
+			return nil, diags
+		}
+		lit.Elems = append(lit.Elems, elem)
+	}
+
+	p.next() // the closing brace
+	lit.Span = ast.Span{File: p.fileID, Start: start, End: p.peekPrev().OffsetEnd()}
+	return lit, nil
+}
+
+// parseArrayType parses [n]T. In an array literal, literal is true and the
+// length may be [...], left for the elements to give. An empty length, [],
+// would be a slice, which Tack does not have yet.
+func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
+	open := p.next() // the opening bracket
+	typ := &ast.ArrayType{Span: p.span(open)}
+
+	switch tk := p.peek(); tk.Kind() {
+	case lexer.Ellipsis:
+		p.next()
+		if !literal {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "[...] can only be used in an array literal",
+				Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
+			}}
+		}
+	case lexer.RBrack:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "slices are not supported yet",
+			Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
+		}}
+	default:
+		n, diags := p.parseExpr(1)
+		if n == nil {
+			return nil, diags
+		}
+		typ.Len = n
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, diags
+	}
+
+	elem, diags := p.parseType()
+	if elem == nil {
+		return nil, diags
+	}
+	typ.Elem = elem
+	typ.Span.End = elem.Spanned().End
+	return typ, nil
 }
 
 // parseUnary parses a prefix operator, ! or -, and the operand after it. The

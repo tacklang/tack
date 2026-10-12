@@ -29,6 +29,11 @@
 // is resolved, as if each were declared on its own, and the targets of
 // a, b = f() are bound after f() is resolved, without counting as reads.
 //
+// The names in a type as written, an array length that names a constant,
+// are bound too: a local's in its own scope, a global's and a signature's at
+// package level. The target of an assignment to an element, a[i], binds its
+// variable without counting as a read of it, and its index like any value.
+//
 // The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
 // discards the result in its position and is neither declared nor bound;
 // a list of nothing but _ is reported, as is mut on _. Anywhere else, _ is

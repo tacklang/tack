@@ -145,3 +145,56 @@ func TestLookupIntegerTypes(t *testing.T) {
 		t.Error("untyped int can be named")
 	}
 }
+
+// An array type written twice is one ID, and differs from any other.
+func TestArrayTypesAreInterned(t *testing.T) {
+	table := types.NewTable()
+	a := table.Array(types.Int64, 3)
+	b := table.Array(types.Int64, 3)
+	if a != b {
+		t.Fatalf("[3]int64 got two IDs, %d and %d", a, b)
+	}
+	if c := table.Array(types.Int64, 4); c == a {
+		t.Error("[4]int64 got the same ID as [3]int64")
+	}
+	if c := table.Array(types.Uint8, 3); c == a {
+		t.Error("[3]uint8 got the same ID as [3]int64")
+	}
+}
+
+// An array type's shape and name come back from the Table, nested to any
+// depth.
+func TestArrayTypeShapes(t *testing.T) {
+	table := types.NewTable()
+	a := table.Array(types.Int64, 3)
+	nested := table.Array(a, 2)
+	if !table.IsArray(nested) || table.Elem(nested) != a || table.Len(nested) != 2 {
+		t.Errorf("[2][3]int64 has element %v and length %d", table.Elem(nested), table.Len(nested))
+	}
+	if got := table.Name(nested); got != "[2][3]int64" {
+		t.Errorf("Name = %q, want [2][3]int64", got)
+	}
+	if got := table.Name(table.Array(types.Bool, 0)); got != "[0]bool" {
+		t.Errorf("Name = %q, want [0]bool", got)
+	}
+	if table.IsArray(types.Int64) || table.Len(types.Int64) != 0 ||
+		table.Elem(types.Int64) != types.Invalid {
+		t.Error("int64 is described as an array")
+	}
+}
+
+// An array type's ID means nothing to another Table, or to none.
+func TestArrayIDsBelongToTheirTable(t *testing.T) {
+	a := types.NewTable().Array(types.Int64, 3)
+	other := types.NewTable()
+	if other.IsArray(a) || other.Name(a) != "invalid" {
+		t.Error("another Table knows an array type it never added")
+	}
+	var none *types.Table
+	if none.IsArray(a) || none.Name(a) != "invalid" || none.Count() != 0 {
+		t.Error("a nil Table knows an array type")
+	}
+	if types.Widens(a, a) != true || types.Widens(a, types.Int64) {
+		t.Error("an array type widens to something other than itself")
+	}
+}

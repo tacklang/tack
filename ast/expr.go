@@ -20,7 +20,13 @@ type Expr interface {
 // Call is a function call, Fn(Args...), or a conversion, when Fn names a
 // type: int8(x) converts x to int8.
 type Call struct {
-	Fn   Expr // the callee: for now always *Ident, later could be anything
+	Fn Expr // the callee: for now always *Ident, later could be anything
+
+	// Const is the value of a call the type checker can compute, a
+	// constant.Int: len of an array or a string literal. It is nil for any
+	// other call.
+	Const any
+
 	Args []Expr
 	Span Span // start of Fn through the closing RParen
 
@@ -269,12 +275,26 @@ func TypeOf(expr Expr) types.Type {
 		return types.Bool
 	case *Ident:
 		return identType(e)
+	case *Call:
+		return callType(e)
+	default:
+		return recordedType(expr)
+	}
+}
+
+// recordedType returns the type the type checker recorded on an operator
+// expression, an array literal or an element, or Invalid for any other
+// expression.
+func recordedType(expr Expr) types.Type {
+	switch e := expr.(type) {
 	case *Binary:
 		return e.Type
 	case *Unary:
 		return e.Type
-	case *Call:
-		return callType(e)
+	case *CompositeLit:
+		return e.Type
+	case *Index:
+		return e.Type
 	default:
 		return types.Invalid
 	}
@@ -304,10 +324,103 @@ func callType(call *Call) types.Type {
 	if call.Conv != types.Invalid {
 		return call.Conv
 	}
+	if id, ok := call.Fn.(*Ident); ok && id.Name == "len" {
+		// The builtin len, the one builtin with a value, since no function
+		// can be declared with a builtin's name.
+		if fn, ok := id.Def.(*Func); ok && fn == nil {
+			return types.Int64
+		}
+	}
 	if id, ok := call.Fn.(*Ident); ok {
 		if fn, ok := id.Def.(*Func); ok && fn != nil && len(fn.ResultTypes) == 1 {
 			return fn.ResultTypes[0]
 		}
 	}
 	return types.Invalid
+}
+
+// ArrayType is an array type as written: [Len]Elem, or [...]Elem in an
+// array literal, whose length its elements give. It is an expression only so
+// it can stand where a type is written; it never has a value.
+type ArrayType struct {
+	Len  Expr // the length, a constant expression; nil for [...]
+	Elem Expr // the element type as written
+	Span Span // the opening bracket through the end of Elem
+}
+
+var _ Expr = (*ArrayType)(nil)
+
+func (a *ArrayType) exprKey() exprKey { return _exprKey }
+
+func (a *ArrayType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the opening bracket through the end
+// of the element type.
+func (a *ArrayType) Spanned() Span { return a.Span }
+
+// CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
+// element for each of the array's. TypeExpr is nil for a literal written
+// inside another, as in [2][2]bool{{true, false}, {false, true}}, which
+// takes the outer literal's element type.
+type CompositeLit struct {
+	TypeExpr Expr // the array type as written, nil if left out
+	Elems    []Expr
+	Span     Span // the type, or the opening brace, through the closing brace
+
+	// Type is the literal's array type, set by the type checker.
+	Type types.Type
+}
+
+var _ Expr = (*CompositeLit)(nil)
+
+func (c *CompositeLit) exprKey() exprKey { return _exprKey }
+
+func (c *CompositeLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the type, or the opening brace,
+// through the closing brace.
+func (c *CompositeLit) Spanned() Span { return c.Span }
+
+// Index is an element of an array, X[Index]. It is also an assignment's
+// target when X is a mutable variable, or an element of one.
+type Index struct {
+	X     Expr
+	Index Expr
+	Span  Span // the start of X through the closing bracket
+
+	// Type is the element's type, set by the type checker.
+	Type types.Type
+}
+
+var _ Expr = (*Index)(nil)
+
+func (i *Index) exprKey() exprKey { return _exprKey }
+
+func (i *Index) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of X through the closing
+// bracket.
+func (i *Index) Spanned() Span { return i.Span }
+
+// Root returns the name a chain of indexes starts from: the variable that
+// an assignment to target writes, whether target is the name itself or an
+// element of it, a[i][j]. It is nil when the chain starts from anything
+// else, such as a call.
+func Root(target Expr) *Ident {
+	for {
+		switch t := target.(type) {
+		case *Ident:
+			return t
+		case *Index:
+			target = t.X
+		default:
+			return nil
+		}
+	}
+}
+
+// IsBlank reports whether e is the name _.
+func IsBlank(e Expr) bool {
+	id, ok := e.(*Ident)
+	return ok && id.Name == Blank
 }

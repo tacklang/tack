@@ -33,8 +33,8 @@ func TestParsesCompoundAssignment(t *testing.T) {
 			if a.Op != tt.op {
 				t.Errorf("op = %v, want %v", a.Op, tt.op)
 			}
-			if a.Target.Name != "x" {
-				t.Errorf("target = %q, want x", a.Target.Name)
+			if a.Target.(*ast.Ident).Name != "x" {
+				t.Errorf("target = %q, want x", a.Target.(*ast.Ident).Name)
 			}
 			if got := shape(t, a.Value); got != tt.value {
 				t.Errorf("value = %s, want %s", got, tt.value)

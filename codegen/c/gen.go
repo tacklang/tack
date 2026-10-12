@@ -70,6 +70,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	}
 
 	g.emitPreamble()
+	g.emitArrayTypes()
 	g.emitConstantPool()
 	g.emitGlobals(globals)
 	g.emitResultStructs()
@@ -138,10 +139,14 @@ func (g *generator) emitConstantPool() {
 
 	// print goes through one helper so that a literal and a parameter take the
 	// same path. Emitted only when the program prints, so an unused static
-	// function never reaches the C compiler.
+	// function never reaches the C compiler. An empty string is not written:
+	// a string element of an array starts with a null pointer, and C leaves
+	// passing one to fwrite undefined even with nothing to write.
 	if g.printsAnything() {
 		g.buf.WriteString("static void tack_print(tack_string s) {\n")
-		g.buf.WriteString("    fwrite(s.ptr, 1, s.len, stdout);\n")
+		g.buf.WriteString("    if (s.len > 0) {\n")
+		g.buf.WriteString("        fwrite(s.ptr, 1, s.len, stdout);\n")
+		g.buf.WriteString("    }\n")
 		g.buf.WriteString("}\n\n")
 	}
 
@@ -192,11 +197,7 @@ func divisionIn(n ast.Node) (division, bool) {
 	case *ast.Binary:
 		return division{x.Op, x.Type}, isDivision(x.Op) && x.Const == nil
 	case *ast.Assign:
-		v, ok := x.Target.Def.(*ast.Var)
-		if !ok {
-			return division{}, false
-		}
-		return division{x.Op, v.Type}, isDivision(x.Op)
+		return division{x.Op, ast.TypeOf(x.Target)}, isDivision(x.Op)
 	default:
 		return division{}, false
 	}
@@ -208,7 +209,7 @@ func divisionIn(n ast.Node) (division, bool) {
 // remainder is 0. An unsigned division cannot overflow, but goes through a
 // helper too, so every division looks the same.
 func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
-	t := cType(typ)
+	t := g.cType(typ)
 	fmt.Fprintf(&g.buf, "static %s %s(%s a, %s b) {\n", t, divisionName(op, typ), t, t)
 	switch {
 	case types.IsUnsigned(typ) && op == ast.Div:
@@ -300,6 +301,10 @@ func (g *generator) emitGlobals(globals []string) {
 // out overflow and division by zero, so the value is exactly what Tack means.
 func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	value, ok := g.constValue(v.Const)
+	if v.Const == nil && g.file.Types.IsArray(v.Type) {
+		// An array with no value starts with every element zero.
+		value, ok = "{0}", true
+	}
 	if !ok {
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -312,7 +317,7 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	if v.Mutable {
 		qualifier = "static"
 	}
-	return fmt.Sprintf("%s %s %s = %s;", qualifier, cType(v.Type), g.mangle(v.Name), value), nil
+	return fmt.Sprintf("%s %s %s = %s;", qualifier, g.cType(v.Type), g.mangle(v.Name), value), nil
 }
 
 // intLiteral renders an integer constant as a C literal. A negative one is
@@ -359,6 +364,8 @@ func (g *generator) constValue(c any) (string, bool) {
 		return strconv.FormatBool(v), true
 	case string:
 		return fmt.Sprintf("{%s, %d}", g.strLabel(v), len(v)), true
+	case []any:
+		return g.arrayConst(v)
 	default:
 		return "", false
 	}
@@ -377,7 +384,7 @@ func (g *generator) emitResultStructs() {
 
 		g.buf.WriteString("typedef struct {\n")
 		for i, typ := range fn.ResultTypes {
-			fmt.Fprintf(&g.buf, "    %s r%d;\n", cType(typ), i)
+			fmt.Fprintf(&g.buf, "    %s r%d;\n", g.cType(typ), i)
 		}
 		fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn.Name))
 	}
@@ -428,7 +435,7 @@ func (g *generator) signature(fn *ast.Func) string {
 	switch len(fn.ResultTypes) {
 	case 0:
 	case 1:
-		result = cType(fn.ResultTypes[0])
+		result = g.cType(fn.ResultTypes[0])
 	default:
 		result = g.resultsName(fn.Name)
 	}
@@ -439,7 +446,7 @@ func (g *generator) signature(fn *ast.Func) string {
 
 	params := make([]string, len(fn.Params))
 	for i, param := range fn.Params {
-		params[i] = fmt.Sprintf("%s %s", cType(param.Type), paramName(param.Name))
+		params[i] = fmt.Sprintf("%s %s", g.cType(param.Type), paramName(param.Name))
 	}
 	return fmt.Sprintf("static %s %s(%s)", result, g.mangle(fn.Name), strings.Join(params, ", "))
 }
@@ -667,7 +674,7 @@ func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
-	typ := cType(ast.TypeOf(loop.Count))
+	typ := g.cType(ast.TypeOf(loop.Count))
 	count, diags := g.expr(loop.Count, types.Invalid)
 	if len(diags) > 0 {
 		return nil, diags
@@ -768,39 +775,57 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	target, ok := a.Target.Def.(*ast.Var)
-	if !ok {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("cannot assign to %s", a.Target.Name),
-			Span:     a.Target.Span,
-		}}
+	name, diags := g.targetRef(a.Target)
+	if len(diags) > 0 {
+		return nil, diags
 	}
-	name := g.varRef(target)
 	if a.Op != ast.InvalidOp {
 		// x op= v is x = x op v, spelled out the way Tack defines it.
-		return []string{fmt.Sprintf("%s = %s;", name, arith(a.Op, target.Type, name, value))}, nil
+		return []string{
+			fmt.Sprintf("%s = %s;", name, arith(a.Op, ast.TypeOf(a.Target), name, value)),
+		}, nil
 	}
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
+}
+
+// targetRef renders an assignment target as a C lvalue: a variable, or an
+// element of one, x.e[i]. The checker has proven every index in range.
+func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
+	switch t := target.(type) {
+	case *ast.Ident:
+		if v, ok := t.Def.(*ast.Var); ok {
+			return g.varRef(v), nil
+		}
+	case *ast.Index:
+		base, diags := g.targetRef(t.X)
+		if len(diags) > 0 {
+			return "", diags
+		}
+		index, diags := g.expr(t.Index, types.Invalid)
+		if len(diags) > 0 {
+			return "", diags
+		}
+		return fmt.Sprintf("%s.e[%s]", base, index), nil
+	}
+	return "", []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  "cannot assign to this expression",
+		Span:     target.Spanned(),
+	}}
 }
 
 // generateIncDec lowers x++ to x = (x + 1) and x-- to x = (x - 1), the way
 // a compound assignment is written out.
 func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) {
-	target, ok := s.Target.Def.(*ast.Var)
-	if !ok {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("cannot assign to %s", s.Target.Name),
-			Span:     s.Target.Span,
-		}}
+	name, diags := g.targetRef(s.Target)
+	if len(diags) > 0 {
+		return nil, diags
 	}
 	op := ast.Add
 	if s.Dec {
 		op = ast.Sub
 	}
-	name := g.varRef(target)
-	return []string{fmt.Sprintf("%s = %s;", name, arith(op, target.Type, name, "1"))}, nil
+	return []string{fmt.Sprintf("%s = %s;", name, arith(op, ast.TypeOf(s.Target), name, "1"))}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
@@ -840,7 +865,7 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 		value = expr
 	}
 
-	decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), value)
+	decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), value)
 	if !v.Mutable {
 		decl = "const " + decl
 	}
@@ -862,7 +887,7 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 		if v.Name == ast.Blank {
 			continue
 		}
-		decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), src.field(names, i))
+		decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), src.field(names, i))
 		if !v.Mutable {
 			decl = "const " + decl
 		}
@@ -939,18 +964,14 @@ func (g *generator) fieldAssigns(
 ) ([]string, []diag.Diagnostic) {
 	assigns := make([]string, 0, len(m.Targets))
 	for i, target := range m.Targets {
-		if target.Name == ast.Blank {
+		if ast.IsBlank(target) {
 			continue
 		}
-		v, ok := target.Def.(*ast.Var)
-		if !ok {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("cannot assign to %s", target.Name),
-				Span:     target.Span,
-			}}
+		ref, diags := g.targetRef(target)
+		if len(diags) > 0 {
+			return nil, diags
 		}
-		assigns = append(assigns, fmt.Sprintf("%s = %s", g.varRef(v), src.field(tmps, i)))
+		assigns = append(assigns, fmt.Sprintf("%s = %s", ref, src.field(tmps, i)))
 	}
 	return assigns, nil
 }
@@ -991,13 +1012,13 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 		arg, diags := g.expr(c.Args[0], types.Invalid)
 		from, to := ast.TypeOf(c.Args[0]), c.Conv
 		return multiSource{
-			temps: []multiTemp{{cType(from), arg}},
+			temps: []multiTemp{{g.cType(from), arg}},
 			field: func(tmps []string, i int) string {
 				fits := fitsExpr(from, to, tmps[0])
 				if i == 1 {
 					return fits
 				}
-				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, cType(to), tmps[0])
+				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, g.cType(to), tmps[0])
 			},
 		}, diags
 	}
@@ -1029,7 +1050,7 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 	if len(diags) > 0 {
 		return multiSource{}, diags
 	}
-	t := cType(bin.Type)
+	t := g.cType(bin.Type)
 	return multiSource{
 		temps: []multiTemp{{t, a}, {t, b}},
 		field: func(tmps []string, i int) string {
@@ -1082,6 +1103,9 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer.
 func (g *generator) zeroValue(typ types.Type) string {
+	if g.file.Types.IsArray(typ) {
+		return fmt.Sprintf("(%s){0}", arrayName(typ))
+	}
 	switch typ {
 	case types.String:
 		return g.stringValue("")
@@ -1168,7 +1192,11 @@ func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic
 	if lit, ok := g.literal(e); ok {
 		return lit, nil
 	}
+	return g.exprNode(e)
+}
 
+// exprNode lowers an expression that is not a literal, by its kind.
+func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 	switch x := e.(type) {
 	case *ast.Ident:
 		return g.identExpr(x)
@@ -1178,6 +1206,10 @@ func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic
 		return g.unaryExpr(x)
 	case *ast.Call:
 		return g.callValue(x)
+	case *ast.CompositeLit:
+		return g.compositeLit(x)
+	case *ast.Index:
+		return g.indexExpr(x)
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -1199,6 +1231,15 @@ func (g *generator) literal(e ast.Expr) (string, bool) {
 		return constLiteral(x.Const)
 	case *ast.Unary:
 		return constLiteral(x.Const)
+	case *ast.Call:
+		// len of a string literal; len of an array still names the array,
+		// so lenValue writes it.
+		if len(x.Args) == 1 {
+			if _, isLit := x.Args[0].(*ast.StrLit); isLit {
+				return constLiteral(x.Const)
+			}
+		}
+		return "", false
 	case *ast.StrLit:
 		return g.stringValue(x.Value), true
 	case *ast.BoolLit:
@@ -1238,6 +1279,9 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if bin.Op.IsArithmetic() {
 		return arith(bin.Op, bin.Type, left, right), nil
 	}
+	if g.file.Types.IsArray(ast.TypeOf(bin.X)) {
+		return g.arrayComparison(bin, left, right), nil
+	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
@@ -1257,7 +1301,7 @@ func arith(op ast.BinaryOp, typ types.Type, l, r string) string {
 	case ast.Div, ast.Rem:
 		return fmt.Sprintf("%s(%s, %s)", divisionName(op, typ), l, r)
 	default:
-		return fmt.Sprintf("((%s)((uint64_t)%s %s (uint64_t)%s))", cType(typ), l, op, r)
+		return fmt.Sprintf("((%s)((uint64_t)%s %s (uint64_t)%s))", basicCType(typ), l, op, r)
 	}
 }
 
@@ -1273,7 +1317,7 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 	if u.Op == ast.Neg {
 		// -x is 0 - x, done on uint64_t so that negating the smallest value
 		// wraps to itself instead of being undefined.
-		return fmt.Sprintf("((%s)(0 - (uint64_t)%s))", cType(u.Type), x), nil
+		return fmt.Sprintf("((%s)(0 - (uint64_t)%s))", g.cType(u.Type), x), nil
 	}
 	return u.Op.String() + x, nil
 }
@@ -1288,7 +1332,7 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 		if len(diags) > 0 {
 			return "", diags
 		}
-		return fmt.Sprintf("((%s)%s)", cType(call.Conv), arg), nil
+		return fmt.Sprintf("((%s)%s)", g.cType(call.Conv), arg), nil
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -1297,6 +1341,9 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 			Message:  fmt.Sprintf("unknown expression type: %T", call.Fn),
 			Span:     call.Spanned(),
 		}}
+	}
+	if fn, isFunc := id.Def.(*ast.Func); isFunc && fn == nil && id.Name == "len" {
+		return g.lenValue(call)
 	}
 	if _, isBuiltin := builtin.Lookup(id.Name); isBuiltin {
 		return "", []diag.Diagnostic{{
@@ -1313,7 +1360,24 @@ func (g *generator) stringValue(s string) string {
 	return fmt.Sprintf("(tack_string){%s, %d}", g.strLabel(s), len(s))
 }
 
-func cType(typ types.Type) string {
+// cType returns the C type a Tack type lowers to: a basic type's own, or for
+// an array the struct emitArrayTypes defines for it.
+func (g *generator) cType(typ types.Type) string {
+	if g.file.Types.IsArray(typ) {
+		return arrayName(typ)
+	}
+	return basicCType(typ)
+}
+
+// arrayName is the name of the C struct an array type lowers to, made from
+// its ID, so it starts tack_array_ where a mangled name starts with tack_
+// and the package, and a temporary's has no second underscore.
+func arrayName(typ types.Type) string {
+	return fmt.Sprintf("tack_array_%d", typ)
+}
+
+// basicCType returns the C type a basic Tack type lowers to.
+func basicCType(typ types.Type) string {
 	if name, ok := cTypes[typ]; ok {
 		return name
 	}

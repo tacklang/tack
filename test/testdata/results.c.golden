@@ -17,7 +17,9 @@ static const unsigned char str1[13] = {110, 111, 110, 45, 110, 101, 103, 97, 116
 static const unsigned char str2[2] = {10, 0};
 
 static void tack_print(tack_string s) {
-    fwrite(s.ptr, 1, s.len, stdout);
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
 }
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {

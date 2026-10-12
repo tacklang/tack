@@ -205,8 +205,11 @@ func TestBindsVariableReferences(t *testing.T) {
 	decl := body[0].(*ast.Var)
 	assign := body[1].(*ast.Assign)
 
-	if assign.Target.Def != decl {
-		t.Errorf("assignment target bound to %v, want the declaration", assign.Target.Def)
+	if assign.Target.(*ast.Ident).Def != decl {
+		t.Errorf(
+			"assignment target bound to %v, want the declaration",
+			assign.Target.(*ast.Ident).Def,
+		)
 	}
 	if read := assign.Value.(*ast.Binary).X.(*ast.Ident); read.Def != decl {
 		t.Errorf("read bound to %v, want the declaration", read.Def)

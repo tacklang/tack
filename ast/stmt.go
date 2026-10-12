@@ -69,7 +69,7 @@ func (i *If) Spanned() Span { return i.Span }
 // assignment, such as Target += Value, records its arithmetic operator in Op
 // and means Target = Target Op Value; a plain assignment's Op is InvalidOp.
 type Assign struct {
-	Target *Ident
+	Target Expr // a variable's name, or an element of one, a[i]
 	Value  Expr
 	Span   Span // start of Target through the terminating Semi's position
 	Op     BinaryOp
@@ -140,7 +140,7 @@ func (c *Continue) Spanned() Span { return c.Span }
 // IncDec adds one to a variable (Target++) or, when Dec is set, subtracts one
 // (Target--). It is a statement, never a value.
 type IncDec struct {
-	Target *Ident
+	Target Expr // a variable's name, or an element of one
 	Span   Span // start of Target through the operator
 	Dec    bool
 }
@@ -186,8 +186,8 @@ func (m *MultiVar) Spanned() Span { return m.Span }
 // position: q, r = divmod(a, b). Every target must be a mutable variable.
 type MultiAssign struct {
 	Value   Expr
-	Targets []*Ident
-	Span    Span // start of the first target through the end of Value
+	Targets []Expr // each a variable's name, _, or an element of a variable
+	Span    Span   // start of the first target through the end of Value
 }
 
 var _ Stmt = (*MultiAssign)(nil)

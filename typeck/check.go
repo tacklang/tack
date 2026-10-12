@@ -49,18 +49,10 @@ func (c *Checker) Check() []diag.Diagnostic {
 	}
 	c.file.Types = c.table
 
-	// Signatures are resolved for every function before any body is checked,
-	// so a call does not depend on its callee appearing first.
-	for _, decl := range c.file.Decls {
-		if fn, ok := decl.(*ast.Func); ok {
-			c.funcs[fn.Name] = fn
-			c.resolveParamTypes(fn)
-			c.resolveResultTypes(fn)
-		}
-	}
-
-	// Globals are checked before any body, so their types are known in every
-	// function whatever the order of declarations.
+	// Globals are checked first, so their types and values are known in
+	// every function, and in every signature, whose array lengths may name
+	// them, whatever the order of declarations. A global's initializer is a
+	// constant, so it never needs a function.
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
 			c.globals[v] = true
@@ -69,6 +61,16 @@ func (c *Checker) Check() []diag.Diagnostic {
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
 			c.checkGlobal(v)
+		}
+	}
+
+	// Signatures are resolved for every function before any body is checked,
+	// so a call does not depend on its callee appearing first.
+	for _, decl := range c.file.Decls {
+		if fn, ok := decl.(*ast.Func); ok {
+			c.funcs[fn.Name] = fn
+			c.resolveParamTypes(fn)
+			c.resolveResultTypes(fn)
 		}
 	}
 
@@ -164,14 +166,16 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 	for i, target := range m.Targets {
 		// _ discards its value, whatever its type, and may appear more
 		// than once.
-		if target.Name == ast.Blank {
+		if ast.IsBlank(target) {
 			continue
 		}
-		if seen[target.Def] {
-			c.errorf(target.Span, "%s is assigned more than once", target.Name)
-			continue
+		if name, isName := target.(*ast.Ident); isName {
+			if seen[name.Def] {
+				c.errorf(name.Span, "%s is assigned more than once", name.Name)
+				continue
+			}
+			seen[name.Def] = true
 		}
-		seen[target.Def] = true
 
 		typ, assignable := c.assignable(target)
 		if !ok || !assignable || typ == types.Invalid || results[i] == types.Invalid ||
@@ -179,11 +183,11 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 			continue
 		}
 		c.errorf(
-			target.Span,
+			target.Spanned(),
 			"cannot use %s as %s in assignment to %s",
 			c.table.Name(results[i]),
 			c.table.Name(typ),
-			target.Name,
+			targetName(target),
 		)
 	}
 }
@@ -260,7 +264,7 @@ func (c *Checker) conversionResults(call *ast.Call, want int, span ast.Span) ([]
 // or a value checked only for what is inside it. A call may return
 // nothing, or several values, here.
 func (c *Checker) discard(e ast.Expr) {
-	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid {
+	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid && !isLen(call) {
 		c.checkCall(call)
 		return
 	}
@@ -407,10 +411,18 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 	}
 }
 
-// isConstant reports whether e is built only from literals and operators.
+// isConstant reports whether e is built only from literals and operators,
+// array literals of them included.
 func isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.IntLit, *ast.StrLit, *ast.BoolLit:
+		return true
+	case *ast.CompositeLit:
+		for _, elem := range x.Elems {
+			if !isConstant(elem) {
+				return false
+			}
+		}
 		return true
 	case *ast.Binary:
 		return isConstant(x.X) && isConstant(x.Y)
@@ -421,7 +433,9 @@ func isConstant(e ast.Expr) bool {
 	}
 }
 
-// zeroConst is a type's zero value as a constant.
+// zeroConst is a type's zero value as a constant. An array's is nil, since
+// every element of it is zero, which the backend writes without listing
+// them.
 func zeroConst(typ types.Type) any {
 	switch {
 	case types.IsInteger(typ):
@@ -436,7 +450,8 @@ func zeroConst(typ types.Type) any {
 }
 
 // fold returns the value of a checked constant expression: a constant.Int,
-// computed exactly as it was checked, a string, or a bool. A bool expression
+// computed exactly as it was checked, a string, a bool, or an array's
+// elements as a []any of those. A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
 // since any error on either side has already been reported.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
@@ -448,18 +463,39 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return x.Value, true
 	case *ast.BoolLit:
 		return x.Value, true
+	case *ast.CompositeLit:
+		return c.foldElems(x)
 	case *ast.Binary:
 		if b, ok := x.Const.(bool); ok {
 			return b, true
 		}
 		return c.foldBoolBinary(x)
 	case *ast.Unary:
-		operand, ok := c.fold(x.X)
-		if b, isBool := operand.(bool); ok && isBool && x.Op == ast.Not {
-			return !b, true
-		}
+		return c.foldNot(x)
 	}
 	return nil, false
+}
+
+// foldNot computes ! on a bool constant.
+func (c *Checker) foldNot(u *ast.Unary) (any, bool) {
+	operand, ok := c.fold(u.X)
+	if b, isBool := operand.(bool); ok && isBool && u.Op == ast.Not {
+		return !b, true
+	}
+	return nil, false
+}
+
+// foldElems computes the elements of a constant array literal, as a []any.
+func (c *Checker) foldElems(lit *ast.CompositeLit) (any, bool) {
+	elems := make([]any, len(lit.Elems))
+	for i, elem := range lit.Elems {
+		v, ok := c.fold(elem)
+		if !ok {
+			return nil, false
+		}
+		elems[i] = v
+	}
+	return elems, true
 }
 
 // foldBoolBinary computes an operator on two bool constants, folding both
@@ -503,24 +539,81 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 	}
 
 	if typ, ok := c.assignable(a.Target); ok {
-		c.use(a.Value, got, typ, "in assignment to "+a.Target.Name)
+		c.use(a.Value, got, typ, "in assignment to "+targetName(a.Target))
 	}
 }
 
 // assignable checks that target can be assigned: a mutable variable, not a
-// parameter. It returns the variable's type and whether it can.
-func (c *Checker) assignable(target *ast.Ident) (types.Type, bool) {
-	switch def := target.Def.(type) {
-	case *ast.Param:
-		c.errorf(target.Span, "cannot assign to parameter %s", target.Name)
-	case *ast.Var:
-		if !def.Mutable {
-			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
+// parameter, or an element of one, whose index must be in range. It returns
+// the type target holds and whether it can be assigned.
+func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
+	switch t := target.(type) {
+	case *ast.Ident:
+		switch def := t.Def.(type) {
+		case *ast.Param:
+			c.errorf(t.Span, "cannot assign to parameter %s", t.Name)
+		case *ast.Var:
+			if !def.Mutable {
+				c.errorf(t.Span, "cannot assign to immutable variable %s", t.Name)
+				return types.Invalid, false
+			}
+			return def.Type, true
+		}
+		return types.Invalid, false
+	case *ast.Index:
+		return c.elementTarget(t)
+	default:
+		c.errorf(target.Spanned(), "cannot assign to this expression")
+		return types.Invalid, false
+	}
+}
+
+// elementTarget checks an element being assigned, x[i]: x must be a
+// mutable variable, or an element of one, since an array follows its
+// variable, and the index must be in range. It returns the element's type.
+func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
+	var base types.Type
+	switch x := ix.X.(type) {
+	case *ast.Ident:
+		switch def := x.Def.(type) {
+		case *ast.Param:
+			c.errorf(x.Span, "cannot assign to element of parameter %s", x.Name)
+			c.expr(ix.Index)
+			return types.Invalid, false
+		case *ast.Var:
+			if !def.Mutable {
+				c.errorf(x.Span, "cannot assign to element of immutable variable %s", x.Name)
+				c.expr(ix.Index)
+				return types.Invalid, false
+			}
+			base = def.Type
+		}
+	case *ast.Index:
+		var ok bool
+		if base, ok = c.elementTarget(x); !ok {
+			c.expr(ix.Index)
 			return types.Invalid, false
 		}
-		return def.Type, true
+	default:
+		c.errorf(ix.X.Spanned(), "cannot assign to this expression")
+		return types.Invalid, false
 	}
-	return types.Invalid, false
+
+	ix.Type = c.element(ix, base, true)
+	return ix.Type, ix.Type != types.Invalid
+}
+
+// targetName names an assignment target in a message: the variable, or an
+// element of it.
+func targetName(target ast.Expr) string {
+	root := ast.Root(target)
+	if root == nil {
+		return "an element"
+	}
+	if _, isName := target.(*ast.Ident); isName {
+		return root.Name
+	}
+	return "an element of " + root.Name
 }
 
 // checkCompound checks a compound assignment whose value has type got: the
@@ -538,15 +631,16 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 
 // checkIntTarget checks the target of an operator that updates an integer
 // in place, such as += or ++: it must be a mutable variable of an integer
-// type. It returns the target's type, and false when anything about it was
-// reported, or its type is unknown, so the caller need not check further.
-func (c *Checker) checkIntTarget(target *ast.Ident, op string) (types.Type, bool) {
+// type, or an integer element of one. It returns the target's type, and
+// false when anything about it was reported, or its type is unknown, so the
+// caller need not check further.
+func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) {
 	typ, ok := c.assignable(target)
 	if !ok || typ == types.Invalid {
 		return types.Invalid, false
 	}
 	if !types.IsInteger(typ) {
-		c.errorf(target.Span, "operator %s is not defined on %s", op, c.table.Name(typ))
+		c.errorf(target.Spanned(), "operator %s is not defined on %s", op, c.table.Name(typ))
 		return types.Invalid, false
 	}
 	return typ, true
@@ -555,6 +649,9 @@ func (c *Checker) checkIntTarget(target *ast.Ident, op string) (types.Type, bool
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
+	if a, ok := expr.(*ast.ArrayType); ok {
+		return c.arrayType(a)
+	}
 	id, ok := expr.(*ast.Ident)
 	if !ok {
 		c.errorf(expr.Spanned(), "unsupported type expression: %T", expr)
@@ -658,18 +755,7 @@ func spanOf(exprs []ast.Expr) ast.Span {
 func (c *Checker) resolveResultTypes(fn *ast.Func) {
 	fn.ResultTypes = make([]types.Type, len(fn.Results))
 	for i, result := range fn.Results {
-		id, ok := result.(*ast.Ident)
-		if !ok {
-			c.errorf(result.Spanned(), "unsupported type expression: %T", result)
-			continue
-		}
-
-		typ, known := types.Lookup(id.Name)
-		if !known {
-			c.errorf(id.Span, "unknown type: %s", id.Name)
-			continue
-		}
-		fn.ResultTypes[i] = typ
+		fn.ResultTypes[i] = c.declaredType(result)
 	}
 }
 
@@ -678,18 +764,7 @@ func (c *Checker) resolveResultTypes(fn *ast.Func) {
 // reports rather than silently accepting.
 func (c *Checker) resolveParamTypes(fn *ast.Func) {
 	for _, param := range fn.Params {
-		id, ok := param.TypeExpr.(*ast.Ident)
-		if !ok {
-			c.errorf(param.TypeExpr.Spanned(), "unsupported type expression: %T", param.TypeExpr)
-			continue
-		}
-
-		typ, known := types.Lookup(id.Name)
-		if !known {
-			c.errorf(id.Span, "unknown type: %s", id.Name)
-			continue
-		}
-		param.Type = typ
+		param.Type = c.declaredType(param.TypeExpr)
 	}
 }
 

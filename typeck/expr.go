@@ -17,13 +17,8 @@ import (
 // so a caller never reports anything more about it.
 func (c *Checker) expr(e ast.Expr) types.Type {
 	switch x := e.(type) {
-	case *ast.IntLit:
-		x.Type = types.UntypedInt
-		return types.UntypedInt
-	case *ast.StrLit:
-		return types.String
-	case *ast.BoolLit:
-		return types.Bool
+	case *ast.IntLit, *ast.StrLit, *ast.BoolLit:
+		return literalType(x)
 	case *ast.Ident:
 		// The resolver reports a name bound to nothing, and the pipeline
 		// stops there; a tree that skipped it is reported here instead of
@@ -41,9 +36,27 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 	case *ast.Unary:
 		x.Type = c.unary(x)
 		return x.Type
+	case *ast.CompositeLit:
+		return c.compositeLit(x)
+	case *ast.Index:
+		return c.index(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid
+	}
+}
+
+// literalType returns the type of a literal: a string's or a bool's, or an
+// integer's, which is untyped until settled.
+func literalType(e ast.Expr) types.Type {
+	switch x := e.(type) {
+	case *ast.IntLit:
+		x.Type = types.UntypedInt
+		return types.UntypedInt
+	case *ast.StrLit:
+		return types.String
+	default:
+		return types.Bool
 	}
 }
 
@@ -54,6 +67,9 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 func (c *Checker) callValue(call *ast.Call) types.Type {
 	if call.Conv != types.Invalid {
 		return c.conversion(call)
+	}
+	if isLen(call) {
+		return c.lenCall(call)
 	}
 	c.checkCall(call)
 
@@ -66,6 +82,17 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 	}
 	c.errorf(call.Spanned(), "%s", notOneValue(id))
 	return types.Invalid
+}
+
+// isLen reports whether call calls the builtin len, which has a nil
+// declaration like every builtin.
+func isLen(call *ast.Call) bool {
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok || id.Name != "len" {
+		return false
+	}
+	fn, ok := id.Def.(*ast.Func)
+	return ok && fn == nil
 }
 
 // notOneValue says why a call to the function id names cannot be used as a
@@ -194,6 +221,9 @@ func constValue(e ast.Expr) (constant.Int, bool) {
 		v, ok := x.Const.(constant.Int)
 		return v, ok
 	case *ast.Unary:
+		v, ok := x.Const.(constant.Int)
+		return v, ok
+	case *ast.Call:
 		v, ok := x.Const.(constant.Int)
 		return v, ok
 	default:
@@ -456,7 +486,7 @@ func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 			c.table.Name(y),
 			bin.Op,
 		)
-	case !supports(common, bin.Op):
+	case !c.supports(common, bin.Op):
 		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.table.Name(common))
 	}
 }
@@ -497,16 +527,14 @@ func compare(op ast.BinaryOp, cmp int) bool {
 	}
 }
 
-// supports reports whether values of type typ can be compared with op.
-func supports(typ types.Type, op ast.BinaryOp) bool {
-	switch {
-	case types.IsInteger(typ):
+// supports reports whether values of type typ can be compared with op: an
+// integer with all six, and a bool or an array of comparable elements with
+// == and != only.
+func (c *Checker) supports(typ types.Type, op ast.BinaryOp) bool {
+	if types.IsInteger(typ) {
 		return true
-	case typ == types.Bool:
-		return op == ast.Eq || op == ast.Ne
-	default:
-		return false
 	}
+	return (op == ast.Eq || op == ast.Ne) && c.comparable(typ)
 }
 
 // unary checks a prefix expression and returns its type. ! takes a bool. -

@@ -122,8 +122,8 @@ func TestBindsGlobalReferences(t *testing.T) {
 
 	global := file.Decls[0].(*ast.Var)
 	assign := file.Decls[1].(*ast.Func).Body[0].(*ast.Assign)
-	if assign.Target.Def != global {
-		t.Errorf("target bound to %v, want the global", assign.Target.Def)
+	if assign.Target.(*ast.Ident).Def != global {
+		t.Errorf("target bound to %v, want the global", assign.Target.(*ast.Ident).Def)
 	}
 	if read := assign.Value.(*ast.Binary).X.(*ast.Ident); read.Def != global {
 		t.Errorf("read bound to %v, want the global", read.Def)

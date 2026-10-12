@@ -22,11 +22,11 @@ func TestParsesIncDec(t *testing.T) {
 		if !ok {
 			t.Fatalf("statement %d is %T, want *ast.IncDec", i, body[i])
 		}
-		if s.Target.Name != "count" || s.Dec != wantDec {
+		if s.Target.(*ast.Ident).Name != "count" || s.Dec != wantDec {
 			t.Errorf(
 				"statement %d = %s, dec %v; want count, dec %v",
 				i,
-				s.Target.Name,
+				s.Target.(*ast.Ident).Name,
 				s.Dec,
 				wantDec,
 			)

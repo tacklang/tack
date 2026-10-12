@@ -15,7 +15,9 @@ typedef struct {
 static const unsigned char str0[6] = {116, 105, 99, 107, 10, 0};
 
 static void tack_print(tack_string s) {
-    fwrite(s.ptr, 1, s.len, stdout);
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
 }
 
 static int64_t tack_rem_int64(int64_t a, int64_t b) {

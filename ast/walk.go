@@ -122,6 +122,28 @@ func walkExpr(e Expr, v Visitor) {
 	case *Ident, *StrLit, *IntLit, *BoolLit:
 		// leaves
 	default:
+		walkArrayExpr(e, v)
+	}
+}
+
+// walkArrayExpr walks the children of an array type, an array literal or an
+// element. A part that is left out is nil, and skipped.
+func walkArrayExpr(e Expr, v Visitor) {
+	switch e := e.(type) {
+	case *ArrayType:
+		if e.Len != nil {
+			Walk(e.Len, v)
+		}
+		Walk(e.Elem, v)
+	case *CompositeLit:
+		if e.TypeExpr != nil {
+			Walk(e.TypeExpr, v)
+		}
+		walkAll(e.Elems, v)
+	case *Index:
+		Walk(e.X, v)
+		Walk(e.Index, v)
+	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled expression type %T", e))
 	}
 }

@@ -258,7 +258,7 @@ func TestParsesMultiAssign(t *testing.T) {
 	}
 	names := make([]string, 0, len(m.Targets))
 	for _, target := range m.Targets {
-		names = append(names, target.Name)
+		names = append(names, target.(*ast.Ident).Name)
 	}
 	if strings.Join(names, " ") != "a b c" {
 		t.Errorf("targets = %v, want [a b c]", names)

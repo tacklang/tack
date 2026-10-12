@@ -17,6 +17,16 @@
 // smallest int64 is written. The keywords true and false are bool literals, so
 // neither can start a statement or be declared as a name.
 //
+// A type is a name or an array type, [n]T, nested to any depth; in an array
+// literal, [...]T leaves the length to the elements, and [] would be a
+// slice, which is reported. An array literal is its type and its elements in
+// braces, a comma allowed after the last, and an element that is only
+// braces is a literal whose type comes from the enclosing one. Indexes,
+// x[i], follow any operand and bind tighter than every operator. An
+// element of a variable, a[i], can be assigned like a name, in every form of
+// assignment; a statement that starts with one is told apart by what follows
+// its brackets.
+//
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.
 //

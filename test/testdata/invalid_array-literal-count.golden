@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/array-literal-count/main.tck:4:10: error: [3]int64 literal has 2 elements, want 3
+03 |	func main() {
+04 |	    a := [3]int64{1, 2}
+   |	         ^~~~~~~~~~~~~~ 
+05 |	    exit(a[0])
+

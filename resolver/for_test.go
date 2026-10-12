@@ -21,8 +21,8 @@ func TestBindsNamesInLoops(t *testing.T) {
 	if id := loop.Cond.(*ast.Binary).Y.(*ast.Ident); id.Def != body[1].(*ast.Var) {
 		t.Errorf("limit in the condition bound to %v, want its declaration", id.Def)
 	}
-	if assign := loop.Body[0].(*ast.Assign); assign.Target.Def != body[0].(*ast.Var) {
-		t.Errorf("i in the body bound to %v, want its declaration", assign.Target.Def)
+	if assign := loop.Body[0].(*ast.Assign); assign.Target.(*ast.Ident).Def != body[0].(*ast.Var) {
+		t.Errorf("i in the body bound to %v, want its declaration", assign.Target.(*ast.Ident).Def)
 	}
 }
 

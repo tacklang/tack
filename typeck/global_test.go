@@ -189,3 +189,11 @@ func TestMutableGlobalIsAssignable(t *testing.T) {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
 }
+
+// machineString renders a computed constant for comparison in a test.
+func machineString(c any) string {
+	if v, ok := c.(constant.Int); ok {
+		return v.String()
+	}
+	return ""
+}

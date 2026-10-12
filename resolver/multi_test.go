@@ -25,7 +25,7 @@ func TestResolvesMultiVar(t *testing.T) {
 		t.Error("the call is not bound to pair")
 	}
 	assign := body[1].(*ast.Assign)
-	if assign.Target.Def != m.Vars[1] {
+	if assign.Target.(*ast.Ident).Def != m.Vars[1] {
 		t.Error("b = a does not write the b the MultiVar declared")
 	}
 	if assign.Value.(*ast.Ident).Def != m.Vars[0] {
@@ -139,8 +139,8 @@ func TestResolvesMultiAssign(t *testing.T) {
 	body := file.Decls[1].(*ast.Func).Body
 	decl, assign := body[0].(*ast.MultiVar), body[1].(*ast.MultiAssign)
 	for i, target := range assign.Targets {
-		if target.Def != decl.Vars[i] {
-			t.Errorf("target %s is not bound to its declaration", target.Name)
+		if target.(*ast.Ident).Def != decl.Vars[i] {
+			t.Errorf("target %s is not bound to its declaration", target.(*ast.Ident).Name)
 		}
 	}
 

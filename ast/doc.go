@@ -7,7 +7,9 @@
 // denote, the type of every operator expression and integer literal,
 // Binary.Const and Unary.Const to the value of an integer constant
 // expression, Var.Const to a package-level variable's computed initial value,
-// and File.Types to the table that gives those types meaning. The types as
+// CompositeLit.Type and Index.Type to an array literal's and an element's
+// type, Call.Const to a len the checker can compute, and File.Types to the
+// table that gives those types meaning. The types as
 // written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
 // Func.Result. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a

@@ -14,3 +14,9 @@ func print(s string)
 
 // exit ends the process immediately with the given status.
 func exit(code int64)
+
+// len(v) returns the number of elements of the array v, or the number of
+// bytes of the string v, as an int64. Its parameter takes any array or a
+// string, which no Tack declaration can say, so it is described here rather
+// than declared. The length of an array, and of a string literal, is a
+// constant.

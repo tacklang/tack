@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/index-non-array/main.tck:5:10: error: cannot index string
+04 |	    s := "tack"
+05 |	    exit(s[0])
+   |	         ^ 
+06 |	}
+

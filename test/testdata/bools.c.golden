@@ -15,7 +15,9 @@ typedef struct {
 static const unsigned char str0[7] = {98, 111, 111, 108, 115, 10, 0};
 
 static void tack_print(tack_string s) {
-    fwrite(s.ptr, 1, s.len, stdout);
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
 }
 
 static const bool tack_main_verbose = true;

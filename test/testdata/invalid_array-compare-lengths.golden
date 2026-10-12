@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/array-compare-lengths/main.tck:6:8: error: mismatched types [2]int64 and [3]int64 in ==
+05 |	    b := [3]int64{1, 2, 3}
+06 |	    if a == b {
+   |	       ^~~~~~ 
+07 |	        exit(1)
+

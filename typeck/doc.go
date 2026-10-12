@@ -42,6 +42,14 @@
 // variable, which must be a parameter, a local, or an immutable global.
 // q, ok := a / b needs no proof, and is an error where one exists.
 //
+// Array types are added to the Table as they are written, so [3]int64
+// written twice is one type. An array's length must be a constant: a
+// constant expression, len of an array or a string literal, an immutable
+// variable holding one, or arithmetic on those; knownValue computes it. A
+// literal lists exactly one element for each of the array's, and an index
+// must be proven in range, which for now means a constant, checked against
+// the length.
+//
 // The third pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each usable

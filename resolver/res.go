@@ -74,8 +74,8 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 		}}
 	}
 
-	for _, fn := range builtin.Funcs() {
-		r.funcRefs[r.refLabel(builtinPackage, fn.Name)] = nil
+	for _, name := range builtin.Names() {
+		r.funcRefs[r.refLabel(builtinPackage, name)] = nil
 	}
 
 	diags := r.declareFuncs()
@@ -113,6 +113,9 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 			continue
 		}
 
+		if v.TypeExpr != nil {
+			diags = append(diags, r.resolveType(v.TypeExpr, r.globals)...)
+		}
 		if v.Value != nil {
 			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
 		}
@@ -265,7 +268,15 @@ func (r *Resolver) checkMain() []diag.Diagnostic {
 func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 	params := newScope(r.globals)
 
+	// The types in a signature can name only package-level constants, so
+	// they are resolved where no parameter is visible.
 	var diags []diag.Diagnostic
+	for _, param := range fn.Params {
+		diags = append(diags, r.resolveType(param.TypeExpr, r.globals)...)
+	}
+	for _, result := range fn.Results {
+		diags = append(diags, r.resolveType(result, r.globals)...)
+	}
 	for _, param := range fn.Params {
 		if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
 			diags = append(diags, reserved...)
@@ -327,8 +338,11 @@ func (r *Resolver) unused(sc *scope) []diag.Diagnostic {
 // or an enclosing one.
 func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
+	if v.TypeExpr != nil {
+		diags = r.resolveType(v.TypeExpr, sc)
+	}
 	if v.Value != nil {
-		diags = r.resolveExpr(v.Value, sc)
+		diags = append(diags, r.resolveExpr(v.Value, sc)...)
 	}
 
 	if reserved := reservedName(v.Name, v.NameSpan); reserved != nil {
@@ -384,7 +398,7 @@ func (r *Resolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.Diag
 
 	blanks := 0
 	for _, target := range m.Targets {
-		if target.Name == ast.Blank {
+		if ast.IsBlank(target) {
 			blanks++
 			continue
 		}
@@ -412,9 +426,28 @@ func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 	return append(diags, r.resolveTarget(a.Target, sc)...)
 }
 
-// resolveTarget binds the variable an assignment, increment or decrement
-// writes to. Writing to a variable does not count as reading it.
-func (r *Resolver) resolveTarget(target *ast.Ident, sc *scope) []diag.Diagnostic {
+// resolveTarget binds the target of an assignment, increment or decrement:
+// a variable, or an element of one, a[i], whose index is resolved like any
+// value. Writing to a variable, or to an element of it, does not count as
+// reading it.
+func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
+	switch t := target.(type) {
+	case *ast.Ident:
+		return r.resolveTargetName(t, sc)
+	case *ast.Index:
+		diags := r.resolveTarget(t.X, sc)
+		return append(diags, r.resolveExpr(t.Index, sc)...)
+	default:
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "cannot assign to this expression",
+			Span:     target.Spanned(),
+		}}
+	}
+}
+
+// resolveTargetName binds the variable an assignment target names.
+func (r *Resolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
 	if target.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
@@ -547,9 +580,35 @@ func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveExpr(x.X, sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
+	case *ast.Index:
+		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Index, sc)...)
+	case *ast.CompositeLit:
+		var diags []diag.Diagnostic
+		if x.TypeExpr != nil {
+			diags = r.resolveType(x.TypeExpr, sc)
+		}
+		for _, e := range x.Elems {
+			diags = append(diags, r.resolveExpr(e, sc)...)
+		}
+		return diags
 	default:
 		return nil
 	}
+}
+
+// resolveType binds the names in a type as written: the length of an array
+// type, which may name a constant variable, through every level of
+// nesting. A type name itself needs no binding.
+func (r *Resolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
+	a, ok := typ.(*ast.ArrayType)
+	if !ok {
+		return nil
+	}
+	var diags []diag.Diagnostic
+	if a.Len != nil {
+		diags = r.resolveExpr(a.Len, sc)
+	}
+	return append(diags, r.resolveType(a.Elem, sc)...)
 }
 
 // resolveCall binds a call's callee to the function or builtin it names, or

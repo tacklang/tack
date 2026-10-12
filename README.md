@@ -290,6 +290,26 @@ which is true today because `main` is the only package there is.
   `uint16`, `uint32` and `uint64`, and `string` and `bool`. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
+- Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
+  constant: a constant expression, an immutable variable holding one, or
+  `len` of an array or a string literal. `[3]int64{1, 2, 3}` is a literal,
+  which lists exactly one element for each of the array's, and
+  `[...]int64{1, 2, 3}` takes its length from its elements. A literal
+  inside another may leave out its type: `[2][2]bool{{true, false},
+  {false, true}}`. An array is a value: assigning, passing or returning one
+  copies it, and `mut a [3]int64` starts with every element zero. An array
+  follows its variable, so `a[i] = v` needs `a` to be `mut`, and assigning
+  an element does not count as reading `a`. Two arrays of one type compare
+  with `==` and `!=`, element by element, when their elements do; strings do
+  not yet. Arrays may be package-level variables, initialized with a
+  literal of constants. There are no slices yet.
+- Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
+  type. An index must be proven in range: today that means a constant
+  index, which is checked against the array's length at compile time.
+  Indexing with a variable comes next.
+- `len(a)` is the number of elements of an array, a constant, and `len(s)`
+  the number of bytes of a string, a constant for a string literal; either
+  is an `int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of

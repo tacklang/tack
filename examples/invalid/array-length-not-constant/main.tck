@@ -1,0 +1,11 @@
+package main
+
+func size() int64 {
+    return 3
+}
+
+func main() {
+    n := size()
+    mut a [n]int64
+    exit(a[0])
+}

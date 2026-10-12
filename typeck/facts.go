@@ -3,6 +3,7 @@ package typeck
 import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/types"
 )
 
 // The checker proves a divisor is not zero from facts: that a variable is
@@ -32,16 +33,34 @@ func (c *Checker) nonzero(e ast.Expr) bool {
 }
 
 // knownValue returns the value of e when the checker knows it: a constant
-// expression, or an immutable variable initialized with one, at package
-// level or in a function.
+// expression, len of an array or a string literal, an immutable variable
+// initialized with one, at package level or in a function, or arithmetic
+// on known values whose exact result is a value of its type, as in
+// len(a) - 1.
 func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	if v, ok := constValue(e); ok {
 		return v, true
+	}
+	switch x := e.(type) {
+	case *ast.Binary:
+		return c.knownArithmetic(x)
+	case *ast.Unary:
+		v, ok := c.knownValue(x.X)
+		if !ok || x.Op != ast.Neg {
+			return constant.Int{}, false
+		}
+		return fitting(v.Neg())(x.Type)
 	}
 	id, ok := e.(*ast.Ident)
 	if !ok {
 		return constant.Int{}, false
 	}
+	return c.knownVar(id)
+}
+
+// knownVar returns the value of the variable id names, when it is
+// immutable and its value is known.
+func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	v, ok := id.Def.(*ast.Var)
 	if !ok || v.Mutable {
 		return constant.Int{}, false
@@ -52,7 +71,47 @@ func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	if v.Value == nil {
 		return constant.Int{}, false
 	}
-	return constValue(v.Value)
+	return c.knownValue(v.Value)
+}
+
+// knownArithmetic computes arithmetic on two known values, exactly, and
+// keeps the result only if it is a value of the expression's type, so that
+// it is what the program computes too.
+func (c *Checker) knownArithmetic(bin *ast.Binary) (constant.Int, bool) {
+	if !bin.Op.IsArithmetic() {
+		return constant.Int{}, false
+	}
+	a, okA := c.knownValue(bin.X)
+	b, okB := c.knownValue(bin.Y)
+	if !okA || !okB {
+		return constant.Int{}, false
+	}
+	switch bin.Op {
+	case ast.Add:
+		return fitting(a.Add(b))(bin.Type)
+	case ast.Sub:
+		return fitting(a.Sub(b))(bin.Type)
+	case ast.Mul:
+		return fitting(a.Mul(b))(bin.Type)
+	}
+	if b.IsZero() {
+		return constant.Int{}, false
+	}
+	if bin.Op == ast.Div {
+		return fitting(a.Quo(b))(bin.Type)
+	}
+	return fitting(a.Rem(b))(bin.Type)
+}
+
+// fitting turns the result of a constant operation into a known value of
+// the type typ: it is known only if it was in range and is a value of typ.
+func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) {
+	return func(typ types.Type) (constant.Int, bool) {
+		if !ok || !types.IsInteger(typ) || typ == types.UntypedInt {
+			return v, ok && typ == types.UntypedInt
+		}
+		return v, v.Fits(types.Bits(typ), !types.IsUnsigned(typ))
+	}
 }
 
 // factsFrom returns the variables cond proves not zero where it evaluated
@@ -199,18 +258,25 @@ func assigns(region []ast.Stmt, decl ast.Decl) bool {
 		ast.Walk(stmt, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.Assign:
-				found = found || x.Target.Def == decl
+				found = found || writes(x.Target, decl)
 			case *ast.IncDec:
-				found = found || x.Target.Def == decl
+				found = found || writes(x.Target, decl)
 			case *ast.MultiAssign:
 				for _, target := range x.Targets {
-					found = found || target.Def == decl
+					found = found || writes(target, decl)
 				}
 			}
 			return !found
 		})
 	}
 	return found
+}
+
+// writes reports whether assigning to target changes decl: target is decl
+// itself, or an element of it.
+func writes(target ast.Expr, decl ast.Decl) bool {
+	root := ast.Root(target)
+	return root != nil && root.Def == decl
 }
 
 // leaves reports whether a block always leaves the code around it before

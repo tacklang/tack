@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/array-index-out-of-range/main.tck:5:12: error: index 3 is out of range for [3]int64
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    exit(a[3])
+   |	           ^ 
+06 |	}
+

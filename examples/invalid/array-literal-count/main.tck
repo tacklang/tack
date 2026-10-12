@@ -1,0 +1,6 @@
+package main
+
+func main() {
+    a := [3]int64{1, 2}
+    exit(a[0])
+}

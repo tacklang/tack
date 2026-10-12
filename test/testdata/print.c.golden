@@ -20,7 +20,9 @@ static const unsigned char str4[13] = {116, 104, 114, 101, 101, 32, 112, 114, 10
 static const unsigned char str5[15] = {116, 97, 98, 9, 97, 110, 100, 10, 98, 114, 101, 97, 107, 10, 0};
 
 static void tack_print(tack_string s) {
-    fwrite(s.ptr, 1, s.len, stdout);
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
 }
 
 static void tack_main_row(int64_t p_n);

@@ -16,7 +16,9 @@ static const unsigned char str0[8] = {103, 108, 111, 98, 97, 108, 115, 0};
 static const unsigned char str1[2] = {10, 0};
 
 static void tack_print(tack_string s) {
-    fwrite(s.ptr, 1, s.len, stdout);
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
 }
 
 static const tack_string tack_main_greeting = {str0, 7};

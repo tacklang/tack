@@ -86,6 +86,8 @@ Open questions about how a feature should behave are in
 | `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                             |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                          |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                                        |
+| Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out |
+| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Constant indexes only, checked at compile time; elements of `mut` arrays assignable |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                              |
 | Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                |
@@ -104,7 +106,8 @@ Open questions about how a feature should behave are in
 | `string`                           | yes     | yes | Pointer and length, `tack_string` by value             |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!` |
 | Float types                        | no      | no  |                                                        |
-| Arrays, slices, maps, structs      | no      | no  |                                                        |
+| Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
+| Slices, maps, structs              | no      | no  |                                                        |
 | Pointers                           | no      | no  |                                                        |
 | Interfaces, generics               | no      | no  |                                                        |
 
@@ -113,6 +116,7 @@ Open questions about how a feature should behave are in
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline                          |
+| `len(v)`        | yes     | yes | Arrays and strings; constant for arrays and string literals |
 | `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit` |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.

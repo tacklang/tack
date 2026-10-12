@@ -20,8 +20,8 @@ func TestBindsThreeClauseLoopVariable(t *testing.T) {
 	if id := loop.Cond.(*ast.Binary).X.(*ast.Ident); id.Def != i {
 		t.Errorf("i in the condition bound to %v", id.Def)
 	}
-	if post := loop.Post.(*ast.IncDec); post.Target.Def != i {
-		t.Errorf("i in the post statement bound to %v", post.Target.Def)
+	if post := loop.Post.(*ast.IncDec); post.Target.(*ast.Ident).Def != i {
+		t.Errorf("i in the post statement bound to %v", post.Target.(*ast.Ident).Def)
 	}
 	arg := loop.Body[0].(*ast.ExprStmt).X.(*ast.Call).Args[0].(*ast.Ident)
 	if arg.Def != i {

@@ -56,6 +56,16 @@
 // its zero value: 0, false, or an empty string that points at the pooled
 // empty array rather than NULL.
 //
+// An array type lowers to a struct holding a C array, e, emitted after the
+// preamble in the order the checker met the types, which puts an element
+// type first; tack_array_ and the type's ID name it. A C array cannot be
+// assigned, passed or returned, and a struct holding one can, which gives an
+// array Tack's value semantics. A literal is a compound literal of the
+// struct, an element x.e[i], and == calls a helper per array type,
+// tack_eq_ and its ID, that compares element by element. A package-level
+// array is initialized with braces, which a static variable needs, or
+// {0}.
+//
 // A function with several results returns them as one struct,
 // tack_results_main_f for a function f, with a field r0, r1, and so on for
 // each. The structs are defined before the prototypes, and only for functions

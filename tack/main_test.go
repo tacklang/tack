@@ -827,6 +827,17 @@ func TestBuiltDivisionExits46(t *testing.T) {
 	}
 }
 
+// The arrays example copies arrays by value, compares them, indexes them
+// with constants, and takes lengths of arrays and strings.
+func TestBuiltArraysExits29(t *testing.T) {
+	bin := buildWithClang(t, "arrays")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 29 {
+		t.Errorf("arrays exited with %v, want status 29", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {
