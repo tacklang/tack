@@ -96,8 +96,8 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"names the C side uses",
-		"package main\n\nvar str0 = 1\n\nvar int64 = 2\n\nvar tack_print = 3\n\n" +
-			"func main() {\n    print(\"x\")\n    exit(str0 + int64 + tack_print)\n}\n", "x", 6,
+		"package main\n\nvar str0 = 1\n\nvar int = 2\n\nvar tack_print = 3\n\n" +
+			"func main() {\n    print(\"x\")\n    exit(str0 + int + tack_print)\n}\n", "x", 6,
 	},
 	{
 		"global and local together",

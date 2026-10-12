@@ -116,7 +116,7 @@ var variableRuntimeCases = []struct {
 		7,
 	},
 	{"names the C side uses", program(
-		"int64 := 1", "str0 := 2", "tack_print := 3", "exit(int64 + str0 + tack_print)"), "", 6},
+		"int := 1", "str0 := 2", "tack_print := 3", "exit(int + str0 + tack_print)"), "", 6},
 	{"named like a builtin", program("exit := 9", "exit(exit)"), "", 9},
 }
 

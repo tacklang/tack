@@ -1,0 +1,15 @@
+stage: resolve
+---
+
+examples/invalid/type-name-as-variable/main.tck:4:5: error: cannot use uint8 as a name; it is a type
+03 |	func main() {
+04 |	    uint8 := 5
+   |	    ^~~~~ 
+05 |	    exit(uint8)
+
+examples/invalid/type-name-as-variable/main.tck:5:10: error: cannot use uint8 as a value; it is a type
+04 |	    uint8 := 5
+05 |	    exit(uint8)
+   |	         ^~~~~ 
+06 |	}
+

@@ -117,8 +117,8 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
 		}
 
-		if v.Name == ast.Blank {
-			diags = append(diags, blankName(v.NameSpan))
+		if reserved := reservedName(v.Name, v.NameSpan); reserved != nil {
+			diags = append(diags, reserved...)
 			continue
 		}
 
@@ -152,6 +152,23 @@ func blankName(span ast.Span) diag.Diagnostic {
 	return diag.Diagnostic{Severity: diag.Error, Message: "cannot use _ as a name", Span: span}
 }
 
+// reservedName reports, if name is not one a declaration may have, why not:
+// _ only discards a result, and a type name is reserved like a keyword, for
+// writing types and conversions. It returns nil for any other name.
+func reservedName(name string, span ast.Span) []diag.Diagnostic {
+	if name == ast.Blank {
+		return []diag.Diagnostic{blankName(span)}
+	}
+	if _, isType := types.Lookup(name); isType {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot use %s as a name; it is a type", name),
+			Span:     span,
+		}}
+	}
+	return nil
+}
+
 // alreadyDeclared reports name, declared at span, as clashing with an
 // earlier declaration, and points at that one.
 func alreadyDeclared(name string, span ast.Span, existing ast.Decl) diag.Diagnostic {
@@ -173,19 +190,8 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.file.Decls {
 		if fn, ok := decl.(*ast.Func); ok {
-			if fn.Name == ast.Blank {
-				diags = append(diags, blankName(fn.NameSpan))
-				continue
-			}
-			if _, isType := types.Lookup(fn.Name); isType {
-				diags = append(diags, diag.Diagnostic{
-					Severity: diag.Error,
-					Message: fmt.Sprintf(
-						"%s is a type and cannot be declared as a function",
-						fn.Name,
-					),
-					Span: fn.NameSpan,
-				})
+			if reserved := reservedName(fn.Name, fn.NameSpan); reserved != nil {
+				diags = append(diags, reserved...)
 				continue
 			}
 			if existing, seen := r.seen(fn.Name); seen {
@@ -261,8 +267,8 @@ func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 
 	var diags []diag.Diagnostic
 	for _, param := range fn.Params {
-		if param.Name == ast.Blank {
-			diags = append(diags, blankName(param.NameSpan))
+		if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
+			diags = append(diags, reserved...)
 			continue
 		}
 		if global, clash := r.globals.lookup(param.Name); clash {
@@ -325,8 +331,8 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 		diags = r.resolveExpr(v.Value, sc)
 	}
 
-	if v.Name == ast.Blank {
-		return append(diags, blankName(v.NameSpan))
+	if reserved := reservedName(v.Name, v.NameSpan); reserved != nil {
+		return append(diags, reserved...)
 	}
 
 	if existing, visible := sc.lookup(v.Name); visible {
@@ -413,6 +419,13 @@ func (r *Resolver) resolveTarget(target *ast.Ident, sc *scope) []diag.Diagnostic
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
 		}
+	}
+	if _, isType := types.Lookup(target.Name); isType {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot assign to %s; it is a type", target.Name),
+			Span:     target.Span,
+		}}
 	}
 	decl, visible := sc.lookup(target.Name)
 	if !visible {
@@ -577,6 +590,13 @@ func (r *Resolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},
 		}
+	}
+	if _, isType := types.Lookup(id.Name); isType {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot use %s as a value; it is a type", id.Name),
+			Span:     id.Span,
+		}}
 	}
 	decl, visible := sc.lookup(id.Name)
 	if !visible {

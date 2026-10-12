@@ -301,8 +301,7 @@ which is true today because `main` is the only package there is.
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
   `T`, and `v` is that value, or `0` when it is not. The two-value form is an
   error where the conversion cannot fail, so each conversion has one
-  spelling. Strings and bools cannot be converted. Type names cannot be
-  declared as functions. `true` and `false` are keywords, so neither can be
+  spelling. Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
@@ -320,7 +319,10 @@ which is true today because `main` is the only package there is.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
-  a digit. `_` on its own is not a name: it only discards a result in a
+  a digit. The type names, `int8` through `uint64`, `string` and `bool`, are
+  reserved like keywords: they can be written only as types and in
+  conversions, never declared, read or assigned as names. `_` on its own is
+  not a name: it only discards a result in a
   binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
   and may appear there more than once. It cannot be declared, read or
   assigned anywhere else, cannot be `mut`, and a binding whose every name is

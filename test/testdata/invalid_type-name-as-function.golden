@@ -1,9 +1,0 @@
-stage: resolve
----
-
-examples/invalid/type-name-as-function/main.tck:3:6: error: int32 is a type and cannot be declared as a function
-02 |	
-03 |	func int32() {
-   |	     ^~~~~ 
-04 |	}
-

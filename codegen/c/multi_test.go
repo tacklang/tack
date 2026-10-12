@@ -84,7 +84,7 @@ var multipleResultsCases = []struct {
 		"names the C side uses",
 		"package main\n\nfunc results() (int64, int64) {\n    return 1, 2\n}\n\n" +
 			"func tack_r0() (int64, int64) {\n    return 3, 4\n}\n\n" +
-			"func main() {\n    r0, r1 := results()\n    tack_r1, int64 := tack_r0()\n    exit(r0 + r1 + tack_r1 + int64)\n}\n",
+			"func main() {\n    r0, r1 := results()\n    tack_r1, int := tack_r0()\n    exit(r0 + r1 + tack_r1 + int)\n}\n",
 		"", 10,
 	},
 	{
