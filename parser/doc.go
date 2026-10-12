@@ -13,12 +13,13 @@
 // comparisons, + and -, then * / and %); every binary operator is
 // left-associative. The prefix ! applies to the operand right after it, so it
 // binds tighter than any binary operator. A statement that starts with a name
-// is told apart by the token after it: := declares a variable, = assigns, and
-// ( calls. A for whose body's opening brace comes straight after the keyword
-// has no condition. The keywords true and false are bool literals, so
-// neither can start a statement or be declared as a name. It stops at the
-// first syntax error and returns that error's diagnostics with a nil file, so
-// a caller never sees a partial tree.
+// is told apart by the token after it: := declares a variable, = or a
+// compound operator such as += assigns, and ( calls. A for whose body's
+// opening brace comes straight after the keyword has no condition. The
+// keywords true and false are bool literals, so neither can start a statement
+// or be declared as a name. It stops at the first syntax error and returns
+// that error's diagnostics with a nil file, so a caller never sees a partial
+// tree.
 //
 // The parser only checks shape, so it accepts a declaration like var x int
 // whatever its mutability, and leaves whether it may lack a value to the

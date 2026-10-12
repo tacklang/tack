@@ -433,7 +433,12 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 			Span:     a.Target.Span,
 		}}
 	}
-	return []string{fmt.Sprintf("%s = %s;", g.varRef(target), value)}, nil
+	name := g.varRef(target)
+	if a.Op != ast.InvalidOp {
+		// x op= v is x = x op v, spelled out the way Tack defines it.
+		return []string{fmt.Sprintf("%s = (%s %s %s);", name, name, a.Op, value)}, nil
+	}
+	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call

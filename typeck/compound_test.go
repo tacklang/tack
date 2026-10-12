@@ -1,0 +1,111 @@
+package typeck_test
+
+import "testing"
+
+// TestAcceptsCompoundAssignment lists compound assignments that must check
+// cleanly.
+func TestAcceptsCompoundAssignment(t *testing.T) {
+	tests := []string{
+		mainLines("mut x = 1", "x += 2", "x -= 1", "x *= 3", "x /= 2", "x %= 5", "exit(x)"),
+		mainLines("mut x int", "x += 1 + 2 * 3", "exit(x)"),
+		"package main\n\nfunc two() int {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    exit(x)\n}\n",
+		"package main\n\nmut total int\n\nfunc main() {\n    total += 5\n    exit(total)\n}\n",
+	}
+
+	for _, src := range tests {
+		t.Run(src, func(t *testing.T) {
+			if _, diags := checkTree(t, src); len(diags) > 0 {
+				t.Errorf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// spanned is a diagnostic message and the source text it must cover.
+type spanned struct{ msg, at string }
+
+// invalidCompoundCases are compound assignments the checker must reject,
+// with the diagnostics each must produce.
+var invalidCompoundCases = []struct {
+	name string
+	src  string
+	want []spanned
+}{
+	{
+		"immutable",
+		mainLines("x := 1", "x += 1", "exit(x)"),
+		[]spanned{{"cannot assign to immutable variable x", "x"}},
+	},
+	{
+		"parameter",
+		"package main\n\nfunc f(n int) {\n    n += 1\n}\n\nfunc main() {\n    f(1)\n}\n",
+		[]spanned{{"cannot assign to parameter n", "n"}},
+	},
+	{
+		"immutable global",
+		"package main\n\nvar limit = 3\n\nfunc main() {\n    limit -= 1\n    exit(limit)\n}\n",
+		[]spanned{{"cannot assign to immutable variable limit", "limit"}},
+	},
+	{
+		"string target",
+		mainLines("mut s = \"a\"", "s += \"b\"", "print(s)"),
+		[]spanned{
+			{"cannot use string as int in +=", "s"},
+			{"cannot use string as int in +=", "\"b\""},
+		},
+	},
+	{
+		"bool target",
+		mainLines("mut b = true", "b *= 2", "if b {", "}"),
+		[]spanned{{"cannot use bool as int in *=", "b"}},
+	},
+	{
+		"string value",
+		mainLines("mut x = 1", "x -= \"s\"", "exit(x)"),
+		[]spanned{{"cannot use string as int in -=", "\"s\""}},
+	},
+	{
+		"bool value",
+		mainLines("mut x = 1", "x %= 1 < 2", "exit(x)"),
+		[]spanned{{"cannot use bool as int in %=", "1 < 2"}},
+	},
+	{
+		"both wrong",
+		mainLines("mut b = true", "b /= false", "if b {", "}"),
+		[]spanned{
+			{"cannot use bool as int in /=", "b"},
+			{"cannot use bool as int in /=", "false"},
+		},
+	},
+	{
+		"value from a function returning nothing",
+		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x = 1\n    x += f()\n    exit(x)\n}\n",
+		[]spanned{{"f returns no value", "f()"}},
+	},
+	{
+		"error inside the value",
+		mainLines("mut x = 1", "x += 1 + \"s\"", "exit(x)"),
+		[]spanned{{"cannot use string as int in +", "\"s\""}},
+	},
+}
+
+// TestRejectsInvalidCompoundAssignment checks the target must be a mutable
+// int variable and the value an int, each reported where it is wrong.
+func TestRejectsInvalidCompoundAssignment(t *testing.T) {
+	for _, tt := range invalidCompoundCases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkTree(t, tt.src)
+			if len(diags) != len(tt.want) {
+				t.Fatalf("got %v, want %v", diags, tt.want)
+			}
+			for i, d := range diags {
+				if d.Message != tt.want[i].msg {
+					t.Errorf("message %d = %q, want %q", i, d.Message, tt.want[i].msg)
+				}
+				if got := tt.src[d.Span.Start:d.Span.End]; got != tt.want[i].at {
+					t.Errorf("diagnostic %d covers %q, want %q", i, got, tt.want[i].at)
+				}
+			}
+		})
+	}
+}

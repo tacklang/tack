@@ -368,12 +368,17 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 }
 
 // parseIdentStmt parses a statement that starts with the name tk: a short
-// variable declaration, an assignment, or a call.
+// variable declaration, an assignment (plain or compound), or a call.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	switch p.peekNext().Kind() {
 	case lexer.Define:
 		return p.parseShortVarDecl()
-	case lexer.Assign:
+	case lexer.Assign,
+		lexer.AddAssign,
+		lexer.SubAssign,
+		lexer.MulAssign,
+		lexer.DivAssign,
+		lexer.ModAssign:
 		return p.parseAssign()
 	case lexer.LParen:
 		return p.parseFuncCall()
@@ -473,12 +478,13 @@ func (p *Parser) parseShortVarDecl() (*ast.Var, []diag.Diagnostic) {
 	return v, p.endStmt(&v.Span)
 }
 
-// parseAssign parses name = value.
+// parseAssign parses name = value, or a compound assignment such as
+// name += value.
 func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
 	target, _ := p.parseIdent("variable name")
-	p.next() // the = token
+	op := p.next() // = or a compound assignment operator
 
-	a := &ast.Assign{Target: target, Span: target.Span}
+	a := &ast.Assign{Target: target, Op: compoundOps[op.Kind()], Span: target.Span}
 
 	value, valueDiags := p.parseExpr(1)
 	if value == nil {
@@ -487,6 +493,16 @@ func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
 	a.Value = value
 
 	return a, p.endStmt(&a.Span)
+}
+
+// compoundOps maps each compound assignment operator to the arithmetic
+// operator it applies. A plain = is absent, so it maps to ast.InvalidOp.
+var compoundOps = map[lexer.TokenKind]ast.BinaryOp{
+	lexer.AddAssign: ast.Add,
+	lexer.SubAssign: ast.Sub,
+	lexer.MulAssign: ast.Mul,
+	lexer.DivAssign: ast.Div,
+	lexer.ModAssign: ast.Rem,
 }
 
 // endStmt consumes the semicolon that ends a statement, which may be left out

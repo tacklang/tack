@@ -64,11 +64,14 @@ func (i *If) astNode() nodeKey { return _nodeKey }
 // included.
 func (i *If) Spanned() Span { return i.Span }
 
-// Assign sets a variable to a new value, Target = Value.
+// Assign sets a variable to a new value, Target = Value. A compound
+// assignment, such as Target += Value, records its arithmetic operator in Op
+// and means Target = Target Op Value; a plain assignment's Op is InvalidOp.
 type Assign struct {
 	Target *Ident
 	Value  Expr
 	Span   Span // start of Target through the terminating Semi's position
+	Op     BinaryOp
 }
 
 var _ Stmt = (*Assign)(nil)

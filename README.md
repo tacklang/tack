@@ -205,6 +205,10 @@ which is true today because `main` is the only package there is.
   value: `0`, `""` or `false`. An immutable variable must have a value.
 - `x = v` assigns to a mutable variable of the same type. Parameters are
   immutable.
+- `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
+  mutable `int` variable and an `int` value. Like a plain assignment, they do
+  not count as reading `x`, so a variable that is only ever updated is still
+  unused.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, made only of literals and

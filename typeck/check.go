@@ -372,9 +372,14 @@ func compareInts(op ast.BinaryOp, a, b int64) bool {
 }
 
 // checkAssign requires the target to be a mutable variable and the value to
-// have the variable's type. Parameters are never assignable.
+// have the variable's type. Parameters are never assignable. A compound
+// assignment also requires both to be ints, since it applies arithmetic.
 func (c *Checker) checkAssign(a *ast.Assign) {
 	got := c.valueKind(a.Value)
+	if a.Op != ast.InvalidOp {
+		c.checkCompound(a, got)
+		return
+	}
 
 	switch def := a.Target.Def.(type) {
 	case *ast.Param:
@@ -393,6 +398,31 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 				a.Target.Name,
 			)
 		}
+	}
+}
+
+// checkCompound checks a compound assignment whose value has kind got. The
+// target and the value are each reported where they are not ints, unless
+// the target cannot be assigned at all.
+func (c *Checker) checkCompound(a *ast.Assign, got types.Kind) {
+	op := a.Op.String() + "="
+
+	switch def := a.Target.Def.(type) {
+	case *ast.Param:
+		c.errorf(a.Target.Span, "cannot assign to parameter %s", a.Target.Name)
+		return
+	case *ast.Var:
+		if !def.Mutable {
+			c.errorf(a.Target.Span, "cannot assign to immutable variable %s", a.Target.Name)
+			return
+		}
+		if def.Kind != types.Int && def.Kind != types.Invalid {
+			c.errorf(a.Target.Span, "cannot use %s as int in %s", def.Kind, op)
+		}
+	}
+
+	if got != types.Int && got != types.Invalid && !alreadyReported(a.Value, got) {
+		c.errorf(a.Value.Spanned(), "cannot use %s as int in %s", got, op)
 	}
 }
 

@@ -61,7 +61,8 @@ Open questions about how a feature should behave are in
 | Terminating statement rule     | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
 | Local variables                | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |
 | Assignment `=`                 | yes   | yes    | yes     | yes | Mutable variables only; parameters are immutable                                                        |
-| Compound assignment, `++` `--` | yes   | no     | no      | no  | Decided: later                                                                                          |
+| Compound assignment            | yes   | yes    | yes     | yes | `+= -= *= /= %=` on `int`; not a read of the target; bitwise forms come with the bitwise operators      |
+| `++` `--`                      | yes   | no     | no      | no  | Decided: postfix statements only                                                                        |
 | `for cond {}`, `for {}`        | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
 | Three-clause `for`, `range`    | yes   | no     | no      | no  | Decided: a three-clause counter is declared with `mut`                                                  |
 | `switch`                       | yes   | no     | no      | no  |                                                                                                         |

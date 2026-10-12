@@ -39,7 +39,8 @@
 //     without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a
 //     mutable variable may be assigned to; parameters never may;
-//   - an assigned value has the variable's type;
+//   - an assigned value has the variable's type, and a compound assignment
+//     such as += has an int target and an int value;
 //   - a return carries a value exactly when the function declares a result,
 //     and the value has the result's type;
 //   - an if or loop condition is a bool;
