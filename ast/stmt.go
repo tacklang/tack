@@ -182,6 +182,24 @@ func (m *MultiVar) astNode() nodeKey { return _nodeKey }
 // the value.
 func (m *MultiVar) Spanned() Span { return m.Span }
 
+// MultiAssign assigns each result of a call to an existing variable, by
+// position: q, r = divmod(a, b). Every target must be a mutable variable.
+type MultiAssign struct {
+	Value   Expr
+	Targets []*Ident
+	Span    Span // start of the first target through the end of Value
+}
+
+var _ Stmt = (*MultiAssign)(nil)
+
+func (m *MultiAssign) stmtKey() stmtKey { return _stmtKey }
+
+func (m *MultiAssign) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the first target through the end of
+// the value.
+func (m *MultiAssign) Spanned() Span { return m.Span }
+
 // ForRange is a loop over an int, for i := range Count, which runs its body
 // once for each of 0, 1, ... Count-1, and not at all when Count is zero or
 // less. Count is evaluated once, before the first iteration. Var is the

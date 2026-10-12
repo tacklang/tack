@@ -309,3 +309,100 @@ func TestRejectsWrongReturns(t *testing.T) {
 		})
 	}
 }
+
+// multiAssignCases are assignments of several results, with the diagnostics
+// each must produce; none means it must check cleanly.
+var multiAssignCases = []struct {
+	name string
+	src  string
+	want []spanned
+}{
+	{
+		"both mutable",
+		withMulti("mut q, mut r := divmod(7, 2)", "q, r = divmod(q, r)", "exit(q + r)"),
+		nil,
+	},
+	{
+		"loop post",
+		withMulti(
+			"for mut a, mut b := divmod(9, 1); a > 0; a, b = divmod(a, 2) {",
+			"    exit(b)",
+			"}",
+		),
+		nil,
+	},
+	{
+		"mutable global",
+		"package main\n\nmut g int\n\n" + multiFuncs + mainLines("mut r := 0", "g, r = divmod(7, 2)", "exit(g + r)")[len("package main\n\n"):],
+		nil,
+	},
+	{
+		"immutable target",
+		withMulti("q, mut r := divmod(7, 2)", "q, r = divmod(1, 1)", "exit(q + r)"),
+		[]spanned{{"cannot assign to immutable variable q", "q"}},
+	},
+	{
+		"parameter target",
+		"package main\n\n" + multiFuncs + "func f(p int) {\n    mut r := 0\n    p, r = divmod(1, 1)\n    exit(r)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		[]spanned{{"cannot assign to parameter p", "p"}},
+	},
+	{
+		"wrong type",
+		withMulti(
+			"mut s := 0",
+			"mut b := true",
+			"mut n := 0",
+			"s, b, n = three()",
+			"exit(s + n)",
+			"if b {",
+			"}",
+		),
+		[]spanned{{"cannot use string as int in assignment to s", "s"}},
+	},
+	{
+		"same target twice",
+		withMulti("mut q := 0", "q, q = divmod(7, 2)", "exit(q)"),
+		[]spanned{{"q is assigned more than once", "q"}},
+	},
+	{
+		"count mismatch",
+		withMulti("mut a := 0", "mut b := 0", "a, b = three()", "exit(a + b)"),
+		[]spanned{
+			{"assignment mismatch: 2 variables but three returns 3 values", "a, b = three()"},
+		},
+	},
+	{
+		"count mismatch and an immutable target",
+		withMulti("a := 0", "mut b := 0", "a, b = one()", "exit(a + b)"),
+		[]spanned{
+			{"assignment mismatch: 2 variables but one returns 1 value", "a, b = one()"},
+			{"cannot assign to immutable variable a", "a"},
+		},
+	},
+	{
+		"not a call",
+		withMulti("mut a := 0", "mut b := 0", "a, b = 5", "exit(a + b)"),
+		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b = 5"}},
+	},
+}
+
+// TestMultiAssign checks an assignment of several results against each rule
+// a single assignment follows, plus the count and naming each target once.
+func TestMultiAssign(t *testing.T) {
+	for _, tt := range multiAssignCases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkTree(t, tt.src)
+			if len(diags) != len(tt.want) {
+				t.Fatalf("got %v, want %v", diags, tt.want)
+			}
+			for i, d := range diags {
+				if d.Message != tt.want[i].msg {
+					t.Errorf("message %d = %q, want %q", i, d.Message, tt.want[i].msg)
+				}
+				if got := tt.src[d.Span.Start:d.Span.End]; got != tt.want[i].at {
+					t.Errorf("diagnostic %d covers %q, want %q", i, got, tt.want[i].at)
+				}
+			}
+		})
+	}
+}

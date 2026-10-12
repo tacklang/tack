@@ -22,7 +22,8 @@
 // count is resolved outside that scope. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
 // itself. The variables a, b := f() declares are declared in order after f()
-// is resolved, as if each were declared on its own. No variable or parameter may reuse a name visible where it is
+// is resolved, as if each were declared on its own, and the targets of
+// a, b = f() are bound after f() is resolved, without counting as reads. No variable or parameter may reuse a name visible where it is
 // declared, whether a parameter's or a variable's, package-level ones
 // included. A local may reuse a function's or a builtin's name, since a call
 // always resolves to a function. A variable that is never read, only

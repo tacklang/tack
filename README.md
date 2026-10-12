@@ -194,7 +194,9 @@ which is true today because `main` is the only package there is.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
-  makes only `r` mutable. The value must be one call with exactly that many
+  makes only `r` mutable. `q, r = divmod(7, 2)` assigns the results to
+  existing mutable variables instead, each named once, and can be a loop's
+  post statement. The value must be one call with exactly that many
   results. A call with several results cannot be used as a single value,
   passed straight to another call, or returned directly as another
   function's results, but it can be called as a statement to discard them

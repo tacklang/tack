@@ -126,3 +126,26 @@ func TestMainWithSeveralResultsIsRejected(t *testing.T) {
 		t.Errorf("diagnostic covers %q, want %q", got, "int, string")
 	}
 }
+
+// A MultiAssign binds each target to the variable it names, and writing to
+// a variable that way does not count as reading it.
+func TestResolvesMultiAssign(t *testing.T) {
+	file, diags := resolveTree(t, "package main\n\n"+pair+
+		"func main() {\n    mut a, mut b := pair(1)\n    a, b = pair(2)\n    exit(a)\n}\n")
+	if got := messagesOf(diags); strings.Join(got, "\n") != "declared and not used: b" {
+		t.Fatalf("got %q, want only b unused", got)
+	}
+
+	body := file.Decls[1].(*ast.Func).Body
+	decl, assign := body[0].(*ast.MultiVar), body[1].(*ast.MultiAssign)
+	for i, target := range assign.Targets {
+		if target.Def != decl.Vars[i] {
+			t.Errorf("target %s is not bound to its declaration", target.Name)
+		}
+	}
+
+	_, diags = resolveTree(t, "package main\n\n"+pair+"func main() {\n    a, nope = pair(2)\n}\n")
+	if got := messagesOf(diags); strings.Join(got, "\n") != "undefined: a\nundefined: nope" {
+		t.Errorf("got %q", got)
+	}
+}

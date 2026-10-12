@@ -45,8 +45,9 @@
 //   - a return carries one value for each result the function declares, each
 //     of its result's type, and a wrong count is one error;
 //   - a, b := f() binds a call with exactly that many results, each variable
-//     taking its result's type, and a call with several results is never
-//     used as one value;
+//     taking its result's type; a, b = f() assigns them to mutable variables
+//     of those types, each named once; and a call with several results is
+//     never used as one value;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
 //   - a range loop's count is an int, and its variable is an immutable int;

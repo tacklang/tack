@@ -100,6 +100,9 @@ func walkSimpleStmt(s Stmt, v Visitor) {
 	case *MultiVar:
 		walkAll(s.Vars, v)
 		Walk(s.Value, v)
+	case *MultiAssign:
+		walkAll(s.Targets, v)
+		Walk(s.Value, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled statement type %T", s))
 	}

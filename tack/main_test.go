@@ -784,6 +784,17 @@ func TestBuiltResultsBindsEveryResultAndExits48(t *testing.T) {
 	}
 }
 
+// The results-assign example reassigns several results at once, including
+// in a loop's post statement, which has to run the call once per iteration.
+func TestBuiltResultsAssignExits87(t *testing.T) {
+	bin := buildWithClang(t, "results-assign")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 87 {
+		t.Errorf("results-assign exited with %v, want status 87", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

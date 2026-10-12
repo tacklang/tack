@@ -213,8 +213,8 @@ func TestRejectsMalformedMultiVar(t *testing.T) {
 		{"a, mut := f()", "expected 'variable name' found ':='"},
 		{"mut mut a, b := f()", "expected 'variable name' found 'mut'"},
 		{"a, var b := f()", "expected 'variable name' found 'var'"},
-		{"a, b int := f()", "expected ':=' found 'int'"},
-		{"a, b", "expected ':=' found ';'"},
+		{"a, b int := f()", "expected ':= or =' found 'int'"},
+		{"a, b", "expected ':= or =' found ';'"},
 		{"a, b := f(), g()", "expected ';' found ','"},
 	}
 
@@ -246,5 +246,46 @@ func TestMultiVarInLoopHeader(t *testing.T) {
 	if len(diags) == 0 ||
 		diags[0].Message != "cannot declare a variable in a for loop's post statement" {
 		t.Errorf("post declaration reported %+v", diags)
+	}
+}
+
+// TestParsesMultiAssign checks = after a list of names makes an assignment
+// to each of them, with no mut allowed.
+func TestParsesMultiAssign(t *testing.T) {
+	m, ok := mainBody(t, "    a, b, c = f(1)")[0].(*ast.MultiAssign)
+	if !ok {
+		t.Fatal("statement is not a MultiAssign")
+	}
+	names := make([]string, 0, len(m.Targets))
+	for _, target := range m.Targets {
+		names = append(names, target.Name)
+	}
+	if strings.Join(names, " ") != "a b c" {
+		t.Errorf("targets = %v, want [a b c]", names)
+	}
+	if _, ok := m.Value.(*ast.Call); !ok {
+		t.Errorf("value is %T, want *ast.Call", m.Value)
+	}
+
+	loop := mainBody(t, "    for ;; a, b = f() {\n    }")[0].(*ast.For)
+	if _, ok := loop.Post.(*ast.MultiAssign); !ok {
+		t.Errorf("post is %T, want *ast.MultiAssign", loop.Post)
+	}
+}
+
+// mut belongs to declarations; in an assignment it is an error covering the
+// mut and its name.
+func TestRejectsMutInMultiAssign(t *testing.T) {
+	for _, stmt := range []string{"a, mut b = f()", "mut a, b = f()"} {
+		t.Run(stmt, func(t *testing.T) {
+			src := "package main\n\nfunc main() {\n    " + stmt + "\n}\n"
+			_, diags := parse(t, src)
+			if len(diags) != 1 || diags[0].Message != "cannot use mut in an assignment" {
+				t.Fatalf("got %+v", diags)
+			}
+			if got := src[diags[0].Span.Start:diags[0].Span.End]; !strings.HasPrefix(got, "mut ") {
+				t.Errorf("diagnostic covers %q, want the mut and its name", got)
+			}
+		})
 	}
 }

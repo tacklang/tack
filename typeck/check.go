@@ -114,6 +114,8 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 		c.checkIntTarget(s.Target, s.Op())
 	case *ast.MultiVar:
 		c.checkMultiVar(s)
+	case *ast.MultiAssign:
+		c.checkMultiAssign(s)
 	}
 }
 
@@ -124,15 +126,51 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 	c.checkExpr(m.Value)
 
-	want := len(m.Vars)
-	call, isCall := m.Value.(*ast.Call)
-	if !isCall {
-		c.errorf(m.Span, "assignment mismatch: %d variables but 1 value", want)
+	results, ok := c.multiResults(m.Value, len(m.Vars), m.Span)
+	if !ok {
 		return
+	}
+	for i, v := range m.Vars {
+		v.Type = results[i]
+	}
+}
+
+// checkMultiAssign checks an assignment of several results. Its value must
+// be a call with exactly one result for each target, and each target must be
+// a mutable variable of its result's type, named only once. When the count
+// is wrong, the targets are still checked for being assignable.
+func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
+	c.checkExpr(m.Value)
+
+	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span)
+	seen := make(map[ast.Decl]bool, len(m.Targets))
+	for i, target := range m.Targets {
+		if seen[target.Def] {
+			c.errorf(target.Span, "%s is assigned more than once", target.Name)
+			continue
+		}
+		seen[target.Def] = true
+
+		got := types.Invalid
+		if ok {
+			got = results[i]
+		}
+		c.assignTo(target, got, target.Span)
+	}
+}
+
+// multiResults returns the result types of value, which binds want
+// variables, and whether it is a call with exactly that many results. It
+// reports any other value as one error covering span, the whole statement.
+func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types.Type, bool) {
+	call, isCall := value.(*ast.Call)
+	if !isCall {
+		c.errorf(span, "assignment mismatch: %d variables but 1 value", want)
+		return nil, false
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
-		return
+		return nil, false
 	}
 
 	// A builtin's Def is a nil *Func, and a builtin returns nothing.
@@ -142,10 +180,10 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 	}
 	switch got := len(results); {
 	case got == 0:
-		c.errorf(m.Span, "assignment mismatch: %d variables but %s returns no value", want, id.Name)
+		c.errorf(span, "assignment mismatch: %d variables but %s returns no value", want, id.Name)
 	case got != want:
 		c.errorf(
-			m.Span,
+			span,
 			"assignment mismatch: %d variables but %s returns %d %s",
 			want,
 			id.Name,
@@ -153,10 +191,9 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 			plural(got, "value"),
 		)
 	default:
-		for i, v := range m.Vars {
-			v.Type = results[i]
-		}
+		return results, true
 	}
+	return nil, false
 }
 
 // plural returns word, with an s added unless n is one.
@@ -497,21 +534,28 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 		return
 	}
 
-	switch def := a.Target.Def.(type) {
+	c.assignTo(a.Target, got, a.Value.Spanned())
+}
+
+// assignTo checks that a value of type got may be assigned to target: that
+// target is a mutable variable, not a parameter, of that type. A wrong type
+// is reported over at, and an Invalid got is taken as already reported.
+func (c *Checker) assignTo(target *ast.Ident, got types.Type, at ast.Span) {
+	switch def := target.Def.(type) {
 	case *ast.Param:
-		c.errorf(a.Target.Span, "cannot assign to parameter %s", a.Target.Name)
+		c.errorf(target.Span, "cannot assign to parameter %s", target.Name)
 	case *ast.Var:
 		if !def.Mutable {
-			c.errorf(a.Target.Span, "cannot assign to immutable variable %s", a.Target.Name)
+			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
 			return
 		}
 		if got != types.Invalid && got != def.Type {
 			c.errorf(
-				a.Value.Spanned(),
+				at,
 				"cannot use %s as %s in assignment to %s",
 				c.table.Name(got),
 				c.table.Name(def.Type),
-				a.Target.Name,
+				target.Name,
 			)
 		}
 	}

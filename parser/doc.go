@@ -24,7 +24,8 @@
 // := declares a variable, = or a compound operator such as += assigns, ++ or
 // -- increments or decrements, ( calls, and a comma starts a declaration of
 // several variables from one call's results, a, mut b := f(), where each mut
-// belongs to the name after it. These, with declarations starting with var
+// belongs to the name after it, or an assignment of them, a, b = f(), which
+// may not have a mut. These, with declarations starting with var
 // or mut, are the simple statements. A for whose body's
 // opening brace comes straight after the keyword has no condition, and one
 // whose header holds semicolons has the three clauses init; cond; post, each

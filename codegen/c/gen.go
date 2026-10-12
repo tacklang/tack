@@ -385,6 +385,8 @@ func (g *generator) generateSimpleStmt(stmt ast.Stmt) ([]string, []diag.Diagnost
 		return g.generateExprStmt(x)
 	case *ast.MultiVar:
 		return g.generateMultiVar(x)
+	case *ast.MultiAssign:
+		return g.generateMultiAssign(x)
 	default:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -494,7 +496,14 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 	}
 
 	post := ""
-	if loop.Post != nil {
+	if m, ok := loop.Post.(*ast.MultiAssign); ok {
+		decl, p, diags := g.multiAssignPost(m)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		init = append(init, decl)
+		post = p
+	} else if loop.Post != nil {
 		p, diags := g.postExpr(loop.Post)
 		if len(diags) > 0 {
 			return nil, diags
@@ -716,30 +725,13 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 // variable is then declared from the field in its position: const unless the
 // variable is mutable, as generateVar does.
 func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnostic) {
-	call, ok := m.Value.(*ast.Call)
-	if !ok {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("unknown expression type: %T", m.Value),
-			Span:     m.Value.Spanned(),
-		}}
-	}
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("unknown expression type: %T", call.Fn),
-			Span:     call.Fn.Spanned(),
-		}}
-	}
-
-	value, diags := g.callExpr(id.Name, call)
+	value, results, diags := g.multiCall(m.Value)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 
 	tmp := g.temp("r")
-	lines := []string{fmt.Sprintf("const %s %s = %s;", g.resultsName(id.Name), tmp, value)}
+	lines := []string{fmt.Sprintf("const %s %s = %s;", results, tmp, value)}
 	for i, v := range m.Vars {
 		decl := fmt.Sprintf("%s %s = %s.r%d;", cType(v.Type), varName(v.Name), tmp, i)
 		if !v.Mutable {
@@ -748,6 +740,93 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 		lines = append(lines, decl)
 	}
 	return lines, nil
+}
+
+// generateMultiAssign lowers an assignment of several results the way
+// generateMultiVar lowers a declaration: the results struct in a const
+// temporary, then each target assigned from its field.
+func (g *generator) generateMultiAssign(m *ast.MultiAssign) ([]string, []diag.Diagnostic) {
+	value, results, diags := g.multiCall(m.Value)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	tmp := g.temp("r")
+	assigns, diags := g.fieldAssigns(m, tmp)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	lines := []string{fmt.Sprintf("const %s %s = %s;", results, tmp, value)}
+	for _, a := range assigns {
+		lines = append(lines, a+";")
+	}
+	return lines, nil
+}
+
+// multiAssignPost lowers an assignment of several results used as a
+// three-clause loop's post statement, which must be one C expression. The
+// temporary cannot be declared there, so it is returned as a declaration for
+// the loop's block, and the expression assigns the call to it, then each
+// field to its target, joined with the comma operator.
+func (g *generator) multiAssignPost(
+	m *ast.MultiAssign,
+) (decl, post string, diags []diag.Diagnostic) {
+	value, results, diags := g.multiCall(m.Value)
+	if len(diags) > 0 {
+		return "", "", diags
+	}
+
+	tmp := g.temp("r")
+	assigns, diags := g.fieldAssigns(m, tmp)
+	if len(diags) > 0 {
+		return "", "", diags
+	}
+
+	exprs := append([]string{fmt.Sprintf("%s = %s", tmp, value)}, assigns...)
+	return fmt.Sprintf("%s %s;", results, tmp), strings.Join(exprs, ", "), nil
+}
+
+// fieldAssigns renders, for each target of m, the C assignment of the field
+// of the results struct tmp in its position, without a semicolon.
+func (g *generator) fieldAssigns(m *ast.MultiAssign, tmp string) ([]string, []diag.Diagnostic) {
+	assigns := make([]string, len(m.Targets))
+	for i, target := range m.Targets {
+		v, ok := target.Def.(*ast.Var)
+		if !ok {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  fmt.Sprintf("cannot assign to %s", target.Name),
+				Span:     target.Span,
+			}}
+		}
+		assigns[i] = fmt.Sprintf("%s = %s.r%d", g.varRef(v), tmp, i)
+	}
+	return assigns, nil
+}
+
+// multiCall renders the call that gives a MultiVar or MultiAssign its
+// values, with the name of the results struct it returns.
+func (g *generator) multiCall(value ast.Expr) (call, results string, diags []diag.Diagnostic) {
+	c, ok := value.(*ast.Call)
+	if !ok {
+		return "", "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", value),
+			Span:     value.Spanned(),
+		}}
+	}
+	id, ok := c.Fn.(*ast.Ident)
+	if !ok {
+		return "", "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", c.Fn),
+			Span:     c.Fn.Spanned(),
+		}}
+	}
+
+	call, diags = g.callExpr(id.Name, c)
+	return call, g.resultsName(id.Name), diags
 }
 
 // zeroValue is the C expression for a type's zero value. The empty string

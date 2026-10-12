@@ -1,0 +1,16 @@
+package main
+
+func divmod(a int, b int) (int, int) {
+    return a / b, a % b
+}
+
+func main() {
+    mut q, mut r := divmod(17, 5)
+    q, r = divmod(q * 10 + r, 4)
+
+    mut steps := 0
+    for mut a, mut b := divmod(100, 1); a > 1; a, b = divmod(a, 2) {
+        steps += 1 + b
+    }
+    exit(q * 10 + r + steps)
+}

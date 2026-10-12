@@ -140,3 +140,54 @@ func TestNoResultsStructWithoutMultipleResults(t *testing.T) {
 		t.Errorf("a results struct was emitted:\n%s", got)
 	}
 }
+
+// multiAssignCases are programs assigning several results at once, with what
+// each must print and the status it must exit with.
+var multiAssignCases = []struct {
+	name   string
+	src    string
+	stdout string
+	status int
+}{
+	{
+		"arguments read before any target is written",
+		"package main\n\nfunc swap(a int, b int) (int, int) {\n    return b, a\n}\n\n" +
+			"func main() {\n    mut x, mut y := swap(1, 2)\n    x, y = swap(x, y)\n    exit(x * 10 + y)\n}\n",
+		"", 12,
+	},
+	{
+		"post runs the call once per iteration",
+		"package main\n\nfunc step(n int) (int, int) {\n    print(\"s\")\n    return n - 1, n\n}\n\n" +
+			"func main() {\n    mut total := 0\n    for mut n, mut last := step(4); n > 0; n, last = step(n) {\n        total += last\n    }\n    exit(total)\n}\n",
+		"ssss",
+		9,
+	},
+	{
+		// even describes the n before the post ran, so it skips 1, 3, 5, 7
+		// and 9 and counts the other four.
+		"post with continue",
+		"package main\n\nfunc next(n int) (int, bool) {\n    return n + 1, n % 2 == 0\n}\n\n" +
+			"func main() {\n    mut odd := 0\n    for mut n, mut even := next(0); n < 10; n, even = next(n) {\n        if even {\n            continue\n        }\n        odd++\n    }\n    exit(odd)\n}\n",
+		"", 4,
+	},
+	{
+		"globals and strings",
+		"package main\n\nmut label string\n\nmut count int\n\nfunc both() (string, int) {\n    return \"set\", 3\n}\n\n" +
+			"func main() {\n    label, count = both()\n    print(label)\n    exit(count)\n}\n",
+		"set",
+		3,
+	},
+}
+
+// TestMultiAssignAtRuntime builds each program strictly and checks what it
+// prints and its exit status.
+func TestMultiAssignAtRuntime(t *testing.T) {
+	for _, tt := range multiAssignCases {
+		t.Run(tt.name, func(t *testing.T) {
+			out, status := run(t, tt.src)
+			if out != tt.stdout || status != tt.status {
+				t.Errorf("got stdout %q, status %d; want %q, %d", out, status, tt.stdout, tt.status)
+			}
+		})
+	}
+}

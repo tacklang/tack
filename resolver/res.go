@@ -425,6 +425,12 @@ func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic
 		return r.resolveTarget(s.Target, sc)
 	case *ast.MultiVar:
 		return r.declareMultiVar(s, sc)
+	case *ast.MultiAssign:
+		diags := r.resolveExpr(s.Value, sc)
+		for _, target := range s.Targets {
+			diags = append(diags, r.resolveTarget(target, sc)...)
+		}
+		return diags
 	default:
 		return nil
 	}

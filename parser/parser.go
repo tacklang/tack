@@ -410,8 +410,8 @@ func (p *Parser) parseSimpleStmt() (ast.Stmt, []diag.Diagnostic) {
 
 	tk := p.peek()
 	switch {
-	case p.atMultiVar():
-		stmt, diags = p.parseMultiVar()
+	case p.atMulti():
+		stmt, diags = p.parseMulti()
 	case tk.Kind() == lexer.Ident:
 		stmt, diags = p.parseIdentStmt(tk)
 	case p.atSimpleStmt():
@@ -439,6 +439,8 @@ func simpleStmtSpan(stmt ast.Stmt) *ast.Span {
 	case *ast.ExprStmt:
 		return &s.Span
 	case *ast.MultiVar:
+		return &s.Span
+	case *ast.MultiAssign:
 		return &s.Span
 	default:
 		panic(fmt.Sprintf("parser: %T is not a simple statement", stmt))
@@ -489,9 +491,9 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	}
 }
 
-// atMultiVar reports whether the next tokens start a declaration of several
-// variables: a name, or mut and a name, followed by a comma.
-func (p *Parser) atMultiVar() bool {
+// atMulti reports whether the next tokens start a statement binding several
+// results: a name, or mut and a name, followed by a comma.
+func (p *Parser) atMulti() bool {
 	tk := p.peek()
 	if tk.Kind() == lexer.Keyword && tk.Value() == lexer.Mut {
 		return p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Comma
@@ -499,18 +501,21 @@ func (p *Parser) atMultiVar() bool {
 	return tk.Kind() == lexer.Ident && p.peekNext().Kind() == lexer.Comma
 }
 
-// parseMultiVar parses a declaration of one variable for each result of a
-// call: a comma-separated list of names, each made mutable by its own mut,
-// then := and the call. Whether the value is a call with that many results
-// is the type checker's to judge.
-func (p *Parser) parseMultiVar() (*ast.MultiVar, []diag.Diagnostic) {
-	m := &ast.MultiVar{Span: p.span(p.peek())}
+// parseMulti parses a statement binding each result of a call: a
+// comma-separated list of names, then := and the call to declare them, or =
+// and the call to assign to them. In a declaration each name is made mutable
+// by its own mut; an assignment has no mut. Whether the value is a call with
+// that many results is the type checker's to judge.
+func (p *Parser) parseMulti() (ast.Stmt, []diag.Diagnostic) {
+	start := p.span(p.peek())
+
+	var vars []*ast.Var
 	for {
 		v, diags := p.parseMultiVarName()
 		if v == nil {
 			return nil, diags
 		}
-		m.Vars = append(m.Vars, v)
+		vars = append(vars, v)
 
 		if p.peek().Kind() != lexer.Comma {
 			break
@@ -518,16 +523,43 @@ func (p *Parser) parseMultiVar() (*ast.MultiVar, []diag.Diagnostic) {
 		p.next()
 	}
 
-	if ok, diags := p.expect(lexer.Define); !ok {
-		return nil, diags
+	op := p.peek()
+	if op.Kind() != lexer.Define && op.Kind() != lexer.Assign {
+		return nil, []diag.Diagnostic{p.diagInvalidToken(":= or =", op)}
 	}
+	p.next()
 
 	value, diags := p.parseExpr(1)
 	if value == nil {
 		return nil, diags
 	}
-	m.Value = value
-	m.Span.End = value.Spanned().End
+	span := ast.Span{File: start.File, Start: start.Start, End: value.Spanned().End}
+
+	if op.Kind() == lexer.Define {
+		return &ast.MultiVar{Vars: vars, Value: value, Span: span}, nil
+	}
+	return multiAssign(vars, value, span)
+}
+
+// multiAssign turns the names parsed for an assignment of several results
+// into its targets, reporting a name written with mut, which only a
+// declaration may have.
+func multiAssign(
+	vars []*ast.Var,
+	value ast.Expr,
+	span ast.Span,
+) (*ast.MultiAssign, []diag.Diagnostic) {
+	m := &ast.MultiAssign{Value: value, Span: span}
+	for _, v := range vars {
+		if v.Mutable {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "cannot use mut in an assignment",
+				Span:     v.Span,
+			}}
+		}
+		m.Targets = append(m.Targets, &ast.Ident{Name: v.Name, Span: v.NameSpan})
+	}
 	return m, nil
 }
 

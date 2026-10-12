@@ -58,6 +58,7 @@ Open questions about how a feature should behave are in
 | Call statement             | yes   | yes    | yes     | yes | A result may be discarded                                                                               |
 | `return`                   | yes   | yes    | yes     | yes | One value for each declared result; `return f()` cannot forward another call's results                 |
 | Several results `a, b :=`  | yes   | yes    | yes     | yes | One call with exactly that many results; `mut` per name; no `var` form, no `x, y := 1, 2`               |
+| Several results `a, b =`   | yes   | yes    | yes     | yes | Mutable targets, each named once, no `mut`; allowed as a loop's post statement                          |
 | `if` / `else` / `else if`  | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
 | Terminating statement rule | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
 | Local variables            | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |
