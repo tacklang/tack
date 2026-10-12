@@ -31,6 +31,11 @@
 // panics if it fails, since a violation is a bug in the lexer, not in the
 // program being compiled.
 //
+// A line comment runs from "//" to the end of its line. Lines that each
+// start with "//", with no line between them, become one Comment token; a
+// blank line ends the token, as it ends a comment group in Go. A Comment
+// token covers its text exactly, never the newline after it.
+//
 // Block comments ("/* ... */") are not supported: one is reported and
 // skipped. The body of an asm block is skipped up to the next "}" without
 // being tokenized, and an asm block with no "}" runs to the end of the input

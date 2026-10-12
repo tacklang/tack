@@ -3,6 +3,7 @@ package lexer_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,8 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 // checkCommentSpans fails the test unless every comment token covers its
 // source exactly: it starts with "//" and stops right before a newline or at
 // the end of src, so it neither drops its last byte nor swallows the newline.
+// Every line it covers must start with "//", so a comment never runs across
+// a blank line.
 func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 	t.Helper()
 
@@ -71,6 +74,20 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 		}
 		if end < len(src) && src[end] != '\n' {
 			t.Errorf("%q: comment span [%d:%d] stops before the end of its line", src, start, end)
+		}
+		checkCommentLines(t, src, text)
+	}
+}
+
+// checkCommentLines fails the test unless every line of the comment text
+// starts with "//", so the comment does not run across a blank line or a
+// line of code.
+func checkCommentLines(t *testing.T, src, text string) {
+	t.Helper()
+
+	for line := range strings.SplitSeq(text, "\n") {
+		if !strings.HasPrefix(line, "//") {
+			t.Errorf("%q: comment %q covers the line %q", src, text, line)
 		}
 	}
 }
@@ -466,6 +483,65 @@ var commentValueCases = []struct {
 	{"// a\r\n// b\r\n", "a\nb"},
 	{"//\n//", "\n"},
 	{"// x // y\n// z", "x // y\nz"},
+}
+
+// commentGroupCases pin every comment token in each source, and the token
+// kinds around them: a blank line, empty or holding only spaces, ends a
+// comment, as it ends a comment group in Go, while lines with no blank line
+// between them stay one comment. Splitting a comment adds no semicolon.
+var commentGroupCases = []struct {
+	src   string
+	kinds string
+	want  []commentTok
+}{
+	{"// a\n\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 6, 10}}},
+	{"// a\n\n// b\n", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 6, 10}}},
+	{"// a\n\n\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
+	{"// a\n \n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
+	{"// a\n\t\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
+	{"// a\r\n\r\n// b\r\n", "comment comment EOF", []commentTok{{"a", 0, 5}, {"b", 8, 13}}},
+	{"//\n\n//", "comment comment EOF", []commentTok{{"", 0, 2}, {"", 4, 6}}},
+	{"// a\n// b\n\n// c", "comment comment EOF", []commentTok{{"a\nb", 0, 9}, {"c", 11, 15}}},
+	{"// a\n\n// b\n// c", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b\nc", 6, 15}}},
+	{
+		"x // a\n\n// b\ny",
+		"ident <semi> comment comment ident <semi> EOF",
+		[]commentTok{{"a", 2, 6}, {"b", 8, 12}},
+	},
+	{"x // a\n\ny", "ident <semi> comment ident <semi> EOF", []commentTok{{"a", 2, 6}}},
+}
+
+// commentTok is the value and byte range of one comment token.
+type commentTok struct {
+	value      string
+	start, end int
+}
+
+// TestCommentGroups checks where a run of comment lines splits into separate
+// comment tokens, and that the split leaves the other tokens alone.
+func TestCommentGroups(t *testing.T) {
+	for _, tt := range commentGroupCases {
+		t.Run(tt.src, func(t *testing.T) {
+			out := lex(t, tt.src)
+			checkInvariants(t, tt.src, out)
+			var got []commentTok
+			for i := range out.tokens {
+				tok := &out.tokens[i]
+				if tok.Kind() == lexer.Comment {
+					got = append(
+						got,
+						commentTok{tok.Value().(string), tok.OffsetStart(), tok.OffsetEnd()},
+					)
+				}
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("comments = %+v, want %+v", got, tt.want)
+			}
+			if k := kinds(out.tokens); k != tt.kinds {
+				t.Errorf("tokens = %s, want %s", k, tt.kinds)
+			}
+		})
+	}
 }
 
 // TestCommentValues checks the value of merged comment lines.

@@ -210,6 +210,11 @@ var commentPlacements = []struct {
 	},
 	{"at the end of the file", "package main\nfunc main() {\n} // a", []string{"a"}},
 	{"merged lines in a body", "package main\nfunc main() {\n// a\n// b\n}\n", []string{"a\nb"}},
+	{
+		"lines split by a blank line",
+		"package main\nfunc main() {\n    exit(0) // a\n\n// b\n// c\n\n// d\n}\n",
+		[]string{"a", "b\nc", "d"},
+	},
 }
 
 // TestCommentsAreCollectedWherever checks a comment is accepted at each

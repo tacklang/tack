@@ -218,9 +218,8 @@ func (l *Lexer) handleSpace() {
 
 // handleNewline skips a run of newlines, recording where each new line
 // starts, and inserts a semicolon at the first one if the preceding token can
-// end a statement. Passing true suppresses the semicolon, for callers that
-// insert their own.
-func (l *Lexer) handleNewline(skipSemi ...bool) {
+// end a statement.
+func (l *Lexer) handleNewline() {
 	nl, data := l.pos, l.file.Data
 	if data[l.pos] != '\n' {
 		return
@@ -228,9 +227,6 @@ func (l *Lexer) handleNewline(skipSemi ...bool) {
 	for l.pos < len(data) && data[l.pos] == '\n' {
 		l.file.AddLineStart(l.pos + 1)
 		l.pos++
-	}
-	if len(skipSemi) > 0 && skipSemi[0] {
-		return
 	}
 	l.addSemi(nl)
 }
@@ -483,9 +479,12 @@ func (l *Lexer) handleDigit() bool {
 
 // handleComment lexes a line comment. Consecutive lines that each start with
 // "//" merge into one Comment token whose value joins them with newlines,
-// each line with its surrounding space trimmed. A
-// semicolon is inserted before the comment if the preceding token can end a
-// statement. Block comments are not supported: one is reported and skipped.
+// each line with its surrounding space trimmed. A blank line ends the
+// comment, as it ends a comment group in Go, so comment lines separated by
+// one become separate tokens. A semicolon is inserted before the comment if
+// the preceding token can end a statement; the newlines after it are left to
+// Lex, which inserts none since a comment cannot end a statement. Block
+// comments are not supported: one is reported and skipped.
 func (l *Lexer) handleComment() bool {
 	start, data := l.pos, l.file.Data
 
@@ -499,33 +498,28 @@ func (l *Lexer) handleComment() bool {
 	}
 	l.pos += 2
 
-	// end is just past the last byte of comment text seen so far. It is
-	// tracked rather than derived from l.pos at the end, since the newlines
-	// after the comment, if any, have been consumed by then and are not
-	// part of it.
+	// A newline continues the comment only when the very next line starts
+	// with "//"; otherwise the comment ends before it, and the newline is
+	// left for Lex. Only a single newline is consumed here, so a blank line
+	// always ends the comment.
 	var val strings.Builder
-	end := l.pos
 	for l.pos < len(data) {
 		if data[l.pos] == '\n' {
-			end = l.pos
-			l.handleNewline(true)
-
-			if l.at("//") {
-				val.WriteByte('\n')
-				l.pos += 2
-				end = l.pos
-				continue
+			if !bytes.HasPrefix(data[l.pos+1:], []byte("//")) {
+				break
 			}
-			break
+			l.file.AddLineStart(l.pos + 1)
+			val.WriteByte('\n')
+			l.pos += 3
+			continue
 		}
 
 		val.WriteByte(data[l.pos])
 		l.pos++
-		end = l.pos
 	}
 
 	l.addSemi(start)
-	l.addToken(Comment, trimCommentLines(val.String()), start, end)
+	l.addToken(Comment, trimCommentLines(val.String()), start, l.pos)
 
 	return true
 }
