@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\nfunc A0000000(A A)A{if 0{retur(0}}")

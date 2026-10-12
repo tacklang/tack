@@ -540,3 +540,40 @@ func TestRejectsVariadicResultType(t *testing.T) {
 		t.Fatal("a variadic result type parsed without a diagnostic")
 	}
 }
+
+// TestErrorsInsideNestedConstructsAreNotLost checks that a syntax error
+// inside a block, a condition, or a call argument is the one reported, and
+// that the parser never hands back a tree with a hole where the bad part was.
+// Before this was pinned, an error inside a block was dropped and a later,
+// misleading one reported instead, or none at all.
+func TestErrorsInsideNestedConstructsAreNotLost(t *testing.T) {
+	tests := []struct {
+		body string
+		want string
+	}{
+		{"if 1 < 2 {\n        f(0}\n    }", "expected ',' found '}'"},
+		{"if 1 < 2 {\n        return 1 1\n    }", "expected ';' found '1'"},
+		{"if 1 < 2 {\n        if\n    }", "expected 'value' found '}'"},
+		{"if 1 < 2 {\n    } else {\n        f(0}\n    }", "expected ',' found '}'"},
+		{"if 1 < 2 {\n    } else if 2 < 3 {\n        f(0}\n    }", "expected ',' found '}'"},
+		{"if 1 < 2 {\n        x := f(0}\n    }", "expected ',' found '}'"},
+		{"if f(0 {\n    }", "expected ',' found '{'"},
+		{"exit(f(0)", "expected ',' found ';'"},
+		{"exit(1 + f(0)", "expected ',' found ';'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.body, func(t *testing.T) {
+			file, diags := parse(t, "package main\n\nfunc main() {\n    "+tt.body+"\n}\n")
+			if len(diags) == 0 {
+				t.Fatalf("no diagnostics; tree:\n%s", file)
+			}
+			if diags[0].Message != tt.want {
+				t.Errorf("first diagnostic = %q, want %q", diags[0].Message, tt.want)
+			}
+			if file != nil {
+				t.Errorf("got a tree alongside %d diagnostic(s)", len(diags))
+			}
+		})
+	}
+}

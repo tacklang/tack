@@ -308,19 +308,32 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseStmt parses one statement, choosing the form by its first token and,
-// for one starting with a name, the token after it.
+// for one starting with a name, the token after it. On an error the statement
+// is an untyped nil: the parsers it dispatches to return concrete pointer
+// types, and a nil one of those would be a non-nil ast.Stmt that callers
+// testing for nil take for a statement.
 func (p *Parser) parseStmt() (ast.Stmt, []diag.Diagnostic) {
+	var (
+		stmt  ast.Stmt
+		diags []diag.Diagnostic
+	)
+
 	tk := p.peek()
 	switch tk.Kind() {
 	case lexer.EOF:
 		return nil, nil
 	case lexer.Keyword:
-		return p.parseKeywordStmt(tk)
+		stmt, diags = p.parseKeywordStmt(tk)
 	case lexer.Ident:
-		return p.parseIdentStmt(tk)
+		stmt, diags = p.parseIdentStmt(tk)
 	default:
-		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+		diags = []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return stmt, nil
 }
 
 // parseKeywordStmt parses a statement that starts with keyword tk.
@@ -693,7 +706,13 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
-		return p.parseCall()
+		// A nil *ast.Call would be a non-nil ast.Expr, so an error is
+		// returned as an untyped nil.
+		call, callDiags := p.parseCall()
+		if call == nil {
+			return nil, callDiags
+		}
+		return call, nil
 	}
 
 	return p.parseLiteral()
