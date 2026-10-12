@@ -19,7 +19,10 @@
 // left-associative. The prefix operators ! and - apply to the operand right
 // after them, so they bind tighter than any binary operator. A - right before
 // an integer literal is part of the literal instead, which is how the
-// smallest int64 is written. The keywords true and false are bool literals, so
+// smallest int64 is written. Parentheses group without leaving a node of
+// their own, but an expression whose first or last operand is written in
+// them spans them: (a) == (b) covers both pairs, while (a) alone is the
+// Ident a, spanning only the name. The keywords true and false are bool literals, so
 // neither can start a statement or be declared as a name.
 //
 // A type is a name or an array type, [n]T, nested to any depth; in an array

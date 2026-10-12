@@ -10,12 +10,6 @@ so every underline is followed by a trailing space. Fixing it changes every
 golden for an invalid program. `diag/render_test.go` pins the current output
 until then.
 
-## Parentheses are left out of an expression's span
-
-A parenthesised expression leaves no node of its own, so a binary expression
-written as `(a) == (b)` spans from `a` to `b`, and a diagnostic about it
-underlines `a) == (b`, without its first and last characters.
-
 ## clang warnings reach the user
 
 The driver runs clang without warning flags and passes its output through,

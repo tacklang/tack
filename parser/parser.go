@@ -13,8 +13,15 @@ import (
 // Parser turns one file's token stream into an AST. It stops at the first
 // syntax error, so a file yields either a tree or diagnostics, never both.
 type Parser struct {
+	file *ast.File
+
+	// parens holds, for each expression written in parentheses, the span
+	// of its outermost pair. A parenthesised expression leaves no node of
+	// its own, so this is how an expression built around one, such as
+	// (a) == (b), spans its parentheses too. See extent.
+	parens map[ast.Expr]ast.Span
+
 	fileID   source.FileID
-	file     *ast.File
 	tokens   []lexer.Token // every token but the comments
 	comments []lexer.Token // the comment tokens, in source order
 	index    int
@@ -28,7 +35,11 @@ type Parser struct {
 // without it. The lexer has already inserted any semicolon the comment's
 // line end calls for.
 func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
-	p := &Parser{fileID: fileID, tokens: make([]lexer.Token, 0, len(tokens))}
+	p := &Parser{
+		fileID: fileID,
+		tokens: make([]lexer.Token, 0, len(tokens)),
+		parens: make(map[ast.Expr]ast.Span),
+	}
 	for _, tk := range tokens {
 		if tk.Kind() == lexer.Comment {
 			p.comments = append(p.comments, tk)
@@ -1309,8 +1320,8 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 			Y:  right,
 			Span: ast.Span{
 				File:  p.fileID,
-				Start: left.Spanned().Start,
-				End:   right.Spanned().End,
+				Start: p.extent(left).Start,
+				End:   p.extent(right).End,
 			},
 		}
 	}
@@ -1374,7 +1385,7 @@ func (p *Parser) parseIndexes(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 			Index: index,
 			Span: ast.Span{
 				File:  p.fileID,
-				Start: x.Spanned().Start,
+				Start: p.extent(x).Start,
 				End:   p.peekPrev().OffsetEnd(),
 			},
 		}
@@ -1503,7 +1514,7 @@ func (p *Parser) parseUnary(op ast.UnaryOp) (ast.Expr, []diag.Diagnostic) {
 	return &ast.Unary{
 		Op:   op,
 		X:    x,
-		Span: ast.Span{File: p.fileID, Start: tk.OffsetStart(), End: x.Spanned().End},
+		Span: ast.Span{File: p.fileID, Start: tk.OffsetStart(), End: p.extent(x).End},
 	}, nil
 }
 
@@ -1527,9 +1538,10 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 }
 
 // parseParenExpr parses a parenthesized expression and returns the inner
-// expression; the parentheses leave no node of their own.
+// expression; the parentheses leave no node of their own, and are recorded
+// in p.parens instead, so the expression around them can span them.
 func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
-	p.next() // the opening parenthesis
+	lparen := p.next()
 
 	inner, innerDiags := p.parseExpr(1)
 	if inner == nil {
@@ -1539,7 +1551,25 @@ func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
 	if ok, rparenDiags := p.expect(lexer.RParen); !ok {
 		return nil, rparenDiags
 	}
+	// An enclosing pair is parsed after this one, so ((a)) ends up with
+	// the outer pair's span.
+	p.parens[inner] = ast.Span{
+		File:  p.fileID,
+		Start: lparen.OffsetStart(),
+		End:   p.peekPrev().OffsetEnd(),
+	}
 	return inner, nil
+}
+
+// extent returns the source range x was written in as an operand: its span,
+// widened to its outermost parentheses if it was written in some. An
+// expression built from operands spans from its first operand's extent to
+// its last's, so (a) == (b) covers both parentheses.
+func (p *Parser) extent(x ast.Expr) ast.Span {
+	if span, ok := p.parens[x]; ok {
+		return span
+	}
+	return x.Spanned()
 }
 
 // parseLiteral parses a single-token operand: a string, integer, character
