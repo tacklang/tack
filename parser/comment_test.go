@@ -241,9 +241,8 @@ func TestCommentsAreCollectedWherever(t *testing.T) {
 }
 
 // TestCommentDoesNotWidenSpans checks a comment after a statement is not
-// part of the statement's span or its function's. The function's span may
-// still end in the space before the comment, as it ends in spaces before a
-// newline, since it runs to the semicolon inserted there.
+// part of the statement's span or its function's, nor is the space before
+// it: each span ends at its last token.
 func TestCommentDoesNotWidenSpans(t *testing.T) {
 	src := "package main\nfunc main() {\n    exit(0) // a\n} // b\n"
 	file, diags := parse(t, src)
@@ -254,12 +253,12 @@ func TestCommentDoesNotWidenSpans(t *testing.T) {
 	if !ok {
 		t.Fatalf("declaration is %T, want *ast.Func", file.Decls[0])
 	}
-	if got := src[fn.Span.Start:fn.Span.End]; !strings.HasSuffix(strings.TrimRight(got, " "), "}") {
+	if got := src[fn.Span.Start:fn.Span.End]; !strings.HasSuffix(got, "}") {
 		t.Errorf("function span covers %q, want it to end at the closing brace", got)
 	}
 	stmt := fn.Body[0]
-	if got := src[stmt.Spanned().Start:stmt.Spanned().End]; strings.Contains(got, "//") {
-		t.Errorf("statement span covers %q", got)
+	if got := src[stmt.Spanned().Start:stmt.Spanned().End]; got != "exit(0)" {
+		t.Errorf("statement span covers %q, want %q", got, "exit(0)")
 	}
 	call := fn.Body[0].(*ast.ExprStmt).X
 	if got := src[call.Spanned().Start:call.Spanned().End]; got != "exit(0)" {

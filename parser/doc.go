@@ -66,4 +66,10 @@
 // literal becomes an ast.CharLit holding its one byte, which the lexer has
 // already decoded and checked. Every
 // node's span is tagged with the FileID the parser was created with.
+//
+// A node's span runs from the first byte of its first token to the last
+// byte of its last one. A statement's span takes in a semicolon written in
+// the source, but not one the lexer inserted at a line end: that one covers
+// no bytes and sits after the spaces before the newline or comment, which
+// the span would otherwise cover.
 package parser

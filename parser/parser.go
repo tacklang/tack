@@ -89,6 +89,18 @@ func (p *Parser) peekPrev() *lexer.Token {
 	return &p.tokens[p.index-1]
 }
 
+// lastEnd returns the offset just past the last real token consumed. A
+// semicolon inserted at a line end is skipped: it covers no bytes and sits
+// after any spaces before the newline or comment, so a span ending there
+// would take in those spaces. An explicit semicolon is a real token.
+func (p *Parser) lastEnd() int {
+	tk := p.peekPrev()
+	if tk.Kind() == lexer.Semi && tk.OffsetStart() == tk.OffsetEnd() && p.index >= 2 {
+		tk = &p.tokens[p.index-2]
+	}
+	return tk.OffsetEnd()
+}
+
 // Parse parses the whole file: the package clause, then every top-level
 // declaration up to EOF. On the first syntax error it returns a nil file and
 // that error's diagnostics.
@@ -226,7 +238,7 @@ func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
 		return nil, bodyDiags
 	}
 
-	fn.Span.End = p.peekPrev().OffsetEnd()
+	fn.Span.End = p.lastEnd()
 
 	return fn, nil
 }
@@ -818,13 +830,14 @@ var compoundOps = map[lexer.TokenKind]ast.BinaryOp{
 }
 
 // endStmt consumes the semicolon that ends a statement, which may be left out
-// before a closing brace, and extends span to cover it. It returns the
-// diagnostics for anything else found there.
+// before a closing brace, and extends span to cover it if it was written
+// rather than inserted. It returns the diagnostics for anything else found
+// there.
 func (p *Parser) endStmt(span *ast.Span) []diag.Diagnostic {
 	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
 		return semiDiags
 	}
-	span.End = p.peekPrev().OffsetEnd()
+	span.End = p.lastEnd()
 	return nil
 }
 
@@ -932,7 +945,7 @@ func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
 		}
 	}
 
-	stmt.Span.End = p.peekPrev().OffsetEnd()
+	stmt.Span.End = p.lastEnd()
 
 	return stmt, nil
 }
@@ -1247,7 +1260,7 @@ func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 		return nil, semiDiags
 	}
 
-	ret.Span.End = p.peekPrev().OffsetEnd()
+	ret.Span.End = p.lastEnd()
 
 	return ret, nil
 }
