@@ -112,7 +112,13 @@
 // for whose post expression is its post statement, so that continue runs it.
 // A range loop lowers to a C block that evaluates the count once into a
 // temporary and counts up to it, declaring the loop variable as a fresh const
-// each iteration. Temporaries are named tack_ followed by a letter and a
+// each iteration. Over an array or a string, the block copies the value into
+// a const temporary first, so the body assigning the array it came from
+// changes nothing the loop reads, and counts up to the array's constant
+// length or the copy's len; each iteration declares the index and the
+// element, read from the copy, as consts, and a _ gets no C variable. Over
+// an array with no element variable nothing reads the copy, so the value is
+// only evaluated, cast to void. Temporaries are named tack_ followed by a letter and a
 // number, which no mangled Tack name can be.
 //
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to

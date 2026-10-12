@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/range-mut/main.tck:5:12: error: cannot use mut on a range loop variable
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for _, mut x := range a {
+   |	           ^~~~~ 
+06 |	        x = 2
+

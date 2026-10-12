@@ -978,36 +978,57 @@ func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 }
 
 // atRange reports whether the for keyword next is the start of a range
-// loop: followed by range, or by a name, := and range.
+// loop: followed by range, or by a list of names, each perhaps after mut,
+// then := and range. mut is not allowed there, but recognizing it lets
+// parseForRange say so rather than report the range keyword as unexpected.
 func (p *Parser) atRange() bool {
 	isRange := func(tk *lexer.Token) bool {
 		return tk.Kind() == lexer.Keyword && tk.Value() == lexer.Range
 	}
-	return isRange(p.peekNext()) ||
-		p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Define &&
-			isRange(p.peekAt(3))
+	if isRange(p.peekAt(1)) {
+		return true
+	}
+	k := 1
+	for {
+		if tk := p.peekAt(k); tk.Kind() == lexer.Keyword && tk.Value() == lexer.Mut {
+			k++
+		}
+		if p.peekAt(k).Kind() != lexer.Ident {
+			return false
+		}
+		k++
+		if p.peekAt(k).Kind() != lexer.Comma {
+			break
+		}
+		k++
+	}
+	return p.peekAt(k).Kind() == lexer.Define && isRange(p.peekAt(k+1))
 }
 
-// parseForRange parses for i := range count { ... } or for range count
-// { ... }. The variable is immutable and has no type or value written; the
-// type checker gives it its type.
+// parseForRange parses for i := range x { ... }, for i, v := range x
+// { ... } or for range x { ... }. The variables are immutable and have no
+// type or value written; the type checker gives them their types. A name
+// written with mut, or more than two names, is reported, after the ranged
+// expression is parsed so the second error can cover it.
 func (p *Parser) parseForRange() (*ast.ForRange, []diag.Diagnostic) {
 	tk := p.next() // the for keyword
 
 	loop := &ast.ForRange{Span: p.span(tk)}
 
-	if p.peek().Kind() == lexer.Ident {
-		name, _ := p.parseIdent("variable name")
-		loop.Var = &ast.Var{Name: name.Name, NameSpan: name.Span, Span: name.Span}
-		p.next() // the := token
+	names, diags := p.parseRangeNames()
+	if diags != nil {
+		return nil, diags
 	}
 	p.next() // the range keyword
 
-	count, diags := p.parseExpr(1)
-	if count == nil {
+	x, diags := p.parseExpr(1)
+	if x == nil {
 		return nil, diags
 	}
-	loop.Count = count
+	loop.X = x
+	if varDiags := rangeVars(loop, names); varDiags != nil {
+		return nil, varDiags
+	}
 
 	body, diags := p.parseBlock()
 	if body == nil {
@@ -1020,6 +1041,74 @@ func (p *Parser) parseForRange() (*ast.ForRange, []diag.Diagnostic) {
 		return nil, semiDiags
 	}
 	return loop, nil
+}
+
+// parseRangeNames parses the names of a range loop up to and including its
+// :=, each with the mut written before it, if any. atRange has seen that
+// they are names, each perhaps after mut, separated by commas and ended by
+// := and range.
+func (p *Parser) parseRangeNames() ([]multiItem, []diag.Diagnostic) {
+	var names []multiItem
+	for p.peek().Kind() != lexer.Keyword || p.peek().Value() != lexer.Range {
+		start := p.peek()
+		mutable := start.Kind() == lexer.Keyword && start.Value() == lexer.Mut
+		if mutable {
+			p.next()
+		}
+		name, diags := p.parseIdent("variable name")
+		if name == nil {
+			return nil, diags
+		}
+		names = append(names, multiItem{
+			target:  name,
+			span:    ast.Span{File: p.fileID, Start: start.OffsetStart(), End: name.Span.End},
+			mutable: mutable,
+		})
+		p.next() // the comma, or the := token
+	}
+	return names, nil
+}
+
+// rangeVars turns the names written before := in a range loop into its
+// index and element variables, reporting a name written with mut, since
+// both are immutable, and a third name, since range gives at most two
+// values.
+func rangeVars(loop *ast.ForRange, names []multiItem) []diag.Diagnostic {
+	for _, item := range names {
+		if item.mutable {
+			return []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "cannot use mut on a range loop variable",
+				Span:     item.span,
+			}}
+		}
+	}
+	if len(names) > 2 {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: fmt.Sprintf(
+				"assignment mismatch: %d variables but range gives at most 2 values",
+				len(names),
+			),
+			Span: ast.Span{
+				File:  names[0].span.File,
+				Start: names[0].span.Start,
+				End:   loop.X.Spanned().End,
+			},
+		}}
+	}
+	vars := make([]*ast.Var, len(names))
+	for i, item := range names {
+		name := item.target.(*ast.Ident)
+		vars[i] = &ast.Var{Name: name.Name, NameSpan: name.Span, Span: name.Span}
+	}
+	if len(vars) > 0 {
+		loop.Var = vars[0]
+	}
+	if len(vars) > 1 {
+		loop.Elem = vars[1]
+	}
+	return nil
 }
 
 // parseForHeader parses what comes between for and the body's opening brace

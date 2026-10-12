@@ -11,11 +11,11 @@ import (
 // The checker proves a divisor is not zero, and an index in range, from
 // facts: what is known about a variable's value within some region of the
 // program, that it is not zero, or bounds on it. A fact comes from a
-// condition that has just been tested, or from a range loop, whose
-// variable runs from 0 to its count less one. It holds inside an if's branches,
-// a loop's body, and the right side of && and ||, according to whether the
-// condition was true there, and in the rest of a block after an if whose
-// branch leaves it. The rules are syntactic, so any reader can follow them:
+// condition that has just been tested, or from a range loop, whose index
+// runs from 0 to its count, or the length of what it ranges over, less one.
+// It holds inside an if's branches, a loop's body, and the right side of &&
+// and ||, according to whether the condition was true there, and in the
+// rest of a block after an if whose branch leaves it. The rules are syntactic, so any reader can follow them:
 //
 //   - a fact is about a parameter, a local variable, or an immutable global;
 //     a mutable global can be changed by any call, so it never has one;
@@ -28,9 +28,9 @@ import (
 //   - the length of a string variable has no known value, so two more
 //     comparisons give facts: len(s) with a known value bounds the length,
 //     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
-//     over len(s) does its variable. A fact that names s holds only in a
-//     region that assigns neither variable; s may be mutable, since the
-//     region then never changes it.
+//     over len(s), or over s itself, does its index. A fact that names s
+//     holds only in a region that assigns neither variable; s may be
+//     mutable, since the region then never changes it.
 
 // fact is something known about a variable's value in a region: that it is
 // not zero, or that it lies at or above lo, or at or below hi, or below the
@@ -304,7 +304,12 @@ func (c *Checker) stringLen(e ast.Expr) (ast.Decl, bool) {
 	if !ok || !isLen(call) || len(call.Args) != 1 {
 		return nil, false
 	}
-	id, ok := call.Args[0].(*ast.Ident)
+	return c.stringVar(call.Args[0])
+}
+
+// stringVar returns the string variable e names, when it can have facts.
+func (c *Checker) stringVar(e ast.Expr) (ast.Decl, bool) {
+	id, ok := e.(*ast.Ident)
 	if !ok || ast.TypeOf(id) != types.String || !c.canHoldFact(id.Def) {
 		return nil, false
 	}

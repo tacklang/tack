@@ -80,7 +80,10 @@ func walkLoop(s Stmt, v Visitor) {
 		if s.Var != nil {
 			Walk(s.Var, v)
 		}
-		Walk(s.Count, v)
+		if s.Elem != nil {
+			Walk(s.Elem, v)
+		}
+		Walk(s.X, v)
 		walkAll(s.Body, v)
 	}
 }

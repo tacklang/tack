@@ -200,16 +200,24 @@ func (m *MultiAssign) astNode() nodeKey { return _nodeKey }
 // the value.
 func (m *MultiAssign) Spanned() Span { return m.Span }
 
-// ForRange is a loop over an int, for i := range Count, which runs its body
-// once for each of 0, 1, ... Count-1, and not at all when Count is zero or
-// less. Count is evaluated once, before the first iteration. Var is the
-// loop variable, a fresh immutable int each iteration, or nil in the form
-// for range Count, which has none.
+// ForRange is a range loop. Over an int, for i := range X runs its body
+// once for each of 0, 1, ... X-1, and not at all when X is zero or less.
+// Over an array or a string, for i, x := range X runs it once for each
+// element, or byte, in order, with i its index and x its value, walking a
+// copy of X taken before the first iteration, so the body changing X does
+// not change what later iterations see. X is evaluated exactly once, before
+// the first iteration.
+//
+// Var is the index variable, or the count's, and Elem the element variable;
+// each is a fresh immutable variable every iteration. Both are nil in the
+// form for range X, and Elem is nil when only one name is written. Var may
+// be _, which binds nothing, when Elem is written: for _, x := range X.
 type ForRange struct {
-	Var   *Var
-	Count Expr
-	Body  []Stmt
-	Span  Span // 'for' keyword through the closing brace
+	Var  *Var
+	Elem *Var
+	X    Expr
+	Body []Stmt
+	Span Span // 'for' keyword through the closing brace
 }
 
 var _ Stmt = (*ForRange)(nil)

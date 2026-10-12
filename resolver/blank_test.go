@@ -51,6 +51,12 @@ var blankMisuseCases = []struct {
 		"_",
 	},
 	{
+		"range binds nothing",
+		"func main() {\n    for _, _ := range \"ab\" {\n    }\n}\n",
+		"every name is _, so nothing is bound; drop the names and :=",
+		"_, _",
+	},
+	{
 		"loop init",
 		"func main() {\n    for _ := 0; ; {\n        break\n    }\n}\n",
 		"cannot use _ as a name",

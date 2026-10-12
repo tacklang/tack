@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/range-elem-assign-immutable/main.tck:6:9: error: cannot assign to immutable variable x
+05 |	    for _, x := range a {
+06 |	        x *= 2
+   |	        ^ 
+07 |	        exit(x)
+

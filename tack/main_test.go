@@ -518,6 +518,12 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 		{"CRLF", "package main\r\nfunc main() {\r\n}\r\n"},
 		{"truncated", "package main\nfunc main() { print(\"hi\""},
 		{"deep nesting", "package main\nfunc main() {" + strings.Repeat("if true {", 2000) + "}"},
+		{"truncated range", "package main\nfunc main() {\n    for i, mut x, := range"},
+		{
+			"deep range nesting",
+			"package main\nfunc main() {\n" + strings.Repeat("for range \"ab\" {\n", 500) +
+				strings.Repeat("}\n", 501),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeSource(t, []byte(tc.src))
@@ -936,5 +942,20 @@ func TestBuiltNegateExits19(t *testing.T) {
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 19 {
 		t.Errorf("negate exited with %v, want status 19", err)
+	}
+}
+
+// The ranges example ranges over arrays and strings: the index proven in
+// range for indexing, a body that writes and replaces the array it walks
+// while later iterations still see the original elements, ranged calls that
+// must run once, empty arrays and strings, nested ranges with break and
+// continue, and an early return, so its status pins each of them in a real
+// build.
+func TestBuiltRangesExits42(t *testing.T) {
+	bin := buildWithClang(t, "ranges")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("ranges exited with %v, want status 42", err)
 	}
 }

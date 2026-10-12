@@ -531,19 +531,48 @@ func (r *Resolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
 	return append(diags, r.unused(inner)...)
 }
 
-// resolveForRange resolves a range loop. Its count is resolved where the
-// loop is, before the loop variable exists, so it cannot refer to it. The
-// variable, if any, is declared in a scope of the loop's own, with the body
-// nested in that.
+// resolveForRange resolves a range loop. Its ranged expression is resolved
+// where the loop is, before the loop's variables exist, so it cannot refer
+// to them. The variables, if any, are declared in a scope of the loop's own,
+// with the body nested in that.
 func (r *Resolver) resolveForRange(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
-	diags := r.resolveExpr(loop.Count, sc)
+	diags := r.resolveExpr(loop.X, sc)
 
 	inner := newScope(sc)
-	if loop.Var != nil {
-		diags = append(diags, r.declareVar(loop.Var, inner)...)
-	}
+	diags = append(diags, r.declareRangeVars(loop, inner)...)
 	diags = append(diags, r.resolveBlock(loop.Body, inner)...)
 	return append(diags, r.unused(inner)...)
+}
+
+// declareRangeVars declares a range loop's variables in sc, the index first.
+// With two names, a _ declares nothing, and both being _ is reported, since
+// the loop then binds nothing and needs no names. A lone name is declared
+// like any variable, so a lone _ is reported as a name.
+func (r *Resolver) declareRangeVars(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
+	if loop.Elem == nil {
+		if loop.Var == nil {
+			return nil
+		}
+		return r.declareVar(loop.Var, sc)
+	}
+	if loop.Var.Name == ast.Blank && loop.Elem.Name == ast.Blank {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "every name is _, so nothing is bound; drop the names and :=",
+			Span: ast.Span{
+				File:  loop.Var.Span.File,
+				Start: loop.Var.Span.Start,
+				End:   loop.Elem.Span.End,
+			},
+		}}
+	}
+	var diags []diag.Diagnostic
+	for _, v := range []*ast.Var{loop.Var, loop.Elem} {
+		if v.Name != ast.Blank {
+			diags = append(diags, r.declareVar(v, sc)...)
+		}
+	}
+	return diags
 }
 
 // resolveSimpleStmt resolves a statement that holds no other statement: a

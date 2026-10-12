@@ -222,6 +222,18 @@ which is true today because `main` is the only package there is.
   does the same without a variable. `n` is an integer of any type, a
   constant being an `int64`, evaluated once, before the first iteration.
   `i` is a fresh immutable variable of `n`'s type each iteration.
+- Range over an array or a string. `for i, x := range a { ... }` runs once
+  for each element of the array `a`, in order, with `i` its index, an
+  `int64`, and `x` the element; over a string, `x` is each byte, a
+  `uint8`. `for i := range a` binds the index alone, `for _, x := range a`
+  the element alone, and `for range a` neither. `a` is evaluated once,
+  before the first iteration, and the loop walks a copy of it taken then:
+  writing `a[j]` or assigning `a` in the body does not change what later
+  iterations see. Both variables are fresh and immutable each iteration,
+  so `x = v` and `mut x` are errors; change an element through `a[i]`.
+  Over an integer, only one name is allowed, and three names are an error
+  anywhere. An array's index is proven in range for any array at least as
+  long; a string's for the string it ranges over (see indexing a string).
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
@@ -324,7 +336,8 @@ which is true today because `main` is the only package there is.
   zero value; it is an error where `i` is proven in range. An assignment to
   an element has no such form, so its index must be proven. What proves an
   index is what proves a divisor, below, with bounds as well as "not zero":
-  a range loop's variable lies between 0 and its count less one, a
+  a range loop's variable lies between 0 and its count less one, or the
+  length of the array it ranges over less one, a
   comparison with a known value bounds a variable, as in
   `if 0 <= i && i < len(a)`, and a variable's type bounds it too, so a
   `uint8` index into a `[256]T` needs nothing. Only a name is proven; an
@@ -338,7 +351,7 @@ which is true today because `main` is the only package there is.
   literal is checked at compile time, so `"tack"[1]` is `97` and
   `"tack"[4]` an error, and a negative constant is always an error. The
   length of a string variable is not a constant, so a proof names it:
-  `for i := range len(s)` proves `s[i]` in the body,
+  `for i := range len(s)` and `for i := range s` prove `s[i]` in the body,
   `if 0 <= i && i < len(s)` in the branch (or, as for arrays, after
   `if i < 0 || i >= len(s) { return }`), and a bound on the length proves a
   constant index, as `if len(s) > 0` proves `s[0]`, and so do
@@ -386,14 +399,16 @@ which is true today because `main` is the only package there is.
   conversions, never declared, read or assigned as names. `_` on its own is
   not a name: it only discards a result in a
   binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
-  and may appear there more than once. It cannot be declared, read or
+  and may appear there more than once, or one of a range loop's two
+  variables, as in `for _, x := range a`. It cannot be declared, read or
   assigned anywhere else, cannot be `mut`, and a binding whose every name is
-  `_` is an error, since the call can be made on its own.
+  `_` is an error, since the call can be made on its own, or the loop
+  written without names.
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged.
 - A string is a sequence of bytes, everywhere: `s[i]` is a `uint8`,
   `len(s)` counts bytes, a character literal is one byte, and `range` over
-  a string, when it exists, will give bytes. Decoding UTF-8 into runes will
+  a string gives bytes. Decoding UTF-8 into runes will
   be a facility of the standard library, not language syntax.
 - Character literals. `'a'` is a constant of type `uint8`, the value of
   its one byte, with the escapes a string has (`'\n'`, `'\\'`) and `'\''`

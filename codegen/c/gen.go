@@ -112,8 +112,9 @@ func (g *generator) poolCheckedZero(value ast.Expr) {
 
 // collectStrings pools every string literal in the file, deduplicated, and
 // the empty string if a string variable starts from its zero value. The
-// variables of a MultiVar have no value of their own but never start from
-// zero, so only its call is visited.
+// variables of a MultiVar, and of a range loop, have no value of their own
+// but never start from zero, so only the call, or the ranged expression and
+// the body, are visited.
 func (g *generator) collectStrings() {
 	var visit ast.Visitor
 	visit = func(n ast.Node) bool {
@@ -130,6 +131,12 @@ func (g *generator) collectStrings() {
 			return false
 		case *ast.MultiAssign:
 			g.poolCheckedZero(x.Value)
+		case *ast.ForRange:
+			ast.Walk(x.X, visit)
+			for _, stmt := range x.Body {
+				ast.Walk(stmt, visit)
+			}
+			return false
 		}
 		return true
 	}
@@ -666,8 +673,10 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 	return append(lines, "}"), nil
 }
 
-// generateForRange lowers a range loop to a C block that evaluates the count
-// once into a temporary, and a counting for over a second one:
+// generateForRange lowers a range loop to a C block that evaluates the
+// ranged expression once, before a counting for, and declares the loop's
+// variables at the top of each iteration. Over an integer, the count is
+// held in a temporary:
 //
 //	{
 //	    const int64_t tack_n0 = count;
@@ -680,13 +689,13 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 // The loop variable is a fresh const each iteration, as Tack's is immutable.
 // The counter never overflows, since it is only incremented while below the
 // count. The temporaries' names start with tack_ and have one underscore,
-// which no mangled Tack name has.
+// which no mangled Tack name has. An array or a string is lowered by
+// collectionRange.
 func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
-	typ := g.cType(ast.TypeOf(loop.Count))
-	count, diags := g.expr(loop.Count, types.Invalid)
+	x, diags := g.expr(loop.X, types.Invalid)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -694,22 +703,73 @@ func (g *generator) generateForRange(
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	xType := ast.TypeOf(loop.X)
+	if !types.IsInteger(xType) {
+		return g.collectionRange(loop, x, body), nil
+	}
 
+	typ := g.cType(xType)
 	n, k := g.temp("n"), g.temp("k")
 	if loop.Var != nil {
 		body = append(
 			[]string{fmt.Sprintf("const %s %s = %s;", typ, varName(loop.Var.Name), k)},
 			body...)
 	}
+	return rangeBlock(fmt.Sprintf("const %s %s = %s;", typ, n, x),
+		fmt.Sprintf("for (%s %s = 0; %s < %s; %s++) {", typ, k, k, n, k), body), nil
+}
 
-	inner := append(
-		[]string{fmt.Sprintf("for (%s %s = 0; %s < %s; %s++) {", typ, k, k, n, k)},
-		indent(body)...)
+// collectionRange lowers a range loop over an array or a string, whose
+// lowered value is x and lowered body body. The value is copied into a
+// const temporary, which every iteration reads, so the body assigning the
+// array, or the variable holding it, changes nothing the loop sees:
+//
+//	{
+//	    const tack_array_3 tack_r0 = a;
+//	    for (int64_t tack_k1 = 0; tack_k1 < 4; tack_k1++) {
+//	        const int64_t v_i = tack_k1;
+//	        const int64_t v_x = tack_r0.e[tack_k1];
+//	        body
+//	    }
+//	}
+//
+// An array's length is a constant; a string's is read from the copy, as
+// tack_r0.len, and its bytes as tack_r0.ptr[k]. Over an array with no
+// element variable nothing reads the copy, so the value is only evaluated,
+// cast to void, for any call in it to run. A _ index gets no C variable.
+func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string) []string {
+	xType := ast.TypeOf(loop.X)
+	r, k := g.temp("r"), g.temp("k")
+	n, field := r+".len", "ptr"
+	if g.file.Types.IsArray(xType) {
+		n, field = strconv.FormatInt(g.file.Types.Len(xType), 10), "e"
+	}
+
+	var vars []string
+	if loop.Var != nil && loop.Var.Name != ast.Blank {
+		vars = append(vars, fmt.Sprintf("const int64_t %s = %s;", varName(loop.Var.Name), k))
+	}
+	if loop.Elem != nil && loop.Elem.Name != ast.Blank {
+		vars = append(vars, fmt.Sprintf("const %s %s = %s.%s[%s];",
+			g.cType(loop.Elem.Type), varName(loop.Elem.Name), r, field, k))
+	}
+
+	eval := fmt.Sprintf("const %s %s = %s;", g.cType(xType), r, x)
+	if field == "e" && (loop.Elem == nil || loop.Elem.Name == ast.Blank) {
+		eval = fmt.Sprintf("(void)%s;", x)
+	}
+	return rangeBlock(eval,
+		fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k), append(vars, body...))
+}
+
+// rangeBlock assembles a lowered range loop: a C block holding eval, which
+// evaluates what the loop ranges over, then a for with the header header
+// around body.
+func rangeBlock(eval, header string, body []string) []string {
+	inner := append([]string{header}, indent(body)...)
 	inner = append(inner, "}")
-	lines := append(
-		[]string{"{", fmt.Sprintf("    const %s %s = %s;", typ, n, count)},
-		indent(inner)...)
-	return append(lines, "}"), nil
+	lines := append([]string{"{", "    " + eval}, indent(inner)...)
+	return append(lines, "}")
 }
 
 // temp returns a fresh name for a temporary of the generated C, built from

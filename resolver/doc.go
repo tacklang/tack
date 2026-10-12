@@ -22,8 +22,8 @@
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if is nested in the block holding
 // the if. A loop is a scope of its own, holding any variable its init
-// statement or range declares, with the body nested in it. A range loop's
-// count is resolved outside that scope. A variable is visible from its declaration to the end of its block,
+// statement or range declares, with the body nested in it. What a range
+// loop ranges over is resolved outside that scope. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
 // itself. The variables a, b := f() declares are declared in order after f()
 // is resolved, as if each were declared on its own, and the targets of
@@ -36,7 +36,9 @@
 //
 // The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
 // discards the result in its position and is neither declared nor bound;
-// a list of nothing but _ is reported, as is mut on _. Anywhere else, _ is
+// a list of nothing but _ is reported, as is mut on _. In a range loop with
+// two variables, for _, x := range a, a _ declares nothing, and both being
+// _ is reported. Anywhere else, _ is
 // reported: as a declared name of any kind, as a value, and as the target
 // of a single assignment, increment or decrement. No variable or parameter may reuse a name visible where it is
 // declared, whether a parameter's or a variable's, package-level ones

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/range-two-names-int/main.tck:4:9: error: assignment mismatch: 2 variables but range over int64 gives 1 value
+03 |	func main() {
+04 |	    for i, x := range 3 {
+   |	        ^~~~~~~~~~~~~~~ 
+05 |	        exit(i + x)
+

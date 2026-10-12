@@ -1,0 +1,152 @@
+package main
+
+mut calls int64
+
+// numbers counts how often it runs, so a range over it shows the ranged
+// expression is evaluated once.
+func numbers() [4]int64 {
+    calls++
+    return [4]int64{3, 1, 4, 1}
+}
+
+// word counts how often it runs, as numbers does.
+func word() string {
+    calls++
+    return "tack"
+}
+
+// count reads s at the range index, which the loop proves in range for s.
+func count(s string, c uint8) int64 {
+    mut n := 0
+    for i := range s {
+        if s[i] == c {
+            n++
+        }
+    }
+    return n
+}
+
+// firstOver returns the index of the first element above limit, leaving the
+// loop early, or -1.
+func firstOver(a [5]int64, limit int64) int64 {
+    for i, x := range a {
+        if x > limit {
+            return i
+        }
+    }
+    return -1
+}
+
+// main checks each of: summing elements, the index alone proven in range
+// for indexing, a body that writes and replaces the array it walks while
+// later iterations still see the original elements, ranged calls that run
+// once, the copy of a string taken at loop start, empty arrays and strings,
+// nested ranges with break and continue, a loop without names, division by
+// an element proven not zero, and bytes compared with character literals.
+// Each failed check exits with its own status; success exits 42.
+func main() {
+    a := [5]int64{2, 7, 1, 8, 2}
+    mut sum := 0
+    for _, x := range a {
+        sum += x
+    }
+    if sum != 20 {
+        exit(1)
+    }
+
+    mut doubled [5]int64
+    for i := range a {
+        doubled[i] = a[i] * 2
+    }
+    if doubled != [5]int64{4, 14, 2, 16, 4} {
+        exit(2)
+    }
+
+    mut m := [3]int64{1, 2, 3}
+    mut seen := 0
+    for i, x := range m {
+        m[2] = 100
+        m = [3]int64{50, 60, 70}
+        m[i] = -1
+        seen = seen * 10 + x
+    }
+    if seen != 123 || m != [3]int64{50, 60, -1} {
+        exit(3)
+    }
+
+    mut total := 0
+    for _, x := range numbers() {
+        total += x
+    }
+    for i, b := range word() {
+        if b == 'k' {
+            total += i
+        }
+    }
+    if calls != 2 || total != 12 {
+        exit(4)
+    }
+
+    mut s := "ab"
+    mut bytes := 0
+    for i, b := range s {
+        s = "xyz"
+        bytes = bytes * 1000 + int64(b) + i
+    }
+    if bytes != 97099 || len(s) != 3 {
+        exit(5)
+    }
+    if count("banana", 'a') != 3 || count("", 'a') != 0 {
+        exit(6)
+    }
+
+    for range [0]int64{} {
+        exit(7)
+    }
+    for i := range "" {
+        exit(i + 8)
+    }
+
+    grid := [3][2]int64{{1, 2}, {3, 4}, {5, 6}}
+    mut cells := 0
+    for r, row := range grid {
+        if r == 1 {
+            continue
+        }
+        for _, v := range row {
+            if v == 6 {
+                break
+            }
+            cells += v
+        }
+    }
+    if cells != 8 {
+        exit(9)
+    }
+
+    mut ticks := 0
+    for range a {
+        ticks++
+    }
+    mut quotient := 0
+    for _, x := range a {
+        if x != 0 {
+            quotient += 56 / x
+        }
+    }
+    if ticks != 5 || quotient != 28 + 8 + 56 + 7 + 28 {
+        exit(10)
+    }
+
+    mut upper := 0
+    for _, b := range "Hello, World" {
+        if b >= 'A' && b <= 'Z' {
+            upper++
+        }
+    }
+    if upper != 2 {
+        exit(11)
+    }
+
+    exit(firstOver(a, 7) + firstOver(a, 8) + 40)
+}

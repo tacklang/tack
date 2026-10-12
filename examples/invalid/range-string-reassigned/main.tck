@@ -1,0 +1,9 @@
+package main
+
+func main() {
+    mut s := "tack"
+    for i := range s {
+        s = ""
+        exit(s[i])
+    }
+}

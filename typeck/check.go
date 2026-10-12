@@ -312,35 +312,84 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	c.loops--
 }
 
-// checkForRange checks a range loop: the count must be an integer, of any
-// type, an untyped constant count being an int64, and the loop variable, if
-// any, takes the count's type.
+// checkForRange checks a range loop. It ranges over an integer, of any
+// type, an untyped constant count being an int64, which gives the loop
+// variable the count's type; or over an array or a string, which gives the
+// index an int64 and the element the array's element type, or a string's
+// byte, a uint8. An integer gives only one value, so an element variable
+// over one is reported.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
-	got := c.valueOf(loop.Count, c.expr(loop.Count))
-	if got != types.Invalid && !types.IsInteger(got) {
-		c.errorf(loop.Count.Spanned(), "cannot range over %s", c.table.Name(got))
-		got = types.Invalid
-	}
-	var facts []fact
+	got := c.valueOf(loop.X, c.expr(loop.X))
+	index, elem := c.rangeTypes(loop, got)
 	if loop.Var != nil {
-		loop.Var.Type = got
-		facts = c.rangeFacts(loop)
+		loop.Var.Type = index
+	}
+	if loop.Elem != nil {
+		loop.Elem.Type = elem
 	}
 	c.loops++
-	c.checkGuarded(loop.Body, facts, fn)
+	c.checkGuarded(loop.Body, c.rangeFacts(loop, got), fn)
 	c.loops--
 }
 
-// rangeFacts returns what a range loop's body knows about its variable: it
-// is at least 0, and, when the count is known, at most the count less one,
-// or, when the count is len(s) of a string variable, below that length.
-func (c *Checker) rangeFacts(loop *ast.ForRange) []fact {
-	f := fact{decl: loop.Var, hasLo: true}
-	if n, ok := c.knownValue(loop.Count); ok {
-		f.hi, f.hasHi = n.Sub(constant.FromInt64(1))
+// rangeTypes returns the types a range over a value of type got gives its
+// index and its element, reporting a type that cannot be ranged over and
+// an element variable over an integer. Either type is types.Invalid where
+// there is none.
+func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem types.Type) {
+	switch {
+	case got == types.Invalid:
+		return types.Invalid, types.Invalid
+	case types.IsInteger(got):
+		if loop.Elem != nil {
+			c.errorf(
+				ast.Span{
+					File:  loop.Var.Span.File,
+					Start: loop.Var.Span.Start,
+					End:   loop.X.Spanned().End,
+				},
+				"assignment mismatch: 2 variables but range over %s gives 1 value",
+				c.table.Name(got),
+			)
+		}
+		return got, types.Invalid
+	case c.table.IsArray(got):
+		return types.Int64, c.table.Elem(got)
+	case got == types.String:
+		return types.Int64, types.Uint8
+	default:
+		c.errorf(loop.X.Spanned(), "cannot range over %s", c.table.Name(got))
+		return types.Invalid, types.Invalid
 	}
-	if s, ok := c.stringLen(loop.Count); ok {
-		f.lenOf = s
+}
+
+// rangeFacts returns what a range loop's body knows about its index
+// variable, a range over a value of type got: it is at least 0, and below
+// the count or the length when that is known. A count's is known when it is
+// a known value, an array's always, and a string's when it is a literal.
+// When the count is len(s) of a string variable, or the loop ranges over a
+// string variable s, the index is below len(s) instead, which assume keeps
+// only while the body never assigns s; s then still holds the string the
+// loop copied.
+func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
+	if loop.Var == nil || loop.Var.Name == ast.Blank {
+		return nil
+	}
+	f := fact{decl: loop.Var, hasLo: true}
+	one := constant.FromInt64(1)
+	switch {
+	case types.IsInteger(got):
+		if n, ok := c.knownValue(loop.X); ok {
+			f.hi, f.hasHi = n.Sub(one)
+		}
+		f.lenOf, _ = c.stringLen(loop.X)
+	case c.table.IsArray(got):
+		f.hi, f.hasHi = constant.FromInt64(c.table.Len(got)).Sub(one)
+	case got == types.String:
+		if n, ok := literalLen(loop.X); ok {
+			f.hi, f.hasHi = constant.FromInt64(n).Sub(one)
+		}
+		f.lenOf, _ = c.stringVar(loop.X)
 	}
 	return []fact{f}
 }

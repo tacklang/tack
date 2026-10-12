@@ -53,14 +53,14 @@
 // variable holding one, or arithmetic on those; knownValue computes it. A
 // literal lists exactly one element for each of the array's, and an index
 // must be proven in range, from the same facts as a divisor, which also
-// bound a variable: a range loop's variable, comparisons with known values,
+// bound a variable: a range loop's index, comparisons with known values,
 // and the variable's own type. v, ok := a[i] needs no proof, and is an
 // error where one exists.
 //
 // A string is indexed the same way, s[i] giving a uint8, but its length is
 // a constant only for a literal, so the facts also bound a string
 // variable's length (len(s) > 0) and bound a variable by one (i < len(s),
-// or a range loop over len(s)). Such a fact holds only in a region that
+// or a range loop over len(s) or over s). Such a fact holds only in a region that
 // assigns neither variable, and string.go uses it to prove an index. A
 // constant index into a literal is checked at compile time, a negative one
 // is always out of range, and a string's bytes are never assigned.
@@ -107,8 +107,10 @@
 //     with several results is never used as one value;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
-//   - a range loop's count is an integer, and its variable is an immutable
-//     variable of the count's type;
+//   - a range loop ranges over an integer, whose one variable takes its type,
+//     or over an array or a string, whose index is an int64 and whose
+//     element is the array's element type, or a string's byte, a uint8;
+//     both variables are immutable, and two over an integer are an error;
 //   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, or a loop

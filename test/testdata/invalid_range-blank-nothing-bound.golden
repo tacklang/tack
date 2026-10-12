@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/range-blank-nothing-bound/main.tck:5:9: error: every name is _, so nothing is bound; drop the names and :=
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for _, _ := range a {
+   |	        ^~~~ 
+06 |	        exit(1)
+
