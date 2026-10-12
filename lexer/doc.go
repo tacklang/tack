@@ -27,7 +27,9 @@
 // panics if it fails, since a violation is a bug in the lexer, not in the
 // program being compiled.
 //
-// Known gaps: a block comment ("/*") panics instead of producing a
-// diagnostic, and the body of an asm block is skipped up to the next "}"
-// without being tokenized.
+// Block comments ("/* ... */") are not supported: one is reported and
+// skipped. The body of an asm block is skipped up to the next "}" without
+// being tokenized, and an asm block with no "}" runs to the end of the input
+// without a diagnostic. Escape sequences are decoded in backquoted strings as
+// well as double-quoted ones.
 package lexer

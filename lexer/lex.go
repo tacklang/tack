@@ -263,11 +263,15 @@ func (l *Lexer) handleIdent() bool {
 }
 
 // handleASM skips the body of an asm block, stopping at its closing brace so
-// that the brace is lexed as an ordinary token.
+// that the brace is lexed as an ordinary token. The lines the body spans are
+// still recorded, so later positions stay correct.
 func (l *Lexer) handleASM() {
 	for l.pos < len(l.file.Data) {
-		if l.file.Data[l.pos] == '}' {
-			break
+		switch l.file.Data[l.pos] {
+		case '}':
+			return
+		case '\n':
+			l.file.AddLineStart(l.pos + 1)
 		}
 		l.pos++
 	}
@@ -293,8 +297,14 @@ func (l *Lexer) handleString() bool {
 			l.pos++
 			break
 		}
-		if data[l.pos] == '\n' && term == '"' {
-			break
+		if data[l.pos] == '\n' {
+			if term == '"' {
+				break
+			}
+			// A raw string spans lines, and the lines it spans still need
+			// recording, or every position after it is reported on the
+			// wrong line.
+			l.file.AddLineStart(l.pos + 1)
 		}
 		if data[l.pos] == '\\' {
 			c := l.unescapeRune('"')
@@ -325,7 +335,9 @@ func (l *Lexer) handleChar() bool {
 	}
 	l.pos++
 
-	if l.pos >= len(data) {
+	// A char literal cannot span lines, so a newline ends it unterminated and
+	// is left for the main loop to record.
+	if l.pos >= len(data) || data[l.pos] == '\n' {
 		l.diag("unterminated char literal", start, l.pos)
 		return true
 	}
@@ -343,8 +355,8 @@ func (l *Lexer) handleChar() bool {
 		l.pos++
 	}
 
-	if l.pos >= len(data) {
-		l.diag("unterminated char literal", start, start+1)
+	if l.pos >= len(data) || data[l.pos] == '\n' {
+		l.diag("unterminated char literal", start, l.pos)
 		return true
 	}
 
@@ -360,22 +372,19 @@ func (l *Lexer) handleChar() bool {
 }
 
 // skipBadChar recovers from a character literal starting at start that holds
-// more than one character: it skips to the closing quote, or to the end of the
-// line if there is none, and reports the whole literal.
+// more than one character: it skips past the closing quote, or up to the end
+// of the line or input if there is none, and reports the whole literal. A
+// newline is left in place, so the main loop records the line and inserts any
+// semicolon as usual.
 func (l *Lexer) skipBadChar(start int) {
 	data := l.file.Data
-	l.pos++
-	for l.pos < len(data) {
-		if data[l.pos] == '\n' {
-			l.handleNewline()
-			break // we need to jump after the next l.pos++
-		}
+	for l.pos < len(data) && data[l.pos] != '\n' {
 		if data[l.pos] == '\'' {
+			l.pos++
 			break
 		}
 		l.pos++
 	}
-	l.pos++
 	l.diag("too many characters in char literal", start, l.pos)
 }
 
@@ -395,7 +404,10 @@ var simpleEscapes = map[byte]byte{
 // unescapeRune decodes the escape sequence at the current position and moves
 // past it. additionalSequences lists further bytes that may be escaped as
 // themselves, such as the literal's own quote. An invalid sequence is
-// reported and decodes to 0, as does a backslash at the end of the input.
+// reported and decodes to 0. A backslash at the end of the input decodes to 0
+// unreported, since the literal it cut off reports itself as unterminated. A
+// backslash before a newline is reported and decodes to 0, and the newline is
+// left in place for the caller to handle.
 func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 	start, data := l.pos, l.file.Data
 	if l.pos >= len(data) || data[l.pos] != '\\' {
@@ -403,6 +415,10 @@ func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 	}
 	l.pos++
 	if l.pos >= len(data) {
+		return 0
+	}
+	if data[l.pos] == '\n' {
+		l.diag(fmt.Sprintf("Invalid escape sequence %q", data[start:l.pos]), start, l.pos)
 		return 0
 	}
 
@@ -443,16 +459,17 @@ func (l *Lexer) handleDigit() bool {
 // handleComment lexes a line comment. Consecutive lines that each start with
 // "//" merge into one Comment token whose value joins them with newlines. A
 // semicolon is inserted before the comment if the preceding token can end a
-// statement. Block comments are not supported and panic.
+// statement. Block comments are not supported: one is reported and skipped.
 func (l *Lexer) handleComment() bool {
 	start, data := l.pos, l.file.Data
 
-	if !l.at("//") && !l.at("/*") {
-		return false
+	if l.at("/*") {
+		l.skipBlockComment()
+		return true
 	}
 
-	if l.at("/*") {
-		panic("multi-line comment not supported")
+	if !l.at("//") {
+		return false
 	}
 	l.pos += 2
 
@@ -477,6 +494,26 @@ func (l *Lexer) handleComment() bool {
 	l.addToken(Comment, strings.TrimSpace(val.String()), start, l.pos-1)
 
 	return true
+}
+
+// skipBlockComment reports a block comment, which Tack does not support, and
+// skips past its closing "*/", or to the end of the input if it has none. The
+// lines it spans are still recorded, so later positions stay correct.
+func (l *Lexer) skipBlockComment() {
+	start, data := l.pos, l.file.Data
+	l.pos += 2
+
+	for l.pos < len(data) && !l.at("*/") {
+		if data[l.pos] == '\n' {
+			l.file.AddLineStart(l.pos + 1)
+		}
+		l.pos++
+	}
+	if l.pos < len(data) {
+		l.pos += 2
+	}
+
+	l.diag("block comments are not supported", start, l.pos)
 }
 
 // addSemi inserts an empty semicolon token at pos if the last token can end a
