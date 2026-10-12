@@ -256,7 +256,16 @@ which is true today because `main` is the only package there is.
   arithmetic that overflows wraps around at its type's width, as in Go: the
   largest value plus one is the smallest, negating the smallest signed value
   gives itself, and the smallest signed value divided by -1 is itself, with
-  remainder 0. A comparison takes two
+  remainder 0. Only a value the compiler does not know wraps: arithmetic
+  whose operands are all known values (a constant, a character literal, an
+  immutable variable holding one, `len` of an array or a string literal,
+  or arithmetic on those) must give a value of its type at every step, in
+  a function as at package level, or it is an error,
+  `constant expression overflows uint8`, covering the step that overflowed.
+  So `x := 'a' * 3` is an error, and so are `-m`, `m - 1` and `m / -1`
+  after `var m int8 = -128`, while `x++`, `x += 1` and arithmetic on a `mut`
+  variable or a parameter wrap.
+  A comparison takes two
   operands of one type, after the same widening: two integers with any of
   the six, or two `bool`s with `==` and `!=`. Strings cannot be compared yet.
 - Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
@@ -336,8 +345,10 @@ which is true today because `main` is the only package there is.
   `len(s) >= 1` and `len(s) != 0`. These hold only where neither the index
   nor the string is assigned; the string may be `mut`. A mutable
   package-level string never gets a proof. An unsigned index needs only
-  the upper bound, and a `uint64` one cannot be compared with `len(s)`, an
-  `int64`, so it uses the two-value form.
+  the upper bound. A `uint64` index cannot be compared with `len(s)` or
+  `len(a)`, an `int64`, since `uint64` and `int64` have no common type; this
+  is intended, not a gap. Convert it first, `i, ok := int64(u)`, and prove
+  `i`, or use the two-value form.
 - `len(a)` is the number of elements of an array, a constant, and `len(s)`
   the number of bytes of a string, a constant for a string literal; either
   is an `int64`.
@@ -380,16 +391,21 @@ which is true today because `main` is the only package there is.
   `_` is an error, since the call can be made on its own.
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged.
+- A string is a sequence of bytes, everywhere: `s[i]` is a `uint8`,
+  `len(s)` counts bytes, a character literal is one byte, and `range` over
+  a string, when it exists, will give bytes. Decoding UTF-8 into runes will
+  be a facility of the standard library, not language syntax.
 - Character literals. `'a'` is a constant of type `uint8`, the value of
   its one byte, with the escapes a string has (`'\n'`, `'\\'`) and `'\''`
   for the quote. Unlike an integer literal it has a type of its own: in
   `'a' + 1` the `1` becomes a `uint8`, the arithmetic is `uint8`
-  arithmetic, which wraps at runtime, and `'a'` widens where a wider
+  arithmetic, and `'a'` widens where a wider
   integer is expected, as in `exit('a')` or `var n int64 = 'a'`. It is a
   known value for proofs and array lengths, and may appear in a
-  package-level initializer, where arithmetic on it must stay a value of
-  its type at every step: `var x = 'a' * 3` overflows `uint8` and is an
-  error. A character literal is exactly one byte, so `''`, `'ab'` and a
+  package-level initializer. Arithmetic on it, being on known values, must
+  stay a value of its type at every step, wherever it is written:
+  `'a' * 3` overflows `uint8` and is an error, while `c * 3` wraps at
+  runtime for a `mut` variable `c`. A character literal is exactly one byte, so `''`, `'ab'` and a
   character longer than one byte in UTF-8, such as `'é'`, are errors.
 
 ## Tests

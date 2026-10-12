@@ -852,7 +852,8 @@ func TestBuiltIndexingExits70(t *testing.T) {
 
 // The chars example uses character literals as uint8 constants: in
 // arithmetic, comparisons, indexes, array lengths and package-level
-// initializers, and widened to int64 for exit.
+// initializers, and widened to int64 for exit; a mutable copy of one wraps
+// at run time when tripled.
 func TestBuiltCharsExits97(t *testing.T) {
 	bin := buildWithClang(t, "chars")
 	err := exec.CommandContext(t.Context(), bin).Run()

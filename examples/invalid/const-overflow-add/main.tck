@@ -1,0 +1,6 @@
+package main
+
+func main() {
+    var largest int64 = 9223372036854775807
+    exit(largest + 1)
+}

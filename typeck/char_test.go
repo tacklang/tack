@@ -18,7 +18,7 @@ var charTypeCases = []struct {
 	{"x := 'a' + 1", types.Uint8},
 	{"x := 1 + 'a'", types.Uint8},
 	{"x := 'a' + 'b'", types.Uint8},
-	{"x := 'a' * 3", types.Uint8},
+	{"x := 'a' * 2", types.Uint8},
 	{"x := ('a')", types.Uint8},
 	{"x := 'a' == 97", types.Bool},
 	{"x := 'a' < 'b'", types.Bool},
@@ -71,7 +71,7 @@ var validCharPrograms = []struct{ name, src string }{
 		"uint8 variable index",
 		mainLines("mut seen [256]bool", "c := 'q'", "seen[c] = true", "if seen[c] {", "}"),
 	},
-	{"wrapping is not a constant error", mainLines("var x uint8 = 'a' * 3", "exit(x)")},
+	{"a mutable variable wraps", mainLines("mut x = 'a'", "x *= 3", "exit(x)")},
 	{"compared with a uint8", mainLines("var b uint8 = 97", "if b == 'a' {", "}")},
 	{"compared with an int64", mainLines("n := 97", "if n == 'a' {", "}")},
 	{"checked conversion", mainLines("v, ok := int8('a')", "if ok {", "    exit(v)", "}")},
@@ -168,7 +168,7 @@ var invalidCharPrograms = []struct {
 	{
 		"global overflow in a step",
 		withGlobal("var x = 'a' * 3 / 3"),
-		spanned{"constant expression overflows uint8", "'a' * 3 / 3"},
+		spanned{"constant expression overflows uint8", "'a' * 3"},
 	},
 	{
 		"global overflow in an element",

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/const-overflow-step/main.tck:4:10: error: constant expression overflows uint8
+03 |	func main() {
+04 |	    x := 'a' * 3 / 3
+   |	         ^~~~~~~ 
+05 |	    exit(x)
+

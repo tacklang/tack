@@ -31,7 +31,7 @@ Open questions about how a feature should behave are in
 | Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |
 | Float literals              | yes   | no      | no      | no      |                                                                                                                  |
 | Char literals               | yes   | yes     | yes     | yes     | A typed `uint8` constant; one byte, escapes as in strings; `'é'` is an error                                     |
-| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                               |
+| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes, everywhere; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                   |
 | Raw string literals         | yes   | yes     | yes     | yes     | Escapes are decoded too, unlike Go                                                                               |
 | Operators                   | yes   | partial | partial | partial | All of Go's are lexed; see Expressions for what is parsed                                                        |
 
@@ -76,26 +76,26 @@ Open questions about how a feature should behave are in
 
 ### Expressions
 
-| Feature                           | Lexer | Parser | Checker | C       | Notes                                                                                                                        |
-|-----------------------------------|-------|--------|---------|---------|------------------------------------------------------------------------------------------------------------------------------|
-| Integer and string literals       | yes   | yes    | yes     | yes     |                                                                                                                              |
-| Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                                      |
-| Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                      |
-| Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                              |
-| `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; overflow wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
-| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                             |
-| `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                          |
-| Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                                        |
-| Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                             |
-| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops, guards and types, or `v, ok := a[i]`                                           |
-| Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from `len(s)` guards and range loops, or `v, ok := s[i]`; never assigned                                   |
-| Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                              |
-| Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                |
-| Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                |
-| `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                                          |
-| Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                                              |
-| `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                                       |
-| Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                                                                                                |
+| Feature                           | Lexer | Parser | Checker | C       | Notes                                                                                                                                                                   |
+|-----------------------------------|-------|--------|---------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Integer and string literals       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
+| Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                                                                                 |
+| Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                                                                 |
+| Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
+| `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; on known values, overflow is an error; otherwise it wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
+| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                                                                        |
+| `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                                                                     |
+| Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; the smallest known value is an overflow error; `-` before digits is a negative literal                                                    |
+| Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                                                                        |
+| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops, guards and types, or `v, ok := a[i]`                                                                                      |
+| Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from `len(s)` guards and range loops, or `v, ok := s[i]`; never assigned                                                                              |
+| Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                                                                         |
+| Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                                                           |
+| Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                                                           |
+| `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                                                                                     |
+| Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                                                                                         |
+| `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                                                                                  |
+| Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                                                                                                                                           |
 
 ### Types
 

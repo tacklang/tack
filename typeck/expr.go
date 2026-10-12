@@ -299,11 +299,35 @@ func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 		return c.foldArithmetic(bin)
 	}
 	typ := c.typedArithmetic(bin, x, y)
-	if typ != types.Invalid && (bin.Op == ast.Div || bin.Op == ast.Rem) &&
-		c.checkedDivision != bin {
+	if typ == types.Invalid {
+		return types.Invalid
+	}
+	if (bin.Op == ast.Div || bin.Op == ast.Rem) && c.checkedDivision != bin {
 		c.requireNonzero(bin.Y, true)
 	}
+	if c.knownOverflow(bin, typ) {
+		return types.Invalid
+	}
 	return typ
+}
+
+// knownOverflow reports typed arithmetic whose operands are both known
+// values but whose exact result is not a value of its type typ, as in
+// 'a' * 3 in uint8, and returns whether it did. Such arithmetic is an error
+// wherever it is written, so the program never wraps a value the compiler
+// knew. A known zero divisor is not reported here, since requireNonzero
+// reports it, and arithmetic on a value not known wraps at run time.
+func (c *Checker) knownOverflow(bin *ast.Binary, typ types.Type) bool {
+	a, okA := c.knownValue(bin.X)
+	b, okB := c.knownValue(bin.Y)
+	if !okA || !okB || (bin.Op == ast.Div || bin.Op == ast.Rem) && b.IsZero() {
+		return false
+	}
+	if _, fits := knownStep(bin.Op, a, b, typ); fits {
+		return false
+	}
+	c.errorf(bin.Span, "constant expression overflows %s", c.table.Name(typ))
+	return true
 }
 
 // typedArithmetic returns the type arithmetic on operands of types x and y
@@ -545,7 +569,8 @@ func (c *Checker) supports(typ types.Type, op ast.BinaryOp) bool {
 
 // unary checks a prefix expression and returns its type. ! takes a bool. -
 // takes a signed integer, and negating an untyped constant is computed
-// exactly; it is not defined on unsigned types, where -x is almost always a
+// exactly, as is negating a known value of a signed type, which must not
+// overflow it; it is not defined on unsigned types, where -x is almost always a
 // mistake, and 0 - x says what wrapping is wanted.
 func (c *Checker) unary(u *ast.Unary) types.Type {
 	x := c.expr(u.X)
@@ -569,11 +594,27 @@ func (c *Checker) unary(u *ast.Unary) types.Type {
 		u.Const = negated
 		return types.UntypedInt
 	case types.IsInteger(x) && !types.IsUnsigned(x):
-		return x
+		return c.knownNegation(u, x)
 	default:
 		c.errorf(u.X.Spanned(), "operator - is not defined on %s", c.table.Name(x))
 		return types.Invalid
 	}
+}
+
+// knownNegation returns the type of -x for x of the signed type typ, and
+// reports negating a known value whose negation is not one of typ's, the
+// type's smallest value, as knownOverflow does arithmetic: it is an error
+// wherever it is written, and the result is Invalid.
+func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
+	v, known := c.knownValue(u.X)
+	if !known {
+		return typ
+	}
+	if _, fits := fitting(v.Neg())(typ); fits {
+		return typ
+	}
+	c.errorf(u.Span, "constant expression overflows %s", c.table.Name(typ))
+	return types.Invalid
 }
 
 // conversion checks a conversion whose single value is used, T(x), and

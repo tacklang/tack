@@ -19,9 +19,9 @@
 // expression, made only of literals and operators, and the checker records
 // its value in Var.Const. Every operand is computed, the right side of && and
 // || included, as in Go, so an error on either side is reported. Arithmetic
-// on character literals is typed, so each step must give a value of its
-// type, uint8 unless it widened, or the initializer is reported as
-// overflowing it. A global without a value gets its type's zero value.
+// on character literals is typed, and checked as in a function, below, so
+// a step that overflows its type has been reported before the initializer
+// is computed. A global without a value gets its type's zero value.
 //
 // Every expression is checked bottom up by expr, which records its type on
 // the node and returns it. types.Invalid always means a problem has already
@@ -75,6 +75,13 @@
 //   - every operand of an arithmetic operator is an integer, the two having
 //     a common type, and the operand of - a signed integer; every operand of
 //     && || and ! is a bool;
+//   - typed arithmetic whose operands are known values, as knownValue
+//     computes them, gives a value of its type, or the step that does not
+//     is reported as overflowing it, here as at package level; so is - on
+//     a known smallest value of a signed type. The expression is then
+//     Invalid, so nothing around it is reported again. Arithmetic on a
+//     value not known, a mutable variable's or a parameter's, wraps at run
+//     time and is not checked;
 //   - both operands of a comparison have one type, after widening, which
 //     supports the operator: an integer supports all six, a bool only == and
 //     !=, and a string none. A mismatch, or an unsupported operator, is one

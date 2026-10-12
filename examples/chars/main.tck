@@ -11,6 +11,8 @@ func next(c uint8) uint8 {
 
 func main() {
     c := 'a'
+    mut tripled = c
+    tripled *= 3
     var wide int64 = 'a'
     d := next(c)
     mut seen [256]bool
@@ -24,7 +26,7 @@ func main() {
     if letters[2] != 'c' || wide != 97 || '\'' != 39 || '\\' != 92 || '"' != 34 {
         exit(2)
     }
-    if len(counts) != 3 || gap != 5 || counts[2] != 25 || 'a' * 3 != 35 {
+    if len(counts) != 3 || gap != 5 || counts[2] != 25 || tripled != 35 {
         exit(3)
     }
     exit(c)

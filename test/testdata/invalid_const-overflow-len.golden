@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/const-overflow-len/main.tck:4:10: error: constant expression overflows int64
+03 |	func main() {
+04 |	    exit(len("abc") * 4611686018427387904)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+05 |	}
+

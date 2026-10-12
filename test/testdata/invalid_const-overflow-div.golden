@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/const-overflow-div/main.tck:6:10: error: constant expression overflows int64
+05 |	    var d int64 = -1
+06 |	    exit(smallest / d)
+   |	         ^~~~~~~~~~~~ 
+07 |	}
+

@@ -15,7 +15,7 @@ func main() {
     u--
     var w uint16 = 65535
     sum := w + u
-    var x int32 = 100000
+    mut x int32 = 100000
     var wide int64 = x * x
     if b == smallest && next(b) == -127 && largest - 1 == 18446744073709551614 && wide == 1410065408 && u == 255 {
         exit(sum - 200)

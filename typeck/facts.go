@@ -152,7 +152,10 @@ func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 }
 
 // knownVar returns the value of the variable id names, when it is
-// immutable and its value is known.
+// immutable and its value is known. A local's answer is remembered, since
+// its initializer, already checked, never changes, and computing it again
+// for every use would take time exponential in a chain of variables each
+// used twice by the next.
 func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	v, ok := id.Def.(*ast.Var)
 	if !ok || v.Mutable {
@@ -164,7 +167,21 @@ func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	if v.Value == nil {
 		return constant.Int{}, false
 	}
-	return c.knownValue(v.Value)
+	if r, seen := c.knownVars[v]; seen {
+		return r.value, r.ok
+	}
+	value, known := c.knownValue(v.Value)
+	if !c.globals[v] {
+		c.knownVars[v] = knownResult{value, known}
+	}
+	return value, known
+}
+
+// knownResult is what knownVar found out about a variable: its value, and
+// whether it is known.
+type knownResult struct {
+	value constant.Int
+	ok    bool
 }
 
 // knownArithmetic computes arithmetic on two known values, exactly, and
@@ -179,21 +196,28 @@ func (c *Checker) knownArithmetic(bin *ast.Binary) (constant.Int, bool) {
 	if !okA || !okB {
 		return constant.Int{}, false
 	}
-	switch bin.Op {
+	return knownStep(bin.Op, a, b, bin.Type)
+}
+
+// knownStep computes a op b, exactly, for the arithmetic operator op, and
+// keeps the result only if it is a value of the type typ the operation
+// works in. A division or remainder by zero has no value.
+func knownStep(op ast.BinaryOp, a, b constant.Int, typ types.Type) (constant.Int, bool) {
+	switch op {
 	case ast.Add:
-		return fitting(a.Add(b))(bin.Type)
+		return fitting(a.Add(b))(typ)
 	case ast.Sub:
-		return fitting(a.Sub(b))(bin.Type)
+		return fitting(a.Sub(b))(typ)
 	case ast.Mul:
-		return fitting(a.Mul(b))(bin.Type)
+		return fitting(a.Mul(b))(typ)
 	}
 	if b.IsZero() {
 		return constant.Int{}, false
 	}
-	if bin.Op == ast.Div {
-		return fitting(a.Quo(b))(bin.Type)
+	if op == ast.Div {
+		return fitting(a.Quo(b))(typ)
 	}
-	return fitting(a.Rem(b))(bin.Type)
+	return fitting(a.Rem(b))(typ)
 }
 
 // fitting turns the result of a constant operation into a known value of

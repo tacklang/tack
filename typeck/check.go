@@ -26,6 +26,10 @@ type Checker struct {
 	funcs   map[string]*ast.Func
 	globals map[*ast.Var]bool // the package-level variables
 
+	// knownVars remembers, for each local variable knownVar has been asked
+	// about, what it found.
+	knownVars map[*ast.Var]knownResult
+
 	// active holds the facts in force where checking has reached, innermost
 	// last; see facts.go.
 	active []fact
@@ -41,6 +45,8 @@ func New(file *ast.File) *Checker {
 		table:   types.NewTable(),
 		funcs:   make(map[string]*ast.Func),
 		globals: make(map[*ast.Var]bool),
+
+		knownVars: make(map[*ast.Var]knownResult),
 	}
 }
 
@@ -474,9 +480,10 @@ func zeroConst(typ types.Type) any {
 // elements as a []any of those. A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
 // since any error on either side has already been reported. Arithmetic in
-// a type of its own, as on character literals, must give a value of that
-// type at every step, like an untyped constant must stay in range; one that
-// does not is reported, and has no value.
+// a type of its own, as on character literals, gives a value of that type
+// at every step, since checking the expression reported any step that does
+// not, as it does in a function, and checkGlobal folds only an initializer
+// that checked without errors.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
 	if v, ok, isInt := c.foldInt(e); isInt {
 		return v, ok
@@ -501,7 +508,8 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 
 // foldInt computes e when it is an integer constant expression, untyped or
 // typed, and reports whether it has a value and whether it is one. A typed
-// one whose value, or a step's, is not a value of its type is reported.
+// one is a known value: a step that overflows its type was reported when
+// e was checked, so e is never folded.
 func (c *Checker) foldInt(e ast.Expr) (v constant.Int, ok, isInt bool) {
 	if v, ok = constValue(e); ok {
 		return v, true, true
@@ -511,9 +519,6 @@ func (c *Checker) foldInt(e ast.Expr) (v constant.Int, ok, isInt bool) {
 		return constant.Int{}, false, false
 	}
 	v, ok = c.knownValue(e)
-	if !ok {
-		c.errorf(e.Spanned(), "constant expression overflows %s", c.table.Name(typ))
-	}
 	return v, ok, true
 }
 
