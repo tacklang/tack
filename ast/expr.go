@@ -100,6 +100,23 @@ func (i *IntLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the literal.
 func (i *IntLit) Spanned() Span { return i.Span }
 
+// CharLit is a character literal, such as 'a' or '\n': one byte, written as
+// itself or as an escape sequence. Unlike an integer literal it has a type
+// of its own, always uint8, and its value is a constant of that type.
+type CharLit struct {
+	Span  Span
+	Value byte // decoded
+}
+
+var _ Expr = (*CharLit)(nil)
+
+func (c *CharLit) exprKey() exprKey { return _exprKey }
+
+func (c *CharLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the literal, quotes included.
+func (c *CharLit) Spanned() Span { return c.Span }
+
 // BoolLit is the literal true or false.
 type BoolLit struct {
 	Span  Span
@@ -259,8 +276,9 @@ func (u *Unary) Spanned() Span { return u.Span }
 
 // TypeOf returns the type of an expression, or types.Invalid if it has none
 // the compiler can determine. It reads what earlier passes recorded: a
-// literal carries its type in its node, an operator expression the type the
-// checker gave it, and an identifier its declaration's. An integer literal
+// literal carries its type in its node, or has one fixed type, as a
+// character literal is a uint8, an operator expression the type the checker
+// gave it, and an identifier its declaration's. An integer literal
 // the checker has not reached is types.UntypedInt.
 func TypeOf(expr Expr) types.Type {
 	switch e := expr.(type) {
@@ -271,6 +289,8 @@ func TypeOf(expr Expr) types.Type {
 			return types.UntypedInt
 		}
 		return e.Type
+	case *CharLit:
+		return types.Uint8
 	case *BoolLit:
 		return types.Bool
 	case *Ident:

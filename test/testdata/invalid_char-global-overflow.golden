@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/char-global-overflow/main.tck:3:15: error: constant expression overflows uint8
+02 |	
+03 |	var tripled = 'a' * 3
+   |	              ^~~~~~~ 
+04 |	
+

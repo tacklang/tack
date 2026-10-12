@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
@@ -342,9 +343,7 @@ func (l *Lexer) handleChar() bool {
 		return true
 	}
 
-	if data[l.pos] == '\'' {
-		l.pos++
-		l.diag("empty char literal", start, l.pos)
+	if l.skipEmptyOrWideChar(start) {
 		return true
 	}
 
@@ -366,8 +365,34 @@ func (l *Lexer) handleChar() bool {
 	}
 	l.pos++
 
-	l.addToken(Char, string(val), start, l.pos)
+	// One byte, not the UTF-8 encoding of the code point the byte's value
+	// would be, which string(val) would give for a byte from 0x80 up.
+	l.addToken(Char, string([]byte{val}), start, l.pos)
 
+	return true
+}
+
+// skipEmptyOrWideChar reports a character literal starting at start that is
+// empty, ”, or holds one character encoded in more than one byte of UTF-8,
+// such as 'é', since a character literal is one byte, and moves past it. It
+// reports whether it found one. A byte that does not begin a valid
+// multi-byte sequence is left for handleChar, as a byte of its own.
+func (l *Lexer) skipEmptyOrWideChar(start int) bool {
+	data := l.file.Data
+	if data[l.pos] == '\'' {
+		l.pos++
+		l.diag("empty char literal", start, l.pos)
+		return true
+	}
+	_, size := utf8.DecodeRune(data[l.pos:])
+	if size < 2 || l.pos+size >= len(data) || data[l.pos+size] != '\'' {
+		return false
+	}
+	l.pos += size + 1
+	l.diag(fmt.Sprintf(
+		"char literal %s is %d bytes in UTF-8; a char literal must be one byte",
+		data[start:l.pos], size,
+	), start, l.pos)
 	return true
 }
 

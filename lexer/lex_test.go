@@ -203,6 +203,12 @@ var adversarialInputs = []string{
 	`'\''`,
 	`'\n'`,
 	`'\q'`,
+	"'é'",
+	"'é",
+	"'éé'",
+	"'\xff'",
+	"'\xe2\x82'",
+	"'\xe2\x82\xac",
 	"/",
 	"//",
 	"// c",
@@ -341,6 +347,11 @@ func TestLiteralValues(t *testing.T) {
 		{`'a'`, "a"},
 		{`'\n'`, "\n"},
 		{`'\''`, "'"},
+		{`'"'`, `"`},
+		{"'\xff'", "\xff"},
+		{"'\x80'", "\x80"},
+		{"'\xc3'", "\xc3"},
+		{"'\x00'", "\x00"},
 		{"0", "0"},
 		{"007", "007"},
 		{"9223372036854775808", "9223372036854775808"},
@@ -394,46 +405,76 @@ func TestTokenOffsets(t *testing.T) {
 	}
 }
 
+// diagnosticCases are malformed inputs, with the messages the lexer must
+// report for each, in order.
+var diagnosticCases = []struct {
+	name string
+	src  string
+	want []string
+}{
+	{"invalid character", "@", []string{"invalid character @"}},
+	{"every invalid character", "@ $ ?", []string{
+		"invalid character @", "invalid character $", "invalid character ?",
+	}},
+	{"unterminated string at EOF", `"abc`, []string{"unterminated string"}},
+	{"unterminated string at newline", "\"abc\nx", []string{"unterminated string"}},
+	{"unterminated raw string", "`abc", []string{"unterminated string"}},
+	{"invalid escape", `"\q"`, []string{`Invalid escape sequence "\\q"`}},
+	{"empty char", "''", []string{"empty char literal"}},
+	{"lone quote", "'", []string{"unterminated char literal"}},
+	{"char cut off", "'a", []string{"unterminated char literal"}},
+	{"char too long", "'ab'", []string{"too many characters in char literal"}},
+	{"char too long at EOF", "'ab", []string{"too many characters in char literal"}},
+	{"char too long before newline", "'ab\nx", []string{"too many characters in char literal"}},
+	{"char cut off by a newline", "'\nx", []string{"unterminated char literal"}},
+	{"char two bytes in UTF-8", "'é'", []string{
+		"char literal 'é' is 2 bytes in UTF-8; a char literal must be one byte",
+	}},
+	{"char three bytes in UTF-8", "'€'", []string{
+		"char literal '€' is 3 bytes in UTF-8; a char literal must be one byte",
+	}},
+	{"char four bytes in UTF-8", "'😀'", []string{
+		"char literal '😀' is 4 bytes in UTF-8; a char literal must be one byte",
+	}},
+	{"char the replacement character", "'\uFFFD'", []string{
+		"char literal '\uFFFD' is 3 bytes in UTF-8; a char literal must be one byte",
+	}},
+	{"char multi-byte then more", "'éa'", []string{"too many characters in char literal"}},
+	{"char multi-byte cut off", "'é", []string{"too many characters in char literal"}},
+	{
+		"char multi-byte before newline",
+		"'é\nx",
+		[]string{"too many characters in char literal"},
+	},
+	{
+		"char truncated UTF-8 then more",
+		"'\xc3a'",
+		[]string{"too many characters in char literal"},
+	},
+	{"lexing goes on after a multi-byte char", "'é' @", []string{
+		"char literal 'é' is 2 bytes in UTF-8; a char literal must be one byte",
+		"invalid character @",
+	}},
+	{"char escape cut off by a newline", "'\\\nx", []string{
+		`Invalid escape sequence "\\"`, "unterminated char literal",
+	}},
+	{"string escape cut off by a newline", "\"a\\\nb\"", []string{
+		`Invalid escape sequence "\\"`, "unterminated string", "unterminated string",
+	}},
+	{"raw string escape cut off by a newline", "`a\\\nb`", []string{
+		`Invalid escape sequence "\\"`,
+	}},
+	{"block comment", "/* c */", []string{"block comments are not supported"}},
+	{"unterminated block comment", "/* c", []string{"block comments are not supported"}},
+	{"lexing goes on after a block comment", "/* c */ @", []string{
+		"block comments are not supported", "invalid character @",
+	}},
+}
+
 // TestDiagnostics pins which inputs are errors, what each error says, and
 // that lexing goes on to report every problem in one run.
 func TestDiagnostics(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want []string
-	}{
-		{"invalid character", "@", []string{"invalid character @"}},
-		{"every invalid character", "@ $ ?", []string{
-			"invalid character @", "invalid character $", "invalid character ?",
-		}},
-		{"unterminated string at EOF", `"abc`, []string{"unterminated string"}},
-		{"unterminated string at newline", "\"abc\nx", []string{"unterminated string"}},
-		{"unterminated raw string", "`abc", []string{"unterminated string"}},
-		{"invalid escape", `"\q"`, []string{`Invalid escape sequence "\\q"`}},
-		{"empty char", "''", []string{"empty char literal"}},
-		{"lone quote", "'", []string{"unterminated char literal"}},
-		{"char cut off", "'a", []string{"unterminated char literal"}},
-		{"char too long", "'ab'", []string{"too many characters in char literal"}},
-		{"char too long at EOF", "'ab", []string{"too many characters in char literal"}},
-		{"char too long before newline", "'ab\nx", []string{"too many characters in char literal"}},
-		{"char cut off by a newline", "'\nx", []string{"unterminated char literal"}},
-		{"char escape cut off by a newline", "'\\\nx", []string{
-			`Invalid escape sequence "\\"`, "unterminated char literal",
-		}},
-		{"string escape cut off by a newline", "\"a\\\nb\"", []string{
-			`Invalid escape sequence "\\"`, "unterminated string", "unterminated string",
-		}},
-		{"raw string escape cut off by a newline", "`a\\\nb`", []string{
-			`Invalid escape sequence "\\"`,
-		}},
-		{"block comment", "/* c */", []string{"block comments are not supported"}},
-		{"unterminated block comment", "/* c", []string{"block comments are not supported"}},
-		{"lexing goes on after a block comment", "/* c */ @", []string{
-			"block comments are not supported", "invalid character @",
-		}},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range diagnosticCases {
 		t.Run(tt.name, func(t *testing.T) {
 			out := lex(t, tt.src)
 			checkInvariants(t, tt.src, out)

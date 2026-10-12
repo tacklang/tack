@@ -1,0 +1,31 @@
+package main
+
+var newline = '\n'
+var letters = [3]uint8{'a', 'b', 'c'}
+var last = 'a' + 25
+var ordered = 'a' < 'b'
+
+func next(c uint8) uint8 {
+    return c + 1
+}
+
+func main() {
+    c := 'a'
+    var wide int64 = 'a'
+    d := next(c)
+    mut seen [256]bool
+    seen['x'] = true
+    gap := 10 / ('c' - 'a')
+    mut counts ['d' - 'a']int64
+    counts[2] = 'z' - 'a'
+    if d != 'b' || !seen[120] || last != 'z' || !ordered || newline != 10 {
+        exit(1)
+    }
+    if letters[2] != 'c' || wide != 97 || '\'' != 39 || '\\' != 92 || '"' != 34 {
+        exit(2)
+    }
+    if len(counts) != 3 || gap != 5 || counts[2] != 25 || 'a' * 3 != 35 {
+        exit(3)
+    }
+    exit(c)
+}

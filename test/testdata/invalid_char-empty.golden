@@ -1,0 +1,9 @@
+stage: lex
+---
+
+examples/invalid/char-empty/main.tck:4:10: error: empty char literal
+03 |	func main() {
+04 |	    c := ''
+   |	         ^~ 
+05 |	    exit(c)
+

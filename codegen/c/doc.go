@@ -27,7 +27,9 @@
 // fail, is a C cast; v, ok := T(x) holds x in a temporary, tests it against
 // only the bounds of T it can fall outside, and gives T's cast of it, or 0.
 // A constant expression is written as the value the checker computed, never
-// as its operators; one too large for an int64 gets a u suffix.
+// as its operators; one too large for an int64 gets a u suffix. A character
+// literal is written as its byte's value, a plain C int literal; arithmetic
+// on it is uint8 arithmetic, lowered like any other.
 // A string is a tack_string, a struct holding a pointer and a length and
 // passed by value, so a string is one value that can be passed and returned
 // like any other.

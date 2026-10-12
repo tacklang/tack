@@ -17,7 +17,7 @@ import (
 // so a caller never reports anything more about it.
 func (c *Checker) expr(e ast.Expr) types.Type {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.StrLit, *ast.BoolLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return literalType(x)
 	case *ast.Ident:
 		// The resolver reports a name bound to nothing, and the pipeline
@@ -46,13 +46,16 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 	}
 }
 
-// literalType returns the type of a literal: a string's or a bool's, or an
-// integer's, which is untyped until settled.
+// literalType returns the type of a literal: a string's or a bool's, a
+// character's, which is a uint8, or an integer's, which is untyped until
+// settled.
 func literalType(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.IntLit:
 		x.Type = types.UntypedInt
 		return types.UntypedInt
+	case *ast.CharLit:
+		return types.Uint8
 	case *ast.StrLit:
 		return types.String
 	default:
@@ -212,11 +215,14 @@ func (c *Checker) valueOf(e ast.Expr, got types.Type) types.Type {
 }
 
 // constValue returns the value of an integer constant expression, and
-// whether e is one.
+// whether e is one. A character literal is one too, though of type uint8
+// rather than untyped.
 func constValue(e ast.Expr) (constant.Int, bool) {
 	switch x := e.(type) {
 	case *ast.IntLit:
 		return x.Value, true
+	case *ast.CharLit:
+		return constant.FromInt64(int64(x.Value)), true
 	case *ast.Binary:
 		v, ok := x.Const.(constant.Int)
 		return v, ok

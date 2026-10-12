@@ -52,6 +52,8 @@
 // unresolved (every Type is types.Invalid) for the resolver and type checker
 // to fill in. Integer literals are the exception: they are decoded here, to
 // their exact value, and one outside the range every literal must lie in,
-// the smallest int64 to the largest uint64, is reported here. Every
+// the smallest int64 to the largest uint64, is reported here. A character
+// literal becomes an ast.CharLit holding its one byte, which the lexer has
+// already decoded and checked. Every
 // node's span is tagged with the FileID the parser was created with.
 package parser

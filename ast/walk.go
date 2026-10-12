@@ -119,7 +119,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
-	case *Ident, *StrLit, *IntLit, *BoolLit:
+	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit:
 		// leaves
 	default:
 		walkArrayExpr(e, v)

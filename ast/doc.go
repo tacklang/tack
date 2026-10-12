@@ -4,7 +4,8 @@
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, and the type checker sets
 // Param.Type, Var.Type and Func.ResultType to the types those declarations
-// denote, the type of every operator expression and integer literal,
+// denote, the type of every operator expression and integer literal (a
+// character literal is always a uint8, so it has no field for one),
 // Binary.Const and Unary.Const to the value of an integer constant
 // expression, Var.Const to a package-level variable's computed initial value,
 // CompositeLit.Type and Index.Type to an array literal's and an element's

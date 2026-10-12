@@ -431,7 +431,7 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 // array literals of them included.
 func isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.StrLit, *ast.BoolLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return true
 	case *ast.CompositeLit:
 		for _, elem := range x.Elems {
@@ -469,10 +469,13 @@ func zeroConst(typ types.Type) any {
 // computed exactly as it was checked, a string, a bool, or an array's
 // elements as a []any of those. A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
-// since any error on either side has already been reported.
+// since any error on either side has already been reported. Arithmetic in
+// a type of its own, as on character literals, must give a value of that
+// type at every step, like an untyped constant must stay in range; one that
+// does not is reported, and has no value.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
-	if v, ok := constValue(e); ok {
-		return v, true
+	if v, ok, isInt := c.foldInt(e); isInt {
+		return v, ok
 	}
 	switch x := e.(type) {
 	case *ast.StrLit:
@@ -490,6 +493,24 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.foldNot(x)
 	}
 	return nil, false
+}
+
+// foldInt computes e when it is an integer constant expression, untyped or
+// typed, and reports whether it has a value and whether it is one. A typed
+// one whose value, or a step's, is not a value of its type is reported.
+func (c *Checker) foldInt(e ast.Expr) (v constant.Int, ok, isInt bool) {
+	if v, ok = constValue(e); ok {
+		return v, true, true
+	}
+	typ := ast.TypeOf(e)
+	if !types.IsInteger(typ) || typ == types.UntypedInt {
+		return constant.Int{}, false, false
+	}
+	v, ok = c.knownValue(e)
+	if !ok {
+		c.errorf(e.Spanned(), "constant expression overflows %s", c.table.Name(typ))
+	}
+	return v, ok, true
 }
 
 // foldNot computes ! on a bool constant.
@@ -514,11 +535,15 @@ func (c *Checker) foldElems(lit *ast.CompositeLit) (any, bool) {
 	return elems, true
 }
 
-// foldBoolBinary computes an operator on two bool constants, folding both
-// sides first.
+// foldBoolBinary computes an operator that gives a bool, on two bool
+// constants or a comparison of two integer ones, folding both sides first.
 func (c *Checker) foldBoolBinary(bin *ast.Binary) (any, bool) {
 	left, okL := c.fold(bin.X)
 	right, okR := c.fold(bin.Y)
+	if a, isInt := left.(constant.Int); okL && okR && isInt && bin.Op.IsComparison() {
+		b, _ := right.(constant.Int)
+		return compare(bin.Op, a.Cmp(b)), true
+	}
 	l, isBoolL := left.(bool)
 	r, isBoolR := right.(bool)
 	if !okL || !okR || !isBoolL || !isBoolR {

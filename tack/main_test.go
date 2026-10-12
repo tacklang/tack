@@ -850,6 +850,18 @@ func TestBuiltIndexingExits70(t *testing.T) {
 	}
 }
 
+// The chars example uses character literals as uint8 constants: in
+// arithmetic, comparisons, indexes, array lengths and package-level
+// initializers, and widened to int64 for exit.
+func TestBuiltCharsExits97(t *testing.T) {
+	bin := buildWithClang(t, "chars")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 97 {
+		t.Errorf("chars exited with %v, want status 97", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

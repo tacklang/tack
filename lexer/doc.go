@@ -18,7 +18,11 @@
 // Semi covers no bytes. The token stream always ends with an EOF token.
 //
 // Literals carry decoded values: string and char literals have their escape
-// sequences resolved, and keywords carry their KeywordType. Numbers are kept
+// sequences resolved, and keywords carry their KeywordType. A char literal
+// holds exactly one byte, written as itself or as an escape sequence, and
+// its value is a one-byte string; a character whose UTF-8 encoding is longer,
+// such as 'é', is reported, as are an empty literal and one with several
+// characters. Numbers are kept
 // as their source text; converting them, and rejecting out-of-range values, is
 // left to the parser.
 //

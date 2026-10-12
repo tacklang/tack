@@ -18,8 +18,10 @@
 // are known in every function. A global's initializer must be a constant
 // expression, made only of literals and operators, and the checker records
 // its value in Var.Const. Every operand is computed, the right side of && and
-// || included, as in Go, so an error on either side is reported. A global
-// without a value gets its type's zero value.
+// || included, as in Go, so an error on either side is reported. Arithmetic
+// on character literals is typed, so each step must give a value of its
+// type, uint8 unless it widened, or the initializer is reported as
+// overflowing it. A global without a value gets its type's zero value.
 //
 // Every expression is checked bottom up by expr, which records its type on
 // the node and returns it. types.Invalid always means a problem has already
@@ -28,7 +30,10 @@
 // exactly, in the constant package's range, and has types.UntypedInt until
 // the place it is used gives it a type: the type it is assigned, passed,
 // returned or compared to, or combined with in arithmetic, or int64 where
-// nothing does. settle checks its value fits that type and records it.
+// nothing does. settle checks its value fits that type and records it. A
+// character literal is a constant too, but typed: always a uint8, so an
+// untyped constant beside it settles to uint8, and it widens like any uint8.
+// It is a known value wherever a constant is.
 // Typed integers combine through lossless widening (types.Widens): a value of
 // one type can be used where a type it widens to is expected, and an
 // operator on two integer types works in the one the other widens to.

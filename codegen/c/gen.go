@@ -1243,14 +1243,10 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 	}
 }
 
-// literal renders an int, string or bool literal as C, and reports whether e
-// was one. A negative int is parenthesised, so a minus sign before it can
-// never make C's decrement operator, and the smallest int is written as an
-// expression, since C has no literal for it.
+// literal renders a literal, or an expression the checker computed the
+// value of, as C, and reports whether e was one.
 func (g *generator) literal(e ast.Expr) (string, bool) {
 	switch x := e.(type) {
-	case *ast.IntLit:
-		return intLiteral(x.Value), true
 	case *ast.Binary:
 		return constLiteral(x.Const)
 	case *ast.Unary:
@@ -1264,6 +1260,24 @@ func (g *generator) literal(e ast.Expr) (string, bool) {
 			}
 		}
 		return "", false
+	default:
+		return g.plainLiteral(e)
+	}
+}
+
+// plainLiteral renders an int, character, string or bool literal as C, and
+// reports whether e was one. A negative int is parenthesised, so a minus
+// sign before it can never make C's decrement operator, and the smallest int
+// is written as an expression, since C has no literal for it.
+func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
+	switch x := e.(type) {
+	case *ast.IntLit:
+		return intLiteral(x.Value), true
+	case *ast.CharLit:
+		// A plain C int literal: C converts it to whatever type its
+		// context needs, and its value, 0 to 255, survives every
+		// conversion the checker allows a uint8.
+		return strconv.Itoa(int(x.Value)), true
 	case *ast.StrLit:
 		return g.stringValue(x.Value), true
 	case *ast.BoolLit:

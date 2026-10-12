@@ -362,6 +362,17 @@ which is true today because `main` is the only package there is.
   `_` is an error, since the call can be made on its own.
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged.
+- Character literals. `'a'` is a constant of type `uint8`, the value of
+  its one byte, with the escapes a string has (`'\n'`, `'\\'`) and `'\''`
+  for the quote. Unlike an integer literal it has a type of its own: in
+  `'a' + 1` the `1` becomes a `uint8`, the arithmetic is `uint8`
+  arithmetic, which wraps at runtime, and `'a'` widens where a wider
+  integer is expected, as in `exit('a')` or `var n int64 = 'a'`. It is a
+  known value for proofs and array lengths, and may appear in a
+  package-level initializer, where arithmetic on it must stay a value of
+  its type at every step: `var x = 'a' * 3` overflows `uint8` and is an
+  error. A character literal is exactly one byte, so `''`, `'ab'` and a
+  character longer than one byte in UTF-8, such as `'é'`, are errors.
 
 ## Tests
 

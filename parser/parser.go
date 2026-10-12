@@ -1453,8 +1453,8 @@ func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
 	return inner, nil
 }
 
-// parseLiteral parses a single-token operand: a string, integer or bool
-// literal, or a reference to a parameter or variable.
+// parseLiteral parses a single-token operand: a string, integer, character
+// or bool literal, or a reference to a parameter or variable.
 func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 	tk := p.next()
 	switch tk.Kind() {
@@ -1465,6 +1465,9 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 		return &ast.Ident{Name: lexer.ValueChecked[string](tk), Span: p.span(tk)}, nil
 	case lexer.Int:
 		return p.intLit("", tk.OffsetStart(), tk)
+	case lexer.Char:
+		// The lexer gives a char literal only when it holds exactly one byte.
+		return &ast.CharLit{Value: lexer.ValueChecked[string](tk)[0], Span: p.span(tk)}, nil
 	case lexer.Keyword:
 		switch tk.Value() {
 		case lexer.True:
