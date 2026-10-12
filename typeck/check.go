@@ -70,7 +70,7 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.If:
 		c.checkExpr(s.Cond)
-		if got := ast.KindOf(s.Cond); got != types.Bool {
+		if got := ast.KindOf(s.Cond); got != types.Bool && !reportedInvalid(s.Cond, got) {
 			c.errorf(s.Cond.Spanned(), "condition must be a bool, got %s", got)
 		}
 		for _, inner := range s.Then {
@@ -115,7 +115,13 @@ func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 		return
 	}
 
-	if got := ast.KindOf(ret.Value); got != fn.ResultKind {
+	// A result type that is unknown has been reported already, and there is
+	// nothing to compare the value with.
+	if fn.ResultKind == types.Invalid {
+		return
+	}
+
+	if got := ast.KindOf(ret.Value); got != fn.ResultKind && !reportedInvalid(ret.Value, got) {
 		c.errorf(
 			ret.Value.Spanned(),
 			"cannot use %s as %s in return from %s",
@@ -147,7 +153,7 @@ func (c *Checker) checkExpr(e ast.Expr) {
 // comparison; neither exists.
 func (c *Checker) checkBinary(bin *ast.Binary) {
 	for _, operand := range []ast.Expr{bin.X, bin.Y} {
-		if got := ast.KindOf(operand); got != types.Int {
+		if got := ast.KindOf(operand); got != types.Int && !reportedInvalid(operand, got) {
 			c.errorf(operand.Spanned(), "cannot use %s as int in %s", got, bin.Op)
 		}
 	}
@@ -237,7 +243,12 @@ func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
 
 func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Kind) {
 	for i, arg := range call.Args {
+		// A parameter of unknown type has been reported where it is declared,
+		// and an argument whose type is unknown for the same reason has too.
 		got := ast.KindOf(arg)
+		if params[i] == types.Invalid || reportedInvalid(arg, got) {
+			continue
+		}
 		if got == types.Invalid {
 			// The common case is calling a function that returns nothing and
 			// using it where a value is expected, which deserves saying so.
@@ -254,6 +265,36 @@ func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Kind
 			c.errorf(arg.Spanned(), "cannot use %s as %s in argument to %s", got, params[i], name)
 		}
 	}
+}
+
+// reportedInvalid reports whether e has no type because of a problem already
+// reported where it arose, so reporting it again where e is used would only
+// repeat it: a name whose declared type is unknown, an operator applied to
+// such a name, or a call to a function whose result type is unknown. A call
+// to a function that returns nothing is not one of these; it is reported
+// where the value is wanted.
+func reportedInvalid(e ast.Expr, kind types.Kind) bool {
+	if kind != types.Invalid {
+		return false
+	}
+
+	switch x := e.(type) {
+	case *ast.Ident:
+		// Only a declaration reports its own unknown type. A name bound to
+		// nothing was never reported, so it is not covered here.
+		if _, ok := x.Def.(*ast.Param); ok {
+			return true
+		}
+		return false
+	case *ast.Binary:
+		return true
+	case *ast.Call:
+		if id, ok := x.Fn.(*ast.Ident); ok {
+			fn, ok := id.Def.(*ast.Func)
+			return ok && fn != nil && fn.Result != nil
+		}
+	}
+	return false
 }
 
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {

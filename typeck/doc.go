@@ -10,8 +10,9 @@
 // signature, recording the Kind each declared parameter and result type
 // denotes on the tree (Param.Kind and Func.ResultKind). Doing this for every
 // function first is what lets a call check against a callee declared later in
-// the file. A type name it does not know is reported, and the parameter keeps
-// types.Invalid, which every later check reports instead of accepting.
+// the file. A type name it does not know is reported, and the declaration
+// keeps types.Invalid. Anything that has no type only because of an error
+// already reported, such as a use of that parameter, is not reported again.
 //
 // The second pass checks each function body:
 //

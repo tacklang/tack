@@ -607,3 +607,47 @@ func TestBuiltinUsedAsAValueIsReported(t *testing.T) {
 		}
 	}
 }
+
+// An unknown type is reported once, where it is written. Everything that then
+// has no type because of it is not reported again, and nothing leaks the
+// compiler's own type names.
+func TestUnknownTypeIsReportedOnce(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			"parameter read as an argument",
+			"package main\n\nfunc f(x foo) {\n    exit(x)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		},
+		{
+			"parameter in arithmetic",
+			"package main\n\nfunc f(x foo) int {\n    return x + 1\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+		},
+		{
+			"parameter as a condition",
+			"package main\n\nfunc f(x foo) {\n    if x {\n    }\n}\n\nfunc main() {\n    f(1)\n}\n",
+		},
+		{
+			"parameter returned",
+			"package main\n\nfunc f(x foo) int {\n    return x\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+		},
+		{
+			"result type",
+			"package main\n\nfunc f() foo {\n    return 1\n}\n\nfunc main() {\n    f()\n}\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diags := check(t, tt.src)
+			got := make([]string, len(diags))
+			for i, d := range diags {
+				got[i] = d.Message
+			}
+			if strings.Join(got, "\n") != "unknown type: foo" {
+				t.Errorf("got %q, want only [\"unknown type: foo\"]", got)
+			}
+		})
+	}
+}
