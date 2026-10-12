@@ -25,7 +25,7 @@ Open questions about how a feature should behave are in
 | Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                   |
 | Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 13 parsed, see the statements and expressions below |
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
-| Line comments               | yes   | partial | n/a     | n/a     | Only between top-level declarations; anywhere else is a parse error                                              |
+| Line comments               | yes   | yes     | n/a     | n/a     | Anywhere a line can end, including before `package`; kept in the syntax tree, ignored by the grammar             |
 | Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                          |
 | Decimal integer literals    | yes   | yes     | yes     | yes     | Smallest `int64` to largest `uint64`; beyond is a parse error; leading zeros are decimal                         |
 | Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |

@@ -10,12 +10,6 @@ so every underline is followed by a trailing space. Fixing it changes every
 golden for an invalid program. `diag/render_test.go` pins the current output
 until then.
 
-## Comments are only allowed between top-level declarations
-
-The lexer produces comment tokens anywhere, but the parser only accepts them
-between declarations. A comment inside a function body, after a statement, or
-before `package` is a parse error: `expected 'statement' found 'comment'`.
-
 ## Parentheses are left out of an expression's span
 
 A parenthesised expression leaves no node of its own, so a binary expression

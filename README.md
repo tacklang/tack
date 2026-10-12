@@ -186,6 +186,11 @@ which is true today because `main` is the only package there is.
 ## The language today
 
 - `package main` is required, and must be the first declaration.
+- Line comments, `// ...`, run to the end of the line and can be written
+  anywhere a line can end: before `package`, between declarations, after a
+  statement, or inside an expression, argument list or array literal that
+  spans lines. They mean the same as the newline that ends them. Block
+  comments, `/* ... */`, are not supported.
 - A `func main()` is required. It takes no parameters and declares no result.
 - Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,

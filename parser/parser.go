@@ -13,16 +13,30 @@ import (
 // Parser turns one file's token stream into an AST. It stops at the first
 // syntax error, so a file yields either a tree or diagnostics, never both.
 type Parser struct {
-	fileID source.FileID
-	file   *ast.File
-	tokens []lexer.Token
-	index  int
+	fileID   source.FileID
+	file     *ast.File
+	tokens   []lexer.Token // every token but the comments
+	comments []lexer.Token // the comment tokens, in source order
+	index    int
 }
 
 // NewParser returns a parser over tokens, which must come from a lexer that
 // ended them with an EOF token. Spans it creates are tagged with fileID.
+//
+// The comment tokens are set apart here, so the grammar never sees them: a
+// comment is accepted at every token boundary, and the parse is the same as
+// without it. The lexer has already inserted any semicolon the comment's
+// line end calls for.
 func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
-	return &Parser{fileID: fileID, tokens: tokens}
+	p := &Parser{fileID: fileID, tokens: make([]lexer.Token, 0, len(tokens))}
+	for _, tk := range tokens {
+		if tk.Kind() == lexer.Comment {
+			p.comments = append(p.comments, tk)
+		} else {
+			p.tokens = append(p.tokens, tk)
+		}
+	}
+	return p
 }
 
 func (p *Parser) next() *lexer.Token {
@@ -73,6 +87,12 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	}
 
 	p.file = ast.NewFile()
+	for i := range p.comments {
+		p.file.Comments = append(p.file.Comments, ast.Comment{
+			Value: lexer.ValueChecked[string](&p.comments[i]),
+			Span:  p.span(&p.comments[i]),
+		})
+	}
 
 	pkg, pkgDiags := p.parsePkg()
 	if len(pkgDiags) > 0 {
@@ -148,33 +168,13 @@ func (p *Parser) expectSequence(kinds ...lexer.TokenKind) (bool, []diag.Diagnost
 
 func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 	tk := p.peek()
-	for tk.Kind() != lexer.EOF {
-		switch {
-		case tk.Value() == lexer.Func:
-			return p.parseFunc()
-		case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
-			return p.parsePackageVar()
-		case tk.Kind() == lexer.Comment:
-			p.parseComment()
-			tk = p.peek()
-		default:
-			return nil, []diag.Diagnostic{p.diagInvalidToken("func", tk)}
-		}
-	}
-	return nil, nil
-}
-
-func (p *Parser) parseComment() {
-	for {
-		if tk := p.peek(); tk.Kind() == lexer.Comment {
-			p.file.Comments = append(p.file.Comments, ast.Comment{
-				Value: lexer.ValueChecked[string](tk),
-				Span:  p.span(tk),
-			})
-			p.next()
-		} else {
-			break
-		}
+	switch {
+	case tk.Value() == lexer.Func:
+		return p.parseFunc()
+	case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
+		return p.parsePackageVar()
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("func", tk)}
 	}
 }
 
@@ -1572,7 +1572,7 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 
 func (p *Parser) diagInvalidToken(expected string, tk *lexer.Token) diag.Diagnostic {
 	found := tk.Kind().String()
-	if val, ok := tk.Value().(string); ok && tk.Kind() != lexer.Comment {
+	if val, ok := tk.Value().(string); ok {
 		found = val
 	}
 

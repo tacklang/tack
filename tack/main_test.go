@@ -958,3 +958,17 @@ func TestBuiltRangesExits42(t *testing.T) {
 		t.Errorf("ranges exited with %v, want status 42", err)
 	}
 }
+
+// The comments example puts comments before the package clause, after
+// every statement form, inside expressions, argument lists, result lists
+// and array literals that span lines, and at the end of the file with no
+// newline after it, so its status pins that none of them changes what the
+// program does.
+func TestBuiltCommentsExits37(t *testing.T) {
+	bin := buildWithClang(t, "comments")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 37 {
+		t.Errorf("comments exited with %v, want status 37", err)
+	}
+}
