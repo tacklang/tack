@@ -63,7 +63,8 @@ func (s *StrLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the literal, quotes included.
 func (s *StrLit) Spanned() Span { return s.Span }
 
-// IntLit is an integer literal.
+// IntLit is an integer literal. A - written right before the digits is part
+// of the literal, which is how the smallest int is written.
 type IntLit struct {
 	Span  Span
 	Value int64 // decoded
@@ -187,14 +188,20 @@ const (
 
 	// Not is !, which negates a bool.
 	Not
+	// Neg is -, which negates an int: -x means 0 - x.
+	Neg
 )
 
 // String returns the operator as it is written in source.
 func (o UnaryOp) String() string {
-	if o == Not {
+	switch o {
+	case Not:
 		return "!"
+	case Neg:
+		return "-"
+	default:
+		return "invalid operator"
 	}
-	return "invalid operator"
 }
 
 // Unary is a prefix operation, Op X.
@@ -227,18 +234,31 @@ func KindOf(expr Expr) types.Kind {
 		return types.Bool
 	case *Ident:
 		return identKind(e)
+	case *Binary, *Unary:
+		return operatorKind(e)
+	case *Call:
+		return callKind(e)
+	default:
+		return types.Invalid
+	}
+}
+
+// operatorKind returns the type a binary or unary expression yields. A
+// comparison, a logical operator and ! yield a bool whatever their operands;
+// arithmetic and - yield the type of their (left) operand, which the checker
+// has already agreed is an int.
+func operatorKind(e Expr) types.Kind {
+	switch e := e.(type) {
 	case *Binary:
-		// A comparison or logical operator yields a bool whatever its
-		// operands; arithmetic yields the type of its operands, which the
-		// checker has already agreed match.
 		if !e.Op.IsArithmetic() {
 			return types.Bool
 		}
 		return KindOf(e.X)
 	case *Unary:
-		return types.Bool
-	case *Call:
-		return callKind(e)
+		if e.Op == Not {
+			return types.Bool
+		}
+		return KindOf(e.X)
 	default:
 		return types.Invalid
 	}

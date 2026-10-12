@@ -1,0 +1,17 @@
+package main
+
+var smallest = -9223372036854775808
+
+func abs(n int) int {
+    if n < 0 {
+        return -n
+    }
+    return n
+}
+
+func main() {
+    if smallest + 9223372036854775807 != -1 {
+        exit(1)
+    }
+    exit(abs(-20) + abs(3) - -(-4))
+}

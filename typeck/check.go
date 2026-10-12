@@ -257,8 +257,7 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		if !ok {
 			return nil, false
 		}
-		b, ok := operand.(bool)
-		return !b, ok
+		return c.foldUnary(x, operand)
 	default:
 		return nil, false
 	}
@@ -282,6 +281,27 @@ func (c *Checker) foldBinary(bin *ast.Binary, left, right any) (any, bool) {
 			return nil, false
 		}
 		return c.foldInts(bin, x, y)
+	default:
+		return nil, false
+	}
+}
+
+// foldUnary applies a prefix operator to a constant: ! to a bool, or - to an
+// int, where negating the smallest int overflows. An operand of any other
+// type folds to nothing.
+func (c *Checker) foldUnary(u *ast.Unary, operand any) (any, bool) {
+	switch x := operand.(type) {
+	case bool:
+		return !x, u.Op == ast.Not
+	case int64:
+		if u.Op != ast.Neg {
+			return nil, false
+		}
+		if x == math.MinInt64 {
+			c.errorf(u.Span, "constant expression overflows int")
+			return nil, false
+		}
+		return -x, true
 	default:
 		return nil, false
 	}
@@ -566,7 +586,11 @@ func (c *Checker) checkExpr(e ast.Expr) {
 
 	case *ast.Unary:
 		c.checkExpr(x.X)
-		c.requireBool(x.X, x.Op)
+		want := types.Bool
+		if x.Op == ast.Neg {
+			want = types.Int
+		}
+		c.requireOperand(x.X, x.Op, want)
 	}
 }
 
@@ -578,18 +602,18 @@ func (c *Checker) checkBinary(bin *ast.Binary) {
 	case bin.Op.IsComparison():
 		c.checkComparison(bin)
 	case bin.Op.IsLogical():
-		c.requireBool(bin.X, bin.Op)
-		c.requireBool(bin.Y, bin.Op)
+		c.requireOperand(bin.X, bin.Op, types.Bool)
+		c.requireOperand(bin.Y, bin.Op, types.Bool)
 	default:
 		c.requireInts(bin)
 	}
 }
 
-// requireBool reports an operand of a logical operator that is not a bool,
-// covering only that operand, unless its type is unreliable because of an
-// error already reported.
-func (c *Checker) requireBool(operand ast.Expr, op fmt.Stringer) {
-	if got := ast.KindOf(operand); got != types.Bool && !alreadyReported(operand, got) {
+// requireOperand reports an operand of a logical operator or a negation that
+// is not of kind want, covering only that operand, unless its type is
+// unreliable because of an error already reported.
+func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.Kind) {
+	if got := ast.KindOf(operand); got != want && !alreadyReported(operand, got) {
 		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, got)
 	}
 }
@@ -642,17 +666,20 @@ func supports(kind types.Kind, op ast.BinaryOp) bool {
 
 // alreadyReported reports whether an operand's type is unreliable because of
 // an error already reported: one of the cases reportedInvalid covers, or
-// arithmetic on something other than ints, which checkBinary reported and
-// whose kind is only its left operand's.
+// arithmetic or a negation on something other than ints, which was reported
+// where it was checked and whose kind is only its operand's.
 func alreadyReported(e ast.Expr, kind types.Kind) bool {
 	if reportedInvalid(e, kind) {
 		return true
 	}
-	bin, ok := e.(*ast.Binary)
-	if !ok || !bin.Op.IsArithmetic() {
+	switch x := e.(type) {
+	case *ast.Binary:
+		return x.Op.IsArithmetic() && (ast.KindOf(x.X) != types.Int || ast.KindOf(x.Y) != types.Int)
+	case *ast.Unary:
+		return x.Op == ast.Neg && ast.KindOf(x.X) != types.Int
+	default:
 		return false
 	}
-	return ast.KindOf(bin.X) != types.Int || ast.KindOf(bin.Y) != types.Int
 }
 
 func (c *Checker) checkCall(call *ast.Call) {

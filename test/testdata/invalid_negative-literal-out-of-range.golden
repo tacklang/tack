@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/negative-literal-out-of-range/main.tck:4:10: error: integer literal -9223372036854775809 out of range for int
+03 |	func main() {
+04 |	    exit(-9223372036854775809)
+   |	         ^~~~~~~~~~~~~~~~~~~~ 
+05 |	}
+

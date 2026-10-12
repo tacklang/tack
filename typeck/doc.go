@@ -19,7 +19,7 @@
 // expression, made only of literals and operators. The checker computes its
 // value into Var.Const with Go's integer arithmetic (division truncates, and
 // a remainder takes the dividend's sign), comparing bools as well as ints
-// and applying && || and !. Every operand is computed, the right side of &&
+// and applying && || ! and -. Every operand is computed, the right side of &&
 // and || included, as in Go, so a result that overflows int or a division by
 // zero is reported wherever it is. A global
 // without a value gets its type's zero value.
@@ -29,8 +29,8 @@
 //   - a call passes the number of arguments its callee declares, each of the
 //     declared type, whether the callee is a Tack function or a builtin;
 //   - a call to a function that returns nothing cannot be used as a value;
-//   - every operand of an arithmetic operator is an int, and every operand of
-//     && || and ! is a bool;
+//   - every operand of an arithmetic operator or of - is an int, and every
+//     operand of && || and ! is a bool;
 //   - both operands of a comparison have one type, which supports the
 //     operator: an int supports all six, a bool only == and !=, and a string
 //     none. A mismatch, or an unsupported operator, is one error covering the

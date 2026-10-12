@@ -619,10 +619,19 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 }
 
 // literal renders an int, string or bool literal as C, and reports whether e
-// was one.
+// was one. A negative int is parenthesised, so a minus sign before it can
+// never make C's decrement operator, and the smallest int is written as an
+// expression, since C has no literal for it.
 func (g *generator) literal(e ast.Expr) (string, bool) {
 	switch x := e.(type) {
 	case *ast.IntLit:
+		if x.Value < 0 {
+			value, _ := g.constValue(x.Value)
+			if x.Value == math.MinInt64 {
+				return value, true
+			}
+			return "(" + value + ")", true
+		}
 		return strconv.FormatInt(x.Value, 10), true
 	case *ast.StrLit:
 		return g.stringValue(x.Value), true
@@ -665,13 +674,17 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
 }
 
-// unaryExpr renders a negation. It gets no parentheses of its own: C's ! binds
+// unaryExpr renders ! or -. A ! gets no parentheses of its own: C's ! binds
 // tighter than any binary operator, as Tack's does, and its operand comes out
-// already grouped, since every binary expression is parenthesised.
+// already grouped, since every binary expression is parenthesised. A - is
+// parenthesised, so that two in a row never read as C's decrement operator.
 func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 	x, diags := g.expr(u.X, types.Invalid)
 	if len(diags) > 0 {
 		return "", diags
+	}
+	if u.Op == ast.Neg {
+		return "(-" + x + ")", nil
 	}
 	return u.Op.String() + x, nil
 }

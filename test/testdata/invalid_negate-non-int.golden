@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/negate-non-int/main.tck:4:9: error: operator - is not defined on bool
+03 |	func main() {
+04 |	    if -true {
+   |	        ^~~~ 
+05 |	        exit(1)
+

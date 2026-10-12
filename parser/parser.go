@@ -810,13 +810,16 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseOperand parses an expression with no infix operator at its root: a
-// literal, a name, a call, a parenthesised expression, or a negation.
+// literal, a name, a call, a parenthesised expression, or a prefix operator
+// and its operand.
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	switch p.peek().Kind() {
 	case lexer.LParen:
 		return p.parseParenExpr()
 	case lexer.LogicalNot:
-		return p.parseNot()
+		return p.parseUnary(ast.Not)
+	case lexer.Sub:
+		return p.parseUnary(ast.Neg)
 	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
@@ -832,21 +835,46 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	return p.parseLiteral()
 }
 
-// parseNot parses ! and the operand after it. The operand is parsed as an
-// operand, not a full expression, so ! binds tighter than any infix
-// operator: !a == b is (!a) == b.
-func (p *Parser) parseNot() (ast.Expr, []diag.Diagnostic) {
-	op := p.next()
+// parseUnary parses a prefix operator, ! or -, and the operand after it. The
+// operand is parsed as an operand, not a full expression, so a prefix
+// operator binds tighter than any infix one: !a == b is (!a) == b. A - right
+// before an integer literal makes one negative literal instead, so the
+// smallest int, whose digits alone do not fit, can be written.
+func (p *Parser) parseUnary(op ast.UnaryOp) (ast.Expr, []diag.Diagnostic) {
+	tk := p.next()
+
+	if op == ast.Neg && p.peek().Kind() == lexer.Int {
+		return p.intLit("-", tk.OffsetStart(), p.next())
+	}
 
 	x, diags := p.parseOperand()
 	if x == nil {
 		return nil, diags
 	}
 	return &ast.Unary{
-		Op:   ast.Not,
+		Op:   op,
 		X:    x,
-		Span: ast.Span{File: p.fileID, Start: op.OffsetStart(), End: x.Spanned().End},
+		Span: ast.Span{File: p.fileID, Start: tk.OffsetStart(), End: x.Spanned().End},
 	}, nil
+}
+
+// intLit decodes the integer literal digits, with sign ("" or "-") in front,
+// into a literal spanning from start through the digits. The lexer hands
+// over the digits undecoded, so this is the first place a literal too large
+// to represent can be noticed.
+func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, []diag.Diagnostic) {
+	text := sign + lexer.ValueChecked[string](digits)
+	span := ast.Span{File: p.fileID, Start: start, End: digits.OffsetEnd()}
+
+	val, err := strconv.ParseInt(text, 10, 64)
+	if err != nil {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("integer literal %s out of range for int", text),
+			Span:     span,
+		}}
+	}
+	return &ast.IntLit{Value: val, Span: span}, nil
 }
 
 // parseParenExpr parses a parenthesized expression and returns the inner
@@ -876,18 +904,7 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 		// A parameter reference. The resolver binds it to its declaration.
 		return &ast.Ident{Name: lexer.ValueChecked[string](tk), Span: p.span(tk)}, nil
 	case lexer.Int:
-		// The lexer hands over the digits undecoded, so this is the first
-		// place a literal too large to represent can be noticed.
-		text := lexer.ValueChecked[string](tk)
-		val, err := strconv.ParseInt(text, 10, 64)
-		if err != nil {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("integer literal %s out of range for int", text),
-				Span:     p.span(tk),
-			}}
-		}
-		return &ast.IntLit{Value: val, Span: p.span(tk)}, nil
+		return p.intLit("", tk.OffsetStart(), tk)
 	case lexer.Keyword:
 		switch tk.Value() {
 		case lexer.True:

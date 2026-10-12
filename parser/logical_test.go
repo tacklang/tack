@@ -127,7 +127,7 @@ func TestRejectsMalformedLogicalExpressions(t *testing.T) {
 		{"a || || b", "expected 'value' found '||'"},
 		{"!", "expected 'value' found '}'"},
 		{"a !", "expected ';' found '!'"},
-		{"-a", "expected 'value' found '-'"},
+		{"^a", "expected 'value' found '^'"},
 		{"a & b", "expected ';' found '&'"},
 	}
 

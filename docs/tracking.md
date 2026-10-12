@@ -81,7 +81,8 @@ Open questions about how a feature should behave are in
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | `int` operands only; overflow and division by zero follow C |
 | `== != < <= > >=`                 | yes   | yes    | yes     | yes     | Same-type operands: `int` all six, `bool` `==` `!=` only    |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                         |
-| Unary `-` `+` `^`                 | yes   | no     | no      | no      | `-1` cannot be written                                      |
+| Unary `-`                         | yes   | yes    | yes     | yes     | `int` operand only; `-` before digits is a negative literal |
+| Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                               |
 | `&&` `\|\|`                        | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                         |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                             |
 | `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions      |

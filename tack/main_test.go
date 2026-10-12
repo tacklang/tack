@@ -808,3 +808,14 @@ func TestBuiltCompoundExits14(t *testing.T) {
 		t.Errorf("compound exited with %v, want status 14", err)
 	}
 }
+
+// The negate example uses the smallest int literal and negates through a
+// function, so its status pins negation in a real build.
+func TestBuiltNegateExits19(t *testing.T) {
+	bin := buildWithClang(t, "negate")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 19 {
+		t.Errorf("negate exited with %v, want status 19", err)
+	}
+}

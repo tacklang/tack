@@ -11,8 +11,10 @@
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence (from loosest: ||, &&, the
 // comparisons, + and -, then * / and %); every binary operator is
-// left-associative. The prefix ! applies to the operand right after it, so it
-// binds tighter than any binary operator. A statement that starts with a name
+// left-associative. The prefix operators ! and - apply to the operand right
+// after them, so they bind tighter than any binary operator. A - right before
+// an integer literal is part of the literal instead, which is how the
+// smallest int is written. A statement that starts with a name
 // is told apart by the token after it: := declares a variable, = or a
 // compound operator such as += assigns, ++ or -- increments or decrements,
 // and ( calls. A for whose body's opening brace comes straight after the

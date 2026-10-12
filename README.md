@@ -223,9 +223,10 @@ which is true today because `main` is the only package there is.
   an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, parentheses,
   the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
-  prefix `!`, with Go's precedence: `!` binds tightest, then arithmetic, then
-  comparisons, then `&&`, then `||`.
-  Arithmetic takes `int` operands. A comparison takes two operands of the
+  prefix `!` and `-`, with Go's precedence: the prefix operators bind
+  tightest, then arithmetic, then comparisons, then `&&`, then `||`.
+  Arithmetic and `-x` take `int` operands; `-x` means `0 - x`, so negating
+  the smallest int overflows as subtracting does. A comparison takes two operands of the
   same type: two `int`s with any of the six, or two `bool`s with `==` and
   `!=`. Strings cannot be compared yet.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
@@ -238,7 +239,8 @@ which is true today because `main` is the only package there is.
 - `print` takes one string and writes it followed by a newline.
 - `exit` takes one integer and terminates the process with that status.
 - Integer literals. `int` is 64-bit signed, and a literal that does not fit is
-  a parse error.
+  a parse error. A `-` right before the digits is part of the literal, so the
+  smallest int is written `-9223372036854775808`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
