@@ -188,10 +188,20 @@ which is true today because `main` is the only package there is.
 - `package main` is required, and must be the first declaration.
 - A `func main()` is required. It takes no parameters and declares no result.
 - Top-level `func name(x int, s string) int { ... }` declarations. Parameters
-  are Go-style, one type each, no grouping. At most one result.
+  are Go-style, one type each, no grouping. A function declares no result,
+  one, or several in parentheses, `func divmod(a int, b int) (int, int)`, and
+  `return a / b, a % b` gives one value for each. Results are unnamed.
+- Several results are bound together, by position, with
+  `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
+  immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
+  makes only `r` mutable. The value must be one call with exactly that many
+  results. A call with several results cannot be used as a single value,
+  passed straight to another call, or returned directly as another
+  function's results, but it can be called as a statement to discard them
+  all.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `for`, `break`, `continue`, a variable declaration, an
-  assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
+  `else if`), `for`, `break`, `continue`, a variable declaration, a
+  declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, or a `for` with no
   condition that no `break` leaves. The rule is syntactic, so a call that
   never comes back does not satisfy it.

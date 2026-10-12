@@ -1,0 +1,10 @@
+package main
+
+func greet() {
+    print("hi\n")
+}
+
+func main() {
+    a, b := greet()
+    exit(a + b)
+}

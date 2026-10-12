@@ -71,6 +71,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	g.emitPreamble()
 	g.emitConstantPool()
 	g.emitGlobals(globals)
+	g.emitResultStructs()
 	g.emitPrototypes()
 
 	for i, fn := range funcs {
@@ -100,9 +101,12 @@ func (g *generator) emitPreamble() {
 }
 
 // collectStrings pools every string literal in the file, deduplicated, and
-// the empty string if a string variable starts from its zero value.
+// the empty string if a string variable starts from its zero value. The
+// variables of a MultiVar have no value of their own but never start from
+// zero, so only its call is visited.
 func (g *generator) collectStrings() {
-	ast.Walk(g.file, func(n ast.Node) bool {
+	var visit ast.Visitor
+	visit = func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.StrLit:
 			g.addStr(x.Value)
@@ -110,9 +114,13 @@ func (g *generator) collectStrings() {
 			if x.Value == nil && x.Type == types.String {
 				g.addStr("")
 			}
+		case *ast.MultiVar:
+			ast.Walk(x.Value, visit)
+			return false
 		}
 		return true
-	})
+	}
+	ast.Walk(g.file, visit)
 }
 
 // emitConstantPool writes the pooled strings as byte arrays. Bytes rather than
@@ -239,6 +247,33 @@ func (g *generator) constValue(c any) (string, bool) {
 	}
 }
 
+// emitResultStructs defines, for each function with more than one result, the
+// C struct it returns them in: one field for each result, named r0, r1, and
+// so on, in order. C returns one value, and a struct is one value that holds
+// all of them.
+func (g *generator) emitResultStructs() {
+	for _, decl := range g.file.Decls {
+		fn, ok := decl.(*ast.Func)
+		if !ok || len(fn.ResultTypes) < 2 {
+			continue
+		}
+
+		g.buf.WriteString("typedef struct {\n")
+		for i, typ := range fn.ResultTypes {
+			fmt.Fprintf(&g.buf, "    %s r%d;\n", cType(typ), i)
+		}
+		fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn.Name))
+	}
+}
+
+// resultsName is the name of the struct a function with several results
+// returns them in. It starts tack_results_ where a mangled name starts with
+// tack_ and the package, so it cannot collide with one while the package is
+// main.
+func (g *generator) resultsName(fn string) string {
+	return fmt.Sprintf("tack_results_%s_%s", g.file.Package, fn)
+}
+
 // emitPrototypes forward declares every Tack function. Tack lets a function
 // call one declared later in the file; C does not, without a prototype.
 func (g *generator) emitPrototypes() {
@@ -273,8 +308,12 @@ func (g *generator) emitEntryPoint() {
 
 func (g *generator) signature(fn *ast.Func) string {
 	result := "void"
-	if fn.Result != nil {
-		result = cType(fn.ResultType)
+	switch len(fn.ResultTypes) {
+	case 0:
+	case 1:
+		result = cType(fn.ResultTypes[0])
+	default:
+		result = g.resultsName(fn.Name)
 	}
 
 	if len(fn.Params) == 0 {
@@ -344,6 +383,8 @@ func (g *generator) generateSimpleStmt(stmt ast.Stmt) ([]string, []diag.Diagnost
 		return g.generateIncDec(x)
 	case *ast.ExprStmt:
 		return g.generateExprStmt(x)
+	case *ast.MultiVar:
+		return g.generateMultiVar(x)
 	default:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -353,18 +394,31 @@ func (g *generator) generateSimpleStmt(stmt ast.Stmt) ([]string, []diag.Diagnost
 	}
 }
 
-// generateReturn lowers a return, with its value converted to fn's result
-// type.
+// generateReturn lowers a return, with each value converted to the type of
+// fn's result in the same position. Several values are returned together, as
+// one value of fn's results struct.
 func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	if ret.Value == nil {
+	if len(ret.Values) == 0 {
 		return []string{"return;"}, nil
 	}
 
-	value, diags := g.expr(ret.Value, fn.ResultType)
-	if len(diags) > 0 {
-		return nil, diags
+	values := make([]string, len(ret.Values))
+	for i, v := range ret.Values {
+		value, diags := g.expr(v, fn.ResultTypes[i])
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		values[i] = value
 	}
-	return []string{fmt.Sprintf("return %s;", value)}, nil
+
+	if len(values) == 1 {
+		return []string{fmt.Sprintf("return %s;", values[0])}, nil
+	}
+	return []string{fmt.Sprintf(
+		"return (%s){%s};",
+		g.resultsName(fn.Name),
+		strings.Join(values, ", "),
+	)}, nil
 }
 
 // condHeader writes the opening line of an if or while whose condition is
@@ -655,6 +709,45 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 		decl = "const " + decl
 	}
 	return []string{decl}, nil
+}
+
+// generateMultiVar declares the variables of a MultiVar. The call's results
+// struct is held in a const temporary, so the call runs once, and each
+// variable is then declared from the field in its position: const unless the
+// variable is mutable, as generateVar does.
+func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnostic) {
+	call, ok := m.Value.(*ast.Call)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", m.Value),
+			Span:     m.Value.Spanned(),
+		}}
+	}
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", call.Fn),
+			Span:     call.Fn.Spanned(),
+		}}
+	}
+
+	value, diags := g.callExpr(id.Name, call)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	tmp := g.temp("r")
+	lines := []string{fmt.Sprintf("const %s %s = %s;", g.resultsName(id.Name), tmp, value)}
+	for i, v := range m.Vars {
+		decl := fmt.Sprintf("%s %s = %s.r%d;", cType(v.Type), varName(v.Name), tmp, i)
+		if !v.Mutable {
+			decl = "const " + decl
+		}
+		lines = append(lines, decl)
+	}
+	return lines, nil
 }
 
 // zeroValue is the C expression for a type's zero value. The empty string

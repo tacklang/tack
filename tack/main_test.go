@@ -770,6 +770,20 @@ func TestBuiltBoolsPrintsAndExits9(t *testing.T) {
 	}
 }
 
+// The results example binds each function's results by position, with mut
+// on one name only, and exits with a status built from all of them.
+func TestBuiltResultsBindsEveryResultAndExits48(t *testing.T) {
+	bin := buildWithClang(t, "results")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 48 {
+		t.Errorf("results exited with %v, want status 48", err)
+	}
+	if string(out) != "negative\n" {
+		t.Errorf("results printed %q, want %q", out, "negative\n")
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

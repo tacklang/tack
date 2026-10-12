@@ -277,13 +277,16 @@ func identType(id *Ident) types.Type {
 	}
 }
 
-// callType returns the type a call yields: whatever its callee returns. A
-// builtin returns nothing. Its Def is a nil *Func, which still satisfies the
+// callType returns the type a call yields: its callee's result, when it
+// declares exactly one. A call to a function with several results yields
+// them only to a MultiVar, never as one value, so its type here is Invalid,
+// as is that of a call to a function or builtin that returns nothing. A
+// builtin's Def is a nil *Func, which still satisfies the
 // type assertion, so it is checked for explicitly and lands on Invalid.
 func callType(call *Call) types.Type {
 	if id, ok := call.Fn.(*Ident); ok {
-		if fn, ok := id.Def.(*Func); ok && fn != nil {
-			return fn.ResultType
+		if fn, ok := id.Def.(*Func); ok && fn != nil && len(fn.ResultTypes) == 1 {
+			return fn.ResultTypes[0]
 		}
 	}
 	return types.Invalid

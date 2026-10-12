@@ -28,11 +28,12 @@ func (s *ExprStmt) astNode() nodeKey { return _nodeKey }
 // terminating semicolon's position.
 func (s *ExprStmt) Spanned() Span { return s.Span }
 
-// Return ends a function, optionally with a value. Value is nil for a bare
-// return, which is only legal in a function that declares no result.
+// Return ends a function, with one value for each result the function
+// declares. Values is empty for a bare return, which is only legal in a
+// function that declares no result.
 type Return struct {
-	Value Expr
-	Span  Span // 'return' keyword through the terminating Semi's position
+	Values []Expr
+	Span   Span // 'return' keyword through the terminating Semi's position
 }
 
 var _ Stmt = (*Return)(nil)
@@ -160,6 +161,26 @@ func (s *IncDec) Op() string {
 	}
 	return "++"
 }
+
+// MultiVar declares one variable for each result of a call, by position:
+// q, mut r := divmod(a, b). Each Var is immutable unless its own name was
+// written with mut, and has no Value of its own; Value is the call that
+// provides them all.
+type MultiVar struct {
+	Value Expr
+	Vars  []*Var
+	Span  Span // start of the first name through the end of Value
+}
+
+var _ Stmt = (*MultiVar)(nil)
+
+func (m *MultiVar) stmtKey() stmtKey { return _stmtKey }
+
+func (m *MultiVar) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the first name through the end of
+// the value.
+func (m *MultiVar) Spanned() Span { return m.Span }
 
 // ForRange is a loop over an int, for i := range Count, which runs its body
 // once for each of 0, 1, ... Count-1, and not at all when Count is zero or

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/return-not-enough/main.tck:4:5: error: not enough return values: divmod returns 2, got 1
+03 |	func divmod(a int, b int) (int, int) {
+04 |	    return a / b
+   |	    ^~~~~~~~~~~~ 
+05 |	}
+

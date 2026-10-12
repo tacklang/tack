@@ -221,12 +221,12 @@ func TestParsesResultType(t *testing.T) {
 	}
 
 	fn := file.Decls[0].(*ast.Func)
-	if fn.Result == nil {
-		t.Fatal("the declared result type was dropped")
+	if len(fn.Results) != 1 {
+		t.Fatalf("got %d result types, want 1", len(fn.Results))
 	}
-	id, ok := fn.Result.(*ast.Ident)
+	id, ok := fn.Results[0].(*ast.Ident)
 	if !ok {
-		t.Fatalf("result type is %T, want *ast.Ident", fn.Result)
+		t.Fatalf("result type is %T, want *ast.Ident", fn.Results[0])
 	}
 	if id.Name != "int" {
 		t.Errorf("result type = %q, want %q", id.Name, "int")
@@ -239,8 +239,8 @@ func TestFunctionWithoutResultTypeHasNone(t *testing.T) {
 		t.Fatalf("parse reported %d diagnostic(s): %+v", len(diags), diags)
 	}
 
-	if fn := file.Decls[0].(*ast.Func); fn.Result != nil {
-		t.Errorf("Result = %#v, want nil", fn.Result)
+	if fn := file.Decls[0].(*ast.Func); len(fn.Results) != 0 {
+		t.Errorf("Results = %#v, want none", fn.Results)
 	}
 }
 
@@ -258,9 +258,9 @@ func TestParsesReturnWithAValue(t *testing.T) {
 	if !ok {
 		t.Fatalf("statement is %T, want *ast.Return", stmt)
 	}
-	lit, ok := ret.Value.(*ast.IntLit)
+	lit, ok := ret.Values[0].(*ast.IntLit)
 	if !ok {
-		t.Fatalf("returned expression is %T, want *ast.IntLit", ret.Value)
+		t.Fatalf("returned expression is %T, want *ast.IntLit", ret.Values[0])
 	}
 	if lit.Value != 42 {
 		t.Errorf("returned %d, want 42", lit.Value)
@@ -278,8 +278,8 @@ func TestParsesBareReturn(t *testing.T) {
 	if !ok {
 		t.Fatalf("statement is %T, want *ast.Return", stmt)
 	}
-	if ret.Value != nil {
-		t.Errorf("Value = %#v, want nil for a bare return", ret.Value)
+	if len(ret.Values) != 0 {
+		t.Errorf("Values = %#v, want none for a bare return", ret.Values)
 	}
 }
 
@@ -420,9 +420,9 @@ func TestParsesCallsWithinArithmetic(t *testing.T) {
 	}
 
 	ret := file.Decls[0].(*ast.Func).Body[0].(*ast.Return)
-	bin, ok := ret.Value.(*ast.Binary)
+	bin, ok := ret.Values[0].(*ast.Binary)
 	if !ok {
-		t.Fatalf("returned expression is %T, want *ast.Binary", ret.Value)
+		t.Fatalf("returned expression is %T, want *ast.Binary", ret.Values[0])
 	}
 	if bin.Op != ast.Add {
 		t.Errorf("root operator = %v, want Add", bin.Op)

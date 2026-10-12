@@ -42,8 +42,11 @@
 //   - an assigned value has the variable's type, and a compound assignment
 //     such as += has an int target and an int value; ++ and -- need a
 //     mutable int variable;
-//   - a return carries a value exactly when the function declares a result,
-//     and the value has the result's type;
+//   - a return carries one value for each result the function declares, each
+//     of its result's type, and a wrong count is one error;
+//   - a, b := f() binds a call with exactly that many results, each variable
+//     taking its result's type, and a call with several results is never
+//     used as one value;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
 //   - a range loop's count is an int, and its variable is an immutable int;

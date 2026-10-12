@@ -17,10 +17,15 @@
 // smallest int is written. The keywords true and false are bool literals, so
 // neither can start a statement or be declared as a name.
 //
+// A function's results are one type name, or a parenthesized list of them
+// separated by commas, and a return holds its values in a list the same way.
+//
 // A statement that starts with a name is told apart by the token after it:
 // := declares a variable, = or a compound operator such as += assigns, ++ or
-// -- increments or decrements, and ( calls. These, with declarations
-// starting with var or mut, are the simple statements. A for whose body's
+// -- increments or decrements, ( calls, and a comma starts a declaration of
+// several variables from one call's results, a, mut b := f(), where each mut
+// belongs to the name after it. These, with declarations starting with var
+// or mut, are the simple statements. A for whose body's
 // opening brace comes straight after the keyword has no condition, and one
 // whose header holds semicolons has the three clauses init; cond; post, each
 // optional, where init and post are simple statements and post may not
@@ -33,7 +38,7 @@
 // The parser only checks shape, so it accepts a declaration like var x int
 // whatever its mutability, and leaves whether it may lack a value to the
 // type checker. Names are left unbound (every Ident.Def is nil) and types
-// unresolved (every Kind is types.Invalid) for the resolver and type checker
+// unresolved (every Type is types.Invalid) for the resolver and type checker
 // to fill in. Integer literals are the exception: they are
 // decoded here, and one that does not fit in an int is reported here. Every
 // node's span is tagged with the FileID the parser was created with.

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/assignment-mismatch-no-value/main.tck:8:5: error: assignment mismatch: 2 variables but greet returns no value
+07 |	func main() {
+08 |	    a, b := greet()
+   |	    ^~~~~~~~~~~~~~~ 
+09 |	    exit(a + b)
+

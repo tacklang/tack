@@ -13,6 +13,7 @@
 //     static byte array named str0, str1, and so on;
 //   - tack_print, the helper print lowers to, only if the program prints;
 //   - every package-level variable, as a static C variable;
+//   - a results struct for each function with more than one result;
 //   - a prototype for every Tack function, since Tack lets a function call one
 //     declared later in the file and C does not;
 //   - every Tack function, as a static C function;
@@ -47,6 +48,14 @@
 // holds it to the same rule. A mutable one declared without a value starts at
 // its zero value: 0, false, or an empty string that points at the pooled
 // empty array rather than NULL.
+//
+// A function with several results returns them as one struct,
+// tack_results_main_f for a function f, with a field r0, r1, and so on for
+// each. The structs are defined before the prototypes, and only for functions
+// with more than one result. A return builds one with a compound literal. A
+// declaration a, mut b := f() holds the struct in a const temporary named
+// like any other, so the call runs once, then declares each variable from its
+// field, const unless the variable is mutable.
 //
 // print lowers to one tack_print call, a length-bounded fwrite of its argument
 // to stdout with nothing added. exit lowers to C's exit.

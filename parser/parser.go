@@ -205,15 +205,11 @@ func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
 	}
 	fn.Params = params
 
-	// An identifier here is the declared result type; a brace or semicolon
-	// means the function returns nothing.
-	if p.peek().Kind() == lexer.Ident {
-		result, resultDiags := p.parseType()
-		if result == nil {
-			return nil, resultDiags
-		}
-		fn.Result = result
+	results, resultDiags := p.parseResults()
+	if resultDiags != nil {
+		return nil, resultDiags
 	}
+	fn.Results = results
 
 	if bodyDiags := p.parseFuncBody(fn); bodyDiags != nil {
 		return nil, bodyDiags
@@ -246,6 +242,43 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 		return nil, rparenDiags
 	}
 	return params, nil
+}
+
+// parseResults parses a function's result types: one type name, or a
+// parenthesized, comma-separated list of them. A brace or semicolon instead
+// means the function returns nothing, and the result is empty.
+func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
+	switch p.peek().Kind() {
+	case lexer.Ident:
+		typ, diags := p.parseType()
+		if typ == nil {
+			return nil, diags
+		}
+		return []ast.Expr{typ}, nil
+	case lexer.LParen:
+		p.next()
+	default:
+		return nil, nil
+	}
+
+	var results []ast.Expr
+	for {
+		typ, diags := p.parseType()
+		if typ == nil {
+			return nil, diags
+		}
+		results = append(results, typ)
+
+		if p.peek().Kind() != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+
+	if ok, diags := p.expect(lexer.RParen); !ok {
+		return nil, diags
+	}
+	return results, nil
 }
 
 // parseFuncBody parses what follows a function's signature into fn.Body: a
@@ -377,6 +410,8 @@ func (p *Parser) parseSimpleStmt() (ast.Stmt, []diag.Diagnostic) {
 
 	tk := p.peek()
 	switch {
+	case p.atMultiVar():
+		stmt, diags = p.parseMultiVar()
 	case tk.Kind() == lexer.Ident:
 		stmt, diags = p.parseIdentStmt(tk)
 	case p.atSimpleStmt():
@@ -402,6 +437,8 @@ func simpleStmtSpan(stmt ast.Stmt) *ast.Span {
 	case *ast.IncDec:
 		return &s.Span
 	case *ast.ExprStmt:
+		return &s.Span
+	case *ast.MultiVar:
 		return &s.Span
 	default:
 		panic(fmt.Sprintf("parser: %T is not a simple statement", stmt))
@@ -450,6 +487,69 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// atMultiVar reports whether the next tokens start a declaration of several
+// variables: a name, or mut and a name, followed by a comma.
+func (p *Parser) atMultiVar() bool {
+	tk := p.peek()
+	if tk.Kind() == lexer.Keyword && tk.Value() == lexer.Mut {
+		return p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Comma
+	}
+	return tk.Kind() == lexer.Ident && p.peekNext().Kind() == lexer.Comma
+}
+
+// parseMultiVar parses a declaration of one variable for each result of a
+// call: a comma-separated list of names, each made mutable by its own mut,
+// then := and the call. Whether the value is a call with that many results
+// is the type checker's to judge.
+func (p *Parser) parseMultiVar() (*ast.MultiVar, []diag.Diagnostic) {
+	m := &ast.MultiVar{Span: p.span(p.peek())}
+	for {
+		v, diags := p.parseMultiVarName()
+		if v == nil {
+			return nil, diags
+		}
+		m.Vars = append(m.Vars, v)
+
+		if p.peek().Kind() != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+
+	if ok, diags := p.expect(lexer.Define); !ok {
+		return nil, diags
+	}
+
+	value, diags := p.parseExpr(1)
+	if value == nil {
+		return nil, diags
+	}
+	m.Value = value
+	m.Span.End = value.Spanned().End
+	return m, nil
+}
+
+// parseMultiVarName parses one name in a MultiVar, with the mut before it if
+// there is one, into a variable with no value of its own.
+func (p *Parser) parseMultiVarName() (*ast.Var, []diag.Diagnostic) {
+	start := p.peek()
+	mutable := start.Kind() == lexer.Keyword && start.Value() == lexer.Mut
+	if mutable {
+		p.next()
+	}
+
+	name, diags := p.parseIdent("variable name")
+	if name == nil {
+		return nil, diags
+	}
+	return &ast.Var{
+		Name:     name.Name,
+		NameSpan: name.Span,
+		Span:     ast.Span{File: p.fileID, Start: start.OffsetStart(), End: name.Span.End},
+		Mutable:  mutable,
+	}, nil
 }
 
 // parseIncDec parses name++ or name--.
@@ -843,7 +943,7 @@ func (p *Parser) atDeclOrUpdate() bool {
 		return false
 	}
 	switch p.peekNext().Kind() {
-	case lexer.Define, lexer.Inc, lexer.Dec:
+	case lexer.Define, lexer.Inc, lexer.Dec, lexer.Comma:
 		return true
 	default:
 		_, compound := compoundOps[p.peekNext().Kind()]
@@ -878,11 +978,12 @@ func (p *Parser) parseForClauses(loop *ast.For) []diag.Diagnostic {
 	if post == nil {
 		return diags
 	}
-	if v, ok := post.(*ast.Var); ok {
+	switch post.(type) {
+	case *ast.Var, *ast.MultiVar:
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "cannot declare a variable in a for loop's post statement",
-			Span:     v.Span,
+			Span:     post.Spanned(),
 		}}
 	}
 	loop.Post = post
@@ -906,13 +1007,20 @@ func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 	ret := &ast.Return{Span: p.span(tk)}
 
 	// Semicolon insertion puts a Semi after a bare return, so anything else
-	// here is the returned expression.
+	// here is the first of the returned expressions, separated by commas.
 	if p.peek().Kind() != lexer.Semi && p.peek().Kind() != lexer.RCurl {
-		val, valDiags := p.parseExpr(1)
-		if val == nil {
-			return nil, valDiags
+		for {
+			val, valDiags := p.parseExpr(1)
+			if val == nil {
+				return nil, valDiags
+			}
+			ret.Values = append(ret.Values, val)
+
+			if p.peek().Kind() != lexer.Comma {
+				break
+			}
+			p.next()
 		}
-		ret.Value = val
 	}
 
 	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {

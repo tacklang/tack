@@ -216,9 +216,9 @@ func TestBindsIdentifierInAReturn(t *testing.T) {
 	fn := file.Decls[0].(*ast.Func)
 	ret := fn.Body[0].(*ast.Return)
 
-	id, ok := ret.Value.(*ast.Ident)
+	id, ok := ret.Values[0].(*ast.Ident)
 	if !ok {
-		t.Fatalf("returned expression is %T, want *ast.Ident", ret.Value)
+		t.Fatalf("returned expression is %T, want *ast.Ident", ret.Values[0])
 	}
 	if id.Def == nil {
 		t.Fatal("the returned identifier was left unbound")
@@ -315,7 +315,7 @@ func TestBindsIdentifiersInBothOperandsOfABinary(t *testing.T) {
 	src := "package main\n\nfunc f(a int, b int) int {\n    return a + b\n}\n\nfunc main() {\n}\n"
 	file := resolveFile(t, src)
 
-	bin := file.Decls[0].(*ast.Func).Body[0].(*ast.Return).Value.(*ast.Binary)
+	bin := file.Decls[0].(*ast.Func).Body[0].(*ast.Return).Values[0].(*ast.Binary)
 	for name, side := range map[string]ast.Expr{"left": bin.X, "right": bin.Y} {
 		id, ok := side.(*ast.Ident)
 		if !ok {

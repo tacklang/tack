@@ -45,7 +45,7 @@ Open questions about how a feature should behave are in
 | `main` function          | yes   | yes     | yes     | yes | Required; takes no parameters and declares no result                                                 |
 | Parameters               | yes   | yes     | yes     | yes | One type each, no grouping (`a, b int`)                                                              |
 | Variadic parameters      | yes   | no      | no      | no  | Rejected with a diagnostic                                                                           |
-| Results                  | yes   | partial | yes     | yes | At most one, unnamed; multiple results (tuples) are planned, and today give a misleading parse error |
+| Results                  | yes   | yes     | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct                  |
 | Functions without a body | yes   | yes     | partial | yes | Accepted, and compiled as an empty body                                                              |
 | Constants and types      | yes   | no      | no      | no  |                                                                                                      |
 | Package-level variables  | yes   | yes     | yes     | yes | `var`/`mut` only; constant initializers, computed at compile time; usable from any function          |
@@ -56,7 +56,8 @@ Open questions about how a feature should behave are in
 | Feature                    | Lexer | Parser | Checker | C   | Notes                                                                                                   |
 |----------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------------------|
 | Call statement             | yes   | yes    | yes     | yes | A result may be discarded                                                                               |
-| `return`                   | yes   | yes    | yes     | yes | Value required exactly when the function declares a result                                              |
+| `return`                   | yes   | yes    | yes     | yes | One value for each declared result; `return f()` cannot forward another call's results                 |
+| Several results `a, b :=`  | yes   | yes    | yes     | yes | One call with exactly that many results; `mut` per name; no `var` form, no `x, y := 1, 2`               |
 | `if` / `else` / `else if`  | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
 | Terminating statement rule | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
 | Local variables            | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |

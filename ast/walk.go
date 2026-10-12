@@ -33,9 +33,7 @@ func walkDecl(d Decl, v Visitor) {
 	switch d := d.(type) {
 	case *Func:
 		walkAll(d.Params, v)
-		if d.Result != nil {
-			Walk(d.Result, v)
-		}
+		walkAll(d.Results, v)
 		walkAll(d.Body, v)
 	case *Param:
 		Walk(d.TypeExpr, v)
@@ -55,9 +53,7 @@ func walkDecl(d Decl, v Visitor) {
 func walkStmt(s Stmt, v Visitor) {
 	switch s := s.(type) {
 	case *Return:
-		if s.Value != nil {
-			Walk(s.Value, v)
-		}
+		walkAll(s.Values, v)
 	case *If:
 		Walk(s.Cond, v)
 		walkAll(s.Then, v)
@@ -101,6 +97,9 @@ func walkSimpleStmt(s Stmt, v Visitor) {
 		Walk(s.Value, v)
 	case *IncDec:
 		Walk(s.Target, v)
+	case *MultiVar:
+		walkAll(s.Vars, v)
+		Walk(s.Value, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled statement type %T", s))
 	}

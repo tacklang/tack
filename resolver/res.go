@@ -215,11 +215,13 @@ func (r *Resolver) checkMain() []diag.Diagnostic {
 			Span:     mainFn.Params[0].Spanned(),
 		})
 	}
-	if mainFn.Result != nil {
+	if n := len(mainFn.Results); n > 0 {
+		span := mainFn.Results[0].Spanned()
+		span.End = mainFn.Results[n-1].Spanned().End
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,
 			Message:  "main function must not declare a result",
-			Span:     mainFn.Result.Spanned(),
+			Span:     span,
 		})
 	}
 	return diags
@@ -301,6 +303,18 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 	return diags
 }
 
+// declareMultiVar resolves the value of a declaration of several variables,
+// then declares each of them in order, so none of them can be used in the
+// call that gives them their values, and a name listed twice is reported as
+// declared twice.
+func (r *Resolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic {
+	diags := r.resolveExpr(m.Value, sc)
+	for _, v := range m.Vars {
+		diags = append(diags, r.declareVar(v, sc)...)
+	}
+	return diags
+}
+
 // resolveAssign binds an assignment's target to the variable it names and
 // resolves its value. Assigning does not count as reading the variable.
 func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
@@ -343,10 +357,11 @@ func nameSpan(decl ast.Decl) ast.Span {
 func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
-		if s.Value == nil {
-			return nil
+		var diags []diag.Diagnostic
+		for _, v := range s.Values {
+			diags = append(diags, r.resolveExpr(v, sc)...)
 		}
-		return r.resolveExpr(s.Value, sc)
+		return diags
 	case *ast.If:
 		diags := r.resolveExpr(s.Cond, sc)
 		diags = append(diags, r.resolveBlock(s.Then, sc)...)
@@ -408,6 +423,8 @@ func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic
 		return r.resolveAssign(s, sc)
 	case *ast.IncDec:
 		return r.resolveTarget(s.Target, sc)
+	case *ast.MultiVar:
+		return r.declareMultiVar(s, sc)
 	default:
 		return nil
 	}

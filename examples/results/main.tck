@@ -1,0 +1,27 @@
+package main
+
+func divmod(a int, b int) (int, int) {
+    return a / b, a % b
+}
+
+func classify(n int) (string, bool) {
+    if n < 0 {
+        return "negative", false
+    }
+    return "non-negative", true
+}
+
+func main() {
+    q, r := divmod(17, 5)
+    label, ok := classify(-4)
+    if ok {
+        exit(1)
+    }
+    print(label)
+    print("\n")
+
+    mut total, count := divmod(100, 7)
+    total += count
+    divmod(1, 1)
+    exit(q * 10 + r + total)
+}

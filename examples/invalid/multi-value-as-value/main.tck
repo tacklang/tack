@@ -1,0 +1,9 @@
+package main
+
+func divmod(a int, b int) (int, int) {
+    return a / b, a % b
+}
+
+func main() {
+    exit(divmod(7, 2))
+}

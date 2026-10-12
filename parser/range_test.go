@@ -76,7 +76,7 @@ func TestRejectsMalformedRangeLoops(t *testing.T) {
 		{"for i = range 3 {\n    }", "expected 'value' found 'range'"},
 		{"for mut i := range 3 {\n    }", "expected 'value' found 'range'"},
 		{"for var i = range 3 {\n    }", "expected 'value' found 'range'"},
-		{"for i, j := range 3 {\n    }", "expected '{' found ','"},
+		{"for i, j := range 3 {\n    }", "expected 'value' found 'range'"},
 		{"for i := range {\n    }", "expected 'value' found '{'"},
 		{"for range {\n    }", "expected 'value' found '{'"},
 		{"for i := range 3; i < 2; i++ {\n    }", "expected '{' found ';'"},

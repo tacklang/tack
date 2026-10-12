@@ -39,7 +39,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 		if fn, ok := decl.(*ast.Func); ok {
 			c.funcs[fn.Name] = fn
 			c.resolveParamTypes(fn)
-			c.resolveResultType(fn)
+			c.resolveResultTypes(fn)
 		}
 	}
 
@@ -67,7 +67,7 @@ func (c *Checker) checkBody(fn *ast.Func) {
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
 	// like exit, does not satisfy it.
-	if fn.Result != nil && !blockTerminates(fn.Body) {
+	if fn.Results != nil && !blockTerminates(fn.Body) {
 		c.errorf(fn.NameSpan, "%s must end in a return", fn.Name)
 	}
 }
@@ -112,7 +112,59 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 		c.checkAssign(s)
 	case *ast.IncDec:
 		c.checkIntTarget(s.Target, s.Op())
+	case *ast.MultiVar:
+		c.checkMultiVar(s)
 	}
+}
+
+// checkMultiVar checks a declaration of several variables. Its value must be
+// a call to a function with exactly one result for each variable, and each
+// variable takes the type of the result in its position. On a wrong count
+// every variable keeps types.Invalid, so its uses are not reported again.
+func (c *Checker) checkMultiVar(m *ast.MultiVar) {
+	c.checkExpr(m.Value)
+
+	want := len(m.Vars)
+	call, isCall := m.Value.(*ast.Call)
+	if !isCall {
+		c.errorf(m.Span, "assignment mismatch: %d variables but 1 value", want)
+		return
+	}
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok {
+		return
+	}
+
+	// A builtin's Def is a nil *Func, and a builtin returns nothing.
+	var results []types.Type
+	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
+		results = fn.ResultTypes
+	}
+	switch got := len(results); {
+	case got == 0:
+		c.errorf(m.Span, "assignment mismatch: %d variables but %s returns no value", want, id.Name)
+	case got != want:
+		c.errorf(
+			m.Span,
+			"assignment mismatch: %d variables but %s returns %d %s",
+			want,
+			id.Name,
+			got,
+			plural(got, "value"),
+		)
+	default:
+		for i, v := range m.Vars {
+			v.Type = results[i]
+		}
+	}
+}
+
+// plural returns word, with an s added unless n is one.
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 // checkFor checks a loop's clauses, in source order, then its body, inside
@@ -501,8 +553,8 @@ func (c *Checker) checkIntTarget(target *ast.Ident, op string) bool {
 }
 
 // valueType checks an expression used as a value and returns its type. A call
-// to a function that returns nothing is reported here, since it has no value
-// to give; the result is then types.Invalid.
+// to a function that returns nothing, or several values, is reported here,
+// since it has no one value to give; the result is then types.Invalid.
 func (c *Checker) valueType(e ast.Expr) types.Type {
 	c.checkExpr(e)
 
@@ -510,11 +562,21 @@ func (c *Checker) valueType(e ast.Expr) types.Type {
 	if typ == types.Invalid {
 		if call, ok := e.(*ast.Call); ok {
 			if id, ok := call.Fn.(*ast.Ident); ok {
-				c.errorf(e.Spanned(), "%s returns no value", id.Name)
+				c.errorf(e.Spanned(), "%s", notOneValue(id))
 			}
 		}
 	}
 	return typ
+}
+
+// notOneValue says why a call to the function id names cannot be used as a
+// value: it returns nothing, or more than one value. A builtin returns
+// nothing.
+func notOneValue(id *ast.Ident) string {
+	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && len(fn.Results) > 1 {
+		return fmt.Sprintf("%s returns %d values", id.Name, len(fn.Results))
+	}
+	return fmt.Sprintf("%s returns no value", id.Name)
 }
 
 // declaredType returns the type a type expression denotes, reporting a type it
@@ -572,41 +634,74 @@ func blockTerminates(body []ast.Stmt) bool {
 	return len(body) > 0 && terminates(body[len(body)-1])
 }
 
+// checkReturn checks that a return carries one value for each result fn
+// declares, each of that result's type. A wrong count is one error, and then
+// no value is compared with a result.
 func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
-	if ret.Value == nil {
-		if fn.Result != nil {
-			c.errorf(
-				ret.Span,
-				"%s must return a value of type %s",
-				fn.Name,
-				c.table.Name(fn.ResultType),
-			)
-		}
-		return
+	for _, v := range ret.Values {
+		c.checkExpr(v)
 	}
 
-	c.checkExpr(ret.Value)
-
-	if fn.Result == nil {
-		c.errorf(ret.Value.Spanned(), "%s declares no result, so it cannot return a value", fn.Name)
-		return
-	}
-
-	// A result type that is unknown has been reported already, and there is
-	// nothing to compare the value with.
-	if fn.ResultType == types.Invalid {
-		return
-	}
-
-	if got := ast.TypeOf(ret.Value); got != fn.ResultType && !reportedInvalid(ret.Value, got) {
+	got, want := len(ret.Values), len(fn.Results)
+	switch {
+	case got == want:
+		c.checkReturnTypes(ret, fn)
+	case want == 0:
+		c.errorf(spanOf(ret.Values), "%s declares no result, so it cannot return a value", fn.Name)
+	case got == 0 && want == 1:
 		c.errorf(
-			ret.Value.Spanned(),
+			ret.Span,
+			"%s must return a value of type %s",
+			fn.Name,
+			c.table.Name(fn.ResultTypes[0]),
+		)
+	case got < want:
+		c.errorf(ret.Span, "not enough return values: %s returns %d, got %d", fn.Name, want, got)
+	default:
+		c.errorf(
+			spanOf(ret.Values),
+			"too many return values: %s returns %d, got %d",
+			fn.Name,
+			want,
+			got,
+		)
+	}
+}
+
+// checkReturnTypes checks each value of a return that has as many as fn
+// declares results against the result in the same position.
+func (c *Checker) checkReturnTypes(ret *ast.Return, fn *ast.Func) {
+	for i, v := range ret.Values {
+		// A result type that is unknown has been reported already, and there
+		// is nothing to compare the value with.
+		want := fn.ResultTypes[i]
+		got := ast.TypeOf(v)
+		if want == types.Invalid || got == want || reportedInvalid(v, got) {
+			continue
+		}
+
+		if call, ok := v.(*ast.Call); ok && got == types.Invalid {
+			if id, ok := call.Fn.(*ast.Ident); ok {
+				c.errorf(v.Spanned(), "%s", notOneValue(id))
+				continue
+			}
+		}
+		c.errorf(
+			v.Spanned(),
 			"cannot use %s as %s in return from %s",
 			c.table.Name(got),
-			c.table.Name(fn.ResultType),
+			c.table.Name(want),
 			fn.Name,
 		)
 	}
+}
+
+// spanOf returns the source range from the start of the first expression in
+// a list through the end of the last. The list must not be empty.
+func spanOf(exprs []ast.Expr) ast.Span {
+	span := exprs[0].Spanned()
+	span.End = exprs[len(exprs)-1].Spanned().End
+	return span
 }
 
 // checkExpr checks an expression and everything nested inside it.
@@ -758,24 +853,24 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 }
 
-// resolveResultType records what the declared result type denotes.
-func (c *Checker) resolveResultType(fn *ast.Func) {
-	if fn.Result == nil {
-		return
-	}
+// resolveResultTypes records what each declared result type denotes. A
+// result whose type is unknown keeps types.Invalid, as a parameter does.
+func (c *Checker) resolveResultTypes(fn *ast.Func) {
+	fn.ResultTypes = make([]types.Type, len(fn.Results))
+	for i, result := range fn.Results {
+		id, ok := result.(*ast.Ident)
+		if !ok {
+			c.errorf(result.Spanned(), "unsupported type expression: %T", result)
+			continue
+		}
 
-	id, ok := fn.Result.(*ast.Ident)
-	if !ok {
-		c.errorf(fn.Result.Spanned(), "unsupported type expression: %T", fn.Result)
-		return
+		typ, known := types.Lookup(id.Name)
+		if !known {
+			c.errorf(id.Span, "unknown type: %s", id.Name)
+			continue
+		}
+		fn.ResultTypes[i] = typ
 	}
-
-	typ, known := types.Lookup(id.Name)
-	if !known {
-		c.errorf(id.Span, "unknown type: %s", id.Name)
-		return
-	}
-	fn.ResultType = typ
 }
 
 // resolveParamTypes records what each declared parameter type denotes. A
@@ -822,7 +917,7 @@ func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Type
 			// using it where a value is expected, which deserves saying so.
 			if nested, ok := arg.(*ast.Call); ok {
 				if id, ok := nested.Fn.(*ast.Ident); ok {
-					c.errorf(arg.Spanned(), "%s returns no value", id.Name)
+					c.errorf(arg.Spanned(), "%s", notOneValue(id))
 					continue
 				}
 			}
@@ -866,7 +961,7 @@ func reportedInvalid(e ast.Expr, typ types.Type) bool {
 	case *ast.Call:
 		if id, ok := x.Fn.(*ast.Ident); ok {
 			fn, ok := id.Def.(*ast.Func)
-			return ok && fn != nil && fn.Result != nil
+			return ok && fn != nil && len(fn.Results) == 1
 		}
 	}
 	return false

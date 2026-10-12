@@ -3,7 +3,7 @@
 // It runs after the parser and before the type checker, taking an *ast.File
 // and returning the diagnostics it found. It checks the file's shape first:
 // the package must be main, a main function must exist, take no parameters
-// and declare no result, no function may be declared twice, and none may
+// and declare no results, no function may be declared twice, and none may
 // reuse a builtin's name. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A callee that
@@ -21,7 +21,8 @@
 // statement or range declares, with the body nested in it. A range loop's
 // count is resolved outside that scope. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
-// itself. No variable or parameter may reuse a name visible where it is
+// itself. The variables a, b := f() declares are declared in order after f()
+// is resolved, as if each were declared on its own. No variable or parameter may reuse a name visible where it is
 // declared, whether a parameter's or a variable's, package-level ones
 // included. A local may reuse a function's or a builtin's name, since a call
 // always resolves to a function. A variable that is never read, only

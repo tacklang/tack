@@ -15,16 +15,22 @@ type Decl interface {
 	Node
 }
 
-// Func is a function declaration, with its parameters, optional result type,
-// and body.
+// Func is a function declaration, with its parameters, its result types, and
+// its body. A function may declare no result, one, or several; a call to one
+// with several gives all of them at once, to be bound by a MultiVar.
 type Func struct {
-	Result     Expr // declared result type as written, nil if none
-	Name       string
-	Params     []*Param
-	Body       []Stmt
-	NameSpan   Span       // just the identifier
-	Span       Span       // 'func' keyword through closing brace
-	ResultType types.Type // filled in by the type checker, Invalid before
+	Name    string
+	Params  []*Param
+	Results []Expr // declared result types as written, empty if none
+	Body    []Stmt
+
+	// ResultTypes holds what each of Results denotes, in order. The type
+	// checker fills it in; before then it is nil, and an entry it could not
+	// determine is Invalid.
+	ResultTypes []types.Type
+
+	NameSpan Span // just the identifier
+	Span     Span // 'func' keyword through closing brace
 }
 
 var _ Decl = (*Func)(nil)

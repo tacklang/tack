@@ -1,0 +1,9 @@
+package main
+
+func half(n int) int {
+    return n / 2, n % 2
+}
+
+func main() {
+    exit(half(7))
+}

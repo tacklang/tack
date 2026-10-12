@@ -319,7 +319,7 @@ func TestAnnotatesResultType(t *testing.T) {
 		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
 	}
 
-	if got := file.Decls[0].(*ast.Func).ResultType; got != types.Int {
+	if got := file.Decls[0].(*ast.Func).ResultTypes; len(got) != 1 || got[0] != types.Int {
 		t.Errorf("ResultType = %v, want %v", got, types.Int)
 	}
 }
