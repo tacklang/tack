@@ -8,7 +8,7 @@
 // number and types of arguments. Both read them from here, which is what keeps
 // the two stages from disagreeing about what the builtins are.
 //
-// Each builtin is a Func: a name and the kinds of its parameters. No builtin
+// Each builtin is a Func: a name and the types of its parameters. No builtin
 // returns a value today, so a Func has no result. Funcs lists every builtin in
 // a fixed order, and Lookup finds one by name.
 //

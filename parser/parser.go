@@ -290,7 +290,7 @@ func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 	return &ast.Param{
 		Name:     name.Name,
 		NameSpan: name.Span,
-		Type:     typ,
+		TypeExpr: typ,
 		Span: ast.Span{
 			File:  p.fileID,
 			Start: name.Span.Start,
@@ -505,7 +505,7 @@ func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
 		if typ == nil {
 			return typDiags
 		}
-		v.Type = typ
+		v.TypeExpr = typ
 	}
 
 	if p.peek().Kind() == lexer.Assign {
@@ -517,7 +517,7 @@ func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
 		v.Value = value
 	}
 
-	if v.Type == nil && v.Value == nil {
+	if v.TypeExpr == nil && v.Value == nil {
 		return []diag.Diagnostic{p.diagInvalidToken("type or =", p.peek())}
 	}
 	return nil

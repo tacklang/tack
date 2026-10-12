@@ -3,9 +3,11 @@
 // The parser produces a *File from the lexer's tokens. Later passes read the
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, and the type checker sets
-// Param.Kind, Var.Kind and Func.ResultKind to the types those declarations
-// denote, and Var.Const to a package-level variable's computed initial
-// value. A Var is both a declaration, so a name can refer to it, and a
+// Param.Type, Var.Type and Func.ResultType to the types those declarations
+// denote, Var.Const to a package-level variable's computed initial value,
+// and File.Types to the table that gives those types meaning. The types as
+// written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
+// Func.Result. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a
 // top-level declaration. Code
 // generation then reads the fully annotated tree. Until a pass has run, the

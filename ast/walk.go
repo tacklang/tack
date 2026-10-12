@@ -38,10 +38,10 @@ func walkDecl(d Decl, v Visitor) {
 		}
 		walkAll(d.Body, v)
 	case *Param:
-		Walk(d.Type, v)
+		Walk(d.TypeExpr, v)
 	case *Var:
-		if d.Type != nil {
-			Walk(d.Type, v)
+		if d.TypeExpr != nil {
+			Walk(d.TypeExpr, v)
 		}
 		if d.Value != nil {
 			Walk(d.Value, v)

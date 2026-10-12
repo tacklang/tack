@@ -24,7 +24,7 @@ type Func struct {
 	Body       []Stmt
 	NameSpan   Span       // just the identifier
 	Span       Span       // 'func' keyword through closing brace
-	ResultKind types.Kind // filled in by the type checker, Invalid before
+	ResultType types.Type // filled in by the type checker, Invalid before
 }
 
 var _ Decl = (*Func)(nil)
@@ -39,11 +39,11 @@ func (f *Func) Spanned() Span { return f.Span }
 
 // Param is one parameter in a function's parameter list.
 type Param struct {
-	Type     Expr // the type as written, e.g. *Ident{"int"}
+	TypeExpr Expr // the type as written, e.g. *Ident{"int"}
 	Name     string
 	NameSpan Span
 	Span     Span
-	Kind     types.Kind // filled in by the type checker, Invalid before
+	Type     types.Type // filled in by the type checker, Invalid before
 }
 
 // A parameter is a declaration so that an Ident referring to one can point at
@@ -62,8 +62,8 @@ func (p *Param) Spanned() Span { return p.Span }
 // leave out the value to start from the type's zero value. Inside a function
 // body it is also a statement.
 type Var struct {
-	Type  Expr // the declared type as written, nil if inferred from Value
-	Value Expr // the initial value, nil if the variable starts at its zero value
+	TypeExpr Expr // the declared type as written, nil if inferred from Value
+	Value    Expr // the initial value, nil if the variable starts at its zero value
 
 	// Const is a package-level variable's initial value, computed by the
 	// type checker: an int64, a string, or a bool. It is nil for a local.
@@ -72,7 +72,7 @@ type Var struct {
 	Name     string
 	NameSpan Span       // just the identifier
 	Span     Span       // first token through the end of the declaration
-	Kind     types.Kind // filled in by the type checker, Invalid before
+	Type     types.Type // filled in by the type checker, Invalid before
 	Mutable  bool       // declared with mut
 }
 

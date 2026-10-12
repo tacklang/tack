@@ -1,10 +1,19 @@
 package ast
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/tacklang/tack/types"
+)
 
 // File is the root of the tree for one source file: its package clause, its
 // top-level declarations in source order, and the comments found in it.
 type File struct {
+	// Types describes the types the file's nodes refer to. The type checker
+	// fills it in, so it is nil before then. It is left out of the JSON
+	// dump, which is taken before checking.
+	Types *types.Table `json:"-"`
+
 	Package  string
 	Decls    []Decl
 	Comments []Comment

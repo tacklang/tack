@@ -125,8 +125,8 @@ func TestFoldsLogicalGlobals(t *testing.T) {
 				t.Fatalf("got %v, want no diagnostics", diags)
 			}
 			v := globalX(t, file)
-			if v.Kind != types.Bool || v.Const != tt.want {
-				t.Errorf("got %s %#v, want bool %v", v.Kind, v.Const, tt.want)
+			if v.Type != types.Bool || v.Const != tt.want {
+				t.Errorf("got %v %#v, want bool %v", v.Type, v.Const, tt.want)
 			}
 		})
 	}

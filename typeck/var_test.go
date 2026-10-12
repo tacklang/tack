@@ -39,12 +39,12 @@ func mainLines(lines ...string) string {
 	return "package main\n\nfunc main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
 
-// TestRecordsEachVariablesKind checks the kind recorded for the first
+// TestRecordsEachVariablesType checks the type recorded for the first
 // variable main declares, whether written or inferred.
-func TestRecordsEachVariablesKind(t *testing.T) {
+func TestRecordsEachVariablesType(t *testing.T) {
 	tests := []struct {
 		decl string
-		want types.Kind
+		want types.Type
 	}{
 		{"x := 1", types.Int},
 		{"x := \"s\"", types.String},
@@ -63,18 +63,18 @@ func TestRecordsEachVariablesKind(t *testing.T) {
 		t.Run(tt.decl, func(t *testing.T) {
 			file, diags := checkTree(t, mainLines(tt.decl, "if x == x {", "}"))
 			// A bool or string compared with == is a checker error of its
-			// own; only the declaration's kind is under test here.
+			// own; only the declaration's type is under test here.
 			_ = diags
 			v := file.Decls[0].(*ast.Func).Body[0].(*ast.Var)
-			if v.Kind != tt.want {
-				t.Errorf("kind = %s, want %s", v.Kind, tt.want)
+			if v.Type != tt.want {
+				t.Errorf("type = %v, want %v", v.Type, tt.want)
 			}
 		})
 	}
 }
 
-// A variable's kind flows into everything that reads it.
-func TestVariableKindFlowsIntoUses(t *testing.T) {
+// A variable's type flows into everything that reads it.
+func TestVariableTypeFlowsIntoUses(t *testing.T) {
 	src := "package main\n\nfunc show(s string) {\n    print(s)\n}\n\nfunc main() {\n" +
 		"    s := \"hi\"\n    show(s)\n    n := 2\n    m := n * 3\n    exit(m)\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {

@@ -7,14 +7,14 @@
 // should emit.
 //
 // Checking happens in three passes. The first resolves every function's
-// signature, recording the Kind each declared parameter and result type
-// denotes on the tree (Param.Kind and Func.ResultKind). Doing this for every
+// signature, recording the type each declared parameter and result type
+// denotes on the tree (Param.Type and Func.ResultType). Doing this for every
 // function first is what lets a call check against a callee declared later in
 // the file. A type name it does not know is reported, and the declaration
 // keeps types.Invalid. Anything that has no type only because of an error
 // already reported, such as a use of that parameter, is not reported again.
 //
-// Package-level variables are checked next, before any body, so their kinds
+// Package-level variables are checked next, before any body, so their types
 // are known in every function. A global's initializer must be a constant
 // expression, made only of literals and operators. The checker computes its
 // value into Var.Const with Go's integer arithmetic (division truncates, and
@@ -53,6 +53,11 @@
 //     with no condition and no break that leaves it (a break in a nested
 //     loop leaves only that one). The rule is syntactic, as in Go, so a call
 //     that never comes back, like exit, does not satisfy it.
+//
+// Before any of this, Check creates the file's types.Table and records it on
+// File.Types, and every diagnostic names a type through it, so a type is
+// always named by the compilation that gave it its ID. Later stages read the
+// same Table from the file.
 //
 // Checking continues past the first problem, so one run reports all of them,
 // in source order. A Checker is single-use: create one with New and call Check

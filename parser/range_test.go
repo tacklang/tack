@@ -31,7 +31,7 @@ func TestParsesRangeLoops(t *testing.T) {
 			name := ""
 			if loop.Var != nil {
 				name = loop.Var.Name
-				if loop.Var.Mutable || loop.Var.Value != nil || loop.Var.Type != nil {
+				if loop.Var.Mutable || loop.Var.Value != nil || loop.Var.TypeExpr != nil {
 					t.Errorf("variable is %+v, want immutable with no type or value", loop.Var)
 				}
 			}

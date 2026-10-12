@@ -25,13 +25,13 @@ func globalX(t *testing.T, file *ast.File) *ast.Var {
 	return v
 }
 
-// TestFoldsGlobalInitializers checks each package-level variable's kind and
+// TestFoldsGlobalInitializers checks each package-level variable's type and
 // the value the checker computes for it at compile time.
 func TestFoldsGlobalInitializers(t *testing.T) {
 	tests := []struct {
 		want any
 		decl string
-		kind types.Kind
+		typ  types.Type
 	}{
 		{int64(42), "var x = 42", types.Int},
 		{int64(42), "var x int = 10 * 4 + 2", types.Int},
@@ -62,8 +62,8 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 			// the declaration is under test.
 			_ = diags
 			v := globalX(t, file)
-			if v.Kind != tt.kind {
-				t.Errorf("kind = %s, want %s", v.Kind, tt.kind)
+			if v.Type != tt.typ {
+				t.Errorf("type = %v, want %v", v.Type, tt.typ)
 			}
 			if v.Const != tt.want {
 				t.Errorf("value = %#v, want %#v", v.Const, tt.want)
@@ -163,9 +163,9 @@ func TestRejectsInvalidGlobals(t *testing.T) {
 	}
 }
 
-// A global's kind is known in every function, whatever the order of
+// A global's type is known in every function, whatever the order of
 // declarations, since globals are checked before any body.
-func TestGlobalKindIsKnownInEarlierFunctions(t *testing.T) {
+func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    exit(limit + 1)\n}\n\nvar limit = 41\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)

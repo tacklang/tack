@@ -54,8 +54,8 @@ func TestRangeLoops(t *testing.T) {
 	if len(diags) > 0 {
 		t.Fatalf("got %v, want no diagnostics", diags)
 	}
-	if v := file.Decls[0].(*ast.Func).Body[0].(*ast.ForRange).Var; v.Kind != types.Int {
-		t.Errorf("variable kind = %s, want int", v.Kind)
+	if v := file.Decls[0].(*ast.Func).Body[0].(*ast.ForRange).Var; v.Type != types.Int {
+		t.Errorf("variable type = %v, want int", v.Type)
 	}
 
 	forever := "package main\n\nfunc f() int {\n    for range 3 {\n        return 1\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"

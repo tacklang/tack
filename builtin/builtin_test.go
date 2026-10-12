@@ -64,14 +64,14 @@ func declared(t *testing.T) []builtin.Func {
 	return funcs
 }
 
-// declaredParams returns the kinds of fn's parameters as the declaration file
+// declaredParams returns the types of fn's parameters as the declaration file
 // writes them. It fails the test on a type it cannot name.
-func declaredParams(t *testing.T, fn *ast.Func) []types.Kind {
+func declaredParams(t *testing.T, fn *ast.Func) []types.Type {
 	t.Helper()
 
-	params := make([]types.Kind, len(fn.Params))
+	params := make([]types.Type, len(fn.Params))
 	for i, param := range fn.Params {
-		id, ok := param.Type.(*ast.Ident)
+		id, ok := param.TypeExpr.(*ast.Ident)
 		if !ok {
 			t.Fatalf(
 				"%s: parameter %s of %s has an unsupported type expression",
@@ -80,7 +80,7 @@ func declaredParams(t *testing.T, fn *ast.Func) []types.Kind {
 				fn.Name,
 			)
 		}
-		kind, known := types.Lookup(id.Name)
+		typ, known := types.Lookup(id.Name)
 		if !known {
 			t.Fatalf(
 				"%s: parameter %s of %s has unknown type %q",
@@ -90,7 +90,7 @@ func declaredParams(t *testing.T, fn *ast.Func) []types.Kind {
 				id.Name,
 			)
 		}
-		params[i] = kind
+		params[i] = typ
 	}
 	return params
 }
@@ -110,6 +110,7 @@ func TestDeclarationFileListsExactlyTheImplementedBuiltins(t *testing.T) {
 		)
 	}
 
+	table := types.NewTable()
 	byName := make(map[string]builtin.Func, len(got))
 	for _, fn := range got {
 		byName[fn.Name] = fn
@@ -133,8 +134,14 @@ func TestDeclarationFileListsExactlyTheImplementedBuiltins(t *testing.T) {
 		}
 		for i := range fn.Params {
 			if declared.Params[i] != fn.Params[i] {
-				t.Errorf("%s declares parameter %d of %s as %s, the compiler takes %s",
-					declarationsPath, i, fn.Name, declared.Params[i], fn.Params[i])
+				t.Errorf(
+					"%s declares parameter %d of %s as %s, the compiler takes %s",
+					declarationsPath,
+					i,
+					fn.Name,
+					table.Name(declared.Params[i]),
+					table.Name(fn.Params[i]),
+				)
 			}
 		}
 	}
@@ -176,10 +183,10 @@ func TestLookupFindsEveryBuiltin(t *testing.T) {
 func TestBuiltinSignatures(t *testing.T) {
 	tests := []struct {
 		name   string
-		params []types.Kind
+		params []types.Type
 	}{
-		{"print", []types.Kind{types.String}},
-		{"exit", []types.Kind{types.Int}},
+		{"print", []types.Type{types.String}},
+		{"exit", []types.Type{types.Int}},
 	}
 	if len(builtin.Funcs()) != len(tests) {
 		t.Errorf("Funcs() has %d builtins, want %d", len(builtin.Funcs()), len(tests))

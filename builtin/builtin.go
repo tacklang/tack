@@ -6,12 +6,12 @@ import "github.com/tacklang/tack/types"
 // are the whole of it.
 type Func struct {
 	Name   string
-	Params []types.Kind
+	Params []types.Type
 }
 
 var funcs = []Func{
-	{Name: "print", Params: []types.Kind{types.String}},
-	{Name: "exit", Params: []types.Kind{types.Int}},
+	{Name: "print", Params: []types.Type{types.String}},
+	{Name: "exit", Params: []types.Type{types.Int}},
 }
 
 // Funcs returns every builtin, in a fixed order.

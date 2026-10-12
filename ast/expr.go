@@ -220,11 +220,11 @@ func (u *Unary) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the operator through the end of X.
 func (u *Unary) Spanned() Span { return u.Span }
 
-// KindOf returns the type of an expression, or types.Invalid if it has none
+// TypeOf returns the type of an expression, or types.Invalid if it has none
 // the compiler can determine. It reads what earlier passes recorded: a literal
 // carries its type in its node, and an identifier carries it through the
 // declaration the resolver bound it to.
-func KindOf(expr Expr) types.Kind {
+func TypeOf(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *StrLit:
 		return types.String
@@ -233,57 +233,57 @@ func KindOf(expr Expr) types.Kind {
 	case *BoolLit:
 		return types.Bool
 	case *Ident:
-		return identKind(e)
+		return identType(e)
 	case *Binary, *Unary:
-		return operatorKind(e)
+		return operatorType(e)
 	case *Call:
-		return callKind(e)
+		return callType(e)
 	default:
 		return types.Invalid
 	}
 }
 
-// operatorKind returns the type a binary or unary expression yields. A
+// operatorType returns the type a binary or unary expression yields. A
 // comparison, a logical operator and ! yield a bool whatever their operands;
 // arithmetic and - yield the type of their (left) operand, which the checker
 // has already agreed is an int.
-func operatorKind(e Expr) types.Kind {
+func operatorType(e Expr) types.Type {
 	switch e := e.(type) {
 	case *Binary:
 		if !e.Op.IsArithmetic() {
 			return types.Bool
 		}
-		return KindOf(e.X)
+		return TypeOf(e.X)
 	case *Unary:
 		if e.Op == Not {
 			return types.Bool
 		}
-		return KindOf(e.X)
+		return TypeOf(e.X)
 	default:
 		return types.Invalid
 	}
 }
 
-// identKind returns the type of the parameter or variable a name is bound
+// identType returns the type of the parameter or variable a name is bound
 // to, which is all an expression can name today.
-func identKind(id *Ident) types.Kind {
+func identType(id *Ident) types.Type {
 	switch def := id.Def.(type) {
 	case *Param:
-		return def.Kind
+		return def.Type
 	case *Var:
-		return def.Kind
+		return def.Type
 	default:
 		return types.Invalid
 	}
 }
 
-// callKind returns the type a call yields: whatever its callee returns. A
+// callType returns the type a call yields: whatever its callee returns. A
 // builtin returns nothing. Its Def is a nil *Func, which still satisfies the
 // type assertion, so it is checked for explicitly and lands on Invalid.
-func callKind(call *Call) types.Kind {
+func callType(call *Call) types.Type {
 	if id, ok := call.Fn.(*Ident); ok {
 		if fn, ok := id.Def.(*Func); ok && fn != nil {
-			return fn.ResultKind
+			return fn.ResultType
 		}
 	}
 	return types.Invalid

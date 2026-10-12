@@ -125,7 +125,7 @@ func TestGlobalsAtRuntime(t *testing.T) {
 // An assignment the type checker would have rejected, handed to the backend
 // anyway, is reported rather than crashing it.
 func TestAssignmentToANonVariableIsReported(t *testing.T) {
-	param := &ast.Param{Name: "n", Kind: types.Int}
+	param := &ast.Param{Name: "n", Type: types.Int}
 	file := &ast.File{
 		Package: "main",
 		Decls: []ast.Decl{

@@ -111,8 +111,8 @@ func TestFoldsBoolLiteralGlobals(t *testing.T) {
 				t.Fatalf("got %v, want no diagnostics", diags)
 			}
 			v := globalX(t, file)
-			if v.Kind != types.Bool {
-				t.Errorf("kind = %s, want bool", v.Kind)
+			if v.Type != types.Bool {
+				t.Errorf("type = %v, want bool", v.Type)
 			}
 			if v.Const != tt.want {
 				t.Errorf("value = %#v, want %v", v.Const, tt.want)

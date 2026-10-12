@@ -100,8 +100,8 @@ func TestFoldsNegation(t *testing.T) {
 			if len(diags) > 0 {
 				t.Fatalf("got %v, want no diagnostics", diags)
 			}
-			if v := globalX(t, file); v.Kind != types.Int || v.Const != tt.want {
-				t.Errorf("got %s %#v, want int %#v", v.Kind, v.Const, tt.want)
+			if v := globalX(t, file); v.Type != types.Int || v.Const != tt.want {
+				t.Errorf("got %v %#v, want int %#v", v.Type, v.Const, tt.want)
 			}
 		})
 	}

@@ -107,7 +107,7 @@ func (g *generator) collectStrings() {
 		case *ast.StrLit:
 			g.addStr(x.Value)
 		case *ast.Var:
-			if x.Value == nil && x.Kind == types.String {
+			if x.Value == nil && x.Type == types.String {
 				g.addStr("")
 			}
 		}
@@ -216,7 +216,7 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	if v.Mutable {
 		qualifier = "static"
 	}
-	return fmt.Sprintf("%s %s %s = %s;", qualifier, cType(v.Kind), g.mangle(v.Name), value), nil
+	return fmt.Sprintf("%s %s %s = %s;", qualifier, cType(v.Type), g.mangle(v.Name), value), nil
 }
 
 // constValue renders a computed constant as a C constant expression, usable
@@ -274,7 +274,7 @@ func (g *generator) emitEntryPoint() {
 func (g *generator) signature(fn *ast.Func) string {
 	result := "void"
 	if fn.Result != nil {
-		result = cType(fn.ResultKind)
+		result = cType(fn.ResultType)
 	}
 
 	if len(fn.Params) == 0 {
@@ -283,7 +283,7 @@ func (g *generator) signature(fn *ast.Func) string {
 
 	params := make([]string, len(fn.Params))
 	for i, param := range fn.Params {
-		params[i] = fmt.Sprintf("%s %s", cType(param.Kind), paramName(param.Name))
+		params[i] = fmt.Sprintf("%s %s", cType(param.Type), paramName(param.Name))
 	}
 	return fmt.Sprintf("static %s %s(%s)", result, g.mangle(fn.Name), strings.Join(params, ", "))
 }
@@ -360,7 +360,7 @@ func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []d
 		return []string{"return;"}, nil
 	}
 
-	value, diags := g.expr(ret.Value, fn.ResultKind)
+	value, diags := g.expr(ret.Value, fn.ResultType)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -574,7 +574,7 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 
 // generateAssign sets a local to a new value.
 func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) {
-	value, diags := g.expr(a.Value, ast.KindOf(a.Value))
+	value, diags := g.expr(a.Value, ast.TypeOf(a.Value))
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -641,16 +641,16 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 // local, so the C compiler holds it to the same rule. A variable without a
 // value starts from its type's zero value.
 func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
-	value := g.zeroValue(v.Kind)
+	value := g.zeroValue(v.Type)
 	if v.Value != nil {
-		expr, diags := g.expr(v.Value, v.Kind)
+		expr, diags := g.expr(v.Value, v.Type)
 		if len(diags) > 0 {
 			return nil, diags
 		}
 		value = expr
 	}
 
-	decl := fmt.Sprintf("%s %s = %s;", cType(v.Kind), varName(v.Name), value)
+	decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), value)
 	if !v.Mutable {
 		decl = "const " + decl
 	}
@@ -660,8 +660,8 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 // zeroValue is the C expression for a type's zero value. The empty string
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer.
-func (g *generator) zeroValue(kind types.Kind) string {
-	switch kind {
+func (g *generator) zeroValue(typ types.Type) string {
+	switch typ {
 	case types.String:
 		return g.stringValue("")
 	case types.Bool:
@@ -718,7 +718,7 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
 	args := make([]string, len(call.Args))
 	for i, a := range call.Args {
-		expr, diags := g.expr(a, ast.KindOf(a))
+		expr, diags := g.expr(a, ast.TypeOf(a))
 		if len(diags) > 0 {
 			return "", diags
 		}
@@ -729,13 +729,19 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 
 // expr renders an expression as C. want is the type the context requires;
 // passing types.Invalid means any type the expression happens to have.
-func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic) {
-	if got := ast.KindOf(e); got != want && want != types.Invalid {
-		return "", []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("cannot use %s as %s", got, want),
-			Span:     e.Spanned(),
-		}}
+func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic) {
+	if got := ast.TypeOf(e); got != want && want != types.Invalid {
+		return "", []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"cannot use %s as %s",
+					g.file.Types.Name(got),
+					g.file.Types.Name(want),
+				),
+				Span: e.Spanned(),
+			},
+		}
 	}
 
 	if lit, ok := g.literal(e); ok {
@@ -857,8 +863,8 @@ func (g *generator) stringValue(s string) string {
 	return fmt.Sprintf("(tack_string){%s, %d}", g.strLabel(s), len(s))
 }
 
-func cType(kind types.Kind) string {
-	switch kind {
+func cType(typ types.Type) string {
+	switch typ {
 	case types.Int:
 		return "int64_t"
 	case types.String:

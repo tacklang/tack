@@ -188,9 +188,9 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	return file, typeck.New(file).Check()
 }
 
-// The parameter's kind is what the backend reads to size and place it, so the
+// The parameter's type is what the backend reads to size and place it, so the
 // checker has to record it rather than leave the type as syntax.
-func TestAnnotatesParameterKinds(t *testing.T) {
+func TestAnnotatesParameterTypes(t *testing.T) {
 	file, diags := checkFile(
 		t,
 		"package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n}\n",
@@ -200,9 +200,9 @@ func TestAnnotatesParameterKinds(t *testing.T) {
 	}
 
 	params := file.Decls[0].(*ast.Func).Params
-	for i, want := range []types.Kind{types.Int, types.String} {
-		if params[i].Kind != want {
-			t.Errorf("parameter %d kind = %v, want %v", i, params[i].Kind, want)
+	for i, want := range []types.Type{types.Int, types.String} {
+		if params[i].Type != want {
+			t.Errorf("parameter %d typ = %v, want %v", i, params[i].Type, want)
 		}
 	}
 }
@@ -310,7 +310,7 @@ func TestAcceptsForwardingAParameterToAnotherFunction(t *testing.T) {
 	}
 }
 
-func TestAnnotatesResultKind(t *testing.T) {
+func TestAnnotatesResultType(t *testing.T) {
 	file, diags := checkFile(
 		t,
 		"package main\n\nfunc f() int {\n    return 1\n}\n\nfunc main() {\n}\n",
@@ -319,8 +319,23 @@ func TestAnnotatesResultKind(t *testing.T) {
 		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
 	}
 
-	if got := file.Decls[0].(*ast.Func).ResultKind; got != types.Int {
-		t.Errorf("ResultKind = %v, want %v", got, types.Int)
+	if got := file.Decls[0].(*ast.Func).ResultType; got != types.Int {
+		t.Errorf("ResultType = %v, want %v", got, types.Int)
+	}
+}
+
+// Check records its Table on the file, so the backend names types through
+// the same one the checker used.
+func TestRecordsTheTypeTableOnTheFile(t *testing.T) {
+	file, diags := checkFile(t, "package main\n\nfunc main() {\n}\n")
+	if len(diags) > 0 {
+		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
+	}
+	if file.Types == nil {
+		t.Fatal("Check left File.Types nil")
+	}
+	if got := file.Types.Name(types.Int); got != "int" {
+		t.Errorf("File.Types.Name(Int) = %q, want %q", got, "int")
 	}
 }
 

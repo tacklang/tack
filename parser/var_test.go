@@ -67,7 +67,7 @@ func TestParsesEveryDeclarationForm(t *testing.T) {
 			if v.Name != tt.name {
 				t.Errorf("name = %q, want %q", v.Name, tt.name)
 			}
-			if got := typeName(t, v.Type); got != tt.typ {
+			if got := typeName(t, v.TypeExpr); got != tt.typ {
 				t.Errorf("type = %q, want %q", got, tt.typ)
 			}
 			if v.Mutable != tt.mutable {
@@ -236,10 +236,10 @@ func TestParsesPackageLevelDeclarations(t *testing.T) {
 	}
 	for i, w := range want {
 		v := vars[i]
-		if v.Name != w.name || typeName(t, v.Type) != w.typ || v.Mutable != w.mutable ||
+		if v.Name != w.name || typeName(t, v.TypeExpr) != w.typ || v.Mutable != w.mutable ||
 			(v.Value != nil) != w.hasValue {
 			t.Errorf("variable %d = {%s %q mut=%v value=%v}, want %+v",
-				i, v.Name, typeName(t, v.Type), v.Mutable, v.Value != nil, w)
+				i, v.Name, typeName(t, v.TypeExpr), v.Mutable, v.Value != nil, w)
 		}
 	}
 	if _, ok := file.Decls[len(file.Decls)-1].(*ast.Var); !ok {

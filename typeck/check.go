@@ -14,6 +14,7 @@ import (
 // call Check once.
 type Checker struct {
 	file  *ast.File
+	table *types.Table // the file's types, recorded on it by Check
 	funcs map[string]*ast.Func
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
@@ -21,7 +22,7 @@ type Checker struct {
 
 // New returns a Checker for file, which must already have been resolved.
 func New(file *ast.File) *Checker {
-	return &Checker{file: file, funcs: make(map[string]*ast.Func)}
+	return &Checker{file: file, table: types.NewTable(), funcs: make(map[string]*ast.Func)}
 }
 
 // Check reports every badly typed call in the file, in source order. Checking
@@ -30,18 +31,19 @@ func (c *Checker) Check() []diag.Diagnostic {
 	if c.file == nil {
 		panic("file is nil")
 	}
+	c.file.Types = c.table
 
 	// Signatures are resolved for every function before any body is checked,
 	// so a call does not depend on its callee appearing first.
 	for _, decl := range c.file.Decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			c.funcs[fn.Name] = fn
-			c.resolveParamKinds(fn)
-			c.resolveResultKind(fn)
+			c.resolveParamTypes(fn)
+			c.resolveResultType(fn)
 		}
 	}
 
-	// Globals are checked before any body, so their kinds are known in every
+	// Globals are checked before any body, so their types are known in every
 	// function whatever the order of declarations.
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
@@ -133,14 +135,14 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 // checkForRange checks a range loop: the count must be an int, and the loop
 // variable, if any, is an int.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
-	if got := c.valueKind(
+	if got := c.valueType(
 		loop.Count,
 	); got != types.Int && got != types.Invalid &&
 		!alreadyReported(loop.Count, got) {
-		c.errorf(loop.Count.Spanned(), "cannot range over %s", got)
+		c.errorf(loop.Count.Spanned(), "cannot range over %s", c.table.Name(got))
 	}
 	if loop.Var != nil {
-		loop.Var.Kind = types.Int
+		loop.Var.Type = types.Int
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
@@ -157,8 +159,8 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 // checkCond checks the condition of an if or a loop, which must be a bool.
 func (c *Checker) checkCond(cond ast.Expr) {
 	c.checkExpr(cond)
-	if got := ast.KindOf(cond); got != types.Bool && !reportedInvalid(cond, got) {
-		c.errorf(cond.Spanned(), "condition must be a bool, got %s", got)
+	if got := ast.TypeOf(cond); got != types.Bool && !reportedInvalid(cond, got) {
+		c.errorf(cond.Spanned(), "condition must be a bool, got %s", c.table.Name(got))
 	}
 }
 
@@ -169,39 +171,39 @@ func (c *Checker) checkInLoop(span ast.Span, keyword string) {
 	}
 }
 
-// checkVar records a variable's kind: its declared type if it has one,
+// checkVar records a variable's type: its declared type if it has one,
 // otherwise its value's. A declared type and a value must agree, and only a
 // mutable variable may leave out its value and start from its zero value,
 // since an immutable one could never hold anything else.
 func (c *Checker) checkVar(v *ast.Var) {
 	declared := types.Invalid
-	if v.Type != nil {
-		declared = c.typeKind(v.Type)
+	if v.TypeExpr != nil {
+		declared = c.declaredType(v.TypeExpr)
 	}
 
 	if v.Value == nil {
 		if !v.Mutable {
 			c.errorf(v.NameSpan, "immutable variable %s needs a value", v.Name)
 		}
-		v.Kind = declared
+		v.Type = declared
 		return
 	}
 
-	got := c.valueKind(v.Value)
+	got := c.valueType(v.Value)
 	switch {
-	case v.Type == nil:
-		v.Kind = got
+	case v.TypeExpr == nil:
+		v.Type = got
 	case got != types.Invalid && declared != types.Invalid && got != declared:
 		c.errorf(
 			v.Value.Spanned(),
 			"cannot use %s as %s in declaration of %s",
-			got,
-			declared,
+			c.table.Name(got),
+			c.table.Name(declared),
 			v.Name,
 		)
-		v.Kind = declared
+		v.Type = declared
 	default:
-		v.Kind = declared
+		v.Type = declared
 	}
 }
 
@@ -211,8 +213,8 @@ func (c *Checker) checkVar(v *ast.Var) {
 func (c *Checker) checkGlobal(v *ast.Var) {
 	if v.Value != nil && !isConstant(v.Value) {
 		c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
-		if v.Type != nil {
-			v.Kind = c.typeKind(v.Type)
+		if v.TypeExpr != nil {
+			v.Type = c.declaredType(v.TypeExpr)
 		}
 		return
 	}
@@ -224,7 +226,7 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 	}
 
 	if v.Value == nil {
-		v.Const = zeroConst(v.Kind)
+		v.Const = zeroConst(v.Type)
 		return
 	}
 	if value, ok := c.fold(v.Value); ok {
@@ -247,8 +249,8 @@ func isConstant(e ast.Expr) bool {
 }
 
 // zeroConst is a type's zero value as a constant.
-func zeroConst(kind types.Kind) any {
-	switch kind {
+func zeroConst(typ types.Type) any {
+	switch typ {
 	case types.Int:
 		return int64(0)
 	case types.String:
@@ -437,7 +439,7 @@ func compareInts(op ast.BinaryOp, a, b int64) bool {
 // have the variable's type. Parameters are never assignable. A compound
 // assignment also requires both to be ints, since it applies arithmetic.
 func (c *Checker) checkAssign(a *ast.Assign) {
-	got := c.valueKind(a.Value)
+	got := c.valueType(a.Value)
 	if a.Op != ast.InvalidOp {
 		c.checkCompound(a, got)
 		return
@@ -451,29 +453,29 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 			c.errorf(a.Target.Span, "cannot assign to immutable variable %s", a.Target.Name)
 			return
 		}
-		if got != types.Invalid && got != def.Kind {
+		if got != types.Invalid && got != def.Type {
 			c.errorf(
 				a.Value.Spanned(),
 				"cannot use %s as %s in assignment to %s",
-				got,
-				def.Kind,
+				c.table.Name(got),
+				c.table.Name(def.Type),
 				a.Target.Name,
 			)
 		}
 	}
 }
 
-// checkCompound checks a compound assignment whose value has kind got. The
+// checkCompound checks a compound assignment whose value has type got. The
 // target and the value are each reported where they are not ints, unless
 // the target cannot be assigned at all.
-func (c *Checker) checkCompound(a *ast.Assign, got types.Kind) {
+func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
 	if !c.checkIntTarget(a.Target, op) {
 		return
 	}
 
 	if got != types.Int && got != types.Invalid && !alreadyReported(a.Value, got) {
-		c.errorf(a.Value.Spanned(), "cannot use %s as int in %s", got, op)
+		c.errorf(a.Value.Spanned(), "cannot use %s as int in %s", c.table.Name(got), op)
 	}
 }
 
@@ -491,45 +493,45 @@ func (c *Checker) checkIntTarget(target *ast.Ident, op string) bool {
 			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
 			return false
 		}
-		if def.Kind != types.Int && def.Kind != types.Invalid {
-			c.errorf(target.Span, "cannot use %s as int in %s", def.Kind, op)
+		if def.Type != types.Int && def.Type != types.Invalid {
+			c.errorf(target.Span, "cannot use %s as int in %s", c.table.Name(def.Type), op)
 		}
 	}
 	return true
 }
 
-// valueKind checks an expression used as a value and returns its kind. A call
+// valueType checks an expression used as a value and returns its type. A call
 // to a function that returns nothing is reported here, since it has no value
 // to give; the result is then types.Invalid.
-func (c *Checker) valueKind(e ast.Expr) types.Kind {
+func (c *Checker) valueType(e ast.Expr) types.Type {
 	c.checkExpr(e)
 
-	kind := ast.KindOf(e)
-	if kind == types.Invalid {
+	typ := ast.TypeOf(e)
+	if typ == types.Invalid {
 		if call, ok := e.(*ast.Call); ok {
 			if id, ok := call.Fn.(*ast.Ident); ok {
 				c.errorf(e.Spanned(), "%s returns no value", id.Name)
 			}
 		}
 	}
-	return kind
+	return typ
 }
 
-// typeKind returns the kind a type expression denotes, reporting a type it
+// declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it.
-func (c *Checker) typeKind(typ ast.Expr) types.Kind {
-	id, ok := typ.(*ast.Ident)
+func (c *Checker) declaredType(expr ast.Expr) types.Type {
+	id, ok := expr.(*ast.Ident)
 	if !ok {
-		c.errorf(typ.Spanned(), "unsupported type expression: %T", typ)
+		c.errorf(expr.Spanned(), "unsupported type expression: %T", expr)
 		return types.Invalid
 	}
 
-	kind, known := types.Lookup(id.Name)
+	typ, known := types.Lookup(id.Name)
 	if !known {
 		c.errorf(id.Span, "unknown type: %s", id.Name)
 		return types.Invalid
 	}
-	return kind
+	return typ
 }
 
 // terminates reports whether control cannot fall out of the bottom of stmt.
@@ -573,7 +575,12 @@ func blockTerminates(body []ast.Stmt) bool {
 func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 	if ret.Value == nil {
 		if fn.Result != nil {
-			c.errorf(ret.Span, "%s must return a value of type %s", fn.Name, fn.ResultKind)
+			c.errorf(
+				ret.Span,
+				"%s must return a value of type %s",
+				fn.Name,
+				c.table.Name(fn.ResultType),
+			)
 		}
 		return
 	}
@@ -587,16 +594,16 @@ func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 
 	// A result type that is unknown has been reported already, and there is
 	// nothing to compare the value with.
-	if fn.ResultKind == types.Invalid {
+	if fn.ResultType == types.Invalid {
 		return
 	}
 
-	if got := ast.KindOf(ret.Value); got != fn.ResultKind && !reportedInvalid(ret.Value, got) {
+	if got := ast.TypeOf(ret.Value); got != fn.ResultType && !reportedInvalid(ret.Value, got) {
 		c.errorf(
 			ret.Value.Spanned(),
 			"cannot use %s as %s in return from %s",
-			got,
-			fn.ResultKind,
+			c.table.Name(got),
+			c.table.Name(fn.ResultType),
 			fn.Name,
 		)
 	}
@@ -642,11 +649,11 @@ func (c *Checker) checkBinary(bin *ast.Binary) {
 }
 
 // requireOperand reports an operand of a logical operator or a negation that
-// is not of kind want, covering only that operand, unless its type is
+// is not of type want, covering only that operand, unless its type is
 // unreliable because of an error already reported.
-func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.Kind) {
-	if got := ast.KindOf(operand); got != want && !alreadyReported(operand, got) {
-		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, got)
+func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.Type) {
+	if got := ast.TypeOf(operand); got != want && !alreadyReported(operand, got) {
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, c.table.Name(got))
 	}
 }
 
@@ -654,8 +661,8 @@ func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.K
 // type is unknown because of an error already reported.
 func (c *Checker) requireInts(bin *ast.Binary) {
 	for _, operand := range []ast.Expr{bin.X, bin.Y} {
-		if got := ast.KindOf(operand); got != types.Int && !reportedInvalid(operand, got) {
-			c.errorf(operand.Spanned(), "cannot use %s as int in %s", got, bin.Op)
+		if got := ast.TypeOf(operand); got != types.Int && !reportedInvalid(operand, got) {
+			c.errorf(operand.Spanned(), "cannot use %s as int in %s", c.table.Name(got), bin.Op)
 		}
 	}
 }
@@ -667,7 +674,7 @@ func (c *Checker) requireInts(bin *ast.Binary) {
 // comparison. An operand with no type of its own falls back to requireInts,
 // and one whose error is already reported is not reported again.
 func (c *Checker) checkComparison(bin *ast.Binary) {
-	x, y := ast.KindOf(bin.X), ast.KindOf(bin.Y)
+	x, y := ast.TypeOf(bin.X), ast.TypeOf(bin.Y)
 	if alreadyReported(bin.X, x) || alreadyReported(bin.Y, y) {
 		return
 	}
@@ -678,15 +685,21 @@ func (c *Checker) checkComparison(bin *ast.Binary) {
 
 	switch {
 	case x != y:
-		c.errorf(bin.Span, "mismatched types %s and %s in %s", x, y, bin.Op)
+		c.errorf(
+			bin.Span,
+			"mismatched types %s and %s in %s",
+			c.table.Name(x),
+			c.table.Name(y),
+			bin.Op,
+		)
 	case !supports(x, bin.Op):
-		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, x)
+		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.table.Name(x))
 	}
 }
 
-// supports reports whether values of kind can be compared with op.
-func supports(kind types.Kind, op ast.BinaryOp) bool {
-	switch kind {
+// supports reports whether values of type typ can be compared with op.
+func supports(typ types.Type, op ast.BinaryOp) bool {
+	switch typ {
 	case types.Int:
 		return true
 	case types.Bool:
@@ -699,16 +712,16 @@ func supports(kind types.Kind, op ast.BinaryOp) bool {
 // alreadyReported reports whether an operand's type is unreliable because of
 // an error already reported: one of the cases reportedInvalid covers, or
 // arithmetic or a negation on something other than ints, which was reported
-// where it was checked and whose kind is only its operand's.
-func alreadyReported(e ast.Expr, kind types.Kind) bool {
-	if reportedInvalid(e, kind) {
+// where it was checked and whose type is only its operand's.
+func alreadyReported(e ast.Expr, typ types.Type) bool {
+	if reportedInvalid(e, typ) {
 		return true
 	}
 	switch x := e.(type) {
 	case *ast.Binary:
-		return x.Op.IsArithmetic() && (ast.KindOf(x.X) != types.Int || ast.KindOf(x.Y) != types.Int)
+		return x.Op.IsArithmetic() && (ast.TypeOf(x.X) != types.Int || ast.TypeOf(x.Y) != types.Int)
 	case *ast.Unary:
-		return x.Op == ast.Neg && ast.KindOf(x.X) != types.Int
+		return x.Op == ast.Neg && ast.TypeOf(x.X) != types.Int
 	default:
 		return false
 	}
@@ -735,9 +748,9 @@ func (c *Checker) checkCall(call *ast.Call) {
 		return
 	}
 
-	params := make([]types.Kind, len(fn.Params))
+	params := make([]types.Type, len(fn.Params))
 	for i, param := range fn.Params {
-		params[i] = param.Kind
+		params[i] = param.Type
 	}
 
 	if c.checkArity(call, id.Name, len(params)) {
@@ -745,8 +758,8 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 }
 
-// resolveResultKind records what the declared result type denotes.
-func (c *Checker) resolveResultKind(fn *ast.Func) {
+// resolveResultType records what the declared result type denotes.
+func (c *Checker) resolveResultType(fn *ast.Func) {
 	if fn.Result == nil {
 		return
 	}
@@ -757,31 +770,31 @@ func (c *Checker) resolveResultKind(fn *ast.Func) {
 		return
 	}
 
-	kind, known := types.Lookup(id.Name)
+	typ, known := types.Lookup(id.Name)
 	if !known {
 		c.errorf(id.Span, "unknown type: %s", id.Name)
 		return
 	}
-	fn.ResultKind = kind
+	fn.ResultType = typ
 }
 
-// resolveParamKinds records what each declared parameter type denotes. A
+// resolveParamTypes records what each declared parameter type denotes. A
 // parameter whose type is unknown keeps types.Invalid, which every later check
 // reports rather than silently accepting.
-func (c *Checker) resolveParamKinds(fn *ast.Func) {
+func (c *Checker) resolveParamTypes(fn *ast.Func) {
 	for _, param := range fn.Params {
-		id, ok := param.Type.(*ast.Ident)
+		id, ok := param.TypeExpr.(*ast.Ident)
 		if !ok {
-			c.errorf(param.Type.Spanned(), "unsupported type expression: %T", param.Type)
+			c.errorf(param.TypeExpr.Spanned(), "unsupported type expression: %T", param.TypeExpr)
 			continue
 		}
 
-		kind, known := types.Lookup(id.Name)
+		typ, known := types.Lookup(id.Name)
 		if !known {
 			c.errorf(id.Span, "unknown type: %s", id.Name)
 			continue
 		}
-		param.Kind = kind
+		param.Type = typ
 	}
 }
 
@@ -796,11 +809,11 @@ func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
 	return false
 }
 
-func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Kind) {
+func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Type) {
 	for i, arg := range call.Args {
 		// A parameter of unknown type has been reported where it is declared,
 		// and an argument whose type is unknown for the same reason has too.
-		got := ast.KindOf(arg)
+		got := ast.TypeOf(arg)
 		if params[i] == types.Invalid || reportedInvalid(arg, got) {
 			continue
 		}
@@ -817,7 +830,13 @@ func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Kind
 			continue
 		}
 		if got != params[i] {
-			c.errorf(arg.Spanned(), "cannot use %s as %s in argument to %s", got, params[i], name)
+			c.errorf(
+				arg.Spanned(),
+				"cannot use %s as %s in argument to %s",
+				c.table.Name(got),
+				c.table.Name(params[i]),
+				name,
+			)
 		}
 	}
 }
@@ -828,8 +847,8 @@ func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Kind
 // such a name, or a call to a function whose result type is unknown. A call
 // to a function that returns nothing is not one of these; it is reported
 // where the value is wanted.
-func reportedInvalid(e ast.Expr, kind types.Kind) bool {
-	if kind != types.Invalid {
+func reportedInvalid(e ast.Expr, typ types.Type) bool {
+	if typ != types.Invalid {
 		return false
 	}
 

@@ -193,9 +193,9 @@ func TestParsesParameterList(t *testing.T) {
 		if fn.Params[i].Name != want.name {
 			t.Errorf("parameter %d name = %q, want %q", i, fn.Params[i].Name, want.name)
 		}
-		typ, ok := fn.Params[i].Type.(*ast.Ident)
+		typ, ok := fn.Params[i].TypeExpr.(*ast.Ident)
 		if !ok {
-			t.Fatalf("parameter %d type is %T, want *ast.Ident", i, fn.Params[i].Type)
+			t.Fatalf("parameter %d type is %T, want *ast.Ident", i, fn.Params[i].TypeExpr)
 		}
 		if typ.Name != want.typ {
 			t.Errorf("parameter %d type = %q, want %q", i, typ.Name, want.typ)
