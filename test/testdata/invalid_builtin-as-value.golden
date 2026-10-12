@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/builtin-as-value/main.tck:4:10: error: print returns no value
+03 |	func main() {
+04 |	    exit(print("x"))
+   |	         ^~~~~~~~~~ 
+05 |	}
+

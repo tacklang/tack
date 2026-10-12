@@ -591,3 +591,19 @@ func TestFibTypechecks(t *testing.T) {
 		t.Errorf("fib was rejected: %+v", diags)
 	}
 }
+
+// A builtin returns nothing, so using one as a value is reported like any
+// other function that returns nothing, wherever the value is wanted.
+func TestBuiltinUsedAsAValueIsReported(t *testing.T) {
+	tests := []string{
+		inMain("exit(print(\"x\"))"),
+		inMain("if print(\"x\") == 1 {\n    }"),
+		"package main\n\nfunc f() int {\n    return exit(1)\n}\n\nfunc main() {\n    exit(f())\n}\n",
+	}
+	for _, src := range tests {
+		diags := check(t, src)
+		if len(diags) == 0 {
+			t.Errorf("%q: no diagnostics, want the builtin reported", src)
+		}
+	}
+}

@@ -179,10 +179,11 @@ func KindOf(expr Expr) types.Kind {
 }
 
 // callKind returns the type a call yields: whatever its callee returns. A
-// builtin returns nothing, and its Def is nil, so it lands on Invalid.
+// builtin returns nothing. Its Def is a nil *Func, which still satisfies the
+// type assertion, so it is checked for explicitly and lands on Invalid.
 func callKind(call *Call) types.Kind {
 	if id, ok := call.Fn.(*Ident); ok {
-		if fn, ok := id.Def.(*Func); ok {
+		if fn, ok := id.Def.(*Func); ok && fn != nil {
 			return fn.ResultKind
 		}
 	}
