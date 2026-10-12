@@ -1,0 +1,110 @@
+package lexer
+
+import "strconv"
+
+// KeywordType identifies a reserved word. A Keyword token carries one as its
+// value. Reserving a word here makes it unusable as an identifier, whether or
+// not the parser accepts it yet.
+type KeywordType int
+
+// The keywords.
+const (
+	// InvalidKeyword is the zero value and names no keyword.
+	InvalidKeyword KeywordType = iota
+
+	// Lib and Pub control visibility.
+	Lib
+	Pub
+
+	// Const through ASM start declarations.
+	Const
+	Var
+	Type
+	Func
+	Struct
+	Interface
+	Map
+	ASM
+
+	// Package and Import structure a file.
+	Package
+	Import
+
+	// If and Else are conditionals.
+	If
+	Else
+
+	// For and Range are loops.
+	For
+	Range
+
+	// Switch through Select are multi-way branches.
+	Switch
+	Case
+	Default
+	Select
+
+	// Break through Return are jumps.
+	Break
+	Continue
+	Goto
+	Return
+
+	// Async and Defer are concurrency and cleanup.
+	Async
+	Defer
+)
+
+var keywordNames = map[KeywordType]string{
+	Lib: "lib",
+	Pub: "pub",
+
+	Const:     "const",
+	Var:       "var",
+	Type:      "type",
+	Func:      "func",
+	Struct:    "struct",
+	Interface: "interface",
+	Map:       "map",
+	ASM:       "asm",
+
+	Package: "package",
+	Import:  "import",
+
+	If:   "if",
+	Else: "else",
+
+	For:   "for",
+	Range: "range",
+
+	Switch:  "switch",
+	Case:    "case",
+	Default: "default",
+	Select:  "select",
+
+	Break:    "break",
+	Continue: "continue",
+	Goto:     "goto",
+	Return:   "return",
+
+	Async: "async",
+	Defer: "defer",
+}
+
+// String returns the keyword as written in source.
+func (k KeywordType) String() string {
+	if s, ok := keywordNames[k]; ok {
+		return s
+	}
+	return "KeywordType(" + strconv.Itoa(int(k)) + ")"
+}
+
+// LookupKeyword returns the keyword ident spells, if it is one.
+func LookupKeyword(ident string) (KeywordType, bool) {
+	for kw, name := range keywordNames {
+		if name == ident {
+			return kw, true
+		}
+	}
+	return InvalidKeyword, false
+}

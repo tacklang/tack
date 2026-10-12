@@ -1,0 +1,8 @@
+package main
+
+func other() {
+}
+
+func main() {
+    print("hi")
+}

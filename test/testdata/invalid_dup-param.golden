@@ -1,0 +1,14 @@
+stage: resolve
+---
+
+examples/invalid/dup-param/main.tck:3:15: error: duplicate parameter name
+02 |	
+03 |	func f(x int, x int) {
+   |	              ^ 
+04 |	}
+examples/invalid/dup-param/main.tck:3:8: note: previous declaration of x
+02 |	
+03 |	func f(x int, x int) {
+   |	       ^ 
+04 |	}
+

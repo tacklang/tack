@@ -1,0 +1,10 @@
+package main
+
+func f(n int) int {
+    if n < 2 {
+        return 1
+    }
+}
+
+func main() {
+}

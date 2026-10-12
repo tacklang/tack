@@ -1,0 +1,8 @@
+stage: lex
+---
+
+examples/invalid/quote-at-eof/main.tck:4:11: error: unterminated string
+03 |	func main() {
+04 |	    print("
+   |	          ^ 
+

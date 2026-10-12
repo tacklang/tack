@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/non-bool-condition/main.tck:4:8: error: condition must be a bool, got int
+03 |	func main() {
+04 |	    if 1 {
+   |	       ^ 
+05 |	        print("yes")
+

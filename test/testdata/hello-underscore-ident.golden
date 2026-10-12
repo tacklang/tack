@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/hello-underscore-ident/main.tck:4:5: error: undefined: print_
+03 |	func main() {
+04 |	    print_("Hello, World!")
+   |	    ^~~~~~ 
+05 |	}
+

@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/undefined-arg/main.tck:4:10: error: undefined: nope
+03 |	func main() {
+04 |	    exit(nope)
+   |	         ^~~~ 
+05 |	}
+

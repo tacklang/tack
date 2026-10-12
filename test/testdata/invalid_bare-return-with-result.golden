@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/bare-return-with-result/main.tck:4:5: error: f must return a value of type int
+03 |	func f() int {
+04 |	    return
+   |	    ^~~~~~ 
+05 |	}
+

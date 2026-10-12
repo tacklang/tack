@@ -1,0 +1,593 @@
+package typeck_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/lexer"
+	"github.com/tacklang/tack/parser"
+	"github.com/tacklang/tack/resolver"
+	"github.com/tacklang/tack/source"
+	"github.com/tacklang/tack/typeck"
+	"github.com/tacklang/tack/types"
+)
+
+// check runs the front end up to and including type checking, and returns
+// only the type checker's diagnostics. Earlier stages failing is a broken
+// test case, not a result, so it aborts.
+func check(t *testing.T, src string) []diag.Diagnostic {
+	t.Helper()
+
+	f := &source.File{ID: source.FileID("test"), Filename: "case.tck", Data: []byte(src)}
+
+	lex := lexer.New(f)
+	if diags := lex.Lex(); len(diags) > 0 {
+		t.Fatalf("lex: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	file, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
+	if len(diags) > 0 {
+		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	return typeck.New(file).Check()
+}
+
+func inMain(body string) string {
+	return "package main\n\nfunc main() {\n    " + body + "\n}\n"
+}
+
+func TestAcceptsWellTypedBuiltinCalls(t *testing.T) {
+	for _, body := range []string{`print("hi")`, `exit(0)`, `exit(42)`} {
+		t.Run(body, func(t *testing.T) {
+			if diags := check(t, inMain(body)); len(diags) > 0 {
+				t.Errorf("%s was rejected: %+v", body, diags)
+			}
+		})
+	}
+}
+
+func TestRejectsBuiltinArgumentOfTheWrongType(t *testing.T) {
+	tests := []struct {
+		body string
+		want string
+	}{
+		{`print(42)`, "cannot use int as string"},
+		{`exit("boom")`, "cannot use string as int"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.body, func(t *testing.T) {
+			diags := check(t, inMain(tt.body))
+			if len(diags) == 0 {
+				t.Fatalf("%s was accepted", tt.body)
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestRejectsBuiltinCallWithWrongArgumentCount(t *testing.T) {
+	for _, body := range []string{`print()`, `exit()`} {
+		t.Run(body, func(t *testing.T) {
+			diags := check(t, inMain(body))
+			if len(diags) == 0 {
+				t.Fatalf("%s was accepted", body)
+			}
+			if !strings.Contains(diags[0].Message, "argument") {
+				t.Errorf("message = %q, want it to mention the argument count", diags[0].Message)
+			}
+		})
+	}
+}
+
+// A call passing arguments to a function that declares no parameters used to
+// compile, with the argument silently discarded by the backend.
+func TestRejectsArgumentsToAFunctionThatTakesNone(t *testing.T) {
+	src := "package main\n\nfunc f() {\n}\n\nfunc main() {\n    f(\"dropped\")\n}\n"
+
+	diags := check(t, src)
+	if len(diags) == 0 {
+		t.Fatal(
+			"an argument passed to a parameterless function was accepted and would be discarded",
+		)
+	}
+	if !strings.Contains(diags[0].Message, "argument") {
+		t.Errorf("message = %q, want it to mention the argument count", diags[0].Message)
+	}
+}
+
+func TestAcceptsCallToAFunctionThatTakesNone(t *testing.T) {
+	src := "package main\n\nfunc f() {\n}\n\nfunc main() {\n    f()\n}\n"
+
+	if diags := check(t, src); len(diags) > 0 {
+		t.Errorf("a correct call was rejected: %+v", diags)
+	}
+}
+
+// The caret has to land on the offending argument, not the whole call.
+func TestPointsAtTheOffendingArgument(t *testing.T) {
+	src := inMain(`print(42)`)
+
+	diags := check(t, src)
+	if len(diags) == 0 {
+		t.Fatal("print(42) was accepted")
+	}
+	if got := src[diags[0].Span.Start:diags[0].Span.End]; got != "42" {
+		t.Errorf("diagnostic spans %q, want %q", got, "42")
+	}
+}
+
+func TestReportsEveryBadCallNotJustTheFirst(t *testing.T) {
+	src := "package main\n\nfunc main() {\n    print(1)\n    print(2)\n}\n"
+
+	if diags := check(t, src); len(diags) != 2 {
+		t.Errorf("got %d diagnostics, want 2 (one per bad call)", len(diags))
+	}
+}
+
+func TestSeverityIsError(t *testing.T) {
+	diags := check(t, inMain(`print(42)`))
+	if len(diags) == 0 {
+		t.Fatal("print(42) was accepted")
+	}
+	if diags[0].Severity != diag.Error {
+		t.Errorf("severity = %v, want %v", diags[0].Severity, diag.Error)
+	}
+}
+
+// Type checking must not depend on the resolver having run, beyond names being
+// defined: a hand-built tree with an unsupported argument is still rejected.
+func TestRejectsUnknownArgumentExpression(t *testing.T) {
+	file := &ast.File{
+		Package: "main",
+		Decls: []ast.Decl{
+			&ast.Func{Name: "main", Body: []ast.Stmt{
+				&ast.ExprStmt{X: &ast.Call{
+					Fn:   &ast.Ident{Name: "print"},
+					Args: []ast.Expr{&ast.Ident{Name: "x"}},
+				}},
+			}},
+		},
+	}
+
+	if diags := typeck.New(file).Check(); len(diags) == 0 {
+		t.Error("an argument of an unsupported expression kind was accepted")
+	}
+}
+
+// checkFile is check, but it hands back the tree so a test can inspect what
+// the checker annotated.
+func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
+	t.Helper()
+
+	f := &source.File{ID: source.FileID("test"), Filename: "case.tck", Data: []byte(src)}
+
+	lex := lexer.New(f)
+	if diags := lex.Lex(); len(diags) > 0 {
+		t.Fatalf("lex: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	file, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
+	if len(diags) > 0 {
+		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
+	}
+
+	return file, typeck.New(file).Check()
+}
+
+// The parameter's kind is what the backend reads to size and place it, so the
+// checker has to record it rather than leave the type as syntax.
+func TestAnnotatesParameterKinds(t *testing.T) {
+	file, diags := checkFile(
+		t,
+		"package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n}\n",
+	)
+	if len(diags) > 0 {
+		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
+	}
+
+	params := file.Decls[0].(*ast.Func).Params
+	for i, want := range []types.Kind{types.Int, types.String} {
+		if params[i].Kind != want {
+			t.Errorf("parameter %d kind = %v, want %v", i, params[i].Kind, want)
+		}
+	}
+}
+
+func TestRejectsUnknownParameterType(t *testing.T) {
+	_, diags := checkFile(t, "package main\n\nfunc f(x nosuchtype) {\n}\n\nfunc main() {\n}\n")
+
+	if len(diags) == 0 {
+		t.Fatal("a parameter of an unknown type was accepted")
+	}
+	if !strings.Contains(diags[0].Message, "nosuchtype") {
+		t.Errorf("message = %q, want it to name the unknown type", diags[0].Message)
+	}
+}
+
+func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+		ok   bool
+	}{
+		{
+			name: "int parameter to exit",
+			src:  "func f(x int) {\n    exit(x)\n}",
+			ok:   true,
+		},
+		{
+			name: "string parameter to print",
+			src:  "func f(s string) {\n    print(s)\n}",
+			ok:   true,
+		},
+		{
+			name: "string parameter to exit",
+			src:  "func f(s string) {\n    exit(s)\n}",
+			want: "cannot use string as int",
+		},
+		{
+			name: "int parameter to print",
+			src:  "func f(x int) {\n    print(x)\n}",
+			want: "cannot use int as string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkFile(t, "package main\n\n"+tt.src+"\n\nfunc main() {\n}\n")
+
+			if tt.ok {
+				if len(diags) > 0 {
+					t.Fatalf("rejected: %+v", diags)
+				}
+				return
+			}
+			if len(diags) == 0 {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestChecksArgumentTypesAgainstDeclaredParameters(t *testing.T) {
+	tests := []struct {
+		call string
+		want string
+	}{
+		{"f(1, \"hi\")", ""},
+		{"f(\"hi\", 1)", "cannot use string as int"},
+		{"f(1)", "argument"},
+		{"f(1, \"hi\", 2)", "argument"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.call, func(t *testing.T) {
+			src := "package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n    " + tt.call + "\n}\n"
+			_, diags := checkFile(t, src)
+
+			if tt.want == "" {
+				if len(diags) > 0 {
+					t.Fatalf("%s was rejected: %+v", tt.call, diags)
+				}
+				return
+			}
+			if len(diags) == 0 {
+				t.Fatalf("%s was accepted", tt.call)
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+// Passing a parameter straight through to another function is the smallest
+// case where an argument's type comes from a binding rather than a literal.
+func TestAcceptsForwardingAParameterToAnotherFunction(t *testing.T) {
+	src := "package main\n\nfunc g(s string) {\n    print(s)\n}\n\n" +
+		"func f(s string) {\n    g(s)\n}\n\nfunc main() {\n    f(\"hi\")\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("forwarding a parameter was rejected: %+v", diags)
+	}
+}
+
+func TestAnnotatesResultKind(t *testing.T) {
+	file, diags := checkFile(
+		t,
+		"package main\n\nfunc f() int {\n    return 1\n}\n\nfunc main() {\n}\n",
+	)
+	if len(diags) > 0 {
+		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
+	}
+
+	if got := file.Decls[0].(*ast.Func).ResultKind; got != types.Int {
+		t.Errorf("ResultKind = %v, want %v", got, types.Int)
+	}
+}
+
+func TestRejectsUnknownResultType(t *testing.T) {
+	_, diags := checkFile(
+		t,
+		"package main\n\nfunc f() nosuchtype {\n    return 1\n}\n\nfunc main() {\n}\n",
+	)
+
+	if len(diags) == 0 {
+		t.Fatal("an unknown result type was accepted")
+	}
+	if !strings.Contains(diags[0].Message, "nosuchtype") {
+		t.Errorf("message = %q, want it to name the unknown type", diags[0].Message)
+	}
+}
+
+func TestChecksReturnedValueAgainstTheDeclaredResult(t *testing.T) {
+	tests := []struct {
+		name string
+		decl string
+		want string
+	}{
+		{"int returned as int", "func f() int {\n    return 1\n}", ""},
+		{"string returned as string", "func f() string {\n    return \"hi\"\n}", ""},
+		{
+			"string returned as int",
+			"func f() int {\n    return \"hi\"\n}",
+			"cannot use string as int",
+		},
+		{
+			"int returned as string",
+			"func f() string {\n    return 1\n}",
+			"cannot use int as string",
+		},
+		{
+			"value returned from a function with no result",
+			"func f() {\n    return 1\n}",
+			"no result",
+		},
+		{
+			"bare return from a function with a result",
+			"func f() int {\n    return\n}",
+			"must return",
+		},
+		{"no return at all", "func f() int {\n}", "must end"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkFile(t, "package main\n\n"+tt.decl+"\n\nfunc main() {\n}\n")
+
+			if tt.want == "" {
+				if len(diags) > 0 {
+					t.Fatalf("rejected: %+v", diags)
+				}
+				return
+			}
+			if len(diags) == 0 {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestBareReturnIsFineWhenNothingIsDeclared(t *testing.T) {
+	if _, diags := checkFile(
+		t,
+		"package main\n\nfunc f() {\n    return\n}\n\nfunc main() {\n}\n",
+	); len(
+		diags,
+	) > 0 {
+		t.Errorf("a bare return was rejected: %+v", diags)
+	}
+}
+
+func TestTypesACallByWhatItReturns(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "int result into exit",
+			src:  "func seven() int {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}",
+		},
+		{
+			name: "string result into print",
+			src:  "func hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n    print(hi())\n}",
+		},
+		{
+			name: "string result into exit",
+			src:  "func hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n    exit(hi())\n}",
+			want: "cannot use string as int",
+		},
+		{
+			name: "call to a function returning nothing",
+			src:  "func nothing() {\n}\n\nfunc main() {\n    exit(nothing())\n}",
+			want: "no value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkFile(t, "package main\n\n"+tt.src+"\n")
+
+			if tt.want == "" {
+				if len(diags) > 0 {
+					t.Fatalf("rejected: %+v", diags)
+				}
+				return
+			}
+			if len(diags) == 0 {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
+	src := "package main\n\nfunc g() int {\n    return 1\n}\n\n" +
+		"func f() int {\n    return g()\n}\n\nfunc main() {\n    exit(f())\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("returning a call's result was rejected: %+v", diags)
+	}
+}
+
+func TestChecksArgumentsOfANestedCall(t *testing.T) {
+	src := "package main\n\nfunc g(x int) int {\n    return x\n}\n\n" +
+		"func main() {\n    exit(g(\"hi\"))\n}\n"
+
+	_, diags := checkFile(t, src)
+	if len(diags) == 0 {
+		t.Fatal("a badly typed argument to a nested call was accepted")
+	}
+	if !strings.Contains(diags[0].Message, "cannot use string as int") {
+		t.Errorf("message = %q, want it to report the nested argument", diags[0].Message)
+	}
+}
+
+func TestChecksBinaryOperands(t *testing.T) {
+	tests := []struct {
+		expr string
+		want string
+	}{
+		{"1 + 2", ""},
+		{"1 - 2", ""},
+		{"1 * 2", ""},
+		{"1 / 2", ""},
+		{"1 % 2", ""},
+		{"1 + \"hi\"", "cannot use string as int"},
+		{"\"a\" + \"b\"", "cannot use string as int"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			_, diags := checkFile(t, "package main\n\nfunc main() {\n    exit("+tt.expr+")\n}\n")
+
+			if tt.want == "" {
+				if len(diags) > 0 {
+					t.Fatalf("rejected: %+v", diags)
+				}
+				return
+			}
+			if len(diags) == 0 {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(diags[0].Message, tt.want) {
+				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestComparisonYieldsBool(t *testing.T) {
+	src := "package main\n\nfunc less() bool {\n    return 1 < 2\n}\n\nfunc main() {\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("a comparison returned as a bool was rejected: %+v", diags)
+	}
+}
+
+func TestRejectsBoolWhereAnIntIsWanted(t *testing.T) {
+	_, diags := checkFile(t, "package main\n\nfunc main() {\n    exit(1 < 2)\n}\n")
+
+	if len(diags) == 0 {
+		t.Fatal("a bool was accepted as an exit status")
+	}
+	if !strings.Contains(diags[0].Message, "cannot use bool as int") {
+		t.Errorf("message = %q, want it to contain %q", diags[0].Message, "cannot use bool as int")
+	}
+}
+
+func TestConditionMustBeBool(t *testing.T) {
+	_, diags := checkFile(t, "package main\n\nfunc main() {\n    if 1 {\n    }\n}\n")
+
+	if len(diags) == 0 {
+		t.Fatal("an int was accepted as a condition")
+	}
+	if !strings.Contains(diags[0].Message, "condition") {
+		t.Errorf("message = %q, want it to mention the condition", diags[0].Message)
+	}
+}
+
+func TestAcceptsBoolCondition(t *testing.T) {
+	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(\"yes\")\n    }\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("a comparison condition was rejected: %+v", diags)
+	}
+}
+
+func TestChecksStatementsInsideBothBranches(t *testing.T) {
+	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(42)\n    } else {\n        exit(\"no\")\n    }\n}\n"
+
+	_, diags := checkFile(t, src)
+	if len(diags) != 2 {
+		t.Errorf("got %d diagnostics, want 2 (one per branch)", len(diags))
+	}
+}
+
+// An if is a terminating statement when both branches terminate, which is what
+// lets fib end in an if rather than a bare return.
+func TestIfWithBothBranchesReturningTerminates(t *testing.T) {
+	src := "package main\n\nfunc f(n int) int {\n    if n < 2 {\n        return 1\n    } else {\n        return 2\n    }\n}\n\nfunc main() {\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("a function ending in a fully returning if was rejected: %+v", diags)
+	}
+}
+
+func TestIfWithoutElseDoesNotTerminate(t *testing.T) {
+	src := "package main\n\nfunc f(n int) int {\n    if n < 2 {\n        return 1\n    }\n}\n\nfunc main() {\n}\n"
+
+	_, diags := checkFile(t, src)
+	if len(diags) == 0 {
+		t.Fatal("a function whose last statement is an if with no else was accepted")
+	}
+	if !strings.Contains(diags[0].Message, "must end") {
+		t.Errorf("message = %q, want it to say the function must end in a return", diags[0].Message)
+	}
+}
+
+func TestAcceptsBoolAsAParameterAndResult(t *testing.T) {
+	src := "package main\n\nfunc pick(b bool) bool {\n    return b\n}\n\nfunc main() {\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("bool as a parameter and result was rejected: %+v", diags)
+	}
+}
+
+func TestFibTypechecks(t *testing.T) {
+	src := "package main\n\n" +
+		"func fib(n int) int {\n" +
+		"    if n < 2 {\n        return n\n    }\n" +
+		"    return fib(n - 1) + fib(n - 2)\n" +
+		"}\n\n" +
+		"func main() {\n    exit(fib(10))\n}\n"
+
+	if _, diags := checkFile(t, src); len(diags) > 0 {
+		t.Errorf("fib was rejected: %+v", diags)
+	}
+}

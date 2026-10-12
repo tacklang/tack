@@ -1,0 +1,9 @@
+package main
+
+func greeting() string {
+    return "hello from a result"
+}
+
+func main() {
+    print(greeting())
+}

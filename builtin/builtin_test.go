@@ -1,0 +1,149 @@
+package builtin_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
+	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/lexer"
+	"github.com/tacklang/tack/parser"
+	"github.com/tacklang/tack/source"
+	"github.com/tacklang/tack/types"
+)
+
+// declarationsPath is the Tack file that documents the builtins. It is written
+// for a reader, and this package is what the compiler actually consults, so
+// the test below is what stops the two from drifting apart.
+var declarationsPath = filepath.Join("..", "src", "std", "builtin", "builtin.tck")
+
+// declared parses the declaration file and returns what it says the builtins
+// are. It fails the test if the file does not parse, which also pins that the
+// compiler can read its own documentation.
+func declared(t *testing.T) []builtin.Func {
+	t.Helper()
+
+	src, err := os.ReadFile(declarationsPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", declarationsPath, err)
+	}
+
+	f := &source.File{ID: source.FileID("builtin"), Filename: declarationsPath, Data: src}
+
+	lex := lexer.New(f)
+	if diags := lex.Lex(); len(diags) > 0 {
+		t.Fatalf("lexing %s:\n%s", declarationsPath, diag.RenderAllPretty(f, diags))
+	}
+
+	file, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
+	if len(diags) > 0 {
+		t.Fatalf("parsing %s:\n%s", declarationsPath, diag.RenderAllPretty(f, diags))
+	}
+
+	var funcs []builtin.Func
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.Func)
+		if !ok {
+			continue
+		}
+
+		// A bodyless declaration and one written "{}" are the same tree, so
+		// this catches an implementation, not the braces around it.
+		if len(fn.Body) > 0 {
+			t.Errorf(
+				"%s gives %s an implementation; builtins are lowered by the backends, not written in Tack",
+				declarationsPath,
+				fn.Name,
+			)
+		}
+
+		funcs = append(funcs, builtin.Func{Name: fn.Name, Params: declaredParams(t, fn)})
+	}
+	return funcs
+}
+
+// declaredParams returns the kinds of fn's parameters as the declaration file
+// writes them. It fails the test on a type it cannot name.
+func declaredParams(t *testing.T, fn *ast.Func) []types.Kind {
+	t.Helper()
+
+	params := make([]types.Kind, len(fn.Params))
+	for i, param := range fn.Params {
+		id, ok := param.Type.(*ast.Ident)
+		if !ok {
+			t.Fatalf(
+				"%s: parameter %s of %s has an unsupported type expression",
+				declarationsPath,
+				param.Name,
+				fn.Name,
+			)
+		}
+		kind, known := types.Lookup(id.Name)
+		if !known {
+			t.Fatalf(
+				"%s: parameter %s of %s has unknown type %q",
+				declarationsPath,
+				param.Name,
+				fn.Name,
+				id.Name,
+			)
+		}
+		params[i] = kind
+	}
+	return params
+}
+
+func TestDeclarationFileListsExactlyTheImplementedBuiltins(t *testing.T) {
+	got := declared(t)
+	want := builtin.Funcs()
+
+	if len(got) != len(want) {
+		t.Fatalf(
+			"%s declares %d builtins, but the compiler implements %d;\ndeclared: %v\nimplemented: %v",
+			declarationsPath,
+			len(got),
+			len(want),
+			names(got),
+			names(want),
+		)
+	}
+
+	byName := make(map[string]builtin.Func, len(got))
+	for _, fn := range got {
+		byName[fn.Name] = fn
+	}
+
+	for _, fn := range want {
+		declared, ok := byName[fn.Name]
+		if !ok {
+			t.Errorf(
+				"the compiler implements %s but %s does not declare it",
+				fn.Name,
+				declarationsPath,
+			)
+			continue
+		}
+
+		if len(declared.Params) != len(fn.Params) {
+			t.Errorf("%s declares %s with %d parameter(s), the compiler takes %d",
+				declarationsPath, fn.Name, len(declared.Params), len(fn.Params))
+			continue
+		}
+		for i := range fn.Params {
+			if declared.Params[i] != fn.Params[i] {
+				t.Errorf("%s declares parameter %d of %s as %s, the compiler takes %s",
+					declarationsPath, i, fn.Name, declared.Params[i], fn.Params[i])
+			}
+		}
+	}
+}
+
+func names(funcs []builtin.Func) []string {
+	out := make([]string, len(funcs))
+	for i, fn := range funcs {
+		out[i] = fn.Name
+	}
+	return out
+}

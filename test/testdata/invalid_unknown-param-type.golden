@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/unknown-param-type/main.tck:3:10: error: unknown type: nosuchtype
+02 |	
+03 |	func f(x nosuchtype) {
+   |	         ^~~~~~~~~~ 
+04 |	}
+

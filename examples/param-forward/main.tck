@@ -1,0 +1,13 @@
+package main
+
+func show(s string) {
+    print(s)
+}
+
+func forward(s string) {
+    show(s)
+}
+
+func main() {
+    forward("forwarded")
+}

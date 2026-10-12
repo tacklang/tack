@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/invalid-func-syntax-0/main.tck:3:6: error: expected 'function name' found '('
+02 |	
+03 |	func () {}
+   |	     ^
+04 |	
+

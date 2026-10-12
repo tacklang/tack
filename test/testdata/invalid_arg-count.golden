@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/arg-count/main.tck:7:5: error: f expects 0 argument(s), got 1
+06 |	func main() {
+07 |	    f("dropped")
+   |	    ^~~~~~~~~~~~ 
+08 |	}
+

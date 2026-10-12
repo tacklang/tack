@@ -1,0 +1,16 @@
+package builtin
+
+// The functions Tack provides without a declaration. They have no bodies:
+// each code generation backend implements them for its own target, so there is
+// no Tack source that could be given here.
+//
+// This file is the documentation of record. The compiler consults
+// builtin/builtin.go, and a test in that package parses this file and fails
+// if the two disagree, so everything written here is true of the compiler
+// beside it. Anything not yet implemented belongs in PLANNED.md instead.
+
+// print writes s to standard output, followed by a newline.
+func print(s string)
+
+// exit ends the process immediately with the given status.
+func exit(code int)

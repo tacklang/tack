@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/missing-comma/main.tck:7:9: error: expected ',' found '2'
+06 |	func main() {
+07 |	    f(1 2)
+   |	        ^
+08 |	}
+

@@ -1,0 +1,13 @@
+package main
+
+func base() int {
+    return 5
+}
+
+func same(n int) int {
+    return n
+}
+
+func main() {
+    exit(same(same(base())))
+}

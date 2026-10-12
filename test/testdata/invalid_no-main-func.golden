@@ -1,0 +1,8 @@
+stage: resolve
+---
+
+examples/invalid/no-main-func/main.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
+

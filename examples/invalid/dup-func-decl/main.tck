@@ -1,0 +1,12 @@
+package main
+
+func main() {
+    sayHello()
+}
+
+func sayHello() {
+    print("Hello, World!")
+}
+
+func sayHello() {
+}

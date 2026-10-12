@@ -1,0 +1,104 @@
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  tests: true
+
+linters:
+  enable:
+    # Bugs & correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - bodyclose
+    - nilerr
+    - sqlclosecheck
+    - contextcheck
+
+    # Style & consistency
+    - revive
+    - misspell
+    - whitespace
+    - unconvert
+    - predeclared
+
+    # Complexity & maintainability
+    - gocyclo
+    - gocognit
+    - cyclop
+    - funlen
+    - nestif
+
+    # Performance
+    - prealloc
+    - gocritic
+
+    # Security
+    - gosec
+
+    # Error handling
+    - errorlint
+    - wrapcheck
+
+    # Unused code
+    - unused
+    - unparam
+    - wastedassign
+
+  settings:
+    govet:
+      enable-all: true
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
+
+    misspell:
+      locale: US
+
+  exclusions:
+    paths:
+      - vendor
+      - third_party
+      - testdata
+
+    rules:
+      - path: \_test.go
+        linters:
+          - revive
+          - gosec
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/tacklang/tack)
+
+output:
+  sort-order:
+    - linter
+    - severity
+    - file

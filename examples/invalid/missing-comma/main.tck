@@ -1,0 +1,8 @@
+package main
+
+func f(a int, b int) {
+}
+
+func main() {
+    f(1 2)
+}

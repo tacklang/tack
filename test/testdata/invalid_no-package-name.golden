@@ -1,0 +1,8 @@
+stage: parse
+---
+
+examples/invalid/no-package-name/main.tck:1:8: error: expected 'package name' found 'EOF'
+01 |	package
+   |	       ^
+02 |	
+

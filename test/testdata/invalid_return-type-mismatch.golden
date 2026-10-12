@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/return-type-mismatch/main.tck:4:12: error: cannot use string as int in return from f
+03 |	func f() int {
+04 |	    return "hi"
+   |	           ^~~~ 
+05 |	}
+
