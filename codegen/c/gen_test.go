@@ -69,9 +69,14 @@ func TestBackendIdentity(t *testing.T) {
 	}
 }
 
+// TestBuildCmdCompilesSourceToOutput pins the build command, -w included:
+// a warning about the generated C names a temporary file the user never
+// wrote and cannot act on, so the user's build silences warnings. The
+// tests' strict builds, buildStrict and buildWith, turn them back into
+// errors, so a warning the backend causes still fails a test.
 func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 	got := c.New().BuildCmd("in.c", "prog")
-	want := []string{"clang", "-o", "prog", "in.c"}
+	want := []string{"clang", "-w", "-o", "prog", "in.c"}
 
 	if len(got) != len(want) {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
@@ -80,6 +85,33 @@ func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("BuildCmd = %q, want %q", got, want)
 		}
+	}
+}
+
+// TestBuildCmdStillReportsErrors checks silencing warnings does not
+// silence errors: C that does not compile still fails, with clang's
+// message.
+func TestBuildCmdStillReportsErrors(t *testing.T) {
+	e := c.New()
+	if _, err := exec.LookPath(e.BuildCmd("", "")[0]); err != nil {
+		t.Skipf("%v", err)
+	}
+	dir := t.TempDir()
+	csrc := filepath.Join(dir, "bad"+e.Ext())
+	if err := os.WriteFile(
+		csrc,
+		[]byte("int main(void) { return undeclared; }\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	cmd := e.BuildCmd(csrc, filepath.Join(dir, "prog"))
+	out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
+	if err == nil {
+		t.Fatalf("invalid C compiled; output:\n%s", out)
+	}
+	if !strings.Contains(string(out), "error") || !strings.Contains(string(out), "undeclared") {
+		t.Errorf("clang output does not report the error:\n%s", out)
 	}
 }
 

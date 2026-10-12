@@ -1,0 +1,14 @@
+package main
+
+// same compares x with itself, which clang would warn always holds.
+func same(x int64) bool {
+    return x == x && !(x != x) && x <= x && !(x < x)
+}
+
+// main exits 7 when every self-comparison came out as it must.
+func main() {
+    if same(3) {
+        exit(7)
+    }
+    exit(1)
+}

@@ -10,13 +10,6 @@ so every underline is followed by a trailing space. Fixing it changes every
 golden for an invalid program. `diag/render_test.go` pins the current output
 until then.
 
-## clang warnings reach the user
-
-The driver runs clang without warning flags and passes its output through,
-so a valid program can produce a C warning about the generated code. `x == x`
-prints `warning: self-comparison always evaluates to true`, naming the
-temporary C file, and the build still succeeds.
-
 ## Raw strings decode escape sequences
 
 A backquoted string has its escape sequences decoded, with the double quote

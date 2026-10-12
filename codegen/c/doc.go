@@ -3,6 +3,13 @@
 // links into an executable. It registers itself with codegen under the name
 // "c".
 //
+// The build runs clang with -w. A warning about the generated C would name a
+// temporary file and code the user never wrote, and a valid program can
+// cause one: x == x makes clang warn that the comparison always holds.
+// clang's errors still reach the user. The package's own tests compile with
+// -Wall -Wextra -Werror, so the backend is still held to warning-free C for
+// what it controls.
+//
 // The translation is direct, with no intermediate representation. Every
 // function body is generated before anything is written, so a construct the
 // backend cannot lower produces a diagnostic instead of a half-written file.

@@ -26,7 +26,15 @@ func (backend) Name() string { return "c" }
 
 func (backend) Ext() string { return ".c" }
 
-func (backend) BuildCmd(src, out string) []string { return []string{"clang", "-o", out, src} }
+// BuildCmd runs clang with its warnings off. A warning about generated C
+// names a temporary file and code the user never wrote, and a valid
+// program, such as one comparing a variable with itself, can cause one.
+// Errors are still reported. The backend's own tests compile with
+// -Wall -Wextra -Werror instead, so a warning the backend causes is caught
+// there.
+func (backend) BuildCmd(src, out string) []string {
+	return []string{"clang", "-w", "-o", out, src}
+}
 
 func (backend) Generate(file *ast.File) ([]byte, []diag.Diagnostic) {
 	g := &generator{file: file, globals: make(map[*ast.Var]bool)}

@@ -972,3 +972,16 @@ func TestBuiltCommentsExits37(t *testing.T) {
 		t.Errorf("comments exited with %v, want status 37", err)
 	}
 }
+
+// The self-compare example compares a parameter with itself, which is valid
+// Tack and makes clang warn about the generated C. buildWithClang requires
+// a silent build, so this pins that no C warning reaches the user, and the
+// status pins that the comparisons still come out right.
+func TestBuiltSelfCompareIsSilentAndExits7(t *testing.T) {
+	bin := buildWithClang(t, "self-compare")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
+		t.Errorf("self-compare exited with %v, want status 7", err)
+	}
+}

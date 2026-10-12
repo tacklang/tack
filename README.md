@@ -161,7 +161,7 @@ type Backend interface {
     Name() string                                    // "c"
     Ext() string                                     // ".c"
     Generate(file *ast.File) ([]byte, []diag.Diagnostic)
-    BuildCmd(src, out string) []string               // {"clang", "-o", out, src}
+    BuildCmd(src, out string) []string               // {"clang", "-w", "-o", out, src}
 }
 ```
 
@@ -458,4 +458,6 @@ produces.
 The goldens only pin that output is stable, not that it is correct. The test
 that checks correctness is in `codegen/c`: it compiles a generated translation
 unit with a real `clang` and asserts what the resulting binary prints. It skips
-if `clang` is not on `PATH`.
+if `clang` is not on `PATH`. Those builds use `-Wall -Wextra -Werror`, so C the
+backend emits must compile without a warning; a user's build passes `-w`
+instead, since a warning about generated C is not one they can act on.
