@@ -87,7 +87,7 @@ Open questions about how a feature should behave are in
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                          |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                                        |
 | Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out |
-| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Constant indexes only, checked at compile time; elements of `mut` arrays assignable |
+| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops, guards and types, or `v, ok := a[i]` |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                              |
 | Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                |

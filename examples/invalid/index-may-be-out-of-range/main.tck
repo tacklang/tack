@@ -1,0 +1,9 @@
+package main
+
+func pick(a [3]int64, i int64) int64 {
+    return a[i]
+}
+
+func main() {
+    exit(pick([3]int64{1, 2, 3}, 1))
+}

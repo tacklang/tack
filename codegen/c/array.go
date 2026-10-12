@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
@@ -165,4 +166,43 @@ func (g *generator) arrayConst(elems []any) (string, bool) {
 		parts[i] = v
 	}
 	return "{{" + strings.Join(parts, ", ") + "}}", true
+}
+
+// indexValues lowers v, ok := a[i]: the index is held in a temporary, and
+// so is the array unless it is a variable, which reading again cannot
+// change, and the element is read only when the index is in range, giving
+// the element type's zero value otherwise.
+func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
+	base, diags := g.expr(ix.X, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	index, diags := g.expr(ix.Index, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+
+	// The array is evaluated before the index, as written.
+	arrayType, indexType := ast.TypeOf(ix.X), ast.TypeOf(ix.Index)
+	var src multiSource
+	_, isName := ix.X.(*ast.Ident)
+	if !isName {
+		src.temps = append(src.temps, multiTemp{g.cType(arrayType), base})
+	}
+	src.temps = append(src.temps, multiTemp{g.cType(indexType), index})
+
+	n := g.file.Types.Len(arrayType)
+	zero := g.zeroValue(ix.Type)
+	src.field = func(tmps []string, i int) string {
+		array, at := base, tmps[0]
+		if !isName {
+			array, at = tmps[0], tmps[1]
+		}
+		in := withinExpr(indexType, at, constant.Int{}, constant.FromInt64(n-1))
+		if i == 1 {
+			return in
+		}
+		return fmt.Sprintf("(%s ? %s.e[%s] : %s)", in, array, at, zero)
+	}
+	return src, nil
 }

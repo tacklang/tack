@@ -838,6 +838,18 @@ func TestBuiltArraysExits29(t *testing.T) {
 	}
 }
 
+// The indexing example indexes with variables proven in range by a range
+// loop, a guard and an index's type, and uses v, ok := a[i] for indexes
+// that are not.
+func TestBuiltIndexingExits70(t *testing.T) {
+	bin := buildWithClang(t, "indexing")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 70 {
+		t.Errorf("indexing exited with %v, want status 70", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

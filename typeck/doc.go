@@ -47,8 +47,10 @@
 // constant expression, len of an array or a string literal, an immutable
 // variable holding one, or arithmetic on those; knownValue computes it. A
 // literal lists exactly one element for each of the array's, and an index
-// must be proven in range, which for now means a constant, checked against
-// the length.
+// must be proven in range, from the same facts as a divisor, which also
+// bound a variable: a range loop's variable, comparisons with known values,
+// and the variable's own type. v, ok := a[i] needs no proof, and is an
+// error where one exists.
 //
 // The third pass checks each function body:
 //

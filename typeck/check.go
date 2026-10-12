@@ -19,12 +19,16 @@ type Checker struct {
 	// which needs no proof that its divisor is not zero.
 	checkedDivision *ast.Binary
 
+	// checkedIndex is the element whose value is being bound with ok, which
+	// needs no proof that its index is in range.
+	checkedIndex *ast.Index
+
 	funcs   map[string]*ast.Func
 	globals map[*ast.Var]bool // the package-level variables
 
-	// facts counts, for each variable, the enclosing regions that prove it
-	// is not zero; see facts.go.
-	facts map[ast.Decl]int
+	// active holds the facts in force where checking has reached, innermost
+	// last; see facts.go.
+	active []fact
 
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
@@ -37,7 +41,6 @@ func New(file *ast.File) *Checker {
 		table:   types.NewTable(),
 		funcs:   make(map[string]*ast.Func),
 		globals: make(map[*ast.Var]bool),
-		facts:   make(map[ast.Decl]int),
 	}
 }
 
@@ -202,6 +205,9 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
 	}
+	if ix, ok := value.(*ast.Index); ok {
+		return c.indexResults(ix, want, span)
+	}
 	call, isCall := value.(*ast.Call)
 	if !isCall {
 		c.expr(value)
@@ -291,7 +297,7 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Post != nil {
 		c.checkSimpleStmt(loop.Post)
 	}
-	var facts []ast.Decl
+	var facts []fact
 	if loop.Cond != nil {
 		facts = c.factsFrom(loop.Cond, true)
 	}
@@ -309,33 +315,43 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 		c.errorf(loop.Count.Spanned(), "cannot range over %s", c.table.Name(got))
 		got = types.Invalid
 	}
+	var facts []fact
 	if loop.Var != nil {
 		loop.Var.Type = got
+		facts = c.rangeFacts(loop)
 	}
 	c.loops++
-	c.checkBlock(loop.Body, fn)
+	c.checkGuarded(loop.Body, facts, fn)
 	c.loops--
+}
+
+// rangeFacts returns what a range loop's body knows about its variable: it
+// is at least 0, and, when the count is known, at most the count less one.
+func (c *Checker) rangeFacts(loop *ast.ForRange) []fact {
+	f := fact{decl: loop.Var, hasLo: true}
+	if n, ok := c.knownValue(loop.Count); ok {
+		f.hi, f.hasHi = n.Sub(constant.FromInt64(1))
+	}
+	return []fact{f}
 }
 
 // checkBlock checks each statement of a block in fn. An if whose branch
 // leaves the block gives the statements after it the facts of having got
 // past it.
 func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
-	var assumed [][]ast.Decl
+	assumed := 0
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
 		if facts := c.afterFacts(stmt); len(facts) > 0 {
-			assumed = append(assumed, c.assume(facts, body[i+1:]))
+			assumed += c.assume(facts, body[i+1:])
 		}
 	}
-	for _, facts := range assumed {
-		c.forget(facts)
-	}
+	c.forget(assumed)
 }
 
 // checkGuarded checks a block reached only when facts hold, assuming those
 // the block cannot undo.
-func (c *Checker) checkGuarded(body []ast.Stmt, facts []ast.Decl, fn *ast.Func) {
+func (c *Checker) checkGuarded(body []ast.Stmt, facts []fact, fn *ast.Func) {
 	assumed := c.assume(facts, body)
 	c.checkBlock(body, fn)
 	c.forget(assumed)

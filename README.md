@@ -276,8 +276,10 @@ which is true today because `main` is the only package there is.
     side being false.
 
   The conditions that count are `&&` (when true), `||` (when false), `!`, and
-  a comparison of the variable with a constant that excludes zero, such as
-  `b != 0`, `b > 0`, `b <= -1` or `b == 3`. The variable must be a
+  a comparison of the variable with a known value that excludes zero, such
+  as `b != 0`, `b > 0`, `b <= -1` or `b == 3`. A known value is a constant,
+  an immutable variable holding one, `len` of an array or a string literal,
+  or arithmetic on those. The variable must be a
   parameter, a local, or an immutable global, and the region must not assign
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
@@ -304,9 +306,20 @@ which is true today because `main` is the only package there is.
   not yet. Arrays may be package-level variables, initialized with a
   literal of constants. There are no slices yet.
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
-  type. An index must be proven in range: today that means a constant
-  index, which is checked against the array's length at compile time.
-  Indexing with a variable comes next.
+  type. An index is never out of range at runtime. `a[i]`, and an
+  assignment to it, compile only where the compiler proves `i` in range: a
+  constant, checked against the length at compile time, or a variable
+  known to lie between 0 and the length less one. Elsewhere,
+  `v, ok := a[i]` (or `v, ok = a[i]`) reads the element only when `i` is in
+  range: `ok` reports whether it was, and `v` is the element, or its type's
+  zero value; it is an error where `i` is proven in range. An assignment to
+  an element has no such form, so its index must be proven. What proves an
+  index is what proves a divisor, below, with bounds as well as "not zero":
+  a range loop's variable lies between 0 and its count less one, a
+  comparison with a known value bounds a variable, as in
+  `if 0 <= i && i < len(a)`, and a variable's type bounds it too, so a
+  `uint8` index into a `[256]T` needs nothing. Only a name is proven; an
+  index like `i + 1` needs the two-value form.
 - `len(a)` is the number of elements of an array, a constant, and `len(s)`
   the number of bytes of a string, a constant for a string literal; either
   is an `int64`.

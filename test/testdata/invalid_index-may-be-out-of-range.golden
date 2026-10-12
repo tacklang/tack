@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/index-may-be-out-of-range/main.tck:4:14: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+03 |	func pick(a [3]int64, i int64) int64 {
+04 |	    return a[i]
+   |	             ^ 
+05 |	}
+

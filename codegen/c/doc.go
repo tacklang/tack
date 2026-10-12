@@ -64,7 +64,11 @@
 // struct, an element x.e[i], and == calls a helper per array type,
 // tack_eq_ and its ID, that compares element by element. A package-level
 // array is initialized with braces, which a static variable needs, or
-// {0}.
+// {0}. Every index the checker accepts is in range, so an element read is
+// plain C. v, ok := a[i] holds the array, unless it is a variable, and the
+// index in temporaries, the array first, and reads the element only when
+// the index is in range, testing only the bounds the index's type can
+// cross, and giving the element type's zero value otherwise.
 //
 // A function with several results returns them as one struct,
 // tack_results_main_f for a function f, with a field r0, r1, and so on for

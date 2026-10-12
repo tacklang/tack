@@ -1,14 +1,18 @@
 package typeck
 
 import (
+	"math"
+
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/types"
 )
 
-// The checker proves a divisor is not zero from facts: that a variable is
-// known not to be zero within some region of the program. A fact comes from
-// a condition that has just been tested. It holds inside an if's branches,
+// The checker proves a divisor is not zero, and an index in range, from
+// facts: what is known about a variable's value within some region of the
+// program, that it is not zero, or bounds on it. A fact comes from a
+// condition that has just been tested, or from a range loop, whose
+// variable runs from 0 to its count less one. It holds inside an if's branches,
 // a loop's body, and the right side of && and ||, according to whether the
 // condition was true there, and in the rest of a block after an if whose
 // branch leaves it. The rules are syntactic, so any reader can follow them:
@@ -18,18 +22,98 @@ import (
 //   - a fact holds in a region only if the region never assigns the
 //     variable, anywhere, so nothing in it can make the fact false;
 //   - a condition gives facts through && (when true), || (when false), !,
-//     and comparisons of a variable with a constant that exclude zero, such
-//     as b != 0, b > 0, or b == 3.
+//     and comparisons of a variable with a known value: b != 0, i >= 0,
+//     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
+//     one is never negative.
+
+// fact is something known about a variable's value in a region: that it is
+// not zero, or that it lies at or above lo, or at or below hi.
+type fact struct {
+	decl         ast.Decl
+	lo, hi       constant.Int
+	hasLo, hasHi bool
+	nonzero      bool
+}
+
+// interval is what all the facts in force say about a variable's value: at
+// or above lo when hasLo, at or below hi when hasHi, and not zero when
+// nonzero.
+type interval struct {
+	lo, hi       constant.Int
+	hasLo, hasHi bool
+	nonzero      bool
+}
 
 // nonzero reports whether e is known not to be zero where it is checked: a
 // constant other than zero, an immutable variable whose value is one, or a
-// variable a fact covers.
+// variable the facts in force keep away from zero.
 func (c *Checker) nonzero(e ast.Expr) bool {
 	if v, ok := c.knownValue(e); ok {
 		return !v.IsZero()
 	}
 	id, ok := e.(*ast.Ident)
-	return ok && c.facts[id.Def] > 0
+	if !ok {
+		return false
+	}
+	known := c.intervalOf(id)
+	zero := constant.Int{}
+	return known.nonzero || known.hasLo && known.lo.Cmp(zero) > 0 ||
+		known.hasHi && known.hi.Cmp(zero) < 0
+}
+
+// inRange reports whether a variable used as an index is known to lie in
+// [0, n) where it is used, by its type and the facts in force.
+func (c *Checker) inRange(index ast.Expr, n int64) bool {
+	id, ok := index.(*ast.Ident)
+	if !ok || n == 0 {
+		return false
+	}
+	known := c.intervalOf(id)
+	return known.hasLo && !known.lo.IsNegative() &&
+		known.hasHi && known.hi.Cmp(constant.FromInt64(n-1)) <= 0
+}
+
+// intervalOf returns what is known about the value of the variable id names:
+// its type's bounds, narrowed by every fact in force about it.
+func (c *Checker) intervalOf(id *ast.Ident) interval {
+	var known interval
+	if typ := ast.TypeOf(id); types.Bits(typ) > 0 {
+		known.lo, known.hi = typeBounds(typ)
+		known.hasLo, known.hasHi = true, true
+	}
+	for _, f := range c.active {
+		if f.decl == id.Def {
+			known = known.narrow(f)
+		}
+	}
+	return known
+}
+
+// narrow returns what is known once the fact f holds as well: the higher of
+// the two lower bounds, the lower of the two upper bounds.
+func (known interval) narrow(f fact) interval {
+	known.nonzero = known.nonzero || f.nonzero
+	if f.hasLo && (!known.hasLo || f.lo.Cmp(known.lo) > 0) {
+		known.lo, known.hasLo = f.lo, true
+	}
+	if f.hasHi && (!known.hasHi || f.hi.Cmp(known.hi) < 0) {
+		known.hi, known.hasHi = f.hi, true
+	}
+	return known
+}
+
+// typeBounds returns the smallest and largest values of a sized integer
+// type.
+func typeBounds(typ types.Type) (lo, hi constant.Int) {
+	n := types.Bits(typ)
+	if types.IsUnsigned(typ) {
+		return constant.Int{}, constant.FromUint64(math.MaxUint64 >> (64 - n))
+	}
+	return constant.FromInt64(
+			math.MinInt64 >> (64 - n),
+		), constant.FromInt64(
+			math.MaxInt64 >> (64 - n),
+		)
 }
 
 // knownValue returns the value of e when the checker knows it: a constant
@@ -114,11 +198,10 @@ func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) 
 	}
 }
 
-// factsFrom returns the variables cond proves not zero where it evaluated
-// to holds. && gives both sides' facts when true and none when false; || the
-// reverse; ! swaps; a comparison of a variable with a known value gives a
-// fact when the comparison, or its negation, excludes zero.
-func (c *Checker) factsFrom(cond ast.Expr, holds bool) []ast.Decl {
+// factsFrom returns the facts cond gives where it evaluated to holds. &&
+// gives both sides' facts when true and none when false; || the reverse; !
+// swaps; a comparison of a variable with a known value gives one fact.
+func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	switch x := cond.(type) {
 	case *ast.Unary:
 		if x.Op == ast.Not {
@@ -135,9 +218,9 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []ast.Decl {
 	return nil
 }
 
-// comparisonFact returns the variable a comparison of it with a known value
-// proves not zero, when the comparison's value is holds, if it proves that.
-func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []ast.Decl {
+// comparisonFact returns the fact a comparison of a variable with a known
+// value gives about the variable, when the comparison's value is holds.
+func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 	op := cmp.Op
 	variable, value := cmp.X, cmp.Y
 	if _, isConst := c.knownValue(cmp.X); isConst {
@@ -155,10 +238,28 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []ast.Decl {
 	if !holds {
 		op = negate(op)
 	}
-	if excludesZero(op, k) {
-		return []ast.Decl{id.Def}
+	return []fact{bound(id.Def, op, k)}
+}
+
+// bound returns the fact that the variable decl compares with k as op says.
+func bound(decl ast.Decl, op ast.BinaryOp, k constant.Int) fact {
+	f := fact{decl: decl}
+	one := constant.FromInt64(1)
+	switch op {
+	case ast.Eq:
+		f.lo, f.hi, f.hasLo, f.hasHi = k, k, true, true
+	case ast.Ne:
+		f.nonzero = k.IsZero()
+	case ast.Lt:
+		f.hi, f.hasHi = k.Sub(one)
+	case ast.Le:
+		f.hi, f.hasHi = k, true
+	case ast.Gt:
+		f.lo, f.hasLo = k.Add(one)
+	default: // ast.Ge
+		f.lo, f.hasLo = k, true
 	}
-	return nil
+	return f
 }
 
 // canHoldFact reports whether decl can have a fact: a parameter, or a
@@ -209,44 +310,24 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 	}
 }
 
-// excludesZero reports whether v op k can only hold for a v other than 0.
-func excludesZero(op ast.BinaryOp, k constant.Int) bool {
-	sign := k.Cmp(constant.Int{})
-	switch op {
-	case ast.Eq:
-		return sign != 0
-	case ast.Ne:
-		return sign == 0
-	case ast.Lt:
-		return sign <= 0
-	case ast.Le:
-		return sign < 0
-	case ast.Gt:
-		return sign >= 0
-	default: // ast.Ge
-		return sign > 0
-	}
-}
-
-// assume records facts for the region about to be checked, keeping only
-// those about variables the region never assigns. It returns what it
-// recorded, for forget to remove when the region ends.
-func (c *Checker) assume(facts []ast.Decl, region []ast.Stmt) []ast.Decl {
-	var kept []ast.Decl
-	for _, decl := range facts {
-		if !assigns(region, decl) {
-			c.facts[decl]++
-			kept = append(kept, decl)
+// assume puts facts in force for the region about to be checked, keeping
+// only those about variables the region never assigns. It returns how many
+// it put in force, for forget to remove when the region ends.
+func (c *Checker) assume(facts []fact, region []ast.Stmt) int {
+	n := 0
+	for _, f := range facts {
+		if !assigns(region, f.decl) {
+			c.active = append(c.active, f)
+			n++
 		}
 	}
-	return kept
+	return n
 }
 
-// forget removes facts assume recorded.
-func (c *Checker) forget(facts []ast.Decl) {
-	for _, decl := range facts {
-		c.facts[decl]--
-	}
+// forget removes the n facts the matching assume put in force, the most
+// recent ones.
+func (c *Checker) forget(n int) {
+	c.active = c.active[:len(c.active)-n]
 }
 
 // assigns reports whether any statement in region, however deeply nested,
@@ -300,7 +381,7 @@ func leaves(body []ast.Stmt) bool {
 // afterFacts returns the facts an if gives the statements after it in its
 // block: those of its condition being false when its then branch leaves,
 // and of it being true when its else branch does.
-func (c *Checker) afterFacts(stmt ast.Stmt) []ast.Decl {
+func (c *Checker) afterFacts(stmt ast.Stmt) []fact {
 	s, ok := stmt.(*ast.If)
 	if !ok {
 		return nil

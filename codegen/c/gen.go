@@ -102,6 +102,14 @@ func (g *generator) emitPreamble() {
 	g.buf.WriteString("} tack_string;\n\n")
 }
 
+// poolCheckedZero pools the empty string when value is v, ok := a[i] on an
+// array of strings, which gives one when the index is out of range.
+func (g *generator) poolCheckedZero(value ast.Expr) {
+	if ix, ok := value.(*ast.Index); ok && ix.Type == types.String {
+		g.addStr("")
+	}
+}
+
 // collectStrings pools every string literal in the file, deduplicated, and
 // the empty string if a string variable starts from its zero value. The
 // variables of a MultiVar have no value of their own but never start from
@@ -117,8 +125,11 @@ func (g *generator) collectStrings() {
 				g.addStr("")
 			}
 		case *ast.MultiVar:
+			g.poolCheckedZero(x.Value)
 			ast.Walk(x.Value, visit)
 			return false
+		case *ast.MultiAssign:
+			g.poolCheckedZero(x.Value)
 		}
 		return true
 	}
@@ -999,6 +1010,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return g.divisionValues(bin)
 	}
+	if ix, ok := value.(*ast.Index); ok {
+		return g.indexValues(ix)
+	}
 	c, ok := value.(*ast.Call)
 	if !ok {
 		return multiSource{}, []diag.Diagnostic{{
@@ -1067,18 +1081,28 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 }
 
 // fitsExpr renders a C test of whether v, of the integer type from, is also
-// a value of the integer type to. Only the bounds that can actually fail are
-// tested, since clang warns about a comparison that is always true.
+// a value of the integer type to.
 func fitsExpr(from, to types.Type, v string) string {
+	lo, hi := bounds(to)
+	return withinExpr(from, v, lo, hi)
+}
+
+// withinExpr renders a C test of whether v, of the integer type from, lies
+// in [lo, hi]. Only the bounds a value of from can actually fall outside
+// are tested, since clang warns about a comparison that is always true; an
+// empty range, hi below lo, is never met.
+func withinExpr(from types.Type, v string, lo, hi constant.Int) string {
+	if hi.Cmp(lo) < 0 {
+		return "false"
+	}
 	fromMin, fromMax := bounds(from)
-	toMin, toMax := bounds(to)
 
 	var tests []string
-	if fromMin.Cmp(toMin) < 0 {
-		tests = append(tests, fmt.Sprintf("%s >= %s", v, intLiteral(toMin)))
+	if fromMin.Cmp(lo) < 0 {
+		tests = append(tests, fmt.Sprintf("%s >= %s", v, intLiteral(lo)))
 	}
-	if fromMax.Cmp(toMax) > 0 {
-		tests = append(tests, fmt.Sprintf("%s <= %s", v, intLiteral(toMax)))
+	if fromMax.Cmp(hi) > 0 {
+		tests = append(tests, fmt.Sprintf("%s <= %s", v, intLiteral(hi)))
 	}
 	if len(tests) == 0 {
 		return "true"

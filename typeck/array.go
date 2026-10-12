@@ -134,10 +134,46 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 	case idx == types.Invalid:
 	case !types.IsInteger(idx):
 		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.table.Name(idx))
+	case c.checkedIndex == ix:
+		// Bound with ok, the index needs no proof; a constant one is still
+		// checked here, and indexResults reports one that needs no ok.
+		if v, known := c.knownValue(ix.Index); known && !c.constantInRange(v, n) {
+			c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, c.table.Name(base))
+			return types.Invalid
+		}
 	default:
 		c.requireInRange(ix.Index, base, n, write)
 	}
 	return elem
+}
+
+// constantInRange reports whether the constant index v is in [0, n).
+func (c *Checker) constantInRange(v constant.Int, n int64) bool {
+	return !v.IsNegative() && v.Cmp(constant.FromInt64(n)) < 0
+}
+
+// indexResults checks an element bound to want names, which must be two:
+// the element, or its type's zero value when the index is out of range, and
+// whether it was in range. The form is for an index that may be out of
+// range, so one proven in range, a constant included, is reported.
+func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
+	c.checkedIndex = ix
+	elem := c.expr(ix)
+	c.checkedIndex = nil
+	if elem == types.Invalid {
+		return nil, false
+	}
+
+	base := ast.TypeOf(ix.X)
+	if _, known := c.knownValue(ix.Index); known || c.inRange(ix.Index, c.table.Len(base)) {
+		c.errorf(ix.Span, "the index cannot be out of range here; drop the ok")
+		return nil, false
+	}
+	if want != 2 {
+		c.errorf(span, "assignment mismatch: %d variables but an index gives 2 values", want)
+		return nil, false
+	}
+	return []types.Type{elem, types.Bool}, true
 }
 
 // requireInRange reports an index that is not proven to be in range for an
@@ -145,7 +181,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 // else no fact covers.
 func (c *Checker) requireInRange(index ast.Expr, typ types.Type, n int64, write bool) {
 	if v, ok := c.knownValue(index); ok {
-		if v.IsNegative() || v.Cmp(constant.FromInt64(n)) >= 0 {
+		if !c.constantInRange(v, n) {
 			c.errorf(index.Spanned(), "index %s is out of range for %s", v, c.table.Name(typ))
 		}
 		return
@@ -174,15 +210,6 @@ func (c *Checker) requireInRange(index ast.Expr, typ types.Type, n int64, write 
 	default:
 		c.errorf(index.Spanned(), "index may be out of range; use v, ok := ...[...]")
 	}
-}
-
-// inRange reports whether a variable used as an index is proven to lie in
-// [0, n). Facts that bound variables come with runtime indexes; until then
-// only constants are in range.
-func (c *Checker) inRange(index ast.Expr, n int64) bool {
-	_ = index
-	_ = n
-	return false
 }
 
 // lenCall checks a call to the builtin len, which takes one array or string
