@@ -48,6 +48,15 @@ func (p *Parser) peekNext() *lexer.Token {
 	return &p.tokens[p.index+1]
 }
 
+// peekAt returns the token n places ahead without consuming anything, or
+// the final EOF token if that runs past the end.
+func (p *Parser) peekAt(n int) *lexer.Token {
+	if p.index+n >= len(p.tokens) {
+		return &p.tokens[len(p.tokens)-1]
+	}
+	return &p.tokens[p.index+n]
+}
+
 func (p *Parser) peekPrev() *lexer.Token {
 	if p.index <= 0 {
 		return nil
@@ -143,6 +152,8 @@ func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 		switch {
 		case tk.Value() == lexer.Func:
 			return p.parseFunc()
+		case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
+			return p.parsePackageVar()
 		case tk.Kind() == lexer.Comment:
 			p.parseComment()
 			tk = p.peek()
@@ -420,6 +431,23 @@ func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
 		return []diag.Diagnostic{p.diagInvalidToken("type or =", p.peek())}
 	}
 	return nil
+}
+
+// parsePackageVar parses a declaration outside any function. It is the same
+// as one inside a function, except that the short form mut x := value is
+// not allowed here.
+func (p *Parser) parsePackageVar() (*ast.Var, []diag.Diagnostic) {
+	if p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Define {
+		p.next() // the mut keyword
+		p.next() // the name
+		return nil, []diag.Diagnostic{p.diagInvalidToken("type or =", p.peek())}
+	}
+
+	v, diags := p.parseVarDecl()
+	if v == nil {
+		return nil, diags
+	}
+	return v, nil
 }
 
 // parseShortVarDecl parses name := value, which declares an immutable

@@ -1,0 +1,6 @@
+package main
+
+var limit = 10
+
+func main() {
+}

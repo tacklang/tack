@@ -1,0 +1,14 @@
+stage: resolve
+---
+
+examples/invalid/global-clash-func/main.tck:6:5: error: limit is already declared
+05 |	
+06 |	var limit = 10
+   |	    ^~~~~ 
+07 |	
+examples/invalid/global-clash-func/main.tck:3:6: note: previous declaration of limit
+02 |	
+03 |	func limit() {
+   |	     ^~~~~ 
+04 |	}
+

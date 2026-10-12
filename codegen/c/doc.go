@@ -12,6 +12,7 @@
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named str0, str1, and so on;
 //   - tack_print, the helper print lowers to, only if the program prints;
+//   - every package-level variable, as a static C variable;
 //   - a prototype for every Tack function, since Tack lets a function call one
 //     declared later in the file and C does not;
 //   - every Tack function, as a static C function;
@@ -33,6 +34,13 @@
 // which is unambiguous only while package names cannot contain an underscore.
 // A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
 // no reserved words and either may legally be called int, exit or str0.
+//
+// A package-level variable x becomes a static C variable named like a
+// function, tack_main_x, since the two share a namespace. It is const unless
+// mutable, and initialized with the value the type checker computed, never
+// its source expression, so C never evaluates anything Tack has not already
+// checked. The smallest int64 is written as an expression, since C has no
+// literal for it.
 //
 // A local variable becomes a C local declared where the Tack one is, inside
 // the same block. An immutable variable is a const C local, so the C compiler

@@ -1,0 +1,7 @@
+package main
+
+var big = 9223372036854775807 + 1
+
+func main() {
+    exit(big)
+}

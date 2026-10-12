@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/global-not-constant/main.tck:7:13: error: start must be initialized with a constant expression
+06 |	
+07 |	var start = seed()
+   |	            ^~~~~~ 
+08 |	
+

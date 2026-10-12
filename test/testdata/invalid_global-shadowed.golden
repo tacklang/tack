@@ -1,0 +1,14 @@
+stage: resolve
+---
+
+examples/invalid/global-shadowed/main.tck:6:5: error: limit is already declared
+05 |	func main() {
+06 |	    limit := 5
+   |	    ^~~~~ 
+07 |	    exit(limit)
+examples/invalid/global-shadowed/main.tck:3:5: note: previous declaration of limit
+02 |	
+03 |	var limit = 10
+   |	    ^~~~~ 
+04 |	
+

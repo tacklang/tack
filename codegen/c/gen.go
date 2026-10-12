@@ -3,6 +3,7 @@ package c
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,7 @@ func (backend) Ext() string { return ".c" }
 func (backend) BuildCmd(src, out string) []string { return []string{"clang", "-o", out, src} }
 
 func (backend) Generate(file *ast.File) ([]byte, []diag.Diagnostic) {
-	g := &generator{file: file}
+	g := &generator{file: file, globals: make(map[*ast.Var]bool)}
 	return g.generate()
 }
 
@@ -41,6 +42,7 @@ type str struct {
 type generator struct {
 	file    *ast.File
 	strPool []str
+	globals map[*ast.Var]bool // the package-level variables
 	buf     bytes.Buffer
 }
 
@@ -54,32 +56,29 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	}
 	g.collectStrings()
 
-	// Bodies are generated before anything is written, so a construct the back
-	// end cannot lower produces a diagnostic instead of a half-written file.
-	bodies := make([][]string, 0, len(g.file.Decls))
+	// Globals are known before any body is generated, since a body names a
+	// global differently from a local.
 	for _, decl := range g.file.Decls {
-		fn, ok := decl.(*ast.Func)
-		if !ok {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("unknown declaration type: %T", decl),
-				Span:     decl.Spanned(),
-			}}
+		if v, ok := decl.(*ast.Var); ok {
+			g.globals[v] = true
 		}
+	}
 
-		body, diags := g.generateFuncBody(fn)
-		if len(diags) > 0 {
-			return nil, diags
-		}
-		bodies = append(bodies, body)
+	// Everything is generated before anything is written, so a construct the
+	// backend cannot lower produces a diagnostic instead of a half-written
+	// file.
+	globals, funcs, bodies, diags := g.generateDecls()
+	if len(diags) > 0 {
+		return nil, diags
 	}
 
 	g.emitPreamble()
 	g.emitConstantPool()
+	g.emitGlobals(globals)
 	g.emitPrototypes()
 
-	for i, decl := range g.file.Decls {
-		g.emitFunc(decl.(*ast.Func), bodies[i])
+	for i, fn := range funcs {
+		g.emitFunc(fn, bodies[i])
 	}
 
 	g.emitEntryPoint()
@@ -153,6 +152,95 @@ func (g *generator) printsAnything() bool {
 		return true
 	})
 	return prints
+}
+
+// generateDecls generates every top-level declaration: each global as one
+// line of C, and each function's body, returned alongside the functions in
+// source order.
+func (g *generator) generateDecls() (
+	globals []string,
+	funcs []*ast.Func,
+	bodies [][]string,
+	diags []diag.Diagnostic,
+) {
+	for _, decl := range g.file.Decls {
+		switch d := decl.(type) {
+		case *ast.Var:
+			global, diags := g.generateGlobal(d)
+			if len(diags) > 0 {
+				return nil, nil, nil, diags
+			}
+			globals = append(globals, global)
+
+		case *ast.Func:
+			body, diags := g.generateFuncBody(d)
+			if len(diags) > 0 {
+				return nil, nil, nil, diags
+			}
+			funcs = append(funcs, d)
+			bodies = append(bodies, body)
+
+		default:
+			return nil, nil, nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  fmt.Sprintf("unknown declaration type: %T", decl),
+				Span:     decl.Spanned(),
+			}}
+		}
+	}
+	return globals, funcs, bodies, nil
+}
+
+// emitGlobals writes the package-level variable declarations.
+func (g *generator) emitGlobals(globals []string) {
+	if len(globals) == 0 {
+		return
+	}
+	for _, global := range globals {
+		g.buf.WriteString(global + "\n")
+	}
+	g.buf.WriteString("\n")
+}
+
+// generateGlobal declares a package-level variable as a static C variable,
+// const unless it is mutable, initialized with the value the type checker
+// computed rather than its source expression. The checker has already ruled
+// out overflow and division by zero, so the value is exactly what Tack means.
+func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
+	value, ok := g.constValue(v.Const)
+	if !ok {
+		return "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("package-level variable %s has no computed value", v.Name),
+			Span:     v.NameSpan,
+		}}
+	}
+
+	qualifier := "static const"
+	if v.Mutable {
+		qualifier = "static"
+	}
+	return fmt.Sprintf("%s %s %s = %s;", qualifier, cType(v.Kind), g.mangle(v.Name), value), nil
+}
+
+// constValue renders a computed constant as a C constant expression, usable
+// to initialize a static variable. The smallest int64 is written as an
+// expression, since C has no literal for it: the literal after the minus
+// sign would not fit.
+func (g *generator) constValue(c any) (string, bool) {
+	switch v := c.(type) {
+	case int64:
+		if v == math.MinInt64 {
+			return "(-9223372036854775807 - 1)", true
+		}
+		return strconv.FormatInt(v, 10), true
+	case bool:
+		return strconv.FormatBool(v), true
+	case string:
+		return fmt.Sprintf("{%s, %d}", g.strLabel(v), len(v)), true
+	default:
+		return "", false
+	}
 }
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
@@ -296,7 +384,15 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	return []string{fmt.Sprintf("%s = %s;", varName(a.Target.Name), value)}, nil
+	target, ok := a.Target.Def.(*ast.Var)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot assign to %s", a.Target.Name),
+			Span:     a.Target.Span,
+		}}
+	}
+	return []string{fmt.Sprintf("%s = %s;", g.varRef(target), value)}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
@@ -432,7 +528,7 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 	case *ast.StrLit:
 		return g.stringValue(x.Value), nil
 	case *ast.Ident:
-		return identExpr(x)
+		return g.identExpr(x)
 	case *ast.Binary:
 		return g.binaryExpr(x)
 	case *ast.Call:
@@ -448,12 +544,12 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 
 // identExpr renders a reference to a parameter or variable as the C name it
 // was declared under.
-func identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
+func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	switch def := id.Def.(type) {
 	case *ast.Param:
 		return paramName(def.Name), nil
 	case *ast.Var:
-		return varName(def.Name), nil
+		return g.varRef(def), nil
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -521,6 +617,15 @@ func cType(kind types.Kind) string {
 // defines. Tack has no reserved words, so a parameter may legally be called
 // str0, exit, or int, each of which collides with something already emitted.
 func paramName(name string) string { return "p_" + name }
+
+// varRef is the C name of a variable: the mangled package-level name for a
+// global, the prefixed local name otherwise.
+func (g *generator) varRef(v *ast.Var) string {
+	if g.globals[v] {
+		return g.mangle(v.Name)
+	}
+	return varName(v.Name)
+}
 
 // varName keeps local variables clear of every other name the generated file
 // defines, for the same reason paramName does. The distinct prefix keeps a

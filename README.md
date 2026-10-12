@@ -199,9 +199,17 @@ which is true today because `main` is the only package there is.
   value: `0`, `""` or `false`. An immutable variable must have a value.
 - `x = v` assigns to a mutable variable of the same type. Parameters are
   immutable.
+- Package-level variables. `var` and `mut` declarations may also appear
+  outside any function, where `:=` is not allowed. A package-level variable is
+  initialized with a constant expression, made only of literals and
+  operators, which the compiler computes; overflow and division by zero in
+  one are compile errors. It can be used from any function, whatever the
+  order of declarations, and shares one namespace with functions and
+  builtins.
 - A variable is in scope from its declaration to the end of its block. No
-  variable may reuse the name of a parameter or another variable in scope, and
-  one that is never read is an error. Reusing a function's name is allowed.
+  variable or parameter may reuse the name of another variable or parameter
+  in scope, package-level ones included, and a variable that is never read is
+  an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, parentheses,
   and the infix
   operators `+ - * / %` and `== != < <= > >=`, with Go's precedence. Every

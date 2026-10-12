@@ -3,8 +3,10 @@
 // It sits between the lexer and the resolver. It takes the lexer's token
 // stream, which must end in an EOF token and already carry the semicolons
 // that automatic insertion adds at line ends, and produces an *ast.File: the
-// package name, every top-level declaration in source order, and the
-// comments found between declarations.
+// package name, every top-level declaration in source order (functions, and
+// variables declared with var or mut), and the comments found between
+// declarations. The short forms x := v and mut x := v are for function
+// bodies only.
 //
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence; every binary operator is

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/global-overflow/main.tck:3:11: error: constant expression overflows int
+02 |	
+03 |	var big = 9223372036854775807 + 1
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~ 
+04 |	
+

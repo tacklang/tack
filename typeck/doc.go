@@ -6,7 +6,7 @@
 // generation means a backend never has to decide what a badly typed program
 // should emit.
 //
-// Checking happens in two passes. The first resolves every function's
+// Checking happens in three passes. The first resolves every function's
 // signature, recording the Kind each declared parameter and result type
 // denotes on the tree (Param.Kind and Func.ResultKind). Doing this for every
 // function first is what lets a call check against a callee declared later in
@@ -14,7 +14,15 @@
 // keeps types.Invalid. Anything that has no type only because of an error
 // already reported, such as a use of that parameter, is not reported again.
 //
-// The second pass checks each function body:
+// Package-level variables are checked next, before any body, so their kinds
+// are known in every function. A global's initializer must be a constant
+// expression, made only of literals and operators. The checker computes its
+// value into Var.Const with Go's integer arithmetic (division truncates, and
+// a remainder takes the dividend's sign), and reports a result that
+// overflows int or a division by zero. A global without a value gets its
+// type's zero value.
+//
+// The third pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each of the
 //     declared type, whether the callee is a Tack function or a builtin;

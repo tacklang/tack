@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
@@ -36,6 +37,14 @@ func (c *Checker) Check() []diag.Diagnostic {
 			c.funcs[fn.Name] = fn
 			c.resolveParamKinds(fn)
 			c.resolveResultKind(fn)
+		}
+	}
+
+	// Globals are checked before any body, so their kinds are known in every
+	// function whatever the order of declarations.
+	for _, decl := range c.file.Decls {
+		if v, ok := decl.(*ast.Var); ok {
+			c.checkGlobal(v)
 		}
 	}
 
@@ -121,6 +130,159 @@ func (c *Checker) checkVar(v *ast.Var) {
 		v.Kind = declared
 	default:
 		v.Kind = declared
+	}
+}
+
+// checkGlobal checks a package-level variable like a local, and also
+// requires its initializer to be a constant expression, which it evaluates
+// into v.Const. A global without a value takes its type's zero value.
+func (c *Checker) checkGlobal(v *ast.Var) {
+	if v.Value != nil && !isConstant(v.Value) {
+		c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
+		if v.Type != nil {
+			v.Kind = c.typeKind(v.Type)
+		}
+		return
+	}
+
+	before := len(c.diags)
+	c.checkVar(v)
+	if len(c.diags) > before {
+		return
+	}
+
+	if v.Value == nil {
+		v.Const = zeroConst(v.Kind)
+		return
+	}
+	if value, ok := c.fold(v.Value); ok {
+		v.Const = value
+	}
+}
+
+// isConstant reports whether e is built only from literals and operators.
+func isConstant(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.IntLit, *ast.StrLit:
+		return true
+	case *ast.Binary:
+		return isConstant(x.X) && isConstant(x.Y)
+	default:
+		return false
+	}
+}
+
+// zeroConst is a type's zero value as a constant.
+func zeroConst(kind types.Kind) any {
+	switch kind {
+	case types.Int:
+		return int64(0)
+	case types.String:
+		return ""
+	case types.Bool:
+		return false
+	default:
+		return nil
+	}
+}
+
+// fold evaluates a constant expression that has already been type-checked,
+// following Go's integer arithmetic: division truncates toward zero and a
+// remainder takes the sign of the dividend. A result that does not fit in an
+// int, and a division or remainder by zero, is reported and reports false.
+func (c *Checker) fold(e ast.Expr) (any, bool) {
+	switch x := e.(type) {
+	case *ast.IntLit:
+		return x.Value, true
+	case *ast.StrLit:
+		return x.Value, true
+	case *ast.Binary:
+		left, ok := c.fold(x.X)
+		if !ok {
+			return nil, false
+		}
+		right, ok := c.fold(x.Y)
+		if !ok {
+			return nil, false
+		}
+		return c.foldBinary(x, left.(int64), right.(int64))
+	default:
+		return nil, false
+	}
+}
+
+// foldBinary applies an operator to two int constants.
+func (c *Checker) foldBinary(bin *ast.Binary, a, b int64) (any, bool) {
+	if bin.Op.IsComparison() {
+		return compareInts(bin.Op, a, b), true
+	}
+
+	if (bin.Op == ast.Div || bin.Op == ast.Rem) && b == 0 {
+		c.errorf(bin.Span, "division by zero in constant expression")
+		return nil, false
+	}
+
+	result, overflow := arith(bin.Op, a, b)
+	if overflow {
+		c.errorf(bin.Span, "constant expression overflows int")
+		return nil, false
+	}
+	return result, true
+}
+
+// arith computes a op b for an arithmetic operator, and reports whether the
+// true result does not fit in an int64. b is never zero for / and %.
+func arith(op ast.BinaryOp, a, b int64) (int64, bool) {
+	switch op {
+	case ast.Add:
+		sum := a + b
+		// Overflow is only possible with operands of one sign, and shows as
+		// a result of the other sign.
+		return sum, (a >= 0) == (b >= 0) && (sum >= 0) != (a >= 0)
+	case ast.Sub:
+		diff := a - b
+		return diff, (a >= 0) != (b >= 0) && (diff >= 0) != (a >= 0)
+	case ast.Mul:
+		return mul(a, b)
+	case ast.Div:
+		return a / b, a == math.MinInt64 && b == -1
+	default: // ast.Rem; Go defines math.MinInt64 % -1 as 0, without overflow.
+		if b == -1 {
+			return 0, false
+		}
+		return a % b, false
+	}
+}
+
+// mul computes a * b and reports whether the true product does not fit in
+// an int64. Dividing the wrapped product back recovers a exactly when it did
+// not wrap, except for -1 times the smallest int64, which wraps to itself.
+func mul(a, b int64) (int64, bool) {
+	if a == 0 || b == 0 {
+		return 0, false
+	}
+	if (a == -1 && b == math.MinInt64) || (b == -1 && a == math.MinInt64) {
+		return math.MinInt64, true
+	}
+	product := a * b
+	return product, product/b != a
+}
+
+// compareInts applies a comparison operator to two ints.
+func compareInts(op ast.BinaryOp, a, b int64) bool {
+	switch op {
+	case ast.Eq:
+		return a == b
+	case ast.Ne:
+		return a != b
+	case ast.Lt:
+		return a < b
+	case ast.Le:
+		return a <= b
+	case ast.Gt:
+		return a > b
+	default: // ast.Ge
+		return a >= b
 	}
 }
 

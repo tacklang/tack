@@ -1,0 +1,10 @@
+package main
+
+func limit() {
+}
+
+var limit = 10
+
+func main() {
+    limit()
+}

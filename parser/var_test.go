@@ -197,3 +197,78 @@ func TestRejectsMalformedDeclarations(t *testing.T) {
 		})
 	}
 }
+
+// packageVars returns a file's package-level variables, in source order.
+func packageVars(file *ast.File) []*ast.Var {
+	var vars []*ast.Var
+	for _, decl := range file.Decls {
+		if v, ok := decl.(*ast.Var); ok {
+			vars = append(vars, v)
+		}
+	}
+	return vars
+}
+
+// TestParsesPackageLevelDeclarations checks var and mut declarations between
+// functions become top-level declarations, in source order.
+func TestParsesPackageLevelDeclarations(t *testing.T) {
+	src := "package main\n\nvar limit int = 10\n\nmut count int\n\n// a note\nvar name = \"tack\"\n\nfunc main() {\n}\n\nmut last = 1 < 2\n"
+	file, diags := parse(t, src)
+	if len(diags) > 0 {
+		t.Fatalf("parse reported %v", diags)
+	}
+
+	want := []struct {
+		name     string
+		typ      string
+		mutable  bool
+		hasValue bool
+	}{
+		{"limit", "int", false, true},
+		{"count", "int", true, false},
+		{"name", "", false, true},
+		{"last", "", true, true},
+	}
+
+	vars := packageVars(file)
+	if len(vars) != len(want) {
+		t.Fatalf("got %d package-level variables, want %d", len(vars), len(want))
+	}
+	for i, w := range want {
+		v := vars[i]
+		if v.Name != w.name || typeName(t, v.Type) != w.typ || v.Mutable != w.mutable ||
+			(v.Value != nil) != w.hasValue {
+			t.Errorf("variable %d = {%s %q mut=%v value=%v}, want %+v",
+				i, v.Name, typeName(t, v.Type), v.Mutable, v.Value != nil, w)
+		}
+	}
+	if _, ok := file.Decls[len(file.Decls)-1].(*ast.Var); !ok {
+		t.Errorf(
+			"last declaration is %T, want the variable after main",
+			file.Decls[len(file.Decls)-1],
+		)
+	}
+}
+
+// The short forms are for function bodies only.
+func TestRejectsShortDeclarationsAtPackageLevel(t *testing.T) {
+	tests := []struct {
+		src  string
+		want string
+	}{
+		{"x := 1", "expected 'func' found 'x'"},
+		{"mut x := 1", "expected 'type or =' found ':='"},
+		{"x = 1", "expected 'func' found 'x'"},
+		{"var x", "expected 'type or =' found ';'"},
+	}
+	for _, tt := range tests {
+		_, diags := parse(t, "package main\n\n"+tt.src+"\n\nfunc main() {\n}\n")
+		if len(diags) == 0 {
+			t.Errorf("%q parsed without error", tt.src)
+			continue
+		}
+		if diags[0].Message != tt.want {
+			t.Errorf("%q: message = %q, want %q", tt.src, diags[0].Message, tt.want)
+		}
+	}
+}

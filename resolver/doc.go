@@ -10,15 +10,21 @@
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree.
 //
-// Each block is a scope: a function's parameters are the outermost, its body
-// is nested in that, and each branch of an if is nested in the block holding
+// Package-level variables share one namespace with functions and builtins,
+// and form the outermost scope, enclosing every function, so a global can be
+// used from any function whatever the order of declarations. Functions are
+// declared first, so a global that clashes with one is the one reported.
+//
+// Each block is a scope: a function's parameters come next, its body is
+// nested in that, and each branch of an if is nested in the block holding
 // the if. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
-// itself. No variable may reuse a name visible where it is declared, whether
-// a parameter's or another variable's; reusing a function's or a builtin's
-// name is allowed, since a call always resolves to a function. A variable
-// that is never read, only assigned or not mentioned at all, is reported at
-// the end of its block.
+// itself. No variable or parameter may reuse a name visible where it is
+// declared, whether a parameter's or a variable's, package-level ones
+// included. A local may reuse a function's or a builtin's name, since a call
+// always resolves to a function. A variable that is never read, only
+// assigned or not mentioned at all, is reported at the end of its block, and
+// a package-level one after every function.
 //
 // Every name it reports as undefined gets its own diagnostic, so one run
 // lists them all. When Resolve returns no diagnostics, every Ident in the

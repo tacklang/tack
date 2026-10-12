@@ -48,7 +48,7 @@ Open questions about how a feature should behave are in
 | Results                  | yes   | partial | yes     | yes | At most one, unnamed; multiple results (tuples) are planned, and today give a misleading parse error |
 | Functions without a body | yes   | yes     | partial | yes | Accepted, and compiled as an empty body                                                              |
 | Constants and types      | yes   | no      | no      | no  |                                                                                                      |
-| Package-level variables  | yes   | no      | no      | no  | Next: constant initializers only, decided                                                            |
+| Package-level variables  | yes   | yes     | yes     | yes | `var`/`mut` only; constant initializers, computed at compile time; usable from any function          |
 | Methods                  | yes   | no      | no      | no  |                                                                                                      |
 
 ### Statements

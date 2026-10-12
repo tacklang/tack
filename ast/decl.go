@@ -62,8 +62,13 @@ func (p *Param) Spanned() Span { return p.Span }
 // leave out the value to start from the type's zero value. Inside a function
 // body it is also a statement.
 type Var struct {
-	Type     Expr // the declared type as written, nil if inferred from Value
-	Value    Expr // the initial value, nil if the variable starts at its zero value
+	Type  Expr // the declared type as written, nil if inferred from Value
+	Value Expr // the initial value, nil if the variable starts at its zero value
+
+	// Const is a package-level variable's initial value, computed by the
+	// type checker: an int64, a string, or a bool. It is nil for a local.
+	Const any
+
 	Name     string
 	NameSpan Span       // just the identifier
 	Span     Span       // first token through the end of the declaration

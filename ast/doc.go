@@ -4,8 +4,10 @@
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, and the type checker sets
 // Param.Kind, Var.Kind and Func.ResultKind to the types those declarations
-// denote. A Var is both a declaration, so a name can refer to it, and a
-// statement, so it can appear in a function body. Code
+// denote, and Var.Const to a package-level variable's computed initial
+// value. A Var is both a declaration, so a name can refer to it, and a
+// statement, so it can appear in a function body; at package level it is a
+// top-level declaration. Code
 // generation then reads the fully annotated tree. Until a pass has run, the
 // fields it owns hold their zero values (nil, or types.Invalid).
 //

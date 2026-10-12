@@ -20,6 +20,7 @@ type Resolver struct {
 	file     *ast.File
 	funcRefs map[string]*ast.Func
 	read     map[*ast.Var]bool // variables read at least once
+	globals  *scope            // package-level variables, enclosing every function
 }
 
 // New returns a Resolver for file.
@@ -28,6 +29,7 @@ func New(file *ast.File) *Resolver {
 		file:     file,
 		funcRefs: make(map[string]*ast.Func),
 		read:     make(map[*ast.Var]bool),
+		globals:  newScope(nil),
 	}
 }
 
@@ -76,6 +78,7 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	}
 
 	diags := r.declareFuncs()
+	diags = append(diags, r.declareGlobals()...)
 	diags = append(diags, r.checkMain()...)
 
 	// Resolution is per function body: a parameter is in scope inside the
@@ -92,7 +95,64 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
 	}
 
+	return append(diags, r.unused(r.globals)...)
+}
+
+// declareGlobals adds every package-level variable to the global scope, which
+// encloses every function, so a global can be used from any function whatever
+// the order of declarations. Functions were declared first, so a global that
+// shares a name with a function, another global, or a builtin is the one
+// reported. Initializers are resolved too, so a name in one is bound and the
+// type checker can say why it is not allowed there.
+func (r *Resolver) declareGlobals() []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, decl := range r.file.Decls {
+		v, ok := decl.(*ast.Var)
+		if !ok {
+			continue
+		}
+
+		if v.Value != nil {
+			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
+		}
+
+		if _, isBuiltin := r.builtinSeen(v.Name); isBuiltin {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Message:  fmt.Sprintf("%s is a builtin and cannot be redeclared", v.Name),
+				Span:     v.NameSpan,
+			})
+			continue
+		}
+
+		existing, clash := r.globals.lookup(v.Name)
+		if fn, isFunc := r.seen(v.Name); isFunc {
+			existing, clash = fn, true
+		}
+		if clash {
+			diags = append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
+			continue
+		}
+
+		r.globals.names[v.Name] = v
+		r.globals.vars = append(r.globals.vars, v)
+	}
 	return diags
+}
+
+// alreadyDeclared reports name, declared at span, as clashing with an
+// earlier declaration, and points at that one.
+func alreadyDeclared(name string, span ast.Span, existing ast.Decl) diag.Diagnostic {
+	return diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  fmt.Sprintf("%s is already declared", name),
+		Span:     span,
+		Related: []diag.Diagnostic{{
+			Severity: diag.Note,
+			Message:  fmt.Sprintf("previous declaration of %s", name),
+			Span:     nameSpan(existing),
+		}},
+	}
 }
 
 // declareFuncs records every top-level function in the reference table,
@@ -168,10 +228,14 @@ func (r *Resolver) checkMain() []diag.Diagnostic {
 // paramScope returns the outermost scope of a function, holding its
 // parameters, and reports any parameter name declared twice.
 func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
-	params := newScope(nil)
+	params := newScope(r.globals)
 
 	var diags []diag.Diagnostic
 	for _, param := range fn.Params {
+		if global, clash := r.globals.lookup(param.Name); clash {
+			diags = append(diags, alreadyDeclared(param.Name, param.NameSpan, global))
+			continue
+		}
 		if existing, dup := params.names[param.Name]; dup {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
@@ -200,8 +264,13 @@ func (r *Resolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagnosti
 	for _, stmt := range body {
 		diags = append(diags, r.resolveStmt(stmt, block)...)
 	}
+	return append(diags, r.unused(block)...)
+}
 
-	for _, v := range block.vars {
+// unused reports every variable a scope declared and never read.
+func (r *Resolver) unused(sc *scope) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, v := range sc.vars {
 		if !r.read[v] {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
@@ -224,16 +293,7 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 	}
 
 	if existing, visible := sc.lookup(v.Name); visible {
-		return append(diags, diag.Diagnostic{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("%s is already declared", v.Name),
-			Span:     v.NameSpan,
-			Related: []diag.Diagnostic{{
-				Severity: diag.Note,
-				Message:  fmt.Sprintf("previous declaration of %s", v.Name),
-				Span:     nameSpan(existing),
-			}},
-		})
+		return append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
 	}
 
 	sc.names[v.Name] = v
@@ -258,9 +318,11 @@ func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 	return diags
 }
 
-// nameSpan returns the span of the name a parameter or variable declares.
+// nameSpan returns the span of the name a declaration introduces.
 func nameSpan(decl ast.Decl) ast.Span {
 	switch d := decl.(type) {
+	case *ast.Func:
+		return d.NameSpan
 	case *ast.Param:
 		return d.NameSpan
 	case *ast.Var:

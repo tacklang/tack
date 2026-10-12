@@ -1,0 +1,11 @@
+package main
+
+func seed() int {
+    return 1
+}
+
+var start = seed()
+
+func main() {
+    exit(start)
+}
