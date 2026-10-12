@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/types"
 )
 
@@ -132,7 +133,7 @@ func TestAssignmentToANonVariableIsReported(t *testing.T) {
 			&ast.Func{Name: "main", Params: []*ast.Param{param}, Body: []ast.Stmt{
 				&ast.Assign{
 					Target: &ast.Ident{Name: "n", Def: param},
-					Value:  &ast.IntLit{Value: 1},
+					Value:  &ast.IntLit{Value: constant.FromInt64(1), Type: types.Int64},
 				},
 			}},
 		},

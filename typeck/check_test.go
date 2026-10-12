@@ -493,8 +493,8 @@ func TestChecksBinaryOperands(t *testing.T) {
 		{"1 * 2", ""},
 		{"1 / 2", ""},
 		{"1 % 2", ""},
-		{"1 + \"hi\"", "cannot use string as int64"},
-		{"\"a\" + \"b\"", "cannot use string as int64"},
+		{"1 + \"hi\"", "operator + is not defined on string"},
+		{"\"a\" + \"b\"", "operator + is not defined on string"},
 	}
 
 	for _, tt := range tests {

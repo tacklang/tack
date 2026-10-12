@@ -7,9 +7,14 @@
 // could not be determined, so an AST field the type checker has not filled in
 // holds Invalid rather than nil.
 //
-// The basic types, Int, a signed 64-bit integer; String, a sequence of bytes;
-// and Bool, have fixed IDs that mean the same thing in every Table, so code
-// can name them as constants. The language has no other types yet. Composite
+// The basic types have fixed IDs that mean the same thing in every Table, so
+// code can name them as constants: the signed integers Int8 to Int64, the
+// unsigned Uint8 to Uint64, String, a sequence of bytes, and Bool.
+// UntypedInt is the type of an integer constant expression until it is
+// given one where it is used; no program can name it. IsInteger, IsUnsigned
+// and Bits describe the integer types, and Widens says which can be used as
+// which without a conversion: every value of the one must be a value of the
+// other. The language has no other types yet. Composite
 // types will get their IDs from the Table of the compilation that uses them,
 // the first time each is seen, so the same type written twice gets one ID.
 //

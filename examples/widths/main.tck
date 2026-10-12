@@ -1,0 +1,24 @@
+package main
+
+var smallest int8 = -128
+
+var largest uint64 = 18446744073709551615
+
+func next(x int8) int8 {
+    return x + 1
+}
+
+func main() {
+    mut b int8 = 127
+    b++
+    mut u uint8 = 0
+    u--
+    var w uint16 = 65535
+    sum := w + u
+    var x int32 = 100000
+    var wide int64 = x * x
+    if b == smallest && next(b) == -127 && largest - 1 == 18446744073709551614 && wide == 1410065408 && u == 255 {
+        exit(sum - 200)
+    }
+    exit(1)
+}

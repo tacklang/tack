@@ -22,7 +22,7 @@ var invalidClauseCases = []struct {
 	{
 		"bad init",
 		inMain("for mut i := \"s\"; ; i++ {\n        print(i)\n        break\n    }"),
-		[]spanned{{"cannot use string as int64 in ++", "i"}},
+		[]spanned{{"operator ++ is not defined on string", "i"}},
 	},
 	{
 		"bad post",

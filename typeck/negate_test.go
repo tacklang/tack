@@ -31,19 +31,16 @@ var invalidNegationCases = []struct {
 		[]spanned{{"operator ! is not defined on int64", "-5"}},
 	},
 	{
-		// A negation takes its operand's type, so the argument is reported
-		// too, as for exit(true + 1).
+		// The negation has no type once its operand is reported, so the
+		// argument it is passed as is not reported again.
 		"negation of a not",
 		mainLines("b := true", "exit(-!b)"),
-		[]spanned{
-			{"cannot use bool as int64 in argument to exit", "-!b"},
-			{"operator - is not defined on bool", "!b"},
-		},
+		[]spanned{{"operator - is not defined on bool", "!b"}},
 	},
 	{
 		"error inside",
 		inMain("exit(-(1 + \"s\"))"),
-		[]spanned{{"cannot use string as int64 in +", "\"s\""}},
+		[]spanned{{"operator + is not defined on string", "\"s\""}},
 	},
 }
 
@@ -100,7 +97,7 @@ func TestFoldsNegation(t *testing.T) {
 			if len(diags) > 0 {
 				t.Fatalf("got %v, want no diagnostics", diags)
 			}
-			if v := globalX(t, file); v.Type != types.Int64 || v.Const != tt.want {
+			if v := globalX(t, file); v.Type != types.Int64 || machine(v.Const) != tt.want {
 				t.Errorf("got %v %#v, want int64 %#v", v.Type, v.Const, tt.want)
 			}
 		})
@@ -108,7 +105,7 @@ func TestFoldsNegation(t *testing.T) {
 
 	for _, decl := range []string{"var x = -(-9223372036854775808)", "var x = - -9223372036854775808"} {
 		_, diags := checkTree(t, withGlobal(decl))
-		if len(diags) != 1 || diags[0].Message != "constant expression overflows int64" {
+		if len(diags) != 1 || diags[0].Message != "constant 9223372036854775808 overflows int64" {
 			t.Errorf("%s: got %v, want an overflow", decl, diags)
 		}
 	}

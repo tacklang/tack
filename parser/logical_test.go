@@ -21,7 +21,7 @@ func shape(t *testing.T, e ast.Expr) string {
 	case *ast.Ident:
 		return x.Name
 	case *ast.IntLit:
-		return strconv.FormatInt(x.Value, 10)
+		return x.Value.String()
 	case *ast.BoolLit:
 		return strconv.FormatBool(x.Value)
 	case *ast.Call:

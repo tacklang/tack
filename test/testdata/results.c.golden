@@ -20,12 +20,12 @@ static void tack_print(tack_string s) {
     fwrite(s.ptr, 1, s.len, stdout);
 }
 
-static int64_t tack_div(int64_t a, int64_t b) {
-    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;
+static int64_t tack_div_int64(int64_t a, int64_t b) {
+    return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static int64_t tack_rem(int64_t a, int64_t b) {
-    return b == -1 ? 0 : a % b;
+static int64_t tack_rem_int64(int64_t a, int64_t b) {
+    return b == -1 ? 0 : (int64_t)(a % b);
 }
 
 typedef struct {
@@ -43,7 +43,7 @@ static tack_results_main_classify tack_main_classify(int64_t p_n);
 static void tack_main_main(void);
 
 static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b) {
-    return (tack_results_main_divmod){tack_div(p_a, p_b), tack_rem(p_a, p_b)};
+    return (tack_results_main_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
 }
 
 static tack_results_main_classify tack_main_classify(int64_t p_n) {

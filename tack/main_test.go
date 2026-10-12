@@ -805,6 +805,17 @@ func TestBuiltBlankExits62(t *testing.T) {
 	}
 }
 
+// The widths example wraps at 8, 16 and 32 bits, widens without loss, and
+// uses the largest uint64, exiting with a status computed in uint16.
+func TestBuiltWidthsExits54(t *testing.T) {
+	bin := buildWithClang(t, "widths")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 54 {
+		t.Errorf("widths exited with %v, want status 54", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

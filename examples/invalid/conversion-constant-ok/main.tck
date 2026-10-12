@@ -1,0 +1,8 @@
+package main
+
+func main() {
+    v, ok := int8(5)
+    if ok {
+        exit(v)
+    }
+}

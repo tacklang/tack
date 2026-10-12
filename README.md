@@ -133,8 +133,8 @@ one type rather than a pointer and a length passed separately, so that it can
 be returned, stored, and nested later without changing every signature that
 mentions it. The C backend emits it as a `tack_string` struct passed by value.
 
-An `int64` is a 64-bit signed integer, emitted as C's `int64_t`, and a `bool` is
-emitted as C's `bool`.
+The integer types are emitted as C's fixed-width types, `int8_t` through
+`uint64_t`, and a `bool` is emitted as C's `bool`.
 
 ## Builtins
 
@@ -217,18 +217,19 @@ which is true today because `main` is the only package there is.
   included, and may be any of those except a declaration. Every part may be
   left out (`for ;; { ... }`). A variable `init` declares belongs to the
   loop, and needs `mut` to be updated: `for mut i := 0; i < n; i++ { ... }`.
-- Range over an int64. `for i := range n { ... }` runs once for each `i` from
-  `0` to `n - 1`, and not at all when `n` is zero or less; `for range n`
-  does the same without a variable. `n` is an `int64` evaluated once, before
-  the first iteration. `i` is a fresh immutable `int64` each iteration.
+- Range over an integer. `for i := range n { ... }` runs once for each `i`
+  from `0` to `n - 1`, and not at all when `n` is zero or less; `for range n`
+  does the same without a variable. `n` is an integer of any type, a
+  constant being an `int64`, evaluated once, before the first iteration.
+  `i` is a fresh immutable variable of `n`'s type each iteration.
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
   value: `0`, `""` or `false`. An immutable variable must have a value.
-- `x = v` assigns to a mutable variable of the same type. Parameters are
-  immutable.
+- `x = v` assigns to a mutable variable a value its type accepts. Parameters
+  are immutable.
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
-  mutable `int64` variable and an `int64` value. Like a plain assignment, they do
+  mutable integer variable and a value its type accepts. Like a plain assignment, they do
   not count as reading `x`, so a variable that is only ever updated is still
   unused. `x++` and `x--` add and subtract one the same way. They are
   statements, never values, and there is no prefix form.
@@ -247,26 +248,52 @@ which is true today because `main` is the only package there is.
   the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
   tightest, then arithmetic, then comparisons, then `&&`, then `||`.
-  Arithmetic and `-x` take `int64` operands; `-x` means `0 - x`. At runtime,
-  arithmetic that overflows wraps around, as in Go: the largest int64 plus one
-  is the smallest, negating the smallest int64 gives itself, and the smallest
-  int64 divided by -1 is itself, with remainder 0. Dividing by zero is not
-  defined yet. A comparison takes two operands of the
-  same type: two `int64`s with any of the six, or two `bool`s with `==` and
-  `!=`. Strings cannot be compared yet.
+  Arithmetic takes two integers and gives their common type: the type of
+  both, or the wider when one widens to the other, as `int8 + int64` is an
+  `int64`; `int8 + uint8` and `uint64 + int64` have no common type and are
+  errors. `-x` means `0 - x` and takes a signed integer; on an unsigned one it
+  is an error, and `0 - x` says the wrapping is meant. At runtime,
+  arithmetic that overflows wraps around at its type's width, as in Go: the
+  largest value plus one is the smallest, negating the smallest signed value
+  gives itself, and the smallest signed value divided by -1 is itself, with
+  remainder 0. Dividing by zero is not defined yet. A comparison takes two
+  operands of one type, after the same widening: two integers with any of
+  the six, or two `bool`s with `==` and `!=`. Strings cannot be compared yet.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
   is computed in full, so an error on either side is reported.
-- The types are `int64`, `string`, and `bool`. A bool is `true`, `false`, or the
-  result of a comparison. `true` and `false` are keywords, so neither can be
+- The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
+  `uint16`, `uint32` and `uint64`, and `string` and `bool`. There is no
+  `int`, and no `byte`. A bool is `true`, `false`, or the result of a
+  comparison.
+- A value of one integer type can be used where another is expected, with
+  no conversion, when every value of the first is a value of the second: a
+  signed type in a wider signed one, and an unsigned type in a wider type of
+  either kind. That holds for assignments, arguments, results and the
+  operands of an operator alike. Any other change of type is a conversion.
+- Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
+  allowed only where it cannot fail: `x` is a constant that is a value of
+  `T`, or of a type that widens to `T`. Every other conversion is written
+  `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
+  `T`, and `v` is that value, or `0` when it is not. The two-value form is an
+  error where the conversion cannot fail, so each conversion has one
+  spelling. Strings and bools cannot be converted. Type names cannot be
+  declared as functions. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
-- `exit` takes one integer and terminates the process with that status.
-- Integer literals. `int64` is 64-bit signed, and a literal that does not fit is
-  a parse error. A `-` right before the digits is part of the literal, so the
-  smallest int64 is written `-9223372036854775808`.
+- `exit` takes an `int64`, or an integer that widens to one, and terminates
+  the process with that status.
+- Integer constants. A literal, and any expression made only of literals and
+  operators, is a constant with no type of its own: it is computed exactly,
+  and takes the type of where it is used, the type it is assigned, passed or
+  compared to, or `int64` where nothing gives it one. It must be a value of
+  that type: `var b uint8 = 256` and `x := 18446744073709551615` are errors.
+  Every literal, and every step of a constant computation, must lie between
+  the smallest `int64` and the largest `uint64`; beyond that is an error
+  rather than a larger number. A `-` right before the digits is part of the
+  literal, so the smallest int64 is written `-9223372036854775808`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with

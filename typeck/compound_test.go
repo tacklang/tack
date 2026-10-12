@@ -50,14 +50,13 @@ var invalidCompoundCases = []struct {
 		"string target",
 		mainLines("mut s = \"a\"", "s += \"b\"", "print(s)"),
 		[]spanned{
-			{"cannot use string as int64 in +=", "s"},
-			{"cannot use string as int64 in +=", "\"b\""},
+			{"operator += is not defined on string", "s"},
 		},
 	},
 	{
 		"bool target",
 		mainLines("mut b = true", "b *= 2", "if b {", "}"),
-		[]spanned{{"cannot use bool as int64 in *=", "b"}},
+		[]spanned{{"operator *= is not defined on bool", "b"}},
 	},
 	{
 		"string value",
@@ -73,8 +72,7 @@ var invalidCompoundCases = []struct {
 		"both wrong",
 		mainLines("mut b = true", "b /= false", "if b {", "}"),
 		[]spanned{
-			{"cannot use bool as int64 in /=", "b"},
-			{"cannot use bool as int64 in /=", "false"},
+			{"operator /= is not defined on bool", "b"},
 		},
 	},
 	{
@@ -85,7 +83,7 @@ var invalidCompoundCases = []struct {
 	{
 		"error inside the value",
 		mainLines("mut x = 1", "x += 1 + \"s\"", "exit(x)"),
-		[]spanned{{"cannot use string as int64 in +", "\"s\""}},
+		[]spanned{{"operator + is not defined on string", "\"s\""}},
 	},
 }
 

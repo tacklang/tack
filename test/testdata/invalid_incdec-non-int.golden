@@ -1,7 +1,7 @@
 stage: typeck
 ---
 
-examples/invalid/incdec-non-int/main.tck:5:5: error: cannot use bool as int64 in ++
+examples/invalid/incdec-non-int/main.tck:5:5: error: operator ++ is not defined on bool
 04 |	    mut done = false
 05 |	    done++
    |	    ^~~~ 

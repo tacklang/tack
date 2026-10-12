@@ -18,8 +18,8 @@ static void tack_print(tack_string s) {
     fwrite(s.ptr, 1, s.len, stdout);
 }
 
-static int64_t tack_rem(int64_t a, int64_t b) {
-    return b == -1 ? 0 : a % b;
+static int64_t tack_rem_int64(int64_t a, int64_t b) {
+    return b == -1 ? 0 : (int64_t)(a % b);
 }
 
 static bool tack_main_isPrime(int64_t p_n);
@@ -32,7 +32,7 @@ static bool tack_main_isPrime(int64_t p_n) {
     }
     int64_t v_d = 2;
     while (((int64_t)((uint64_t)v_d * (uint64_t)v_d)) <= p_n) {
-        if (tack_rem(p_n, v_d) == 0) {
+        if (tack_rem_int64(p_n, v_d) == 0) {
             return false;
         }
         v_d = ((int64_t)((uint64_t)v_d + (uint64_t)1));
@@ -68,7 +68,7 @@ static void tack_main_main(void) {
     {
         int64_t v_n = 1;
         for (; v_n <= 10; v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1))) {
-            if (tack_rem(v_n, 2) == 0) {
+            if (tack_rem_int64(v_n, 2) == 0) {
                 continue;
             }
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)v_n));

@@ -79,8 +79,8 @@ func TestParsesIntegerLiteralArgument(t *testing.T) {
 			if !ok {
 				t.Fatalf("argument is %T, want *ast.IntLit", arg)
 			}
-			if lit.Value != tt.want {
-				t.Errorf("Value = %d, want %d", lit.Value, tt.want)
+			if lit.Value.Int64() != tt.want {
+				t.Errorf("Value = %s, want %d", lit.Value, tt.want)
 			}
 		})
 	}
@@ -102,15 +102,26 @@ func TestIntegerLiteralSpansOnlyTheDigits(t *testing.T) {
 }
 
 // The lexer hands over the digits undecoded, so the parser is the first place
-// that can notice a literal too large to represent.
+// that can notice a literal too large to represent: one past the largest
+// uint64, the largest value any literal can have.
 func TestRejectsIntegerLiteralOutOfRange(t *testing.T) {
-	_, diags := parse(t, "package main\n\nfunc main() {\n    exit(9223372036854775808)\n}\n")
-
-	if len(diags) == 0 {
-		t.Fatal("an out-of-range integer literal parsed without a diagnostic")
+	for _, lit := range []string{"18446744073709551616", "99999999999999999999999"} {
+		_, diags := parse(t, "package main\n\nfunc main() {\n    exit("+lit+")\n}\n")
+		want := "integer literal " + lit + " is out of range"
+		if len(diags) != 1 || diags[0].Message != want {
+			t.Errorf("%s: got %+v, want %q", lit, diags, want)
+		}
 	}
-	if !strings.Contains(diags[0].Message, "range") {
-		t.Errorf("message = %q, want it to mention the value being out of range", diags[0].Message)
+}
+
+// Every literal from the smallest int64 to the largest uint64 parses, to its
+// exact value; which type it can be is the type checker's to judge.
+func TestParsesIntegerLiteralsAcrossTheRange(t *testing.T) {
+	for _, lit := range []string{"0", "9223372036854775807", "9223372036854775808", "18446744073709551615", "-9223372036854775808"} {
+		arg := firstArg(t, "package main\n\nfunc main() {\n    exit("+lit+")\n}\n")
+		if got := arg.(*ast.IntLit).Value.String(); got != lit {
+			t.Errorf("%s parsed as %s", lit, got)
+		}
 	}
 }
 
@@ -132,13 +143,13 @@ func TestParsesCommaSeparatedArguments(t *testing.T) {
 	if len(args) != 3 {
 		t.Fatalf("call has %d arguments, want 3", len(args))
 	}
-	if lit, ok := args[0].(*ast.IntLit); !ok || lit.Value != 1 {
+	if lit, ok := args[0].(*ast.IntLit); !ok || lit.Value.Int64() != 1 {
 		t.Errorf("argument 0 = %#v, want IntLit 1", args[0])
 	}
 	if lit, ok := args[1].(*ast.StrLit); !ok || lit.Value != "hi" {
 		t.Errorf("argument 1 = %#v, want StrLit \"hi\"", args[1])
 	}
-	if lit, ok := args[2].(*ast.IntLit); !ok || lit.Value != 2 {
+	if lit, ok := args[2].(*ast.IntLit); !ok || lit.Value.Int64() != 2 {
 		t.Errorf("argument 2 = %#v, want IntLit 2", args[2])
 	}
 }
@@ -265,8 +276,8 @@ func TestParsesReturnWithAValue(t *testing.T) {
 	if !ok {
 		t.Fatalf("returned expression is %T, want *ast.IntLit", ret.Values[0])
 	}
-	if lit.Value != 42 {
-		t.Errorf("returned %d, want 42", lit.Value)
+	if lit.Value.Int64() != 42 {
+		t.Errorf("returned %s, want 42", lit.Value)
 	}
 }
 
@@ -398,7 +409,7 @@ func TestSubtractionIsLeftAssociative(t *testing.T) {
 	if !ok || left.Op != ast.Sub {
 		t.Fatalf("left operand = %#v, want a Sub, so that 1-2-3 means (1-2)-3", bin.X)
 	}
-	if lit, ok := bin.Y.(*ast.IntLit); !ok || lit.Value != 3 {
+	if lit, ok := bin.Y.(*ast.IntLit); !ok || lit.Value.Int64() != 3 {
 		t.Errorf("right operand = %#v, want the literal 3", bin.Y)
 	}
 }

@@ -61,7 +61,7 @@ func TestLookupRoundTripsEveryNamedType(t *testing.T) {
 }
 
 func TestLookupRejectsNamesThatAreNotTypes(t *testing.T) {
-	for _, name := range []string{"invalid", "", "Int", "INT", "INT64", " int64", "int64 ", "int", "uint", "float", "byte", "rune", "str", "boolean"} {
+	for _, name := range []string{"invalid", "", "Int", "INT", "INT64", " int64", "int64 ", "int", "uint", "float", "byte", "rune", "str", "boolean", "untyped int", "int128", "uint128"} {
 		if got, ok := types.Lookup(name); ok || got != types.Invalid {
 			t.Errorf("Lookup(%q) = %v, %v, want Invalid, false", name, got, ok)
 		}
@@ -72,7 +72,7 @@ func TestLookupRejectsNamesThatAreNotTypes(t *testing.T) {
 // or indexed out of range.
 func TestTableNamesUnknownIDsInvalid(t *testing.T) {
 	table := types.NewTable()
-	for _, typ := range []types.Type{-1, 4, 1 << 30, -1 << 62} {
+	for _, typ := range []types.Type{-1, 12, 1 << 30, -1 << 62} {
 		if got := table.Name(typ); got != "invalid" {
 			t.Errorf("Name(%d) = %q, want %q", typ, got, "invalid")
 		}
@@ -88,5 +88,60 @@ func TestNilTableNamesBasicTypes(t *testing.T) {
 	}
 	if got := table.Name(99); got != "invalid" {
 		t.Errorf("nil Table: Name(99) = %q, want %q", got, "invalid")
+	}
+}
+
+// TestWidens checks every pair of integer types: a type widens to another
+// exactly when every value of the first is a value of the second.
+func TestWidens(t *testing.T) {
+	ints := []types.Type{
+		types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint8, types.Uint16, types.Uint32, types.Uint64,
+	}
+	// lowest and highest are each type's range, as a pair of float64s, which
+	// hold every bound exactly.
+	bounds := func(t types.Type) (float64, float64) {
+		n := float64(types.Bits(t))
+		if types.IsUnsigned(t) {
+			return 0, pow2(n) - 1
+		}
+		return -pow2(n - 1), pow2(n-1) - 1
+	}
+	for _, from := range ints {
+		for _, to := range ints {
+			flo, fhi := bounds(from)
+			tlo, thi := bounds(to)
+			want := flo >= tlo && fhi <= thi
+			if got := types.Widens(from, to); got != want {
+				t.Errorf("Widens(%d, %d) = %v, want %v", from, to, got, want)
+			}
+		}
+	}
+	for _, other := range []types.Type{types.Bool, types.String, types.UntypedInt, types.Invalid} {
+		if types.Widens(other, types.Int64) || types.Widens(types.Int64, other) {
+			t.Errorf("type %d widens to or from int64", other)
+		}
+	}
+}
+
+// pow2 returns 2 to the power n.
+func pow2(n float64) float64 {
+	v := 1.0
+	for range int(n) {
+		v *= 2
+	}
+	return v
+}
+
+// Every sized integer type can be named, and UntypedInt cannot.
+func TestLookupIntegerTypes(t *testing.T) {
+	for _, name := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
+		typ, ok := types.Lookup(name)
+		if !ok || !types.IsInteger(typ) || types.Bits(typ) == 0 {
+			t.Errorf("Lookup(%q) = %v, %v", name, typ, ok)
+		}
+	}
+	if _, ok := types.Lookup("untyped int"); ok {
+		t.Error("untyped int can be named")
 	}
 }

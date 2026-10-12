@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/types"
 )
 
@@ -15,6 +16,15 @@ func withGlobal(decl string) string {
 }
 
 // globalX returns the first package-level declaration of a checked program.
+// machine returns a computed constant as Go's own value, so tests can
+// compare it with an int64 literal: a constant.Int becomes its int64.
+func machine(c any) any {
+	if v, ok := c.(constant.Int); ok {
+		return v.Int64()
+	}
+	return c
+}
+
 func globalX(t *testing.T, file *ast.File) *ast.Var {
 	t.Helper()
 
@@ -65,7 +75,7 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 			if v.Type != tt.typ {
 				t.Errorf("type = %v, want %v", v.Type, tt.typ)
 			}
-			if v.Const != tt.want {
+			if machine(v.Const) != tt.want {
 				t.Errorf("value = %#v, want %#v", v.Const, tt.want)
 			}
 		})
@@ -105,19 +115,19 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"overflow on +", withGlobal("var x = 9223372036854775807 + 1"),
-		[]string{"constant expression overflows int64"},
+		[]string{"constant 9223372036854775808 overflows int64"},
 	},
 	{
 		"overflow on -", withGlobal("var x = 0 - 9223372036854775807 - 2"),
-		[]string{"constant expression overflows int64"},
+		[]string{"constant expression is out of range"},
 	},
 	{
 		"overflow on *", withGlobal("var x = 4611686018427387904 * 2"),
-		[]string{"constant expression overflows int64"},
+		[]string{"constant 9223372036854775808 overflows int64"},
 	},
 	{
 		"overflow on /", withGlobal("var x = (0 - 9223372036854775807 - 1) / (0 - 1)"),
-		[]string{"constant expression overflows int64"},
+		[]string{"constant 9223372036854775808 overflows int64"},
 	},
 	{
 		"division by zero", withGlobal("var x = 1 / 0"),
@@ -134,7 +144,7 @@ var invalidGlobalPrograms = []struct {
 	{
 		"string arithmetic",
 		"package main\n\nvar x = \"a\" + 1\n\nfunc main() {\n    print(x)\n}\n",
-		[]string{"cannot use string as int64 in +"},
+		[]string{"operator + is not defined on string"},
 	},
 	{
 		"assign to an immutable global",

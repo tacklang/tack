@@ -6,7 +6,10 @@
 // and declare no results, no function may be declared twice, and none may
 // reuse a builtin's name. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
-// every parameter and variable reference and assignment target. A callee that
+// every parameter and variable reference and assignment target. A call whose
+// callee is a type name, such as int8(x), is a conversion: it binds to no
+// declaration, and the resolver records the type in Call.Conv instead. No
+// function may be named after a type. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree.
 //

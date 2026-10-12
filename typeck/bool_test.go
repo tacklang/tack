@@ -48,14 +48,11 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 		{"exit status", inMain("exit(true)"), []string{"cannot use bool as int64"}},
 		{"printed", inMain("print(false)"), []string{"cannot use bool as string"}},
 		{
-			// An arithmetic expression takes its left operand's type, so the
-			// argument is reported too, as for "a" + "b".
+			// The operand is reported, and the arithmetic has no type, so
+			// the argument it is passed as is not reported again.
 			"arithmetic",
 			inMain("exit(true + 1)"),
-			[]string{
-				"cannot use bool as int64 in argument to exit",
-				"cannot use bool as int64 in +",
-			},
+			[]string{"operator + is not defined on bool"},
 		},
 		{
 			"int64 variable",
@@ -131,8 +128,8 @@ func TestRejectsOperatorsOnBoolLiteralGlobals(t *testing.T) {
 		decl string
 		want string
 	}{
-		{"var x = true + 1", "cannot use bool as int64 in +"},
-		{"var x = 1 * false", "cannot use bool as int64 in *"},
+		{"var x = true + 1", "operator + is not defined on bool"},
+		{"var x = 1 * false", "operator * is not defined on bool"},
 		{"var x = true < false", "operator < is not defined on bool"},
 		{"var x = true == 1", "mismatched types bool and int64 in =="},
 	}
@@ -218,7 +215,7 @@ func TestRejectsInvalidComparisons(t *testing.T) {
 // sits in.
 func TestComparisonDoesNotRepeatOperandErrors(t *testing.T) {
 	_, diags := checkTree(t, inMain("if (\"a\" + 1) == true {\n    }"))
-	if len(diags) != 1 || diags[0].Message != "cannot use string as int64 in +" {
+	if len(diags) != 1 || diags[0].Message != "operator + is not defined on string" {
 		t.Errorf("got %v, want only the error inside the operand", diags)
 	}
 }

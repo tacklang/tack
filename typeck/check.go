@@ -2,10 +2,9 @@ package typeck
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/tacklang/tack/ast"
-	"github.com/tacklang/tack/builtin"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
@@ -105,7 +104,7 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
-		c.checkExpr(s.X)
+		c.discard(s.X)
 	case *ast.Var:
 		c.checkVar(s)
 	case *ast.Assign:
@@ -120,12 +119,12 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 }
 
 // checkMultiVar checks a declaration of several variables. Its value must be
-// a call to a function with exactly one result for each variable, and each
-// variable takes the type of the result in its position. On a wrong count
-// every variable keeps types.Invalid, so its uses are not reported again.
+// a call to a function with exactly one result for each variable, or a
+// conversion that can fail, which gives the converted value and whether it
+// fit, and each variable takes the type of the value in its position. When
+// the value is wrong every variable keeps types.Invalid, so its uses are not
+// reported again.
 func (c *Checker) checkMultiVar(m *ast.MultiVar) {
-	c.checkExpr(m.Value)
-
 	results, ok := c.multiResults(m.Value, len(m.Vars), m.Span)
 	if !ok {
 		return
@@ -135,17 +134,15 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 	}
 }
 
-// checkMultiAssign checks an assignment of several results. Its value must
-// be a call with exactly one result for each target, and each target must be
-// a mutable variable of its result's type, named only once. When the count
-// is wrong, the targets are still checked for being assignable.
+// checkMultiAssign checks an assignment of several values, given as a
+// MultiVar's are. Each target must be a mutable variable, named only once,
+// whose type the value in its position widens to. When the value is wrong,
+// the targets are still checked for being assignable.
 func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
-	c.checkExpr(m.Value)
-
 	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span)
 	seen := make(map[ast.Decl]bool, len(m.Targets))
 	for i, target := range m.Targets {
-		// _ discards its result, whatever its type, and may appear more
+		// _ discards its value, whatever its type, and may appear more
 		// than once.
 		if target.Name == ast.Blank {
 			continue
@@ -156,23 +153,39 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 		}
 		seen[target.Def] = true
 
-		got := types.Invalid
-		if ok {
-			got = results[i]
+		typ, assignable := c.assignable(target)
+		if !ok || !assignable || typ == types.Invalid || results[i] == types.Invalid ||
+			types.Widens(results[i], typ) {
+			continue
 		}
-		c.assignTo(target, got, target.Span)
+		c.errorf(
+			target.Span,
+			"cannot use %s as %s in assignment to %s",
+			c.table.Name(results[i]),
+			c.table.Name(typ),
+			target.Name,
+		)
 	}
 }
 
-// multiResults returns the result types of value, which binds want
-// variables, and whether it is a call with exactly that many results. It
-// reports any other value as one error covering span, the whole statement.
+// multiResults checks the value of a MultiVar or MultiAssign, which binds
+// want names, and returns the type of each value it gives, in order, and
+// whether it gives exactly want of them. It must be a call to a function
+// with that many results, or a conversion that can fail, which gives two.
+// Any other value is reported as one error covering span, the whole
+// statement.
 func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types.Type, bool) {
 	call, isCall := value.(*ast.Call)
 	if !isCall {
+		c.expr(value)
 		c.errorf(span, "assignment mismatch: %d variables but 1 value", want)
 		return nil, false
 	}
+	if call.Conv != types.Invalid {
+		return c.conversionResults(call, want, span)
+	}
+
+	c.checkCall(call)
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil, false
@@ -201,6 +214,30 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 	return nil, false
 }
 
+// conversionResults checks a conversion bound to want names, which must be
+// two: the converted value and whether it fit.
+func (c *Checker) conversionResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
+	if !c.checkedConversion(call) {
+		return nil, false
+	}
+	if want != 2 {
+		c.errorf(span, "assignment mismatch: %d variables but a conversion gives 2 values", want)
+		return nil, false
+	}
+	return []types.Type{call.Conv, types.Bool}, true
+}
+
+// discard checks an expression whose value is not used: a call statement,
+// or a value checked only for what is inside it. A call may return
+// nothing, or several values, here.
+func (c *Checker) discard(e ast.Expr) {
+	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid {
+		c.checkCall(call)
+		return
+	}
+	c.expr(e)
+}
+
 // plural returns word, with an s added unless n is one.
 func plural(n int, word string) string {
 	if n == 1 {
@@ -226,17 +263,17 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	c.loops--
 }
 
-// checkForRange checks a range loop: the count must be an int, and the loop
-// variable, if any, is an int.
+// checkForRange checks a range loop: the count must be an integer, of any
+// type, an untyped constant count being an int64, and the loop variable, if
+// any, takes the count's type.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
-	if got := c.valueType(
-		loop.Count,
-	); got != types.Int64 && got != types.Invalid &&
-		!alreadyReported(loop.Count, got) {
+	got := c.valueOf(loop.Count, c.expr(loop.Count))
+	if got != types.Invalid && !types.IsInteger(got) {
 		c.errorf(loop.Count.Spanned(), "cannot range over %s", c.table.Name(got))
+		got = types.Invalid
 	}
 	if loop.Var != nil {
-		loop.Var.Type = types.Int64
+		loop.Var.Type = got
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
@@ -252,8 +289,8 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 
 // checkCond checks the condition of an if or a loop, which must be a bool.
 func (c *Checker) checkCond(cond ast.Expr) {
-	c.checkExpr(cond)
-	if got := ast.TypeOf(cond); got != types.Bool && !reportedInvalid(cond, got) {
+	got := c.valueOf(cond, c.expr(cond))
+	if got != types.Invalid && got != types.Bool {
 		c.errorf(cond.Spanned(), "condition must be a bool, got %s", c.table.Name(got))
 	}
 }
@@ -266,9 +303,10 @@ func (c *Checker) checkInLoop(span ast.Span, keyword string) {
 }
 
 // checkVar records a variable's type: its declared type if it has one,
-// otherwise its value's. A declared type and a value must agree, and only a
-// mutable variable may leave out its value and start from its zero value,
-// since an immutable one could never hold anything else.
+// otherwise its value's, an untyped constant being an int64. A value must be
+// usable as the declared type, and only a mutable variable may leave out its
+// value and start from its zero value, since an immutable one could never
+// hold anything else.
 func (c *Checker) checkVar(v *ast.Var) {
 	declared := types.Invalid
 	if v.TypeExpr != nil {
@@ -283,22 +321,13 @@ func (c *Checker) checkVar(v *ast.Var) {
 		return
 	}
 
-	got := c.valueType(v.Value)
-	switch {
-	case v.TypeExpr == nil:
-		v.Type = got
-	case got != types.Invalid && declared != types.Invalid && got != declared:
-		c.errorf(
-			v.Value.Spanned(),
-			"cannot use %s as %s in declaration of %s",
-			c.table.Name(got),
-			c.table.Name(declared),
-			v.Name,
-		)
-		v.Type = declared
-	default:
-		v.Type = declared
+	got := c.expr(v.Value)
+	if v.TypeExpr == nil {
+		v.Type = c.valueOf(v.Value, got)
+		return
 	}
+	c.use(v.Value, got, declared, "in declaration of "+v.Name)
+	v.Type = declared
 }
 
 // checkGlobal checks a package-level variable like a local, and also
@@ -344,95 +373,56 @@ func isConstant(e ast.Expr) bool {
 
 // zeroConst is a type's zero value as a constant.
 func zeroConst(typ types.Type) any {
-	switch typ {
-	case types.Int64:
-		return int64(0)
-	case types.String:
+	switch {
+	case types.IsInteger(typ):
+		return constant.Int{}
+	case typ == types.String:
 		return ""
-	case types.Bool:
+	case typ == types.Bool:
 		return false
 	default:
 		return nil
 	}
 }
 
-// fold evaluates a constant expression that has already been type-checked.
-// Every operand is evaluated, the right side of && and || included, so an
-// error in one is reported even where a running program would skip it, as
-// in Go. Arithmetic follows Go's integer arithmetic: division truncates toward zero and a
-// remainder takes the sign of the dividend. A result that does not fit in an
-// int, and a division or remainder by zero, is reported and reports false.
+// fold returns the value of a checked constant expression: a constant.Int,
+// computed exactly as it was checked, a string, or a bool. A bool expression
+// is evaluated in full, the right side of && and || included, as Go does,
+// since any error on either side has already been reported.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
+	if v, ok := constValue(e); ok {
+		return v, true
+	}
 	switch x := e.(type) {
-	case *ast.IntLit:
-		return x.Value, true
 	case *ast.StrLit:
 		return x.Value, true
 	case *ast.BoolLit:
 		return x.Value, true
 	case *ast.Binary:
-		left, ok := c.fold(x.X)
-		if !ok {
-			return nil, false
+		if b, ok := x.Const.(bool); ok {
+			return b, true
 		}
-		right, ok := c.fold(x.Y)
-		if !ok {
-			return nil, false
-		}
-		return c.foldBinary(x, left, right)
+		return c.foldBoolBinary(x)
 	case *ast.Unary:
 		operand, ok := c.fold(x.X)
-		if !ok {
-			return nil, false
+		if b, isBool := operand.(bool); ok && isBool && x.Op == ast.Not {
+			return !b, true
 		}
-		return c.foldUnary(x, operand)
-	default:
-		return nil, false
 	}
+	return nil, false
 }
 
-// foldBinary applies an operator to two constants of the same type: two
-// bools under == != && or ||, or two ints under an arithmetic or comparison
-// operator, as the checker has already required. Operands of any other types
-// fold to nothing rather than guess.
-func (c *Checker) foldBinary(bin *ast.Binary, left, right any) (any, bool) {
-	switch x := left.(type) {
-	case bool:
-		y, ok := right.(bool)
-		if !ok {
-			return nil, false
-		}
-		return foldBools(bin.Op, x, y)
-	case int64:
-		y, ok := right.(int64)
-		if !ok {
-			return nil, false
-		}
-		return c.foldInts(bin, x, y)
-	default:
+// foldBoolBinary computes an operator on two bool constants, folding both
+// sides first.
+func (c *Checker) foldBoolBinary(bin *ast.Binary) (any, bool) {
+	left, okL := c.fold(bin.X)
+	right, okR := c.fold(bin.Y)
+	l, isBoolL := left.(bool)
+	r, isBoolR := right.(bool)
+	if !okL || !okR || !isBoolL || !isBoolR {
 		return nil, false
 	}
-}
-
-// foldUnary applies a prefix operator to a constant: ! to a bool, or - to an
-// int, where negating the smallest int overflows. An operand of any other
-// type folds to nothing.
-func (c *Checker) foldUnary(u *ast.Unary, operand any) (any, bool) {
-	switch x := operand.(type) {
-	case bool:
-		return !x, u.Op == ast.Not
-	case int64:
-		if u.Op != ast.Neg {
-			return nil, false
-		}
-		if x == math.MinInt64 {
-			c.errorf(u.Span, "constant expression overflows int64")
-			return nil, false
-		}
-		return -x, true
-	default:
-		return nil, false
-	}
+	return foldBools(bin.Op, l, r)
 }
 
 // foldBools applies an operator to two bool constants.
@@ -451,181 +441,62 @@ func foldBools(op ast.BinaryOp, x, y bool) (any, bool) {
 	}
 }
 
-// foldInts applies an operator to two int constants.
-func (c *Checker) foldInts(bin *ast.Binary, a, b int64) (any, bool) {
-	if bin.Op.IsLogical() {
-		return nil, false
-	}
-	if bin.Op.IsComparison() {
-		return compareInts(bin.Op, a, b), true
-	}
-
-	if (bin.Op == ast.Div || bin.Op == ast.Rem) && b == 0 {
-		c.errorf(bin.Span, "division by zero in constant expression")
-		return nil, false
-	}
-
-	result, overflow := arith(bin.Op, a, b)
-	if overflow {
-		c.errorf(bin.Span, "constant expression overflows int64")
-		return nil, false
-	}
-	return result, true
-}
-
-// arith computes a op b for an arithmetic operator, and reports whether the
-// true result does not fit in an int64. b is never zero for / and %.
-func arith(op ast.BinaryOp, a, b int64) (int64, bool) {
-	switch op {
-	case ast.Add:
-		sum := a + b
-		// Overflow is only possible with operands of one sign, and shows as
-		// a result of the other sign.
-		return sum, (a >= 0) == (b >= 0) && (sum >= 0) != (a >= 0)
-	case ast.Sub:
-		diff := a - b
-		return diff, (a >= 0) != (b >= 0) && (diff >= 0) != (a >= 0)
-	case ast.Mul:
-		return mul(a, b)
-	case ast.Div:
-		return a / b, a == math.MinInt64 && b == -1
-	default: // ast.Rem; Go defines math.MinInt64 % -1 as 0, without overflow.
-		if b == -1 {
-			return 0, false
-		}
-		return a % b, false
-	}
-}
-
-// mul computes a * b and reports whether the true product does not fit in
-// an int64. Dividing the wrapped product back recovers a exactly when it did
-// not wrap, except for -1 times the smallest int64, which wraps to itself.
-func mul(a, b int64) (int64, bool) {
-	if a == 0 || b == 0 {
-		return 0, false
-	}
-	if (a == -1 && b == math.MinInt64) || (b == -1 && a == math.MinInt64) {
-		return math.MinInt64, true
-	}
-	product := a * b
-	return product, product/b != a
-}
-
-// compareInts applies a comparison operator to two ints.
-func compareInts(op ast.BinaryOp, a, b int64) bool {
-	switch op {
-	case ast.Eq:
-		return a == b
-	case ast.Ne:
-		return a != b
-	case ast.Lt:
-		return a < b
-	case ast.Le:
-		return a <= b
-	case ast.Gt:
-		return a > b
-	default: // ast.Ge
-		return a >= b
-	}
-}
-
 // checkAssign requires the target to be a mutable variable and the value to
-// have the variable's type. Parameters are never assignable. A compound
-// assignment also requires both to be ints, since it applies arithmetic.
+// be usable as the variable's type. Parameters are never assignable. A
+// compound assignment also requires the target to be an integer, since it
+// applies arithmetic.
 func (c *Checker) checkAssign(a *ast.Assign) {
-	got := c.valueType(a.Value)
+	got := c.expr(a.Value)
 	if a.Op != ast.InvalidOp {
 		c.checkCompound(a, got)
 		return
 	}
 
-	c.assignTo(a.Target, got, a.Value.Spanned())
+	if typ, ok := c.assignable(a.Target); ok {
+		c.use(a.Value, got, typ, "in assignment to "+a.Target.Name)
+	}
 }
 
-// assignTo checks that a value of type got may be assigned to target: that
-// target is a mutable variable, not a parameter, of that type. A wrong type
-// is reported over at, and an Invalid got is taken as already reported.
-func (c *Checker) assignTo(target *ast.Ident, got types.Type, at ast.Span) {
+// assignable checks that target can be assigned: a mutable variable, not a
+// parameter. It returns the variable's type and whether it can.
+func (c *Checker) assignable(target *ast.Ident) (types.Type, bool) {
 	switch def := target.Def.(type) {
 	case *ast.Param:
 		c.errorf(target.Span, "cannot assign to parameter %s", target.Name)
 	case *ast.Var:
 		if !def.Mutable {
 			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
-			return
+			return types.Invalid, false
 		}
-		if got != types.Invalid && got != def.Type {
-			c.errorf(
-				at,
-				"cannot use %s as %s in assignment to %s",
-				c.table.Name(got),
-				c.table.Name(def.Type),
-				target.Name,
-			)
-		}
+		return def.Type, true
 	}
+	return types.Invalid, false
 }
 
-// checkCompound checks a compound assignment whose value has type got. The
-// target and the value are each reported where they are not ints, unless
-// the target cannot be assigned at all.
+// checkCompound checks a compound assignment whose value has type got: the
+// target must be an integer variable it can update, and the value usable
+// as the target's type.
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
-	if !c.checkIntTarget(a.Target, op) {
-		return
-	}
-
-	if got != types.Int64 && got != types.Invalid && !alreadyReported(a.Value, got) {
-		c.errorf(a.Value.Spanned(), "cannot use %s as int64 in %s", c.table.Name(got), op)
+	if typ, ok := c.checkIntTarget(a.Target, op); ok {
+		c.use(a.Value, got, typ, "in "+op)
 	}
 }
 
-// checkIntTarget checks the target of an operator that updates an int in
-// place, such as += or ++: it must be a mutable variable, and an int. It
-// reports false when the target cannot be assigned at all, so the caller
-// need not report anything more about the statement.
-func (c *Checker) checkIntTarget(target *ast.Ident, op string) bool {
-	switch def := target.Def.(type) {
-	case *ast.Param:
-		c.errorf(target.Span, "cannot assign to parameter %s", target.Name)
-		return false
-	case *ast.Var:
-		if !def.Mutable {
-			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
-			return false
-		}
-		if def.Type != types.Int64 && def.Type != types.Invalid {
-			c.errorf(target.Span, "cannot use %s as int64 in %s", c.table.Name(def.Type), op)
-		}
+// checkIntTarget checks the target of an operator that updates an integer
+// in place, such as += or ++: it must be a mutable variable of an integer
+// type. It returns the target's type, and false when anything about it was
+// reported, or its type is unknown, so the caller need not check further.
+func (c *Checker) checkIntTarget(target *ast.Ident, op string) (types.Type, bool) {
+	typ, ok := c.assignable(target)
+	if !ok || typ == types.Invalid {
+		return types.Invalid, false
 	}
-	return true
-}
-
-// valueType checks an expression used as a value and returns its type. A call
-// to a function that returns nothing, or several values, is reported here,
-// since it has no one value to give; the result is then types.Invalid.
-func (c *Checker) valueType(e ast.Expr) types.Type {
-	c.checkExpr(e)
-
-	typ := ast.TypeOf(e)
-	if typ == types.Invalid {
-		if call, ok := e.(*ast.Call); ok {
-			if id, ok := call.Fn.(*ast.Ident); ok {
-				c.errorf(e.Spanned(), "%s", notOneValue(id))
-			}
-		}
+	if !types.IsInteger(typ) {
+		c.errorf(target.Span, "operator %s is not defined on %s", op, c.table.Name(typ))
+		return types.Invalid, false
 	}
-	return typ
-}
-
-// notOneValue says why a call to the function id names cannot be used as a
-// value: it returns nothing, or more than one value. A builtin returns
-// nothing.
-func notOneValue(id *ast.Ident) string {
-	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && len(fn.Results) > 1 {
-		return fmt.Sprintf("%s returns %d values", id.Name, len(fn.Results))
-	}
-	return fmt.Sprintf("%s returns no value", id.Name)
+	return typ, true
 }
 
 // declaredType returns the type a type expression denotes, reporting a type it
@@ -684,17 +555,21 @@ func blockTerminates(body []ast.Stmt) bool {
 }
 
 // checkReturn checks that a return carries one value for each result fn
-// declares, each of that result's type. A wrong count is one error, and then
-// no value is compared with a result.
+// declares, each usable as that result's type. A wrong count is one error,
+// and then no value is compared with a result.
 func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
-	for _, v := range ret.Values {
-		c.checkExpr(v)
+	got, want := len(ret.Values), len(fn.Results)
+	if got == want {
+		for i, v := range ret.Values {
+			c.use(v, c.expr(v), fn.ResultTypes[i], "in return from "+fn.Name)
+		}
+		return
 	}
 
-	got, want := len(ret.Values), len(fn.Results)
+	for _, v := range ret.Values {
+		c.discard(v)
+	}
 	switch {
-	case got == want:
-		c.checkReturnTypes(ret, fn)
 	case want == 0:
 		c.errorf(spanOf(ret.Values), "%s declares no result, so it cannot return a value", fn.Name)
 	case got == 0 && want == 1:
@@ -717,190 +592,12 @@ func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 	}
 }
 
-// checkReturnTypes checks each value of a return that has as many as fn
-// declares results against the result in the same position.
-func (c *Checker) checkReturnTypes(ret *ast.Return, fn *ast.Func) {
-	for i, v := range ret.Values {
-		// A result type that is unknown has been reported already, and there
-		// is nothing to compare the value with.
-		want := fn.ResultTypes[i]
-		got := ast.TypeOf(v)
-		if want == types.Invalid || got == want || reportedInvalid(v, got) {
-			continue
-		}
-
-		if call, ok := v.(*ast.Call); ok && got == types.Invalid {
-			if id, ok := call.Fn.(*ast.Ident); ok {
-				c.errorf(v.Spanned(), "%s", notOneValue(id))
-				continue
-			}
-		}
-		c.errorf(
-			v.Spanned(),
-			"cannot use %s as %s in return from %s",
-			c.table.Name(got),
-			c.table.Name(want),
-			fn.Name,
-		)
-	}
-}
-
 // spanOf returns the source range from the start of the first expression in
 // a list through the end of the last. The list must not be empty.
 func spanOf(exprs []ast.Expr) ast.Span {
 	span := exprs[0].Spanned()
 	span.End = exprs[len(exprs)-1].Spanned().End
 	return span
-}
-
-// checkExpr checks an expression and everything nested inside it.
-func (c *Checker) checkExpr(e ast.Expr) {
-	switch x := e.(type) {
-	case *ast.Call:
-		c.checkCall(x)
-		for _, arg := range x.Args {
-			c.checkExpr(arg)
-		}
-
-	case *ast.Binary:
-		c.checkExpr(x.X)
-		c.checkExpr(x.Y)
-		c.checkBinary(x)
-
-	case *ast.Unary:
-		c.checkExpr(x.X)
-		want := types.Bool
-		if x.Op == ast.Neg {
-			want = types.Int64
-		}
-		c.requireOperand(x.X, x.Op, want)
-	}
-}
-
-// checkBinary requires int operands for every arithmetic operator, since
-// arithmetic on strings would need concatenation, which does not exist, and
-// bool operands for && and ||. Comparisons are checked by checkComparison.
-func (c *Checker) checkBinary(bin *ast.Binary) {
-	switch {
-	case bin.Op.IsComparison():
-		c.checkComparison(bin)
-	case bin.Op.IsLogical():
-		c.requireOperand(bin.X, bin.Op, types.Bool)
-		c.requireOperand(bin.Y, bin.Op, types.Bool)
-	default:
-		c.requireInts(bin)
-	}
-}
-
-// requireOperand reports an operand of a logical operator or a negation that
-// is not of type want, covering only that operand, unless its type is
-// unreliable because of an error already reported.
-func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.Type) {
-	if got := ast.TypeOf(operand); got != want && !alreadyReported(operand, got) {
-		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, c.table.Name(got))
-	}
-}
-
-// requireInts reports each operand of bin that is not an int, unless its
-// type is unknown because of an error already reported.
-func (c *Checker) requireInts(bin *ast.Binary) {
-	for _, operand := range []ast.Expr{bin.X, bin.Y} {
-		if got := ast.TypeOf(operand); got != types.Int64 && !reportedInvalid(operand, got) {
-			c.errorf(operand.Spanned(), "cannot use %s as int64 in %s", c.table.Name(got), bin.Op)
-		}
-	}
-}
-
-// checkComparison requires both operands of a comparison to have one type,
-// and that type to support the operator: an int supports all six, a bool
-// only == and !=, and a string none, since comparing strings would need a
-// runtime comparison. Either problem is one error covering the whole
-// comparison. An operand with no type of its own falls back to requireInts,
-// and one whose error is already reported is not reported again.
-func (c *Checker) checkComparison(bin *ast.Binary) {
-	x, y := ast.TypeOf(bin.X), ast.TypeOf(bin.Y)
-	if alreadyReported(bin.X, x) || alreadyReported(bin.Y, y) {
-		return
-	}
-	if x == types.Invalid || y == types.Invalid {
-		c.requireInts(bin)
-		return
-	}
-
-	switch {
-	case x != y:
-		c.errorf(
-			bin.Span,
-			"mismatched types %s and %s in %s",
-			c.table.Name(x),
-			c.table.Name(y),
-			bin.Op,
-		)
-	case !supports(x, bin.Op):
-		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.table.Name(x))
-	}
-}
-
-// supports reports whether values of type typ can be compared with op.
-func supports(typ types.Type, op ast.BinaryOp) bool {
-	switch typ {
-	case types.Int64:
-		return true
-	case types.Bool:
-		return op == ast.Eq || op == ast.Ne
-	default:
-		return false
-	}
-}
-
-// alreadyReported reports whether an operand's type is unreliable because of
-// an error already reported: one of the cases reportedInvalid covers, or
-// arithmetic or a negation on something other than ints, which was reported
-// where it was checked and whose type is only its operand's.
-func alreadyReported(e ast.Expr, typ types.Type) bool {
-	if reportedInvalid(e, typ) {
-		return true
-	}
-	switch x := e.(type) {
-	case *ast.Binary:
-		return x.Op.IsArithmetic() &&
-			(ast.TypeOf(x.X) != types.Int64 || ast.TypeOf(x.Y) != types.Int64)
-	case *ast.Unary:
-		return x.Op == ast.Neg && ast.TypeOf(x.X) != types.Int64
-	default:
-		return false
-	}
-}
-
-func (c *Checker) checkCall(call *ast.Call) {
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		c.errorf(call.Spanned(), "cannot call %T", call.Fn)
-		return
-	}
-
-	if fn, isBuiltin := builtin.Lookup(id.Name); isBuiltin {
-		if c.checkArity(call, id.Name, len(fn.Params)) {
-			c.checkArgTypes(call, id.Name, fn.Params)
-		}
-		return
-	}
-
-	fn, ok := c.funcs[id.Name]
-	if !ok {
-		// The resolver reports undefined names, and the pipeline stops there,
-		// so reaching this means the name is defined as something not callable.
-		return
-	}
-
-	params := make([]types.Type, len(fn.Params))
-	for i, param := range fn.Params {
-		params[i] = param.Type
-	}
-
-	if c.checkArity(call, id.Name, len(params)) {
-		c.checkArgTypes(call, id.Name, params)
-	}
 }
 
 // resolveResultTypes records what each declared result type denotes. A
@@ -941,80 +638,6 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 		}
 		param.Type = typ
 	}
-}
-
-// checkArity reports a call passing the wrong number of arguments, and returns
-// whether the count was right.
-func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
-	if len(call.Args) == want {
-		return true
-	}
-
-	c.errorf(call.Spanned(), "%s expects %d argument(s), got %d", name, want, len(call.Args))
-	return false
-}
-
-func (c *Checker) checkArgTypes(call *ast.Call, name string, params []types.Type) {
-	for i, arg := range call.Args {
-		// A parameter of unknown type has been reported where it is declared,
-		// and an argument whose type is unknown for the same reason has too.
-		got := ast.TypeOf(arg)
-		if params[i] == types.Invalid || reportedInvalid(arg, got) {
-			continue
-		}
-		if got == types.Invalid {
-			// The common case is calling a function that returns nothing and
-			// using it where a value is expected, which deserves saying so.
-			if nested, ok := arg.(*ast.Call); ok {
-				if id, ok := nested.Fn.(*ast.Ident); ok {
-					c.errorf(arg.Spanned(), "%s", notOneValue(id))
-					continue
-				}
-			}
-			c.errorf(arg.Spanned(), "unsupported expression in argument to %s: %T", name, arg)
-			continue
-		}
-		if got != params[i] {
-			c.errorf(
-				arg.Spanned(),
-				"cannot use %s as %s in argument to %s",
-				c.table.Name(got),
-				c.table.Name(params[i]),
-				name,
-			)
-		}
-	}
-}
-
-// reportedInvalid reports whether e has no type because of a problem already
-// reported where it arose, so reporting it again where e is used would only
-// repeat it: a name whose declared type is unknown, an operator applied to
-// such a name, or a call to a function whose result type is unknown. A call
-// to a function that returns nothing is not one of these; it is reported
-// where the value is wanted.
-func reportedInvalid(e ast.Expr, typ types.Type) bool {
-	if typ != types.Invalid {
-		return false
-	}
-
-	switch x := e.(type) {
-	case *ast.Ident:
-		// Only a declaration reports its own unknown type. A name bound to
-		// nothing was never reported, so it is not covered here.
-		switch x.Def.(type) {
-		case *ast.Param, *ast.Var:
-			return true
-		}
-		return false
-	case *ast.Binary:
-		return true
-	case *ast.Call:
-		if id, ok := x.Fn.(*ast.Ident); ok {
-			fn, ok := id.Def.(*ast.Func)
-			return ok && fn != nil && len(fn.Results) == 1
-		}
-	}
-	return false
 }
 
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {

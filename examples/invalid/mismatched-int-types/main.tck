@@ -1,0 +1,7 @@
+package main
+
+func main() {
+    var a int8 = 1
+    var b uint8 = 2
+    exit(a + b)
+}

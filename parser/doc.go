@@ -40,7 +40,8 @@
 // whatever its mutability, and leaves whether it may lack a value to the
 // type checker. Names are left unbound (every Ident.Def is nil) and types
 // unresolved (every Type is types.Invalid) for the resolver and type checker
-// to fill in. Integer literals are the exception: they are
-// decoded here, and one that does not fit in an int64 is reported here. Every
+// to fill in. Integer literals are the exception: they are decoded here, to
+// their exact value, and one outside the range every literal must lie in,
+// the smallest int64 to the largest uint64, is reported here. Every
 // node's span is tagged with the FileID the parser was created with.
 package parser

@@ -64,8 +64,8 @@ func TestRejectsNonBoolLogicalOperands(t *testing.T) {
 		{"!5", []want{{"operator ! is not defined on int64", "5"}}},
 		{"!\"s\"", []want{{"operator ! is not defined on string", "\"s\""}}},
 		{"!(1 + 2)", []want{{"operator ! is not defined on int64", "1 + 2"}}},
-		{"(1 + true) && a", []want{{"cannot use bool as int64 in +", "true"}}},
-		{"!(1 + \"s\")", []want{{"cannot use string as int64 in +", "\"s\""}}},
+		{"(1 + true) && a", []want{{"operator + is not defined on bool", "true"}}},
+		{"!(1 + \"s\")", []want{{"operator + is not defined on string", "\"s\""}}},
 		{"!5 == true", []want{{"operator ! is not defined on int64", "5"}}},
 		{"!5 && a", []want{{"operator ! is not defined on int64", "5"}}},
 		{"!!5", []want{{"operator ! is not defined on int64", "5"}}},
@@ -141,7 +141,7 @@ func TestRejectsInvalidLogicalGlobals(t *testing.T) {
 		want string
 	}{
 		{"var x = false && 1 / 0 == 1", "division by zero in constant expression"},
-		{"var x = true || 9223372036854775807 + 1 > 0", "constant expression overflows int64"},
+		{"var x = true || 18446744073709551615 + 1 > 0", "constant expression is out of range"},
 		{"var x = !1", "operator ! is not defined on int64"},
 		{"var x = 1 && true", "operator && is not defined on int64"},
 	}

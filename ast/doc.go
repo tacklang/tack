@@ -4,7 +4,9 @@
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, and the type checker sets
 // Param.Type, Var.Type and Func.ResultType to the types those declarations
-// denote, Var.Const to a package-level variable's computed initial value,
+// denote, the type of every operator expression and integer literal,
+// Binary.Const and Unary.Const to the value of an integer constant
+// expression, Var.Const to a package-level variable's computed initial value,
 // and File.Types to the table that gives those types meaning. The types as
 // written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
 // Func.Result. A Var is both a declaration, so a name can refer to it, and a

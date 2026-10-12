@@ -1,15 +1,9 @@
 stage: typeck
 ---
 
-examples/invalid/compound-non-int/main.tck:5:5: error: cannot use string as int64 in +=
+examples/invalid/compound-non-int/main.tck:5:5: error: operator += is not defined on string
 04 |	    mut s = "a"
 05 |	    s += "b"
    |	    ^ 
-06 |	    print(s)
-
-examples/invalid/compound-non-int/main.tck:5:10: error: cannot use string as int64 in +=
-04 |	    mut s = "a"
-05 |	    s += "b"
-   |	         ^~~ 
 06 |	    print(s)
 

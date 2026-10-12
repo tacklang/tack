@@ -1,6 +1,9 @@
 package ast
 
-import "github.com/tacklang/tack/types"
+import (
+	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/types"
+)
 
 type exprKey struct{}
 
@@ -14,11 +17,16 @@ type Expr interface {
 	Node
 }
 
-// Call is a function call, Fn(Args...).
+// Call is a function call, Fn(Args...), or a conversion, when Fn names a
+// type: int8(x) converts x to int8.
 type Call struct {
 	Fn   Expr // the callee: for now always *Ident, later could be anything
 	Args []Expr
 	Span Span // start of Fn through the closing RParen
+
+	// Conv is the type a conversion converts to, set by the resolver when
+	// Fn names a type, and Invalid for a call to a function or builtin.
+	Conv types.Type
 }
 
 var _ Expr = (*Call)(nil)
@@ -64,10 +72,17 @@ func (s *StrLit) astNode() nodeKey { return _nodeKey }
 func (s *StrLit) Spanned() Span { return s.Span }
 
 // IntLit is an integer literal. A - written right before the digits is part
-// of the literal, which is how the smallest int is written.
+// of the literal, which is how the smallest int64 is written. Its value is
+// exact, anywhere from the smallest int64 to the largest uint64, and it has
+// no type of its own until the type checker gives it one from where it is
+// used.
 type IntLit struct {
 	Span  Span
-	Value int64 // decoded
+	Value constant.Int // decoded
+
+	// Type is the type the literal is used as, set by the type checker:
+	// types.UntypedInt while it is part of a larger constant expression.
+	Type types.Type
 }
 
 var _ Expr = (*IntLit)(nil)
@@ -166,8 +181,17 @@ func (o BinaryOp) IsLogical() bool { return o == And || o == Or }
 // Binary is an infix operation, X Op Y.
 type Binary struct {
 	X, Y Expr
+
+	// Const is the value of a constant expression, made only of literals
+	// and operators: a constant.Int or a bool, computed by the type checker.
+	// It is nil for any other expression.
+	Const any
+
 	Span Span // start of X through the end of Y
 	Op   BinaryOp
+
+	// Type is the expression's type, set by the type checker.
+	Type types.Type
 }
 
 var _ Expr = (*Binary)(nil)
@@ -206,9 +230,16 @@ func (o UnaryOp) String() string {
 
 // Unary is a prefix operation, Op X.
 type Unary struct {
-	X    Expr
+	X Expr
+
+	// Const is the value of a constant expression, as for Binary.
+	Const any
+
 	Span Span // the operator through the end of X
 	Op   UnaryOp
+
+	// Type is the expression's type, set by the type checker.
+	Type types.Type
 }
 
 var _ Expr = (*Unary)(nil)
@@ -221,44 +252,29 @@ func (u *Unary) astNode() nodeKey { return _nodeKey }
 func (u *Unary) Spanned() Span { return u.Span }
 
 // TypeOf returns the type of an expression, or types.Invalid if it has none
-// the compiler can determine. It reads what earlier passes recorded: a literal
-// carries its type in its node, and an identifier carries it through the
-// declaration the resolver bound it to.
+// the compiler can determine. It reads what earlier passes recorded: a
+// literal carries its type in its node, an operator expression the type the
+// checker gave it, and an identifier its declaration's. An integer literal
+// the checker has not reached is types.UntypedInt.
 func TypeOf(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *StrLit:
 		return types.String
 	case *IntLit:
-		return types.Int64
+		if e.Type == types.Invalid {
+			return types.UntypedInt
+		}
+		return e.Type
 	case *BoolLit:
 		return types.Bool
 	case *Ident:
 		return identType(e)
-	case *Binary, *Unary:
-		return operatorType(e)
+	case *Binary:
+		return e.Type
+	case *Unary:
+		return e.Type
 	case *Call:
 		return callType(e)
-	default:
-		return types.Invalid
-	}
-}
-
-// operatorType returns the type a binary or unary expression yields. A
-// comparison, a logical operator and ! yield a bool whatever their operands;
-// arithmetic and - yield the type of their (left) operand, which the checker
-// has already agreed is an int.
-func operatorType(e Expr) types.Type {
-	switch e := e.(type) {
-	case *Binary:
-		if !e.Op.IsArithmetic() {
-			return types.Bool
-		}
-		return TypeOf(e.X)
-	case *Unary:
-		if e.Op == Not {
-			return types.Bool
-		}
-		return TypeOf(e.X)
 	default:
 		return types.Invalid
 	}
@@ -277,13 +293,17 @@ func identType(id *Ident) types.Type {
 	}
 }
 
-// callType returns the type a call yields: its callee's result, when it
+// callType returns the type a call yields: the type a conversion converts
+// to, or its callee's result, when it
 // declares exactly one. A call to a function with several results yields
 // them only to a MultiVar, never as one value, so its type here is Invalid,
 // as is that of a call to a function or builtin that returns nothing. A
 // builtin's Def is a nil *Func, which still satisfies the
 // type assertion, so it is checked for explicitly and lands on Invalid.
 func callType(call *Call) types.Type {
+	if call.Conv != types.Invalid {
+		return call.Conv
+	}
 	if id, ok := call.Fn.(*Ident); ok {
 		if fn, ok := id.Def.(*Func); ok && fn != nil && len(fn.ResultTypes) == 1 {
 			return fn.ResultTypes[0]

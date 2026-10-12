@@ -154,7 +154,7 @@ var invalidVariablePrograms = []struct {
 	{
 		"string arithmetic through a variable",
 		mainLines("s := \"a\"", "t := s + s", "print(t)"),
-		[]string{"cannot use string as int64 in +", "cannot use string as int64 in +"},
+		[]string{"operator + is not defined on string", "operator + is not defined on string"},
 	},
 }
 

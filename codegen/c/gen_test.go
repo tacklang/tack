@@ -557,11 +557,29 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 }
 
 func TestGeneratesBinaryExpression(t *testing.T) {
-	got := generate(t, "package main\n\nfunc main() {\n    exit(1 + 2 * 3)\n}\n")
+	got := generate(
+		t,
+		"package main\n\nfunc f(a int64, b int64, c int64) int64 {\n    return a + b * c\n}\n\n"+
+			"func main() {\n    exit(f(1, 2, 3))\n}\n",
+	)
 
-	want := "exit(((int64_t)((uint64_t)1 + (uint64_t)((int64_t)((uint64_t)2 * (uint64_t)3)))));"
+	want := "return ((int64_t)((uint64_t)p_a + (uint64_t)((int64_t)((uint64_t)p_b * (uint64_t)p_c))));"
 	if !strings.Contains(got, want) {
 		t.Errorf("arithmetic did not survive with its grouping:\n%s", got)
+	}
+}
+
+// An expression made only of literals is computed by the checker, and
+// written as its value.
+func TestGeneratesConstantExpressionAsItsValue(t *testing.T) {
+	got := generate(
+		t,
+		"package main\n\nfunc main() {\n    exit(1 + 2 * 3)\n    if 1 < 2 {\n    }\n}\n",
+	)
+	for _, want := range []string{"exit(7);", "if (true) {"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated C is missing %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -580,10 +598,11 @@ func TestGeneratesBoolInSignature(t *testing.T) {
 }
 
 func TestGeneratesIfElse(t *testing.T) {
-	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(\"yes\")\n    } else {\n        print(\"no\")\n    }\n}\n"
+	src := "package main\n\nfunc f(n int64) {\n    if n < 2 {\n        print(\"yes\")\n    } else {\n        print(\"no\")\n    }\n}\n\n" +
+		"func main() {\n    f(1)\n}\n"
 
 	got := generate(t, src)
-	for _, want := range []string{"if (1 < 2) {", "} else {", "}"} {
+	for _, want := range []string{"if (p_n < 2) {", "} else {", "}"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
 		}

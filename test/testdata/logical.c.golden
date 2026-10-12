@@ -21,8 +21,8 @@ static void tack_print(tack_string s) {
     fwrite(s.ptr, 1, s.len, stdout);
 }
 
-static int64_t tack_div(int64_t a, int64_t b) {
-    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;
+static int64_t tack_div_int64(int64_t a, int64_t b) {
+    return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
 static bool tack_main_check(tack_string p_name, bool p_ok);
@@ -36,7 +36,7 @@ static bool tack_main_check(tack_string p_name, bool p_ok) {
 }
 
 static bool tack_main_safe(int64_t p_n) {
-    return ((p_n != 0) && (tack_div(100, p_n) > 10));
+    return ((p_n != 0) && (tack_div_int64(100, p_n) > 10));
 }
 
 static void tack_main_main(void) {

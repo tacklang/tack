@@ -22,12 +22,12 @@ var invalidIncDecCases = []struct {
 	{
 		"bool",
 		mainLines("mut b = true", "b++", "if b {", "}"),
-		[]spanned{{"cannot use bool as int64 in ++", "b"}},
+		[]spanned{{"operator ++ is not defined on bool", "b"}},
 	},
 	{
 		"string",
 		mainLines("mut s = \"a\"", "s--", "print(s)"),
-		[]spanned{{"cannot use string as int64 in --", "s"}},
+		[]spanned{{"operator -- is not defined on string", "s"}},
 	},
 }
 

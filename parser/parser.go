@@ -2,9 +2,9 @@ package parser
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/source"
@@ -1196,11 +1196,11 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 	text := sign + lexer.ValueChecked[string](digits)
 	span := ast.Span{File: p.fileID, Start: start, End: digits.OffsetEnd()}
 
-	val, err := strconv.ParseInt(text, 10, 64)
-	if err != nil {
+	val, ok := constant.Parse(lexer.ValueChecked[string](digits), sign == "-")
+	if !ok {
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  fmt.Sprintf("integer literal %s out of range for int64", text),
+			Message:  fmt.Sprintf("integer literal %s is out of range", text),
 			Span:     span,
 		}}
 	}

@@ -6,6 +6,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
 )
 
 const (
@@ -174,6 +175,17 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 		if fn, ok := decl.(*ast.Func); ok {
 			if fn.Name == ast.Blank {
 				diags = append(diags, blankName(fn.NameSpan))
+				continue
+			}
+			if _, isType := types.Lookup(fn.Name); isType {
+				diags = append(diags, diag.Diagnostic{
+					Severity: diag.Error,
+					Message: fmt.Sprintf(
+						"%s is a type and cannot be declared as a function",
+						fn.Name,
+					),
+					Span: fn.NameSpan,
+				})
 				continue
 			}
 			if existing, seen := r.seen(fn.Name); seen {
@@ -527,8 +539,8 @@ func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	}
 }
 
-// resolveCall binds a call's callee to the function or builtin it names, and
-// resolves its arguments.
+// resolveCall binds a call's callee to the function or builtin it names, or
+// records the type a conversion converts to, and resolves its arguments.
 func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	ident, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -536,7 +548,11 @@ func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	}
 
 	var diags []diag.Diagnostic
-	if def, seen := r.seen(ident.Name); seen {
+	if typ, isType := types.Lookup(ident.Name); isType {
+		// A type name called like a function converts its argument. It
+		// binds to no declaration; the type checker reads Conv instead.
+		call.Conv = typ
+	} else if def, seen := r.seen(ident.Name); seen {
 		ident.Def = def
 	} else if def, seen := r.builtinSeen(ident.Name); seen {
 		ident.Def = def

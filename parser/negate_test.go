@@ -34,8 +34,8 @@ func TestNegativeLiterals(t *testing.T) {
 			if !ok {
 				t.Fatalf("value is not an *ast.IntLit")
 			}
-			if lit.Value != tt.want {
-				t.Errorf("value = %d, want %d", lit.Value, tt.want)
+			if lit.Value.Int64() != tt.want {
+				t.Errorf("value = %s, want %d", lit.Value, tt.want)
 			}
 			if got := src[lit.Span.Start:lit.Span.End]; got != tt.expr {
 				t.Errorf("span covers %q, want %q", got, tt.expr)
@@ -83,7 +83,7 @@ func TestRejectsMalformedNegation(t *testing.T) {
 		expr string
 		want string
 	}{
-		{"-9223372036854775809", "integer literal -9223372036854775809 out of range for int64"},
+		{"-9223372036854775809", "integer literal -9223372036854775809 is out of range"},
 		{"--5", "expected 'value' found '--'"},
 		{"--x", "expected 'value' found '--'"},
 		{"+5", "expected 'value' found '+'"},

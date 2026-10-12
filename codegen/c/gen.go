@@ -10,6 +10,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/codegen"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
@@ -148,32 +149,88 @@ func (g *generator) emitConstantPool() {
 	// divided by -1 overflows and C leaves that undefined: the quotient wraps
 	// to the smallest int, and the remainder is 0. Each helper is emitted only
 	// when the program uses its operator.
-	if g.usesOp(ast.Div) {
-		g.buf.WriteString("static int64_t tack_div(int64_t a, int64_t b) {\n")
-		g.buf.WriteString("    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;\n")
-		g.buf.WriteString("}\n\n")
-	}
-	if g.usesOp(ast.Rem) {
-		g.buf.WriteString("static int64_t tack_rem(int64_t a, int64_t b) {\n")
-		g.buf.WriteString("    return b == -1 ? 0 : a % b;\n")
-		g.buf.WriteString("}\n\n")
+	for _, use := range g.divisions() {
+		g.emitDivision(use.op, use.typ)
 	}
 }
 
-// usesOp reports whether the program applies the arithmetic operator op
-// anywhere, in an expression or a compound assignment.
-func (g *generator) usesOp(op ast.BinaryOp) bool {
-	uses := false
+// division is one operator, / or %, applied in one integer type.
+type division struct {
+	op  ast.BinaryOp
+	typ types.Type
+}
+
+// divisions lists each division and remainder the program does, by
+// operator and type, in a fixed order, so the helpers are emitted the same
+// way every time.
+func (g *generator) divisions() []division {
+	used := make(map[division]bool)
 	ast.Walk(g.file, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.Binary:
-			uses = uses || x.Op == op
-		case *ast.Assign:
-			uses = uses || x.Op == op
+		if d, ok := divisionIn(n); ok {
+			used[d] = true
 		}
 		return true
 	})
-	return uses
+
+	var out []division
+	for _, op := range []ast.BinaryOp{ast.Div, ast.Rem} {
+		for typ := types.Type(0); typ < types.UntypedInt; typ++ {
+			if used[division{op, typ}] {
+				out = append(out, division{op, typ})
+			}
+		}
+	}
+	return out
+}
+
+// divisionIn returns the division or remainder node n does at runtime, if
+// it does one: an operator expression that is not a constant, or a compound
+// assignment, which works in its target's type.
+func divisionIn(n ast.Node) (division, bool) {
+	isDivision := func(op ast.BinaryOp) bool { return op == ast.Div || op == ast.Rem }
+	switch x := n.(type) {
+	case *ast.Binary:
+		return division{x.Op, x.Type}, isDivision(x.Op) && x.Const == nil
+	case *ast.Assign:
+		v, ok := x.Target.Def.(*ast.Var)
+		if !ok {
+			return division{}, false
+		}
+		return division{x.Op, v.Type}, isDivision(x.Op)
+	default:
+		return division{}, false
+	}
+}
+
+// emitDivision writes the helper for op in typ. A signed division by -1 is
+// written out, since the type's smallest value divided by -1 overflows and C
+// leaves that undefined: the quotient wraps to the smallest value, and the
+// remainder is 0. An unsigned division cannot overflow, but goes through a
+// helper too, so every division looks the same.
+func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
+	t := cType(typ)
+	fmt.Fprintf(&g.buf, "static %s %s(%s a, %s b) {\n", t, divisionName(op, typ), t, t)
+	switch {
+	case types.IsUnsigned(typ) && op == ast.Div:
+		g.buf.WriteString("    return a / b;\n")
+	case types.IsUnsigned(typ):
+		g.buf.WriteString("    return a % b;\n")
+	case op == ast.Div:
+		fmt.Fprintf(&g.buf, "    return b == -1 ? (%s)(0 - (uint64_t)a) : (%s)(a / b);\n", t, t)
+	default:
+		fmt.Fprintf(&g.buf, "    return b == -1 ? 0 : (%s)(a %% b);\n", t)
+	}
+	g.buf.WriteString("}\n\n")
+}
+
+// divisionName is the name of the helper for op in typ, such as
+// tack_div_int8.
+func divisionName(op ast.BinaryOp, typ types.Type) string {
+	name := "div"
+	if op == ast.Rem {
+		name = "rem"
+	}
+	return "tack_" + name + "_" + types.NewTable().Name(typ)
 }
 
 func (g *generator) printsAnything() bool {
@@ -258,17 +315,46 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	return fmt.Sprintf("%s %s %s = %s;", qualifier, cType(v.Type), g.mangle(v.Name), value), nil
 }
 
+// intLiteral renders an integer constant as a C literal. A negative one is
+// parenthesised, so a - before it cannot form --. The smallest int64 is
+// written as an expression, since C has no literal for it: the literal after
+// the minus sign would not fit. One too large for an int64 gets a u suffix,
+// so C reads it as unsigned rather than warning that it does not fit.
+func intLiteral(v constant.Int) string {
+	switch {
+	case v.Cmp(constant.Min()) == 0:
+		return "(-9223372036854775807 - 1)"
+	case v.IsNegative():
+		return "(" + v.String() + ")"
+	case !v.Fits(64, true):
+		return v.String() + "u"
+	default:
+		return v.String()
+	}
+}
+
+// constLiteral renders the value a constant expression computed to, and
+// reports whether there was one: an operator expression that is not a
+// constant has none, and is lowered operator by operator instead.
+func constLiteral(c any) (string, bool) {
+	switch v := c.(type) {
+	case constant.Int:
+		return intLiteral(v), true
+	case bool:
+		return strconv.FormatBool(v), true
+	default:
+		return "", false
+	}
+}
+
 // constValue renders a computed constant as a C constant expression, usable
 // to initialize a static variable. The smallest int64 is written as an
 // expression, since C has no literal for it: the literal after the minus
 // sign would not fit.
 func (g *generator) constValue(c any) (string, bool) {
 	switch v := c.(type) {
-	case int64:
-		if v == math.MinInt64 {
-			return "(-9223372036854775807 - 1)", true
-		}
-		return strconv.FormatInt(v, 10), true
+	case constant.Int:
+		return intLiteral(v), true
 	case bool:
 		return strconv.FormatBool(v), true
 	case string:
@@ -454,12 +540,21 @@ func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []d
 	)}, nil
 }
 
+// parenthesised reports whether e is lowered to C wrapped in a pair of
+// parentheses of its own: a binary expression, unless it is a constant,
+// which is written as its value, or a division or remainder, which calls a
+// helper.
+func parenthesised(e ast.Expr) bool {
+	b, ok := e.(*ast.Binary)
+	return ok && b.Const == nil && b.Op != ast.Div && b.Op != ast.Rem
+}
+
 // condHeader writes the opening line of an if or while whose condition is
 // cond, rendered from e. A binary expression is already parenthesised, and a
 // second pair makes clang warn about an equality test, so it only gets the
 // statement's own.
 func condHeader(keyword string, e ast.Expr, cond string) string {
-	if _, ok := e.(*ast.Binary); ok {
+	if parenthesised(e) {
 		return fmt.Sprintf("%s %s {", keyword, cond)
 	}
 	return fmt.Sprintf("%s (%s) {", keyword, cond)
@@ -572,7 +667,8 @@ func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
-	count, diags := g.expr(loop.Count, types.Int64)
+	typ := cType(ast.TypeOf(loop.Count))
+	count, diags := g.expr(loop.Count, types.Invalid)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -584,16 +680,16 @@ func (g *generator) generateForRange(
 	n, k := g.temp("n"), g.temp("k")
 	if loop.Var != nil {
 		body = append(
-			[]string{fmt.Sprintf("const int64_t %s = %s;", varName(loop.Var.Name), k)},
+			[]string{fmt.Sprintf("const %s %s = %s;", typ, varName(loop.Var.Name), k)},
 			body...)
 	}
 
 	inner := append(
-		[]string{fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k)},
+		[]string{fmt.Sprintf("for (%s %s = 0; %s < %s; %s++) {", typ, k, k, n, k)},
 		indent(body)...)
 	inner = append(inner, "}")
 	lines := append(
-		[]string{"{", fmt.Sprintf("    const int64_t %s = %s;", n, count)},
+		[]string{"{", fmt.Sprintf("    const %s %s = %s;", typ, n, count)},
 		indent(inner)...)
 	return append(lines, "}"), nil
 }
@@ -610,7 +706,7 @@ func (g *generator) temp(prefix string) string {
 // for a condition in a C for header, where a second pair would make clang
 // warn on an equality test.
 func stripParens(e ast.Expr, rendered string) string {
-	if _, ok := e.(*ast.Binary); ok {
+	if parenthesised(e) {
 		return rendered[1 : len(rendered)-1]
 	}
 	return rendered
@@ -683,7 +779,7 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	name := g.varRef(target)
 	if a.Op != ast.InvalidOp {
 		// x op= v is x = x op v, spelled out the way Tack defines it.
-		return []string{fmt.Sprintf("%s = %s;", name, arith(a.Op, name, value))}, nil
+		return []string{fmt.Sprintf("%s = %s;", name, arith(a.Op, target.Type, name, value))}, nil
 	}
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
 }
@@ -704,7 +800,7 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 		op = ast.Sub
 	}
 	name := g.varRef(target)
-	return []string{fmt.Sprintf("%s = %s;", name, arith(op, name, "1"))}, nil
+	return []string{fmt.Sprintf("%s = %s;", name, arith(op, target.Type, name, "1"))}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
@@ -751,23 +847,23 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 	return []string{decl}, nil
 }
 
-// generateMultiVar declares the variables of a MultiVar. The call's results
-// struct is held in a const temporary, so the call runs once, and each
-// variable is then declared from the field in its position: const unless the
-// variable is mutable, as generateVar does.
+// generateMultiVar declares the variables of a MultiVar. Its source is
+// evaluated once into a const temporary, and each variable is then declared
+// from the value in its position: const unless the variable is mutable, as
+// generateVar does. A _ gets no variable.
 func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnostic) {
-	value, results, diags := g.multiCall(m.Value)
+	src, diags := g.multiValues(m.Value)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 
 	tmp := g.temp("r")
-	lines := []string{fmt.Sprintf("const %s %s = %s;", results, tmp, value)}
+	lines := []string{fmt.Sprintf("const %s %s = %s;", src.typ, tmp, src.init)}
 	for i, v := range m.Vars {
 		if v.Name == ast.Blank {
 			continue
 		}
-		decl := fmt.Sprintf("%s %s = %s.r%d;", cType(v.Type), varName(v.Name), tmp, i)
+		decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), src.field(tmp, i))
 		if !v.Mutable {
 			decl = "const " + decl
 		}
@@ -776,55 +872,59 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 	return lines, nil
 }
 
-// generateMultiAssign lowers an assignment of several results the way
-// generateMultiVar lowers a declaration: the results struct in a const
-// temporary, then each target assigned from its field.
+// generateMultiAssign lowers an assignment of several values the way
+// generateMultiVar lowers a declaration: the source in a const temporary,
+// then each target assigned the value in its position.
 func (g *generator) generateMultiAssign(m *ast.MultiAssign) ([]string, []diag.Diagnostic) {
-	value, results, diags := g.multiCall(m.Value)
+	src, diags := g.multiValues(m.Value)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 
 	tmp := g.temp("r")
-	assigns, diags := g.fieldAssigns(m, tmp)
+	assigns, diags := g.fieldAssigns(m, src, tmp)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 
-	lines := []string{fmt.Sprintf("const %s %s = %s;", results, tmp, value)}
+	lines := []string{fmt.Sprintf("const %s %s = %s;", src.typ, tmp, src.init)}
 	for _, a := range assigns {
 		lines = append(lines, a+";")
 	}
 	return lines, nil
 }
 
-// multiAssignPost lowers an assignment of several results used as a
+// multiAssignPost lowers an assignment of several values used as a
 // three-clause loop's post statement, which must be one C expression. The
 // temporary cannot be declared there, so it is returned as a declaration for
-// the loop's block, and the expression assigns the call to it, then each
-// field to its target, joined with the comma operator.
+// the loop's block, and the expression assigns the source to it, then each
+// value to its target, joined with the comma operator.
 func (g *generator) multiAssignPost(
 	m *ast.MultiAssign,
 ) (decl, post string, diags []diag.Diagnostic) {
-	value, results, diags := g.multiCall(m.Value)
+	src, diags := g.multiValues(m.Value)
 	if len(diags) > 0 {
 		return "", "", diags
 	}
 
 	tmp := g.temp("r")
-	assigns, diags := g.fieldAssigns(m, tmp)
+	assigns, diags := g.fieldAssigns(m, src, tmp)
 	if len(diags) > 0 {
 		return "", "", diags
 	}
 
-	exprs := append([]string{fmt.Sprintf("%s = %s", tmp, value)}, assigns...)
-	return fmt.Sprintf("%s %s;", results, tmp), strings.Join(exprs, ", "), nil
+	exprs := append([]string{fmt.Sprintf("%s = %s", tmp, src.init)}, assigns...)
+	return fmt.Sprintf("%s %s;", src.typ, tmp), strings.Join(exprs, ", "), nil
 }
 
 // fieldAssigns renders, for each target of m other than _, the C assignment
-// of the field of the results struct tmp in its position, without a
+// of the value in its position, read from src's temporary tmp, without a
 // semicolon.
-func (g *generator) fieldAssigns(m *ast.MultiAssign, tmp string) ([]string, []diag.Diagnostic) {
+func (g *generator) fieldAssigns(
+	m *ast.MultiAssign,
+	src multiSource,
+	tmp string,
+) ([]string, []diag.Diagnostic) {
 	assigns := make([]string, 0, len(m.Targets))
 	for i, target := range m.Targets {
 		if target.Name == ast.Blank {
@@ -838,33 +938,97 @@ func (g *generator) fieldAssigns(m *ast.MultiAssign, tmp string) ([]string, []di
 				Span:     target.Span,
 			}}
 		}
-		assigns = append(assigns, fmt.Sprintf("%s = %s.r%d", g.varRef(v), tmp, i))
+		assigns = append(assigns, fmt.Sprintf("%s = %s", g.varRef(v), src.field(tmp, i)))
 	}
 	return assigns, nil
 }
 
-// multiCall renders the call that gives a MultiVar or MultiAssign its
-// values, with the name of the results struct it returns.
-func (g *generator) multiCall(value ast.Expr) (call, results string, diags []diag.Diagnostic) {
+// multiSource is what gives a MultiVar or MultiAssign its values: init, a C
+// expression of type typ evaluated once into a temporary, and field, which
+// renders the value in position i read from that temporary.
+type multiSource struct {
+	field     func(tmp string, i int) string
+	typ, init string
+}
+
+// multiValues lowers the source of a MultiVar or MultiAssign: a call to a
+// function with several results, held as its results struct and read field
+// by field, or a conversion that can fail, held as the value converted and
+// read as the converted value, or 0 when it does not fit, and whether it
+// fit.
+func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic) {
 	c, ok := value.(*ast.Call)
 	if !ok {
-		return "", "", []diag.Diagnostic{{
+		return multiSource{}, []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("unknown expression type: %T", value),
 			Span:     value.Spanned(),
 		}}
 	}
+
+	if c.Conv != types.Invalid {
+		arg, diags := g.expr(c.Args[0], types.Invalid)
+		from, to := ast.TypeOf(c.Args[0]), c.Conv
+		return multiSource{
+			typ:  cType(from),
+			init: arg,
+			field: func(tmp string, i int) string {
+				fits := fitsExpr(from, to, tmp)
+				if i == 1 {
+					return fits
+				}
+				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, cType(to), tmp)
+			},
+		}, diags
+	}
+
 	id, ok := c.Fn.(*ast.Ident)
 	if !ok {
-		return "", "", []diag.Diagnostic{{
+		return multiSource{}, []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("unknown expression type: %T", c.Fn),
 			Span:     c.Fn.Spanned(),
 		}}
 	}
+	call, diags := g.callExpr(id.Name, c)
+	return multiSource{
+		typ:   g.resultsName(id.Name),
+		init:  call,
+		field: func(tmp string, i int) string { return fmt.Sprintf("%s.r%d", tmp, i) },
+	}, diags
+}
 
-	call, diags = g.callExpr(id.Name, c)
-	return call, g.resultsName(id.Name), diags
+// fitsExpr renders a C test of whether v, of the integer type from, is also
+// a value of the integer type to. Only the bounds that can actually fail are
+// tested, since clang warns about a comparison that is always true.
+func fitsExpr(from, to types.Type, v string) string {
+	fromMin, fromMax := bounds(from)
+	toMin, toMax := bounds(to)
+
+	var tests []string
+	if fromMin.Cmp(toMin) < 0 {
+		tests = append(tests, fmt.Sprintf("%s >= %s", v, intLiteral(toMin)))
+	}
+	if fromMax.Cmp(toMax) > 0 {
+		tests = append(tests, fmt.Sprintf("%s <= %s", v, intLiteral(toMax)))
+	}
+	if len(tests) == 0 {
+		return "true"
+	}
+	return "(" + strings.Join(tests, " && ") + ")"
+}
+
+// bounds returns the smallest and largest values of a sized integer type.
+func bounds(typ types.Type) (lo, hi constant.Int) {
+	n := types.Bits(typ)
+	if types.IsUnsigned(typ) {
+		return constant.Int{}, constant.FromUint64(math.MaxUint64 >> (64 - n))
+	}
+	return constant.FromInt64(
+			math.MinInt64 >> (64 - n),
+		), constant.FromInt64(
+			math.MaxInt64 >> (64 - n),
+		)
 }
 
 // zeroValue is the C expression for a type's zero value. The empty string
@@ -940,7 +1104,7 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 // expr renders an expression as C. want is the type the context requires;
 // passing types.Invalid means any type the expression happens to have.
 func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic) {
-	if got := ast.TypeOf(e); got != want && want != types.Invalid {
+	if got := ast.TypeOf(e); !types.Widens(got, want) && want != types.Invalid {
 		return "", []diag.Diagnostic{
 			{
 				Severity: diag.Error,
@@ -983,14 +1147,11 @@ func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic
 func (g *generator) literal(e ast.Expr) (string, bool) {
 	switch x := e.(type) {
 	case *ast.IntLit:
-		if x.Value < 0 {
-			value, _ := g.constValue(x.Value)
-			if x.Value == math.MinInt64 {
-				return value, true
-			}
-			return "(" + value + ")", true
-		}
-		return strconv.FormatInt(x.Value, 10), true
+		return intLiteral(x.Value), true
+	case *ast.Binary:
+		return constLiteral(x.Const)
+	case *ast.Unary:
+		return constLiteral(x.Const)
 	case *ast.StrLit:
 		return g.stringValue(x.Value), true
 	case *ast.BoolLit:
@@ -1028,29 +1189,28 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	if bin.Op.IsArithmetic() {
-		return arith(bin.Op, left, right), nil
+		return arith(bin.Op, bin.Type, left, right), nil
 	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
 }
 
-// arith renders the int arithmetic l op r so that it wraps on overflow, as
-// Tack defines it, where C leaves signed overflow undefined. + - and * are
-// done on uint64_t, which C defines to wrap, and the result converted back
-// to int64_t, which C leaves to the implementation and clang does by keeping
-// the low 64 bits; the sanitizer tests in wrap_test.go check it. / and % go
-// through tack_div and tack_rem, which handle the smallest int divided by
-// -1, the one overflow division has. Each operand appears once, so neither
-// is evaluated twice.
-func arith(op ast.BinaryOp, l, r string) string {
+// arith renders the arithmetic l op r in the integer type typ so that it
+// wraps on overflow, as Tack defines it, where C leaves signed overflow
+// undefined and promotes narrow types to int, where it can overflow too.
+// + - and * are done on uint64_t, which C defines to wrap, and the result
+// converted to typ, which keeps its low bits: C leaves that conversion to
+// the implementation for a signed typ, and clang keeps the low bits; the
+// sanitizer tests in wrap_test.go check it. / and % go through a helper per
+// type, which handles the smallest value divided by -1, the one overflow
+// division has. Each operand appears once, so neither is evaluated twice.
+func arith(op ast.BinaryOp, typ types.Type, l, r string) string {
 	switch op {
-	case ast.Div:
-		return fmt.Sprintf("tack_div(%s, %s)", l, r)
-	case ast.Rem:
-		return fmt.Sprintf("tack_rem(%s, %s)", l, r)
+	case ast.Div, ast.Rem:
+		return fmt.Sprintf("%s(%s, %s)", divisionName(op, typ), l, r)
 	default:
-		return fmt.Sprintf("((int64_t)((uint64_t)%s %s (uint64_t)%s))", l, op, r)
+		return fmt.Sprintf("((%s)((uint64_t)%s %s (uint64_t)%s))", cType(typ), l, op, r)
 	}
 }
 
@@ -1064,9 +1224,9 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	if u.Op == ast.Neg {
-		// -x is 0 - x, done on uint64_t so that negating the smallest int
+		// -x is 0 - x, done on uint64_t so that negating the smallest value
 		// wraps to itself instead of being undefined.
-		return "((int64_t)(0 - (uint64_t)" + x + "))", nil
+		return fmt.Sprintf("((%s)(0 - (uint64_t)%s))", cType(u.Type), x), nil
 	}
 	return u.Op.String() + x, nil
 }
@@ -1074,6 +1234,15 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 // callValue renders a call used where a value is wanted, rejecting a callee
 // that is not a plain name and a builtin, which has no value to give.
 func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
+	if call.Conv != types.Invalid {
+		// The checker allows a single-value conversion only where it
+		// cannot lose anything, so a C cast does the whole job.
+		arg, diags := g.expr(call.Args[0], types.Invalid)
+		if len(diags) > 0 {
+			return "", diags
+		}
+		return fmt.Sprintf("((%s)%s)", cType(call.Conv), arg), nil
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return "", []diag.Diagnostic{{
@@ -1098,16 +1267,24 @@ func (g *generator) stringValue(s string) string {
 }
 
 func cType(typ types.Type) string {
-	switch typ {
-	case types.Int64:
-		return "int64_t"
-	case types.String:
-		return "tack_string"
-	case types.Bool:
-		return "bool"
-	default:
-		return "void"
+	if name, ok := cTypes[typ]; ok {
+		return name
 	}
+	return "void"
+}
+
+// cTypes maps each Tack type a value can have to the C type it lowers to.
+var cTypes = map[types.Type]string{
+	types.Int8:   "int8_t",
+	types.Int16:  "int16_t",
+	types.Int32:  "int32_t",
+	types.Int64:  "int64_t",
+	types.Uint8:  "uint8_t",
+	types.Uint16: "uint16_t",
+	types.Uint32: "uint32_t",
+	types.Uint64: "uint64_t",
+	types.String: "tack_string",
+	types.Bool:   "bool",
 }
 
 // paramName keeps parameters clear of every other name the generated file

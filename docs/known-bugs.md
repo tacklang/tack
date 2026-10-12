@@ -33,17 +33,6 @@ The lexer produces comment tokens anywhere, but the parser only accepts them
 between declarations. A comment inside a function body, after a statement, or
 before `package` is a parse error: `expected 'statement' found 'comment'`.
 
-## A call that returns nothing is reported as type "invalid"
-
-Using a call to a function that returns nothing, or several values, as an
-operand or a condition, as in `f() + 1`, `f() == true`, `!f()` or
-`if f() {`, is reported as `cannot use invalid as int in +`,
-`operator ! is not defined on invalid` or
-`condition must be a bool, got invalid`.
-"invalid" is the checker's internal name for a missing type, not something a
-Tack programmer should see. The same call as an argument, a declared value
-or a returned value already gets a proper message.
-
 ## Parentheses are left out of an expression's span
 
 A parenthesised expression leaves no node of its own, so a binary expression

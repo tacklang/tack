@@ -19,8 +19,15 @@
 //   - every Tack function, as a static C function;
 //   - a C main that calls the Tack main and returns 0.
 //
-// Values map to C types directly. An int64 is an int64_t and a bool is a C bool,
-// with true and false written as C's own.
+// Values map to C types directly. Each integer type is the C fixed-width
+// type of its name, int8_t through uint64_t, and a bool is a C bool, with
+// true and false written as C's own. A lossless widening needs nothing
+// written, since C converts a narrower integer to a wider one keeping its
+// value. A conversion T(x), which the checker allows only where it cannot
+// fail, is a C cast; v, ok := T(x) holds x in a temporary, tests it against
+// only the bounds of T it can fall outside, and gives T's cast of it, or 0.
+// A constant expression is written as the value the checker computed, never
+// as its operators; one too large for an int64 gets a u suffix.
 // A string is a tack_string, a struct holding a pointer and a length and
 // passed by value, so a string is one value that can be passed and returned
 // like any other.
@@ -68,11 +75,13 @@
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.
 //
-// Arithmetic wraps on overflow, where C leaves signed overflow undefined:
-// + - * and unary - are done on uint64_t, which C defines to wrap, and
-// converted back to int64_t. / and % call tack_div and tack_rem, emitted
-// only when used, which give the smallest int64 divided by -1 as itself and
-// its remainder as 0. A compound assignment x op= v is written out as
+// Arithmetic wraps on overflow at its type's width, where C leaves signed
+// overflow undefined, and promotes a narrow type to int, where it can
+// overflow too: + - * and unary - are done on uint64_t, which C defines to
+// wrap, and converted to the expression's type. / and % call a helper per
+// operator and type, such as tack_div_int8, emitted only when used, which
+// gives the smallest signed value divided by -1 as itself and its remainder
+// as 0. A compound assignment x op= v is written out as
 // x = x op v the same way, the way Tack defines it, and x++ and x-- as
 // x = x + 1 and x = x - 1. A loop lowers
 // to a C while, or to for (;;) when it has no condition, with its condition

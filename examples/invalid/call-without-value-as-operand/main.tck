@@ -1,0 +1,9 @@
+package main
+
+func greet() {
+    print("hi\n")
+}
+
+func main() {
+    exit(greet() + 1)
+}
