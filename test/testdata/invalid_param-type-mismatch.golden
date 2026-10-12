@@ -1,7 +1,7 @@
 stage: typeck
 ---
 
-examples/invalid/param-type-mismatch/main.tck:7:7: error: cannot use string as int in argument to f
+examples/invalid/param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument to f
 06 |	func main() {
 07 |	    f("hi")
    |	      ^~~~ 

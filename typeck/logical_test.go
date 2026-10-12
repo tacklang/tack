@@ -55,21 +55,21 @@ func TestRejectsNonBoolLogicalOperands(t *testing.T) {
 		cond string
 		want []want
 	}{
-		{"1 && true", []want{{"operator && is not defined on int", "1"}}},
+		{"1 && true", []want{{"operator && is not defined on int64", "1"}}},
 		{"a || \"s\"", []want{{"operator || is not defined on string", "\"s\""}}},
 		{"1 && 2", []want{
-			{"operator && is not defined on int", "1"},
-			{"operator && is not defined on int", "2"},
+			{"operator && is not defined on int64", "1"},
+			{"operator && is not defined on int64", "2"},
 		}},
-		{"!5", []want{{"operator ! is not defined on int", "5"}}},
+		{"!5", []want{{"operator ! is not defined on int64", "5"}}},
 		{"!\"s\"", []want{{"operator ! is not defined on string", "\"s\""}}},
-		{"!(1 + 2)", []want{{"operator ! is not defined on int", "1 + 2"}}},
-		{"(1 + true) && a", []want{{"cannot use bool as int in +", "true"}}},
-		{"!(1 + \"s\")", []want{{"cannot use string as int in +", "\"s\""}}},
-		{"!5 == true", []want{{"operator ! is not defined on int", "5"}}},
-		{"!5 && a", []want{{"operator ! is not defined on int", "5"}}},
-		{"!!5", []want{{"operator ! is not defined on int", "5"}}},
-		{"a && 1 < true", []want{{"mismatched types int and bool in <", "1 < true"}}},
+		{"!(1 + 2)", []want{{"operator ! is not defined on int64", "1 + 2"}}},
+		{"(1 + true) && a", []want{{"cannot use bool as int64 in +", "true"}}},
+		{"!(1 + \"s\")", []want{{"cannot use string as int64 in +", "\"s\""}}},
+		{"!5 == true", []want{{"operator ! is not defined on int64", "5"}}},
+		{"!5 && a", []want{{"operator ! is not defined on int64", "5"}}},
+		{"!!5", []want{{"operator ! is not defined on int64", "5"}}},
+		{"a && 1 < true", []want{{"mismatched types int64 and bool in <", "1 < true"}}},
 	}
 
 	for _, tt := range tests {
@@ -94,7 +94,7 @@ func TestRejectsNonBoolLogicalOperands(t *testing.T) {
 // A logical expression is a bool, so it is reported where an int is wanted.
 func TestLogicalExpressionWhereAnIntIsWanted(t *testing.T) {
 	_, diags := checkTree(t, inMain("exit(true && false)"))
-	if len(diags) != 1 || diags[0].Message != "cannot use bool as int in argument to exit" {
+	if len(diags) != 1 || diags[0].Message != "cannot use bool as int64 in argument to exit" {
 		t.Errorf("got %v, want one argument error", diags)
 	}
 }
@@ -141,9 +141,9 @@ func TestRejectsInvalidLogicalGlobals(t *testing.T) {
 		want string
 	}{
 		{"var x = false && 1 / 0 == 1", "division by zero in constant expression"},
-		{"var x = true || 9223372036854775807 + 1 > 0", "constant expression overflows int"},
-		{"var x = !1", "operator ! is not defined on int"},
-		{"var x = 1 && true", "operator && is not defined on int"},
+		{"var x = true || 9223372036854775807 + 1 > 0", "constant expression overflows int64"},
+		{"var x = !1", "operator ! is not defined on int64"},
+		{"var x = 1 && true", "operator && is not defined on int64"},
 	}
 
 	for _, tt := range tests {

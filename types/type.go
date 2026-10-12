@@ -14,8 +14,8 @@ const (
 	// Invalid is the zero value, carried by an expression that has not been
 	// checked or whose type could not be determined.
 	Invalid Type = iota
-	// Int is a signed 64-bit integer.
-	Int
+	// Int64 is a signed 64-bit integer.
+	Int64
 	// String is a string of bytes.
 	String
 	// Bool is true or false.
@@ -30,7 +30,7 @@ const (
 // its ID.
 var basicNames = [numBasic]string{
 	Invalid: "invalid",
-	Int:     "int",
+	Int64:   "int64",
 	String:  "string",
 	Bool:    "bool",
 }
@@ -38,7 +38,7 @@ var basicNames = [numBasic]string{
 // Lookup returns the basic type a type name denotes. Invalid has no name a
 // program can write, so it is never returned as a match.
 func Lookup(name string) (Type, bool) {
-	for t := Int; t < numBasic; t++ {
+	for t := Int64; t < numBasic; t++ {
 		if basicNames[t] == name {
 			return t, true
 		}

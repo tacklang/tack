@@ -23,11 +23,11 @@ func TestAcceptsValidGlobalUse(t *testing.T) {
 		},
 		{
 			"read in another function",
-			"package main\n\nvar limit = 3\n\nfunc f() int {\n    return limit\n}\n\nfunc main() {\n    exit(f())\n}\n",
+			"package main\n\nvar limit = 3\n\nfunc f() int64 {\n    return limit\n}\n\nfunc main() {\n    exit(f())\n}\n",
 		},
 		{
 			"assigned in one function and read in another",
-			"package main\n\nmut count int\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n}\n",
+			"package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n}\n",
 		},
 		{
 			"two globals",
@@ -85,7 +85,7 @@ var invalidGlobalUseCases = []struct {
 	},
 	{
 		"a parameter reuses its name",
-		"package main\n\nvar n = 1\n\nfunc f(n int) {\n    exit(n)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nvar n = 1\n\nfunc f(n int64) {\n    exit(n)\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]string{"n is already declared"},
 	},
 	{
@@ -95,7 +95,7 @@ var invalidGlobalUseCases = []struct {
 	},
 	{
 		"only assigned",
-		"package main\n\nmut n int\n\nfunc main() {\n    n = 2\n}\n",
+		"package main\n\nmut n int64\n\nfunc main() {\n    n = 2\n}\n",
 		[]string{"declared and not used: n"},
 	},
 }
@@ -114,7 +114,7 @@ func TestRejectsInvalidGlobalUse(t *testing.T) {
 
 // Reads and assignments in any function bind to the package-level variable.
 func TestBindsGlobalReferences(t *testing.T) {
-	src := "package main\n\nmut count int\n\nfunc main() {\n    count = count + 1\n}\n"
+	src := "package main\n\nmut count int64\n\nfunc main() {\n    count = count + 1\n}\n"
 	file, diags := resolveTree(t, src)
 	if len(diags) > 0 {
 		t.Fatalf("got %q", messagesOf(diags))

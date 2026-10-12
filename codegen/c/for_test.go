@@ -43,7 +43,7 @@ var loopRuntimeCases = []struct {
 	},
 	{
 		"returns from forever",
-		"package main\n\nfunc first(over int) int {\n    mut i = 0\n    for {\n        if i * i > over {\n            return i\n        }\n        i = i + 1\n    }\n}\n\n" +
+		"package main\n\nfunc first(over int64) int64 {\n    mut i = 0\n    for {\n        if i * i > over {\n            return i\n        }\n        i = i + 1\n    }\n}\n\n" +
 			"func main() {\n    exit(first(50))\n}\n",
 		"",
 		8,
@@ -56,14 +56,14 @@ var loopRuntimeCases = []struct {
 	},
 	{
 		"condition re-evaluated each time",
-		"package main\n\nmut calls int\n\nfunc more() bool {\n    calls = calls + 1\n    print(\"check\")\n    return calls < 3\n}\n\n" +
+		"package main\n\nmut calls int64\n\nfunc more() bool {\n    calls = calls + 1\n    print(\"check\")\n    return calls < 3\n}\n\n" +
 			"func main() {\n    for more() {\n    }\n    exit(calls)\n}\n",
 		"checkcheckcheck",
 		3,
 	},
 	{
 		"iterative fib",
-		"package main\n\nfunc fib(n int) int {\n    mut a = 0\n    mut b = 1\n    mut i = 0\n    for i < n {\n        next := a + b\n        a = b\n        b = next\n        i = i + 1\n    }\n    return a\n}\n\n" +
+		"package main\n\nfunc fib(n int64) int64 {\n    mut a = 0\n    mut b = 1\n    mut i = 0\n    for i < n {\n        next := a + b\n        a = b\n        b = next\n        i = i + 1\n    }\n    return a\n}\n\n" +
 			"func main() {\n    exit(fib(10))\n}\n",
 		"",
 		55,

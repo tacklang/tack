@@ -45,12 +45,12 @@ func TestParsesEveryDeclarationForm(t *testing.T) {
 	}{
 		{"x := 1", "x", "", false, true},
 		{"mut x := 1", "x", "", true, true},
-		{"var x int = 1", "x", "int", false, true},
+		{"var x int64 = 1", "x", "int64", false, true},
 		{"var x = 1", "x", "", false, true},
-		{"var x int", "x", "int", false, false},
-		{"mut x int = 1", "x", "int", true, true},
+		{"var x int64", "x", "int64", false, false},
+		{"mut x int64 = 1", "x", "int64", true, true},
 		{"mut x = 1", "x", "", true, true},
-		{"mut x int", "x", "int", true, false},
+		{"mut x int64", "x", "int64", true, false},
 		{"mut s string", "s", "string", true, false},
 	}
 
@@ -92,7 +92,7 @@ func TestDeclarationValueIsAnExpression(t *testing.T) {
 
 // Spans cover the whole declaration, and the name span covers only the name.
 func TestDeclarationSpans(t *testing.T) {
-	src := "    mut count int = 42"
+	src := "    mut count int64 = 42"
 	v := mainBody(t, src)[0].(*ast.Var)
 
 	// The body starts after "package main\n\nfunc main() {\n".
@@ -175,14 +175,14 @@ func TestRejectsMalformedDeclarations(t *testing.T) {
 		{"var var x = 1", "expected 'variable name' found 'var'"},
 		{"x :=", "expected 'value' found '}'"},
 		{"x =", "expected 'value' found '}'"},
-		{"var x int =", "expected 'value' found '}'"},
-		{"var x int int", "expected ';' found 'int'"},
+		{"var x int64 =", "expected 'value' found '}'"},
+		{"var x int64 int64", "expected ';' found 'int64'"},
 		{"x := 1 2", "expected ';' found '2'"},
 		{"x = 1 2", "expected ';' found '2'"},
 		{"x == 1", "expected 'statement' found 'x'"},
 		{"x", "expected 'statement' found 'x'"},
 		{"1 = 2", "expected 'statement' found '1'"},
-		{"var x ...int = 1", "variadic parameters are not supported"},
+		{"var x ...int64 = 1", "variadic parameters are not supported"},
 	}
 
 	for _, tt := range tests {
@@ -212,7 +212,7 @@ func packageVars(file *ast.File) []*ast.Var {
 // TestParsesPackageLevelDeclarations checks var and mut declarations between
 // functions become top-level declarations, in source order.
 func TestParsesPackageLevelDeclarations(t *testing.T) {
-	src := "package main\n\nvar limit int = 10\n\nmut count int\n\n// a note\nvar name = \"tack\"\n\nfunc main() {\n}\n\nmut last = 1 < 2\n"
+	src := "package main\n\nvar limit int64 = 10\n\nmut count int64\n\n// a note\nvar name = \"tack\"\n\nfunc main() {\n}\n\nmut last = 1 < 2\n"
 	file, diags := parse(t, src)
 	if len(diags) > 0 {
 		t.Fatalf("parse reported %v", diags)
@@ -224,8 +224,8 @@ func TestParsesPackageLevelDeclarations(t *testing.T) {
 		mutable  bool
 		hasValue bool
 	}{
-		{"limit", "int", false, true},
-		{"count", "int", true, false},
+		{"limit", "int64", false, true},
+		{"count", "int64", true, false},
 		{"name", "", false, true},
 		{"last", "", true, true},
 	}

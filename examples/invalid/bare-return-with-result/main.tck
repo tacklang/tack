@@ -1,6 +1,6 @@
 package main
 
-func f() int {
+func f() int64 {
     return
 }
 

@@ -64,7 +64,7 @@ func TestAcceptsValidVariableUse(t *testing.T) {
 			"    if 1 < 2 {\n        x := 1\n        exit(x)\n    }\n    if 2 < 3 {\n        x := 2\n        exit(x)\n    }",
 		},
 		{"named like a builtin", "    print := 1\n    exit(print)"},
-		{"zero valued mutable read", "    mut n int\n    exit(n)"},
+		{"zero valued mutable read", "    mut n int64\n    exit(n)"},
 	}
 
 	for _, tt := range tests {
@@ -79,7 +79,7 @@ func TestAcceptsValidVariableUse(t *testing.T) {
 // A variable may share a function's name: calls resolve to functions and
 // values to variables, as parameters already do.
 func TestVariableMayShareAFunctionsName(t *testing.T) {
-	src := "package main\n\nfunc f() int {\n    return 1\n}\n\nfunc main() {\n    f := f()\n    exit(f)\n}\n"
+	src := "package main\n\nfunc f() int64 {\n    return 1\n}\n\nfunc main() {\n    f := f()\n    exit(f)\n}\n"
 	if _, diags := resolveTree(t, src); len(diags) > 0 {
 		t.Errorf("got %q, want no diagnostics", messagesOf(diags))
 	}
@@ -120,7 +120,7 @@ var invalidVariableUseCases = []struct {
 	},
 	{
 		"shadows a parameter",
-		"package main\n\nfunc f(x int) {\n    x := 1\n    exit(x)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nfunc f(x int64) {\n    x := 1\n    exit(x)\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]string{"x is already declared"},
 	},
 	{
@@ -135,7 +135,7 @@ var invalidVariableUseCases = []struct {
 	},
 	{
 		"zero valued and never read",
-		inMain("    mut x int"),
+		inMain("    mut x int64"),
 		[]string{"declared and not used: x"},
 	},
 	{
@@ -215,7 +215,7 @@ func TestBindsVariableReferences(t *testing.T) {
 
 // Parameters are not checked for use; only variables are.
 func TestUnusedParameterIsNotReported(t *testing.T) {
-	src := "package main\n\nfunc f(x int) {\n}\n\nfunc main() {\n    f(1)\n}\n"
+	src := "package main\n\nfunc f(x int64) {\n}\n\nfunc main() {\n    f(1)\n}\n"
 	if _, diags := resolveTree(t, src); len(diags) > 0 {
 		t.Errorf("got %q, want no diagnostics", messagesOf(diags))
 	}

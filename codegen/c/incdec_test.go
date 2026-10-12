@@ -23,7 +23,7 @@ var incDecRuntimeCases = []struct {
 	},
 	{
 		"global",
-		"package main\n\nmut hits int\n\nfunc hit() {\n    hits++\n}\n\nfunc main() {\n    hit()\n    hit()\n    exit(hits)\n}\n",
+		"package main\n\nmut hits int64\n\nfunc hit() {\n    hits++\n}\n\nfunc main() {\n    hit()\n    hit()\n    exit(hits)\n}\n",
 		2,
 	},
 }

@@ -33,26 +33,26 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 		decl string
 		typ  types.Type
 	}{
-		{int64(42), "var x = 42", types.Int},
-		{int64(42), "var x int = 10 * 4 + 2", types.Int},
-		{int64(21), "var x = (1 + 2) * (3 + 4)", types.Int},
-		{int64(-7), "var x = 0 - 7", types.Int},
-		{int64(3), "var x = 7 / 2", types.Int},
-		{int64(-3), "var x = (0 - 7) / 2", types.Int},
-		{int64(1), "var x = 7 % 3", types.Int},
-		{int64(-1), "var x = (0 - 7) % 3", types.Int},
-		{int64(9223372036854775807), "var x = 9223372036854775807", types.Int},
-		{int64(-9223372036854775808), "var x = 0 - 9223372036854775807 - 1", types.Int},
-		{int64(0), "var x = (0 - 9223372036854775807 - 1) % (0 - 1)", types.Int},
+		{int64(42), "var x = 42", types.Int64},
+		{int64(42), "var x int64 = 10 * 4 + 2", types.Int64},
+		{int64(21), "var x = (1 + 2) * (3 + 4)", types.Int64},
+		{int64(-7), "var x = 0 - 7", types.Int64},
+		{int64(3), "var x = 7 / 2", types.Int64},
+		{int64(-3), "var x = (0 - 7) / 2", types.Int64},
+		{int64(1), "var x = 7 % 3", types.Int64},
+		{int64(-1), "var x = (0 - 7) % 3", types.Int64},
+		{int64(9223372036854775807), "var x = 9223372036854775807", types.Int64},
+		{int64(-9223372036854775808), "var x = 0 - 9223372036854775807 - 1", types.Int64},
+		{int64(0), "var x = (0 - 9223372036854775807 - 1) % (0 - 1)", types.Int64},
 		{"tack", "var x = \"tack\"", types.String},
 		{"", "var x string = \"\"", types.String},
 		{true, "var x = 1 < 2", types.Bool},
 		{false, "var x bool = 2 + 2 == 5", types.Bool},
 		{true, "var x = 3 >= 3", types.Bool},
-		{int64(0), "mut x int", types.Int},
+		{int64(0), "mut x int64", types.Int64},
 		{"", "mut x string", types.String},
 		{false, "mut x bool", types.Bool},
-		{int64(5), "mut x = 5", types.Int},
+		{int64(5), "mut x = 5", types.Int64},
 	}
 
 	for _, tt := range tests {
@@ -80,7 +80,7 @@ var invalidGlobalPrograms = []struct {
 	want []string
 }{
 	{
-		"immutable without a value", withGlobal("var x int"),
+		"immutable without a value", withGlobal("var x int64"),
 		[]string{"immutable variable x needs a value"},
 	},
 	{
@@ -90,12 +90,12 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"a call",
-		"package main\n\nfunc f() int {\n    return 1\n}\n\nvar x = f()\n\nfunc main() {\n    exit(x)\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 1\n}\n\nvar x = f()\n\nfunc main() {\n    exit(x)\n}\n",
 		[]string{"x must be initialized with a constant expression"},
 	},
 	{
 		"a call deep inside",
-		"package main\n\nfunc f() int {\n    return 1\n}\n\nvar x = 1 + 2 * f()\n\nfunc main() {\n    exit(x)\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 1\n}\n\nvar x = 1 + 2 * f()\n\nfunc main() {\n    exit(x)\n}\n",
 		[]string{"x must be initialized with a constant expression"},
 	},
 	{
@@ -105,19 +105,19 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"overflow on +", withGlobal("var x = 9223372036854775807 + 1"),
-		[]string{"constant expression overflows int"},
+		[]string{"constant expression overflows int64"},
 	},
 	{
 		"overflow on -", withGlobal("var x = 0 - 9223372036854775807 - 2"),
-		[]string{"constant expression overflows int"},
+		[]string{"constant expression overflows int64"},
 	},
 	{
 		"overflow on *", withGlobal("var x = 4611686018427387904 * 2"),
-		[]string{"constant expression overflows int"},
+		[]string{"constant expression overflows int64"},
 	},
 	{
 		"overflow on /", withGlobal("var x = (0 - 9223372036854775807 - 1) / (0 - 1)"),
-		[]string{"constant expression overflows int"},
+		[]string{"constant expression overflows int64"},
 	},
 	{
 		"division by zero", withGlobal("var x = 1 / 0"),
@@ -128,13 +128,13 @@ var invalidGlobalPrograms = []struct {
 		[]string{"division by zero in constant expression"},
 	},
 	{
-		"declared type mismatch", withGlobal("var x int = \"s\""),
-		[]string{"cannot use string as int in declaration of x"},
+		"declared type mismatch", withGlobal("var x int64 = \"s\""),
+		[]string{"cannot use string as int64 in declaration of x"},
 	},
 	{
 		"string arithmetic",
 		"package main\n\nvar x = \"a\" + 1\n\nfunc main() {\n    print(x)\n}\n",
-		[]string{"cannot use string as int in +"},
+		[]string{"cannot use string as int64 in +"},
 	},
 	{
 		"assign to an immutable global",
@@ -144,7 +144,7 @@ var invalidGlobalPrograms = []struct {
 	{
 		"assign the wrong type to a global",
 		"package main\n\nmut x = 1\n\nfunc main() {\n    x = \"s\"\n    exit(x)\n}\n",
-		[]string{"cannot use string as int in assignment to x"},
+		[]string{"cannot use string as int64 in assignment to x"},
 	},
 }
 
@@ -174,7 +174,7 @@ func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
 
 // A mutable global can be assigned from any function.
 func TestMutableGlobalIsAssignable(t *testing.T) {
-	src := "package main\n\nmut count int\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    exit(count)\n}\n"
+	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    exit(count)\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}

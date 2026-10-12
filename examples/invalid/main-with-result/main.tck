@@ -1,5 +1,5 @@
 package main
 
-func main() int {
+func main() int64 {
     return 7
 }

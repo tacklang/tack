@@ -1,19 +1,19 @@
 stage: typeck
 ---
 
-examples/invalid/string-arithmetic/main.tck:4:10: error: cannot use string as int in argument to exit
+examples/invalid/string-arithmetic/main.tck:4:10: error: cannot use string as int64 in argument to exit
 03 |	func main() {
 04 |	    exit("a" + "b")
    |	         ^~~~~~~~~ 
 05 |	}
 
-examples/invalid/string-arithmetic/main.tck:4:10: error: cannot use string as int in +
+examples/invalid/string-arithmetic/main.tck:4:10: error: cannot use string as int64 in +
 03 |	func main() {
 04 |	    exit("a" + "b")
    |	         ^~~ 
 05 |	}
 
-examples/invalid/string-arithmetic/main.tck:4:16: error: cannot use string as int in +
+examples/invalid/string-arithmetic/main.tck:4:16: error: cannot use string as int64 in +
 03 |	func main() {
 04 |	    exit("a" + "b")
    |	               ^~~ 

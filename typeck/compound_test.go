@@ -7,9 +7,9 @@ import "testing"
 func TestAcceptsCompoundAssignment(t *testing.T) {
 	tests := []string{
 		mainLines("mut x = 1", "x += 2", "x -= 1", "x *= 3", "x /= 2", "x %= 5", "exit(x)"),
-		mainLines("mut x int", "x += 1 + 2 * 3", "exit(x)"),
-		"package main\n\nfunc two() int {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    exit(x)\n}\n",
-		"package main\n\nmut total int\n\nfunc main() {\n    total += 5\n    exit(total)\n}\n",
+		mainLines("mut x int64", "x += 1 + 2 * 3", "exit(x)"),
+		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    exit(x)\n}\n",
+		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    exit(total)\n}\n",
 	}
 
 	for _, src := range tests {
@@ -38,7 +38,7 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"parameter",
-		"package main\n\nfunc f(n int) {\n    n += 1\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nfunc f(n int64) {\n    n += 1\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]spanned{{"cannot assign to parameter n", "n"}},
 	},
 	{
@@ -50,31 +50,31 @@ var invalidCompoundCases = []struct {
 		"string target",
 		mainLines("mut s = \"a\"", "s += \"b\"", "print(s)"),
 		[]spanned{
-			{"cannot use string as int in +=", "s"},
-			{"cannot use string as int in +=", "\"b\""},
+			{"cannot use string as int64 in +=", "s"},
+			{"cannot use string as int64 in +=", "\"b\""},
 		},
 	},
 	{
 		"bool target",
 		mainLines("mut b = true", "b *= 2", "if b {", "}"),
-		[]spanned{{"cannot use bool as int in *=", "b"}},
+		[]spanned{{"cannot use bool as int64 in *=", "b"}},
 	},
 	{
 		"string value",
 		mainLines("mut x = 1", "x -= \"s\"", "exit(x)"),
-		[]spanned{{"cannot use string as int in -=", "\"s\""}},
+		[]spanned{{"cannot use string as int64 in -=", "\"s\""}},
 	},
 	{
 		"bool value",
 		mainLines("mut x = 1", "x %= 1 < 2", "exit(x)"),
-		[]spanned{{"cannot use bool as int in %=", "1 < 2"}},
+		[]spanned{{"cannot use bool as int64 in %=", "1 < 2"}},
 	},
 	{
 		"both wrong",
 		mainLines("mut b = true", "b /= false", "if b {", "}"),
 		[]spanned{
-			{"cannot use bool as int in /=", "b"},
-			{"cannot use bool as int in /=", "false"},
+			{"cannot use bool as int64 in /=", "b"},
+			{"cannot use bool as int64 in /=", "false"},
 		},
 	},
 	{
@@ -85,7 +85,7 @@ var invalidCompoundCases = []struct {
 	{
 		"error inside the value",
 		mainLines("mut x = 1", "x += 1 + \"s\"", "exit(x)"),
-		[]spanned{{"cannot use string as int in +", "\"s\""}},
+		[]spanned{{"cannot use string as int64 in +", "\"s\""}},
 	},
 }
 

@@ -20,12 +20,12 @@ expression's operands, are evaluated. Tack functions can print and also
 return a value, so the order is observable:
 
 ```tack
-func a() int {
+func a() int64 {
     print("a")
     return 1
 }
 
-func b() int {
+func b() int64 {
     print("b")
     return 2
 }

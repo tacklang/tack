@@ -58,8 +58,8 @@ func TestRejectsBuiltinArgumentOfTheWrongType(t *testing.T) {
 		body string
 		want string
 	}{
-		{`print(42)`, "cannot use int as string"},
-		{`exit("boom")`, "cannot use string as int"},
+		{`print(42)`, "cannot use int64 as string"},
+		{`exit("boom")`, "cannot use string as int64"},
 	}
 
 	for _, tt := range tests {
@@ -193,14 +193,14 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 func TestAnnotatesParameterTypes(t *testing.T) {
 	file, diags := checkFile(
 		t,
-		"package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n}\n",
 	)
 	if len(diags) > 0 {
 		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
 	}
 
 	params := file.Decls[0].(*ast.Func).Params
-	for i, want := range []types.Type{types.Int, types.String} {
+	for i, want := range []types.Type{types.Int64, types.String} {
 		if params[i].Type != want {
 			t.Errorf("parameter %d typ = %v, want %v", i, params[i].Type, want)
 		}
@@ -226,8 +226,8 @@ func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
 		ok   bool
 	}{
 		{
-			name: "int parameter to exit",
-			src:  "func f(x int) {\n    exit(x)\n}",
+			name: "int64 parameter to exit",
+			src:  "func f(x int64) {\n    exit(x)\n}",
 			ok:   true,
 		},
 		{
@@ -238,12 +238,12 @@ func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
 		{
 			name: "string parameter to exit",
 			src:  "func f(s string) {\n    exit(s)\n}",
-			want: "cannot use string as int",
+			want: "cannot use string as int64",
 		},
 		{
-			name: "int parameter to print",
-			src:  "func f(x int) {\n    print(x)\n}",
-			want: "cannot use int as string",
+			name: "int64 parameter to print",
+			src:  "func f(x int64) {\n    print(x)\n}",
+			want: "cannot use int64 as string",
 		},
 	}
 
@@ -273,14 +273,14 @@ func TestChecksArgumentTypesAgainstDeclaredParameters(t *testing.T) {
 		want string
 	}{
 		{"f(1, \"hi\")", ""},
-		{"f(\"hi\", 1)", "cannot use string as int"},
+		{"f(\"hi\", 1)", "cannot use string as int64"},
 		{"f(1)", "argument"},
 		{"f(1, \"hi\", 2)", "argument"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.call, func(t *testing.T) {
-			src := "package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n    " + tt.call + "\n}\n"
+			src := "package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n    " + tt.call + "\n}\n"
 			_, diags := checkFile(t, src)
 
 			if tt.want == "" {
@@ -313,14 +313,14 @@ func TestAcceptsForwardingAParameterToAnotherFunction(t *testing.T) {
 func TestAnnotatesResultType(t *testing.T) {
 	file, diags := checkFile(
 		t,
-		"package main\n\nfunc f() int {\n    return 1\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 1\n}\n\nfunc main() {\n}\n",
 	)
 	if len(diags) > 0 {
 		t.Fatalf("check reported %d diagnostic(s): %+v", len(diags), diags)
 	}
 
-	if got := file.Decls[0].(*ast.Func).ResultTypes; len(got) != 1 || got[0] != types.Int {
-		t.Errorf("ResultType = %v, want %v", got, types.Int)
+	if got := file.Decls[0].(*ast.Func).ResultTypes; len(got) != 1 || got[0] != types.Int64 {
+		t.Errorf("ResultType = %v, want %v", got, types.Int64)
 	}
 }
 
@@ -334,8 +334,8 @@ func TestRecordsTheTypeTableOnTheFile(t *testing.T) {
 	if file.Types == nil {
 		t.Fatal("Check left File.Types nil")
 	}
-	if got := file.Types.Name(types.Int); got != "int" {
-		t.Errorf("File.Types.Name(Int) = %q, want %q", got, "int")
+	if got := file.Types.Name(types.Int64); got != "int64" {
+		t.Errorf("File.Types.Name(Int) = %q, want %q", got, "int64")
 	}
 }
 
@@ -359,17 +359,17 @@ func TestChecksReturnedValueAgainstTheDeclaredResult(t *testing.T) {
 		decl string
 		want string
 	}{
-		{"int returned as int", "func f() int {\n    return 1\n}", ""},
+		{"int64 returned as int64", "func f() int64 {\n    return 1\n}", ""},
 		{"string returned as string", "func f() string {\n    return \"hi\"\n}", ""},
 		{
-			"string returned as int",
-			"func f() int {\n    return \"hi\"\n}",
-			"cannot use string as int",
+			"string returned as int64",
+			"func f() int64 {\n    return \"hi\"\n}",
+			"cannot use string as int64",
 		},
 		{
-			"int returned as string",
+			"int64 returned as string",
 			"func f() string {\n    return 1\n}",
-			"cannot use int as string",
+			"cannot use int64 as string",
 		},
 		{
 			"value returned from a function with no result",
@@ -378,10 +378,10 @@ func TestChecksReturnedValueAgainstTheDeclaredResult(t *testing.T) {
 		},
 		{
 			"bare return from a function with a result",
-			"func f() int {\n    return\n}",
+			"func f() int64 {\n    return\n}",
 			"must return",
 		},
-		{"no return at all", "func f() int {\n}", "must end"},
+		{"no return at all", "func f() int64 {\n}", "must end"},
 	}
 
 	for _, tt := range tests {
@@ -422,8 +422,8 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 		want string
 	}{
 		{
-			name: "int result into exit",
-			src:  "func seven() int {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}",
+			name: "int64 result into exit",
+			src:  "func seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}",
 		},
 		{
 			name: "string result into print",
@@ -432,7 +432,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 		{
 			name: "string result into exit",
 			src:  "func hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n    exit(hi())\n}",
-			want: "cannot use string as int",
+			want: "cannot use string as int64",
 		},
 		{
 			name: "call to a function returning nothing",
@@ -462,8 +462,8 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 }
 
 func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
-	src := "package main\n\nfunc g() int {\n    return 1\n}\n\n" +
-		"func f() int {\n    return g()\n}\n\nfunc main() {\n    exit(f())\n}\n"
+	src := "package main\n\nfunc g() int64 {\n    return 1\n}\n\n" +
+		"func f() int64 {\n    return g()\n}\n\nfunc main() {\n    exit(f())\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("returning a call's result was rejected: %+v", diags)
@@ -471,14 +471,14 @@ func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
 }
 
 func TestChecksArgumentsOfANestedCall(t *testing.T) {
-	src := "package main\n\nfunc g(x int) int {\n    return x\n}\n\n" +
+	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
 		"func main() {\n    exit(g(\"hi\"))\n}\n"
 
 	_, diags := checkFile(t, src)
 	if len(diags) == 0 {
 		t.Fatal("a badly typed argument to a nested call was accepted")
 	}
-	if !strings.Contains(diags[0].Message, "cannot use string as int") {
+	if !strings.Contains(diags[0].Message, "cannot use string as int64") {
 		t.Errorf("message = %q, want it to report the nested argument", diags[0].Message)
 	}
 }
@@ -493,8 +493,8 @@ func TestChecksBinaryOperands(t *testing.T) {
 		{"1 * 2", ""},
 		{"1 / 2", ""},
 		{"1 % 2", ""},
-		{"1 + \"hi\"", "cannot use string as int"},
-		{"\"a\" + \"b\"", "cannot use string as int"},
+		{"1 + \"hi\"", "cannot use string as int64"},
+		{"\"a\" + \"b\"", "cannot use string as int64"},
 	}
 
 	for _, tt := range tests {
@@ -531,8 +531,12 @@ func TestRejectsBoolWhereAnIntIsWanted(t *testing.T) {
 	if len(diags) == 0 {
 		t.Fatal("a bool was accepted as an exit status")
 	}
-	if !strings.Contains(diags[0].Message, "cannot use bool as int") {
-		t.Errorf("message = %q, want it to contain %q", diags[0].Message, "cannot use bool as int")
+	if !strings.Contains(diags[0].Message, "cannot use bool as int64") {
+		t.Errorf(
+			"message = %q, want it to contain %q",
+			diags[0].Message,
+			"cannot use bool as int64",
+		)
 	}
 }
 
@@ -540,7 +544,7 @@ func TestConditionMustBeBool(t *testing.T) {
 	_, diags := checkFile(t, "package main\n\nfunc main() {\n    if 1 {\n    }\n}\n")
 
 	if len(diags) == 0 {
-		t.Fatal("an int was accepted as a condition")
+		t.Fatal("an int64 was accepted as a condition")
 	}
 	if !strings.Contains(diags[0].Message, "condition") {
 		t.Errorf("message = %q, want it to mention the condition", diags[0].Message)
@@ -567,7 +571,7 @@ func TestChecksStatementsInsideBothBranches(t *testing.T) {
 // An if is a terminating statement when both branches terminate, which is what
 // lets fib end in an if rather than a bare return.
 func TestIfWithBothBranchesReturningTerminates(t *testing.T) {
-	src := "package main\n\nfunc f(n int) int {\n    if n < 2 {\n        return 1\n    } else {\n        return 2\n    }\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n < 2 {\n        return 1\n    } else {\n        return 2\n    }\n}\n\nfunc main() {\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("a function ending in a fully returning if was rejected: %+v", diags)
@@ -575,7 +579,7 @@ func TestIfWithBothBranchesReturningTerminates(t *testing.T) {
 }
 
 func TestIfWithoutElseDoesNotTerminate(t *testing.T) {
-	src := "package main\n\nfunc f(n int) int {\n    if n < 2 {\n        return 1\n    }\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n < 2 {\n        return 1\n    }\n}\n\nfunc main() {\n}\n"
 
 	_, diags := checkFile(t, src)
 	if len(diags) == 0 {
@@ -596,7 +600,7 @@ func TestAcceptsBoolAsAParameterAndResult(t *testing.T) {
 
 func TestFibTypechecks(t *testing.T) {
 	src := "package main\n\n" +
-		"func fib(n int) int {\n" +
+		"func fib(n int64) int64 {\n" +
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
@@ -613,7 +617,7 @@ func TestBuiltinUsedAsAValueIsReported(t *testing.T) {
 	tests := []string{
 		inMain("exit(print(\"x\"))"),
 		inMain("if print(\"x\") == 1 {\n    }"),
-		"package main\n\nfunc f() int {\n    return exit(1)\n}\n\nfunc main() {\n    exit(f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    return exit(1)\n}\n\nfunc main() {\n    exit(f())\n}\n",
 	}
 	for _, src := range tests {
 		diags := check(t, src)
@@ -637,7 +641,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter in arithmetic",
-			"package main\n\nfunc f(x foo) int {\n    return x + 1\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x + 1\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
 		},
 		{
 			"parameter as a condition",
@@ -645,7 +649,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter returned",
-			"package main\n\nfunc f(x foo) int {\n    return x\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
 		},
 		{
 			"result type",

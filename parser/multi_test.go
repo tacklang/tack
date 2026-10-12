@@ -32,12 +32,12 @@ func TestParsesResultLists(t *testing.T) {
 		want []string
 	}{
 		{"func f() {", nil},
-		{"func f() int {", []string{"int"}},
-		{"func f() (int) {", []string{"int"}},
-		{"func f() (int, string) {", []string{"int", "string"}},
-		{"func f() (int, string, bool, int) {", []string{"int", "string", "bool", "int"}},
-		{"func f(a int, b int) (int, int) {", []string{"int", "int"}},
-		{"func f() ( int ,string ) {", []string{"int", "string"}},
+		{"func f() int64 {", []string{"int64"}},
+		{"func f() (int64) {", []string{"int64"}},
+		{"func f() (int64, string) {", []string{"int64", "string"}},
+		{"func f() (int64, string, bool, int64) {", []string{"int64", "string", "bool", "int64"}},
+		{"func f(a int64, b int64) (int64, int64) {", []string{"int64", "int64"}},
+		{"func f() ( int64 ,string ) {", []string{"int64", "string"}},
 	}
 
 	for _, tt := range tests {
@@ -58,15 +58,15 @@ func TestRejectsMalformedResultLists(t *testing.T) {
 		want string
 	}{
 		{"func f() () {", "expected 'type name' found ')'"},
-		{"func f() (int,) {", "expected 'type name' found ')'"},
-		{"func f() (, int) {", "expected 'type name' found ','"},
-		{"func f() (int string) {", "expected ')' found 'string'"},
-		{"func f() (q int, r int) {", "expected ')' found 'int'"},
-		{"func f() (int, int {", "expected ')' found '{'"},
-		{"func f() int, int {", "missing function body"},
-		{"func f() (int, 1) {", "expected 'type name' found '1'"},
-		{"func f() ((int, int)) {", "expected 'type name' found '('"},
-		{"func f() (...int) {", "variadic parameters are not supported"},
+		{"func f() (int64,) {", "expected 'type name' found ')'"},
+		{"func f() (, int64) {", "expected 'type name' found ','"},
+		{"func f() (int64 string) {", "expected ')' found 'string'"},
+		{"func f() (q int64, r int64) {", "expected ')' found 'int64'"},
+		{"func f() (int64, int64 {", "expected ')' found '{'"},
+		{"func f() int64, int64 {", "missing function body"},
+		{"func f() (int64, 1) {", "expected 'type name' found '1'"},
+		{"func f() ((int64, int64)) {", "expected 'type name' found '('"},
+		{"func f() (...int64) {", "variadic parameters are not supported"},
 	}
 
 	for _, tt := range tests {
@@ -213,7 +213,7 @@ func TestRejectsMalformedMultiVar(t *testing.T) {
 		{"a, mut := f()", "expected 'variable name' found ':='"},
 		{"mut mut a, b := f()", "expected 'variable name' found 'mut'"},
 		{"a, var b := f()", "expected 'variable name' found 'var'"},
-		{"a, b int := f()", "expected ':= or =' found 'int'"},
+		{"a, b int64 := f()", "expected ':= or =' found 'int64'"},
 		{"a, b", "expected ':= or =' found ';'"},
 		{"a, b := f(), g()", "expected ';' found ','"},
 	}

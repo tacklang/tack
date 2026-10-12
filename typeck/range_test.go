@@ -37,12 +37,12 @@ var invalidRangeCases = []struct {
 	{
 		"used as a string",
 		inMain("for i := range 3 {\n        print(i)\n    }"),
-		[]spanned{{"cannot use int as string in argument to print", "i"}},
+		[]spanned{{"cannot use int64 as string in argument to print", "i"}},
 	},
 	{
 		"error in the body",
 		inMain("for range 3 {\n        exit(\"s\")\n    }"),
-		[]spanned{{"cannot use string as int in argument to exit", "\"s\""}},
+		[]spanned{{"cannot use string as int64 in argument to exit", "\"s\""}},
 	},
 }
 
@@ -54,11 +54,11 @@ func TestRangeLoops(t *testing.T) {
 	if len(diags) > 0 {
 		t.Fatalf("got %v, want no diagnostics", diags)
 	}
-	if v := file.Decls[0].(*ast.Func).Body[0].(*ast.ForRange).Var; v.Type != types.Int {
-		t.Errorf("variable type = %v, want int", v.Type)
+	if v := file.Decls[0].(*ast.Func).Body[0].(*ast.ForRange).Var; v.Type != types.Int64 {
+		t.Errorf("variable type = %v, want int64", v.Type)
 	}
 
-	forever := "package main\n\nfunc f() int {\n    for range 3 {\n        return 1\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
+	forever := "package main\n\nfunc f() int64 {\n    for range 3 {\n        return 1\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
 	if _, diags := checkTree(
 		t,
 		forever,

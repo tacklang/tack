@@ -229,7 +229,7 @@ func TypeOf(expr Expr) types.Type {
 	case *StrLit:
 		return types.String
 	case *IntLit:
-		return types.Int
+		return types.Int64
 	case *BoolLit:
 		return types.Bool
 	case *Ident:

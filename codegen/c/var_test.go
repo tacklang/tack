@@ -63,7 +63,7 @@ var variableRuntimeCases = []struct {
 	{"computed from others", program("a := 6", "b := 7", "c := a * b", "exit(c)"), "", 42},
 	{"reassigned", program("mut x := 1", "x = 41", "exit(x)"), "", 41},
 	{"updated from itself", program("mut x := 5", "x = x * x", "x = x + 1", "exit(x)"), "", 26},
-	{"declared type", program("var x int = 9", "exit(x)"), "", 9},
+	{"declared type", program("var x int64 = 9", "exit(x)"), "", 9},
 	{"string variable", program("s := \"hi\"", "print(s)"), "hi", 0},
 	{"string reassigned", program("mut s := \"a\"", "s = \"b\"", "print(s)"), "b", 0},
 	{"bool variable", program("b := 1 < 2", "if b {", "    exit(3)", "}"), "", 3},
@@ -73,7 +73,7 @@ var variableRuntimeCases = []struct {
 		"",
 		4,
 	},
-	{"zero int", program("mut n int", "exit(n + 5)"), "", 5},
+	{"zero int64", program("mut n int64", "exit(n + 5)"), "", 5},
 	{"zero string", program("mut s string", "print(s)"), "", 0},
 	{"zero bool", program("mut b bool", "if b {", "    exit(1)", "}", "exit(2)"), "", 2},
 	{
@@ -97,7 +97,7 @@ var variableRuntimeCases = []struct {
 		7,
 	},
 	{"names the C side uses", program(
-		"int := 1", "str0 := 2", "tack_print := 3", "exit(int + str0 + tack_print)"), "", 6},
+		"int64 := 1", "str0 := 2", "tack_print := 3", "exit(int64 + str0 + tack_print)"), "", 6},
 	{"named like a builtin", program("exit := 9", "exit(exit)"), "", 9},
 }
 
@@ -134,7 +134,7 @@ func TestVariableCopiesItsValue(t *testing.T) {
 // Variables work alongside parameters and calls.
 func TestVariablesWithParametersAndCalls(t *testing.T) {
 	src := "package main\n\n" +
-		"func square(n int) int {\n    r := n * n\n    return r\n}\n\n" +
+		"func square(n int64) int64 {\n    r := n * n\n    return r\n}\n\n" +
 		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    exit(total)\n}\n"
 	if _, status := run(t, src); status != 25 {
 		t.Errorf("status = %d, want 25", status)

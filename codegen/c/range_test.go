@@ -29,7 +29,7 @@ var rangeRuntimeCases = []struct {
 	},
 	{
 		"count evaluated once",
-		"package main\n\nfunc three() int {\n    print(\"count\")\n    return 3\n}\n\nfunc main() {\n    mut n = 0\n    for range three() {\n        n++\n    }\n    exit(n)\n}\n",
+		"package main\n\nfunc three() int64 {\n    print(\"count\")\n    return 3\n}\n\nfunc main() {\n    mut n = 0\n    for range three() {\n        n++\n    }\n    exit(n)\n}\n",
 		"count",
 		3,
 	},
@@ -59,7 +59,7 @@ var rangeRuntimeCases = []struct {
 	},
 	{
 		"returns from inside",
-		"package main\n\nfunc find(want int) int {\n    for i := range 50 {\n        if i * i == want {\n            return i\n        }\n    }\n    return -1\n}\n\nfunc main() {\n    exit(find(49) + find(50) + 1)\n}\n",
+		"package main\n\nfunc find(want int64) int64 {\n    for i := range 50 {\n        if i * i == want {\n            return i\n        }\n    }\n    return -1\n}\n\nfunc main() {\n    exit(find(49) + find(50) + 1)\n}\n",
 		"",
 		7,
 	},

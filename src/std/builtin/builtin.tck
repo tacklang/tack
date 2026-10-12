@@ -13,4 +13,4 @@ package builtin
 func print(s string)
 
 // exit ends the process immediately with the given status.
-func exit(code int)
+func exit(code int64)

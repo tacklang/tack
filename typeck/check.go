@@ -231,12 +231,12 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	if got := c.valueType(
 		loop.Count,
-	); got != types.Int && got != types.Invalid &&
+	); got != types.Int64 && got != types.Invalid &&
 		!alreadyReported(loop.Count, got) {
 		c.errorf(loop.Count.Spanned(), "cannot range over %s", c.table.Name(got))
 	}
 	if loop.Var != nil {
-		loop.Var.Type = types.Int
+		loop.Var.Type = types.Int64
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
@@ -345,7 +345,7 @@ func isConstant(e ast.Expr) bool {
 // zeroConst is a type's zero value as a constant.
 func zeroConst(typ types.Type) any {
 	switch typ {
-	case types.Int:
+	case types.Int64:
 		return int64(0)
 	case types.String:
 		return ""
@@ -426,7 +426,7 @@ func (c *Checker) foldUnary(u *ast.Unary, operand any) (any, bool) {
 			return nil, false
 		}
 		if x == math.MinInt64 {
-			c.errorf(u.Span, "constant expression overflows int")
+			c.errorf(u.Span, "constant expression overflows int64")
 			return nil, false
 		}
 		return -x, true
@@ -467,7 +467,7 @@ func (c *Checker) foldInts(bin *ast.Binary, a, b int64) (any, bool) {
 
 	result, overflow := arith(bin.Op, a, b)
 	if overflow {
-		c.errorf(bin.Span, "constant expression overflows int")
+		c.errorf(bin.Span, "constant expression overflows int64")
 		return nil, false
 	}
 	return result, true
@@ -575,8 +575,8 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 		return
 	}
 
-	if got != types.Int && got != types.Invalid && !alreadyReported(a.Value, got) {
-		c.errorf(a.Value.Spanned(), "cannot use %s as int in %s", c.table.Name(got), op)
+	if got != types.Int64 && got != types.Invalid && !alreadyReported(a.Value, got) {
+		c.errorf(a.Value.Spanned(), "cannot use %s as int64 in %s", c.table.Name(got), op)
 	}
 }
 
@@ -594,8 +594,8 @@ func (c *Checker) checkIntTarget(target *ast.Ident, op string) bool {
 			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
 			return false
 		}
-		if def.Type != types.Int && def.Type != types.Invalid {
-			c.errorf(target.Span, "cannot use %s as int in %s", c.table.Name(def.Type), op)
+		if def.Type != types.Int64 && def.Type != types.Invalid {
+			c.errorf(target.Span, "cannot use %s as int64 in %s", c.table.Name(def.Type), op)
 		}
 	}
 	return true
@@ -771,7 +771,7 @@ func (c *Checker) checkExpr(e ast.Expr) {
 		c.checkExpr(x.X)
 		want := types.Bool
 		if x.Op == ast.Neg {
-			want = types.Int
+			want = types.Int64
 		}
 		c.requireOperand(x.X, x.Op, want)
 	}
@@ -805,8 +805,8 @@ func (c *Checker) requireOperand(operand ast.Expr, op fmt.Stringer, want types.T
 // type is unknown because of an error already reported.
 func (c *Checker) requireInts(bin *ast.Binary) {
 	for _, operand := range []ast.Expr{bin.X, bin.Y} {
-		if got := ast.TypeOf(operand); got != types.Int && !reportedInvalid(operand, got) {
-			c.errorf(operand.Spanned(), "cannot use %s as int in %s", c.table.Name(got), bin.Op)
+		if got := ast.TypeOf(operand); got != types.Int64 && !reportedInvalid(operand, got) {
+			c.errorf(operand.Spanned(), "cannot use %s as int64 in %s", c.table.Name(got), bin.Op)
 		}
 	}
 }
@@ -844,7 +844,7 @@ func (c *Checker) checkComparison(bin *ast.Binary) {
 // supports reports whether values of type typ can be compared with op.
 func supports(typ types.Type, op ast.BinaryOp) bool {
 	switch typ {
-	case types.Int:
+	case types.Int64:
 		return true
 	case types.Bool:
 		return op == ast.Eq || op == ast.Ne
@@ -863,9 +863,10 @@ func alreadyReported(e ast.Expr, typ types.Type) bool {
 	}
 	switch x := e.(type) {
 	case *ast.Binary:
-		return x.Op.IsArithmetic() && (ast.TypeOf(x.X) != types.Int || ast.TypeOf(x.Y) != types.Int)
+		return x.Op.IsArithmetic() &&
+			(ast.TypeOf(x.X) != types.Int64 || ast.TypeOf(x.Y) != types.Int64)
 	case *ast.Unary:
-		return x.Op == ast.Neg && ast.TypeOf(x.X) != types.Int
+		return x.Op == ast.Neg && ast.TypeOf(x.X) != types.Int64
 	default:
 		return false
 	}

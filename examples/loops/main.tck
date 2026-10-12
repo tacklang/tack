@@ -1,6 +1,6 @@
 package main
 
-func isPrime(n int) bool {
+func isPrime(n int64) bool {
     if n < 2 {
         return false
     }
@@ -14,7 +14,7 @@ func isPrime(n int) bool {
     return true
 }
 
-func nthPrime(n int) int {
+func nthPrime(n int64) int64 {
     mut found = 0
     mut candidate = 1
     for {

@@ -1,6 +1,6 @@
 package main
 
-func square(n int) int {
+func square(n int64) int64 {
     r := n * n
     return r
 }
@@ -10,7 +10,7 @@ func main() {
     print(greeting)
     print("\n")
 
-    var base int = 3
+    var base int64 = 3
     var step = 4
     mut total := square(base)
     total = total + square(step)
@@ -24,7 +24,7 @@ func main() {
     print(label)
     print("\n")
 
-    mut count int
+    mut count int64
     count = count + 1
     done := count == 1
     if done {

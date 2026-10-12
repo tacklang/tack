@@ -15,24 +15,24 @@ var invalidClauseCases = []struct {
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
-		"int condition",
+		"int64 condition",
 		inMain("for mut i := 0; i; i++ {\n    }"),
-		[]spanned{{"condition must be a bool, got int", "i"}},
+		[]spanned{{"condition must be a bool, got int64", "i"}},
 	},
 	{
 		"bad init",
 		inMain("for mut i := \"s\"; ; i++ {\n        print(i)\n        break\n    }"),
-		[]spanned{{"cannot use string as int in ++", "i"}},
+		[]spanned{{"cannot use string as int64 in ++", "i"}},
 	},
 	{
 		"bad post",
 		inMain("for mut i := 0; i < 3; i += true {\n    }"),
-		[]spanned{{"cannot use bool as int in +=", "true"}},
+		[]spanned{{"cannot use bool as int64 in +=", "true"}},
 	},
 	{
 		"error in post",
 		inMain("for mut i := 0; i < 3; exit(\"s\") {\n        i++\n    }"),
-		[]spanned{{"cannot use string as int in argument to exit", "\"s\""}},
+		[]spanned{{"cannot use string as int64 in argument to exit", "\"s\""}},
 	},
 }
 
@@ -43,7 +43,7 @@ func TestThreeClauseLoops(t *testing.T) {
 		inMain("for mut i := 0; i < 3; i++ {\n        exit(i)\n    }"),
 		mainLines("mut i = 5", "for i = 0; i < 3; i += 1 {", "}", "exit(i)"),
 		inMain("for ;; {\n        break\n    }"),
-		"package main\n\nfunc f() int {\n    for mut i := 0; ; i++ {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    for mut i := 0; ; i++ {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {
@@ -51,7 +51,7 @@ func TestThreeClauseLoops(t *testing.T) {
 		}
 	}
 
-	notTerminating := "package main\n\nfunc f() int {\n    for mut i := 0; i < 9; i++ {\n        return i\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
+	notTerminating := "package main\n\nfunc f() int64 {\n    for mut i := 0; i < 9; i++ {\n        return i\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
 	if _, diags := checkTree(
 		t,
 		notTerminating,

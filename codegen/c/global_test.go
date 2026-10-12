@@ -19,7 +19,7 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		want string
 	}{
 		{"var x = 40 + 2", "exit(x)", "static const int64_t tack_main_x = 42;"},
-		{"mut x int", "exit(x)", "static int64_t tack_main_x = 0;"},
+		{"mut x int64", "exit(x)", "static int64_t tack_main_x = 0;"},
 		{
 			"var x = 0 - 9223372036854775807 - 1", "exit(x)",
 			"static const int64_t tack_main_x = (-9223372036854775807 - 1);",
@@ -69,7 +69,7 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"updated across calls",
-		"package main\n\nmut count int\n\nfunc bump() {\n    count = count + 1\n}\n\n" +
+		"package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\n" +
 			"func main() {\n    bump()\n    bump()\n    bump()\n    exit(count)\n}\n", "", 3,
 	},
 	{
@@ -89,18 +89,18 @@ var globalRuntimeCases = []struct {
 		5,
 	},
 	{
-		"smallest int",
+		"smallest int64",
 		"package main\n\nvar min = 0 - 9223372036854775807 - 1\n\n" +
 			"func main() {\n    if min == 0 - 9223372036854775807 - 1 {\n        exit(7)\n    }\n}\n", "", 7,
 	},
 	{
 		"names the C side uses",
-		"package main\n\nvar str0 = 1\n\nvar int = 2\n\nvar tack_print = 3\n\n" +
-			"func main() {\n    print(\"x\")\n    exit(str0 + int + tack_print)\n}\n", "x", 6,
+		"package main\n\nvar str0 = 1\n\nvar int64 = 2\n\nvar tack_print = 3\n\n" +
+			"func main() {\n    print(\"x\")\n    exit(str0 + int64 + tack_print)\n}\n", "x", 6,
 	},
 	{
 		"global and local together",
-		"package main\n\nmut total int\n\nfunc add(n int) {\n    total = total + n\n}\n\n" +
+		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total + n\n}\n\n" +
 			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    exit(total)\n}\n", "", 15,
 	},
 }
@@ -125,7 +125,7 @@ func TestGlobalsAtRuntime(t *testing.T) {
 // An assignment the type checker would have rejected, handed to the backend
 // anyway, is reported rather than crashing it.
 func TestAssignmentToANonVariableIsReported(t *testing.T) {
-	param := &ast.Param{Name: "n", Type: types.Int}
+	param := &ast.Param{Name: "n", Type: types.Int64}
 	file := &ast.File{
 		Package: "main",
 		Decls: []ast.Decl{

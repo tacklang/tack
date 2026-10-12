@@ -86,7 +86,10 @@ func resolveFile(t *testing.T, src string) *ast.File {
 // An identifier argument must be bound to the parameter it names, since that
 // binding is how every later stage learns the argument's type.
 func TestBindsIdentifierArgumentToItsParameter(t *testing.T) {
-	file := resolveFile(t, "package main\n\nfunc f(x int) {\n    exit(x)\n}\n\nfunc main() {\n}\n")
+	file := resolveFile(
+		t,
+		"package main\n\nfunc f(x int64) {\n    exit(x)\n}\n\nfunc main() {\n}\n",
+	)
 
 	fn := file.Decls[0].(*ast.Func)
 	arg := fn.Body[0].(*ast.ExprStmt).X.(*ast.Call).Args[0].(*ast.Ident)
@@ -116,7 +119,7 @@ func TestRejectsUndefinedIdentifierArgument(t *testing.T) {
 
 // A parameter belongs to one function body, not to the file.
 func TestParameterIsNotInScopeInAnotherFunction(t *testing.T) {
-	src := "package main\n\nfunc f(x int) {\n}\n\nfunc main() {\n    exit(x)\n}\n"
+	src := "package main\n\nfunc f(x int64) {\n}\n\nfunc main() {\n    exit(x)\n}\n"
 
 	diags := resolve(t, src)
 	if len(diags) == 0 {
@@ -128,7 +131,7 @@ func TestParameterIsNotInScopeInAnotherFunction(t *testing.T) {
 }
 
 func TestRejectsDuplicateParameterName(t *testing.T) {
-	diags := resolve(t, "package main\n\nfunc f(x int, x int) {\n}\n\nfunc main() {\n}\n")
+	diags := resolve(t, "package main\n\nfunc f(x int64, x int64) {\n}\n\nfunc main() {\n}\n")
 
 	if len(diags) == 0 {
 		t.Fatal("a repeated parameter name was accepted")
@@ -139,7 +142,7 @@ func TestRejectsDuplicateParameterName(t *testing.T) {
 }
 
 func TestRejectsParametersOnMain(t *testing.T) {
-	diags := resolve(t, "package main\n\nfunc main(x int) {\n}\n")
+	diags := resolve(t, "package main\n\nfunc main(x int64) {\n}\n")
 
 	if len(diags) == 0 {
 		t.Fatal("main was allowed to declare a parameter")
@@ -153,10 +156,10 @@ func TestRejectsParametersOnMain(t *testing.T) {
 // whether or not the body returns a value.
 func TestRejectsAResultOnMain(t *testing.T) {
 	for _, src := range []string{
-		"package main\n\nfunc main() int {\n    return 1\n}\n",
+		"package main\n\nfunc main() int64 {\n    return 1\n}\n",
 		"package main\n\nfunc main() string {\n    return \"x\"\n}\n",
 		"package main\n\nfunc main() bool {\n    return 1 < 2\n}\n",
-		"package main\n\nfunc main() int {\n}\n",
+		"package main\n\nfunc main() int64 {\n}\n",
 		"package main\n\nfunc main() nosuchtype {\n}\n",
 	} {
 		diags := resolve(t, src)
@@ -172,7 +175,7 @@ func TestRejectsAResultOnMain(t *testing.T) {
 
 // A main with both parameters and a result gets both reported in one run.
 func TestReportsParametersAndResultOnMainTogether(t *testing.T) {
-	diags := resolve(t, "package main\n\nfunc main(x int) int {\n    return x\n}\n")
+	diags := resolve(t, "package main\n\nfunc main(x int64) int64 {\n    return x\n}\n")
 
 	got := make([]string, 0, len(diags))
 	for _, d := range diags {
@@ -189,7 +192,7 @@ func TestReportsParametersAndResultOnMainTogether(t *testing.T) {
 
 // Only the function named main is constrained; any other may return a value.
 func TestOtherFunctionsMayDeclareAResult(t *testing.T) {
-	src := "package main\n\nfunc mainly() int {\n    return 1\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc mainly() int64 {\n    return 1\n}\n\nfunc main() {\n}\n"
 	if diags := resolve(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
@@ -198,7 +201,7 @@ func TestOtherFunctionsMayDeclareAResult(t *testing.T) {
 // Go allows a parameter to shadow a function name, and so does Tack; this pins
 // that it is deliberate rather than untested.
 func TestParameterMayShadowAFunctionName(t *testing.T) {
-	src := "package main\n\nfunc f(g int) {\n    exit(g)\n}\n\nfunc g() {\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(g int64) {\n    exit(g)\n}\n\nfunc g() {\n}\n\nfunc main() {\n}\n"
 
 	if diags := resolve(t, src); len(diags) > 0 {
 		t.Errorf("a parameter shadowing a function name was rejected: %+v", diags)
@@ -210,7 +213,7 @@ func TestParameterMayShadowAFunctionName(t *testing.T) {
 func TestBindsIdentifierInAReturn(t *testing.T) {
 	file := resolveFile(
 		t,
-		"package main\n\nfunc f(x int) int {\n    return x\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f(x int64) int64 {\n    return x\n}\n\nfunc main() {\n}\n",
 	)
 
 	fn := file.Decls[0].(*ast.Func)
@@ -229,7 +232,10 @@ func TestBindsIdentifierInAReturn(t *testing.T) {
 }
 
 func TestRejectsUndefinedIdentifierInAReturn(t *testing.T) {
-	diags := resolve(t, "package main\n\nfunc f() int {\n    return nope\n}\n\nfunc main() {\n}\n")
+	diags := resolve(
+		t,
+		"package main\n\nfunc f() int64 {\n    return nope\n}\n\nfunc main() {\n}\n",
+	)
 
 	if len(diags) == 0 {
 		t.Fatal("an undefined identifier in a return was accepted")
@@ -240,7 +246,7 @@ func TestRejectsUndefinedIdentifierInAReturn(t *testing.T) {
 }
 
 func TestBindsCalleeOfACallUsedAsAnArgument(t *testing.T) {
-	src := "package main\n\nfunc seven() int {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n"
+	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n"
 	file := resolveFile(t, src)
 
 	main := file.Decls[1].(*ast.Func)
@@ -263,8 +269,8 @@ func TestRejectsUndefinedCalleeInAnArgument(t *testing.T) {
 }
 
 func TestBindsIdentifierInsideANestedCall(t *testing.T) {
-	src := "package main\n\nfunc g(x int) int {\n    return x\n}\n\n" +
-		"func f(n int) {\n    exit(g(n))\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
+		"func f(n int64) {\n    exit(g(n))\n}\n\nfunc main() {\n}\n"
 	file := resolveFile(t, src)
 
 	f := file.Decls[1].(*ast.Func)
@@ -283,7 +289,7 @@ func TestBindsIdentifierInsideANestedCall(t *testing.T) {
 }
 
 func TestBindsIdentifiersInsideAnIf(t *testing.T) {
-	src := "package main\n\nfunc f(n int) {\n    if n < 2 {\n        exit(n)\n    }\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(n int64) {\n    if n < 2 {\n        exit(n)\n    }\n}\n\nfunc main() {\n}\n"
 	file := resolveFile(t, src)
 
 	fn := file.Decls[0].(*ast.Func)
@@ -301,7 +307,7 @@ func TestBindsIdentifiersInsideAnIf(t *testing.T) {
 }
 
 func TestBindsIdentifiersInsideAnElseBlock(t *testing.T) {
-	src := "package main\n\nfunc f(n int) {\n    if n < 2 {\n    } else {\n        exit(n)\n    }\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(n int64) {\n    if n < 2 {\n    } else {\n        exit(n)\n    }\n}\n\nfunc main() {\n}\n"
 	file := resolveFile(t, src)
 
 	ifs := file.Decls[0].(*ast.Func).Body[0].(*ast.If)
@@ -312,7 +318,7 @@ func TestBindsIdentifiersInsideAnElseBlock(t *testing.T) {
 }
 
 func TestBindsIdentifiersInBothOperandsOfABinary(t *testing.T) {
-	src := "package main\n\nfunc f(a int, b int) int {\n    return a + b\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(a int64, b int64) int64 {\n    return a + b\n}\n\nfunc main() {\n}\n"
 	file := resolveFile(t, src)
 
 	bin := file.Decls[0].(*ast.Func).Body[0].(*ast.Return).Values[0].(*ast.Binary)

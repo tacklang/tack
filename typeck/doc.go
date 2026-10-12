@@ -20,7 +20,7 @@
 // value into Var.Const with Go's integer arithmetic (division truncates, and
 // a remainder takes the dividend's sign), comparing bools as well as ints
 // and applying && || ! and -. Every operand is computed, the right side of &&
-// and || included, as in Go, so a result that overflows int or a division by
+// and || included, as in Go, so a result that overflows int64 or a division by
 // zero is reported wherever it is. A global
 // without a value gets its type's zero value.
 //
@@ -29,10 +29,10 @@
 //   - a call passes the number of arguments its callee declares, each of the
 //     declared type, whether the callee is a Tack function or a builtin;
 //   - a call to a function that returns nothing cannot be used as a value;
-//   - every operand of an arithmetic operator or of - is an int, and every
+//   - every operand of an arithmetic operator or of - is an int64, and every
 //     operand of && || and ! is a bool;
 //   - both operands of a comparison have one type, which supports the
-//     operator: an int supports all six, a bool only == and !=, and a string
+//     operator: an int64 supports all six, a bool only == and !=, and a string
 //     none. A mismatch, or an unsupported operator, is one error covering the
 //     whole comparison;
 //   - a variable's value has its declared type, and a variable declared
@@ -40,8 +40,8 @@
 //   - only a mutable variable may be declared without a value, and only a
 //     mutable variable may be assigned to; parameters never may;
 //   - an assigned value has the variable's type, and a compound assignment
-//     such as += has an int target and an int value; ++ and -- need a
-//     mutable int variable;
+//     such as += has an int64 target and an int64 value; ++ and -- need a
+//     mutable int64 variable;
 //   - a return carries one value for each result the function declares, each
 //     of its result's type, and a wrong count is one error;
 //   - a, b := f() binds a call with exactly that many results, each variable
@@ -51,7 +51,7 @@
 //     never used as one value;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
-//   - a range loop's count is an int, and its variable is an immutable int;
+//   - a range loop's count is an int64, and its variable is an immutable int64;
 //   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, or a loop

@@ -14,7 +14,7 @@
 // left-associative. The prefix operators ! and - apply to the operand right
 // after them, so they bind tighter than any binary operator. A - right before
 // an integer literal is part of the literal instead, which is how the
-// smallest int is written. The keywords true and false are bool literals, so
+// smallest int64 is written. The keywords true and false are bool literals, so
 // neither can start a statement or be declared as a name.
 //
 // A function's results are one type name, or a parenthesized list of them
@@ -36,11 +36,11 @@
 // The parser stops at the first syntax error and returns that error's
 // diagnostics with a nil file, so a caller never sees a partial tree.
 //
-// The parser only checks shape, so it accepts a declaration like var x int
+// The parser only checks shape, so it accepts a declaration like var x int64
 // whatever its mutability, and leaves whether it may lack a value to the
 // type checker. Names are left unbound (every Ident.Def is nil) and types
 // unresolved (every Type is types.Invalid) for the resolver and type checker
 // to fill in. Integer literals are the exception: they are
-// decoded here, and one that does not fit in an int is reported here. Every
+// decoded here, and one that does not fit in an int64 is reported here. Every
 // node's span is tagged with the FileID the parser was created with.
 package parser

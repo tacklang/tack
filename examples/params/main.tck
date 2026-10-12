@@ -1,6 +1,6 @@
 package main
 
-func greet(s string, code int) {
+func greet(s string, code int64) {
     print(s)
     print("\n")
     exit(code)

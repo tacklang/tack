@@ -1,7 +1,7 @@
 stage: typeck
 ---
 
-examples/invalid/global-overflow/main.tck:3:11: error: constant expression overflows int
+examples/invalid/global-overflow/main.tck:3:11: error: constant expression overflows int64
 02 |	
 03 |	var big = 9223372036854775807 + 1
    |	          ^~~~~~~~~~~~~~~~~~~~~~~ 

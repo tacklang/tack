@@ -1,6 +1,6 @@
 package main
 
-func classify(n int) string {
+func classify(n int64) string {
     if n < 10 {
         return "small"
     } else {

@@ -572,7 +572,7 @@ func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
-	count, diags := g.expr(loop.Count, types.Int)
+	count, diags := g.expr(loop.Count, types.Int64)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -907,7 +907,7 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 	case "exit":
 		var lines []string
 		for _, a := range call.Args {
-			expr, diags := g.expr(a, types.Int)
+			expr, diags := g.expr(a, types.Int64)
 			if len(diags) > 0 {
 				return nil, diags
 			}
@@ -1099,7 +1099,7 @@ func (g *generator) stringValue(s string) string {
 
 func cType(typ types.Type) string {
 	switch typ {
-	case types.Int:
+	case types.Int64:
 		return "int64_t"
 	case types.String:
 		return "tack_string"

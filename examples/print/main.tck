@@ -1,6 +1,6 @@
 package main
 
-func row(n int) {
+func row(n int64) {
     for range n {
         print("*")
     }

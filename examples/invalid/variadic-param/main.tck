@@ -1,6 +1,6 @@
 package main
 
-func f(x ...int) {
+func f(x ...int64) {
 }
 
 func main() {

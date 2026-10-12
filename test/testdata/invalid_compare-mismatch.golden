@@ -1,7 +1,7 @@
 stage: typeck
 ---
 
-examples/invalid/compare-mismatch/main.tck:4:8: error: mismatched types bool and int in ==
+examples/invalid/compare-mismatch/main.tck:4:8: error: mismatched types bool and int64 in ==
 03 |	func main() {
 04 |	    if true == 1 {
    |	       ^~~~~~~~~ 

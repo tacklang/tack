@@ -2,9 +2,9 @@ package main
 
 var greeting = "globals"
 
-var limit int = 6 * 7
+var limit int64 = 6 * 7
 
-mut calls int
+mut calls int64
 
 func count() {
     calls = calls + 1

@@ -146,7 +146,7 @@ func TestParsesCommaSeparatedArguments(t *testing.T) {
 // An identifier argument is how a parameter gets used, so it has to reach the
 // AST as an Ident for the resolver to bind.
 func TestParsesIdentifierArgument(t *testing.T) {
-	src := "package main\n\nfunc f(x int) {\n    exit(x)\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(x int64) {\n    exit(x)\n}\n\nfunc main() {\n}\n"
 
 	file, diags := parse(t, src)
 	if len(diags) > 0 {
@@ -179,7 +179,7 @@ func TestRejectsArgumentsWithoutASeparatingComma(t *testing.T) {
 // Parameter lists already parsed before this slice; these pin that, since the
 // resolver and the backend are about to depend on the shape.
 func TestParsesParameterList(t *testing.T) {
-	file, diags := parse(t, "package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n}\n")
+	file, diags := parse(t, "package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n}\n")
 	if len(diags) > 0 {
 		t.Fatalf("parse reported %d diagnostic(s): %+v", len(diags), diags)
 	}
@@ -189,7 +189,7 @@ func TestParsesParameterList(t *testing.T) {
 		t.Fatalf("f has %d parameters, want 2", len(fn.Params))
 	}
 
-	for i, want := range []struct{ name, typ string }{{"x", "int"}, {"s", "string"}} {
+	for i, want := range []struct{ name, typ string }{{"x", "int64"}, {"s", "string"}} {
 		if fn.Params[i].Name != want.name {
 			t.Errorf("parameter %d name = %q, want %q", i, fn.Params[i].Name, want.name)
 		}
@@ -215,7 +215,10 @@ func TestParsesEmptyParameterList(t *testing.T) {
 }
 
 func TestParsesResultType(t *testing.T) {
-	file, diags := parse(t, "package main\n\nfunc f() int {\n    return 1\n}\n\nfunc main() {\n}\n")
+	file, diags := parse(
+		t,
+		"package main\n\nfunc f() int64 {\n    return 1\n}\n\nfunc main() {\n}\n",
+	)
 	if len(diags) > 0 {
 		t.Fatalf("parse reported %d diagnostic(s): %+v", len(diags), diags)
 	}
@@ -228,8 +231,8 @@ func TestParsesResultType(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type is %T, want *ast.Ident", fn.Results[0])
 	}
-	if id.Name != "int" {
-		t.Errorf("result type = %q, want %q", id.Name, "int")
+	if id.Name != "int64" {
+		t.Errorf("result type = %q, want %q", id.Name, "int64")
 	}
 }
 
@@ -247,7 +250,7 @@ func TestFunctionWithoutResultTypeHasNone(t *testing.T) {
 func TestParsesReturnWithAValue(t *testing.T) {
 	file, diags := parse(
 		t,
-		"package main\n\nfunc f() int {\n    return 42\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 42\n}\n\nfunc main() {\n}\n",
 	)
 	if len(diags) > 0 {
 		t.Fatalf("parse reported %d diagnostic(s): %+v", len(diags), diags)
@@ -412,7 +415,7 @@ func TestParenthesesOverridePrecedence(t *testing.T) {
 }
 
 func TestParsesCallsWithinArithmetic(t *testing.T) {
-	src := "package main\n\nfunc fib(n int) int {\n    return fib(n - 1) + fib(n - 2)\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc fib(n int64) int64 {\n    return fib(n - 1) + fib(n - 2)\n}\n\nfunc main() {\n}\n"
 
 	file, diags := parse(t, src)
 	if len(diags) > 0 {
@@ -499,7 +502,7 @@ func TestParsesElseIfChain(t *testing.T) {
 }
 
 func TestParsesReturnInsideAnIf(t *testing.T) {
-	src := "package main\n\nfunc f(n int) int {\n    if n < 2 {\n        return n\n    }\n    return 0\n}\n\nfunc main() {\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n < 2 {\n        return n\n    }\n    return 0\n}\n\nfunc main() {\n}\n"
 
 	file, diags := parse(t, src)
 	if len(diags) > 0 {
@@ -523,7 +526,7 @@ func TestParsesReturnInsideAnIf(t *testing.T) {
 // f(x int) produced identical trees and nothing downstream could tell that
 // something had been asked for and silently not delivered.
 func TestRejectsVariadicParameter(t *testing.T) {
-	_, diags := parse(t, "package main\n\nfunc f(x ...int) {\n}\n\nfunc main() {\n}\n")
+	_, diags := parse(t, "package main\n\nfunc f(x ...int64) {\n}\n\nfunc main() {\n}\n")
 
 	if len(diags) == 0 {
 		t.Fatal("a variadic parameter parsed without a diagnostic")
@@ -534,7 +537,10 @@ func TestRejectsVariadicParameter(t *testing.T) {
 }
 
 func TestRejectsVariadicResultType(t *testing.T) {
-	_, diags := parse(t, "package main\n\nfunc f() ...int {\n    return 1\n}\n\nfunc main() {\n}\n")
+	_, diags := parse(
+		t,
+		"package main\n\nfunc f() ...int64 {\n    return 1\n}\n\nfunc main() {\n}\n",
+	)
 
 	if len(diags) == 0 {
 		t.Fatal("a variadic result type parsed without a diagnostic")

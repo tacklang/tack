@@ -20,7 +20,7 @@ working native binaries, but the language it accepts is still small.
 ```tack
 package main
 
-func fib(n int) int {
+func fib(n int64) int64 {
     if n < 2 {
         return n
     }
@@ -133,7 +133,7 @@ one type rather than a pointer and a length passed separately, so that it can
 be returned, stored, and nested later without changing every signature that
 mentions it. The C backend emits it as a `tack_string` struct passed by value.
 
-An `int` is a 64-bit signed integer, emitted as C's `int64_t`, and a `bool` is
+An `int64` is a 64-bit signed integer, emitted as C's `int64_t`, and a `bool` is
 emitted as C's `bool`.
 
 ## Builtins
@@ -187,9 +187,9 @@ which is true today because `main` is the only package there is.
 
 - `package main` is required, and must be the first declaration.
 - A `func main()` is required. It takes no parameters and declares no result.
-- Top-level `func name(x int, s string) int { ... }` declarations. Parameters
+- Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,
-  one, or several in parentheses, `func divmod(a int, b int) (int, int)`, and
+  one, or several in parentheses, `func divmod(a int64, b int64) (int64, int64)`, and
   `return a / b, a % b` gives one value for each. Results are unnamed.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
@@ -217,10 +217,10 @@ which is true today because `main` is the only package there is.
   included, and may be any of those except a declaration. Every part may be
   left out (`for ;; { ... }`). A variable `init` declares belongs to the
   loop, and needs `mut` to be updated: `for mut i := 0; i < n; i++ { ... }`.
-- Range over an int. `for i := range n { ... }` runs once for each `i` from
+- Range over an int64. `for i := range n { ... }` runs once for each `i` from
   `0` to `n - 1`, and not at all when `n` is zero or less; `for range n`
-  does the same without a variable. `n` is an `int` evaluated once, before
-  the first iteration. `i` is a fresh immutable `int` each iteration.
+  does the same without a variable. `n` is an `int64` evaluated once, before
+  the first iteration. `i` is a fresh immutable `int64` each iteration.
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
@@ -228,7 +228,7 @@ which is true today because `main` is the only package there is.
 - `x = v` assigns to a mutable variable of the same type. Parameters are
   immutable.
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
-  mutable `int` variable and an `int` value. Like a plain assignment, they do
+  mutable `int64` variable and an `int64` value. Like a plain assignment, they do
   not count as reading `x`, so a variable that is only ever updated is still
   unused. `x++` and `x--` add and subtract one the same way. They are
   statements, never values, and there is no prefix form.
@@ -247,26 +247,26 @@ which is true today because `main` is the only package there is.
   the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
   tightest, then arithmetic, then comparisons, then `&&`, then `||`.
-  Arithmetic and `-x` take `int` operands; `-x` means `0 - x`. At runtime,
-  arithmetic that overflows wraps around, as in Go: the largest int plus one
-  is the smallest, negating the smallest int gives itself, and the smallest
-  int divided by -1 is itself, with remainder 0. Dividing by zero is not
+  Arithmetic and `-x` take `int64` operands; `-x` means `0 - x`. At runtime,
+  arithmetic that overflows wraps around, as in Go: the largest int64 plus one
+  is the smallest, negating the smallest int64 gives itself, and the smallest
+  int64 divided by -1 is itself, with remainder 0. Dividing by zero is not
   defined yet. A comparison takes two operands of the
-  same type: two `int`s with any of the six, or two `bool`s with `==` and
+  same type: two `int64`s with any of the six, or two `bool`s with `==` and
   `!=`. Strings cannot be compared yet.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
   is computed in full, so an error on either side is reported.
-- The types are `int`, `string`, and `bool`. A bool is `true`, `false`, or the
+- The types are `int64`, `string`, and `bool`. A bool is `true`, `false`, or the
   result of a comparison. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes one integer and terminates the process with that status.
-- Integer literals. `int` is 64-bit signed, and a literal that does not fit is
+- Integer literals. `int64` is 64-bit signed, and a literal that does not fit is
   a parse error. A `-` right before the digits is part of the literal, so the
-  smallest int is written `-9223372036854775808`.
+  smallest int64 is written `-9223372036854775808`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with

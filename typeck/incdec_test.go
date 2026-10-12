@@ -16,18 +16,18 @@ var invalidIncDecCases = []struct {
 	},
 	{
 		"parameter",
-		"package main\n\nfunc f(n int) {\n    n--\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nfunc f(n int64) {\n    n--\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]spanned{{"cannot assign to parameter n", "n"}},
 	},
 	{
 		"bool",
 		mainLines("mut b = true", "b++", "if b {", "}"),
-		[]spanned{{"cannot use bool as int in ++", "b"}},
+		[]spanned{{"cannot use bool as int64 in ++", "b"}},
 	},
 	{
 		"string",
 		mainLines("mut s = \"a\"", "s--", "print(s)"),
-		[]spanned{{"cannot use string as int in --", "s"}},
+		[]spanned{{"cannot use string as int64 in --", "s"}},
 	},
 }
 
@@ -35,7 +35,7 @@ var invalidIncDecCases = []struct {
 func TestIncDec(t *testing.T) {
 	ok := []string{
 		mainLines("mut x = 1", "x++", "x--", "x++", "exit(x)"),
-		"package main\n\nmut n int\n\nfunc main() {\n    n++\n    exit(n)\n}\n",
+		"package main\n\nmut n int64\n\nfunc main() {\n    n++\n    exit(n)\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {

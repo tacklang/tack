@@ -46,17 +46,17 @@ func TestRecordsEachVariablesType(t *testing.T) {
 		decl string
 		want types.Type
 	}{
-		{"x := 1", types.Int},
+		{"x := 1", types.Int64},
 		{"x := \"s\"", types.String},
 		{"x := 1 < 2", types.Bool},
-		{"x := 1 + 2 * 3", types.Int},
-		{"var x int = 1", types.Int},
+		{"x := 1 + 2 * 3", types.Int64},
+		{"var x int64 = 1", types.Int64},
 		{"var x = \"s\"", types.String},
 		{"var x bool = 1 < 2", types.Bool},
-		{"mut x int", types.Int},
+		{"mut x int64", types.Int64},
 		{"mut x string", types.String},
 		{"mut x bool", types.Bool},
-		{"mut x = 1", types.Int},
+		{"mut x = 1", types.Int64},
 	}
 
 	for _, tt := range tests {
@@ -86,7 +86,7 @@ func TestVariableTypeFlowsIntoUses(t *testing.T) {
 func TestAcceptsValidVariablePrograms(t *testing.T) {
 	tests := []string{
 		mainLines("mut x := 1", "x = 2", "exit(x)"),
-		mainLines("mut x int", "x = x + 1", "exit(x)"),
+		mainLines("mut x int64", "x = x + 1", "exit(x)"),
 		mainLines("mut s string", "s = \"x\"", "print(s)"),
 		mainLines("mut b bool", "b = 1 < 2", "if b {", "}"),
 		mainLines("x := 1", "mut y = x", "y = x * 2", "exit(y)"),
@@ -105,16 +105,16 @@ var invalidVariablePrograms = []struct {
 	want []string
 }{
 	{
-		"immutable without a value", mainLines("var x int", "exit(x)"),
+		"immutable without a value", mainLines("var x int64", "exit(x)"),
 		[]string{"immutable variable x needs a value"},
 	},
 	{
-		"declared type mismatch", mainLines("var x int = \"s\"", "exit(x)"),
-		[]string{"cannot use string as int in declaration of x"},
+		"declared type mismatch", mainLines("var x int64 = \"s\"", "exit(x)"),
+		[]string{"cannot use string as int64 in declaration of x"},
 	},
 	{
-		"declared bool from int", mainLines("var b bool = 1", "if b {", "}"),
-		[]string{"cannot use int as bool in declaration of b"},
+		"declared bool from int64", mainLines("var b bool = 1", "if b {", "}"),
+		[]string{"cannot use int64 as bool in declaration of b"},
 	},
 	{
 		"unknown declared type", mainLines("var x float = 1", "exit(x)"),
@@ -139,7 +139,7 @@ var invalidVariablePrograms = []struct {
 	},
 	{
 		"assign a different type", mainLines("mut x := 1", "x = \"s\"", "exit(x)"),
-		[]string{"cannot use string as int in assignment to x"},
+		[]string{"cannot use string as int64 in assignment to x"},
 	},
 	{
 		"assign nothing",
@@ -148,13 +148,13 @@ var invalidVariablePrograms = []struct {
 	},
 	{
 		"assign to a parameter",
-		"package main\n\nfunc f(n int) {\n    n = 2\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nfunc f(n int64) {\n    n = 2\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]string{"cannot assign to parameter n"},
 	},
 	{
 		"string arithmetic through a variable",
 		mainLines("s := \"a\"", "t := s + s", "print(t)"),
-		[]string{"cannot use string as int in +", "cannot use string as int in +"},
+		[]string{"cannot use string as int64 in +", "cannot use string as int64 in +"},
 	},
 }
 

@@ -13,7 +13,7 @@ func TestTableNamesBasicTypesAsTheSourceDoes(t *testing.T) {
 		want string
 		typ  types.Type
 	}{
-		{"int", types.Int},
+		{"int64", types.Int64},
 		{"string", types.String},
 		{"bool", types.Bool},
 		{"invalid", types.Invalid},
@@ -39,7 +39,7 @@ func TestInvalidIsTheZeroValue(t *testing.T) {
 
 // The basic types are distinct IDs, so == tells them apart.
 func TestBasicTypesAreDistinct(t *testing.T) {
-	all := []types.Type{types.Invalid, types.Int, types.String, types.Bool}
+	all := []types.Type{types.Invalid, types.Int64, types.String, types.Bool}
 	seen := make(map[types.Type]bool)
 	for _, typ := range all {
 		if seen[typ] {
@@ -52,7 +52,7 @@ func TestBasicTypesAreDistinct(t *testing.T) {
 // Every type a program can write round-trips through Lookup and Name.
 func TestLookupRoundTripsEveryNamedType(t *testing.T) {
 	table := types.NewTable()
-	for _, typ := range []types.Type{types.Int, types.String, types.Bool} {
+	for _, typ := range []types.Type{types.Int64, types.String, types.Bool} {
 		got, ok := types.Lookup(table.Name(typ))
 		if !ok || got != typ {
 			t.Errorf("Lookup(%q) = %v, %v, want %v, true", table.Name(typ), got, ok, typ)
@@ -61,7 +61,7 @@ func TestLookupRoundTripsEveryNamedType(t *testing.T) {
 }
 
 func TestLookupRejectsNamesThatAreNotTypes(t *testing.T) {
-	for _, name := range []string{"invalid", "", "Int", "INT", " int", "int ", "int64", "uint", "float", "byte", "rune", "str", "boolean"} {
+	for _, name := range []string{"invalid", "", "Int", "INT", "INT64", " int64", "int64 ", "int", "uint", "float", "byte", "rune", "str", "boolean"} {
 		if got, ok := types.Lookup(name); ok || got != types.Invalid {
 			t.Errorf("Lookup(%q) = %v, %v, want Invalid, false", name, got, ok)
 		}
@@ -83,8 +83,8 @@ func TestTableNamesUnknownIDsInvalid(t *testing.T) {
 // type through the nil Table must still work rather than panic.
 func TestNilTableNamesBasicTypes(t *testing.T) {
 	var table *types.Table
-	if got := table.Name(types.Int); got != "int" {
-		t.Errorf("nil Table: Name(Int) = %q, want %q", got, "int")
+	if got := table.Name(types.Int64); got != "int64" {
+		t.Errorf("nil Table: Name(Int64) = %q, want %q", got, "int64")
 	}
 	if got := table.Name(99); got != "invalid" {
 		t.Errorf("nil Table: Name(99) = %q, want %q", got, "invalid")

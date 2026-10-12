@@ -6,7 +6,7 @@ import (
 )
 
 // three declares a function with three results, for the tests below.
-const three = "func three() (int, string, bool) {\n    return 1, \"s\", true\n}\n\n"
+const three = "func three() (int64, string, bool) {\n    return 1, \"s\", true\n}\n\n"
 
 // TestAcceptsBlankInMultiBindings checks _ discards a result wherever it
 // stands in a declaration or assignment of several, as often as needed.
@@ -35,11 +35,11 @@ var blankMisuseCases = []struct {
 }{
 	{"short declaration", "func main() {\n    _ := 1\n}\n", "cannot use _ as a name", "_"},
 	{"var declaration", "func main() {\n    var _ = 1\n}\n", "cannot use _ as a name", "_"},
-	{"mut declaration", "func main() {\n    mut _ int\n}\n", "cannot use _ as a name", "_"},
+	{"mut declaration", "func main() {\n    mut _ int64\n}\n", "cannot use _ as a name", "_"},
 	{"global", "var _ = 1\n\nfunc main() {\n}\n", "cannot use _ as a name", "_"},
 	{
 		"parameter",
-		"func f(_ int) {\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"func f(_ int64) {\n}\n\nfunc main() {\n    f(1)\n}\n",
 		"cannot use _ as a name",
 		"_",
 	},

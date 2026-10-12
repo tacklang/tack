@@ -18,7 +18,7 @@
 // for diagnostics; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
-// "int", to its Type.
+// "int64", to its Type.
 //
 // It is a leaf package: the AST, the type checker, the builtins and the
 // backends depend on it, and it depends on nothing.

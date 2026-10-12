@@ -3,7 +3,7 @@ stage: typeck
 
 examples/invalid/var-immutable-no-value/main.tck:4:9: error: immutable variable x needs a value
 03 |	func main() {
-04 |	    var x int
+04 |	    var x int64
    |	        ^ 
 05 |	    exit(x)
 

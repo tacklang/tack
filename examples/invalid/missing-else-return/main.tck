@@ -1,6 +1,6 @@
 package main
 
-func f(n int) int {
+func f(n int64) int64 {
     if n < 2 {
         return 1
     }

@@ -66,7 +66,7 @@ var clauseRuntimeCases = []struct {
 	},
 	{
 		"returns from a loop without a condition",
-		"package main\n\nfunc first(over int) int {\n    for mut i := 0; ; i++ {\n        if i * i > over {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    exit(first(30))\n}\n",
+		"package main\n\nfunc first(over int64) int64 {\n    for mut i := 0; ; i++ {\n        if i * i > over {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    exit(first(30))\n}\n",
 		"",
 		6,
 	},

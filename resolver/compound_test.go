@@ -41,7 +41,7 @@ func TestCompoundAssignmentIsNotARead(t *testing.T) {
 		},
 		{
 			"only updated global",
-			"package main\n\nmut total int\n\nfunc main() {\n    total += 1\n}\n",
+			"package main\n\nmut total int64\n\nfunc main() {\n    total += 1\n}\n",
 			[]string{"declared and not used: total"},
 		},
 	}

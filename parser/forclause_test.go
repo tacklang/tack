@@ -36,7 +36,7 @@ func TestParsesThreeClauseLoops(t *testing.T) {
 	}{
 		{"mut i := 0; i < 3; i++", "var", "(i < 3)", "incdec"},
 		{"mut i = 0; i < 3; i += 1", "var", "(i < 3)", "assign"},
-		{"var i int = 0; i < 3; i = i + 1", "var", "(i < 3)", "assign"},
+		{"var i int64 = 0; i < 3; i = i + 1", "var", "(i < 3)", "assign"},
 		{"i := 0; i < 3; f()", "var", "(i < 3)", "call"},
 		{"i = 0; i < 3; i--", "assign", "(i < 3)", "incdec"},
 		{"f(); g(); h()", "call", "g()", "call"},
@@ -114,7 +114,7 @@ func TestRejectsMalformedThreeClauseLoops(t *testing.T) {
 			"cannot declare a variable in a for loop's post statement",
 		},
 		{"for ;; var j = 1 {\n    }", "cannot declare a variable in a for loop's post statement"},
-		{"for ;; mut j int {\n    }", "cannot declare a variable in a for loop's post statement"},
+		{"for ;; mut j int64 {\n    }", "cannot declare a variable in a for loop's post statement"},
 		{"for mut i := 0 {\n    }", "expected ';' found '{'"},
 		{"for mut i := 0; i < 3 {\n    }", "expected ';' found '{'"},
 		{"for mut i := 0; i < 3; i++; {\n    }", "expected '{' found ';'"},

@@ -83,7 +83,7 @@ func TestRejectsMalformedNegation(t *testing.T) {
 		expr string
 		want string
 	}{
-		{"-9223372036854775809", "integer literal -9223372036854775809 out of range for int"},
+		{"-9223372036854775809", "integer literal -9223372036854775809 out of range for int64"},
 		{"--5", "expected 'value' found '--'"},
 		{"--x", "expected 'value' found '--'"},
 		{"+5", "expected 'value' found '+'"},

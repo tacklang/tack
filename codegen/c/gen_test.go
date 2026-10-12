@@ -224,7 +224,7 @@ func TestStringLiteralBecomesAStringValue(t *testing.T) {
 }
 
 func TestGeneratesParameterisedSignature(t *testing.T) {
-	got := generate(t, "package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n}\n")
+	got := generate(t, "package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n}\n")
 
 	want := "static void tack_main_f(int64_t p_x, tack_string p_s)"
 	if !strings.Contains(got, want+";") {
@@ -239,7 +239,7 @@ func TestGeneratesParameterisedSignature(t *testing.T) {
 // parameter can legally be called str0, exit, or int, each of which would
 // collide with something the generated C already defines.
 func TestParameterNamesCannotCollideWithGeneratedNames(t *testing.T) {
-	got := generate(t, "package main\n\nfunc f(str0 int, exit int) {\n}\n\nfunc main() {\n}\n")
+	got := generate(t, "package main\n\nfunc f(str0 int64, exit int64) {\n}\n\nfunc main() {\n}\n")
 
 	if !strings.Contains(got, "static void tack_main_f(int64_t p_str0, int64_t p_exit)") {
 		t.Errorf("parameter names were not kept clear of generated names:\n%s", got)
@@ -249,7 +249,7 @@ func TestParameterNamesCannotCollideWithGeneratedNames(t *testing.T) {
 func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n    f(7, \"hi\")\n}\n",
+		"package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n    f(7, \"hi\")\n}\n",
 	)
 
 	if !strings.Contains(got, "tack_main_f(7, (tack_string){str0, 2});") {
@@ -260,7 +260,7 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc f(x int, s string) {\n    print(s)\n    exit(x)\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f(x int64, s string) {\n    print(s)\n    exit(x)\n}\n\nfunc main() {\n}\n",
 	)
 
 	if !strings.Contains(got, "tack_print(p_s);") {
@@ -401,7 +401,7 @@ func build(t *testing.T, src string) string {
 
 func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 	src := "package main\n\n" +
-		"func greet(s string, n int) {\n    print(s)\n    exit(n)\n}\n\n" +
+		"func greet(s string, n int64) {\n    print(s)\n    exit(n)\n}\n\n" +
 		"func main() {\n    greet(\"hello\", 7)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -423,7 +423,7 @@ func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 func TestParameterSurvivesAnInterveningCall(t *testing.T) {
 	src := "package main\n\n" +
 		"func other() {\n    print(\"side effect\")\n}\n\n" +
-		"func f(n int) {\n    other()\n    exit(n)\n}\n\n" +
+		"func f(n int64) {\n    other()\n    exit(n)\n}\n\n" +
 		"func main() {\n    f(9)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -461,7 +461,7 @@ func TestGeneratedProgramForwardsAParameter(t *testing.T) {
 func TestGeneratesResultTypeInSignature(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc seven() int {\n    return 7\n}\n\nfunc hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n}\n",
 	)
 
 	for _, want := range []string{
@@ -475,7 +475,10 @@ func TestGeneratesResultTypeInSignature(t *testing.T) {
 }
 
 func TestGeneratesReturnStatement(t *testing.T) {
-	got := generate(t, "package main\n\nfunc seven() int {\n    return 7\n}\n\nfunc main() {\n}\n")
+	got := generate(
+		t,
+		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n}\n",
+	)
 
 	if !strings.Contains(got, "    return 7;") {
 		t.Errorf("generated C has no return statement:\n%s", got)
@@ -493,7 +496,7 @@ func TestGeneratesBareReturn(t *testing.T) {
 func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc seven() int {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
+		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
 	)
 
 	if !strings.Contains(got, "exit(tack_main_seven());") {
@@ -502,8 +505,8 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 }
 
 func TestNestedCallsNest(t *testing.T) {
-	src := "package main\n\nfunc g(x int) int {\n    return x\n}\n\n" +
-		"func h() int {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
+	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
+		"func h() int64 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
 
 	got := generate(t, src)
 	if !strings.Contains(got, "exit(tack_main_g(tack_main_h()));") {
@@ -512,7 +515,7 @@ func TestNestedCallsNest(t *testing.T) {
 }
 
 func TestGeneratedProgramReturnsAnIntResult(t *testing.T) {
-	src := "package main\n\nfunc seven() int {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n"
+	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -539,8 +542,8 @@ func TestGeneratedProgramReturnsAStringResult(t *testing.T) {
 
 func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 	src := "package main\n\n" +
-		"func base() int {\n    return 5\n}\n\n" +
-		"func same(n int) int {\n    return n\n}\n\n" +
+		"func base() int64 {\n    return 5\n}\n\n" +
+		"func same(n int64) int64 {\n    return n\n}\n\n" +
 		"func main() {\n    exit(same(same(base())))\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
@@ -598,7 +601,7 @@ func TestNestsStatementsInsideBranches(t *testing.T) {
 
 func TestGeneratedProgramComputesFib(t *testing.T) {
 	src := "package main\n\n" +
-		"func fib(n int) int {\n" +
+		"func fib(n int64) int64 {\n" +
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
@@ -616,7 +619,7 @@ func TestGeneratedProgramComputesFib(t *testing.T) {
 
 func TestGeneratedProgramTakesTheElseBranch(t *testing.T) {
 	src := "package main\n\n" +
-		"func classify(n int) string {\n" +
+		"func classify(n int64) string {\n" +
 		"    if n < 10 {\n        return \"small\"\n    } else {\n        return \"large\"\n    }\n" +
 		"}\n\n" +
 		"func main() {\n    print(classify(3))\n    print(classify(30))\n}\n"
@@ -649,8 +652,8 @@ func TestGeneratedProgramEvaluatesEveryOperator(t *testing.T) {
 func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
 	// sub(10, 3) * 10 + sub(20, 10) == 7 * 10 + 10 == 80
 	src := "package main\n\n" +
-		"func sub(a int, b int) int {\n    return a - b\n}\n\n" +
-		"func ten() int {\n    return 10\n}\n\n" +
+		"func sub(a int64, b int64) int64 {\n    return a - b\n}\n\n" +
+		"func ten() int64 {\n    return 10\n}\n\n" +
 		"func main() {\n    exit(sub(ten(), 3) * 10 + sub(20, ten()))\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
@@ -668,8 +671,8 @@ func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
 func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 	// (7 + 2) * 10 + (7 - 2) == 95
 	src := "package main\n\n" +
-		"func seven() int {\n    return 7\n}\n\n" +
-		"func two() int {\n    return 2\n}\n\n" +
+		"func seven() int64 {\n    return 7\n}\n\n" +
+		"func two() int64 {\n    return 2\n}\n\n" +
 		"func main() {\n    exit((seven() + two()) * 10 + (seven() - two()))\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
@@ -685,7 +688,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 // An if condition is emitted with one pair of parentheses. Doubled ones make
 // clang warn on every equality test, and the warning reaches the user.
 func TestIfConditionHasOnePairOfParentheses(t *testing.T) {
-	src := "package main\n\nfunc f(n int) int {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    exit(f(1))\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    exit(f(1))\n}\n"
 
 	if got := generate(t, src); !strings.Contains(got, "if (p_n == 1) {") {
 		t.Errorf("condition not emitted with one pair of parentheses:\n%s", got)

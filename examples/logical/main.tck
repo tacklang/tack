@@ -6,7 +6,7 @@ func check(name string, ok bool) bool {
     return ok
 }
 
-func safe(n int) bool {
+func safe(n int64) bool {
     return n != 0 && 100 / n > 10
 }
 

@@ -1,8 +1,8 @@
 package main
 
-mut calls int
+mut calls int64
 
-func sumTo(n int) int {
+func sumTo(n int64) int64 {
     calls += 1
     mut i = 0
     mut sum = 0

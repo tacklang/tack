@@ -47,7 +47,7 @@ var logicalRuntimeCases = []struct {
 	},
 	{
 		"&& guards a division",
-		"package main\n\nfunc safe(n int) bool {\n    return n != 0 && 10 / n > 1\n}\n\n" +
+		"package main\n\nfunc safe(n int64) bool {\n    return n != 0 && 10 / n > 1\n}\n\n" +
 			"func main() {\n    if safe(0) {\n        exit(1)\n    }\n    if safe(2) {\n        exit(7)\n    }\n}\n",
 		"", 7,
 	},

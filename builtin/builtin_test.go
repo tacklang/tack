@@ -186,7 +186,7 @@ func TestBuiltinSignatures(t *testing.T) {
 		params []types.Type
 	}{
 		{"print", []types.Type{types.String}},
-		{"exit", []types.Type{types.Int}},
+		{"exit", []types.Type{types.Int64}},
 	}
 	if len(builtin.Funcs()) != len(tests) {
 		t.Errorf("Funcs() has %d builtins, want %d", len(builtin.Funcs()), len(tests))

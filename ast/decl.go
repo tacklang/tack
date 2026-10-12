@@ -45,7 +45,7 @@ func (f *Func) Spanned() Span { return f.Span }
 
 // Param is one parameter in a function's parameter list.
 type Param struct {
-	TypeExpr Expr // the type as written, e.g. *Ident{"int"}
+	TypeExpr Expr // the type as written, e.g. *Ident{"int64"}
 	Name     string
 	NameSpan Span
 	Span     Span

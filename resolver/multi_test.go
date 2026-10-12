@@ -8,7 +8,7 @@ import (
 )
 
 // pair declares a function with two results, for the tests below to call.
-const pair = "func pair(n int) (int, int) {\n    return n, n\n}\n\n"
+const pair = "func pair(n int64) (int64, int64) {\n    return n, n\n}\n\n"
 
 // TestResolvesMultiVar checks each name a MultiVar declares is bound by
 // later uses, and that the call is resolved before any of them exists.
@@ -67,7 +67,7 @@ var badMultiVarNameCases = []struct {
 	},
 	{
 		"reuses a parameter",
-		pair + "func f(a int) {\n    a, b := pair(1)\n    exit(a + b)\n}\n\nfunc main() {\n}\n",
+		pair + "func f(a int64) {\n    a, b := pair(1)\n    exit(a + b)\n}\n\nfunc main() {\n}\n",
 		[]string{"a is already declared"},
 	},
 	{
@@ -117,13 +117,13 @@ func TestMultiVarInLoopInitIsScopedToTheLoop(t *testing.T) {
 
 // main may declare no results, whether one or several.
 func TestMainWithSeveralResultsIsRejected(t *testing.T) {
-	src := "package main\n\nfunc main() (int, string) {\n    return 1, \"x\"\n}\n"
+	src := "package main\n\nfunc main() (int64, string) {\n    return 1, \"x\"\n}\n"
 	_, diags := resolveTree(t, src)
 	if len(diags) != 1 || diags[0].Message != "main function must not declare a result" {
 		t.Fatalf("got %q", messagesOf(diags))
 	}
-	if got := src[diags[0].Span.Start:diags[0].Span.End]; got != "int, string" {
-		t.Errorf("diagnostic covers %q, want %q", got, "int, string")
+	if got := src[diags[0].Span.Start:diags[0].Span.End]; got != "int64, string" {
+		t.Errorf("diagnostic covers %q, want %q", got, "int64, string")
 	}
 }
 

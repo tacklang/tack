@@ -11,7 +11,7 @@ import (
 // time, and the program exits 1 when the identity holds. Both parameters are
 // read, since the strict build rejects an unused one.
 func wrapProgram(cond string) string {
-	return "package main\n\nfunc check(max int, min int) bool {\n    return max != min && " + cond + "\n}\n\n" +
+	return "package main\n\nfunc check(max int64, min int64) bool {\n    return max != min && " + cond + "\n}\n\n" +
 		"func main() {\n    if check(9223372036854775807, -9223372036854775808) {\n        exit(1)\n    }\n    exit(2)\n}\n"
 }
 
@@ -29,7 +29,7 @@ var wrapCases = []struct{ name, src string }{
 	{"min + min", wrapProgram("min + min == 0")},
 	{
 		"compound and increment",
-		"package main\n\nfunc check(max int, min int) bool {\n    mut a := max\n    a += 1\n    mut b := min\n    b--\n" +
+		"package main\n\nfunc check(max int64, min int64) bool {\n    mut a := max\n    a += 1\n    mut b := min\n    b--\n" +
 			"    mut c := max\n    c++\n    mut d := min\n    d *= -1\n    mut e := min\n    e /= -1\n    mut f := min\n    f %= -1\n" +
 			"    return a == min && b == max && c == min && d == min && e == min && f == 0\n}\n\n" +
 			"func main() {\n    if check(9223372036854775807, -9223372036854775808) {\n        exit(1)\n    }\n    exit(2)\n}\n",

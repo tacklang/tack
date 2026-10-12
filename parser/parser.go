@@ -1200,7 +1200,7 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 	if err != nil {
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  fmt.Sprintf("integer literal %s out of range for int", text),
+			Message:  fmt.Sprintf("integer literal %s out of range for int64", text),
 			Span:     span,
 		}}
 	}

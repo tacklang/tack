@@ -1,6 +1,6 @@
 package main
 
 func main() {
-    var x int = "one"
+    var x int64 = "one"
     exit(x)
 }

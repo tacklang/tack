@@ -45,29 +45,32 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 		src  string
 		want []string
 	}{
-		{"exit status", inMain("exit(true)"), []string{"cannot use bool as int"}},
+		{"exit status", inMain("exit(true)"), []string{"cannot use bool as int64"}},
 		{"printed", inMain("print(false)"), []string{"cannot use bool as string"}},
 		{
 			// An arithmetic expression takes its left operand's type, so the
 			// argument is reported too, as for "a" + "b".
 			"arithmetic",
 			inMain("exit(true + 1)"),
-			[]string{"cannot use bool as int in argument to exit", "cannot use bool as int in +"},
+			[]string{
+				"cannot use bool as int64 in argument to exit",
+				"cannot use bool as int64 in +",
+			},
 		},
 		{
-			"int variable",
-			mainLines("var x int = true", "exit(x)"),
-			[]string{"cannot use bool as int in declaration of x"},
+			"int64 variable",
+			mainLines("var x int64 = true", "exit(x)"),
+			[]string{"cannot use bool as int64 in declaration of x"},
 		},
 		{
-			"assigned to an int",
+			"assigned to an int64",
 			mainLines("mut x = 1", "x = false", "exit(x)"),
-			[]string{"cannot use bool as int in assignment to x"},
+			[]string{"cannot use bool as int64 in assignment to x"},
 		},
 		{
-			"returned as an int",
-			"package main\n\nfunc f() int {\n    return true\n}\n\nfunc main() {\n    exit(f())\n}\n",
-			[]string{"cannot use bool as int"},
+			"returned as an int64",
+			"package main\n\nfunc f() int64 {\n    return true\n}\n\nfunc main() {\n    exit(f())\n}\n",
+			[]string{"cannot use bool as int64"},
 		},
 	}
 
@@ -128,10 +131,10 @@ func TestRejectsOperatorsOnBoolLiteralGlobals(t *testing.T) {
 		decl string
 		want string
 	}{
-		{"var x = true + 1", "cannot use bool as int in +"},
-		{"var x = 1 * false", "cannot use bool as int in *"},
+		{"var x = true + 1", "cannot use bool as int64 in +"},
+		{"var x = 1 * false", "cannot use bool as int64 in *"},
 		{"var x = true < false", "operator < is not defined on bool"},
-		{"var x = true == 1", "mismatched types bool and int in =="},
+		{"var x = true == 1", "mismatched types bool and int64 in =="},
 	}
 
 	for _, tt := range tests {
@@ -180,11 +183,11 @@ func TestRejectsInvalidComparisons(t *testing.T) {
 		cond string
 		want string
 	}{
-		{"true == 1", "mismatched types bool and int in =="},
-		{"1 != false", "mismatched types int and bool in !="},
-		{"1 < true", "mismatched types int and bool in <"},
+		{"true == 1", "mismatched types bool and int64 in =="},
+		{"1 != false", "mismatched types int64 and bool in !="},
+		{"1 < true", "mismatched types int64 and bool in <"},
 		{"\"a\" == true", "mismatched types string and bool in =="},
-		{"\"a\" >= 1", "mismatched types string and int in >="},
+		{"\"a\" >= 1", "mismatched types string and int64 in >="},
 		{"true < false", "operator < is not defined on bool"},
 		{"true <= false", "operator <= is not defined on bool"},
 		{"true > false", "operator > is not defined on bool"},
@@ -215,7 +218,7 @@ func TestRejectsInvalidComparisons(t *testing.T) {
 // sits in.
 func TestComparisonDoesNotRepeatOperandErrors(t *testing.T) {
 	_, diags := checkTree(t, inMain("if (\"a\" + 1) == true {\n    }"))
-	if len(diags) != 1 || diags[0].Message != "cannot use string as int in +" {
+	if len(diags) != 1 || diags[0].Message != "cannot use string as int64 in +" {
 		t.Errorf("got %v, want only the error inside the operand", diags)
 	}
 }

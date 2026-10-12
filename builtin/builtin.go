@@ -11,7 +11,7 @@ type Func struct {
 
 var funcs = []Func{
 	{Name: "print", Params: []types.Type{types.String}},
-	{Name: "exit", Params: []types.Type{types.Int}},
+	{Name: "exit", Params: []types.Type{types.Int64}},
 }
 
 // Funcs returns every builtin, in a fixed order.

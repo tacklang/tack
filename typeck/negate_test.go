@@ -28,7 +28,7 @@ var invalidNegationCases = []struct {
 	{
 		"not of a negation",
 		inMain("if !-5 {\n    }"),
-		[]spanned{{"operator ! is not defined on int", "-5"}},
+		[]spanned{{"operator ! is not defined on int64", "-5"}},
 	},
 	{
 		// A negation takes its operand's type, so the argument is reported
@@ -36,14 +36,14 @@ var invalidNegationCases = []struct {
 		"negation of a not",
 		mainLines("b := true", "exit(-!b)"),
 		[]spanned{
-			{"cannot use bool as int in argument to exit", "-!b"},
+			{"cannot use bool as int64 in argument to exit", "-!b"},
 			{"operator - is not defined on bool", "!b"},
 		},
 	},
 	{
 		"error inside",
 		inMain("exit(-(1 + \"s\"))"),
-		[]spanned{{"cannot use string as int in +", "\"s\""}},
+		[]spanned{{"cannot use string as int64 in +", "\"s\""}},
 	},
 }
 
@@ -52,7 +52,7 @@ func TestNegation(t *testing.T) {
 	ok := []string{
 		mainLines("x := 5", "exit(-x)"),
 		mainLines("x := 5", "exit(0 - -x + -3)"),
-		"package main\n\nfunc f() int {\n    return 2\n}\n\nfunc main() {\n    exit(-f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 2\n}\n\nfunc main() {\n    exit(-f())\n}\n",
 		mainLines("x := -9223372036854775808", "if x < 0 {", "}"),
 	}
 	for _, src := range ok {
@@ -100,15 +100,15 @@ func TestFoldsNegation(t *testing.T) {
 			if len(diags) > 0 {
 				t.Fatalf("got %v, want no diagnostics", diags)
 			}
-			if v := globalX(t, file); v.Type != types.Int || v.Const != tt.want {
-				t.Errorf("got %v %#v, want int %#v", v.Type, v.Const, tt.want)
+			if v := globalX(t, file); v.Type != types.Int64 || v.Const != tt.want {
+				t.Errorf("got %v %#v, want int64 %#v", v.Type, v.Const, tt.want)
 			}
 		})
 	}
 
 	for _, decl := range []string{"var x = -(-9223372036854775808)", "var x = - -9223372036854775808"} {
 		_, diags := checkTree(t, withGlobal(decl))
-		if len(diags) != 1 || diags[0].Message != "constant expression overflows int" {
+		if len(diags) != 1 || diags[0].Message != "constant expression overflows int64" {
 			t.Errorf("%s: got %v, want an overflow", decl, diags)
 		}
 	}
