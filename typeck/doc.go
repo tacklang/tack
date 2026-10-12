@@ -18,16 +18,20 @@
 // are known in every function. A global's initializer must be a constant
 // expression, made only of literals and operators. The checker computes its
 // value into Var.Const with Go's integer arithmetic (division truncates, and
-// a remainder takes the dividend's sign), and reports a result that
-// overflows int or a division by zero. A global without a value gets its
-// type's zero value.
+// a remainder takes the dividend's sign), comparing bools as well as ints,
+// and reports a result that overflows int or a division by zero. A global
+// without a value gets its type's zero value.
 //
 // The third pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each of the
 //     declared type, whether the callee is a Tack function or a builtin;
 //   - a call to a function that returns nothing cannot be used as a value;
-//   - every operand of an arithmetic or comparison operator is an int;
+//   - every operand of an arithmetic operator is an int;
+//   - both operands of a comparison have one type, which supports the
+//     operator: an int supports all six, a bool only == and !=, and a string
+//     none. A mismatch, or an unsupported operator, is one error covering the
+//     whole comparison;
 //   - an if condition is a bool;
 //   - a variable's value has its declared type, and a variable declared
 //     without a type takes its value's;

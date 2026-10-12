@@ -212,8 +212,10 @@ which is true today because `main` is the only package there is.
   an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, parentheses,
   and the infix
-  operators `+ - * / %` and `== != < <= > >=`, with Go's precedence. Every
-  operand must be an `int`.
+  operators `+ - * / %` and `== != < <= > >=`, with Go's precedence.
+  Arithmetic takes `int` operands. A comparison takes two operands of the
+  same type: two `int`s with any of the six, or two `bool`s with `==` and
+  `!=`. Strings cannot be compared yet.
 - The types are `int`, `string`, and `bool`. A bool is `true`, `false`, or the
   result of a comparison. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.

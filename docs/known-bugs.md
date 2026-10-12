@@ -37,3 +37,24 @@ before `package` is a parse error: `expected 'statement' found 'comment'`.
 
 `func f() (int, int) { ... }` is reported as "missing function body" rather
 than as an unsupported result list.
+
+## A call that returns nothing is reported as type "invalid"
+
+Using a call to a function that returns nothing as an operand, as in
+`f() + 1` or `f() == true`, is reported as `cannot use invalid as int in +`.
+"invalid" is the checker's internal name for a missing type, not something a
+Tack programmer should see. The same call as an argument or a declared value
+already gets a proper message.
+
+## Parentheses are left out of an expression's span
+
+A parenthesised expression leaves no node of its own, so a binary expression
+written as `(a) == (b)` spans from `a` to `b`, and a diagnostic about it
+underlines `a) == (b`, without its first and last characters.
+
+## clang warnings reach the user
+
+The driver runs clang without warning flags and passes its output through,
+so a valid program can produce a C warning about the generated code. `x == x`
+prints `warning: self-comparison always evaluates to true`, naming the
+temporary C file, and the build still succeeds.

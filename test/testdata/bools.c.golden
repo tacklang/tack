@@ -41,6 +41,9 @@ static void tack_main_main(void) {
     if (tack_main_not(v_done)) {
         exit(1);
     }
+    if (v_done != tack_main_verbose) {
+        exit(2);
+    }
     exit(9);
 }
 

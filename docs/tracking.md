@@ -77,7 +77,7 @@ Open questions about how a feature should behave are in
 | Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked     |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                             |
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | `int` operands only; overflow and division by zero follow C |
-| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | `int` operands only; produce a bool                         |
+| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | Same-type operands: `int` all six, `bool` `==` `!=` only    |
 | Unary `-` `+` `!` `^`             | yes   | no     | no      | no      | `-1` cannot be written                                      |
 | `&&` `\                           | \     | `      | yes     | no      | no                                                          |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                             |
@@ -90,7 +90,7 @@ Open questions about how a feature should behave are in
 |-------------------------------|---------|-----|---------------------------------------------------------------|
 | `int`                         | yes     | yes | 64-bit signed, `int64_t`                                      |
 | `string`                      | yes     | yes | Pointer and length, `tack_string` by value                    |
-| `bool`                        | yes     | yes | `true`, `false` and comparisons; no operator takes a bool yet |
+| `bool`                        | yes     | yes | `true`, `false` and comparisons; compared with `==` and `!=`  |
 | Other integer and float types | no      | no  |                                                               |
 | Arrays, slices, maps, structs | no      | no  |                                                               |
 | Pointers                      | no      | no  |                                                               |

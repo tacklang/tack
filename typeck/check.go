@@ -207,14 +207,37 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		if !ok {
 			return nil, false
 		}
-		return c.foldBinary(x, left.(int64), right.(int64))
+		return c.foldBinary(x, left, right)
 	default:
 		return nil, false
 	}
 }
 
-// foldBinary applies an operator to two int constants.
-func (c *Checker) foldBinary(bin *ast.Binary, a, b int64) (any, bool) {
+// foldBinary applies an operator to two constants of the same type: two
+// bools under == or !=, or two ints under any operator, as the checker has
+// already required. Operands of any other types fold to nothing rather than
+// guess.
+func (c *Checker) foldBinary(bin *ast.Binary, left, right any) (any, bool) {
+	switch x := left.(type) {
+	case bool:
+		y, ok := right.(bool)
+		if !ok || (bin.Op != ast.Eq && bin.Op != ast.Ne) {
+			return nil, false
+		}
+		return (x == y) == (bin.Op == ast.Eq), true
+	case int64:
+		y, ok := right.(int64)
+		if !ok {
+			return nil, false
+		}
+		return c.foldInts(bin, x, y)
+	default:
+		return nil, false
+	}
+}
+
+// foldInts applies an operator to two int constants.
+func (c *Checker) foldInts(bin *ast.Binary, a, b int64) (any, bool) {
 	if bin.Op.IsComparison() {
 		return compareInts(bin.Op, a, b), true
 	}
@@ -413,15 +436,76 @@ func (c *Checker) checkExpr(e ast.Expr) {
 	}
 }
 
-// checkBinary requires int operands for every operator. Arithmetic on strings
-// would need concatenation, and comparing them would need a runtime
-// comparison; neither exists.
+// checkBinary requires int operands for every arithmetic operator, since
+// arithmetic on strings would need concatenation, which does not exist.
+// Comparisons are checked by checkComparison.
 func (c *Checker) checkBinary(bin *ast.Binary) {
+	if bin.Op.IsComparison() {
+		c.checkComparison(bin)
+		return
+	}
+	c.requireInts(bin)
+}
+
+// requireInts reports each operand of bin that is not an int, unless its
+// type is unknown because of an error already reported.
+func (c *Checker) requireInts(bin *ast.Binary) {
 	for _, operand := range []ast.Expr{bin.X, bin.Y} {
 		if got := ast.KindOf(operand); got != types.Int && !reportedInvalid(operand, got) {
 			c.errorf(operand.Spanned(), "cannot use %s as int in %s", got, bin.Op)
 		}
 	}
+}
+
+// checkComparison requires both operands of a comparison to have one type,
+// and that type to support the operator: an int supports all six, a bool
+// only == and !=, and a string none, since comparing strings would need a
+// runtime comparison. Either problem is one error covering the whole
+// comparison. An operand with no type of its own falls back to requireInts,
+// and one whose error is already reported is not reported again.
+func (c *Checker) checkComparison(bin *ast.Binary) {
+	x, y := ast.KindOf(bin.X), ast.KindOf(bin.Y)
+	if alreadyReported(bin.X, x) || alreadyReported(bin.Y, y) {
+		return
+	}
+	if x == types.Invalid || y == types.Invalid {
+		c.requireInts(bin)
+		return
+	}
+
+	switch {
+	case x != y:
+		c.errorf(bin.Span, "mismatched types %s and %s in %s", x, y, bin.Op)
+	case !supports(x, bin.Op):
+		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, x)
+	}
+}
+
+// supports reports whether values of kind can be compared with op.
+func supports(kind types.Kind, op ast.BinaryOp) bool {
+	switch kind {
+	case types.Int:
+		return true
+	case types.Bool:
+		return op == ast.Eq || op == ast.Ne
+	default:
+		return false
+	}
+}
+
+// alreadyReported reports whether an operand's type is unreliable because of
+// an error already reported: one of the cases reportedInvalid covers, or
+// arithmetic on something other than ints, which checkBinary reported and
+// whose kind is only its left operand's.
+func alreadyReported(e ast.Expr, kind types.Kind) bool {
+	if reportedInvalid(e, kind) {
+		return true
+	}
+	bin, ok := e.(*ast.Binary)
+	if !ok || bin.Op.IsComparison() {
+		return false
+	}
+	return ast.KindOf(bin.X) != types.Int || ast.KindOf(bin.Y) != types.Int
 }
 
 func (c *Checker) checkCall(call *ast.Call) {

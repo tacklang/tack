@@ -18,5 +18,8 @@ func main() {
     if not(done) {
         exit(1)
     }
+    if done != verbose {
+        exit(2)
+    }
     exit(9)
 }

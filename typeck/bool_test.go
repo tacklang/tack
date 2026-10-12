@@ -55,12 +55,6 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 			[]string{"cannot use bool as int in argument to exit", "cannot use bool as int in +"},
 		},
 		{
-			// Comparing bools is not defined yet; == takes ints only.
-			"compared",
-			inMain("if true == false {\n    }"),
-			[]string{"cannot use bool as int in ==", "cannot use bool as int in =="},
-		},
-		{
 			"int variable",
 			mainLines("var x int = true", "exit(x)"),
 			[]string{"cannot use bool as int in declaration of x"},
@@ -102,6 +96,11 @@ func TestFoldsBoolLiteralGlobals(t *testing.T) {
 		{"var x = true", true},
 		{"var x bool = false", false},
 		{"mut x = true", true},
+		{"var x = true == false", false},
+		{"var x = false == false", true},
+		{"var x = true != (1 < 2)", false},
+		{"var x = (2 > 1) == true", true},
+		{"var x = (1 == 1) != (2 == 3)", true},
 	}
 
 	for _, tt := range tests {
@@ -131,7 +130,8 @@ func TestRejectsOperatorsOnBoolLiteralGlobals(t *testing.T) {
 	}{
 		{"var x = true + 1", "cannot use bool as int in +"},
 		{"var x = 1 * false", "cannot use bool as int in *"},
-		{"var x = true < false", "cannot use bool as int in <"},
+		{"var x = true < false", "operator < is not defined on bool"},
+		{"var x = true == 1", "mismatched types bool and int in =="},
 	}
 
 	for _, tt := range tests {
@@ -144,5 +144,78 @@ func TestRejectsOperatorsOnBoolLiteralGlobals(t *testing.T) {
 				t.Errorf("message = %q, want it to contain %q", diags[0].Message, tt.want)
 			}
 		})
+	}
+}
+
+// TestAcceptsBoolEquality lists comparisons of two bools with == and !=,
+// which must check cleanly.
+func TestAcceptsBoolEquality(t *testing.T) {
+	tests := []string{
+		"true == false",
+		"true != false",
+		"(1 < 2) == (3 < 4)",
+		"(1 < 2) != true",
+		"x == true",
+		"x != x",
+		"f() == x",
+		"(x == true) == (x != false)",
+	}
+
+	for _, cond := range tests {
+		t.Run(cond, func(t *testing.T) {
+			src := "package main\n\nfunc f() bool {\n    return true\n}\n\n" +
+				"func main() {\n    x := false\n    if " + cond + " {\n        exit(1)\n    }\n    if x {\n    }\n}\n"
+			if _, diags := checkTree(t, src); len(diags) > 0 {
+				t.Errorf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// TestRejectsInvalidComparisons checks a comparison of two different types
+// is one mismatch error, and an operator its operands' type does not support
+// is one error naming the operator, each covering the whole comparison.
+func TestRejectsInvalidComparisons(t *testing.T) {
+	tests := []struct {
+		cond string
+		want string
+	}{
+		{"true == 1", "mismatched types bool and int in =="},
+		{"1 != false", "mismatched types int and bool in !="},
+		{"1 < true", "mismatched types int and bool in <"},
+		{"\"a\" == true", "mismatched types string and bool in =="},
+		{"\"a\" >= 1", "mismatched types string and int in >="},
+		{"true < false", "operator < is not defined on bool"},
+		{"true <= false", "operator <= is not defined on bool"},
+		{"true > false", "operator > is not defined on bool"},
+		{"1 < 2 > false", "operator > is not defined on bool"},
+		{"true >= true", "operator >= is not defined on bool"},
+		{"\"a\" == \"b\"", "operator == is not defined on string"},
+		{"\"a\" < \"b\"", "operator < is not defined on string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cond, func(t *testing.T) {
+			src := inMain("if " + tt.cond + " {\n    }")
+			_, diags := checkTree(t, src)
+			if len(diags) != 1 {
+				t.Fatalf("got %v, want one diagnostic %q", diags, tt.want)
+			}
+			if diags[0].Message != tt.want {
+				t.Errorf("message = %q, want %q", diags[0].Message, tt.want)
+			}
+			if got := src[diags[0].Span.Start:diags[0].Span.End]; got != tt.cond {
+				t.Errorf("diagnostic covers %q, want the whole comparison %q", got, tt.cond)
+			}
+		})
+	}
+}
+
+// An operand already reported is not reported again by the comparison it
+// sits in.
+func TestComparisonDoesNotRepeatOperandErrors(t *testing.T) {
+	_, diags := checkTree(t, inMain("if (\"a\" + 1) == true {\n    }"))
+	if len(diags) != 1 || diags[0].Message != "cannot use string as int in +" {
+		t.Errorf("got %v, want only the error inside the operand", diags)
 	}
 }

@@ -57,6 +57,32 @@ var boolRuntimeCases = []struct {
 		"on\n",
 		7,
 	},
+	{
+		"equal bools",
+		"package main\n\nfunc main() {\n    x := 1 < 2\n    y := 2 < 3\n    if x == true {\n        if x != false {\n            if (x == y) == true {\n" +
+			"                exit(8)\n            }\n        }\n    }\n}\n",
+		"",
+		8,
+	},
+	{
+		"unequal bools take the else",
+		"package main\n\nfunc main() {\n    if true == false {\n        exit(1)\n    } else {\n        exit(10)\n    }\n}\n",
+		"",
+		10,
+	},
+	{
+		"comparing results and parameters",
+		"package main\n\nfunc same(a bool, b bool) bool {\n    return a == b\n}\n\n" +
+			"func main() {\n    if same(false, false) != same(true, false) {\n        exit(11)\n    }\n}\n",
+		"",
+		11,
+	},
+	{
+		"package-level comparison",
+		"package main\n\nvar differ = true != false\n\nfunc main() {\n    if differ {\n        exit(12)\n    }\n}\n",
+		"",
+		12,
+	},
 }
 
 func TestBoolLiteralsAtRuntime(t *testing.T) {

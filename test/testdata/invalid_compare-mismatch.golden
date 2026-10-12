@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/compare-mismatch/main.tck:4:8: error: mismatched types bool and int in ==
+03 |	func main() {
+04 |	    if true == 1 {
+   |	       ^~~~~~~~~ 
+05 |	        exit(1)
+
