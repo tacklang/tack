@@ -5,14 +5,6 @@ deliberate answer. Each entry says what happens today and why it matters.
 When a decision is made, the entry is removed and the answer goes into the
 README's "The language today".
 
-## Division by zero
-
-Decided but not yet implemented: `a / b` and `a % b` will compile only where
-the checker can prove `b` is not zero, and otherwise be written
-`q, ok := a / b`. Until then, dividing by zero at runtime is undefined
-behavior in the generated C: it traps on x86-64 and quietly gives 0 on
-ARM64. Overflow is decided and implemented: arithmetic wraps.
-
 ## Evaluation order
 
 C does not specify the order in which a call's arguments, or a binary

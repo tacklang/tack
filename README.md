@@ -256,9 +256,32 @@ which is true today because `main` is the only package there is.
   arithmetic that overflows wraps around at its type's width, as in Go: the
   largest value plus one is the smallest, negating the smallest signed value
   gives itself, and the smallest signed value divided by -1 is itself, with
-  remainder 0. Dividing by zero is not defined yet. A comparison takes two
+  remainder 0. A comparison takes two
   operands of one type, after the same widening: two integers with any of
   the six, or two `bool`s with `==` and `!=`. Strings cannot be compared yet.
+- Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
+  compile only where the compiler can prove `b` is not zero; a constant zero
+  is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)
+  divides only when `b` is not zero: `ok` reports whether it was not, and `q`
+  is the result, or `0`. Both operands are always evaluated. The two-value
+  form is an error where the divisor is proven not zero. A divisor is proven
+  not zero when it is a non-zero constant, an immutable variable holding
+  one, or a variable a condition covers where it is used:
+  - inside `if c { ... }` when `c` being true rules out zero, and in its
+    `else` when `c` being false does;
+  - in the statements after an `if` whose branch ends in `return`, `break`
+    or `continue`, by what got past it, as in `if b == 0 { return 0 }`;
+  - in a loop's body, by its condition;
+  - on the right of `&&` by its left side being true, and of `||` by its left
+    side being false.
+
+  The conditions that count are `&&` (when true), `||` (when false), `!`, and
+  a comparison of the variable with a constant that excludes zero, such as
+  `b != 0`, `b > 0`, `b <= -1` or `b == 3`. The variable must be a
+  parameter, a local, or an immutable global, and the region must not assign
+  it anywhere, so a loop that counts its divisor up needs the check beside the
+  division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
+  leaving.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer

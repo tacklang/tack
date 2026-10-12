@@ -37,7 +37,7 @@ var wrapCases = []struct{ name, src string }{
 	{
 		"ordinary division still truncates",
 		wrapProgram(
-			"-7 / 2 == -3 && -7 % 2 == -1 && 7 / -2 == -3 && max / max == 1 && min / 2 == -4611686018427387904",
+			"max != 0 && -7 / 2 == -3 && -7 % 2 == -1 && 7 / -2 == -3 && max / max == 1 && min / 2 == -4611686018427387904",
 		),
 	},
 }

@@ -76,23 +76,23 @@ Open questions about how a feature should behave are in
 
 ### Expressions
 
-| Feature                           | Lexer | Parser | Checker | C       | Notes                                                                                                         |
-|-----------------------------------|-------|--------|---------|---------|---------------------------------------------------------------------------------------------------------------|
-| Integer and string literals       | yes   | yes    | yes     | yes     |                                                                                                               |
-| Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                       |
-| Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                       |
-| Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                               |
-| `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; overflow wraps at the type's width; division by zero is UB        |
-| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                              |
-| `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                           |
-| Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                         |
-| Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                               |
-| Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64` |
-| Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                 |
-| `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                           |
-| Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                               |
-| `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                        |
-| Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                                                                                 |
+| Feature                           | Lexer | Parser | Checker | C       | Notes                                                                                                                        |
+|-----------------------------------|-------|--------|---------|---------|------------------------------------------------------------------------------------------------------------------------------|
+| Integer and string literals       | yes   | yes    | yes     | yes     |                                                                                                                              |
+| Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                                      |
+| Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                      |
+| Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                              |
+| `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; overflow wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
+| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                             |
+| `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                          |
+| Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                                        |
+| Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                              |
+| Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                |
+| Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                |
+| `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                                          |
+| Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                                              |
+| `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                                       |
+| Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                                                                                                |
 
 ### Types
 

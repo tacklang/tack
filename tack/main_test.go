@@ -816,6 +816,17 @@ func TestBuiltWidthsExits54(t *testing.T) {
 	}
 }
 
+// The division example divides only where the divisor is proven non-zero,
+// and uses q, ok := a / b where it cannot be.
+func TestBuiltDivisionExits46(t *testing.T) {
+	bin := buildWithClang(t, "division")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 46 {
+		t.Errorf("division exited with %v, want status 46", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

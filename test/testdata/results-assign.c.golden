@@ -30,6 +30,9 @@ static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b);
 static void tack_main_main(void);
 
 static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b) {
+    if (p_b == 0) {
+        return (tack_results_main_divmod){0, 0};
+    }
     return (tack_results_main_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
 }
 

@@ -25,6 +25,25 @@ func run(t *testing.T, src string) (stdout string, status int) {
 	}
 }
 
+// runSanitized is run, with the program built under clang's undefined
+// behavior sanitizer, set to stop it at the first undefined operation.
+func runSanitized(t *testing.T, src string) (stdout string, status int) {
+	t.Helper()
+
+	bin := buildWith(t, src, "-O2", "-fsanitize=undefined", "-fno-sanitize-recover=all")
+	out, err := exec.Command(bin).Output()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exit):
+		return string(out), exit.ExitCode()
+	default:
+		t.Fatalf("running the generated program: %v", err)
+		return "", 0
+	}
+}
+
 // program wraps statements in a main function.
 func program(lines ...string) string {
 	return "package main\n\nfunc main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"

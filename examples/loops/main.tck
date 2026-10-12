@@ -6,7 +6,7 @@ func isPrime(n int64) bool {
     }
     mut d = 2
     for d * d <= n {
-        if n % d == 0 {
+        if d != 0 && n % d == 0 {
             return false
         }
         d = d + 1

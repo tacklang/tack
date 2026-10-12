@@ -1,0 +1,29 @@
+package main
+
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    return a / b, a % b
+}
+
+func average(total int64, count int64) int64 {
+    if count > 0 {
+        return total / count
+    }
+    return 0
+}
+
+func main() {
+    q, r := divmod(17, 5)
+    mut zero int64 = 0
+    v, ok := 10 / zero
+    w, fine := 10 / q
+    if ok || !fine || v != 0 {
+        exit(1)
+    }
+    half := 7 / 2
+    mut steps int64 = 100
+    steps /= half
+    exit(q * 10 + r + average(steps, 3) + w)
+}

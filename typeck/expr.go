@@ -124,18 +124,17 @@ func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
 // expected, as described by context ("in argument to f"). An untyped
 // constant takes want as its type if its value fits; a typed value must be
 // of type want or widen to it without loss. An Invalid got or want has been
-// reported already.
-func (c *Checker) use(e ast.Expr, got, want types.Type, context string) {
+// reported already. It reports whether e is a usable value of want.
+func (c *Checker) use(e ast.Expr, got, want types.Type, context string) bool {
 	if got == types.Invalid || want == types.Invalid {
-		return
+		return false
 	}
 	if got == types.UntypedInt {
 		if types.IsInteger(want) {
-			c.settle(e, want)
-			return
+			return c.settle(e, want)
 		}
 		if !c.settle(e, types.Int64) {
-			return
+			return false
 		}
 		got = types.Int64
 	}
@@ -147,7 +146,9 @@ func (c *Checker) use(e ast.Expr, got, want types.Type, context string) {
 			c.table.Name(want),
 			context,
 		)
+		return false
 	}
+	return true
 }
 
 // settle gives the untyped constant expression e the integer type typ, if
@@ -204,7 +205,18 @@ func constValue(e ast.Expr) (constant.Int, bool) {
 // comparison or a logical operator, and the operands' common type for
 // arithmetic.
 func (c *Checker) binary(bin *ast.Binary) types.Type {
-	x, y := c.expr(bin.X), c.expr(bin.Y)
+	x := c.expr(bin.X)
+	var y types.Type
+	if bin.Op.IsLogical() {
+		// The right side runs only when the left did not decide the
+		// result: after a true left side for &&, a false one for ||.
+		assumed := c.assume(c.factsFrom(bin.X, bin.Op == ast.And), nil)
+		y = c.expr(bin.Y)
+		c.forget(assumed)
+	} else {
+		y = c.expr(bin.Y)
+	}
+
 	switch {
 	case bin.Op.IsLogical():
 		okX := c.require(bin.X, x, bin.Op.String(), types.Bool)
@@ -247,9 +259,23 @@ func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 		return types.Invalid
 	}
 
-	switch {
-	case x == types.UntypedInt && y == types.UntypedInt:
+	if x == types.UntypedInt && y == types.UntypedInt {
 		return c.foldArithmetic(bin)
+	}
+	typ := c.typedArithmetic(bin, x, y)
+	if typ != types.Invalid && (bin.Op == ast.Div || bin.Op == ast.Rem) &&
+		c.checkedDivision != bin {
+		c.requireNonzero(bin.Y, true)
+	}
+	return typ
+}
+
+// typedArithmetic returns the type arithmetic on operands of types x and y
+// works in, when at least one is typed: an untyped constant takes the other
+// operand's type, which it must fit, and two typed operands combine in the
+// one the other widens to.
+func (c *Checker) typedArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
+	switch {
 	case x == types.UntypedInt:
 		if !c.settle(bin.X, y) {
 			return types.Invalid
@@ -266,6 +292,67 @@ func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 	}
 	c.errorf(bin.Span, "mismatched types %s and %s in %s", c.table.Name(x), c.table.Name(y), bin.Op)
 	return types.Invalid
+}
+
+// requireNonzero reports a divisor that is not proven non-zero where it is
+// used: a constant zero, or anything else no fact covers. withOk says
+// whether the division could be written q, ok := a / b instead, which a
+// compound assignment cannot.
+func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
+	if v, ok := c.knownValue(divisor); ok {
+		if v.IsZero() {
+			c.errorf(divisor.Spanned(), "division by zero")
+		}
+		return
+	}
+	if c.nonzero(divisor) {
+		return
+	}
+
+	id, isName := divisor.(*ast.Ident)
+	switch {
+	case isName && withOk:
+		c.errorf(
+			divisor.Spanned(),
+			"divisor %s may be zero; check %s != 0 first, or use q, ok := ... / %s",
+			id.Name,
+			id.Name,
+			id.Name,
+		)
+	case isName:
+		c.errorf(divisor.Spanned(), "divisor %s may be zero; check %s != 0 first", id.Name, id.Name)
+	case withOk:
+		c.errorf(divisor.Spanned(), "divisor may be zero; use q, ok := ... / ...")
+	default:
+		c.errorf(divisor.Spanned(), "divisor may be zero")
+	}
+}
+
+// divisionResults checks a division or remainder bound to want names, which
+// must be two: the result, or 0 when the divisor is zero, and whether it was
+// not. The form is for a divisor that may be zero, so one proven not to be
+// is reported, as is a divisor that is the constant zero.
+func (c *Checker) divisionResults(bin *ast.Binary, want int, span ast.Span) ([]types.Type, bool) {
+	c.checkedDivision = bin
+	typ := c.expr(bin)
+	c.checkedDivision = nil
+	if typ == types.Invalid {
+		return nil, false
+	}
+
+	if v, ok := c.knownValue(bin.Y); ok && v.IsZero() {
+		c.errorf(bin.Y.Spanned(), "division by zero")
+		return nil, false
+	}
+	if c.nonzero(bin.Y) || typ == types.UntypedInt {
+		c.errorf(bin.Span, "the divisor cannot be zero here; drop the ok")
+		return nil, false
+	}
+	if want != 2 {
+		c.errorf(span, "assignment mismatch: %d variables but a division gives 2 values", want)
+		return nil, false
+	}
+	return []types.Type{typ, types.Bool}, true
 }
 
 // integerOperands reports each operand of bin that is not an integer, and

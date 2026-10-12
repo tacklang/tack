@@ -1,0 +1,9 @@
+package main
+
+func main() {
+    mut n int64 = 9
+    q, ok := n / 3
+    if ok {
+        exit(q)
+    }
+}

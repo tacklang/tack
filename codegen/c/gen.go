@@ -623,11 +623,11 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 
 	post := ""
 	if m, ok := loop.Post.(*ast.MultiAssign); ok {
-		decl, p, diags := g.multiAssignPost(m)
+		decls, p, diags := g.multiAssignPost(m)
 		if len(diags) > 0 {
 			return nil, diags
 		}
-		init = append(init, decl)
+		init = append(init, decls...)
 		post = p
 	} else if loop.Post != nil {
 		p, diags := g.postExpr(loop.Post)
@@ -848,7 +848,7 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 }
 
 // generateMultiVar declares the variables of a MultiVar. Its source is
-// evaluated once into a const temporary, and each variable is then declared
+// evaluated once into const temporaries, and each variable is then declared
 // from the value in its position: const unless the variable is mutable, as
 // generateVar does. A _ gets no variable.
 func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnostic) {
@@ -857,13 +857,12 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 		return nil, diags
 	}
 
-	tmp := g.temp("r")
-	lines := []string{fmt.Sprintf("const %s %s = %s;", src.typ, tmp, src.init)}
+	names, lines := g.holdTemps(src)
 	for i, v := range m.Vars {
 		if v.Name == ast.Blank {
 			continue
 		}
-		decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), src.field(tmp, i))
+		decl := fmt.Sprintf("%s %s = %s;", cType(v.Type), varName(v.Name), src.field(names, i))
 		if !v.Mutable {
 			decl = "const " + decl
 		}
@@ -872,8 +871,19 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 	return lines, nil
 }
 
+// holdTemps names a const temporary for each of src's temps and declares
+// it, initialized, returning the names and the declarations.
+func (g *generator) holdTemps(src multiSource) (names, lines []string) {
+	for _, t := range src.temps {
+		name := g.temp("r")
+		names = append(names, name)
+		lines = append(lines, fmt.Sprintf("const %s %s = %s;", t.typ, name, t.init))
+	}
+	return names, lines
+}
+
 // generateMultiAssign lowers an assignment of several values the way
-// generateMultiVar lowers a declaration: the source in a const temporary,
+// generateMultiVar lowers a declaration: the source in const temporaries,
 // then each target assigned the value in its position.
 func (g *generator) generateMultiAssign(m *ast.MultiAssign) ([]string, []diag.Diagnostic) {
 	src, diags := g.multiValues(m.Value)
@@ -881,13 +891,11 @@ func (g *generator) generateMultiAssign(m *ast.MultiAssign) ([]string, []diag.Di
 		return nil, diags
 	}
 
-	tmp := g.temp("r")
-	assigns, diags := g.fieldAssigns(m, src, tmp)
+	names, lines := g.holdTemps(src)
+	assigns, diags := g.fieldAssigns(m, src, names)
 	if len(diags) > 0 {
 		return nil, diags
 	}
-
-	lines := []string{fmt.Sprintf("const %s %s = %s;", src.typ, tmp, src.init)}
 	for _, a := range assigns {
 		lines = append(lines, a+";")
 	}
@@ -896,34 +904,38 @@ func (g *generator) generateMultiAssign(m *ast.MultiAssign) ([]string, []diag.Di
 
 // multiAssignPost lowers an assignment of several values used as a
 // three-clause loop's post statement, which must be one C expression. The
-// temporary cannot be declared there, so it is returned as a declaration for
-// the loop's block, and the expression assigns the source to it, then each
-// value to its target, joined with the comma operator.
+// temporaries cannot be declared there, so they are returned as
+// declarations for the loop's block, and the expression assigns the source
+// to them, then each value to its target, joined with the comma operator.
 func (g *generator) multiAssignPost(
 	m *ast.MultiAssign,
-) (decl, post string, diags []diag.Diagnostic) {
+) (decls []string, post string, diags []diag.Diagnostic) {
 	src, diags := g.multiValues(m.Value)
 	if len(diags) > 0 {
-		return "", "", diags
+		return nil, "", diags
 	}
 
-	tmp := g.temp("r")
-	assigns, diags := g.fieldAssigns(m, src, tmp)
+	var names, exprs []string
+	for _, t := range src.temps {
+		name := g.temp("r")
+		names = append(names, name)
+		decls = append(decls, fmt.Sprintf("%s %s;", t.typ, name))
+		exprs = append(exprs, fmt.Sprintf("%s = %s", name, t.init))
+	}
+	assigns, diags := g.fieldAssigns(m, src, names)
 	if len(diags) > 0 {
-		return "", "", diags
+		return nil, "", diags
 	}
-
-	exprs := append([]string{fmt.Sprintf("%s = %s", tmp, src.init)}, assigns...)
-	return fmt.Sprintf("%s %s;", src.typ, tmp), strings.Join(exprs, ", "), nil
+	return decls, strings.Join(append(exprs, assigns...), ", "), nil
 }
 
 // fieldAssigns renders, for each target of m other than _, the C assignment
-// of the value in its position, read from src's temporary tmp, without a
-// semicolon.
+// of the value in its position, read from src's temporaries, named tmps,
+// without a semicolon.
 func (g *generator) fieldAssigns(
 	m *ast.MultiAssign,
 	src multiSource,
-	tmp string,
+	tmps []string,
 ) ([]string, []diag.Diagnostic) {
 	assigns := make([]string, 0, len(m.Targets))
 	for i, target := range m.Targets {
@@ -938,25 +950,34 @@ func (g *generator) fieldAssigns(
 				Span:     target.Span,
 			}}
 		}
-		assigns = append(assigns, fmt.Sprintf("%s = %s", g.varRef(v), src.field(tmp, i)))
+		assigns = append(assigns, fmt.Sprintf("%s = %s", g.varRef(v), src.field(tmps, i)))
 	}
 	return assigns, nil
 }
 
-// multiSource is what gives a MultiVar or MultiAssign its values: init, a C
-// expression of type typ evaluated once into a temporary, and field, which
-// renders the value in position i read from that temporary.
+// multiSource is what gives a MultiVar or MultiAssign its values: temps,
+// each a C expression of a C type evaluated once, in order, into a
+// temporary, and field, which renders the value in position i read from
+// those temporaries, named tmps.
 type multiSource struct {
-	field     func(tmp string, i int) string
-	typ, init string
+	field func(tmps []string, i int) string
+	temps []multiTemp
 }
+
+// multiTemp is one temporary a multiSource is held in: its C type and the
+// expression that initializes it.
+type multiTemp struct{ typ, init string }
 
 // multiValues lowers the source of a MultiVar or MultiAssign: a call to a
 // function with several results, held as its results struct and read field
-// by field, or a conversion that can fail, held as the value converted and
+// by field; a conversion that can fail, held as the value converted and
 // read as the converted value, or 0 when it does not fit, and whether it
-// fit.
+// fit; or a division that can fail, held as its two operands and read as
+// the result, or 0 when the divisor is zero, and whether it was not.
 func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic) {
+	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
+		return g.divisionValues(bin)
+	}
 	c, ok := value.(*ast.Call)
 	if !ok {
 		return multiSource{}, []diag.Diagnostic{{
@@ -970,14 +991,13 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 		arg, diags := g.expr(c.Args[0], types.Invalid)
 		from, to := ast.TypeOf(c.Args[0]), c.Conv
 		return multiSource{
-			typ:  cType(from),
-			init: arg,
-			field: func(tmp string, i int) string {
-				fits := fitsExpr(from, to, tmp)
+			temps: []multiTemp{{cType(from), arg}},
+			field: func(tmps []string, i int) string {
+				fits := fitsExpr(from, to, tmps[0])
 				if i == 1 {
 					return fits
 				}
-				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, cType(to), tmp)
+				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, cType(to), tmps[0])
 			},
 		}, diags
 	}
@@ -992,10 +1012,37 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	}
 	call, diags := g.callExpr(id.Name, c)
 	return multiSource{
-		typ:   g.resultsName(id.Name),
-		init:  call,
-		field: func(tmp string, i int) string { return fmt.Sprintf("%s.r%d", tmp, i) },
+		temps: []multiTemp{{g.resultsName(id.Name), call}},
+		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
 	}, diags
+}
+
+// divisionValues lowers q, ok := a / b (or a % b). Both operands are
+// evaluated, the dividend first, whatever the divisor turns out to be, so a
+// call in either always runs.
+func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
+	a, diags := g.expr(bin.X, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	b, diags := g.expr(bin.Y, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	t := cType(bin.Type)
+	return multiSource{
+		temps: []multiTemp{{t, a}, {t, b}},
+		field: func(tmps []string, i int) string {
+			if i == 1 {
+				return fmt.Sprintf("(%s != 0)", tmps[1])
+			}
+			return fmt.Sprintf(
+				"(%s != 0 ? %s : 0)",
+				tmps[1],
+				arith(bin.Op, bin.Type, tmps[0], tmps[1]),
+			)
+		},
+	}, nil
 }
 
 // fitsExpr renders a C test of whether v, of the integer type from, is also

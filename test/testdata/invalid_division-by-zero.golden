@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/division-by-zero/main.tck:5:10: error: division by zero
+04 |	    mut n int64 = 8
+05 |	    n /= 0
+   |	         ^ 
+06 |	    exit(n)
+

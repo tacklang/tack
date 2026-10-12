@@ -33,7 +33,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int8, b int8",
 			"-128, -1",
-			"return a / b == a && a % b == 0 && a / 2 == -64",
+			"return b != 0 && a / b == a && a % b == 0 && a / 2 == -64",
 		),
 	},
 	{
@@ -42,7 +42,7 @@ var widthCases = []struct{ name, src string }{
 	},
 	{
 		"uint8 divides",
-		widthProgram("a uint8, b uint8", "200, 3", "return a / b == 66 && a % b == 2"),
+		widthProgram("a uint8, b uint8", "200, 3", "return b != 0 && a / b == 66 && a % b == 2"),
 	},
 	{
 		"int16 wraps",
@@ -57,7 +57,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int32, b int32",
 			"-2147483648, -1",
-			"return a / b == a && a * b == a && a - 1 == 2147483647",
+			"return b != 0 && a / b == a && a * b == a && a - 1 == 2147483647",
 		),
 	},
 	{

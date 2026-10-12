@@ -9,7 +9,7 @@ import (
 
 // multiFuncs declares functions with several results, and some without, for
 // the programs below to call.
-const multiFuncs = "func divmod(a int64, b int64) (int64, int64) {\n    return a / b, a % b\n}\n\n" +
+const multiFuncs = "func divmod(a int64, b int64) (int64, int64) {\n    if b == 0 {\n        return 0, 0\n    }\n    return a / b, a % b\n}\n\n" +
 	"func three() (string, bool, int64) {\n    return \"s\", true, 3\n}\n\n" +
 	"func one() int64 {\n    return 1\n}\n\n" +
 	"func none() {\n}\n\n"

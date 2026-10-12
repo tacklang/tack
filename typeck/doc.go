@@ -33,6 +33,15 @@
 // one type can be used where a type it widens to is expected, and an
 // operator on two integer types works in the one the other widens to.
 //
+// A divisor must be proven not zero where it is used, from facts: that a
+// variable is not zero within some region, learned from a condition just
+// tested. facts.go holds the rules, which are syntactic: a fact comes from
+// && || ! and comparisons with a constant, holds in an if's branches, a
+// loop's body, the right side of && and ||, and the rest of a block after
+// an if whose branch leaves it, and only for a region that never assigns the
+// variable, which must be a parameter, a local, or an immutable global.
+// q, ok := a / b needs no proof, and is an error where one exists.
+//
 // The third pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each usable
@@ -47,6 +56,7 @@
 //     supports the operator: an integer supports all six, a bool only == and
 //     !=, and a string none. A mismatch, or an unsupported operator, is one
 //     error covering the whole comparison;
+//   - a divisor is proven not zero, or the division is bound with ok;
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant that fits T, or a type that widens to
 //     T. Any other is v, ok := T(x), which is an error where the conversion

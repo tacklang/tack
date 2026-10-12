@@ -1,0 +1,9 @@
+package main
+
+func main() {
+    mut d int64 = 4
+    if d != 0 {
+        d--
+        exit(8 / d)
+    }
+}

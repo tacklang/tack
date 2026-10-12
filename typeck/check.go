@@ -14,14 +14,31 @@ import (
 type Checker struct {
 	file  *ast.File
 	table *types.Table // the file's types, recorded on it by Check
-	funcs map[string]*ast.Func
+
+	// checkedDivision is the division whose value is being bound with ok,
+	// which needs no proof that its divisor is not zero.
+	checkedDivision *ast.Binary
+
+	funcs   map[string]*ast.Func
+	globals map[*ast.Var]bool // the package-level variables
+
+	// facts counts, for each variable, the enclosing regions that prove it
+	// is not zero; see facts.go.
+	facts map[ast.Decl]int
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
 }
 
 // New returns a Checker for file, which must already have been resolved.
 func New(file *ast.File) *Checker {
-	return &Checker{file: file, table: types.NewTable(), funcs: make(map[string]*ast.Func)}
+	return &Checker{
+		file:    file,
+		table:   types.NewTable(),
+		funcs:   make(map[string]*ast.Func),
+		globals: make(map[*ast.Var]bool),
+		facts:   make(map[ast.Decl]int),
+	}
 }
 
 // Check reports every badly typed call in the file, in source order. Checking
@@ -46,6 +63,11 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// function whatever the order of declarations.
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
+			c.globals[v] = true
+		}
+	}
+	for _, decl := range c.file.Decls {
+		if v, ok := decl.(*ast.Var); ok {
 			c.checkGlobal(v)
 		}
 	}
@@ -60,9 +82,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 }
 
 func (c *Checker) checkBody(fn *ast.Func) {
-	for _, stmt := range fn.Body {
-		c.checkStmt(stmt, fn)
-	}
+	c.checkBlock(fn.Body, fn)
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
 	// like exit, does not satisfy it.
@@ -79,8 +99,8 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.If:
 		c.checkCond(s.Cond)
-		c.checkBlock(s.Then, fn)
-		c.checkBlock(s.Else, fn)
+		c.checkGuarded(s.Then, c.factsFrom(s.Cond, true), fn)
+		c.checkGuarded(s.Else, c.factsFrom(s.Cond, false), fn)
 
 	case *ast.For:
 		c.checkFor(s, fn)
@@ -175,6 +195,9 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 // Any other value is reported as one error covering span, the whole
 // statement.
 func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types.Type, bool) {
+	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
+		return c.divisionResults(bin, want, span)
+	}
 	call, isCall := value.(*ast.Call)
 	if !isCall {
 		c.expr(value)
@@ -185,6 +208,12 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 		return c.conversionResults(call, want, span)
 	}
 
+	return c.callResults(call, want, span)
+}
+
+// callResults checks a call bound to want names: its callee must declare
+// exactly that many results.
+func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkCall(call)
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -258,8 +287,12 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Post != nil {
 		c.checkSimpleStmt(loop.Post)
 	}
+	var facts []ast.Decl
+	if loop.Cond != nil {
+		facts = c.factsFrom(loop.Cond, true)
+	}
 	c.loops++
-	c.checkBlock(loop.Body, fn)
+	c.checkGuarded(loop.Body, facts, fn)
 	c.loops--
 }
 
@@ -280,11 +313,28 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	c.loops--
 }
 
-// checkBlock checks each statement of a block in fn.
+// checkBlock checks each statement of a block in fn. An if whose branch
+// leaves the block gives the statements after it the facts of having got
+// past it.
 func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
-	for _, stmt := range body {
+	var assumed [][]ast.Decl
+	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
+		if facts := c.afterFacts(stmt); len(facts) > 0 {
+			assumed = append(assumed, c.assume(facts, body[i+1:]))
+		}
 	}
+	for _, facts := range assumed {
+		c.forget(facts)
+	}
+}
+
+// checkGuarded checks a block reached only when facts hold, assuming those
+// the block cannot undo.
+func (c *Checker) checkGuarded(body []ast.Stmt, facts []ast.Decl, fn *ast.Func) {
+	assumed := c.assume(facts, body)
+	c.checkBlock(body, fn)
+	c.forget(assumed)
 }
 
 // checkCond checks the condition of an if or a loop, which must be a bool.
@@ -479,7 +529,10 @@ func (c *Checker) assignable(target *ast.Ident) (types.Type, bool) {
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
 	if typ, ok := c.checkIntTarget(a.Target, op); ok {
-		c.use(a.Value, got, typ, "in "+op)
+		usable := c.use(a.Value, got, typ, "in "+op)
+		if usable && (a.Op == ast.Div || a.Op == ast.Rem) {
+			c.requireNonzero(a.Value, false)
+		}
 	}
 }
 
