@@ -727,7 +727,7 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseOperand parses an expression with no infix operator at its root: a
-// literal, a parameter reference, a call, or a parenthesised expression.
+// literal, a name, a call, or a parenthesised expression.
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	if p.peek().Kind() == lexer.LParen {
 		return p.parseParenExpr()
@@ -762,8 +762,8 @@ func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
 	return inner, nil
 }
 
-// parseLiteral parses a single-token operand: a string or integer literal, or
-// a parameter reference.
+// parseLiteral parses a single-token operand: a string, integer or bool
+// literal, or a reference to a parameter or variable.
 func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 	tk := p.next()
 	switch tk.Kind() {
@@ -785,6 +785,14 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 			}}
 		}
 		return &ast.IntLit{Value: val, Span: p.span(tk)}, nil
+	case lexer.Keyword:
+		switch tk.Value() {
+		case lexer.True:
+			return &ast.BoolLit{Value: true, Span: p.span(tk)}, nil
+		case lexer.False:
+			return &ast.BoolLit{Value: false, Span: p.span(tk)}, nil
+		}
+		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
 	}

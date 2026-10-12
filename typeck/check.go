@@ -163,7 +163,7 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 // isConstant reports whether e is built only from literals and operators.
 func isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.StrLit:
+	case *ast.IntLit, *ast.StrLit, *ast.BoolLit:
 		return true
 	case *ast.Binary:
 		return isConstant(x.X) && isConstant(x.Y)
@@ -195,6 +195,8 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 	case *ast.IntLit:
 		return x.Value, true
 	case *ast.StrLit:
+		return x.Value, true
+	case *ast.BoolLit:
 		return x.Value, true
 	case *ast.Binary:
 		left, ok := c.fold(x.X)

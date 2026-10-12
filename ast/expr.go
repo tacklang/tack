@@ -78,6 +78,21 @@ func (i *IntLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the literal.
 func (i *IntLit) Spanned() Span { return i.Span }
 
+// BoolLit is the literal true or false.
+type BoolLit struct {
+	Span  Span
+	Value bool
+}
+
+var _ Expr = (*BoolLit)(nil)
+
+func (b *BoolLit) exprKey() exprKey { return _exprKey }
+
+func (b *BoolLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the keyword.
+func (b *BoolLit) Spanned() Span { return b.Span }
+
 // BinaryOp is an infix operator.
 type BinaryOp int
 
@@ -158,6 +173,8 @@ func KindOf(expr Expr) types.Kind {
 		return types.String
 	case *IntLit:
 		return types.Int
+	case *BoolLit:
+		return types.Bool
 	case *Ident:
 		return identKind(e)
 	case *Binary:

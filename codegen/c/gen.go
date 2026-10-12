@@ -527,6 +527,8 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 		return strconv.FormatInt(x.Value, 10), nil
 	case *ast.StrLit:
 		return g.stringValue(x.Value), nil
+	case *ast.BoolLit:
+		return strconv.FormatBool(x.Value), nil
 	case *ast.Ident:
 		return g.identExpr(x)
 	case *ast.Binary:

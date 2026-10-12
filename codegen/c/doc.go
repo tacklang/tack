@@ -18,7 +18,8 @@
 //   - every Tack function, as a static C function;
 //   - a C main that calls the Tack main and returns 0.
 //
-// Values map to C types directly. An int is an int64_t and a bool is a C bool.
+// Values map to C types directly. An int is an int64_t and a bool is a C bool,
+// with true and false written as C's own.
 // A string is a tack_string, a struct holding a pointer and a length and
 // passed by value, so a string is one value that can be passed and returned
 // like any other.

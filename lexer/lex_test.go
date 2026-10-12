@@ -289,6 +289,8 @@ func TestTokenKinds(t *testing.T) {
 		{"break gets one", "break\n", "keyword <semi> EOF"},
 		{"continue gets one", "continue\n", "keyword <semi> EOF"},
 		{"func gets none", "func\n", "keyword EOF"},
+		{"true gets one", "true\n", "keyword <semi> EOF"},
+		{"false gets one", "false\n", "keyword <semi> EOF"},
 		{"inc gets one", "x++\n", "ident ++ <semi> EOF"},
 		{"dec gets one", "x--\n", "ident -- <semi> EOF"},
 		{"int gets one", "1\n", "int <semi> EOF"},
@@ -500,5 +502,30 @@ func TestDeclarationKeywords(t *testing.T) {
 	out := lex(t, "mutable")
 	if out.tokens[0].Kind() != lexer.Ident {
 		t.Errorf("%q lexed as %s, want an identifier", "mutable", out.tokens[0].String())
+	}
+}
+
+// TestBoolKeywords pins true and false as keywords, and that a longer word
+// starting with one is an identifier.
+func TestBoolKeywords(t *testing.T) {
+	tests := []struct {
+		src  string
+		want lexer.KeywordType
+	}{
+		{"true", lexer.True},
+		{"false", lexer.False},
+	}
+	for _, tt := range tests {
+		out := lex(t, tt.src)
+		checkInvariants(t, tt.src, out)
+		if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != tt.want {
+			t.Errorf("%q lexed as %s, want keyword %s", tt.src, out.tokens[0].String(), tt.want)
+		}
+	}
+
+	for _, src := range []string{"trueish", "falsey", "True"} {
+		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
 	}
 }

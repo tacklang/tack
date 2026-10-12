@@ -55,6 +55,10 @@ const (
 	// Async and Defer are concurrency and cleanup.
 	Async
 	Defer
+
+	// True and False are the boolean literals.
+	True
+	False
 )
 
 var keywordNames = map[KeywordType]string{
@@ -92,6 +96,9 @@ var keywordNames = map[KeywordType]string{
 
 	Async: "async",
 	Defer: "defer",
+
+	True:  "true",
+	False: "false",
 }
 
 // String returns the keyword as written in source.

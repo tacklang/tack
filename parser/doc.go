@@ -11,9 +11,11 @@
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence; every binary operator is
 // left-associative. A statement that starts with a name is told apart by the
-// token after it: := declares a variable, = assigns, and ( calls. It stops at
-// the first syntax error and returns that error's diagnostics with a nil
-// file, so a caller never sees a partial tree.
+// token after it: := declares a variable, = assigns, and ( calls. The
+// keywords true and false are bool literals, so neither can start a statement
+// or be declared as a name. It stops at the first syntax error and returns
+// that error's diagnostics with a nil file, so a caller never sees a partial
+// tree.
 //
 // The parser only checks shape, so it accepts a declaration like var x int
 // whatever its mutability, and leaves whether it may lack a value to the

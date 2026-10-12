@@ -81,7 +81,7 @@ Open questions about how a feature should behave are in
 | Unary `-` `+` `!` `^`             | yes   | no     | no      | no      | `-1` cannot be written                                      |
 | `&&` `\                           | \     | `      | yes     | no      | no                                                          |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                             |
-| `true` / `false`                  | yes   | yes    | no      | no      | Parsed as names; nothing defines them. Planned as keywords  |
+| `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions      |
 | Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                               |
 
 ### Types
@@ -90,7 +90,7 @@ Open questions about how a feature should behave are in
 |-------------------------------|---------|-----|---------------------------------------------------------------|
 | `int`                         | yes     | yes | 64-bit signed, `int64_t`                                      |
 | `string`                      | yes     | yes | Pointer and length, `tack_string` by value                    |
-| `bool`                        | yes     | yes | Only comparisons produce one; usable as a parameter or result |
+| `bool`                        | yes     | yes | `true`, `false` and comparisons; no operator takes a bool yet |
 | Other integer and float types | no      | no  |                                                               |
 | Arrays, slices, maps, structs | no      | no  |                                                               |
 | Pointers                      | no      | no  |                                                               |

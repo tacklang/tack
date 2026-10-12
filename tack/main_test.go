@@ -757,3 +757,15 @@ func TestBuildOverwritesExistingOutput(t *testing.T) {
 		t.Errorf("rebuilt binary printed %q, want hello's output", out)
 	}
 }
+
+func TestBuiltBoolsPrintsAndExits9(t *testing.T) {
+	bin := buildWithClang(t, "bools")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 9 {
+		t.Errorf("bools exited with %v, want status 9", err)
+	}
+	if string(out) != "bools\n" {
+		t.Errorf("bools printed %q, want %q", out, "bools\n")
+	}
+}

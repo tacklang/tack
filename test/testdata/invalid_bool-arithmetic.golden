@@ -1,0 +1,15 @@
+stage: typeck
+---
+
+examples/invalid/bool-arithmetic/main.tck:4:10: error: cannot use bool as int in argument to exit
+03 |	func main() {
+04 |	    exit(true + 1)
+   |	         ^~~~~~~~ 
+05 |	}
+
+examples/invalid/bool-arithmetic/main.tck:4:10: error: cannot use bool as int in +
+03 |	func main() {
+04 |	    exit(true + 1)
+   |	         ^~~~ 
+05 |	}
+

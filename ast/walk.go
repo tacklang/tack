@@ -81,7 +81,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
-	case *Ident, *StrLit, *IntLit:
+	case *Ident, *StrLit, *IntLit, *BoolLit:
 		// leaves
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled expression type %T", e))
