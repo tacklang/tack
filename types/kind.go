@@ -1,6 +1,3 @@
-// Package types holds Tack's type representation. It is a leaf package: the
-// type checker and anything that reports a type in a diagnostic depend on it,
-// and it depends on nothing.
 package types
 
 // Kind is a Tack type. The language has no composite types yet, so a kind is

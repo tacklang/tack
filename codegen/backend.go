@@ -1,13 +1,3 @@
-// Package codegen defines the contract between the compiler front end and a
-// code generation backend, and the registry that makes backends pluggable.
-//
-// A backend is a Backend: it turns a resolved *ast.File into the bytes of
-// some target language, names the file extension those bytes belong in, and
-// says how to turn that file into an executable. Nothing above this package
-// knows what any particular backend emits.
-//
-// Backends live in sub-packages and register themselves from init, so adding
-// one is a new package plus an import. See codegen/c.
 package codegen
 
 import (

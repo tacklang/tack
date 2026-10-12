@@ -1,11 +1,3 @@
-// Package c is the C backend: it translates a resolved, type-checked Tack
-// file into a single self-contained C translation unit that clang can compile
-// on its own.
-//
-// The translation is direct, with no intermediate representation. Every Tack
-// function becomes a static C function, string literals are pooled into byte
-// arrays, and a Tack string value is a pointer and a length traveling
-// together as one struct.
 package c
 
 import (

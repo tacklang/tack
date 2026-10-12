@@ -7,7 +7,7 @@ It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, no standard library,
 and no intermediate representation.
 
-Code generation is pluggable. The front end hands a resolved syntax tree to an
+Code generation is pluggable. The front end hands a resolved syntax tree to a
 *backend*, and the backend decides what comes out and how it is built. One ships
 today: `c`, which emits a self-contained C translation unit that `clang` turns
 into an executable.
@@ -15,10 +15,7 @@ into an executable.
 ## Status
 
 Early, and honest about it. The compiler runs a complete pipeline and produces
-working native binaries, but the language it accepts is
-currently tiny:
-a `main` package, top-level functions that take no arguments and return nothing,
-and calls to a single builtin, `print`, with a string literal argument.
+working native binaries, but the language it accepts is still small.
 
 ```tack
 package main
@@ -51,7 +48,7 @@ should become `os.Exit`, and the global goes away.
 
 ## Requirements
 
-- Go 1.26.5 or newer
+- Go 1.27.1 or newer
 - `clang` on `PATH`, used to compile and link
 
 ## Building

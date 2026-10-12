@@ -1,8 +1,3 @@
-// Package builtin describes the functions Tack provides without a
-// declaration. It exists so that the resolver, which needs their names, and
-// the type checker, which needs their signatures, cannot disagree about what
-// the builtins are. Lowering stays with the individual backends, since how a
-// builtin is emitted is a property of the target, not of the language.
 package builtin
 
 import "github.com/tacklang/tack/types"

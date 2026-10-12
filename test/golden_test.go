@@ -1,8 +1,3 @@
-// Package compilertest drives the full compiler pipeline against the programs
-// in examples/ and compares the result to a golden file.
-//
-// Run `go test ./test -update` to regenerate the goldens after an intentional
-// change to lexer, parser, resolver, or codegen output.
 package compilertest
 
 import (

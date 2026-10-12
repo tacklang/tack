@@ -1,11 +1,3 @@
-// Package typeck checks that expressions are used at the types they have. It
-// runs after the resolver, so every name it sees is known to be defined, and
-// before code generation, so a backend never has to decide what a badly typed
-// program should emit.
-//
-// It annotates each parameter with the kind its declared type denotes, which
-// is what lets a later stage size and place the parameter, and what gives an
-// identifier argument a type at all.
 package typeck
 
 import (
