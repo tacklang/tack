@@ -197,7 +197,7 @@ which is true today because `main` is the only package there is.
   operand must be an `int`.
 - The types are `int`, `string`, and `bool`. A bool comes only from a
   comparison; there are no `true` and `false` literals yet.
-- `print` takes one string literal and writes it followed by a newline.
+- `print` takes one string and writes it followed by a newline.
 - `exit` takes one integer and terminates the process with that status.
 - Integer literals. `int` is 64-bit signed, and a literal that does not fit is
   a parse error.

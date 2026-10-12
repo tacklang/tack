@@ -26,3 +26,14 @@ until then.
 Consecutive `//` lines merge into one comment token. The merged value is
 trimmed as a whole, so `// a\n// b` becomes `"a\n b"`: the space after `//`
 is removed from the first line and kept on the others.
+
+## Comments are only allowed between top-level declarations
+
+The lexer produces comment tokens anywhere, but the parser only accepts them
+between declarations. A comment inside a function body, after a statement, or
+before `package` is a parse error: `expected 'statement' found 'comment'`.
+
+## Multiple results report a missing function body
+
+`func f() (int, int) { ... }` is reported as "missing function body" rather
+than as an unsupported result list.

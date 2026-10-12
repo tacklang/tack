@@ -66,3 +66,24 @@ A byte the lexer does not accept is reported as `invalid character %c`
 formatted from a single byte, so 0xFF prints as `invalid character ÿ` and a
 UTF-8 letter such as `é` produces two diagnostics showing unrelated
 characters. Showing the byte in hex, or decoding UTF-8 first, are options.
+
+## Functions without a body
+
+The parser accepts `func f()` with no body, which is how
+`src/std/builtin/builtin.tck` declares the builtins. The rest of the
+pipeline then treats a missing body as an empty one, so `func f()` compiles
+to a function that does nothing, and `func main()` alone compiles to a
+program that does nothing. In Go a bodyless declaration means the body is
+provided elsewhere, in assembly. Options: reject them outside declaration
+files, or give them a meaning (external, `asm`, builtin).
+
+## A result on `main`
+
+`func main() int { return 1 }` is accepted. The generated C calls it and
+discards the value, so the process still exits 0. Go rejects a result on
+`main`. Options: reject it, or make it the exit status.
+
+## Integer literals with leading zeros
+
+`010` is the decimal number 10. In Go (and C) it is octal 8, and Go also
+accepts `0o10`. Hex, octal and binary literals are not lexed at all.
