@@ -53,8 +53,8 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 // checkCommentSpans fails the test unless every comment token covers its
 // source exactly: it starts with "//" and stops right before a newline or at
 // the end of src, so it neither drops its last byte nor swallows the newline.
-// Every line it covers must start with "//", so a comment never runs across
-// a blank line.
+// Every line it covers must start with "//" past its indentation, so a
+// comment never runs across a blank line.
 func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 	t.Helper()
 
@@ -80,13 +80,14 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 }
 
 // checkCommentLines fails the test unless every line of the comment text
-// starts with "//", so the comment does not run across a blank line or a
-// line of code.
+// starts with "//" once its leading spaces and tabs are skipped, so the
+// comment does not run across a blank line, a line holding only spaces and
+// tabs, or a line of code.
 func checkCommentLines(t *testing.T, src, text string) {
 	t.Helper()
 
 	for line := range strings.SplitSeq(text, "\n") {
-		if !strings.HasPrefix(line, "//") {
+		if !strings.HasPrefix(strings.TrimLeft(line, " \t"), "//") {
 			t.Errorf("%q: comment %q covers the line %q", src, text, line)
 		}
 	}
@@ -483,12 +484,14 @@ var commentValueCases = []struct {
 	{"// a\r\n// b\r\n", "a\nb"},
 	{"//\n//", "\n"},
 	{"// x // y\n// z", "x // y\nz"},
+	{"    // a\n\t//  b \n  //c", "a\nb\nc"},
 }
 
 // commentGroupCases pin every comment token in each source, and the token
-// kinds around them: a blank line, empty or holding only spaces, ends a
-// comment, as it ends a comment group in Go, while lines with no blank line
-// between them stay one comment. Splitting a comment adds no semicolon.
+// kinds around them: a blank line, empty or holding only spaces and tabs,
+// ends a comment, as it ends a comment group in Go, while lines with no
+// blank line between them stay one comment however each is indented.
+// Splitting a comment adds no semicolon.
 var commentGroupCases = []struct {
 	src   string
 	kinds string
@@ -509,6 +512,26 @@ var commentGroupCases = []struct {
 		[]commentTok{{"a", 2, 6}, {"b", 8, 12}},
 	},
 	{"x // a\n\ny", "ident <semi> comment ident <semi> EOF", []commentTok{{"a", 2, 6}}},
+	{"    // a\n    // b", "comment EOF", []commentTok{{"a\nb", 4, 17}}},
+	{"// a\n    // b", "comment EOF", []commentTok{{"a\nb", 0, 13}}},
+	{"    // a\n// b", "comment EOF", []commentTok{{"a\nb", 4, 13}}},
+	{"\t// a\n\t// b\n", "comment EOF", []commentTok{{"a\nb", 1, 11}}},
+	{"  // a\n\t // b\n \t// c", "comment EOF", []commentTok{{"a\nb\nc", 2, 20}}},
+	{"    // a\n    //\n    // b", "comment EOF", []commentTok{{"a\n\nb", 4, 24}}},
+	{"    // a\n    \n    // b", "comment comment EOF", []commentTok{{"a", 4, 8}, {"b", 18, 22}}},
+	{"    // a\n\t\n\t// b", "comment comment EOF", []commentTok{{"a", 4, 8}, {"b", 12, 16}}},
+	{"    // a\n    ", "comment EOF", []commentTok{{"a", 4, 8}}},
+	{
+		"    // a\n  x\n  // b",
+		"comment ident <semi> comment EOF",
+		[]commentTok{{"a", 4, 8}, {"b", 15, 19}},
+	},
+	{"// a\n  / b", "comment / ident <semi> EOF", []commentTok{{"a", 0, 4}}},
+	{
+		"x // a\n    // b\ny",
+		"ident <semi> comment ident <semi> EOF",
+		[]commentTok{{"a\nb", 2, 15}},
+	},
 }
 
 // commentTok is the value and byte range of one comment token.

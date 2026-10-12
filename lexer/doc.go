@@ -32,9 +32,12 @@
 // program being compiled.
 //
 // A line comment runs from "//" to the end of its line. Lines that each
-// start with "//", with no line between them, become one Comment token; a
-// blank line ends the token, as it ends a comment group in Go. A Comment
-// token covers its text exactly, never the newline after it.
+// start with "//" after any spaces and tabs, with no line between them,
+// become one Comment token however each is indented; a blank line, empty or
+// holding only spaces and tabs, ends the token, as it ends a comment group
+// in Go. A Comment token runs from its first "//" to the end of its last
+// line, so it covers the indentation of every line after the first, but
+// never the newline after it. Its value trims each line alike.
 //
 // Block comments ("/* ... */") are not supported: one is reported and
 // skipped. The body of an asm block is skipped up to the next "}" without

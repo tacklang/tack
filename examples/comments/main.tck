@@ -28,7 +28,8 @@ func sum(xs [4]int64) int64 { // after an opening brace
 // main checks each statement form still works with comments around it.
 // Each failed check exits with its own status; success exits 37.
 func main() {
-    // before the first statement
+    // before the first statement,
+	// over two lines indented differently
 
     x := 1 + // after a binary operator
         2 * // after another

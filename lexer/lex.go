@@ -477,11 +477,12 @@ func (l *Lexer) handleDigit() bool {
 	return val.Len() > 0
 }
 
-// handleComment lexes a line comment. Consecutive lines that each start with
-// "//" merge into one Comment token whose value joins them with newlines,
-// each line with its surrounding space trimmed. A blank line ends the
-// comment, as it ends a comment group in Go, so comment lines separated by
-// one become separate tokens. A semicolon is inserted before the comment if
+// handleComment lexes a line comment. Consecutive lines whose first bytes
+// other than spaces and tabs are "//" merge into one Comment token, however
+// each line is indented, and its value joins them with newlines, each line
+// with its surrounding space trimmed. A blank line, empty or holding only
+// spaces and tabs, ends the comment, as it ends a comment group in Go, so
+// comment lines separated by one become separate tokens. A semicolon is inserted before the comment if
 // the preceding token can end a statement; the newlines after it are left to
 // Lex, which inserts none since a comment cannot end a statement. Block
 // comments are not supported: one is reported and skipped.
@@ -498,19 +499,24 @@ func (l *Lexer) handleComment() bool {
 	}
 	l.pos += 2
 
-	// A newline continues the comment only when the very next line starts
-	// with "//"; otherwise the comment ends before it, and the newline is
-	// left for Lex. Only a single newline is consumed here, so a blank line
-	// always ends the comment.
+	// A newline continues the comment only when the very next line, past
+	// its indentation, starts with "//"; otherwise the comment ends before
+	// the newline, which is left for Lex. Only a single newline is consumed
+	// here, so a blank line always ends the comment. The indentation is not
+	// written to the value, which trims it anyway.
 	var val strings.Builder
 	for l.pos < len(data) {
 		if data[l.pos] == '\n' {
-			if !bytes.HasPrefix(data[l.pos+1:], []byte("//")) {
+			next := l.pos + 1
+			for next < len(data) && (data[next] == ' ' || data[next] == '\t') {
+				next++
+			}
+			if !bytes.HasPrefix(data[next:], []byte("//")) {
 				break
 			}
 			l.file.AddLineStart(l.pos + 1)
 			val.WriteByte('\n')
-			l.pos += 3
+			l.pos = next + 2
 			continue
 		}
 

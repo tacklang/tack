@@ -191,7 +191,7 @@ var commentPlacements = []struct {
 	{
 		"in an array literal",
 		"package main\nfunc main() {\n    a := [2]int64{ // a\n        1, // b\n        // c\n        2,\n    }\n    exit(a[0])\n}\n",
-		[]string{"a", "b", "c"},
+		[]string{"a", "b\nc"},
 	},
 	{
 		"in an argument list",
@@ -214,6 +214,11 @@ var commentPlacements = []struct {
 		"lines split by a blank line",
 		"package main\nfunc main() {\n    exit(0) // a\n\n// b\n// c\n\n// d\n}\n",
 		[]string{"a", "b\nc", "d"},
+	},
+	{
+		"indented lines in a body",
+		"package main\nfunc main() {\n    // a\n\t// b\n    exit(0) // c\n      // d\n    \n    // e\n}\n",
+		[]string{"a\nb", "c\nd", "e"},
 	},
 }
 

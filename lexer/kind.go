@@ -14,8 +14,8 @@ const (
 
 	// EOF ends every token stream.
 	EOF
-	// Comment is a line comment, or a run of consecutive line comments with
-	// no blank line between them.
+	// Comment is a line comment, or a run of consecutive line comments,
+	// indented alike or not, with no blank line between them.
 	Comment
 
 	// Ident through Str are identifiers, keywords, and literals.
