@@ -569,6 +569,7 @@ type (
 		Integer | Float // a union of interfaces (without methods)
 	}
 )
+
 type Stringish interface {
 	~string
 	Len() int // type set: types with underlying string AND a Len method

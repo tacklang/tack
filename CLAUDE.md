@@ -1,4 +1,4 @@
-# Working rules for tackc
+# Working rules for Tack
 
 These rules govern every change to this repository. When a rule and a habit
 disagree, the rule wins. When a rule is unclear for the case at hand, ask.
