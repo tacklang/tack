@@ -1,6 +1,9 @@
 package ast
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/types"
 )
@@ -61,6 +64,52 @@ func (i *Ident) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the name.
 func (i *Ident) Spanned() Span { return i.Span }
+
+// DeclRef is how an Ident's Def appears in the JSON dump: the kind of
+// declaration and where its name is written, enough to find it in the tree
+// without copying it. Following Def instead would never end for a recursive
+// function, whose body names the function itself.
+type DeclRef struct {
+	Kind     string // "Func", "Param", or "Var"
+	Name     string
+	NameSpan Span
+}
+
+// MarshalJSON renders the identifier with Def as a *DeclRef. A builtin's Def,
+// a nil *Func, and an unresolved one, nil, both render as null.
+func (i *Ident) MarshalJSON() ([]byte, error) {
+	// plain has Ident's fields but not this method, so marshaling it does
+	// not recurse. The outer Def, being shallower, hides plain's.
+	type plain Ident
+	js, err := json.Marshal(struct {
+		Def *DeclRef
+		*plain
+	}{declRef(i.Def), (*plain)(i)})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling identifier %s: %w", i.Name, err)
+	}
+	return js, nil
+}
+
+// declRef returns the reference that stands for d in the JSON dump, or nil
+// when d is nil or a nil pointer.
+func declRef(d Decl) *DeclRef {
+	switch d := d.(type) {
+	case *Func:
+		if d != nil {
+			return &DeclRef{Kind: "Func", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	case *Param:
+		if d != nil {
+			return &DeclRef{Kind: "Param", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	case *Var:
+		if d != nil {
+			return &DeclRef{Kind: "Var", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	}
+	return nil
+}
 
 // StrLit is a string literal.
 type StrLit struct {

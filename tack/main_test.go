@@ -273,18 +273,17 @@ func TestASTAndResDumpsAreJSON(t *testing.T) {
 	}
 }
 
-// TestResOfRecursiveProgramIsNotSilentlyEmpty covers a program whose
-// resolved tree the JSON encoder cannot render (resolution links a recursive
-// call back to its function, a cycle). Whatever the dump does about that, it
-// must not report success with empty output.
-func TestResOfRecursiveProgramIsNotSilentlyEmpty(t *testing.T) {
+// TestResOfRecursiveProgram covers a program whose resolved tree has a
+// cycle: resolution links a recursive call back to its function. The dump
+// must still succeed, as JSON, naming the callee by reference.
+func TestResOfRecursiveProgram(t *testing.T) {
 	r := runTack(t, "--res", example("fib"))
-	checkCoherent(t, r)
-	if r.code == exitOK && !json.Valid([]byte(r.stdout)) {
-		t.Errorf("--res succeeded with invalid JSON: %q", r.stdout)
+	assertOnlyStdout(t, r)
+	if !json.Valid([]byte(r.stdout)) {
+		t.Errorf("--res printed invalid JSON: %q", r.stdout)
 	}
-	if r.code != exitOK && !strings.HasPrefix(r.stderr, "tack: ") {
-		t.Errorf("--res failed without a tack: message: %q", r.stderr)
+	if !strings.Contains(r.stdout, `"Kind": "Func"`) {
+		t.Errorf("--res does not show the recursive call's Def as a reference:\n%s", r.stdout)
 	}
 }
 

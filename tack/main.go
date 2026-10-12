@@ -434,9 +434,9 @@ func parseAndResolve(
 }
 
 // marshalTree renders file as indented JSON, the same rendering as
-// ast.File.String. It marshals directly rather than calling String because
-// String discards the marshaling error and returns "", which would make a
-// failed dump look like a successful empty one.
+// ast.File.String. It marshals directly rather than calling String so that
+// a marshaling failure is an error, reported as such, rather than text
+// printed as if it were the dump.
 func marshalTree(file *ast.File) ([]byte, error) {
 	js, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {

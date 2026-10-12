@@ -23,6 +23,12 @@
 // one. Every node carries a Span locating it in the source, which is what
 // lets every diagnostic point at the code it is about.
 //
+// File.String, and the driver's --ast and --res dumps, render the tree as
+// JSON. An Ident's Def is rendered as a DeclRef, the declaration's kind,
+// name and name span, rather than followed: after resolution a recursive
+// call's Def points back at the function containing it, a cycle the encoder
+// would otherwise reject.
+//
 // Walk is the one place that knows how nodes nest. A pass that needs to visit
 // every node goes through it, so a new node type only has to be taught to
 // Walk once.

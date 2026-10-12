@@ -33,8 +33,16 @@ func (f *File) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the whole file.
 func (f *File) Spanned() Span { return f.Span }
 
-// String returns the tree as indented JSON, for debugging and the -ast flag.
+// String returns the tree as indented JSON, for debugging. An identifier's
+// Def is rendered as a DeclRef, not followed, so a resolved tree, whose
+// recursive calls point back at their own function, renders too. Should
+// marshaling still fail, String returns the error's text rather than an
+// empty string that would pass for an empty tree; a caller that must tell
+// the two apart marshals the File itself, as the driver does.
 func (f *File) String() string {
-	js, _ := json.MarshalIndent(f, "", "  ")
+	js, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return "ast: cannot render syntax tree: " + err.Error()
+	}
 	return string(js)
 }

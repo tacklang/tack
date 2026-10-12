@@ -3,17 +3,6 @@
 Bugs found and not yet fixed. Each is fixed in its own change, with a failing
 test first, and removed from this list when it lands.
 
-## `ast.File.String` drops its JSON error
-
-`ast.File.String` ignores the error from `json.MarshalIndent`. After
-resolution, a recursive program has a cycle in its tree (an identifier's
-`Def` points back at the function containing it), so marshaling fails. For
-`examples/fib`, `tack --res` used to print an empty dump and exit 0. The
-driver now reports `tack: failed to render syntax tree: ...` and exits 1,
-which is honest but means `--res` cannot show a recursive program at all.
-The fix belongs in `ast`: render `Def` as a reference rather than following
-it.
-
 ## The diagnostic underline ends in a space
 
 `diag.renderTokenMarker` writes one column past the end of a non-empty span,
