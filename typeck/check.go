@@ -84,6 +84,9 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 	case *ast.For:
 		c.checkFor(s, fn)
 
+	case *ast.ForRange:
+		c.checkForRange(s, fn)
+
 	case *ast.Break:
 		c.checkInLoop(s.Span, "break")
 
@@ -121,6 +124,23 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	}
 	if loop.Post != nil {
 		c.checkSimpleStmt(loop.Post)
+	}
+	c.loops++
+	c.checkBlock(loop.Body, fn)
+	c.loops--
+}
+
+// checkForRange checks a range loop: the count must be an int, and the loop
+// variable, if any, is an int.
+func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
+	if got := c.valueKind(
+		loop.Count,
+	); got != types.Int && got != types.Invalid &&
+		!alreadyReported(loop.Count, got) {
+		c.errorf(loop.Count.Spanned(), "cannot range over %s", got)
+	}
+	if loop.Var != nil {
+		loop.Var.Kind = types.Int
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)

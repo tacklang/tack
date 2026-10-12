@@ -416,6 +416,9 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 	case lexer.Return:
 		return p.parseReturn()
 	case lexer.For:
+		if p.atRange() {
+			return p.parseForRange()
+		}
 		return p.parseFor()
 	case lexer.Break:
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
@@ -744,6 +747,51 @@ func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 	body, bodyDiags := p.parseBlock()
 	if body == nil {
 		return nil, bodyDiags
+	}
+	loop.Body = body
+	loop.Span.End = p.peekPrev().OffsetEnd()
+
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+	return loop, nil
+}
+
+// atRange reports whether the for keyword next is the start of a range
+// loop: followed by range, or by a name, := and range.
+func (p *Parser) atRange() bool {
+	isRange := func(tk *lexer.Token) bool {
+		return tk.Kind() == lexer.Keyword && tk.Value() == lexer.Range
+	}
+	return isRange(p.peekNext()) ||
+		p.peekNext().Kind() == lexer.Ident && p.peekAt(2).Kind() == lexer.Define &&
+			isRange(p.peekAt(3))
+}
+
+// parseForRange parses for i := range count { ... } or for range count
+// { ... }. The variable is immutable and has no type or value written; the
+// type checker gives it its type.
+func (p *Parser) parseForRange() (*ast.ForRange, []diag.Diagnostic) {
+	tk := p.next() // the for keyword
+
+	loop := &ast.ForRange{Span: p.span(tk)}
+
+	if p.peek().Kind() == lexer.Ident {
+		name, _ := p.parseIdent("variable name")
+		loop.Var = &ast.Var{Name: name.Name, NameSpan: name.Span, Span: name.Span}
+		p.next() // the := token
+	}
+	p.next() // the range keyword
+
+	count, diags := p.parseExpr(1)
+	if count == nil {
+		return nil, diags
+	}
+	loop.Count = count
+
+	body, diags := p.parseBlock()
+	if body == nil {
+		return nil, diags
 	}
 	loop.Body = body
 	loop.Span.End = p.peekPrev().OffsetEnd()

@@ -122,7 +122,6 @@ func TestRejectsMalformedLoops(t *testing.T) {
 		{"for\n    }", "expected 'value' found '}'"},
 		{"for a\n    }", "expected '{' found ';'"},
 		{"for a {", "expected"},
-		{"for i := range 10 {\n    }", "expected 'value' found 'range'"},
 		{"for a {\n    } else {\n    }", "expected ';' found 'else'"},
 		{"break 1", "expected ';' found '1'"},
 		{"break outer", "expected ';' found 'outer'"},

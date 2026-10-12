@@ -61,6 +61,10 @@
 // parenthesised as an if's is; break and continue lower to C's own. A
 // three-clause loop lowers to a C block holding its init statement and a C
 // for whose post expression is its post statement, so that continue runs it.
+// A range loop lowers to a C block that evaluates the count once into a
+// temporary and counts up to it, declaring the loop variable as a fresh const
+// each iteration. Temporaries are named tack_ followed by a letter and a
+// number, which no mangled Tack name can be.
 //
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both

@@ -75,6 +75,23 @@ static void tack_main_main(void) {
     if (v_sum != 25) {
         exit(1);
     }
+    int64_t v_squares = 0;
+    {
+        const int64_t tack_n0 = 4;
+        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+            const int64_t v_k = tack_k1;
+            v_squares = (v_squares + (v_k * v_k));
+        }
+    }
+    {
+        const int64_t tack_n2 = 2;
+        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+            v_squares = (v_squares + 1);
+        }
+    }
+    if (v_squares != 16) {
+        exit(1);
+    }
     exit(tack_main_nthPrime(10));
 }
 

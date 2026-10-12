@@ -23,7 +23,7 @@ Open questions about how a feature should behave are in
 | Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                                                |
 |-----------------------------|-------|---------|---------|---------|--------------------------------------------------------------------------------------------------------------------------------------|
 | Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                                       |
-| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 27 lexed; only `package`, `func`, `if`, `else`, `return`, `var`, `mut` are parsed |
+| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 13 parsed, see the statements and expressions below                     |
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                                            |
 | Line comments               | yes   | partial | n/a     | n/a     | Only between top-level declarations; anywhere else is a parse error                                                                  |
 | Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                                              |
@@ -65,7 +65,7 @@ Open questions about how a feature should behave are in
 | `++` `--`                      | yes   | yes    | yes     | yes | Postfix statements only, never values; `int` targets; not a read of the target                          |
 | `for cond {}`, `for {}`        | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
 | Three-clause `for`             | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`         |
-| `for i := range n`             | yes   | no     | no      | no  | Decided: over an `int`, `i` immutable, `for range n` allowed                                            |
+| `range` over an `int`          | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable `int` each iteration       |
 | `switch`                       | yes   | no     | no      | no  |                                                                                                         |
 | `break` / `continue`           | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                          |
 | Standalone blocks              | yes   | no     | no      | no  |                                                                                                         |

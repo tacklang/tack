@@ -24,7 +24,8 @@
 // opening brace comes straight after the keyword has no condition, and one
 // whose header holds semicolons has the three clauses init; cond; post, each
 // optional, where init and post are simple statements and post may not
-// declare a variable.
+// declare a variable. One written for i := range n or for range n is a range
+// loop.
 //
 // The parser stops at the first syntax error and returns that error's
 // diagnostics with a nil file, so a caller never sees a partial tree.

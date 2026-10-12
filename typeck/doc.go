@@ -46,6 +46,7 @@
 //     and the value has the result's type;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
+//   - a range loop's count is an int, and its variable is an immutable int;
 //   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, or a loop

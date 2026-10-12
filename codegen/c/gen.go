@@ -44,6 +44,7 @@ type generator struct {
 	strPool []str
 	globals map[*ast.Var]bool // the package-level variables
 	buf     bytes.Buffer
+	temps   int // how many temporaries have been named, for unique names
 }
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
@@ -322,6 +323,9 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.For:
 		return g.generateFor(x, fn)
 
+	case *ast.ForRange:
+		return g.generateForRange(x, fn)
+
 	case *ast.Break:
 		return []string{"break;"}, nil
 
@@ -458,6 +462,59 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 	inner = append(inner, "}")
 	lines := append([]string{"{"}, indent(append(init, inner...))...)
 	return append(lines, "}"), nil
+}
+
+// generateForRange lowers a range loop to a C block that evaluates the count
+// once into a temporary, and a counting for over a second one:
+//
+//	{
+//	    const int64_t tack_n0 = count;
+//	    for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+//	        const int64_t v_i = tack_k1;
+//	        body
+//	    }
+//	}
+//
+// The loop variable is a fresh const each iteration, as Tack's is immutable.
+// The counter never overflows, since it is only incremented while below the
+// count. The temporaries' names start with tack_ and have one underscore,
+// which no mangled Tack name has.
+func (g *generator) generateForRange(
+	loop *ast.ForRange,
+	fn *ast.Func,
+) ([]string, []diag.Diagnostic) {
+	count, diags := g.expr(loop.Count, types.Int)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	body, diags := g.generateBlock(loop.Body, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	n, k := g.temp("n"), g.temp("k")
+	if loop.Var != nil {
+		body = append(
+			[]string{fmt.Sprintf("const int64_t %s = %s;", varName(loop.Var.Name), k)},
+			body...)
+	}
+
+	inner := append(
+		[]string{fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k)},
+		indent(body)...)
+	inner = append(inner, "}")
+	lines := append(
+		[]string{"{", fmt.Sprintf("    const int64_t %s = %s;", n, count)},
+		indent(inner)...)
+	return append(lines, "}"), nil
+}
+
+// temp returns a fresh name for a temporary of the generated C, built from
+// prefix: tack_ followed by prefix and a number unique in the file.
+func (g *generator) temp(prefix string) string {
+	name := fmt.Sprintf("tack_%s%d", prefix, g.temps)
+	g.temps++
+	return name
 }
 
 // stripParens removes the parentheses a binary expression is rendered with,

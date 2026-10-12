@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/range-non-int/main.tck:4:20: error: cannot range over string
+03 |	func main() {
+04 |	    for i := range "abc" {
+   |	                   ^~~~~ 
+05 |	        exit(i)
+

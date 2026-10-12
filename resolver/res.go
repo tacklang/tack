@@ -353,6 +353,8 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		return append(diags, r.resolveBlock(s.Else, sc)...)
 	case *ast.For:
 		return r.resolveFor(s, sc)
+	case *ast.ForRange:
+		return r.resolveForRange(s, sc)
 	default:
 		return r.resolveSimpleStmt(stmt, sc)
 	}
@@ -374,6 +376,21 @@ func (r *Resolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
 	}
 	if loop.Post != nil {
 		diags = append(diags, r.resolveSimpleStmt(loop.Post, inner)...)
+	}
+	diags = append(diags, r.resolveBlock(loop.Body, inner)...)
+	return append(diags, r.unused(inner)...)
+}
+
+// resolveForRange resolves a range loop. Its count is resolved where the
+// loop is, before the loop variable exists, so it cannot refer to it. The
+// variable, if any, is declared in a scope of the loop's own, with the body
+// nested in that.
+func (r *Resolver) resolveForRange(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
+	diags := r.resolveExpr(loop.Count, sc)
+
+	inner := newScope(sc)
+	if loop.Var != nil {
+		diags = append(diags, r.declareVar(loop.Var, inner)...)
 	}
 	diags = append(diags, r.resolveBlock(loop.Body, inner)...)
 	return append(diags, r.unused(inner)...)

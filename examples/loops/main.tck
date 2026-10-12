@@ -48,5 +48,15 @@ func main() {
     if sum != 25 {
         exit(1)
     }
+    mut squares = 0
+    for k := range 4 {
+        squares += k * k
+    }
+    for range 2 {
+        squares++
+    }
+    if squares != 16 {
+        exit(1)
+    }
     exit(nthPrime(10))
 }

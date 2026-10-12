@@ -160,3 +160,25 @@ func (s *IncDec) Op() string {
 	}
 	return "++"
 }
+
+// ForRange is a loop over an int, for i := range Count, which runs its body
+// once for each of 0, 1, ... Count-1, and not at all when Count is zero or
+// less. Count is evaluated once, before the first iteration. Var is the
+// loop variable, a fresh immutable int each iteration, or nil in the form
+// for range Count, which has none.
+type ForRange struct {
+	Var   *Var
+	Count Expr
+	Body  []Stmt
+	Span  Span // 'for' keyword through the closing brace
+}
+
+var _ Stmt = (*ForRange)(nil)
+
+func (f *ForRange) stmtKey() stmtKey { return _stmtKey }
+
+func (f *ForRange) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'for' keyword through the
+// closing brace.
+func (f *ForRange) Spanned() Span { return f.Span }

@@ -62,21 +62,30 @@ func walkStmt(s Stmt, v Visitor) {
 		Walk(s.Cond, v)
 		walkAll(s.Then, v)
 		walkAll(s.Else, v)
-	case *For:
-		if s.Init != nil {
-			Walk(s.Init, v)
-		}
-		if s.Cond != nil {
-			Walk(s.Cond, v)
-		}
-		if s.Post != nil {
-			Walk(s.Post, v)
-		}
-		walkAll(s.Body, v)
+	case *For, *ForRange:
+		walkLoop(s, v)
 	case *Break, *Continue:
 		// leaves
 	default:
 		walkSimpleStmt(s, v)
+	}
+}
+
+// walkLoop walks the children of a loop, its header's parts in source order
+// and then its body. A part that is left out is nil, which Walk skips.
+func walkLoop(s Stmt, v Visitor) {
+	switch s := s.(type) {
+	case *For:
+		Walk(s.Init, v)
+		Walk(s.Cond, v)
+		Walk(s.Post, v)
+		walkAll(s.Body, v)
+	case *ForRange:
+		if s.Var != nil {
+			Walk(s.Var, v)
+		}
+		Walk(s.Count, v)
+		walkAll(s.Body, v)
 	}
 }
 
