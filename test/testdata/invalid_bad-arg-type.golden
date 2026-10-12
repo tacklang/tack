@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/bad-arg-type/main.tck:4:11: error: cannot use int64 as string in argument to print
 03 |	func main() {
 04 |	    print(42)
-   |	          ^~ 
+   |	          ^~
 05 |	}
 

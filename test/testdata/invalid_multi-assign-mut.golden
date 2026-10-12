@@ -4,6 +4,6 @@ stage: parse
 examples/invalid/multi-assign-mut/main.tck:9:8: error: cannot use mut in an assignment
 08 |	    mut a, mut b := pair()
 09 |	    a, mut b = pair()
-   |	       ^~~~~ 
+   |	       ^~~~~
 10 |	    exit(a + b)
 

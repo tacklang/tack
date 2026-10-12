@@ -4,6 +4,6 @@ stage: resolve
 examples/invalid/blank-assign/main.tck:4:5: error: cannot assign to _
 03 |	func main() {
 04 |	    _ = 1
-   |	    ^ 
+   |	    ^
 05 |	}
 

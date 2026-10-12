@@ -4,18 +4,18 @@ stage: lex
 examples/invalid/garbage/main.tck:4:5: error: invalid character @
 03 |	func main() {
 04 |	    @#$%^ print("hi")
-   |	    ^ 
+   |	    ^
 05 |	}
 
 examples/invalid/garbage/main.tck:4:6: error: invalid character #
 03 |	func main() {
 04 |	    @#$%^ print("hi")
-   |	     ^ 
+   |	     ^
 05 |	}
 
 examples/invalid/garbage/main.tck:4:7: error: invalid character $
 03 |	func main() {
 04 |	    @#$%^ print("hi")
-   |	      ^ 
+   |	      ^
 05 |	}
 

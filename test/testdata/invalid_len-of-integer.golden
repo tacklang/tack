@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/len-of-integer/main.tck:5:14: error: len expects an array or a string, got int64
 04 |	    n := 7
 05 |	    exit(len(n))
-   |	             ^ 
+   |	             ^
 06 |	}
 

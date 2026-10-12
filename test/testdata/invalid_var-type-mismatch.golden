@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/var-type-mismatch/main.tck:4:19: error: cannot use string as int64 in declaration of x
 03 |	func main() {
 04 |	    var x int64 = "one"
-   |	                  ^~~~~ 
+   |	                  ^~~~~
 05 |	    exit(x)
 

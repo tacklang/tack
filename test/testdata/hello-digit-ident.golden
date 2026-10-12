@@ -4,6 +4,6 @@ stage: resolve
 examples/hello-digit-ident/main.tck:4:5: error: undefined: print0
 03 |	func main() {
 04 |	    print0("Hello, World!")
-   |	    ^~~~~~ 
+   |	    ^~~~~~
 05 |	}
 

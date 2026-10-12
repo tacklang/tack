@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/assignment-mismatch-count/main.tck:11:5: error: assignment mismatch: 3 variables but divmod returns 2 values
 10 |	func main() {
 11 |	    q, r, s := divmod(7, 2)
-   |	    ^~~~~~~~~~~~~~~~~~~~~~~ 
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
 12 |	    exit(q + r + s)
 

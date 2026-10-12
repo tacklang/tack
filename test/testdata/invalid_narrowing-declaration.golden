@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/narrowing-declaration/main.tck:5:22: error: cannot use int64 as int8 in declaration of small
 04 |	    var wide int64 = 300
 05 |	    var small int8 = wide
-   |	                     ^~~~ 
+   |	                     ^~~~
 06 |	    exit(small)
 

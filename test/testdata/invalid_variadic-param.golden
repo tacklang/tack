@@ -4,6 +4,6 @@ stage: parse
 examples/invalid/variadic-param/main.tck:3:10: error: variadic parameters are not supported
 02 |	
 03 |	func f(x ...int64) {
-   |	         ^~~ 
+   |	         ^~~
 04 |	}
 

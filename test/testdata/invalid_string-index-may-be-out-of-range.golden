@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/string-index-may-be-out-of-range/main.tck:4:14: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
 03 |	func f(s string, i int64) uint8 {
 04 |	    return s[i]
-   |	             ^ 
+   |	             ^
 05 |	}
 

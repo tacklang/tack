@@ -4,11 +4,11 @@ stage: resolve
 examples/invalid/var-shadows-param/main.tck:4:5: error: n is already declared
 03 |	func f(n int64) {
 04 |	    n := 2
-   |	    ^ 
+   |	    ^
 05 |	    exit(n)
 examples/invalid/var-shadows-param/main.tck:3:8: note: previous declaration of n
 02 |	
 03 |	func f(n int64) {
-   |	       ^ 
+   |	       ^
 04 |	    n := 2
 

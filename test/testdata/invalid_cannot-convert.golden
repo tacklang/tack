@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/cannot-convert/main.tck:4:10: error: cannot convert int64 to string
 03 |	func main() {
 04 |	    s := string(65)
-   |	         ^~~~~~~~~~ 
+   |	         ^~~~~~~~~~
 05 |	    print(s)
 

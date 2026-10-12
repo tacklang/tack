@@ -4,12 +4,12 @@ stage: typeck
 examples/invalid/string-arithmetic/main.tck:4:10: error: operator + is not defined on string
 03 |	func main() {
 04 |	    exit("a" + "b")
-   |	         ^~~ 
+   |	         ^~~
 05 |	}
 
 examples/invalid/string-arithmetic/main.tck:4:16: error: operator + is not defined on string
 03 |	func main() {
 04 |	    exit("a" + "b")
-   |	               ^~~ 
+   |	               ^~~
 05 |	}
 

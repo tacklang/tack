@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/compare-mismatch-parenthesized/main.tck:4:8: error: mismatched types bool and int64 in ==
 03 |	func main() {
 04 |	    if (true) == (1) {
-   |	       ^~~~~~~~~~~~~ 
+   |	       ^~~~~~~~~~~~~
 05 |	        exit(1)
 

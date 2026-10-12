@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/bool-as-int/main.tck:4:10: error: cannot use bool as int64 in argument to exit
 03 |	func main() {
 04 |	    exit(1 < 2)
-   |	         ^~~~~ 
+   |	         ^~~~~
 05 |	}
 

@@ -4,6 +4,6 @@ stage: resolve
 examples/invalid/main-with-params/main.tck:3:11: error: main function must not declare parameters
 02 |	
 03 |	func main(x int64) {
-   |	          ^~~~~~~ 
+   |	          ^~~~~~~
 04 |	}
 

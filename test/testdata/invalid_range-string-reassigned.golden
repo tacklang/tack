@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/range-string-reassigned/main.tck:7:16: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
 06 |	        s = ""
 07 |	        exit(s[i])
-   |	               ^ 
+   |	               ^
 08 |	    }
 

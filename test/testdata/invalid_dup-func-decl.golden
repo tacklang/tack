@@ -4,11 +4,11 @@ stage: resolve
 examples/invalid/dup-func-decl/main.tck:11:6: error: duplicate function declaration
 10 |	
 11 |	func sayHello() {
-   |	     ^~~~~~~~ 
+   |	     ^~~~~~~~
 12 |	}
 examples/invalid/dup-func-decl/main.tck:7:6: note: previous declaration of sayHello
 06 |	
 07 |	func sayHello() {
-   |	     ^~~~~~~~ 
+   |	     ^~~~~~~~
 08 |	    print("Hello, World!")
 

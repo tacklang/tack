@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/element-write-unguarded/main.tck:6:11: error: index i may be out of range; check 0 <= i && i < 3 first
 05 |	    for i := range 4 {
 06 |	        a[i] = i
-   |	          ^ 
+   |	          ^
 07 |	    }
 

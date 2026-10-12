@@ -4,6 +4,6 @@ stage: resolve
 examples/invalid/var-unused/main.tck:4:5: error: declared and not used: x
 03 |	func main() {
 04 |	    x := 1
-   |	    ^ 
+   |	    ^
 05 |	}
 

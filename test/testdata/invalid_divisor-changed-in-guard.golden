@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/divisor-changed-in-guard/main.tck:7:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
 06 |	        d--
 07 |	        exit(8 / d)
-   |	                 ^ 
+   |	                 ^
 08 |	    }
 

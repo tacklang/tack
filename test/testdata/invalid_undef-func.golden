@@ -4,6 +4,6 @@ stage: resolve
 examples/invalid/undef-func/main.tck:4:5: error: undefined: sayHello
 03 |	func main() {
 04 |	    sayHello()
-   |	    ^~~~~~~~ 
+   |	    ^~~~~~~~
 05 |	}
 

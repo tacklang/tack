@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/return-not-enough/main.tck:7:5: error: not enough return values: divmod returns 2, got 1
 06 |	    }
 07 |	    return a / b
-   |	    ^~~~~~~~~~~~ 
+   |	    ^~~~~~~~~~~~
 08 |	}
 

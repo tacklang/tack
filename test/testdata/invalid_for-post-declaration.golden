@@ -4,6 +4,6 @@ stage: parse
 examples/invalid/for-post-declaration/main.tck:4:28: error: cannot declare a variable in a for loop's post statement
 03 |	func main() {
 04 |	    for mut i := 0; i < 3; j := i {
-   |	                           ^~~~~~ 
+   |	                           ^~~~~~
 05 |	        exit(i)
 

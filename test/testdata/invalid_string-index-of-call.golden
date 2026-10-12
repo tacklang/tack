@@ -4,12 +4,12 @@ stage: typeck
 examples/invalid/string-index-of-call/main.tck:8:19: error: index i may be out of range; use v, ok := ...[i]
 07 |	func f(i int64) uint8 {
 08 |	    return name()[i]
-   |	                  ^ 
+   |	                  ^
 09 |	}
 
 examples/invalid/string-index-of-call/main.tck:12:24: error: index 0 may be out of range; use v, ok := ...[0]
 11 |	func main() {
 12 |	    exit(f(1) + name()[0])
-   |	                       ^ 
+   |	                       ^
 13 |	}
 

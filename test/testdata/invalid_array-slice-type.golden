@@ -4,6 +4,6 @@ stage: parse
 examples/invalid/array-slice-type/main.tck:4:11: error: slices are not supported yet
 03 |	func main() {
 04 |	    mut a []int64
-   |	          ^~ 
+   |	          ^~
 05 |	}
 

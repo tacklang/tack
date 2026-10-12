@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/multi-assign-twice/main.tck:9:8: error: a is assigned more than once
 08 |	    mut a := 0
 09 |	    a, a = pair()
-   |	       ^ 
+   |	       ^
 10 |	    exit(a)
 

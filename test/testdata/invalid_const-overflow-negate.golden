@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/const-overflow-negate/main.tck:5:10: error: constant expression overflows int8
 04 |	    var smallest int8 = -128
 05 |	    x := -smallest
-   |	         ^~~~~~~~~ 
+   |	         ^~~~~~~~~
 06 |	    exit(x)
 

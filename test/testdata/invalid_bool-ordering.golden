@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/bool-ordering/main.tck:4:8: error: operator < is not defined on bool
 03 |	func main() {
 04 |	    if true < false {
-   |	       ^~~~~~~~~~~~ 
+   |	       ^~~~~~~~~~~~
 05 |	        exit(1)
 

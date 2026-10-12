@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/string-index-negative/main.tck:4:14: error: index -1 is out of range for a string
 03 |	func f(s string) uint8 {
 04 |	    return s[-1]
-   |	             ^~ 
+   |	             ^~
 05 |	}
 

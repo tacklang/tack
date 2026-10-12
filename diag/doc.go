@@ -8,7 +8,8 @@
 //
 // Render and RenderAll produce one compact line per diagnostic, which the
 // golden tests pin. RenderPretty and RenderAllPretty add the offending source
-// line with a marker under the span, for the command line. Both take the
-// source.File the spans refer to, which must already have its line starts
-// recorded by the lexer.
+// line with a marker under the span, for the command line: a caret under its
+// first byte and a tilde under each of the rest, with nothing after. Both
+// take the source.File the spans refer to, which must already have its line
+// starts recorded by the lexer.
 package diag

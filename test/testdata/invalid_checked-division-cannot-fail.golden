@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/checked-division-cannot-fail/main.tck:5:14: error: the divisor cannot be zero here; drop the ok
 04 |	    mut n int64 = 9
 05 |	    q, ok := n / 3
-   |	             ^~~~~ 
+   |	             ^~~~~
 06 |	    if ok {
 

@@ -4,12 +4,12 @@ stage: resolve
 examples/invalid/main-with-params-and-result/main.tck:3:11: error: main function must not declare parameters
 02 |	
 03 |	func main(x int64) int64 {
-   |	          ^~~~~~~ 
+   |	          ^~~~~~~
 04 |	    return x
 
 examples/invalid/main-with-params-and-result/main.tck:3:20: error: main function must not declare a result
 02 |	
 03 |	func main(x int64) int64 {
-   |	                   ^~~~~ 
+   |	                   ^~~~~
 04 |	    return x
 

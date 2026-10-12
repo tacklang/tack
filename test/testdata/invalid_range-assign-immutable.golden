@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/range-assign-immutable/main.tck:5:9: error: cannot assign to immutable variable i
 04 |	    for i := range 3 {
 05 |	        i += 1
-   |	        ^ 
+   |	        ^
 06 |	        exit(i)
 

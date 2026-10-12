@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/bool-arithmetic/main.tck:4:10: error: operator + is not defined on bool
 03 |	func main() {
 04 |	    exit(true + 1)
-   |	         ^~~~ 
+   |	         ^~~~
 05 |	}
 

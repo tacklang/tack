@@ -4,6 +4,6 @@ stage: lex
 examples/invalid/char-multibyte/main.tck:4:10: error: char literal 'é' is 2 bytes in UTF-8; a char literal must be one byte
 03 |	func main() {
 04 |	    c := 'é'
-   |	         ^~~~ 
+   |	         ^~~~
 05 |	    exit(c)
 

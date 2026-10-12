@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/call-returns-nothing/main.tck:7:10: error: nothing returns no value
 06 |	func main() {
 07 |	    exit(nothing())
-   |	         ^~~~~~~~~ 
+   |	         ^~~~~~~~~
 08 |	}
 

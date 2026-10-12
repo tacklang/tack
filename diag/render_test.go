@@ -60,9 +60,7 @@ func TestRender(t *testing.T) {
 }
 
 // TestRenderPretty pins the full layout: header, a line of context either
-// side, and a caret with tildes under the span. The underline of a non-empty
-// span is followed by one space; that is what the renderer does today, not a
-// deliberate format.
+// side, and a caret with tildes under the span, with nothing after them.
 func TestRenderPretty(t *testing.T) {
 	f := newFile("one\ntwo three\nfour\n")
 
@@ -70,7 +68,7 @@ func TestRenderPretty(t *testing.T) {
 	want := "case.tck:2:5: error: bad\n" +
 		"01 |\tone\n" +
 		"02 |\ttwo three\n" +
-		"   |\t    ^~~~~ \n" +
+		"   |\t    ^~~~~\n" +
 		"03 |\tfour\n"
 	if got != want {
 		t.Errorf("RenderPretty =\n%s\nwant\n%s", got, want)
@@ -90,13 +88,13 @@ func TestRenderPrettyAtTheEdges(t *testing.T) {
 		{
 			"first byte of the file",
 			"ab\ncd",
-			"case.tck:1:1: error: e\n01 |\tab\n   |\t^ \n02 |\tcd\n",
+			"case.tck:1:1: error: e\n01 |\tab\n   |\t^\n02 |\tcd\n",
 			errorAt("e", 0, 1),
 		},
 		{
 			"last line without a newline",
 			"ab\ncd",
-			"case.tck:2:2: error: e\n01 |\tab\n02 |\tcd\n   |\t ^ \n",
+			"case.tck:2:2: error: e\n01 |\tab\n02 |\tcd\n   |\t ^\n",
 			errorAt("e", 4, 5),
 		},
 		{
@@ -136,11 +134,11 @@ func TestRenderPrettyWithMarkerAndRelated(t *testing.T) {
 	want := "case.tck:2:1: error: dup\n" +
 		"01 |\ta\n" +
 		"02 |\tb\n" +
-		"   |\t^  here\n" +
+		"   |\t^ here\n" +
 		"03 |\t\n" +
 		"case.tck:1:1: note: first\n" +
 		"01 |\ta\n" +
-		"   |\t^ \n" +
+		"   |\t^\n" +
 		"02 |\tb\n"
 	if got != want {
 		t.Errorf("RenderPretty =\n%q\nwant\n%q", got, want)

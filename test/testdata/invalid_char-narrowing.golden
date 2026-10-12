@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/char-narrowing/main.tck:4:18: error: cannot use uint8 as int8 in declaration of c
 03 |	func main() {
 04 |	    var c int8 = 'a'
-   |	                 ^~~ 
+   |	                 ^~~
 05 |	    exit(c)
 

@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/missing-else-return/main.tck:3:6: error: f must end in a return
 02 |	
 03 |	func f(n int64) int64 {
-   |	     ^ 
+   |	     ^
 04 |	    if n < 2 {
 

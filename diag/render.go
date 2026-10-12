@@ -71,10 +71,12 @@ func renderCtx(f *source.File, str *strings.Builder, line, col int, d *Diagnosti
 	}
 }
 
-// renderTokenMarker writes a caret at col and tildes under the rest of span.
+// renderTokenMarker writes a caret at col and tildes under the rest of span,
+// and nothing after them. An empty span, such as an inserted semicolon or
+// the end of the input, still gets its caret.
 func renderTokenMarker(str *strings.Builder, col int, span *ast.Span) {
-	start, end := col-1, col+span.End-span.Start-1
-	for c := range end + 1 {
+	start, end := col-1, col-1+span.End-span.Start
+	for c := range max(end, start+1) {
 		switch {
 		case c == start:
 			str.WriteRune('^')

@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/range-bool/main.tck:5:20: error: cannot range over bool
 04 |	    done := false
 05 |	    for i := range done {
-   |	                   ^~~~ 
+   |	                   ^~~~
 06 |	        exit(i)
 

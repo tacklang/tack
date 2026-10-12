@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/incdec-immutable/main.tck:5:5: error: cannot assign to immutable variable n
 04 |	    n := 0
 05 |	    n++
-   |	    ^ 
+   |	    ^
 06 |	    exit(n)
 

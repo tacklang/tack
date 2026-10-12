@@ -4,6 +4,6 @@ stage: typeck
 examples/invalid/global-assign-immutable/main.tck:6:5: error: cannot assign to immutable variable limit
 05 |	func main() {
 06 |	    limit = 5
-   |	    ^~~~~ 
+   |	    ^~~~~
 07 |	    exit(limit)
 
