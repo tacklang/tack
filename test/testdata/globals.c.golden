@@ -27,7 +27,7 @@ static void tack_main_count(void);
 static void tack_main_main(void);
 
 static void tack_main_count(void) {
-    tack_main_calls = (tack_main_calls + 1);
+    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
 }
 
 static void tack_main_main(void) {

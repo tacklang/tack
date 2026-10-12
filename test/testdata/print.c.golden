@@ -45,7 +45,7 @@ static void tack_main_main(void) {
         const int64_t tack_n2 = 3;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
             const int64_t v_i = tack_k3;
-            tack_main_row((v_i + 1));
+            tack_main_row(((int64_t)((uint64_t)v_i + (uint64_t)1)));
         }
     }
     tack_print((tack_string){str5, 14});

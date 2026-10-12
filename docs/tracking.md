@@ -82,7 +82,7 @@ Open questions about how a feature should behave are in
 | Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values     |
 | Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked     |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                             |
-| `+ - * / %`                       | yes   | yes    | yes     | yes     | `int` operands only; overflow and division by zero follow C |
+| `+ - * / %`                       | yes   | yes    | yes     | yes     | `int` operands only; overflow wraps; division by zero is UB |
 | `== != < <= > >=`                 | yes   | yes    | yes     | yes     | Same-type operands: `int` all six, `bool` `==` `!=` only    |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                         |
 | Unary `-`                         | yes   | yes    | yes     | yes     | `int` operand only; `-` before digits is a negative literal |

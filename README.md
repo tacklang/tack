@@ -247,8 +247,11 @@ which is true today because `main` is the only package there is.
   the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
   tightest, then arithmetic, then comparisons, then `&&`, then `||`.
-  Arithmetic and `-x` take `int` operands; `-x` means `0 - x`, so negating
-  the smallest int overflows as subtracting does. A comparison takes two operands of the
+  Arithmetic and `-x` take `int` operands; `-x` means `0 - x`. At runtime,
+  arithmetic that overflows wraps around, as in Go: the largest int plus one
+  is the smallest, negating the smallest int gives itself, and the smallest
+  int divided by -1 is itself, with remainder 0. Dividing by zero is not
+  defined yet. A comparison takes two operands of the
   same type: two `int`s with any of the six, or two `bool`s with `==` and
   `!=`. Strings cannot be compared yet.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the

@@ -20,7 +20,7 @@ static int64_t tack_main_fib(int64_t p_n) {
     if (p_n < 2) {
         return p_n;
     }
-    return (tack_main_fib((p_n - 1)) + tack_main_fib((p_n - 2)));
+    return ((int64_t)((uint64_t)tack_main_fib(((int64_t)((uint64_t)p_n - (uint64_t)1))) + (uint64_t)tack_main_fib(((int64_t)((uint64_t)p_n - (uint64_t)2)))));
 }
 
 static void tack_main_main(void) {

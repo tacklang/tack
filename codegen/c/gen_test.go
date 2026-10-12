@@ -346,6 +346,13 @@ func TestGeneratedProgramExitsWithTheGivenStatus(t *testing.T) {
 // unused or uninitialized variable, fails the test.
 func buildStrict(t *testing.T, src string) string {
 	t.Helper()
+	return buildWith(t, src)
+}
+
+// buildWith compiles src strictly, as buildStrict does, passing clang the
+// extra flags as well, and returns the binary's path.
+func buildWith(t *testing.T, src string, flags ...string) string {
+	t.Helper()
 
 	e := c.New()
 	if _, err := exec.LookPath("clang"); err != nil {
@@ -360,7 +367,8 @@ func buildStrict(t *testing.T, src string) string {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := exec.Command("clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-o", bin, csrc)
+	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, flags...)
+	cmd := exec.Command("clang", append(args, "-o", bin, csrc)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, generate(t, src))
 	}
@@ -548,7 +556,8 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 func TestGeneratesBinaryExpression(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(1 + 2 * 3)\n}\n")
 
-	if !strings.Contains(got, "exit((1 + (2 * 3)));") {
+	want := "exit(((int64_t)((uint64_t)1 + (uint64_t)((int64_t)((uint64_t)2 * (uint64_t)3)))));"
+	if !strings.Contains(got, want) {
 		t.Errorf("arithmetic did not survive with its grouping:\n%s", got)
 	}
 }

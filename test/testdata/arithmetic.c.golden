@@ -13,10 +13,18 @@ typedef struct {
 } tack_string;
 
 
+static int64_t tack_div(int64_t a, int64_t b) {
+    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;
+}
+
+static int64_t tack_rem(int64_t a, int64_t b) {
+    return b == -1 ? 0 : a % b;
+}
+
 static void tack_main_main(void);
 
 static void tack_main_main(void) {
-    exit((((((7 + 3) - 2) * 3) / 2) % 7));
+    exit(tack_rem(tack_div(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)7 + (uint64_t)3)) - (uint64_t)2)) * (uint64_t)3)), 2), 7));
 }
 
 int main(void) {

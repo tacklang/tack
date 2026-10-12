@@ -143,6 +143,37 @@ func (g *generator) emitConstantPool() {
 		g.buf.WriteString("    fwrite(s.ptr, 1, s.len, stdout);\n")
 		g.buf.WriteString("}\n\n")
 	}
+
+	// Division and remainder by -1 are written out, since the smallest int
+	// divided by -1 overflows and C leaves that undefined: the quotient wraps
+	// to the smallest int, and the remainder is 0. Each helper is emitted only
+	// when the program uses its operator.
+	if g.usesOp(ast.Div) {
+		g.buf.WriteString("static int64_t tack_div(int64_t a, int64_t b) {\n")
+		g.buf.WriteString("    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;\n")
+		g.buf.WriteString("}\n\n")
+	}
+	if g.usesOp(ast.Rem) {
+		g.buf.WriteString("static int64_t tack_rem(int64_t a, int64_t b) {\n")
+		g.buf.WriteString("    return b == -1 ? 0 : a % b;\n")
+		g.buf.WriteString("}\n\n")
+	}
+}
+
+// usesOp reports whether the program applies the arithmetic operator op
+// anywhere, in an expression or a compound assignment.
+func (g *generator) usesOp(op ast.BinaryOp) bool {
+	uses := false
+	ast.Walk(g.file, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Binary:
+			uses = uses || x.Op == op
+		case *ast.Assign:
+			uses = uses || x.Op == op
+		}
+		return true
+	})
+	return uses
 }
 
 func (g *generator) printsAnything() bool {
@@ -652,7 +683,7 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	name := g.varRef(target)
 	if a.Op != ast.InvalidOp {
 		// x op= v is x = x op v, spelled out the way Tack defines it.
-		return []string{fmt.Sprintf("%s = (%s %s %s);", name, name, a.Op, value)}, nil
+		return []string{fmt.Sprintf("%s = %s;", name, arith(a.Op, name, value))}, nil
 	}
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
 }
@@ -673,7 +704,7 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 		op = ast.Sub
 	}
 	name := g.varRef(target)
-	return []string{fmt.Sprintf("%s = (%s %s 1);", name, name, op)}, nil
+	return []string{fmt.Sprintf("%s = %s;", name, arith(op, name, "1"))}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
@@ -996,9 +1027,31 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
+	if bin.Op.IsArithmetic() {
+		return arith(bin.Op, left, right), nil
+	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
+}
+
+// arith renders the int arithmetic l op r so that it wraps on overflow, as
+// Tack defines it, where C leaves signed overflow undefined. + - and * are
+// done on uint64_t, which C defines to wrap, and the result converted back
+// to int64_t, which C leaves to the implementation and clang does by keeping
+// the low 64 bits; the sanitizer tests in wrap_test.go check it. / and % go
+// through tack_div and tack_rem, which handle the smallest int divided by
+// -1, the one overflow division has. Each operand appears once, so neither
+// is evaluated twice.
+func arith(op ast.BinaryOp, l, r string) string {
+	switch op {
+	case ast.Div:
+		return fmt.Sprintf("tack_div(%s, %s)", l, r)
+	case ast.Rem:
+		return fmt.Sprintf("tack_rem(%s, %s)", l, r)
+	default:
+		return fmt.Sprintf("((int64_t)((uint64_t)%s %s (uint64_t)%s))", l, op, r)
+	}
 }
 
 // unaryExpr renders ! or -. A ! gets no parentheses of its own: C's ! binds
@@ -1011,7 +1064,9 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	if u.Op == ast.Neg {
-		return "(-" + x + ")", nil
+		// -x is 0 - x, done on uint64_t so that negating the smallest int
+		// wraps to itself instead of being undefined.
+		return "((int64_t)(0 - (uint64_t)" + x + "))", nil
 	}
 	return u.Op.String() + x, nil
 }

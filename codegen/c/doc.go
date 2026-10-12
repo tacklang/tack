@@ -68,8 +68,13 @@
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.
 //
-// A compound assignment x op= v is written out as x = (x op v), the way Tack
-// defines it, and x++ and x-- as x = (x + 1) and x = (x - 1). A loop lowers
+// Arithmetic wraps on overflow, where C leaves signed overflow undefined:
+// + - * and unary - are done on uint64_t, which C defines to wrap, and
+// converted back to int64_t. / and % call tack_div and tack_rem, emitted
+// only when used, which give the smallest int divided by -1 as itself and
+// its remainder as 0. A compound assignment x op= v is written out as
+// x = x op v the same way, the way Tack defines it, and x++ and x-- as
+// x = x + 1 and x = x - 1. A loop lowers
 // to a C while, or to for (;;) when it has no condition, with its condition
 // parenthesised as an if's is; break and continue lower to C's own. A
 // three-clause loop lowers to a C block holding its init statement and a C

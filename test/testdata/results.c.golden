@@ -20,6 +20,14 @@ static void tack_print(tack_string s) {
     fwrite(s.ptr, 1, s.len, stdout);
 }
 
+static int64_t tack_div(int64_t a, int64_t b) {
+    return b == -1 ? (int64_t)(0 - (uint64_t)a) : a / b;
+}
+
+static int64_t tack_rem(int64_t a, int64_t b) {
+    return b == -1 ? 0 : a % b;
+}
+
 typedef struct {
     int64_t r0;
     int64_t r1;
@@ -35,7 +43,7 @@ static tack_results_main_classify tack_main_classify(int64_t p_n);
 static void tack_main_main(void);
 
 static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b) {
-    return (tack_results_main_divmod){(p_a / p_b), (p_a % p_b)};
+    return (tack_results_main_divmod){tack_div(p_a, p_b), tack_rem(p_a, p_b)};
 }
 
 static tack_results_main_classify tack_main_classify(int64_t p_n) {
@@ -60,9 +68,9 @@ static void tack_main_main(void) {
     const tack_results_main_divmod tack_r2 = tack_main_divmod(100, 7);
     int64_t v_total = tack_r2.r0;
     const int64_t v_count = tack_r2.r1;
-    v_total = (v_total + v_count);
+    v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_count));
     tack_main_divmod(1, 1);
-    exit((((v_q * 10) + v_r) + v_total));
+    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total)));
 }
 
 int main(void) {

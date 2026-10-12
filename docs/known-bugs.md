@@ -56,3 +56,20 @@ The driver runs clang without warning flags and passes its output through,
 so a valid program can produce a C warning about the generated code. `x == x`
 prints `warning: self-comparison always evaluates to true`, naming the
 temporary C file, and the build still succeeds.
+
+## A comment at the end of the file loses its last byte
+
+`handleComment` ends a comment token at `l.pos-1`, which is right when a
+newline follows, since the newline has already been consumed, and one byte
+short when the comment runs to the end of the input. In `x // hi` with no
+trailing newline, `tack --lex` reports the comment as `[2:6]` instead of
+`[2:7]`. The comment's value is unaffected.
+
+## Raw strings decode escape sequences
+
+A backquoted string has its escape sequences decoded, with the double quote
+as the extra escapable byte, so `` `\"` `` is a one-byte string, `` `\n` `` is
+a newline, and `` `\`` `` is an invalid escape that does not end the string.
+In Go a backquoted string is raw. Whether Tack's should be is still listed in
+`docs/open-decisions.md` under "Escape sequences in raw strings"; this entry
+records the current behavior until that is settled.
