@@ -305,17 +305,22 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 // resolves its value. Assigning does not count as reading the variable.
 func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(a.Value, sc)
+	return append(diags, r.resolveTarget(a.Target, sc)...)
+}
 
-	decl, visible := sc.lookup(a.Target.Name)
+// resolveTarget binds the variable an assignment, increment or decrement
+// writes to. Writing to a variable does not count as reading it.
+func (r *Resolver) resolveTarget(target *ast.Ident, sc *scope) []diag.Diagnostic {
+	decl, visible := sc.lookup(target.Name)
 	if !visible {
-		return append(diags, diag.Diagnostic{
+		return []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  fmt.Sprintf("undefined: %s", a.Target.Name),
-			Span:     a.Target.Span,
-		})
+			Message:  fmt.Sprintf("undefined: %s", target.Name),
+			Span:     target.Span,
+		}}
 	}
-	a.Target.Def = decl
-	return diags
+	target.Def = decl
+	return nil
 }
 
 // nameSpan returns the span of the name a declaration introduces.
@@ -337,8 +342,6 @@ func nameSpan(decl ast.Decl) ast.Span {
 // block of its own.
 func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
-	case *ast.ExprStmt:
-		return r.resolveExpr(s.X, sc)
 	case *ast.Return:
 		if s.Value == nil {
 			return nil
@@ -354,10 +357,23 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 			diags = r.resolveExpr(s.Cond, sc)
 		}
 		return append(diags, r.resolveBlock(s.Body, sc)...)
+	default:
+		return r.resolveSimpleStmt(stmt, sc)
+	}
+}
+
+// resolveSimpleStmt resolves a statement that holds no other statement: a
+// declaration, an assignment, an increment or decrement, or an expression.
+func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
+	switch s := stmt.(type) {
+	case *ast.ExprStmt:
+		return r.resolveExpr(s.X, sc)
 	case *ast.Var:
 		return r.declareVar(s, sc)
 	case *ast.Assign:
 		return r.resolveAssign(s, sc)
+	case *ast.IncDec:
+		return r.resolveTarget(s.Target, sc)
 	default:
 		return nil
 	}

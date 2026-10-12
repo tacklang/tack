@@ -20,5 +20,8 @@ func main() {
     x /= 7
     x %= 100
     x += calls
+    x++
+    x++
+    x--
     exit(x)
 }

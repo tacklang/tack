@@ -1,0 +1,8 @@
+package main
+
+func main() {
+    mut done = false
+    done++
+    if done {
+    }
+}

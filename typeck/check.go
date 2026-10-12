@@ -70,19 +70,11 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	}
 }
 
+// checkStmt checks a statement of fn and everything nested in it.
 func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 	switch s := stmt.(type) {
-	case *ast.ExprStmt:
-		c.checkExpr(s.X)
-
 	case *ast.Return:
 		c.checkReturn(s, fn)
-
-	case *ast.Var:
-		c.checkVar(s)
-
-	case *ast.Assign:
-		c.checkAssign(s)
 
 	case *ast.If:
 		c.checkCond(s.Cond)
@@ -102,6 +94,24 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.Continue:
 		c.checkInLoop(s.Span, "continue")
+
+	default:
+		c.checkSimpleStmt(stmt)
+	}
+}
+
+// checkSimpleStmt checks a statement that holds no other statement: a
+// declaration, an assignment, an increment or decrement, or an expression.
+func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
+	switch s := stmt.(type) {
+	case *ast.ExprStmt:
+		c.checkExpr(s.X)
+	case *ast.Var:
+		c.checkVar(s)
+	case *ast.Assign:
+		c.checkAssign(s)
+	case *ast.IncDec:
+		c.checkIntTarget(s.Target, s.Op())
 	}
 }
 
@@ -406,24 +416,34 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 // the target cannot be assigned at all.
 func (c *Checker) checkCompound(a *ast.Assign, got types.Kind) {
 	op := a.Op.String() + "="
-
-	switch def := a.Target.Def.(type) {
-	case *ast.Param:
-		c.errorf(a.Target.Span, "cannot assign to parameter %s", a.Target.Name)
+	if !c.checkIntTarget(a.Target, op) {
 		return
-	case *ast.Var:
-		if !def.Mutable {
-			c.errorf(a.Target.Span, "cannot assign to immutable variable %s", a.Target.Name)
-			return
-		}
-		if def.Kind != types.Int && def.Kind != types.Invalid {
-			c.errorf(a.Target.Span, "cannot use %s as int in %s", def.Kind, op)
-		}
 	}
 
 	if got != types.Int && got != types.Invalid && !alreadyReported(a.Value, got) {
 		c.errorf(a.Value.Spanned(), "cannot use %s as int in %s", got, op)
 	}
+}
+
+// checkIntTarget checks the target of an operator that updates an int in
+// place, such as += or ++: it must be a mutable variable, and an int. It
+// reports false when the target cannot be assigned at all, so the caller
+// need not report anything more about the statement.
+func (c *Checker) checkIntTarget(target *ast.Ident, op string) bool {
+	switch def := target.Def.(type) {
+	case *ast.Param:
+		c.errorf(target.Span, "cannot assign to parameter %s", target.Name)
+		return false
+	case *ast.Var:
+		if !def.Mutable {
+			c.errorf(target.Span, "cannot assign to immutable variable %s", target.Name)
+			return false
+		}
+		if def.Kind != types.Int && def.Kind != types.Invalid {
+			c.errorf(target.Span, "cannot use %s as int in %s", def.Kind, op)
+		}
+	}
+	return true
 }
 
 // valueKind checks an expression used as a value and returns its kind. A call

@@ -798,13 +798,13 @@ func TestBuiltLoopsTicksAndExits29(t *testing.T) {
 	}
 }
 
-// The compound example applies every compound assignment, so its status
-// pins what each one computes in a real build.
-func TestBuiltCompoundExits13(t *testing.T) {
+// The compound example applies every compound assignment, then ++ and --,
+// so its status pins what each one computes in a real build.
+func TestBuiltCompoundExits14(t *testing.T) {
 	bin := buildWithClang(t, "compound")
 	err := exec.CommandContext(t.Context(), bin).Run()
 	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 13 {
-		t.Errorf("compound exited with %v, want status 13", err)
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 14 {
+		t.Errorf("compound exited with %v, want status 14", err)
 	}
 }

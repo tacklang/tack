@@ -69,11 +69,23 @@ func walkStmt(s Stmt, v Visitor) {
 		walkAll(s.Body, v)
 	case *Break, *Continue:
 		// leaves
+	default:
+		walkSimpleStmt(s, v)
+	}
+}
+
+// walkSimpleStmt walks the children of a simple statement: one that holds no
+// other statement. A Var never reaches it, since Walk treats it as a
+// declaration.
+func walkSimpleStmt(s Stmt, v Visitor) {
+	switch s := s.(type) {
 	case *ExprStmt:
 		Walk(s.X, v)
 	case *Assign:
 		Walk(s.Target, v)
 		Walk(s.Value, v)
+	case *IncDec:
+		Walk(s.Target, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled statement type %T", s))
 	}

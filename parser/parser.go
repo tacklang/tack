@@ -368,7 +368,8 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 }
 
 // parseIdentStmt parses a statement that starts with the name tk: a short
-// variable declaration, an assignment (plain or compound), or a call.
+// variable declaration, an assignment (plain or compound), an increment or
+// decrement, or a call.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	switch p.peekNext().Kind() {
 	case lexer.Define:
@@ -382,9 +383,24 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		return p.parseAssign()
 	case lexer.LParen:
 		return p.parseFuncCall()
+	case lexer.Inc, lexer.Dec:
+		return p.parseIncDec()
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// parseIncDec parses name++ or name--.
+func (p *Parser) parseIncDec() (*ast.IncDec, []diag.Diagnostic) {
+	target, _ := p.parseIdent("variable name")
+	op := p.next() // ++ or --
+
+	s := &ast.IncDec{
+		Target: target,
+		Dec:    op.Kind() == lexer.Dec,
+		Span:   ast.Span{File: p.fileID, Start: target.Span.Start, End: op.OffsetEnd()},
+	}
+	return s, p.endStmt(&s.Span)
 }
 
 // parseVarDecl parses a declaration that starts with var or mut: a name,

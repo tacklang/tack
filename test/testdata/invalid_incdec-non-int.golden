@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/incdec-non-int/main.tck:5:5: error: cannot use bool as int in ++
+04 |	    mut done = false
+05 |	    done++
+   |	    ^~~~ 
+06 |	    if done {
+

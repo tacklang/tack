@@ -1,0 +1,39 @@
+package c_test
+
+import "testing"
+
+// incDecRuntimeCases are programs using ++ and --, and what each must exit
+// with.
+var incDecRuntimeCases = []struct {
+	name   string
+	src    string
+	status int
+}{
+	{"++", "package main\n\nfunc main() {\n    mut x = 41\n    x++\n    exit(x)\n}\n", 42},
+	{"--", "package main\n\nfunc main() {\n    mut x = 43\n    x--\n    exit(x)\n}\n", 42},
+	{
+		"through zero",
+		"package main\n\nfunc main() {\n    mut x = 1\n    x--\n    x--\n    exit(x + 5)\n}\n",
+		4,
+	},
+	{
+		"counting loop",
+		"package main\n\nfunc main() {\n    mut i = 0\n    mut n = 0\n    for i < 10 {\n        i++\n        n++\n        n++\n    }\n    exit(n)\n}\n",
+		20,
+	},
+	{
+		"global",
+		"package main\n\nmut hits int\n\nfunc hit() {\n    hits++\n}\n\nfunc main() {\n    hit()\n    hit()\n    exit(hits)\n}\n",
+		2,
+	},
+}
+
+func TestIncDecAtRuntime(t *testing.T) {
+	for _, tt := range incDecRuntimeCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if stdout, status := run(t, tt.src); stdout != "" || status != tt.status {
+				t.Errorf("got stdout %q, status %d; want no output, %d", stdout, status, tt.status)
+			}
+		})
+	}
+}

@@ -190,8 +190,8 @@ which is true today because `main` is the only package there is.
 - Top-level `func name(x int, s string) int { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. At most one result.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `for`, `break`, `continue`, a variable declaration, and an
-  assignment. A function that declares a result must end in a terminating
+  `else if`), `for`, `break`, `continue`, a variable declaration, an
+  assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, or a `for` with no
   condition that no `break` leaves. The rule is syntactic, so a call that
   never comes back does not satisfy it.
@@ -208,7 +208,8 @@ which is true today because `main` is the only package there is.
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
   mutable `int` variable and an `int` value. Like a plain assignment, they do
   not count as reading `x`, so a variable that is only ever updated is still
-  unused.
+  unused. `x++` and `x--` add and subtract one the same way. They are
+  statements, never values, and there is no prefix form.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, made only of literals and

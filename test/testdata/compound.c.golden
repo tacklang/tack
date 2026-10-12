@@ -36,6 +36,9 @@ static void tack_main_main(void) {
     v_x = (v_x / 7);
     v_x = (v_x % 100);
     v_x = (v_x + tack_main_calls);
+    v_x = (v_x + 1);
+    v_x = (v_x + 1);
+    v_x = (v_x - 1);
     exit(v_x);
 }
 

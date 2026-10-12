@@ -129,3 +129,28 @@ func (c *Continue) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the 'continue' keyword.
 func (c *Continue) Spanned() Span { return c.Span }
+
+// IncDec adds one to a variable (Target++) or, when Dec is set, subtracts one
+// (Target--). It is a statement, never a value.
+type IncDec struct {
+	Target *Ident
+	Span   Span // start of Target through the operator
+	Dec    bool
+}
+
+var _ Stmt = (*IncDec)(nil)
+
+func (s *IncDec) stmtKey() stmtKey { return _stmtKey }
+
+func (s *IncDec) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the target through the operator.
+func (s *IncDec) Spanned() Span { return s.Span }
+
+// Op returns the operator as written in source.
+func (s *IncDec) Op() string {
+	if s.Dec {
+		return "--"
+	}
+	return "++"
+}

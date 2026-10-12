@@ -310,6 +310,7 @@ func (g *generator) generateBlock(body []ast.Stmt, fn *ast.Func) ([]string, []di
 	return lines, nil
 }
 
+// generateStmt lowers a statement of fn to C lines.
 func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	switch x := stmt.(type) {
 	case *ast.Return:
@@ -327,15 +328,23 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.Continue:
 		return []string{"continue;"}, nil
 
+	default:
+		return g.generateSimpleStmt(stmt)
+	}
+}
+
+// generateSimpleStmt lowers a statement that holds no other statement: a
+// declaration, an assignment, an increment or decrement, or an expression.
+func (g *generator) generateSimpleStmt(stmt ast.Stmt) ([]string, []diag.Diagnostic) {
+	switch x := stmt.(type) {
 	case *ast.Var:
 		return g.generateVar(x)
-
 	case *ast.Assign:
 		return g.generateAssign(x)
-
+	case *ast.IncDec:
+		return g.generateIncDec(x)
 	case *ast.ExprStmt:
 		return g.generateExprStmt(x)
-
 	default:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -439,6 +448,25 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 		return []string{fmt.Sprintf("%s = (%s %s %s);", name, name, a.Op, value)}, nil
 	}
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
+}
+
+// generateIncDec lowers x++ to x = (x + 1) and x-- to x = (x - 1), the way
+// a compound assignment is written out.
+func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) {
+	target, ok := s.Target.Def.(*ast.Var)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot assign to %s", s.Target.Name),
+			Span:     s.Target.Span,
+		}}
+	}
+	op := ast.Add
+	if s.Dec {
+		op = ast.Sub
+	}
+	name := g.varRef(target)
+	return []string{fmt.Sprintf("%s = (%s %s 1);", name, name, op)}, nil
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
