@@ -191,3 +191,18 @@ func TestMultiAssignAtRuntime(t *testing.T) {
 		})
 	}
 }
+
+// A discarded result still comes from a call that runs once, including as a
+// loop's post statement.
+func TestBlankAtRuntime(t *testing.T) {
+	out, status := run(
+		t,
+		"package main\n\nfunc noisy(n int) (int, int) {\n    print(\"c\")\n    return n - 1, n\n}\n\n"+
+			"func main() {\n    _, top := noisy(3)\n    mut n := top\n    for n > 0 {\n        n, _ = noisy(n)\n    }\n"+
+			"    for mut i := 0; i < 2; i, _ = noisy(i + 2) {\n    }\n    exit(top)\n}\n",
+	)
+	// One call to set top, three in the first loop, two as the post.
+	if out != "cccccc" || status != 3 {
+		t.Errorf("got stdout %q, status %d; want %q, 3", out, status, "cccccc")
+	}
+}

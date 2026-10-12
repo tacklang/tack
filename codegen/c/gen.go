@@ -733,6 +733,9 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 	tmp := g.temp("r")
 	lines := []string{fmt.Sprintf("const %s %s = %s;", results, tmp, value)}
 	for i, v := range m.Vars {
+		if v.Name == ast.Blank {
+			continue
+		}
 		decl := fmt.Sprintf("%s %s = %s.r%d;", cType(v.Type), varName(v.Name), tmp, i)
 		if !v.Mutable {
 			decl = "const " + decl
@@ -787,11 +790,15 @@ func (g *generator) multiAssignPost(
 	return fmt.Sprintf("%s %s;", results, tmp), strings.Join(exprs, ", "), nil
 }
 
-// fieldAssigns renders, for each target of m, the C assignment of the field
-// of the results struct tmp in its position, without a semicolon.
+// fieldAssigns renders, for each target of m other than _, the C assignment
+// of the field of the results struct tmp in its position, without a
+// semicolon.
 func (g *generator) fieldAssigns(m *ast.MultiAssign, tmp string) ([]string, []diag.Diagnostic) {
-	assigns := make([]string, len(m.Targets))
+	assigns := make([]string, 0, len(m.Targets))
 	for i, target := range m.Targets {
+		if target.Name == ast.Blank {
+			continue
+		}
 		v, ok := target.Def.(*ast.Var)
 		if !ok {
 			return nil, []diag.Diagnostic{{
@@ -800,7 +807,7 @@ func (g *generator) fieldAssigns(m *ast.MultiAssign, tmp string) ([]string, []di
 				Span:     target.Span,
 			}}
 		}
-		assigns[i] = fmt.Sprintf("%s = %s.r%d", g.varRef(v), tmp, i)
+		assigns = append(assigns, fmt.Sprintf("%s = %s.r%d", g.varRef(v), tmp, i))
 	}
 	return assigns, nil
 }

@@ -406,3 +406,32 @@ func TestMultiAssign(t *testing.T) {
 		})
 	}
 }
+
+// _ discards a result of any type, still counts toward the number of
+// results, and may repeat in an assignment.
+func TestBlankInMultiBindings(t *testing.T) {
+	file, diags := checkTree(
+		t,
+		withMulti(
+			"_, b, _ := three()",
+			"mut n := 0",
+			"_, _, n = three()",
+			"if b {",
+			"    exit(n)",
+			"}",
+		),
+	)
+	if len(diags) > 0 {
+		t.Fatalf("got %v, want no diagnostics", diags)
+	}
+	main := file.Decls[len(file.Decls)-1].(*ast.Func)
+	if got := main.Body[0].(*ast.MultiVar).Vars[1].Type; got != types.Bool {
+		t.Errorf("b has type %v, want bool", got)
+	}
+
+	_, diags = checkTree(t, withMulti("_, _, _, x := three()", "exit(x)"))
+	if len(diags) != 1 ||
+		diags[0].Message != "assignment mismatch: 4 variables but three returns 3 values" {
+		t.Errorf("got %v", diags)
+	}
+}

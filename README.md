@@ -267,7 +267,11 @@ which is true today because `main` is the only package there is.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
-  a digit.
+  a digit. `_` on its own is not a name: it only discards a result in a
+  binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
+  and may appear there more than once. It cannot be declared, read or
+  assigned anywhere else, cannot be `mut`, and a binding whose every name is
+  `_` is an error, since the call can be made on its own.
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged.
 

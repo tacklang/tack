@@ -23,7 +23,13 @@
 // and its value is resolved before it is declared, so it cannot refer to
 // itself. The variables a, b := f() declares are declared in order after f()
 // is resolved, as if each were declared on its own, and the targets of
-// a, b = f() are bound after f() is resolved, without counting as reads. No variable or parameter may reuse a name visible where it is
+// a, b = f() are bound after f() is resolved, without counting as reads.
+//
+// The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
+// discards the result in its position and is neither declared nor bound;
+// a list of nothing but _ is reported, as is mut on _. Anywhere else, _ is
+// reported: as a declared name of any kind, as a value, and as the target
+// of a single assignment, increment or decrement. No variable or parameter may reuse a name visible where it is
 // declared, whether a parameter's or a variable's, package-level ones
 // included. A local may reuse a function's or a builtin's name, since a call
 // always resolves to a function. A variable that is never read, only

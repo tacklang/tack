@@ -795,6 +795,16 @@ func TestBuiltResultsAssignExits87(t *testing.T) {
 	}
 }
 
+// The blank example discards one result of each call with _.
+func TestBuiltBlankExits62(t *testing.T) {
+	bin := buildWithClang(t, "blank")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 62 {
+		t.Errorf("blank exited with %v, want status 62", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

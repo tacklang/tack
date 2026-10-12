@@ -116,6 +116,11 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
 		}
 
+		if v.Name == ast.Blank {
+			diags = append(diags, blankName(v.NameSpan))
+			continue
+		}
+
 		if _, isBuiltin := r.builtinSeen(v.Name); isBuiltin {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
@@ -140,6 +145,12 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 	return diags
 }
 
+// blankName reports _ used to name a declaration, which it cannot: it only
+// discards a result in a binding of several.
+func blankName(span ast.Span) diag.Diagnostic {
+	return diag.Diagnostic{Severity: diag.Error, Message: "cannot use _ as a name", Span: span}
+}
+
 // alreadyDeclared reports name, declared at span, as clashing with an
 // earlier declaration, and points at that one.
 func alreadyDeclared(name string, span ast.Span, existing ast.Decl) diag.Diagnostic {
@@ -161,6 +172,10 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.file.Decls {
 		if fn, ok := decl.(*ast.Func); ok {
+			if fn.Name == ast.Blank {
+				diags = append(diags, blankName(fn.NameSpan))
+				continue
+			}
 			if existing, seen := r.seen(fn.Name); seen {
 				diags = append(diags, diag.Diagnostic{
 					Severity: diag.Error,
@@ -234,6 +249,10 @@ func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 
 	var diags []diag.Diagnostic
 	for _, param := range fn.Params {
+		if param.Name == ast.Blank {
+			diags = append(diags, blankName(param.NameSpan))
+			continue
+		}
 		if global, clash := r.globals.lookup(param.Name); clash {
 			diags = append(diags, alreadyDeclared(param.Name, param.NameSpan, global))
 			continue
@@ -294,6 +313,10 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 		diags = r.resolveExpr(v.Value, sc)
 	}
 
+	if v.Name == ast.Blank {
+		return append(diags, blankName(v.NameSpan))
+	}
+
 	if existing, visible := sc.lookup(v.Name); visible {
 		return append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
 	}
@@ -307,12 +330,61 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 // then declares each of them in order, so none of them can be used in the
 // call that gives them their values, and a name listed twice is reported as
 // declared twice.
+//
+// A _ in the list declares nothing, and may not be mut. A list of nothing
+// but _ binds nothing at all, which is reported: the call can be made on
+// its own instead.
 func (r *Resolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(m.Value, sc)
+
+	blanks := 0
 	for _, v := range m.Vars {
-		diags = append(diags, r.declareVar(v, sc)...)
+		if v.Name != ast.Blank {
+			diags = append(diags, r.declareVar(v, sc)...)
+			continue
+		}
+		blanks++
+		if v.Mutable {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Message:  "cannot use mut on _",
+				Span:     v.Span,
+			})
+		}
+	}
+	if blanks == len(m.Vars) {
+		diags = append(diags, nothingBound(m.Span))
 	}
 	return diags
+}
+
+// resolveMultiAssign resolves the value of an assignment of several results,
+// then binds each target other than _, which discards its result. A list of
+// nothing but _ is reported, as in declareMultiVar.
+func (r *Resolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.Diagnostic {
+	diags := r.resolveExpr(m.Value, sc)
+
+	blanks := 0
+	for _, target := range m.Targets {
+		if target.Name == ast.Blank {
+			blanks++
+			continue
+		}
+		diags = append(diags, r.resolveTarget(target, sc)...)
+	}
+	if blanks == len(m.Targets) {
+		diags = append(diags, nothingBound(m.Span))
+	}
+	return diags
+}
+
+// nothingBound reports a binding of several results whose every name is _.
+func nothingBound(span ast.Span) diag.Diagnostic {
+	return diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  "every name is _, so nothing is bound; make the call on its own",
+		Span:     span,
+	}
 }
 
 // resolveAssign binds an assignment's target to the variable it names and
@@ -325,6 +397,11 @@ func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 // resolveTarget binds the variable an assignment, increment or decrement
 // writes to. Writing to a variable does not count as reading it.
 func (r *Resolver) resolveTarget(target *ast.Ident, sc *scope) []diag.Diagnostic {
+	if target.Name == ast.Blank {
+		return []diag.Diagnostic{
+			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
+		}
+	}
 	decl, visible := sc.lookup(target.Name)
 	if !visible {
 		return []diag.Diagnostic{{
@@ -426,11 +503,7 @@ func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic
 	case *ast.MultiVar:
 		return r.declareMultiVar(s, sc)
 	case *ast.MultiAssign:
-		diags := r.resolveExpr(s.Value, sc)
-		for _, target := range s.Targets {
-			diags = append(diags, r.resolveTarget(target, sc)...)
-		}
-		return diags
+		return r.resolveMultiAssign(s, sc)
 	default:
 		return nil
 	}
@@ -484,6 +557,11 @@ func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 // resolveIdent binds a name used as a value to the parameter or variable it
 // names, and marks a variable as read.
 func (r *Resolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
+	if id.Name == ast.Blank {
+		return []diag.Diagnostic{
+			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},
+		}
+	}
 	decl, visible := sc.lookup(id.Name)
 	if !visible {
 		return []diag.Diagnostic{{

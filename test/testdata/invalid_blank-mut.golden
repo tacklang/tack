@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/blank-mut/main.tck:8:8: error: cannot use mut on _
+07 |	func main() {
+08 |	    a, mut _ := pair()
+   |	       ^~~~~ 
+09 |	    exit(a)
+

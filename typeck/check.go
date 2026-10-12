@@ -145,6 +145,11 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span)
 	seen := make(map[ast.Decl]bool, len(m.Targets))
 	for i, target := range m.Targets {
+		// _ discards its result, whatever its type, and may appear more
+		// than once.
+		if target.Name == ast.Blank {
+			continue
+		}
 		if seen[target.Def] {
 			c.errorf(target.Span, "%s is assigned more than once", target.Name)
 			continue

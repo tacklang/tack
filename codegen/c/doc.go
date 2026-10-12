@@ -56,7 +56,8 @@
 // declaration a, mut b := f() holds the struct in a const temporary named
 // like any other, so the call runs once, then declares each variable from its
 // field, const unless the variable is mutable. An assignment a, b = f() is
-// lowered the same way, assigning each field. As a three-clause loop's post
+// lowered the same way, assigning each field. A _ in either gets no C
+// variable and no assignment; its field is simply never read. As a three-clause loop's post
 // statement, which must be one C expression, its temporary is declared in
 // the loop's block instead, and the post assigns the call to it and then
 // each field, joined with the comma operator.
