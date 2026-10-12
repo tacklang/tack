@@ -498,14 +498,21 @@ func (l *Lexer) handleComment() bool {
 	}
 	l.pos += 2
 
+	// end is just past the last byte of comment text seen so far. It is
+	// tracked rather than derived from l.pos at the end, since the newlines
+	// after the comment, if any, have been consumed by then and are not
+	// part of it.
 	var val strings.Builder
+	end := l.pos
 	for l.pos < len(data) {
 		if data[l.pos] == '\n' {
+			end = l.pos
 			l.handleNewline(true)
 
 			if l.at("//") {
 				val.WriteByte('\n')
 				l.pos += 2
+				end = l.pos
 				continue
 			}
 			break
@@ -513,10 +520,11 @@ func (l *Lexer) handleComment() bool {
 
 		val.WriteByte(data[l.pos])
 		l.pos++
+		end = l.pos
 	}
 
 	l.addSemi(start)
-	l.addToken(Comment, strings.TrimSpace(val.String()), start, l.pos-1)
+	l.addToken(Comment, strings.TrimSpace(val.String()), start, end)
 
 	return true
 }

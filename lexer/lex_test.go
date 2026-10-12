@@ -43,9 +43,36 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 	t.Helper()
 
 	checkTokenOrder(t, src, out.tokens)
+	checkCommentSpans(t, src, out.tokens)
 	checkDiagSpans(t, src, out.diags)
 	checkLineStarts(t, src, out.file)
 	checkRendering(t, src, out)
+}
+
+// checkCommentSpans fails the test unless every comment token covers its
+// source exactly: it starts with "//" and stops right before a newline or at
+// the end of src, so it neither drops its last byte nor swallows the newline.
+func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
+	t.Helper()
+
+	for i := range toks {
+		tok := &toks[i]
+		if tok.Kind() != lexer.Comment {
+			continue
+		}
+		start, end := tok.OffsetStart(), tok.OffsetEnd()
+		if start < 0 || end > len(src) || start > end {
+			t.Errorf("%q: comment span [%d:%d] is outside the source", src, start, end)
+			continue
+		}
+		text := src[start:end]
+		if !strings.HasPrefix(text, "//") || strings.HasSuffix(text, "\n") {
+			t.Errorf("%q: comment span [%d:%d] covers %q", src, start, end, text)
+		}
+		if end < len(src) && src[end] != '\n' {
+			t.Errorf("%q: comment span [%d:%d] stops before the end of its line", src, start, end)
+		}
+	}
 }
 
 // checkEndsInEOF fails the test unless toks ends in an EOF token at the end
@@ -402,6 +429,51 @@ func TestTokenOffsets(t *testing.T) {
 		if tok.Kind() != w.kind || tok.OffsetStart() != w.start || tok.OffsetEnd() != w.end {
 			t.Errorf("token %d = %s, want %s [%d:%d]", i, tok.String(), w.kind, w.start, w.end)
 		}
+	}
+}
+
+// commentSpanCases pin the byte range of the one comment token in each
+// source, with and without a newline after it.
+var commentSpanCases = []struct {
+	src        string
+	start, end int
+}{
+	{"// hi", 0, 5},
+	{"// hi\n", 0, 5},
+	{"x // hi", 2, 7},
+	{"x // hi\n", 2, 7},
+	{"//", 0, 2},
+	{"//\n", 0, 2},
+	{"// a\n// b", 0, 9},
+	{"// a\n// b\n", 0, 9},
+	{"x\n// a\n//", 2, 9},
+	{"// a\n\nx", 0, 4},
+	{"// a\n\n", 0, 4},
+}
+
+// TestCommentOffsets checks a comment token ends right after its last byte,
+// whether a newline or the end of the input follows it.
+func TestCommentOffsets(t *testing.T) {
+	for _, tt := range commentSpanCases {
+		t.Run(tt.src, func(t *testing.T) {
+			out := lex(t, tt.src)
+			checkInvariants(t, tt.src, out)
+			var found bool
+			for i := range out.tokens {
+				tok := &out.tokens[i]
+				if tok.Kind() != lexer.Comment {
+					continue
+				}
+				found = true
+				if tok.OffsetStart() != tt.start || tok.OffsetEnd() != tt.end {
+					t.Errorf("comment = [%d:%d], want [%d:%d]",
+						tok.OffsetStart(), tok.OffsetEnd(), tt.start, tt.end)
+				}
+			}
+			if !found {
+				t.Errorf("no comment token in %s", kinds(out.tokens))
+			}
+		})
 	}
 }
 
