@@ -66,8 +66,10 @@ tack --out hello examples/hello/main.tck
 ./hello
 ```
 
-The intermediate stages can be dumped instead of linking. These do not need
-`--out`.
+Flags go before the file. The intermediate stages can be dumped instead of
+linking. A dump prints only that stage's output to stdout, so it can be
+redirected: `tack --emit x.tck > x.c` gives a C file that compiles. A dump
+does not take `--out`, and only one dump can be given at a time.
 
 | Flag               | Effect                                          |
 |--------------------|-------------------------------------------------|
@@ -78,9 +80,15 @@ The intermediate stages can be dumped instead of linking. These do not need
 | `--backend <name>` | select the code generation backend, default `c` |
 | `--backends`       | list the available backends and stop            |
 | `--out <path>`     | compile and link to `<path>`                    |
+| `--max-diags <n>`  | print at most `n` diagnostics; 0 prints all     |
+| `-h`, `--help`     | print usage and exit                            |
+
+Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when
+the program has errors or the build fails, and 2 when the command line is
+wrong.
 
 ```sh
-tack --emit examples/hello/main.tck          # the C the backend emits
+tack --emit examples/hello/main.tck > hello.c   # the C the backend emits
 ```
 
 ## How it works
