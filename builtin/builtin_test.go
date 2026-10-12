@@ -147,3 +147,67 @@ func names(funcs []builtin.Func) []string {
 	}
 	return out
 }
+
+// Every builtin Funcs lists is found by Lookup under its own name, with the
+// same signature.
+func TestLookupFindsEveryBuiltin(t *testing.T) {
+	for _, want := range builtin.Funcs() {
+		got, ok := builtin.Lookup(want.Name)
+		if !ok || got.Name != want.Name || len(got.Params) != len(want.Params) {
+			t.Errorf("Lookup(%q) = %+v, %v, want %+v, true", want.Name, got, ok, want)
+			continue
+		}
+		for i := range want.Params {
+			if got.Params[i] != want.Params[i] {
+				t.Errorf(
+					"Lookup(%q) param %d = %v, want %v",
+					want.Name,
+					i,
+					got.Params[i],
+					want.Params[i],
+				)
+			}
+		}
+	}
+}
+
+// The builtins' signatures are part of the language, so they are pinned here
+// rather than only read back from the table.
+func TestBuiltinSignatures(t *testing.T) {
+	tests := []struct {
+		name   string
+		params []types.Kind
+	}{
+		{"print", []types.Kind{types.String}},
+		{"exit", []types.Kind{types.Int}},
+	}
+	if len(builtin.Funcs()) != len(tests) {
+		t.Errorf("Funcs() has %d builtins, want %d", len(builtin.Funcs()), len(tests))
+	}
+	for _, tt := range tests {
+		got, ok := builtin.Lookup(tt.name)
+		if !ok {
+			t.Errorf("Lookup(%q) found nothing", tt.name)
+			continue
+		}
+		if len(got.Params) != len(tt.params) {
+			t.Errorf("%s takes %d params, want %d", tt.name, len(got.Params), len(tt.params))
+			continue
+		}
+		for i := range tt.params {
+			if got.Params[i] != tt.params[i] {
+				t.Errorf("%s param %d = %v, want %v", tt.name, i, got.Params[i], tt.params[i])
+			}
+		}
+	}
+}
+
+// Names that are not builtins are not found: near misses, other languages'
+// spellings, and Go's builtins Tack does not have.
+func TestLookupRejectsNamesThatAreNotBuiltins(t *testing.T) {
+	for _, name := range []string{"", "Print", "PRINT", "println", "printf", " print", "exit ", "Exit", "len", "panic", "main"} {
+		if got, ok := builtin.Lookup(name); ok {
+			t.Errorf("Lookup(%q) = %+v, true, want not found", name, got)
+		}
+	}
+}
