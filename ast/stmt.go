@@ -85,9 +85,15 @@ func (a *Assign) astNode() nodeKey { return _nodeKey }
 func (a *Assign) Spanned() Span { return a.Span }
 
 // For is a loop. Cond is nil for a loop with no condition, which runs until
-// something in its body leaves it.
+// something in its body leaves it. A three-clause loop, for Init; Cond; Post,
+// also has Init, run once before the first condition, and Post, run after
+// each iteration, including one ended by continue; either may be nil, and
+// both are nil in a loop written without semicolons. A variable Init
+// declares belongs to the loop.
 type For struct {
+	Init Stmt
 	Cond Expr
+	Post Stmt
 	Body []Stmt
 	Span Span // 'for' keyword through the closing brace
 }

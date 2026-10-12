@@ -17,7 +17,8 @@
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if is nested in the block holding
-// the if. A variable is visible from its declaration to the end of its block,
+// the if. A loop is a scope of its own, holding any variable its init
+// statement declares, with the body nested in it. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
 // itself. No variable or parameter may reuse a name visible where it is
 // declared, whether a parameter's or a variable's, package-level ones

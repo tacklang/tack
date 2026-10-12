@@ -64,7 +64,8 @@ Open questions about how a feature should behave are in
 | Compound assignment            | yes   | yes    | yes     | yes | `+= -= *= /= %=` on `int`; not a read of the target; bitwise forms come with the bitwise operators      |
 | `++` `--`                      | yes   | yes    | yes     | yes | Postfix statements only, never values; `int` targets; not a read of the target                          |
 | `for cond {}`, `for {}`        | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
-| Three-clause `for`, `range`    | yes   | no     | no      | no  | Decided: a three-clause counter is declared with `mut`                                                  |
+| Three-clause `for`             | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`         |
+| `for i := range n`             | yes   | no     | no      | no  | Decided: over an `int`, `i` immutable, `for range n` allowed                                            |
 | `switch`                       | yes   | no     | no      | no  |                                                                                                         |
 | `break` / `continue`           | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                          |
 | Standalone blocks              | yes   | no     | no      | no  |                                                                                                         |

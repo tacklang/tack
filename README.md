@@ -198,7 +198,13 @@ which is true today because `main` is the only package there is.
 - Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside
-  a loop is an error. There are no labels, three-clause loops or `range` yet.
+  a loop is an error. There are no labels and no `range` yet.
+- Three-clause loops, `for init; cond; post { ... }`, as in Go. `init` runs
+  once and may be any simple statement: a declaration, an assignment,
+  `x++`/`x--`, or a call. `post` runs after each iteration, `continue`
+  included, and may be any of those except a declaration. Every part may be
+  left out (`for ;; { ... }`). A variable `init` declares belongs to the
+  loop, and needs `mut` to be updated: `for mut i := 0; i < n; i++ { ... }`.
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero

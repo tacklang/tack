@@ -14,14 +14,20 @@
 // left-associative. The prefix operators ! and - apply to the operand right
 // after them, so they bind tighter than any binary operator. A - right before
 // an integer literal is part of the literal instead, which is how the
-// smallest int is written. A statement that starts with a name
-// is told apart by the token after it: := declares a variable, = or a
-// compound operator such as += assigns, ++ or -- increments or decrements,
-// and ( calls. A for whose body's opening brace comes straight after the
-// keyword has no condition. The keywords true and false are bool literals,
-// so neither can start a statement or be declared as a name. It stops at the
-// first syntax error and returns that error's diagnostics with a nil file, so
-// a caller never sees a partial tree.
+// smallest int is written. The keywords true and false are bool literals, so
+// neither can start a statement or be declared as a name.
+//
+// A statement that starts with a name is told apart by the token after it:
+// := declares a variable, = or a compound operator such as += assigns, ++ or
+// -- increments or decrements, and ( calls. These, with declarations
+// starting with var or mut, are the simple statements. A for whose body's
+// opening brace comes straight after the keyword has no condition, and one
+// whose header holds semicolons has the three clauses init; cond; post, each
+// optional, where init and post are simple statements and post may not
+// declare a variable.
+//
+// The parser stops at the first syntax error and returns that error's
+// diagnostics with a nil file, so a caller never sees a partial tree.
 //
 // The parser only checks shape, so it accepts a declaration like var x int
 // whatever its mutability, and leaves whether it may lack a value to the

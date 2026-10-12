@@ -330,13 +330,16 @@ func (p *Parser) parseStmt() (ast.Stmt, []diag.Diagnostic) {
 	)
 
 	tk := p.peek()
-	switch tk.Kind() {
-	case lexer.EOF:
+	switch {
+	case tk.Kind() == lexer.EOF:
 		return nil, nil
-	case lexer.Keyword:
+	case p.atSimpleStmt():
+		stmt, diags = p.parseSimpleStmt()
+		if len(diags) == 0 {
+			diags = p.endStmt(simpleStmtSpan(stmt))
+		}
+	case tk.Kind() == lexer.Keyword:
 		stmt, diags = p.parseKeywordStmt(tk)
-	case lexer.Ident:
-		stmt, diags = p.parseIdentStmt(tk)
 	default:
 		diags = []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
@@ -345,6 +348,64 @@ func (p *Parser) parseStmt() (ast.Stmt, []diag.Diagnostic) {
 		return nil, diags
 	}
 	return stmt, nil
+}
+
+// atSimpleStmt reports whether the next statement is a simple one: a
+// declaration starting with var or mut, or anything starting with a name.
+func (p *Parser) atSimpleStmt() bool {
+	tk := p.peek()
+	switch tk.Kind() {
+	case lexer.Ident:
+		return true
+	case lexer.Keyword:
+		return tk.Value() == lexer.Var || tk.Value() == lexer.Mut
+	default:
+		return false
+	}
+}
+
+// parseSimpleStmt parses a simple statement, without the semicolon that ends
+// it: a declaration, an assignment, an increment or decrement, or a call.
+// These are the statements a three-clause loop's init and post may be, so
+// the loop can end them with its own separators. On an error the statement
+// is an untyped nil, as in parseStmt.
+func (p *Parser) parseSimpleStmt() (ast.Stmt, []diag.Diagnostic) {
+	var (
+		stmt  ast.Stmt
+		diags []diag.Diagnostic
+	)
+
+	tk := p.peek()
+	switch {
+	case tk.Kind() == lexer.Ident:
+		stmt, diags = p.parseIdentStmt(tk)
+	case p.atSimpleStmt():
+		stmt, diags = p.parseVarDecl()
+	default:
+		diags = []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return stmt, nil
+}
+
+// simpleStmtSpan returns a pointer to the span of a statement parseSimpleStmt
+// produced, so the semicolon that ends it can be added to it.
+func simpleStmtSpan(stmt ast.Stmt) *ast.Span {
+	switch s := stmt.(type) {
+	case *ast.Var:
+		return &s.Span
+	case *ast.Assign:
+		return &s.Span
+	case *ast.IncDec:
+		return &s.Span
+	case *ast.ExprStmt:
+		return &s.Span
+	default:
+		panic(fmt.Sprintf("parser: %T is not a simple statement", stmt))
+	}
 }
 
 // parseKeywordStmt parses a statement that starts with keyword tk.
@@ -360,8 +421,6 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
 	case lexer.Continue:
 		return p.parseJump(&ast.Continue{Span: p.span(tk)})
-	case lexer.Var, lexer.Mut:
-		return p.parseVarDecl()
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
@@ -384,23 +443,22 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	case lexer.LParen:
 		return p.parseFuncCall()
 	case lexer.Inc, lexer.Dec:
-		return p.parseIncDec()
+		return p.parseIncDec(), nil
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
 }
 
 // parseIncDec parses name++ or name--.
-func (p *Parser) parseIncDec() (*ast.IncDec, []diag.Diagnostic) {
+func (p *Parser) parseIncDec() *ast.IncDec {
 	target, _ := p.parseIdent("variable name")
 	op := p.next() // ++ or --
 
-	s := &ast.IncDec{
+	return &ast.IncDec{
 		Target: target,
 		Dec:    op.Kind() == lexer.Dec,
 		Span:   ast.Span{File: p.fileID, Start: target.Span.Start, End: op.OffsetEnd()},
 	}
-	return s, p.endStmt(&s.Span)
 }
 
 // parseVarDecl parses a declaration that starts with var or mut: a name,
@@ -425,13 +483,15 @@ func (p *Parser) parseVarDecl() (*ast.Var, []diag.Diagnostic) {
 			return nil, valueDiags
 		}
 		v.Value = value
-		return v, p.endStmt(&v.Span)
+		v.Span.End = value.Spanned().End
+		return v, nil
 	}
 
 	if diags := p.parseVarTypeAndValue(v); diags != nil {
 		return nil, diags
 	}
-	return v, p.endStmt(&v.Span)
+	v.Span.End = p.peekPrev().OffsetEnd()
+	return v, nil
 }
 
 // parseVarTypeAndValue parses what follows a declared name: a type, = and a
@@ -474,7 +534,7 @@ func (p *Parser) parsePackageVar() (*ast.Var, []diag.Diagnostic) {
 	if v == nil {
 		return nil, diags
 	}
-	return v, nil
+	return v, p.endStmt(&v.Span)
 }
 
 // parseShortVarDecl parses name := value, which declares an immutable
@@ -490,8 +550,9 @@ func (p *Parser) parseShortVarDecl() (*ast.Var, []diag.Diagnostic) {
 		return nil, valueDiags
 	}
 	v.Value = value
+	v.Span.End = value.Spanned().End
 
-	return v, p.endStmt(&v.Span)
+	return v, nil
 }
 
 // parseAssign parses name = value, or a compound assignment such as
@@ -507,8 +568,9 @@ func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
 		return nil, valueDiags
 	}
 	a.Value = value
+	a.Span.End = value.Spanned().End
 
-	return a, p.endStmt(&a.Span)
+	return a, nil
 }
 
 // compoundOps maps each compound assignment operator to the arithmetic
@@ -532,21 +594,15 @@ func (p *Parser) endStmt(span *ast.Span) []diag.Diagnostic {
 	return nil
 }
 
+// parseFuncCall parses a call used as a statement, without the semicolon
+// that ends it.
 func (p *Parser) parseFuncCall() (*ast.ExprStmt, []diag.Diagnostic) {
 	call, callDiags := p.parseCall()
 	if call == nil {
 		return nil, callDiags
 	}
 
-	stmt := &ast.ExprStmt{X: call, Span: call.Span}
-
-	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
-		return nil, semiDiags
-	}
-
-	stmt.Span.End = p.peekPrev().OffsetEnd()
-
-	return stmt, nil
+	return &ast.ExprStmt{X: call, Span: call.Span}, nil
 }
 
 // parseCall parses a call as an expression, without the statement terminator.
@@ -671,19 +727,18 @@ func (p *Parser) parseElse() (els []ast.Stmt, terminated bool, diags []diag.Diag
 	return block, false, nil
 }
 
-// parseFor parses a loop: for, then a condition unless the body's opening
-// brace comes straight after, then the body.
+// parseFor parses a loop: for, then its header, then the body. The header is
+// empty when the body's opening brace comes straight after for, a
+// condition, or three clauses separated by semicolons.
 func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 	tk := p.next() // the for keyword
 
 	loop := &ast.For{Span: p.span(tk)}
 
 	if p.peek().Kind() != lexer.LCurl {
-		cond, condDiags := p.parseExpr(1)
-		if cond == nil {
-			return nil, condDiags
+		if diags := p.parseForHeader(loop); diags != nil {
+			return nil, diags
 		}
-		loop.Cond = cond
 	}
 
 	body, bodyDiags := p.parseBlock()
@@ -697,6 +752,93 @@ func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 		return nil, semiDiags
 	}
 	return loop, nil
+}
+
+// parseForHeader parses what comes between for and the body's opening brace
+// into loop. A header that starts with a semicolon, a declaration, an
+// assignment, or an increment or decrement has three clauses. One that starts with an expression is
+// a condition, unless a semicolon follows it, in which case it was a call
+// used as the init statement.
+func (p *Parser) parseForHeader(loop *ast.For) []diag.Diagnostic {
+	switch {
+	case p.peek().Kind() == lexer.Semi:
+		return p.parseForClauses(loop)
+	case p.atDeclOrUpdate():
+		init, diags := p.parseSimpleStmt()
+		if init == nil {
+			return diags
+		}
+		loop.Init = init
+		return p.parseForClauses(loop)
+	}
+
+	cond, diags := p.parseExpr(1)
+	if cond == nil {
+		return diags
+	}
+	if call, ok := cond.(*ast.Call); ok && p.peek().Kind() == lexer.Semi {
+		loop.Init = &ast.ExprStmt{X: call, Span: call.Span}
+		return p.parseForClauses(loop)
+	}
+	loop.Cond = cond
+	return nil
+}
+
+// atDeclOrUpdate reports whether the next tokens start a simple statement
+// that cannot also be an expression: a declaration, an assignment, or an
+// increment or decrement.
+func (p *Parser) atDeclOrUpdate() bool {
+	if p.peek().Kind() == lexer.Keyword {
+		return p.atSimpleStmt()
+	}
+	if p.peek().Kind() != lexer.Ident {
+		return false
+	}
+	switch p.peekNext().Kind() {
+	case lexer.Define, lexer.Inc, lexer.Dec:
+		return true
+	default:
+		_, compound := compoundOps[p.peekNext().Kind()]
+		return compound || p.peekNext().Kind() == lexer.Assign
+	}
+}
+
+// parseForClauses parses the rest of a three-clause header once its init
+// statement, if any, is in loop: the semicolon after it, an optional
+// condition, a second semicolon, and an optional post statement, which may
+// not declare a variable.
+func (p *Parser) parseForClauses(loop *ast.For) []diag.Diagnostic {
+	if ok, diags := p.expect(lexer.Semi); !ok {
+		return diags
+	}
+
+	if p.peek().Kind() != lexer.Semi {
+		cond, diags := p.parseExpr(1)
+		if cond == nil {
+			return diags
+		}
+		loop.Cond = cond
+	}
+	if ok, diags := p.expect(lexer.Semi); !ok {
+		return diags
+	}
+
+	if p.peek().Kind() == lexer.LCurl {
+		return nil
+	}
+	post, diags := p.parseSimpleStmt()
+	if post == nil {
+		return diags
+	}
+	if v, ok := post.(*ast.Var); ok {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "cannot declare a variable in a for loop's post statement",
+			Span:     v.Span,
+		}}
+	}
+	loop.Post = post
+	return nil
 }
 
 // parseJump parses break or continue, whose node the caller has built from

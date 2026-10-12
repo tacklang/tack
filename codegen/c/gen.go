@@ -381,8 +381,13 @@ func condHeader(keyword string, e ast.Expr, cond string) string {
 
 // generateFor lowers a loop to a C while, or to for (;;) when it has no
 // condition. Tack's break and continue mean what C's do, so they lower
-// directly.
+// directly. A loop with an init or post statement takes generateClauseFor's
+// form instead.
 func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	if loop.Init != nil || loop.Post != nil {
+		return g.generateClauseFor(loop, fn)
+	}
+
 	header := "for (;;) {"
 	if loop.Cond != nil {
 		cond, diags := g.expr(loop.Cond, types.Bool)
@@ -399,6 +404,93 @@ func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.D
 
 	lines := append([]string{header}, indent(body)...)
 	return append(lines, "}"), nil
+}
+
+// generateClauseFor lowers a three-clause loop to a C block holding the init
+// statement and a C for whose post expression is the post statement:
+//
+//	{
+//	    init;
+//	    for (; cond; post) {
+//	        body
+//	    }
+//	}
+//
+// The block scopes a variable the init declares to the loop, as Tack does.
+// Keeping the post in the for, rather than at the end of the body, is what
+// makes continue run it. The post's lines are joined with the comma
+// operator, since one Tack statement can lower to more than one C
+// statement, as print does.
+func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	var init []string
+	if loop.Init != nil {
+		lines, diags := g.generateSimpleStmt(loop.Init)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		init = lines
+	}
+
+	cond := ""
+	if loop.Cond != nil {
+		c, diags := g.expr(loop.Cond, types.Bool)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		cond = stripParens(loop.Cond, c)
+	}
+
+	post := ""
+	if loop.Post != nil {
+		p, diags := g.postExpr(loop.Post)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		post = p
+	}
+
+	body, diags := g.generateBlock(loop.Body, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	inner := append([]string{fmt.Sprintf("for (; %s; %s) {", cond, post)}, indent(body)...)
+	inner = append(inner, "}")
+	lines := append([]string{"{"}, indent(append(init, inner...))...)
+	return append(lines, "}"), nil
+}
+
+// stripParens removes the parentheses a binary expression is rendered with,
+// for a condition in a C for header, where a second pair would make clang
+// warn on an equality test.
+func stripParens(e ast.Expr, rendered string) string {
+	if _, ok := e.(*ast.Binary); ok {
+		return rendered[1 : len(rendered)-1]
+	}
+	return rendered
+}
+
+// postExpr renders a loop's post statement as one C expression: the
+// expression statements it lowers to, without their semicolons, joined with
+// the comma operator.
+func (g *generator) postExpr(post ast.Stmt) (string, []diag.Diagnostic) {
+	lines, diags := g.generateSimpleStmt(post)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	exprs := make([]string, len(lines))
+	for i, line := range lines {
+		expr, ok := strings.CutSuffix(line, ";")
+		if !ok {
+			return "", []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "post statement does not lower to a C expression",
+				Span:     post.Spanned(),
+			}}
+		}
+		exprs[i] = expr
+	}
+	return strings.Join(exprs, ", "), nil
 }
 
 func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Diagnostic) {

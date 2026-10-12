@@ -82,12 +82,7 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 		c.checkBlock(s.Else, fn)
 
 	case *ast.For:
-		if s.Cond != nil {
-			c.checkCond(s.Cond)
-		}
-		c.loops++
-		c.checkBlock(s.Body, fn)
-		c.loops--
+		c.checkFor(s, fn)
 
 	case *ast.Break:
 		c.checkInLoop(s.Span, "break")
@@ -113,6 +108,23 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	case *ast.IncDec:
 		c.checkIntTarget(s.Target, s.Op())
 	}
+}
+
+// checkFor checks a loop's clauses, in source order, then its body, inside
+// which break and continue are allowed.
+func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
+	if loop.Init != nil {
+		c.checkSimpleStmt(loop.Init)
+	}
+	if loop.Cond != nil {
+		c.checkCond(loop.Cond)
+	}
+	if loop.Post != nil {
+		c.checkSimpleStmt(loop.Post)
+	}
+	c.loops++
+	c.checkBlock(loop.Body, fn)
+	c.loops--
 }
 
 // checkBlock checks each statement of a block in fn.

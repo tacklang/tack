@@ -62,6 +62,19 @@ static void tack_main_main(void) {
         tack_print((tack_string){str1, 4});
         tack_print((tack_string){str0, 1});
     }
+    int64_t v_sum = 0;
+    {
+        int64_t v_n = 1;
+        for (; v_n <= 10; v_n = (v_n + 1)) {
+            if ((v_n % 2) == 0) {
+                continue;
+            }
+            v_sum = (v_sum + v_n);
+        }
+    }
+    if (v_sum != 25) {
+        exit(1);
+    }
     exit(tack_main_nthPrime(10));
 }
 

@@ -44,7 +44,8 @@
 //     mutable int variable;
 //   - a return carries a value exactly when the function declares a result,
 //     and the value has the result's type;
-//   - an if or loop condition is a bool;
+//   - an if or loop condition is a bool, and a loop's init and post
+//     statements are checked like any other statement;
 //   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, or a loop

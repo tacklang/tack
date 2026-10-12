@@ -352,14 +352,31 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		diags = append(diags, r.resolveBlock(s.Then, sc)...)
 		return append(diags, r.resolveBlock(s.Else, sc)...)
 	case *ast.For:
-		var diags []diag.Diagnostic
-		if s.Cond != nil {
-			diags = r.resolveExpr(s.Cond, sc)
-		}
-		return append(diags, r.resolveBlock(s.Body, sc)...)
+		return r.resolveFor(s, sc)
 	default:
 		return r.resolveSimpleStmt(stmt, sc)
 	}
+}
+
+// resolveFor resolves a loop in a scope of its own, nested in sc, which holds
+// any variable its init statement declares; the body is a block nested in
+// that. Everything is resolved in source order, so the post statement comes
+// before the body and cannot see what the body declares.
+func (r *Resolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
+	inner := newScope(sc)
+
+	var diags []diag.Diagnostic
+	if loop.Init != nil {
+		diags = append(diags, r.resolveSimpleStmt(loop.Init, inner)...)
+	}
+	if loop.Cond != nil {
+		diags = append(diags, r.resolveExpr(loop.Cond, inner)...)
+	}
+	if loop.Post != nil {
+		diags = append(diags, r.resolveSimpleStmt(loop.Post, inner)...)
+	}
+	diags = append(diags, r.resolveBlock(loop.Body, inner)...)
+	return append(diags, r.unused(inner)...)
 }
 
 // resolveSimpleStmt resolves a statement that holds no other statement: a

@@ -58,7 +58,9 @@
 // A compound assignment x op= v is written out as x = (x op v), the way Tack
 // defines it, and x++ and x-- as x = (x + 1) and x = (x - 1). A loop lowers
 // to a C while, or to for (;;) when it has no condition, with its condition
-// parenthesised as an if's is; break and continue lower to C's own.
+// parenthesised as an if's is; break and continue lower to C's own. A
+// three-clause loop lowers to a C block holding its init statement and a C
+// for whose post expression is its post statement, so that continue runs it.
 //
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
