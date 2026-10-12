@@ -307,21 +307,150 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 	return typ, nil
 }
 
+// parseStmt parses one statement, choosing the form by its first token and,
+// for one starting with a name, the token after it.
 func (p *Parser) parseStmt() (ast.Stmt, []diag.Diagnostic) {
 	tk := p.peek()
-	for tk.Kind() != lexer.EOF {
-		switch {
-		case tk.Kind() == lexer.Keyword && tk.Value() == lexer.If:
-			return p.parseIf()
-		case tk.Kind() == lexer.Keyword && tk.Value() == lexer.Return:
-			return p.parseReturn()
-		case tk.Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen:
-			return p.parseFuncCall()
-		default:
-			return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
-		}
+	switch tk.Kind() {
+	case lexer.EOF:
+		return nil, nil
+	case lexer.Keyword:
+		return p.parseKeywordStmt(tk)
+	case lexer.Ident:
+		return p.parseIdentStmt(tk)
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
-	return nil, nil
+}
+
+// parseKeywordStmt parses a statement that starts with keyword tk.
+func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	switch tk.Value() {
+	case lexer.If:
+		return p.parseIf()
+	case lexer.Return:
+		return p.parseReturn()
+	case lexer.Var, lexer.Mut:
+		return p.parseVarDecl()
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+}
+
+// parseIdentStmt parses a statement that starts with the name tk: a short
+// variable declaration, an assignment, or a call.
+func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	switch p.peekNext().Kind() {
+	case lexer.Define:
+		return p.parseShortVarDecl()
+	case lexer.Assign:
+		return p.parseAssign()
+	case lexer.LParen:
+		return p.parseFuncCall()
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+}
+
+// parseVarDecl parses a declaration that starts with var or mut: a name,
+// then a type, a value after =, or both. mut also allows the short form
+// mut x := value. Whether a declaration without a value is allowed depends on
+// its mutability, which is the type checker's to judge, not the parser's.
+func (p *Parser) parseVarDecl() (*ast.Var, []diag.Diagnostic) {
+	kw := p.next() // the var or mut keyword
+
+	v := &ast.Var{Span: p.span(kw), Mutable: kw.Value() == lexer.Mut}
+
+	name, nameDiags := p.parseIdent("variable name")
+	if name == nil {
+		return nil, nameDiags
+	}
+	v.Name, v.NameSpan = name.Name, name.Span
+
+	if v.Mutable && p.peek().Kind() == lexer.Define {
+		p.next()
+		value, valueDiags := p.parseExpr(1)
+		if value == nil {
+			return nil, valueDiags
+		}
+		v.Value = value
+		return v, p.endStmt(&v.Span)
+	}
+
+	if diags := p.parseVarTypeAndValue(v); diags != nil {
+		return nil, diags
+	}
+	return v, p.endStmt(&v.Span)
+}
+
+// parseVarTypeAndValue parses what follows a declared name: a type, = and a
+// value, or both, into v. Neither is a syntax error.
+func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
+	if kind := p.peek().Kind(); kind == lexer.Ident || kind == lexer.Ellipsis {
+		typ, typDiags := p.parseType()
+		if typ == nil {
+			return typDiags
+		}
+		v.Type = typ
+	}
+
+	if p.peek().Kind() == lexer.Assign {
+		p.next()
+		value, valueDiags := p.parseExpr(1)
+		if value == nil {
+			return valueDiags
+		}
+		v.Value = value
+	}
+
+	if v.Type == nil && v.Value == nil {
+		return []diag.Diagnostic{p.diagInvalidToken("type or =", p.peek())}
+	}
+	return nil
+}
+
+// parseShortVarDecl parses name := value, which declares an immutable
+// variable whose type is the value's.
+func (p *Parser) parseShortVarDecl() (*ast.Var, []diag.Diagnostic) {
+	name, _ := p.parseIdent("variable name")
+	p.next() // the := token
+
+	v := &ast.Var{Name: name.Name, NameSpan: name.Span, Span: name.Span}
+
+	value, valueDiags := p.parseExpr(1)
+	if value == nil {
+		return nil, valueDiags
+	}
+	v.Value = value
+
+	return v, p.endStmt(&v.Span)
+}
+
+// parseAssign parses name = value.
+func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
+	target, _ := p.parseIdent("variable name")
+	p.next() // the = token
+
+	a := &ast.Assign{Target: target, Span: target.Span}
+
+	value, valueDiags := p.parseExpr(1)
+	if value == nil {
+		return nil, valueDiags
+	}
+	a.Value = value
+
+	return a, p.endStmt(&a.Span)
+}
+
+// endStmt consumes the semicolon that ends a statement, which may be left out
+// before a closing brace, and extends span to cover it. It returns the
+// diagnostics for anything else found there.
+func (p *Parser) endStmt(span *ast.Span) []diag.Diagnostic {
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return semiDiags
+	}
+	span.End = p.peekPrev().OffsetEnd()
+	return nil
 }
 
 func (p *Parser) parseFuncCall() (*ast.ExprStmt, []diag.Diagnostic) {

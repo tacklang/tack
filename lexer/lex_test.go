@@ -478,3 +478,27 @@ func FuzzLex(f *testing.F) {
 		checkInvariants(t, src, lex(t, src))
 	})
 }
+
+// TestDeclarationKeywords pins the keywords that start a variable
+// declaration, and that a longer word starting with one is an identifier.
+func TestDeclarationKeywords(t *testing.T) {
+	tests := []struct {
+		src  string
+		want lexer.KeywordType
+	}{
+		{"var", lexer.Var},
+		{"mut", lexer.Mut},
+	}
+	for _, tt := range tests {
+		out := lex(t, tt.src)
+		checkInvariants(t, tt.src, out)
+		if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != tt.want {
+			t.Errorf("%q lexed as %s, want keyword %s", tt.src, out.tokens[0].String(), tt.want)
+		}
+	}
+
+	out := lex(t, "mutable")
+	if out.tokens[0].Kind() != lexer.Ident {
+		t.Errorf("%q lexed as %s, want an identifier", "mutable", out.tokens[0].String())
+	}
+}

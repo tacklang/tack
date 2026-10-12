@@ -16,9 +16,11 @@ const (
 	Lib
 	Pub
 
-	// Const through ASM start declarations.
+	// Const through ASM start declarations. Var declares an immutable
+	// variable and Mut a mutable one.
 	Const
 	Var
+	Mut
 	Type
 	Func
 	Struct
@@ -61,6 +63,7 @@ var keywordNames = map[KeywordType]string{
 
 	Const:     "const",
 	Var:       "var",
+	Mut:       "mut",
 	Type:      "type",
 	Func:      "func",
 	Struct:    "struct",

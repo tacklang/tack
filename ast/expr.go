@@ -159,11 +159,7 @@ func KindOf(expr Expr) types.Kind {
 	case *IntLit:
 		return types.Int
 	case *Ident:
-		// A parameter is the only thing an expression can name today.
-		if param, ok := e.Def.(*Param); ok {
-			return param.Kind
-		}
-		return types.Invalid
+		return identKind(e)
 	case *Binary:
 		// A comparison yields a bool whatever it compared; arithmetic yields
 		// the type of its operands, which the checker has already agreed match.
@@ -173,6 +169,19 @@ func KindOf(expr Expr) types.Kind {
 		return KindOf(e.X)
 	case *Call:
 		return callKind(e)
+	default:
+		return types.Invalid
+	}
+}
+
+// identKind returns the type of the parameter or variable a name is bound
+// to, which is all an expression can name today.
+func identKind(id *Ident) types.Kind {
+	switch def := id.Def.(type) {
+	case *Param:
+		return def.Kind
+	case *Var:
+		return def.Kind
 	default:
 		return types.Invalid
 	}

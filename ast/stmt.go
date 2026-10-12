@@ -63,3 +63,20 @@ func (i *If) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the whole statement, else branch
 // included.
 func (i *If) Spanned() Span { return i.Span }
+
+// Assign sets a variable to a new value, Target = Value.
+type Assign struct {
+	Target *Ident
+	Value  Expr
+	Span   Span // start of Target through the terminating Semi's position
+}
+
+var _ Stmt = (*Assign)(nil)
+
+func (a *Assign) stmtKey() stmtKey { return _stmtKey }
+
+func (a *Assign) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the target through the terminating
+// semicolon's position.
+func (a *Assign) Spanned() Span { return a.Span }

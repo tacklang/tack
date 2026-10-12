@@ -1,0 +1,31 @@
+package main
+
+func square(n int) int {
+    r := n * n
+    return r
+}
+
+func main() {
+    greeting := "variables"
+    print(greeting)
+
+    var base int = 3
+    var step = 4
+    mut total := square(base)
+    total = total + square(step)
+
+    mut label string
+    if total == 25 {
+        label = "five squared"
+    } else {
+        label = "something else"
+    }
+    print(label)
+
+    mut count int
+    count = count + 1
+    done := count == 1
+    if done {
+        exit(total)
+    }
+}

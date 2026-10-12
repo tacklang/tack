@@ -104,11 +104,17 @@ func (g *generator) emitPreamble() {
 	g.buf.WriteString("} tack_string;\n\n")
 }
 
-// collectStrings pools every string literal in the file, deduplicated.
+// collectStrings pools every string literal in the file, deduplicated, and
+// the empty string if a string variable starts from its zero value.
 func (g *generator) collectStrings() {
 	ast.Walk(g.file, func(n ast.Node) bool {
-		if s, ok := n.(*ast.StrLit); ok {
-			g.addStr(s.Value)
+		switch x := n.(type) {
+		case *ast.StrLit:
+			g.addStr(x.Value)
+		case *ast.Var:
+			if x.Value == nil && x.Kind == types.String {
+				g.addStr("")
+			}
 		}
 		return true
 	})
@@ -232,26 +238,14 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.If:
 		return g.generateIf(x, fn)
 
+	case *ast.Var:
+		return g.generateVar(x)
+
+	case *ast.Assign:
+		return g.generateAssign(x)
+
 	case *ast.ExprStmt:
-		call, ok := x.X.(*ast.Call)
-		if !ok {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("unknown expression type: %T", x.X),
-				Span:     x.Spanned(),
-			}}
-		}
-
-		id, ok := call.Fn.(*ast.Ident)
-		if !ok {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("unknown expression type: %T", call.Fn),
-				Span:     x.Spanned(),
-			}}
-		}
-
-		return g.generateCall(id.Name, call)
+		return g.generateExprStmt(x)
 
 	default:
 		return nil, []diag.Diagnostic{{
@@ -294,6 +288,73 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 	lines = append(lines, "} else {")
 	lines = append(lines, indent(els)...)
 	return append(lines, "}"), nil
+}
+
+// generateAssign sets a local to a new value.
+func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) {
+	value, diags := g.expr(a.Value, ast.KindOf(a.Value))
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return []string{fmt.Sprintf("%s = %s;", varName(a.Target.Name), value)}, nil
+}
+
+// generateExprStmt lowers an expression statement, which can only be a call
+// to a named function today.
+func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
+	call, ok := stmt.X.(*ast.Call)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", stmt.X),
+			Span:     stmt.Spanned(),
+		}}
+	}
+
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("unknown expression type: %T", call.Fn),
+			Span:     stmt.Spanned(),
+		}}
+	}
+
+	return g.generateCall(id.Name, call)
+}
+
+// generateVar declares a local. An immutable variable becomes a const C
+// local, so the C compiler holds it to the same rule. A variable without a
+// value starts from its type's zero value.
+func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
+	value := g.zeroValue(v.Kind)
+	if v.Value != nil {
+		expr, diags := g.expr(v.Value, v.Kind)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		value = expr
+	}
+
+	decl := fmt.Sprintf("%s %s = %s;", cType(v.Kind), varName(v.Name), value)
+	if !v.Mutable {
+		decl = "const " + decl
+	}
+	return []string{decl}, nil
+}
+
+// zeroValue is the C expression for a type's zero value. The empty string
+// points at a pooled empty array rather than NULL, so writing it never hands
+// libc a null pointer.
+func (g *generator) zeroValue(kind types.Kind) string {
+	switch kind {
+	case types.String:
+		return g.stringValue("")
+	case types.Bool:
+		return "false"
+	default:
+		return "0"
+	}
 }
 
 // indent shifts a nested block one level right. Function bodies are emitted at
@@ -385,17 +446,21 @@ func (g *generator) expr(e ast.Expr, want types.Kind) (string, []diag.Diagnostic
 	}
 }
 
-// identExpr renders a parameter reference as the C parameter it names.
+// identExpr renders a reference to a parameter or variable as the C name it
+// was declared under.
 func identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
-	param, ok := id.Def.(*ast.Param)
-	if !ok {
+	switch def := id.Def.(type) {
+	case *ast.Param:
+		return paramName(def.Name), nil
+	case *ast.Var:
+		return varName(def.Name), nil
+	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("unbound identifier: %s", id.Name),
 			Span:     id.Span,
 		}}
 	}
-	return paramName(param.Name), nil
 }
 
 // binaryExpr renders an infix operation as C.
@@ -456,6 +521,11 @@ func cType(kind types.Kind) string {
 // defines. Tack has no reserved words, so a parameter may legally be called
 // str0, exit, or int, each of which collides with something already emitted.
 func paramName(name string) string { return "p_" + name }
+
+// varName keeps local variables clear of every other name the generated file
+// defines, for the same reason paramName does. The distinct prefix keeps a
+// variable and a parameter apart even if Tack ever let them share a name.
+func varName(name string) string { return "v_" + name }
 
 // mangle turns a Tack function name into a C identifier. Tack's package-scoped
 // names contain a dot, which C does not allow. This is unambiguous only while

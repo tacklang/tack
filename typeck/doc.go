@@ -21,6 +21,11 @@
 //   - a call to a function that returns nothing cannot be used as a value;
 //   - every operand of an arithmetic or comparison operator is an int;
 //   - an if condition is a bool;
+//   - a variable's value has its declared type, and a variable declared
+//     without a type takes its value's;
+//   - only a mutable variable may be declared without a value, and only a
+//     mutable variable may be assigned to; parameters never may;
+//   - an assigned value has the variable's type;
 //   - a return carries a value exactly when the function declares a result,
 //     and the value has the result's type;
 //   - a function that declares a result ends in a terminating statement: a

@@ -68,6 +68,12 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 	case *ast.Return:
 		c.checkReturn(s, fn)
 
+	case *ast.Var:
+		c.checkVar(s)
+
+	case *ast.Assign:
+		c.checkAssign(s)
+
 	case *ast.If:
 		c.checkExpr(s.Cond)
 		if got := ast.KindOf(s.Cond); got != types.Bool && !reportedInvalid(s.Cond, got) {
@@ -80,6 +86,101 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 			c.checkStmt(inner, fn)
 		}
 	}
+}
+
+// checkVar records a variable's kind: its declared type if it has one,
+// otherwise its value's. A declared type and a value must agree, and only a
+// mutable variable may leave out its value and start from its zero value,
+// since an immutable one could never hold anything else.
+func (c *Checker) checkVar(v *ast.Var) {
+	declared := types.Invalid
+	if v.Type != nil {
+		declared = c.typeKind(v.Type)
+	}
+
+	if v.Value == nil {
+		if !v.Mutable {
+			c.errorf(v.NameSpan, "immutable variable %s needs a value", v.Name)
+		}
+		v.Kind = declared
+		return
+	}
+
+	got := c.valueKind(v.Value)
+	switch {
+	case v.Type == nil:
+		v.Kind = got
+	case got != types.Invalid && declared != types.Invalid && got != declared:
+		c.errorf(
+			v.Value.Spanned(),
+			"cannot use %s as %s in declaration of %s",
+			got,
+			declared,
+			v.Name,
+		)
+		v.Kind = declared
+	default:
+		v.Kind = declared
+	}
+}
+
+// checkAssign requires the target to be a mutable variable and the value to
+// have the variable's type. Parameters are never assignable.
+func (c *Checker) checkAssign(a *ast.Assign) {
+	got := c.valueKind(a.Value)
+
+	switch def := a.Target.Def.(type) {
+	case *ast.Param:
+		c.errorf(a.Target.Span, "cannot assign to parameter %s", a.Target.Name)
+	case *ast.Var:
+		if !def.Mutable {
+			c.errorf(a.Target.Span, "cannot assign to immutable variable %s", a.Target.Name)
+			return
+		}
+		if got != types.Invalid && got != def.Kind {
+			c.errorf(
+				a.Value.Spanned(),
+				"cannot use %s as %s in assignment to %s",
+				got,
+				def.Kind,
+				a.Target.Name,
+			)
+		}
+	}
+}
+
+// valueKind checks an expression used as a value and returns its kind. A call
+// to a function that returns nothing is reported here, since it has no value
+// to give; the result is then types.Invalid.
+func (c *Checker) valueKind(e ast.Expr) types.Kind {
+	c.checkExpr(e)
+
+	kind := ast.KindOf(e)
+	if kind == types.Invalid {
+		if call, ok := e.(*ast.Call); ok {
+			if id, ok := call.Fn.(*ast.Ident); ok {
+				c.errorf(e.Spanned(), "%s returns no value", id.Name)
+			}
+		}
+	}
+	return kind
+}
+
+// typeKind returns the kind a type expression denotes, reporting a type it
+// does not know and returning types.Invalid for it.
+func (c *Checker) typeKind(typ ast.Expr) types.Kind {
+	id, ok := typ.(*ast.Ident)
+	if !ok {
+		c.errorf(typ.Spanned(), "unsupported type expression: %T", typ)
+		return types.Invalid
+	}
+
+	kind, known := types.Lookup(id.Name)
+	if !known {
+		c.errorf(id.Span, "unknown type: %s", id.Name)
+		return types.Invalid
+	}
+	return kind
 }
 
 // terminates reports whether control can fall out of the bottom of stmt. An if
@@ -282,7 +383,8 @@ func reportedInvalid(e ast.Expr, kind types.Kind) bool {
 	case *ast.Ident:
 		// Only a declaration reports its own unknown type. A name bound to
 		// nothing was never reported, so it is not covered here.
-		if _, ok := x.Def.(*ast.Param); ok {
+		switch x.Def.(type) {
+		case *ast.Param, *ast.Var:
 			return true
 		}
 		return false

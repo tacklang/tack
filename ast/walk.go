@@ -39,6 +39,13 @@ func walkDecl(d Decl, v Visitor) {
 		walkAll(d.Body, v)
 	case *Param:
 		Walk(d.Type, v)
+	case *Var:
+		if d.Type != nil {
+			Walk(d.Type, v)
+		}
+		if d.Value != nil {
+			Walk(d.Value, v)
+		}
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled declaration type %T", d))
 	}
@@ -57,6 +64,9 @@ func walkStmt(s Stmt, v Visitor) {
 		walkAll(s.Else, v)
 	case *ExprStmt:
 		Walk(s.X, v)
+	case *Assign:
+		Walk(s.Target, v)
+		Walk(s.Value, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled statement type %T", s))
 	}

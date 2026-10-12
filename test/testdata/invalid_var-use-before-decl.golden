@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/var-use-before-decl/main.tck:4:10: error: undefined: x
+03 |	func main() {
+04 |	    exit(x)
+   |	         ^ 
+05 |	    x := 1
+

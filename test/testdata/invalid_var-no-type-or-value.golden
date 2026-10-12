@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/var-no-type-or-value/main.tck:4:10: error: expected 'type or =' found ';'
+03 |	func main() {
+04 |	    var x
+   |	         ^
+05 |	}
+

@@ -39,8 +39,8 @@ The language computes. Functions take parameters and return values, calls are
 expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
-There are still no variables and no loops, so every intermediate value is an
-argument or a return, and repetition means recursion. The process exit status
+Functions have local variables, immutable unless declared with `mut`. There
+are still no loops, so repetition means recursion. The process exit status
 is still the only way to observe an integer, since `print` takes strings only.
 
 `exit` is a global builtin as a stand-in. Once the language has packages it
@@ -189,11 +189,21 @@ which is true today because `main` is the only package there is.
 - A `func main()` is required. It takes no parameters and declares no result.
 - Top-level `func name(x int, s string) int { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. At most one result.
-- The statements are a call, a `return`, and `if`/`else`, which chains with
-  `else if`. A function that declares a result must end in a terminating
+- The statements are a call, a `return`, `if`/`else` (which chains with
+  `else if`), a variable declaration, and an assignment. A function that declares a result must end in a terminating
   statement: a return, or an if whose branches all terminate. The rule is
   syntactic, so a call that never comes back does not satisfy it.
-- Expressions are literals, parameter names, calls, parentheses, and the infix
+- Local variables. `x := v`, `var x T = v` and `var x = v` declare an
+  immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
+  `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
+  value: `0`, `""` or `false`. An immutable variable must have a value.
+- `x = v` assigns to a mutable variable of the same type. Parameters are
+  immutable.
+- A variable is in scope from its declaration to the end of its block. No
+  variable may reuse the name of a parameter or another variable in scope, and
+  one that is never read is an error. Reusing a function's name is allowed.
+- Expressions are literals, parameter and variable names, calls, parentheses,
+  and the infix
   operators `+ - * / %` and `== != < <= > >=`, with Go's precedence. Every
   operand must be an `int`.
 - The types are `int`, `string`, and `bool`. A bool comes only from a

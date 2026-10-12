@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/var-assign-param/main.tck:4:5: error: cannot assign to parameter n
+03 |	func f(n int) {
+04 |	    n = 2
+   |	    ^ 
+05 |	}
+

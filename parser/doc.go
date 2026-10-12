@@ -8,12 +8,16 @@
 //
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence; every binary operator is
-// left-associative. It stops at the first syntax error and returns that
-// error's diagnostics with a nil file, so a caller never sees a partial tree.
+// left-associative. A statement that starts with a name is told apart by the
+// token after it: := declares a variable, = assigns, and ( calls. It stops at
+// the first syntax error and returns that error's diagnostics with a nil
+// file, so a caller never sees a partial tree.
 //
-// The parser only checks shape. Names are left unbound (every Ident.Def is
-// nil) and types unresolved (every Kind is types.Invalid) for the resolver
-// and type checker to fill in. Integer literals are the exception: they are
+// The parser only checks shape, so it accepts a declaration like var x int
+// whatever its mutability, and leaves whether it may lack a value to the
+// type checker. Names are left unbound (every Ident.Def is nil) and types
+// unresolved (every Kind is types.Invalid) for the resolver and type checker
+// to fill in. Integer literals are the exception: they are
 // decoded here, and one that does not fit in an int is reported here. Every
 // node's span is tagged with the FileID the parser was created with.
 package parser

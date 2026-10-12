@@ -1,0 +1,10 @@
+package main
+
+func f(n int) {
+    n := 2
+    exit(n)
+}
+
+func main() {
+    f(1)
+}

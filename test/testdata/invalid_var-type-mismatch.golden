@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/var-type-mismatch/main.tck:4:17: error: cannot use string as int in declaration of x
+03 |	func main() {
+04 |	    var x int = "one"
+   |	                ^~~~~ 
+05 |	    exit(x)
+

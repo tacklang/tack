@@ -31,8 +31,14 @@
 // Names are rewritten so that nothing a program declares can collide with what
 // the backend emits. A Tack function f in package main becomes tack_main_f,
 // which is unambiguous only while package names cannot contain an underscore.
-// A parameter x becomes p_x, since Tack has no reserved words and a parameter
-// may legally be called int, exit or str0.
+// A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
+// no reserved words and either may legally be called int, exit or str0.
+//
+// A local variable becomes a C local declared where the Tack one is, inside
+// the same block. An immutable variable is a const C local, so the C compiler
+// holds it to the same rule. A mutable one declared without a value starts at
+// its zero value: 0, false, or an empty string that points at the pooled
+// empty array rather than NULL.
 //
 // print lowers to two tack_print calls, one for its argument and one for the
 // newline, each a length-bounded fwrite to stdout. exit lowers to C's exit.

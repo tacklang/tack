@@ -3,7 +3,9 @@
 // The parser produces a *File from the lexer's tokens. Later passes read the
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, and the type checker sets
-// Param.Kind and Func.ResultKind to the types those declarations denote. Code
+// Param.Kind, Var.Kind and Func.ResultKind to the types those declarations
+// denote. A Var is both a declaration, so a name can refer to it, and a
+// statement, so it can appear in a function body. Code
 // generation then reads the fully annotated tree. Until a pass has run, the
 // fields it owns hold their zero values (nil, or types.Invalid).
 //
