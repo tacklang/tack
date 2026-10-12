@@ -24,12 +24,21 @@ import (
 //   - a condition gives facts through && (when true), || (when false), !,
 //     and comparisons of a variable with a known value: b != 0, i >= 0,
 //     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
-//     one is never negative.
+//     one is never negative;
+//   - the length of a string variable has no known value, so two more
+//     comparisons give facts: len(s) with a known value bounds the length,
+//     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
+//     over len(s) does its variable. A fact that names s holds only in a
+//     region that assigns neither variable; s may be mutable, since the
+//     region then never changes it.
 
 // fact is something known about a variable's value in a region: that it is
-// not zero, or that it lies at or above lo, or at or below hi.
+// not zero, or that it lies at or above lo, or at or below hi, or below the
+// length of the string variable lenOf. For a string variable, the fact is
+// about its length instead.
 type fact struct {
 	decl         ast.Decl
+	lenOf        ast.Decl
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
@@ -218,27 +227,64 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	return nil
 }
 
-// comparisonFact returns the fact a comparison of a variable with a known
-// value gives about the variable, when the comparison's value is holds.
+// comparisonFact returns the fact a comparison gives, when its value is
+// holds: about a variable compared with a known value, the length of a
+// string variable compared with one, or a variable below a string
+// variable's length. Either side may be the one the fact is about.
 func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 	op := cmp.Op
-	variable, value := cmp.X, cmp.Y
-	if _, isConst := c.knownValue(cmp.X); isConst {
-		variable, value, op = cmp.Y, cmp.X, flip(op)
-	}
-
-	id, ok := variable.(*ast.Ident)
-	if !ok || !c.canHoldFact(id.Def) {
-		return nil
-	}
-	k, ok := c.knownValue(value)
-	if !ok {
-		return nil
-	}
 	if !holds {
 		op = negate(op)
 	}
-	return []fact{bound(id.Def, op, k)}
+	if f, ok := c.orientedFact(cmp.X, op, cmp.Y); ok {
+		return []fact{f}
+	}
+	if f, ok := c.orientedFact(cmp.Y, flip(op), cmp.X); ok {
+		return []fact{f}
+	}
+	return nil
+}
+
+// orientedFact returns the fact that left op right gives about left: a
+// variable, or len of a string variable, compared with a known value, or a
+// variable less than len of a string variable.
+func (c *Checker) orientedFact(left ast.Expr, op ast.BinaryOp, right ast.Expr) (fact, bool) {
+	decl, ok := c.subject(left)
+	if !ok {
+		return fact{}, false
+	}
+	if k, known := c.knownValue(right); known {
+		return bound(decl, op, k), true
+	}
+	_, isName := left.(*ast.Ident)
+	if s, ok := c.stringLen(right); ok && isName && op == ast.Lt {
+		return fact{decl: decl, lenOf: s}, true
+	}
+	return fact{}, false
+}
+
+// subject returns the declaration a fact about e would be about: the
+// variable e names, or the string variable whose length e is, len(s), when
+// that variable can have facts.
+func (c *Checker) subject(e ast.Expr) (ast.Decl, bool) {
+	if id, ok := e.(*ast.Ident); ok && c.canHoldFact(id.Def) {
+		return id.Def, true
+	}
+	return c.stringLen(e)
+}
+
+// stringLen returns the string variable s when e is len(s) and s can have
+// facts.
+func (c *Checker) stringLen(e ast.Expr) (ast.Decl, bool) {
+	call, ok := e.(*ast.Call)
+	if !ok || !isLen(call) || len(call.Args) != 1 {
+		return nil, false
+	}
+	id, ok := call.Args[0].(*ast.Ident)
+	if !ok || ast.TypeOf(id) != types.String || !c.canHoldFact(id.Def) {
+		return nil, false
+	}
+	return id.Def, true
 }
 
 // bound returns the fact that the variable decl compares with k as op says.
@@ -311,12 +357,13 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 }
 
 // assume puts facts in force for the region about to be checked, keeping
-// only those about variables the region never assigns. It returns how many
-// it put in force, for forget to remove when the region ends.
+// only those about variables the region never assigns, the string whose
+// length bounds one included. It returns how many it put in force, for
+// forget to remove when the region ends.
 func (c *Checker) assume(facts []fact, region []ast.Stmt) int {
 	n := 0
 	for _, f := range facts {
-		if !assigns(region, f.decl) {
+		if !assigns(region, f.decl) && (f.lenOf == nil || !assigns(region, f.lenOf)) {
 			c.active = append(c.active, f)
 			n++
 		}

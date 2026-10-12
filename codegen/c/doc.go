@@ -70,7 +70,11 @@
 // plain C. v, ok := a[i] holds the array, unless it is a variable, and the
 // index in temporaries, the array first, and reads the element only when
 // the index is in range, testing only the bounds the index's type can
-// cross, and giving the element type's zero value otherwise.
+// cross, and giving the element type's zero value otherwise. A string's
+// byte is x.ptr[i]; v, ok := s[i] holds the string and the index the same
+// way, and reads the byte only when the index is at least 0, tested only
+// for a signed index, and below the string's length, read at runtime,
+// giving 0 otherwise.
 //
 // A function with several results returns them as one struct,
 // tack_results_main_f for a function f, with a field r0, r1, and so on for

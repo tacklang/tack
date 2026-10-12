@@ -326,11 +326,15 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 }
 
 // rangeFacts returns what a range loop's body knows about its variable: it
-// is at least 0, and, when the count is known, at most the count less one.
+// is at least 0, and, when the count is known, at most the count less one,
+// or, when the count is len(s) of a string variable, below that length.
 func (c *Checker) rangeFacts(loop *ast.ForRange) []fact {
 	f := fact{decl: loop.Var, hasLo: true}
 	if n, ok := c.knownValue(loop.Count); ok {
 		f.hi, f.hasHi = n.Sub(constant.FromInt64(1))
+	}
+	if s, ok := c.stringLen(loop.Count); ok {
+		f.lenOf = s
 	}
 	return []fact{f}
 }
@@ -611,11 +615,15 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 
 // elementTarget checks an element being assigned, x[i]: x must be a
 // mutable variable, or an element of one, since an array follows its
-// variable, and the index must be in range. It returns the element's type.
+// variable, and the index must be in range. A string's bytes are never
+// assigned. It returns the element's type.
 func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 	var base types.Type
 	switch x := ix.X.(type) {
 	case *ast.Ident:
+		if ast.TypeOf(x) == types.String {
+			return c.stringTarget(ix)
+		}
 		switch def := x.Def.(type) {
 		case *ast.Param:
 			c.errorf(x.Span, "cannot assign to element of parameter %s", x.Name)
@@ -635,6 +643,9 @@ func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 			c.expr(ix.Index)
 			return types.Invalid, false
 		}
+		if base == types.String {
+			return c.stringTarget(ix)
+		}
 	default:
 		c.errorf(ix.X.Spanned(), "cannot assign to this expression")
 		return types.Invalid, false
@@ -642,6 +653,14 @@ func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 
 	ix.Type = c.element(ix, base, true)
 	return ix.Type, ix.Type != types.Invalid
+}
+
+// stringTarget reports an assignment to a byte of a string, ix, which is
+// never allowed, after checking the index for errors of its own.
+func (c *Checker) stringTarget(ix *ast.Index) (types.Type, bool) {
+	c.expr(ix.Index)
+	c.errorf(ix.Span, "cannot assign to an element of a string; strings are immutable")
+	return types.Invalid, false
 }
 
 // targetName names an assignment target in a message: the variable, or an

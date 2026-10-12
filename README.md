@@ -320,6 +320,24 @@ which is true today because `main` is the only package there is.
   `if 0 <= i && i < len(a)`, and a variable's type bounds it too, so a
   `uint8` index into a `[256]T` needs nothing. Only a name is proven; an
   index like `i + 1` needs the two-value form.
+- Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
+  the same rules: it compiles only where `i` is proven in range, and
+  `v, ok := s[i]` (or `v, ok = s[i]`) reads it otherwise, giving `0` and
+  `false` out of range, and is an error where `i` is proven. A string's
+  bytes cannot be assigned, even in a `mut` string: `s[0] = 65` is an
+  error, since strings are immutable. A constant index into a string
+  literal is checked at compile time, so `"tack"[1]` is `97` and
+  `"tack"[4]` an error, and a negative constant is always an error. The
+  length of a string variable is not a constant, so a proof names it:
+  `for i := range len(s)` proves `s[i]` in the body,
+  `if 0 <= i && i < len(s)` in the branch (or, as for arrays, after
+  `if i < 0 || i >= len(s) { return }`), and a bound on the length proves a
+  constant index, as `if len(s) > 0` proves `s[0]`, and so do
+  `len(s) >= 1` and `len(s) != 0`. These hold only where neither the index
+  nor the string is assigned; the string may be `mut`. A mutable
+  package-level string never gets a proof. An unsigned index needs only
+  the upper bound, and a `uint64` one cannot be compared with `len(s)`, an
+  `int64`, so it uses the two-value form.
 - `len(a)` is the number of elements of an array, a constant, and `len(s)`
   the number of bytes of a string, a constant for a string literal; either
   is an `int64`.

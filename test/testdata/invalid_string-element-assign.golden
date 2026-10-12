@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/string-element-assign/main.tck:5:5: error: cannot assign to an element of a string; strings are immutable
+04 |	    mut s := "tack"
+05 |	    s[0] = 84
+   |	    ^~~~ 
+06 |	    print(s)
+

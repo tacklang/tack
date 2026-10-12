@@ -105,9 +105,9 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 	return fmt.Sprintf("(%s){{%s}}", arrayName(lit.Type), strings.Join(elems, ", ")), nil
 }
 
-// indexExpr renders an element read, x.e[i]. The checker has proven the
-// index in range. x is parenthesized unless it is a name, an element or a
-// call, which C's postfix operators already bind.
+// indexExpr renders an element read, x.e[i], or a string's byte, x.ptr[i].
+// The checker has proven the index in range. x is parenthesized unless it is
+// a name, an element or a call, which C's postfix operators already bind.
 func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
@@ -117,11 +117,15 @@ func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
+	field := "e"
+	if ast.TypeOf(ix.X) == types.String {
+		field = "ptr"
+	}
 	switch ix.X.(type) {
 	case *ast.Ident, *ast.Index, *ast.Call:
-		return fmt.Sprintf("%s.e[%s]", base, index), nil
+		return fmt.Sprintf("%s.%s[%s]", base, field, index), nil
 	default:
-		return fmt.Sprintf("(%s).e[%s]", base, index), nil
+		return fmt.Sprintf("(%s).%s[%s]", base, field, index), nil
 	}
 }
 
@@ -171,7 +175,9 @@ func (g *generator) arrayConst(elems []any) (string, bool) {
 // indexValues lowers v, ok := a[i]: the index is held in a temporary, and
 // so is the array unless it is a variable, which reading again cannot
 // change, and the element is read only when the index is in range, giving
-// the element type's zero value otherwise.
+// the element type's zero value otherwise. A string is held the same way,
+// and its byte read only when the index is below its length, known only at
+// runtime, giving 0 otherwise.
 func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
@@ -191,18 +197,39 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 	}
 	src.temps = append(src.temps, multiTemp{g.cType(indexType), index})
 
-	n := g.file.Types.Len(arrayType)
 	zero := g.zeroValue(ix.Type)
 	src.field = func(tmps []string, i int) string {
 		array, at := base, tmps[0]
 		if !isName {
 			array, at = tmps[0], tmps[1]
 		}
-		in := withinExpr(indexType, at, constant.Int{}, constant.FromInt64(n-1))
+		in, read := g.indexIn(arrayType, indexType, array, at)
 		if i == 1 {
 			return in
 		}
-		return fmt.Sprintf("(%s ? %s.e[%s] : %s)", in, array, at, zero)
+		return fmt.Sprintf("(%s ? %s : %s)", in, read, zero)
 	}
 	return src, nil
+}
+
+// indexIn renders the C test of whether the index at, of type indexType, is
+// in range for x, of type xType, and the read of the element it guards. For
+// an array the bounds are constants, and only those the index's type can
+// cross are tested. For a string the upper bound is its length: 0 is
+// tested only when the index's type can go below it, and the length
+// always. C compares the two in a common type, unsigned when the index is a
+// uint64, which keeps the length's value, since a length is never negative.
+func (g *generator) indexIn(xType, indexType types.Type, x, at string) (in, read string) {
+	if xType != types.String {
+		n := g.file.Types.Len(xType)
+		in = withinExpr(indexType, at, constant.Int{}, constant.FromInt64(n-1))
+		return in, fmt.Sprintf("%s.e[%s]", x, at)
+	}
+	upper := fmt.Sprintf("%s < %s.len", at, x)
+	if lo, _ := bounds(indexType); lo.IsNegative() {
+		in = fmt.Sprintf("(%s >= 0 && %s)", at, upper)
+	} else {
+		in = "(" + upper + ")"
+	}
+	return in, fmt.Sprintf("%s.ptr[%s]", x, at)
 }

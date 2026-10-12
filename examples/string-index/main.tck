@@ -1,0 +1,56 @@
+package main
+
+var word = "tack"
+
+func count(s string, c uint8) int64 {
+    mut n := 0
+    for i := range len(s) {
+        if s[i] == c {
+            n++
+        }
+    }
+    return n
+}
+
+func at(s string, i int64) uint8 {
+    if 0 <= i && i < len(s) {
+        return s[i]
+    }
+    return 0
+}
+
+func safe(s string, i int64) uint8 {
+    if i < 0 || i >= len(s) {
+        return 0
+    }
+    return s[i]
+}
+
+func first(s string) uint8 {
+    if len(s) > 0 {
+        return s[0]
+    }
+    return 0
+}
+
+func main() {
+    mut s := "hello"
+    v, ok := s[9]
+    w, fine := s[1]
+    if ok || v != 0 || !fine || w != 'e' {
+        exit(1)
+    }
+    if len(s) >= 5 {
+        if s[4] != 'o' {
+            exit(2)
+        }
+    }
+    s = "world"
+    if first(s) != 'w' || first("") != 0 || safe("ab", 1) != 'b' || safe("ab", 2) != 0 {
+        exit(3)
+    }
+    if "tack"[1] != 'a' || at(word, 4) != 0 || at(word, -1) != 0 || first(word) != 't' {
+        exit(4)
+    }
+    exit(count("banana", 'a') + at(word, 2) - 'a')
+}

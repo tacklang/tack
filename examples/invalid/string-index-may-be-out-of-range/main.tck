@@ -1,0 +1,9 @@
+package main
+
+func f(s string, i int64) uint8 {
+    return s[i]
+}
+
+func main() {
+    exit(f("tack", 1))
+}

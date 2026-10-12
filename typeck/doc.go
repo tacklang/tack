@@ -57,6 +57,14 @@
 // and the variable's own type. v, ok := a[i] needs no proof, and is an
 // error where one exists.
 //
+// A string is indexed the same way, s[i] giving a uint8, but its length is
+// a constant only for a literal, so the facts also bound a string
+// variable's length (len(s) > 0) and bound a variable by one (i < len(s),
+// or a range loop over len(s)). Such a fact holds only in a region that
+// assigns neither variable, and string.go uses it to prove an index. A
+// constant index into a literal is checked at compile time, a negative one
+// is always out of range, and a string's bytes are never assigned.
+//
 // The third pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each usable

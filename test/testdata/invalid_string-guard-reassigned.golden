@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/string-guard-reassigned/main.tck:7:16: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
+06 |	        s = ""
+07 |	        exit(s[0])
+   |	               ^ 
+08 |	    }
+

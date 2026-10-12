@@ -1,6 +1,6 @@
 package main
 
 func main() {
-    s := "tack"
-    exit(s[0])
+    n := 4
+    exit(n[0])
 }

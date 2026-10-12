@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,6 +115,8 @@ func indexShape(t *testing.T, e ast.Expr) string {
 		return indexShape(t, x.X) + "[" + indexShape(t, x.Index) + "]"
 	case *ast.CompositeLit:
 		return "lit"
+	case *ast.StrLit:
+		return strconv.Quote(x.Value)
 	case *ast.Unary:
 		return "(" + x.Op.String() + indexShape(t, x.X) + ")"
 	case *ast.Binary:
@@ -136,6 +139,10 @@ func TestParsesIndexes(t *testing.T) {
 		{"!b[0]", "(!b[0])"},
 		{"a[0] + b[1] * c[2]", "(a[0] + (b[1] * c[2]))"},
 		{"a[b[c[0]]]", "a[b[c[0]]]"},
+		{`"tack"[1]`, `"tack"[1]`},
+		{`"tack"[i] == 'a'`, `("tack"[i] == 'a')`},
+		{`""[0]`, `""[0]`},
+		{"s[len(s) - 1]", "s[(len() - 1)]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {

@@ -186,9 +186,9 @@ var arrayErrorCases = []struct {
 		[]spanned{{"cannot index int64", "n"}},
 	},
 	{
-		"index of a string",
-		mainLines("s := \"abc\"", "exit(s[0])"),
-		[]spanned{{"cannot index string", "s"}},
+		"index of a bool",
+		mainLines("b := true", "exit(b[0])"),
+		[]spanned{{"cannot index bool", "b"}},
 	},
 	{
 		"immutable element",

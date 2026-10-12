@@ -862,6 +862,18 @@ func TestBuiltCharsExits97(t *testing.T) {
 	}
 }
 
+// The string-index example reads bytes of strings at indexes proven in range
+// by a range loop, guards on len and a constant index into a literal, and
+// with v, ok := s[i] where they are not.
+func TestBuiltStringIndexExits5(t *testing.T) {
+	bin := buildWithClang(t, "string-index")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 5 {
+		t.Errorf("string-index exited with %v, want status 5", err)
+	}
+}
+
 // print writes exactly its argument, so lines in the print example are only
 // broken where the program writes a newline itself.
 func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {

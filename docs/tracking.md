@@ -86,8 +86,9 @@ Open questions about how a feature should behave are in
 | `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                             |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                          |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; `-` before digits is a negative literal                                                        |
-| Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out |
-| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops, guards and types, or `v, ok := a[i]` |
+| Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                             |
+| Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops, guards and types, or `v, ok := a[i]`                                           |
+| Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from `len(s)` guards and range loops, or `v, ok := s[i]`; never assigned                                   |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                              |
 | Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                |
@@ -98,18 +99,18 @@ Open questions about how a feature should behave are in
 
 ### Types
 
-| Feature                            | Checker | C   | Notes                                                  |
-|------------------------------------|---------|-----|--------------------------------------------------------|
-| `int8` `int16` `int32` `int64`     | yes     | yes | Signed, `int8_t` to `int64_t`                          |
-| `uint8` `uint16` `uint32` `uint64` | yes     | yes | Unsigned, `uint8_t` to `uint64_t`; no `byte`           |
-| Lossless widening                  | yes     | yes | Implicit wherever a value is used; no `int`            |
-| `string`                           | yes     | yes | Pointer and length, `tack_string` by value             |
-| `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!` |
-| Float types                        | no      | no  |                                                        |
+| Feature                            | Checker | C   | Notes                                                             |
+|------------------------------------|---------|-----|-------------------------------------------------------------------|
+| `int8` `int16` `int32` `int64`     | yes     | yes | Signed, `int8_t` to `int64_t`                                     |
+| `uint8` `uint16` `uint32` `uint64` | yes     | yes | Unsigned, `uint8_t` to `uint64_t`; no `byte`                      |
+| Lossless widening                  | yes     | yes | Implicit wherever a value is used; no `int`                       |
+| `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes       |
+| `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
+| Float types                        | no      | no  |                                                                   |
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
-| Slices, maps, structs              | no      | no  |                                                        |
-| Pointers                           | no      | no  |                                                        |
-| Interfaces, generics               | no      | no  |                                                        |
+| Slices, maps, structs              | no      | no  |                                                                   |
+| Pointers                           | no      | no  |                                                                   |
+| Interfaces, generics               | no      | no  |                                                                   |
 
 ### Builtins
 

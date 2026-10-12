@@ -115,14 +115,18 @@ func (c *Checker) index(ix *ast.Index) types.Type {
 }
 
 // element checks the index of x[i], where x has type base, and returns the
-// element's type. base must be an array, and the index an integer that is
-// in range: a constant is checked against the array's length here. write
-// says x[i] is being assigned, which only matters for what the error
-// suggests.
+// element's type. base must be an array or a string, and the index an
+// integer that is in range: a constant is checked against the array's
+// length here. write says x[i] is being assigned, which only matters for
+// what the error suggests; a string's byte is never assigned, which
+// elementTarget reports first.
 func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type {
 	idx := c.valueOf(ix.Index, c.expr(ix.Index))
 	if base == types.Invalid {
 		return types.Invalid
+	}
+	if base == types.String {
+		return c.stringElement(ix, idx)
 	}
 	if !c.table.IsArray(base) {
 		c.errorf(ix.X.Spanned(), "cannot index %s", c.table.Name(base))
@@ -155,7 +159,9 @@ func (c *Checker) constantInRange(v constant.Int, n int64) bool {
 // indexResults checks an element bound to want names, which must be two:
 // the element, or its type's zero value when the index is out of range, and
 // whether it was in range. The form is for an index that may be out of
-// range, so one proven in range, a constant included, is reported.
+// range, so one proven in range is reported: into an array, a constant one
+// included; into a string, a constant only when the string's length proves
+// it.
 func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedIndex = ix
 	elem := c.expr(ix)
@@ -164,8 +170,7 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 		return nil, false
 	}
 
-	base := ast.TypeOf(ix.X)
-	if _, known := c.knownValue(ix.Index); known || c.inRange(ix.Index, c.table.Len(base)) {
+	if c.indexProven(ix) {
 		c.errorf(ix.Span, "the index cannot be out of range here; drop the ok")
 		return nil, false
 	}
@@ -174,6 +179,19 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 		return nil, false
 	}
 	return []types.Type{elem, types.Bool}, true
+}
+
+// indexProven reports whether the index of a checked element ix is known to
+// be in range, so it needs no ok: for an array, a constant, which element
+// has already checked, or a variable the facts keep in range; for a string,
+// what stringIndexProven says.
+func (c *Checker) indexProven(ix *ast.Index) bool {
+	base := ast.TypeOf(ix.X)
+	if base == types.String {
+		return c.stringIndexProven(ix)
+	}
+	_, known := c.knownValue(ix.Index)
+	return known || c.inRange(ix.Index, c.table.Len(base))
 }
 
 // requireInRange reports an index that is not proven to be in range for an
