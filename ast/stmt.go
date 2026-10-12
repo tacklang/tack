@@ -80,3 +80,49 @@ func (a *Assign) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the target through the terminating
 // semicolon's position.
 func (a *Assign) Spanned() Span { return a.Span }
+
+// For is a loop. Cond is nil for a loop with no condition, which runs until
+// something in its body leaves it.
+type For struct {
+	Cond Expr
+	Body []Stmt
+	Span Span // 'for' keyword through the closing brace
+}
+
+var _ Stmt = (*For)(nil)
+
+func (f *For) stmtKey() stmtKey { return _stmtKey }
+
+func (f *For) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'for' keyword through the
+// closing brace.
+func (f *For) Spanned() Span { return f.Span }
+
+// Break leaves the innermost loop containing it.
+type Break struct {
+	Span Span // the 'break' keyword
+}
+
+var _ Stmt = (*Break)(nil)
+
+func (b *Break) stmtKey() stmtKey { return _stmtKey }
+
+func (b *Break) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the 'break' keyword.
+func (b *Break) Spanned() Span { return b.Span }
+
+// Continue starts the next iteration of the innermost loop containing it.
+type Continue struct {
+	Span Span // the 'continue' keyword
+}
+
+var _ Stmt = (*Continue)(nil)
+
+func (c *Continue) stmtKey() stmtKey { return _stmtKey }
+
+func (c *Continue) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the 'continue' keyword.
+func (c *Continue) Spanned() Span { return c.Span }

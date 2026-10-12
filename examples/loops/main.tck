@@ -1,0 +1,42 @@
+package main
+
+func isPrime(n int) bool {
+    if n < 2 {
+        return false
+    }
+    mut d = 2
+    for d * d <= n {
+        if n % d == 0 {
+            return false
+        }
+        d = d + 1
+    }
+    return true
+}
+
+func nthPrime(n int) int {
+    mut found = 0
+    mut candidate = 1
+    for {
+        candidate = candidate + 1
+        if !isPrime(candidate) {
+            continue
+        }
+        found = found + 1
+        if found == n {
+            return candidate
+        }
+    }
+}
+
+func main() {
+    mut i = 0
+    for {
+        i = i + 1
+        if i > 3 {
+            break
+        }
+        print("tick")
+    }
+    exit(nthPrime(10))
+}

@@ -313,18 +313,19 @@ func (g *generator) generateBlock(body []ast.Stmt, fn *ast.Func) ([]string, []di
 func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	switch x := stmt.(type) {
 	case *ast.Return:
-		if x.Value == nil {
-			return []string{"return;"}, nil
-		}
-
-		value, diags := g.expr(x.Value, fn.ResultKind)
-		if len(diags) > 0 {
-			return nil, diags
-		}
-		return []string{fmt.Sprintf("return %s;", value)}, nil
+		return g.generateReturn(x, fn)
 
 	case *ast.If:
 		return g.generateIf(x, fn)
+
+	case *ast.For:
+		return g.generateFor(x, fn)
+
+	case *ast.Break:
+		return []string{"break;"}, nil
+
+	case *ast.Continue:
+		return []string{"continue;"}, nil
 
 	case *ast.Var:
 		return g.generateVar(x)
@@ -344,6 +345,53 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	}
 }
 
+// generateReturn lowers a return, with its value converted to fn's result
+// type.
+func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	if ret.Value == nil {
+		return []string{"return;"}, nil
+	}
+
+	value, diags := g.expr(ret.Value, fn.ResultKind)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return []string{fmt.Sprintf("return %s;", value)}, nil
+}
+
+// condHeader writes the opening line of an if or while whose condition is
+// cond, rendered from e. A binary expression is already parenthesised, and a
+// second pair makes clang warn about an equality test, so it only gets the
+// statement's own.
+func condHeader(keyword string, e ast.Expr, cond string) string {
+	if _, ok := e.(*ast.Binary); ok {
+		return fmt.Sprintf("%s %s {", keyword, cond)
+	}
+	return fmt.Sprintf("%s (%s) {", keyword, cond)
+}
+
+// generateFor lowers a loop to a C while, or to for (;;) when it has no
+// condition. Tack's break and continue mean what C's do, so they lower
+// directly.
+func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	header := "for (;;) {"
+	if loop.Cond != nil {
+		cond, diags := g.expr(loop.Cond, types.Bool)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		header = condHeader("while", loop.Cond, cond)
+	}
+
+	body, diags := g.generateBlock(loop.Body, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+
+	lines := append([]string{header}, indent(body)...)
+	return append(lines, "}"), nil
+}
+
 func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	cond, diags := g.expr(stmt.Cond, types.Bool)
 	if len(diags) > 0 {
@@ -355,14 +403,7 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 		return nil, diags
 	}
 
-	// A binary expression is already parenthesised, and a second pair makes
-	// clang warn about an equality test, so it only gets the if's own.
-	header := fmt.Sprintf("if (%s) {", cond)
-	if _, ok := stmt.Cond.(*ast.Binary); ok {
-		header = fmt.Sprintf("if %s {", cond)
-	}
-
-	lines := append([]string{header}, indent(then)...)
+	lines := append([]string{condHeader("if", stmt.Cond, cond)}, indent(then)...)
 
 	if stmt.Else == nil {
 		return append(lines, "}"), nil

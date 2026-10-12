@@ -62,6 +62,13 @@ func walkStmt(s Stmt, v Visitor) {
 		Walk(s.Cond, v)
 		walkAll(s.Then, v)
 		walkAll(s.Else, v)
+	case *For:
+		if s.Cond != nil {
+			Walk(s.Cond, v)
+		}
+		walkAll(s.Body, v)
+	case *Break, *Continue:
+		// leaves
 	case *ExprStmt:
 		Walk(s.X, v)
 	case *Assign:

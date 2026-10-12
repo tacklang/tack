@@ -354,6 +354,12 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		return p.parseIf()
 	case lexer.Return:
 		return p.parseReturn()
+	case lexer.For:
+		return p.parseFor()
+	case lexer.Break:
+		return p.parseJump(&ast.Break{Span: p.span(tk)})
+	case lexer.Continue:
+		return p.parseJump(&ast.Continue{Span: p.span(tk)})
 	case lexer.Var, lexer.Mut:
 		return p.parseVarDecl()
 	default:
@@ -631,6 +637,45 @@ func (p *Parser) parseElse() (els []ast.Stmt, terminated bool, diags []diag.Diag
 		return nil, false, blockDiags
 	}
 	return block, false, nil
+}
+
+// parseFor parses a loop: for, then a condition unless the body's opening
+// brace comes straight after, then the body.
+func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
+	tk := p.next() // the for keyword
+
+	loop := &ast.For{Span: p.span(tk)}
+
+	if p.peek().Kind() != lexer.LCurl {
+		cond, condDiags := p.parseExpr(1)
+		if cond == nil {
+			return nil, condDiags
+		}
+		loop.Cond = cond
+	}
+
+	body, bodyDiags := p.parseBlock()
+	if body == nil {
+		return nil, bodyDiags
+	}
+	loop.Body = body
+	loop.Span.End = p.peekPrev().OffsetEnd()
+
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+	return loop, nil
+}
+
+// parseJump parses break or continue, whose node the caller has built from
+// the keyword. Nothing may follow the keyword: there are no labels.
+func (p *Parser) parseJump(stmt ast.Stmt) (ast.Stmt, []diag.Diagnostic) {
+	p.next() // the keyword
+
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+	return stmt, nil
 }
 
 func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {

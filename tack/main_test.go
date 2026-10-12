@@ -783,3 +783,17 @@ func TestBuiltLogicalShortCircuitsAndExits13(t *testing.T) {
 		t.Errorf("logical printed %q, want %q", out, "first\nsecond\n")
 	}
 }
+
+// The loops example prints three ticks before breaking out of its loop, then
+// exits with the tenth prime.
+func TestBuiltLoopsTicksAndExits29(t *testing.T) {
+	bin := buildWithClang(t, "loops")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 29 {
+		t.Errorf("loops exited with %v, want status 29", err)
+	}
+	if string(out) != "tick\ntick\ntick\n" {
+		t.Errorf("loops printed %q, want three ticks", out)
+	}
+}

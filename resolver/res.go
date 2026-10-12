@@ -333,7 +333,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 }
 
 // resolveStmt binds every name a statement mentions, and declares any
-// variable it introduces in sc. Each branch of an if is a block of its own.
+// variable it introduces in sc. Each branch of an if, and a loop's body, is a
+// block of its own.
 func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
@@ -347,6 +348,12 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		diags := r.resolveExpr(s.Cond, sc)
 		diags = append(diags, r.resolveBlock(s.Then, sc)...)
 		return append(diags, r.resolveBlock(s.Else, sc)...)
+	case *ast.For:
+		var diags []diag.Diagnostic
+		if s.Cond != nil {
+			diags = r.resolveExpr(s.Cond, sc)
+		}
+		return append(diags, r.resolveBlock(s.Body, sc)...)
 	case *ast.Var:
 		return r.declareVar(s, sc)
 	case *ast.Assign:

@@ -58,13 +58,14 @@ Open questions about how a feature should behave are in
 | Call statement                 | yes   | yes    | yes     | yes | A result may be discarded                                                                               |
 | `return`                       | yes   | yes    | yes     | yes | Value required exactly when the function declares a result                                              |
 | `if` / `else` / `else if`      | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
-| Terminating statement rule     | n/a   | n/a    | yes     | n/a | Syntactic, as in Go                                                                                     |
+| Terminating statement rule     | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
 | Local variables                | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |
 | Assignment `=`                 | yes   | yes    | yes     | yes | Mutable variables only; parameters are immutable                                                        |
 | Compound assignment, `++` `--` | yes   | no     | no      | no  | Decided: later                                                                                          |
-| `for` loops                    | yes   | no     | no      | no  |                                                                                                         |
+| `for cond {}`, `for {}`        | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
+| Three-clause `for`, `range`    | yes   | no     | no      | no  | Decided: a three-clause counter is declared with `mut`                                                  |
 | `switch`                       | yes   | no     | no      | no  |                                                                                                         |
-| `break` / `continue`           | yes   | no     | no      | no  |                                                                                                         |
+| `break` / `continue`           | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                          |
 | Standalone blocks              | yes   | no     | no      | no  |                                                                                                         |
 | `defer`, `select`, `goto`      | yes   | no     | no      | no  |                                                                                                         |
 

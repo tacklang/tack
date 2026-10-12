@@ -1,0 +1,11 @@
+package main
+
+func f() int {
+    for {
+        break
+    }
+}
+
+func main() {
+    exit(f())
+}

@@ -54,7 +54,9 @@
 // Every binary expression is parenthesised, so Tack's grouping survives
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.
-// && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
+// A loop lowers to a C while, or to for (;;) when it has no condition, with
+// its condition parenthesised as an if's is; break and continue lower to C's
+// own. && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
 // languages.
 package c

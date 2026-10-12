@@ -190,9 +190,15 @@ which is true today because `main` is the only package there is.
 - Top-level `func name(x int, s string) int { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. At most one result.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), a variable declaration, and an assignment. A function that declares a result must end in a terminating
-  statement: a return, or an if whose branches all terminate. The rule is
-  syntactic, so a call that never comes back does not satisfy it.
+  `else if`), `for`, `break`, `continue`, a variable declaration, and an
+  assignment. A function that declares a result must end in a terminating
+  statement: a return, an if whose branches all terminate, or a `for` with no
+  condition that no `break` leaves. The rule is syntactic, so a call that
+  never comes back does not satisfy it.
+- Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
+  `for { ... }` runs until something in its body leaves it. `break` leaves the
+  innermost loop and `continue` starts its next iteration; either one outside
+  a loop is an error. There are no labels, three-clause loops or `range` yet.
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero

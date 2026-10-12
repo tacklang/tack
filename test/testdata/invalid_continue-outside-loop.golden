@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/continue-outside-loop/main.tck:5:9: error: continue is not in a loop
+04 |	    if true {
+05 |	        continue
+   |	        ^~~~~~~~ 
+06 |	    }
+

@@ -16,6 +16,7 @@ type Checker struct {
 	file  *ast.File
 	funcs map[string]*ast.Func
 	diags []diag.Diagnostic
+	loops int // how many loops enclose the statement being checked
 }
 
 // New returns a Checker for file, which must already have been resolved.
@@ -84,16 +85,45 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 		c.checkAssign(s)
 
 	case *ast.If:
-		c.checkExpr(s.Cond)
-		if got := ast.KindOf(s.Cond); got != types.Bool && !reportedInvalid(s.Cond, got) {
-			c.errorf(s.Cond.Spanned(), "condition must be a bool, got %s", got)
+		c.checkCond(s.Cond)
+		c.checkBlock(s.Then, fn)
+		c.checkBlock(s.Else, fn)
+
+	case *ast.For:
+		if s.Cond != nil {
+			c.checkCond(s.Cond)
 		}
-		for _, inner := range s.Then {
-			c.checkStmt(inner, fn)
-		}
-		for _, inner := range s.Else {
-			c.checkStmt(inner, fn)
-		}
+		c.loops++
+		c.checkBlock(s.Body, fn)
+		c.loops--
+
+	case *ast.Break:
+		c.checkInLoop(s.Span, "break")
+
+	case *ast.Continue:
+		c.checkInLoop(s.Span, "continue")
+	}
+}
+
+// checkBlock checks each statement of a block in fn.
+func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
+	for _, stmt := range body {
+		c.checkStmt(stmt, fn)
+	}
+}
+
+// checkCond checks the condition of an if or a loop, which must be a bool.
+func (c *Checker) checkCond(cond ast.Expr) {
+	c.checkExpr(cond)
+	if got := ast.KindOf(cond); got != types.Bool && !reportedInvalid(cond, got) {
+		c.errorf(cond.Spanned(), "condition must be a bool, got %s", got)
+	}
+}
+
+// checkInLoop reports a break or continue that no loop encloses.
+func (c *Checker) checkInLoop(span ast.Span, keyword string) {
+	if c.loops == 0 {
+		c.errorf(span, "%s is not in a loop", keyword)
 	}
 }
 
@@ -400,18 +430,38 @@ func (c *Checker) typeKind(typ ast.Expr) types.Kind {
 	return kind
 }
 
-// terminates reports whether control can fall out of the bottom of stmt. An if
-// only terminates when it has an else and both branches do, since otherwise
-// the condition being false falls through.
+// terminates reports whether control cannot fall out of the bottom of stmt.
+// An if only terminates when it has an else and both branches do, since
+// otherwise the condition being false falls through. A loop only terminates
+// when it has no condition and no break leaves it, following Go.
 func terminates(stmt ast.Stmt) bool {
 	switch s := stmt.(type) {
 	case *ast.Return:
 		return true
 	case *ast.If:
 		return len(s.Else) > 0 && blockTerminates(s.Then) && blockTerminates(s.Else)
+	case *ast.For:
+		return s.Cond == nil && !breaks(s.Body)
 	default:
 		return false
 	}
+}
+
+// breaks reports whether body holds a break that leaves the loop body
+// belongs to: one directly in it or inside an if, but not one inside a
+// nested loop, which leaves only that loop.
+func breaks(body []ast.Stmt) bool {
+	for _, stmt := range body {
+		switch s := stmt.(type) {
+		case *ast.Break:
+			return true
+		case *ast.If:
+			if breaks(s.Then) || breaks(s.Else) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func blockTerminates(body []ast.Stmt) bool {

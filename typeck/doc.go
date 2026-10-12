@@ -35,7 +35,6 @@
 //     operator: an int supports all six, a bool only == and !=, and a string
 //     none. A mismatch, or an unsupported operator, is one error covering the
 //     whole comparison;
-//   - an if condition is a bool;
 //   - a variable's value has its declared type, and a variable declared
 //     without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a
@@ -43,10 +42,13 @@
 //   - an assigned value has the variable's type;
 //   - a return carries a value exactly when the function declares a result,
 //     and the value has the result's type;
+//   - an if or loop condition is a bool;
+//   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
-//     return, or an if with an else whose branches both terminate. The rule
-//     is syntactic, as in Go, so a call that never comes back, like exit,
-//     does not satisfy it.
+//     return, an if with an else whose branches both terminate, or a loop
+//     with no condition and no break that leaves it (a break in a nested
+//     loop leaves only that one). The rule is syntactic, as in Go, so a call
+//     that never comes back, like exit, does not satisfy it.
 //
 // Checking continues past the first problem, so one run reports all of them,
 // in source order. A Checker is single-use: create one with New and call Check
