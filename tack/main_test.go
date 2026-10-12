@@ -770,6 +770,20 @@ func TestBuiltBoolsPrintsAndExits9(t *testing.T) {
 	}
 }
 
+// print writes exactly its argument, so lines in the print example are only
+// broken where the program writes a newline itself.
+func TestBuiltPrintWritesNoNewlineOfItsOwn(t *testing.T) {
+	bin := buildWithClang(t, "print")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Fatalf("print failed: %v", err)
+	}
+	want := "one line, three prints\n*\n**\n***\ntab\tand\nbreak\n"
+	if string(out) != want {
+		t.Errorf("print printed %q, want %q", out, want)
+	}
+}
+
 // The logical example prints only the operands that ran, so its output pins
 // short-circuit evaluation in a real build.
 func TestBuiltLogicalShortCircuitsAndExits13(t *testing.T) {

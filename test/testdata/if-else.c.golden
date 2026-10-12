@@ -12,9 +12,9 @@ typedef struct {
     int64_t len;
 } tack_string;
 
-static const unsigned char str0[2] = {10, 0};
-static const unsigned char str1[6] = {115, 109, 97, 108, 108, 0};
-static const unsigned char str2[6] = {108, 97, 114, 103, 101, 0};
+static const unsigned char str0[6] = {115, 109, 97, 108, 108, 0};
+static const unsigned char str1[6] = {108, 97, 114, 103, 101, 0};
+static const unsigned char str2[2] = {10, 0};
 
 static void tack_print(tack_string s) {
     fwrite(s.ptr, 1, s.len, stdout);
@@ -25,17 +25,17 @@ static void tack_main_main(void);
 
 static tack_string tack_main_classify(int64_t p_n) {
     if (p_n < 10) {
-        return (tack_string){str1, 5};
+        return (tack_string){str0, 5};
     } else {
-        return (tack_string){str2, 5};
+        return (tack_string){str1, 5};
     }
 }
 
 static void tack_main_main(void) {
     tack_print(tack_main_classify(3));
-    tack_print((tack_string){str0, 1});
+    tack_print((tack_string){str2, 1});
     tack_print(tack_main_classify(30));
-    tack_print((tack_string){str0, 1});
+    tack_print((tack_string){str2, 1});
 }
 
 int main(void) {

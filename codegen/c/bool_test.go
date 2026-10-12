@@ -54,7 +54,7 @@ var boolRuntimeCases = []struct {
 		"package-level",
 		"package main\n\nvar on = true\n\nmut off = false\n\nfunc main() {\n    if on {\n        if off {\n            exit(1)\n        }\n" +
 			"        off = true\n        if off {\n            print(\"on\")\n            exit(7)\n        }\n    }\n}\n",
-		"on\n",
+		"on",
 		7,
 	},
 	{

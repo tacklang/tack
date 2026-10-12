@@ -2,6 +2,7 @@ package main
 
 func show(s string) {
     print(s)
+    print("\n")
 }
 
 func forward(s string) {

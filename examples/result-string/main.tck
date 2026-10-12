@@ -6,4 +6,5 @@ func greeting() string {
 
 func main() {
     print(greeting())
+    print("\n")
 }

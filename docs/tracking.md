@@ -20,20 +20,20 @@ Open questions about how a feature should behave are in
 
 ### Lexical elements
 
-| Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                                                |
-|-----------------------------|-------|---------|---------|---------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                                       |
-| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 13 parsed, see the statements and expressions below                     |
-| Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                                            |
-| Line comments               | yes   | partial | n/a     | n/a     | Only between top-level declarations; anywhere else is a parse error                                                                  |
-| Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                                              |
-| Decimal integer literals    | yes   | yes     | yes     | yes     | 64-bit; out of range is a parse error; leading zeros are decimal                                                                     |
-| Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                                      |
-| Float literals              | yes   | no      | no      | no      |                                                                                                                                      |
-| Char literals               | yes   | no      | no      | no      |                                                                                                                                      |
-| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                                                   |
-| Raw string literals         | yes   | yes     | yes     | yes     | Escapes are decoded too, unlike Go                                                                                                   |
-| Operators                   | yes   | partial | partial | partial | All of Go's are lexed; see Expressions for what is parsed                                                                            |
+| Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                            |
+|-----------------------------|-------|---------|---------|---------|------------------------------------------------------------------------------------------------------------------|
+| Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                   |
+| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 13 parsed, see the statements and expressions below |
+| Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
+| Line comments               | yes   | partial | n/a     | n/a     | Only between top-level declarations; anywhere else is a parse error                                              |
+| Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                          |
+| Decimal integer literals    | yes   | yes     | yes     | yes     | 64-bit; out of range is a parse error; leading zeros are decimal                                                 |
+| Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |
+| Float literals              | yes   | no      | no      | no      |                                                                                                                  |
+| Char literals               | yes   | no      | no      | no      |                                                                                                                  |
+| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                               |
+| Raw string literals         | yes   | yes     | yes     | yes     | Escapes are decoded too, unlike Go                                                                               |
+| Operators                   | yes   | partial | partial | partial | All of Go's are lexed; see Expressions for what is parsed                                                        |
 
 ### Declarations
 
@@ -53,23 +53,23 @@ Open questions about how a feature should behave are in
 
 ### Statements
 
-| Feature                        | Lexer | Parser | Checker | C   | Notes                                                                                                   |
-|--------------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------------------|
-| Call statement                 | yes   | yes    | yes     | yes | A result may be discarded                                                                               |
-| `return`                       | yes   | yes    | yes     | yes | Value required exactly when the function declares a result                                              |
-| `if` / `else` / `else if`      | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
-| Terminating statement rule     | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
-| Local variables                | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |
-| Assignment `=`                 | yes   | yes    | yes     | yes | Mutable variables only; parameters are immutable                                                        |
-| Compound assignment            | yes   | yes    | yes     | yes | `+= -= *= /= %=` on `int`; not a read of the target; bitwise forms come with the bitwise operators      |
-| `++` `--`                      | yes   | yes    | yes     | yes | Postfix statements only, never values; `int` targets; not a read of the target                          |
-| `for cond {}`, `for {}`        | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
-| Three-clause `for`             | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`         |
-| `range` over an `int`          | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable `int` each iteration       |
-| `switch`                       | yes   | no     | no      | no  |                                                                                                         |
-| `break` / `continue`           | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                          |
-| Standalone blocks              | yes   | no     | no      | no  |                                                                                                         |
-| `defer`, `select`, `goto`      | yes   | no     | no      | no  |                                                                                                         |
+| Feature                    | Lexer | Parser | Checker | C   | Notes                                                                                                   |
+|----------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------------------|
+| Call statement             | yes   | yes    | yes     | yes | A result may be discarded                                                                               |
+| `return`                   | yes   | yes    | yes     | yes | Value required exactly when the function declares a result                                              |
+| `if` / `else` / `else if`  | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
+| Terminating statement rule | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                               |
+| Local variables            | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error |
+| Assignment `=`             | yes   | yes    | yes     | yes | Mutable variables only; parameters are immutable                                                        |
+| Compound assignment        | yes   | yes    | yes     | yes | `+= -= *= /= %=` on `int`; not a read of the target; bitwise forms come with the bitwise operators      |
+| `++` `--`                  | yes   | yes    | yes     | yes | Postfix statements only, never values; `int` targets; not a read of the target                          |
+| `for cond {}`, `for {}`    | yes   | yes    | yes     | yes | Condition must be a bool                                                                                |
+| Three-clause `for`         | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`          |
+| `range` over an `int`      | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable `int` each iteration       |
+| `switch`                   | yes   | no     | no      | no  |                                                                                                         |
+| `break` / `continue`       | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                          |
+| Standalone blocks          | yes   | no     | no      | no  |                                                                                                         |
+| `defer`, `select`, `goto`  | yes   | no     | no      | no  |                                                                                                         |
 
 ### Expressions
 
@@ -84,28 +84,28 @@ Open questions about how a feature should behave are in
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                         |
 | Unary `-`                         | yes   | yes    | yes     | yes     | `int` operand only; `-` before digits is a negative literal |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                               |
-| `&&` `\|\|`                        | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                         |
+| `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                         |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                             |
 | `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions      |
 | Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                               |
 
 ### Types
 
-| Feature                       | Checker | C   | Notes                                                         |
-|-------------------------------|---------|-----|---------------------------------------------------------------|
-| `int`                         | yes     | yes | 64-bit signed, `int64_t`                                      |
-| `string`                      | yes     | yes | Pointer and length, `tack_string` by value                    |
-| `bool`                        | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`          |
-| Other integer and float types | no      | no  |                                                               |
-| Arrays, slices, maps, structs | no      | no  |                                                               |
-| Pointers                      | no      | no  |                                                               |
-| Interfaces, generics          | no      | no  |                                                               |
+| Feature                       | Checker | C   | Notes                                                  |
+|-------------------------------|---------|-----|--------------------------------------------------------|
+| `int`                         | yes     | yes | 64-bit signed, `int64_t`                               |
+| `string`                      | yes     | yes | Pointer and length, `tack_string` by value             |
+| `bool`                        | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!` |
+| Other integer and float types | no      | no  |                                                        |
+| Arrays, slices, maps, structs | no      | no  |                                                        |
+| Pointers                      | no      | no  |                                                        |
+| Interfaces, generics          | no      | no  |                                                        |
 
 ### Builtins
 
 | Builtin         | Checker | C   | Notes                                                          |
 |-----------------|---------|-----|----------------------------------------------------------------|
-| `print(string)` | yes     | yes | Any string expression; writes it and a newline to stdout       |
+| `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline |
 | `exit(int)`     | yes     | yes | Terminates with that status; a stand-in for a future `os.Exit` |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.

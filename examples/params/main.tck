@@ -2,6 +2,7 @@ package main
 
 func greet(s string, code int) {
     print(s)
+    print("\n")
     exit(code)
 }
 

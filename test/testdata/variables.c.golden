@@ -12,8 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
-static const unsigned char str0[2] = {10, 0};
-static const unsigned char str1[10] = {118, 97, 114, 105, 97, 98, 108, 101, 115, 0};
+static const unsigned char str0[10] = {118, 97, 114, 105, 97, 98, 108, 101, 115, 0};
+static const unsigned char str1[2] = {10, 0};
 static const unsigned char str2[1] = {0};
 static const unsigned char str3[13] = {102, 105, 118, 101, 32, 115, 113, 117, 97, 114, 101, 100, 0};
 static const unsigned char str4[15] = {115, 111, 109, 101, 116, 104, 105, 110, 103, 32, 101, 108, 115, 101, 0};
@@ -31,9 +31,9 @@ static int64_t tack_main_square(int64_t p_n) {
 }
 
 static void tack_main_main(void) {
-    const tack_string v_greeting = (tack_string){str1, 9};
+    const tack_string v_greeting = (tack_string){str0, 9};
     tack_print(v_greeting);
-    tack_print((tack_string){str0, 1});
+    tack_print((tack_string){str1, 1});
     const int64_t v_base = 3;
     const int64_t v_step = 4;
     int64_t v_total = tack_main_square(v_base);
@@ -45,7 +45,7 @@ static void tack_main_main(void) {
         v_label = (tack_string){str4, 14};
     }
     tack_print(v_label);
-    tack_print((tack_string){str0, 1});
+    tack_print((tack_string){str1, 1});
     int64_t v_count = 0;
     v_count = (v_count + 1);
     const bool v_done = (v_count == 1);

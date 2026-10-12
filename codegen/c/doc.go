@@ -27,8 +27,7 @@
 // Strings are pooled as byte arrays rather than C string literals, so any byte
 // survives without an escaping scheme. Each array has a trailing zero, so an
 // empty string is still a legal array, but the zero is never written out,
-// since every write is bounded by the length. When the program prints, the
-// newline print appends is pooled first, as str0.
+// since every write is bounded by the length.
 //
 // Names are rewritten so that nothing a program declares can collide with what
 // the backend emits. A Tack function f in package main becomes tack_main_f,
@@ -49,8 +48,8 @@
 // its zero value: 0, false, or an empty string that points at the pooled
 // empty array rather than NULL.
 //
-// print lowers to two tack_print calls, one for its argument and one for the
-// newline, each a length-bounded fwrite to stdout. exit lowers to C's exit.
+// print lowers to one tack_print call, a length-bounded fwrite of its argument
+// to stdout with nothing added. exit lowers to C's exit.
 // Every binary expression is parenthesised, so Tack's grouping survives
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.

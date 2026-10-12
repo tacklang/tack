@@ -18,32 +18,32 @@ var logicalRuntimeCases = []struct {
 		"&& skips its right side after false",
 		"package main\n\n" + noisy +
 			"func main() {\n    if say(\"l\", false) && say(\"r\", true) {\n        exit(1)\n    }\n    exit(2)\n}\n",
-		"l\n", 2,
+		"l", 2,
 	},
 	{
 		"&& evaluates its right side after true",
 		"package main\n\n" + noisy +
 			"func main() {\n    if say(\"l\", true) && say(\"r\", true) {\n        exit(3)\n    }\n}\n",
-		"l\nr\n", 3,
+		"lr", 3,
 	},
 	{
 		"|| skips its right side after true",
 		"package main\n\n" + noisy +
 			"func main() {\n    if say(\"l\", true) || say(\"r\", false) {\n        exit(4)\n    }\n}\n",
-		"l\n", 4,
+		"l", 4,
 	},
 	{
 		"|| evaluates its right side after false",
 		"package main\n\n" + noisy +
 			"func main() {\n    if say(\"l\", false) || say(\"r\", false) {\n        exit(1)\n    }\n    exit(5)\n}\n",
-		"l\nr\n", 5,
+		"lr", 5,
 	},
 	{
 		"chain stops at the first deciding operand",
 		"package main\n\n" + noisy +
 			"func main() {\n    if say(\"a\", false) || say(\"b\", true) && say(\"c\", false) || say(\"d\", true) {\n" +
 			"        exit(6)\n    }\n}\n",
-		"a\nb\nc\nd\n", 6,
+		"abcd", 6,
 	},
 	{
 		"&& guards a division",

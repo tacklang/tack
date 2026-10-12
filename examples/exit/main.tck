@@ -1,6 +1,6 @@
 package main
 
 func main() {
-    print("exiting")
+    print("exiting\n")
     exit(42)
 }

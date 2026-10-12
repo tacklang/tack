@@ -12,7 +12,7 @@ func not(b bool) bool {
 func main() {
     mut done = false
     if verbose {
-        print("bools")
+        print("bools\n")
         done = true
     }
     if not(done) {

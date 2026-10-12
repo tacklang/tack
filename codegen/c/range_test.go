@@ -19,7 +19,7 @@ var rangeRuntimeCases = []struct {
 	{
 		"no variable",
 		"package main\n\nfunc main() {\n    for range 3 {\n        print(\"x\")\n    }\n}\n",
-		"x\nx\nx\n", 0,
+		"xxx", 0,
 	},
 	{
 		"zero and negative counts",
@@ -30,7 +30,7 @@ var rangeRuntimeCases = []struct {
 	{
 		"count evaluated once",
 		"package main\n\nfunc three() int {\n    print(\"count\")\n    return 3\n}\n\nfunc main() {\n    mut n = 0\n    for range three() {\n        n++\n    }\n    exit(n)\n}\n",
-		"count\n",
+		"count",
 		3,
 	},
 	{

@@ -4,5 +4,5 @@ func other() {
 }
 
 func main() {
-    print("hi")
+    print("hi\n")
 }

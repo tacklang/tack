@@ -58,7 +58,7 @@ var loopRuntimeCases = []struct {
 		"condition re-evaluated each time",
 		"package main\n\nmut calls int\n\nfunc more() bool {\n    calls = calls + 1\n    print(\"check\")\n    return calls < 3\n}\n\n" +
 			"func main() {\n    for more() {\n    }\n    exit(calls)\n}\n",
-		"check\ncheck\ncheck\n",
+		"checkcheckcheck",
 		3,
 	},
 	{
@@ -71,7 +71,7 @@ var loopRuntimeCases = []struct {
 	{
 		"exit inside forever",
 		"package main\n\nfunc main() {\n    for {\n        print(\"once\")\n        exit(4)\n    }\n}\n",
-		"once\n",
+		"once",
 		4,
 	},
 }

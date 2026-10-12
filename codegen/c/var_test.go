@@ -64,8 +64,8 @@ var variableRuntimeCases = []struct {
 	{"reassigned", program("mut x := 1", "x = 41", "exit(x)"), "", 41},
 	{"updated from itself", program("mut x := 5", "x = x * x", "x = x + 1", "exit(x)"), "", 26},
 	{"declared type", program("var x int = 9", "exit(x)"), "", 9},
-	{"string variable", program("s := \"hi\"", "print(s)"), "hi\n", 0},
-	{"string reassigned", program("mut s := \"a\"", "s = \"b\"", "print(s)"), "b\n", 0},
+	{"string variable", program("s := \"hi\"", "print(s)"), "hi", 0},
+	{"string reassigned", program("mut s := \"a\"", "s = \"b\"", "print(s)"), "b", 0},
 	{"bool variable", program("b := 1 < 2", "if b {", "    exit(3)", "}"), "", 3},
 	{
 		"bool reassigned",
@@ -74,7 +74,7 @@ var variableRuntimeCases = []struct {
 		4,
 	},
 	{"zero int", program("mut n int", "exit(n + 5)"), "", 5},
-	{"zero string", program("mut s string", "print(s)"), "\n", 0},
+	{"zero string", program("mut s string", "print(s)"), "", 0},
 	{"zero bool", program("mut b bool", "if b {", "    exit(1)", "}", "exit(2)"), "", 2},
 	{
 		"assigned in a branch",

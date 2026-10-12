@@ -2,6 +2,7 @@ package main
 
 func check(name string, ok bool) bool {
     print(name)
+    print("\n")
     return ok
 }
 

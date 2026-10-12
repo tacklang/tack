@@ -9,7 +9,7 @@ package builtin
 // if the two disagree, so everything written here is true of the compiler
 // beside it. Anything not yet implemented belongs in PLANNED.md instead.
 
-// print writes s to standard output, followed by a newline.
+// print writes s to standard output exactly as given, adding no newline.
 func print(s string)
 
 // exit ends the process immediately with the given status.

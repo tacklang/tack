@@ -246,7 +246,8 @@ which is true today because `main` is the only package there is.
 - The types are `int`, `string`, and `bool`. A bool is `true`, `false`, or the
   result of a comparison. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
-- `print` takes one string and writes it followed by a newline.
+- `print` takes one string and writes exactly its bytes to standard output,
+  adding no newline; a line ends where the string has a `\n`.
 - `exit` takes one integer and terminates the process with that status.
 - Integer literals. `int` is 64-bit signed, and a literal that does not fit is
   a parse error. A `-` right before the digits is part of the literal, so the

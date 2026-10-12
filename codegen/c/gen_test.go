@@ -143,32 +143,23 @@ func TestEmitsStringLiteralsAsByteArrays(t *testing.T) {
 	}
 }
 
-func TestPrintWritesTheStringThenANewline(t *testing.T) {
+// print lowers to one write of its argument, with nothing written after it.
+func TestPrintLowersToOneWrite(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	want := "tack_print((tack_string){str1, 2});\n    tack_print((tack_string){str0, 1});"
+	want := "    tack_print((tack_string){str0, 2});\n}"
 	if !strings.Contains(got, want) {
-		t.Errorf("print did not lower to the string followed by a newline:\n%s", got)
+		t.Errorf("print did not lower to a single write of its argument:\n%s", got)
 	}
 }
 
-// The newline print appends is pooled only when something prints, so a
-// program that never prints carries no unused constant.
-func TestPoolsNoNewlineWhenNothingPrints(t *testing.T) {
+// A program without string literals pools nothing, so it carries no unused
+// constant.
+func TestPoolsNothingWhenNoStringIsUsed(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(3)\n}\n")
 
 	if strings.Contains(got, "unsigned char str") {
-		t.Errorf("a program that never prints emitted a pooled string:\n%s", got)
-	}
-}
-
-// A program that prints still pools the newline first, so it keeps the label
-// str0 and every literal's label is unchanged.
-func TestPoolsTheNewlineFirstWhenSomethingPrints(t *testing.T) {
-	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
-
-	if !strings.Contains(got, "static const unsigned char str0[2] = {10, 0};") {
-		t.Errorf("the newline is not pooled as str0:\n%s", got)
+		t.Errorf("a program with no strings emitted a pooled string:\n%s", got)
 	}
 }
 
@@ -227,7 +218,7 @@ func TestGeneratesStringAsAPointerLengthStruct(t *testing.T) {
 func TestStringLiteralBecomesAStringValue(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	if !strings.Contains(got, "tack_print((tack_string){str1, 2});") {
+	if !strings.Contains(got, "tack_print((tack_string){str0, 2});") {
 		t.Errorf("a string literal did not become a tack_string value:\n%s", got)
 	}
 }
@@ -290,8 +281,8 @@ func TestGeneratedProgramRuns(t *testing.T) {
 	}
 
 	src := "package main\n\n" +
-		"func greet() {\n    print(\"héllo → 世界\")\n}\n\n" +
-		"func main() {\n    greet()\n    print(\"Hello, World!\")\n}\n"
+		"func greet() {\n    print(\"héllo → 世界\\n\")\n}\n\n" +
+		"func main() {\n    greet()\n    print(\"Hello, World!\\n\")\n}\n"
 
 	dir := t.TempDir()
 	csrc := filepath.Join(dir, "out"+e.Ext())
@@ -414,8 +405,8 @@ func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 	if exit.ExitCode() != 7 {
 		t.Errorf("exit status = %d, want 7", exit.ExitCode())
 	}
-	if string(out) != "hello\n" {
-		t.Errorf("program printed %q, want %q", out, "hello\n")
+	if string(out) != "hello" {
+		t.Errorf("program printed %q, want %q", out, "hello")
 	}
 }
 
@@ -439,8 +430,8 @@ func TestParameterSurvivesAnInterveningCall(t *testing.T) {
 			exit.ExitCode(),
 		)
 	}
-	if string(out) != "side effect\n" {
-		t.Errorf("program printed %q, want %q", out, "side effect\n")
+	if string(out) != "side effect" {
+		t.Errorf("program printed %q, want %q", out, "side effect")
 	}
 }
 
@@ -454,8 +445,8 @@ func TestGeneratedProgramForwardsAParameter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running the generated program: %v", err)
 	}
-	if string(out) != "forwarded\n" {
-		t.Errorf("program printed %q, want %q", out, "forwarded\n")
+	if string(out) != "forwarded" {
+		t.Errorf("program printed %q, want %q", out, "forwarded")
 	}
 }
 
@@ -533,8 +524,8 @@ func TestGeneratedProgramReturnsAStringResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running the generated program: %v", err)
 	}
-	if string(out) != "hello from a result\n" {
-		t.Errorf("program printed %q, want %q", out, "hello from a result\n")
+	if string(out) != "hello from a result" {
+		t.Errorf("program printed %q, want %q", out, "hello from a result")
 	}
 }
 
@@ -625,8 +616,8 @@ func TestGeneratedProgramTakesTheElseBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running the generated program: %v", err)
 	}
-	if string(out) != "small\nlarge\n" {
-		t.Errorf("program printed %q, want %q", out, "small\nlarge\n")
+	if string(out) != "smalllarge" {
+		t.Errorf("program printed %q, want %q", out, "smalllarge")
 	}
 }
 

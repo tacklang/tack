@@ -8,6 +8,7 @@ func square(n int) int {
 func main() {
     greeting := "variables"
     print(greeting)
+    print("\n")
 
     var base int = 3
     var step = 4
@@ -21,6 +22,7 @@ func main() {
         label = "something else"
     }
     print(label)
+    print("\n")
 
     mut count int
     count = count + 1

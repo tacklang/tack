@@ -32,12 +32,12 @@ var clauseRuntimeCases = []struct {
 		"clauses run in order",
 		"package main\n\nfunc say(s string) bool {\n    print(s)\n    return true\n}\n\n" +
 			"func main() {\n    mut n = 0\n    for print(\"init\"); n < 2 && say(\"cond\"); print(\"post\") {\n        print(\"body\")\n        n++\n    }\n}\n",
-		"init\ncond\nbody\npost\ncond\nbody\npost\n", 0,
+		"initcondbodypostcondbodypost", 0,
 	},
 	{
-		"post that prints twice per iteration",
+		"post that prints",
 		"package main\n\nfunc main() {\n    mut i = 0\n    for ; i < 2; print(\"x\") {\n        i++\n    }\n}\n",
-		"x\nx\n",
+		"xx",
 		0,
 	},
 	{

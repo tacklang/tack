@@ -26,8 +26,8 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		},
 		{"var x = 1 < 2", "if x {\n    }", "static const bool tack_main_x = true;"},
 		{"mut x bool", "if x {\n    }", "static bool tack_main_x = false;"},
-		{"var x = \"hi\"", "print(x)", "static const tack_string tack_main_x = {str1, 2};"},
-		{"mut x string", "print(x)", "static tack_string tack_main_x = {str1, 0};"},
+		{"var x = \"hi\"", "print(x)", "static const tack_string tack_main_x = {str0, 2};"},
+		{"mut x string", "print(x)", "static tack_string tack_main_x = {str0, 0};"},
 	}
 
 	for _, tt := range tests {
@@ -74,12 +74,12 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"string",
-		"package main\n\nvar name = \"tack\"\n\nfunc main() {\n    print(name)\n}\n", "tack\n", 0,
+		"package main\n\nvar name = \"tack\"\n\nfunc main() {\n    print(name)\n}\n", "tack", 0,
 	},
 	{
 		"zero string reassigned",
 		"package main\n\nmut msg string\n\nfunc main() {\n    print(msg)\n    msg = \"set\"\n    print(msg)\n}\n",
-		"\nset\n",
+		"set",
 		0,
 	},
 	{
@@ -96,7 +96,7 @@ var globalRuntimeCases = []struct {
 	{
 		"names the C side uses",
 		"package main\n\nvar str0 = 1\n\nvar int = 2\n\nvar tack_print = 3\n\n" +
-			"func main() {\n    print(\"x\")\n    exit(str0 + int + tack_print)\n}\n", "x\n", 6,
+			"func main() {\n    print(\"x\")\n    exit(str0 + int + tack_print)\n}\n", "x", 6,
 	},
 	{
 		"global and local together",

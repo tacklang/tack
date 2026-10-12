@@ -49,12 +49,7 @@ type generator struct {
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	// The pool is filled first: generating a body needs the label of every
-	// string it mentions. The newline print appends goes in before any
-	// literal, so it is always str0 when present, and only when something
-	// prints, so a program that does not carries no unused constant.
-	if g.printsAnything() {
-		g.addStr("\n")
-	}
+	// string it mentions.
 	g.collectStrings()
 
 	// Globals are known before any body is generated, since a body names a
@@ -423,8 +418,8 @@ func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.D
 // The block scopes a variable the init declares to the loop, as Tack does.
 // Keeping the post in the for, rather than at the end of the body, is what
 // makes continue run it. The post's lines are joined with the comma
-// operator, since one Tack statement can lower to more than one C
-// statement, as print does.
+// operator, so the post stays one C expression even if its Tack statement
+// lowers to more than one C statement.
 func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	var init []string
 	if loop.Init != nil {
@@ -695,9 +690,7 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 			if len(diags) > 0 {
 				return nil, diags
 			}
-			lines = append(lines,
-				fmt.Sprintf("tack_print(%s);", expr),
-				fmt.Sprintf("tack_print(%s);", g.stringValue("\n")))
+			lines = append(lines, fmt.Sprintf("tack_print(%s);", expr))
 		}
 		return lines, nil
 

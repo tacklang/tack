@@ -12,6 +12,7 @@ func count() {
 
 func main() {
     print(greeting)
+    print("\n")
     count()
     count()
     if calls == 2 {
