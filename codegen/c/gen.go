@@ -273,7 +273,14 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 		return nil, diags
 	}
 
-	lines := append([]string{fmt.Sprintf("if (%s) {", cond)}, indent(then)...)
+	// A binary expression is already parenthesised, and a second pair makes
+	// clang warn about an equality test, so it only gets the if's own.
+	header := fmt.Sprintf("if (%s) {", cond)
+	if _, ok := stmt.Cond.(*ast.Binary); ok {
+		header = fmt.Sprintf("if %s {", cond)
+	}
+
+	lines := append([]string{header}, indent(then)...)
 
 	if stmt.Else == nil {
 		return append(lines, "}"), nil

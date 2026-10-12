@@ -24,7 +24,7 @@ static tack_string tack_main_classify(int64_t p_n);
 static void tack_main_main(void);
 
 static tack_string tack_main_classify(int64_t p_n) {
-    if ((p_n < 10)) {
+    if (p_n < 10) {
         return (tack_string){str1, 5};
     } else {
         return (tack_string){str2, 5};

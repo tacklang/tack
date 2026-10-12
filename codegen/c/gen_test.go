@@ -350,6 +350,32 @@ func TestGeneratedProgramExitsWithTheGivenStatus(t *testing.T) {
 	}
 }
 
+// buildStrict compiles src like build does, but with clang's warnings on and
+// treated as errors, so generated C that is legal but suspicious, such as an
+// unused or uninitialized variable, fails the test.
+func buildStrict(t *testing.T, src string) string {
+	t.Helper()
+
+	e := c.New()
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skipf("%v", err)
+	}
+
+	dir := t.TempDir()
+	csrc := filepath.Join(dir, "out"+e.Ext())
+	bin := filepath.Join(dir, "prog")
+
+	if err := os.WriteFile(csrc, []byte(generate(t, src)), 0o644); err != nil {
+		t.Fatalf("writing generated C: %v", err)
+	}
+
+	cmd := exec.Command("clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-o", bin, csrc)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, generate(t, src))
+	}
+	return bin
+}
+
 // build compiles src through the C backend and returns the binary's path.
 func build(t *testing.T, src string) string {
 	t.Helper()
@@ -554,7 +580,7 @@ func TestGeneratesIfElse(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(\"yes\")\n    } else {\n        print(\"no\")\n    }\n}\n"
 
 	got := generate(t, src)
-	for _, want := range []string{"if ((1 < 2)) {", "} else {", "}"} {
+	for _, want := range []string{"if (1 < 2) {", "} else {", "}"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
 		}
@@ -653,5 +679,21 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 	}
 	if exit.ExitCode() != 95 {
 		t.Errorf("exit status = %d, want 95", exit.ExitCode())
+	}
+}
+
+// An if condition is emitted with one pair of parentheses. Doubled ones make
+// clang warn on every equality test, and the warning reaches the user.
+func TestIfConditionHasOnePairOfParentheses(t *testing.T) {
+	src := "package main\n\nfunc f(n int) int {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    exit(f(1))\n}\n"
+
+	if got := generate(t, src); !strings.Contains(got, "if (p_n == 1) {") {
+		t.Errorf("condition not emitted with one pair of parentheses:\n%s", got)
+	}
+
+	out, err := exec.Command(buildStrict(t, src)).CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+		t.Errorf("program returned %v (%s), want exit status 2", err, out)
 	}
 }

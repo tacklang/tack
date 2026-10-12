@@ -37,5 +37,6 @@
 // print lowers to two tack_print calls, one for its argument and one for the
 // newline, each a length-bounded fwrite to stdout. exit lowers to C's exit.
 // Every binary expression is parenthesised, so Tack's grouping survives
-// whatever C's own precedence would have made of it.
+// whatever C's own precedence would have made of it. An if whose condition is
+// one gets no second pair, which would make clang warn on an equality test.
 package c
