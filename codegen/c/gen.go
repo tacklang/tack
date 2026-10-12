@@ -27,7 +27,7 @@ func (backend) Ext() string { return ".c" }
 func (backend) BuildCmd(src, out string) []string { return []string{"clang", "-o", out, src} }
 
 func (backend) Generate(file *ast.File) ([]byte, []diag.Diagnostic) {
-	g := &generator{file: file, strPool: []str{{"str0", "\n"}}}
+	g := &generator{file: file}
 	return g.generate()
 }
 
@@ -46,7 +46,12 @@ type generator struct {
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	// The pool is filled first: generating a body needs the label of every
-	// string it mentions.
+	// string it mentions. The newline print appends goes in before any
+	// literal, so it is always str0 when present, and only when something
+	// prints, so a program that does not carries no unused constant.
+	if g.printsAnything() {
+		g.addStr("\n")
+	}
 	g.collectStrings()
 
 	// Bodies are generated before anything is written, so a construct the back

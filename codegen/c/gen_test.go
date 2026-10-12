@@ -152,6 +152,26 @@ func TestPrintWritesTheStringThenANewline(t *testing.T) {
 	}
 }
 
+// The newline print appends is pooled only when something prints, so a
+// program that never prints carries no unused constant.
+func TestPoolsNoNewlineWhenNothingPrints(t *testing.T) {
+	got := generate(t, "package main\n\nfunc main() {\n    exit(3)\n}\n")
+
+	if strings.Contains(got, "unsigned char str") {
+		t.Errorf("a program that never prints emitted a pooled string:\n%s", got)
+	}
+}
+
+// A program that prints still pools the newline first, so it keeps the label
+// str0 and every literal's label is unchanged.
+func TestPoolsTheNewlineFirstWhenSomethingPrints(t *testing.T) {
+	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
+
+	if !strings.Contains(got, "static const unsigned char str0[2] = {10, 0};") {
+		t.Errorf("the newline is not pooled as str0:\n%s", got)
+	}
+}
+
 func TestRejectsUnsupportedStatement(t *testing.T) {
 	// No Tack source can express a bare identifier statement today, so the
 	// tree is built by hand. It pins what the backend does when the front end
@@ -241,7 +261,7 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 		"package main\n\nfunc f(x int, s string) {\n}\n\nfunc main() {\n    f(7, \"hi\")\n}\n",
 	)
 
-	if !strings.Contains(got, "tack_main_f(7, (tack_string){str1, 2});") {
+	if !strings.Contains(got, "tack_main_f(7, (tack_string){str0, 2});") {
 		t.Errorf("call site does not pass its arguments:\n%s", got)
 	}
 }

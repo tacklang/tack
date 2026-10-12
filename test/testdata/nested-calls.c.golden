@@ -12,7 +12,6 @@ typedef struct {
     int64_t len;
 } tack_string;
 
-static const unsigned char str0[2] = {10, 0};
 
 static int64_t tack_main_base(void);
 static int64_t tack_main_same(int64_t p_n);
