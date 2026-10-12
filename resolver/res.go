@@ -105,25 +105,37 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 	return diags
 }
 
-// checkMain reports a missing main function, or one that declares parameters.
+// checkMain reports a missing main function, or one with any other signature
+// than taking nothing and returning nothing. Parameters and a result are
+// reported separately, so a main with both gets both diagnostics.
 func (r *Resolver) checkMain() []diag.Diagnostic {
-	var diags []diag.Diagnostic
-
 	mainFn, mainDefined := r.funcRefs[r.refLabel(mainFunc, mainFunc)]
 	if !mainDefined {
-		diags = append(diags, diag.Diagnostic{
+		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "main function not found",
 			Span:     ast.Span{Start: 0, End: 0, File: r.file.Span.File},
-		})
-	} else if mainFn != nil && len(mainFn.Params) > 0 {
+		}}
+	}
+	if mainFn == nil {
+		return nil
+	}
+
+	var diags []diag.Diagnostic
+	if len(mainFn.Params) > 0 {
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,
 			Message:  "main function must not declare parameters",
 			Span:     mainFn.Params[0].Spanned(),
 		})
 	}
-
+	if mainFn.Result != nil {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  "main function must not declare a result",
+			Span:     mainFn.Result.Spanned(),
+		})
+	}
 	return diags
 }
 

@@ -2,9 +2,9 @@
 //
 // It runs after the parser and before the type checker, taking an *ast.File
 // and returning the diagnostics it found. It checks the file's shape first:
-// the package must be main, a main function must exist and take no
-// parameters, no function may be declared twice, and none may reuse a
-// builtin's name. It then walks each function body with that function's
+// the package must be main, a main function must exist, take no parameters
+// and declare no result, no function may be declared twice, and none may
+// reuse a builtin's name. It then walks each function body with that function's
 // parameters in scope, setting Ident.Def on every callee and parameter
 // reference. A callee that names a builtin is bound to a nil *ast.Func, since
 // builtins have no declaration in the tree.

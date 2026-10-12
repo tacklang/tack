@@ -186,6 +186,7 @@ which is true today because `main` is the only package there is.
 ## The language today
 
 - `package main` is required, and must be the first declaration.
+- A `func main()` is required. It takes no parameters and declares no result.
 - Top-level `func name(x int, s string) int { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. At most one result.
 - The statements are a call, a `return`, and `if`/`else`, which chains with

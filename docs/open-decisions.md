@@ -77,12 +77,6 @@ program that does nothing. In Go a bodyless declaration means the body is
 provided elsewhere, in assembly. Options: reject them outside declaration
 files, or give them a meaning (external, `asm`, builtin).
 
-## A result on `main`
-
-`func main() int { return 1 }` is accepted. The generated C calls it and
-discards the value, so the process still exits 0. Go rejects a result on
-`main`. Options: reject it, or make it the exit status.
-
 ## Integer literals with leading zeros
 
 `010` is the decimal number 10. In Go (and C) it is octal 8, and Go also

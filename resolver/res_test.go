@@ -149,6 +149,52 @@ func TestRejectsParametersOnMain(t *testing.T) {
 	}
 }
 
+// main takes nothing and returns nothing. A result of any type is rejected,
+// whether or not the body returns a value.
+func TestRejectsAResultOnMain(t *testing.T) {
+	for _, src := range []string{
+		"package main\n\nfunc main() int {\n    return 1\n}\n",
+		"package main\n\nfunc main() string {\n    return \"x\"\n}\n",
+		"package main\n\nfunc main() bool {\n    return 1 < 2\n}\n",
+		"package main\n\nfunc main() int {\n}\n",
+		"package main\n\nfunc main() nosuchtype {\n}\n",
+	} {
+		diags := resolve(t, src)
+		if len(diags) != 1 {
+			t.Errorf("%q: got %d diagnostics %v, want 1", src, len(diags), diags)
+			continue
+		}
+		if diags[0].Message != "main function must not declare a result" {
+			t.Errorf("%q: message = %q", src, diags[0].Message)
+		}
+	}
+}
+
+// A main with both parameters and a result gets both reported in one run.
+func TestReportsParametersAndResultOnMainTogether(t *testing.T) {
+	diags := resolve(t, "package main\n\nfunc main(x int) int {\n    return x\n}\n")
+
+	got := make([]string, 0, len(diags))
+	for _, d := range diags {
+		got = append(got, d.Message)
+	}
+	want := []string{
+		"main function must not declare parameters",
+		"main function must not declare a result",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("messages = %q, want %q", got, want)
+	}
+}
+
+// Only the function named main is constrained; any other may return a value.
+func TestOtherFunctionsMayDeclareAResult(t *testing.T) {
+	src := "package main\n\nfunc mainly() int {\n    return 1\n}\n\nfunc main() {\n}\n"
+	if diags := resolve(t, src); len(diags) > 0 {
+		t.Errorf("got %v, want no diagnostics", diags)
+	}
+}
+
 // Go allows a parameter to shadow a function name, and so does Tack; this pins
 // that it is deliberate rather than untested.
 func TestParameterMayShadowAFunctionName(t *testing.T) {
