@@ -617,3 +617,41 @@ func TestGeneratedProgramEvaluatesEveryOperator(t *testing.T) {
 		t.Errorf("exit status = %d, want 5", exit.ExitCode())
 	}
 }
+
+// A call whose arguments mix calls and literals must pass each one in its own
+// position. sub is not commutative, so swapped arguments change the result.
+func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
+	// sub(10, 3) * 10 + sub(20, 10) == 7 * 10 + 10 == 80
+	src := "package main\n\n" +
+		"func sub(a int, b int) int {\n    return a - b\n}\n\n" +
+		"func ten() int {\n    return 10\n}\n\n" +
+		"func main() {\n    exit(sub(ten(), 3) * 10 + sub(20, ten()))\n}\n"
+
+	err := exec.Command(build(t, src)).Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("running the generated program: err = %v, want a non-zero exit", err)
+	}
+	if exit.ExitCode() != 80 {
+		t.Errorf("exit status = %d, want 80", exit.ExitCode())
+	}
+}
+
+// Both operands of a binary expression can be calls. The subtraction pins the
+// operand order, which addition alone would not.
+func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
+	// (7 + 2) * 10 + (7 - 2) == 95
+	src := "package main\n\n" +
+		"func seven() int {\n    return 7\n}\n\n" +
+		"func two() int {\n    return 2\n}\n\n" +
+		"func main() {\n    exit((seven() + two()) * 10 + (seven() - two()))\n}\n"
+
+	err := exec.Command(build(t, src)).Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("running the generated program: err = %v, want a non-zero exit", err)
+	}
+	if exit.ExitCode() != 95 {
+		t.Errorf("exit status = %d, want 95", exit.ExitCode())
+	}
+}
