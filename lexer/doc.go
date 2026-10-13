@@ -27,7 +27,8 @@
 // Semi covers no bytes. The token stream always ends with an EOF token.
 //
 // Literals carry decoded values: double-quoted string and char literals
-// have their escape sequences resolved, and keywords carry their
+// have their escape sequences resolved, Go's single-letter ones and \x with
+// exactly two hex digits, any other being reported and decoding to 0, and keywords carry their
 // KeywordType. A backquoted string is raw, as in Go: its value is every byte
 // up to the closing backquote, with no escapes decoded and carriage returns
 // dropped, so `\n` is a backslash and an n and a backquote cannot appear

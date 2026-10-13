@@ -35,7 +35,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |
 | Float literals              | yes   | no      | no      | no      |                                                                                                                  |
 | Char literals               | yes   | yes     | yes     | yes     | A typed `uint8` constant; one byte, escapes as in strings; `'é'` is an error                                     |
-| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes, everywhere; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                   |
+| String literals             | yes   | yes     | yes     | yes     | Bytes, not runes, everywhere; escapes `\a \b \f \v \n \t \r \\ \"` and `\xHH`; no newline                          |
 | Raw string literals         | yes   | yes     | yes     | yes     | Raw, as in Go: no escapes, may span lines, no backquote inside; carriage returns dropped                         |
 | Operators                   | yes   | partial | partial | partial | All of Go's are lexed; see Expressions for what is parsed                                                        |
 

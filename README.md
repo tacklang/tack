@@ -599,7 +599,13 @@ which is true today because `main` is the only package there is.
   `_` is an error, since the call can be made on its own, or the loop
   written without names.
 - String literals may contain any bytes except a newline or a double quote,
-  and are emitted as raw bytes, so UTF-8 passes through unchanged.
+  and are emitted as raw bytes, so UTF-8 passes through unchanged. A
+  backslash starts an escape: `\a \b \f \v \n \t \r \\ \"`, as in Go, or
+  `\x` and exactly two hex digits, upper or lower case, for the byte they
+  give, so `"\x00\xff"` is a zero byte and a 0xff byte. Any other escape is
+  an error, `Invalid escape sequence "\\q"`, and so is `\x` with fewer than
+  two hex digits after it, `Invalid escape sequence "\\x4"`; `"\x410"` is
+  `A` and then `0`.
 - Raw string literals, written between backquotes, are raw, as in Go:
   every byte up to the closing backquote is taken as it is, so
   `` `\n` `` is a backslash and an `n`, and `` `\` `` is one backslash.
@@ -612,7 +618,7 @@ which is true today because `main` is the only package there is.
   a string gives bytes. Decoding UTF-8 into runes will
   be a facility of the standard library, not language syntax.
 - Character literals. `'a'` is a constant of type `uint8`, the value of
-  its one byte, with the escapes a string has (`'\n'`, `'\\'`) and `'\''`
+  its one byte, with the escapes a string has (`'\n'`, `'\\'`, `'\xff'`) and `'\''`
   for the quote. Unlike an integer literal it has a type of its own: in
   `'a' + 1` the `1` becomes a `uint8`, the arithmetic is `uint8`
   arithmetic, and `'a'` widens where a wider

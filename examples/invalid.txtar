@@ -1458,6 +1458,37 @@ empty-file/main.tck:1:1: error: expected 'package' found 'EOF'
 01 |	
    |	^
 
+-- escape-hex-short/main.tck --
+package main
+
+func main() {
+    print("\x4")
+    print("\xg0")
+    c := '\x7'
+    exit(c)
+}
+-- escape-hex-short/expected --
+stage: lex
+---
+
+escape-hex-short/main.tck:4:12: error: Invalid escape sequence "\\x4"
+03 |	func main() {
+04 |	    print("\x4")
+   |	           ^~~
+05 |	    print("\xg0")
+
+escape-hex-short/main.tck:5:12: error: Invalid escape sequence "\\x"
+04 |	    print("\x4")
+05 |	    print("\xg0")
+   |	           ^~
+06 |	    c := '\x7'
+
+escape-hex-short/main.tck:6:11: error: Invalid escape sequence "\\x7"
+05 |	    print("\xg0")
+06 |	    c := '\x7'
+   |	          ^~~
+07 |	    exit(c)
+
 -- for-post-declaration/main.tck --
 package main
 

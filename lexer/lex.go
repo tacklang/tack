@@ -476,7 +476,7 @@ var simpleEscapes = map[byte]byte{
 }
 
 // unescapeRune decodes the escape sequence at the current position and moves
-// past it. additionalSequences lists further bytes that may be escaped as
+// past it: one of simpleEscapes, or \x and two hex digits, giving that byte. additionalSequences lists further bytes that may be escaped as
 // themselves, such as the literal's own quote. An invalid sequence is
 // reported and decodes to 0. A backslash at the end of the input decodes to 0
 // unreported, since the literal it cut off reports itself as unterminated. A
@@ -501,11 +501,55 @@ func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 	if r, ok := simpleEscapes[c]; ok {
 		return r
 	}
+	if c == 'x' {
+		return l.unescapeHex(start)
+	}
 	if slices.Contains(additionalSequences, c) {
 		return c
 	}
 	l.diag(fmt.Sprintf("Invalid escape sequence %q", data[start:l.pos]), start, l.pos)
 	return 0
+}
+
+// unescapeHex decodes the two hex digits of a \x escape, which starts at
+// start, the current position being just past the x, and moves past them.
+// Fewer than two hex digits, upper or lower case, is reported, covering the
+// \x and any digit there is, and decodes to 0; whatever stopped the escape
+// is left in place.
+func (l *Lexer) unescapeHex(start int) byte {
+	data := l.file.Data
+	var v byte
+	for range 2 {
+		if l.pos >= len(data) {
+			break
+		}
+		d, ok := hexDigit(data[l.pos])
+		if !ok {
+			break
+		}
+		v = v<<4 | d
+		l.pos++
+	}
+	if l.pos-start < len(`\x00`) {
+		l.diag(fmt.Sprintf("Invalid escape sequence %q", data[start:l.pos]), start, l.pos)
+		return 0
+	}
+	return v
+}
+
+// hexDigit returns the value of the hex digit c, upper or lower case, and
+// whether c is one.
+func hexDigit(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 // handleDigit lexes an integer or a float. A float is a run of digits

@@ -29,5 +29,9 @@ func main() {
     if len(counts) != 3 || gap != 5 || counts[2] != 25 || tripled != 35 {
         exit(3)
     }
+    hex := "\x41\x7a\x00\xFF"
+    if '\x00' != 0 || '\xff' != 255 || '\x41' != 'A' || len(hex) != 4 || hex[1] != 'z' || hex[2] != 0 || hex[3] != 255 {
+        exit(4)
+    }
     exit(c)
 }
