@@ -92,6 +92,15 @@ var arrayCases = []struct{ name, src string }{
 	},
 	{"strings", mainLines("names := [2]string{\"a\", \"b\"}", "print(names[1])")},
 	{
+		"string arrays compared",
+		mainLines(
+			"a := [1]string{\"x\"}",
+			"if a == a || a != [1]string{\"y\"} {",
+			"    exit(1)",
+			"}",
+		),
+	},
+	{
 		"index of a call",
 		"package main\n\nfunc f() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc main() {\n    exit(f()[1])\n}\n",
 	},
@@ -226,9 +235,9 @@ var arrayErrorCases = []struct {
 		[]spanned{{"operator < is not defined on [2]int64", "a < a"}},
 	},
 	{
-		"string arrays compared",
-		mainLines("a := [1]string{\"x\"}", "if a == a {", "}"),
-		[]spanned{{"operator == is not defined on [1]string", "a == a"}},
+		"string arrays ordered",
+		mainLines("a := [1]string{\"x\"}", "if a <= a {", "}"),
+		[]spanned{{"operator <= is not defined on [1]string", "a <= a"}},
 	},
 	{
 		"array assigned to another length",

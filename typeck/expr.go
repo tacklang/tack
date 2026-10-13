@@ -508,10 +508,11 @@ func (c *Checker) foldArithmetic(bin *ast.Binary) types.Type {
 // comparison checks a comparison of operands of types x and y. They must
 // have one type, after an untyped constant takes the other's or two integer
 // types widen to the wider, and that type must support the operator: an
-// integer supports all six, a bool only == and !=, and a string none. A
-// mismatch, or an unsupported operator, is one error covering the whole
-// comparison. Two untyped constants are compared exactly, and the result
-// recorded on bin.
+// integer or a string supports all six, a bool, an array or a struct only
+// == and !=. A mismatch, or an unsupported operator, is one error covering
+// the whole comparison. Two untyped constants are compared exactly, and the
+// result recorded on bin; two string literals are not folded, and are
+// compared at run time.
 func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 	if x == types.Invalid || y == types.Invalid {
 		return
@@ -579,10 +580,10 @@ func compare(op ast.BinaryOp, cmp int) bool {
 }
 
 // supports reports whether values of type typ can be compared with op: an
-// integer with all six, and a bool or an array of comparable elements with
-// == and != only.
+// integer or a string with all six, and any other comparable type, a bool,
+// an array or a struct, with == and != only.
 func (c *Checker) supports(typ types.Type, op ast.BinaryOp) bool {
-	if types.IsInteger(typ) {
+	if types.IsInteger(typ) || typ == types.String {
 		return true
 	}
 	return (op == ast.Eq || op == ast.Ne) && c.comparable(typ)

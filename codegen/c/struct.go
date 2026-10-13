@@ -10,7 +10,9 @@ import (
 )
 
 // emitTypes defines a C struct for every array and struct type the program
-// uses, then the equality helper of every one == compares. A type is
+// uses, then the string comparison helper if the program compares strings,
+// directly or inside those types, then the equality helper of every one ==
+// compares. A type is
 // defined after every type it holds, since C needs a member's type complete
 // before the struct that holds it; the checker has rejected a struct that
 // holds itself, so this order exists. Each type is then emitted in the
@@ -23,6 +25,9 @@ func (g *generator) emitTypes() {
 	}
 
 	compared := g.comparedTypes()
+	if g.comparesStrings(compared) {
+		g.emitStringCompare()
+	}
 	emitted := make(map[types.Type]bool)
 	for i := range table.Count() {
 		if typ := types.Added(i); compared[typ] {
@@ -148,11 +153,14 @@ func (g *generator) emitStructEquality(typ types.Type) {
 }
 
 // equalExpr renders a C test of whether l and r, two values of type typ,
-// are equal: the type's equality helper for an array or a struct, and C's
-// == otherwise.
+// are equal: the type's equality helper for an array or a struct, the
+// string comparison helper giving zero for a string, and C's == otherwise.
 func (g *generator) equalExpr(typ types.Type, l, r string) string {
 	if g.isComposite(typ) {
 		return fmt.Sprintf("%s(%s, %s)", equalityName(typ), l, r)
+	}
+	if typ == types.String {
+		return stringComparison(ast.Eq, l, r)
 	}
 	return fmt.Sprintf("%s == %s", l, r)
 }

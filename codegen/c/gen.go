@@ -1402,6 +1402,9 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if g.isComposite(ast.TypeOf(bin.X)) {
 		return g.arrayComparison(bin, left, right), nil
 	}
+	if ast.TypeOf(bin.X) == types.String {
+		return stringComparison(bin.Op, left, right), nil
+	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
 	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil

@@ -68,8 +68,8 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.decl, func(t *testing.T) {
 			file, diags := checkTree(t, withGlobal(tt.decl))
-			// Comparing a string or bool with == is an error of its own; only
-			// the declaration is under test.
+			// Only the declaration is under test, not what the program
+			// does with it.
 			_ = diags
 			v := globalX(t, file)
 			if v.Type != tt.typ {

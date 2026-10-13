@@ -289,9 +289,9 @@ which is true today because `main` is the only package there is.
   proven in range as usual, and writing one does not count as reading the
   variable. `mut p Point` with no value starts with every field at its
   zero value, as `mut` does for any type. Two structs of one type compare
-  with `==` and `!=`, field by field, when every field's type does; a
-  struct with a string field does not, and a struct with no fields is
-  always equal to another. Structs may be package-level variables,
+  with `==` and `!=`, field by field, a string field by its bytes, and a
+  struct with no fields is always equal to another. Structs are not
+  ordered: `<` on two structs is an error. Structs may be package-level variables,
   initialized with a literal of constants. A field never carries a fact
   for a proof: `if p.d != 0 { n / p.d }` is still an error, and needs
   `q, ok := n / p.d`, or the field copied into a variable the guard then
@@ -331,8 +331,13 @@ which is true today because `main` is the only package there is.
   after `var m int8 = -128`, while `x++`, `x += 1` and arithmetic on a `mut`
   variable or a parameter wrap.
   A comparison takes two
-  operands of one type, after the same widening: two integers with any of
-  the six, or two `bool`s with `==` and `!=`. Strings cannot be compared yet.
+  operands of one type, after the same widening: two integers or two
+  strings with any of the six, or two `bool`s, arrays or structs with `==`
+  and `!=`. Strings compare byte by byte, each byte unsigned, as in Go: a
+  proper prefix is less, so the empty string is least, a zero byte is a
+  byte like any other, and a byte from 0x80 up sorts after every ASCII
+  byte, so `"é" > "z"`. Nothing is allocated, and a comparison of two
+  string literals is made at run time.
 - Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
   compile only where the compiler can prove `b` is not zero; a constant zero
   is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)
@@ -378,8 +383,8 @@ which is true today because `main` is the only package there is.
   copies it, and `mut a [3]int64` starts with every element zero. An array
   follows its variable, so `a[i] = v` needs `a` to be `mut`, and assigning
   an element does not count as reading `a`. Two arrays of one type compare
-  with `==` and `!=`, element by element, when their elements do; strings do
-  not yet. Arrays may be package-level variables, initialized with a
+  with `==` and `!=`, element by element, strings included; `<` on two
+  arrays is an error. Arrays may be package-level variables, initialized with a
   literal of constants. There are no slices yet.
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
   type. An index is never out of range at runtime. `a[i]`, and an

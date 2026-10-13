@@ -2,6 +2,9 @@ package typeck_test
 
 import (
 	"testing"
+
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/types"
 )
 
 // stringing wraps statements in a function that takes a string s, an index
@@ -362,5 +365,64 @@ func TestRejectsUnprovenStringIndexes(t *testing.T) {
 				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
 			}
 		})
+	}
+}
+
+// stringComparisonCases are comparisons of two strings, each of which must
+// check cleanly and give a bool.
+var stringComparisonCases = []string{
+	"s == t",
+	"s != \"\"",
+	"\"a\" < \"b\"",
+	"s <= k",
+	"name() > g",
+	"t >= s",
+	"(s < t) == (t > s)",
+	"s == s",
+	"\"\" < \"\"",
+}
+
+// TestAcceptsStringComparisons checks every comparison operator applies to
+// two strings, of any origin: a parameter, a literal, a call, and mutable
+// and immutable variables, local and package-level.
+func TestAcceptsStringComparisons(t *testing.T) {
+	for _, cond := range stringComparisonCases {
+		t.Run(cond, func(t *testing.T) {
+			if _, diags := checkTree(
+				t,
+				stringing("if "+cond+" {", "    return 1", "}"),
+			); len(
+				diags,
+			) > 0 {
+				t.Errorf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// A comparison of two string literals is left to run time: the checker
+// folds comparisons of untyped integer constants only, and a string
+// literal is a typed string.
+func TestStringLiteralComparisonIsNotFolded(t *testing.T) {
+	file, diags := checkTree(t, mainLines("if \"a\" < \"b\" {", "    exit(1)", "}"))
+	if len(diags) > 0 {
+		t.Fatalf("got %v, want no diagnostics", diags)
+	}
+	cond := file.Decls[0].(*ast.Func).Body[0].(*ast.If).Cond.(*ast.Binary)
+	if cond.Const != nil {
+		t.Errorf("Const = %#v, want nil", cond.Const)
+	}
+	if cond.Type != types.Bool {
+		t.Errorf("type = %v, want bool", cond.Type)
+	}
+}
+
+// Comparing a string with a literal says nothing about its length, so it
+// proves no index into it.
+func TestStringComparisonProvesNoIndex(t *testing.T) {
+	_, diags := checkTree(t, stringing("if s == \"abc\" {", "    return s[0]", "}"))
+	want := "index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]"
+	if len(diags) != 1 || diags[0].Message != want {
+		t.Errorf("got %v, want only %q", diags, want)
 	}
 }

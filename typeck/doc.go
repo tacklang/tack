@@ -92,7 +92,10 @@
 // or a range loop over len(s) or over s). Such a fact holds only in a region that
 // assigns neither variable, and string.go uses it to prove an index. A
 // constant index into a literal is checked at compile time, a negative one
-// is always out of range, and a string's bytes are never assigned.
+// is always out of range, and a string's bytes are never assigned. Two
+// strings compare with all six comparison operators, by their bytes; a
+// comparison of strings is never folded, even of two literals, and gives no
+// fact.
 //
 // The third pass checks each function body:
 //
@@ -112,9 +115,9 @@
 //     value not known, a mutable variable's or a parameter's, wraps at run
 //     time and is not checked;
 //   - both operands of a comparison have one type, after widening, which
-//     supports the operator: an integer supports all six, a bool only == and
-//     !=, and a string none. A mismatch, or an unsupported operator, is one
-//     error covering the whole comparison;
+//     supports the operator: an integer or a string supports all six, a
+//     bool, an array or a struct only == and !=. A mismatch, or an
+//     unsupported operator, is one error covering the whole comparison;
 //   - a divisor is proven not zero, or the division is bound with ok;
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant that fits T, or a type that widens to

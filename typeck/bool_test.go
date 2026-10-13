@@ -190,8 +190,8 @@ func TestRejectsInvalidComparisons(t *testing.T) {
 		{"true > false", "operator > is not defined on bool"},
 		{"1 < 2 > false", "operator > is not defined on bool"},
 		{"true >= true", "operator >= is not defined on bool"},
-		{"\"a\" == \"b\"", "operator == is not defined on string"},
-		{"\"a\" < \"b\"", "operator < is not defined on string"},
+		{"\"a\" < 'a'", "mismatched types string and uint8 in <"},
+		{"\"a\" != false", "mismatched types string and bool in !="},
 	}
 
 	for _, tt := range tests {

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/array-ordering/main.tck:6:8: error: operator < is not defined on [2]string
+05 |	    b := [2]string{"a", "c"}
+06 |	    if a < b {
+   |	       ^~~~~
+07 |	        exit(1)
+

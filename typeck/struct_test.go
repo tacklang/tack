@@ -303,6 +303,17 @@ var structCases = []struct{ name, src string }{
 			"}",
 		),
 	},
+	{
+		"struct compared with a string field",
+		withTypes(
+			pointDecls,
+			"g := Grid{cells: [3]int8{0, 0, 0}, name: \"\"}",
+			"mut z Grid",
+			"if g == z || g != (Grid{cells: g.cells, name: \"g\"}) || g.name < z.name {",
+			"    exit(1)",
+			"}",
+		),
+	},
 }
 
 // TestAcceptsStructs checks each program above has no type errors.
@@ -530,9 +541,9 @@ var structErrorCases = []struct {
 		[]spanned{{"cannot assign to an element of a string; strings are immutable", "g.name[0]"}},
 	},
 	{
-		"struct compared with a string field",
-		withTypes(pointDecls, "g := Grid{cells: [3]int8{0, 0, 0}, name: \"\"}", "if g == g {", "}"),
-		[]spanned{{"operator == is not defined on Grid", "g == g"}},
+		"struct with a string field ordered",
+		withTypes(pointDecls, "g := Grid{cells: [3]int8{0, 0, 0}, name: \"\"}", "if g > g {", "}"),
+		[]spanned{{"operator > is not defined on Grid", "g > g"}},
 	},
 	{
 		"struct ordered", withTypes(pointDecls, "p := Point{x: 1, y: 2}", "if p < p {", "}"),

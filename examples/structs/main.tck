@@ -11,7 +11,7 @@ type Point struct {
     y int64
 }
 
-// Grid holds an array and a string, so it is not comparable.
+// Grid holds an array and a string, and compares with == by both.
 type Grid struct { cells [3]int64; name string }
 
 type Small struct {

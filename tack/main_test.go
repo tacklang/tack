@@ -1000,3 +1000,17 @@ func TestBuiltStructsExits133(t *testing.T) {
 		t.Errorf("structs exited with %v, want status 133", err)
 	}
 }
+
+// The strcmp example compares strings with all six operators: by content,
+// a proper prefix less, the empty string least, embedded zero bytes and
+// bytes from 0x80 up compared as unsigned bytes, strings returned by calls,
+// string fields of structs and elements of arrays through ==, and in an if
+// and a loop condition, each failure exiting with its own status.
+func TestBuiltStrcmpExits42(t *testing.T) {
+	bin := buildWithClang(t, "strcmp")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("strcmp exited with %v, want status 42", err)
+	}
+}

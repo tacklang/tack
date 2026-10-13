@@ -292,8 +292,8 @@ func hasCall(e ast.Expr) bool {
 }
 
 // comparable reports whether values of type typ support == and !=: every
-// integer and bool, an array whose elements do, and a struct whose fields
-// all do, which a struct with none does. A string does not yet.
+// integer, bool and string, an array whose elements do, and a struct whose
+// fields all do, which a struct with none does.
 func (c *Checker) comparable(typ types.Type) bool {
 	return c.comparableIn(typ, make(map[types.Type]bool))
 }
@@ -303,7 +303,7 @@ func (c *Checker) comparable(typ types.Type) bool {
 // itself, which is reported elsewhere, cannot loop.
 func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
-	case types.IsInteger(typ), typ == types.Bool:
+	case types.IsInteger(typ), typ == types.Bool, typ == types.String:
 		return true
 	case c.table.IsArray(typ):
 		return c.comparableIn(c.table.Elem(typ), seen)

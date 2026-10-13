@@ -16,8 +16,10 @@
 // The output is laid out in this order:
 //
 //   - a preamble: the C headers it uses and the tack_string type;
-//   - a C struct for every array and struct type, and an equality helper for
-//     every one == compares;
+//   - a C struct for every array and struct type, then
+//     tack_compare_strings if the program compares strings, directly or
+//     inside an array or struct, then an equality helper for every array
+//     and struct type == compares;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named str0, str1, and so on;
 //   - tack_print, the helper print lowers to, only if the program prints;
@@ -47,6 +49,16 @@
 // survives without an escaping scheme. Each array has a trailing zero, so an
 // empty string is still a legal array, but the zero is never written out,
 // since every write is bounded by the length.
+//
+// Every comparison of two strings, with any of the six operators, lowers to
+// tack_compare_strings(l, r) op 0, and an array or struct equality helper
+// compares a string element or field the same way. The helper walks the
+// common prefix byte by byte through the unsigned char pointer, so bytes
+// from 0x80 up are above ASCII and a zero byte is an ordinary byte, then
+// orders by length, so a proper prefix is less. It does not use strcmp,
+// which stops at a zero byte, or memcmp, which C leaves undefined on the
+// null pointer a zero string in an array or struct holds, even for no
+// bytes. Two strings are equal by their bytes, never by where they point.
 //
 // Names are rewritten so that nothing a program declares can collide with what
 // the backend emits. A Tack function f in package main becomes tack_main_f,

@@ -6,7 +6,8 @@ type Named struct {
 
 func main() {
     a := Named{name: "a"}
-    if a == a {
+    b := Named{name: "b"}
+    if a <= b {
         exit(1)
     }
 }

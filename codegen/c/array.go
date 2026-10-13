@@ -36,7 +36,7 @@ func (g *generator) emitArrayEquality(typ types.Type) {
 	table := g.file.Types
 	name := arrayName(typ)
 	differ := "a.e[i] != b.e[i]"
-	if elem := table.Elem(typ); g.isComposite(elem) {
+	if elem := table.Elem(typ); g.isComposite(elem) || elem == types.String {
 		differ = "!" + g.equalExpr(elem, "a.e[i]", "b.e[i]")
 	}
 	fmt.Fprintf(&g.buf, "static bool %s(%s a, %s b) {\n", equalityName(typ), name, name)

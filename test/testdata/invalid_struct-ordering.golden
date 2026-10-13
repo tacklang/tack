@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-ordering/main.tck:10:8: error: operator <= is not defined on Named
+09 |	    b := Named{name: "b"}
+10 |	    if a <= b {
+   |	       ^~~~~~
+11 |	        exit(1)
+

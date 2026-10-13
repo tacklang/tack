@@ -62,8 +62,8 @@ func TestRecordsEachVariablesType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.decl, func(t *testing.T) {
 			file, diags := checkTree(t, mainLines(tt.decl, "if x == x {", "}"))
-			// A bool or string compared with == is a checker error of its
-			// own; only the declaration's type is under test here.
+			// Only the declaration's type is under test here, not what
+			// the program does with it.
 			_ = diags
 			v := file.Decls[0].(*ast.Func).Body[0].(*ast.Var)
 			if v.Type != tt.want {

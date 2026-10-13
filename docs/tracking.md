@@ -86,7 +86,7 @@ Open questions about how a feature should behave are in
 | Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                                                                 |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; on known values, overflow is an error; otherwise it wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
-| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers all six, `bool` `==` `!=` only                                                                                                        |
+| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers and strings all six, `bool`, arrays and structs `==` `!=` only; strings by unsigned bytes, never folded                             |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                                                                     |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; the smallest known value is an overflow error; `-` before digits is a negative literal                                                    |
 | Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                                                                        |
@@ -109,7 +109,7 @@ Open questions about how a feature should behave are in
 | `int8` `int16` `int32` `int64`     | yes     | yes | Signed, `int8_t` to `int64_t`                                     |
 | `uint8` `uint16` `uint32` `uint64` | yes     | yes | Unsigned, `uint8_t` to `uint64_t`; no `byte`                      |
 | Lossless widening                  | yes     | yes | Implicit wherever a value is used; no `int`                       |
-| `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes       |
+| `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes; all six comparisons, by unsigned bytes |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
 | Float types                        | no      | no  |                                                                   |
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
