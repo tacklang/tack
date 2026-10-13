@@ -140,8 +140,9 @@ func (c *Checker) checkCaseValue(tagType types.Type, v ast.Expr) bool {
 }
 
 // caseKey identifies a constant case value for finding duplicates: an
-// integer's known value, or a string literal's bytes, which are told apart
-// by str.
+// integer's known value, a bool constant's, true or false, or a string
+// literal's bytes, which are told apart by str. An integer's text is
+// digits, so it is never a bool's.
 type caseKey struct {
 	text string
 	str  bool
@@ -150,15 +151,12 @@ type caseKey struct {
 // checkDuplicate reports v, a case value of an expression switch, when it
 // is a constant equal to one seen earlier in the switch, pointing at that
 // one, and otherwise records it in seen. An integer is a constant when its
-// value is known, and a string when it is a literal; any other value is
-// never a duplicate, since its value is known only at run time.
+// value is known, a bool when it is a constant expression, as fold computes
+// it, and a string when it is a literal; any other value is never a
+// duplicate, since its value is known only at run time.
 func (c *Checker) checkDuplicate(v ast.Expr, seen map[caseKey]ast.Expr) {
-	var key caseKey
-	if lit, ok := v.(*ast.StrLit); ok {
-		key = caseKey{text: strconv.Quote(lit.Value), str: true}
-	} else if k, ok := c.knownValue(v); ok {
-		key = caseKey{text: k.String()}
-	} else {
+	key, ok := c.caseKeyOf(v)
+	if !ok {
 		return
 	}
 
@@ -177,6 +175,24 @@ func (c *Checker) checkDuplicate(v ast.Expr, seen map[caseKey]ast.Expr) {
 			Span:     prev.Spanned(),
 		}},
 	})
+}
+
+// caseKeyOf returns the key of the case value v, if it is a constant.
+func (c *Checker) caseKeyOf(v ast.Expr) (caseKey, bool) {
+	if lit, ok := v.(*ast.StrLit); ok {
+		return caseKey{text: strconv.Quote(lit.Value), str: true}, true
+	}
+	if ast.TypeOf(v) == types.Bool {
+		b, ok := c.fold(v)
+		if known, isBool := b.(bool); ok && isBool {
+			return caseKey{text: strconv.FormatBool(known)}, true
+		}
+		return caseKey{}, false
+	}
+	if k, ok := c.knownValue(v); ok {
+		return caseKey{text: k.String()}, true
+	}
+	return caseKey{}, false
 }
 
 // caseCond returns the condition a case value v of switch s stands for: v

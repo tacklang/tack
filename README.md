@@ -239,8 +239,9 @@ which is true today because `main` is the only package there is.
   `break` and `continue` in a case act on the loop around the switch, not
   on the switch, unlike Go; outside a loop they are the usual error. Each
   case's body is a block of its own and may be empty, and so may the
-  switch. Two cases with the same constant value, a known integer or a
-  string literal, are an error. There is no init statement,
+  switch. Two cases with the same constant value, a known integer, a bool
+  constant expression such as `true` or `1 > 2`, or a string literal, are
+  an error. There is no init statement,
   `switch v := f(); v`, as `if` has none. A switch proves what the chain
   of ifs it stands for proves: `if c1 {} else if c2 || c3 {} else {}` for
   a tagless switch, and the same with `x == v` for each value `v` of an

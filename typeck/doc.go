@@ -197,8 +197,8 @@
 //     case value under the rules of ==, the value settling to the tag's
 //     type if it is an untyped constant, and in a tagless switch each case
 //     value is a bool condition; two case values with the same known
-//     integer value, or two equal string literals, are a duplicate, reported
-//     with a note at the first;
+//     integer value, the same bool constant value, or two equal string
+//     literals, are a duplicate, reported with a note at the first;
 //   - a range loop ranges over an integer, whose one variable takes its type,
 //     or over an array or a string, whose index is an int64 and whose
 //     element is the array's element type, or a string's byte, a uint8;

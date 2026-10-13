@@ -5420,6 +5420,46 @@ switch-case-mismatch/main.tck:8:10: error: mismatched types int64 and string in 
    |	         ^~~
 09 |	        exit(2)
 
+-- switch-duplicate-bool-case/main.tck --
+package main
+
+func main() {
+    b := len("ab") > 1
+    switch b {
+    case true, true:
+        exit(1)
+    case !true:
+        exit(2)
+    case 1 > 2:
+        exit(3)
+    }
+}
+-- switch-duplicate-bool-case/expected --
+stage: typeck
+---
+
+switch-duplicate-bool-case/main.tck:6:16: error: duplicate case true in switch
+05 |	    switch b {
+06 |	    case true, true:
+   |	               ^~~~
+07 |	        exit(1)
+switch-duplicate-bool-case/main.tck:6:10: note: previous case
+05 |	    switch b {
+06 |	    case true, true:
+   |	         ^~~~
+07 |	        exit(1)
+
+switch-duplicate-bool-case/main.tck:10:10: error: duplicate case false in switch
+09 |	        exit(2)
+10 |	    case 1 > 2:
+   |	         ^~~~~
+11 |	        exit(3)
+switch-duplicate-bool-case/main.tck:8:10: note: previous case
+07 |	        exit(1)
+08 |	    case !true:
+   |	         ^~~~~
+09 |	        exit(2)
+
 -- switch-duplicate-case/main.tck --
 package main
 

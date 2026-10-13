@@ -31,6 +31,10 @@ var acceptedSwitches = []struct {
 	{"empty cases", inF("switch n {", "case 1:", "case 2, 3:", "default:", "}", "return 0")},
 	{"untyped tag", inF("switch 3 {", "case n:", "}", "return 0")},
 	{
+		"bool values not known are never duplicates",
+		inF("b := n > 0", "switch b {", "case n > 0, n > 0, true:", "case false:", "}", "return 0"),
+	},
+	{
 		"narrow value widens to the tag",
 		inF("var b int8 = 1", "switch n {", "case b:", "}", "return 0"),
 	},
@@ -160,7 +164,6 @@ var acceptedSwitches = []struct {
 		"same mutable variable twice",
 		inF("mut m := 1", "m = 2", "switch n {", "case m, m:", "}", "return 0"),
 	},
-	{"same bool twice", inF("switch n > 0 {", "case true, true:", "}", "return 0")},
 	{
 		"same call twice",
 		inF("switch n {", "case f(1, 2, 3, s, a), f(1, 2, 3, s, a):", "}", "return 0"),
@@ -293,6 +296,29 @@ var rejectedSwitches = []struct {
 		"duplicate strings, raw and interpreted",
 		inF("switch s {", "case \"a\\n\", `b`:", "case `a`, \"b\":", "}", "return 0"),
 		[]switchError{{"duplicate case \"b\" in switch", "\"b\""}},
+	},
+	{
+		"duplicate bools",
+		inF("b := n > 0", "switch b {", "case true, false:", "case true:", "}", "return 0"),
+		[]switchError{{"duplicate case true in switch", "true"}},
+	},
+	{
+		"duplicate bool through constant expressions",
+		inF("b := n > 0", "switch b {", "case 1 < 2:", "case !false:", "}", "return 0"),
+		[]switchError{{"duplicate case true in switch", "!false"}},
+	},
+	{
+		"duplicate bool through a known variable",
+		inF(
+			"k := 3",
+			"b := n > 0",
+			"switch b {",
+			"case false, k == 3:",
+			"case 1 == 1 && false:",
+			"}",
+			"return 0",
+		),
+		[]switchError{{"duplicate case false in switch", "1 == 1 && false"}},
 	},
 	{
 		"duplicate after the default",
