@@ -28,7 +28,9 @@ to show that the happy path works.
 
 - Every feature gets programs under `examples/` that compile and run, with
   their runtime behavior asserted, not just their output pinned.
-- Every diagnostic gets its own case under `examples/invalid/`.
+- Every diagnostic gets its own case in `examples/invalid.txtar`: a
+  `-- <name>/main.tck --` section with the program, followed by
+  `-- <name>/expected --` with the compiler's output.
 - Go looking for breakage: boundaries (zero, negative, `int` min and max,
   overflow, division by zero, `min / -1`), empty and huge inputs, deep nesting
   and recursion, malformed and truncated source, odd bytes, and interactions
