@@ -105,6 +105,36 @@ var provenDivisorCases = []struct{ name, src string }{
 			"}",
 		),
 	},
+	{
+		"checked with a constant",
+		divide("q, ok := a / 3", "if ok {", "    return q", "}"),
+	},
+	{
+		"checked with a proven divisor",
+		divide(
+			"if b != 0 {",
+			"    q, ok := a / b",
+			"    if ok {",
+			"        return q",
+			"    }",
+			"}",
+		),
+	},
+	{
+		"checked constants",
+		divide("q, ok := 7 / 2", "if ok {", "    return q", "}"),
+	},
+	{
+		"checked constants assigned to a narrower variable",
+		divide(
+			"mut q uint8 = 0",
+			"mut ok := false",
+			"q, ok = 7 / 2",
+			"if ok {",
+			"    return q",
+			"}",
+		),
+	},
 }
 
 // TestAcceptsProvenDivisors checks each of provenDivisorCases has no
@@ -228,26 +258,16 @@ var unprovenDivisorCases = []struct {
 		spanned{"divisor b may be zero; check b != 0 first, or use q, ok := ... / b", "b"},
 	},
 	{
-		"checked with a constant",
-		divide("q, ok := a / 3", "if ok {", "    return q", "}"),
-		spanned{"the divisor cannot be zero here; drop the ok", "a / 3"},
-	},
-	{
-		"checked with a proven divisor",
+		"checked constants that do not fit the variable",
 		divide(
-			"if b != 0 {",
-			"    q, ok := a / b",
-			"    if ok {",
-			"        return q",
-			"    }",
+			"mut q uint8 = 0",
+			"mut ok := false",
+			"q, ok = 600 / 2",
+			"if ok {",
+			"    return q",
 			"}",
 		),
-		spanned{"the divisor cannot be zero here; drop the ok", "a / b"},
-	},
-	{
-		"checked constants",
-		divide("q, ok := 7 / 2", "if ok {", "    return q", "}"),
-		spanned{"the divisor cannot be zero here; drop the ok", "7 / 2"},
+		spanned{"constant 300 overflows uint8", "600 / 2"},
 	},
 	{
 		"checked by zero",

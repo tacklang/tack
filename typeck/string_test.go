@@ -107,6 +107,32 @@ var provenStringIndexCases = []struct{ name, src string }{
 		"byte is a uint8",
 		stringing("if 0 <= i && i < len(s) {", "    var x int64 = s[i]", "    exit(x)", "}"),
 	},
+	{
+		"checked with a proven index",
+		stringing(
+			"for j := range len(s) {",
+			"    v, ok := s[j]",
+			"    if ok {",
+			"        return v",
+			"    }",
+			"}",
+		),
+	},
+	{
+		"checked with a guarded constant",
+		stringing(
+			"if len(s) > 0 {",
+			"    v, ok := s[0]",
+			"    if ok {",
+			"        return v",
+			"    }",
+			"}",
+		),
+	},
+	{
+		"checked constant into a literal",
+		stringing("v, ok := \"tack\"[1]", "if ok {", "    return v", "}"),
+	},
 }
 
 // TestAcceptsProvenStringIndexes checks each of provenStringIndexCases has
@@ -256,35 +282,6 @@ var unprovenStringIndexCases = []struct {
 		"negative literal",
 		stringing("return \"tack\"[-1]"),
 		spanned{"index -1 is out of range for a string of 4 bytes", "-1"},
-	},
-	{
-		"checked with a proven index",
-		stringing(
-			"for j := range len(s) {",
-			"    v, ok := s[j]",
-			"    if ok {",
-			"        return v",
-			"    }",
-			"}",
-		),
-		spanned{"the index cannot be out of range here; drop the ok", "s[j]"},
-	},
-	{
-		"checked with a guarded constant",
-		stringing(
-			"if len(s) > 0 {",
-			"    v, ok := s[0]",
-			"    if ok {",
-			"        return v",
-			"    }",
-			"}",
-		),
-		spanned{"the index cannot be out of range here; drop the ok", "s[0]"},
-	},
-	{
-		"checked constant into a literal",
-		stringing("v, ok := \"tack\"[1]", "if ok {", "    return v", "}"),
-		spanned{"the index cannot be out of range here; drop the ok", "\"tack\"[1]"},
 	},
 	{
 		"checked constant out of a literal",

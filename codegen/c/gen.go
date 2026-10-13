@@ -1144,7 +1144,7 @@ type multiTemp struct{ typ, init string }
 // function with several results, held as its results struct and read field
 // by field; a conversion that can fail, held as the value converted and
 // read as the converted value, or 0 when it does not fit, and whether it
-// fit; or a division that can fail, held as its two operands and read as
+// fit; or a division, held as its two operands and read as
 // the result, or 0 when the divisor is zero, and whether it was not.
 func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic) {
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
@@ -1196,6 +1196,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 // evaluated, the dividend first, whatever the divisor turns out to be, so a
 // call in either always runs.
 func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
+	if bin.Const != nil {
+		return g.constantDivisionValues(bin)
+	}
 	a, diags := g.expr(bin.X, types.Invalid)
 	if len(diags) > 0 {
 		return multiSource{}, diags
@@ -1216,6 +1219,25 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 				tmps[1],
 				arith(bin.Op, bin.Type, tmps[0], tmps[1]),
 			)
+		},
+	}, nil
+}
+
+// constantDivisionValues lowers a checked division of two constants, whose
+// value the checker has computed, its divisor not being zero: the value,
+// written as a constant with no temporary, since evaluating it does
+// nothing, and true.
+func (g *generator) constantDivisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
+	v, diags := g.expr(bin, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	return multiSource{
+		field: func(_ []string, i int) string {
+			if i == 1 {
+				return "true"
+			}
+			return v
 		},
 	}, nil
 }

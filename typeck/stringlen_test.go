@@ -44,6 +44,10 @@ var knownStringLenCases = []struct{ name, src string }{
 	{"conversion", stringing("x := \"abc\"", "return uint8(len(x))")},
 	{"empty string length", stringing("x := \"\"", "arr := [len(x)]int64{}", "exit(len(arr))")},
 	{"raw string", stringing("x := `a\\b`", "return x[2]")},
+	{
+		"checked index proven",
+		stringing("x := \"abc\"", "v, ok := x[0]", "if ok {", "    return v", "}"),
+	},
 }
 
 // TestAcceptsKnownStringLengths checks each of knownStringLenCases has no
@@ -85,11 +89,6 @@ var unknownStringLenCases = []struct {
 		"constant index past a chain",
 		stringing("x := \"abc\"", "y := x", "return y[5]"),
 		spanned{"index 5 is out of range for a string of 3 bytes", "5"},
-	},
-	{
-		"checked index proven",
-		stringing("x := \"abc\"", "v, ok := x[0]", "if ok {", "    return v", "}"),
-		spanned{"the index cannot be out of range here; drop the ok", "x[0]"},
 	},
 	{
 		"checked index past the length",

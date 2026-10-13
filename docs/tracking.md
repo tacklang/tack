@@ -16,7 +16,8 @@ Open questions about how a feature should behave are in
 [open-decisions.md](open-decisions.md), and bugs are in
 [known-bugs.md](known-bugs.md). The rules that keep division, indexing and
 conversions from failing at runtime, proofs and the `v, ok :=` form, are in
-[safety.md](safety.md).
+[safety.md](safety.md). Checks for a future `tack vet`, for code that is
+valid but says more than it needs to, are in [vet.md](vet.md).
 
 ## Today
 

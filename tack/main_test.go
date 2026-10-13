@@ -1174,7 +1174,11 @@ func TestBuiltSafetyPassesEveryCheck(t *testing.T) {
 		"assign division in parentheses ok\n" +
 		"blank discards ok\n" +
 		"both operands evaluated ok\n" +
-		"constant index into a literal ok\n"
+		"constant index into a literal ok\n" +
+		"unneeded ok on a division ok\n" +
+		"unneeded ok on an index ok\n" +
+		"unneeded ok on a conversion ok\n" +
+		"unneeded ok on proven operations ok\n"
 	if string(out) != want {
 		t.Errorf("safety printed\n%s\nwant\n%s", out, want)
 	}

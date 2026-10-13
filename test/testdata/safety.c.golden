@@ -71,15 +71,19 @@ static const unsigned char str24[31] = {97, 115, 115, 105, 103, 110, 32, 100, 10
 static const unsigned char str25[15] = {98, 108, 97, 110, 107, 32, 100, 105, 115, 99, 97, 114, 100, 115, 0};
 static const unsigned char str26[24] = {98, 111, 116, 104, 32, 111, 112, 101, 114, 97, 110, 100, 115, 32, 101, 118, 97, 108, 117, 97, 116, 101, 100, 0};
 static const unsigned char str27[30] = {99, 111, 110, 115, 116, 97, 110, 116, 32, 105, 110, 100, 101, 120, 32, 105, 110, 116, 111, 32, 97, 32, 108, 105, 116, 101, 114, 97, 108, 0};
-static const unsigned char str28[13] = {104, 97, 108, 102, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str29[17] = {99, 111, 109, 112, 111, 117, 110, 100, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str30[12] = {103, 101, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str31[12] = {115, 101, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str32[11] = {97, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str33[14] = {102, 105, 114, 115, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
-static const unsigned char str34[15] = {99, 111, 117, 110, 116, 105, 110, 103, 32, 108, 111, 111, 112, 115, 0};
-static const unsigned char str35[10] = {111, 114, 32, 112, 114, 111, 118, 101, 115, 0};
-static const unsigned char str36[12] = {99, 97, 115, 101, 32, 112, 114, 111, 118, 101, 115, 0};
+static const unsigned char str28[26] = {117, 110, 110, 101, 101, 100, 101, 100, 32, 111, 107, 32, 111, 110, 32, 97, 32, 100, 105, 118, 105, 115, 105, 111, 110, 0};
+static const unsigned char str29[24] = {117, 110, 110, 101, 101, 100, 101, 100, 32, 111, 107, 32, 111, 110, 32, 97, 110, 32, 105, 110, 100, 101, 120, 0};
+static const unsigned char str30[28] = {117, 110, 110, 101, 101, 100, 101, 100, 32, 111, 107, 32, 111, 110, 32, 97, 32, 99, 111, 110, 118, 101, 114, 115, 105, 111, 110, 0};
+static const unsigned char str31[33] = {117, 110, 110, 101, 101, 100, 101, 100, 32, 111, 107, 32, 111, 110, 32, 112, 114, 111, 118, 101, 110, 32, 111, 112, 101, 114, 97, 116, 105, 111, 110, 115, 0};
+static const unsigned char str32[13] = {104, 97, 108, 102, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str33[17] = {99, 111, 109, 112, 111, 117, 110, 100, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str34[12] = {103, 101, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str35[12] = {115, 101, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str36[11] = {97, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str37[14] = {102, 105, 114, 115, 116, 32, 103, 117, 97, 114, 100, 101, 100, 0};
+static const unsigned char str38[15] = {99, 111, 117, 110, 116, 105, 110, 103, 32, 108, 111, 111, 112, 115, 0};
+static const unsigned char str39[10] = {111, 114, 32, 112, 114, 111, 118, 101, 115, 0};
+static const unsigned char str40[12] = {99, 97, 115, 101, 32, 112, 114, 111, 118, 101, 115, 0};
 
 static void tack_print(tack_string s) {
     if (s.len > 0) {
@@ -125,6 +129,7 @@ static int64_t tack_main_split(int64_t p_a, int64_t p_b);
 static int64_t tack_main_early(tack_array_13 p_a, int64_t p_i);
 static void tack_main_zeroValues(void);
 static void tack_main_forms(void);
+static void tack_main_unneededOk(void);
 static void tack_main_main(void);
 
 static void tack_main_check(tack_string p_name, bool p_cond) {
@@ -356,25 +361,76 @@ static void tack_main_forms(void) {
     tack_main_check((tack_string){str27, 29}, (((tack_string){str12, 4}).ptr[1] == 97));
 }
 
+static void tack_main_unneededOk(void) {
+    int64_t v_n = 9;
+    const int64_t tack_r24 = v_n;
+    const int64_t tack_r25 = 3;
+    const int64_t v_q = (tack_r25 != 0 ? tack_div_int64(tack_r24, tack_r25) : 0);
+    const bool v_ok = (tack_r25 != 0);
+    const int64_t v_r = 3;
+    const bool v_fine = true;
+    const tack_array_13 v_a = (tack_array_13){{1, 2, 3}};
+    const int64_t tack_r26 = 1;
+    const int64_t v_v = ((tack_r26 >= 0 && tack_r26 <= 2) ? v_a.e[tack_r26] : 0);
+    const bool v_inRange = (tack_r26 >= 0 && tack_r26 <= 2);
+    const tack_string tack_r27 = (tack_string){str12, 4};
+    const int64_t tack_r28 = 1;
+    const uint8_t v_b = ((tack_r28 >= 0 && tack_r28 < tack_r27.len) ? tack_r27.ptr[tack_r28] : 0);
+    const bool v_isByte = (tack_r28 >= 0 && tack_r28 < tack_r27.len);
+    const uint8_t tack_r29 = 5;
+    const uint8_t v_c = (true ? (uint8_t)tack_r29 : 0);
+    const bool v_fits = true;
+    const int64_t v_x = 5;
+    const int64_t tack_r30 = v_x;
+    const uint8_t v_d = ((tack_r30 >= 0 && tack_r30 <= 255) ? (uint8_t)tack_r30 : 0);
+    const bool v_known = (tack_r30 >= 0 && tack_r30 <= 255);
+    const uint8_t v_small = 7;
+    const uint8_t tack_r31 = v_small;
+    const int64_t v_e = (true ? (int64_t)tack_r31 : 0);
+    const bool v_widens = true;
+    tack_main_check((tack_string){str28, 25}, ((((v_q == 3) && v_ok) && (v_r == 3)) && v_fine));
+    tack_main_check((tack_string){str29, 23}, ((((v_v == 2) && v_inRange) && (v_b == 97)) && v_isByte));
+    tack_main_check((tack_string){str30, 27}, ((((((v_c == 5) && v_fits) && (v_d == 5)) && v_known) && (v_e == 7)) && v_widens));
+    int64_t v_sum = 0;
+    bool v_all = true;
+    {
+        const int64_t tack_n33 = ((void)v_a, (int64_t)3);
+        for (int64_t tack_k34 = 0; tack_k34 < tack_n33; tack_k34++) {
+            const int64_t v_i = tack_k34;
+            const int64_t tack_r32 = v_i;
+            const int64_t v_w = ((tack_r32 >= 0 && tack_r32 <= 2) ? v_a.e[tack_r32] : 0);
+            const bool v_proven = (tack_r32 >= 0 && tack_r32 <= 2);
+            v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)v_w));
+            v_all = (v_all && v_proven);
+        }
+    }
+    uint8_t v_t = 0;
+    bool v_half = false;
+    v_t = 3;
+    v_half = true;
+    tack_main_check((tack_string){str31, 32}, ((((v_sum == 6) && v_all) && (v_t == 3)) && v_half));
+}
+
 static void tack_main_main(void) {
-    tack_main_check((tack_string){str28, 12}, ((tack_main_half(8, 0) == 0) && (tack_main_half(8, 2) == 4)));
+    tack_main_check((tack_string){str32, 12}, ((tack_main_half(8, 0) == 0) && (tack_main_half(8, 2) == 4)));
     tack_main_checkedDivision();
-    tack_main_check((tack_string){str29, 16}, ((tack_main_compound(0) == 100) && (tack_main_compound(4) == 25)));
+    tack_main_check((tack_string){str33, 16}, ((tack_main_compound(0) == 100) && (tack_main_compound(4) == 25)));
     const tack_array_13 v_a = (tack_array_13){{10, 20, 30}};
-    tack_main_check((tack_string){str30, 11}, (((tack_main_get(v_a, 5) == 0) && (tack_main_get(v_a, (-1)) == 0)) && (tack_main_get(v_a, 1) == 20)));
+    tack_main_check((tack_string){str34, 11}, (((tack_main_get(v_a, 5) == 0) && (tack_main_get(v_a, (-1)) == 0)) && (tack_main_get(v_a, 1) == 20)));
     tack_main_checkedIndex();
-    tack_main_check((tack_string){str31, 11}, (((tack_main_set(3) == 0) && (tack_main_set((-1)) == 0)) && (tack_main_set(2) == 7)));
-    tack_main_check((tack_string){str32, 10}, ((tack_main_at((tack_string){str6, 3}, 3) == 0) && (tack_main_at((tack_string){str6, 3}, 2) == 99)));
-    tack_main_check((tack_string){str33, 13}, ((tack_main_first((tack_string){str16, 0}) == 0) && (tack_main_first((tack_string){str6, 3}) == 97)));
+    tack_main_check((tack_string){str35, 11}, (((tack_main_set(3) == 0) && (tack_main_set((-1)) == 0)) && (tack_main_set(2) == 7)));
+    tack_main_check((tack_string){str36, 10}, ((tack_main_at((tack_string){str6, 3}, 3) == 0) && (tack_main_at((tack_string){str6, 3}, 2) == 99)));
+    tack_main_check((tack_string){str37, 13}, ((tack_main_first((tack_string){str16, 0}) == 0) && (tack_main_first((tack_string){str6, 3}) == 97)));
     tack_main_checkedByte();
     tack_main_checkedConversion();
     tack_main_knownConversions();
     tack_main_knownString();
-    tack_main_check((tack_string){str34, 14}, ((tack_main_total(v_a) == 60) && (tack_main_reversed((tack_array_13){{1, 2, 3}}) == 321)));
-    tack_main_check((tack_string){str35, 9}, (((tack_main_split(9, (-3)) == (-3)) && (tack_main_split(9, 0) == 0)) && (tack_main_split(9, 3) == 3)));
-    tack_main_check((tack_string){str36, 11}, (((tack_main_early(v_a, 0) == 10) && (tack_main_early(v_a, 1) == 20)) && (tack_main_early(v_a, 2) == (-1))));
+    tack_main_check((tack_string){str38, 14}, ((tack_main_total(v_a) == 60) && (tack_main_reversed((tack_array_13){{1, 2, 3}}) == 321)));
+    tack_main_check((tack_string){str39, 9}, (((tack_main_split(9, (-3)) == (-3)) && (tack_main_split(9, 0) == 0)) && (tack_main_split(9, 3) == 3)));
+    tack_main_check((tack_string){str40, 11}, (((tack_main_early(v_a, 0) == 10) && (tack_main_early(v_a, 1) == 20)) && (tack_main_early(v_a, 2) == (-1))));
     tack_main_zeroValues();
     tack_main_forms();
+    tack_main_unneededOk();
 }
 
 int main(void) {

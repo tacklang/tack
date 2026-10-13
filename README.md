@@ -406,8 +406,9 @@ which is true today because `main` is the only package there is.
   compile only where the compiler can prove `b` is not zero; a constant zero
   is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)
   divides only when `b` is not zero: `ok` reports whether it was not, and `q`
-  is the result, or `0`. Both operands are always evaluated. The two-value
-  form is an error where the divisor is proven not zero. A divisor is proven
+  is the result, or `0`. Both operands are always evaluated. Where the
+  divisor is proven not zero the two-value form is allowed too, and `ok` is
+  always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
   not zero when it is a non-zero constant, an immutable variable holding
   one, or a variable a condition covers where it is used:
   - inside `if c { ... }` when `c` being true rules out zero, and in its
@@ -433,7 +434,9 @@ which is true today because `main` is the only package there is.
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
   leaving. [docs/safety.md](docs/safety.md) gathers these rules, the
-  two-value form and every operation they apply to in one place.
+  two-value form and every operation they apply to in one place, and
+  [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
+  such as a two-value form whose `ok` is always `true`.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
@@ -464,7 +467,8 @@ which is true today because `main` is the only package there is.
   known to lie between 0 and the length less one. Elsewhere,
   `v, ok := a[i]` (or `v, ok = a[i]`) reads the element only when `i` is in
   range: `ok` reports whether it was, and `v` is the element, or its type's
-  zero value; it is an error where `i` is proven in range. An assignment to
+  zero value; where `i` is proven in range it is allowed too, and `ok` is
+  always `true`. An assignment to
   an element has no such form, so its index must be proven. What proves an
   index is what proves a divisor, below, with bounds as well as "not zero":
   a range loop's variable lies between 0 and its count less one, or the
@@ -477,7 +481,7 @@ which is true today because `main` is the only package there is.
 - Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
   the same rules: it compiles only where `i` is proven in range, and
   `v, ok := s[i]` (or `v, ok = s[i]`) reads it otherwise, giving `0` and
-  `false` out of range, and is an error where `i` is proven. A string's
+  `false` out of range, and gives `true` where `i` is proven. A string's
   bytes cannot be assigned, even in a `mut` string: `s[0] = 65` is an
   error, since strings are immutable. A constant index into a known
   string, a literal or an immutable variable holding one, is checked at
@@ -512,9 +516,10 @@ which is true today because `main` is the only package there is.
   value that is not a value of `T` is an error, as `uint8(x)` after
   `x := 300`. Every other conversion is written
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
-  `T`, and `v` is that value, or `0` when it is not. The two-value form is an
-  error where the conversion cannot fail, so each conversion has one
-  spelling. A guard never makes `T(x)` compile; see
+  `T`, and `v` is that value, or `0` when it is not. Where the conversion
+  cannot fail the two-value form is allowed too, and `ok` is always `true`;
+  a constant or known value that does not fit is an error in either form.
+  A guard never makes `T(x)` compile; see
   [docs/safety.md](docs/safety.md). Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,

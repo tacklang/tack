@@ -195,6 +195,35 @@ func forms() {
     check("constant index into a literal", "tack"[1] == 97)
 }
 
+func unneededOk() {
+    mut n int64 = 9
+    q, ok := n / 3              // q == 3, ok == true
+    r, fine := 7 / 2            // r == 3, fine == true
+    a := [3]int64{1, 2, 3}
+    v, inRange := a[1]          // v == 2, inRange == true
+    b, isByte := "tack"[1]      // b == 'a', isByte == true
+    c, fits := uint8(5)         // c == 5, fits == true
+    x := 5
+    d, known := uint8(x)        // d == 5, known == true
+    var small uint8 = 7
+    e, widens := int64(small)   // e == 7, widens == true
+    check("unneeded ok on a division", q == 3 && ok && r == 3 && fine)
+    check("unneeded ok on an index", v == 2 && inRange && b == 'a' && isByte)
+    check("unneeded ok on a conversion", c == 5 && fits && d == 5 && known && e == 7 && widens)
+
+    mut sum int64 = 0
+    mut all := true
+    for i := range len(a) {
+        w, proven := a[i]
+        sum += w
+        all = all && proven
+    }
+    mut t uint8 = 0
+    mut half := false
+    t, half = 7 / 2
+    check("unneeded ok on proven operations", sum == 6 && all && t == 3 && half)
+}
+
 func main() {
     check("half guarded", half(8, 0) == 0 && half(8, 2) == 4)
     checkedDivision()
@@ -214,4 +243,5 @@ func main() {
     check("case proves", early(a, 0) == 10 && early(a, 1) == 20 && early(a, 2) == -1)
     zeroValues()
     forms()
+    unneededOk()
 }

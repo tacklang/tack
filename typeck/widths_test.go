@@ -121,6 +121,18 @@ var integerWidthCases = []struct{ name, src string }{
 		"package main\n\nfunc f(x int64) int32 {\n    var small int8 = 1\n    if x > 0 {\n        return small\n    }\n    return 0\n}\n\n" +
 			"func main() {\n    var u uint8 = 7\n    exit(f(u))\n}\n",
 	},
+	{
+		"checked constant conversion",
+		mainLines("a, ok := int8(5)", "if ok {", "    exit(a)", "}"),
+	},
+	{
+		"checked conversion that cannot fail",
+		withSized("a, ok := int16(u8)", "if ok {", "    exit(a)", "}"),
+	},
+	{
+		"checked conversion to the same type",
+		withSized("a, ok := int8(i8)", "if ok {", "    exit(a)", "}"),
+	},
 }
 
 // TestAcceptsIntegerWidths checks each of integerWidthCases has no
@@ -251,21 +263,6 @@ var widthErrorCases = []struct {
 		"constant conversion too large",
 		mainLines("a := int8(300)", "exit(a)"),
 		[]spanned{{"constant 300 overflows int8", "300"}},
-	},
-	{
-		"checked constant conversion",
-		mainLines("a, ok := int8(5)", "if ok {", "    exit(a)", "}"),
-		[]spanned{{"a constant needs no ok to convert; use int8(...)", "int8(5)"}},
-	},
-	{
-		"checked conversion that cannot fail",
-		withSized("a, ok := int16(u8)", "if ok {", "    exit(a)", "}"),
-		[]spanned{{"converting uint8 to int16 cannot fail; use int16(...)", "int16(u8)"}},
-	},
-	{
-		"checked conversion to the same type",
-		withSized("a, ok := int8(i8)", "if ok {", "    exit(a)", "}"),
-		[]spanned{{"converting int8 to int8 cannot fail; use int8(...)", "int8(i8)"}},
 	},
 	{
 		"convert to string",

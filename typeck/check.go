@@ -200,7 +200,7 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 		return
 	}
 	for i, v := range m.Vars {
-		v.Type = results[i]
+		v.Type = c.settleResult(m.Value, results[i], types.Invalid)
 	}
 }
 
@@ -212,38 +212,52 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span)
 	seen := make(map[ast.Decl]bool, len(m.Targets))
 	for i, target := range m.Targets {
-		// _ discards its value, whatever its type, and may appear more
-		// than once.
-		if ast.IsBlank(target) {
-			continue
+		got := types.Invalid
+		if ok {
+			got = results[i]
 		}
-		if name, isName := target.(*ast.Ident); isName {
-			if seen[name.Def] {
-				c.errorf(name.Span, "%s is assigned more than once", name.Name)
-				continue
-			}
-			seen[name.Def] = true
-		}
-
-		typ, assignable := c.assignable(target)
-		if !ok || !assignable || typ == types.Invalid || results[i] == types.Invalid ||
-			types.Widens(results[i], typ) {
-			continue
-		}
-		c.errorf(
-			target.Spanned(),
-			"cannot use %s as %s in assignment to %s",
-			c.table.Name(results[i]),
-			c.table.Name(typ),
-			targetName(target),
-		)
+		c.checkMultiTarget(m.Value, target, got, seen)
 	}
+}
+
+// checkMultiTarget checks one target of a MultiAssign whose value, value,
+// gives got in the target's position, Invalid when the value is wrong.
+// seen holds the variables already named, each of which may be named only
+// once.
+func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen map[ast.Decl]bool) {
+	// _ discards its value, whatever its type, and may appear more than
+	// once.
+	if ast.IsBlank(target) {
+		c.settleResult(value, got, types.Invalid)
+		return
+	}
+	if name, isName := target.(*ast.Ident); isName {
+		if seen[name.Def] {
+			c.errorf(name.Span, "%s is assigned more than once", name.Name)
+			return
+		}
+		seen[name.Def] = true
+	}
+
+	typ, assignable := c.assignable(target)
+	got = c.settleResult(value, got, typ)
+	if !assignable || typ == types.Invalid || got == types.Invalid || types.Widens(got, typ) {
+		return
+	}
+	c.errorf(
+		target.Spanned(),
+		"cannot use %s as %s in assignment to %s",
+		c.table.Name(got),
+		c.table.Name(typ),
+		targetName(target),
+	)
 }
 
 // multiResults checks the value of a MultiVar or MultiAssign, which binds
 // want names, and returns the type of each value it gives, in order, and
 // whether it gives exactly want of them. It must be a call to a function
-// with that many results, or a conversion that can fail, which gives two.
+// with that many results, or a division, an index or a conversion, which
+// gives two.
 // Any other value is reported as one error covering span, the whole
 // statement.
 func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types.Type, bool) {
@@ -264,6 +278,24 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 	}
 
 	return c.callResults(call, want, span)
+}
+
+// settleResult returns the type of the value in one position of a MultiVar
+// or MultiAssign, got, once it has one. Only the quotient of a checked
+// division of two untyped constants, value, lacks one: it settles to typ,
+// the type of the variable it is assigned to, when that is an integer type,
+// and to int64 otherwise, and is Invalid if it does not fit.
+func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
+	if got != types.UntypedInt {
+		return got
+	}
+	if types.IsInteger(typ) {
+		if !c.settle(value, typ) {
+			return types.Invalid
+		}
+		return typ
+	}
+	return c.valueOf(value, got)
 }
 
 // callResults checks a call bound to want names: its callee must declare

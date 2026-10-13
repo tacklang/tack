@@ -669,48 +669,6 @@ char-too-long/main.tck:4:10: error: too many characters in char literal
    |	         ^~~~
 05 |	    exit(c)
 
--- checked-division-cannot-fail/main.tck --
-package main
-
-func main() {
-    mut n int64 = 9
-    q, ok := n / 3
-    if ok {
-        exit(q)
-    }
-}
--- checked-division-cannot-fail/expected --
-stage: typeck
----
-
-checked-division-cannot-fail/main.tck:5:14: error: the divisor cannot be zero here; drop the ok
-04 |	    mut n int64 = 9
-05 |	    q, ok := n / 3
-   |	             ^~~~~
-06 |	    if ok {
-
--- checked-index-cannot-fail/main.tck --
-package main
-
-func main() {
-    a := [3]int64{1, 2, 3}
-    for i := range len(a) {
-        v, ok := a[i]
-        if ok {
-            exit(v)
-        }
-    }
-}
--- checked-index-cannot-fail/expected --
-stage: typeck
----
-
-checked-index-cannot-fail/main.tck:6:18: error: the index cannot be out of range here; drop the ok
-05 |	    for i := range len(a) {
-06 |	        v, ok := a[i]
-   |	                 ^~~~
-07 |	        if ok {
-
 -- compare-mismatch/main.tck --
 package main
 
@@ -990,45 +948,6 @@ conversion-can-fail/main.tck:5:14: error: converting int64 to int8 can fail; use
 05 |	    small := int8(wide)
    |	             ^~~~~~~~~~
 06 |	    exit(small)
-
--- conversion-cannot-fail/main.tck --
-package main
-
-func main() {
-    var small uint8 = 7
-    wide, ok := int16(small)
-    if ok {
-        exit(wide)
-    }
-}
--- conversion-cannot-fail/expected --
-stage: typeck
----
-
-conversion-cannot-fail/main.tck:5:17: error: converting uint8 to int16 cannot fail; use int16(...)
-04 |	    var small uint8 = 7
-05 |	    wide, ok := int16(small)
-   |	                ^~~~~~~~~~~~
-06 |	    if ok {
-
--- conversion-constant-ok/main.tck --
-package main
-
-func main() {
-    v, ok := int8(5)
-    if ok {
-        exit(v)
-    }
-}
--- conversion-constant-ok/expected --
-stage: typeck
----
-
-conversion-constant-ok/main.tck:4:14: error: a constant needs no ok to convert; use int8(...)
-03 |	func main() {
-04 |	    v, ok := int8(5)
-   |	             ^~~~~~~
-05 |	    if ok {
 
 -- defer-assign/main.tck --
 package main
@@ -2514,45 +2433,6 @@ safety-checked-array-index-known-out-of-range/main.tck:5:16: error: index 5 is o
    |	               ^
 06 |	    if ok {
 
--- safety-checked-conversion-constant/main.tck --
-package main
-
-func main() {
-    v, ok := uint8(5)
-    if ok {
-        exit(v)
-    }
-}
--- safety-checked-conversion-constant/expected --
-stage: typeck
----
-
-safety-checked-conversion-constant/main.tck:4:14: error: a constant needs no ok to convert; use uint8(...)
-03 |	func main() {
-04 |	    v, ok := uint8(5)
-   |	             ^~~~~~~~
-05 |	    if ok {
-
--- safety-checked-conversion-known-value/main.tck --
-package main
-
-func main() {
-    x := 5
-    v, ok := uint8(x)
-    if ok {
-        exit(v)
-    }
-}
--- safety-checked-conversion-known-value/expected --
-stage: typeck
----
-
-safety-checked-conversion-known-value/main.tck:5:14: error: a constant needs no ok to convert; use uint8(...)
-04 |	    x := 5
-05 |	    v, ok := uint8(x)
-   |	             ^~~~~~~~
-06 |	    if ok {
-
 -- safety-checked-conversion-overflow/main.tck --
 package main
 
@@ -2571,26 +2451,6 @@ safety-checked-conversion-overflow/main.tck:4:20: error: constant 256 overflows 
 04 |	    v, ok := uint8(256)
    |	                   ^~~
 05 |	    if ok {
-
--- safety-checked-conversion-widens/main.tck --
-package main
-
-func main() {
-    var b uint8 = 7
-    v, ok := int64(b)
-    if ok {
-        exit(v)
-    }
-}
--- safety-checked-conversion-widens/expected --
-stage: typeck
----
-
-safety-checked-conversion-widens/main.tck:5:14: error: converting uint8 to int64 cannot fail; use int64(...)
-04 |	    var b uint8 = 7
-05 |	    v, ok := int64(b)
-   |	             ^~~~~~~~
-06 |	    if ok {
 
 -- safety-checked-known-zero/main.tck --
 package main
@@ -2664,25 +2524,6 @@ safety-checked-outer-index-only/main.tck:4:16: error: index i may be out of rang
 03 |	func f(m [2][3]int64, i int64, j int64) int64 {
 04 |	    v, ok := m[i][j]
    |	               ^
-05 |	    if ok {
-
--- safety-checked-string-index-cannot-fail/main.tck --
-package main
-
-func main() {
-    v, ok := "tack"[1]
-    if ok {
-        exit(v)
-    }
-}
--- safety-checked-string-index-cannot-fail/expected --
-stage: typeck
----
-
-safety-checked-string-index-cannot-fail/main.tck:4:14: error: the index cannot be out of range here; drop the ok
-03 |	func main() {
-04 |	    v, ok := "tack"[1]
-   |	             ^~~~~~~~~
 05 |	    if ok {
 
 -- safety-checked-string-index-negative/main.tck --

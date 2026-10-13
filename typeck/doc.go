@@ -72,7 +72,8 @@
 // several values proves the union of what each does. Deferred code
 // is checked where the defer is written, with the facts in force there,
 // which still hold when it runs, at the end of the defer's block (defer.go).
-// q, ok := a / b needs no proof, and is an error where one exists. A fact is
+// q, ok := a / b needs no proof, and is allowed where one exists, ok then
+// always being true; only a divisor known to be zero is reported. A fact is
 // about a variable, never a field: a guard on p.x proves nothing about p.x,
 // which needs the two-value form, or copying into a variable that the guard
 // then names.
@@ -95,8 +96,8 @@
 // struct's, which is then the element type. An index
 // must be proven in range, from the same facts as a divisor, which also
 // bound a variable: a range loop's index, comparisons with known values,
-// and the variable's own type. v, ok := a[i] needs no proof, and is an
-// error where one exists.
+// and the variable's own type. v, ok := a[i] needs no proof, and is
+// allowed where one exists; only a constant index out of range is reported.
 //
 // A string is indexed the same way, s[i] giving a uint8, but its length is
 // known only for a known string (knownString): a literal, or an immutable
@@ -133,13 +134,16 @@
 //     supports the operator: an integer or a string supports all six, a
 //     bool, an array or a struct only == and !=. A mismatch, or an
 //     unsupported operator, is one error covering the whole comparison;
-//   - a divisor is proven not zero, or the division is bound with ok;
+//   - a divisor is proven not zero, or the division is bound with ok, and
+//     the quotient of two untyped constants bound with ok settles to the
+//     type of the variable it is assigned, or int64 where there is none;
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant or a known value, as knownValue
 //     computes it, that fits T, or a type that widens to T. A constant or
 //     known value that does not fit T is reported as overflowing it. Any
-//     other is v, ok := T(x), which is an error where the conversion cannot
-//     fail; no fact makes a conversion compile;
+//     other is v, ok := T(x), which is also allowed where the conversion
+//     cannot fail, and reports a constant or known value that does not fit
+//     T as T(x) does; no fact makes a conversion compile;
 //   - a variable's value is usable as its declared type, and a variable
 //     declared without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a

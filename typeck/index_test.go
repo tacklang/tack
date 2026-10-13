@@ -70,6 +70,21 @@ var provenIndexCases = []struct{ name, src string }{
 		"package main\n\nfunc arr() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc f(i int64) int64 {\n    v, ok := arr()[i]\n    if ok {\n        return v\n    }\n    return 0\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
 	},
 	{"constant from len", indexing("return a[len(a) - 1]")},
+	{
+		"checked with a proven index",
+		indexing(
+			"for k := range 3 {",
+			"    v, ok := a[k]",
+			"    if ok {",
+			"        return v",
+			"    }",
+			"}",
+		),
+	},
+	{
+		"checked with a constant",
+		indexing("v, ok := a[1]", "if ok {", "    return v", "}"),
+	},
 }
 
 // TestAcceptsProvenIndexes checks each of provenIndexCases has no
@@ -187,23 +202,6 @@ var unprovenIndexCases = []struct {
 			"index g may be out of range; check 0 <= g && g < 3 first, or use v, ok := ...[g]",
 			"g",
 		},
-	},
-	{
-		"checked with a proven index",
-		indexing(
-			"for k := range 3 {",
-			"    v, ok := a[k]",
-			"    if ok {",
-			"        return v",
-			"    }",
-			"}",
-		),
-		spanned{"the index cannot be out of range here; drop the ok", "a[k]"},
-	},
-	{
-		"checked with a constant",
-		indexing("v, ok := a[1]", "if ok {", "    return v", "}"),
-		spanned{"the index cannot be out of range here; drop the ok", "a[1]"},
 	},
 	{
 		"checked with a constant out of range",

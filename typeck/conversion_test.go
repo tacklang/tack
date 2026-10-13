@@ -43,6 +43,14 @@ var knownConversionCases = []struct{ name, src string }{
 	{"uint64 to int64", converting("var u uint64 = 9223372036854775807", "exit(int64(u))")},
 	{"chain of immutable locals", converting("n := 2", "m := n * 100", "return uint8(m)")},
 	{"negated known value", converting("n := 128", "exit(int8(-n))")},
+	{
+		"checked known value",
+		converting("n := 5", "v, ok := uint8(n)", "if ok {", "    return v", "}"),
+	},
+	{
+		"checked character literal",
+		converting("v, ok := int8('a')", "if ok {", "    exit(v)", "}"),
+	},
 }
 
 // TestAcceptsKnownConversions checks each of knownConversionCases has no
@@ -59,8 +67,8 @@ func TestAcceptsKnownConversions(t *testing.T) {
 
 // rejectedConversionCases are conversions the checker must still reject,
 // with the one diagnostic each must produce: a known value that is not a
-// value of the type, the two-value form on a known value, and every value
-// that is not known, guarded or not.
+// value of the type, in either form, and every value that is not known,
+// guarded or not.
 var rejectedConversionCases = []struct {
 	name string
 	src  string
@@ -100,16 +108,6 @@ var rejectedConversionCases = []struct {
 		"arithmetic past the type",
 		converting("return uint8(len(a) * 100)"),
 		spanned{"constant 300 overflows uint8", "len(a) * 100"},
-	},
-	{
-		"checked known value",
-		converting("n := 5", "v, ok := uint8(n)", "if ok {", "    return v", "}"),
-		spanned{"a constant needs no ok to convert; use uint8(...)", "uint8(n)"},
-	},
-	{
-		"checked character literal",
-		converting("v, ok := int8('a')", "if ok {", "    exit(v)", "}"),
-		spanned{"a constant needs no ok to convert; use int8(...)", "int8('a')"},
 	},
 	{
 		"checked known value too large",

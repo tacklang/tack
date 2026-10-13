@@ -83,6 +83,10 @@ var validCharPrograms = []struct{ name, src string }{
 		"parameter and result",
 		"package main\n\nfunc up(c uint8) uint8 {\n    return c - 'a' + 'A'\n}\n\nfunc main() {\n    exit(up('b'))\n}\n",
 	},
+	{
+		"conversion that cannot fail with ok",
+		mainLines("v, ok := int64('a')", "if ok {", "    exit(v)", "}"),
+	},
 }
 
 // TestAcceptsCharPrograms checks each of validCharPrograms has no
@@ -153,11 +157,6 @@ var invalidCharPrograms = []struct {
 		"assigned",
 		mainLines("mut s string", "s = 'a'", "print(s)"),
 		spanned{"cannot use uint8 as string in assignment to s", "'a'"},
-	},
-	{
-		"conversion that cannot fail with ok",
-		mainLines("v, ok := int64('a')", "if ok {", "    exit(v)", "}"),
-		spanned{"converting uint8 to int64 cannot fail; use int64(...)", "int64('a')"},
 	},
 	{
 		"global product overflows",

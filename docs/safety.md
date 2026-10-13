@@ -87,17 +87,31 @@ The details:
 - **Only the outermost index is checked.**
   In <!-- case: safety-checked-outer-index-only -->`v, ok := m[i][j]` the
   inner `m[i]` is a plain index and needs its own proof.
-- **Drop the ok.** The checked form is an error where the operation cannot
-  fail, so each operation has one spelling:
+- **An ok the compiler does not need is allowed.** Where the operation
+  cannot fail, because the divisor or index is a known value or proven,
+  both operands of a division are untyped constants, or a conversion's
+  operand is a constant, a known value that fits, or of a type that widens
+  to `T`, the checked form still compiles: the first value is the
+  operation's, and `ok` is always `true`. A future `tack vet` is to point
+  these out; [vet.md](vet.md) lists the checks.
 
-  | Operation   | Where it cannot fail                                          | Diagnostic                                                 |
-  |-------------|---------------------------------------------------------------|------------------------------------------------------------|
-  | division    | the divisor is a known value or proven not zero, or both operands are untyped constants | <!-- error: checked-division-cannot-fail -->`the divisor cannot be zero here; drop the ok` |
-  | array index | the index is a known value, or proven in range                | <!-- error: checked-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
-  | string index| the index is proven in range, a constant into a known string included | <!-- error: safety-checked-string-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
-  | conversion  | the operand is an untyped constant                            | <!-- error: safety-checked-conversion-constant -->`a constant needs no ok to convert; use uint8(...)` |
-  | conversion  | the operand is a known value that fits, as `x` after `x := 5` | <!-- error: safety-checked-conversion-known-value -->`a constant needs no ok to convert; use uint8(...)` |
-  | conversion  | the operand's type widens to `T`                              | <!-- error: safety-checked-conversion-widens -->`converting uint8 to int64 cannot fail; use int64(...)` |
+<!-- example: safety -->
+```tack
+mut n int64 = 9
+q, ok := n / 3              // q == 3, ok == true
+r, fine := 7 / 2            // r == 3, fine == true
+a := [3]int64{1, 2, 3}
+v, inRange := a[1]          // v == 2, inRange == true
+b, isByte := "tack"[1]      // b == 'a', isByte == true
+c, fits := uint8(5)         // c == 5, fits == true
+x := 5
+d, known := uint8(x)        // d == 5, known == true
+var small uint8 = 7
+e, widens := int64(small)   // e == 7, widens == true
+```
+
+  The quotient of two untyped constants takes the type of the variable it
+  is assigned to, as any constant does, and is an `int64` in a declaration.
 
 - **A failure known at compile time is still an error.** The checked form
   does not accept an operation that always fails: `q, ok := a % 0`

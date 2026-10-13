@@ -87,20 +87,6 @@ var invalidRangeCases = []struct {
 		[]spanned{{"cannot use bool as int64 in argument to exit", "x"}},
 	},
 	{
-		"checked index into the ranged array",
-		inMain(
-			"a := [2]int64{1, 2}\n    for i := range a {\n        v, ok := a[i]\n        if ok {\n            exit(v)\n        }\n    }",
-		),
-		[]spanned{{"the index cannot be out of range here; drop the ok", "a[i]"}},
-	},
-	{
-		"checked index into the ranged string",
-		inMain(
-			"s := \"ab\"\n    for i := range s {\n        v, ok := s[i]\n        if ok {\n            exit(v)\n        }\n    }",
-		),
-		[]spanned{{"the index cannot be out of range here; drop the ok", "s[i]"}},
-	},
-	{
 		"bool",
 		inMain("for i := range 1 < 2 {\n        exit(i)\n    }"),
 		[]spanned{{"cannot range over bool", "1 < 2"}},
@@ -330,6 +316,18 @@ var provenRangeIndexCases = []struct{ name, src string }{
 			"        return c",
 			"    }",
 			"}",
+		),
+	},
+	{
+		"checked index into the ranged array",
+		inMain(
+			"a := [2]int64{1, 2}\n    for i := range a {\n        v, ok := a[i]\n        if ok {\n            exit(v)\n        }\n    }",
+		),
+	},
+	{
+		"checked index into the ranged string",
+		inMain(
+			"s := \"ab\"\n    for i := range s {\n        v, ok := s[i]\n        if ok {\n            exit(v)\n        }\n    }",
 		),
 	},
 }

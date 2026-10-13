@@ -156,7 +156,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.table.Name(idx))
 	case c.checkedIndex == ix:
 		// Bound with ok, the index needs no proof; a constant one is still
-		// checked here, and indexResults reports one that needs no ok.
+		// checked here, since one out of range always fails.
 		if v, known := c.knownValue(ix.Index); known && !c.constantInRange(v, n) {
 			c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, c.table.Name(base))
 			return types.Invalid
@@ -174,10 +174,9 @@ func (c *Checker) constantInRange(v constant.Int, n int64) bool {
 
 // indexResults checks an element bound to want names, which must be two:
 // the element, or its type's zero value when the index is out of range, and
-// whether it was in range. The form is for an index that may be out of
-// range, so one proven in range is reported: into an array, a constant one
-// included; into a string, a constant only when the string's length proves
-// it.
+// whether it was in range. The form needs no proof, and is allowed where
+// one exists, when ok is always true; a constant index out of range, which
+// always fails, is reported by element.
 func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedIndex = ix
 	elem := c.expr(ix)
@@ -186,28 +185,11 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 		return nil, false
 	}
 
-	if c.indexProven(ix) {
-		c.errorf(ix.Span, "the index cannot be out of range here; drop the ok")
-		return nil, false
-	}
 	if want != 2 {
 		c.errorf(span, "assignment mismatch: %d variables but an index gives 2 values", want)
 		return nil, false
 	}
 	return []types.Type{elem, types.Bool}, true
-}
-
-// indexProven reports whether the index of a checked element ix is known to
-// be in range, so it needs no ok: for an array, a constant, which element
-// has already checked, or a variable the facts keep in range; for a string,
-// what stringIndexProven says.
-func (c *Checker) indexProven(ix *ast.Index) bool {
-	base := ast.TypeOf(ix.X)
-	if base == types.String {
-		return c.stringIndexProven(ix)
-	}
-	_, known := c.knownValue(ix.Index)
-	return known || c.inRange(ix.Index, c.table.Len(base))
 }
 
 // requireInRange reports an index that is not proven to be in range for an

@@ -411,8 +411,10 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
 
 // divisionResults checks a division or remainder bound to want names, which
 // must be two: the result, or 0 when the divisor is zero, and whether it was
-// not. The form is for a divisor that may be zero, so one proven not to be
-// is reported, as is a divisor that is the constant zero.
+// not. The form needs no proof, and is allowed where one exists, when ok is
+// always true; only a divisor known to be zero, which always fails, is
+// reported. The quotient of two untyped constants is still untyped, and
+// settles where it is bound (settleResult).
 func (c *Checker) divisionResults(bin *ast.Binary, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedDivision = bin
 	typ := c.expr(bin)
@@ -423,10 +425,6 @@ func (c *Checker) divisionResults(bin *ast.Binary, want int, span ast.Span) ([]t
 
 	if v, ok := c.knownValue(bin.Y); ok && v.IsZero() {
 		c.errorf(bin.Y.Spanned(), "division by zero")
-		return nil, false
-	}
-	if c.nonzero(bin.Y) || typ == types.UntypedInt {
-		c.errorf(bin.Span, "the divisor cannot be zero here; drop the ok")
 		return nil, false
 	}
 	if want != 2 {
@@ -716,11 +714,11 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 }
 
 // checkedConversion checks a conversion in its two-value form,
-// v, ok := T(x), which is for conversions that can fail. One that cannot,
-// from an untyped constant, a known value that fits T, or a type that
-// widens to T, is reported, since it has only one correct spelling; so is
-// a constant or known value that does not fit, which always fails. It
-// reports whether the conversion is valid in this form.
+// v, ok := T(x), which is for conversions that can fail, and is allowed for
+// one that cannot, from an untyped constant, a known value that fits T, or
+// a type that widens to T, when ok is always true. Only a constant or known
+// value that does not fit, which always fails, is reported. It reports
+// whether the conversion is valid in this form.
 func (c *Checker) checkedConversion(call *ast.Call) bool {
 	from, ok := c.conversionOperand(call)
 	if !ok {
@@ -730,25 +728,12 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 	arg := call.Args[0]
 	switch {
 	case types.Widens(from, to):
-		c.errorf(
-			call.Span,
-			"converting %s to %s cannot fail; use %s(...)",
-			c.table.Name(from),
-			c.table.Name(to),
-			c.table.Name(to),
-		)
-		return false
+		return true
 	case from == types.UntypedInt:
-		if c.settle(arg, to) {
-			c.errorf(call.Span, "a constant needs no ok to convert; use %s(...)", c.table.Name(to))
-		}
-		return false
+		return c.settle(arg, to)
 	}
 	if v, known := c.knownValue(arg); known {
-		if c.knownFits(arg, v, to) {
-			c.errorf(call.Span, "a constant needs no ok to convert; use %s(...)", c.table.Name(to))
-		}
-		return false
+		return c.knownFits(arg, v, to)
 	}
 	return true
 }

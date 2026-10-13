@@ -156,8 +156,9 @@
 // operator and type, such as tack_div_int8, emitted only when used, which
 // gives the smallest signed value divided by -1 as itself and its remainder
 // as 0. q, ok := a / b holds both operands in temporaries, the dividend
-// first, and divides only when the divisor is not zero, giving 0 otherwise.
-// Every other division has a divisor the checker proved not zero. A compound assignment x op= v is written out as
+// first, and divides only when the divisor is not zero, giving 0 otherwise;
+// one of two constants, which the checker has computed, is written as its
+// value and true, with no temporary. Every other division has a divisor the checker proved not zero. A compound assignment x op= v is written out as
 // x = x op v the same way, the way Tack defines it, and x++ and x-- as
 // x = x + 1 and x = x - 1. A loop lowers
 // to a C while, or to for (;;) when it has no condition, with its condition
