@@ -544,7 +544,11 @@ which is true today because `main` is the only package there is.
   Every literal, and every step of a constant computation, must lie between
   the smallest `int64` and the largest `uint64`; beyond that is an error
   rather than a larger number. A `-` right before the digits is part of the
-  literal, so the smallest int64 is written `-9223372036854775808`.
+  literal, so the smallest int64 is written `-9223372036854775808`. A
+  literal is decimal and has no leading zeros: `0` is fine, but `007` and
+  `00` are errors, unlike C and Go, where `010` is octal 8. There are no
+  hex, octal or binary literals yet, so `0x10` is `0` followed by the name
+  `x10`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with

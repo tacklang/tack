@@ -1673,6 +1673,28 @@ index-non-array/main.tck:5:10: error: cannot index int64
    |	         ^
 06 |	}
 
+-- int-literal-leading-zero/main.tck --
+package main
+
+func main() {
+    exit(010 + 00)
+}
+-- int-literal-leading-zero/expected --
+stage: lex
+---
+
+int-literal-leading-zero/main.tck:4:10: error: integer literal 010 has a leading zero; write 10
+03 |	func main() {
+04 |	    exit(010 + 00)
+   |	         ^~~
+05 |	}
+
+int-literal-leading-zero/main.tck:4:16: error: integer literal 00 has a leading zero; write 0
+03 |	func main() {
+04 |	    exit(010 + 00)
+   |	               ^~
+05 |	}
+
 -- int-overflow/main.tck --
 package main
 

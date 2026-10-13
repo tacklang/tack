@@ -54,11 +54,6 @@ program that does nothing. In Go a bodyless declaration means the body is
 provided elsewhere, in assembly. Options: reject them outside declaration
 files, or give them a meaning (external, `asm`, builtin).
 
-## Integer literals with leading zeros
-
-`010` is the decimal number 10. In Go (and C) it is octal 8, and Go also
-accepts `0o10`. Hex, octal and binary literals are not lexed at all.
-
 ## Structs
 
 Structs follow the decisions recorded in the README. These points were

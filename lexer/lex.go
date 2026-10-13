@@ -495,7 +495,9 @@ func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 
 // handleDigit lexes an integer or a float. A float is a run of digits
 // containing a single dot after at least one digit; a second dot ends the
-// number.
+// number. An integer of more than one digit that starts with 0 is
+// reported, since a decimal literal has no leading zeros, and still gives
+// its token.
 func (l *Lexer) handleDigit() bool {
 	start, k, data := l.pos, Int, l.file.Data
 
@@ -508,11 +510,33 @@ func (l *Lexer) handleDigit() bool {
 		l.pos++
 	}
 
-	if val.Len() > 0 {
-		l.addToken(k, val.String(), start, l.pos)
+	if val.Len() == 0 {
+		return false
 	}
+	text := val.String()
+	if k == Int {
+		l.checkLeadingZero(text, start)
+	}
+	l.addToken(k, text, start, l.pos)
+	return true
+}
 
-	return val.Len() > 0
+// checkLeadingZero reports the integer literal text, which starts at start
+// and ends at the current position, if it has more than one digit and
+// starts with 0, suggesting it without its leading zeros.
+func (l *Lexer) checkLeadingZero(text string, start int) {
+	if len(text) < 2 || text[0] != '0' {
+		return
+	}
+	digits := strings.TrimLeft(text, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	l.diag(
+		fmt.Sprintf("integer literal %s has a leading zero; write %s", text, digits),
+		start,
+		l.pos,
+	)
 }
 
 // handleComment lexes a line comment. Consecutive lines whose first bytes

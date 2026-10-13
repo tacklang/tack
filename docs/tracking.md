@@ -30,7 +30,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
 | Line comments               | yes   | yes     | n/a     | n/a     | Anywhere a line can end, including before `package`; kept in the syntax tree, ignored by the grammar             |
 | Block comments              | no    | no      | no      | no      | Not part of the language; `/*` is reserved and reported                                                          |
-| Decimal integer literals    | yes   | yes     | yes     | yes     | Smallest `int64` to largest `uint64`; beyond is a parse error; leading zeros are decimal                         |
+| Decimal integer literals    | yes   | yes     | yes     | yes     | Smallest `int64` to largest `uint64`; beyond is a parse error; no leading zeros: `007`, `00` are errors          |
 | Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |
 | Float literals              | yes   | no      | no      | no      |                                                                                                                  |
 | Char literals               | yes   | yes     | yes     | yes     | A typed `uint8` constant; one byte, escapes as in strings; `'é'` is an error                                     |

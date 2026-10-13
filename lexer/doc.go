@@ -29,7 +29,10 @@
 // such as 'é', is reported, as are an empty literal and one with several
 // characters. Numbers are kept
 // as their source text; converting them, and rejecting out-of-range values, is
-// left to the parser.
+// left to the parser. An integer literal is decimal, and one of more than
+// one digit that starts with 0, such as 007 or 00, is reported here; 0
+// alone is fine. A 0 followed by a letter, as in 0x10, is a 0 and then a
+// name, since hex, octal and binary literals are not lexed.
 //
 // The lexer guarantees that tokens appear in source order, never overlap, and
 // never extend past the end of the input. It checks this before returning and
