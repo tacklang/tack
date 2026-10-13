@@ -74,8 +74,6 @@ another way:
   any other cycle, as in Go.
 - `_` cannot name a field, following the rule that `_` is not a name;
   Go allows blank fields, as padding.
-- A key written in parentheses, `Point{(x): 1}`, is taken as the field
-  name `x`, since parentheses leave no node behind. Go rejects it.
 - The fields of a struct literal are evaluated in the order C chooses, as
   a call's arguments are (see evaluation order).
 - A field never carries a fact for proving a divisor non-zero or an index

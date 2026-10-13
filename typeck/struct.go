@@ -210,7 +210,7 @@ func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
 			continue
 		}
 		key, ok := kv.Key.(*ast.Ident)
-		if !ok {
+		if !ok || kv.KeyParens {
 			c.errorf(kv.Key.Spanned(), "invalid field name in %s literal", name)
 			c.discard(kv.Value)
 			unnamed = true

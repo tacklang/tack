@@ -81,7 +81,8 @@
 // A struct type is a type of its own for each declaration, whatever its
 // fields; struct.go checks its uses. A literal names each field exactly
 // once, with a value usable as the field's type, in any order; an element
-// with no name, a name it does not have, or a name given twice is reported,
+// with no name, a key that is not a bare name, one in parentheses
+// included, a name it does not have, or a name given twice is reported,
 // and so are the fields left out. A field, x.f, may be read from any struct
 // value, and written where x is a mutable variable, or an element or field
 // of one, since a struct follows its variable as an array does. Two structs

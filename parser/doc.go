@@ -51,7 +51,9 @@
 // parentheses, or inside a call, an index or another literal. A literal
 // left bare there would end the header at its type name, so a body that
 // starts with a name and a colon, which no statement can, is reported as
-// one.
+// one. A literal's key written in parentheses, (x): v, is marked on its
+// KeyValue, since parentheses leave no node behind, for the type checker
+// to reject.
 //
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.

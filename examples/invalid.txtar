@@ -4064,6 +4064,28 @@ struct-literal-missing-field/main.tck:9:10: error: Point literal is missing fiel
    |	         ^~~~~~~~~~~
 10 |	    exit(p.x)
 
+-- struct-literal-paren-key/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{(x): 1, y: 2}
+    exit(p.x)
+}
+-- struct-literal-paren-key/expected --
+stage: typeck
+---
+
+struct-literal-paren-key/main.tck:9:17: error: invalid field name in Point literal
+08 |	func main() {
+09 |	    p := Point{(x): 1, y: 2}
+   |	                ^
+10 |	    exit(p.x)
+
 -- struct-literal-positional/main.tck --
 package main
 

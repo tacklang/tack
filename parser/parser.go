@@ -1902,7 +1902,8 @@ func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []dia
 }
 
 // parseLitElem parses one element of a composite literal: a value, or a
-// key, a colon and a value.
+// key, a colon and a value. A key in parentheses is marked as such, since
+// the parentheses leave no node behind.
 func (p *Parser) parseLitElem() (ast.Expr, []diag.Diagnostic) {
 	key, diags := p.parseLitValue()
 	if key == nil || p.peek().Kind() != lexer.Colon {
@@ -1914,9 +1915,10 @@ func (p *Parser) parseLitElem() (ast.Expr, []diag.Diagnostic) {
 		return nil, diags
 	}
 	return &ast.KeyValue{
-		Key:   key,
-		Value: value,
-		Span:  ast.Span{File: p.fileID, Start: p.extent(key).Start, End: p.extent(value).End},
+		Key:       key,
+		Value:     value,
+		Span:      ast.Span{File: p.fileID, Start: p.extent(key).Start, End: p.extent(value).End},
+		KeyParens: p.extent(key) != key.Spanned(),
 	}, nil
 }
 

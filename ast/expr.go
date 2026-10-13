@@ -562,11 +562,14 @@ func (s *Selector) Spanned() Span { return s.Span }
 // KeyValue is an element of a composite literal written with a key,
 // Key: Value. In a struct literal the key is an *Ident naming a field,
 // which the resolver leaves unbound, since a field's name is not looked up
-// among variables. It has no value of its own.
+// among variables. It has no value of its own. Parentheses leave no node
+// behind, so KeyParens records a key written in them, (x): v, which the
+// type checker rejects.
 type KeyValue struct {
-	Key   Expr
-	Value Expr
-	Span  Span // the start of Key through the end of Value
+	Key       Expr
+	Value     Expr
+	Span      Span // the start of Key, its parentheses included, through the end of Value
+	KeyParens bool // the key was written in parentheses
 }
 
 var _ Expr = (*KeyValue)(nil)

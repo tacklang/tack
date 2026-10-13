@@ -343,8 +343,8 @@ which is true today because `main` is the only package there is.
   and field visibility are not supported, and each is an error.
 - Struct literals name every field exactly once, in any order:
   `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
-  field listed twice, a field the struct does not have, and a field left
-  out are each an error. Each value is used as its field's type, under the
+  field listed twice, a field the struct does not have, a field name in
+  parentheses, `Point{(x): 1}`, and a field left out are each an error. Each value is used as its field's type, under the
   usual rules: a constant takes it, and a narrower integer widens to it.
   Literals nest, `Line{a: Point{x: 1, y: 2}, b: p}`, and inside an array
   literal a struct literal may leave out its type like an array literal

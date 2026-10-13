@@ -375,6 +375,20 @@ var structErrorCases = []struct {
 		[]spanned{{"invalid field name in Point literal", "\"x\""}},
 	},
 	{
+		"key in parentheses", withTypes(pointDecls, "p := Point{(x): 1, y: 2}", "exit(p.x)"),
+		[]spanned{{"invalid field name in Point literal", "x"}},
+	},
+	{
+		"key in two pairs of parentheses",
+		withTypes(pointDecls, "p := Point{x: 1, ((y)): 2}", "exit(p.x)"),
+		[]spanned{{"invalid field name in Point literal", "y"}},
+	},
+	{
+		"key in parentheses in an array of structs",
+		withTypes(pointDecls, "a := [1]Point{{(x): 1, y: 2}}", "exit(a[0].x)"),
+		[]spanned{{"invalid field name in Point literal", "x"}},
+	},
+	{
 		"field of the wrong type", withTypes(pointDecls, "p := Point{x: true, y: 2}", "exit(p.x)"),
 		[]spanned{{"cannot use bool as int64 in field x of Point literal", "true"}},
 	},
