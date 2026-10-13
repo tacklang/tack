@@ -194,6 +194,10 @@ which is true today because `main` is the only package there is.
   statement, or inside an expression, argument list or array literal that
   spans lines. They mean the same as the newline that ends them. Block
   comments, `/* ... */`, are not supported.
+- `asm` is a keyword with no meaning yet: everything after it up to the
+  next `}` is skipped unread, and an `asm` with no `}` after it is an error,
+  `unterminated asm block`. No statement or declaration starts with `asm`,
+  so any use of it is still rejected.
 - A `func main()` is required. It takes no parameters and declares no result.
 - Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,

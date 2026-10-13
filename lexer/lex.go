@@ -250,7 +250,7 @@ func (l *Lexer) handleIdent() bool {
 	if kw, ok := LookupKeyword(v); ok {
 		l.addToken(Keyword, kw, start, l.pos)
 		if kw == ASM {
-			l.handleASM()
+			l.handleASM(start)
 		}
 	} else {
 		l.addToken(Ident, v, start, l.pos)
@@ -259,10 +259,12 @@ func (l *Lexer) handleIdent() bool {
 	return true
 }
 
-// handleASM skips the body of an asm block, stopping at its closing brace so
-// that the brace is lexed as an ordinary token. The lines the body spans are
-// still recorded, so later positions stay correct.
-func (l *Lexer) handleASM() {
+// handleASM skips the body of an asm block, whose keyword starts at start,
+// stopping at its closing brace so that the brace is lexed as an ordinary
+// token. The lines the body spans are still recorded, so later positions
+// stay correct. A block with no closing brace runs to the end of the input
+// and is reported as unterminated, from its keyword to that end.
+func (l *Lexer) handleASM(start int) {
 	for l.pos < len(l.file.Data) {
 		switch l.file.Data[l.pos] {
 		case '}':
@@ -272,6 +274,7 @@ func (l *Lexer) handleASM() {
 		}
 		l.pos++
 	}
+	l.diag("unterminated asm block", start, l.pos)
 }
 
 // handleString lexes a double-quoted or backquoted string. It reports

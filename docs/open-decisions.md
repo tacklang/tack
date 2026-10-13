@@ -33,9 +33,9 @@ order means the backend evaluates operands into temporaries first.
 ## The `asm` keyword
 
 `asm` is a keyword, and the lexer skips everything after it up to the next
-`}` without tokenizing it. An `asm` with no `}` swallows the rest of the file
-without a diagnostic. Nothing past the lexer handles it. Is `asm` part of the
-language, and if so, what is its syntax?
+`}` without tokenizing it; one with no `}` is an error. Nothing past the
+lexer handles it. Is `asm` part of the language, and if so, what is its
+syntax?
 
 ## Block comments
 

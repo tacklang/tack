@@ -746,6 +746,14 @@ var diagnosticCases = []struct {
 	{"lexing goes on after a block comment", "/* c */ @", []string{
 		"block comments are not supported", "invalid character @",
 	}},
+	{"unterminated asm", "asm { mov", []string{"unterminated asm block"}},
+	{"asm at end of input", "asm", []string{"unterminated asm block"}},
+	{
+		"asm over lines with no brace",
+		"func f() {\n    asm {\n        mov\n",
+		[]string{"unterminated asm block"},
+	},
+	{"terminated asm", "asm { mov }", nil},
 }
 
 // TestDiagnostics pins which inputs are errors, what each error says, and

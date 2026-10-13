@@ -47,5 +47,5 @@
 // Block comments ("/* ... */") are not supported: one is reported and
 // skipped. The body of an asm block is skipped up to the next "}" without
 // being tokenized, and an asm block with no "}" runs to the end of the input
-// without a diagnostic.
+// and is reported as unterminated, from its keyword to the end.
 package lexer
