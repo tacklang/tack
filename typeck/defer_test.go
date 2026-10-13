@@ -1,6 +1,10 @@
 package typeck_test
 
-import "testing"
+import (
+	"slices"
+	"strings"
+	"testing"
+)
 
 // acceptedDefers must check cleanly: deferred statements of every kind,
 // loops inside deferred blocks that break and continue on their own, and
@@ -220,7 +224,7 @@ var rejectedDefers = []struct {
 		[]switchError{{deferInDefer, "defer"}},
 	},
 	{
-		"every defer in a deferred block, at every depth",
+		"every outermost defer in a deferred block",
 		inF(
 			"defer {",
 			"    defer {",
@@ -232,7 +236,7 @@ var rejectedDefers = []struct {
 			"}",
 			"return 0",
 		),
-		[]switchError{{deferInDefer, "defer"}, {deferInDefer, "defer"}, {deferInDefer, "defer"}},
+		[]switchError{{deferInDefer, "defer"}, {deferInDefer, "defer"}},
 	},
 	{
 		"a rejected defer's block is still checked",
@@ -337,5 +341,100 @@ func TestDeferIsNotATerminatingStatement(t *testing.T) {
 	_, diags := checkTree(t, inF("defer { report() }"))
 	if len(diags) != 1 || diags[0].Message != "f must end in a return" {
 		t.Errorf("got %v, want only %q", diags, "f must end in a return")
+	}
+}
+
+// outermostDefers pair sources with the defers, by their order among every
+// defer keyword in the source counting from 0, that must each be reported
+// as a defer inside a defer, and with any other messages expected too.
+var outermostDefers = []struct {
+	name   string
+	src    string
+	defers []int
+	others []string
+}{
+	{
+		"three deep reports only the middle",
+		inF("defer {", "    defer {", "        defer {", "        }", "    }", "}", "return 0"),
+		[]int{1},
+		nil,
+	},
+	{
+		"siblings are each reported",
+		inF("defer {", "    defer { report() }", "    defer { report() }", "}", "return 0"),
+		[]int{1, 2},
+		nil,
+	},
+	{
+		"a chain in a loop in a defer reports one",
+		inF(
+			"defer {",
+			"    for range 2 {",
+			"        defer {",
+			"            defer {",
+			"                defer {",
+			"                }",
+			"            }",
+			"        }",
+			"    }",
+			"}",
+			"return 0",
+		),
+		[]int{1},
+		nil,
+	},
+	{
+		"other errors in a suppressed region are still reported",
+		inF(
+			"mut x := 1",
+			"defer {",
+			"    defer {",
+			"        defer {",
+			"            x = s",
+			"        }",
+			"    }",
+			"}",
+			"return x",
+		),
+		[]int{1},
+		[]string{"cannot use string as int64 in assignment to x"},
+	},
+}
+
+// TestReportsOnlyOutermostDeferInDefer checks a defer inside deferred code
+// is reported, but no defer inside the reported one's block is.
+func TestReportsOnlyOutermostDeferInDefer(t *testing.T) {
+	for _, tt := range outermostDefers {
+		t.Run(tt.name, func(t *testing.T) {
+			var starts []int
+			for off := 0; ; {
+				i := strings.Index(tt.src[off:], "defer")
+				if i < 0 {
+					break
+				}
+				starts = append(starts, off+i)
+				off += i + len("defer")
+			}
+			_, diags := checkTree(t, tt.src)
+			var got []int
+			var others []string
+			for _, d := range diags {
+				if d.Message != deferInDefer {
+					others = append(others, d.Message)
+					continue
+				}
+				got = append(got, slices.Index(starts, d.Span.Start))
+			}
+			if !slices.Equal(got, tt.defers) || !slices.Equal(others, tt.others) {
+				t.Errorf(
+					"got defers %v and %q, want %v and %q (%v)",
+					got,
+					others,
+					tt.defers,
+					tt.others,
+					diags,
+				)
+			}
+		})
 	}
 }

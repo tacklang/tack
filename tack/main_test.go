@@ -1103,3 +1103,20 @@ func TestBuiltDeferLoopsExits42(t *testing.T) {
 		t.Errorf("defer-loops exited with %v, want status 42", err)
 	}
 }
+
+// TestDeepDeferNestingReportsOnce checks a long chain of nested defers is
+// reported once, at the second defer, not once per nested defer.
+func TestDeepDeferNestingReportsOnce(t *testing.T) {
+	src := "package main\nfunc main() {\n" + strings.Repeat("defer {\nprint(\"x\")\n", 500) +
+		strings.Repeat("}\n", 501)
+	r := runTack(t, "--emit", writeSource(t, []byte(src)))
+	if r.code != exitFailure {
+		t.Fatalf("exit code = %d, want %d", r.code, exitFailure)
+	}
+	if n := strings.Count(r.stderr, "cannot defer inside a defer"); n != 1 {
+		t.Errorf("got %d diagnostics, want 1:\n%s", n, r.stderr)
+	}
+	if !strings.Contains(r.stderr, "main.tck:5:1:") {
+		t.Errorf("diagnostic is not at the second defer:\n%s", r.stderr)
+	}
+}

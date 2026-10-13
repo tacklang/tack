@@ -54,6 +54,11 @@ type Checker struct {
 	// deferred code.
 	deferred   int
 	deferLoops int
+
+	// inRejectedDefer is whether the statement being checked is inside a
+	// defer already reported as a defer inside a defer, where a further
+	// nested defer is not reported again.
+	inRejectedDefer bool
 }
 
 // New returns a Checker for file, which must already have been resolved.

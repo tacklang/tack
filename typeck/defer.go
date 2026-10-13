@@ -6,9 +6,10 @@ import "github.com/tacklang/tack/ast"
 // defer is written. No return may appear anywhere in it, and no break or
 // continue aimed at a loop outside it: control never leaves deferred code
 // except by reaching its end. A loop inside it may break and continue as
-// usual. No defer may appear anywhere in it either: each one that does is
-// reported at its keyword, and its block is still checked, as deferred
-// code, for errors of its own.
+// usual. No defer may appear anywhere in it either: each outermost one
+// that does is reported at its keyword, and its block is still checked, as
+// deferred code, for errors of its own, except that a defer inside it, at
+// any depth, is not reported again.
 //
 // It is checked with the facts in force at the defer, though it runs
 // later, when the defer's block is left. Each of those facts holds there
@@ -21,10 +22,12 @@ import "github.com/tacklang/tack/ast"
 // or an immutable global. So a fact true at the defer is still true when
 // the deferred code runs.
 func (c *Checker) checkDefer(d *ast.Defer, fn *ast.Func) {
-	if c.deferred > 0 {
+	outerRejected := c.inRejectedDefer
+	if c.deferred > 0 && !c.inRejectedDefer {
 		keyword := d.Span
 		keyword.End = keyword.Start + len("defer")
 		c.errorf(keyword, "cannot defer inside a defer")
+		c.inRejectedDefer = true
 	}
 	outerLoops := c.deferLoops
 	c.deferred++
@@ -32,4 +35,5 @@ func (c *Checker) checkDefer(d *ast.Defer, fn *ast.Func) {
 	c.checkBlock(d.Body, fn)
 	c.deferred--
 	c.deferLoops = outerLoops
+	c.inRejectedDefer = outerRejected
 }

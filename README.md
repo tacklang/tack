@@ -254,8 +254,9 @@ which is true today because `main` is the only package there is.
   evaluates everything when it runs, and the braces show that. The block
   may hold anything but a way out of it or another defer: a `return`
   anywhere in deferred code, a `break` or `continue` aimed at a loop
-  outside it, and a `defer` at any depth in it are errors, while a loop
-  inside the block breaks and continues as usual. The deferred block is
+  outside it, and a `defer` at any depth in it are errors (only the
+  outermost such `defer` is reported), while a loop inside the block
+  breaks and continues as usual. The deferred block is
   evaluated when it runs, not when the defer is reached, unlike Go, which
   evaluates a deferred call's arguments at the defer: it reads every
   variable as it is then. It sees
