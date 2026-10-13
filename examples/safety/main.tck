@@ -114,6 +114,13 @@ func knownConversions() {
     check("known value converts", small == 5 && letter == 97)
 }
 
+func knownString() {
+    word := "tack"
+    same := word
+    last := same[len(same) - 1]     // last == 'k'
+    check("known string length", last == 'k' && len(same) == 4)
+}
+
 func zeroValues() {
     mut i int64 = 3
     words := [2]string{"a", "b"}
@@ -170,6 +177,7 @@ func main() {
     checkedByte()
     checkedConversion()
     knownConversions()
+    knownString()
     zeroValues()
     forms()
 }

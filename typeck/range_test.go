@@ -425,7 +425,7 @@ var unprovenRangeIndexCases = []struct {
 	},
 	{
 		"string variable indexes an array",
-		indexing("w := \"abc\"", "for k := range w {", "    return a[k]", "}"),
+		indexing("mut w := \"abc\"", "for k := range w {", "    return a[k]", "}"),
 		spanned{
 			"index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]",
 			"k",

@@ -29,8 +29,9 @@ import (
 //     and comparisons of a variable with a known value: b != 0, i >= 0,
 //     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
 //     one is never negative;
-//   - the length of a string variable has no known value, so two more
-//     comparisons give facts: len(s) with a known value bounds the length,
+//   - the length of a string parameter or mutable variable has no known
+//     value (an immutable one holding a known string has; see
+//     knownString), so two more comparisons give facts: len(s) with a known value bounds the length,
 //     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
 //     over len(s), or over s itself, does its index. A fact that names s
 //     holds only in a region that assigns neither variable; s may be
@@ -136,10 +137,10 @@ func typeBounds(typ types.Type) (lo, hi constant.Int) {
 }
 
 // knownValue returns the value of e when the checker knows it: a constant
-// expression, len of an array or a string literal, an immutable variable
-// initialized with one, at package level or in a function, or arithmetic
-// on known values whose exact result is a value of its type, as in
-// len(a) - 1.
+// expression, len of an array or of a known string (see knownString), an
+// immutable variable initialized with one, at package level or in a
+// function, or arithmetic on known values whose exact result is a value of
+// its type, as in len(a) - 1.
 func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	if v, ok := constValue(e); ok {
 		return v, true
@@ -147,6 +148,8 @@ func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	switch x := e.(type) {
 	case *ast.Binary:
 		return c.knownArithmetic(x)
+	case *ast.Call:
+		return c.knownStringLen(x)
 	case *ast.Unary:
 		v, ok := c.knownValue(x.X)
 		if !ok || x.Op != ast.Neg {
@@ -185,6 +188,52 @@ func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 		c.knownVars[v] = knownResult{value, known}
 	}
 	return value, known
+}
+
+// knownStringLen returns the length of the string call takes the len of,
+// when call is len(s) and s is a known string. len of a literal is already
+// a constant, recorded on the call; this adds an immutable variable
+// holding one.
+func (c *Checker) knownStringLen(call *ast.Call) (constant.Int, bool) {
+	if !isLen(call) || len(call.Args) != 1 {
+		return constant.Int{}, false
+	}
+	if n, ok := c.knownLen(call.Args[0]); ok {
+		return constant.FromInt64(n), true
+	}
+	return constant.Int{}, false
+}
+
+// knownString returns the value of e when it is a string the checker
+// knows: a literal, or an immutable variable, local or package-level,
+// initialized with a known string. Such a variable always holds that
+// string, since nothing can assign it. A mutable variable, a parameter and
+// a call are never known.
+func (c *Checker) knownString(e ast.Expr) (string, bool) {
+	switch x := e.(type) {
+	case *ast.StrLit:
+		return x.Value, true
+	case *ast.Ident:
+		v, ok := x.Def.(*ast.Var)
+		if !ok || v.Mutable || v.Type != types.String {
+			return "", false
+		}
+		if s, ok := v.Const.(string); ok {
+			return s, true
+		}
+		if v.Value == nil {
+			return "", false
+		}
+		return c.knownString(v.Value)
+	default:
+		return "", false
+	}
+}
+
+// knownLen returns the length of s, in bytes, when s is a known string.
+func (c *Checker) knownLen(s ast.Expr) (int64, bool) {
+	str, ok := c.knownString(s)
+	return int64(len(str)), ok
 }
 
 // knownResult is what knownVar found out about a variable: its value, and

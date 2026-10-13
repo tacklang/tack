@@ -379,7 +379,7 @@ which is true today because `main` is the only package there is.
   gives itself, and the smallest signed value divided by -1 is itself, with
   remainder 0. Only a value the compiler does not know wraps: arithmetic
   whose operands are all known values (a constant, a character literal, an
-  immutable variable holding one, `len` of an array or a string literal,
+  immutable variable holding one, `len` of an array or of a known string,
   or arithmetic on those) must give a value of its type at every step, in
   a function as at package level, or it is an error,
   `constant expression overflows uint8`, covering the step that overflowed.
@@ -414,8 +414,9 @@ which is true today because `main` is the only package there is.
   The conditions that count are `&&` (when true), `||` (when false), `!`, and
   a comparison of the variable with a known value that excludes zero, such
   as `b != 0`, `b > 0`, `b <= -1` or `b == 3`. A known value is a constant,
-  an immutable variable holding one, `len` of an array or a string literal,
-  or arithmetic on those. The variable must be a
+  an immutable variable holding one, `len` of an array or of a known
+  string (a string literal, or an immutable variable holding a known
+  string), or arithmetic on those. The variable must be a
   parameter, a local, or an immutable global, and the region must not assign
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
@@ -432,7 +433,7 @@ which is true today because `main` is the only package there is.
   comparison.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
   constant: a constant expression, an immutable variable holding one, or
-  `len` of an array or a string literal. `[3]int64{1, 2, 3}` is a literal,
+  `len` of an array or of a known string. `[3]int64{1, 2, 3}` is a literal,
   which lists exactly one element for each of the array's, and
   `[...]int64{1, 2, 3}` takes its length from its elements. A literal
   inside another may leave out its type: `[2][2]bool{{true, false},
@@ -466,10 +467,12 @@ which is true today because `main` is the only package there is.
   `v, ok := s[i]` (or `v, ok = s[i]`) reads it otherwise, giving `0` and
   `false` out of range, and is an error where `i` is proven. A string's
   bytes cannot be assigned, even in a `mut` string: `s[0] = 65` is an
-  error, since strings are immutable. A constant index into a string
-  literal is checked at compile time, so `"tack"[1]` is `97` and
-  `"tack"[4]` an error, and a negative constant is always an error. The
-  length of a string variable is not a constant, so a proof names it:
+  error, since strings are immutable. A constant index into a known
+  string, a literal or an immutable variable holding one, is checked at
+  compile time, so `"tack"[1]` is `97`, `"tack"[4]` an error, and after
+  `s := "abc"`, `s[0]` needs no proof and `s[5]` is an error; a negative
+  constant is always an error. The length of any other string variable,
+  a parameter or a `mut` one, is not a constant, so a proof names it:
   `for i := range len(s)` and `for i := range s` prove `s[i]` in the body,
   `if 0 <= i && i < len(s)` in the branch (or, as for arrays, after
   `if i < 0 || i >= len(s) { return }`), and a bound on the length proves a
@@ -482,7 +485,8 @@ which is true today because `main` is the only package there is.
   is intended, not a gap. Convert it first, `i, ok := int64(u)`, and prove
   `i`, or use the two-value form.
 - `len(a)` is the number of elements of an array, a constant, and `len(s)`
-  the number of bytes of a string, a constant for a string literal; either
+  the number of bytes of a string, a known value for a string literal or an
+  immutable variable holding a known string; either
   is an `int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a

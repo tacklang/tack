@@ -96,7 +96,7 @@ conversions from failing at runtime, proofs and the `v, ok :=` form, are in
 | Struct literals `T{f: v}`         | yes   | yes    | yes     | yes     | Every field named once, any order; parenthesized in an `if`/`for`/range header; type left out only inside an array literal                                              |
 | Field selection `x.f`             | yes   | yes    | yes     | yes     | On any struct value; written through a `mut` variable, mixed with indexes to any depth; no facts for proofs                                                             |
 | Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops (over a count or an array), guards and types, or `v, ok := a[i]`                                                           |
-| Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from `len(s)` guards and range loops over `len(s)` or `s`, or `v, ok := s[i]`; never assigned                                                         |
+| Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from a known string's length, `len(s)` guards and range loops over `len(s)` or `s`, or `v, ok := s[i]`; never assigned                               |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail (a constant or known value that fits, or a widening type), otherwise `v, ok := T(x)`                                |
 | Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                                                           |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                                                           |
@@ -126,7 +126,7 @@ conversions from failing at runtime, proofs and the `v, ok :=` form, are in
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline                          |
-| `len(v)`        | yes     | yes | Arrays and strings; constant for arrays and string literals |
+| `len(v)`        | yes     | yes | Arrays and strings; known for arrays, string literals and immutable variables holding a known string |
 | `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit` |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.

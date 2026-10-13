@@ -69,7 +69,7 @@ var stringIndexCases = []struct {
 	{
 		"checked on the empty string",
 		program(
-			"s := \"\"",
+			"mut s := \"\"",
 			"mut i := 0",
 			"v, ok := s[i]",
 			"_, zero := s[0]",

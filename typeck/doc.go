@@ -81,7 +81,7 @@
 //
 // Array types are added to the Table as they are written, so [3]int64
 // written twice is one type. An array's length must be a constant: a
-// constant expression, len of an array or a string literal, an immutable
+// constant expression, len of an array or of a known string, an immutable
 // variable holding one, or arithmetic on those; knownValue computes it. A
 // literal lists exactly one element for each of the array's, none with a
 // key, and a literal inside it may leave out its type, an array's or a
@@ -92,11 +92,14 @@
 // error where one exists.
 //
 // A string is indexed the same way, s[i] giving a uint8, but its length is
-// a constant only for a literal, so the facts also bound a string
-// variable's length (len(s) > 0) and bound a variable by one (i < len(s),
-// or a range loop over len(s) or over s). Such a fact holds only in a region that
-// assigns neither variable, and string.go uses it to prove an index. A
-// constant index into a literal is checked at compile time, a negative one
+// known only for a known string (knownString): a literal, or an immutable
+// variable, local or package-level, initialized with a known string, which
+// nothing can assign. Any other string's length is not, so the facts also
+// bound a string variable's length (len(s) > 0) and bound a variable by one
+// (i < len(s), or a range loop over len(s) or over s). Such a fact holds
+// only in a region that assigns neither variable, and string.go uses it to
+// prove an index. A constant index into a known string is checked at
+// compile time, a negative one
 // is always out of range, and a string's bytes are never assigned. Two
 // strings compare with all six comparison operators, by their bytes; a
 // comparison of strings is never folded, even of two literals, and gives no

@@ -3155,19 +3155,36 @@ safety-index-write-unguarded/main.tck:5:7: error: index i may be out of range; c
    |	      ^
 06 |	    return a[0]
 
--- safety-known-string-variable/main.tck --
+-- safety-known-string-variable-out-of-range/main.tck --
 package main
 
 func main() {
     s := "abc"
-    exit(s[0])
+    exit(s[5])
 }
--- safety-known-string-variable/expected --
+-- safety-known-string-variable-out-of-range/expected --
 stage: typeck
 ---
 
-safety-known-string-variable/main.tck:5:12: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
+safety-known-string-variable-out-of-range/main.tck:5:12: error: index 5 is out of range for a string of 3 bytes
 04 |	    s := "abc"
+05 |	    exit(s[5])
+   |	           ^
+06 |	}
+
+-- safety-mutable-string-variable/main.tck --
+package main
+
+func main() {
+    mut s := "abc"
+    exit(s[0])
+}
+-- safety-mutable-string-variable/expected --
+stage: typeck
+---
+
+safety-mutable-string-variable/main.tck:5:12: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
+04 |	    mut s := "abc"
 05 |	    exit(s[0])
    |	           ^
 06 |	}

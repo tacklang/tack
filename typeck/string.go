@@ -29,8 +29,9 @@ func (c *Checker) stringElement(ix *ast.Index, idx types.Type) types.Type {
 	return types.Uint8
 }
 
-// literalLen returns the length of s when it is a string literal, the only
-// string whose length is a constant.
+// literalLen returns the length of s when it is a string literal. Advice
+// names a literal's length, and a variable's as len(s) whether or not it is
+// known; proofs use knownLen.
 func literalLen(s ast.Expr) (int64, bool) {
 	lit, ok := s.(*ast.StrLit)
 	if !ok {
@@ -40,18 +41,19 @@ func literalLen(s ast.Expr) (int64, bool) {
 }
 
 // constantOutside reports whether the constant index v is out of range for
-// the string s whatever s holds: it is negative, or s is a literal it is
-// not shorter than.
+// the string s whatever s holds: it is negative, or s is a known string,
+// a literal or an immutable variable holding one, it is not shorter than.
 func (c *Checker) constantOutside(s ast.Expr, v constant.Int) bool {
-	if n, ok := literalLen(s); ok {
+	if n, ok := c.knownLen(s); ok {
 		return !c.constantInRange(v, n)
 	}
 	return v.IsNegative()
 }
 
-// reportOutside reports the constant index v of ix as out of range.
+// reportOutside reports the constant index v of ix as out of range, naming
+// the string's length when it is known.
 func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
-	if n, ok := literalLen(ix.X); ok {
+	if n, ok := c.knownLen(ix.X); ok {
 		c.errorf(ix.Index.Spanned(), "index %s is out of range for a string of %d %s",
 			v, n, plural(int(n), "byte"))
 		return
@@ -60,13 +62,13 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 }
 
 // stringIndexProven reports whether the index of s[i] is known to be in
-// range for the string s where it is used: a constant below a literal's
-// length, or below the least length the facts in force give s; or a
-// variable at least 0 that is below a literal's length, below the least
-// length of s, or below len(s) itself by a fact.
+// range for the string s where it is used: a constant below a known
+// string's length, or below the least length the facts in force give s; or
+// a variable at least 0 that is below a known string's length, below the
+// least length of s, or below len(s) itself by a fact.
 func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 	if v, ok := c.knownValue(ix.Index); ok {
-		if n, isLit := literalLen(ix.X); isLit {
+		if n, isKnown := c.knownLen(ix.X); isKnown {
 			return c.constantInRange(v, n)
 		}
 		return !v.IsNegative() && v.Cmp(c.minLen(ix.X)) < 0
@@ -83,10 +85,11 @@ func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 }
 
 // belowStringLen reports whether the variable id names, of which known is
-// what the facts say, is below the length of the string s: a literal's
-// constant length, the least length the facts give s, or len(s) itself.
+// what the facts say, is below the length of the string s: a known
+// string's constant length, the least length the facts give s, or len(s)
+// itself.
 func (c *Checker) belowStringLen(id *ast.Ident, known interval, s ast.Expr) bool {
-	if n, isLit := literalLen(s); isLit {
+	if n, isKnown := c.knownLen(s); isKnown {
 		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0
 	}
 	if known.hasHi && known.hi.Cmp(c.minLen(s)) < 0 {

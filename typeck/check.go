@@ -405,7 +405,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // rangeFacts returns what a range loop's body knows about its index
 // variable, a range over a value of type got: it is at least 0, and below
 // the count or the length when that is known. A count's is known when it is
-// a known value, an array's always, and a string's when it is a literal.
+// a known value, an array's always, and a string's when it is a known
+// string, a literal or an immutable variable holding one.
 // When the count is len(s) of a string variable, or the loop ranges over a
 // string variable s, the index is below len(s) instead, which assume keeps
 // only while the body never assigns s; s then still holds the string the
@@ -425,7 +426,7 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	case c.table.IsArray(got):
 		f.hi, f.hasHi = constant.FromInt64(c.table.Len(got)).Sub(one)
 	case got == types.String:
-		if n, ok := literalLen(loop.X); ok {
+		if n, ok := c.knownLen(loop.X); ok {
 			f.hi, f.hasHi = constant.FromInt64(n).Sub(one)
 		}
 		f.lenOf, _ = c.stringVar(loop.X)

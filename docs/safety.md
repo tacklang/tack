@@ -94,7 +94,7 @@ The details:
   |-------------|---------------------------------------------------------------|------------------------------------------------------------|
   | division    | the divisor is a known value or proven not zero, or both operands are untyped constants | <!-- error: checked-division-cannot-fail -->`the divisor cannot be zero here; drop the ok` |
   | array index | the index is a known value, or proven in range                | <!-- error: checked-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
-  | string index| the index is proven in range, a constant into a literal included | <!-- error: safety-checked-string-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
+  | string index| the index is proven in range, a constant into a known string included | <!-- error: safety-checked-string-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
   | conversion  | the operand is an untyped constant                            | <!-- error: safety-checked-conversion-constant -->`a constant needs no ok to convert; use uint8(...)` |
   | conversion  | the operand is a known value that fits, as `x` after `x := 5` | <!-- error: safety-checked-conversion-known-value -->`a constant needs no ok to convert; use uint8(...)` |
   | conversion  | the operand's type widens to `T`                              | <!-- error: safety-checked-conversion-widens -->`converting uint8 to int64 cannot fail; use int64(...)` |
@@ -122,7 +122,7 @@ The details:
 |------------------|--------------------------------------------------------------------------------------------------|
 | `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                       |
 | `a[i]` on `[n]T` | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                           |
-| `s[i]`           | `0 <= i` and `i` below the length of `s`: a literal's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
+| `s[i]`           | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
 
 A proof is about a **plain name**, the divisor or index written as a
 variable or parameter. Anything else, such as `b + 1`, `i + 1`, `-i` or a
@@ -137,16 +137,26 @@ knows the value of:
 
 - a constant expression: literals and operators on them;
 - a character literal, such as `'a'`;
-- `len` of an array, and `len` of a string literal;
+- `len` of an array, and `len` of a known string: a string literal, or an
+  immutable variable, local or package-level, initialized with a known
+  string;
 - an immutable variable, local or package-level, whose initializer is a
   known value, as in `last := len(a) - 1` or `var k int64 = 1`;
 - arithmetic on known values, such as `len(a) - 1`.
 
 A mutable variable, a parameter and a call never have a known value, and
-neither does `len` of a string variable, even an immutable one initialized
-with a literal:
-after <!-- case: safety-known-string-variable -->`s := "abc"`, `s[0]` still
-needs a proof.
+neither does `len` of a mutable string variable, even one initialized with
+a literal:
+after <!-- case: safety-mutable-string-variable -->`mut s := "abc"`, `s[0]`
+still needs a proof. An immutable one is known, so its bytes are indexed
+as a literal's are:
+
+<!-- example: safety -->
+```tack
+word := "tack"
+same := word
+last := same[len(same) - 1]     // last == 'k'
+```
 
 ### Facts, and what gives them
 
@@ -185,7 +195,7 @@ A range loop's index is at least 0 and at most its count less one, when the
 count is a known value, or the length of the array it ranges over less one,
 so it proves an index into any array at least as long.
 `for i := range len(s)` and `for i := range s` over a string variable bound
-`i` by `len(s)`; over a string literal, by its length. A three-clause loop
+`i` by `len(s)`; over a known string, by its length. A three-clause loop
 gives only what its condition says:
 in <!-- case: safety-three-clause-loop -->`for mut i := 0; i < 3; i++` the
 body knows `i < 3` but not `i >= 0`, so `a[i]` needs `0 <= i && i < 3` in
@@ -465,10 +475,12 @@ mut i int64 = 9
 v, ok := s[i]       // v == 0, ok == false
 ```
 
-A constant index into a string literal is checked at compile time:
+A constant index into a known string is checked at compile time:
 `"tack"[1]` is `97`, `"tack"[4]`
 is <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`,
-and a negative constant is always an
+and after `s := "abc"`, `s[5]`
+is <!-- error: safety-known-string-variable-out-of-range -->`index 5 is out of range for a string of 3 bytes`.
+A negative constant is always an
 error, <!-- error: string-index-negative -->`index -1 is out of range for a string`.
 
 Writing a byte, even of a `mut` string,
@@ -539,7 +551,7 @@ failure it can see from known values:
 | known zero divisor                        | `a / 0`                               | <!-- error: safety-div-known-zero -->`division by zero` |
 | zero divisor between untyped constants    | `x := 1 / 0`                          | <!-- error: safety-div-constant-zero -->`division by zero in constant expression` |
 | known index out of range, array           | `a[3]` on `[3]int64`                  | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64` |
-| known index out of range, string literal  | `"tack"[4]`                           | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
+| known index out of range, known string   | `"tack"[4]`, `s[5]` after `s := "abc"` | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
 | negative known index, any string          | `s[-1]`                               | <!-- error: string-index-negative -->`index -1 is out of range for a string` |
 | constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300` | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
 | arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
