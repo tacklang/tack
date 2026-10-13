@@ -48,6 +48,9 @@ func (g *generator) comparesStrings(compared map[types.Type]bool) bool {
 			ast.TypeOf(bin.X) == types.String {
 			found = true
 		}
+		if typ, ok := switchCompares(n); ok && typ == types.String {
+			found = true
+		}
 		return !found
 	})
 	return found

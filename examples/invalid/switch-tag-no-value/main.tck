@@ -1,0 +1,9 @@
+package main
+
+func report() {
+}
+
+func main() {
+    switch report() {
+    }
+}

@@ -1,0 +1,12 @@
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    switch Point{x: 1} {
+    case Point{x: 1}:
+        exit(1)
+    }
+}

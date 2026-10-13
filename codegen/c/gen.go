@@ -513,6 +513,9 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.ForRange:
 		return g.generateForRange(x, fn)
 
+	case *ast.Switch:
+		return g.generateSwitch(x, fn)
+
 	case *ast.Break:
 		return []string{"break;"}, nil
 

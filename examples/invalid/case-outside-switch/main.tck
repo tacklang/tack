@@ -1,0 +1,6 @@
+package main
+
+func main() {
+    case 1:
+        exit(1)
+}

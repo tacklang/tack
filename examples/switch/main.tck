@@ -1,0 +1,386 @@
+package main
+
+// Point is a struct tag, compared field by field.
+type Point struct {
+    x int64
+    y int64
+}
+
+// tagCalls and valueCalls count the calls to tag and value, so the test
+// can tell how often a tag and a case value are evaluated.
+mut tagCalls int64
+mut valueCalls int64
+
+// tag returns n, counting the call.
+func tag(n int64) int64 {
+    tagCalls++
+    return n
+}
+
+// value returns n, counting the call.
+func value(n int64) int64 {
+    valueCalls++
+    return n
+}
+
+// classify has a multi-value case and its default in the middle, tried
+// last. Every case returns and there is a default, so the switch is a
+// terminating statement and the function needs no return after it.
+func classify(n int64) int64 {
+    switch n {
+    case 1, 2, 3:
+        return 10
+    default:
+        return 99
+    case 4:
+        return 40
+    case 5, 6:
+        return 50
+    }
+}
+
+// sign is a tagless switch: the first true condition wins.
+func sign(n int64) int64 {
+    switch {
+    case n < 0:
+        return -1
+    case n == 0:
+        return 0
+    default:
+        return 1
+    }
+}
+
+// word switches on a string, by its bytes.
+func word(s string) int64 {
+    switch s {
+    case "":
+        return 0
+    case "one", "uno":
+        return 1
+    case "two":
+        return 2
+    }
+    return -1
+}
+
+// where switches on a struct; a case value may be a struct literal.
+func where(p Point) int64 {
+    switch p {
+    case Point{x: 0, y: 0}:
+        return 0
+    case Point{x: 1, y: 0}, Point{x: 0, y: 1}:
+        return 1
+    }
+    return 2
+}
+
+// grid nests switches of both forms.
+func grid(a int64, b int64) int64 {
+    switch a {
+    case 0:
+        switch b {
+        case 0:
+            return 0
+        default:
+            return 1
+        }
+    default:
+        switch {
+        case b == 0:
+            return 2
+        }
+    }
+    return 3
+}
+
+// firstOver leaves a for with no condition through a break inside a
+// switch, which acts on the loop.
+func firstOver(limit int64) int64 {
+    mut n := 0
+    for {
+        n++
+        switch {
+        case n > limit:
+            break
+        }
+    }
+    return n
+}
+
+// safeDiv divides in the default, which sees b == 0 false.
+func safeDiv(a int64, b int64) int64 {
+    switch {
+    case b == 0:
+        return 0
+    default:
+        return a / b
+    }
+}
+
+// pick indexes a in cases that see the earlier conditions false: past
+// i < 0, i >= 4, i is in range.
+func pick(a [4]int64, i int64) int64 {
+    switch {
+    case i < 0, i >= 4:
+        return -1
+    case i == 0:
+        return a[i] + 100
+    default:
+        return a[i]
+    }
+}
+
+// after divides after a switch whose first case returns, which proves
+// d != 0 for the statements that follow it, as an if would.
+func after(n int64, d int64) int64 {
+    switch {
+    case d == 0:
+        return 0
+    case n < 0:
+        print("")
+    }
+    return n / d
+}
+
+// exprProof divides in the default of a switch on the divisor itself,
+// which sees d == 0 false.
+func exprProof(d int64) int64 {
+    switch d {
+    case 0:
+        return 0
+    default:
+        return 100 / d
+    }
+}
+
+// exprIndex indexes a in a case that proves i == 2.
+func exprIndex(a [3]int64, i int64) int64 {
+    switch i {
+    case 2:
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    // Multi-value cases, and a default in the middle tried last.
+    if classify(1) != 10 || classify(3) != 10 || classify(4) != 40 || classify(6) != 50 {
+        exit(1)
+    }
+    if classify(0) != 99 || classify(7) != 99 || classify(-1) != 99 {
+        exit(2)
+    }
+
+    // A tagless switch.
+    if sign(-5) != -1 || sign(0) != 0 || sign(9) != 1 {
+        exit(3)
+    }
+    if sign(-9223372036854775808) != -1 || sign(9223372036854775807) != 1 {
+        exit(4)
+    }
+
+    // String and struct tags.
+    if word("") != 0 || word("one") != 1 || word("uno") != 1 || word("two") != 2 {
+        exit(5)
+    }
+    if word("on") != -1 || word("one ") != -1 || word("three") != -1 {
+        exit(6)
+    }
+    if where(Point{x: 0, y: 0}) != 0 || where(Point{x: 1, y: 0}) != 1 {
+        exit(7)
+    }
+    if where(Point{x: 0, y: 1}) != 1 || where(Point{x: 1, y: 1}) != 2 {
+        exit(8)
+    }
+
+    // The tag is evaluated exactly once, whichever case matches, none
+    // included, and with no cases at all.
+    mut hit := 0
+    switch tag(3) {
+    case 1:
+        hit = 1
+    case 2:
+        hit = 2
+    case 3:
+        hit = 3
+    }
+    if tagCalls != 1 || hit != 3 {
+        exit(9)
+    }
+    switch tag(7) {
+    case 1, 2:
+        hit = 0
+    }
+    switch tag(7) {
+    }
+    switch tag(7) {
+    default:
+        hit = 4
+    }
+    if tagCalls != 4 || hit != 4 {
+        exit(10)
+    }
+
+    // Case values are tried top to bottom, left to right, and the first
+    // match stops the rest from being evaluated.
+    switch 2 {
+    case value(1), value(2), value(3):
+        hit = 5
+    case value(2):
+        hit = 6
+    }
+    if valueCalls != 2 || hit != 5 {
+        exit(11)
+    }
+    valueCalls = 0
+    switch {
+    case value(1) == 2:
+        hit = 7
+    case value(2) == 2, value(3) == 3:
+        hit = 8
+    default:
+        hit = 9
+    }
+    if valueCalls != 2 || hit != 8 {
+        exit(12)
+    }
+
+    // A matched default runs after every case value is tried.
+    valueCalls = 0
+    switch 9 {
+    default:
+        hit = 10
+    case value(1), value(2):
+        hit = 11
+    }
+    if valueCalls != 2 || hit != 10 {
+        exit(13)
+    }
+
+    // break and continue in a switch act on the enclosing loop.
+    mut sum := 0
+    for i := range 10 {
+        switch {
+        case i == 2:
+            continue
+        case i == 6:
+            break
+        }
+        sum += i
+    }
+    if sum != 13 {
+        exit(14)
+    }
+    mut n := 0
+    for n < 100 {
+        n++
+        switch n {
+        case 3:
+            continue
+        case 5:
+            break
+        }
+        sum++
+    }
+    if n != 5 || sum != 16 {
+        exit(15)
+    }
+    if firstOver(4) != 5 {
+        exit(16)
+    }
+
+    // Nested switches.
+    if grid(0, 0) != 0 || grid(0, 5) != 1 || grid(1, 0) != 2 || grid(1, 1) != 3 {
+        exit(17)
+    }
+
+    // A switch in a range loop.
+    words := [6]string{"one", "two", "uno", "three", "", "two"}
+    mut total := 0
+    for _, w := range words {
+        switch word(w) {
+        case 1:
+            total += 1
+        case 2:
+            total += 10
+        case -1:
+            total += 100
+        }
+    }
+    if total != 122 {
+        exit(18)
+    }
+
+    // Proofs from cases.
+    if safeDiv(7, 0) != 0 || safeDiv(7, 2) != 3 || safeDiv(-9223372036854775808, -1) != -9223372036854775808 {
+        exit(19)
+    }
+    a := [4]int64{5, 6, 7, 8}
+    if pick(a, -1) != -1 || pick(a, 4) != -1 || pick(a, 0) != 105 || pick(a, 3) != 8 {
+        exit(20)
+    }
+    if after(9, 0) != 0 || after(9, 3) != 3 || after(-9, 3) != -3 {
+        exit(21)
+    }
+    if exprProof(0) != 0 || exprProof(7) != 14 {
+        exit(22)
+    }
+    if exprIndex([3]int64{1, 2, 3}, 2) != 3 || exprIndex([3]int64{1, 2, 3}, 1) != -1 {
+        exit(23)
+    }
+
+    // Each case body is a block of its own, so the same name can be
+    // declared in two of them; an empty case body does nothing.
+    switch hit {
+    case 10:
+        x := 1
+        sum += x
+    case 11:
+    default:
+        x := 2
+        sum += x
+    }
+    if sum != 17 {
+        exit(24)
+    }
+
+    // Bool, array and narrow integer tags, and a case value of a narrower
+    // type than the tag.
+    b := sum > 0
+    switch b {
+    case false:
+        exit(25)
+    case true:
+        hit = 12
+    }
+    arr := [2]int64{1, 2}
+    switch arr {
+    case [2]int64{2, 1}:
+        exit(26)
+    case [2]int64{1, 2}:
+        hit++
+    }
+    c := "tack"[1]
+    switch c {
+    case 'a':
+        hit++
+    case 98:
+        exit(27)
+    }
+    var small int8 = -128
+    switch 0 - 128 {
+    case small:
+        hit++
+    }
+    var big uint8 = 255
+    switch big {
+    case 255:
+        hit++
+    }
+    if hit != 16 {
+        exit(28)
+    }
+
+    exit(42)
+}

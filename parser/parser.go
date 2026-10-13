@@ -545,6 +545,8 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 			return p.parseForRange()
 		}
 		return p.parseFor()
+	case lexer.Switch:
+		return p.parseSwitch()
 	case lexer.Break:
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
 	case lexer.Continue:
@@ -1133,7 +1135,7 @@ func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
 	}
 	stmt.Cond = cond
 
-	if diags := p.headerLit(); diags != nil {
+	if diags := p.headerLit("an if, for or range"); diags != nil {
 		return nil, diags
 	}
 	then, thenDiags := p.parseBlock()
@@ -1183,6 +1185,133 @@ func (p *Parser) parseElse() (els []ast.Stmt, terminated bool, diags []diag.Diag
 	return block, false, nil
 }
 
+// parseSwitch parses a switch: the keyword, an optional tag, and the
+// cases in braces. With no tag, the body's brace comes straight after the
+// keyword. As in an if header, a name followed by a brace in the tag is
+// the tag and then the body, never a struct literal. There is no init
+// statement, as an if has none.
+func (p *Parser) parseSwitch() (*ast.Switch, []diag.Diagnostic) {
+	tk := p.next() // the switch keyword
+
+	stmt := &ast.Switch{Span: p.span(tk), Cases: make([]*ast.CaseClause, 0)}
+
+	if p.peek().Kind() != lexer.LCurl {
+		restore := p.allowLits(false)
+		tag, diags := p.parseExpr(1)
+		restore()
+		if tag == nil {
+			return nil, diags
+		}
+		stmt.Tag = tag
+		if diags := p.headerLit("a switch"); diags != nil {
+			return nil, diags
+		}
+	}
+
+	if diags := p.parseCases(stmt); diags != nil {
+		return nil, diags
+	}
+	stmt.Span.End = p.peekPrev().OffsetEnd()
+
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+	return stmt, nil
+}
+
+// parseCases parses a switch's body into stmt.Cases: an opening brace,
+// any number of case clauses, and the closing brace. A second default is
+// reported, with a note pointing at the first.
+func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
+	if ok, diags := p.expect(lexer.LCurl); !ok {
+		return diags
+	}
+
+	var first *ast.CaseClause
+	for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
+		cl, diags := p.parseCaseClause()
+		if cl == nil {
+			return diags
+		}
+		if cl.Default && first != nil {
+			return []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "multiple defaults in switch",
+				Span:     cl.Span,
+				Related: []diag.Diagnostic{{
+					Severity: diag.Note,
+					Message:  "first default here",
+					Span:     first.Span,
+				}},
+			}}
+		}
+		if cl.Default {
+			first = cl
+		}
+		stmt.Cases = append(stmt.Cases, cl)
+	}
+
+	if ok, diags := p.expect(lexer.RCurl); !ok {
+		return diags
+	}
+	return nil
+}
+
+// parseCaseClause parses one clause of a switch: case, one or more values
+// separated by commas, and a colon, or default and a colon; then the
+// statements of its body, up to the next case, default or closing brace.
+func (p *Parser) parseCaseClause() (*ast.CaseClause, []diag.Diagnostic) {
+	tk := p.peek()
+	if !isKeyword(tk, lexer.Case) && !isKeyword(tk, lexer.Default) {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("case or default", tk)}
+	}
+	p.next()
+
+	cl := &ast.CaseClause{
+		Span:    p.span(tk),
+		Default: tk.Value() == lexer.Default,
+		Body:    make([]ast.Stmt, 0),
+	}
+	for !cl.Default {
+		value, diags := p.parseExpr(1)
+		if value == nil {
+			return nil, diags
+		}
+		cl.Values = append(cl.Values, value)
+		if p.peek().Kind() != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	if ok, diags := p.expect(lexer.Colon); !ok {
+		return nil, diags
+	}
+	cl.Span.End = p.peekPrev().OffsetEnd()
+
+	for !p.atClauseEnd() {
+		stmt, diags := p.parseStmt()
+		if stmt == nil {
+			return nil, diags
+		}
+		cl.Body = append(cl.Body, stmt)
+	}
+	return cl, nil
+}
+
+// atClauseEnd reports whether the next token ends a case clause's body:
+// the next case or default, the switch's closing brace, or the end of the
+// file, which the closing brace's check then reports.
+func (p *Parser) atClauseEnd() bool {
+	tk := p.peek()
+	return tk.Kind() == lexer.RCurl || tk.Kind() == lexer.EOF ||
+		isKeyword(tk, lexer.Case) || isKeyword(tk, lexer.Default)
+}
+
+// isKeyword reports whether tk is the keyword kw.
+func isKeyword(tk *lexer.Token, kw lexer.KeywordType) bool {
+	return tk.Kind() == lexer.Keyword && tk.Value() == kw
+}
+
 // parseFor parses a loop: for, then its header, then the body. The header is
 // empty when the body's opening brace comes straight after for, a
 // condition, or three clauses separated by semicolons.
@@ -1196,7 +1325,7 @@ func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 		diags := p.parseForHeader(loop)
 		restore()
 		if diags == nil {
-			diags = p.headerLit()
+			diags = p.headerLit("an if, for or range")
 		}
 		if diags != nil {
 			return nil, diags
@@ -1270,7 +1399,7 @@ func (p *Parser) parseForRange() (*ast.ForRange, []diag.Diagnostic) {
 	if varDiags := rangeVars(loop, names); varDiags != nil {
 		return nil, varDiags
 	}
-	if litDiags := p.headerLit(); litDiags != nil {
+	if litDiags := p.headerLit("an if, for or range"); litDiags != nil {
 		return nil, litDiags
 	}
 
@@ -1954,10 +2083,11 @@ func (p *Parser) allowLits(allowed bool) (restore func()) {
 }
 
 // headerLit reports a struct literal written without parentheses in the
-// header of an if, a for or a range loop, which ends the header at its type
-// name, so that its braces are taken for the body. A body cannot start with
-// a name and a colon, so that is how it is recognized.
-func (p *Parser) headerLit() []diag.Diagnostic {
+// header of an if, a for, a range loop or a switch, which ends the header
+// at its type name, so that its braces are taken for the body. A body
+// cannot start with a name and a colon, so that is how it is recognized.
+// where names the kind of header, as the message words it.
+func (p *Parser) headerLit(where string) []diag.Diagnostic {
 	tk := p.peek()
 	if tk.Kind() != lexer.LCurl || p.peekAt(1).Kind() != lexer.Ident ||
 		p.peekAt(2).Kind() != lexer.Colon {
@@ -1965,7 +2095,7 @@ func (p *Parser) headerLit() []diag.Diagnostic {
 	}
 	return []diag.Diagnostic{{
 		Severity: diag.Error,
-		Message:  "a struct literal in an if, for or range header must be in parentheses",
+		Message:  "a struct literal in " + where + " header must be in parentheses",
 		Span:     p.span(tk),
 	}}
 }

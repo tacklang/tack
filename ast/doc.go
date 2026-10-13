@@ -16,6 +16,8 @@
 // statement, so it can appear in a function body; at package level it is a
 // top-level declaration, as is a TypeDecl, which declares a struct type: a
 // StructType, whose Fields are part of it rather than nodes of their own.
+// A Switch's CaseClauses are likewise part of it: each holds its values
+// and its body, which Walk visits, but is not a node.
 // A struct literal is a CompositeLit whose elements are KeyValues, a field's
 // name and a value, and a field read or written is a Selector; neither the
 // key nor the selected name is an Ident the resolver binds, since a field is

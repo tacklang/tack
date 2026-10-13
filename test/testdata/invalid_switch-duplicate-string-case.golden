@@ -1,0 +1,14 @@
+stage: typeck
+---
+
+examples/invalid/switch-duplicate-string-case/main.tck:8:10: error: duplicate case "b" in switch
+07 |	        exit(1)
+08 |	    case "b":
+   |	         ^~~
+09 |	        exit(2)
+examples/invalid/switch-duplicate-string-case/main.tck:6:15: note: previous case
+05 |	    switch s {
+06 |	    case "a", "b":
+   |	              ^~~
+07 |	        exit(1)
+

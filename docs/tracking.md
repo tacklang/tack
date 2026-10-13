@@ -23,7 +23,7 @@ Open questions about how a feature should behave are in
 | Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                            |
 |-----------------------------|-------|---------|---------|---------|------------------------------------------------------------------------------------------------------------------|
 | Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                   |
-| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 15 parsed, see the statements and expressions below |
+| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 18 parsed, see the statements and expressions below |
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
 | Line comments               | yes   | yes     | n/a     | n/a     | Anywhere a line can end, including before `package`; kept in the syntax tree, ignored by the grammar             |
 | Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                          |
@@ -72,7 +72,7 @@ Open questions about how a feature should behave are in
 | Three-clause `for`         | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`                |
 | `range` over an integer    | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable variable of `n`'s type           |
 | `range` over array/string  | yes   | yes    | yes     | yes | `for i, x := range a`, `_` index; evaluated once into a copy; `int64` index; string bytes `uint8`             |
-| `switch`                   | yes   | no     | no      | no  |                                                                                                               |
+| `switch`                   | yes   | yes    | yes     | yes | Tagged and tagless; no fallthrough; `break`/`continue` act on the loop; no init statement; lowered to C ifs   |
 | `break` / `continue`       | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                                |
 | Standalone blocks          | yes   | no     | no      | no  |                                                                                                               |
 | `defer`, `select`, `goto`  | yes   | no     | no      | no  |                                                                                                               |

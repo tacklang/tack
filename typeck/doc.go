@@ -59,7 +59,10 @@
 // && || ! and comparisons with a constant, holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
-// variable, which must be a parameter, a local, or an immutable global.
+// variable, which must be a parameter, a local, or an immutable global. A
+// switch proves what the chain of ifs it stands for does (switch.go): a
+// case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
+// ..., in an expression switch, the default the final else.
 // q, ok := a / b needs no proof, and is an error where one exists. A fact is
 // about a variable, never a field: a guard on p.x proves nothing about p.x,
 // which needs the two-value form, or copying into a variable that the guard
@@ -140,15 +143,22 @@
 //     with several results is never used as one value;
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
+//   - a switch's tag, an untyped constant being an int64, compares with each
+//     case value under the rules of ==, the value settling to the tag's
+//     type if it is an untyped constant, and in a tagless switch each case
+//     value is a bool condition; two case values with the same known
+//     integer value, or two equal string literals, are a duplicate, reported
+//     with a note at the first;
 //   - a range loop ranges over an integer, whose one variable takes its type,
 //     or over an array or a string, whose index is an int64 and whose
 //     element is the array's element type, or a string's byte, a uint8;
 //     both variables are immutable, and two over an integer are an error;
 //   - break and continue are inside a loop;
 //   - a function that declares a result ends in a terminating statement: a
-//     return, an if with an else whose branches both terminate, or a loop
-//     with no condition and no break that leaves it (a break in a nested
-//     loop leaves only that one). The rule is syntactic, as in Go, so a call
+//     return, an if with an else whose branches both terminate, a switch
+//     with a default whose cases all terminate, or a loop with no condition
+//     and no break that leaves it (a break in a nested loop leaves only that
+//     one, and one in a switch leaves the loop around it). The rule is syntactic, as in Go, so a call
 //     that never comes back, like exit, does not satisfy it.
 //
 // Before any of this, Check creates the file's types.Table and records it on

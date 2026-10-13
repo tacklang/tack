@@ -523,6 +523,12 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 			"package main\nfunc main() {\n" + strings.Repeat("for range \"ab\" {\n", 500) +
 				strings.Repeat("}\n", 501),
 		},
+		{"truncated switch", "package main\nfunc main() {\n    switch f() {\n    case 1, "},
+		{
+			"deep switch nesting",
+			"package main\nfunc main() {\n    n := 1\n" +
+				strings.Repeat("switch n {\ncase 1:\n", 500) + strings.Repeat("}\n", 501),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeSource(t, []byte(tc.src))
@@ -1030,5 +1036,21 @@ func TestBuiltRawStringsPrintsAndExits116(t *testing.T) {
 	want := "raw\n  strings\n\"keep\" \\every\\ byte // as written\n"
 	if string(out) != want {
 		t.Errorf("raw-strings printed %q, want %q", out, want)
+	}
+}
+
+// The switch example runs both forms of switch: multi-value cases, a
+// default in the middle tried last, string, struct, bool, array and narrow
+// integer tags, a tag evaluated exactly once, case values evaluated left to
+// right and no further than the first match, break and continue in a
+// switch acting on the enclosing loop, returns from cases, nested
+// switches, a switch in a range loop, and divisions and indexes proven by
+// the cases before them, each failure exiting with its own status.
+func TestBuiltSwitchExits42(t *testing.T) {
+	bin := buildWithClang(t, "switch")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("switch exited with %v, want status 42", err)
 	}
 }

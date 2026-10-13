@@ -1,0 +1,9 @@
+package main
+
+func main() {
+    n := 3
+    switch n {
+    case 3:
+        break
+    }
+}

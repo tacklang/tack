@@ -1,0 +1,14 @@
+package main
+
+func f(n int64) int64 {
+    for {
+        switch n {
+        case 1:
+            break
+        }
+    }
+}
+
+func main() {
+    exit(f(1))
+}

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/switch-non-bool-case/main.tck:6:18: error: condition must be a bool, got int64
+05 |	    switch {
+06 |	    case n == 1, n:
+   |	                 ^
+07 |	        exit(1)
+

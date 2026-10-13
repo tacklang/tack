@@ -71,6 +71,14 @@
 // immutable, and a third name are reported here, once the ranged
 // expression is parsed.
 //
+// A switch is switch, an optional tag, and its cases in braces: case and a
+// list of values separated by commas, or default, then a colon and the
+// statements up to the next case, default or closing brace. A struct
+// literal in the tag must be in parentheses, as in an if header. A second
+// default is reported here, with a note at the first. There is no init
+// statement, since an if has none, and fallthrough is not a keyword: it is
+// an ordinary name.
+//
 // The parser stops at the first syntax error and returns that error's
 // diagnostics with a nil file, so a caller never sees a partial tree.
 //

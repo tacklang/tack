@@ -62,6 +62,12 @@ func walkStmt(s Stmt, v Visitor) {
 		walkAll(s.Else, v)
 	case *For, *ForRange:
 		walkLoop(s, v)
+	case *Switch:
+		Walk(s.Tag, v)
+		for _, cl := range s.Cases {
+			walkAll(cl.Values, v)
+			walkAll(cl.Body, v)
+		}
 	case *Break, *Continue:
 		// leaves
 	default:

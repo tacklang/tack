@@ -578,8 +578,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 }
 
 // resolveStmt binds every name a statement mentions, and declares any
-// variable it introduces in sc. Each branch of an if, and a loop's body, is a
-// block of its own.
+// variable it introduces in sc. Each branch of an if, each case of a
+// switch, and a loop's body, is a block of its own.
 func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
@@ -596,9 +596,28 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		return r.resolveFor(s, sc)
 	case *ast.ForRange:
 		return r.resolveForRange(s, sc)
+	case *ast.Switch:
+		return r.resolveSwitch(s, sc)
 	default:
 		return r.resolveSimpleStmt(stmt, sc)
 	}
+}
+
+// resolveSwitch resolves a switch: its tag and every case value where the
+// switch is, and each case's body as a block of its own nested in sc, in
+// source order, the default's included.
+func (r *Resolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	if s.Tag != nil {
+		diags = r.resolveExpr(s.Tag, sc)
+	}
+	for _, cl := range s.Cases {
+		for _, v := range cl.Values {
+			diags = append(diags, r.resolveExpr(v, sc)...)
+		}
+		diags = append(diags, r.resolveBlock(cl.Body, sc)...)
+	}
+	return diags
 }
 
 // resolveFor resolves a loop in a scope of its own, nested in sc, which holds

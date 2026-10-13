@@ -207,11 +207,37 @@ which is true today because `main` is the only package there is.
   function's results, but it can be called as a statement to discard them
   all.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `for`, `break`, `continue`, a variable declaration, a
+  `else if`), `switch`, `for`, `break`, `continue`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
-  statement: a return, an if whose branches all terminate, or a `for` with no
-  condition that no `break` leaves. The rule is syntactic, so a call that
-  never comes back does not satisfy it.
+  statement: a return, an if whose branches all terminate, a `switch` with a
+  `default` whose cases all terminate, or a `for` with no condition that no
+  `break` leaves. The rule is syntactic, so a call that never comes back
+  does not satisfy it.
+- Switches. `switch x { case 1, 2: ... case y: ... default: ... }` compares
+  the tag `x` with each case's values using `==`, under its rules: the
+  values have a common type with the tag, one widening to the other, an
+  untyped constant takes the tag's type, and strings, bools, arrays and
+  structs compare as `==` compares them. A tag that is an untyped constant
+  is an `int64`. `switch { case c1, c2: ... }`, with no tag, takes each
+  value as a `bool` condition, and a case matches when any of its
+  conditions holds. The tag is evaluated once, before any case. Cases are
+  tried top to bottom and a case's values left to right, and the first
+  match wins: the values after it are not evaluated. Values need not be
+  constants. `default` runs when nothing matches, and is tried last
+  wherever it is written; there is at most one. Only the matching case's
+  body runs: there is no fallthrough, and `fallthrough` is not a keyword.
+  `break` and `continue` in a case act on the loop around the switch, not
+  on the switch, unlike Go; outside a loop they are the usual error. Each
+  case's body is a block of its own and may be empty, and so may the
+  switch. Two cases with the same constant value, a known integer or a
+  string literal, are an error. There is no init statement,
+  `switch v := f(); v`, as `if` has none. A switch proves what the chain
+  of ifs it stands for proves: `if c1 {} else if c2 || c3 {} else {}` for
+  a tagless switch, and the same with `x == v` for each value `v` of an
+  expression switch, so `switch d { case 0: return 0 }` proves `d != 0`
+  after it, and a later case and the default see every earlier case's
+  values not matching. A case with several values proves nothing about
+  them inside its body, as `||` gives nothing when true.
 - Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside
@@ -275,8 +301,8 @@ which is true today because `main` is the only package there is.
   Literals nest, `Line{a: Point{x: 1, y: 2}, b: p}`, and inside an array
   literal a struct literal may leave out its type like an array literal
   can: `[2]Point{{x: 1, y: 2}, {x: 3, y: 4}}`. A field's value may not
-  leave out its type. In the header of an `if`, a `for` or a range loop, a
-  struct literal must be in parentheses, `if p == (Point{x: 1, y: 2})`, as
+  leave out its type. In the header of an `if`, a `for`, a range loop or a
+  `switch`, a struct literal must be in parentheses, `if p == (Point{x: 1, y: 2})`, as
   in Go, since the brace would otherwise open the body; inside a call, an
   index or another literal it needs none.
 - A struct is a value, like an array: assigning, passing or returning one
@@ -351,6 +377,7 @@ which is true today because `main` is the only package there is.
   - in the statements after an `if` whose branch ends in `return`, `break`
     or `continue`, by what got past it, as in `if b == 0 { return 0 }`;
   - in a loop's body, by its condition;
+  - in a `switch`, as in the chain of ifs it stands for (see switches);
   - on the right of `&&` by its left side being true, and of `||` by its left
     side being false.
 

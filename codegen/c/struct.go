@@ -110,6 +110,9 @@ func (g *generator) comparedTypes() map[types.Type]bool {
 		if bin, ok := n.(*ast.Binary); ok && (bin.Op == ast.Eq || bin.Op == ast.Ne) {
 			mark(ast.TypeOf(bin.X))
 		}
+		if typ, ok := switchCompares(n); ok {
+			mark(typ)
+		}
 		return true
 	})
 	return compared

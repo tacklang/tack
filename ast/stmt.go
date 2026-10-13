@@ -229,3 +229,51 @@ func (f *ForRange) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the 'for' keyword through the
 // closing brace.
 func (f *ForRange) Spanned() Span { return f.Span }
+
+// Switch is a multi-way branch. In an expression switch, Tag is the value
+// each case's values are compared with, by ==; in a tagless switch, Tag is
+// nil and each case value is a bool condition. Tag is evaluated exactly
+// once, before any case. The cases are tried in source order, and the
+// values within a case left to right, until one matches, and the values
+// after it are not evaluated; the default case, if there is one, is tried
+// last wherever it is written. The matching case's body runs, and then
+// the statement after the switch: there is no fallthrough. A break or
+// continue in a body acts on the loop enclosing the switch, not on the
+// switch.
+type Switch struct {
+	Tag   Expr
+	Cases []*CaseClause
+	Span  Span // 'switch' keyword through the closing brace
+}
+
+var _ Stmt = (*Switch)(nil)
+
+func (s *Switch) stmtKey() stmtKey { return _stmtKey }
+
+func (s *Switch) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'switch' keyword through the
+// closing brace.
+func (s *Switch) Spanned() Span { return s.Span }
+
+// Default returns the switch's default case, or nil when it has none. The
+// parser allows at most one.
+func (s *Switch) Default() *CaseClause {
+	for _, cl := range s.Cases {
+		if cl.Default {
+			return cl
+		}
+	}
+	return nil
+}
+
+// CaseClause is one case of a Switch: case Values...: Body, or, when
+// Default is set, default: Body, whose Values is empty. Body is a block of
+// its own, and may be empty. A CaseClause is part of its Switch, not a
+// node of its own; Walk visits its values and body.
+type CaseClause struct {
+	Values  []Expr
+	Body    []Stmt
+	Span    Span // 'case' or 'default' keyword through the colon
+	Default bool
+}

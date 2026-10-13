@@ -158,6 +158,16 @@
 // only evaluated, cast to void. Temporaries are named tack_ followed by a letter and a
 // number, which no mangled Tack name can be.
 //
+// A switch lowers to a chain of C ifs, never a C switch, whose break would
+// leave the switch where Tack's leaves the loop around it, and which cannot
+// take a string, an array or a struct. An expression switch holds its tag in
+// a const temporary, in a C block of its own, and a case tests it against
+// each value with ==, or the type's equality helper, joined with ||, so the
+// values are evaluated left to right and no further than the first match;
+// the default is the final else. A tag that no case tests is evaluated,
+// cast to void. A switch on a string, an array or a struct counts as
+// comparing that type when deciding which helpers to emit.
+//
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
 // languages. A - and a negative literal are parenthesised, so that two minus

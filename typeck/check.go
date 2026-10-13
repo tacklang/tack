@@ -140,6 +140,9 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 	case *ast.ForRange:
 		c.checkForRange(s, fn)
 
+	case *ast.Switch:
+		c.checkSwitch(s, fn)
+
 	case *ast.Break:
 		c.checkInLoop(s.Span, "break")
 
@@ -835,7 +838,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 
 // terminates reports whether control cannot fall out of the bottom of stmt.
 // An if only terminates when it has an else and both branches do, since
-// otherwise the condition being false falls through. A loop only terminates
+// otherwise the condition being false falls through, and a switch likewise
+// only when it has a default and every case does. A loop only terminates
 // when it has no condition and no break leaves it, following Go.
 func terminates(stmt ast.Stmt) bool {
 	switch s := stmt.(type) {
@@ -845,14 +849,17 @@ func terminates(stmt ast.Stmt) bool {
 		return len(s.Else) > 0 && blockTerminates(s.Then) && blockTerminates(s.Else)
 	case *ast.For:
 		return s.Cond == nil && !breaks(s.Body)
+	case *ast.Switch:
+		return switchTerminates(s)
 	default:
 		return false
 	}
 }
 
 // breaks reports whether body holds a break that leaves the loop body
-// belongs to: one directly in it or inside an if, but not one inside a
-// nested loop, which leaves only that loop.
+// belongs to: one directly in it or inside an if or a switch, which a
+// break does not leave, but not one inside a nested loop, which leaves only
+// that loop.
 func breaks(body []ast.Stmt) bool {
 	for _, stmt := range body {
 		switch s := stmt.(type) {
@@ -861,6 +868,12 @@ func breaks(body []ast.Stmt) bool {
 		case *ast.If:
 			if breaks(s.Then) || breaks(s.Else) {
 				return true
+			}
+		case *ast.Switch:
+			for _, cl := range s.Cases {
+				if breaks(cl.Body) {
+					return true
+				}
 			}
 		}
 	}

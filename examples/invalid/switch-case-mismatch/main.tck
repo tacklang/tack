@@ -1,0 +1,11 @@
+package main
+
+func main() {
+    n := 3
+    switch n {
+    case 3:
+        exit(1)
+    case "3":
+        exit(2)
+    }
+}

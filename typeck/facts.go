@@ -15,7 +15,8 @@ import (
 // runs from 0 to its count, or the length of what it ranges over, less one.
 // It holds inside an if's branches, a loop's body, and the right side of &&
 // and ||, according to whether the condition was true there, and in the
-// rest of a block after an if whose branch leaves it. The rules are syntactic, so any reader can follow them:
+// rest of a block after an if whose branch leaves it. A switch's cases are
+// that if's chain; see switch.go. The rules are syntactic, so any reader can follow them:
 //
 //   - a fact is about a parameter, a local variable, or an immutable global;
 //     a mutable global can be changed by any call, so it never has one;
@@ -42,6 +43,12 @@ type fact struct {
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
+}
+
+// empty reports whether f says nothing about its variable: no bound, not
+// nonzero, and no length bounding it.
+func (f fact) empty() bool {
+	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf == nil
 }
 
 // interval is what all the facts in force say about a variable's value: at
@@ -387,11 +394,16 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 
 // assume puts facts in force for the region about to be checked, keeping
 // only those about variables the region never assigns, the string whose
-// length bounds one included. It returns how many it put in force, for
-// forget to remove when the region ends.
+// length bounds one included. A fact that says nothing, such as the one
+// b != 3 gives, is dropped before the region is searched, which a long
+// chain of cases or ifs would otherwise do once per link. It returns how
+// many it put in force, for forget to remove when the region ends.
 func (c *Checker) assume(facts []fact, region []ast.Stmt) int {
 	n := 0
 	for _, f := range facts {
+		if f.empty() {
+			continue
+		}
 		if !assigns(region, f.decl) && (f.lenOf == nil || !assigns(region, f.lenOf)) {
 			c.active = append(c.active, f)
 			n++
@@ -437,9 +449,10 @@ func writes(target ast.Expr, decl ast.Decl) bool {
 }
 
 // leaves reports whether a block always leaves the code around it before
-// its end: its last statement is a return, a break or a continue, or an if
-// whose branches both leave. Like the terminating rule, it is syntactic, so
-// a call to exit does not count.
+// its end: its last statement is a return, a break or a continue, an if
+// whose branches both leave, or a switch with a default whose cases all
+// leave. Like the terminating rule, it is syntactic, so a call to exit does
+// not count.
 func leaves(body []ast.Stmt) bool {
 	if len(body) == 0 {
 		return false
@@ -449,24 +462,38 @@ func leaves(body []ast.Stmt) bool {
 		return true
 	case *ast.If:
 		return leaves(s.Then) && leaves(s.Else)
+	case *ast.Switch:
+		return chainLeaves(tryOrder(s))
 	default:
 		return false
 	}
 }
 
-// afterFacts returns the facts an if gives the statements after it in its
-// block: those of its condition being false when its then branch leaves,
-// and of it being true when its else branch does.
+// afterFacts returns the facts an if, or a switch, gives the statements
+// after it in its block; see exitFacts and switchAfterFacts.
 func (c *Checker) afterFacts(stmt ast.Stmt) []fact {
-	s, ok := stmt.(*ast.If)
-	if !ok {
+	switch s := stmt.(type) {
+	case *ast.If:
+		return exitFacts(leaves(s.Then), leaves(s.Else), func(holds bool) []fact {
+			return c.factsFrom(s.Cond, holds)
+		})
+	case *ast.Switch:
+		return c.switchAfterFacts(s)
+	default:
 		return nil
 	}
+}
+
+// exitFacts returns the facts a two-way branch gives the statements after
+// it: those of its condition being false when only its then branch leaves,
+// thenLeaves, and of it being true when only its else branch does,
+// elseLeaves. facts gives the condition's facts when it evaluated to holds.
+func exitFacts(thenLeaves, elseLeaves bool, facts func(holds bool) []fact) []fact {
 	switch {
-	case leaves(s.Then) && !leaves(s.Else):
-		return c.factsFrom(s.Cond, false)
-	case leaves(s.Else) && !leaves(s.Then):
-		return c.factsFrom(s.Cond, true)
+	case thenLeaves && !elseLeaves:
+		return facts(false)
+	case elseLeaves && !thenLeaves:
+		return facts(true)
 	default:
 		return nil
 	}

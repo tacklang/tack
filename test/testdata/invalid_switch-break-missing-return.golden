@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/switch-break-missing-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f(n int64) int64 {
+   |	     ^
+04 |	    for {
+

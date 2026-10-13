@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/case-outside-switch/main.tck:4:5: error: expected 'statement' found 'case'
+03 |	func main() {
+04 |	    case 1:
+   |	    ^
+05 |	        exit(1)
+
