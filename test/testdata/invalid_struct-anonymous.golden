@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/struct-anonymous/main.tck:4:11: error: anonymous structs are not supported
-03 |	func main() {
-04 |	    mut p struct { x int64 }
-   |	          ^~~~~~
-05 |	    p.x = 1
-

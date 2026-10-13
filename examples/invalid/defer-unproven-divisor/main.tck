@@ -1,9 +1,0 @@
-package main
-
-func main() {
-    mut d := 2
-    if d != 0 {
-        defer { exit(10 / d) }
-        defer { d = 0 }
-    }
-}

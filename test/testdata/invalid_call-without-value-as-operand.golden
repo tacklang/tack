@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/call-without-value-as-operand/main.tck:8:10: error: greet returns no value
-07 |	func main() {
-08 |	    exit(greet() + 1)
-   |	         ^~~~~~~
-09 |	}
-

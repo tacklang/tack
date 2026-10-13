@@ -1,8 +1,0 @@
-package main
-
-func f(x int64) {
-}
-
-func main() {
-    f("hi")
-}

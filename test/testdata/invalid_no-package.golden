@@ -1,8 +1,0 @@
-stage: parse
----
-
-examples/invalid/no-package/main.tck:1:1: error: expected 'package' found 'func'
-01 |	func main() {}
-   |	^
-02 |	
-

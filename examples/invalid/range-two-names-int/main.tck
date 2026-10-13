@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    for i, x := range 3 {
-        exit(i + x)
-    }
-}

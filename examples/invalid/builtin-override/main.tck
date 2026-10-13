@@ -1,9 +1,0 @@
-package main
-
-// redeclaration of a builtin function is not allowed
-func print() {
-}
-
-func main() {
-    print("shadowed?")
-}

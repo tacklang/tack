@@ -1,9 +1,0 @@
-stage: lex
----
-
-examples/invalid/unterminated-string/main.tck:4:11: error: unterminated string
-03 |	func main() {
-04 |	    print("Hello, World!)
-   |	          ^~~~~~~~~~~~~~~
-05 |	}
-

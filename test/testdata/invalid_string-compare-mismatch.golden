@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/string-compare-mismatch/main.tck:6:8: error: mismatched types string and int64 in <
-05 |	    n := 1
-06 |	    if s < n {
-   |	       ^~~~~
-07 |	        exit(1)
-

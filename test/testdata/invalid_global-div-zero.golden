@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/global-div-zero/main.tck:3:13: error: division by zero in constant expression
-02 |	
-03 |	var ratio = 10 / (5 - 5)
-   |	            ^~~~~~~~~~~~
-04 |	
-

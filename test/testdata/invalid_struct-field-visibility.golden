@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/struct-field-visibility/main.tck:4:5: error: field visibility is not supported
-03 |	type Point struct {
-04 |	    pub x int64
-   |	    ^~~
-05 |	}
-

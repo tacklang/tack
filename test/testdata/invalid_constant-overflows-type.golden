@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/constant-overflows-type/main.tck:4:23: error: constant 256 overflows uint8
-03 |	func main() {
-04 |	    var small uint8 = 256
-   |	                      ^~~
-05 |	    exit(small)
-

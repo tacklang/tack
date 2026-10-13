@@ -1,17 +1,25 @@
 // Package compilertest drives the full compiler pipeline against Tack programs
 // in process. It holds only tests.
 //
-// TestGolden runs every program under examples/, including the malformed ones
-// under examples/invalid/, and compares what the compiler produced against a
-// golden file in testdata/. A program rejected before code generation gives
-// the same diagnostic whatever the backend, so it has one golden,
-// <case>.golden. A program that reaches code generation is pinned once per
-// registered backend, in <case>.<backend>.golden. Each golden records the
-// stage that ended the run and that stage's output.
+// TestGolden runs every program under examples/ and compares what the
+// compiler produced against a golden file in testdata/. A program rejected
+// before code generation gives the same diagnostic whatever the backend, so
+// it has one golden, <case>.golden. A program that reaches code generation is
+// pinned once per registered backend, in <case>.<backend>.golden. Each golden
+// records the stage that ended the run and that stage's output.
 //
-// Goldens record what the compiler does today. They show that output is
-// stable, not that it is correct. After an intentional change to the output,
-// regenerate them and read the diff:
+// TestInvalid does the same for the malformed programs, which live together
+// in examples/invalid.txtar (format in package internal/invalid): one subtest
+// per case, compared against that case's expected section, and failing if a
+// case compiles. Diagnostics name the program <case>/main.tck. One case runs
+// alone with
+//
+//	go test ./test -run 'TestInvalid/^garbage$'
+//
+// Goldens and expected sections record what the compiler does today. They
+// show that output is stable, not that it is correct. After an intentional
+// change to the output, regenerate them, which rewrites the golden files and
+// the expected sections of examples/invalid.txtar, and read the diff:
 //
 //	go test ./test -update
 //

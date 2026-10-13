@@ -1,7 +1,0 @@
-package main
-
-var big uint8 = 200
-
-func main() {
-    exit(big + big)
-}

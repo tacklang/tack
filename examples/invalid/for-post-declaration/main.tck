@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    for mut i := 0; i < 3; j := i {
-        exit(i)
-    }
-}

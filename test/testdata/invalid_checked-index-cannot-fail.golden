@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/checked-index-cannot-fail/main.tck:6:18: error: the index cannot be out of range here; drop the ok
-05 |	    for i := range len(a) {
-06 |	        v, ok := a[i]
-   |	                 ^~~~
-07 |	        if ok {
-

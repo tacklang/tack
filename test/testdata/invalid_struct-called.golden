@@ -1,9 +1,0 @@
-stage: resolve
----
-
-examples/invalid/struct-called/main.tck:8:10: error: cannot call Point; it is a type
-07 |	func main() {
-08 |	    p := Point(1)
-   |	         ^~~~~
-09 |	    exit(p.x)
-

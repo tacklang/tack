@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/range-too-many-names/main.tck:5:9: error: assignment mismatch: 3 variables but range gives at most 2 values
-04 |	    a := [3]int64{1, 2, 3}
-05 |	    for i, x, y := range a {
-   |	        ^~~~~~~~~~~~~~~~~~
-06 |	        exit(i + x + y)
-

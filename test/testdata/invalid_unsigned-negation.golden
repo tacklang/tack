@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/unsigned-negation/main.tck:5:11: error: operator - is not defined on uint32
-04 |	    var u uint32 = 5
-05 |	    exit(-u)
-   |	          ^
-06 |	}
-

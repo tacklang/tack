@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/struct-field-param/main.tck:8:5: error: cannot assign to field of parameter p
-07 |	func reset(p Point) {
-08 |	    p.x = 0
-   |	    ^
-09 |	}
-

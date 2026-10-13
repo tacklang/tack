@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/struct-literal-in-header/main.tck:9:18: error: a struct literal in an if, for or range header must be in parentheses
-08 |	    p := Point{x: 1}
-09 |	    if p == Point{x: 1} {
-   |	                 ^
-10 |	        exit(1)
-

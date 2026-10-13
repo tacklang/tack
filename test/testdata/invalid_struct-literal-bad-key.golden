@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/struct-literal-bad-key/main.tck:8:16: error: invalid field name in Point literal
-07 |	func main() {
-08 |	    p := Point{"x": 1}
-   |	               ^~~
-09 |	    exit(p.x)
-

@@ -1,9 +1,0 @@
-package main
-
-func main() {
-    var small uint8 = 7
-    wide, ok := int16(small)
-    if ok {
-        exit(wide)
-    }
-}

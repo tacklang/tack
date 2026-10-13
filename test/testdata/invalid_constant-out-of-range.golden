@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/constant-out-of-range/main.tck:4:22: error: constant expression is out of range
-03 |	func main() {
-04 |	    var big uint64 = 18446744073709551615 + 1
-   |	                     ^~~~~~~~~~~~~~~~~~~~~~~~
-05 |	    if big > 0 {
-

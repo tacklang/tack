@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/assignment-mismatch-value/main.tck:4:5: error: assignment mismatch: 2 variables but 1 value
-03 |	func main() {
-04 |	    a, b := 1
-   |	    ^~~~~~~~~
-05 |	    exit(a + b)
-

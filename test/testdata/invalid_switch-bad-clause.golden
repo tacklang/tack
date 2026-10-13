@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/switch-bad-clause/main.tck:6:5: error: expected 'case or default' found 'exit'
-05 |	    switch n {
-06 |	    exit(n)
-   |	    ^
-07 |	    }
-

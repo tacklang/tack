@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/array-length-not-constant/main.tck:9:12: error: array length must be a constant integer
-08 |	    n := size()
-09 |	    mut a [n]int64
-   |	           ^
-10 |	    exit(a[0])
-

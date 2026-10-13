@@ -1,5 +1,0 @@
-package main
-
-func main() {
-    exit(-9223372036854775809)
-}

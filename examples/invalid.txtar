@@ -1,0 +1,3962 @@
+Invalid example programs, one case per program, in byte order of name.
+
+Each case is a txtar file pair: <name>/main.tck holds the program and
+<name>/expected the compiler's output for it, with the program's path
+printed as <name>/main.tck. An empty <name>/no-final-newline file after the
+pair means the program's last line has no newline. internal/invalid
+documents the format; go test ./test -run TestInvalid checks every case, and
+-update rewrites the expected sections.
+
+-- arg-count/main.tck --
+package main
+
+func f() {
+}
+
+func main() {
+    f("dropped")
+}
+-- arg-count/expected --
+stage: typeck
+---
+
+arg-count/main.tck:7:5: error: f expects 0 argument(s), got 1
+06 |	func main() {
+07 |	    f("dropped")
+   |	    ^~~~~~~~~~~~
+08 |	}
+
+-- array-compare-lengths/main.tck --
+package main
+
+func main() {
+    a := [2]int64{1, 2}
+    b := [3]int64{1, 2, 3}
+    if a == b {
+        exit(1)
+    }
+}
+-- array-compare-lengths/expected --
+stage: typeck
+---
+
+array-compare-lengths/main.tck:6:8: error: mismatched types [2]int64 and [3]int64 in ==
+05 |	    b := [3]int64{1, 2, 3}
+06 |	    if a == b {
+   |	       ^~~~~~
+07 |	        exit(1)
+
+-- array-immutable-element/main.tck --
+package main
+
+func main() {
+    a := [2]int64{1, 2}
+    a[0] = 5
+    exit(a[0])
+}
+-- array-immutable-element/expected --
+stage: typeck
+---
+
+array-immutable-element/main.tck:5:5: error: cannot assign to element of immutable variable a
+04 |	    a := [2]int64{1, 2}
+05 |	    a[0] = 5
+   |	    ^
+06 |	    exit(a[0])
+
+-- array-index-out-of-range/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(a[3])
+}
+-- array-index-out-of-range/expected --
+stage: typeck
+---
+
+array-index-out-of-range/main.tck:5:12: error: index 3 is out of range for [3]int64
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    exit(a[3])
+   |	           ^
+06 |	}
+
+-- array-length-not-constant/main.tck --
+package main
+
+func size() int64 {
+    return 3
+}
+
+func main() {
+    n := size()
+    mut a [n]int64
+    exit(a[0])
+}
+-- array-length-not-constant/expected --
+stage: typeck
+---
+
+array-length-not-constant/main.tck:9:12: error: array length must be a constant integer
+08 |	    n := size()
+09 |	    mut a [n]int64
+   |	           ^
+10 |	    exit(a[0])
+
+-- array-literal-count/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2}
+    exit(a[0])
+}
+-- array-literal-count/expected --
+stage: typeck
+---
+
+array-literal-count/main.tck:4:10: error: [3]int64 literal has 2 elements, want 3
+03 |	func main() {
+04 |	    a := [3]int64{1, 2}
+   |	         ^~~~~~~~~~~~~~
+05 |	    exit(a[0])
+
+-- array-literal-key/main.tck --
+package main
+
+func main() {
+    a := [3]int64{0: 1, 1: 2, 2: 3}
+    exit(a[0])
+}
+-- array-literal-key/expected --
+stage: typeck
+---
+
+array-literal-key/main.tck:4:19: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                  ^~~~
+05 |	    exit(a[0])
+
+array-literal-key/main.tck:4:25: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                        ^~~~
+05 |	    exit(a[0])
+
+array-literal-key/main.tck:4:31: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                              ^~~~
+05 |	    exit(a[0])
+
+-- array-ordering/main.tck --
+package main
+
+func main() {
+    a := [2]string{"a", "b"}
+    b := [2]string{"a", "c"}
+    if a < b {
+        exit(1)
+    }
+}
+-- array-ordering/expected --
+stage: typeck
+---
+
+array-ordering/main.tck:6:8: error: operator < is not defined on [2]string
+05 |	    b := [2]string{"a", "c"}
+06 |	    if a < b {
+   |	       ^~~~~
+07 |	        exit(1)
+
+-- array-slice-type/main.tck --
+package main
+
+func main() {
+    mut a []int64
+}
+-- array-slice-type/expected --
+stage: parse
+---
+
+array-slice-type/main.tck:4:11: error: slices are not supported yet
+03 |	func main() {
+04 |	    mut a []int64
+   |	          ^~
+05 |	}
+
+-- assignment-mismatch-count/main.tck --
+package main
+
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    return a / b, a % b
+}
+
+func main() {
+    q, r, s := divmod(7, 2)
+    exit(q + r + s)
+}
+-- assignment-mismatch-count/expected --
+stage: typeck
+---
+
+assignment-mismatch-count/main.tck:11:5: error: assignment mismatch: 3 variables but divmod returns 2 values
+10 |	func main() {
+11 |	    q, r, s := divmod(7, 2)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+12 |	    exit(q + r + s)
+
+-- assignment-mismatch-no-value/main.tck --
+package main
+
+func greet() {
+    print("hi\n")
+}
+
+func main() {
+    a, b := greet()
+    exit(a + b)
+}
+-- assignment-mismatch-no-value/expected --
+stage: typeck
+---
+
+assignment-mismatch-no-value/main.tck:8:5: error: assignment mismatch: 2 variables but greet returns no value
+07 |	func main() {
+08 |	    a, b := greet()
+   |	    ^~~~~~~~~~~~~~~
+09 |	    exit(a + b)
+
+-- assignment-mismatch-value/main.tck --
+package main
+
+func main() {
+    a, b := 1
+    exit(a + b)
+}
+-- assignment-mismatch-value/expected --
+stage: typeck
+---
+
+assignment-mismatch-value/main.tck:4:5: error: assignment mismatch: 2 variables but 1 value
+03 |	func main() {
+04 |	    a, b := 1
+   |	    ^~~~~~~~~
+05 |	    exit(a + b)
+
+-- bad-arg-type/main.tck --
+package main
+
+func main() {
+    print(42)
+}
+-- bad-arg-type/expected --
+stage: typeck
+---
+
+bad-arg-type/main.tck:4:11: error: cannot use int64 as string in argument to print
+03 |	func main() {
+04 |	    print(42)
+   |	          ^~
+05 |	}
+
+-- bare-return-with-result/main.tck --
+package main
+
+func f() int64 {
+    return
+}
+
+func main() {
+}
+-- bare-return-with-result/expected --
+stage: typeck
+---
+
+bare-return-with-result/main.tck:4:5: error: f must return a value of type int64
+03 |	func f() int64 {
+04 |	    return
+   |	    ^~~~~~
+05 |	}
+
+-- blank-as-name/main.tck --
+package main
+
+func main() {
+    _ := 1
+}
+-- blank-as-name/expected --
+stage: resolve
+---
+
+blank-as-name/main.tck:4:5: error: cannot use _ as a name
+03 |	func main() {
+04 |	    _ := 1
+   |	    ^
+05 |	}
+
+-- blank-as-value/main.tck --
+package main
+
+func main() {
+    exit(_)
+}
+-- blank-as-value/expected --
+stage: resolve
+---
+
+blank-as-value/main.tck:4:10: error: cannot use _ as a value
+03 |	func main() {
+04 |	    exit(_)
+   |	         ^
+05 |	}
+
+-- blank-assign/main.tck --
+package main
+
+func main() {
+    _ = 1
+}
+-- blank-assign/expected --
+stage: resolve
+---
+
+blank-assign/main.tck:4:5: error: cannot assign to _
+03 |	func main() {
+04 |	    _ = 1
+   |	    ^
+05 |	}
+
+-- blank-mut/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    a, mut _ := pair()
+    exit(a)
+}
+-- blank-mut/expected --
+stage: resolve
+---
+
+blank-mut/main.tck:8:8: error: cannot use mut on _
+07 |	func main() {
+08 |	    a, mut _ := pair()
+   |	       ^~~~~
+09 |	    exit(a)
+
+-- blank-nothing-bound/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    _, _ := pair()
+}
+-- blank-nothing-bound/expected --
+stage: resolve
+---
+
+blank-nothing-bound/main.tck:8:5: error: every name is _, so nothing is bound; make the call on its own
+07 |	func main() {
+08 |	    _, _ := pair()
+   |	    ^~~~~~~~~~~~~~
+09 |	}
+
+-- blank-nothing-bound-semicolon/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2;
+}
+
+func main() {
+    _, _ := pair();
+}
+-- blank-nothing-bound-semicolon/expected --
+stage: resolve
+---
+
+blank-nothing-bound-semicolon/main.tck:8:5: error: every name is _, so nothing is bound; make the call on its own
+07 |	func main() {
+08 |	    _, _ := pair();
+   |	    ^~~~~~~~~~~~~~
+09 |	}
+
+-- bool-arithmetic/main.tck --
+package main
+
+func main() {
+    exit(true + 1)
+}
+-- bool-arithmetic/expected --
+stage: typeck
+---
+
+bool-arithmetic/main.tck:4:10: error: operator + is not defined on bool
+03 |	func main() {
+04 |	    exit(true + 1)
+   |	         ^~~~
+05 |	}
+
+-- bool-as-int/main.tck --
+package main
+
+func main() {
+    exit(1 < 2)
+}
+-- bool-as-int/expected --
+stage: typeck
+---
+
+bool-as-int/main.tck:4:10: error: cannot use bool as int64 in argument to exit
+03 |	func main() {
+04 |	    exit(1 < 2)
+   |	         ^~~~~
+05 |	}
+
+-- bool-keyword-as-name/main.tck --
+package main
+
+func main() {
+    true := 1
+    exit(true)
+}
+-- bool-keyword-as-name/expected --
+stage: parse
+---
+
+bool-keyword-as-name/main.tck:4:5: error: expected 'statement' found 'true'
+03 |	func main() {
+04 |	    true := 1
+   |	    ^
+05 |	    exit(true)
+
+-- bool-ordering/main.tck --
+package main
+
+func main() {
+    if true < false {
+        exit(1)
+    }
+}
+-- bool-ordering/expected --
+stage: typeck
+---
+
+bool-ordering/main.tck:4:8: error: operator < is not defined on bool
+03 |	func main() {
+04 |	    if true < false {
+   |	       ^~~~~~~~~~~~
+05 |	        exit(1)
+
+-- break-outside-loop/main.tck --
+package main
+
+func main() {
+    break
+}
+-- break-outside-loop/expected --
+stage: typeck
+---
+
+break-outside-loop/main.tck:4:5: error: break is not in a loop
+03 |	func main() {
+04 |	    break
+   |	    ^~~~~
+05 |	}
+
+-- builtin-as-value/main.tck --
+package main
+
+func main() {
+    exit(print("x"))
+}
+-- builtin-as-value/expected --
+stage: typeck
+---
+
+builtin-as-value/main.tck:4:10: error: print returns no value
+03 |	func main() {
+04 |	    exit(print("x"))
+   |	         ^~~~~~~~~~
+05 |	}
+
+-- builtin-override/main.tck --
+package main
+
+// redeclaration of a builtin function is not allowed
+func print() {
+}
+
+func main() {
+    print("shadowed?")
+}
+-- builtin-override/expected --
+stage: resolve
+---
+
+builtin-override/main.tck:4:6: error: duplicate declaration of builtin function
+03 |	// redeclaration of a builtin function is not allowed
+04 |	func print() {
+   |	     ^~~~~
+05 |	}
+
+-- call-returns-nothing/main.tck --
+package main
+
+func nothing() {
+}
+
+func main() {
+    exit(nothing())
+}
+-- call-returns-nothing/expected --
+stage: typeck
+---
+
+call-returns-nothing/main.tck:7:10: error: nothing returns no value
+06 |	func main() {
+07 |	    exit(nothing())
+   |	         ^~~~~~~~~
+08 |	}
+
+-- call-without-value-as-operand/main.tck --
+package main
+
+func greet() {
+    print("hi\n")
+}
+
+func main() {
+    exit(greet() + 1)
+}
+-- call-without-value-as-operand/expected --
+stage: typeck
+---
+
+call-without-value-as-operand/main.tck:8:10: error: greet returns no value
+07 |	func main() {
+08 |	    exit(greet() + 1)
+   |	         ^~~~~~~
+09 |	}
+
+-- cannot-convert/main.tck --
+package main
+
+func main() {
+    s := string(65)
+    print(s)
+}
+-- cannot-convert/expected --
+stage: typeck
+---
+
+cannot-convert/main.tck:4:10: error: cannot convert int64 to string
+03 |	func main() {
+04 |	    s := string(65)
+   |	         ^~~~~~~~~~
+05 |	    print(s)
+
+-- case-outside-switch/main.tck --
+package main
+
+func main() {
+    case 1:
+        exit(1)
+}
+-- case-outside-switch/expected --
+stage: parse
+---
+
+case-outside-switch/main.tck:4:5: error: expected 'statement' found 'case'
+03 |	func main() {
+04 |	    case 1:
+   |	    ^
+05 |	        exit(1)
+
+-- char-empty/main.tck --
+package main
+
+func main() {
+    c := ''
+    exit(c)
+}
+-- char-empty/expected --
+stage: lex
+---
+
+char-empty/main.tck:4:10: error: empty char literal
+03 |	func main() {
+04 |	    c := ''
+   |	         ^~
+05 |	    exit(c)
+
+-- char-global-overflow/main.tck --
+package main
+
+var tripled = 'a' * 3
+
+func main() {
+    exit(tripled)
+}
+-- char-global-overflow/expected --
+stage: typeck
+---
+
+char-global-overflow/main.tck:3:15: error: constant expression overflows uint8
+02 |	
+03 |	var tripled = 'a' * 3
+   |	              ^~~~~~~
+04 |	
+
+-- char-multibyte/main.tck --
+package main
+
+func main() {
+    c := 'é'
+    exit(c)
+}
+-- char-multibyte/expected --
+stage: lex
+---
+
+char-multibyte/main.tck:4:10: error: char literal 'é' is 2 bytes in UTF-8; a char literal must be one byte
+03 |	func main() {
+04 |	    c := 'é'
+   |	         ^~~~
+05 |	    exit(c)
+
+-- char-narrowing/main.tck --
+package main
+
+func main() {
+    var c int8 = 'a'
+    exit(c)
+}
+-- char-narrowing/expected --
+stage: typeck
+---
+
+char-narrowing/main.tck:4:18: error: cannot use uint8 as int8 in declaration of c
+03 |	func main() {
+04 |	    var c int8 = 'a'
+   |	                 ^~~
+05 |	    exit(c)
+
+-- char-too-long/main.tck --
+package main
+
+func main() {
+    c := 'ab'
+    exit(c)
+}
+-- char-too-long/expected --
+stage: lex
+---
+
+char-too-long/main.tck:4:10: error: too many characters in char literal
+03 |	func main() {
+04 |	    c := 'ab'
+   |	         ^~~~
+05 |	    exit(c)
+
+-- checked-division-cannot-fail/main.tck --
+package main
+
+func main() {
+    mut n int64 = 9
+    q, ok := n / 3
+    if ok {
+        exit(q)
+    }
+}
+-- checked-division-cannot-fail/expected --
+stage: typeck
+---
+
+checked-division-cannot-fail/main.tck:5:14: error: the divisor cannot be zero here; drop the ok
+04 |	    mut n int64 = 9
+05 |	    q, ok := n / 3
+   |	             ^~~~~
+06 |	    if ok {
+
+-- checked-index-cannot-fail/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for i := range len(a) {
+        v, ok := a[i]
+        if ok {
+            exit(v)
+        }
+    }
+}
+-- checked-index-cannot-fail/expected --
+stage: typeck
+---
+
+checked-index-cannot-fail/main.tck:6:18: error: the index cannot be out of range here; drop the ok
+05 |	    for i := range len(a) {
+06 |	        v, ok := a[i]
+   |	                 ^~~~
+07 |	        if ok {
+
+-- compare-mismatch/main.tck --
+package main
+
+func main() {
+    if true == 1 {
+        exit(1)
+    }
+}
+-- compare-mismatch/expected --
+stage: typeck
+---
+
+compare-mismatch/main.tck:4:8: error: mismatched types bool and int64 in ==
+03 |	func main() {
+04 |	    if true == 1 {
+   |	       ^~~~~~~~~
+05 |	        exit(1)
+
+-- compare-mismatch-parenthesized/main.tck --
+package main
+
+func main() {
+    if (true) == (1) {
+        exit(1)
+    }
+}
+-- compare-mismatch-parenthesized/expected --
+stage: typeck
+---
+
+compare-mismatch-parenthesized/main.tck:4:8: error: mismatched types bool and int64 in ==
+03 |	func main() {
+04 |	    if (true) == (1) {
+   |	       ^~~~~~~~~~~~~
+05 |	        exit(1)
+
+-- compound-immutable/main.tck --
+package main
+
+func main() {
+    total := 0
+    total += 1
+    exit(total)
+}
+-- compound-immutable/expected --
+stage: typeck
+---
+
+compound-immutable/main.tck:5:5: error: cannot assign to immutable variable total
+04 |	    total := 0
+05 |	    total += 1
+   |	    ^~~~~
+06 |	    exit(total)
+
+-- compound-non-int/main.tck --
+package main
+
+func main() {
+    mut s = "a"
+    s += "b"
+    print(s)
+}
+-- compound-non-int/expected --
+stage: typeck
+---
+
+compound-non-int/main.tck:5:5: error: operator += is not defined on string
+04 |	    mut s = "a"
+05 |	    s += "b"
+   |	    ^
+06 |	    print(s)
+
+-- const-overflow-add/main.tck --
+package main
+
+func main() {
+    var largest int64 = 9223372036854775807
+    exit(largest + 1)
+}
+-- const-overflow-add/expected --
+stage: typeck
+---
+
+const-overflow-add/main.tck:5:10: error: constant expression overflows int64
+04 |	    var largest int64 = 9223372036854775807
+05 |	    exit(largest + 1)
+   |	         ^~~~~~~~~~~
+06 |	}
+
+-- const-overflow-div/main.tck --
+package main
+
+func main() {
+    var smallest int64 = -9223372036854775808
+    var d int64 = -1
+    exit(smallest / d)
+}
+-- const-overflow-div/expected --
+stage: typeck
+---
+
+const-overflow-div/main.tck:6:10: error: constant expression overflows int64
+05 |	    var d int64 = -1
+06 |	    exit(smallest / d)
+   |	         ^~~~~~~~~~~~
+07 |	}
+
+-- const-overflow-global-var/main.tck --
+package main
+
+var big uint8 = 200
+
+func main() {
+    exit(big + big)
+}
+-- const-overflow-global-var/expected --
+stage: typeck
+---
+
+const-overflow-global-var/main.tck:6:10: error: constant expression overflows uint8
+05 |	func main() {
+06 |	    exit(big + big)
+   |	         ^~~~~~~~~
+07 |	}
+
+-- const-overflow-len/main.tck --
+package main
+
+func main() {
+    exit(len("abc") * 4611686018427387904)
+}
+-- const-overflow-len/expected --
+stage: typeck
+---
+
+const-overflow-len/main.tck:4:10: error: constant expression overflows int64
+03 |	func main() {
+04 |	    exit(len("abc") * 4611686018427387904)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- const-overflow-mul/main.tck --
+package main
+
+func main() {
+    x := 'a' * 3
+    exit(x)
+}
+-- const-overflow-mul/expected --
+stage: typeck
+---
+
+const-overflow-mul/main.tck:4:10: error: constant expression overflows uint8
+03 |	func main() {
+04 |	    x := 'a' * 3
+   |	         ^~~~~~~
+05 |	    exit(x)
+
+-- const-overflow-negate/main.tck --
+package main
+
+func main() {
+    var smallest int8 = -128
+    x := -smallest
+    exit(x)
+}
+-- const-overflow-negate/expected --
+stage: typeck
+---
+
+const-overflow-negate/main.tck:5:10: error: constant expression overflows int8
+04 |	    var smallest int8 = -128
+05 |	    x := -smallest
+   |	         ^~~~~~~~~
+06 |	    exit(x)
+
+-- const-overflow-step/main.tck --
+package main
+
+func main() {
+    x := 'a' * 3 / 3
+    exit(x)
+}
+-- const-overflow-step/expected --
+stage: typeck
+---
+
+const-overflow-step/main.tck:4:10: error: constant expression overflows uint8
+03 |	func main() {
+04 |	    x := 'a' * 3 / 3
+   |	         ^~~~~~~
+05 |	    exit(x)
+
+-- const-overflow-sub/main.tck --
+package main
+
+func main() {
+    exit('a' - 'b')
+}
+-- const-overflow-sub/expected --
+stage: typeck
+---
+
+const-overflow-sub/main.tck:4:10: error: constant expression overflows uint8
+03 |	func main() {
+04 |	    exit('a' - 'b')
+   |	         ^~~~~~~~~
+05 |	}
+
+-- constant-out-of-range/main.tck --
+package main
+
+func main() {
+    var big uint64 = 18446744073709551615 + 1
+    if big > 0 {
+    }
+}
+-- constant-out-of-range/expected --
+stage: typeck
+---
+
+constant-out-of-range/main.tck:4:22: error: constant expression is out of range
+03 |	func main() {
+04 |	    var big uint64 = 18446744073709551615 + 1
+   |	                     ^~~~~~~~~~~~~~~~~~~~~~~~
+05 |	    if big > 0 {
+
+-- constant-overflows-type/main.tck --
+package main
+
+func main() {
+    var small uint8 = 256
+    exit(small)
+}
+-- constant-overflows-type/expected --
+stage: typeck
+---
+
+constant-overflows-type/main.tck:4:23: error: constant 256 overflows uint8
+03 |	func main() {
+04 |	    var small uint8 = 256
+   |	                      ^~~
+05 |	    exit(small)
+
+-- continue-outside-loop/main.tck --
+package main
+
+func main() {
+    if true {
+        continue
+    }
+}
+-- continue-outside-loop/expected --
+stage: typeck
+---
+
+continue-outside-loop/main.tck:5:9: error: continue is not in a loop
+04 |	    if true {
+05 |	        continue
+   |	        ^~~~~~~~
+06 |	    }
+
+-- conversion-can-fail/main.tck --
+package main
+
+func main() {
+    var wide int64 = 300
+    small := int8(wide)
+    exit(small)
+}
+-- conversion-can-fail/expected --
+stage: typeck
+---
+
+conversion-can-fail/main.tck:5:14: error: converting int64 to int8 can fail; use v, ok := int8(...)
+04 |	    var wide int64 = 300
+05 |	    small := int8(wide)
+   |	             ^~~~~~~~~~
+06 |	    exit(small)
+
+-- conversion-cannot-fail/main.tck --
+package main
+
+func main() {
+    var small uint8 = 7
+    wide, ok := int16(small)
+    if ok {
+        exit(wide)
+    }
+}
+-- conversion-cannot-fail/expected --
+stage: typeck
+---
+
+conversion-cannot-fail/main.tck:5:17: error: converting uint8 to int16 cannot fail; use int16(...)
+04 |	    var small uint8 = 7
+05 |	    wide, ok := int16(small)
+   |	                ^~~~~~~~~~~~
+06 |	    if ok {
+
+-- conversion-constant-ok/main.tck --
+package main
+
+func main() {
+    v, ok := int8(5)
+    if ok {
+        exit(v)
+    }
+}
+-- conversion-constant-ok/expected --
+stage: typeck
+---
+
+conversion-constant-ok/main.tck:4:14: error: a constant needs no ok to convert; use int8(...)
+03 |	func main() {
+04 |	    v, ok := int8(5)
+   |	             ^~~~~~~
+05 |	    if ok {
+
+-- defer-assign/main.tck --
+package main
+
+func main() {
+    mut n := 1
+    defer n = 2
+    exit(n)
+}
+-- defer-assign/expected --
+stage: parse
+---
+
+defer-assign/main.tck:5:11: error: defer must be followed by a block: defer { ... }
+04 |	    mut n := 1
+05 |	    defer n = 2
+   |	          ^
+06 |	    exit(n)
+
+-- defer-break/main.tck --
+package main
+
+func main() {
+    for range 3 {
+        defer {
+            break
+        }
+    }
+}
+-- defer-break/expected --
+stage: typeck
+---
+
+defer-break/main.tck:6:13: error: cannot break out of a defer
+05 |	        defer {
+06 |	            break
+   |	            ^~~~~
+07 |	        }
+
+-- defer-call/main.tck --
+package main
+
+func main() {
+    defer print("x\n")
+}
+-- defer-call/expected --
+stage: parse
+---
+
+defer-call/main.tck:4:11: error: defer must be followed by a block: defer { ... }
+03 |	func main() {
+04 |	    defer print("x\n")
+   |	          ^~~~~
+05 |	}
+
+-- defer-continue/main.tck --
+package main
+
+func main() {
+    for range 3 {
+        defer {
+            for range 2 {
+                continue
+            }
+            continue
+        }
+    }
+}
+-- defer-continue/expected --
+stage: typeck
+---
+
+defer-continue/main.tck:9:13: error: cannot continue out of a defer
+08 |	            }
+09 |	            continue
+   |	            ^~~~~~~~
+10 |	        }
+
+-- defer-if/main.tck --
+package main
+
+func main() {
+    n := 3
+    defer if n > 0 {
+        exit(n)
+    }
+}
+-- defer-if/expected --
+stage: parse
+---
+
+defer-if/main.tck:5:11: error: defer must be followed by a block: defer { ... }
+04 |	    n := 3
+05 |	    defer if n > 0 {
+   |	          ^~
+06 |	        exit(n)
+
+-- defer-in-defer/main.tck --
+package main
+
+func main() {
+    defer {
+        defer {
+            print("x\n")
+        }
+        print("y\n")
+    }
+}
+-- defer-in-defer/expected --
+stage: typeck
+---
+
+defer-in-defer/main.tck:5:9: error: cannot defer inside a defer
+04 |	    defer {
+05 |	        defer {
+   |	        ^~~~~
+06 |	            print("x\n")
+
+-- defer-in-defer-loop/main.tck --
+package main
+
+func main() {
+    n := 3
+    defer {
+        for i := range n {
+            if i > 0 {
+                switch i {
+                case 2:
+                    defer {
+                        print("x\n")
+                    }
+                }
+            }
+        }
+    }
+}
+-- defer-in-defer-loop/expected --
+stage: typeck
+---
+
+defer-in-defer-loop/main.tck:10:21: error: cannot defer inside a defer
+09 |	                case 2:
+10 |	                    defer {
+   |	                    ^~~~~
+11 |	                        print("x\n")
+
+-- defer-inc/main.tck --
+package main
+
+func main() {
+    mut n := 1
+    defer n++
+    exit(n)
+}
+-- defer-inc/expected --
+stage: parse
+---
+
+defer-inc/main.tck:5:11: error: defer must be followed by a block: defer { ... }
+04 |	    mut n := 1
+05 |	    defer n++
+   |	          ^
+06 |	    exit(n)
+
+-- defer-later-variable/main.tck --
+package main
+
+func main() {
+    defer { exit(n) }
+    n := 3
+    exit(n)
+}
+-- defer-later-variable/expected --
+stage: resolve
+---
+
+defer-later-variable/main.tck:4:18: error: undefined: n
+03 |	func main() {
+04 |	    defer { exit(n) }
+   |	                 ^
+05 |	    n := 3
+
+-- defer-return/main.tck --
+package main
+
+func f() int64 {
+    defer {
+        return 2
+    }
+    return 1
+}
+
+func main() {
+    exit(f())
+}
+-- defer-return/expected --
+stage: typeck
+---
+
+defer-return/main.tck:5:9: error: cannot return from a defer
+04 |	    defer {
+05 |	        return 2
+   |	        ^~~~~~~~
+06 |	    }
+
+-- defer-unproven-divisor/main.tck --
+package main
+
+func main() {
+    mut d := 2
+    if d != 0 {
+        defer { exit(10 / d) }
+        defer { d = 0 }
+    }
+}
+-- defer-unproven-divisor/expected --
+stage: typeck
+---
+
+defer-unproven-divisor/main.tck:6:27: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+05 |	    if d != 0 {
+06 |	        defer { exit(10 / d) }
+   |	                          ^
+07 |	        defer { d = 0 }
+
+-- defer-var/main.tck --
+package main
+
+func main() {
+    defer n := 3
+}
+-- defer-var/expected --
+stage: parse
+---
+
+defer-var/main.tck:4:11: error: defer must be followed by a block: defer { ... }
+03 |	func main() {
+04 |	    defer n := 3
+   |	          ^
+05 |	}
+
+-- division-by-zero/main.tck --
+package main
+
+func main() {
+    mut n int64 = 8
+    n /= 0
+    exit(n)
+}
+-- division-by-zero/expected --
+stage: typeck
+---
+
+division-by-zero/main.tck:5:10: error: division by zero
+04 |	    mut n int64 = 8
+05 |	    n /= 0
+   |	         ^
+06 |	    exit(n)
+
+-- divisor-changed-in-guard/main.tck --
+package main
+
+func main() {
+    mut d int64 = 4
+    if d != 0 {
+        d--
+        exit(8 / d)
+    }
+}
+-- divisor-changed-in-guard/expected --
+stage: typeck
+---
+
+divisor-changed-in-guard/main.tck:7:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+06 |	        d--
+07 |	        exit(8 / d)
+   |	                 ^
+08 |	    }
+
+-- divisor-may-be-zero/main.tck --
+package main
+
+func half(a int64, b int64) int64 {
+    return a / b
+}
+
+func main() {
+    exit(half(8, 2))
+}
+-- divisor-may-be-zero/expected --
+stage: typeck
+---
+
+divisor-may-be-zero/main.tck:4:16: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
+03 |	func half(a int64, b int64) int64 {
+04 |	    return a / b
+   |	               ^
+05 |	}
+
+-- dup-func-decl/main.tck --
+package main
+
+func main() {
+    sayHello()
+}
+
+func sayHello() {
+    print("Hello, World!")
+}
+
+func sayHello() {
+}
+-- dup-func-decl/expected --
+stage: resolve
+---
+
+dup-func-decl/main.tck:11:6: error: duplicate function declaration
+10 |	
+11 |	func sayHello() {
+   |	     ^~~~~~~~
+12 |	}
+dup-func-decl/main.tck:7:6: note: previous declaration of sayHello
+06 |	
+07 |	func sayHello() {
+   |	     ^~~~~~~~
+08 |	    print("Hello, World!")
+
+-- dup-param/main.tck --
+package main
+
+func f(x int64, x int64) {
+}
+
+func main() {
+}
+-- dup-param/expected --
+stage: resolve
+---
+
+dup-param/main.tck:3:17: error: duplicate parameter name
+02 |	
+03 |	func f(x int64, x int64) {
+   |	                ^
+04 |	}
+dup-param/main.tck:3:8: note: previous declaration of x
+02 |	
+03 |	func f(x int64, x int64) {
+   |	       ^
+04 |	}
+
+-- element-write-unguarded/main.tck --
+package main
+
+func main() {
+    mut a [3]int64
+    for i := range 4 {
+        a[i] = i
+    }
+    exit(a[0])
+}
+-- element-write-unguarded/expected --
+stage: typeck
+---
+
+element-write-unguarded/main.tck:6:11: error: index i may be out of range; check 0 <= i && i < 3 first
+05 |	    for i := range 4 {
+06 |	        a[i] = i
+   |	          ^
+07 |	    }
+
+-- empty-file/main.tck --
+-- empty-file/expected --
+stage: parse
+---
+
+empty-file/main.tck:1:1: error: expected 'package' found 'EOF'
+01 |	
+   |	^
+
+-- for-post-declaration/main.tck --
+package main
+
+func main() {
+    for mut i := 0; i < 3; j := i {
+        exit(i)
+    }
+}
+-- for-post-declaration/expected --
+stage: parse
+---
+
+for-post-declaration/main.tck:4:28: error: cannot declare a variable in a for loop's post statement
+03 |	func main() {
+04 |	    for mut i := 0; i < 3; j := i {
+   |	                           ^~~~~~
+05 |	        exit(i)
+
+-- garbage/main.tck --
+package main
+
+func main() {
+    @#$%^ print("hi")
+}
+-- garbage/expected --
+stage: lex
+---
+
+garbage/main.tck:4:5: error: invalid character @
+03 |	func main() {
+04 |	    @#$%^ print("hi")
+   |	    ^
+05 |	}
+
+garbage/main.tck:4:6: error: invalid character #
+03 |	func main() {
+04 |	    @#$%^ print("hi")
+   |	     ^
+05 |	}
+
+garbage/main.tck:4:7: error: invalid character $
+03 |	func main() {
+04 |	    @#$%^ print("hi")
+   |	      ^
+05 |	}
+
+-- global-assign-immutable/main.tck --
+package main
+
+var limit = 10
+
+func main() {
+    limit = 5
+    exit(limit)
+}
+-- global-assign-immutable/expected --
+stage: typeck
+---
+
+global-assign-immutable/main.tck:6:5: error: cannot assign to immutable variable limit
+05 |	func main() {
+06 |	    limit = 5
+   |	    ^~~~~
+07 |	    exit(limit)
+
+-- global-clash-func/main.tck --
+package main
+
+func limit() {
+}
+
+var limit = 10
+
+func main() {
+    limit()
+}
+-- global-clash-func/expected --
+stage: resolve
+---
+
+global-clash-func/main.tck:6:5: error: limit is already declared
+05 |	
+06 |	var limit = 10
+   |	    ^~~~~
+07 |	
+global-clash-func/main.tck:3:6: note: previous declaration of limit
+02 |	
+03 |	func limit() {
+   |	     ^~~~~
+04 |	}
+
+-- global-div-zero/main.tck --
+package main
+
+var ratio = 10 / (5 - 5)
+
+func main() {
+    exit(ratio)
+}
+-- global-div-zero/expected --
+stage: typeck
+---
+
+global-div-zero/main.tck:3:13: error: division by zero in constant expression
+02 |	
+03 |	var ratio = 10 / (5 - 5)
+   |	            ^~~~~~~~~~~~
+04 |	
+
+-- global-not-constant/main.tck --
+package main
+
+func seed() int64 {
+    return 1
+}
+
+var start = seed()
+
+func main() {
+    exit(start)
+}
+-- global-not-constant/expected --
+stage: typeck
+---
+
+global-not-constant/main.tck:7:13: error: start must be initialized with a constant expression
+06 |	
+07 |	var start = seed()
+   |	            ^~~~~~
+08 |	
+
+-- global-overflow/main.tck --
+package main
+
+var big = 9223372036854775807 + 1
+
+func main() {
+    exit(big)
+}
+-- global-overflow/expected --
+stage: typeck
+---
+
+global-overflow/main.tck:3:11: error: constant 9223372036854775808 overflows int64
+02 |	
+03 |	var big = 9223372036854775807 + 1
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~
+04 |	
+
+-- global-shadowed/main.tck --
+package main
+
+var limit = 10
+
+func main() {
+    limit := 5
+    exit(limit)
+}
+-- global-shadowed/expected --
+stage: resolve
+---
+
+global-shadowed/main.tck:6:5: error: limit is already declared
+05 |	func main() {
+06 |	    limit := 5
+   |	    ^~~~~
+07 |	    exit(limit)
+global-shadowed/main.tck:3:5: note: previous declaration of limit
+02 |	
+03 |	var limit = 10
+   |	    ^~~~~
+04 |	
+
+-- global-short-decl/main.tck --
+package main
+
+limit := 10
+
+func main() {
+}
+-- global-short-decl/expected --
+stage: parse
+---
+
+global-short-decl/main.tck:3:1: error: expected 'func' found 'limit'
+02 |	
+03 |	limit := 10
+   |	^
+04 |	
+
+-- global-unused/main.tck --
+package main
+
+var limit = 10
+
+func main() {
+}
+-- global-unused/expected --
+stage: resolve
+---
+
+global-unused/main.tck:3:5: error: declared and not used: limit
+02 |	
+03 |	var limit = 10
+   |	    ^~~~~
+04 |	
+
+-- hello-digit-ident/main.tck --
+package main
+
+func main() {
+    print0("Hello, World!")
+}
+-- hello-digit-ident/expected --
+stage: resolve
+---
+
+hello-digit-ident/main.tck:4:5: error: undefined: print0
+03 |	func main() {
+04 |	    print0("Hello, World!")
+   |	    ^~~~~~
+05 |	}
+
+-- hello-underscore-ident/main.tck --
+package main
+
+func main() {
+    print_("Hello, World!")
+}
+-- hello-underscore-ident/expected --
+stage: resolve
+---
+
+hello-underscore-ident/main.tck:4:5: error: undefined: print_
+03 |	func main() {
+04 |	    print_("Hello, World!")
+   |	    ^~~~~~
+05 |	}
+
+-- incdec-immutable/main.tck --
+package main
+
+func main() {
+    n := 0
+    n++
+    exit(n)
+}
+-- incdec-immutable/expected --
+stage: typeck
+---
+
+incdec-immutable/main.tck:5:5: error: cannot assign to immutable variable n
+04 |	    n := 0
+05 |	    n++
+   |	    ^
+06 |	    exit(n)
+
+-- incdec-non-int/main.tck --
+package main
+
+func main() {
+    mut done = false
+    done++
+    if done {
+    }
+}
+-- incdec-non-int/expected --
+stage: typeck
+---
+
+incdec-non-int/main.tck:5:5: error: operator ++ is not defined on bool
+04 |	    mut done = false
+05 |	    done++
+   |	    ^~~~
+06 |	    if done {
+
+-- index-may-be-out-of-range/main.tck --
+package main
+
+func pick(a [3]int64, i int64) int64 {
+    return a[i]
+}
+
+func main() {
+    exit(pick([3]int64{1, 2, 3}, 1))
+}
+-- index-may-be-out-of-range/expected --
+stage: typeck
+---
+
+index-may-be-out-of-range/main.tck:4:14: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+03 |	func pick(a [3]int64, i int64) int64 {
+04 |	    return a[i]
+   |	             ^
+05 |	}
+
+-- index-non-array/main.tck --
+package main
+
+func main() {
+    n := 4
+    exit(n[0])
+}
+-- index-non-array/expected --
+stage: typeck
+---
+
+index-non-array/main.tck:5:10: error: cannot index int64
+04 |	    n := 4
+05 |	    exit(n[0])
+   |	         ^
+06 |	}
+
+-- int-overflow/main.tck --
+package main
+
+func main() {
+    exit(9223372036854775808)
+}
+-- int-overflow/expected --
+stage: typeck
+---
+
+int-overflow/main.tck:4:10: error: constant 9223372036854775808 overflows int64
+03 |	func main() {
+04 |	    exit(9223372036854775808)
+   |	         ^~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- invalid-func-syntax-0/main.tck --
+package main
+
+func () {}
+-- invalid-func-syntax-0/expected --
+stage: parse
+---
+
+invalid-func-syntax-0/main.tck:3:6: error: expected 'function name' found '('
+02 |	
+03 |	func () {}
+   |	     ^
+04 |	
+
+-- invalid-func-syntax-1/main.tck --
+package main
+
+func main() {
+    print(
+-- invalid-func-syntax-1/expected --
+stage: parse
+---
+
+invalid-func-syntax-1/main.tck:4:11: error: expected ')' found 'EOF'
+03 |	func main() {
+04 |	    print(
+   |	          ^
+
+-- invalid-func-syntax-1/no-final-newline --
+-- len-of-integer/main.tck --
+package main
+
+func main() {
+    n := 7
+    exit(len(n))
+}
+-- len-of-integer/expected --
+stage: typeck
+---
+
+len-of-integer/main.tck:5:14: error: len expects an array or a string, got int64
+04 |	    n := 7
+05 |	    exit(len(n))
+   |	             ^
+06 |	}
+
+-- literal-of-basic-type/main.tck --
+package main
+
+func main() {
+    n := int64{1}
+    exit(n)
+}
+-- literal-of-basic-type/expected --
+stage: typeck
+---
+
+literal-of-basic-type/main.tck:4:10: error: int64 cannot be written as a literal; only arrays and structs can
+03 |	func main() {
+04 |	    n := int64{1}
+   |	         ^~~~~~~~
+05 |	    exit(n)
+
+-- logical-non-bool/main.tck --
+package main
+
+func main() {
+    if 1 && true {
+        exit(1)
+    }
+}
+-- logical-non-bool/expected --
+stage: typeck
+---
+
+logical-non-bool/main.tck:4:8: error: operator && is not defined on int64
+03 |	func main() {
+04 |	    if 1 && true {
+   |	       ^
+05 |	        exit(1)
+
+-- loop-break-missing-return/main.tck --
+package main
+
+func f() int64 {
+    for {
+        break
+    }
+}
+
+func main() {
+    exit(f())
+}
+-- loop-break-missing-return/expected --
+stage: typeck
+---
+
+loop-break-missing-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f() int64 {
+   |	     ^
+04 |	    for {
+
+-- loop-non-bool-condition/main.tck --
+package main
+
+func main() {
+    for 1 {
+    }
+}
+-- loop-non-bool-condition/expected --
+stage: typeck
+---
+
+loop-non-bool-condition/main.tck:4:9: error: condition must be a bool, got int64
+03 |	func main() {
+04 |	    for 1 {
+   |	        ^
+05 |	    }
+
+-- main-with-params/main.tck --
+package main
+
+func main(x int64) {
+}
+-- main-with-params/expected --
+stage: resolve
+---
+
+main-with-params/main.tck:3:11: error: main function must not declare parameters
+02 |	
+03 |	func main(x int64) {
+   |	          ^~~~~~~
+04 |	}
+
+-- main-with-params-and-result/main.tck --
+package main
+
+func main(x int64) int64 {
+    return x
+}
+-- main-with-params-and-result/expected --
+stage: resolve
+---
+
+main-with-params-and-result/main.tck:3:11: error: main function must not declare parameters
+02 |	
+03 |	func main(x int64) int64 {
+   |	          ^~~~~~~
+04 |	    return x
+
+main-with-params-and-result/main.tck:3:20: error: main function must not declare a result
+02 |	
+03 |	func main(x int64) int64 {
+   |	                   ^~~~~
+04 |	    return x
+
+-- main-with-result/main.tck --
+package main
+
+func main() int64 {
+    return 7
+}
+-- main-with-result/expected --
+stage: resolve
+---
+
+main-with-result/main.tck:3:13: error: main function must not declare a result
+02 |	
+03 |	func main() int64 {
+   |	            ^~~~~
+04 |	    return 7
+
+-- mismatched-int-types/main.tck --
+package main
+
+func main() {
+    var a int8 = 1
+    var b uint8 = 2
+    exit(a + b)
+}
+-- mismatched-int-types/expected --
+stage: typeck
+---
+
+mismatched-int-types/main.tck:6:10: error: mismatched types int8 and uint8 in +
+05 |	    var b uint8 = 2
+06 |	    exit(a + b)
+   |	         ^~~~~
+07 |	}
+
+-- missing-comma/main.tck --
+package main
+
+func f(a int64, b int64) {
+}
+
+func main() {
+    f(1 2)
+}
+-- missing-comma/expected --
+stage: parse
+---
+
+missing-comma/main.tck:7:9: error: expected ',' found '2'
+06 |	func main() {
+07 |	    f(1 2)
+   |	        ^
+08 |	}
+
+-- missing-else-return/main.tck --
+package main
+
+func f(n int64) int64 {
+    if n < 2 {
+        return 1
+    }
+}
+
+func main() {
+}
+-- missing-else-return/expected --
+stage: typeck
+---
+
+missing-else-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f(n int64) int64 {
+   |	     ^
+04 |	    if n < 2 {
+
+-- missing-return/main.tck --
+package main
+
+func f() int64 {
+}
+
+func main() {
+}
+-- missing-return/expected --
+stage: typeck
+---
+
+missing-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f() int64 {
+   |	     ^
+04 |	}
+
+-- multi-assign-mut/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    mut a, mut b := pair()
+    a, mut b = pair()
+    exit(a + b)
+}
+-- multi-assign-mut/expected --
+stage: parse
+---
+
+multi-assign-mut/main.tck:9:8: error: cannot use mut in an assignment
+08 |	    mut a, mut b := pair()
+09 |	    a, mut b = pair()
+   |	       ^~~~~
+10 |	    exit(a + b)
+
+-- multi-assign-twice/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    mut a := 0
+    a, a = pair()
+    exit(a)
+}
+-- multi-assign-twice/expected --
+stage: typeck
+---
+
+multi-assign-twice/main.tck:9:8: error: a is assigned more than once
+08 |	    mut a := 0
+09 |	    a, a = pair()
+   |	       ^
+10 |	    exit(a)
+
+-- multi-value-as-value/main.tck --
+package main
+
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    return a / b, a % b
+}
+
+func main() {
+    exit(divmod(7, 2))
+}
+-- multi-value-as-value/expected --
+stage: typeck
+---
+
+multi-value-as-value/main.tck:11:10: error: divmod returns 2 values
+10 |	func main() {
+11 |	    exit(divmod(7, 2))
+   |	         ^~~~~~~~~~~~
+12 |	}
+
+-- multi-var-in-post/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    for ;; a, b := pair() {
+    }
+}
+-- multi-var-in-post/expected --
+stage: parse
+---
+
+multi-var-in-post/main.tck:8:12: error: cannot declare a variable in a for loop's post statement
+07 |	func main() {
+08 |	    for ;; a, b := pair() {
+   |	           ^~~~~~~~~~~~~~
+09 |	    }
+
+-- narrowing-declaration/main.tck --
+package main
+
+func main() {
+    var wide int64 = 300
+    var small int8 = wide
+    exit(small)
+}
+-- narrowing-declaration/expected --
+stage: typeck
+---
+
+narrowing-declaration/main.tck:5:22: error: cannot use int64 as int8 in declaration of small
+04 |	    var wide int64 = 300
+05 |	    var small int8 = wide
+   |	                     ^~~~
+06 |	    exit(small)
+
+-- negate-non-int/main.tck --
+package main
+
+func main() {
+    if -true {
+        exit(1)
+    }
+}
+-- negate-non-int/expected --
+stage: typeck
+---
+
+negate-non-int/main.tck:4:9: error: operator - is not defined on bool
+03 |	func main() {
+04 |	    if -true {
+   |	        ^~~~
+05 |	        exit(1)
+
+-- negative-literal-out-of-range/main.tck --
+package main
+
+func main() {
+    exit(-9223372036854775809)
+}
+-- negative-literal-out-of-range/expected --
+stage: parse
+---
+
+negative-literal-out-of-range/main.tck:4:10: error: integer literal -9223372036854775809 is out of range
+03 |	func main() {
+04 |	    exit(-9223372036854775809)
+   |	         ^~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- no-main-func/main.tck --
+package main
+
+func myFunc() {}
+-- no-main-func/expected --
+stage: resolve
+---
+
+no-main-func/main.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
+
+-- no-main-package/main.tck --
+package my_package
+
+func myFunc() {}
+-- no-main-package/expected --
+stage: resolve
+---
+
+no-main-package/main.tck:1:1: error: main package not found
+01 |	package my_package
+   |	^
+02 |	
+
+-- no-package/main.tck --
+func main() {}
+-- no-package/expected --
+stage: parse
+---
+
+no-package/main.tck:1:1: error: expected 'package' found 'func'
+01 |	func main() {}
+   |	^
+02 |	
+
+-- no-package-name/main.tck --
+package
+-- no-package-name/expected --
+stage: parse
+---
+
+no-package-name/main.tck:1:8: error: expected 'package name' found 'EOF'
+01 |	package
+   |	       ^
+02 |	
+
+-- non-bool-condition/main.tck --
+package main
+
+func main() {
+    if 1 {
+        print("yes")
+    }
+}
+-- non-bool-condition/expected --
+stage: typeck
+---
+
+non-bool-condition/main.tck:4:8: error: condition must be a bool, got int64
+03 |	func main() {
+04 |	    if 1 {
+   |	       ^
+05 |	        print("yes")
+
+-- not-non-bool/main.tck --
+package main
+
+func main() {
+    if !5 {
+        exit(1)
+    }
+}
+-- not-non-bool/expected --
+stage: typeck
+---
+
+not-non-bool/main.tck:4:9: error: operator ! is not defined on int64
+03 |	func main() {
+04 |	    if !5 {
+   |	        ^
+05 |	        exit(1)
+
+-- param-type-mismatch/main.tck --
+package main
+
+func f(x int64) {
+}
+
+func main() {
+    f("hi")
+}
+-- param-type-mismatch/expected --
+stage: typeck
+---
+
+param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument to f
+06 |	func main() {
+07 |	    f("hi")
+   |	      ^~~~
+08 |	}
+
+-- quote-at-eof/main.tck --
+package main
+
+func main() {
+    print("
+-- quote-at-eof/expected --
+stage: lex
+---
+
+quote-at-eof/main.tck:4:11: error: unterminated string
+03 |	func main() {
+04 |	    print("
+   |	          ^
+
+-- quote-at-eof/no-final-newline --
+-- range-assign-immutable/main.tck --
+package main
+
+func main() {
+    for i := range 3 {
+        i += 1
+        exit(i)
+    }
+}
+-- range-assign-immutable/expected --
+stage: typeck
+---
+
+range-assign-immutable/main.tck:5:9: error: cannot assign to immutable variable i
+04 |	    for i := range 3 {
+05 |	        i += 1
+   |	        ^
+06 |	        exit(i)
+
+-- range-blank-nothing-bound/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for _, _ := range a {
+        exit(1)
+    }
+}
+-- range-blank-nothing-bound/expected --
+stage: resolve
+---
+
+range-blank-nothing-bound/main.tck:5:9: error: every name is _, so nothing is bound; drop the names and :=
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for _, _ := range a {
+   |	        ^~~~
+06 |	        exit(1)
+
+-- range-bool/main.tck --
+package main
+
+func main() {
+    done := false
+    for i := range done {
+        exit(i)
+    }
+}
+-- range-bool/expected --
+stage: typeck
+---
+
+range-bool/main.tck:5:20: error: cannot range over bool
+04 |	    done := false
+05 |	    for i := range done {
+   |	                   ^~~~
+06 |	        exit(i)
+
+-- range-elem-assign-immutable/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for _, x := range a {
+        x *= 2
+        exit(x)
+    }
+}
+-- range-elem-assign-immutable/expected --
+stage: typeck
+---
+
+range-elem-assign-immutable/main.tck:6:9: error: cannot assign to immutable variable x
+05 |	    for _, x := range a {
+06 |	        x *= 2
+   |	        ^
+07 |	        exit(x)
+
+-- range-mut/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for _, mut x := range a {
+        x = 2
+        exit(x)
+    }
+}
+-- range-mut/expected --
+stage: parse
+---
+
+range-mut/main.tck:5:12: error: cannot use mut on a range loop variable
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for _, mut x := range a {
+   |	           ^~~~~
+06 |	        x = 2
+
+-- range-string-reassigned/main.tck --
+package main
+
+func main() {
+    mut s := "tack"
+    for i := range s {
+        s = ""
+        exit(s[i])
+    }
+}
+-- range-string-reassigned/expected --
+stage: typeck
+---
+
+range-string-reassigned/main.tck:7:16: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+06 |	        s = ""
+07 |	        exit(s[i])
+   |	               ^
+08 |	    }
+
+-- range-too-many-names/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for i, x, y := range a {
+        exit(i + x + y)
+    }
+}
+-- range-too-many-names/expected --
+stage: parse
+---
+
+range-too-many-names/main.tck:5:9: error: assignment mismatch: 3 variables but range gives at most 2 values
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for i, x, y := range a {
+   |	        ^~~~~~~~~~~~~~~~~~
+06 |	        exit(i + x + y)
+
+-- range-two-names-int/main.tck --
+package main
+
+func main() {
+    for i, x := range 3 {
+        exit(i + x)
+    }
+}
+-- range-two-names-int/expected --
+stage: typeck
+---
+
+range-two-names-int/main.tck:4:9: error: assignment mismatch: 2 variables but range over int64 gives 1 value
+03 |	func main() {
+04 |	    for i, x := range 3 {
+   |	        ^~~~~~~~~~~~~~~
+05 |	        exit(i + x)
+
+-- raw-string-escaped-backquote/main.tck --
+package main
+
+func main() {
+    // A backslash does not escape a backquote: the string ends at it.
+    print(`a\`b`)
+}
+-- raw-string-escaped-backquote/expected --
+stage: lex
+---
+
+raw-string-escaped-backquote/main.tck:5:16: error: unterminated string
+04 |	    // A backslash does not escape a backquote: the string ends at it.
+05 |	    print(`a\`b`)
+   |	               ^~~~~
+06 |	}
+
+-- raw-string-unterminated/main.tck --
+package main
+
+func main() {
+    print(`a raw string
+that is never closed)
+}
+-- raw-string-unterminated/expected --
+stage: lex
+---
+
+raw-string-unterminated/main.tck:4:11: error: unterminated string
+03 |	func main() {
+04 |	    print(`a raw string
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	that is never closed)
+
+-- return-not-enough/main.tck --
+package main
+
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    return a / b
+}
+
+func main() {
+    divmod(7, 2)
+}
+-- return-not-enough/expected --
+stage: typeck
+---
+
+return-not-enough/main.tck:7:5: error: not enough return values: divmod returns 2, got 1
+06 |	    }
+07 |	    return a / b
+   |	    ^~~~~~~~~~~~
+08 |	}
+
+-- return-too-many/main.tck --
+package main
+
+func half(n int64) int64 {
+    return n / 2, n % 2
+}
+
+func main() {
+    exit(half(7))
+}
+-- return-too-many/expected --
+stage: typeck
+---
+
+return-too-many/main.tck:4:12: error: too many return values: half returns 1, got 2
+03 |	func half(n int64) int64 {
+04 |	    return n / 2, n % 2
+   |	           ^~~~~~~~~~~~
+05 |	}
+
+-- return-type-mismatch/main.tck --
+package main
+
+func f() int64 {
+    return "hi"
+}
+
+func main() {
+}
+-- return-type-mismatch/expected --
+stage: typeck
+---
+
+return-type-mismatch/main.tck:4:12: error: cannot use string as int64 in return from f
+03 |	func f() int64 {
+04 |	    return "hi"
+   |	           ^~~~
+05 |	}
+
+-- string-arithmetic/main.tck --
+package main
+
+func main() {
+    exit("a" + "b")
+}
+-- string-arithmetic/expected --
+stage: typeck
+---
+
+string-arithmetic/main.tck:4:10: error: operator + is not defined on string
+03 |	func main() {
+04 |	    exit("a" + "b")
+   |	         ^~~
+05 |	}
+
+string-arithmetic/main.tck:4:16: error: operator + is not defined on string
+03 |	func main() {
+04 |	    exit("a" + "b")
+   |	               ^~~
+05 |	}
+
+-- string-compare-mismatch/main.tck --
+package main
+
+func main() {
+    s := "1"
+    n := 1
+    if s < n {
+        exit(1)
+    }
+}
+-- string-compare-mismatch/expected --
+stage: typeck
+---
+
+string-compare-mismatch/main.tck:6:8: error: mismatched types string and int64 in <
+05 |	    n := 1
+06 |	    if s < n {
+   |	       ^~~~~
+07 |	        exit(1)
+
+-- string-constant-index-unguarded/main.tck --
+package main
+
+func f(s string) uint8 {
+    return s[0]
+}
+
+func main() {
+    exit(f("tack"))
+}
+-- string-constant-index-unguarded/expected --
+stage: typeck
+---
+
+string-constant-index-unguarded/main.tck:4:14: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
+03 |	func f(s string) uint8 {
+04 |	    return s[0]
+   |	             ^
+05 |	}
+
+-- string-element-assign/main.tck --
+package main
+
+func main() {
+    mut s := "tack"
+    s[0] = 84
+    print(s)
+}
+-- string-element-assign/expected --
+stage: typeck
+---
+
+string-element-assign/main.tck:5:5: error: cannot assign to an element of a string; strings are immutable
+04 |	    mut s := "tack"
+05 |	    s[0] = 84
+   |	    ^~~~
+06 |	    print(s)
+
+-- string-guard-reassigned/main.tck --
+package main
+
+func main() {
+    mut s := "tack"
+    if len(s) > 0 {
+        s = ""
+        exit(s[0])
+    }
+}
+-- string-guard-reassigned/expected --
+stage: typeck
+---
+
+string-guard-reassigned/main.tck:7:16: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
+06 |	        s = ""
+07 |	        exit(s[0])
+   |	               ^
+08 |	    }
+
+-- string-index-may-be-out-of-range/main.tck --
+package main
+
+func f(s string, i int64) uint8 {
+    return s[i]
+}
+
+func main() {
+    exit(f("tack", 1))
+}
+-- string-index-may-be-out-of-range/expected --
+stage: typeck
+---
+
+string-index-may-be-out-of-range/main.tck:4:14: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+03 |	func f(s string, i int64) uint8 {
+04 |	    return s[i]
+   |	             ^
+05 |	}
+
+-- string-index-negative/main.tck --
+package main
+
+func f(s string) uint8 {
+    return s[-1]
+}
+
+func main() {
+    exit(f("tack"))
+}
+-- string-index-negative/expected --
+stage: typeck
+---
+
+string-index-negative/main.tck:4:14: error: index -1 is out of range for a string
+03 |	func f(s string) uint8 {
+04 |	    return s[-1]
+   |	             ^~
+05 |	}
+
+-- string-index-of-call/main.tck --
+package main
+
+func name() string {
+    return "tack"
+}
+
+func f(i int64) uint8 {
+    return name()[i]
+}
+
+func main() {
+    exit(f(1) + name()[0])
+}
+-- string-index-of-call/expected --
+stage: typeck
+---
+
+string-index-of-call/main.tck:8:19: error: index i may be out of range; use v, ok := ...[i]
+07 |	func f(i int64) uint8 {
+08 |	    return name()[i]
+   |	                  ^
+09 |	}
+
+string-index-of-call/main.tck:12:24: error: index 0 may be out of range; use v, ok := ...[0]
+11 |	func main() {
+12 |	    exit(f(1) + name()[0])
+   |	                       ^
+13 |	}
+
+-- string-index-out-of-range/main.tck --
+package main
+
+func main() {
+    exit("tack"[4])
+}
+-- string-index-out-of-range/expected --
+stage: typeck
+---
+
+string-index-out-of-range/main.tck:4:17: error: index 4 is out of range for a string of 4 bytes
+03 |	func main() {
+04 |	    exit("tack"[4])
+   |	                ^
+05 |	}
+
+-- struct-anonymous/main.tck --
+package main
+
+func main() {
+    mut p struct { x int64 }
+    p.x = 1
+    exit(p.x)
+}
+-- struct-anonymous/expected --
+stage: parse
+---
+
+struct-anonymous/main.tck:4:11: error: anonymous structs are not supported
+03 |	func main() {
+04 |	    mut p struct { x int64 }
+   |	          ^~~~~~
+05 |	    p.x = 1
+
+-- struct-as-value/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    p := Point
+    exit(p.x)
+}
+-- struct-as-value/expected --
+stage: resolve
+---
+
+struct-as-value/main.tck:8:10: error: cannot use Point as a value; it is a type
+07 |	func main() {
+08 |	    p := Point
+   |	         ^~~~~
+09 |	    exit(p.x)
+
+-- struct-builtin-type-name/main.tck --
+package main
+
+type int64 struct {
+    x uint8
+}
+
+func main() {
+}
+-- struct-builtin-type-name/expected --
+stage: resolve
+---
+
+struct-builtin-type-name/main.tck:3:6: error: cannot use int64 as a name; it is a type
+02 |	
+03 |	type int64 struct {
+   |	     ^~~~~
+04 |	    x uint8
+
+-- struct-called/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    p := Point(1)
+    exit(p.x)
+}
+-- struct-called/expected --
+stage: resolve
+---
+
+struct-called/main.tck:8:10: error: cannot call Point; it is a type
+07 |	func main() {
+08 |	    p := Point(1)
+   |	         ^~~~~
+09 |	    exit(p.x)
+
+-- struct-duplicate-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+    x bool
+}
+
+func main() {
+}
+-- struct-duplicate-field/expected --
+stage: resolve
+---
+
+struct-duplicate-field/main.tck:6:5: error: duplicate field name
+05 |	    y int64
+06 |	    x bool
+   |	    ^
+07 |	}
+struct-duplicate-field/main.tck:4:5: note: previous declaration of x
+03 |	type Point struct {
+04 |	    x int64
+   |	    ^
+05 |	    y int64
+
+-- struct-embedded-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+type Named struct {
+    Point
+    name string
+}
+
+func main() {
+}
+-- struct-embedded-field/expected --
+stage: parse
+---
+
+struct-embedded-field/main.tck:8:5: error: embedded fields are not supported
+07 |	type Named struct {
+08 |	    Point
+   |	    ^~~~~
+09 |	    name string
+
+-- struct-field-divisor-unproven/main.tck --
+package main
+
+type Pair struct {
+    a int64
+    b int64
+}
+
+func main() {
+    p := Pair{a: 6, b: 3}
+    if p.b != 0 {
+        exit(p.a / p.b)
+    }
+}
+-- struct-field-divisor-unproven/expected --
+stage: typeck
+---
+
+struct-field-divisor-unproven/main.tck:11:20: error: divisor may be zero; use q, ok := ... / ...
+10 |	    if p.b != 0 {
+11 |	        exit(p.a / p.b)
+   |	                   ^~~
+12 |	    }
+
+-- struct-field-immutable/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    p := Point{x: 1}
+    p.x = 2
+    exit(p.x)
+}
+-- struct-field-immutable/expected --
+stage: typeck
+---
+
+struct-field-immutable/main.tck:9:5: error: cannot assign to field of immutable variable p
+08 |	    p := Point{x: 1}
+09 |	    p.x = 2
+   |	    ^
+10 |	    exit(p.x)
+
+-- struct-field-param/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func reset(p Point) {
+    p.x = 0
+}
+
+func main() {
+    reset(Point{x: 1})
+}
+-- struct-field-param/expected --
+stage: typeck
+---
+
+struct-field-param/main.tck:8:5: error: cannot assign to field of parameter p
+07 |	func reset(p Point) {
+08 |	    p.x = 0
+   |	    ^
+09 |	}
+
+-- struct-field-untyped-literal/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+type Line struct {
+    a Point
+}
+
+func main() {
+    l := Line{a: {x: 1}}
+    exit(l.a.x)
+}
+-- struct-field-untyped-literal/expected --
+stage: typeck
+---
+
+struct-field-untyped-literal/main.tck:12:18: error: a literal without a type needs an array literal around it
+11 |	func main() {
+12 |	    l := Line{a: {x: 1}}
+   |	                 ^~~~~~
+13 |	    exit(l.a.x)
+
+-- struct-field-visibility/main.tck --
+package main
+
+type Point struct {
+    pub x int64
+}
+
+func main() {
+}
+-- struct-field-visibility/expected --
+stage: parse
+---
+
+struct-field-visibility/main.tck:4:5: error: field visibility is not supported
+03 |	type Point struct {
+04 |	    pub x int64
+   |	    ^~~
+05 |	}
+
+-- struct-init-cycle/main.tck --
+package main
+
+type Outer struct {
+    a [len(g.b)]int64
+}
+
+type Inner struct {
+    b [len(g.b)]int64
+}
+
+var g = Inner{b: [1]int64{1}}
+
+func main() {
+    o := Outer{a: [1]int64{2}}
+    exit(o.a[0])
+}
+-- struct-init-cycle/expected --
+stage: typeck
+---
+
+struct-init-cycle/main.tck:8:12: error: initialization cycle: g refers to itself
+07 |	type Inner struct {
+08 |	    b [len(g.b)]int64
+   |	           ^
+09 |	}
+
+struct-init-cycle/main.tck:8:8: error: array length must be a constant integer
+07 |	type Inner struct {
+08 |	    b [len(g.b)]int64
+   |	       ^~~~~~~~
+09 |	}
+
+struct-init-cycle/main.tck:4:8: error: array length must be a constant integer
+03 |	type Outer struct {
+04 |	    a [len(g.b)]int64
+   |	       ^~~~~~~~
+05 |	}
+
+-- struct-literal-bad-key/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    p := Point{"x": 1}
+    exit(p.x)
+}
+-- struct-literal-bad-key/expected --
+stage: typeck
+---
+
+struct-literal-bad-key/main.tck:8:16: error: invalid field name in Point literal
+07 |	func main() {
+08 |	    p := Point{"x": 1}
+   |	               ^~~
+09 |	    exit(p.x)
+
+-- struct-literal-duplicate-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1, y: 2, x: 3}
+    exit(p.x)
+}
+-- struct-literal-duplicate-field/expected --
+stage: typeck
+---
+
+struct-literal-duplicate-field/main.tck:9:28: error: duplicate field x in Point literal
+08 |	func main() {
+09 |	    p := Point{x: 1, y: 2, x: 3}
+   |	                           ^
+10 |	    exit(p.x)
+
+-- struct-literal-in-header/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    p := Point{x: 1}
+    if p == Point{x: 1} {
+        exit(1)
+    }
+}
+-- struct-literal-in-header/expected --
+stage: parse
+---
+
+struct-literal-in-header/main.tck:9:18: error: a struct literal in an if, for or range header must be in parentheses
+08 |	    p := Point{x: 1}
+09 |	    if p == Point{x: 1} {
+   |	                 ^
+10 |	        exit(1)
+
+-- struct-literal-missing-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1}
+    exit(p.x)
+}
+-- struct-literal-missing-field/expected --
+stage: typeck
+---
+
+struct-literal-missing-field/main.tck:9:10: error: Point literal is missing field y
+08 |	func main() {
+09 |	    p := Point{x: 1}
+   |	         ^~~~~~~~~~~
+10 |	    exit(p.x)
+
+-- struct-literal-positional/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{1, 2}
+    exit(p.x)
+}
+-- struct-literal-positional/expected --
+stage: typeck
+---
+
+struct-literal-positional/main.tck:9:16: error: missing field name in Point literal
+08 |	func main() {
+09 |	    p := Point{1, 2}
+   |	               ^
+10 |	    exit(p.x)
+
+struct-literal-positional/main.tck:9:19: error: missing field name in Point literal
+08 |	func main() {
+09 |	    p := Point{1, 2}
+   |	                  ^
+10 |	    exit(p.x)
+
+-- struct-local-type/main.tck --
+package main
+
+func main() {
+    type Point struct {
+        x int64
+    }
+}
+-- struct-local-type/expected --
+stage: parse
+---
+
+struct-local-type/main.tck:4:5: error: types can only be declared at package level
+03 |	func main() {
+04 |	    type Point struct {
+   |	    ^~~~
+05 |	        x int64
+
+-- struct-method/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func (p Point) norm() int64 {
+    return p.x
+}
+
+func main() {
+}
+-- struct-method/expected --
+stage: parse
+---
+
+struct-method/main.tck:7:6: error: methods are not supported
+06 |	
+07 |	func (p Point) norm() int64 {
+   |	     ^
+08 |	    return p.x
+
+-- struct-name-clash/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func Point() {
+}
+
+func main() {
+}
+-- struct-name-clash/expected --
+stage: resolve
+---
+
+struct-name-clash/main.tck:3:6: error: Point is already declared
+02 |	
+03 |	type Point struct {
+   |	     ^~~~~
+04 |	    x int64
+struct-name-clash/main.tck:7:6: note: previous declaration of Point
+06 |	
+07 |	func Point() {
+   |	     ^~~~~
+08 |	}
+
+-- struct-named-non-struct/main.tck --
+package main
+
+type Celsius int64
+
+func main() {
+}
+-- struct-named-non-struct/expected --
+stage: parse
+---
+
+struct-named-non-struct/main.tck:3:14: error: only struct types can be declared
+02 |	
+03 |	type Celsius int64
+   |	             ^~~~~
+04 |	
+
+-- struct-no-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1, y: 2}
+    exit(p.z)
+}
+-- struct-no-field/expected --
+stage: typeck
+---
+
+struct-no-field/main.tck:10:12: error: Point has no field z
+09 |	    p := Point{x: 1, y: 2}
+10 |	    exit(p.z)
+   |	           ^
+11 |	}
+
+-- struct-not-a-type/main.tck --
+package main
+
+var limit = 3
+
+func main() {
+    mut p limit
+    exit(p)
+}
+-- struct-not-a-type/expected --
+stage: resolve
+---
+
+struct-not-a-type/main.tck:6:11: error: limit is not a type
+05 |	func main() {
+06 |	    mut p limit
+   |	          ^~~~~
+07 |	    exit(p)
+
+struct-not-a-type/main.tck:3:5: error: declared and not used: limit
+02 |	
+03 |	var limit = 3
+   |	    ^~~~~
+04 |	
+
+-- struct-ordering/main.tck --
+package main
+
+type Named struct {
+    name string
+}
+
+func main() {
+    a := Named{name: "a"}
+    b := Named{name: "b"}
+    if a <= b {
+        exit(1)
+    }
+}
+-- struct-ordering/expected --
+stage: typeck
+---
+
+struct-ordering/main.tck:10:8: error: operator <= is not defined on Named
+09 |	    b := Named{name: "b"}
+10 |	    if a <= b {
+   |	       ^~~~~~
+11 |	        exit(1)
+
+-- struct-recursive/main.tck --
+package main
+
+type Tree struct {
+    value int64
+    kids [2]Node
+}
+
+type Node struct {
+    tree Tree
+}
+
+func main() {
+}
+-- struct-recursive/expected --
+stage: typeck
+---
+
+struct-recursive/main.tck:3:6: error: invalid recursive type Tree
+02 |	
+03 |	type Tree struct {
+   |	     ^~~~
+04 |	    value int64
+struct-recursive/main.tck:5:5: note: Tree refers to Node
+04 |	    value int64
+05 |	    kids [2]Node
+   |	    ^~~~~~~~~~~~
+06 |	}
+struct-recursive/main.tck:9:5: note: Node refers to Tree
+08 |	type Node struct {
+09 |	    tree Tree
+   |	    ^~~~~~~~~
+10 |	}
+
+-- struct-recursive-length/main.tck --
+package main
+
+type Box struct {
+    items [len(b.items)]int64
+}
+
+mut b Box
+
+func main() {
+    exit(len(b.items))
+}
+-- struct-recursive-length/expected --
+stage: typeck
+---
+
+struct-recursive-length/main.tck:4:16: error: invalid recursive type Box
+03 |	type Box struct {
+04 |	    items [len(b.items)]int64
+   |	               ^~~~~~~
+05 |	}
+
+struct-recursive-length/main.tck:4:12: error: array length must be a constant integer
+03 |	type Box struct {
+04 |	    items [len(b.items)]int64
+   |	           ^~~~~~~~~~~~
+05 |	}
+
+-- switch-bad-clause/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch n {
+    exit(n)
+    }
+}
+-- switch-bad-clause/expected --
+stage: parse
+---
+
+switch-bad-clause/main.tck:6:5: error: expected 'case or default' found 'exit'
+05 |	    switch n {
+06 |	    exit(n)
+   |	    ^
+07 |	    }
+
+-- switch-break-missing-return/main.tck --
+package main
+
+func f(n int64) int64 {
+    for {
+        switch n {
+        case 1:
+            break
+        }
+    }
+}
+
+func main() {
+    exit(f(1))
+}
+-- switch-break-missing-return/expected --
+stage: typeck
+---
+
+switch-break-missing-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f(n int64) int64 {
+   |	     ^
+04 |	    for {
+
+-- switch-break-outside-loop/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch n {
+    case 3:
+        break
+    }
+}
+-- switch-break-outside-loop/expected --
+stage: typeck
+---
+
+switch-break-outside-loop/main.tck:7:9: error: break is not in a loop
+06 |	    case 3:
+07 |	        break
+   |	        ^~~~~
+08 |	    }
+
+-- switch-case-mismatch/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch n {
+    case 3:
+        exit(1)
+    case "3":
+        exit(2)
+    }
+}
+-- switch-case-mismatch/expected --
+stage: typeck
+---
+
+switch-case-mismatch/main.tck:8:10: error: mismatched types int64 and string in switch case
+07 |	        exit(1)
+08 |	    case "3":
+   |	         ^~~
+09 |	        exit(2)
+
+-- switch-duplicate-case/main.tck --
+package main
+
+func main() {
+    n := 3
+    three := 3
+    switch n {
+    case 1, 2:
+        exit(1)
+    case 4, 1 + 1, three:
+        exit(2)
+    case 3:
+        exit(3)
+    }
+}
+-- switch-duplicate-case/expected --
+stage: typeck
+---
+
+switch-duplicate-case/main.tck:9:13: error: duplicate case 2 in switch
+08 |	        exit(1)
+09 |	    case 4, 1 + 1, three:
+   |	            ^~~~~
+10 |	        exit(2)
+switch-duplicate-case/main.tck:7:13: note: previous case
+06 |	    switch n {
+07 |	    case 1, 2:
+   |	            ^
+08 |	        exit(1)
+
+switch-duplicate-case/main.tck:11:10: error: duplicate case 3 in switch
+10 |	        exit(2)
+11 |	    case 3:
+   |	         ^
+12 |	        exit(3)
+switch-duplicate-case/main.tck:9:20: note: previous case
+08 |	        exit(1)
+09 |	    case 4, 1 + 1, three:
+   |	                   ^~~~~
+10 |	        exit(2)
+
+-- switch-duplicate-string-case/main.tck --
+package main
+
+func main() {
+    s := "b"
+    switch s {
+    case "a", "b":
+        exit(1)
+    case "b":
+        exit(2)
+    }
+}
+-- switch-duplicate-string-case/expected --
+stage: typeck
+---
+
+switch-duplicate-string-case/main.tck:8:10: error: duplicate case "b" in switch
+07 |	        exit(1)
+08 |	    case "b":
+   |	         ^~~
+09 |	        exit(2)
+switch-duplicate-string-case/main.tck:6:15: note: previous case
+05 |	    switch s {
+06 |	    case "a", "b":
+   |	              ^~~
+07 |	        exit(1)
+
+-- switch-missing-default-return/main.tck --
+package main
+
+func f(n int64) int64 {
+    switch n {
+    case 1:
+        return 1
+    case 2:
+        return 2
+    }
+}
+
+func main() {
+    exit(f(1))
+}
+-- switch-missing-default-return/expected --
+stage: typeck
+---
+
+switch-missing-default-return/main.tck:3:6: error: f must end in a return
+02 |	
+03 |	func f(n int64) int64 {
+   |	     ^
+04 |	    switch n {
+
+-- switch-multi-value-no-proof/main.tck --
+package main
+
+func f(d int64) int64 {
+    switch d {
+    case 1, 2:
+        return 10 / d
+    }
+    return 0
+}
+
+func main() {
+    exit(f(1))
+}
+-- switch-multi-value-no-proof/expected --
+stage: typeck
+---
+
+switch-multi-value-no-proof/main.tck:6:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+05 |	    case 1, 2:
+06 |	        return 10 / d
+   |	                    ^
+07 |	    }
+
+-- switch-multiple-defaults/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch n {
+    default:
+        exit(1)
+    case 3:
+        exit(2)
+    default:
+        exit(3)
+    }
+}
+-- switch-multiple-defaults/expected --
+stage: parse
+---
+
+switch-multiple-defaults/main.tck:10:5: error: multiple defaults in switch
+09 |	        exit(2)
+10 |	    default:
+   |	    ^~~~~~~~
+11 |	        exit(3)
+switch-multiple-defaults/main.tck:6:5: note: first default here
+05 |	    switch n {
+06 |	    default:
+   |	    ^~~~~~~~
+07 |	        exit(1)
+
+-- switch-non-bool-case/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch {
+    case n == 1, n:
+        exit(1)
+    }
+}
+-- switch-non-bool-case/expected --
+stage: typeck
+---
+
+switch-non-bool-case/main.tck:6:18: error: condition must be a bool, got int64
+05 |	    switch {
+06 |	    case n == 1, n:
+   |	                 ^
+07 |	        exit(1)
+
+-- switch-struct-literal-in-header/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func main() {
+    switch Point{x: 1} {
+    case Point{x: 1}:
+        exit(1)
+    }
+}
+-- switch-struct-literal-in-header/expected --
+stage: parse
+---
+
+switch-struct-literal-in-header/main.tck:8:17: error: a struct literal in a switch header must be in parentheses
+07 |	func main() {
+08 |	    switch Point{x: 1} {
+   |	                ^
+09 |	    case Point{x: 1}:
+
+-- switch-tag-no-value/main.tck --
+package main
+
+func report() {
+}
+
+func main() {
+    switch report() {
+    }
+}
+-- switch-tag-no-value/expected --
+stage: typeck
+---
+
+switch-tag-no-value/main.tck:7:12: error: report returns no value
+06 |	func main() {
+07 |	    switch report() {
+   |	           ^~~~~~~~
+08 |	    }
+
+-- type-name-as-name/main.tck --
+package main
+
+func int32() {
+}
+
+func main() {
+}
+-- type-name-as-name/expected --
+stage: resolve
+---
+
+type-name-as-name/main.tck:3:6: error: cannot use int32 as a name; it is a type
+02 |	
+03 |	func int32() {
+   |	     ^~~~~
+04 |	}
+
+-- type-name-as-variable/main.tck --
+package main
+
+func main() {
+    uint8 := 5
+    exit(uint8)
+}
+-- type-name-as-variable/expected --
+stage: resolve
+---
+
+type-name-as-variable/main.tck:4:5: error: cannot use uint8 as a name; it is a type
+03 |	func main() {
+04 |	    uint8 := 5
+   |	    ^~~~~
+05 |	    exit(uint8)
+
+type-name-as-variable/main.tck:5:10: error: cannot use uint8 as a value; it is a type
+04 |	    uint8 := 5
+05 |	    exit(uint8)
+   |	         ^~~~~
+06 |	}
+
+-- undef-func/main.tck --
+package main
+
+func main() {
+    sayHello()
+}
+-- undef-func/expected --
+stage: resolve
+---
+
+undef-func/main.tck:4:5: error: undefined: sayHello
+03 |	func main() {
+04 |	    sayHello()
+   |	    ^~~~~~~~
+05 |	}
+
+-- undefined-arg/main.tck --
+package main
+
+func main() {
+    exit(nope)
+}
+-- undefined-arg/expected --
+stage: resolve
+---
+
+undefined-arg/main.tck:4:10: error: undefined: nope
+03 |	func main() {
+04 |	    exit(nope)
+   |	         ^~~~
+05 |	}
+
+-- unknown-param-type/main.tck --
+package main
+
+func f(x nosuchtype) {
+}
+
+func main() {
+}
+-- unknown-param-type/expected --
+stage: typeck
+---
+
+unknown-param-type/main.tck:3:10: error: unknown type: nosuchtype
+02 |	
+03 |	func f(x nosuchtype) {
+   |	         ^~~~~~~~~~
+04 |	}
+
+-- unsigned-negation/main.tck --
+package main
+
+func main() {
+    var u uint32 = 5
+    exit(-u)
+}
+-- unsigned-negation/expected --
+stage: typeck
+---
+
+unsigned-negation/main.tck:5:11: error: operator - is not defined on uint32
+04 |	    var u uint32 = 5
+05 |	    exit(-u)
+   |	          ^
+06 |	}
+
+-- unterminated-string/main.tck --
+package main
+
+func main() {
+    print("Hello, World!)
+}
+-- unterminated-string/expected --
+stage: lex
+---
+
+unterminated-string/main.tck:4:11: error: unterminated string
+03 |	func main() {
+04 |	    print("Hello, World!)
+   |	          ^~~~~~~~~~~~~~~
+05 |	}
+
+-- unterminated-string-eof/main.tck --
+package main
+
+func main() {
+    print("Hello, World!
+-- unterminated-string-eof/expected --
+stage: lex
+---
+
+unterminated-string-eof/main.tck:4:11: error: unterminated string
+03 |	func main() {
+04 |	    print("Hello, World!
+   |	          ^~~~~~~~~~~~~~
+
+-- unterminated-string-eof/no-final-newline --
+-- value-from-void/main.tck --
+package main
+
+func f() {
+    return 1
+}
+
+func main() {
+}
+-- value-from-void/expected --
+stage: typeck
+---
+
+value-from-void/main.tck:4:12: error: f declares no result, so it cannot return a value
+03 |	func f() {
+04 |	    return 1
+   |	           ^
+05 |	}
+
+-- var-assign-immutable/main.tck --
+package main
+
+func main() {
+    x := 1
+    x = 2
+    exit(x)
+}
+-- var-assign-immutable/expected --
+stage: typeck
+---
+
+var-assign-immutable/main.tck:5:5: error: cannot assign to immutable variable x
+04 |	    x := 1
+05 |	    x = 2
+   |	    ^
+06 |	    exit(x)
+
+-- var-assign-param/main.tck --
+package main
+
+func f(n int64) {
+    n = 2
+}
+
+func main() {
+    f(1)
+}
+-- var-assign-param/expected --
+stage: typeck
+---
+
+var-assign-param/main.tck:4:5: error: cannot assign to parameter n
+03 |	func f(n int64) {
+04 |	    n = 2
+   |	    ^
+05 |	}
+
+-- var-from-nothing/main.tck --
+package main
+
+func nothing() {
+}
+
+func main() {
+    x := nothing()
+    exit(x)
+}
+-- var-from-nothing/expected --
+stage: typeck
+---
+
+var-from-nothing/main.tck:7:10: error: nothing returns no value
+06 |	func main() {
+07 |	    x := nothing()
+   |	         ^~~~~~~~~
+08 |	    exit(x)
+
+-- var-immutable-no-value/main.tck --
+package main
+
+func main() {
+    var x int64
+    exit(x)
+}
+-- var-immutable-no-value/expected --
+stage: typeck
+---
+
+var-immutable-no-value/main.tck:4:9: error: immutable variable x needs a value
+03 |	func main() {
+04 |	    var x int64
+   |	        ^
+05 |	    exit(x)
+
+-- var-no-type-or-value/main.tck --
+package main
+
+func main() {
+    var x
+}
+-- var-no-type-or-value/expected --
+stage: parse
+---
+
+var-no-type-or-value/main.tck:4:10: error: expected 'type or =' found ';'
+03 |	func main() {
+04 |	    var x
+   |	         ^
+05 |	}
+
+-- var-redeclared/main.tck --
+package main
+
+func main() {
+    x := 1
+    if x < 2 {
+        x := 2
+        exit(x)
+    }
+}
+-- var-redeclared/expected --
+stage: resolve
+---
+
+var-redeclared/main.tck:6:9: error: x is already declared
+05 |	    if x < 2 {
+06 |	        x := 2
+   |	        ^
+07 |	        exit(x)
+var-redeclared/main.tck:4:5: note: previous declaration of x
+03 |	func main() {
+04 |	    x := 1
+   |	    ^
+05 |	    if x < 2 {
+
+-- var-shadows-param/main.tck --
+package main
+
+func f(n int64) {
+    n := 2
+    exit(n)
+}
+
+func main() {
+    f(1)
+}
+-- var-shadows-param/expected --
+stage: resolve
+---
+
+var-shadows-param/main.tck:4:5: error: n is already declared
+03 |	func f(n int64) {
+04 |	    n := 2
+   |	    ^
+05 |	    exit(n)
+var-shadows-param/main.tck:3:8: note: previous declaration of n
+02 |	
+03 |	func f(n int64) {
+   |	       ^
+04 |	    n := 2
+
+-- var-type-mismatch/main.tck --
+package main
+
+func main() {
+    var x int64 = "one"
+    exit(x)
+}
+-- var-type-mismatch/expected --
+stage: typeck
+---
+
+var-type-mismatch/main.tck:4:19: error: cannot use string as int64 in declaration of x
+03 |	func main() {
+04 |	    var x int64 = "one"
+   |	                  ^~~~~
+05 |	    exit(x)
+
+-- var-unused/main.tck --
+package main
+
+func main() {
+    x := 1
+}
+-- var-unused/expected --
+stage: resolve
+---
+
+var-unused/main.tck:4:5: error: declared and not used: x
+03 |	func main() {
+04 |	    x := 1
+   |	    ^
+05 |	}
+
+-- var-use-before-decl/main.tck --
+package main
+
+func main() {
+    exit(x)
+    x := 1
+    exit(x)
+}
+-- var-use-before-decl/expected --
+stage: resolve
+---
+
+var-use-before-decl/main.tck:4:10: error: undefined: x
+03 |	func main() {
+04 |	    exit(x)
+   |	         ^
+05 |	    x := 1
+
+-- variadic-param/main.tck --
+package main
+
+func f(x ...int64) {
+}
+
+func main() {
+}
+-- variadic-param/expected --
+stage: parse
+---
+
+variadic-param/main.tck:3:10: error: variadic parameters are not supported
+02 |	
+03 |	func f(x ...int64) {
+   |	         ^~~
+04 |	}
+

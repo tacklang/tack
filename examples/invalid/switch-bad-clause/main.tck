@@ -1,8 +1,0 @@
-package main
-
-func main() {
-    n := 3
-    switch n {
-    exit(n)
-    }
-}

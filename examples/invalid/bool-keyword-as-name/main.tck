@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    true := 1
-    exit(true)
-}

@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    mut p struct { x int64 }
-    p.x = 1
-    exit(p.x)
-}

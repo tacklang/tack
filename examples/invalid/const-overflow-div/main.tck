@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    var smallest int64 = -9223372036854775808
-    var d int64 = -1
-    exit(smallest / d)
-}

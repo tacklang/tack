@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/switch-break-outside-loop/main.tck:7:9: error: break is not in a loop
-06 |	    case 3:
-07 |	        break
-   |	        ^~~~~
-08 |	    }
-

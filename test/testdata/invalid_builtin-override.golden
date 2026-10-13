@@ -1,9 +1,0 @@
-stage: resolve
----
-
-examples/invalid/builtin-override/main.tck:4:6: error: duplicate declaration of builtin function
-03 |	// redeclaration of a builtin function is not allowed
-04 |	func print() {
-   |	     ^~~~~
-05 |	}
-

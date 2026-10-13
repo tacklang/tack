@@ -16,6 +16,7 @@ import (
 
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/invalid"
 )
 
 // examplesDir is where the example programs live, relative to this package.
@@ -98,6 +99,29 @@ func runTackCtx(t *testing.T, ctx context.Context, args ...string) result {
 // example returns the path to examples/<name>/main.tck.
 func example(name string) string {
 	return filepath.Join(examplesDir, name, "main.tck")
+}
+
+// invalidCases returns the cases in examples/invalid.txtar.
+func invalidCases(t testing.TB) []invalid.Case {
+	t.Helper()
+	cases, err := invalid.Load(invalid.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cases
+}
+
+// invalidExample writes the program of the invalid case name to a fresh temp
+// directory and returns its path.
+func invalidExample(t *testing.T, name string) string {
+	t.Helper()
+	for _, tc := range invalidCases(t) {
+		if tc.Name == name {
+			return writeSource(t, tc.Source)
+		}
+	}
+	t.Fatalf("no invalid case named %q", name)
+	return ""
 }
 
 // writeSource writes src to a file in a fresh temp directory and returns its
@@ -370,16 +394,13 @@ func TestFormatTokensEmpty(t *testing.T) {
 }
 
 func TestInvalidProgramsReportToStderrOnly(t *testing.T) {
-	dirs, err := filepath.Glob(filepath.Join(examplesDir, "invalid", "*"))
-	if err != nil || len(dirs) == 0 {
-		t.Fatalf("no invalid examples found: %v", err)
-	}
-	for _, dir := range dirs {
-		t.Run(filepath.Base(dir), func(t *testing.T) {
+	for _, tc := range invalidCases(t) {
+		t.Run(tc.Name, func(t *testing.T) {
+			path := writeSource(t, tc.Source)
 			tmp := isolateTemp(t)
 			out := filepath.Join(t.TempDir(), "bin")
-			assertDiagnostics(t, runTack(t, "--out", out, filepath.Join(dir, "main.tck")))
-			assertDiagnostics(t, runTack(t, "--emit", filepath.Join(dir, "main.tck")))
+			assertDiagnostics(t, runTack(t, "--out", out, path))
+			assertDiagnostics(t, runTack(t, "--emit", path))
 			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("a rejected program produced %s", out)
 			}
@@ -390,13 +411,14 @@ func TestInvalidProgramsReportToStderrOnly(t *testing.T) {
 
 func TestDumpStopsBeforeLaterStageErrors(t *testing.T) {
 	// garbage fails in the lexer; no-main-func gets past the parser.
-	assertDiagnostics(t, runTack(t, "--lex", example("invalid/garbage")))
-	assertOnlyStdout(t, runTack(t, "--ast", example("invalid/no-main-func")))
-	assertDiagnostics(t, runTack(t, "--res", example("invalid/no-main-func")))
+	noMain := invalidExample(t, "no-main-func")
+	assertDiagnostics(t, runTack(t, "--lex", invalidExample(t, "garbage")))
+	assertOnlyStdout(t, runTack(t, "--ast", noMain))
+	assertDiagnostics(t, runTack(t, "--res", noMain))
 }
 
 func TestMaxDiags(t *testing.T) {
-	path := example("invalid/garbage")
+	path := invalidExample(t, "garbage")
 	all := strings.Count(runTack(t, "--emit", path).stderr, "error:")
 	if all < 2 {
 		t.Fatalf("garbage reports %d diagnostics; the test needs at least 2", all)
@@ -586,11 +608,13 @@ func checkCoherent(t *testing.T, r result) {
 
 func FuzzRunEmit(f *testing.F) {
 	paths, _ := filepath.Glob(filepath.Join(examplesDir, "*", "main.tck"))
-	invalid, _ := filepath.Glob(filepath.Join(examplesDir, "invalid", "*", "main.tck"))
-	for _, p := range append(paths, invalid...) {
+	for _, p := range paths {
 		if src, err := os.ReadFile(p); err == nil {
 			f.Add(src)
 		}
+	}
+	for _, tc := range invalidCases(f) {
+		f.Add(tc.Source)
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
 		path := writeSource(t, src)

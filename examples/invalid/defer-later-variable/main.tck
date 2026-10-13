@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    defer { exit(n) }
-    n := 3
-    exit(n)
-}

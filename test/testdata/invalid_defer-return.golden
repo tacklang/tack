@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/defer-return/main.tck:5:9: error: cannot return from a defer
-04 |	    defer {
-05 |	        return 2
-   |	        ^~~~~~~~
-06 |	    }
-

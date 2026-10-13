@@ -1,9 +1,0 @@
-package main
-
-func f(s string) uint8 {
-    return s[0]
-}
-
-func main() {
-    exit(f("tack"))
-}

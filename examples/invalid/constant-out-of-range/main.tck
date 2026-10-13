@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    var big uint64 = 18446744073709551615 + 1
-    if big > 0 {
-    }
-}

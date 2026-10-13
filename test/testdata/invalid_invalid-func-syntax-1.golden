@@ -1,8 +1,0 @@
-stage: parse
----
-
-examples/invalid/invalid-func-syntax-1/main.tck:4:11: error: expected ')' found 'EOF'
-03 |	func main() {
-04 |	    print(
-   |	          ^
-

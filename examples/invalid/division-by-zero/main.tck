@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    mut n int64 = 8
-    n /= 0
-    exit(n)
-}

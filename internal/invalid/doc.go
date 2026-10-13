@@ -1,0 +1,47 @@
+// Package invalid reads and writes examples/invalid.txtar, the file that holds
+// every invalid example program together with the output the compiler must
+// produce for it.
+//
+// It is test infrastructure, not part of the compiler: the golden harness in
+// test/ checks each case's expected output and rewrites it under -update, and
+// the lexer, parser, and driver tests use the sources as inputs and fuzz
+// seeds.
+//
+// # Format
+//
+// The file is a txtar archive: an optional free-form comment, then a sequence
+// of files, each introduced by a header line of the form
+//
+//	-- <file name> --
+//
+// whose content runs up to the next header or the end of the file. A case
+// named n is two files, in this order:
+//
+//	-- n/main.tck --   the program, byte for byte
+//	-- n/expected --   what the compiler reports for it
+//
+// optionally followed by an empty marker file
+//
+//	-- n/no-final-newline --
+//
+// which says the program does not end with a newline. txtar ends every
+// non-empty file with one, so without the marker a program whose last line
+// is unterminated could not be stored exactly; with it, Parse drops the
+// newline the format added.
+//
+// # Invariants
+//
+// Parse is strict, so a hand edit that breaks the structure fails loudly
+// instead of quietly changing what a case tests. It rejects a header with
+// stray spaces or an empty name, a file that does not belong to the case
+// before it, a case without an expected output, case names that are not in
+// strictly increasing byte order (which also rules out duplicates), a
+// non-empty marker or one after a program whose last line is empty, and an
+// archive that does not end with a newline. So each list of cases has
+// exactly one archive.
+//
+// Format refuses what txtar cannot hold: content with a line that would read
+// as a header, an empty or newline-free expected output, and names that are
+// empty, contain a slash or a space, or are out of order. For every list of
+// cases Format accepts, Parse returns that list unchanged.
+package invalid

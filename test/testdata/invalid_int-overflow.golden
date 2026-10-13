@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/int-overflow/main.tck:4:10: error: constant 9223372036854775808 overflows int64
-03 |	func main() {
-04 |	    exit(9223372036854775808)
-   |	         ^~~~~~~~~~~~~~~~~~~
-05 |	}
-

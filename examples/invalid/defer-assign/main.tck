@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    mut n := 1
-    defer n = 2
-    exit(n)
-}

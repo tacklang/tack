@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/var-assign-immutable/main.tck:5:5: error: cannot assign to immutable variable x
-04 |	    x := 1
-05 |	    x = 2
-   |	    ^
-06 |	    exit(x)
-

@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    if (true) == (1) {
-        exit(1)
-    }
-}

@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    a := [3]int64{0: 1, 1: 2, 2: 3}
-    exit(a[0])
-}

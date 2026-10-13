@@ -1,8 +1,0 @@
-package main
-
-func f() int64 {
-    return "hi"
-}
-
-func main() {
-}

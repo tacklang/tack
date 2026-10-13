@@ -1,9 +1,0 @@
-stage: resolve
----
-
-examples/invalid/blank-as-value/main.tck:4:10: error: cannot use _ as a value
-03 |	func main() {
-04 |	    exit(_)
-   |	         ^
-05 |	}
-

@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    if !5 {
-        exit(1)
-    }
-}

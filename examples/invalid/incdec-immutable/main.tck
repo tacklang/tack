@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    n := 0
-    n++
-    exit(n)
-}

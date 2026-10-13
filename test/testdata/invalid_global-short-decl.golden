@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/global-short-decl/main.tck:3:1: error: expected 'func' found 'limit'
-02 |	
-03 |	limit := 10
-   |	^
-04 |	
-

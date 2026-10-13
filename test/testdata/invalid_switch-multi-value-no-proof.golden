@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/switch-multi-value-no-proof/main.tck:6:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
-05 |	    case 1, 2:
-06 |	        return 10 / d
-   |	                    ^
-07 |	    }
-

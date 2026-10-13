@@ -1,9 +1,0 @@
-stage: lex
----
-
-examples/invalid/raw-string-escaped-backquote/main.tck:5:16: error: unterminated string
-04 |	    // A backslash does not escape a backquote: the string ends at it.
-05 |	    print(`a\`b`)
-   |	               ^~~~~
-06 |	}
-

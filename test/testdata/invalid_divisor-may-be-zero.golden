@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/divisor-may-be-zero/main.tck:4:16: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
-03 |	func half(a int64, b int64) int64 {
-04 |	    return a / b
-   |	               ^
-05 |	}
-

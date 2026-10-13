@@ -1,7 +1,0 @@
-package main
-
-var tripled = 'a' * 3
-
-func main() {
-    exit(tripled)
-}

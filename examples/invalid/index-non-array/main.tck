@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    n := 4
-    exit(n[0])
-}

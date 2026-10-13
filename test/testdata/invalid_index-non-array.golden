@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/index-non-array/main.tck:5:10: error: cannot index int64
-04 |	    n := 4
-05 |	    exit(n[0])
-   |	         ^
-06 |	}
-

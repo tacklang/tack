@@ -1,8 +1,0 @@
-package main
-
-func main() {
-    done := false
-    for i := range done {
-        exit(i)
-    }
-}

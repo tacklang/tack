@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/conversion-cannot-fail/main.tck:5:17: error: converting uint8 to int16 cannot fail; use int16(...)
-04 |	    var small uint8 = 7
-05 |	    wide, ok := int16(small)
-   |	                ^~~~~~~~~~~~
-06 |	    if ok {
-

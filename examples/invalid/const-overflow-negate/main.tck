@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    var smallest int8 = -128
-    x := -smallest
-    exit(x)
-}

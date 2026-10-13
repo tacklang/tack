@@ -1,8 +1,0 @@
-package main
-
-type int64 struct {
-    x uint8
-}
-
-func main() {
-}

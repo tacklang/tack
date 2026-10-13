@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/bool-keyword-as-name/main.tck:4:5: error: expected 'statement' found 'true'
-03 |	func main() {
-04 |	    true := 1
-   |	    ^
-05 |	    exit(true)
-

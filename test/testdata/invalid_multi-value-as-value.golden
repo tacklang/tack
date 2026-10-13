@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/multi-value-as-value/main.tck:11:10: error: divmod returns 2 values
-10 |	func main() {
-11 |	    exit(divmod(7, 2))
-   |	         ^~~~~~~~~~~~
-12 |	}
-

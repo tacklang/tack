@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    uint8 := 5
-    exit(uint8)
-}

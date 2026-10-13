@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/global-overflow/main.tck:3:11: error: constant 9223372036854775808 overflows int64
-02 |	
-03 |	var big = 9223372036854775807 + 1
-   |	          ^~~~~~~~~~~~~~~~~~~~~~~
-04 |	
-

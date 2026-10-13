@@ -1,6 +1,0 @@
-package main
-
-type Celsius int64
-
-func main() {
-}

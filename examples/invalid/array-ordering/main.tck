@@ -1,9 +1,0 @@
-package main
-
-func main() {
-    a := [2]string{"a", "b"}
-    b := [2]string{"a", "c"}
-    if a < b {
-        exit(1)
-    }
-}

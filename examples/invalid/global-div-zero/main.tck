@@ -1,7 +1,0 @@
-package main
-
-var ratio = 10 / (5 - 5)
-
-func main() {
-    exit(ratio)
-}

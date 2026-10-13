@@ -1,9 +1,0 @@
-stage: parse
----
-
-examples/invalid/multi-var-in-post/main.tck:8:12: error: cannot declare a variable in a for loop's post statement
-07 |	func main() {
-08 |	    for ;; a, b := pair() {
-   |	           ^~~~~~~~~~~~~~
-09 |	    }
-

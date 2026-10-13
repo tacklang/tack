@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/string-index-out-of-range/main.tck:4:17: error: index 4 is out of range for a string of 4 bytes
-03 |	func main() {
-04 |	    exit("tack"[4])
-   |	                ^
-05 |	}
-

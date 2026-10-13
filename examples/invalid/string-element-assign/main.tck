@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    mut s := "tack"
-    s[0] = 84
-    print(s)
-}

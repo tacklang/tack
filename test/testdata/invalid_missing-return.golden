@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/missing-return/main.tck:3:6: error: f must end in a return
-02 |	
-03 |	func f() int64 {
-   |	     ^
-04 |	}
-

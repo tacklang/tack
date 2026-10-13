@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/const-overflow-add/main.tck:5:10: error: constant expression overflows int64
-04 |	    var largest int64 = 9223372036854775807
-05 |	    exit(largest + 1)
-   |	         ^~~~~~~~~~~
-06 |	}
-

@@ -15,6 +15,7 @@ import (
 	// imported here.
 	_ "github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/invalid"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -114,9 +115,9 @@ func run(t *testing.T, backendName, filename string, src []byte) result {
 	}
 }
 
-// goldenName turns ../examples/invalid/garbage/main.tck into
-// testdata/invalid_garbage.golden. A backend name qualifies it further:
-// ../examples/hello/main.tck with "c" becomes testdata/hello.c.golden.
+// goldenName turns ../examples/hello/main.tck into testdata/hello.golden. A
+// backend name qualifies it further: with "c" it becomes
+// testdata/hello.c.golden.
 //
 // Output before code generation is the same whatever the backend is, so those
 // cases keep the unqualified name rather than duplicating a file per backend.
@@ -209,6 +210,67 @@ func TestGolden(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// TestInvalid runs every case in examples/invalid.txtar, one subtest per
+// case, and compares the output against the case's expected section, or
+// rewrites that section under -update. Like TestGolden it pins what the
+// compiler does today; it adds one real assertion, that every case is
+// rejected before it compiles.
+//
+// The program's path in diagnostics is <case>/main.tck, the name its source
+// has in the archive.
+func TestInvalid(t *testing.T) {
+	path := filepath.FromSlash(invalid.Path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, cases, err := invalid.Parse(data)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if len(cases) == 0 {
+		t.Fatalf("%s holds no cases", path)
+	}
+
+	for i := range cases {
+		c := &cases[i]
+		t.Run(c.Name, func(t *testing.T) {
+			got := run(t, frontEndBackend, c.Name+"/main.tck", c.Source)
+			if got.stage == "ok" {
+				t.Fatalf("the program compiled; an invalid example must be rejected")
+			}
+			if *update {
+				c.Expected = []byte(got.String())
+				return
+			}
+			if got.String() != string(c.Expected) {
+				t.Errorf("output differs from %s\n\n--- want ---\n%s\n--- got ---\n%s",
+					path, c.Expected, got)
+			}
+		})
+	}
+
+	if *update {
+		writeInvalid(t, path, data, comment, cases)
+	}
+}
+
+// writeInvalid writes cases back to the archive at path if they changed
+// from old, the archive's current content.
+func writeInvalid(t *testing.T, path string, old, comment []byte, cases []invalid.Case) {
+	t.Helper()
+	data, err := invalid.Format(comment, cases)
+	if err != nil {
+		t.Fatalf("cannot write %s: %v", path, err)
+	}
+	if string(data) == string(old) {
+		return
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
 	}
 }
 

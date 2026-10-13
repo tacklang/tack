@@ -1,9 +1,0 @@
-stage: resolve
----
-
-examples/invalid/global-unused/main.tck:3:5: error: declared and not used: limit
-02 |	
-03 |	var limit = 10
-   |	    ^~~~~
-04 |	
-

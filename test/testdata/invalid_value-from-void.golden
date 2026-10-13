@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/value-from-void/main.tck:4:12: error: f declares no result, so it cannot return a value
-03 |	func f() {
-04 |	    return 1
-   |	           ^
-05 |	}
-

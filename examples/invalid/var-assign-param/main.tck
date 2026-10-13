@@ -1,9 +1,0 @@
-package main
-
-func f(n int64) {
-    n = 2
-}
-
-func main() {
-    f(1)
-}

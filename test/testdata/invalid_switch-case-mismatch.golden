@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/switch-case-mismatch/main.tck:8:10: error: mismatched types int64 and string in switch case
-07 |	        exit(1)
-08 |	    case "3":
-   |	         ^~~
-09 |	        exit(2)
-

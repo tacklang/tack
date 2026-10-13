@@ -1,7 +1,0 @@
-stage: parse
----
-
-examples/invalid/empty-file/main.tck:1:1: error: expected 'package' found 'EOF'
-01 |	
-   |	^
-

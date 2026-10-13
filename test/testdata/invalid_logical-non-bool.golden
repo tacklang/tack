@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/logical-non-bool/main.tck:4:8: error: operator && is not defined on int64
-03 |	func main() {
-04 |	    if 1 && true {
-   |	       ^
-05 |	        exit(1)
-

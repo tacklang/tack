@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/const-overflow-global-var/main.tck:6:10: error: constant expression overflows uint8
-05 |	func main() {
-06 |	    exit(big + big)
-   |	         ^~~~~~~~~
-07 |	}
-

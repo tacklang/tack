@@ -1,5 +1,0 @@
-package main
-
-func main() {
-    exit(len("abc") * 4611686018427387904)
-}

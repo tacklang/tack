@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/loop-non-bool-condition/main.tck:4:9: error: condition must be a bool, got int64
-03 |	func main() {
-04 |	    for 1 {
-   |	        ^
-05 |	    }
-

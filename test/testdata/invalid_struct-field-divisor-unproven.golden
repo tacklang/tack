@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/struct-field-divisor-unproven/main.tck:11:20: error: divisor may be zero; use q, ok := ... / ...
-10 |	    if p.b != 0 {
-11 |	        exit(p.a / p.b)
-   |	                   ^~~
-12 |	    }
-

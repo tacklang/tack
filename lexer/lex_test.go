@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/invalid"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/source"
 )
@@ -339,17 +340,16 @@ func TestInvariantsHoldForAdversarialInput(t *testing.T) {
 // TestInvariantsHoldForEveryExample lexes every program under examples/,
 // valid or not.
 func TestInvariantsHoldForEveryExample(t *testing.T) {
-	paths, err := filepath.Glob("../examples/**/main.tck")
+	paths, err := filepath.Glob("../examples/*/main.tck")
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid, err := filepath.Glob("../examples/invalid/*/main.tck")
-	if err != nil {
-		t.Fatal(err)
-	}
-	paths = append(paths, invalid...)
 	if len(paths) == 0 {
 		t.Fatal("found no example programs")
+	}
+	cases, err := invalid.Load(invalid.Path)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	for _, path := range paths {
@@ -359,6 +359,11 @@ func TestInvariantsHoldForEveryExample(t *testing.T) {
 				t.Fatal(err)
 			}
 			checkInvariants(t, string(src), lex(t, string(src)))
+		})
+	}
+	for _, c := range cases {
+		t.Run("invalid/"+c.Name, func(t *testing.T) {
+			checkInvariants(t, string(c.Source), lex(t, string(c.Source)))
 		})
 	}
 }
@@ -782,11 +787,17 @@ func FuzzLex(f *testing.F) {
 		f.Add(src)
 	}
 	paths, _ := filepath.Glob("../examples/*/main.tck")
-	invalid, _ := filepath.Glob("../examples/invalid/*/main.tck")
-	for _, path := range append(paths, invalid...) {
+	for _, path := range paths {
 		if src, err := os.ReadFile(path); err == nil {
 			f.Add(string(src))
 		}
+	}
+	cases, err := invalid.Load(invalid.Path)
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, c := range cases {
+		f.Add(string(c.Source))
 	}
 
 	f.Fuzz(func(t *testing.T, src string) {

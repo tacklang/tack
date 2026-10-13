@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    s := string(65)
-    print(s)
-}

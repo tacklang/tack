@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/return-too-many/main.tck:4:12: error: too many return values: half returns 1, got 2
-03 |	func half(n int64) int64 {
-04 |	    return n / 2, n % 2
-   |	           ^~~~~~~~~~~~
-05 |	}
-

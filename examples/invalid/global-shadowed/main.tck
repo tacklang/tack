@@ -1,8 +1,0 @@
-package main
-
-var limit = 10
-
-func main() {
-    limit := 5
-    exit(limit)
-}

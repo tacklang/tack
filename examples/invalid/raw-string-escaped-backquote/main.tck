@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    // A backslash does not escape a backquote: the string ends at it.
-    print(`a\`b`)
-}

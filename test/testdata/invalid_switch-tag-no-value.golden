@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/switch-tag-no-value/main.tck:7:12: error: report returns no value
-06 |	func main() {
-07 |	    switch report() {
-   |	           ^~~~~~~~
-08 |	    }
-

@@ -10,6 +10,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/invalid"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/source"
@@ -122,19 +123,26 @@ func checkCommentActsAsNewline(t *testing.T, src string, at int) {
 	}
 }
 
-// examples returns the source of every program under examples/, valid and
-// invalid.
+// examples returns the source of every example program, valid and invalid,
+// keyed by its path for a valid one and by invalid/<case> for an invalid
+// one.
 func examples(t testing.TB) map[string]string {
 	t.Helper()
 	paths, _ := filepath.Glob("../examples/*/main.tck")
-	invalid, _ := filepath.Glob("../examples/invalid/*/main.tck")
 	srcs := make(map[string]string)
-	for _, path := range append(paths, invalid...) {
+	for _, path := range paths {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		srcs[path] = string(src)
+	}
+	cases, err := invalid.Load(invalid.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		srcs["invalid/"+c.Name] = string(c.Source)
 	}
 	return srcs
 }

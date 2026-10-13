@@ -1,9 +1,0 @@
-stage: lex
----
-
-examples/invalid/raw-string-unterminated/main.tck:4:11: error: unterminated string
-03 |	func main() {
-04 |	    print(`a raw string
-   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-05 |	that is never closed)
-

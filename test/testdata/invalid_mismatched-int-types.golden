@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/mismatched-int-types/main.tck:6:10: error: mismatched types int8 and uint8 in +
-05 |	    var b uint8 = 2
-06 |	    exit(a + b)
-   |	         ^~~~~
-07 |	}
-

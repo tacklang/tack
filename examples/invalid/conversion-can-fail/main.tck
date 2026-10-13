@@ -1,7 +1,0 @@
-package main
-
-func main() {
-    var wide int64 = 300
-    small := int8(wide)
-    exit(small)
-}

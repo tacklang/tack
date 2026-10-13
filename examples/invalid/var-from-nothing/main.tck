@@ -1,9 +1,0 @@
-package main
-
-func nothing() {
-}
-
-func main() {
-    x := nothing()
-    exit(x)
-}

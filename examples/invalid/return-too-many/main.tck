@@ -1,9 +1,0 @@
-package main
-
-func half(n int64) int64 {
-    return n / 2, n % 2
-}
-
-func main() {
-    exit(half(7))
-}

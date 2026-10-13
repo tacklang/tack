@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/string-constant-index-unguarded/main.tck:4:14: error: index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]
-03 |	func f(s string) uint8 {
-04 |	    return s[0]
-   |	             ^
-05 |	}
-

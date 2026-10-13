@@ -1,8 +1,0 @@
-stage: resolve
----
-
-examples/invalid/no-main-package/main.tck:1:1: error: main package not found
-01 |	package my_package
-   |	^
-02 |	
-

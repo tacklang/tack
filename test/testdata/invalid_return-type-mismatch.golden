@@ -1,9 +1,0 @@
-stage: typeck
----
-
-examples/invalid/return-type-mismatch/main.tck:4:12: error: cannot use string as int64 in return from f
-03 |	func f() int64 {
-04 |	    return "hi"
-   |	           ^~~~
-05 |	}
-

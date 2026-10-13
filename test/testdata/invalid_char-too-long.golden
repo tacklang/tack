@@ -1,9 +1,0 @@
-stage: lex
----
-
-examples/invalid/char-too-long/main.tck:4:10: error: too many characters in char literal
-03 |	func main() {
-04 |	    c := 'ab'
-   |	         ^~~~
-05 |	    exit(c)
-

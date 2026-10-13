@@ -1,9 +1,0 @@
-package main
-
-func main() {
-    a := [3]int64{1, 2, 3}
-    for _, mut x := range a {
-        x = 2
-        exit(x)
-    }
-}

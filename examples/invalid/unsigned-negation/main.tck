@@ -1,6 +1,0 @@
-package main
-
-func main() {
-    var u uint32 = 5
-    exit(-u)
-}
