@@ -139,15 +139,85 @@ func examples(t testing.TB) map[string]string {
 	return srcs
 }
 
+// sweepComment and sweepNewline are what TestCommentActsAsNewlineEverywhere
+// writes at a boundary. The newline is padded with spaces to the comment's
+// length, so both variants of a source put every later token at the same
+// offset and their trees can be compared directly, spans included, without
+// the JSON round trip that parseOutcome needs to drop spans.
+const (
+	sweepComment = " // c\n"
+	sweepNewline = "     \n"
+)
+
+// parsed is what lexing and parsing one source produced, with the file's
+// comments dropped: the tree and the diagnostics, or only that lexing
+// failed.
+type parsed struct {
+	file     *ast.File
+	diags    []diag.Diagnostic
+	lexFails bool
+}
+
+// parseDirect lexes and parses src and drops the file's comments, the one
+// thing a comment is meant to change. It fails the test if either stage
+// panics.
+func parseDirect(t *testing.T, src string) (out parsed) {
+	t.Helper()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panicked on %q: %v", src, r)
+		}
+	}()
+
+	f := &source.File{ID: source.FileID("test"), Filename: "case.tck", Data: []byte(src)}
+	lex := lexer.New(f)
+	if diags := lex.Lex(); len(diags) > 0 {
+		return parsed{lexFails: true}
+	}
+	out.file, out.diags = parser.NewParser(f.ID, lex.Tokens()).Parse()
+	if out.file != nil {
+		out.file.Comments = nil
+	}
+	return out
+}
+
+// checkCommentActsAsNewlineFast checks the property checkCommentActsAsNewline
+// checks, at offset at in src, but compares the two parses with
+// reflect.DeepEqual on the trees themselves. Because sweepNewline is as long
+// as sweepComment, the trees' spans line up and are compared too. Diagnostics
+// are compared by message only, as in checkCommentActsAsNewline: the
+// semicolon a line ending implies is placed at the comment when there is
+// one, so a diagnostic about it moves with the comment.
+func checkCommentActsAsNewlineFast(t *testing.T, src string, at int) {
+	t.Helper()
+
+	withNewline := parseDirect(t, src[:at]+sweepNewline+src[at:])
+	withComment := parseDirect(t, src[:at]+sweepComment+src[at:])
+	if withNewline.lexFails || withComment.lexFails {
+		return
+	}
+	if !reflect.DeepEqual(withNewline.file, withComment.file) ||
+		!reflect.DeepEqual(diagMessages(withNewline.diags), diagMessages(withComment.diags)) {
+		t.Errorf("a comment at offset %d parses differently from a newline there\n"+
+			"newline: %v\ncomment: %v\nsource:\n%s",
+			at, diagMessages(withNewline.diags), diagMessages(withComment.diags),
+			src[:at]+sweepComment+src[at:])
+	}
+}
+
 // TestCommentActsAsNewlineEverywhere writes a comment at every token
 // boundary of every example program, which between them hold every
 // statement and expression form, and checks each parses as a newline there
-// does.
+// does. The work is one lex and parse per boundary, so it grows with the
+// square of an example's size; each example runs as a parallel subtest to
+// spread that over the available cores.
 func TestCommentActsAsNewlineEverywhere(t *testing.T) {
 	for path, src := range examples(t) {
 		t.Run(path, func(t *testing.T) {
+			t.Parallel()
 			for _, at := range boundaries(src) {
-				checkCommentActsAsNewline(t, src, at)
+				checkCommentActsAsNewlineFast(t, src, at)
 			}
 		})
 	}
