@@ -44,7 +44,7 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	// there; a tree that skipped it is reported here instead of passing as
 	// already reported.
 	if id.Def == nil {
-		c.errorf(id.Span, "undefined: %s", id.Name)
+		c.errorf(id.Span, "undefined: %s", id.Qualified())
 		return types.Invalid
 	}
 	if v, ok := id.Def.(*ast.Var); ok && c.globals[v] {
@@ -126,9 +126,9 @@ func isLen(call *ast.Call) bool {
 // nothing.
 func notOneValue(id *ast.Ident) string {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && len(fn.Results) > 1 {
-		return fmt.Sprintf("%s returns %d values", id.Name, len(fn.Results))
+		return fmt.Sprintf("%s returns %d values", id.Qualified(), len(fn.Results))
 	}
-	return fmt.Sprintf("%s returns no value", id.Name)
+	return fmt.Sprintf("%s returns no value", id.Qualified())
 }
 
 // checkCall checks a call to a function or builtin: its argument count, and
@@ -151,14 +151,14 @@ func (c *Checker) checkCall(call *ast.Call) {
 		params = fn.Params
 	}
 
-	if !c.checkArity(call, id.Name, len(params)) {
+	if !c.checkArity(call, id.Qualified(), len(params)) {
 		for _, arg := range call.Args {
 			c.expr(arg)
 		}
 		return
 	}
 	for i, arg := range call.Args {
-		c.use(arg, c.expr(arg), params[i], "in argument to "+id.Name)
+		c.use(arg, c.expr(arg), params[i], "in argument to "+id.Qualified())
 	}
 }
 
@@ -195,8 +195,8 @@ func (c *Checker) use(e ast.Expr, got, want types.Type, context string) bool {
 		c.errorf(
 			e.Spanned(),
 			"cannot use %s as %s %s",
-			c.table.Name(got),
-			c.table.Name(want),
+			c.typeName(got),
+			c.typeName(want),
 			context,
 		)
 		return false
@@ -210,7 +210,7 @@ func (c *Checker) use(e ast.Expr, got, want types.Type, context string) bool {
 func (c *Checker) settle(e ast.Expr, typ types.Type) bool {
 	value, _ := constValue(e)
 	if !value.Fits(types.Bits(typ), !types.IsUnsigned(typ)) {
-		c.errorf(e.Spanned(), "constant %s overflows %s", value, c.table.Name(typ))
+		c.errorf(e.Spanned(), "constant %s overflows %s", value, c.typeName(typ))
 		return false
 	}
 	switch x := e.(type) {
@@ -303,7 +303,7 @@ func (c *Checker) require(operand ast.Expr, got types.Type, op string, want type
 		return true
 	}
 	if got = c.valueOf(operand, got); got != types.Invalid {
-		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, c.table.Name(got))
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, c.typeName(got))
 	}
 	return false
 }
@@ -349,7 +349,7 @@ func (c *Checker) knownOverflow(bin *ast.Binary, typ types.Type) bool {
 	if _, fits := knownStep(bin.Op, a, b, typ); fits {
 		return false
 	}
-	c.errorf(bin.Span, "constant expression overflows %s", c.table.Name(typ))
+	c.errorf(bin.Span, "constant expression overflows %s", c.typeName(typ))
 	return true
 }
 
@@ -373,7 +373,7 @@ func (c *Checker) typedArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 	if common, ok := commonType(x, y); ok {
 		return common
 	}
-	c.errorf(bin.Span, "mismatched types %s and %s in %s", c.table.Name(x), c.table.Name(y), bin.Op)
+	c.errorf(bin.Span, "mismatched types %s and %s in %s", c.typeName(x), c.typeName(y), bin.Op)
 	return types.Invalid
 }
 
@@ -404,11 +404,13 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
 // which no check proves.
 func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 	if v, ok := c.mutableGlobal(divisor); ok {
-		return "divisor " + v.Name + " may be zero", globalNote(v)
+		return "divisor " + operandName(divisor) + " may be zero", globalNote(v)
 	}
 	if id, ok := divisor.(*ast.Ident); ok {
-		return "divisor " + id.Name + " may be zero; check " + id.Name + " != 0 first",
-			c.explain(c.divisorProof(id))
+		return "divisor " + id.Qualified() + " may be zero; check " + id.Qualified() + " != 0 first",
+			c.explain(
+				c.divisorProof(id),
+			)
 	}
 	return "divisor may be zero", c.operandNotes(divisor)
 }
@@ -417,7 +419,7 @@ func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 // name when it is a variable, and as ... otherwise.
 func operandName(e ast.Expr) string {
 	if id, ok := e.(*ast.Ident); ok {
-		return id.Name
+		return id.Qualified()
 	}
 	return "..."
 }
@@ -491,7 +493,7 @@ func (c *Checker) operandsDefined(
 		operand, got = bin.Y, y
 	}
 	if got = c.valueOf(operand, got); got != types.Invalid {
-		c.errorf(operand.Spanned(), "operator %s is not defined on %s", bin.Op, c.table.Name(got))
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", bin.Op, c.typeName(got))
 	}
 	return false
 }
@@ -576,12 +578,12 @@ func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 			bin.Span,
 			c.lenNote(bin, x, y),
 			"mismatched types %s and %s in %s",
-			c.table.Name(x),
-			c.table.Name(y),
+			c.typeName(x),
+			c.typeName(y),
 			bin.Op,
 		)
 	case !c.supports(common, bin.Op):
-		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.table.Name(common))
+		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.typeName(common))
 	}
 }
 
@@ -660,7 +662,7 @@ func (c *Checker) unary(u *ast.Unary) types.Type {
 	case types.IsInteger(x) && !types.IsUnsigned(x):
 		return c.knownNegation(u, x)
 	default:
-		c.errorf(u.X.Spanned(), "operator - is not defined on %s", c.table.Name(x))
+		c.errorf(u.X.Spanned(), "operator - is not defined on %s", c.typeName(x))
 		return types.Invalid
 	}
 }
@@ -677,7 +679,7 @@ func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
 	if _, fits := fitting(v.Neg())(typ); fits {
 		return typ
 	}
-	c.errorf(u.Span, "constant expression overflows %s", c.table.Name(typ))
+	c.errorf(u.Span, "constant expression overflows %s", c.typeName(typ))
 	return types.Invalid
 }
 
@@ -707,9 +709,9 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 			c.errorf(
 				call.Span,
 				"converting %s to %s can fail; use v, ok := %s(...)",
-				c.table.Name(from),
-				c.table.Name(to),
-				c.table.Name(to),
+				c.typeName(from),
+				c.typeName(to),
+				c.typeName(to),
 			)
 		} else if !c.knownFits(arg, v, to) {
 			return types.Invalid
@@ -725,7 +727,7 @@ func (c *Checker) knownFits(e ast.Expr, v constant.Int, typ types.Type) bool {
 	if v.Fits(types.Bits(typ), !types.IsUnsigned(typ)) {
 		return true
 	}
-	c.errorf(e.Spanned(), "constant %s overflows %s", v, c.table.Name(typ))
+	c.errorf(e.Spanned(), "constant %s overflows %s", v, c.typeName(typ))
 	return false
 }
 
@@ -735,7 +737,7 @@ func (c *Checker) knownFits(e ast.Expr, v constant.Int, typ types.Type) bool {
 // if anything was reported.
 func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 	to := call.Conv
-	name := c.table.Name(to)
+	name := c.typeName(to)
 	if !c.checkArity(call, name, 1) {
 		for _, arg := range call.Args {
 			c.expr(arg)
@@ -750,7 +752,7 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 	if !types.IsInteger(to) || !types.IsInteger(from) {
 		from = c.valueOf(call.Args[0], from)
 		if from != types.Invalid {
-			c.errorf(call.Span, "cannot convert %s to %s", c.table.Name(from), name)
+			c.errorf(call.Span, "cannot convert %s to %s", c.typeName(from), name)
 		}
 		return types.Invalid, false
 	}

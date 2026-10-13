@@ -2,7 +2,25 @@
 // to.
 //
 // It runs after the loader and before the type checker, taking an
-// *ast.Program and returning the diagnostics it found. A package may be
+// *ast.Program and returning the diagnostics it found. Packages are
+// resolved in the program's order, every package after those it imports,
+// so a qualified name, x.name, finds name among the package-level names of
+// the package the import x stands for. Every package-level name is
+// importable: visibility is not checked yet.
+//
+// Imports are per file. Each file has a scope of its own holding its
+// imports, enclosed by the package's global scope and enclosing each of
+// its functions. An import's name may not be reserved, a builtin's, any
+// package-level name of the package, in any file, or another import's of
+// its file, and a file may not import one package twice; a local or
+// parameter may not reuse it either, which is reported as an imported
+// package that cannot be redeclared. The name alone is a package, not a
+// value, a type, a function or a variable. An import no qualified name of
+// its file uses is reported as imported and not used, unless its
+// declaration was reported, and a qualified name through such an import is
+// not reported again. A qualified name binds Ident.Def to the function,
+// global or type it names, and marks a global read; one naming nothing is
+// undefined. A package other than main may declare nothing named main. A package may be
 // several files: every package-level name of every file is declared before
 // anything is resolved, so each is visible in all of them, in any order of
 // declarations and of files, and a name declared in two files is reported

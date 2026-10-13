@@ -62,8 +62,16 @@
 // bytes. Two strings are equal by their bytes, never by where they point.
 //
 // Names are rewritten so that nothing a program declares can collide with what
-// the backend emits. A Tack function f in package main becomes tack_main_f,
-// which is unambiguous only while package names cannot contain an underscore.
+// the backend emits. A Tack function f in the main package becomes
+// tack_main_f. One in any other package becomes tack_ followed by each part
+// of its package's import path and then its name, each written as its
+// length, an underscore, and the part with every byte but an ASCII letter
+// or digit escaped as an underscore and two hex digits: First in calc/lexer
+// is tack_4_calc5_lexer5_First. A part is read back by its length, so two
+// such names never collide, and none collides with tack_main_f, which has a
+// letter after tack_ where they have a digit. This is an interim scheme:
+// the main package is to use the length-prefixed form too, which renames
+// every tack_main_ name.
 // A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
 // no reserved words and either may legally be called int, exit or str0.
 //
@@ -118,7 +126,7 @@
 // giving 0 otherwise.
 //
 // A struct type lowers to a typedef'd C struct named like a package-level
-// name, tack_main_Point, since the two share a namespace, with one member
+// name of its package, tack_main_Point, since the two share a namespace, with one member
 // per field, in order, named f_ and the field's name, so a field may be
 // called int or while. A struct with no fields holds one char member, since
 // C has no empty struct, and nothing reads it. A literal is a compound

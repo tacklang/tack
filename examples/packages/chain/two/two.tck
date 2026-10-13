@@ -1,0 +1,7 @@
+package two
+
+import three from "calc/chain/three"
+
+func Depth() int64 {
+    return 1 + three.Depth()
+}

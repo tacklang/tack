@@ -1,0 +1,48 @@
+package main
+
+import lexer from "calc/lexer"
+import geom from "calc/geom"
+import one from "calc/chain/one"
+
+// counts is sized by another package's global.
+mut counts [lexer.MaxTokens]int64
+
+// size shares its name with a function of every library package.
+func size() int64 {
+    return 8
+}
+
+// check exits with status when ok is false.
+func check(ok bool, status int64) {
+    if !ok {
+        exit(status)
+    }
+}
+
+func main() {
+    t := lexer.First("7")
+    check(t.kind == lexer.KindNumber, 1)
+    check(lexer.First("+").kind == lexer.KindPlus, 2)
+    check(lexer.KindPlus == 2, 3)
+    check(geom.Limit == 20, 4)
+
+    b := geom.Box{
+        min: geom.Point{x: 1, y: 1},
+        max: geom.Point{x: 4, y: 3},
+        tok: t,
+    }
+    check(geom.Area(b) == 6, 5)
+    check(b.tok == t, 6)
+    check(geom.Origin.x == 0 && geom.Origin == geom.Point{x: 0, y: 0}, 7)
+
+    toks := geom.Tokens()
+    check(toks[0].kind == lexer.KindNumber && toks[1].kind == lexer.KindPlus, 8)
+    check(len(counts) == 4, 9)
+    counts[3] = 5
+
+    check(one.Depth() == 3, 10)
+    check(size() == 8 && lexer.Size() == 3 && geom.Size() == 4, 11)
+
+    print("packages ok\n")
+    exit(counts[3] + lexer.Size() + geom.Size() + one.Depth())
+}

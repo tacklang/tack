@@ -44,6 +44,11 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 		typ  types.Type
 	}{
 		{int64(42), "var x = 42", types.Int64},
+		{int64(42), "var x = a * 2\n\nvar a = 21", types.Int64},
+		{int64(21), "var x = a + b\n\nvar a = b * 2\n\nvar b = 7", types.Int64},
+		{int64(-5), "var x int8 = 0 - a\n\nvar a int8 = 5", types.Int8},
+		{"tack", "var x = s\n\nvar s = \"tack\"", types.String},
+		{true, "var x = b && 1 < 2\n\nvar b = 2 > 1", types.Bool},
 		{int64(42), "var x int64 = 10 * 4 + 2", types.Int64},
 		{int64(21), "var x = (1 + 2) * (3 + 4)", types.Int64},
 		{int64(-7), "var x = 0 - 7", types.Int64},
@@ -94,8 +99,8 @@ var invalidGlobalPrograms = []struct {
 		[]string{"immutable variable x needs a value"},
 	},
 	{
-		"another global",
-		"package main\n\nvar a = 1\n\nvar x = a + 1\n\nfunc main() {\n    exit(x)\n}\n",
+		"a mutable global",
+		"package main\n\nmut a = 1\n\nvar x = a + 1\n\nfunc main() {\n    exit(x)\n}\n",
 		[]string{"x must be initialized with a constant expression"},
 	},
 	{

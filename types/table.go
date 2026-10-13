@@ -166,6 +166,14 @@ func Added(i int) Type { return numBasic + Type(i) }
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
+	return t.NameWith(typ, nil)
+}
+
+// NameWith returns a type's name as Name does, but writes each struct type
+// in it, an array's element type included, as qualify gives it, from the
+// struct type and its declared name. A nil qualify writes the declared
+// name, as Name does.
+func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) string {
 	if typ >= 0 && typ < numBasic {
 		return basicNames[typ]
 	}
@@ -173,9 +181,11 @@ func (t *Table) Name(typ Type) string {
 	switch {
 	case !ok:
 		return "invalid"
+	case e.strct != nil && qualify != nil:
+		return qualify(typ, e.strct.name)
 	case e.strct != nil:
 		return e.strct.name
 	default:
-		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.Name(e.arr.elem)
+		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.NameWith(e.arr.elem, qualify)
 	}
 }

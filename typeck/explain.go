@@ -326,9 +326,9 @@ func (c *Checker) divisorProof(id *ast.Ident) proof {
 				known = known.narrow(f)
 			}
 			if known.excludesZero() {
-				return id.Name + " != 0"
+				return id.Qualified() + " != 0"
 			}
-			return describe(id.Name, facts)
+			return describe(id.Qualified(), facts)
 		},
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
 			if len(facts) == 0 {
@@ -339,7 +339,7 @@ func (c *Checker) divisorProof(id *ast.Ident) proof {
 				"allows",
 				"allow",
 				would,
-			) + " " + id.Name + " == 0"
+			) + " " + id.Qualified() + " == 0"
 			return []diag.Diagnostic{note(f.span(), msg)}
 		},
 	}
@@ -358,7 +358,7 @@ type extent struct {
 // name returns how a note names the array or string e is the extent of.
 func (e extent) name() string {
 	if id, ok := e.of.(*ast.Ident); ok {
-		return id.Name
+		return id.Qualified()
 	}
 	if e.unit == "byte" {
 		return "the string"
@@ -372,7 +372,7 @@ func (c *Checker) indexProof(id *ast.Ident, e extent, proven func() bool) proof 
 	return proof{
 		about:  id.Def,
 		proven: proven,
-		claim:  func(facts []fact) string { return describe(id.Name, facts) },
+		claim:  func(facts []fact) string { return describe(id.Qualified(), facts) },
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
 			known := typeInterval(id)
 			for _, f := range facts {
@@ -417,12 +417,12 @@ func lowerNote(id *ast.Ident, facts []fact, known interval, would bool) (diag.Di
 			"allows",
 			"allow",
 			would,
-		) + " " + id.Name + " == " + known.lo.String()
+		) + " " + id.Qualified() + " == " + known.lo.String()
 		return note(f.span(), msg), true
 	}
 	if f, ok := setting(facts, func(f fact) bool { return f.hasHi || f.lenOf != nil }); ok {
-		msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Name +
-			" only above; " + id.Name + " may be negative"
+		msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Qualified() +
+			" only above; " + id.Qualified() + " may be negative"
 		return note(f.span(), msg), true
 	}
 	return diag.Diagnostic{}, false
@@ -452,8 +452,15 @@ func upperNote(
 	if other, ok := lenOfOther(f.src, id, e.of); ok {
 		return lengthNote(f, id, other, e, would), true
 	}
-	msg := f.guard.subject() + " " + verb("allows", "allow", would) + " " + id.Name + " == " +
-		known.hi.String() + ", and " + e.name() + " has " + plural64(e.n, e.unit)
+	msg := f.guard.subject() + " " + verb(
+		"allows",
+		"allow",
+		would,
+	) + " " + id.Qualified() + " == " +
+		known.hi.String() + ", and " + e.name() + " has " + plural64(
+		e.n,
+		e.unit,
+	)
 	return note(f.span(), msg), true
 }
 
@@ -477,7 +484,7 @@ func otherLenNote(id *ast.Ident, facts []fact, e extent, would bool) (diag.Diagn
 // lengthNote returns the note that f bounds the index id by the length of
 // other, not of e.
 func lengthNote(f fact, id *ast.Ident, other string, e extent, would bool) diag.Diagnostic {
-	msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Name +
+	msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Qualified() +
 		" by the length of " + other + ", not " + e.name()
 	return note(f.span(), msg)
 }
@@ -598,7 +605,7 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 			expr := c.text(operand.Spanned())
 			notes = append(
 				notes,
-				note(f.guard.span, f.guard.subject()+" bounds "+id.Name+", not "+expr+
+				note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+", not "+expr+
 					"; only a plain name is proven, so copy "+expr+" into a variable and check it"),
 			)
 		}

@@ -21,6 +21,13 @@ type Parser struct {
 	// (a) == (b), spans its parentheses too. See extent.
 	parens map[ast.Expr]ast.Span
 
+	// imports holds the names the file's imports declare. Imports come
+	// before every other declaration, so they are all known by the time a
+	// body is parsed, and an import's name can never be redeclared, so a
+	// name of one followed by a period and a name is always a qualified
+	// name, never a field. See atQualified.
+	imports map[string]bool
+
 	fileID   source.FileID
 	tokens   []lexer.Token // every token but the comments
 	comments []lexer.Token // the comment tokens, in source order
@@ -43,9 +50,10 @@ type Parser struct {
 // line end calls for.
 func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
 	p := &Parser{
-		fileID: fileID,
-		tokens: make([]lexer.Token, 0, len(tokens)),
-		parens: make(map[ast.Expr]ast.Span),
+		fileID:  fileID,
+		tokens:  make([]lexer.Token, 0, len(tokens)),
+		parens:  make(map[ast.Expr]ast.Span),
+		imports: make(map[string]bool),
 	}
 	for _, tk := range tokens {
 		if tk.Kind() == lexer.Comment {
@@ -134,6 +142,15 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	p.file.PackageSpan = pkg.Span
 	p.file.Span = keyword
 
+	for isKeyword(p.peek(), lexer.Import) {
+		imp, diags := p.parseImport()
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		p.file.Imports = append(p.file.Imports, imp)
+		p.imports[imp.Name] = true
+	}
+
 	for p.peek().Kind() != lexer.EOF {
 		dec, decDiags := p.parseDecl()
 		if len(decDiags) > 0 {
@@ -199,9 +216,63 @@ func (p *Parser) expectSequence(kinds ...lexer.TokenKind) (bool, []diag.Diagnost
 	return true, nil
 }
 
+// parseImport parses one import declaration, import x from "path", and
+// the semicolon that ends it. from is not a keyword: it is a name that
+// only an import gives a meaning, so it may still name anything else.
+func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
+	kw := p.next()
+	switch tk := p.peek(); tk.Kind() {
+	case lexer.LParen:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "grouped imports are not supported; write one import per line",
+			Span:     p.span(tk),
+		}}
+	case lexer.Str:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "an import needs a name: import x from \"path\"",
+			Span:     p.span(tk),
+		}}
+	}
+	name, diags := p.parseIdent("import name")
+	if name == nil {
+		return nil, diags
+	}
+	if tk := p.peek(); tk.Kind() != lexer.Ident || tk.Value() != fromWord {
+		return nil, []diag.Diagnostic{p.diagInvalidToken(fromWord, tk)}
+	}
+	p.next()
+	path := p.peek()
+	if path.Kind() != lexer.Str {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("import path", path)}
+	}
+	p.next()
+	imp := &ast.Import{
+		Name:     name.Name,
+		NameSpan: name.Span,
+		Path:     lexer.ValueChecked[string](path),
+		PathSpan: p.span(path),
+		Span:     ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: path.OffsetEnd()},
+	}
+	if ok, diags := p.expect(lexer.Semi); !ok {
+		return nil, diags
+	}
+	return imp, nil
+}
+
+// fromWord is the word between an import's name and its path.
+const fromWord = "from"
+
 func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 	tk := p.peek()
 	switch {
+	case isKeyword(tk, lexer.Import):
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "imports must come before every other declaration",
+			Span:     p.span(tk),
+		}}
 	case tk.Value() == lexer.Func:
 		return p.parseFunc()
 	case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
@@ -432,11 +503,51 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 			Span:     p.span(tk),
 		}}
 	}
+	// A type is never a field, so a name, a period and a name is always a
+	// qualified type name, whether or not the first name is an import's;
+	// the resolver reports one that is not.
+	if p.peek().Kind() == lexer.Ident && p.peekAt(1).Kind() == lexer.Period &&
+		p.peekAt(2).Kind() == lexer.Ident {
+		return p.parseQualified(), nil
+	}
 	typ, typDiags := p.parseIdent("type name")
 	if typ == nil {
 		return nil, typDiags
 	}
 	return typ, nil
+}
+
+// atQualified reports whether the tokens n places ahead are a qualified
+// name: the name of one of the file's imports, a period and a name.
+func (p *Parser) atQualified(n int) bool {
+	tk := p.peekAt(n)
+	if tk.Kind() != lexer.Ident || !p.imports[lexer.ValueChecked[string](tk)] {
+		return false
+	}
+	return p.peekAt(n+1).Kind() == lexer.Period && p.peekAt(n+2).Kind() == lexer.Ident
+}
+
+// parseQualified parses a name, a period and a name, which the caller has
+// seen are next, as one qualified Ident spanning all three.
+func (p *Parser) parseQualified() *ast.Ident {
+	pkg := p.next()
+	p.next() // the period
+	name := p.next()
+	return &ast.Ident{
+		Pkg:     lexer.ValueChecked[string](pkg),
+		PkgSpan: p.span(pkg),
+		Name:    lexer.ValueChecked[string](name),
+		Span:    ast.Span{File: p.fileID, Start: pkg.OffsetStart(), End: name.OffsetEnd()},
+	}
+}
+
+// parseName parses a name, qualified by an import's name or not; expected
+// says what it is, for the error when there is none.
+func (p *Parser) parseName(expected string) (*ast.Ident, []diag.Diagnostic) {
+	if p.atQualified(0) {
+		return p.parseQualified(), nil
+	}
+	return p.parseIdent(expected)
 }
 
 // parseStmt parses one statement, choosing the form by its first token and,
@@ -583,13 +694,12 @@ func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 // reported by parsing them first, so a malformed index or field, or a
 // method call, gets its own error.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
-	postfixed := p.peekNext().Kind() == lexer.LBrack || p.peekNext().Kind() == lexer.Period
-	switch after := p.afterTarget(0); after.Kind() {
+	// A qualified name can be assigned or called but not declared.
+	n := p.nameEnd()
+	postfixed := p.peekAt(n+1).Kind() == lexer.LBrack || p.peekAt(n+1).Kind() == lexer.Period
+	switch after := p.afterTarget(n); after.Kind() {
 	case lexer.Define:
-		if postfixed {
-			return nil, []diag.Diagnostic{p.diagInvalidToken("=", after)}
-		}
-		return p.parseShortVarDecl()
+		return p.parseDefine(postfixed || n > 0, after)
 	case lexer.Assign,
 		lexer.AddAssign,
 		lexer.SubAssign,
@@ -610,6 +720,24 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// nameEnd returns how many places ahead the name that starts the next
+// tokens ends: 0 for a name, 2 for a qualified one.
+func (p *Parser) nameEnd() int {
+	if p.atQualified(0) {
+		return 2
+	}
+	return 0
+}
+
+// parseDefine parses a short variable declaration, whose := is after, or
+// reports one whose target is not a plain name, when notName says so.
+func (p *Parser) parseDefine(notName bool, after *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	if notName {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("=", after)}
+	}
+	return p.parseShortVarDecl()
 }
 
 // badTarget reports a statement that starts with the name tk and indexes or
@@ -670,7 +798,7 @@ func (p *Parser) afterBrackets(k int) int {
 // parseTarget parses what an assignment, increment or decrement writes: a
 // name, followed by any number of indexes and fields, a[i].x[j].
 func (p *Parser) parseTarget() (ast.Expr, []diag.Diagnostic) {
-	name, diags := p.parseIdent("variable name")
+	name, diags := p.parseName("variable name")
 	if name == nil {
 		return nil, diags
 	}
@@ -1074,7 +1202,7 @@ func (p *Parser) parseFuncCall() (*ast.ExprStmt, []diag.Diagnostic) {
 // parseCall parses a call as an expression, without the statement terminator.
 // The same syntax appears as a statement and as an operand.
 func (p *Parser) parseCall() (*ast.Call, []diag.Diagnostic) {
-	ident, identDiags := p.parseIdent("function name")
+	ident, identDiags := p.parseName("function name")
 	if ident == nil {
 		return nil, identDiags
 	}
@@ -1769,16 +1897,12 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return p.parseCompositeLit()
 	}
 
-	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LCurl && !p.noLit {
-		typ, _ := p.parseIdent("type name")
-		lit, diags := p.parseLitBody(typ, typ.Span.Start)
-		if lit == nil {
-			return nil, diags
-		}
-		return lit, nil
+	n := p.nameEnd()
+	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LCurl && !p.noLit {
+		return p.parseStructLit()
 	}
 
-	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
+	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LParen {
 		// A nil *ast.Call would be a non-nil ast.Expr, so an error is
 		// returned as an untyped nil.
 		call, callDiags := p.parseCall()
@@ -1788,7 +1912,21 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return call, nil
 	}
 
+	if n > 0 {
+		return p.parseQualified(), nil
+	}
 	return p.parseLiteral()
+}
+
+// parseStructLit parses a struct literal: its type's name, qualified or
+// not, which the caller has seen is next, and then its body.
+func (p *Parser) parseStructLit() (ast.Expr, []diag.Diagnostic) {
+	typ, _ := p.parseName("type name")
+	lit, diags := p.parseLitBody(typ, typ.Span.Start)
+	if lit == nil {
+		return nil, diags
+	}
+	return lit, nil
 }
 
 // parsePostfix parses any number of indexes and field selections after x,

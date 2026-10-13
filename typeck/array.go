@@ -115,7 +115,7 @@ func (c *Checker) literalOf(lit *ast.CompositeLit, typ types.Type) types.Type {
 		c.errorf(
 			lit.Span,
 			"%s cannot be written as a literal; only arrays and structs can",
-			c.table.Name(typ),
+			c.typeName(typ),
 		)
 		lit.Type = types.Invalid
 		return types.Invalid
@@ -129,7 +129,7 @@ func (c *Checker) literalOf(lit *ast.CompositeLit, typ types.Type) types.Type {
 		c.errorf(
 			lit.Span,
 			"%s literal has %d %s, want %d",
-			c.table.Name(typ),
+			c.typeName(typ),
 			got,
 			plural(int(got), "element"),
 			want,
@@ -177,7 +177,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		return c.stringElement(ix, idx)
 	}
 	if !c.table.IsArray(base) {
-		c.errorf(ix.X.Spanned(), "cannot index %s", c.table.Name(base))
+		c.errorf(ix.X.Spanned(), "cannot index %s", c.typeName(base))
 		return types.Invalid
 	}
 
@@ -185,12 +185,12 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 	switch {
 	case idx == types.Invalid:
 	case !types.IsInteger(idx):
-		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.table.Name(idx))
+		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.typeName(idx))
 	case c.checkedIndex == ix:
 		// Bound with ok, the index needs no proof; a constant one is still
 		// checked here, since one out of range always fails.
 		if v, known := c.knownValue(ix.Index); known && !c.constantInRange(v, n) {
-			c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, c.table.Name(base))
+			c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, c.typeName(base))
 			return types.Invalid
 		}
 	default:
@@ -232,7 +232,7 @@ func (c *Checker) requireInRange(ix *ast.Index, typ types.Type, n int64, write b
 	index := ix.Index
 	if v, ok := c.knownValue(index); ok {
 		if !c.constantInRange(v, n) {
-			c.errorf(index.Spanned(), "index %s is out of range for %s", v, c.table.Name(typ))
+			c.errorf(index.Spanned(), "index %s is out of range for %s", v, c.typeName(typ))
 		}
 		return
 	}
@@ -264,11 +264,11 @@ func (c *Checker) indexError(
 	id, isName := ix.Index.(*ast.Ident)
 	switch v, isGlobal := c.mutableGlobal(ix.Index); {
 	case isGlobal:
-		msg, notes = "index "+v.Name+" may be out of range", globalNote(v)
+		msg, notes = "index "+operandName(ix.Index)+" may be out of range", globalNote(v)
 	case isName && bound == "":
-		msg, notes = "index "+id.Name+" may be out of range", explain(id)
+		msg, notes = "index "+id.Qualified()+" may be out of range", explain(id)
 	case isName:
-		msg, notes = "index "+id.Name+" may be out of range; check "+inBounds(
+		msg, notes = "index "+id.Qualified()+" may be out of range; check "+inBounds(
 			id,
 			bound,
 		)+" first", explain(
@@ -282,9 +282,9 @@ func (c *Checker) indexError(
 // unless its type is unsigned and so never negative, at least 0.
 func inBounds(id *ast.Ident, bound string) string {
 	if types.IsUnsigned(ast.TypeOf(id)) {
-		return id.Name + " < " + bound
+		return id.Qualified() + " < " + bound
 	}
-	return "0 <= " + id.Name + " && " + id.Name + " < " + bound
+	return "0 <= " + id.Qualified() + " && " + id.Qualified() + " < " + bound
 }
 
 // lenCall checks a call to the builtin len, which takes one array or string
@@ -316,7 +316,7 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		}
 	default:
 		if got = c.valueOf(arg, got); got != types.Invalid {
-			c.errorf(arg.Spanned(), "len expects an array or a string, got %s", c.table.Name(got))
+			c.errorf(arg.Spanned(), "len expects an array or a string, got %s", c.typeName(got))
 		}
 		return types.Invalid
 	}

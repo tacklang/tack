@@ -173,7 +173,10 @@ func (g *generator) equalExpr(typ types.Type, l, r string) string {
 // namespace with functions and package-level variables, so the name is
 // never another declaration's.
 func (g *generator) structName(typ types.Type) string {
-	return g.mangle(g.prog.Types.Name(typ))
+	if td := g.structs[typ]; td != nil {
+		return g.mangle(td, td.Name)
+	}
+	return g.mangle(nil, g.prog.Types.Name(typ))
 }
 
 // fieldName keeps a field's C member clear of C's keywords, for the same

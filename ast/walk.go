@@ -46,6 +46,7 @@ func walkDecl(d Decl, v Visitor) {
 		}
 	case *TypeDecl:
 		Walk(d.TypeExpr, v)
+	case *Import:
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled declaration type %T", d))
 	}

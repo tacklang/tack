@@ -313,7 +313,7 @@ func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 // and a length of 0, which needs no pooled empty string.
 func (g *generator) resultZero(fn *ast.Func) string {
 	if len(fn.ResultTypes) > 1 {
-		return fmt.Sprintf("(%s){0}", g.resultsName(fn.Name))
+		return fmt.Sprintf("(%s){0}", g.resultsName(fn))
 	}
 	if typ := fn.ResultTypes[0]; typ == types.String {
 		return fmt.Sprintf("(%s){0}", g.cType(typ))

@@ -190,16 +190,18 @@ func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	if k, ok := v.Const.(constant.Int); ok {
 		return k, true
 	}
-	if v.Value == nil {
+	// A global's value is the Const its check computes, which is done
+	// before anything reads it: a global with none has no known value,
+	// and following its initializer could go round an initialization
+	// cycle forever.
+	if v.Value == nil || c.globals[v] {
 		return constant.Int{}, false
 	}
 	if r, seen := c.knownVars[v]; seen {
 		return r.value, r.ok
 	}
 	value, known := c.knownValue(v.Value)
-	if !c.globals[v] {
-		c.knownVars[v] = knownResult{value, known}
-	}
+	c.knownVars[v] = knownResult{value, known}
 	return value, known
 }
 

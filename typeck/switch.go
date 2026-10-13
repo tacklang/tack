@@ -125,15 +125,15 @@ func (c *Checker) checkCaseValue(tagType types.Type, v ast.Expr) bool {
 		c.errorf(
 			v.Spanned(),
 			"mismatched types %s and %s in switch case",
-			c.table.Name(tagType),
-			c.table.Name(got),
+			c.typeName(tagType),
+			c.typeName(got),
 		)
 		return false
 	}
 	// Every type is comparable today; this keeps a type that is not from
 	// reaching the backend should one be added.
 	if !c.supports(common, ast.Eq) {
-		c.errorf(v.Spanned(), "operator == is not defined on %s", c.table.Name(common))
+		c.errorf(v.Spanned(), "operator == is not defined on %s", c.typeName(common))
 		return false
 	}
 	return true

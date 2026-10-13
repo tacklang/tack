@@ -92,8 +92,8 @@ func (l *Loader) File(name string) (*Result, error) {
 		return res, nil
 	}
 	pkg.Path = mainPath
-	res.Program = &ast.Program{Packages: []*ast.Package{pkg}}
-	return res, nil
+	g := newGraph(l, res, nil, pkg)
+	return g.finish(), nil
 }
 
 // Dir loads the program whose main package is the directory dir: the
@@ -108,7 +108,7 @@ func (l *Loader) Dir(dir string) (*Result, error) {
 	if err != nil || mod == nil {
 		return res, err
 	}
-	return l.loadMain(res, dir, mod.pathOf(dir))
+	return l.loadMain(res, mod, dir, mod.pathOf(dir))
 }
 
 // Path loads the program whose main package has the import path
@@ -132,12 +132,13 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 		return nil, fmt.Errorf("cannot find package %s: no directory %s in module %s",
 			show(importPath), show(importPath), mod.name)
 	}
-	return l.loadMain(res, dir, importPath)
+	return l.loadMain(res, mod, dir, importPath)
 }
 
-// loadMain loads the package in dir, whose import path is importPath, as
-// the main package of a program, into res.
-func (l *Loader) loadMain(res *Result, dir, importPath string) (*Result, error) {
+// loadMain loads the package in dir, whose import path is importPath in
+// mod, as the main package of a program, into res, with every package it
+// imports.
+func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Result, error) {
 	files, err := l.readPackageFiles(res, dir)
 	if err != nil {
 		return nil, err
@@ -146,21 +147,21 @@ func (l *Loader) loadMain(res *Result, dir, importPath string) (*Result, error) 
 	if !ok {
 		return res, nil
 	}
-	if !l.checkClauses(res, dir, importPath, pkg) {
-		return res, nil
-	}
-	if pkg.Name != mainPackage {
-		res.Stage = StageLoad
-		res.Diags = []diag.Diagnostic{{
+	diags := l.checkClauses(dir, importPath, pkg)
+	if len(diags) == 0 && pkg.Name != mainPackage {
+		diags = []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("%s is not a main package", importPath),
 			Span:     pkg.Files[0].PackageSpan,
 		}}
+	}
+	if len(diags) > 0 {
+		res.Stage, res.Diags = StageLoad, diags
 		return res, nil
 	}
 	pkg.Path = importPath
-	res.Program = &ast.Program{Packages: []*ast.Package{pkg}}
-	return res, nil
+	g := newGraph(l, res, mod, pkg)
+	return g.finish(), nil
 }
 
 // readPackageFiles reads every Tack file directly in dir, in the byte order
@@ -256,14 +257,13 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 	return pkg, true
 }
 
-// checkClauses reports, in res, files of the directory dir, the package
-// whose import path is importPath, whose package clauses are wrong, and
-// returns whether they are all right. A package's name is the last part of
+// checkClauses reports files of the directory dir, the package whose
+// import path is importPath, whose package clauses are wrong. A package's name is the last part of
 // its import path, and every file's clause names it, or main, which may be
 // any directory's: a clause naming anything else does not match its
 // directory, and both names in one directory are two packages. A name
 // other than main must be a valid package name.
-func (l *Loader) checkClauses(res *Result, dir, importPath string, pkg *ast.Package) bool {
+func (l *Loader) checkClauses(dir, importPath string, pkg *ast.Package) []diag.Diagnostic {
 	want := path.Base(importPath)
 	var diags []diag.Diagnostic
 	for _, f := range pkg.Files {
@@ -293,11 +293,7 @@ func (l *Loader) checkClauses(res *Result, dir, importPath string, pkg *ast.Pack
 			})
 		}
 	}
-	if len(diags) > 0 {
-		res.Stage, res.Diags = StageLoad, diags
-		return false
-	}
-	return true
+	return diags
 }
 
 // mixedPackages reports files of the directory dir whose package clauses

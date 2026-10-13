@@ -3,9 +3,23 @@
 // It sits between the lexer and the resolver. It takes the lexer's token
 // stream, which must end in an EOF token and already carry the semicolons
 // that automatic insertion adds at line ends, and produces an *ast.File: the
-// package name, every top-level declaration in source order (functions,
-// variables declared with var or mut, and struct types declared with
-// type), and every comment in the file. The
+// package name, its imports, every top-level declaration in source order
+// (functions, variables declared with var or mut, and struct types
+// declared with type), and every comment in the file.
+//
+// Imports come right after the package clause, one per line, before every
+// other declaration: import x from "path", where the path is any string
+// literal. from is not a keyword; it is a name only an import gives a
+// meaning, and may name anything elsewhere. A grouped import, import (...),
+// an import without a name, and one after another declaration are each
+// reported. Since every import is known before any declaration is parsed,
+// and an import's name can never be redeclared, a name the file imports
+// followed by a period and a name is parsed as one qualified ast.Ident,
+// x.name, wherever a name may be: a callee, a value, an assignment target,
+// a literal's type. In a type, where a field cannot be, any name, a period
+// and a name is a qualified name, and the resolver reports one whose first
+// name is not an import's. Anywhere else a name, a period and a name is a
+// field selection. The
 // short forms x := v and mut x := v are for function bodies only.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees

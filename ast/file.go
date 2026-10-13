@@ -15,6 +15,7 @@ type File struct {
 	Types *types.Table `json:"-"`
 
 	Package  string
+	Imports  []*Import
 	Decls    []Decl
 	Comments []Comment
 	Span     Span
@@ -28,7 +29,7 @@ var _ Node = (*File)(nil)
 // NewFile returns an empty File whose slices are non-nil, so that it
 // marshals to [] rather than null.
 func NewFile() *File {
-	return &File{Decls: make([]Decl, 0), Comments: make([]Comment, 0)}
+	return &File{Imports: make([]*Import, 0), Decls: make([]Decl, 0), Comments: make([]Comment, 0)}
 }
 
 func (f *File) astNode() nodeKey { return _nodeKey }

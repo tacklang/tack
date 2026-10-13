@@ -275,3 +275,29 @@ func TestSetFieldsIgnoresOtherTypes(t *testing.T) {
 		t.Error("a nil Table knows a struct")
 	}
 }
+
+// TestNameWithQualifiesStructs checks NameWith writes a struct type as the
+// function given says, an array's element included, and every other type
+// as Name does.
+func TestNameWithQualifiesStructs(t *testing.T) {
+	table := types.NewTable()
+	tok := table.Struct("Token")
+	arr := table.Array(table.Array(tok, 2), 3)
+	q := func(_ types.Type, name string) string { return "lexer." + name }
+	for _, tt := range []struct {
+		want string
+		typ  types.Type
+	}{
+		{"lexer.Token", tok},
+		{"[3][2]lexer.Token", arr},
+		{"int64", types.Int64},
+		{"[4]uint8", table.Array(types.Uint8, 4)},
+	} {
+		if got := table.NameWith(tt.typ, q); got != tt.want {
+			t.Errorf("NameWith = %q, want %q", got, tt.want)
+		}
+	}
+	if got := table.NameWith(arr, nil); got != table.Name(arr) || got != "[3][2]Token" {
+		t.Errorf("NameWith(nil) = %q, want %q", got, table.Name(arr))
+	}
+}

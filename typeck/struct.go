@@ -28,6 +28,7 @@ func (c *Checker) declareStructs() {
 	for _, decl := range c.prog.Decls() {
 		if td, ok := decl.(*ast.TypeDecl); ok {
 			td.Type = c.table.Struct(td.Name)
+			c.structPkg[td.Type] = c.declPkg[td]
 			c.structs[td.Type] = td
 			c.structOrder = append(c.structOrder, td.Type)
 		}
@@ -54,11 +55,12 @@ func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
 	case checked:
 		return true
 	case checking:
-		c.errorf(at, "invalid recursive type %s", c.table.Name(typ))
+		c.errorf(at, "invalid recursive type %s", c.typeName(typ))
 		return false
 	}
 
 	c.structState[typ] = checking
+	defer c.enter(c.structs[typ])()
 	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
 	fields := make([]types.Field, 0)
 	if st != nil {
@@ -126,6 +128,7 @@ func (c *Checker) structIn(typ types.Type) (types.Type, bool) {
 // reportCycle reports the cycle that path, the fields followed so far, closes
 // by reaching typ again.
 func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
+	defer c.enter(c.structs[typ])()
 	start := 0
 	for i, e := range path {
 		if e.from == typ {
@@ -141,13 +144,13 @@ func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
 		}
 		notes = append(notes, diag.Diagnostic{
 			Severity: diag.Note,
-			Message:  c.table.Name(e.from) + " refers to " + c.table.Name(to),
+			Message:  c.typeName(e.from) + " refers to " + c.typeName(to),
 			Span:     e.field.Span,
 		})
 	}
 	c.diags = append(c.diags, diag.Diagnostic{
 		Severity: diag.Error,
-		Message:  "invalid recursive type " + c.table.Name(typ),
+		Message:  "invalid recursive type " + c.typeName(typ),
 		Span:     c.structs[typ].NameSpan,
 		Related:  notes,
 	})
@@ -172,7 +175,7 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 	}
 	f, _, ok := c.table.Field(base, sel.Name)
 	if !ok {
-		c.errorf(sel.NameSpan, "%s has no field %s", c.table.Name(base), sel.Name)
+		c.errorf(sel.NameSpan, "%s has no field %s", c.typeName(base), sel.Name)
 		return types.Invalid
 	}
 	return f.Type
@@ -196,7 +199,7 @@ func (c *Checker) fieldTarget(sel *ast.Selector) (types.Type, bool) {
 // name, is reported, and then a missing field is not, since which field the
 // element meant cannot be known.
 func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
-	name := c.table.Name(typ)
+	name := c.typeName(typ)
 	if !c.resolveFields(typ, lit.Span) {
 		c.discardElems(lit)
 		lit.Type = types.Invalid
@@ -214,7 +217,7 @@ func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
 			continue
 		}
 		key, ok := kv.Key.(*ast.Ident)
-		if !ok || kv.KeyParens {
+		if !ok || kv.KeyParens || key.Pkg != "" {
 			c.errorf(kv.Key.Spanned(), "invalid field name in %s literal", name)
 			c.discard(kv.Value)
 			unnamed = true
@@ -236,7 +239,7 @@ func (c *Checker) fieldValue(
 	typ types.Type,
 	set map[string]bool,
 ) {
-	name := c.table.Name(typ)
+	name := c.typeName(typ)
 	f, _, ok := c.table.Field(typ, key.Name)
 	switch {
 	case !ok:
@@ -262,7 +265,7 @@ func (c *Checker) reportMissing(lit *ast.CompositeLit, typ types.Type, set map[s
 	}
 	if len(missing) > 0 {
 		c.errorf(lit.Span, "%s literal is missing %s %s",
-			c.table.Name(typ), plural(len(missing), "field"), strings.Join(missing, ", "))
+			c.typeName(typ), plural(len(missing), "field"), strings.Join(missing, ", "))
 	}
 }
 
@@ -312,10 +315,35 @@ func (c *Checker) ensureGlobal(v *ast.Var, at ast.Span) {
 	case checked:
 		return
 	case checking:
-		c.errorf(at, "initialization cycle: %s refers to itself", v.Name)
+		c.errorf(at, "initialization cycle: %s", c.initCycle(v))
 		return
 	}
 	c.globalState[v] = checking
+	c.initStack = append(c.initStack, v)
+	restore := c.enter(v)
 	c.checkGlobal(v)
+	restore()
+	c.initStack = c.initStack[:len(c.initStack)-1]
 	c.globalState[v] = checked
+}
+
+// initCycle describes the cycle that needing v, which is being checked,
+// closes: "a refers to itself", or every global from v round to v again,
+// "a refers to b refers to a". A cycle never leaves a package, since
+// imports have none, so its globals are named unqualified.
+func (c *Checker) initCycle(v *ast.Var) string {
+	start := 0
+	for i, w := range c.initStack {
+		if w == v {
+			start = i
+		}
+	}
+	if start == len(c.initStack)-1 {
+		return v.Name + " refers to itself"
+	}
+	names := make([]string, 0, len(c.initStack)-start+1)
+	for _, w := range c.initStack[start:] {
+		names = append(names, w.Name)
+	}
+	return strings.Join(append(names, v.Name), " refers to ")
 }

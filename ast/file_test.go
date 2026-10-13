@@ -79,3 +79,27 @@ func TestStringRendersEveryDeclKindAsReference(t *testing.T) {
 		})
 	}
 }
+
+// TestQualifiedIdentJSON checks a qualified name's dump carries its
+// package and the span of it, and a plain name's carries neither.
+func TestQualifiedIdentJSON(t *testing.T) {
+	q := &Ident{Pkg: "lexer", Name: "First", PkgSpan: Span{Start: 1, End: 6}}
+	js, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), `"Pkg":"lexer"`) ||
+		!strings.Contains(string(js), `"PkgSpan":{`) {
+		t.Errorf("qualified name dumped as %s", js)
+	}
+	if q.Qualified() != "lexer.First" {
+		t.Errorf("Qualified() = %q", q.Qualified())
+	}
+	js, err = json.Marshal(&Ident{Name: "x", Def: &Import{Name: "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(js), "Pkg") || !strings.Contains(string(js), `"Kind":"Import"`) {
+		t.Errorf("plain name bound to an import dumped as %s", js)
+	}
+}

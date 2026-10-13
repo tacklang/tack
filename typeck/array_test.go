@@ -276,8 +276,8 @@ var arrayErrorCases = []struct {
 	},
 	{"len as a statement", mainLines("len(\"a\")"), nil},
 	{
-		"global literal with a variable",
-		"package main\n\nvar k = 1\n\nvar a = [2]int64{k, 2}\n\nfunc main() {\n    exit(a[0])\n}\n",
+		"global literal with a mutable variable",
+		"package main\n\nmut k = 1\n\nvar a = [2]int64{k, 2}\n\nfunc main() {\n    exit(a[0])\n}\n",
 		[]spanned{{"a must be initialized with a constant expression", "[2]int64{k, 2}"}},
 	},
 }

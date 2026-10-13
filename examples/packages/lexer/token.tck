@@ -1,0 +1,17 @@
+package lexer
+
+// Token is used by lexer.tck, in this package, without an import, and by
+// the main packages through one.
+type Token struct {
+    kind int64
+    start int64
+    end int64
+}
+
+// KindNumber and KindPlus are constants: KindPlus names KindNumber, a
+// global of its own package, in its initializer.
+var KindNumber int64 = 1
+var KindPlus int64 = KindNumber + 1
+
+// MaxTokens sizes an array in another package.
+var MaxTokens int64 = 4

@@ -98,6 +98,33 @@ func (v *Var) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the whole declaration.
 func (v *Var) Spanned() Span { return v.Span }
 
+// Import is an import declaration, import x from "path": it declares the
+// name x in its file, standing for the package whose import path is path.
+// An import is not one of a file's Decls; it is a declaration so that a
+// name can be bound to it.
+type Import struct {
+	// Package is the package Path names. The loader sets it; it is nil
+	// before, and left out of the JSON dump, since the package is dumped
+	// on its own.
+	Package *Package `json:"-"`
+
+	Name     string
+	Path     string // the path as the string literal gives it
+	NameSpan Span
+	PathSpan Span // the string literal
+	Span     Span // 'import' keyword through the path
+}
+
+var _ Decl = (*Import)(nil)
+
+func (i *Import) declKey() declKey { return _declKey }
+
+func (i *Import) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'import' keyword through the
+// path.
+func (i *Import) Spanned() Span { return i.Span }
+
 // TypeDecl is a type declaration at package level, type Name struct { ... },
 // which declares a struct type. Other named types are not supported yet, so
 // TypeExpr is always a *StructType.

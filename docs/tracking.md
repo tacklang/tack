@@ -46,7 +46,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `package` clause         | yes   | yes    | partial | yes | Must be first and must be `main`; every file of a directory names the same package          |
 | Several files per package | n/a  | yes    | yes     | yes | A directory is one package: its `.tck` files in name order, package-level names shared by all, any order |
 | Modules and `tack.mod`   | n/a   | yes    | yes     | n/a | `module <name>` only; a directory builds in the module found at or above it; package name is the import path's last part, or `main` |
-| Imports                  | yes   | no     | no      | no  |                                                                                             |
+| Imports                  | yes   | yes    | yes     | yes | `import x from "path"`, per file, one per line after the package clause; cycles, unused and duplicate imports are errors; every name importable until visibility |
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
 | `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
 | Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`)                                                   |
@@ -56,7 +56,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
-| Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; constant initializers, computed at compile time; usable from any function |
+| Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; constant initializers, which may name immutable globals of the package or an import, computed at compile time; usable from any function |
 | Methods                  | yes   | no     | no      | no  | Rejected with a diagnostic, declared or called                                              |
 
 ### Statements
@@ -90,6 +90,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |-----------------------------------|-------|--------|---------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Integer and string literals       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
 | Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                                                                                 |
+| Qualified names `x.name`          | yes   | yes    | yes     | yes     | Through an import, for functions, globals and types, in calls, values, targets, types and literals; C names by package path, interim |
 | Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                                                                 |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; on known values, overflow is an error; otherwise it wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
@@ -142,7 +143,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | Runtime                     | no     | Generated C calls libc directly                        |
 | Memory model and allocation | no     | Nothing allocates; strings are static                  |
 | Standard library            | no     | `src/std/fmt` is a sketch; nothing compiles against it |
-| Packages beyond `main`      | no     |                                                        |
+| Packages beyond `main`      | partial | Modules, imports and qualified names; no `pub`/`lib` yet, so every name is importable; no standard library packages |
 | Concurrency                 | no     |                                                        |
 
 ### Toolchain

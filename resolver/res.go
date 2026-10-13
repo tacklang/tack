@@ -22,14 +22,19 @@ type Resolver struct {
 	prog    *ast.Program
 	read    map[*ast.Var]bool // variables read at least once
 	excused map[*ast.Var]bool // variables never reported unused: see excuse
+
+	// packages holds each package's resolver once its package-level names
+	// are declared, which is before any package importing it is resolved.
+	packages map[*ast.Package]*pkgResolver
 }
 
 // New returns a Resolver for prog.
 func New(prog *ast.Program) *Resolver {
 	return &Resolver{
-		prog:    prog,
-		read:    make(map[*ast.Var]bool),
-		excused: make(map[*ast.Var]bool),
+		prog:     prog,
+		read:     make(map[*ast.Var]bool),
+		excused:  make(map[*ast.Var]bool),
+		packages: make(map[*ast.Package]*pkgResolver),
 	}
 }
 
@@ -40,7 +45,15 @@ type pkgResolver struct {
 
 	pkg      *ast.Package
 	funcRefs map[string]*ast.Func
-	globals  *scope // package-level variables and types, enclosing every function
+	globals  *scope // package-level variables and types, enclosing every file's scope
+
+	// files holds each file's scope, by file: its imports, enclosed by
+	// the global scope and enclosing every function of the file.
+	files map[source.FileID]*scope
+	// used holds the imports a qualified name has used, and rejected
+	// those whose declaration was reported, which are not reported unused.
+	used     map[*ast.Import]bool
+	rejected map[*ast.Import]bool
 }
 
 // newPkgResolver returns a pkgResolver for pkg, a package of r's program.
@@ -50,6 +63,9 @@ func (r *Resolver) newPkgResolver(pkg *ast.Package) *pkgResolver {
 		pkg:      pkg,
 		funcRefs: make(map[string]*ast.Func),
 		globals:  newScope(nil),
+		files:    make(map[source.FileID]*scope),
+		used:     make(map[*ast.Import]bool),
+		rejected: make(map[*ast.Import]bool),
 	}
 }
 
@@ -133,6 +149,7 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	resolvers := make([]*pkgResolver, 0, len(r.prog.Packages))
 	for _, pkg := range r.prog.Packages {
 		pr := r.newPkgResolver(pkg)
+		r.packages[pkg] = pr
 		resolvers = append(resolvers, pr)
 		diags = append(diags, pr.resolve()...)
 	}
@@ -165,10 +182,15 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 
 	diags := r.declareFuncs()
 	diags = append(diags, r.declareTypes()...)
-	diags = append(diags, r.declareGlobals()...)
+	globals, globalDiags := r.declareGlobals()
+	diags = append(diags, globalDiags...)
+	diags = append(diags, r.declareImports()...)
+	diags = append(diags, r.resolveGlobals(globals)...)
 	diags = append(diags, r.resolveStructs()...)
 	if r.pkg.Name == mainPackage {
 		diags = append(diags, r.checkMain()...)
+	} else {
+		diags = append(diags, r.mainOutsideMain()...)
 	}
 
 	// Resolution is per function body: a parameter is in scope inside the
@@ -184,19 +206,17 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 		diags = append(diags, paramDiags...)
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
 	}
-	return diags
+	return append(diags, r.unusedImports()...)
 }
 
 // declareGlobals adds every package-level variable of every file of the
-// package to the global scope, which encloses every function, so a global
-// can be used from any function whatever the order of declarations and of
-// files. Functions and types were declared first, so a global that shares
-// a name with a function, a type, another global, or a builtin is the one
-// reported. Every global is declared before any global's type or
-// initializer is resolved, so those may name a global declared after them,
-// in the same file or another: the type checker then says whether the use
-// is allowed there.
-func (r *pkgResolver) declareGlobals() []diag.Diagnostic {
+// package to the global scope, which encloses every file's scope, so a
+// global can be used from any function whatever the order of declarations
+// and of files. Functions and types were declared first, so a global that
+// shares a name with a function, a type, another global, or a builtin is
+// the one reported. It returns every global, declared or not, for
+// resolveGlobals.
+func (r *pkgResolver) declareGlobals() ([]*ast.Var, []diag.Diagnostic) {
 	var diags []diag.Diagnostic
 	var globals []*ast.Var
 	for _, decl := range r.pkg.Decls() {
@@ -214,13 +234,23 @@ func (r *pkgResolver) declareGlobals() []diag.Diagnostic {
 		r.globals.names[v.Name] = v
 		r.globals.vars = append(r.globals.vars, v)
 	}
+	return globals, diags
+}
 
+// resolveGlobals resolves the type and initializer of each of globals in
+// the scope of its file. Every global and every import is declared by
+// then, so either may name a global declared after it, in the same file
+// or another, or a name another package declares: the type checker then
+// says whether the use is allowed there.
+func (r *pkgResolver) resolveGlobals(globals []*ast.Var) []diag.Diagnostic {
+	var diags []diag.Diagnostic
 	for _, v := range globals {
+		sc := r.fileScope(v.Span.File)
 		if v.TypeExpr != nil {
-			diags = append(diags, r.resolveType(v.TypeExpr, r.globals)...)
+			diags = append(diags, r.resolveType(v.TypeExpr, sc)...)
 		}
 		if v.Value != nil {
-			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
+			diags = append(diags, r.resolveExpr(v.Value, sc)...)
 		}
 	}
 	return diags
@@ -288,17 +318,18 @@ func (r *pkgResolver) resolveStructs() []diag.Diagnostic {
 		if !ok {
 			continue
 		}
-		diags = append(diags, r.resolveFields(st)...)
+		diags = append(diags, r.resolveFields(st, r.fileScope(td.Span.File))...)
 	}
 	return diags
 }
 
-// resolveFields resolves the fields of one struct type.
-func (r *pkgResolver) resolveFields(st *ast.StructType) []diag.Diagnostic {
+// resolveFields resolves the fields of one struct type, in sc, the scope
+// of the file declaring it.
+func (r *pkgResolver) resolveFields(st *ast.StructType, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seen := make(map[string]*ast.Field, len(st.Fields))
 	for _, f := range st.Fields {
-		diags = append(diags, r.resolveType(f.TypeExpr, r.globals)...)
+		diags = append(diags, r.resolveType(f.TypeExpr, sc)...)
 		if reserved := reservedName(f.Name, f.NameSpan); reserved != nil {
 			diags = append(diags, reserved...)
 			continue
@@ -430,16 +461,18 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 // paramScope returns the outermost scope of a function, holding its
 // parameters, and reports any parameter name declared twice.
 func (r *pkgResolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
-	params := newScope(r.globals)
+	file := r.fileScope(fn.Span.File)
+	params := newScope(file)
 
-	// The types in a signature can name only package-level constants, so
-	// they are resolved where no parameter is visible.
+	// The types in a signature can name only package-level constants, and
+	// what the file imports, so they are resolved where no parameter is
+	// visible.
 	var diags []diag.Diagnostic
 	for _, param := range fn.Params {
-		diags = append(diags, r.resolveType(param.TypeExpr, r.globals)...)
+		diags = append(diags, r.resolveType(param.TypeExpr, file)...)
 	}
 	for _, result := range fn.Results {
-		diags = append(diags, r.resolveType(result, r.globals)...)
+		diags = append(diags, r.resolveType(result, file)...)
 	}
 	for _, param := range fn.Params {
 		if clash := r.paramClash(param, params); clash != nil {
@@ -460,8 +493,8 @@ func (r *pkgResolver) paramClash(param *ast.Param, params *scope) []diag.Diagnos
 	if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
 		return reserved
 	}
-	if global, clash := r.globals.lookup(param.Name); clash {
-		return []diag.Diagnostic{alreadyDeclared(param.Name, param.NameSpan, global)}
+	if global, clash := params.parent.lookup(param.Name); clash {
+		return []diag.Diagnostic{redeclared(param.Name, param.NameSpan, global)}
 	}
 	if existing, dup := params.names[param.Name]; dup {
 		return []diag.Diagnostic{{
@@ -526,7 +559,7 @@ func (r *pkgResolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 
 	if existing, visible := sc.lookup(v.Name); visible {
 		sc.reject(v.Name)
-		return append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
+		return append(diags, redeclared(v.Name, v.NameSpan, existing))
 	}
 
 	if len(diags) > 0 {
@@ -631,12 +664,15 @@ func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnosti
 // resolveTargetName binds the variable an assignment target names. A name
 // whose declaration was rejected is not reported again (unrejected).
 func (r *pkgResolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
-	return unrejected(r.bindTargetName(target, sc), target.Name, sc)
+	return unrejected(r.bindTargetName(target, sc), target.Qualified(), sc)
 }
 
 // bindTargetName does resolveTargetName's work, reporting every problem
 // with the target.
 func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
+	if target.Pkg != "" {
+		return r.bindQualifiedTarget(target, sc)
+	}
 	if target.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
@@ -657,12 +693,15 @@ func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagno
 			Span:     target.Span,
 		}}
 	}
-	if _, isType := decl.(*ast.TypeDecl); isType {
+	switch decl.(type) {
+	case *ast.TypeDecl:
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot assign to %s; it is a type", target.Name),
 			Span:     target.Span,
 		}}
+	case *ast.Import:
+		return []diag.Diagnostic{notA(target, "variable")}
 	}
 	target.Def = decl
 	return nil
@@ -678,6 +717,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 	case *ast.Var:
 		return d.NameSpan
 	case *ast.TypeDecl:
+		return d.NameSpan
+	case *ast.Import:
 		return d.NameSpan
 	default:
 		return decl.Spanned()
@@ -835,12 +876,21 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	case *ast.CompositeLit:
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
-		// A key names a field, which is not looked up among variables; the
-		// type checker finds it in the literal's type.
-		return r.resolveExpr(x.Value, sc)
+		return r.resolveKeyValue(x, sc)
 	default:
 		return nil
 	}
+}
+
+// resolveKeyValue resolves an element of a struct literal, key: value. A
+// key names a field, which is not looked up among variables; the type
+// checker finds it in the literal's type, and reports one written
+// qualified. Its import counts as used, so that is the one error reported.
+func (r *pkgResolver) resolveKeyValue(kv *ast.KeyValue, sc *scope) []diag.Diagnostic {
+	if key, ok := kv.Key.(*ast.Ident); ok && key.Pkg != "" {
+		r.useImport(key, sc)
+	}
+	return r.resolveExpr(kv.Value, sc)
 }
 
 // resolveLit binds the names in a composite literal: its type, if written,
@@ -880,12 +930,18 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 // resolveTypeName binds a name written as a type to the type declaration it
 // names.
 func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
+	if id.Pkg != "" {
+		return r.bindQualifiedType(id, sc)
+	}
 	if _, isBasic := types.Lookup(id.Name); isBasic {
 		return nil
 	}
 	decl, visible := sc.lookup(id.Name)
 	if !visible {
 		return nil
+	}
+	if _, isImport := decl.(*ast.Import); isImport {
+		return []diag.Diagnostic{notA(id, "type")}
 	}
 	if _, isType := decl.(*ast.TypeDecl); !isType {
 		if v, isVar := decl.(*ast.Var); isVar {
@@ -909,44 +965,62 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 		panic("expected ident")
 	}
 
-	var diags []diag.Diagnostic
-	if typ, isType := types.Lookup(ident.Name); isType {
-		// A type name called like a function converts its argument. It
-		// binds to no declaration; the type checker reads Conv instead.
-		call.Conv = typ
-	} else if def, seen := r.seen(ident.Name); seen {
-		ident.Def = def
-	} else if def, seen := r.builtinSeen(ident.Name); seen {
-		ident.Def = def
-	} else if decl, ok := r.globals.lookup(ident.Name); ok && isTypeDecl(decl) {
-		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),
-			Span:     ident.Span,
-		})
-	} else {
-		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("undefined: %s", ident.Name),
-			Span:     ident.Span,
-		})
-	}
-
+	diags := r.bindCallee(ident, call, sc)
 	for _, arg := range call.Args {
 		diags = append(diags, r.resolveExpr(arg, sc)...)
 	}
 	return diags
 }
 
+// bindCallee binds ident, the callee of call, to the function or builtin
+// it names, or records the type a conversion converts to.
+func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []diag.Diagnostic {
+	if ident.Pkg != "" {
+		return r.bindQualifiedCallee(ident, sc)
+	}
+	if typ, isType := types.Lookup(ident.Name); isType {
+		// A type name called like a function converts its argument. It
+		// binds to no declaration; the type checker reads Conv instead.
+		call.Conv = typ
+		return nil
+	}
+	if def, seen := r.seen(ident.Name); seen {
+		ident.Def = def
+		return nil
+	}
+	if def, seen := r.builtinSeen(ident.Name); seen {
+		ident.Def = def
+		return nil
+	}
+	if decl, ok := sc.lookup(ident.Name); ok && isImport(decl) {
+		return []diag.Diagnostic{notA(ident, "function")}
+	}
+	if decl, ok := r.globals.lookup(ident.Name); ok && isTypeDecl(decl) {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),
+			Span:     ident.Span,
+		}}
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  fmt.Sprintf("undefined: %s", ident.Name),
+		Span:     ident.Span,
+	}}
+}
+
 // resolveIdent binds a name used as a value to the parameter or variable it
 // names, and marks a variable as read. A name whose declaration was
 // rejected is not reported again (unrejected).
 func (r *pkgResolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
-	return unrejected(r.bindIdent(id, sc), id.Name, sc)
+	return unrejected(r.bindIdent(id, sc), id.Qualified(), sc)
 }
 
 // bindIdent does resolveIdent's work, reporting every problem with the use.
 func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
+	if id.Pkg != "" {
+		return r.bindQualifiedValue(id, sc)
+	}
 	if id.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},
@@ -973,6 +1047,9 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 			Message:  fmt.Sprintf("cannot use %s as a value; it is a type", id.Name),
 			Span:     id.Span,
 		}}
+	}
+	if isImport(decl) {
+		return []diag.Diagnostic{notA(id, "value")}
 	}
 	id.Def = decl
 	if v, ok := decl.(*ast.Var); ok {

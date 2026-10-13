@@ -1485,3 +1485,34 @@ func TestImportPathTargetWithoutModule(t *testing.T) {
 		"calc/x is not a file or a directory, nor an import path: no tack.mod found in . or any parent directory",
 	)
 }
+
+// TestBuiltPackagesRunsBothMains builds both main packages of
+// examples/packages, which import the module's libraries, a diamond and a
+// chain of three among them, and checks each one's output and status:
+// cmd/calc checks every qualified name it uses and exits 5 + 3 + 4 + 3,
+// and cmd/count exits 3 * 10 + 4. cmd/calc is built by import path too.
+func TestBuiltPackagesRunsBothMains(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join(examplesDir, "packages"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, target, out string
+		code              int
+		byPath            bool
+	}{
+		{"calc", filepath.Join(root, "cmd", "calc"), "packages ok\n", 15, false},
+		{"count", filepath.Join(root, "cmd", "count"), "", 34, false},
+		{"calc by path", "calc/cmd/calc", "packages ok\n", 15, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.byPath {
+				t.Chdir(root)
+			}
+			bin := buildTargetWithClang(t, "prog", tc.target)
+			if out, code := runBuilt(t, bin); out != tc.out || code != tc.code {
+				t.Errorf("printed %q and exited %d, want %q and %d", out, code, tc.out, tc.code)
+			}
+		})
+	}
+}

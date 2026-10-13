@@ -243,6 +243,50 @@ which is true today because `main` is the only package there is.
   `main` package; building any other is `calc/lexer is not a main
   package`. One module may hold several main packages, each built from its
   own directory or import path.
+- Imports. `import lexer from "calc/lexer"` makes the package whose import
+  path is `calc/lexer` usable in that file, and in no other, as `lexer`:
+  `lexer.First(src)` calls its function `First`, `lexer.KindNumber` reads
+  its global, and `lexer.Token` is its type, written anywhere a type may
+  be, in a signature, a variable, an array's element or a field, and in a
+  literal, `lexer.Token{kind: 1}`, which needs parentheses in an `if`,
+  `for` or `switch` header like any struct literal. Imports come right
+  after the package clause, one per line; `import (...)` and an import
+  after another declaration are errors. The name is required and is the
+  importer's choice; `from` is not a keyword, only a word an import uses.
+  An import's name is declared in its file: it may not be a reserved name,
+  a builtin's, any package-level name of the package, in any file, or
+  another import's of the file, and no local or parameter may reuse it,
+  `lexer is an imported package and cannot be redeclared`. The name alone
+  is not a value, `lexer is a package, not a value`, nor a type, a function
+  or a variable. An import no name of its file uses is `imported and not
+  used: lexer`, and importing one package twice in a file is `calc/lexer is
+  already imported as a`. A qualified name that names nothing is
+  `undefined: lexer.Nothing`; a qualified global may be assigned as any
+  global, under the same rules. Until visibility is checked, every
+  package-level name of a package, and every field of its structs, is
+  usable from a package that imports it.
+- An import path starts with the module's name; a relative or absolute
+  path is an error that suggests the module-rooted one, `import path must
+  start with a module name, such as calc/lexer; relative paths are not
+  allowed`, and so is a path with an empty, `.` or `..` part, one in
+  another module, `unknown module other in import path other/pkg`, and one
+  naming no directory, `cannot find package calc/nothing: no directory
+  calc/nothing in module calc`. Imports may not form a cycle, `import
+  cycle: calc/a imports calc/b imports calc/a`, a main package cannot be
+  imported, `cannot import calc/cmd/calc: it is a main package`, and a
+  package other than main may declare nothing named `main`, `func main is
+  allowed only in package main`. `std` is the standard library's module,
+  which has no packages yet; `std/builtin` documents the builtins and
+  cannot be imported. A file compiled on its own can import only the
+  standard library. Every import is checked, so one run reports each bad
+  one.
+- A package-level variable's initializer may name any immutable global, of
+  its own package or an imported one, declared before or after it: `var
+  KindPlus = KindNumber + 1`, `var Limit = lexer.KindPlus * 10`. Selecting
+  a field of one or indexing one is not allowed there, and a mutable global
+  is never allowed. Globals that need each other are an `initialization
+  cycle: a refers to b refers to a`. A type of another package is named
+  qualified in a diagnostic, `cannot use lexer.Token as int64`.
 - A line ends at a newline, `\n`, or a carriage return and newline,
   `\r\n`, which means exactly the same everywhere: a file saved with
   either compiles to the same program, and a diagnostic gives the same

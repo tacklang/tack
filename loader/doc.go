@@ -46,6 +46,26 @@
 // the module is an unknown module, and one naming no directory in it a
 // package that cannot be found.
 //
+// # Imports
+//
+// The main package's imports are loaded depth first, in file order and
+// source order, each package once, by its import path: a package imported
+// again is the one already loaded, so a diamond loads its shared package
+// once, and one imported while its own imports are being loaded closes an
+// import cycle, reported at the import that closes it with every package on
+// the cycle, calc/a imports calc/b imports calc/a. Each import's Package is
+// set to the package it names, and the program lists every package after
+// those it imports, the main package last. An import of the main package,
+// or of any package main, is an error, as is one of std/builtin, which
+// documents the builtins; the standard library has no packages yet, so
+// any other path under std cannot be found. A program built from a single
+// file has no module, so it can import only the standard library. An
+// import whose path is malformed, is in another module, names no
+// directory, or names one holding no Tack files or a package whose clauses
+// are wrong, is reported at the import's path, and loading goes on with
+// the next, so one run reports every such import. A package that fails to
+// lex or parse stops loading there, with its diagnostics.
+//
 // # Stages
 //
 // Every file of a package is lexed before any is parsed, and every file is

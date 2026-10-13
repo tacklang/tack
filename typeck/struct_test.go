@@ -621,8 +621,8 @@ var structErrorCases = []struct {
 		[]spanned{{"cannot use Point as int64 in argument to exit", "p"}},
 	},
 	{
-		"global literal with a variable",
-		withTypes(pointDecls+"\n\nvar k = 1\n\nvar p = Point{x: k, y: 1}", "exit(p.x)"),
+		"global literal with a mutable variable",
+		withTypes(pointDecls+"\n\nmut k = 1\n\nvar p = Point{x: k, y: 1}", "exit(p.x)"),
 		[]spanned{{"p must be initialized with a constant expression", "Point{x: k, y: 1}"}},
 	},
 	{

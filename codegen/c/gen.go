@@ -39,7 +39,21 @@ func (backend) BuildCmd(src, out string) []string {
 // Generate lowers prog, which must have been type-checked, to one C
 // translation unit.
 func (backend) Generate(prog *ast.Program) ([]byte, []diag.Diagnostic) {
-	g := &generator{prog: prog, decls: prog.Decls(), globals: make(map[*ast.Var]bool)}
+	g := &generator{
+		prog:    prog,
+		decls:   prog.Decls(),
+		globals: make(map[*ast.Var]bool),
+		pkgOf:   make(map[ast.Decl]*ast.Package),
+		structs: make(map[types.Type]*ast.TypeDecl),
+	}
+	for _, pkg := range prog.Packages {
+		for _, decl := range pkg.Decls() {
+			g.pkgOf[decl] = pkg
+			if td, ok := decl.(*ast.TypeDecl); ok {
+				g.structs[td.Type] = td
+			}
+		}
+	}
 	return g.generate()
 }
 
@@ -59,7 +73,9 @@ type str struct {
 
 type generator struct {
 	prog    *ast.Program
-	decls   []ast.Decl // the program's package-level declarations, in order
+	decls   []ast.Decl                   // the program's package-level declarations, in order
+	pkgOf   map[ast.Decl]*ast.Package    // the package of each of decls
+	structs map[types.Type]*ast.TypeDecl // the declaration of each struct type
 	strPool []str
 	globals map[*ast.Var]bool // the package-level variables
 
@@ -368,7 +384,13 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	if v.Mutable {
 		qualifier = "static"
 	}
-	return fmt.Sprintf("%s %s %s = %s;", qualifier, g.cType(v.Type), g.mangle(v.Name), value), nil
+	return fmt.Sprintf(
+		"%s %s %s = %s;",
+		qualifier,
+		g.cType(v.Type),
+		g.mangle(v, v.Name),
+		value,
+	), nil
 }
 
 // intLiteral renders an integer constant as a C literal. A negative one is
@@ -436,16 +458,17 @@ func (g *generator) emitResultStructs() {
 		for i, typ := range fn.ResultTypes {
 			fmt.Fprintf(&g.buf, "    %s r%d;\n", g.cType(typ), i)
 		}
-		fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn.Name))
+		fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn))
 	}
 }
 
-// resultsName is the name of the struct a function with several results
-// returns them in. It starts tack_results_ where a mangled name starts with
-// tack_ and the package, so it cannot collide with one while the package is
-// main.
-func (g *generator) resultsName(fn string) string {
-	return fmt.Sprintf("tack_results_%s_%s", g.prog.Main().Name, fn)
+// resultsName is the name of the struct fn, a function with several
+// results, returns them in: tack_results_ and what follows tack_ in fn's
+// own name, as mangle gives it. It starts tack_results_ where a mangled
+// name starts with tack_ and a digit or main, so it collides with none, and
+// two are told apart as mangled names are.
+func (g *generator) resultsName(fn *ast.Func) string {
+	return "tack_results_" + strings.TrimPrefix(g.mangle(fn, fn.Name), "tack_")
 }
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
@@ -475,7 +498,7 @@ func (g *generator) emitFunc(fn *ast.Func, body []string) {
 // emitEntryPoint writes C's main, which exists only to call Tack's.
 func (g *generator) emitEntryPoint() {
 	g.buf.WriteString("int main(void) {\n")
-	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle("main"))
+	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle(nil, "main"))
 	g.buf.WriteString("    return 0;\n")
 	g.buf.WriteString("}\n")
 }
@@ -484,14 +507,16 @@ func (g *generator) signature(fn *ast.Func) string {
 	result := g.resultType(fn)
 
 	if len(fn.Params) == 0 {
-		return fmt.Sprintf("static %s %s(void)", result, g.mangle(fn.Name))
+		return fmt.Sprintf("static %s %s(void)", result, g.mangle(fn, fn.Name))
 	}
 
 	params := make([]string, len(fn.Params))
 	for i, param := range fn.Params {
 		params[i] = fmt.Sprintf("%s %s", g.cType(param.Type), paramName(param.Name))
 	}
-	return fmt.Sprintf("static %s %s(%s)", result, g.mangle(fn.Name), strings.Join(params, ", "))
+	return fmt.Sprintf(
+		"static %s %s(%s)", result, g.mangle(fn, fn.Name), strings.Join(params, ", "),
+	)
 }
 
 // resultType returns the C type fn returns: void when it declares no
@@ -503,7 +528,7 @@ func (g *generator) resultType(fn *ast.Func) string {
 	case 1:
 		return g.cType(fn.ResultTypes[0])
 	default:
-		return g.resultsName(fn.Name)
+		return g.resultsName(fn)
 	}
 }
 
@@ -646,7 +671,7 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 		return values[0], nil
 	}
 	return g.sequenced(ret.Values, values, func(ops []string) string {
-		return fmt.Sprintf("(%s){%s}", g.resultsName(fn.Name), strings.Join(ops, ", "))
+		return fmt.Sprintf("(%s){%s}", g.resultsName(fn), strings.Join(ops, ", "))
 	}), nil
 }
 
@@ -1191,17 +1216,27 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 		}, diags
 	}
 
-	id, ok := c.Fn.(*ast.Ident)
-	if !ok {
+	return g.callValues(c)
+}
+
+// callValues lowers a, b := f(): the call, held as its results struct,
+// read field by field.
+func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
+	id, _ := c.Fn.(*ast.Ident)
+	var fn *ast.Func
+	if id != nil {
+		fn, _ = id.Def.(*ast.Func)
+	}
+	if fn == nil {
 		return multiSource{}, []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  fmt.Sprintf("unknown expression type: %T", c.Fn),
+			Message:  "a call of several results must call a declared function",
 			Span:     c.Fn.Spanned(),
 		}}
 	}
 	call, diags := g.callExpr(id.Name, c)
 	return multiSource{
-		temps: []multiTemp{{g.resultsName(id.Name), call}},
+		temps: []multiTemp{{g.resultsName(fn), call}},
 		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
 	}, diags
 }
@@ -1372,8 +1407,14 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 		}
 		args[i] = expr
 	}
+	callee := g.mangle(nil, name)
+	if id, ok := call.Fn.(*ast.Ident); ok {
+		if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
+			callee = g.mangle(fn, fn.Name)
+		}
+	}
 	return g.sequenced(call.Args, args, func(ops []string) string {
-		return fmt.Sprintf("%s(%s)", g.mangle(name), strings.Join(ops, ", "))
+		return fmt.Sprintf("%s(%s)", callee, strings.Join(ops, ", "))
 	}), nil
 }
 
@@ -1648,7 +1689,7 @@ func paramName(name string) string { return "p_" + name }
 // global, the prefixed local name otherwise.
 func (g *generator) varRef(v *ast.Var) string {
 	if g.globals[v] {
-		return g.mangle(v.Name)
+		return g.mangle(v, v.Name)
 	}
 	return varName(v.Name)
 }
@@ -1658,11 +1699,51 @@ func (g *generator) varRef(v *ast.Var) string {
 // variable and a parameter apart even if Tack ever let them share a name.
 func varName(name string) string { return "v_" + name }
 
-// mangle turns a Tack function name into a C identifier. Tack's package-scoped
-// names contain a dot, which C does not allow. This is unambiguous only while
-// package names cannot contain an underscore; the language has one package.
-func (g *generator) mangle(name string) string {
-	return fmt.Sprintf("tack_%s_%s", g.prog.Main().Name, name)
+// mangle returns the C identifier of decl, a package-level declaration
+// named name. One of the main package, or nil, which stands for the main
+// package, is tack_main_ and its name, as when a program was one file. One
+// of any other package is tack_ and the parts of its package's import path
+// and its name, each written by mangledPart, so tack_4_calc5_lexer5_First
+// for First in calc/lexer. The two forms cannot collide: the first has a
+// letter after tack_, the second a digit. Nor can two names of the second
+// form, since each part is read back by its length; and no other name the
+// generator makes has a digit after tack_. This is an interim scheme: the
+// main package is to use the second form too.
+func (g *generator) mangle(decl ast.Decl, name string) string {
+	pkg := g.pkgOf[decl]
+	if pkg == nil || pkg == g.prog.Main() {
+		return "tack_main_" + name
+	}
+	return "tack_" + mangledParts(pkg.Path, name)
+}
+
+// mangledParts writes each part of path, then name, as mangledPart does,
+// with nothing between them.
+func mangledParts(path, name string) string {
+	var b strings.Builder
+	for _, part := range strings.Split(path, "/") {
+		b.WriteString(mangledPart(part))
+	}
+	b.WriteString(mangledPart(name))
+	return b.String()
+}
+
+// mangledPart writes c as its length after escaping, an underscore, and c
+// escaped: ASCII letters and digits kept, every other byte written as an
+// underscore and its two lowercase hex digits. An escaped part can be read
+// back exactly, since an underscore always starts a three-byte escape, and
+// the length says where it ends.
+func mangledPart(c string) string {
+	var e strings.Builder
+	for i := range len(c) {
+		b := c[i]
+		if b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' {
+			e.WriteByte(b)
+			continue
+		}
+		fmt.Fprintf(&e, "_%02x", b)
+	}
+	return strconv.Itoa(e.Len()) + "_" + e.String()
 }
 
 func (g *generator) seenStr(s string) bool {

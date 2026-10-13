@@ -11,6 +11,51 @@ internal/invalid documents the format; go test ./test -run
 TestInvalidPackages checks every case, and -update rewrites the expected
 sections.
 
+-- assign-imported-immutable/tack.mod --
+module calc
+-- assign-imported-immutable/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- assign-imported-immutable/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.KindNumber = 3
+    lexer.KindNumber++
+}
+-- assign-imported-immutable/expected --
+stage: typeck
+---
+
+assign-imported-immutable/main.tck:6:5: error: cannot assign to immutable variable lexer.KindNumber
+05 |	func main() {
+06 |	    lexer.KindNumber = 3
+   |	    ^~~~~~~~~~~~~~~~
+07 |	    lexer.KindNumber++
+
+assign-imported-immutable/main.tck:7:5: error: cannot assign to immutable variable lexer.KindNumber
+06 |	    lexer.KindNumber = 3
+07 |	    lexer.KindNumber++
+   |	    ^~~~~~~~~~~~~~~~
+08 |	}
+
 -- clause-mismatch/tack.mod --
 module calc
 -- clause-mismatch/.target --
@@ -173,6 +218,49 @@ dir-uppercase-name/Lexer/a.tck:1:9: error: Lexer is not a valid package name: us
    |	        ^~~~~
 02 |	
 
+-- divide-by-imported-mutable/tack.mod --
+module calc
+-- divide-by-imported-mutable/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- divide-by-imported-mutable/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(10 / lexer.Count)
+}
+-- divide-by-imported-mutable/expected --
+stage: typeck
+---
+
+divide-by-imported-mutable/main.tck:6:15: error: divisor lexer.Count may be zero; use q, ok := ... / lexer.Count
+05 |	func main() {
+06 |	    exit(10 / lexer.Count)
+   |	              ^~~~~~~~~~~
+07 |	}
+divide-by-imported-mutable/lexer/lexer.tck:9:5: note: Count is a mutable global, so no check proves it; copy it into a local first
+08 |	
+09 |	mut Count int64 = 0
+   |	    ^~~~~
+10 |	
+
 -- dup-func-across-files/tack.mod --
 module dup-func-across-files
 -- dup-func-across-files/a.tck --
@@ -277,6 +365,1202 @@ func main() {
 stage: load
 ---
 no .tck files in hidden-only
+-- import-after-decl/tack.mod --
+module calc
+-- import-after-decl/main.tck --
+package main
+
+func main() {
+}
+
+import lexer from "calc/lexer"
+-- import-after-decl/expected --
+stage: parse
+---
+
+import-after-decl/main.tck:6:1: error: imports must come before every other declaration
+05 |	
+06 |	import lexer from "calc/lexer"
+   |	^~~~~~
+07 |	
+
+-- import-bad-paths/tack.mod --
+module calc
+-- import-bad-paths/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-bad-paths/main.tck --
+package main
+
+import a from "../lexer"
+import b from "/calc/lexer"
+import c from ""
+import d from "calc//lexer"
+import e from "calc/./lexer"
+import f from "calc/lexer/"
+import g from "./"
+
+func main() {
+}
+-- import-bad-paths/expected --
+stage: load
+---
+
+import-bad-paths/main.tck:3:15: error: import path must start with a module name, such as calc/lexer; relative paths are not allowed
+02 |	
+03 |	import a from "../lexer"
+   |	              ^~~~~~~~~~
+04 |	import b from "/calc/lexer"
+
+import-bad-paths/main.tck:4:15: error: import path must start with a module name, such as calc/lexer; absolute paths are not allowed
+03 |	import a from "../lexer"
+04 |	import b from "/calc/lexer"
+   |	              ^~~~~~~~~~~~~
+05 |	import c from ""
+
+import-bad-paths/main.tck:5:15: error: import path is empty
+04 |	import b from "/calc/lexer"
+05 |	import c from ""
+   |	              ^~
+06 |	import d from "calc//lexer"
+
+import-bad-paths/main.tck:6:15: error: invalid import path calc//lexer: a part between slashes is empty
+05 |	import c from ""
+06 |	import d from "calc//lexer"
+   |	              ^~~~~~~~~~~~~
+07 |	import e from "calc/./lexer"
+
+import-bad-paths/main.tck:7:15: error: invalid import path calc/./lexer: a part cannot be . or ..
+06 |	import d from "calc//lexer"
+07 |	import e from "calc/./lexer"
+   |	              ^~~~~~~~~~~~~~
+08 |	import f from "calc/lexer/"
+
+import-bad-paths/main.tck:8:15: error: invalid import path calc/lexer/: a part between slashes is empty
+07 |	import e from "calc/./lexer"
+08 |	import f from "calc/lexer/"
+   |	              ^~~~~~~~~~~~~
+09 |	import g from "./"
+
+import-bad-paths/main.tck:9:15: error: import path must start with a module name, such as calc/<package>; relative paths are not allowed
+08 |	import f from "calc/lexer/"
+09 |	import g from "./"
+   |	              ^~~~
+10 |	
+
+-- import-blank-name/tack.mod --
+module calc
+-- import-blank-name/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-blank-name/main.tck --
+package main
+
+import _ from "calc/lexer"
+
+func main() {
+}
+-- import-blank-name/expected --
+stage: resolve
+---
+
+import-blank-name/main.tck:3:8: error: cannot use _ as a name
+02 |	
+03 |	import _ from "calc/lexer"
+   |	       ^
+04 |	
+
+-- import-builtin-name/tack.mod --
+module calc
+-- import-builtin-name/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-builtin-name/main.tck --
+package main
+
+import print from "calc/lexer"
+
+func main() {
+    exit(print.KindNumber)
+}
+-- import-builtin-name/expected --
+stage: resolve
+---
+
+import-builtin-name/main.tck:3:8: error: print is a builtin and cannot be redeclared
+02 |	
+03 |	import print from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- import-clashes-with-func/tack.mod --
+module calc
+-- import-clashes-with-func/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-clashes-with-func/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func lexer() {
+}
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-clashes-with-func/expected --
+stage: resolve
+---
+
+import-clashes-with-func/main.tck:3:8: error: lexer is already declared
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+import-clashes-with-func/main.tck:5:6: note: previous declaration of lexer
+04 |	
+05 |	func lexer() {
+   |	     ^~~~~
+06 |	}
+
+-- import-clashes-with-global-in-other-file/tack.mod --
+module calc
+-- import-clashes-with-global-in-other-file/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-clashes-with-global-in-other-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-clashes-with-global-in-other-file/b.tck --
+package main
+
+var lexer int64 = 1
+-- import-clashes-with-global-in-other-file/expected --
+stage: resolve
+---
+
+import-clashes-with-global-in-other-file/a.tck:3:8: error: lexer is already declared
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+import-clashes-with-global-in-other-file/b.tck:3:5: note: previous declaration of lexer
+02 |	
+03 |	var lexer int64 = 1
+   |	    ^~~~~
+04 |	
+
+import-clashes-with-global-in-other-file/b.tck:3:5: error: declared and not used: lexer
+02 |	
+03 |	var lexer int64 = 1
+   |	    ^~~~~
+04 |	
+
+-- import-clause-mismatch/tack.mod --
+module calc
+-- import-clause-mismatch/lexer/lexer.tck --
+package lex
+-- import-clause-mismatch/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+}
+-- import-clause-mismatch/expected --
+stage: load
+---
+
+import-clause-mismatch/lexer/lexer.tck:1:9: error: package lex does not match its directory; expected package lexer
+01 |	package lex
+   |	        ^~~
+02 |	
+
+-- import-cycle-self/tack.mod --
+module calc
+-- import-cycle-self/a/a.tck --
+package a
+
+import a from "calc/a"
+
+func F() int64 {
+    return a.F()
+}
+-- import-cycle-self/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-self/expected --
+stage: load
+---
+
+import-cycle-self/a/a.tck:3:15: error: import cycle: calc/a imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+-- import-cycle-three/tack.mod --
+module calc
+-- import-cycle-three/a/a.tck --
+package a
+
+import b from "calc/b"
+
+func F() int64 {
+    return b.F()
+}
+-- import-cycle-three/b/b.tck --
+package b
+
+import c from "calc/c"
+
+func F() int64 {
+    return c.F()
+}
+-- import-cycle-three/c/c.tck --
+package c
+
+import a from "calc/a"
+
+func F() int64 {
+    return a.F()
+}
+-- import-cycle-three/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-three/expected --
+stage: load
+---
+
+import-cycle-three/c/c.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/c imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+-- import-cycle-two/tack.mod --
+module calc
+-- import-cycle-two/a/a.tck --
+package a
+
+import b from "calc/b"
+
+func F() int64 {
+    return b.G()
+}
+-- import-cycle-two/b/b.tck --
+package b
+
+import a from "calc/a"
+
+func G() int64 {
+    return a.F()
+}
+-- import-cycle-two/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-two/expected --
+stage: load
+---
+
+import-cycle-two/b/b.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+-- import-dir-without-tck/tack.mod --
+module calc
+-- import-dir-without-tck/empty/notes.txt --
+Not Tack.
+-- import-dir-without-tck/main.tck --
+package main
+
+import empty from "calc/empty"
+
+func main() {
+}
+-- import-dir-without-tck/expected --
+stage: load
+---
+
+import-dir-without-tck/main.tck:3:19: error: cannot find package calc/empty: no .tck files in import-dir-without-tck/empty
+02 |	
+03 |	import empty from "calc/empty"
+   |	                  ^~~~~~~~~~~~
+04 |	
+
+-- import-duplicate-name/tack.mod --
+module calc
+-- import-duplicate-name/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-duplicate-name/parser/parser.tck --
+package parser
+
+func Parse() {
+}
+-- import-duplicate-name/main.tck --
+package main
+
+import lexer from "calc/lexer"
+import lexer from "calc/parser"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-duplicate-name/expected --
+stage: resolve
+---
+
+import-duplicate-name/main.tck:4:8: error: lexer is already declared
+03 |	import lexer from "calc/lexer"
+04 |	import lexer from "calc/parser"
+   |	       ^~~~~
+05 |	
+import-duplicate-name/main.tck:3:8: note: previous declaration of lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	import lexer from "calc/parser"
+
+import-duplicate-name/main.tck:3:8: error: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	import lexer from "calc/parser"
+
+-- import-duplicate-path/tack.mod --
+module calc
+-- import-duplicate-path/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-duplicate-path/main.tck --
+package main
+
+import a from "calc/lexer"
+import b from "calc/lexer"
+
+func main() {
+    exit(a.KindNumber + b.KindNumber)
+}
+-- import-duplicate-path/expected --
+stage: resolve
+---
+
+import-duplicate-path/main.tck:4:15: error: calc/lexer is already imported as a
+03 |	import a from "calc/lexer"
+04 |	import b from "calc/lexer"
+   |	              ^~~~~~~~~~~~
+05 |	
+import-duplicate-path/main.tck:3:15: note: previous import of calc/lexer
+02 |	
+03 |	import a from "calc/lexer"
+   |	              ^~~~~~~~~~~~
+04 |	import b from "calc/lexer"
+
+-- import-grouped/tack.mod --
+module calc
+-- import-grouped/main.tck --
+package main
+
+import (
+    lexer from "calc/lexer"
+)
+
+func main() {
+}
+-- import-grouped/expected --
+stage: parse
+---
+
+import-grouped/main.tck:3:8: error: grouped imports are not supported; write one import per line
+02 |	
+03 |	import (
+   |	       ^
+04 |	    lexer from "calc/lexer"
+
+-- import-invalid-package-name/tack.mod --
+module calc
+-- import-invalid-package-name/my-tools/tools.tck --
+package mytools
+-- import-invalid-package-name/main.tck --
+package main
+
+import tools from "calc/my-tools"
+
+func main() {
+}
+-- import-invalid-package-name/expected --
+stage: load
+---
+
+import-invalid-package-name/my-tools/tools.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package mytools
+   |	        ^~~~~~~
+02 |	
+
+-- import-lex-error/tack.mod --
+module calc
+-- import-lex-error/lexer/lexer.tck --
+package lexer
+
+func F() {
+    @
+}
+-- import-lex-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.F()
+}
+-- import-lex-error/expected --
+stage: lex
+---
+
+import-lex-error/lexer/lexer.tck:4:5: error: invalid character @
+03 |	func F() {
+04 |	    @
+   |	    ^
+05 |	}
+
+-- import-main-from-library/tack.mod --
+module calc
+-- import-main-from-library/a/a.tck --
+package a
+
+import root from "calc"
+
+func F() {
+}
+-- import-main-from-library/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    a.F()
+}
+-- import-main-from-library/expected --
+stage: load
+---
+
+import-main-from-library/a/a.tck:3:18: error: cannot import calc: it is a main package
+02 |	
+03 |	import root from "calc"
+   |	                 ^~~~~~
+04 |	
+
+-- import-main-package/tack.mod --
+module calc
+-- import-main-package/cmd/tool/main.tck --
+package main
+
+func main() {
+}
+-- import-main-package/main.tck --
+package main
+
+import tool from "calc/cmd/tool"
+
+func main() {
+}
+-- import-main-package/expected --
+stage: load
+---
+
+import-main-package/main.tck:3:18: error: cannot import calc/cmd/tool: it is a main package
+02 |	
+03 |	import tool from "calc/cmd/tool"
+   |	                 ^~~~~~~~~~~~~~~
+04 |	
+
+-- import-missing-from/tack.mod --
+module calc
+-- import-missing-from/main.tck --
+package main
+
+import lexer "calc/lexer"
+
+func main() {
+}
+-- import-missing-from/expected --
+stage: parse
+---
+
+import-missing-from/main.tck:3:14: error: expected 'from' found 'calc/lexer'
+02 |	
+03 |	import lexer "calc/lexer"
+   |	             ^
+04 |	
+
+-- import-missing-name/tack.mod --
+module calc
+-- import-missing-name/main.tck --
+package main
+
+import "calc/lexer"
+
+func main() {
+}
+-- import-missing-name/expected --
+stage: parse
+---
+
+import-missing-name/main.tck:3:8: error: an import needs a name: import x from "path"
+02 |	
+03 |	import "calc/lexer"
+   |	       ^~~~~~~~~~~~
+04 |	
+
+-- import-parse-error/tack.mod --
+module calc
+-- import-parse-error/lexer/lexer.tck --
+package lexer
+
+func F( {
+}
+-- import-parse-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.F()
+}
+-- import-parse-error/expected --
+stage: parse
+---
+
+import-parse-error/lexer/lexer.tck:3:9: error: expected 'parameter name' found '{'
+02 |	
+03 |	func F( {
+   |	        ^
+04 |	}
+
+-- import-path-not-string/tack.mod --
+module calc
+-- import-path-not-string/main.tck --
+package main
+
+import lexer from calc
+
+func main() {
+}
+-- import-path-not-string/expected --
+stage: parse
+---
+
+import-path-not-string/main.tck:3:19: error: expected 'import path' found 'calc'
+02 |	
+03 |	import lexer from calc
+   |	                  ^
+04 |	
+
+-- import-per-file/tack.mod --
+module calc
+-- import-per-file/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-per-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber + other())
+}
+-- import-per-file/b.tck --
+package main
+
+func other() int64 {
+    return lexer.KindNumber
+}
+-- import-per-file/expected --
+stage: resolve
+---
+
+import-per-file/b.tck:4:12: error: undefined: lexer
+03 |	func other() int64 {
+04 |	    return lexer.KindNumber
+   |	           ^~~~~
+05 |	}
+
+-- import-shadowed-by-local/tack.mod --
+module calc
+-- import-shadowed-by-local/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-shadowed-by-local/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer := 1
+    exit(lexer + lexer.KindNumber)
+}
+-- import-shadowed-by-local/expected --
+stage: resolve
+---
+
+import-shadowed-by-local/main.tck:6:5: error: lexer is an imported package and cannot be redeclared
+05 |	func main() {
+06 |	    lexer := 1
+   |	    ^~~~~
+07 |	    exit(lexer + lexer.KindNumber)
+
+-- import-shadowed-by-param/tack.mod --
+module calc
+-- import-shadowed-by-param/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-shadowed-by-param/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func f(lexer int64) int64 {
+    return lexer
+}
+
+func main() {
+    exit(f(1) + lexer.KindNumber)
+}
+-- import-shadowed-by-param/expected --
+stage: resolve
+---
+
+import-shadowed-by-param/main.tck:5:8: error: lexer is an imported package and cannot be redeclared
+04 |	
+05 |	func f(lexer int64) int64 {
+   |	       ^~~~~
+06 |	    return lexer
+
+-- import-shadowed-in-loop/tack.mod --
+module calc
+-- import-shadowed-in-loop/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-shadowed-in-loop/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    for lexer := range 3 {
+        exit(lexer)
+    }
+    exit(lexer.KindNumber)
+}
+-- import-shadowed-in-loop/expected --
+stage: resolve
+---
+
+import-shadowed-in-loop/main.tck:6:9: error: lexer is an imported package and cannot be redeclared
+05 |	func main() {
+06 |	    for lexer := range 3 {
+   |	        ^~~~~
+07 |	        exit(lexer)
+
+-- import-std/tack.mod --
+module calc
+-- import-std/main.tck --
+package main
+
+import os from "std/os"
+import s from "std"
+
+func main() {
+}
+-- import-std/expected --
+stage: load
+---
+
+import-std/main.tck:3:16: error: cannot find package std/os: the standard library has no packages yet
+02 |	
+03 |	import os from "std/os"
+   |	               ^~~~~~~~
+04 |	import s from "std"
+
+import-std/main.tck:4:15: error: cannot find package std: the standard library has no packages yet
+03 |	import os from "std/os"
+04 |	import s from "std"
+   |	              ^~~~~
+05 |	
+
+-- import-std-builtin/tack.mod --
+module calc
+-- import-std-builtin/main.tck --
+package main
+
+import builtin from "std/builtin"
+
+func main() {
+}
+-- import-std-builtin/expected --
+stage: load
+---
+
+import-std-builtin/main.tck:3:21: error: std/builtin documents the builtins and cannot be imported
+02 |	
+03 |	import builtin from "std/builtin"
+   |	                    ^~~~~~~~~~~~~
+04 |	
+
+-- import-two-on-a-line/tack.mod --
+module calc
+-- import-two-on-a-line/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-two-on-a-line/main.tck --
+package main
+
+import a from "calc/lexer" import b from "calc/lexer"
+
+func main() {
+}
+-- import-two-on-a-line/expected --
+stage: parse
+---
+
+import-two-on-a-line/main.tck:3:28: error: expected ';' found 'import'
+02 |	
+03 |	import a from "calc/lexer" import b from "calc/lexer"
+   |	                           ^
+04 |	
+
+-- import-type-name/tack.mod --
+module calc
+-- import-type-name/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-type-name/main.tck --
+package main
+
+import int64 from "calc/lexer"
+
+func main() {
+}
+-- import-type-name/expected --
+stage: resolve
+---
+
+import-type-name/main.tck:3:8: error: cannot use int64 as a name; it is a type
+02 |	
+03 |	import int64 from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- import-typeck-error/tack.mod --
+module calc
+-- import-typeck-error/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+func F() Token {
+    return 1
+}
+-- import-typeck-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.F()
+    exit(t.kind)
+}
+-- import-typeck-error/expected --
+stage: typeck
+---
+
+import-typeck-error/lexer/lexer.tck:8:12: error: cannot use int64 as Token in return from F
+07 |	func F() Token {
+08 |	    return 1
+   |	           ^
+09 |	}
+
+-- import-unknown-module/tack.mod --
+module calc
+-- import-unknown-module/main.tck --
+package main
+
+import x from "other/pkg"
+
+func main() {
+}
+-- import-unknown-module/expected --
+stage: load
+---
+
+import-unknown-module/main.tck:3:15: error: unknown module other in import path other/pkg
+02 |	
+03 |	import x from "other/pkg"
+   |	              ^~~~~~~~~~~
+04 |	
+
+-- import-unknown-package/tack.mod --
+module calc
+-- import-unknown-package/main.tck --
+package main
+
+import x from "calc/nothing"
+
+func main() {
+}
+-- import-unknown-package/expected --
+stage: load
+---
+
+import-unknown-package/main.tck:3:15: error: cannot find package calc/nothing: no directory calc/nothing in module calc
+02 |	
+03 |	import x from "calc/nothing"
+   |	              ^~~~~~~~~~~~~~
+04 |	
+
+-- import-unused/tack.mod --
+module calc
+-- import-unused/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-unused/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+}
+-- import-unused/expected --
+stage: resolve
+---
+
+import-unused/main.tck:3:8: error: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- import-unused-in-one-file/tack.mod --
+module calc
+-- import-unused-in-one-file/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- import-unused-in-one-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-unused-in-one-file/b.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func other() {
+}
+-- import-unused-in-one-file/expected --
+stage: resolve
+---
+
+import-unused-in-one-file/b.tck:3:8: error: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- imported-mutable-in-initializer/tack.mod --
+module calc
+-- imported-mutable-in-initializer/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- imported-mutable-in-initializer/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+var x int64 = lexer.Count + 1
+
+func main() {
+    exit(x)
+}
+-- imported-mutable-in-initializer/expected --
+stage: typeck
+---
+
+imported-mutable-in-initializer/main.tck:5:15: error: x must be initialized with a constant expression
+04 |	
+05 |	var x int64 = lexer.Count + 1
+   |	              ^~~~~~~~~~~~~~~
+06 |	
+
 -- lex-errors-in-two-files/tack.mod --
 module lex-errors-in-two-files
 -- lex-errors-in-two-files/a.tck --
@@ -324,6 +1608,80 @@ library-target/lexer/lexer.tck:1:9: error: calc/lexer is not a main package
 01 |	package lexer
    |	        ^~~~~
 02 |	
+
+-- main-in-library/tack.mod --
+module calc
+-- main-in-library/a/a.tck --
+package a
+
+func main() {
+}
+
+func F() {
+}
+-- main-in-library/b/b.tck --
+package b
+
+var main int64 = 1
+
+var N int64 = main
+-- main-in-library/c/c.tck --
+package c
+
+type main struct {
+    x int64
+}
+
+func F() {
+}
+-- main-in-library/d/d.tck --
+package d
+
+mut main int64 = 1
+
+func F() int64 {
+    return main
+}
+-- main-in-library/main.tck --
+package main
+
+import a from "calc/a"
+import b from "calc/b"
+import c from "calc/c"
+import d from "calc/d"
+
+func main() {
+    a.F()
+    c.F()
+    exit(b.N + d.F())
+}
+-- main-in-library/expected --
+stage: resolve
+---
+
+main-in-library/a/a.tck:3:6: error: func main is allowed only in package main
+02 |	
+03 |	func main() {
+   |	     ^~~~
+04 |	}
+
+main-in-library/b/b.tck:3:5: error: var main is allowed only in package main
+02 |	
+03 |	var main int64 = 1
+   |	    ^~~~
+04 |	
+
+main-in-library/c/c.tck:3:6: error: type main is allowed only in package main
+02 |	
+03 |	type main struct {
+   |	     ^~~~
+04 |	    x int64
+
+main-in-library/d/d.tck:3:5: error: mut main is allowed only in package main
+02 |	
+03 |	mut main int64 = 1
+   |	    ^~~~
+04 |	
 
 -- main-missing-across-files/tack.mod --
 module main-missing-across-files
@@ -629,6 +1987,66 @@ not-main-package/calc.tck:1:9: error: calc is not a main package
    |	        ^~~~
 02 |	
 
+-- package-misused/tack.mod --
+module calc
+-- package-misused/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- package-misused/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    x := lexer
+    var y lexer
+    lexer()
+    lexer = 1
+    exit(lexer.KindNumber)
+}
+-- package-misused/expected --
+stage: resolve
+---
+
+package-misused/main.tck:6:10: error: lexer is a package, not a value
+05 |	func main() {
+06 |	    x := lexer
+   |	         ^~~~~
+07 |	    var y lexer
+
+package-misused/main.tck:7:11: error: lexer is a package, not a type
+06 |	    x := lexer
+07 |	    var y lexer
+   |	          ^~~~~
+08 |	    lexer()
+
+package-misused/main.tck:8:5: error: lexer is a package, not a function
+07 |	    var y lexer
+08 |	    lexer()
+   |	    ^~~~~
+09 |	    lexer = 1
+
+package-misused/main.tck:9:5: error: lexer is a package, not a variable
+08 |	    lexer()
+09 |	    lexer = 1
+   |	    ^~~~~
+10 |	    exit(lexer.KindNumber)
+
 -- parse-errors-in-two-files/tack.mod --
 module parse-errors-in-two-files
 -- parse-errors-in-two-files/a.tck --
@@ -657,6 +2075,270 @@ parse-errors-in-two-files/b.tck:3:9: error: expected 'parameter name' found '{'
 03 |	func f( {
    |	        ^
 04 |	}
+
+-- qualified-field-key/tack.mod --
+module calc
+-- qualified-field-key/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- qualified-field-key/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token{lexer.kind: 1}
+    exit(t.kind)
+}
+-- qualified-field-key/expected --
+stage: typeck
+---
+
+qualified-field-key/main.tck:6:22: error: invalid field name in lexer.Token literal
+05 |	func main() {
+06 |	    t := lexer.Token{lexer.kind: 1}
+   |	                     ^~~~~~~~~~
+07 |	    exit(t.kind)
+
+-- qualified-type-in-message/tack.mod --
+module calc
+-- qualified-type-in-message/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- qualified-type-in-message/lexer/bad.tck --
+package lexer
+
+func Bad() int64 {
+    return First("")
+}
+-- qualified-type-in-message/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    var x int64 = lexer.First("1")
+    var a [2]lexer.Token = 1
+    exit(x + a[0].kind)
+}
+-- qualified-type-in-message/expected --
+stage: typeck
+---
+
+qualified-type-in-message/lexer/bad.tck:4:12: error: cannot use Token as int64 in return from Bad
+03 |	func Bad() int64 {
+04 |	    return First("")
+   |	           ^~~~~~~~~
+05 |	}
+
+qualified-type-in-message/main.tck:6:19: error: cannot use lexer.Token as int64 in declaration of x
+05 |	func main() {
+06 |	    var x int64 = lexer.First("1")
+   |	                  ^~~~~~~~~~~~~~~~
+07 |	    var a [2]lexer.Token = 1
+
+qualified-type-in-message/main.tck:7:28: error: cannot use int64 as [2]lexer.Token in declaration of a
+06 |	    var x int64 = lexer.First("1")
+07 |	    var a [2]lexer.Token = 1
+   |	                           ^
+08 |	    exit(x + a[0].kind)
+
+-- qualified-undefined/tack.mod --
+module calc
+-- qualified-undefined/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- qualified-undefined/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Nothing)
+    lexer.Missing()
+    var t lexer.Gone
+    lexer.Absent = 1
+}
+-- qualified-undefined/expected --
+stage: resolve
+---
+
+qualified-undefined/main.tck:6:10: error: undefined: lexer.Nothing
+05 |	func main() {
+06 |	    exit(lexer.Nothing)
+   |	         ^~~~~~~~~~~~~
+07 |	    lexer.Missing()
+
+qualified-undefined/main.tck:7:5: error: undefined: lexer.Missing
+06 |	    exit(lexer.Nothing)
+07 |	    lexer.Missing()
+   |	    ^~~~~~~~~~~~~
+08 |	    var t lexer.Gone
+
+qualified-undefined/main.tck:8:11: error: undefined: lexer.Gone
+07 |	    lexer.Missing()
+08 |	    var t lexer.Gone
+   |	          ^~~~~~~~~~
+09 |	    lexer.Absent = 1
+
+qualified-undefined/main.tck:9:5: error: undefined: lexer.Absent
+08 |	    var t lexer.Gone
+09 |	    lexer.Absent = 1
+   |	    ^~~~~~~~~~~~
+10 |	}
+
+-- qualified-wrong-kind/tack.mod --
+module calc
+-- qualified-wrong-kind/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+func Get() int64 {
+    return Count
+}
+-- qualified-wrong-kind/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token
+    f := lexer.First
+    var x lexer.First
+    lexer.Token()
+    lexer.KindNumber()
+    lexer.Token = 1
+    lexer.First = 1
+}
+-- qualified-wrong-kind/expected --
+stage: resolve
+---
+
+qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it is a type
+05 |	func main() {
+06 |	    t := lexer.Token
+   |	         ^~~~~~~~~~~
+07 |	    f := lexer.First
+
+qualified-wrong-kind/main.tck:7:10: error: undefined: lexer.First
+06 |	    t := lexer.Token
+07 |	    f := lexer.First
+   |	         ^~~~~~~~~~~
+08 |	    var x lexer.First
+
+qualified-wrong-kind/main.tck:8:11: error: lexer.First is not a type
+07 |	    f := lexer.First
+08 |	    var x lexer.First
+   |	          ^~~~~~~~~~~
+09 |	    lexer.Token()
+
+qualified-wrong-kind/main.tck:9:5: error: cannot call lexer.Token; it is a type
+08 |	    var x lexer.First
+09 |	    lexer.Token()
+   |	    ^~~~~~~~~~~
+10 |	    lexer.KindNumber()
+
+qualified-wrong-kind/main.tck:10:5: error: undefined: lexer.KindNumber
+09 |	    lexer.Token()
+10 |	    lexer.KindNumber()
+   |	    ^~~~~~~~~~~~~~~~
+11 |	    lexer.Token = 1
+
+qualified-wrong-kind/main.tck:11:5: error: cannot assign to lexer.Token; it is a type
+10 |	    lexer.KindNumber()
+11 |	    lexer.Token = 1
+   |	    ^~~~~~~~~~~
+12 |	    lexer.First = 1
+
+qualified-wrong-kind/main.tck:12:5: error: undefined: lexer.First
+11 |	    lexer.Token = 1
+12 |	    lexer.First = 1
+   |	    ^~~~~~~~~~~
+13 |	}
+
+-- qualifier-not-a-package/tack.mod --
+module calc
+-- qualifier-not-a-package/main.tck --
+package main
+
+var p int64 = 1
+
+func main() {
+    var a p.T
+    var b q.T
+    exit(p)
+}
+-- qualifier-not-a-package/expected --
+stage: resolve
+---
+
+qualifier-not-a-package/main.tck:6:11: error: p is not a package
+05 |	func main() {
+06 |	    var a p.T
+   |	          ^
+07 |	    var b q.T
+
+qualifier-not-a-package/main.tck:7:11: error: undefined: q
+06 |	    var a p.T
+07 |	    var b q.T
+   |	          ^
+08 |	    exit(p)
 
 -- root-package-invalid-name/tack.mod --
 module example.com/my-tools

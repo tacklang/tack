@@ -45,8 +45,19 @@
 //
 // Package-level variables are checked before any body, so their types
 // are known in every function. A global's initializer must be a constant
-// expression, made only of literals and operators, and the checker records
-// its value in Var.Const. Every operand is computed, the right side of && and
+// expression, made only of literals, names of immutable globals of its own
+// package or an imported one, and operators, and the checker records its
+// value in Var.Const. A global named in an initializer is checked first, on
+// first need, so the order of declarations does not matter, and one needed
+// while it is being checked closes an initialization cycle, reported with
+// every global on it, a refers to b refers to a. A mutable global is never
+// constant. A global's known value is its Const, never its initializer
+// followed again, so a cycle cannot be followed forever.
+//
+// A struct type of another package is named qualified in a diagnostic,
+// lexer.Token, and a struct of the package whose code is being checked by
+// its name alone. A qualified name in a message is written as it was,
+// lexer.Count. Every operand is computed, the right side of && and
 // || included, as in Go, so an error on either side is reported. Arithmetic
 // on character literals is typed, and checked as in a function, below, so
 // a step that overflows its type has been reported before the initializer

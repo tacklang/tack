@@ -51,6 +51,18 @@ type Checker struct {
 	active []fact
 	guards []*guard
 
+	// declPkg holds the package of each package-level declaration, and
+	// structPkg that of each struct type. pkg is the package whose code is
+	// being checked, which a type of another package is named relative to:
+	// see typeName.
+	declPkg   map[ast.Decl]*ast.Package
+	structPkg map[types.Type]*ast.Package
+	pkg       *ast.Package
+
+	// initStack holds the package-level variables being checked, the
+	// outermost first, so an initialization cycle can be named in full.
+	initStack []*ast.Var
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
 
@@ -85,7 +97,48 @@ func New(prog *ast.Program, files source.Files) *Checker {
 		structState: make(map[types.Type]progress),
 
 		knownVars: make(map[*ast.Var]knownResult),
+
+		declPkg:   declPackages(prog),
+		structPkg: make(map[types.Type]*ast.Package),
 	}
+}
+
+// declPackages returns the package of each package-level declaration of
+// prog.
+func declPackages(prog *ast.Program) map[ast.Decl]*ast.Package {
+	m := make(map[ast.Decl]*ast.Package)
+	if prog == nil {
+		return m
+	}
+	for _, pkg := range prog.Packages {
+		for _, decl := range pkg.Decls() {
+			m[decl] = pkg
+		}
+	}
+	return m
+}
+
+// typeName returns a type's name as a diagnostic about the package being
+// checked writes it: a struct type of another package qualified by that
+// package's name, lexer.Token, and any other type as types.Table.Name
+// does.
+func (c *Checker) typeName(typ types.Type) string {
+	return c.table.NameWith(typ, func(st types.Type, name string) string {
+		if pkg := c.structPkg[st]; pkg != nil && c.pkg != nil && pkg != c.pkg {
+			return pkg.Name + "." + name
+		}
+		return name
+	})
+}
+
+// enter makes the package of decl, a package-level declaration, the one
+// being checked, and returns a function that puts back the one it replaced.
+func (c *Checker) enter(decl ast.Decl) (restore func()) {
+	old := c.pkg
+	if pkg := c.declPkg[decl]; pkg != nil {
+		c.pkg = pkg
+	}
+	return func() { c.pkg = old }
 }
 
 // Check reports every badly typed call in the program, in source order. Checking
@@ -115,14 +168,18 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// so a call does not depend on its callee appearing first.
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
+			restore := c.enter(fn)
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
+			restore()
 		}
 	}
 
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
+			restore := c.enter(fn)
 			c.checkBody(fn)
+			restore()
 		}
 	}
 
@@ -280,8 +337,8 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 	c.errorf(
 		target.Spanned(),
 		"cannot use %s as %s in assignment to %s",
-		c.table.Name(got),
-		c.table.Name(typ),
+		c.typeName(got),
+		c.typeName(typ),
 		targetName(target),
 	)
 }
@@ -415,13 +472,18 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 	}
 	switch got := len(results); {
 	case got == 0:
-		c.errorf(span, "assignment mismatch: %d variables but %s returns no value", want, id.Name)
+		c.errorf(
+			span,
+			"assignment mismatch: %d variables but %s returns no value",
+			want,
+			id.Qualified(),
+		)
 	case got != want:
 		c.errorf(
 			span,
 			"assignment mismatch: %d variables but %s returns %d %s",
 			want,
-			id.Name,
+			id.Qualified(),
 			got,
 			plural(got, "value"),
 		)
@@ -542,7 +604,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 					End:   loop.X.Spanned().End,
 				},
 				"assignment mismatch: 2 variables but range over %s gives 1 value",
-				c.table.Name(got),
+				c.typeName(got),
 			)
 		}
 		return got, types.Invalid
@@ -551,7 +613,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 	case got == types.String:
 		return types.Int64, types.Uint8
 	default:
-		c.errorf(loop.X.Spanned(), "cannot range over %s", c.table.Name(got))
+		c.errorf(loop.X.Spanned(), "cannot range over %s", c.typeName(got))
 		return types.Invalid, types.Invalid
 	}
 }
@@ -623,7 +685,7 @@ func (c *Checker) checkGuarded(body []ast.Stmt, g *guard, facts []fact, fn *ast.
 func (c *Checker) checkCond(cond ast.Expr) {
 	got := c.valueOf(cond, c.expr(cond))
 	if got != types.Invalid && got != types.Bool {
-		c.errorf(cond.Spanned(), "condition must be a bool, got %s", c.table.Name(got))
+		c.errorf(cond.Spanned(), "condition must be a bool, got %s", c.typeName(got))
 	}
 }
 
@@ -670,7 +732,7 @@ func (c *Checker) checkVar(v *ast.Var) {
 // requires its initializer to be a constant expression, which it evaluates
 // into v.Const. A global without a value takes its type's zero value.
 func (c *Checker) checkGlobal(v *ast.Var) {
-	if v.Value != nil && !isConstant(v.Value) {
+	if v.Value != nil && !c.isConstant(v.Value) {
 		c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
 		if v.TypeExpr != nil {
 			v.Type = c.declaredType(v.TypeExpr)
@@ -693,28 +755,47 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 	}
 }
 
-// isConstant reports whether e is built only from literals and operators,
-// array and struct literals of them included.
-func isConstant(e ast.Expr) bool {
+// isConstant reports whether e is built only from literals, names of
+// immutable package-level variables, of its own package or an imported
+// one, and operators, array and struct literals of them included. A
+// mutable global is never constant, since any function can change it.
+func (c *Checker) isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return true
+	case *ast.Ident:
+		return c.constantGlobal(x) != nil
 	case *ast.KeyValue:
-		return isConstant(x.Value)
+		return c.isConstant(x.Value)
 	case *ast.CompositeLit:
-		for _, elem := range x.Elems {
-			if !isConstant(elem) {
-				return false
-			}
-		}
-		return true
+		return c.allConstant(x.Elems)
 	case *ast.Binary:
-		return isConstant(x.X) && isConstant(x.Y)
+		return c.isConstant(x.X) && c.isConstant(x.Y)
 	case *ast.Unary:
-		return isConstant(x.X)
+		return c.isConstant(x.X)
 	default:
 		return false
 	}
+}
+
+// allConstant reports whether every one of elems is constant, as
+// isConstant says.
+func (c *Checker) allConstant(elems []ast.Expr) bool {
+	for _, elem := range elems {
+		if !c.isConstant(elem) {
+			return false
+		}
+	}
+	return true
+}
+
+// constantGlobal returns the variable id names when it is an immutable
+// package-level variable, whose value is a constant, and nil otherwise.
+func (c *Checker) constantGlobal(id *ast.Ident) *ast.Var {
+	if v, ok := id.Def.(*ast.Var); ok && !v.Mutable && c.globals[v] {
+		return v
+	}
+	return nil
 }
 
 // zeroConst is a type's zero value as a constant. An array's or a struct's
@@ -748,10 +829,8 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return v, ok
 	}
 	switch x := e.(type) {
-	case *ast.StrLit:
-		return x.Value, true
-	case *ast.BoolLit:
-		return x.Value, true
+	case *ast.StrLit, *ast.BoolLit, *ast.Ident:
+		return c.foldLeaf(x)
 	case *ast.CompositeLit:
 		if c.table.IsStruct(x.Type) {
 			return c.foldStruct(x)
@@ -764,6 +843,23 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.foldBoolBinary(x)
 	case *ast.Unary:
 		return c.foldNot(x)
+	}
+	return nil, false
+}
+
+// foldLeaf computes e, a string or bool literal, or the name of an
+// immutable global, which, checked before the initializer naming it, holds
+// its computed value; a mutable one is never folded.
+func (c *Checker) foldLeaf(e ast.Expr) (any, bool) {
+	switch x := e.(type) {
+	case *ast.StrLit:
+		return x.Value, true
+	case *ast.BoolLit:
+		return x.Value, true
+	case *ast.Ident:
+		if v := c.constantGlobal(x); v != nil && v.Const != nil {
+			return v.Const, true
+		}
 	}
 	return nil, false
 }
@@ -867,7 +963,7 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 			c.errorf(t.Span, "cannot assign to parameter %s", t.Name)
 		case *ast.Var:
 			if !def.Mutable {
-				c.errorf(t.Span, "cannot assign to immutable variable %s", t.Name)
+				c.errorf(t.Span, "cannot assign to immutable variable %s", t.Qualified())
 				return types.Invalid, false
 			}
 			return def.Type, true
@@ -925,7 +1021,7 @@ func (c *Checker) containerTarget(x ast.Expr, what string) (types.Type, bool) {
 			if def.Mutable {
 				return def.Type, def.Type != types.Invalid
 			}
-			c.errorf(x.Span, "cannot assign to %s of immutable variable %s", what, x.Name)
+			c.errorf(x.Span, "cannot assign to %s of immutable variable %s", what, x.Qualified())
 		}
 		return types.Invalid, false
 	case *ast.Index:
@@ -989,7 +1085,7 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 		return types.Invalid, false
 	}
 	if !types.IsInteger(typ) {
-		c.errorf(target.Spanned(), "operator %s is not defined on %s", op, c.table.Name(typ))
+		c.errorf(target.Spanned(), "operator %s is not defined on %s", op, c.typeName(typ))
 		return types.Invalid, false
 	}
 	return typ, true
@@ -1012,8 +1108,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return td.Type
 	}
 	typ, known := types.Lookup(id.Name)
-	if !known {
-		c.errorf(id.Span, "unknown type: %s", id.Name)
+	if !known || id.Pkg != "" {
+		c.errorf(id.Span, "unknown type: %s", id.Qualified())
 		return types.Invalid
 	}
 	return typ
@@ -1104,7 +1200,7 @@ func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 			ret.Span,
 			"%s must return a value of type %s",
 			fn.Name,
-			c.table.Name(fn.ResultTypes[0]),
+			c.typeName(fn.ResultTypes[0]),
 		)
 	case got < want:
 		c.errorf(ret.Span, "not enough return values: %s returns %d, got %d", fn.Name, want, got)

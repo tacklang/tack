@@ -1,0 +1,5 @@
+package three
+
+func Depth() int64 {
+    return 1
+}

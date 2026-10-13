@@ -49,11 +49,25 @@ func (c *Call) astNode() nodeKey { return _nodeKey }
 func (c *Call) Spanned() Span { return c.Span }
 
 // Ident is a use of a name. Def links it to what it names once the resolver
-// has run.
+// has run. A qualified name, x.name where x is an import's name, is one
+// Ident too: Pkg is x, PkgSpan where x is written, Name is name, and Span
+// covers all of it; Def is the declaration of name in the imported
+// package.
 type Ident struct {
-	Def  Decl // filled in by the resolver, nil before
-	Name string
-	Span Span
+	Def     Decl // filled in by the resolver, nil before
+	Pkg     string
+	Name    string
+	PkgSpan Span
+	Span    Span
+}
+
+// Qualified returns the name as written: pkg.name for a qualified one, the
+// name alone otherwise.
+func (i *Ident) Qualified() string {
+	if i.Pkg == "" {
+		return i.Name
+	}
+	return i.Pkg + "." + i.Name
 }
 
 var _ Expr = (*Ident)(nil)
@@ -70,21 +84,28 @@ func (i *Ident) Spanned() Span { return i.Span }
 // without copying it. Following Def instead would never end for a recursive
 // function, whose body names the function itself.
 type DeclRef struct {
-	Kind     string // "Func", "Param", "Var", or "Type"
+	Kind     string // "Func", "Param", "Var", "Type", or "Import"
 	Name     string
 	NameSpan Span
 }
 
 // MarshalJSON renders the identifier with Def as a *DeclRef. A builtin's Def,
-// a nil *Func, and an unresolved one, nil, both render as null.
+// a nil *Func, and an unresolved one, nil, both render as null. Pkg and
+// PkgSpan are left out of a name that is not qualified.
 func (i *Ident) MarshalJSON() ([]byte, error) {
 	// plain has Ident's fields but not this method, so marshaling it does
-	// not recurse. The outer Def, being shallower, hides plain's.
+	// not recurse. The outer fields, being shallower, hide plain's.
 	type plain Ident
+	var pkgSpan *Span
+	if i.Pkg != "" {
+		pkgSpan = &i.PkgSpan
+	}
 	js, err := json.Marshal(struct {
-		Def *DeclRef
+		Def     *DeclRef
+		PkgSpan *Span `json:",omitempty"`
 		*plain
-	}{declRef(i.Def), (*plain)(i)})
+		Pkg string `json:",omitempty"`
+	}{declRef(i.Def), pkgSpan, (*plain)(i), i.Pkg})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling identifier %s: %w", i.Name, err)
 	}
@@ -107,9 +128,23 @@ func declRef(d Decl) *DeclRef {
 		if d != nil {
 			return &DeclRef{Kind: "Var", Name: d.Name, NameSpan: d.NameSpan}
 		}
+	default:
+		return packageDeclRef(d)
+	}
+	return nil
+}
+
+// packageDeclRef is declRef for the declarations only found at package
+// level, types and imports.
+func packageDeclRef(d Decl) *DeclRef {
+	switch d := d.(type) {
 	case *TypeDecl:
 		if d != nil {
 			return &DeclRef{Kind: "Type", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	case *Import:
+		if d != nil {
+			return &DeclRef{Kind: "Import", Name: d.Name, NameSpan: d.NameSpan}
 		}
 	}
 	return nil

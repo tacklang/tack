@@ -272,3 +272,84 @@ func TestPathErrors(t *testing.T) {
 		})
 	}
 }
+
+// chain returns a module m whose main package imports p0, which imports
+// p1, and so on down to p(n-1), which imports nothing, or, when back is
+// non-negative, p(back), closing a cycle.
+func chain(n, back int) fstest.MapFS {
+	fsys := fstest.MapFS{
+		"tack.mod": file("module m\n"),
+		"main.tck": file("package main\n\nimport p from \"m/p0\"\n\nfunc main() {\n}\n"),
+	}
+	for i := range n {
+		src := fmt.Sprintf("package p%d\n", i)
+		switch {
+		case i+1 < n:
+			src += fmt.Sprintf("\nimport q from \"m/p%d\"\n", i+1)
+		case back >= 0:
+			src += fmt.Sprintf("\nimport q from \"m/p%d\"\n", back)
+		}
+		fsys[fmt.Sprintf("p%d/p.tck", i)] = file(src)
+	}
+	return fsys
+}
+
+// TestHugeImportGraphs checks a long chain of imports loads, every package
+// once and each after what it imports.
+func TestHugeImportGraphs(t *testing.T) {
+	const n = 3000
+	res, err := (&loader.Loader{FS: loader.FromFS(chain(n, -1))}).Dir(".")
+	if err != nil || len(res.Diags) > 0 {
+		t.Fatalf("chain of %d: %v %v", n, err, res.Diags)
+	}
+	pkgs := res.Program.Packages
+	if len(pkgs) != n+1 || pkgs[0].Path != fmt.Sprintf("m/p%d", n-1) || pkgs[n].Path != "m" {
+		t.Fatalf(
+			"got %d packages, first %s, last %s",
+			len(pkgs),
+			pkgs[0].Path,
+			pkgs[len(pkgs)-1].Path,
+		)
+	}
+}
+
+// TestLongImportCycle checks a long cycle is reported once, naming every
+// package on it, without the loader running away.
+func TestLongImportCycle(t *testing.T) {
+	res, err := (&loader.Loader{FS: loader.FromFS(chain(50, 10))}).Dir(".")
+	if err != nil || len(res.Diags) != 1 {
+		t.Fatalf("cycle: %v, %d diagnostics", err, len(res.Diags))
+	}
+	msg := res.Diags[0].Message
+	if !strings.HasPrefix(msg, "import cycle: m/p10 imports m/p11 imports") ||
+		!strings.HasSuffix(msg, "m/p49 imports m/p10") || strings.Count(msg, " imports ") != 40 {
+		t.Errorf("cycle reported as %q", msg)
+	}
+}
+
+// TestWideDiamond checks many packages importing one shared package load
+// it once.
+func TestWideDiamond(t *testing.T) {
+	const n = 500
+	fsys := fstest.MapFS{
+		"tack.mod":      file("module m\n"),
+		"base/base.tck": file("package base\n"),
+	}
+	main := "package main\n\n"
+	for i := range n {
+		main += fmt.Sprintf("import p%d from \"m/p%d\"\n", i, i)
+		fsys[fmt.Sprintf("p%d/p.tck", i)] = file(fmt.Sprintf(
+			"package p%d\n\nimport base from \"m/base\"\n", i))
+	}
+	fsys["main.tck"] = file(main + "\nfunc main() {\n}\n")
+	res, err := (&loader.Loader{FS: loader.FromFS(fsys)}).Dir(".")
+	if err != nil || len(res.Diags) > 0 {
+		t.Fatalf("%v %v", err, res.Diags)
+	}
+	if got := len(res.Program.Packages); got != n+2 {
+		t.Errorf("got %d packages, want %d", got, n+2)
+	}
+	if got := len(res.Files.Files()); got != n+3 {
+		t.Errorf("read %d files, want %d: the shared package once", got, n+3)
+	}
+}

@@ -2095,6 +2095,69 @@ index-uint8-short-array/main.tck:4:14: error: index i may be out of range; check
    |	             ^
 05 |	}
 
+-- init-cycle-three/main.tck --
+package main
+
+var a int64 = c
+
+var b int64 = a
+
+var c int64 = b
+
+func main() {
+    exit(a + b + c)
+}
+-- init-cycle-three/expected --
+stage: typeck
+---
+
+init-cycle-three/main.tck:5:15: error: initialization cycle: a refers to c refers to b refers to a
+04 |	
+05 |	var b int64 = a
+   |	              ^
+06 |	
+
+-- init-cycle-two/main.tck --
+package main
+
+var a int64 = b + 1
+
+var b int64 = a * 2
+
+func main() {
+    exit(a + b)
+}
+-- init-cycle-two/expected --
+stage: typeck
+---
+
+init-cycle-two/main.tck:5:15: error: initialization cycle: a refers to b refers to a
+04 |	
+05 |	var b int64 = a * 2
+   |	              ^
+06 |	
+
+-- init-names-mutable-global/main.tck --
+package main
+
+mut count int64 = 1
+
+var twice int64 = count * 2
+
+func main() {
+    count++
+    exit(twice)
+}
+-- init-names-mutable-global/expected --
+stage: typeck
+---
+
+init-names-mutable-global/main.tck:5:19: error: twice must be initialized with a constant expression
+04 |	
+05 |	var twice int64 = count * 2
+   |	                  ^~~~~~~~~
+06 |	
+
 -- int-literal-leading-zero/main.tck --
 package main
 
@@ -4798,6 +4861,37 @@ safety-string-index-unguarded/main.tck:4:14: error: index i may be out of range;
 04 |	    return s[i]
    |	             ^
 05 |	}
+
+-- single-file-import/main.tck --
+package main
+
+import lexer from "calc/lexer"
+import os from "std/os"
+import rel from "../lexer"
+
+func main() {
+}
+-- single-file-import/expected --
+stage: load
+---
+
+single-file-import/main.tck:3:19: error: cannot import calc/lexer: a single file can import only the standard library
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	                  ^~~~~~~~~~~~
+04 |	import os from "std/os"
+
+single-file-import/main.tck:4:16: error: cannot find package std/os: the standard library has no packages yet
+03 |	import lexer from "calc/lexer"
+04 |	import os from "std/os"
+   |	               ^~~~~~~~
+05 |	import rel from "../lexer"
+
+single-file-import/main.tck:5:17: error: cannot import ../lexer: a single file can import only the standard library
+04 |	import os from "std/os"
+05 |	import rel from "../lexer"
+   |	                ^~~~~~~~~~
+06 |	
 
 -- string-arithmetic/main.tck --
 package main
