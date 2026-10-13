@@ -150,7 +150,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2                        |
 | Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
-| Golden tests                       | yes     | Every program under `examples/`                                            |
+| Golden tests                       | yes     | Every program under `examples/` and every case in `examples/invalid.txtar` |
 | Fuzzing                            | partial | Lexer alone, and the whole pipeline through the driver                     |
 | Self-hosting                       | no      | The goal: a Tack compiler written in Tack                                  |
 

@@ -114,7 +114,7 @@ any diagnostics. The first stage to report a diagnostic ends the run.
 Diagnostics carry a source span and render with the offending line and a caret:
 
 ```
-examples/invalid/garbage/main.tck:4:5: error: invalid character '@'
+garbage/main.tck:4:5: error: invalid character '@'
 02 |
 03 |	func main() {
 04 |	    @#$%^ print("hi")
@@ -574,9 +574,10 @@ its output, regenerate them and read the diff:
 go test ./test -update
 ```
 
-Every directory under `examples/` is a test case, including the ones under
-`examples/invalid/`, which exist to pin the diagnostic each malformed program
-produces.
+Every directory under `examples/` is a test case, and so is every case in
+`examples/invalid.txtar`, which exists to pin the diagnostic each malformed
+program produces; `go test ./test -update` also rewrites its expected
+sections.
 
 The goldens only pin that output is stable, not that it is correct. The test
 that checks correctness is in `codegen/c`: it compiles a generated translation
