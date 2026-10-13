@@ -446,7 +446,10 @@ which is true today because `main` is the only package there is.
   leaving. When a guard says something about a divisor or index it did not
   prove, the error comes with notes pointing at the guard and what it
   proves, at the assignment that ended that proof, or at what the guard
-  allows that the operation does not, such as `i == 3` for a `[3]T`. [docs/safety.md](docs/safety.md) gathers these rules, the
+  allows that the operation does not, such as `i == 3` for a `[3]T`, and
+  at a branch ending in `exit`, a counting loop's step that could wrap, or
+  a guard on a field. A mutable global's error suggests only the two-value
+  form, with a note at its declaration, since no check proves it. [docs/safety.md](docs/safety.md) gathers these rules, the
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
   such as a two-value form whose `ok` is always `true`.

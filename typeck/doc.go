@@ -82,7 +82,15 @@
 // query that proves something skips it; whether it would have been enough
 // is found by running the proof again with every fact counted. Each fact
 // records the comparison that gave it and its guard, the condition, loop,
-// case or early exit whose region it holds in.
+// case or early exit whose region it holds in. Two more kinds of fact are
+// kept dropped only to be explained: what an if or switch whose branch ends
+// in exit would give after it, and the bound a counting loop whose step
+// could wrap would count from. Other notes need no fact: a guard in scope
+// comparing a field, or bounding a variable used in a larger operand; the
+// element whose outer index alone v, ok := covers; the declaration of a
+// mutable global, whose error suggests only the checked form, since no
+// check proves it; and the operand to convert when a uint64 is compared
+// with len. Notes quote source text, so New takes the file's source.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
 // always being true; only a divisor known to be zero is reported. A fact is
 // about a variable, never a field: a guard on p.x proves nothing about p.x,

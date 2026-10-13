@@ -76,7 +76,7 @@ func runPipeline(backendName, filename string, src []byte) result {
 		return result{"resolve", diag.RenderAllPretty(f, resDiags)}
 	}
 
-	if checkDiags := typeck.New(file).Check(); len(checkDiags) > 0 {
+	if checkDiags := typeck.New(file, f.Data).Check(); len(checkDiags) > 0 {
 		return result{"typeck", diag.RenderAllPretty(f, checkDiags)}
 	}
 

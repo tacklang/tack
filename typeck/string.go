@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
@@ -151,59 +152,52 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 	if c.stringIndexProven(ix) {
 		return
 	}
-	c.errorNotes(ix.Index.Spanned(), c.stringIndexNotes(ix), "%s", c.stringIndexAdvice(ix))
+	msg, notes := c.stringIndexError(ix)
+	c.errorNotes(ix.Index.Spanned(), notes, "%s", msg)
 }
 
-// stringIndexNotes explains why the index of s[i] is not proven: from the
-// facts about i, a variable, or about the length of s, a variable, when i
-// is a known value.
-func (c *Checker) stringIndexNotes(ix *ast.Index) []diag.Diagnostic {
-	proven := func() bool { return c.stringIndexProven(ix) }
-	_, isConst := c.knownValue(ix.Index)
-	if id, ok := ix.Index.(*ast.Ident); ok && !isConst {
-		n, known := c.knownLen(ix.X)
-		e := extent{of: ix.X, unit: "byte", n: n, known: known}
-		return c.explain(c.indexProof(id, e, proven))
-	}
-	if s, ok := ix.X.(*ast.Ident); ok {
-		return c.explain(lengthProof(s, proven))
-	}
-	return nil
-}
-
-// stringIndexAdvice says why the index of s[i] may be out of range, and
-// what would prove it, or avoid needing to: a check against len(s) when s
-// is a variable, or against its length when it is a literal. Only a
-// variable's length can be guarded, so any other string gets only the
-// two-value form.
-func (c *Checker) stringIndexAdvice(ix *ast.Index) string {
-	id, isName := ix.Index.(*ast.Ident)
-	v, isConst := c.knownValue(ix.Index)
+// stringIndexError returns the error for the index of s[i] that is not
+// proven in range, and the notes that explain it. A constant index gets the
+// check on the length of s that would prove it, when s is a variable or a
+// literal; a variable index gets indexError's, against len(s) or a
+// literal's length, and only the checked form when s is neither, since
+// only a variable's length can be guarded.
+func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 	var bound string
 	if n, ok := literalLen(ix.X); ok {
 		bound = fmt.Sprint(n)
 	} else if s, ok := ix.X.(*ast.Ident); ok {
 		bound = "len(" + s.Name + ")"
 	}
-
-	switch {
-	case isConst && bound != "":
-		return fmt.Sprintf(
-			"index %s may be out of range; check %s > %s first, or use v, ok := ...[%s]",
-			v,
-			bound,
-			v,
-			v,
-		)
-	case isConst:
-		return fmt.Sprintf("index %s may be out of range; use v, ok := ...[%s]", v, v)
-	case isName && bound != "":
-		return fmt.Sprintf(
-			"index %s may be out of range; check 0 <= %s && %s < %s first, or use v, ok := ...[%s]",
-			id.Name, id.Name, id.Name, bound, id.Name)
-	case isName:
-		return fmt.Sprintf("index %s may be out of range; use v, ok := ...[%s]", id.Name, id.Name)
-	default:
-		return "index may be out of range; use v, ok := ...[...]"
+	proven := func() bool { return c.stringIndexProven(ix) }
+	var msg string
+	var notes []diag.Diagnostic
+	if v, isConst := c.knownValue(ix.Index); isConst {
+		msg = "index " + v.String() + " may be out of range"
+		if bound != "" {
+			msg += "; check " + bound + " > " + v.String() + " first"
+		}
+		if s, ok := ix.X.(*ast.Ident); ok {
+			notes = c.explain(lengthProof(s, proven))
+		}
+	} else {
+		msg, notes = c.indexError(ix, bound, func(id *ast.Ident) []diag.Diagnostic {
+			n, known := c.knownLen(ix.X)
+			e := extent{of: ix.X, unit: "byte", n: n, known: known}
+			return c.explain(c.indexProof(id, e, proven))
+		})
 	}
+	return msg + orUse(
+		"v, ok := ...["+c.indexName(ix.Index)+"]",
+		strings.HasSuffix(msg, " first"),
+	), notes
+}
+
+// indexName returns how an error names an index: its known value, its
+// name, or ... for anything else.
+func (c *Checker) indexName(e ast.Expr) string {
+	if v, ok := c.knownValue(e); ok {
+		return v.String()
+	}
+	return operandName(e)
 }

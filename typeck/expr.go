@@ -2,10 +2,12 @@ package typeck
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -389,26 +391,45 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
 	if c.nonzero(divisor) {
 		return
 	}
-
-	id, isName := divisor.(*ast.Ident)
-	switch {
-	case isName && withOk:
-		c.errorNotes(
-			divisor.Spanned(),
-			c.explain(c.divisorProof(id)),
-			"divisor %s may be zero; check %s != 0 first, or use q, ok := ... / %s",
-			id.Name,
-			id.Name,
-			id.Name,
-		)
-	case isName:
-		c.errorNotes(divisor.Spanned(), c.explain(c.divisorProof(id)),
-			"divisor %s may be zero; check %s != 0 first", id.Name, id.Name)
-	case withOk:
-		c.errorf(divisor.Spanned(), "divisor may be zero; use q, ok := ... / ...")
-	default:
-		c.errorf(divisor.Spanned(), "divisor may be zero")
+	msg, notes := c.divisorError(divisor)
+	if withOk {
+		msg += orUse("q, ok := ... / "+operandName(divisor), strings.HasSuffix(msg, " first"))
 	}
+	c.errorNotes(divisor.Spanned(), notes, "%s", msg)
+}
+
+// divisorError returns the error for a divisor no fact proves not zero,
+// before any mention of the checked form, and the notes that explain it.
+// A variable gets the check that would prove it, except a mutable global,
+// which no check proves.
+func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
+	if v, ok := c.mutableGlobal(divisor); ok {
+		return "divisor " + v.Name + " may be zero", globalNote(v)
+	}
+	if id, ok := divisor.(*ast.Ident); ok {
+		return "divisor " + id.Name + " may be zero; check " + id.Name + " != 0 first",
+			c.explain(c.divisorProof(id))
+	}
+	return "divisor may be zero", c.operandNotes(divisor)
+}
+
+// operandName returns how an error names a divisor or an index: by its
+// name when it is a variable, and as ... otherwise.
+func operandName(e ast.Expr) string {
+	if id, ok := e.(*ast.Ident); ok {
+		return id.Name
+	}
+	return "..."
+}
+
+// orUse returns what an error adds to suggest the checked form, form:
+// after the check it suggests, when afterCheck is set, or straight after
+// the error otherwise.
+func orUse(form string, afterCheck bool) string {
+	if afterCheck {
+		return ", or use " + form
+	}
+	return "; use " + form
 }
 
 // divisionResults checks a division or remainder bound to want names, which
@@ -551,8 +572,9 @@ func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 	common, ok := commonType(x, y)
 	switch {
 	case !ok:
-		c.errorf(
+		c.errorNotes(
 			bin.Span,
+			c.lenNote(bin, x, y),
 			"mismatched types %s and %s in %s",
 			c.table.Name(x),
 			c.table.Name(y),

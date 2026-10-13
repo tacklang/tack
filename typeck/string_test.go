@@ -191,7 +191,7 @@ var unprovenStringIndexCases = []struct {
 		"unsigned beyond the string",
 		stringing("return s[u]"),
 		spanned{
-			"index u may be out of range; check 0 <= u && u < len(s) first, or use v, ok := ...[u]",
+			"index u may be out of range; check u < len(s) first, or use v, ok := ...[u]",
 			"u",
 		},
 	},

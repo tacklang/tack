@@ -41,7 +41,7 @@ func compile(t *testing.T, src string) *ast.File {
 
 	// The backend reads the types the checker records, so a tree that has not
 	// been checked is not a tree it is meant to be handed.
-	if diags := typeck.New(file).Check(); len(diags) > 0 {
+	if diags := typeck.New(file, f.Data).Check(); len(diags) > 0 {
 		t.Fatalf("typeck: %s", diag.RenderAllPretty(f, diags))
 	}
 

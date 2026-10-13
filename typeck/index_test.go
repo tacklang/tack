@@ -178,7 +178,7 @@ var unprovenIndexCases = []struct {
 		"unsigned beyond the array",
 		indexing("return a[u]"),
 		spanned{
-			"index u may be out of range; check 0 <= u && u < 3 first, or use v, ok := ...[u]",
+			"index u may be out of range; check u < 3 first, or use v, ok := ...[u]",
 			"u",
 		},
 	},
@@ -199,7 +199,7 @@ var unprovenIndexCases = []struct {
 		"mutable global",
 		indexing("if 0 <= g && g < 3 {", "    return a[g]", "}"),
 		spanned{
-			"index g may be out of range; check 0 <= g && g < 3 first, or use v, ok := ...[g]",
+			"index g may be out of range; use v, ok := ...[g]",
 			"g",
 		},
 	},

@@ -31,26 +31,62 @@ import (
 // and break leaves the loop. The fact is put in force for the body alone,
 // not the condition, the post, or the code after the loop.
 
+// counting says whether a loop counts.
+type counting int
+
+const (
+	// notCounting is a loop that does not count.
+	notCounting counting = iota
+	// counts is a counting loop.
+	counts
+	// wraps is a loop that would count but for a step that could wrap past
+	// the end of its variable's type.
+	wraps
+)
+
 // countingFact returns the fact a counting loop gives its body about its
 // variable, the bound it counts from, given cond, the facts its condition
-// gives when true. It reports false when the loop does not count.
-func (c *Checker) countingFact(loop *ast.For, cond []fact) (fact, bool) {
+// gives when true, and whether the loop counts. For a loop whose step
+// could wrap, it returns the fact the loop would give.
+func (c *Checker) countingFact(loop *ast.For, cond []fact) (fact, counting) {
 	v, ok := loop.Init.(*ast.Var)
 	if !ok || !v.Mutable || v.Value == nil || !types.IsInteger(v.Type) {
-		return fact{}, false
+		return fact{}, notCounting
 	}
 	start, ok := c.knownValue(v.Value)
 	if !ok {
-		return fact{}, false
+		return fact{}, notCounting
 	}
 	step, ok := c.counterStep(loop.Post, v)
-	if !ok || !stepStaysInType(v, step, cond) {
-		return fact{}, false
+	if !ok {
+		return fact{}, notCounting
 	}
+	f := fact{decl: v, lo: start, hasLo: true}
 	if step.IsNegative() {
-		return fact{decl: v, hi: start, hasHi: true}, true
+		f = fact{decl: v, hi: start, hasHi: true}
 	}
-	return fact{decl: v, lo: start, hasLo: true}, true
+	if !stepStaysInType(v, step, cond) {
+		return f, wraps
+	}
+	return f, counts
+}
+
+// wrapDrop returns why the fact f, which the counting loop would give its
+// body, does not hold: its post could step its variable past the end of
+// its type.
+func wrapDrop(loop *ast.For, f fact) *drop {
+	v, _ := f.decl.(*ast.Var)
+	lo, hi := typeBounds(v.Type)
+	past, start, side := hi, f.lo, "above"
+	if f.hasHi {
+		past, start, side = lo, f.hi, "below"
+	}
+	return &drop{
+		kind: dropWraps,
+		at:   loop.Post.Spanned(),
+		text: "this step could wrap " + v.Name + " past " + past.String() +
+			", so the loop does not keep " + v.Name + " at or " + side + " " + start.String(),
+	}
 }
 
 // counterStep returns how much post changes the variable v by, when it

@@ -88,10 +88,13 @@ func (g *guard) where() string {
 	}
 }
 
-// drop is why a fact does not hold where it is put in force: the region
-// assigns name at the span at.
+// drop is why a fact does not hold where it is put in force, which a note
+// points at, at: the region assigns name there, the branch that would have
+// left ends in exit there, or the loop's step there could wrap, which text
+// then explains.
 type drop struct {
 	name string
+	text string
 	at   ast.Span
 	kind dropKind
 }
@@ -103,6 +106,13 @@ const (
 	// dropAssigned is a region assigning the fact's variable, or the
 	// string whose length bounds it.
 	dropAssigned dropKind = iota
+	// dropExit is an if or a switch whose branch ends in a call to exit,
+	// which does not count as leaving the block, so the facts of getting
+	// past it would hold after it only if the branch left.
+	dropExit
+	// dropWraps is a counting loop whose step could wrap past the end of
+	// its variable's type, so the bound it counts from does not hold.
+	dropWraps
 )
 
 // same reports whether d and other are the same reason, the same
@@ -113,7 +123,23 @@ func (d *drop) same(other *drop) bool {
 
 // note returns the note that points at d's cause.
 func (d *drop) note() diag.Diagnostic {
-	return note(d.at, "but "+d.name+" is assigned here, so the proof ends")
+	switch d.kind {
+	case dropExit:
+		return note(d.at, "but its branch ends in exit, not in return, break or continue")
+	case dropWraps:
+		return note(d.at, d.text)
+	default:
+		return note(d.at, "but "+d.name+" is assigned here, so the proof ends")
+	}
+}
+
+// proves returns how a note says what a guard's facts, dropped by d, prove:
+// they do, until the assignment, or they would, had the branch left.
+func (d *drop) proves() string {
+	if d.kind == dropExit {
+		return " would prove "
+	}
+	return " proves "
 }
 
 // note returns a note with message msg covering span.
@@ -183,6 +209,10 @@ func dropNotes(dropped []fact, claim func(facts []fact) string) []diag.Diagnosti
 			continue
 		}
 		done = append(done, f.drop)
+		if f.drop.kind == dropWraps {
+			notes = append(notes, f.drop.note())
+			continue
+		}
 		for _, g := range guardsDroppedBy(dropped, f.drop) {
 			var own []fact
 			for _, o := range dropped {
@@ -190,7 +220,7 @@ func dropNotes(dropped []fact, claim func(facts []fact) string) []diag.Diagnosti
 					own = append(own, o)
 				}
 			}
-			notes = append(notes, note(g.span, g.subject()+" proves "+claim(own)+g.where()))
+			notes = append(notes, note(g.span, g.subject()+f.drop.proves()+claim(own)+g.where()))
 		}
 		notes = append(notes, f.drop.note())
 	}
@@ -512,4 +542,224 @@ func lengthProof(s *ast.Ident, proven func() bool) proof {
 		claim:  func(facts []fact) string { return describe("len("+s.Name+")", facts) },
 		weak:   func([]fact, bool) []diag.Diagnostic { return nil },
 	}
+}
+
+// text returns the source span covers, which notes quote.
+func (c *Checker) text(span ast.Span) string {
+	if span.Start < 0 || span.End > len(c.src) || span.Start > span.End {
+		panic("typeck: a span outside the source given to New")
+	}
+	return string(c.src[span.Start:span.End])
+}
+
+// mutableGlobal returns the declaration of the variable e names when it is
+// a mutable global, which never has a fact.
+func (c *Checker) mutableGlobal(e ast.Expr) (*ast.Var, bool) {
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return nil, false
+	}
+	v, ok := id.Def.(*ast.Var)
+	return v, ok && v.Mutable && c.globals[v]
+}
+
+// globalNote returns the note, at its declaration, that the mutable global
+// v can never be proven anything about.
+func globalNote(v *ast.Var) []diag.Diagnostic {
+	return []diag.Diagnostic{note(v.NameSpan,
+		v.Name+" is a mutable global, so no check proves it; copy it into a local first")}
+}
+
+// operandNotes explains why operand, a divisor or an index that is not a
+// variable, is not proven: a field a guard in scope compares, which never
+// carries a fact, or an expression using a variable a guard bounds, when
+// only a plain name is proven.
+func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
+	if _, ok := operand.(*ast.Selector); ok {
+		return c.fieldNotes(operand)
+	}
+	if _, known := c.knownValue(operand); known {
+		return nil
+	}
+	var notes []diag.Diagnostic
+	var seen []ast.Decl
+	ast.Walk(operand, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || slices.Contains(seen, id.Def) {
+			return true
+		}
+		seen = append(seen, id.Def)
+		f, bounded := setting(
+			c.active,
+			func(f fact) bool { return f.decl == id.Def && f.inForce() },
+		)
+		if bounded {
+			expr := c.text(operand.Spanned())
+			notes = append(
+				notes,
+				note(f.guard.span, f.guard.subject()+" bounds "+id.Name+", not "+expr+
+					"; only a plain name is proven, so copy "+expr+" into a variable and check it"),
+			)
+		}
+		return true
+	})
+	return notes
+}
+
+// fieldNotes returns the note for the field path, such as p.d, that the
+// innermost guard in scope comparing it proves nothing about it.
+func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
+	for i := len(c.guards) - 1; i >= 0; i-- {
+		g := c.guards[i]
+		if g.cond == nil || !compares(g.cond, path) {
+			continue
+		}
+		return []diag.Diagnostic{note(g.cond.Spanned(), g.subject()+
+			" proves nothing: a field never carries a fact; copy "+c.text(path.Spanned())+
+			" into a variable first")}
+	}
+	return nil
+}
+
+// compares reports whether cond, through && || and !, holds a comparison
+// one side of which is path.
+func compares(cond, path ast.Expr) bool {
+	switch x := cond.(type) {
+	case *ast.Unary:
+		return x.Op == ast.Not && compares(x.X, path)
+	case *ast.Binary:
+		if x.Op.IsLogical() {
+			return compares(x.X, path) || compares(x.Y, path)
+		}
+		return x.Op.IsComparison() && (samePath(x.X, path) || samePath(x.Y, path))
+	default:
+		return false
+	}
+}
+
+// samePath reports whether a and b are the same variable, or the same field
+// of the same path, p.d and p.d.
+func samePath(a, b ast.Expr) bool {
+	switch x := a.(type) {
+	case *ast.Ident:
+		y, ok := b.(*ast.Ident)
+		return ok && x.Def == y.Def
+	case *ast.Selector:
+		y, ok := b.(*ast.Selector)
+		return ok && x.Name == y.Name && samePath(x.X, y.X)
+	default:
+		return false
+	}
+}
+
+// outerIndexNote returns the note that only the outer index of the element
+// being bound with ok is checked, when ix is an index inside it, which
+// still needs a proof of its own.
+func (c *Checker) outerIndexNote(ix *ast.Index) []diag.Diagnostic {
+	outer := c.checkedIndex
+	if outer == nil || outer == ix {
+		return nil
+	}
+	inside := false
+	ast.Walk(outer, func(n ast.Node) bool {
+		inside = inside || n == ast.Node(ix)
+		return !inside
+	})
+	if !inside {
+		return nil
+	}
+	return []diag.Diagnostic{note(outer.Span, "only the outer index of "+c.text(outer.Span)+
+		" is checked; "+c.text(ix.Span)+" needs its own proof")}
+}
+
+// lenNote returns the note on cmp, a comparison of operands of types x and
+// y that have no common type, when one side is len, an int64, and the
+// other's type is unsigned: it says how to convert that side.
+func (c *Checker) lenNote(cmp *ast.Binary, x, y types.Type) []diag.Diagnostic {
+	operand := cmp.X
+	switch {
+	case isLenCall(cmp.Y) && types.IsUnsigned(x):
+	case isLenCall(cmp.X) && types.IsUnsigned(y):
+		operand = cmp.Y
+	default:
+		return nil
+	}
+	text := c.text(operand.Spanned())
+	return []diag.Diagnostic{note(operand.Spanned(),
+		"len gives an int64; convert "+text+" first with i, ok := int64("+text+")")}
+}
+
+// isLenCall reports whether e is a call to the builtin len.
+func isLenCall(e ast.Expr) bool {
+	call, ok := e.(*ast.Call)
+	return ok && isLen(call)
+}
+
+// exitAfterFacts returns the facts an if or a switch would give the
+// statements after it if a branch ending in a call to exit left the block,
+// with the guard they come from, each marked as dropped by that call. It
+// returns none when the statement gives the same facts either way.
+func (c *Checker) exitAfterFacts(stmt ast.Stmt) (*guard, []fact) {
+	call := exitCall(stmt)
+	if call == nil {
+		return nil, nil
+	}
+	var g *guard
+	var facts []fact
+	switch s := stmt.(type) {
+	case *ast.If:
+		facts = exitFacts(leavesBy(s.Then, true), leavesBy(s.Else, true), func(holds bool) []fact {
+			return c.factsFrom(s.Cond, holds)
+		})
+		g = ifGuard(s)
+	case *ast.Switch:
+		g, facts = c.switchAfterFactsBy(s, true)
+	}
+	why := &drop{kind: dropExit, at: call.Span}
+	for i := range facts {
+		facts[i].drop = why
+	}
+	return g, facts
+}
+
+// exitCall returns the call to exit that ends a branch of stmt, an if or a
+// switch, at any depth, or nil when there is none.
+func exitCall(stmt ast.Stmt) *ast.Call {
+	switch s := stmt.(type) {
+	case *ast.ExprStmt:
+		if call, ok := s.X.(*ast.Call); ok && isExit(call) {
+			return call
+		}
+	case *ast.If:
+		if call := lastExit(s.Then); call != nil {
+			return call
+		}
+		return lastExit(s.Else)
+	case *ast.Switch:
+		for _, cl := range s.Cases {
+			if call := lastExit(cl.Body); call != nil {
+				return call
+			}
+		}
+	}
+	return nil
+}
+
+// lastExit returns the call to exit that ends body, at any depth, or nil.
+func lastExit(body []ast.Stmt) *ast.Call {
+	if len(body) == 0 {
+		return nil
+	}
+	return exitCall(body[len(body)-1])
+}
+
+// isExit reports whether call calls the builtin exit, which has a nil
+// declaration like every builtin.
+func isExit(call *ast.Call) bool {
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok || id.Name != "exit" {
+		return false
+	}
+	fn, ok := id.Def.(*ast.Func)
+	return ok && fn == nil
 }

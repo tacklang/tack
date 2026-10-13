@@ -401,7 +401,7 @@ func compile(srcFile *source.File, backend codegen.Backend, d dump, maxDiags int
 		return marshalTree(file)
 	}
 
-	if diags := typeck.New(file).Check(); len(diags) > 0 {
+	if diags := typeck.New(file, srcFile.Data).Check(); len(diags) > 0 {
 		return nil, fail(diags)
 	}
 	out, genDiags := backend.Generate(file)

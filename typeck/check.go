@@ -15,6 +15,9 @@ type Checker struct {
 	file  *ast.File
 	table *types.Table // the file's types, recorded on it by Check
 
+	// src is the file's source text, which notes quote; see text.
+	src []byte
+
 	// checkedDivision is the division whose value is being bound with ok,
 	// which needs no proof that its divisor is not zero.
 	checkedDivision *ast.Binary
@@ -63,10 +66,12 @@ type Checker struct {
 	inRejectedDefer bool
 }
 
-// New returns a Checker for file, which must already have been resolved.
-func New(file *ast.File) *Checker {
+// New returns a Checker for file, which must already have been resolved,
+// and whose spans point into src, its source text.
+func New(file *ast.File, src []byte) *Checker {
 	return &Checker{
 		file:    file,
+		src:     src,
 		table:   types.NewTable(),
 		funcs:   make(map[string]*ast.Func),
 		globals: make(map[*ast.Var]bool),
@@ -382,20 +387,29 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	}
 	m := c.mark()
 	if loop.Cond != nil {
-		facts := c.factsFrom(loop.Cond, true)
-		c.assume(
-			&guard{cond: loop.Cond, span: loop.Cond.Spanned(), kind: guardCond},
-			facts,
-			loop.Body,
-		)
-		if f, ok := c.countingFact(loop, facts); ok {
-			c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, loop.Body)
-		}
+		c.assumeLoop(loop)
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
 	c.loops--
 	c.release(m)
+}
+
+// assumeLoop puts in force for a loop's body what its condition says and,
+// when the loop counts, the bound it counts from. A loop that would count
+// but for a step that could wrap gets that bound dropped, to explain a
+// missing proof.
+func (c *Checker) assumeLoop(loop *ast.For) {
+	facts := c.factsFrom(loop.Cond, true)
+	c.assume(&guard{cond: loop.Cond, span: loop.Cond.Spanned(), kind: guardCond}, facts, loop.Body)
+	f, how := c.countingFact(loop, facts)
+	if how == notCounting {
+		return
+	}
+	if how == wraps {
+		f.drop = wrapDrop(loop, f)
+	}
+	c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, loop.Body)
 }
 
 // checkForRange checks a range loop. It ranges over an integer, of any
@@ -489,7 +503,15 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 	m := c.mark()
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
-		if g, facts := c.afterFacts(stmt); len(facts) > 0 {
+		g, facts := c.afterFacts(stmt)
+		if g == nil {
+			// An if whose branch ends in exit gives nothing, but what it
+			// would give is kept, dropped, to explain a missing proof.
+			if g, facts = c.exitAfterFacts(stmt); len(facts) == 0 {
+				g = nil
+			}
+		}
+		if g != nil {
 			c.assume(g, facts, body[i+1:])
 		}
 	}

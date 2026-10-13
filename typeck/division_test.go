@@ -250,7 +250,7 @@ var unprovenDivisorCases = []struct {
 	{
 		"mutable global",
 		divide("if g != 0 {", "    return a / g", "}"),
-		spanned{"divisor g may be zero; check g != 0 first, or use q, ok := ... / g", "g"},
+		spanned{"divisor g may be zero; use q, ok := ... / g", "g"},
 	},
 	{
 		"exit does not leave",

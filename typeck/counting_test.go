@@ -274,7 +274,7 @@ var notCountingLoopCases = []struct {
 	{
 		"unsigned down past zero",
 		indexing("for mut j uint8 = 2; j >= 0; j-- {", "    m[0] = a[j]", "}"),
-		indexJ,
+		spanned{"index j may be out of range; check j < 3 first, or use v, ok := ...[j]", "j"},
 	},
 	{
 		"down with no lower bound",

@@ -36,7 +36,7 @@ func check(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return typeck.New(file).Check()
+	return typeck.New(file, f.Data).Check()
 }
 
 func inMain(body string) string {
@@ -159,7 +159,7 @@ func TestRejectsUnknownArgumentExpression(t *testing.T) {
 		},
 	}
 
-	if diags := typeck.New(file).Check(); len(diags) == 0 {
+	if diags := typeck.New(file, nil).Check(); len(diags) == 0 {
 		t.Error("an argument of an unsupported expression kind was accepted")
 	}
 }
@@ -185,7 +185,7 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return file, typeck.New(file).Check()
+	return file, typeck.New(file, f.Data).Check()
 }
 
 // The parameter's type is what the backend reads to size and place it, so the

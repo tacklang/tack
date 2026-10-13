@@ -720,3 +720,234 @@ func TestExplainingLeavesTheFactsAlone(t *testing.T) {
 		t.Errorf("an unguarded index got notes %v", diags[2].Related)
 	}
 }
+
+// TestOtherCauseNotes checks the notes that explain a missing proof by
+// something other than a fact: an early exit through exit, a counting loop
+// whose step could wrap, a mutable global, a field, an operand that is not
+// a plain name, and an index the checked form does not cover.
+func TestOtherCauseNotes(t *testing.T) {
+	runNoteCases(t, otherCauseCases)
+}
+
+// globalNote is the note at the declaration of the mutable global g.
+var globalNote = wantNote{
+	"g is a mutable global, so no check proves it; copy it into a local first", "g", 3, 5,
+}
+
+// inGlobalFile wraps lines in f, which takes params and returns result, in a
+// file that declares the mutable global g, an int64, on line 3. The first
+// line is line 6.
+func inGlobalFile(params, result string, lines ...string) string {
+	return "package main\n\nmut g int64\n\n" + inFunc(params, result, lines)[len("package main\n\n"):]
+}
+
+// otherCauseCases are programs whose missing proof has a cause other than a
+// fact.
+var otherCauseCases = []noteCase{
+	{
+		"exit as an early exit",
+		inF2("a int64, b int64", "if b == 0 { exit(1) }", "return a / b"),
+		divB,
+		[]wantNote{
+			{"this early exit would prove b != 0 after it", "if b == 0", 4, 5},
+			{"but its branch ends in exit, not in return, break or continue", "exit(1)", 4, 17},
+		},
+	},
+	{
+		"exit in an else",
+		inF2("a int64, b int64", "if b != 0 {", "} else {", "    exit(1)", "}", "return a / b"),
+		divB,
+		[]wantNote{
+			{"this early exit would prove b != 0 after it", "if b != 0", 4, 5},
+			{"but its branch ends in exit, not in return, break or continue", "exit(1)", 6, 9},
+		},
+	},
+	{
+		"a step that could wrap upwards",
+		inF2("a [3]int64",
+			"mut sum int64 = 0",
+			"for mut i int8 = 2; i < 3; i += 126 {",
+			"    sum += a[i]",
+			"}",
+			"return sum",
+		),
+		noteIndexI,
+		[]wantNote{{
+			"this step could wrap i past 127, so the loop does not keep i at or above 2",
+			"i += 126", 5, 32,
+		}},
+	},
+	{
+		"a step that could wrap downwards",
+		inF2("a int64", "for mut i int8 = -2; i > -3; i -= 127 {", "    return a / i", "}"),
+		"divisor i may be zero; check i != 0 first, or use q, ok := ... / i",
+		[]wantNote{{
+			"this step could wrap i past -128, so the loop does not keep i at or below -2",
+			"i -= 127", 4, 34,
+		}},
+	},
+	{
+		"a mutable global divisor",
+		inGlobalFile("x int64", "int64", "if g != 0 { return x / g }"),
+		"divisor g may be zero; use q, ok := ... / g",
+		[]wantNote{globalNote},
+	},
+	{
+		"a mutable global divisor with no guard",
+		inGlobalFile("x int64", "int64", "mut y := x", "y /= g", "return y"),
+		"divisor g may be zero",
+		[]wantNote{globalNote},
+	},
+	{
+		"a mutable global index",
+		inGlobalFile("a [3]int64", "int64", "return a[g]"),
+		"index g may be out of range; use v, ok := ...[g]",
+		[]wantNote{globalNote},
+	},
+	{
+		"a mutable global index written",
+		inGlobalFile("", "int64", "mut a [3]int64", "a[g] = 1", "return a[0]"),
+		"index g may be out of range",
+		[]wantNote{globalNote},
+	},
+	{
+		"a mutable global string index",
+		inGlobalFile("s string", "uint8", "return s[g]"),
+		"index g may be out of range; use v, ok := ...[g]",
+		[]wantNote{globalNote},
+	},
+	{
+		"a field divisor",
+		"package main\n\ntype P struct {\n    d int64\n}\n\n" +
+			"func f(n int64, p P) int64 {\n    if p.d != 0 { return n / p.d }\n    return 0\n}\n\n" +
+			"func main() {\n}\n",
+		"divisor may be zero; use q, ok := ... / ...",
+		[]wantNote{
+			{
+				"this guard proves nothing: a field never carries a fact; copy p.d into a variable first",
+				"p.d != 0",
+				8,
+				8,
+			},
+		},
+	},
+	{
+		"a field index after an early exit",
+		"package main\n\ntype P struct {\n    i int64\n}\n\n" +
+			"func f(a [3]int64, p P) int64 {\n    if p.i < 0 || p.i >= 3 {\n        return 0\n    }\n" +
+			"    return a[p.i]\n}\n\nfunc main() {\n}\n",
+		"index may be out of range; use v, ok := ...[...]",
+		[]wantNote{
+			{
+				"this early exit proves nothing: a field never carries a fact; copy p.i into a variable first",
+				"p.i < 0 || p.i >= 3",
+				8,
+				8,
+			},
+		},
+	},
+	{
+		"an index that is not a name",
+		inF2("a [3]int64, i int64", "if 0 <= i && i < 2 {", "    return a[i + 1]", "}"),
+		"index may be out of range; use v, ok := ...[...]",
+		[]wantNote{{
+			"this guard bounds i, not i + 1; only a plain name is proven, " +
+				"so copy i + 1 into a variable and check it",
+			"0 <= i && i < 2", 4, 8,
+		}},
+	},
+	{
+		"a divisor that is not a name",
+		inF2("a int64, b int64", "if b > 1 {", "    return a / (b - 1)", "}"),
+		"divisor may be zero; use q, ok := ... / ...",
+		[]wantNote{{
+			"this guard bounds b, not b - 1; only a plain name is proven, " +
+				"so copy b - 1 into a variable and check it",
+			"b > 1", 4, 8,
+		}},
+	},
+	{
+		"a written index that is not a name",
+		inF2(
+			"i int64",
+			"mut a [3]int64",
+			"if 0 <= i && i < 2 {",
+			"    a[i + 1] = 1",
+			"}",
+			"return a[0]",
+		),
+		"index may be out of range",
+		[]wantNote{{
+			"this guard bounds i, not i + 1; only a plain name is proven, " +
+				"so copy i + 1 into a variable and check it",
+			"0 <= i && i < 2", 5, 8,
+		}},
+	},
+	{
+		"only the outer index is checked",
+		inF2("m [2][3]int64, i int64, j int64", "v, ok := m[i][j]", "if ok {", "    return v", "}"),
+		"index i may be out of range; check 0 <= i && i < 2 first, or use v, ok := ...[i]",
+		[]wantNote{{
+			"only the outer index of m[i][j] is checked; m[i] needs its own proof",
+			"m[i][j]", 4, 14,
+		}},
+	},
+}
+
+// TestUint64ComparedWithLen checks the note on comparing a uint64 with
+// len, an int64, which says how to convert it.
+func TestUint64ComparedWithLen(t *testing.T) {
+	for _, tt := range []struct {
+		name, cond string
+		col        int
+	}{
+		{"on the left", "u < len(s)", 8},
+		{"on the right", "len(s) > u", 17},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			expectNotes(
+				t,
+				inF8("s string, u uint64", "if "+tt.cond+" {", "    return 1", "}"),
+				"mismatched types "+map[bool]string{true: "uint64 and int64", false: "int64 and uint64"}[tt.col == 8]+
+					" in "+strings.Fields(tt.cond)[1],
+				wantNote{
+					"len gives an int64; convert u first with i, ok := int64(u)",
+					"u",
+					4,
+					tt.col,
+				},
+			)
+		})
+	}
+}
+
+// TestNoOtherNoteWithoutAGuard checks that a field, or an operand that is
+// not a name, that no guard mentions keeps its error alone.
+func TestNoOtherNoteWithoutAGuard(t *testing.T) {
+	for _, src := range []string{
+		inF2("a [3]int64, i int64", "return a[i + 1]"),
+		inF2("a int64, b int64, c int64", "if c > 1 {", "    return a / (b - 1)", "}"),
+		"package main\n\ntype P struct {\n    d int64\n}\n\n" +
+			"func f(n int64, p P, q P) int64 {\n    if q.d != 0 { return n / p.d }\n    return 0\n}\n\n" +
+			"func main() {\n}\n",
+	} {
+		diags := check(t, src)
+		if len(diags) != 1 || len(diags[0].Related) != 0 {
+			t.Errorf("%q: got %v, want one error with no notes", src, diags)
+		}
+	}
+}
+
+// TestPhantomFactsProveNothing checks that a fact that would hold but for
+// how its region is written, after an if whose branch ends in exit or in a
+// counting loop whose step could wrap, proves nothing.
+func TestPhantomFactsProveNothing(t *testing.T) {
+	for _, src := range []string{
+		inF2("a int64, b int64", "if b == 0 { exit(1) }", "return a / b"),
+		inF2("a [3]int64", "for mut i int8 = 2; i < 3; i += 126 {", "    return a[i]", "}"),
+	} {
+		if diags := check(t, src); len(diags) != 1 {
+			t.Errorf("%q: got %v, want the one missing proof", src, diags)
+		}
+	}
+}

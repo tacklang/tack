@@ -314,9 +314,13 @@ region to leave `s` unassigned; `s` may be `mut` as long as the region does
 not change it. Assigning a whole array does not affect proofs about its
 indexes, since its length cannot change.
 
-A **mutable global** never has a fact, since any call can change it. An
-**immutable** global always has a known value, since its initializer is a
-constant.
+A **mutable global** never has a fact, since any call can change it, so
+its error suggests only the checked
+form, <!-- error: safety-no-proof-mutable-global -->`divisor g may be zero; use q, ok := ... / g`,
+with a note at its
+declaration: <!-- note: safety-no-proof-mutable-global -->`g is a mutable global, so no check proves it; copy it into a local first`.
+An **immutable** global always has a known value, since its initializer
+is a constant.
 
 **Deferred code** is checked with the facts in force where the `defer` is
 written. The region those facts hold in takes in the rest of the defer's
@@ -380,6 +384,14 @@ then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the 
 under the `i` of `i++`,
 and <!-- note: safety-no-proof-loop-assigns -->`this guard would bound i only above; i may be negative`.
 An operation no guard mentions keeps its error alone.
+
+Other notes point at a branch that ends in `exit`, which would have left
+the block had it been a `return`; at a counting loop's step that could
+wrap; at a guard on a field, or on a variable used inside a larger divisor
+or index; and, in `v, ok := m[i][j]`, at the element whose outer index
+alone the checked form covers. Two do not need a guard: the declaration of
+a mutable global, and, on comparing a `uint64` with `len`, the operand to
+convert: <!-- note: safety-no-proof-unsigned-len -->`len gives an int64; convert u first with i, ok := int64(u)`.
 
 ## Per operation
 

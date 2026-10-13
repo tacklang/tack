@@ -213,16 +213,22 @@ func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fac
 	return facts
 }
 
-// switchAfterFacts returns the facts a switch gives the statements after it
-// in its block, as the chain of ifs it means does: its first case tried is
-// the if, and the rest of the chain its else. The facts come from that
-// first case, as an early exit.
-func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
+// switchAfterFactsBy returns the facts a switch gives the statements after
+// it in its block, as the chain of ifs it means does: its first case tried
+// is the if, and the rest of the chain its else. The facts come from that
+// first case, as an early exit, the guard returned, when one side of the
+// chain leaves and the other does not; a call to exit counts as leaving
+// when exits is set (see leavesBy).
+func (c *Checker) switchAfterFactsBy(s *ast.Switch, exits bool) (*guard, []fact) {
 	order := tryOrder(s)
 	if len(order) == 0 || order[0].Default {
 		return nil, nil
 	}
-	facts := exitFacts(leaves(order[0].Body), chainLeaves(order[1:]), func(holds bool) []fact {
+	firstLeaves, restLeaves := leavesBy(order[0].Body, exits), chainLeavesBy(order[1:], exits)
+	if firstLeaves == restLeaves {
+		return nil, nil
+	}
+	facts := exitFacts(firstLeaves, restLeaves, func(holds bool) []fact {
 		return c.caseFacts(s, order[0], holds)
 	})
 	return &guard{span: caseSpan(order[0]), kind: guardExit}, facts
@@ -238,15 +244,16 @@ func caseSpan(cl *ast.CaseClause) ast.Span {
 	return span
 }
 
-// chainLeaves reports whether a chain of cases, in the order tried, always
-// leaves the code around it: it ends in a default, and every case's body
-// leaves.
-func chainLeaves(order []*ast.CaseClause) bool {
+// chainLeavesBy reports whether a chain of cases, in the order tried,
+// always leaves the code around it: it ends in a default, and every case's
+// body leaves, a call to exit counting as leaving when exits is set (see
+// leavesBy).
+func chainLeavesBy(order []*ast.CaseClause, exits bool) bool {
 	if len(order) == 0 || !order[len(order)-1].Default {
 		return false
 	}
 	for _, cl := range order {
-		if !leaves(cl.Body) {
+		if !leavesBy(cl.Body, exits) {
 			return false
 		}
 	}

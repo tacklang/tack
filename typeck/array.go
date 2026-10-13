@@ -1,6 +1,9 @@
 package typeck
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
@@ -163,7 +166,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 			return types.Invalid
 		}
 	default:
-		c.requireInRange(ix.X, ix.Index, base, n, write)
+		c.requireInRange(ix, base, n, write)
 	}
 	return elem
 }
@@ -193,10 +196,12 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 	return []types.Type{elem, types.Bool}, true
 }
 
-// requireInRange reports an index that is not proven to be in range for
-// the array of, of type typ, with n elements: a constant outside it, or
-// anything else no fact covers, with notes that explain why no fact did.
-func (c *Checker) requireInRange(of, index ast.Expr, typ types.Type, n int64, write bool) {
+// requireInRange reports the index of ix, an element of an array of type
+// typ, with n elements, when it is not proven to be in range: a constant
+// outside it, or anything else no fact covers, with notes that explain why
+// no fact did.
+func (c *Checker) requireInRange(ix *ast.Index, typ types.Type, n int64, write bool) {
+	index := ix.Index
 	if v, ok := c.knownValue(index); ok {
 		if !c.constantInRange(v, n) {
 			c.errorf(index.Spanned(), "index %s is out of range for %s", v, c.table.Name(typ))
@@ -206,40 +211,52 @@ func (c *Checker) requireInRange(of, index ast.Expr, typ types.Type, n int64, wr
 	if c.inRange(index, n) {
 		return
 	}
+	msg, notes := c.indexError(ix, fmt.Sprint(n), func(id *ast.Ident) []diag.Diagnostic {
+		e := extent{of: ix.X, unit: "element", n: n, known: true}
+		return c.explain(c.indexProof(id, e, func() bool { return c.inRange(index, n) }))
+	})
+	if !write {
+		msg += orUse("v, ok := ...["+operandName(index)+"]", strings.HasSuffix(msg, " first"))
+	}
+	c.errorNotes(index.Spanned(), notes, "%s", msg)
+}
 
-	id, isName := index.(*ast.Ident)
-	var notes []diag.Diagnostic
-	if isName {
-		e := extent{of: of, unit: "element", n: n, known: true}
-		notes = c.explain(c.indexProof(id, e, func() bool { return c.inRange(index, n) }))
-	}
-	switch {
-	case isName && write:
-		c.errorNotes(
-			index.Spanned(),
-			notes,
-			"index %s may be out of range; check 0 <= %s && %s < %d first",
-			id.Name,
-			id.Name,
-			id.Name,
-			n,
-		)
+// indexError returns the error for the index of ix, not a known value, that
+// no fact proves in range, before any mention of the checked form, and the
+// notes that explain it. A variable gets the check that would prove it,
+// below bound, with no lower bound for an unsigned one, except a mutable
+// global, which no check proves; explain gives the notes for a variable.
+// An index inside an element being bound with ok is also explained.
+func (c *Checker) indexError(
+	ix *ast.Index,
+	bound string,
+	explain func(id *ast.Ident) []diag.Diagnostic,
+) (string, []diag.Diagnostic) {
+	msg, notes := "index may be out of range", c.operandNotes(ix.Index)
+	id, isName := ix.Index.(*ast.Ident)
+	switch v, isGlobal := c.mutableGlobal(ix.Index); {
+	case isGlobal:
+		msg, notes = "index "+v.Name+" may be out of range", globalNote(v)
+	case isName && bound == "":
+		msg, notes = "index "+id.Name+" may be out of range", explain(id)
 	case isName:
-		c.errorNotes(
-			index.Spanned(),
-			notes,
-			"index %s may be out of range; check 0 <= %s && %s < %d first, or use v, ok := ...[%s]",
-			id.Name,
-			id.Name,
-			id.Name,
-			n,
-			id.Name,
+		msg, notes = "index "+id.Name+" may be out of range; check "+inBounds(
+			id,
+			bound,
+		)+" first", explain(
+			id,
 		)
-	case write:
-		c.errorf(index.Spanned(), "index may be out of range")
-	default:
-		c.errorf(index.Spanned(), "index may be out of range; use v, ok := ...[...]")
 	}
+	return msg, append(notes, c.outerIndexNote(ix)...)
+}
+
+// inBounds writes the check that proves the variable id below bound and,
+// unless its type is unsigned and so never negative, at least 0.
+func inBounds(id *ast.Ident, bound string) string {
+	if types.IsUnsigned(ast.TypeOf(id)) {
+		return id.Name + " < " + bound
+	}
+	return "0 <= " + id.Name + " && " + id.Name + " < " + bound
 }
 
 // lenCall checks a call to the builtin len, which takes one array or string

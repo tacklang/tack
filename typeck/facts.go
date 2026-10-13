@@ -664,6 +664,12 @@ func writes(target ast.Expr, decl ast.Decl) bool {
 // leave. Like the terminating rule, it is syntactic, so a call to exit does
 // not count.
 func leaves(body []ast.Stmt) bool {
+	return leavesBy(body, false)
+}
+
+// leavesBy is leaves, except that a call to exit counts as leaving when
+// exits is set, which only explaining a missing proof asks for.
+func leavesBy(body []ast.Stmt, exits bool) bool {
 	if len(body) == 0 {
 		return false
 	}
@@ -671,29 +677,33 @@ func leaves(body []ast.Stmt) bool {
 	case *ast.Return, *ast.Break, *ast.Continue:
 		return true
 	case *ast.If:
-		return leaves(s.Then) && leaves(s.Else)
+		return leavesBy(s.Then, exits) && leavesBy(s.Else, exits)
 	case *ast.Switch:
-		return chainLeaves(tryOrder(s))
+		return chainLeavesBy(tryOrder(s), exits)
+	case *ast.ExprStmt:
+		call, ok := s.X.(*ast.Call)
+		return exits && ok && isExit(call)
 	default:
 		return false
 	}
 }
 
 // afterFacts returns the facts an if, or a switch, gives the statements
-// after it in its block, and the guard they come from; see exitFacts and
-// switchAfterFacts.
+// after it in its block, and the guard they come from, when it is an early
+// exit, one of whose branches leaves; see exitFacts and switchAfterFacts.
+// An early exit is a guard whether or not it gives facts.
 func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 	switch s := stmt.(type) {
 	case *ast.If:
-		facts := exitFacts(leaves(s.Then), leaves(s.Else), func(holds bool) []fact {
-			return c.factsFrom(s.Cond, holds)
-		})
-		if len(facts) == 0 {
+		thenLeaves, elseLeaves := leaves(s.Then), leaves(s.Else)
+		if thenLeaves == elseLeaves {
 			return nil, nil
 		}
-		return ifGuard(s), facts
+		return ifGuard(s), exitFacts(thenLeaves, elseLeaves, func(holds bool) []fact {
+			return c.factsFrom(s.Cond, holds)
+		})
 	case *ast.Switch:
-		return c.switchAfterFacts(s)
+		return c.switchAfterFactsBy(s, false)
 	default:
 		return nil, nil
 	}
