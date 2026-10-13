@@ -670,3 +670,103 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		})
 	}
 }
+
+// operatorErrorCases are binary expressions an operator is not defined on,
+// with the one diagnostic each must produce: an expression is reported
+// once, at the first operand the operator is not defined on, however many
+// of its operands are wrong.
+var operatorErrorCases = []struct {
+	name string
+	src  string
+	want spanned
+}{
+	{
+		"two strings added",
+		inMain("print(\"a\" + \"b\")"),
+		spanned{"operator + is not defined on string", "\"a\""},
+	},
+	{
+		"two strings subtracted",
+		inMain("print(\"a\" - \"b\")"),
+		spanned{"operator - is not defined on string", "\"a\""},
+	},
+	{
+		"two strings multiplied",
+		inMain("print(\"a\" * \"b\")"),
+		spanned{"operator * is not defined on string", "\"a\""},
+	},
+	{
+		"two strings divided",
+		inMain("print(\"a\" / \"b\")"),
+		spanned{"operator / is not defined on string", "\"a\""},
+	},
+	{
+		"two strings remainder",
+		inMain("print(\"a\" % \"b\")"),
+		spanned{"operator % is not defined on string", "\"a\""},
+	},
+	{
+		"two bools added",
+		inMain("exit(true + false)"),
+		spanned{"operator + is not defined on bool", "true"},
+	},
+	{
+		"string and bool",
+		inMain("exit(\"a\" - true)"),
+		spanned{"operator - is not defined on string", "\"a\""},
+	},
+	{
+		"only the right operand",
+		inMain("exit(1 + \"b\")"),
+		spanned{"operator + is not defined on string", "\"b\""},
+	},
+	{
+		"two arrays",
+		inMain("exit([1]int64{1} + [1]int64{2})"),
+		spanned{"operator + is not defined on [1]int64", "[1]int64{1}"},
+	},
+	{
+		"two integers and",
+		inMain("if 1 && 2 {\n    }"),
+		spanned{"operator && is not defined on int64", "1"},
+	},
+	{
+		"two strings or",
+		inMain("if \"a\" || \"b\" {\n    }"),
+		spanned{"operator || is not defined on string", "\"a\""},
+	},
+	{
+		"only the right of and",
+		inMain("if true && 2 {\n    }"),
+		spanned{"operator && is not defined on int64", "2"},
+	},
+	{
+		"nested",
+		inMain("print((\"a\" + \"b\") + \"c\")"),
+		spanned{"operator + is not defined on string", "\"a\""},
+	},
+	{
+		"global",
+		"package main\n\nvar g = \"a\" + \"b\"\n\nfunc main() {\n    print(g)\n}\n",
+		spanned{"operator + is not defined on string", "\"a\""},
+	},
+}
+
+// TestReportsAnOperatorErrorOncePerExpression checks each of
+// operatorErrorCases gives exactly its one diagnostic.
+func TestReportsAnOperatorErrorOncePerExpression(t *testing.T) {
+	for _, tt := range operatorErrorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkTree(t, tt.src)
+			if len(diags) != 1 {
+				t.Fatalf("got %v, want one diagnostic", diags)
+			}
+			if diags[0].Message != tt.want.msg {
+				t.Errorf("message = %q, want %q", diags[0].Message, tt.want.msg)
+			}
+			if got := tt.src[diags[0].Span.Start:diags[0].Span.End]; got != tt.want.at {
+				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
+			}
+		})
+	}
+}

@@ -61,17 +61,17 @@ var invalidGlobalUseCases = []struct {
 		"package main\n\nfunc f() {\n}\n\nvar f = 1\n\nfunc main() {\n    f()\n}\n",
 		[]string{"f is already declared"},
 	},
-	// The global is the one rejected, so it never comes into scope and a read
-	// of it is undefined too.
+	// The global is the one rejected, so it never comes into scope, but a
+	// read of it follows from that and is not reported again.
 	{
 		"a function named like it",
 		"package main\n\nvar f = 1\n\nfunc f() {\n}\n\nfunc main() {\n    exit(f)\n}\n",
-		[]string{"f is already declared", "undefined: f"},
+		[]string{"f is already declared"},
 	},
 	{
 		"named like a builtin",
 		"package main\n\nvar print = 1\n\nfunc main() {\n    exit(print)\n}\n",
-		[]string{"print is a builtin and cannot be redeclared", "undefined: print"},
+		[]string{"print is a builtin and cannot be redeclared"},
 	},
 	{
 		"named main",

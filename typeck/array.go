@@ -231,19 +231,22 @@ func (c *Checker) requireInRange(index ast.Expr, typ types.Type, n int64, write 
 // lenCall checks a call to the builtin len, which takes one array or string
 // and gives an int64. The length of an array, and of a string literal, is a
 // constant, recorded on the call, unless working it out runs a call, which
-// it must then still make.
+// it must then still make. A call whose arguments are wrong, or whose
+// argument has no type, gives types.Invalid, so a length it was to give
+// is not reported as unknown too.
 func (c *Checker) lenCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "len", 1) {
 		for _, arg := range call.Args {
 			c.expr(arg)
 		}
-		return types.Int64
+		return types.Invalid
 	}
 
 	arg := call.Args[0]
 	got := c.expr(arg)
 	switch {
 	case got == types.Invalid:
+		return types.Invalid
 	case c.table.IsArray(got):
 		if !hasCall(arg) {
 			call.Const = constant.FromInt64(c.table.Len(got))
@@ -253,8 +256,10 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 			call.Const = constant.FromInt64(int64(len(lit.Value)))
 		}
 	default:
-		got = c.valueOf(arg, got)
-		c.errorf(arg.Spanned(), "len expects an array or a string, got %s", c.table.Name(got))
+		if got = c.valueOf(arg, got); got != types.Invalid {
+			c.errorf(arg.Spanned(), "len expects an array or a string, got %s", c.table.Name(got))
+		}
+		return types.Invalid
 	}
 	return types.Int64
 }

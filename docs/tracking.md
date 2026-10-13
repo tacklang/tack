@@ -149,7 +149,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | C backend                          | yes     | Needs `clang` on `PATH`                                                    |
 | Other backends                     | no      | The registry allows them; arm64 was dropped                                |
 | `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2                        |
-| Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage |
+| Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/` and every case in `examples/invalid.txtar` |
 | Fuzzing                            | partial | Lexer alone, and the whole pipeline through the driver                     |

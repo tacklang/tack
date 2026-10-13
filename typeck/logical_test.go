@@ -57,10 +57,7 @@ func TestRejectsNonBoolLogicalOperands(t *testing.T) {
 	}{
 		{"1 && true", []want{{"operator && is not defined on int64", "1"}}},
 		{"a || \"s\"", []want{{"operator || is not defined on string", "\"s\""}}},
-		{"1 && 2", []want{
-			{"operator && is not defined on int64", "1"},
-			{"operator && is not defined on int64", "2"},
-		}},
+		{"1 && 2", []want{{"operator && is not defined on int64", "1"}}},
 		{"!5", []want{{"operator ! is not defined on int64", "5"}}},
 		{"!\"s\"", []want{{"operator ! is not defined on string", "\"s\""}}},
 		{"!(1 + 2)", []want{{"operator ! is not defined on int64", "1 + 2"}}},

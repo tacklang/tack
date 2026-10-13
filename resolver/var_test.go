@@ -162,6 +162,57 @@ var invalidVariableUseCases = []struct {
 		inMain("    x := y\n    exit(x)"),
 		[]string{"undefined: y"},
 	},
+	// An error is not reported when it follows from one already reported:
+	// a variable whose declaration was reported is not reported as unused,
+	// and a use of a name whose declaration was rejected is not reported.
+	{
+		"undefined name in an unused variable's initializer",
+		inMain("    x := y"),
+		[]string{"undefined: y"},
+	},
+	{
+		"unused variable of a type that is not one",
+		inMain("    n := 1\n    mut m n"),
+		[]string{"n is not a type"},
+	},
+	{
+		"type name as a variable",
+		inMain("    uint8 := 5\n    exit(uint8)"),
+		[]string{"cannot use uint8 as a name; it is a type"},
+	},
+	{
+		"type name as a variable, assigned",
+		inMain("    mut uint8 := 5\n    uint8 = 6\n    uint8++"),
+		[]string{"cannot use uint8 as a name; it is a type"},
+	},
+	{
+		"_ as a variable",
+		inMain("    _ := 5\n    exit(_)"),
+		[]string{"cannot use _ as a name"},
+	},
+	{
+		"type name as a parameter",
+		"package main\n\nfunc f(int8 int64) {\n    exit(int8)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		[]string{"cannot use int8 as a name; it is a type"},
+	},
+	{
+		"type name as a global",
+		"package main\n\nvar bool = 1\n\nfunc main() {\n    exit(bool)\n}\n",
+		[]string{"cannot use bool as a name; it is a type"},
+	},
+	{
+		"type name as a variable, used in a later block",
+		inMain("    uint8 := 5\n    if true {\n        exit(uint8)\n    }"),
+		[]string{"cannot use uint8 as a name; it is a type"},
+	},
+	{
+		"type name as a variable, used after its block",
+		inMain("    if true {\n        uint8 := 5\n    }\n    exit(uint8)"),
+		[]string{
+			"cannot use uint8 as a name; it is a type",
+			"cannot use uint8 as a value; it is a type",
+		},
+	},
 }
 
 // TestRejectsInvalidVariableUse pins the diagnostics, in order, for each way

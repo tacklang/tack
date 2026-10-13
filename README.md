@@ -94,7 +94,10 @@ tack --emit examples/hello/main.tck > hello.c   # the C the backend emits
 ## How it works
 
 Each stage is a package that takes a data structure and returns one, along with
-any diagnostics. The first stage to report a diagnostic ends the run.
+any diagnostics. The first stage to report a diagnostic ends the run. A stage
+reports every problem it finds, each once: an error that follows from one
+already reported, such as an unused variable whose declaration was wrong, is
+not reported.
 
 | Package    | Role                                                          |
 |------------|---------------------------------------------------------------|

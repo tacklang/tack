@@ -2129,6 +2129,30 @@ not-non-bool/main.tck:4:9: error: operator ! is not defined on int64
    |	        ^
 05 |	        exit(1)
 
+-- operator-on-two-wrong-operands/main.tck --
+package main
+
+func main() {
+    if "a" && 1 {
+        print("a" - true)
+    }
+}
+-- operator-on-two-wrong-operands/expected --
+stage: typeck
+---
+
+operator-on-two-wrong-operands/main.tck:4:8: error: operator && is not defined on string
+03 |	func main() {
+04 |	    if "a" && 1 {
+   |	       ^~~
+05 |	        print("a" - true)
+
+operator-on-two-wrong-operands/main.tck:5:15: error: operator - is not defined on string
+04 |	    if "a" && 1 {
+05 |	        print("a" - true)
+   |	              ^~~
+06 |	    }
+
 -- param-type-mismatch/main.tck --
 package main
 
@@ -3463,12 +3487,6 @@ string-arithmetic/main.tck:4:10: error: operator + is not defined on string
    |	         ^~~
 05 |	}
 
-string-arithmetic/main.tck:4:16: error: operator + is not defined on string
-03 |	func main() {
-04 |	    exit("a" + "b")
-   |	               ^~~
-05 |	}
-
 -- string-compare-mismatch/main.tck --
 package main
 
@@ -3903,18 +3921,6 @@ struct-init-cycle/main.tck:8:12: error: initialization cycle: g refers to itself
    |	           ^
 09 |	}
 
-struct-init-cycle/main.tck:8:8: error: array length must be a constant integer
-07 |	type Inner struct {
-08 |	    b [len(g.b)]int64
-   |	       ^~~~~~~~
-09 |	}
-
-struct-init-cycle/main.tck:4:8: error: array length must be a constant integer
-03 |	type Outer struct {
-04 |	    a [len(g.b)]int64
-   |	       ^~~~~~~~
-05 |	}
-
 -- struct-literal-bad-key/main.tck --
 package main
 
@@ -4157,12 +4163,6 @@ struct-not-a-type/main.tck:6:11: error: limit is not a type
    |	          ^~~~~
 07 |	    exit(p)
 
-struct-not-a-type/main.tck:3:5: error: declared and not used: limit
-02 |	
-03 |	var limit = 3
-   |	    ^~~~~
-04 |	
-
 -- struct-ordering/main.tck --
 package main
 
@@ -4241,12 +4241,6 @@ struct-recursive-length/main.tck:4:16: error: invalid recursive type Box
 03 |	type Box struct {
 04 |	    items [len(b.items)]int64
    |	               ^~~~~~~
-05 |	}
-
-struct-recursive-length/main.tck:4:12: error: array length must be a constant integer
-03 |	type Box struct {
-04 |	    items [len(b.items)]int64
-   |	           ^~~~~~~~~~~~
 05 |	}
 
 -- switch-bad-clause/main.tck --
@@ -4579,12 +4573,6 @@ type-name-as-variable/main.tck:4:5: error: cannot use uint8 as a name; it is a t
    |	    ^~~~~
 05 |	    exit(uint8)
 
-type-name-as-variable/main.tck:5:10: error: cannot use uint8 as a value; it is a type
-04 |	    uint8 := 5
-05 |	    exit(uint8)
-   |	         ^~~~~
-06 |	}
-
 -- undef-func/main.tck --
 package main
 
@@ -4683,6 +4671,22 @@ unterminated-string-eof/main.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~
 
 -- unterminated-string-eof/no-final-newline --
+-- unused-with-undefined-value/main.tck --
+package main
+
+func main() {
+    x := y
+}
+-- unused-with-undefined-value/expected --
+stage: resolve
+---
+
+unused-with-undefined-value/main.tck:4:10: error: undefined: y
+03 |	func main() {
+04 |	    x := y
+   |	         ^
+05 |	}
+
 -- value-from-void/main.tck --
 package main
 

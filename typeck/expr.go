@@ -276,9 +276,7 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 
 	switch {
 	case bin.Op.IsLogical():
-		okX := c.require(bin.X, x, bin.Op.String(), types.Bool)
-		okY := c.require(bin.Y, y, bin.Op.String(), types.Bool)
-		if okX && okY {
+		if c.operandsDefined(bin, x, y, isBool) {
 			return types.Bool
 		}
 		return types.Invalid
@@ -434,22 +432,42 @@ func (c *Checker) divisionResults(bin *ast.Binary, want int, span ast.Span) ([]t
 	return []types.Type{typ, types.Bool}, true
 }
 
-// integerOperands reports each operand of bin that is not an integer, and
-// returns whether both are integers. An Invalid operand is not reported
-// again, but leaves bin without a type.
+// integerOperands reports the operands of bin, of types x and y, unless
+// both are integers, as operandsDefined does, and returns whether they are.
 func (c *Checker) integerOperands(bin *ast.Binary, x, y types.Type) bool {
-	okX := x == types.Invalid || c.requireInteger(bin.X, x, bin.Op.String())
-	okY := y == types.Invalid || c.requireInteger(bin.Y, y, bin.Op.String())
-	return x != types.Invalid && y != types.Invalid && okX && okY
+	return c.operandsDefined(bin, x, y, types.IsInteger)
 }
 
-// requireInteger reports operand, of type got, unless it is an integer, as
-// an operand op is not defined on.
-func (c *Checker) requireInteger(operand ast.Expr, got types.Type, op string) bool {
-	if types.IsInteger(got) {
-		return true
+// isBool reports whether typ is bool, the one type && || and ! are defined
+// on.
+func isBool(typ types.Type) bool {
+	return typ == types.Bool
+}
+
+// operandsDefined reports whether bin's operator is defined on both of its
+// operands, of types x and y, by defined. When it is not, the expression is
+// reported once, at the first operand it is not defined on, however many
+// are; an untyped constant is named as the int64 it would otherwise become.
+// An Invalid operand has been reported already, so nothing built on it is
+// reported again.
+func (c *Checker) operandsDefined(
+	bin *ast.Binary,
+	x, y types.Type,
+	defined func(types.Type) bool,
+) bool {
+	if x == types.Invalid || y == types.Invalid {
+		return false
 	}
-	c.errorf(operand.Spanned(), "operator %s is not defined on %s", op, c.table.Name(got))
+	operand, got := bin.X, x
+	switch {
+	case defined(x) && defined(y):
+		return true
+	case defined(x):
+		operand, got = bin.Y, y
+	}
+	if got = c.valueOf(operand, got); got != types.Invalid {
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", bin.Op, c.table.Name(got))
+	}
 	return false
 }
 

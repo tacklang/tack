@@ -67,8 +67,14 @@
 // a package-level one after every function.
 //
 // Every name it reports as undefined gets its own diagnostic, so one run
-// lists them all. When Resolve returns no diagnostics, every Ident in the
-// tree used as a value, a callee or an assignment target is bound, which
+// lists them all. An error that follows from one already reported is not
+// reported, as in the type checker: a use or assignment of a name whose
+// declaration was rejected, being reserved or already declared, which
+// refers to that declaration, is not reported where it would be an error,
+// and a variable whose declaration had an error, or that was named where a
+// type was expected, is not reported as unused. When Resolve returns no
+// diagnostics, every Ident in the tree used as a value, a callee or an
+// assignment target is bound, which
 // the type checker and code generator rely on; a name written as a type is
 // bound unless it is a basic type's, or names nothing, which the type
 // checker reports.

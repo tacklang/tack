@@ -578,10 +578,7 @@ var structErrorCases = []struct {
 	{
 		"struct in arithmetic",
 		withTypes(pointDecls, "p := Point{x: 1, y: 2}", "q := p + p", "exit(q.x)"),
-		[]spanned{
-			{"operator + is not defined on Point", "p"},
-			{"operator + is not defined on Point", "p"},
-		},
+		[]spanned{{"operator + is not defined on Point", "p"}},
 	},
 	{
 		"struct as a condition", withTypes(pointDecls, "p := Point{x: 1, y: 2}", "if p {", "}"),
@@ -790,9 +787,20 @@ func TestCyclicStructUsedEverywhereStillEnds(t *testing.T) {
 }
 
 // A struct whose array length depends on itself, through a global or a
-// field of its own, is reported rather than looped on.
+// field of its own, is reported rather than looped on, once: a length that
+// cannot be worked out because of the cycle follows from it and is not
+// reported.
 func TestRejectsStructsDependingOnThemselvesThroughLengths(t *testing.T) {
 	tests := []struct{ name, src, first string }{
+		{
+			"through len of a call with the wrong arguments",
+			withTypes(
+				"type Box struct {\n    items [len()]int64\n}",
+				"mut b Box",
+				"exit(len(b.items))",
+			),
+			"len expects 1 argument(s), got 0",
+		},
 		{
 			"through a global of its own type",
 			withTypes(
@@ -812,8 +820,8 @@ func TestRejectsStructsDependingOnThemselvesThroughLengths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, diags := checkTree(t, tt.src)
-			if len(diags) == 0 || diags[0].Message != tt.first {
-				t.Errorf("got %v, want %q first", diags, tt.first)
+			if len(diags) != 1 || diags[0].Message != tt.first {
+				t.Errorf("got %v, want only %q", diags, tt.first)
 			}
 		})
 	}

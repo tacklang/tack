@@ -21,6 +21,7 @@ type Resolver struct {
 	file     *ast.File
 	funcRefs map[string]*ast.Func
 	read     map[*ast.Var]bool // variables read at least once
+	excused  map[*ast.Var]bool // variables never reported unused: see excuse
 	globals  *scope            // package-level variables and types, enclosing every function
 }
 
@@ -30,6 +31,7 @@ func New(file *ast.File) *Resolver {
 		file:     file,
 		funcRefs: make(map[string]*ast.Func),
 		read:     make(map[*ast.Var]bool),
+		excused:  make(map[*ast.Var]bool),
 		globals:  newScope(nil),
 	}
 }
@@ -37,15 +39,50 @@ func New(file *ast.File) *Resolver {
 // scope holds the names one block declares, and links to the block that
 // encloses it. A function's parameters are its outermost scope.
 type scope struct {
-	parent *scope
-	names  map[string]ast.Decl // *ast.Param, *ast.Var, or *ast.TypeDecl
-	vars   []*ast.Var          // this block's variables, in declaration order
+	parent   *scope
+	names    map[string]ast.Decl // *ast.Param, *ast.Var, or *ast.TypeDecl
+	rejected map[string]bool     // names whose declaration here was reported
+	vars     []*ast.Var          // this block's variables, in declaration order
 }
 
 // newScope returns an empty scope nested in parent, which is nil for a
 // function's outermost scope.
 func newScope(parent *scope) *scope {
-	return &scope{parent: parent, names: make(map[string]ast.Decl)}
+	return &scope{parent: parent, names: make(map[string]ast.Decl), rejected: make(map[string]bool)}
+}
+
+// reject records that a declaration of name in this scope was reported, so
+// that a use of name from here on, which refers to it, is not reported
+// again (see unrejected).
+func (s *scope) reject(name string) {
+	s.rejected[name] = true
+}
+
+// isRejected reports whether a declaration of name was reported in this
+// scope or an enclosing one.
+func (s *scope) isRejected(name string) bool {
+	for sc := s; sc != nil; sc = sc.parent {
+		if sc.rejected[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// unrejected returns diags, the problems found with a use of name, unless
+// a declaration of name visible here was reported: the use refers to that
+// declaration, so what is wrong with it follows from what was reported.
+func unrejected(diags []diag.Diagnostic, name string, sc *scope) []diag.Diagnostic {
+	if len(diags) > 0 && sc.isRejected(name) {
+		return nil
+	}
+	return diags
+}
+
+// excuse records that the variable v is not to be reported as unused,
+// since its declaration, or a use of it, was reported already.
+func (r *Resolver) excuse(v *ast.Var) {
+	r.excused[v] = true
 }
 
 // lookup finds name in this scope or any enclosing one.
@@ -124,6 +161,7 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 
 		if clash := r.packageNameClash(v.Name, v.NameSpan); clash != nil {
 			diags = append(diags, clash...)
+			r.globals.reject(v.Name)
 			continue
 		}
 
@@ -357,31 +395,40 @@ func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 		diags = append(diags, r.resolveType(result, r.globals)...)
 	}
 	for _, param := range fn.Params {
-		if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
-			diags = append(diags, reserved...)
-			continue
-		}
-		if global, clash := r.globals.lookup(param.Name); clash {
-			diags = append(diags, alreadyDeclared(param.Name, param.NameSpan, global))
-			continue
-		}
-		if existing, dup := params.names[param.Name]; dup {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Message:  "duplicate parameter name",
-				Span:     param.NameSpan,
-				Related: []diag.Diagnostic{{
-					Severity: diag.Note,
-					Message:  fmt.Sprintf("previous declaration of %s", param.Name),
-					Span:     nameSpan(existing),
-				}},
-			})
+		if clash := r.paramClash(param, params); clash != nil {
+			diags = append(diags, clash...)
+			params.reject(param.Name)
 			continue
 		}
 		params.names[param.Name] = param
 	}
 
 	return params, diags
+}
+
+// paramClash reports why param cannot be declared in params, the scope of
+// its function's parameters: its name is reserved, a package-level name's,
+// or another parameter's. It returns nil when the name is free.
+func (r *Resolver) paramClash(param *ast.Param, params *scope) []diag.Diagnostic {
+	if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
+		return reserved
+	}
+	if global, clash := r.globals.lookup(param.Name); clash {
+		return []diag.Diagnostic{alreadyDeclared(param.Name, param.NameSpan, global)}
+	}
+	if existing, dup := params.names[param.Name]; dup {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "duplicate parameter name",
+			Span:     param.NameSpan,
+			Related: []diag.Diagnostic{{
+				Severity: diag.Note,
+				Message:  fmt.Sprintf("previous declaration of %s", param.Name),
+				Span:     nameSpan(existing),
+			}},
+		}}
+	}
+	return nil
 }
 
 // resolveBlock resolves a block's statements in a new scope nested in parent,
@@ -396,11 +443,12 @@ func (r *Resolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagnosti
 	return append(diags, r.unused(block)...)
 }
 
-// unused reports every variable a scope declared and never read.
+// unused reports every variable a scope declared and never read, unless it
+// is excused.
 func (r *Resolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
-		if !r.read[v] {
+		if !r.read[v] && !r.excused[v] {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
@@ -425,13 +473,18 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 	}
 
 	if reserved := reservedName(v.Name, v.NameSpan); reserved != nil {
+		sc.reject(v.Name)
 		return append(diags, reserved...)
 	}
 
 	if existing, visible := sc.lookup(v.Name); visible {
+		sc.reject(v.Name)
 		return append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
 	}
 
+	if len(diags) > 0 {
+		r.excuse(v)
+	}
 	sc.names[v.Name] = v
 	sc.vars = append(sc.vars, v)
 	return diags
@@ -528,8 +581,15 @@ func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
 	}
 }
 
-// resolveTargetName binds the variable an assignment target names.
+// resolveTargetName binds the variable an assignment target names. A name
+// whose declaration was rejected is not reported again (unrejected).
 func (r *Resolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
+	return unrejected(r.bindTargetName(target, sc), target.Name, sc)
+}
+
+// bindTargetName does resolveTargetName's work, reporting every problem
+// with the target.
+func (r *Resolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
 	if target.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
@@ -781,6 +841,9 @@ func (r *Resolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 		return nil
 	}
 	if _, isType := decl.(*ast.TypeDecl); !isType {
+		if v, isVar := decl.(*ast.Var); isVar {
+			r.excuse(v)
+		}
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("%s is not a type", id.Name),
@@ -829,8 +892,14 @@ func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 }
 
 // resolveIdent binds a name used as a value to the parameter or variable it
-// names, and marks a variable as read.
+// names, and marks a variable as read. A name whose declaration was
+// rejected is not reported again (unrejected).
 func (r *Resolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
+	return unrejected(r.bindIdent(id, sc), id.Name, sc)
+}
+
+// bindIdent does resolveIdent's work, reporting every problem with the use.
+func (r *Resolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if id.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},

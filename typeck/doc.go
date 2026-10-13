@@ -122,7 +122,8 @@
 //     be used as a value;
 //   - every operand of an arithmetic operator is an integer, the two having
 //     a common type, and the operand of - a signed integer; every operand of
-//     && || and ! is a bool;
+//     && || and ! is a bool; a binary expression whose operator is not
+//     defined on its operands is one error, at the first such operand;
 //   - typed arithmetic whose operands are known values, as knownValue
 //     computes them, gives a value of its type, or the step that does not
 //     is reported as overflowing it, here as at package level; so is - on
@@ -189,6 +190,12 @@
 // same Table from the file.
 //
 // Checking continues past the first problem, so one run reports all of them,
-// in source order. A Checker is single-use: create one with New and call Check
+// in source order, each once. An error is not reported when it follows from
+// one already reported in the same file: nothing built on a declaration or
+// an operand that failed, which has types.Invalid, is reported, an operator
+// is reported once per expression, at the first operand it is not defined
+// on, however many it is not defined on, and a condition already reported
+// still gives the facts it states, so the proof it was written to give is
+// not reported missing. A Checker is single-use: create one with New and call Check
 // once.
 package typeck

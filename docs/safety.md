@@ -350,7 +350,7 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | the same                                                                |
 | <!-- case: safety-no-proof-string-len-minus-one -->`if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
 | <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
-| <!-- case: safety-no-proof-unsigned-len -->`if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)` |
+| <!-- case: safety-no-proof-unsigned-len -->`if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)`. The index under it is not reported as well: an error that follows from one already reported never is |
 | <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
 | <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
 | <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |

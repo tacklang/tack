@@ -144,13 +144,13 @@ var structNameErrors = []struct {
 		"a local named like a type",
 		"type P struct {}",
 		"    P := 1\n    exit(P)",
-		[]string{"P is already declared", "cannot use P as a value; it is a type"},
+		[]string{"P is already declared"},
 	},
 	{
 		"a range variable named like a type",
 		"type P struct {}",
 		"    for P := range 3 {\n        exit(P)\n    }",
-		[]string{"P is already declared", "cannot use P as a value; it is a type"},
+		[]string{"P is already declared"},
 	},
 	{
 		"a parameter named like a type",
@@ -181,7 +181,7 @@ var structNameErrors = []struct {
 		"a variable as a type",
 		"",
 		"    n := 1\n    mut m n\n    exit(m)",
-		[]string{"n is not a type", "declared and not used: n"},
+		[]string{"n is not a type"},
 	},
 	// A signature's types see only package-level names, so the type
 	// checker reports n as an unknown type.
@@ -190,7 +190,7 @@ var structNameErrors = []struct {
 		"a global as a field type",
 		"type P struct { x g }\n\nvar g = 1",
 		"",
-		[]string{"g is not a type", "declared and not used: g"},
+		[]string{"g is not a type"},
 	},
 	{
 		"duplicate fields",
