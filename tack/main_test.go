@@ -1014,3 +1014,21 @@ func TestBuiltStrcmpExits42(t *testing.T) {
 		t.Errorf("strcmp exited with %v, want status 42", err)
 	}
 }
+
+// The raw-strings example reads the bytes of backquoted strings: a
+// backslash before n, a quote, another backslash or the closing backquote
+// is a byte of its own, quotes and comment markers inside are bytes, a
+// raw string spans lines, and bytes from 0x80 up pass through. It prints
+// a three-line raw string as written and exits with the byte value of 't'.
+func TestBuiltRawStringsPrintsAndExits116(t *testing.T) {
+	bin := buildWithClang(t, "raw-strings")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 116 {
+		t.Errorf("raw-strings exited with %v, want status 116", err)
+	}
+	want := "raw\n  strings\n\"keep\" \\every\\ byte // as written\n"
+	if string(out) != want {
+		t.Errorf("raw-strings printed %q, want %q", out, want)
+	}
+}

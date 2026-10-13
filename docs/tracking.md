@@ -32,7 +32,7 @@ Open questions about how a feature should behave are in
 | Float literals              | yes   | no      | no      | no      |                                                                                                                  |
 | Char literals               | yes   | yes     | yes     | yes     | A typed `uint8` constant; one byte, escapes as in strings; `'é'` is an error                                     |
 | String literals             | yes   | yes     | yes     | yes     | Bytes, not runes, everywhere; escapes `\a \b \f \v \n \t \r \\ \"`; no newline                                   |
-| Raw string literals         | yes   | yes     | yes     | yes     | Escapes are decoded too, unlike Go                                                                               |
+| Raw string literals         | yes   | yes     | yes     | yes     | Raw, as in Go: no escapes, may span lines, no backquote inside; carriage returns dropped                         |
 | Operators                   | yes   | partial | partial | partial | All of Go's are lexed; see Expressions for what is parsed                                                        |
 
 ### Declarations

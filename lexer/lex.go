@@ -274,38 +274,39 @@ func (l *Lexer) handleASM() {
 	}
 }
 
-// handleString lexes a double-quoted or backquoted string, decoding escape
-// sequences. A double-quoted string may not span lines. An unterminated
-// string still produces a token, along with a diagnostic.
+// handleString lexes a double-quoted or backquoted string. It reports
+// false, consuming nothing, when the current byte starts neither.
 func (l *Lexer) handleString() bool {
-	start, data := l.pos, l.file.Data
-
-	if l.pos >= len(data) || (data[l.pos] != '"' && data[l.pos] != '`') {
+	switch l.file.Data[l.pos] {
+	case '"':
+		l.handleQuoted()
+		return true
+	case '`':
+		l.handleRaw()
+		return true
+	default:
 		return false
 	}
+}
 
-	term, terminated := data[l.pos], false
+// handleQuoted lexes a double-quoted string, decoding its escape sequences.
+// It may not span lines: a newline ends it unterminated and is left for the
+// main loop to record. An unterminated string still produces a token, along
+// with a diagnostic.
+func (l *Lexer) handleQuoted() {
+	start, data := l.pos, l.file.Data
 	l.pos++
 
+	terminated := false
 	var val strings.Builder
-	for l.pos < len(data) {
-		if data[l.pos] == term {
+	for l.pos < len(data) && data[l.pos] != '\n' {
+		if data[l.pos] == '"' {
 			terminated = true
 			l.pos++
 			break
 		}
-		if data[l.pos] == '\n' {
-			if term == '"' {
-				break
-			}
-			// A raw string spans lines, and the lines it spans still need
-			// recording, or every position after it is reported on the
-			// wrong line.
-			l.file.AddLineStart(l.pos + 1)
-		}
 		if data[l.pos] == '\\' {
-			c := l.unescapeRune('"')
-			val.WriteByte(c)
+			val.WriteByte(l.unescapeRune('"'))
 			continue
 		}
 		val.WriteByte(data[l.pos])
@@ -317,8 +318,42 @@ func (l *Lexer) handleString() bool {
 	if !terminated {
 		l.diag("unterminated string", start, l.pos)
 	}
+}
 
-	return true
+// handleRaw lexes a backquoted string, which is raw, as in Go: every byte up
+// to the next backquote is taken as it is, except carriage returns, which
+// are dropped so a file's line endings do not change the value. A backslash
+// is a byte like any other, so nothing is decoded and a backquote cannot
+// appear inside. The string may span lines, whose starts are recorded, or
+// every later position would be reported on the wrong line. One with no
+// closing backquote runs to the end of the input and still produces a
+// token, along with a diagnostic.
+func (l *Lexer) handleRaw() {
+	start, data := l.pos, l.file.Data
+	l.pos++
+
+	end := bytes.IndexByte(data[l.pos:], '`')
+	terminated := end >= 0
+	if !terminated {
+		end = len(data) - l.pos
+	}
+	body := data[l.pos : l.pos+end]
+
+	for i, c := range body {
+		if c == '\n' {
+			l.file.AddLineStart(l.pos + i + 1)
+		}
+	}
+	l.pos += end
+	if terminated {
+		l.pos++
+	}
+
+	l.addToken(Str, string(bytes.ReplaceAll(body, []byte{'\r'}, nil)), start, l.pos)
+
+	if !terminated {
+		l.diag("unterminated string", start, l.pos)
+	}
 }
 
 // handleChar lexes a single-quoted character literal holding exactly one

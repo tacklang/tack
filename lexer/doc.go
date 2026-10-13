@@ -17,8 +17,13 @@
 // one of the keywords break, continue, return, true and false. An inserted
 // Semi covers no bytes. The token stream always ends with an EOF token.
 //
-// Literals carry decoded values: string and char literals have their escape
-// sequences resolved, and keywords carry their KeywordType. A char literal
+// Literals carry decoded values: double-quoted string and char literals
+// have their escape sequences resolved, and keywords carry their
+// KeywordType. A backquoted string is raw, as in Go: its value is every byte
+// up to the closing backquote, with no escapes decoded and carriage returns
+// dropped, so `\n` is a backslash and an n and a backquote cannot appear
+// inside. It may span lines, and one with no closing backquote runs to the
+// end of the input and is reported as an unterminated string. A char literal
 // holds exactly one byte, written as itself or as an escape sequence, and
 // its value is a one-byte string; a character whose UTF-8 encoding is longer,
 // such as 'é', is reported, as are an empty literal and one with several
@@ -42,6 +47,5 @@
 // Block comments ("/* ... */") are not supported: one is reported and
 // skipped. The body of an asm block is skipped up to the next "}" without
 // being tokenized, and an asm block with no "}" runs to the end of the input
-// without a diagnostic. Escape sequences are decoded in backquoted strings as
-// well as double-quoted ones.
+// without a diagnostic.
 package lexer

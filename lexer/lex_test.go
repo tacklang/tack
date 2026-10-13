@@ -45,6 +45,7 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 
 	checkTokenOrder(t, src, out.tokens)
 	checkCommentSpans(t, src, out.tokens)
+	checkRawStrings(t, src, out.tokens)
 	checkDiagSpans(t, src, out.diags)
 	checkLineStarts(t, src, out.file)
 	checkRendering(t, src, out)
@@ -77,6 +78,39 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 		}
 		checkCommentLines(t, src, text)
 	}
+}
+
+// checkRawStrings fails the test unless every backquoted string token's value
+// is exactly the bytes it covers between its backquotes, carriage returns
+// removed: a raw string decodes nothing. An unterminated one, which runs to
+// the end of src, has no closing backquote to drop.
+func checkRawStrings(t *testing.T, src string, toks []lexer.Token) {
+	t.Helper()
+
+	for i := range toks {
+		tok := &toks[i]
+		start, end := tok.OffsetStart(), tok.OffsetEnd()
+		if !isRawString(src, tok) {
+			continue
+		}
+		body := src[start+1 : end]
+		if end-start >= 2 && src[end-1] == '`' {
+			body = src[start+1 : end-1]
+		} else if end != len(src) {
+			t.Errorf("%q: raw string [%d:%d] ends before EOF without a backquote", src, start, end)
+		}
+		if want := strings.ReplaceAll(body, "\r", ""); tok.Value() != want {
+			t.Errorf("%q: raw string [%d:%d] = %#v, want %#v", src, start, end, tok.Value(), want)
+		}
+	}
+}
+
+// isRawString reports whether tok is a string token whose span lies inside
+// src and starts with a backquote.
+func isRawString(src string, tok *lexer.Token) bool {
+	start, end := tok.OffsetStart(), tok.OffsetEnd()
+	return tok.Kind() == lexer.Str && start >= 0 && start < end && end <= len(src) &&
+		src[start] == '`'
 }
 
 // checkCommentLines fails the test unless every line of the comment text
@@ -236,6 +270,15 @@ var adversarialInputs = []string{
 	"`",
 	"`raw\nstring`",
 	"`unterminated\n",
+	"`\\`",
+	"`\\``",
+	"`a\r\nb`",
+	"`\r",
+	"`\r\n",
+	"`a\\",
+	"`\n\n\n",
+	"``\n``",
+	"`\"` \"`\"",
 	"'",
 	"''",
 	"'a",
@@ -348,6 +391,14 @@ func TestTokenKinds(t *testing.T) {
 		{"float gets one", "1.5\n", "float <semi> EOF"},
 		{"string gets one", "\"s\"\n", "string <semi> EOF"},
 		{"char gets one", "'c'\n", "char <semi> EOF"},
+		{"raw string gets one", "`s`\n", "string <semi> EOF"},
+		{
+			"newlines inside a raw string get none",
+			"x := `a\n\nb`\ny",
+			"ident := string <semi> ident <semi> EOF",
+		},
+		{"raw string then tokens on its last line", "`a\nb` + c", "string + ident <semi> EOF"},
+		{"comment marker inside a raw string", "`// c` x", "string ident <semi> EOF"},
 		{"written semicolon", "x;", "ident ; EOF"},
 		{"semicolon before a trailing comment", "x // c\n", "ident <semi> comment EOF"},
 		{"longest operator wins", "<<= <<", "<<= << EOF"},
@@ -387,6 +438,24 @@ func TestLiteralValues(t *testing.T) {
 		{`"\a\b\f\v\t\r\\"`, "\a\b\f\v\t\r\\"},
 		{`"say \"hi\""`, `say "hi"`},
 		{"`raw\nline`", "raw\nline"},
+		{"``", ""},
+		{"`\\n`", `\n`},
+		{"`\\\"`", `\"`},
+		{"`\\\\`", `\\`},
+		{"`\\`", `\`},
+		{"`a\\\nb`", "a\\\nb"},
+		{"`\\t\\x41\\u00e9\\0`", `\t\x41\u00e9\0`},
+		{"`say \"hi\" // not a comment`", `say "hi" // not a comment`},
+		{"`'`", "'"},
+		{"`\n`", "\n"},
+		{"`\n\n`", "\n\n"},
+		{"`one\ntwo\nthree`", "one\ntwo\nthree"},
+		{"`a\r\nb\r\n`", "a\nb\n"},
+		{"`\r`", ""},
+		{"`a\rb\r\r`", "ab"},
+		{"`\xff\x00\x80é`", "\xff\x00\x80é"},
+		{"`\t`", "\t"},
+		{"`/* not a comment */`", "/* not a comment */"},
 		{"\"\xff\xfe\"", "\xff\xfe"},
 		{"\"é\"", "é"},
 		{`'a'`, "a"},
@@ -662,9 +731,11 @@ var diagnosticCases = []struct {
 	{"string escape cut off by a newline", "\"a\\\nb\"", []string{
 		`Invalid escape sequence "\\"`, "unterminated string", "unterminated string",
 	}},
-	{"raw string escape cut off by a newline", "`a\\\nb`", []string{
-		`Invalid escape sequence "\\"`,
-	}},
+	{"unterminated raw string at a newline", "`abc\nx", []string{"unterminated string"}},
+	{"unterminated raw string ending in a backslash", "`a\\", []string{"unterminated string"}},
+	{"lone backquote", "`", []string{"unterminated string"}},
+	{"backslash does not escape a backquote", "`\\``", []string{"unterminated string"}},
+	{"raw string holds no escapes to report", "`\\q \\\n \\`", nil},
 	{"block comment", "/* c */", []string{"block comments are not supported"}},
 	{"unterminated block comment", "/* c", []string{"block comments are not supported"}},
 	{"lexing goes on after a block comment", "/* c */ @", []string{

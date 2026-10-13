@@ -467,6 +467,13 @@ which is true today because `main` is the only package there is.
   written without names.
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged.
+- Raw string literals, written between backquotes, are raw, as in Go:
+  every byte up to the closing backquote is taken as it is, so
+  `` `\n` `` is a backslash and an `n`, and `` `\` `` is one backslash.
+  Nothing is decoded, a raw string may span lines, and it cannot hold a
+  backquote. Carriage returns are dropped from its value, as in Go, so
+  the value of one spanning lines does not depend on the line endings it
+  was saved with. A raw string with no closing backquote is an error.
 - A string is a sequence of bytes, everywhere: `s[i]` is a `uint8`,
   `len(s)` counts bytes, a character literal is one byte, and `range` over
   a string gives bytes. Decoding UTF-8 into runes will

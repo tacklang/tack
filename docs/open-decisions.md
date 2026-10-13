@@ -30,12 +30,6 @@ func main() {
 may print `a` then `b`, or `b` then `a`. Go fixes left to right. Fixing any
 order means the backend evaluates operands into temporaries first.
 
-## Escape sequences in raw strings
-
-The lexer decodes escape sequences in backquoted strings as well as
-double-quoted ones. In Go, a backquoted string is raw: a backslash is just a
-backslash. Nothing documents which Tack intends.
-
 ## The `asm` keyword
 
 `asm` is a keyword, and the lexer skips everything after it up to the next

@@ -1,0 +1,6 @@
+package main
+
+func main() {
+    print(`a raw string
+that is never closed)
+}
