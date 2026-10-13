@@ -1,0 +1,14 @@
+stage: resolve
+---
+
+examples/invalid/struct-duplicate-field/main.tck:6:5: error: duplicate field name
+05 |	    y int64
+06 |	    x bool
+   |	    ^
+07 |	}
+examples/invalid/struct-duplicate-field/main.tck:4:5: note: previous declaration of x
+03 |	type Point struct {
+04 |	    x int64
+   |	    ^
+05 |	    y int64
+

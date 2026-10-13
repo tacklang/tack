@@ -44,15 +44,13 @@ func (c *Checker) arrayLength(e ast.Expr) (int64, bool) {
 	return v.Int64(), true
 }
 
-// compositeLit checks an array literal written with its type, or [...] for
-// its length, and returns its type.
+// compositeLit checks an array or struct literal written with its type, or
+// [...] for an array's length, and returns its type.
 func (c *Checker) compositeLit(lit *ast.CompositeLit) types.Type {
 	if lit.TypeExpr == nil {
 		c.errorf(lit.Span, "a literal without a type needs an array literal around it")
 		lit.Type = types.Invalid
-		for _, e := range lit.Elems {
-			c.discard(e)
-		}
+		c.discardElems(lit)
 		return types.Invalid
 	}
 
@@ -68,32 +66,32 @@ func (c *Checker) compositeLit(lit *ast.CompositeLit) types.Type {
 	return c.literalOf(lit, c.table.Array(elem, int64(len(lit.Elems))))
 }
 
-// literalOf checks the elements of an array literal of type typ: exactly one
-// for each of the array's, each usable as its element type. A literal
-// element written without its type takes the element type, which must be
-// an array.
+// literalOf checks the elements of a literal of type typ, an array or a
+// struct. An array literal has exactly one element for each of the array's,
+// each usable as its element type and none with a key. A literal element
+// written without its type takes the element type, which must be an array
+// or a struct.
 func (c *Checker) literalOf(lit *ast.CompositeLit, typ types.Type) types.Type {
 	lit.Type = typ
-	if typ == types.Invalid {
-		for _, e := range lit.Elems {
-			c.discard(e)
-		}
+	switch {
+	case typ == types.Invalid:
+		c.discardElems(lit)
 		return types.Invalid
-	}
-	if !c.table.IsArray(typ) {
-		c.errorf(lit.Span, "%s cannot be written as a literal; only arrays can", c.table.Name(typ))
+	case c.table.IsStruct(typ):
+		return c.structLit(lit, typ)
+	case !c.table.IsArray(typ):
+		c.errorf(
+			lit.Span,
+			"%s cannot be written as a literal; only arrays and structs can",
+			c.table.Name(typ),
+		)
 		lit.Type = types.Invalid
 		return types.Invalid
 	}
 
 	elem := c.table.Elem(typ)
 	for _, e := range lit.Elems {
-		if inner, ok := e.(*ast.CompositeLit); ok && inner.TypeExpr == nil &&
-			c.table.IsArray(elem) {
-			c.literalOf(inner, elem)
-			continue
-		}
-		c.use(e, c.expr(e), elem, "in array literal")
+		c.arrayElem(e, elem)
 	}
 	if got, want := int64(len(lit.Elems)), c.table.Len(typ); got != want {
 		c.errorf(
@@ -106,6 +104,24 @@ func (c *Checker) literalOf(lit *ast.CompositeLit, typ types.Type) types.Type {
 		)
 	}
 	return typ
+}
+
+// arrayElem checks one element e of an array literal whose element type is
+// elem. A literal written without its type takes elem, when that is an
+// array or a struct; a key is reported, since an array literal lists every
+// element in order.
+func (c *Checker) arrayElem(e ast.Expr, elem types.Type) {
+	if kv, ok := e.(*ast.KeyValue); ok {
+		c.errorf(kv.Span, "keys are not allowed in an array literal")
+		c.discard(kv.Value)
+		return
+	}
+	if inner, ok := e.(*ast.CompositeLit); ok && inner.TypeExpr == nil &&
+		(c.table.IsArray(elem) || c.table.IsStruct(elem)) {
+		c.literalOf(inner, elem)
+		return
+	}
+	c.use(e, c.expr(e), elem, "in array literal")
 }
 
 // index checks an element read as a value, x[i], and returns its type.
@@ -276,13 +292,32 @@ func hasCall(e ast.Expr) bool {
 }
 
 // comparable reports whether values of type typ support == and !=: every
-// integer and bool, and an array whose elements do. A string does not yet.
+// integer and bool, an array whose elements do, and a struct whose fields
+// all do, which a struct with none does. A string does not yet.
 func (c *Checker) comparable(typ types.Type) bool {
+	return c.comparableIn(typ, make(map[types.Type]bool))
+}
+
+// comparableIn is comparable for typ, where seen holds the structs whose
+// fields are being looked at further up, so that a struct containing
+// itself, which is reported elsewhere, cannot loop.
+func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
 	case types.IsInteger(typ), typ == types.Bool:
 		return true
 	case c.table.IsArray(typ):
-		return c.comparable(c.table.Elem(typ))
+		return c.comparableIn(c.table.Elem(typ), seen)
+	case c.table.IsStruct(typ):
+		if seen[typ] {
+			return true
+		}
+		seen[typ] = true
+		for _, f := range c.table.Fields(typ) {
+			if !c.comparableIn(f.Type, seen) {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}

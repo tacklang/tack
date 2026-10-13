@@ -3,8 +3,9 @@
 // It sits between the lexer and the resolver. It takes the lexer's token
 // stream, which must end in an EOF token and already carry the semicolons
 // that automatic insertion adds at line ends, and produces an *ast.File: the
-// package name, every top-level declaration in source order (functions, and
-// variables declared with var or mut), and every comment in the file. The
+// package name, every top-level declaration in source order (functions,
+// variables declared with var or mut, and struct types declared with
+// type), and every comment in the file. The
 // short forms x := v and mut x := v are for function bodies only.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
@@ -27,13 +28,30 @@
 //
 // A type is a name or an array type, [n]T, nested to any depth; in an array
 // literal, [...]T leaves the length to the elements, and [] would be a
-// slice, which is reported. An array literal is its type and its elements in
-// braces, a comma allowed after the last, and an element that is only
-// braces is a literal whose type comes from the enclosing one. Indexes,
-// x[i], follow any operand and bind tighter than every operator. An
-// element of a variable, a[i], can be assigned like a name, in every form of
-// assignment; a statement that starts with one is told apart by what follows
-// its brackets.
+// slice, which is reported. A type declaration, at package level only, is
+// type Name struct { ... }, its fields a name and a type each, separated by
+// semicolons, written or inserted at line ends; struct {} has none. Other
+// named types, anonymous struct types, methods, embedded fields and a
+// visibility keyword on a field are each reported here, as is a type
+// declared inside a function. A composite literal is its type and its
+// elements in braces, a comma allowed after the last; an element may have a
+// key, key: value, which is how a struct literal names its fields, and an
+// element or value that is only braces is a literal whose type comes from
+// the enclosing one. Which literal may have keys, and which needs them, is
+// the type checker's to judge. Indexes, x[i], and field selections, x.f,
+// follow any operand and bind tighter than every operator; a call right
+// after a field selection would call a method and is reported. An element
+// or a field of a variable, a[i].f, can be assigned like a name, in every
+// form of assignment; a statement that starts with one is told apart by
+// what follows its brackets and fields.
+//
+// A name followed by an opening brace starts a struct literal, Point{...},
+// except in the header of an if, a for or a range loop, where, as in Go,
+// the brace opens the body: there a struct literal must be written in
+// parentheses, or inside a call, an index or another literal. A literal
+// left bare there would end the header at its type name, so a body that
+// starts with a name and a colon, which no statement can, is reported as
+// one.
 //
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.

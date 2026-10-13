@@ -1,0 +1,119 @@
+package main
+
+// Line is used before it is declared, and holds Point by value.
+type Line struct {
+    a Point
+    b Point
+}
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// Grid holds an array and a string, so it is not comparable.
+type Grid struct { cells [3]int64; name string }
+
+type Small struct {
+    n int8
+}
+
+type Empty struct {}
+
+var origin = Point{x: 0, y: 0}
+
+var corners = [2]Point{{x: 1, y: 1}, Point{y: 2, x: 2}}
+
+mut counter Point
+
+func add(p Point, q Point) Point {
+    return Point{x: p.x + q.x, y: p.y + q.y}
+}
+
+func split(l Line) (Point, Point) {
+    return l.a, l.b
+}
+
+// bump changes its copy of p, never the caller's.
+func bump(p Point) int64 {
+    mut c := p
+    c.x++
+    return c.x
+}
+
+func main() {
+    // A copy is independent of what it was copied from.
+    mut p := Point{x: 1, y: 2}
+    q := p
+    p.x = 10
+    if q.x != 1 || p.x != 10 {
+        exit(1)
+    }
+
+    // Passing copies, and a function can return a struct.
+    if bump(q) != 2 || q.x != 1 || add(p, q).y != 4 {
+        exit(2)
+    }
+
+    // Several results, nested literals and fields in any order.
+    l := Line{a: Point{x: 1, y: 2}, b: Point{y: 4, x: 3}}
+    a, b := split(l)
+    if add(a, b) != (Point{x: 4, y: 6}) || a == b {
+        exit(3)
+    }
+
+    // Nested targets, through fields and elements alike.
+    mut ml := l
+    ml.a.x = 7
+    ml.b.y += 5
+    if ml.a.x != 7 || ml.b.y != 9 || l.a.x != 1 || l.b.y != 4 {
+        exit(4)
+    }
+
+    // Arrays of structs, written with and without the element type.
+    mut pts := corners
+    pts[1].y = 20
+    for i := range pts {
+        pts[i].x *= 3
+    }
+    mut sum := 0
+    for _, pt := range pts {
+        sum += pt.x + pt.y
+    }
+    if sum != 30 || corners[1].y != 2 {
+        exit(5)
+    }
+
+    // A struct of an array and a string.
+    mut g Grid
+    g.cells[2] = 5
+    g.name = "grid"
+    for i := range g.cells {
+        g.cells[i]++
+    }
+    if len(g.cells) != 3 || g.cells[2] != 6 || g.cells[0] != 1 || len(g.name) != 4 {
+        exit(6)
+    }
+
+    // Zero values, for a local and a global.
+    mut z Point
+    if z != origin || counter != z {
+        exit(7)
+    }
+    counter.y--
+    counter.x = counter.y * 2
+
+    // Arithmetic on a field wraps at the field's width.
+    mut s := Small{n: 127}
+    s.n++
+    if s.n != -128 {
+        exit(8)
+    }
+
+    e := Empty{}
+    if e != (Empty{}) {
+        exit(9)
+    }
+
+    exit(sum + g.cells[2] + counter.x + counter.y + 100)
+}

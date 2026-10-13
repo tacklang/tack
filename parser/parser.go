@@ -25,6 +25,13 @@ type Parser struct {
 	tokens   []lexer.Token // every token but the comments
 	comments []lexer.Token // the comment tokens, in source order
 	index    int
+
+	// noLit is set while parsing the header of an if, a for or a range
+	// loop, where a name followed by an opening brace is the name and then
+	// the body, not a struct literal, as in Go. Inside parentheses,
+	// brackets and braces a literal is unambiguous again, so parsing them
+	// clears it. See allowLits.
+	noLit bool
 }
 
 // NewParser returns a parser over tokens, which must come from a lexer that
@@ -197,6 +204,8 @@ func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 		return p.parseFunc()
 	case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
 		return p.parsePackageVar()
+	case tk.Value() == lexer.Type:
+		return p.parseTypeDecl()
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("func", tk)}
 	}
@@ -210,6 +219,12 @@ func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
 
 	// advance past the func keyword
 	p.next()
+
+	if p.atReceiver() {
+		return nil, []diag.Diagnostic{
+			{Severity: diag.Error, Message: "methods are not supported", Span: p.span(p.peek())},
+		}
+	}
 
 	ident, identDiags := p.parseIdent("function name")
 	if ident == nil {
@@ -244,6 +259,30 @@ func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
 	return fn, nil
 }
 
+// atReceiver reports whether the tokens after func are a method's
+// receiver: a parenthesized list followed by a name, as in
+// func (p Point) norm(). A list with no name after it is left to be
+// reported as a missing function name.
+func (p *Parser) atReceiver() bool {
+	if p.peek().Kind() != lexer.LParen {
+		return false
+	}
+	depth := 0
+	for k := 0; ; k++ {
+		switch p.peekAt(k).Kind() {
+		case lexer.LParen:
+			depth++
+		case lexer.RParen:
+			depth--
+			if depth == 0 {
+				return p.peekAt(k+1).Kind() == lexer.Ident
+			}
+		case lexer.EOF:
+			return false
+		}
+	}
+}
+
 // parseParams parses a parenthesized parameter list, parentheses included.
 // Commas between parameters are optional.
 func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
@@ -272,18 +311,17 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 // parenthesized, comma-separated list of them. A brace or semicolon instead
 // means the function returns nothing, and the result is empty.
 func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
-	switch p.peek().Kind() {
-	case lexer.Ident, lexer.LBrack:
+	if p.startsType(p.peek()) {
 		typ, diags := p.parseType()
 		if typ == nil {
 			return nil, diags
 		}
 		return []ast.Expr{typ}, nil
-	case lexer.LParen:
-		p.next()
-	default:
+	}
+	if p.peek().Kind() != lexer.LParen {
 		return nil, nil
 	}
+	p.next()
 
 	var results []ast.Expr
 	for {
@@ -356,6 +394,20 @@ func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 	}, nil
 }
 
+// startsType reports whether tk can start a type: a name, an array type's
+// bracket, or struct, which parseType reports, since a struct type can only
+// be declared.
+func (p *Parser) startsType(tk *lexer.Token) bool {
+	switch tk.Kind() {
+	case lexer.Ident, lexer.LBrack:
+		return true
+	case lexer.Keyword:
+		return tk.Value() == lexer.Struct
+	default:
+		return false
+	}
+}
+
 func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 	// Consuming the ellipsis and carrying on would make f(x ...int) and
 	// f(x int) the same tree, so nothing downstream could tell that variadics
@@ -370,6 +422,13 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 
 	if p.peek().Kind() == lexer.LBrack {
 		return p.parseArrayType(false)
+	}
+	if tk := p.peek(); tk.Kind() == lexer.Keyword && tk.Value() == lexer.Struct {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "anonymous structs are not supported",
+			Span:     p.span(tk),
+		}}
 	}
 	typ, typDiags := p.parseIdent("type name")
 	if typ == nil {
@@ -490,6 +549,12 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
 	case lexer.Continue:
 		return p.parseJump(&ast.Continue{Span: p.span(tk)})
+	case lexer.Type:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "types can only be declared at package level",
+			Span:     p.span(tk),
+		}}
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
@@ -497,12 +562,15 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 
 // parseIdentStmt parses a statement that starts with the name tk: a short
 // variable declaration, an assignment (plain or compound), an increment or
-// decrement, or a call.
+// decrement, or a call. A name followed by indexes or fields can only be
+// assigned, incremented or decremented; anything else after them is
+// reported by parsing them first, so a malformed index or field, or a
+// method call, gets its own error.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
-	indexed := p.peekNext().Kind() == lexer.LBrack
-	switch after := p.afterIndexes(0); after.Kind() {
+	postfixed := p.peekNext().Kind() == lexer.LBrack || p.peekNext().Kind() == lexer.Period
+	switch after := p.afterTarget(0); after.Kind() {
 	case lexer.Define:
-		if indexed {
+		if postfixed {
 			return nil, []diag.Diagnostic{p.diagInvalidToken("=", after)}
 		}
 		return p.parseShortVarDecl()
@@ -514,51 +582,83 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.ModAssign:
 		return p.parseAssign()
 	case lexer.LParen:
-		if indexed {
-			return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+		if postfixed {
+			return nil, p.badTarget(tk)
 		}
 		return p.parseFuncCall()
 	case lexer.Inc, lexer.Dec:
 		return p.parseIncDec()
 	default:
+		if postfixed {
+			return nil, p.badTarget(tk)
+		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
 }
 
-// afterIndexes returns the token after the name n places ahead and every
-// bracketed index that follows it, a[i][j], so a statement that starts with
-// an element can be told apart by what comes after it. The brackets are
-// matched, so an index may hold brackets of its own.
-func (p *Parser) afterIndexes(n int) *lexer.Token {
+// badTarget reports a statement that starts with the name tk and indexes or
+// fields but is not an assignment, increment or decrement: the error in
+// the indexes or fields themselves, if there is one, and otherwise the
+// statement.
+func (p *Parser) badTarget(tk *lexer.Token) []diag.Diagnostic {
+	if _, diags := p.parseTarget(); diags != nil {
+		return diags
+	}
+	return []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+}
+
+// afterTarget returns the token after the name n places ahead and every
+// bracketed index and field selection that follows it, a[i].x[j], so a
+// statement that starts with an element or a field can be told apart by
+// what comes after it. The brackets are matched, so an index may hold
+// brackets of its own. A period not followed by a name ends the target, and
+// is what is returned.
+func (p *Parser) afterTarget(n int) *lexer.Token {
 	k := n + 1
-	for p.peekAt(k).Kind() == lexer.LBrack {
-		depth := 0
-		for {
-			switch p.peekAt(k).Kind() {
-			case lexer.LBrack:
-				depth++
-			case lexer.RBrack:
-				depth--
-			case lexer.EOF:
+	for {
+		switch p.peekAt(k).Kind() {
+		case lexer.LBrack:
+			k = p.afterBrackets(k)
+		case lexer.Period:
+			if p.peekAt(k+1).Kind() != lexer.Ident {
 				return p.peekAt(k)
 			}
-			k++
-			if depth == 0 {
-				break
-			}
+			k += 2
+		default:
+			return p.peekAt(k)
 		}
 	}
-	return p.peekAt(k)
+}
+
+// afterBrackets returns how many places ahead the token after the bracketed
+// group that opens k places ahead is, matching brackets nested in it, or
+// where EOF is if the group never closes.
+func (p *Parser) afterBrackets(k int) int {
+	depth := 0
+	for {
+		switch p.peekAt(k).Kind() {
+		case lexer.LBrack:
+			depth++
+		case lexer.RBrack:
+			depth--
+		case lexer.EOF:
+			return k
+		}
+		k++
+		if depth == 0 {
+			return k
+		}
+	}
 }
 
 // parseTarget parses what an assignment, increment or decrement writes: a
-// name, followed by any number of indexes, a[i][j].
+// name, followed by any number of indexes and fields, a[i].x[j].
 func (p *Parser) parseTarget() (ast.Expr, []diag.Diagnostic) {
 	name, diags := p.parseIdent("variable name")
 	if name == nil {
 		return nil, diags
 	}
-	return p.parseIndexes(name)
+	return p.parsePostfix(name)
 }
 
 // atMulti reports whether the next tokens start a statement binding several
@@ -566,9 +666,9 @@ func (p *Parser) parseTarget() (ast.Expr, []diag.Diagnostic) {
 func (p *Parser) atMulti() bool {
 	tk := p.peek()
 	if tk.Kind() == lexer.Keyword && tk.Value() == lexer.Mut {
-		return p.peekNext().Kind() == lexer.Ident && p.afterIndexes(1).Kind() == lexer.Comma
+		return p.peekNext().Kind() == lexer.Ident && p.afterTarget(1).Kind() == lexer.Comma
 	}
-	return tk.Kind() == lexer.Ident && p.afterIndexes(0).Kind() == lexer.Comma
+	return tk.Kind() == lexer.Ident && p.afterTarget(0).Kind() == lexer.Comma
 }
 
 // parseMulti parses a statement binding each result of a call: a
@@ -739,9 +839,7 @@ func (p *Parser) parseVarDecl() (*ast.Var, []diag.Diagnostic) {
 // parseVarTypeAndValue parses what follows a declared name: a type, = and a
 // value, or both, into v. Neither is a syntax error.
 func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
-	if kind := p.peek().
-		Kind(); kind == lexer.Ident || kind == lexer.Ellipsis ||
-		kind == lexer.LBrack {
+	if tk := p.peek(); tk.Kind() == lexer.Ellipsis || p.startsType(tk) {
 		typ, typDiags := p.parseType()
 		if typ == nil {
 			return typDiags
@@ -762,6 +860,110 @@ func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
 		return []diag.Diagnostic{p.diagInvalidToken("type or =", p.peek())}
 	}
 	return nil
+}
+
+// parseTypeDecl parses a type declaration, type Name struct { ... }, and
+// the semicolon after it. Only struct types can be declared: a name
+// declared as another type, type Celsius int64, is reported.
+func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
+	kw := p.next() // the type keyword
+
+	name, diags := p.parseIdent("type name")
+	if name == nil {
+		return nil, diags
+	}
+
+	tk := p.peek()
+	switch {
+	case tk.Kind() == lexer.Keyword && tk.Value() == lexer.Struct:
+	case tk.Kind() == lexer.Ident || tk.Kind() == lexer.LBrack:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "only struct types can be declared",
+			Span:     p.span(tk),
+		}}
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("struct", tk)}
+	}
+
+	typ, diags := p.parseStructType()
+	if typ == nil {
+		return nil, diags
+	}
+	d := &ast.TypeDecl{
+		TypeExpr: typ,
+		Name:     name.Name,
+		NameSpan: name.Span,
+		Span:     ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: typ.Span.End},
+	}
+	return d, p.endStmt(&d.Span)
+}
+
+// parseStructType parses struct { ... }: its fields, each ended by a
+// semicolon, written or inserted at a line end, which may be left out
+// before the closing brace.
+func (p *Parser) parseStructType() (*ast.StructType, []diag.Diagnostic) {
+	kw := p.next() // the struct keyword
+	if ok, diags := p.expect(lexer.LCurl); !ok {
+		return nil, diags
+	}
+
+	typ := &ast.StructType{Fields: make([]*ast.Field, 0)}
+	for p.peek().Kind() != lexer.RCurl {
+		f, diags := p.parseField()
+		if f == nil {
+			return nil, diags
+		}
+		typ.Fields = append(typ.Fields, f)
+
+		if p.peek().Kind() == lexer.RCurl {
+			break
+		}
+		if ok, diags := p.expect(lexer.Semi); !ok {
+			return nil, diags
+		}
+	}
+
+	end := p.next() // the closing brace
+	typ.Span = ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: end.OffsetEnd()}
+	return typ, nil
+}
+
+// parseField parses one field of a struct type, a name and a type. A
+// visibility keyword before the name, and a type alone, which would embed
+// it, are reported.
+func (p *Parser) parseField() (*ast.Field, []diag.Diagnostic) {
+	if tk := p.peek(); tk.Kind() == lexer.Keyword &&
+		(tk.Value() == lexer.Pub || tk.Value() == lexer.Lib) {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "field visibility is not supported",
+			Span:     p.span(tk),
+		}}
+	}
+
+	name, diags := p.parseIdent("field name")
+	if name == nil {
+		return nil, diags
+	}
+	if kind := p.peek().Kind(); kind == lexer.Semi || kind == lexer.RCurl {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "embedded fields are not supported",
+			Span:     name.Span,
+		}}
+	}
+
+	typ, diags := p.parseType()
+	if typ == nil {
+		return nil, diags
+	}
+	return &ast.Field{
+		TypeExpr: typ,
+		Name:     name.Name,
+		NameSpan: name.Span,
+		Span:     ast.Span{File: p.fileID, Start: name.Span.Start, End: typ.Spanned().End},
+	}, nil
 }
 
 // parsePackageVar parses a declaration outside any function. It is the same
@@ -870,6 +1072,7 @@ func (p *Parser) parseCall() (*ast.Call, []diag.Diagnostic) {
 	if ok, lparenDiags := p.expect(lexer.LParen); !ok {
 		return nil, lparenDiags
 	}
+	defer p.allowLits(true)()
 
 	for p.peek().Kind() != lexer.RParen && p.peek().Kind() != lexer.EOF {
 		// Every argument after the first is preceded by a comma. Requiring it
@@ -922,12 +1125,17 @@ func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
 
 	stmt := &ast.If{Span: p.span(tk)}
 
+	restore := p.allowLits(false)
 	cond, condDiags := p.parseExpr(1)
+	restore()
 	if cond == nil {
 		return nil, condDiags
 	}
 	stmt.Cond = cond
 
+	if diags := p.headerLit(); diags != nil {
+		return nil, diags
+	}
 	then, thenDiags := p.parseBlock()
 	if then == nil {
 		return nil, thenDiags
@@ -984,7 +1192,13 @@ func (p *Parser) parseFor() (*ast.For, []diag.Diagnostic) {
 	loop := &ast.For{Span: p.span(tk)}
 
 	if p.peek().Kind() != lexer.LCurl {
-		if diags := p.parseForHeader(loop); diags != nil {
+		restore := p.allowLits(false)
+		diags := p.parseForHeader(loop)
+		restore()
+		if diags == nil {
+			diags = p.headerLit()
+		}
+		if diags != nil {
 			return nil, diags
 		}
 	}
@@ -1046,13 +1260,18 @@ func (p *Parser) parseForRange() (*ast.ForRange, []diag.Diagnostic) {
 	}
 	p.next() // the range keyword
 
+	restore := p.allowLits(false)
 	x, diags := p.parseExpr(1)
+	restore()
 	if x == nil {
 		return nil, diags
 	}
 	loop.X = x
 	if varDiags := rangeVars(loop, names); varDiags != nil {
 		return nil, varDiags
+	}
+	if litDiags := p.headerLit(); litDiags != nil {
+		return nil, litDiags
 	}
 
 	body, diags := p.parseBlock()
@@ -1176,7 +1395,7 @@ func (p *Parser) atDeclOrUpdate() bool {
 	if p.peek().Kind() != lexer.Ident {
 		return false
 	}
-	switch after := p.afterIndexes(0); after.Kind() {
+	switch after := p.afterTarget(0); after.Kind() {
 	case lexer.Define, lexer.Inc, lexer.Dec, lexer.Comma:
 		return true
 	default:
@@ -1356,17 +1575,28 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	if x == nil {
 		return nil, diags
 	}
-	return p.parseIndexes(x)
+	return p.parsePostfix(x)
 }
 
-// parsePrimary parses an operand that indexes can follow: a parenthesized
-// expression, a call, an array literal, a name, or a literal.
+// parsePrimary parses an operand that indexes and fields can follow: a
+// parenthesized expression, a call, an array literal, a struct literal, a
+// name, or a literal. A name followed by an opening brace starts a struct
+// literal, except where noLit says the brace opens a body.
 func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 	switch p.peek().Kind() {
 	case lexer.LParen:
 		return p.parseParenExpr()
 	case lexer.LBrack:
 		return p.parseCompositeLit()
+	}
+
+	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LCurl && !p.noLit {
+		typ, _ := p.parseIdent("type name")
+		lit, diags := p.parseLitBody(typ, typ.Span.Start)
+		if lit == nil {
+			return nil, diags
+		}
+		return lit, nil
 	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekNext().Kind() == lexer.LParen {
@@ -1382,29 +1612,67 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 	return p.parseLiteral()
 }
 
-// parseIndexes parses any number of indexes after x, x[i][j], each an
-// element of what comes before it.
-func (p *Parser) parseIndexes(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
-	for p.peek().Kind() == lexer.LBrack {
-		p.next()
-		index, diags := p.parseExpr(1)
-		if index == nil {
-			return nil, diags
+// parsePostfix parses any number of indexes and field selections after x,
+// x[i].f[j], each an element or a field of what comes before it.
+func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	for {
+		var diags []diag.Diagnostic
+		switch p.peek().Kind() {
+		case lexer.LBrack:
+			x, diags = p.parseIndex(x)
+		case lexer.Period:
+			x, diags = p.parseSelector(x)
+		default:
+			return x, nil
 		}
-		if ok, diags := p.expect(lexer.RBrack); !ok {
+		if diags != nil {
 			return nil, diags
-		}
-		x = &ast.Index{
-			X:     x,
-			Index: index,
-			Span: ast.Span{
-				File:  p.fileID,
-				Start: p.extent(x).Start,
-				End:   p.peekPrev().OffsetEnd(),
-			},
 		}
 	}
-	return x, nil
+}
+
+// parseIndex parses one index after x, x[i].
+func (p *Parser) parseIndex(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	p.next() // the opening bracket
+	restore := p.allowLits(true)
+	index, diags := p.parseExpr(1)
+	restore()
+	if index == nil {
+		return nil, diags
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, diags
+	}
+	return &ast.Index{
+		X:     x,
+		Index: index,
+		Span: ast.Span{
+			File:  p.fileID,
+			Start: p.extent(x).Start,
+			End:   p.peekPrev().OffsetEnd(),
+		},
+	}, nil
+}
+
+// parseSelector parses one field selection after x, x.f. A call right after
+// it would call a method, which Tack does not have.
+func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	p.next() // the period
+	name, diags := p.parseIdent("field name")
+	if name == nil {
+		return nil, diags
+	}
+	if tk := p.peek(); tk.Kind() == lexer.LParen {
+		return nil, []diag.Diagnostic{
+			{Severity: diag.Error, Message: "methods are not supported", Span: p.span(tk)},
+		}
+	}
+	return &ast.Selector{
+		X:        x,
+		Name:     name.Name,
+		NameSpan: name.Span,
+		Span:     ast.Span{File: p.fileID, Start: p.extent(x).Start, End: name.Span.End},
+	}, nil
 }
 
 // parseCompositeLit parses an array literal: an array type, which may use
@@ -1421,15 +1689,17 @@ func (p *Parser) parseCompositeLit() (ast.Expr, []diag.Diagnostic) {
 	return lit, nil
 }
 
-// parseLitBody parses the braces of an array literal and the elements in
+// parseLitBody parses the braces of a composite literal and the elements in
 // them, separated by commas, with a comma allowed after the last, as a
-// literal written over several lines needs. An element that is itself only
-// braces is a literal whose type is left out, typ is nil, and comes from the
-// enclosing literal. The literal spans from start.
+// literal written over several lines needs. An element may have a key,
+// key: value, as a struct literal's do. An element or value that is itself
+// only braces is a literal whose type is left out, typ is nil, and comes
+// from the enclosing literal. The literal spans from start.
 func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []diag.Diagnostic) {
 	if ok, diags := p.expect(lexer.LCurl); !ok {
 		return nil, diags
 	}
+	defer p.allowLits(true)()
 	lit := &ast.CompositeLit{TypeExpr: typ, Elems: make([]ast.Expr, 0)}
 
 	for p.peek().Kind() != lexer.RCurl {
@@ -1442,19 +1712,7 @@ func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []dia
 			}
 		}
 
-		var (
-			elem  ast.Expr
-			diags []diag.Diagnostic
-		)
-		if tk := p.peek(); tk.Kind() == lexer.LCurl {
-			nested, nestedDiags := p.parseLitBody(nil, tk.OffsetStart())
-			if nested != nil {
-				elem = nested
-			}
-			diags = nestedDiags
-		} else {
-			elem, diags = p.parseExpr(1)
-		}
+		elem, diags := p.parseLitElem()
 		if elem == nil {
 			return nil, diags
 		}
@@ -1464,6 +1722,40 @@ func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []dia
 	p.next() // the closing brace
 	lit.Span = ast.Span{File: p.fileID, Start: start, End: p.peekPrev().OffsetEnd()}
 	return lit, nil
+}
+
+// parseLitElem parses one element of a composite literal: a value, or a
+// key, a colon and a value.
+func (p *Parser) parseLitElem() (ast.Expr, []diag.Diagnostic) {
+	key, diags := p.parseLitValue()
+	if key == nil || p.peek().Kind() != lexer.Colon {
+		return key, diags
+	}
+	p.next() // the colon
+	value, diags := p.parseLitValue()
+	if value == nil {
+		return nil, diags
+	}
+	return &ast.KeyValue{
+		Key:   key,
+		Value: value,
+		Span:  ast.Span{File: p.fileID, Start: p.extent(key).Start, End: p.extent(value).End},
+	}, nil
+}
+
+// parseLitValue parses a value in a composite literal: an expression, or
+// braces alone, a literal whose type is left out. On an error the value is
+// an untyped nil, as in parseStmt.
+func (p *Parser) parseLitValue() (ast.Expr, []diag.Diagnostic) {
+	tk := p.peek()
+	if tk.Kind() != lexer.LCurl {
+		return p.parseExpr(1)
+	}
+	nested, diags := p.parseLitBody(nil, tk.OffsetStart())
+	if nested == nil {
+		return nil, diags
+	}
+	return nested, nil
 }
 
 // parseArrayType parses [n]T. In an array literal, literal is true and the
@@ -1490,7 +1782,9 @@ func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
 			Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
 		}}
 	default:
+		restore := p.allowLits(true)
 		n, diags := p.parseExpr(1)
+		restore()
 		if n == nil {
 			return nil, diags
 		}
@@ -1557,7 +1851,9 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
 	lparen := p.next()
 
+	restore := p.allowLits(true)
 	inner, innerDiags := p.parseExpr(1)
+	restore()
 	if inner == nil {
 		return nil, innerDiags
 	}
@@ -1646,4 +1942,30 @@ func (p *Parser) diag(sev diag.Severity, msg string, offStart, offEnd int) diag.
 
 func (p *Parser) span(tk *lexer.Token) ast.Span {
 	return ast.Span{File: p.fileID, Start: tk.OffsetStart(), End: tk.OffsetEnd()}
+}
+
+// allowLits sets whether a name followed by an opening brace starts a
+// struct literal, and returns a function that puts back the setting it
+// replaced.
+func (p *Parser) allowLits(allowed bool) (restore func()) {
+	old := p.noLit
+	p.noLit = !allowed
+	return func() { p.noLit = old }
+}
+
+// headerLit reports a struct literal written without parentheses in the
+// header of an if, a for or a range loop, which ends the header at its type
+// name, so that its braces are taken for the body. A body cannot start with
+// a name and a colon, so that is how it is recognized.
+func (p *Parser) headerLit() []diag.Diagnostic {
+	tk := p.peek()
+	if tk.Kind() != lexer.LCurl || p.peekAt(1).Kind() != lexer.Ident ||
+		p.peekAt(2).Kind() != lexer.Colon {
+		return nil
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  "a struct literal in an if, for or range header must be in parentheses",
+		Span:     p.span(tk),
+	}}
 }

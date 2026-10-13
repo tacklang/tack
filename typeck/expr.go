@@ -20,14 +20,7 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return literalType(x)
 	case *ast.Ident:
-		// The resolver reports a name bound to nothing, and the pipeline
-		// stops there; a tree that skipped it is reported here instead of
-		// passing as already reported.
-		if x.Def == nil {
-			c.errorf(x.Span, "undefined: %s", x.Name)
-			return types.Invalid
-		}
-		return ast.TypeOf(x)
+		return c.ident(x)
 	case *ast.Call:
 		return c.callValue(x)
 	case *ast.Binary:
@@ -36,10 +29,38 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 	case *ast.Unary:
 		x.Type = c.unary(x)
 		return x.Type
+	default:
+		return c.compositeExpr(e)
+	}
+}
+
+// ident checks a name used as a value and returns its type: its parameter's
+// or variable's. A package-level variable not checked yet, which a struct's
+// field may need first, is checked now.
+func (c *Checker) ident(id *ast.Ident) types.Type {
+	// The resolver reports a name bound to nothing, and the pipeline stops
+	// there; a tree that skipped it is reported here instead of passing as
+	// already reported.
+	if id.Def == nil {
+		c.errorf(id.Span, "undefined: %s", id.Name)
+		return types.Invalid
+	}
+	if v, ok := id.Def.(*ast.Var); ok && c.globals[v] {
+		c.ensureGlobal(v, id.Span)
+	}
+	return ast.TypeOf(id)
+}
+
+// compositeExpr checks a literal of an array or a struct, an element, or a
+// field, and returns its type.
+func (c *Checker) compositeExpr(e ast.Expr) types.Type {
+	switch x := e.(type) {
 	case *ast.CompositeLit:
 		return c.compositeLit(x)
 	case *ast.Index:
 		return c.index(x)
+	case *ast.Selector:
+		return c.selector(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid

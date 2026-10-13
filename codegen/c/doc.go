@@ -16,6 +16,8 @@
 // The output is laid out in this order:
 //
 //   - a preamble: the C headers it uses and the tack_string type;
+//   - a C struct for every array and struct type, and an equality helper for
+//     every one == compares;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named str0, str1, and so on;
 //   - tack_print, the helper print lowers to, only if the program prints;
@@ -65,9 +67,11 @@
 // its zero value: 0, false, or an empty string that points at the pooled
 // empty array rather than NULL.
 //
-// An array type lowers to a struct holding a C array, e, emitted after the
-// preamble in the order the checker met the types, which puts an element
-// type first; tack_array_ and the type's ID name it. A C array cannot be
+// Array and struct types are defined after the preamble, each after every
+// type it holds, since C needs a member's type complete first; otherwise in
+// the order the checker met them. The checker rejects a struct that holds
+// itself, so that order always exists. An array type lowers to a struct
+// holding a C array, e; tack_array_ and the type's ID name it. A C array cannot be
 // assigned, passed or returned, and a struct holding one can, which gives an
 // array Tack's value semantics. A literal is a compound literal of the
 // struct, an element x.e[i], and == calls a helper per array type,
@@ -82,6 +86,20 @@
 // way, and reads the byte only when the index is at least 0, tested only
 // for a signed index, and below the string's length, read at runtime,
 // giving 0 otherwise.
+//
+// A struct type lowers to a typedef'd C struct named like a package-level
+// name, tack_main_Point, since the two share a namespace, with one member
+// per field, in order, named f_ and the field's name, so a field may be
+// called int or while. A struct with no fields holds one char member, since
+// C has no empty struct, and nothing reads it. A literal is a compound
+// literal with a designated initializer for each field, in the order the
+// literal names them, a field read or write is x.f_name, and == calls a
+// helper per struct type, tack_eq_ and its ID, that compares field by field,
+// an array or struct field through its own helper. Assigning, passing and
+// returning a struct copies it, as C does. A package-level struct is
+// initialized with braces, its fields in order, or {0}, and a local one
+// without a value with a zeroed compound literal, which leaves a string
+// field a null pointer of length 0; tack_print writes nothing for it.
 //
 // A function with several results returns them as one struct,
 // tack_results_main_f for a function f, with a field r0, r1, and so on for

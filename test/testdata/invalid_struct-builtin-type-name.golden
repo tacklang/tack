@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/struct-builtin-type-name/main.tck:3:6: error: cannot use int64 as a name; it is a type
+02 |	
+03 |	type int64 struct {
+   |	     ^~~~~
+04 |	    x uint8
+

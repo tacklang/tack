@@ -21,7 +21,7 @@ type Resolver struct {
 	file     *ast.File
 	funcRefs map[string]*ast.Func
 	read     map[*ast.Var]bool // variables read at least once
-	globals  *scope            // package-level variables, enclosing every function
+	globals  *scope            // package-level variables and types, enclosing every function
 }
 
 // New returns a Resolver for file.
@@ -38,7 +38,7 @@ func New(file *ast.File) *Resolver {
 // encloses it. A function's parameters are its outermost scope.
 type scope struct {
 	parent *scope
-	names  map[string]ast.Decl // *ast.Param or *ast.Var
+	names  map[string]ast.Decl // *ast.Param, *ast.Var, or *ast.TypeDecl
 	vars   []*ast.Var          // this block's variables, in declaration order
 }
 
@@ -79,7 +79,9 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	}
 
 	diags := r.declareFuncs()
+	diags = append(diags, r.declareTypes()...)
 	diags = append(diags, r.declareGlobals()...)
+	diags = append(diags, r.resolveStructs()...)
 	diags = append(diags, r.checkMain()...)
 
 	// Resolution is per function body: a parameter is in scope inside the
@@ -101,9 +103,9 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 
 // declareGlobals adds every package-level variable to the global scope, which
 // encloses every function, so a global can be used from any function whatever
-// the order of declarations. Functions were declared first, so a global that
-// shares a name with a function, another global, or a builtin is the one
-// reported. Initializers are resolved too, so a name in one is bound and the
+// the order of declarations. Functions and types were declared first, so a
+// global that shares a name with a function, a type, another global, or a
+// builtin is the one reported. Initializers are resolved too, so a name in one is bound and the
 // type checker can say why it is not allowed there.
 func (r *Resolver) declareGlobals() []diag.Diagnostic {
 	var diags []diag.Diagnostic
@@ -120,31 +122,108 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
 		}
 
-		if reserved := reservedName(v.Name, v.NameSpan); reserved != nil {
-			diags = append(diags, reserved...)
-			continue
-		}
-
-		if _, isBuiltin := r.builtinSeen(v.Name); isBuiltin {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Message:  fmt.Sprintf("%s is a builtin and cannot be redeclared", v.Name),
-				Span:     v.NameSpan,
-			})
-			continue
-		}
-
-		existing, clash := r.globals.lookup(v.Name)
-		if fn, isFunc := r.seen(v.Name); isFunc {
-			existing, clash = fn, true
-		}
-		if clash {
-			diags = append(diags, alreadyDeclared(v.Name, v.NameSpan, existing))
+		if clash := r.packageNameClash(v.Name, v.NameSpan); clash != nil {
+			diags = append(diags, clash...)
 			continue
 		}
 
 		r.globals.names[v.Name] = v
 		r.globals.vars = append(r.globals.vars, v)
+	}
+	return diags
+}
+
+// declareTypes adds every type declaration to the global scope, so a type
+// can be used anywhere in the file, before its declaration included, and
+// shares one namespace with functions, package-level variables and
+// builtins. Functions were declared first, so a type that shares a name
+// with one is the one reported, as a global would be.
+func (r *Resolver) declareTypes() []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, decl := range r.file.Decls {
+		td, ok := decl.(*ast.TypeDecl)
+		if !ok {
+			continue
+		}
+		if clash := r.packageNameClash(td.Name, td.NameSpan); clash != nil {
+			diags = append(diags, clash...)
+			continue
+		}
+		r.globals.names[td.Name] = td
+	}
+	return diags
+}
+
+// packageNameClash reports why a package-level declaration cannot be named
+// name, written at span: the name is reserved, a builtin's, or already
+// declared by a function or in the global scope. It returns nil when the
+// name is free.
+func (r *Resolver) packageNameClash(name string, span ast.Span) []diag.Diagnostic {
+	if reserved := reservedName(name, span); reserved != nil {
+		return reserved
+	}
+	if _, isBuiltin := r.builtinSeen(name); isBuiltin {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("%s is a builtin and cannot be redeclared", name),
+			Span:     span,
+		}}
+	}
+	existing, clash := r.globals.lookup(name)
+	if fn, isFunc := r.seen(name); isFunc {
+		existing, clash = fn, true
+	}
+	if clash {
+		return []diag.Diagnostic{alreadyDeclared(name, span, existing)}
+	}
+	return nil
+}
+
+// resolveStructs resolves the fields of every struct type declared: each
+// field's type, which may name any type or package-level constant, and its
+// name, which must not be reserved or be another field's. Field names are a
+// namespace of their own, one per struct, so a field may share a name with
+// anything outside it.
+func (r *Resolver) resolveStructs() []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, decl := range r.file.Decls {
+		td, ok := decl.(*ast.TypeDecl)
+		if !ok {
+			continue
+		}
+		st, ok := td.TypeExpr.(*ast.StructType)
+		if !ok {
+			continue
+		}
+		diags = append(diags, r.resolveFields(st)...)
+	}
+	return diags
+}
+
+// resolveFields resolves the fields of one struct type.
+func (r *Resolver) resolveFields(st *ast.StructType) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	seen := make(map[string]*ast.Field, len(st.Fields))
+	for _, f := range st.Fields {
+		diags = append(diags, r.resolveType(f.TypeExpr, r.globals)...)
+		if reserved := reservedName(f.Name, f.NameSpan); reserved != nil {
+			diags = append(diags, reserved...)
+			continue
+		}
+		if prev, dup := seen[f.Name]; dup {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Message:  "duplicate field name",
+				Span:     f.NameSpan,
+				Related: []diag.Diagnostic{{
+					Severity: diag.Note,
+					Message:  fmt.Sprintf("previous declaration of %s", f.Name),
+					Span:     prev.NameSpan,
+				}},
+			})
+			continue
+		}
+		seen[f.Name] = f
 	}
 	return diags
 }
@@ -428,7 +507,8 @@ func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 
 // resolveTarget binds the target of an assignment, increment or decrement:
 // a variable, or an element of one, a[i], whose index is resolved like any
-// value. Writing to a variable, or to an element of it, does not count as
+// value, or a field of one, p.x, whose name the type checker looks up.
+// Writing to a variable, or to an element or field of it, does not count as
 // reading it.
 func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
 	switch t := target.(type) {
@@ -437,6 +517,8 @@ func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
 	case *ast.Index:
 		diags := r.resolveTarget(t.X, sc)
 		return append(diags, r.resolveExpr(t.Index, sc)...)
+	case *ast.Selector:
+		return r.resolveTarget(t.X, sc)
 	default:
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -468,6 +550,13 @@ func (r *Resolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagno
 			Span:     target.Span,
 		}}
 	}
+	if _, isType := decl.(*ast.TypeDecl); isType {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot assign to %s; it is a type", target.Name),
+			Span:     target.Span,
+		}}
+	}
 	target.Def = decl
 	return nil
 }
@@ -480,6 +569,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 	case *ast.Param:
 		return d.NameSpan
 	case *ast.Var:
+		return d.NameSpan
+	case *ast.TypeDecl:
 		return d.NameSpan
 	default:
 		return decl.Spanned()
@@ -611,33 +702,72 @@ func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveIdent(x, sc)
 	case *ast.Index:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Index, sc)...)
+	case *ast.Selector:
+		return r.resolveExpr(x.X, sc)
 	case *ast.CompositeLit:
-		var diags []diag.Diagnostic
-		if x.TypeExpr != nil {
-			diags = r.resolveType(x.TypeExpr, sc)
-		}
-		for _, e := range x.Elems {
-			diags = append(diags, r.resolveExpr(e, sc)...)
-		}
-		return diags
+		return r.resolveLit(x, sc)
+	case *ast.KeyValue:
+		// A key names a field, which is not looked up among variables; the
+		// type checker finds it in the literal's type.
+		return r.resolveExpr(x.Value, sc)
 	default:
 		return nil
 	}
 }
 
-// resolveType binds the names in a type as written: the length of an array
-// type, which may name a constant variable, through every level of
-// nesting. A type name itself needs no binding.
+// resolveLit binds the names in a composite literal: its type, if written,
+// and its elements.
+func (r *Resolver) resolveLit(lit *ast.CompositeLit, sc *scope) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	if lit.TypeExpr != nil {
+		diags = r.resolveType(lit.TypeExpr, sc)
+	}
+	for _, e := range lit.Elems {
+		diags = append(diags, r.resolveExpr(e, sc)...)
+	}
+	return diags
+}
+
+// resolveType binds the names in a type as written: a type name to the
+// struct type it names, and the length of an array type, which may name a
+// constant variable, through every level of nesting. A builtin type's name
+// needs no binding, and a name bound to nothing is left for the type
+// checker to report as an unknown type. A name bound to anything other than
+// a type is reported here.
 func (r *Resolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
-	a, ok := typ.(*ast.ArrayType)
-	if !ok {
+	switch t := typ.(type) {
+	case *ast.Ident:
+		return r.resolveTypeName(t, sc)
+	case *ast.ArrayType:
+		var diags []diag.Diagnostic
+		if t.Len != nil {
+			diags = r.resolveExpr(t.Len, sc)
+		}
+		return append(diags, r.resolveType(t.Elem, sc)...)
+	default:
 		return nil
 	}
-	var diags []diag.Diagnostic
-	if a.Len != nil {
-		diags = r.resolveExpr(a.Len, sc)
+}
+
+// resolveTypeName binds a name written as a type to the type declaration it
+// names.
+func (r *Resolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
+	if _, isBasic := types.Lookup(id.Name); isBasic {
+		return nil
 	}
-	return append(diags, r.resolveType(a.Elem, sc)...)
+	decl, visible := sc.lookup(id.Name)
+	if !visible {
+		return nil
+	}
+	if _, isType := decl.(*ast.TypeDecl); !isType {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("%s is not a type", id.Name),
+			Span:     id.Span,
+		}}
+	}
+	id.Def = decl
+	return nil
 }
 
 // resolveCall binds a call's callee to the function or builtin it names, or
@@ -657,6 +787,12 @@ func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 		ident.Def = def
 	} else if def, seen := r.builtinSeen(ident.Name); seen {
 		ident.Def = def
+	} else if decl, ok := r.globals.lookup(ident.Name); ok && isTypeDecl(decl) {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),
+			Span:     ident.Span,
+		})
 	} else {
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,
@@ -694,6 +830,13 @@ func (r *Resolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 			Span:     id.Span,
 		}}
 	}
+	if isTypeDecl(decl) {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot use %s as a value; it is a type", id.Name),
+			Span:     id.Span,
+		}}
+	}
 	id.Def = decl
 	if v, ok := decl.(*ast.Var); ok {
 		r.read[v] = true
@@ -713,4 +856,10 @@ func (r *Resolver) builtinSeen(ref string) (*ast.Func, bool) {
 
 func (r *Resolver) refLabel(pkg, ref string) string {
 	return fmt.Sprintf("_%s.%s", pkg, ref)
+}
+
+// isTypeDecl reports whether decl declares a type.
+func isTypeDecl(decl ast.Decl) bool {
+	_, ok := decl.(*ast.TypeDecl)
+	return ok
 }

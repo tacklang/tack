@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-literal-duplicate-field/main.tck:9:28: error: duplicate field x in Point literal
+08 |	func main() {
+09 |	    p := Point{x: 1, y: 2, x: 3}
+   |	                           ^
+10 |	    exit(p.x)
+

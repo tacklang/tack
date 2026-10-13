@@ -26,6 +26,17 @@ type Checker struct {
 	funcs   map[string]*ast.Func
 	globals map[*ast.Var]bool // the package-level variables
 
+	// globalState says how far each package-level variable's check has
+	// got; see ensureGlobal.
+	globalState map[*ast.Var]progress
+
+	// structs maps each struct type to its declaration, and structOrder
+	// lists them in source order. structState says how far each one's
+	// fields have been resolved; see resolveFields.
+	structs     map[types.Type]*ast.TypeDecl
+	structOrder []types.Type
+	structState map[types.Type]progress
+
 	// knownVars remembers, for each local variable knownVar has been asked
 	// about, what it found.
 	knownVars map[*ast.Var]knownResult
@@ -46,6 +57,10 @@ func New(file *ast.File) *Checker {
 		funcs:   make(map[string]*ast.Func),
 		globals: make(map[*ast.Var]bool),
 
+		globalState: make(map[*ast.Var]progress),
+		structs:     make(map[types.Type]*ast.TypeDecl),
+		structState: make(map[types.Type]progress),
+
 		knownVars: make(map[*ast.Var]knownResult),
 	}
 }
@@ -58,18 +73,24 @@ func (c *Checker) Check() []diag.Diagnostic {
 	}
 	c.file.Types = c.table
 
-	// Globals are checked first, so their types and values are known in
-	// every function, and in every signature, whose array lengths may name
-	// them, whatever the order of declarations. A global's initializer is a
+	// Every struct type exists before anything is checked, so any type can
+	// name any struct. Their fields are resolved next, then the globals,
+	// so the types and values of both are known in every function, and in
+	// every signature, whose array lengths may name a global, whatever the
+	// order of declarations. A field's array length may name a global too,
+	// and a global's initializer may be a struct literal, so each is
+	// checked early when the other needs it. A global's initializer is a
 	// constant, so it never needs a function.
+	c.declareStructs()
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
 			c.globals[v] = true
 		}
 	}
+	c.checkStructs()
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {
-			c.checkGlobal(v)
+			c.ensureGlobal(v, v.NameSpan)
 		}
 	}
 
@@ -487,11 +508,13 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 }
 
 // isConstant reports whether e is built only from literals and operators,
-// array literals of them included.
+// array and struct literals of them included.
 func isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return true
+	case *ast.KeyValue:
+		return isConstant(x.Value)
 	case *ast.CompositeLit:
 		for _, elem := range x.Elems {
 			if !isConstant(elem) {
@@ -508,9 +531,9 @@ func isConstant(e ast.Expr) bool {
 	}
 }
 
-// zeroConst is a type's zero value as a constant. An array's is nil, since
-// every element of it is zero, which the backend writes without listing
-// them.
+// zeroConst is a type's zero value as a constant. An array's or a struct's
+// is nil, since every element or field of it is zero, which the backend
+// writes without listing them.
 func zeroConst(typ types.Type) any {
 	switch {
 	case types.IsInteger(typ):
@@ -526,7 +549,8 @@ func zeroConst(typ types.Type) any {
 
 // fold returns the value of a checked constant expression: a constant.Int,
 // computed exactly as it was checked, a string, a bool, or an array's
-// elements as a []any of those. A bool expression
+// elements, or a struct's fields in declaration order, as a []any of
+// those. A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
 // since any error on either side has already been reported. Arithmetic in
 // a type of its own, as on character literals, gives a value of that type
@@ -543,6 +567,9 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 	case *ast.BoolLit:
 		return x.Value, true
 	case *ast.CompositeLit:
+		if c.table.IsStruct(x.Type) {
+			return c.foldStruct(x)
+		}
 		return c.foldElems(x)
 	case *ast.Binary:
 		if b, ok := x.Const.(bool); ok {
@@ -643,8 +670,9 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 }
 
 // assignable checks that target can be assigned: a mutable variable, not a
-// parameter, or an element of one, whose index must be in range. It returns
-// the type target holds and whether it can be assigned.
+// parameter, or an element of one, whose index must be in range, or a
+// field of one. It returns the type target holds and whether it can be
+// assigned.
 func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 	switch t := target.(type) {
 	case *ast.Ident:
@@ -661,6 +689,8 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 		return types.Invalid, false
 	case *ast.Index:
 		return c.elementTarget(t)
+	case *ast.Selector:
+		return c.fieldTarget(t)
 	default:
 		c.errorf(target.Spanned(), "cannot assign to this expression")
 		return types.Invalid, false
@@ -668,45 +698,58 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 }
 
 // elementTarget checks an element being assigned, x[i]: x must be a
-// mutable variable, or an element of one, since an array follows its
-// variable, and the index must be in range. A string's bytes are never
+// mutable variable, or an element or field of one, since an array follows
+// its variable, and the index must be in range. A string's bytes are never
 // assigned. It returns the element's type.
 func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
-	var base types.Type
 	switch x := ix.X.(type) {
 	case *ast.Ident:
 		if ast.TypeOf(x) == types.String {
 			return c.stringTarget(ix)
 		}
-		switch def := x.Def.(type) {
-		case *ast.Param:
-			c.errorf(x.Span, "cannot assign to element of parameter %s", x.Name)
-			c.expr(ix.Index)
-			return types.Invalid, false
-		case *ast.Var:
-			if !def.Mutable {
-				c.errorf(x.Span, "cannot assign to element of immutable variable %s", x.Name)
-				c.expr(ix.Index)
-				return types.Invalid, false
-			}
-			base = def.Type
-		}
-	case *ast.Index:
-		var ok bool
-		if base, ok = c.elementTarget(x); !ok {
-			c.expr(ix.Index)
-			return types.Invalid, false
-		}
-		if base == types.String {
-			return c.stringTarget(ix)
-		}
+	case *ast.Index, *ast.Selector:
 	default:
 		c.errorf(ix.X.Spanned(), "cannot assign to this expression")
 		return types.Invalid, false
 	}
 
+	base, ok := c.containerTarget(ix.X, "element")
+	if !ok {
+		c.expr(ix.Index)
+		return types.Invalid, false
+	}
+	if base == types.String {
+		return c.stringTarget(ix)
+	}
 	ix.Type = c.element(ix, base, true)
 	return ix.Type, ix.Type != types.Invalid
+}
+
+// containerTarget checks x, which holds an element or a field, what, being
+// assigned: x must be a mutable variable, not a parameter, or itself an
+// element or field of one. It returns x's type, and false when anything was
+// reported or x's type is unknown.
+func (c *Checker) containerTarget(x ast.Expr, what string) (types.Type, bool) {
+	switch x := x.(type) {
+	case *ast.Ident:
+		switch def := x.Def.(type) {
+		case *ast.Param:
+			c.errorf(x.Span, "cannot assign to %s of parameter %s", what, x.Name)
+		case *ast.Var:
+			if def.Mutable {
+				return def.Type, def.Type != types.Invalid
+			}
+			c.errorf(x.Span, "cannot assign to %s of immutable variable %s", what, x.Name)
+		}
+		return types.Invalid, false
+	case *ast.Index:
+		return c.elementTarget(x)
+	case *ast.Selector:
+		return c.fieldTarget(x)
+	default:
+		c.errorf(x.Spanned(), "cannot assign to this expression")
+		return types.Invalid, false
+	}
 }
 
 // stringTarget reports an assignment to a byte of a string, ix, which is
@@ -717,11 +760,17 @@ func (c *Checker) stringTarget(ix *ast.Index) (types.Type, bool) {
 	return types.Invalid, false
 }
 
-// targetName names an assignment target in a message: the variable, or an
-// element of it.
+// targetName names an assignment target in a message: the variable, an
+// element of it, or a field of it.
 func targetName(target ast.Expr) string {
 	root := ast.Root(target)
-	if root == nil {
+	sel, isField := target.(*ast.Selector)
+	switch {
+	case isField && root == nil:
+		return "field " + sel.Name
+	case isField:
+		return "field " + sel.Name + " of " + root.Name
+	case root == nil:
 		return "an element"
 	}
 	if _, isName := target.(*ast.Ident); isName {
@@ -761,7 +810,8 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 }
 
 // declaredType returns the type a type expression denotes, reporting a type it
-// does not know and returning types.Invalid for it.
+// does not know and returning types.Invalid for it. A name denotes a basic
+// type, or the struct type the resolver bound it to.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
 	if a, ok := expr.(*ast.ArrayType); ok {
 		return c.arrayType(a)
@@ -772,6 +822,9 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return types.Invalid
 	}
 
+	if td, ok := id.Def.(*ast.TypeDecl); ok {
+		return td.Type
+	}
 	typ, known := types.Lookup(id.Name)
 	if !known {
 		c.errorf(id.Span, "unknown type: %s", id.Name)

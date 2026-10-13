@@ -250,10 +250,57 @@ which is true today because `main` is the only package there is.
   not count as reading `x`, so a variable that is only ever updated is still
   unused. `x++` and `x--` add and subtract one the same way. They are
   statements, never values, and there is no prefix form.
+- Structs. `type Point struct { x int64; y int64 }` declares a struct type,
+  at package level only, with its fields one per line or separated by `;`;
+  `struct {}` has none. A type can be used anywhere in the file, before its
+  declaration included, and its name shares one namespace with functions,
+  package-level variables and builtins, so it cannot be declared again as
+  any of them, nor as a local or a parameter; it cannot be used as a value,
+  assigned or called, and a name that is not a type cannot be written as
+  one. Each declaration is a type of its own, even with the same fields as
+  another. Field names are a namespace of their own, one per struct: a
+  field may share a name with anything outside its struct, but not with
+  another of its fields, and `_` and the type names cannot name a field. A
+  field's type may be any type, another struct or an array of one
+  included, except one that holds the struct itself, directly, through
+  other structs or through an array of any length, which would be
+  infinitely large and is an error. Named types other than structs
+  (`type Celsius int64`), anonymous struct types, methods, embedded fields
+  and field visibility are not supported, and each is an error.
+- Struct literals name every field exactly once, in any order:
+  `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
+  field listed twice, a field the struct does not have, and a field left
+  out are each an error. Each value is used as its field's type, under the
+  usual rules: a constant takes it, and a narrower integer widens to it.
+  Literals nest, `Line{a: Point{x: 1, y: 2}, b: p}`, and inside an array
+  literal a struct literal may leave out its type like an array literal
+  can: `[2]Point{{x: 1, y: 2}, {x: 3, y: 4}}`. A field's value may not
+  leave out its type. In the header of an `if`, a `for` or a range loop, a
+  struct literal must be in parentheses, `if p == (Point{x: 1, y: 2})`, as
+  in Go, since the brace would otherwise open the body; inside a call, an
+  index or another literal it needs none.
+- A struct is a value, like an array: assigning, passing or returning one
+  copies it, and a function may take and return structs, several results
+  included. `p.x` reads a field of any struct value, a variable, an
+  element, another field, or a call's result, `f().x`. A struct follows its
+  variable, so `p.x = v`, `p.x += v` and `p.x++` need `p` to be `mut`;
+  there is no `mut` per field. A target may mix fields and elements to any
+  depth, `l.a.x = 1`, `a[i].x = 1` and `p.cells[i] = 1`, with every index
+  proven in range as usual, and writing one does not count as reading the
+  variable. `mut p Point` with no value starts with every field at its
+  zero value, as `mut` does for any type. Two structs of one type compare
+  with `==` and `!=`, field by field, when every field's type does; a
+  struct with a string field does not, and a struct with no fields is
+  always equal to another. Structs may be package-level variables,
+  initialized with a literal of constants. A field never carries a fact
+  for a proof: `if p.d != 0 { n / p.d }` is still an error, and needs
+  `q, ok := n / p.d`, or the field copied into a variable the guard then
+  names, as in `d := p.d` and `if d != 0`.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, made only of literals and
-  operators, which the compiler computes; overflow and division by zero in
+  operators, array and struct literals of them included, which the compiler
+  computes; overflow and division by zero in
   one are compile errors. It can be used from any function, whatever the
   order of declarations, and shares one namespace with functions and
   builtins.
@@ -262,7 +309,8 @@ which is true today because `main` is the only package there is.
   in scope, package-level ones included, and a variable that is never read is
   an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, parentheses,
-  the infix operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
+  array and struct literals, indexes, field selections, the infix
+  operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
   tightest, then arithmetic, then comparisons, then `&&`, then `||`.
   Arithmetic takes two integers and gives their common type: the type of
@@ -315,7 +363,8 @@ which is true today because `main` is the only package there is.
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
   is computed in full, so an error on either side is reported.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
-  `uint16`, `uint32` and `uint64`, and `string` and `bool`. There is no
+  `uint16`, `uint32` and `uint64`, `string` and `bool`, arrays, and the
+  structs a program declares. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
@@ -324,7 +373,8 @@ which is true today because `main` is the only package there is.
   which lists exactly one element for each of the array's, and
   `[...]int64{1, 2, 3}` takes its length from its elements. A literal
   inside another may leave out its type: `[2][2]bool{{true, false},
-  {false, true}}`. An array is a value: assigning, passing or returning one
+  {false, true}}`, or a struct literal its own (see struct literals).
+  Elements have no keys: `[3]int64{0: 1}` is an error. An array is a value: assigning, passing or returning one
   copies it, and `mut a [3]int64` starts with every element zero. An array
   follows its variable, so `a[i] = v` needs `a` to be `mut`, and assigning
   an element does not count as reading `a`. Two arrays of one type compare
@@ -401,7 +451,8 @@ which is true today because `main` is the only package there is.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
   a digit. The type names, `int8` through `uint64`, `string` and `bool`, are
   reserved like keywords: they can be written only as types and in
-  conversions, never declared, read or assigned as names. `_` on its own is
+  conversions, never declared, read or assigned as names, nor used as a
+  struct's or a field's name. `_` on its own is
   not a name: it only discards a result in a
   binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
   and may appear there more than once, or one of a range loop's two

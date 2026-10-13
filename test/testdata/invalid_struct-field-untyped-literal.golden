@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-field-untyped-literal/main.tck:12:18: error: a literal without a type needs an array literal around it
+11 |	func main() {
+12 |	    l := Line{a: {x: 1}}
+   |	                 ^~~~~~
+13 |	    exit(l.a.x)
+

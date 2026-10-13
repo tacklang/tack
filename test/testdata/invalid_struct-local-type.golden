@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/struct-local-type/main.tck:4:5: error: types can only be declared at package level
+03 |	func main() {
+04 |	    type Point struct {
+   |	    ^~~~
+05 |	        x int64
+

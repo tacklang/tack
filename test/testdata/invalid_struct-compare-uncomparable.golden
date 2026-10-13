@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-compare-uncomparable/main.tck:9:8: error: operator == is not defined on Named
+08 |	    a := Named{name: "a"}
+09 |	    if a == a {
+   |	       ^~~~~~
+10 |	        exit(1)
+

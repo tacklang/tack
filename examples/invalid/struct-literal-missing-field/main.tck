@@ -1,0 +1,11 @@
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1}
+    exit(p.x)
+}

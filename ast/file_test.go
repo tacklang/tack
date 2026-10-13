@@ -63,6 +63,8 @@ func TestStringRendersEveryDeclKindAsReference(t *testing.T) {
 		{"func", &Func{Name: "g", NameSpan: Span{Start: 1, End: 2}}, `"Kind":"Func","Name":"g"`},
 		{"param", &Param{Name: "p", NameSpan: Span{Start: 3, End: 4}}, `"Kind":"Param","Name":"p"`},
 		{"var", &Var{Name: "v", NameSpan: Span{Start: 5, End: 6}}, `"Kind":"Var","Name":"v"`},
+		{"type", &TypeDecl{Name: "T", NameSpan: Span{Start: 7, End: 8}}, `"Kind":"Type","Name":"T"`},
+		{"nil type", (*TypeDecl)(nil), `"Def":null`},
 		{"builtin", (*Func)(nil), `"Def":null`},
 		{"unresolved", nil, `"Def":null`},
 	} {

@@ -1,0 +1,21 @@
+stage: typeck
+---
+
+examples/invalid/struct-init-cycle/main.tck:8:12: error: initialization cycle: g refers to itself
+07 |	type Inner struct {
+08 |	    b [len(g.b)]int64
+   |	           ^
+09 |	}
+
+examples/invalid/struct-init-cycle/main.tck:8:8: error: array length must be a constant integer
+07 |	type Inner struct {
+08 |	    b [len(g.b)]int64
+   |	       ^~~~~~~~
+09 |	}
+
+examples/invalid/struct-init-cycle/main.tck:4:8: error: array length must be a constant integer
+03 |	type Outer struct {
+04 |	    a [len(g.b)]int64
+   |	       ^~~~~~~~
+05 |	}
+

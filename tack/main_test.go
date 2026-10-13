@@ -985,3 +985,18 @@ func TestBuiltSelfCompareIsSilentAndExits7(t *testing.T) {
 		t.Errorf("self-compare exited with %v, want status 7", err)
 	}
 }
+
+// The structs example declares structs, one used before its declaration,
+// and checks that copies are independent, that structs pass and return by
+// value, several results included, that nested fields and elements of
+// arrays of structs can be written, that a range over an array of structs
+// sees each element, that zero values and == agree, and that arithmetic on
+// a field wraps at its width, each failure exiting with its own status.
+func TestBuiltStructsExits133(t *testing.T) {
+	bin := buildWithClang(t, "structs")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 133 {
+		t.Errorf("structs exited with %v, want status 133", err)
+	}
+}

@@ -6,15 +6,30 @@
 // generation means a backend never has to decide what a badly typed program
 // should emit.
 //
-// Checking happens in three passes. The first resolves every function's
-// signature, recording the type each declared parameter and result type
-// denotes on the tree (Param.Type and Func.ResultTypes). Doing this for every
-// function first is what lets a call check against a callee declared later in
-// the file. A type name it does not know is reported, and the declaration
-// keeps types.Invalid. Anything that has no type only because of an error
-// already reported, such as a use of that parameter, is not reported again.
+// Checking happens in passes. The first gives every type declaration its
+// struct type, with no fields yet, recorded in TypeDecl.Type, so any type
+// can name any struct, before its declaration included. The second
+// resolves every struct's fields, then reports every struct that contains
+// itself by value, directly, through another struct or through an array of
+// any length, since it would be infinitely large: once per cycle, at the
+// struct it is found from, with a note for each field on the way round.
+// The third checks the package-level variables, the fourth resolves every
+// function's signature, recording the type each declared parameter and
+// result type denotes on the tree (Param.Type and Func.ResultTypes), and
+// the last checks each body. Resolving every signature first is what lets
+// a call check against a callee declared later in the file. A type name it
+// does not know is reported, and the declaration keeps types.Invalid.
+// Anything that has no type only because of an error already reported,
+// such as a use of that parameter, is not reported again.
 //
-// Package-level variables are checked next, before any body, so their types
+// A field's array length may name a package-level constant, and a global's
+// initializer may be a struct literal, which needs the struct's fields, so
+// a struct's fields and a global are each checked early, the first time the
+// other needs them, and only once. Needing one again while it is being
+// checked means it depends on itself, which is reported: a struct as an
+// invalid recursive type, a global as an initialization cycle.
+//
+// Package-level variables are checked before any body, so their types
 // are known in every function. A global's initializer must be a constant
 // expression, made only of literals and operators, and the checker records
 // its value in Var.Const. Every operand is computed, the right side of && and
@@ -45,13 +60,27 @@
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
 // variable, which must be a parameter, a local, or an immutable global.
-// q, ok := a / b needs no proof, and is an error where one exists.
+// q, ok := a / b needs no proof, and is an error where one exists. A fact is
+// about a variable, never a field: a guard on p.x proves nothing about p.x,
+// which needs the two-value form, or copying into a variable that the guard
+// then names.
+//
+// A struct type is a type of its own for each declaration, whatever its
+// fields; struct.go checks its uses. A literal names each field exactly
+// once, with a value usable as the field's type, in any order; an element
+// with no name, a name it does not have, or a name given twice is reported,
+// and so are the fields left out. A field, x.f, may be read from any struct
+// value, and written where x is a mutable variable, or an element or field
+// of one, since a struct follows its variable as an array does. Two structs
+// of one type compare with == and != when every field's type does.
 //
 // Array types are added to the Table as they are written, so [3]int64
 // written twice is one type. An array's length must be a constant: a
 // constant expression, len of an array or a string literal, an immutable
 // variable holding one, or arithmetic on those; knownValue computes it. A
-// literal lists exactly one element for each of the array's, and an index
+// literal lists exactly one element for each of the array's, none with a
+// key, and a literal inside it may leave out its type, an array's or a
+// struct's, which is then the element type. An index
 // must be proven in range, from the same facts as a divisor, which also
 // bound a variable: a range loop's index, comparisons with known values,
 // and the variable's own type. v, ok := a[i] needs no proof, and is an
@@ -94,7 +123,8 @@
 //   - a variable's value is usable as its declared type, and a variable
 //     declared without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a
-//     mutable variable may be assigned to; parameters never may;
+//     mutable variable, or an element or field of one, may be assigned to;
+//     parameters never may;
 //   - an assigned value is usable as the variable's type, and a compound
 //     assignment such as += has an integer target and a value usable as its
 //     type; ++ and -- need a mutable integer variable;

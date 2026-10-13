@@ -7,7 +7,7 @@ type declKey struct{}
 var _declKey declKey
 
 // Decl is a declaration: something a name can be bound to. Functions,
-// parameters, and variables are the declarations today.
+// parameters, variables, and types are the declarations today.
 type Decl interface {
 	declKey() declKey
 	Spanned() Span
@@ -97,3 +97,24 @@ func (v *Var) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the whole declaration.
 func (v *Var) Spanned() Span { return v.Span }
+
+// TypeDecl is a type declaration at package level, type Name struct { ... },
+// which declares a struct type. Other named types are not supported yet, so
+// TypeExpr is always a *StructType.
+type TypeDecl struct {
+	TypeExpr Expr // the type as written, a *StructType
+	Name     string
+	NameSpan Span       // just the identifier
+	Span     Span       // 'type' keyword through the end of the type
+	Type     types.Type // the declared type, set by the type checker
+}
+
+var _ Decl = (*TypeDecl)(nil)
+
+func (d *TypeDecl) declKey() declKey { return _declKey }
+
+func (d *TypeDecl) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'type' keyword through the end
+// of the type.
+func (d *TypeDecl) Spanned() Span { return d.Span }

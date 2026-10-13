@@ -1,0 +1,8 @@
+package main
+
+type Point struct {
+    pub x int64
+}
+
+func main() {
+}

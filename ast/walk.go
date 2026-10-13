@@ -44,6 +44,8 @@ func walkDecl(d Decl, v Visitor) {
 		if d.Value != nil {
 			Walk(d.Value, v)
 		}
+	case *TypeDecl:
+		Walk(d.TypeExpr, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled declaration type %T", d))
 	}
@@ -124,13 +126,22 @@ func walkExpr(e Expr, v Visitor) {
 		walkAll(e.Args, v)
 	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit:
 		// leaves
+	case *StructType:
+		for _, f := range e.Fields {
+			Walk(f.TypeExpr, v)
+		}
+	case *Selector:
+		Walk(e.X, v)
+	case *KeyValue:
+		Walk(e.Key, v)
+		Walk(e.Value, v)
 	default:
 		walkArrayExpr(e, v)
 	}
 }
 
-// walkArrayExpr walks the children of an array type, an array literal or an
-// element. A part that is left out is nil, and skipped.
+// walkArrayExpr walks the children of an array type, a composite literal or
+// an element. A part that is left out is nil, and skipped.
 func walkArrayExpr(e Expr, v Visitor) {
 	switch e := e.(type) {
 	case *ArrayType:

@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-literal-missing-field/main.tck:9:10: error: Point literal is missing field y
+08 |	func main() {
+09 |	    p := Point{x: 1}
+   |	         ^~~~~~~~~~~
+10 |	    exit(p.x)
+

@@ -78,7 +78,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	}
 
 	g.emitPreamble()
-	g.emitArrayTypes()
+	g.emitTypes()
 	g.emitConstantPool()
 	g.emitGlobals(globals)
 	g.emitResultStructs()
@@ -299,6 +299,9 @@ func (g *generator) generateDecls() (
 			funcs = append(funcs, d)
 			bodies = append(bodies, body)
 
+		case *ast.TypeDecl:
+			// Its C struct comes from the type table, with every other type.
+
 		default:
 			return nil, nil, nil, []diag.Diagnostic{{
 				Severity: diag.Error,
@@ -326,9 +329,10 @@ func (g *generator) emitGlobals(globals []string) {
 // computed rather than its source expression. The checker has already ruled
 // out overflow and division by zero, so the value is exactly what Tack means.
 func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
-	value, ok := g.constValue(v.Const)
-	if v.Const == nil && g.file.Types.IsArray(v.Type) {
-		// An array with no value starts with every element zero.
+	value, ok := g.constOf(v.Type, v.Const)
+	if v.Const == nil && v.Value == nil && g.isComposite(v.Type) {
+		// An array or a struct with no value starts with every element or
+		// field zero.
 		value, ok = "{0}", true
 	}
 	if !ok {
@@ -378,10 +382,11 @@ func constLiteral(c any) (string, bool) {
 	}
 }
 
-// constValue renders a computed constant as a C constant expression, usable
-// to initialize a static variable. The smallest int64 is written as an
-// expression, since C has no literal for it: the literal after the minus
-// sign would not fit.
+// constValue renders a computed constant of a basic type as a C constant
+// expression, usable to initialize a static variable; constOf renders an
+// array's or a struct's. The smallest int64 is written as an expression,
+// since C has no literal for it: the literal after the minus sign would not
+// fit.
 func (g *generator) constValue(c any) (string, bool) {
 	switch v := c.(type) {
 	case constant.Int:
@@ -390,8 +395,6 @@ func (g *generator) constValue(c any) (string, bool) {
 		return strconv.FormatBool(v), true
 	case string:
 		return fmt.Sprintf("{%s, %d}", g.strLabel(v), len(v)), true
-	case []any:
-		return g.arrayConst(v)
 	default:
 		return "", false
 	}
@@ -868,7 +871,8 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 }
 
 // targetRef renders an assignment target as a C lvalue: a variable, or an
-// element of one, x.e[i]. The checker has proven every index in range.
+// element of one, x.e[i], or a field of one, x.f_name. The checker has
+// proven every index in range.
 func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 	switch t := target.(type) {
 	case *ast.Ident:
@@ -885,6 +889,12 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 			return "", diags
 		}
 		return fmt.Sprintf("%s.e[%s]", base, index), nil
+	case *ast.Selector:
+		base, diags := g.targetRef(t.X)
+		if len(diags) > 0 {
+			return "", diags
+		}
+		return base + "." + fieldName(t.Name), nil
 	}
 	return "", []diag.Diagnostic{{
 		Severity: diag.Error,
@@ -1193,10 +1203,12 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 
 // zeroValue is the C expression for a type's zero value. The empty string
 // points at a pooled empty array rather than NULL, so writing it never hands
-// libc a null pointer.
+// libc a null pointer. An array or a struct is zeroed in full, so a string
+// in it starts with a null pointer and a length of 0, which tack_print
+// never passes on.
 func (g *generator) zeroValue(typ types.Type) string {
-	if g.file.Types.IsArray(typ) {
-		return fmt.Sprintf("(%s){0}", arrayName(typ))
+	if g.isComposite(typ) {
+		return fmt.Sprintf("(%s){0}", g.cType(typ))
 	}
 	switch typ {
 	case types.String:
@@ -1302,6 +1314,8 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 		return g.compositeLit(x)
 	case *ast.Index:
 		return g.indexExpr(x)
+	case *ast.Selector:
+		return g.selectorExpr(x)
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -1385,7 +1399,7 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if bin.Op.IsArithmetic() {
 		return arith(bin.Op, bin.Type, left, right), nil
 	}
-	if g.file.Types.IsArray(ast.TypeOf(bin.X)) {
+	if g.isComposite(ast.TypeOf(bin.X)) {
 		return g.arrayComparison(bin, left, right), nil
 	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
@@ -1467,10 +1481,13 @@ func (g *generator) stringValue(s string) string {
 }
 
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
-// an array the struct emitArrayTypes defines for it.
+// an array or a struct the C struct emitTypes defines for it.
 func (g *generator) cType(typ types.Type) string {
 	if g.file.Types.IsArray(typ) {
 		return arrayName(typ)
+	}
+	if g.file.Types.IsStruct(typ) {
+		return g.structName(typ)
 	}
 	return basicCType(typ)
 }

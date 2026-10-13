@@ -1,0 +1,315 @@
+package typeck
+
+import (
+	"strings"
+
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
+)
+
+// progress is how far checking has got with something that is checked when
+// first needed, a struct's fields or a package-level variable, so that
+// needing it again while checking it is noticed rather than looped on.
+type progress int
+
+// The zero value of progress means not looked at yet.
+const (
+	// checking means it is being checked, further up the call stack.
+	checking progress = iota + 1
+	// checked means it is done, and its results are recorded.
+	checked
+)
+
+// declareStructs gives every type declaration in the file its struct type,
+// with no fields yet, so that any type, a field's type included, can name
+// any struct whatever the order of declarations.
+func (c *Checker) declareStructs() {
+	for _, decl := range c.file.Decls {
+		if td, ok := decl.(*ast.TypeDecl); ok {
+			td.Type = c.table.Struct(td.Name)
+			c.structs[td.Type] = td
+			c.structOrder = append(c.structOrder, td.Type)
+		}
+	}
+}
+
+// checkStructs resolves the fields of every struct type not already
+// resolved, then reports every struct that contains itself by value.
+func (c *Checker) checkStructs() {
+	for _, typ := range c.structOrder {
+		c.resolveFields(typ, c.structs[typ].NameSpan)
+	}
+	c.reportCycles()
+}
+
+// resolveFields records the fields of the struct type typ in the table the
+// first time they are needed: a field's type may be an array whose length
+// names a package-level constant, which is checked first if it has not
+// been. Needing them again while they are being resolved, at, means the
+// struct's fields depend on themselves, which is reported, and gives false.
+func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
+	switch c.structState[typ] {
+	case checked:
+		return true
+	case checking:
+		c.errorf(at, "invalid recursive type %s", c.table.Name(typ))
+		return false
+	}
+
+	c.structState[typ] = checking
+	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
+	fields := make([]types.Field, 0)
+	if st != nil {
+		for _, f := range st.Fields {
+			fields = append(fields, types.Field{Name: f.Name, Type: c.declaredType(f.TypeExpr)})
+		}
+	}
+	c.table.SetFields(typ, fields)
+	c.structState[typ] = checked
+	return true
+}
+
+// cycleEdge is one step of a struct containing another by value: the struct
+// from, through its field.
+type cycleEdge struct {
+	field *ast.Field
+	from  types.Type
+}
+
+// reportCycles reports every struct type that contains itself by value,
+// directly, through another struct, or through an array, which would make
+// it infinitely large. Each cycle is reported once, at the struct it was
+// found from, with a note for every field on the way round.
+func (c *Checker) reportCycles() {
+	state := make(map[types.Type]progress)
+	for _, typ := range c.structOrder {
+		c.visitStruct(typ, state, nil)
+	}
+}
+
+// visitStruct walks the structs typ contains by value, depth first, path
+// being the fields followed to reach it, and reports a cycle on reaching a
+// struct still on path.
+func (c *Checker) visitStruct(typ types.Type, state map[types.Type]progress, path []cycleEdge) {
+	switch state[typ] {
+	case checked:
+		return
+	case checking:
+		c.reportCycle(typ, path)
+		return
+	}
+	state[typ] = checking
+	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
+	for i, f := range c.table.Fields(typ) {
+		if inner, ok := c.structIn(f.Type); ok && st != nil && i < len(st.Fields) {
+			c.visitStruct(inner, state, append(path, cycleEdge{st.Fields[i], typ}))
+		}
+	}
+	state[typ] = checked
+}
+
+// structIn returns the struct type a value of type typ holds by value at its
+// core: typ itself if it is a struct, the element type of an array, of an
+// array of arrays included, if that is one.
+func (c *Checker) structIn(typ types.Type) (types.Type, bool) {
+	for c.table.IsArray(typ) {
+		typ = c.table.Elem(typ)
+	}
+	return typ, c.table.IsStruct(typ)
+}
+
+// reportCycle reports the cycle that path, the fields followed so far, closes
+// by reaching typ again.
+func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
+	start := 0
+	for i, e := range path {
+		if e.from == typ {
+			start = i
+			break
+		}
+	}
+	notes := make([]diag.Diagnostic, 0, len(path)-start)
+	for i, e := range path[start:] {
+		to := typ
+		if next := start + i + 1; next < len(path) {
+			to = path[next].from
+		}
+		notes = append(notes, diag.Diagnostic{
+			Severity: diag.Note,
+			Message:  c.table.Name(e.from) + " refers to " + c.table.Name(to),
+			Span:     e.field.Span,
+		})
+	}
+	c.diags = append(c.diags, diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  "invalid recursive type " + c.table.Name(typ),
+		Span:     c.structs[typ].NameSpan,
+		Related:  notes,
+	})
+}
+
+// selector checks a field read as a value, x.f, and returns its type.
+func (c *Checker) selector(sel *ast.Selector) types.Type {
+	sel.Type = c.field(sel, c.valueOf(sel.X, c.expr(sel.X)))
+	return sel.Type
+}
+
+// field returns the type of the field sel names of a value of type base,
+// which must be a struct with a field of that name.
+func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
+	if base == types.Invalid {
+		return types.Invalid
+	}
+	if c.table.IsStruct(base) {
+		if !c.resolveFields(base, sel.Span) {
+			return types.Invalid
+		}
+	}
+	f, _, ok := c.table.Field(base, sel.Name)
+	if !ok {
+		c.errorf(sel.NameSpan, "%s has no field %s", c.table.Name(base), sel.Name)
+		return types.Invalid
+	}
+	return f.Type
+}
+
+// fieldTarget checks a field being assigned, x.f: x must be a mutable
+// variable, or an element or field of one, since a struct follows its
+// variable as an array does. It returns the field's type.
+func (c *Checker) fieldTarget(sel *ast.Selector) (types.Type, bool) {
+	base, ok := c.containerTarget(sel.X, "field")
+	if !ok {
+		return types.Invalid, false
+	}
+	sel.Type = c.field(sel, base)
+	return sel.Type, sel.Type != types.Invalid
+}
+
+// structLit checks the elements of a struct literal of the struct type typ:
+// each a field's name and a value usable as that field's type, every field
+// named exactly once. An element with no name, or with a key that is not a
+// name, is reported, and then a missing field is not, since which field the
+// element meant cannot be known.
+func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
+	name := c.table.Name(typ)
+	if !c.resolveFields(typ, lit.Span) {
+		c.discardElems(lit)
+		lit.Type = types.Invalid
+		return types.Invalid
+	}
+
+	set := make(map[string]bool)
+	unnamed := false
+	for _, e := range lit.Elems {
+		kv, ok := e.(*ast.KeyValue)
+		if !ok {
+			c.errorf(e.Spanned(), "missing field name in %s literal", name)
+			c.discard(e)
+			unnamed = true
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			c.errorf(kv.Key.Spanned(), "invalid field name in %s literal", name)
+			c.discard(kv.Value)
+			unnamed = true
+			continue
+		}
+		c.fieldValue(kv, key, typ, set)
+	}
+	if !unnamed {
+		c.reportMissing(lit, typ, set)
+	}
+	return typ
+}
+
+// fieldValue checks one element of a struct literal of type typ, key: value,
+// recording the field in set, which holds the fields named before it.
+func (c *Checker) fieldValue(
+	kv *ast.KeyValue,
+	key *ast.Ident,
+	typ types.Type,
+	set map[string]bool,
+) {
+	name := c.table.Name(typ)
+	f, _, ok := c.table.Field(typ, key.Name)
+	switch {
+	case !ok:
+		c.errorf(key.Span, "%s has no field %s", name, key.Name)
+		c.discard(kv.Value)
+	case set[key.Name]:
+		c.errorf(key.Span, "duplicate field %s in %s literal", key.Name, name)
+		c.discard(kv.Value)
+	default:
+		set[key.Name] = true
+		c.use(kv.Value, c.expr(kv.Value), f.Type, "in field "+key.Name+" of "+name+" literal")
+	}
+}
+
+// reportMissing reports the fields of typ a literal of it leaves out, set
+// being those it names, in one error listing them in declaration order.
+func (c *Checker) reportMissing(lit *ast.CompositeLit, typ types.Type, set map[string]bool) {
+	var missing []string
+	for _, f := range c.table.Fields(typ) {
+		if !set[f.Name] {
+			missing = append(missing, f.Name)
+		}
+	}
+	if len(missing) > 0 {
+		c.errorf(lit.Span, "%s literal is missing %s %s",
+			c.table.Name(typ), plural(len(missing), "field"), strings.Join(missing, ", "))
+	}
+}
+
+// discardElems checks the elements of a literal whose type is unknown, for
+// errors of their own, keys aside, which name nothing.
+func (c *Checker) discardElems(lit *ast.CompositeLit) {
+	for _, e := range lit.Elems {
+		if kv, ok := e.(*ast.KeyValue); ok {
+			e = kv.Value
+		}
+		c.discard(e)
+	}
+}
+
+// foldStruct computes a constant struct literal, as a []any of its fields'
+// values in declaration order, whatever order the literal names them in.
+func (c *Checker) foldStruct(lit *ast.CompositeLit) (any, bool) {
+	values := make([]any, len(c.table.Fields(lit.Type)))
+	for _, e := range lit.Elems {
+		kv, ok := e.(*ast.KeyValue)
+		if !ok {
+			return nil, false
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			return nil, false
+		}
+		_, i, found := c.table.Field(lit.Type, key.Name)
+		v, folded := c.fold(kv.Value)
+		if !found || !folded {
+			return nil, false
+		}
+		values[i] = v
+	}
+	return values, true
+}
+
+// ensureGlobal checks the package-level variable v, unless it has been
+// already: globals are checked in order, but a global named in the length
+// of an array in a struct's field may be needed before its turn. Needing it
+// while it is being checked, at, means it depends on itself, which is
+// reported.
+func (c *Checker) ensureGlobal(v *ast.Var, at ast.Span) {
+	switch c.globalState[v] {
+	case checked:
+		return
+	case checking:
+		c.errorf(at, "initialization cycle: %s refers to itself", v.Name)
+		return
+	}
+	c.globalState[v] = checking
+	c.checkGlobal(v)
+	c.globalState[v] = checked
+}

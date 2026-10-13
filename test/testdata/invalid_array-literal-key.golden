@@ -1,0 +1,21 @@
+stage: typeck
+---
+
+examples/invalid/array-literal-key/main.tck:4:19: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                  ^~~~
+05 |	    exit(a[0])
+
+examples/invalid/array-literal-key/main.tck:4:25: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                        ^~~~
+05 |	    exit(a[0])
+
+examples/invalid/array-literal-key/main.tck:4:31: error: keys are not allowed in an array literal
+03 |	func main() {
+04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
+   |	                              ^~~~
+05 |	    exit(a[0])
+

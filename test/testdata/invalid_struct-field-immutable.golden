@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/struct-field-immutable/main.tck:9:5: error: cannot assign to field of immutable variable p
+08 |	    p := Point{x: 1}
+09 |	    p.x = 2
+   |	    ^
+10 |	    exit(p.x)
+

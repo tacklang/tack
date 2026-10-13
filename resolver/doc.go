@@ -14,10 +14,24 @@
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree.
 //
-// Package-level variables share one namespace with functions and builtins,
-// and form the outermost scope, enclosing every function, so a global can be
-// used from any function whatever the order of declarations. Functions are
-// declared first, so a global that clashes with one is the one reported.
+// Package-level variables and types share one namespace with functions and
+// builtins, and form the outermost scope, enclosing every function, so a
+// global can be used from any function, and a type anywhere, whatever the
+// order of declarations. Functions are declared first, then types, then
+// globals, so a type or global that clashes with an earlier kind is the one
+// reported. A name bound to a type is reported where it is used as a
+// value, assigned or called, and a name written as a type that is bound to
+// anything but a type is reported too; one bound to nothing is left for the
+// type checker, which reports it as an unknown type.
+//
+// A struct's fields are resolved after every package-level name is
+// declared, so a field's type may name any type, and an array length in it
+// any global. Field names are a namespace of their own, one per struct, so
+// a field may share a name with anything outside it, but not with another
+// field of its struct, and the reserved names are reserved for fields too.
+// A field selection, p.x, and a key in a struct literal, x: v, name a field
+// the type checker finds through the type of what holds it, so neither is
+// bound here.
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if is nested in the block holding
@@ -31,8 +45,9 @@
 //
 // The names in a type as written, an array length that names a constant,
 // are bound too: a local's in its own scope, a global's and a signature's at
-// package level. The target of an assignment to an element, a[i], binds its
-// variable without counting as a read of it, and its index like any value.
+// package level. The target of an assignment to an element or a field,
+// a[i].x, binds its variable without counting as a read of it, and its
+// index like any value.
 //
 // The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
 // discards the result in its position and is neither declared nor bound;
@@ -49,5 +64,8 @@
 //
 // Every name it reports as undefined gets its own diagnostic, so one run
 // lists them all. When Resolve returns no diagnostics, every Ident in the
-// tree is bound, which the type checker and code generator rely on.
+// tree used as a value, a callee or an assignment target is bound, which
+// the type checker and code generator rely on; a name written as a type is
+// bound unless it is a basic type's, or names nothing, which the type
+// checker reports.
 package resolver

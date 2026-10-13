@@ -1,0 +1,8 @@
+package main
+
+var limit = 3
+
+func main() {
+    mut p limit
+    exit(p)
+}

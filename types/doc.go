@@ -14,13 +14,20 @@
 // given one where it is used; no program can name it. IsInteger, IsUnsigned
 // and Bits describe the integer types, and Widens says which can be used as
 // which without a conversion: every value of the one must be a value of the
-// other. The language has no other types yet. Composite
-// types will get their IDs from the Table of the compilation that uses them,
-// the first time each is seen, so the same type written twice gets one ID.
+// other.
+//
+// Composite types get their IDs from the Table of the compilation that uses
+// them. An array type is added the first time it is seen, and found by its
+// element type and length after that, so the same array type written twice
+// gets one ID. A struct type is added once per declaration, so two structs
+// with the same fields are two types; it is named by its declaration and
+// given its fields, a name and a type each, in order, after it is added,
+// which lets a field name a struct declared after its own. The Table does
+// not check that a struct does not contain itself; the type checker does.
 //
 // The type checker creates one Table per file and records it on the
 // ast.File. Name maps an ID back to the type's name as a program writes it,
-// for diagnostics; Type deliberately has no String method, so naming a type
+// for diagnostics: [3]int64 for an array, the declared name for a struct; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
 // "int64", to its Type.

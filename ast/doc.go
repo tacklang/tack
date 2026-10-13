@@ -2,19 +2,24 @@
 //
 // The parser produces a *File from the lexer's tokens. Later passes read the
 // tree and fill in fields the parser leaves empty: the resolver sets
-// Ident.Def to the declaration a name refers to, and the type checker sets
-// Param.Type, Var.Type and Func.ResultType to the types those declarations
-// denote, the type of every operator expression and integer literal (a
+// Ident.Def to the declaration a name refers to, a type name's included,
+// and the type checker sets Param.Type, Var.Type, Func.ResultType and
+// TypeDecl.Type to the types those declarations denote, the type of every operator expression and integer literal (a
 // character literal is always a uint8, so it has no field for one),
 // Binary.Const and Unary.Const to the value of an integer constant
 // expression, Var.Const to a package-level variable's computed initial value,
-// CompositeLit.Type and Index.Type to an array literal's and an element's
-// type, Call.Const to a len the checker can compute, and File.Types to the
+// CompositeLit.Type, Index.Type and Selector.Type to an array or struct
+// literal's, an element's and a field's type, Call.Const to a len the checker can compute, and File.Types to the
 // table that gives those types meaning. The types as
 // written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
 // Func.Result. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a
-// top-level declaration. Code
+// top-level declaration, as is a TypeDecl, which declares a struct type: a
+// StructType, whose Fields are part of it rather than nodes of their own.
+// A struct literal is a CompositeLit whose elements are KeyValues, a field's
+// name and a value, and a field read or written is a Selector; neither the
+// key nor the selected name is an Ident the resolver binds, since a field is
+// found through the type of what holds it. Code
 // generation then reads the fully annotated tree. Until a pass has run, the
 // fields it owns hold their zero values (nil, or types.Invalid).
 //

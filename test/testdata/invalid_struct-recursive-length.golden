@@ -1,0 +1,15 @@
+stage: typeck
+---
+
+examples/invalid/struct-recursive-length/main.tck:4:16: error: invalid recursive type Box
+03 |	type Box struct {
+04 |	    items [len(b.items)]int64
+   |	               ^~~~~~~
+05 |	}
+
+examples/invalid/struct-recursive-length/main.tck:4:12: error: array length must be a constant integer
+03 |	type Box struct {
+04 |	    items [len(b.items)]int64
+   |	           ^~~~~~~~~~~~
+05 |	}
+

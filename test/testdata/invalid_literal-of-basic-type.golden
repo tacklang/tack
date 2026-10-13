@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/literal-of-basic-type/main.tck:4:10: error: int64 cannot be written as a literal; only arrays and structs can
+03 |	func main() {
+04 |	    n := int64{1}
+   |	         ^~~~~~~~
+05 |	    exit(n)
+

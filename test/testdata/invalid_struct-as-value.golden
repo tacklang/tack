@@ -1,0 +1,9 @@
+stage: resolve
+---
+
+examples/invalid/struct-as-value/main.tck:8:10: error: cannot use Point as a value; it is a type
+07 |	func main() {
+08 |	    p := Point
+   |	         ^~~~~
+09 |	    exit(p.x)
+

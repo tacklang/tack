@@ -1,0 +1,12 @@
+package main
+
+type Named struct {
+    name string
+}
+
+func main() {
+    a := Named{name: "a"}
+    if a == a {
+        exit(1)
+    }
+}

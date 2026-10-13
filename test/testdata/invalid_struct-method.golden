@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/struct-method/main.tck:7:6: error: methods are not supported
+06 |	
+07 |	func (p Point) norm() int64 {
+   |	     ^
+08 |	    return p.x
+

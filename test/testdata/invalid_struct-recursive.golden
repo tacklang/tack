@@ -1,0 +1,19 @@
+stage: typeck
+---
+
+examples/invalid/struct-recursive/main.tck:3:6: error: invalid recursive type Tree
+02 |	
+03 |	type Tree struct {
+   |	     ^~~~
+04 |	    value int64
+examples/invalid/struct-recursive/main.tck:5:5: note: Tree refers to Node
+04 |	    value int64
+05 |	    kids [2]Node
+   |	    ^~~~~~~~~~~~
+06 |	}
+examples/invalid/struct-recursive/main.tck:9:5: note: Node refers to Tree
+08 |	type Node struct {
+09 |	    tree Tree
+   |	    ^~~~~~~~~
+10 |	}
+

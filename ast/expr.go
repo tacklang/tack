@@ -70,7 +70,7 @@ func (i *Ident) Spanned() Span { return i.Span }
 // without copying it. Following Def instead would never end for a recursive
 // function, whose body names the function itself.
 type DeclRef struct {
-	Kind     string // "Func", "Param", or "Var"
+	Kind     string // "Func", "Param", "Var", or "Type"
 	Name     string
 	NameSpan Span
 }
@@ -106,6 +106,10 @@ func declRef(d Decl) *DeclRef {
 	case *Var:
 		if d != nil {
 			return &DeclRef{Kind: "Var", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	case *TypeDecl:
+		if d != nil {
+			return &DeclRef{Kind: "Type", Name: d.Name, NameSpan: d.NameSpan}
 		}
 	}
 	return nil
@@ -352,8 +356,8 @@ func TypeOf(expr Expr) types.Type {
 }
 
 // recordedType returns the type the type checker recorded on an operator
-// expression, an array literal or an element, or Invalid for any other
-// expression.
+// expression, a composite literal, an element or a field, or Invalid for
+// any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -364,13 +368,16 @@ func recordedType(expr Expr) types.Type {
 		return e.Type
 	case *Index:
 		return e.Type
+	case *Selector:
+		return e.Type
 	default:
 		return types.Invalid
 	}
 }
 
 // identType returns the type of the parameter or variable a name is bound
-// to, which is all an expression can name today.
+// to, which is all an expression can name today. A name bound to a type
+// has no value, so its type is Invalid.
 func identType(id *Ident) types.Type {
 	switch def := id.Def.(type) {
 	case *Param:
@@ -428,15 +435,19 @@ func (a *ArrayType) astNode() nodeKey { return _nodeKey }
 func (a *ArrayType) Spanned() Span { return a.Span }
 
 // CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
-// element for each of the array's. TypeExpr is nil for a literal written
-// inside another, as in [2][2]bool{{true, false}, {false, true}}, which
-// takes the outer literal's element type.
+// element for each of the array's, or a struct literal, Point{x: 1, y: 2},
+// whose elements are each a *KeyValue naming a field. TypeExpr is nil for a
+// literal written inside an array literal, as in
+// [2][2]bool{{true, false}, {false, true}}, which takes the outer literal's
+// element type. The parser accepts a key on any element and an element
+// without one in any literal; which literal may have which is the type
+// checker's to judge.
 type CompositeLit struct {
-	TypeExpr Expr // the array type as written, nil if left out
+	TypeExpr Expr // the type as written, nil if left out
 	Elems    []Expr
 	Span     Span // the type, or the opening brace, through the closing brace
 
-	// Type is the literal's array type, set by the type checker.
+	// Type is the literal's array or struct type, set by the type checker.
 	Type types.Type
 }
 
@@ -471,16 +482,18 @@ func (i *Index) astNode() nodeKey { return _nodeKey }
 // bracket.
 func (i *Index) Spanned() Span { return i.Span }
 
-// Root returns the name a chain of indexes starts from: the variable that
-// an assignment to target writes, whether target is the name itself or an
-// element of it, a[i][j]. It is nil when the chain starts from anything
-// else, such as a call.
+// Root returns the name a chain of indexes and field selections starts
+// from: the variable that an assignment to target writes, whether target is
+// the name itself, an element of it, a[i][j], or a field, p.a[i].x. It is
+// nil when the chain starts from anything else, such as a call.
 func Root(target Expr) *Ident {
 	for {
 		switch t := target.(type) {
 		case *Ident:
 			return t
 		case *Index:
+			target = t.X
+		case *Selector:
 			target = t.X
 		default:
 			return nil
@@ -493,3 +506,75 @@ func IsBlank(e Expr) bool {
 	id, ok := e.(*Ident)
 	return ok && id.Name == Blank
 }
+
+// StructType is a struct type as written, struct { x int64; y int64 }: its
+// fields in the order they are declared, each with a name and a type. It
+// appears only in a TypeDecl; anonymous struct types are not supported.
+type StructType struct {
+	Fields []*Field
+	Span   Span // the 'struct' keyword through the closing brace
+}
+
+var _ Expr = (*StructType)(nil)
+
+func (s *StructType) exprKey() exprKey { return _exprKey }
+
+func (s *StructType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'struct' keyword through the
+// closing brace.
+func (s *StructType) Spanned() Span { return s.Span }
+
+// Field is one field of a struct type: a name and the field's type as
+// written. It is part of its StructType rather than a node of its own; Walk
+// visits its type.
+type Field struct {
+	TypeExpr Expr
+	Name     string
+	NameSpan Span // just the identifier
+	Span     Span // the name through the end of the type
+}
+
+// Selector is a field of a struct value, X.Name. It is also an assignment's
+// target when X is a mutable variable, or an element or field of one. The
+// name is a field's, which the type checker finds from X's type, so it is
+// not an Ident and the resolver never binds it.
+type Selector struct {
+	X        Expr
+	Name     string
+	NameSpan Span // just the field name
+	Span     Span // the start of X through the field name
+
+	// Type is the field's type, set by the type checker.
+	Type types.Type
+}
+
+var _ Expr = (*Selector)(nil)
+
+func (s *Selector) exprKey() exprKey { return _exprKey }
+
+func (s *Selector) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of X through the field
+// name.
+func (s *Selector) Spanned() Span { return s.Span }
+
+// KeyValue is an element of a composite literal written with a key,
+// Key: Value. In a struct literal the key is an *Ident naming a field,
+// which the resolver leaves unbound, since a field's name is not looked up
+// among variables. It has no value of its own.
+type KeyValue struct {
+	Key   Expr
+	Value Expr
+	Span  Span // the start of Key through the end of Value
+}
+
+var _ Expr = (*KeyValue)(nil)
+
+func (k *KeyValue) exprKey() exprKey { return _exprKey }
+
+func (k *KeyValue) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of the key through the
+// end of the value.
+func (k *KeyValue) Spanned() Span { return k.Span }

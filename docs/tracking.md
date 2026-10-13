@@ -23,7 +23,7 @@ Open questions about how a feature should behave are in
 | Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                            |
 |-----------------------------|-------|---------|---------|---------|------------------------------------------------------------------------------------------------------------------|
 | Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                   |
-| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 13 parsed, see the statements and expressions below |
+| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 15 parsed, see the statements and expressions below |
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
 | Line comments               | yes   | yes     | n/a     | n/a     | Anywhere a line can end, including before `package`; kept in the syntax tree, ignored by the grammar             |
 | Block comments              | no    | no      | no      | no      | Reported as unsupported                                                                                          |
@@ -47,9 +47,11 @@ Open questions about how a feature should behave are in
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | partial | yes | Accepted, and compiled as an empty body                                                     |
-| Constants and types      | yes   | no     | no      | no  |                                                                                             |
+| Constants                | yes   | no     | no      | no  |                                                                                             |
+| Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value               |
+| Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
 | Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; constant initializers, computed at compile time; usable from any function |
-| Methods                  | yes   | no     | no      | no  |                                                                                             |
+| Methods                  | yes   | no     | no      | no  | Rejected with a diagnostic, declared or called                                              |
 
 ### Statements
 
@@ -88,6 +90,8 @@ Open questions about how a feature should behave are in
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                                                                     |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; the smallest known value is an overflow error; `-` before digits is a negative literal                                                    |
 | Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                                                                        |
+| Struct literals `T{f: v}`         | yes   | yes    | yes     | yes     | Every field named once, any order; parenthesized in an `if`/`for`/range header; type left out only inside an array literal                                              |
+| Field selection `x.f`             | yes   | yes    | yes     | yes     | On any struct value; written through a `mut` variable, mixed with indexes to any depth; no facts for proofs                                                             |
 | Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops (over a count or an array), guards and types, or `v, ok := a[i]`                                                           |
 | Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from `len(s)` guards and range loops over `len(s)` or `s`, or `v, ok := s[i]`; never assigned                                                         |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail, otherwise `v, ok := T(x)`                                                                                         |
@@ -109,7 +113,8 @@ Open questions about how a feature should behave are in
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
 | Float types                        | no      | no  |                                                                   |
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
-| Slices, maps, structs              | no      | no  |                                                                   |
+| Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
+| Slices, maps                       | no      | no  |                                                                   |
 | Pointers                           | no      | no  |                                                                   |
 | Interfaces, generics               | no      | no  |                                                                   |
 

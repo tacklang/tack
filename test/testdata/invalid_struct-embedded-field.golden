@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/struct-embedded-field/main.tck:8:5: error: embedded fields are not supported
+07 |	type Named struct {
+08 |	    Point
+   |	    ^~~~~
+09 |	    name string
+

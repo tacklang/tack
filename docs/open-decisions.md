@@ -69,3 +69,31 @@ files, or give them a meaning (external, `asm`, builtin).
 
 `010` is the decimal number 10. In Go (and C) it is octal 8, and Go also
 accepts `0o10`. Hex, octal and binary literals are not lexed at all.
+
+## Structs
+
+Structs follow the decisions recorded in the README. These points were
+settled by the implementation rather than decided, and each could go
+another way:
+
+- A struct literal in the header of an `if`, a `for` or a range loop must
+  be in parentheses, as in Go, since `if p == Point{x: 1} {` would
+  otherwise be ambiguous. `if p == Point{x: 1} {` is reported as needing
+  parentheses when the body would start with a name and a colon; other
+  forms, such as `if e == Empty{} {`, give a plain syntax error.
+- Inside an array literal, a struct literal may leave out its type,
+  `[2]Point{{x: 1, y: 2}, {x: 3, y: 4}}`, extending the rule that let an
+  inner array literal do so. A field's value may not.
+- `struct {}` is allowed, as in Go: its values are all equal, and the C
+  backend gives it one unused member, since C has no empty struct.
+- A struct holding itself through an array of length 0 is rejected like
+  any other cycle, as in Go.
+- `_` cannot name a field, following the rule that `_` is not a name;
+  Go allows blank fields, as padding.
+- A key written in parentheses, `Point{(x): 1}`, is taken as the field
+  name `x`, since parentheses leave no node behind. Go rejects it.
+- The fields of a struct literal are evaluated in the order C chooses, as
+  a call's arguments are (see evaluation order).
+- A field never carries a fact for proving a divisor non-zero or an index
+  in range, so a guard on `p.x` proves nothing; whether a field of an
+  immutable variable should is open.

@@ -1,0 +1,12 @@
+package main
+
+type Point struct {
+    x int64
+}
+
+func (p Point) norm() int64 {
+    return p.x
+}
+
+func main() {
+}

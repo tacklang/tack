@@ -198,3 +198,80 @@ func TestArrayIDsBelongToTheirTable(t *testing.T) {
 		t.Error("an array type widens to something other than itself")
 	}
 }
+
+// Struct types are told apart by declaration: two of the same name, or the
+// same fields, are two types.
+func TestStructTypesAreNotInterned(t *testing.T) {
+	table := types.NewTable()
+	a := table.Struct("P")
+	b := table.Struct("P")
+	if a == b {
+		t.Fatalf("two struct declarations got one ID, %d", a)
+	}
+	fields := []types.Field{{Name: "x", Type: types.Int64}}
+	table.SetFields(a, fields)
+	table.SetFields(b, fields)
+	if a == b || types.Widens(a, b) {
+		t.Error("structs with the same fields are the same type")
+	}
+}
+
+// A struct is not described as an array, nor an array of structs as a
+// struct, and a struct has no fields until they are set.
+func TestStructTypeShapes(t *testing.T) {
+	table := types.NewTable()
+	p := table.Struct("Point")
+	if got := table.Fields(p); got != nil {
+		t.Errorf("Fields before SetFields = %v, want nil", got)
+	}
+	arr := table.Array(p, 2)
+	if !table.IsStruct(p) || table.IsArray(p) || table.Elem(p) != types.Invalid ||
+		table.Len(p) != 0 {
+		t.Error("Point is not described as a struct")
+	}
+	if table.IsStruct(arr) || !table.IsArray(arr) || table.Elem(arr) != p {
+		t.Error("[2]Point is not described as an array of Point")
+	}
+	if got := table.Name(arr); got != "[2]Point" {
+		t.Errorf("Name = %q, want [2]Point", got)
+	}
+}
+
+// A struct's fields are found by name, with their position, and only a
+// struct has any.
+func TestStructFields(t *testing.T) {
+	table := types.NewTable()
+	p := table.Struct("Point")
+	arr := table.Array(p, 2)
+	table.SetFields(
+		p,
+		[]types.Field{{Name: "x", Type: types.Int64}, {Name: "ok", Type: types.Bool}},
+	)
+	f, i, ok := table.Field(p, "ok")
+	if !ok || i != 1 || f.Type != types.Bool {
+		t.Errorf("Field(ok) = %v, %d, %v", f, i, ok)
+	}
+	if _, _, ok := table.Field(p, "y"); ok {
+		t.Error("Point has a field y")
+	}
+	if _, _, ok := table.Field(arr, "x"); ok || table.Fields(types.Int64) != nil {
+		t.Error("a type that is not a struct has fields")
+	}
+}
+
+// SetFields on anything but a struct of the Table changes nothing, and a nil
+// Table knows no structs.
+func TestSetFieldsIgnoresOtherTypes(t *testing.T) {
+	table := types.NewTable()
+	arr := table.Array(types.Int64, 1)
+	table.SetFields(arr, []types.Field{{Name: "x", Type: types.Int64}})
+	table.SetFields(types.Int64, []types.Field{{Name: "x", Type: types.Int64}})
+	table.SetFields(99, nil)
+	if table.Fields(arr) != nil || table.Elem(arr) != types.Int64 {
+		t.Error("SetFields changed an array type")
+	}
+	var none *types.Table
+	if none.IsStruct(types.Added(0)) || none.Fields(types.Added(0)) != nil {
+		t.Error("a nil Table knows a struct")
+	}
+}
