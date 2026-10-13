@@ -38,7 +38,7 @@ static void tack_main_mark(int64_t p_d) {
 
 static void tack_main_expect(int64_t p_want, int64_t p_code) {
     if (tack_main_log != p_want) {
-        exit(p_code);
+        exit((int)(p_code));
     }
     tack_main_log = 0;
 }
@@ -316,25 +316,25 @@ static void tack_main_main(void) {
     tack_main_loopInDefer();
     tack_main_expect(9134, 4);
     if (tack_main_counted() != 1230) {
-        exit(5);
+        exit((int)(5));
     }
     if (tack_main_exits(1) != 1) {
-        exit(7);
+        exit((int)(7));
     }
     tack_main_expect(3221, 8);
     if (tack_main_exits(7) != 9) {
-        exit(9);
+        exit((int)(9));
     }
     tack_main_expect(3232241, 10);
     tack_main_skip();
     tack_main_expect(215315314, 11);
     if (tack_main_inner(4) != 11) {
-        exit(12);
+        exit((int)(12));
     }
     tack_main_expect(4343435243321, 13);
     tack_main_many();
     tack_main_expect(4030201, 6);
-    exit(42);
+    exit((int)(42));
 }
 
 int main(void) {

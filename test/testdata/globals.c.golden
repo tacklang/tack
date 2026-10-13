@@ -38,7 +38,7 @@ static void tack_main_main(void) {
     tack_main_count();
     tack_main_count();
     if (tack_main_calls == 2) {
-        exit(tack_main_limit);
+        exit((int)(tack_main_limit));
     }
 }
 

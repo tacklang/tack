@@ -1338,7 +1338,8 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 			if len(diags) > 0 {
 				return nil, diags
 			}
-			lines = append(lines, fmt.Sprintf("exit(%s);", expr))
+			// C's exit takes an int; see the package doc for the narrowing.
+			lines = append(lines, fmt.Sprintf("exit((int)(%s));", expr))
 		}
 		return lines, nil
 

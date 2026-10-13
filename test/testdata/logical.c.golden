@@ -43,11 +43,11 @@ static bool tack_main_safe(int64_t p_n) {
 
 static void tack_main_main(void) {
     if (tack_main_check((tack_string){str1, 5}, false) && tack_main_check((tack_string){str2, 5}, true)) {
-        exit(1);
+        exit((int)(1));
     }
     if (tack_main_check((tack_string){str3, 6}, true) || tack_main_check((tack_string){str2, 5}, true)) {
         if (!tack_main_safe(0) && tack_main_safe(5)) {
-            exit(13);
+            exit((int)(13));
         }
     }
 }

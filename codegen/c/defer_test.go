@@ -290,8 +290,8 @@ func TestDeferEmitsNoFlags(t *testing.T) {
 	if !strings.Contains(out, "return p_n;") {
 		t.Errorf("return with no defer pending was not plain:\n%s", out)
 	}
-	if strings.Count(out, "exit(2)") != 1 {
-		t.Errorf("defer copied %d times, want once:\n%s", strings.Count(out, "exit(2)"), out)
+	if strings.Count(out, "exit((int)(2))") != 1 {
+		t.Errorf("defer copied %d times, want once:\n%s", strings.Count(out, "exit((int)(2))"), out)
 	}
 	if strings.Contains(out, "bool tack_") {
 		t.Errorf("generated a flag:\n%s", out)

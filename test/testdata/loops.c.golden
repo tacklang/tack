@@ -77,7 +77,7 @@ static void tack_main_main(void) {
         }
     }
     if (v_sum != 25) {
-        exit(1);
+        exit((int)(1));
     }
     int64_t v_squares = 0;
     {
@@ -94,9 +94,9 @@ static void tack_main_main(void) {
         }
     }
     if (v_squares != 16) {
-        exit(1);
+        exit((int)(1));
     }
-    exit(tack_main_nthPrime(10));
+    exit((int)(tack_main_nthPrime(10)));
 }
 
 int main(void) {

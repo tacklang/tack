@@ -49,17 +49,17 @@ static int64_t tack_main_sum(tack_array_12 p_xs) {
 static void tack_main_main(void) {
     const int64_t v_x = 7;
     if (v_x != 7) {
-        exit(1);
+        exit((int)(1));
     }
     const tack_results_main_pair tack_r2 = tack_main_pair(10, 20);
     const int64_t v_a = tack_r2.r0;
     const int64_t v_b = tack_r2.r1;
     if ((((int64_t)((uint64_t)v_a + (uint64_t)v_b)) != 30) || (tack_main_calls != 1)) {
-        exit(2);
+        exit((int)(2));
     }
     const tack_array_12 v_xs = (tack_array_12){{1, 2, 3, 4}};
     if (tack_main_sum(v_xs) != 10) {
-        exit(3);
+        exit((int)(3));
     }
     int64_t v_n = 0;
     const int64_t v_m = 3;
@@ -79,7 +79,7 @@ static void tack_main_main(void) {
         }
     }
     if (v_n != 6) {
-        exit(4);
+        exit((int)(4));
     }
     int64_t v_loops = 0;
     for (;;) {
@@ -92,9 +92,9 @@ static void tack_main_main(void) {
         v_loops = ((int64_t)((uint64_t)v_loops - (uint64_t)1));
     }
     if (v_loops != 0) {
-        exit(5);
+        exit((int)(5));
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6)));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6))));
 }
 
 int main(void) {

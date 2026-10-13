@@ -26,7 +26,7 @@ static int64_t tack_main_fib(int64_t p_n) {
 }
 
 static void tack_main_main(void) {
-    exit(tack_main_fib(10));
+    exit((int)(tack_main_fib(10)));
 }
 
 int main(void) {

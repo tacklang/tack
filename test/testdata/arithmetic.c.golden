@@ -16,7 +16,7 @@ typedef struct {
 static void tack_main_main(void);
 
 static void tack_main_main(void) {
-    exit(5);
+    exit((int)(5));
 }
 
 int main(void) {

@@ -52,7 +52,7 @@ static void tack_main_main(void) {
     v_count = ((int64_t)((uint64_t)v_count + (uint64_t)1));
     const bool v_done = (v_count == 1);
     if (v_done) {
-        exit(v_total);
+        exit((int)(v_total));
     }
 }
 

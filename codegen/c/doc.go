@@ -144,7 +144,12 @@
 // each field, joined with the comma operator.
 //
 // print lowers to one tack_print call, a length-bounded fwrite of its argument
-// to stdout with nothing added. exit lowers to C's exit.
+// to stdout with nothing added. exit lowers to C's exit, which takes an int,
+// so its int64 status is cast to int explicitly, exit((int)(x)), rather than
+// narrowed implicitly. A status outside int's range gives an
+// implementation-defined value in C11 (6.3.1.3); clang keeps the low 32
+// bits, and the OS keeps fewer still, the low 8 on Linux and macOS, so only
+// the low bits of the status reach the OS: exit(70000) exits with 112.
 // Every binary expression is parenthesised, so Tack's grouping survives
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.

@@ -223,7 +223,7 @@ func TestGeneratesExitAsALibcCall(t *testing.T) {
 	if !strings.Contains(got, "#include <stdlib.h>") {
 		t.Errorf("generated C does not include stdlib.h, so exit is undeclared:\n%s", got)
 	}
-	if !strings.Contains(got, "    exit(42);") {
+	if !strings.Contains(got, "    exit((int)(42));") {
 		t.Errorf("generated C does not call exit:\n%s", got)
 	}
 }
@@ -231,8 +231,22 @@ func TestGeneratesExitAsALibcCall(t *testing.T) {
 func TestExitAcceptsTheFullIntRange(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(9223372036854775807)\n}\n")
 
-	if !strings.Contains(got, "exit(9223372036854775807);") {
+	if !strings.Contains(got, "exit((int)(9223372036854775807));") {
 		t.Errorf("generated C lost precision on a large literal:\n%s", got)
+	}
+}
+
+// TestExitNarrowsExplicitly checks exit's int64 status is cast to C's int
+// in the open, so clang's -Wconversion has no implicit narrowing to warn
+// about, and that only the low bits of a wide status reach the OS: 70000
+// exits with 70000 % 256, 112.
+func TestExitNarrowsExplicitly(t *testing.T) {
+	src := program("mut x int64 = 70000", "x++", "x--", "exit(x)")
+	bin := buildWith(t, src, "-Wconversion")
+	err := exec.Command(bin).Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 112 {
+		t.Errorf("got %v, want exit status 112", err)
 	}
 }
 
@@ -298,7 +312,7 @@ func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 	if !strings.Contains(got, "tack_print(p_s);") {
 		t.Errorf("print of a parameter was not lowered:\n%s", got)
 	}
-	if !strings.Contains(got, "exit(p_x);") {
+	if !strings.Contains(got, "exit((int)(p_x));") {
 		t.Errorf("exit of a parameter was not lowered:\n%s", got)
 	}
 }
@@ -531,7 +545,7 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
 	)
 
-	if !strings.Contains(got, "exit(tack_main_seven());") {
+	if !strings.Contains(got, "exit((int)(tack_main_seven()));") {
 		t.Errorf("a call argument did not become a C expression:\n%s", got)
 	}
 }
@@ -541,7 +555,7 @@ func TestNestedCallsNest(t *testing.T) {
 		"func h() int64 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
 
 	got := generate(t, src)
-	if !strings.Contains(got, "exit(tack_main_g(tack_main_h()));") {
+	if !strings.Contains(got, "exit((int)(tack_main_g(tack_main_h())));") {
 		t.Errorf("nested calls did not nest:\n%s", got)
 	}
 }
@@ -608,7 +622,7 @@ func TestGeneratesConstantExpressionAsItsValue(t *testing.T) {
 		t,
 		"package main\n\nfunc main() {\n    exit(1 + 2 * 3)\n    if 1 < 2 {\n    }\n}\n",
 	)
-	for _, want := range []string{"exit(7);", "if (true) {"} {
+	for _, want := range []string{"exit((int)(7));", "if (true) {"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
 		}

@@ -88,23 +88,23 @@ static void tack_main_main(void) {
     const tack_main_Point v_q = v_p;
     v_p.f_x = 10;
     if ((v_q.f_x != 1) || (v_p.f_x != 10)) {
-        exit(1);
+        exit((int)(1));
     }
     if (((tack_main_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_main_add(v_p, v_q).f_y != 4)) {
-        exit(2);
+        exit((int)(2));
     }
     const tack_main_Line v_l = (tack_main_Line){.f_a = (tack_main_Point){.f_x = 1, .f_y = 2}, .f_b = (tack_main_Point){.f_y = 4, .f_x = 3}};
     const tack_results_main_split tack_r0 = tack_main_split(v_l);
     const tack_main_Point v_a = tack_r0.r0;
     const tack_main_Point v_b = tack_r0.r1;
     if ((!tack_eq_13(tack_main_add(v_a, v_b), (tack_main_Point){.f_x = 4, .f_y = 6})) || (tack_eq_13(v_a, v_b))) {
-        exit(3);
+        exit((int)(3));
     }
     tack_main_Line v_ml = v_l;
     v_ml.f_a.f_x = 7;
     v_ml.f_b.f_y = ((int64_t)((uint64_t)v_ml.f_b.f_y + (uint64_t)5));
     if ((((v_ml.f_a.f_x != 7) || (v_ml.f_b.f_y != 9)) || (v_l.f_a.f_x != 1)) || (v_l.f_b.f_y != 4)) {
-        exit(4);
+        exit((int)(4));
     }
     tack_array_18 v_pts = tack_main_corners;
     v_pts.e[1].f_y = 20;
@@ -124,7 +124,7 @@ static void tack_main_main(void) {
         }
     }
     if ((v_sum != 30) || (tack_main_corners.e[1].f_y != 2)) {
-        exit(5);
+        exit((int)(5));
     }
     tack_main_Grid v_g = (tack_main_Grid){0};
     v_g.f_cells.e[2] = 5;
@@ -137,24 +137,24 @@ static void tack_main_main(void) {
         }
     }
     if ((((((void)v_g.f_cells, (int64_t)3) != 3) || (v_g.f_cells.e[2] != 6)) || (v_g.f_cells.e[0] != 1)) || ((v_g.f_name).len != 4)) {
-        exit(6);
+        exit((int)(6));
     }
     tack_main_Point v_z = (tack_main_Point){0};
     if ((!tack_eq_13(v_z, tack_main_origin)) || (!tack_eq_13(tack_main_counter, v_z))) {
-        exit(7);
+        exit((int)(7));
     }
     tack_main_counter.f_y = ((int64_t)((uint64_t)tack_main_counter.f_y - (uint64_t)1));
     tack_main_counter.f_x = ((int64_t)((uint64_t)tack_main_counter.f_y * (uint64_t)2));
     tack_main_Small v_s = (tack_main_Small){.f_n = 127};
     v_s.f_n = ((int8_t)((uint64_t)v_s.f_n + (uint64_t)1));
     if (v_s.f_n != (-128)) {
-        exit(8);
+        exit((int)(8));
     }
     const tack_main_Empty v_e = (tack_main_Empty){0};
     if (!tack_eq_16(v_e, (tack_main_Empty){0})) {
-        exit(9);
+        exit((int)(9));
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_main_counter.f_x)) + (uint64_t)tack_main_counter.f_y)) + (uint64_t)100)));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_main_counter.f_x)) + (uint64_t)tack_main_counter.f_y)) + (uint64_t)100))));
 }
 
 int main(void) {

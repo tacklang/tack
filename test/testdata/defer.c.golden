@@ -53,7 +53,7 @@ static void tack_main_mark(int64_t p_d) {
 
 static void tack_main_expect(int64_t p_want, int64_t p_code) {
     if (tack_main_log != p_want) {
-        exit(p_code);
+        exit((int)(p_code));
     }
     tack_main_log = 0;
 }
@@ -197,11 +197,11 @@ static void tack_main_main(void) {
     tack_main_nested(0);
     tack_main_expect(41, 3);
     if (tack_main_early(1) != 1) {
-        exit(4);
+        exit((int)(4));
     }
     tack_main_expect(52321, 5);
     if (tack_main_early(7) != 9) {
-        exit(6);
+        exit((int)(6));
     }
     tack_main_expect(52525241, 7);
     tack_main_unreached(1);
@@ -211,14 +211,14 @@ static void tack_main_main(void) {
     tack_main_late();
     tack_main_expect(3, 10);
     if (tack_main_result() != 5) {
-        exit(11);
+        exit((int)(11));
     }
     tack_main_expect(7, 12);
     const tack_results_main_pair tack_r6 = tack_main_pair();
     const int64_t v_a = tack_r6.r0;
     const int64_t v_b = tack_r6.r1;
     if ((v_a != 1) || (v_b != 2)) {
-        exit(13);
+        exit((int)(13));
     }
     tack_main_expect(7, 14);
     tack_main_guarded(5);
@@ -226,7 +226,7 @@ static void tack_main_main(void) {
     tack_main_guarded(0);
     tack_main_expect(0, 16);
     tack_main_greet();
-    exit(42);
+    exit((int)(42));
     {
         tack_print((tack_string){str3, 6});
     }

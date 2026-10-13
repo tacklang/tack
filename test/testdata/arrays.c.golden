@@ -81,19 +81,19 @@ static void tack_main_main(void) {
     const tack_array_13 v_b = v_a;
     v_a.e[0] = 10;
     if ((v_b.e[0] != 1) || (!tack_eq_13(v_a, (tack_array_13){{10, 2, 3}}))) {
-        exit(1);
+        exit((int)(1));
     }
     tack_array_16 v_grid = (tack_array_16){0};
     v_grid.e[1].e[1] = true;
     if (!tack_eq_16(v_grid, (tack_array_16){{(tack_array_15){{false, false}}, (tack_array_15){{false, true}}}})) {
-        exit(2);
+        exit((int)(2));
     }
     const tack_array_14 v_o = tack_main_origin();
     if ((v_o.e[0] != 0) || (v_o.e[1] != 0)) {
-        exit(3);
+        exit((int)(3));
     }
     const tack_string v_word = (tack_string){str0, 4};
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_sum3(v_b) + (uint64_t)((void)tack_main_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_main_primes.e[4])));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_sum3(v_b) + (uint64_t)((void)tack_main_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_main_primes.e[4]))));
 }
 
 int main(void) {

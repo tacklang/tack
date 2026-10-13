@@ -33,9 +33,9 @@ static void tack_main_main(void) {
     int32_t v_x = 100000;
     const int64_t v_wide = ((int32_t)((uint64_t)v_x * (uint64_t)v_x));
     if (((((v_b == tack_main_smallest) && (tack_main_next(v_b) == (-127))) && (((uint64_t)((uint64_t)tack_main_largest - (uint64_t)1)) == 18446744073709551614u)) && (v_wide == 1410065408)) && (v_u == 255)) {
-        exit(((uint16_t)((uint64_t)v_sum - (uint64_t)200)));
+        exit((int)(((uint16_t)((uint64_t)v_sum - (uint64_t)200))));
     }
-    exit(1);
+    exit((int)(1));
 }
 
 int main(void) {

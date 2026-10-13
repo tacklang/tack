@@ -13,7 +13,9 @@ package builtin
 func print(s string)
 
 // exit ends the process immediately with the given status. Pending defers
-// do not run, in the calling function or any other.
+// do not run, in the calling function or any other. Only the low bits of
+// the status reach the operating system, the low 8 on Linux and macOS, so
+// exit(70000) ends with status 112.
 func exit(code int64)
 
 // len(v) returns the number of elements of the array v, or the number of

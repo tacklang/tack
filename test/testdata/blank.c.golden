@@ -42,7 +42,7 @@ static void tack_main_main(void) {
     int64_t v_q = 0;
     const tack_results_main_divmod tack_r1 = tack_main_divmod(((int64_t)((uint64_t)v_r * (uint64_t)10)), 3);
     v_q = tack_r1.r0;
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r))));
 }
 
 int main(void) {

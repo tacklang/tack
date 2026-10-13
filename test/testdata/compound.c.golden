@@ -47,7 +47,7 @@ static void tack_main_main(void) {
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x - (uint64_t)1));
-    exit(v_x);
+    exit((int)(v_x));
 }
 
 int main(void) {

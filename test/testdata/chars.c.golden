@@ -54,19 +54,19 @@ static void tack_main_main(void) {
     tack_array_14 v_counts = (tack_array_14){0};
     v_counts.e[2] = ((uint8_t)((uint64_t)122 - (uint64_t)97));
     if (((((v_d != 98) || !v_seen.e[120]) || (tack_main_last != 122)) || !tack_main_ordered) || (tack_main_newline != 10)) {
-        exit(1);
+        exit((int)(1));
     }
     if (((((tack_main_letters.e[2] != 99) || (v_wide != 97)) || (39 != 39)) || (92 != 92)) || (34 != 34)) {
-        exit(2);
+        exit((int)(2));
     }
     if ((((((void)v_counts, (int64_t)3) != 3) || (v_gap != 5)) || (v_counts.e[2] != 25)) || (v_tripled != 35)) {
-        exit(3);
+        exit((int)(3));
     }
     const tack_string v_hex = (tack_string){str0, 4};
     if (((((((0 != 0) || (255 != 255)) || (65 != 65)) || ((v_hex).len != 4)) || (v_hex.ptr[1] != 122)) || (v_hex.ptr[2] != 0)) || (v_hex.ptr[3] != 255)) {
-        exit(4);
+        exit((int)(4));
     }
-    exit(v_c);
+    exit((int)(v_c));
 }
 
 int main(void) {

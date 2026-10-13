@@ -68,9 +68,9 @@ static void tack_main_main(void) {
     const uint8_t v_b = 200;
     v_seen.e[v_b] = true;
     if ((v_ok || !v_fine) || !v_seen.e[200]) {
-        exit(1);
+        exit((int)(1));
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_sum(tack_main_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3])));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_sum(tack_main_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3]))));
 }
 
 int main(void) {

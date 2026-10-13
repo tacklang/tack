@@ -26,7 +26,7 @@ static int64_t tack_main_same(int64_t p_n) {
 }
 
 static void tack_main_main(void) {
-    exit(tack_main_same(tack_main_same(tack_main_base())));
+    exit((int)(tack_main_same(tack_main_same(tack_main_base()))));
 }
 
 int main(void) {

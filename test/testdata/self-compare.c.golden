@@ -22,9 +22,9 @@ static bool tack_main_same(int64_t p_x) {
 
 static void tack_main_main(void) {
     if (tack_main_same(3)) {
-        exit(7);
+        exit((int)(7));
     }
-    exit(1);
+    exit((int)(1));
 }
 
 int main(void) {

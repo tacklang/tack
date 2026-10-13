@@ -124,7 +124,7 @@ static void tack_main_main(void) {
         }
     }
     if (v_sum != 20) {
-        exit(1);
+        exit((int)(1));
     }
     tack_array_13 v_doubled = (tack_array_13){0};
     {
@@ -135,7 +135,7 @@ static void tack_main_main(void) {
         }
     }
     if (!tack_eq_13(v_doubled, (tack_array_13){{4, 14, 2, 16, 4}})) {
-        exit(2);
+        exit((int)(2));
     }
     tack_array_14 v_m = (tack_array_14){{1, 2, 3}};
     int64_t v_seen = 0;
@@ -151,7 +151,7 @@ static void tack_main_main(void) {
         }
     }
     if ((v_seen != 123) || (!tack_eq_14(v_m, (tack_array_14){{50, 60, (-1)}}))) {
-        exit(3);
+        exit((int)(3));
     }
     int64_t v_total = 0;
     {
@@ -172,7 +172,7 @@ static void tack_main_main(void) {
         }
     }
     if ((tack_main_calls != 2) || (v_total != 12)) {
-        exit(4);
+        exit((int)(4));
     }
     tack_string v_s = (tack_string){str1, 2};
     int64_t v_bytes = 0;
@@ -186,22 +186,22 @@ static void tack_main_main(void) {
         }
     }
     if ((v_bytes != 97099) || ((v_s).len != 3)) {
-        exit(5);
+        exit((int)(5));
     }
     if ((tack_main_count((tack_string){str3, 6}, 97) != 3) || (tack_main_count((tack_string){str4, 0}, 97) != 0)) {
-        exit(6);
+        exit((int)(6));
     }
     {
         (void)(tack_array_15){0};
         for (int64_t tack_k17 = 0; tack_k17 < 0; tack_k17++) {
-            exit(7);
+            exit((int)(7));
         }
     }
     {
         const tack_string tack_r18 = (tack_string){str4, 0};
         for (int64_t tack_k19 = 0; tack_k19 < tack_r18.len; tack_k19++) {
             const int64_t v_i = tack_k19;
-            exit(((int64_t)((uint64_t)v_i + (uint64_t)8)));
+            exit((int)(((int64_t)((uint64_t)v_i + (uint64_t)8))));
         }
     }
     const tack_array_17 v_grid = (tack_array_17){{(tack_array_16){{1, 2}}, (tack_array_16){{3, 4}}, (tack_array_16){{5, 6}}}};
@@ -227,7 +227,7 @@ static void tack_main_main(void) {
         }
     }
     if (v_cells != 8) {
-        exit(9);
+        exit((int)(9));
     }
     int64_t v_ticks = 0;
     {
@@ -247,7 +247,7 @@ static void tack_main_main(void) {
         }
     }
     if ((v_ticks != 5) || (v_quotient != 127)) {
-        exit(10);
+        exit((int)(10));
     }
     int64_t v_upper = 0;
     {
@@ -260,9 +260,9 @@ static void tack_main_main(void) {
         }
     }
     if (v_upper != 2) {
-        exit(11);
+        exit((int)(11));
     }
-    exit(((int64_t)((uint64_t)(tack_o30 = tack_main_firstOver(v_a, 7), tack_o31 = tack_main_firstOver(v_a, 8), ((int64_t)((uint64_t)tack_o30 + (uint64_t)tack_o31))) + (uint64_t)40)));
+    exit((int)(((int64_t)((uint64_t)(tack_o30 = tack_main_firstOver(v_a, 7), tack_o31 = tack_main_firstOver(v_a, 8), ((int64_t)((uint64_t)tack_o30 + (uint64_t)tack_o31))) + (uint64_t)40))));
 }
 
 int main(void) {

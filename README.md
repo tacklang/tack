@@ -577,7 +577,9 @@ which is true today because `main` is the only package there is.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes an `int64`, or an integer that widens to one, and terminates
-  the process with that status, without running any pending defer.
+  the process with that status, without running any pending defer. Only
+  the low bits of the status reach the operating system, the low 8 on
+  Linux and macOS, so `exit(70000)` ends with status 112.
 - Integer constants. A literal, and any expression made only of literals and
   operators, is a constant with no type of its own: it is computed exactly,
   and takes the type of where it is used, the type it is assigned, passed or

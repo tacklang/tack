@@ -53,7 +53,7 @@ static void tack_main_main(void) {
             v_steps = ((int64_t)((uint64_t)v_steps + (uint64_t)((int64_t)((uint64_t)1 + (uint64_t)v_b))));
         }
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_steps)));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_steps))));
 }
 
 int main(void) {

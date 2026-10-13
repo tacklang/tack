@@ -131,58 +131,58 @@ static void tack_main_main(void) {
     const tack_string v_a = (tack_string){str5, 4};
     const tack_string v_b = (tack_string){str5, 4};
     if (((((tack_compare_strings(v_a, v_b) != 0) || !(tack_compare_strings(v_a, v_b) == 0)) || (tack_compare_strings(v_a, (tack_string){str6, 3}) == 0)) || (tack_compare_strings(v_a, (tack_string){str7, 5}) == 0)) || (tack_compare_strings((tack_string){str7, 5}, v_a) == 0)) {
-        exit(1);
+        exit((int)(1));
     }
     if ((!(tack_compare_strings((tack_string){str8, 3}, (tack_string){str9, 3}) < 0) || !(tack_compare_strings((tack_string){str8, 3}, (tack_string){str9, 3}) <= 0)) || !(tack_compare_strings((tack_string){str8, 3}, (tack_string){str8, 3}) <= 0)) {
-        exit(2);
+        exit((int)(2));
     }
     if ((!(tack_compare_strings((tack_string){str9, 3}, (tack_string){str8, 3}) > 0) || !(tack_compare_strings((tack_string){str9, 3}, (tack_string){str8, 3}) >= 0)) || !(tack_compare_strings((tack_string){str8, 3}, (tack_string){str8, 3}) >= 0)) {
-        exit(3);
+        exit((int)(3));
     }
     if ((((tack_compare_strings((tack_string){str8, 3}, (tack_string){str8, 3}) < 0) || (tack_compare_strings((tack_string){str8, 3}, (tack_string){str8, 3}) > 0)) || (tack_compare_strings((tack_string){str9, 3}, (tack_string){str8, 3}) <= 0)) || (tack_compare_strings((tack_string){str8, 3}, (tack_string){str9, 3}) >= 0)) {
-        exit(4);
+        exit((int)(4));
     }
     if (((!(tack_compare_strings((tack_string){str6, 3}, (tack_string){str5, 4}) < 0) || (tack_compare_strings((tack_string){str5, 4}, (tack_string){str6, 3}) < 0)) || !(tack_compare_strings((tack_string){str5, 4}, (tack_string){str6, 3}) > 0)) || (tack_compare_strings((tack_string){str6, 3}, (tack_string){str5, 4}) >= 0)) {
-        exit(5);
+        exit((int)(5));
     }
     tack_string v_e = (tack_string){str10, 0};
     if (((((tack_compare_strings(v_e, (tack_string){str10, 0}) != 0) || !(tack_compare_strings(v_e, (tack_string){str11, 1}) < 0)) || (tack_compare_strings(v_e, (tack_string){str10, 0}) > 0)) || !(tack_compare_strings(v_e, (tack_string){str10, 0}) <= 0)) || !(tack_compare_strings((tack_string){str11, 1}, v_e) > 0)) {
-        exit(6);
+        exit((int)(6));
     }
     if (((!(tack_compare_strings((tack_string){str10, 0}, (tack_string){str12, 1}) < 0) || !(tack_compare_strings((tack_string){str13, 2}, (tack_string){str11, 1}) > 0)) || (tack_compare_strings((tack_string){str14, 3}, (tack_string){str15, 3}) == 0)) || !(tack_compare_strings((tack_string){str14, 3}, (tack_string){str15, 3}) < 0)) {
-        exit(7);
+        exit((int)(7));
     }
     if ((!(tack_compare_strings((tack_string){str13, 2}, (tack_string){str16, 3}) < 0) || (tack_compare_strings((tack_string){str14, 3}, (tack_string){str14, 3}) != 0)) || !(tack_compare_strings((tack_string){str17, 3}, (tack_string){str18, 2}) < 0)) {
-        exit(8);
+        exit((int)(8));
     }
     if (((!(tack_compare_strings((tack_string){str19, 1}, (tack_string){str11, 1}) > 0) || !(tack_compare_strings((tack_string){str20, 1}, (tack_string){str21, 1}) > 0)) || !(tack_compare_strings((tack_string){str22, 2}, (tack_string){str23, 1}) > 0)) || (tack_compare_strings((tack_string){str19, 1}, (tack_string){str20, 1}) < 0)) {
-        exit(9);
+        exit((int)(9));
     }
     if (((tack_compare_strings(tack_main_greeting(true), (tack_string){str0, 5}) != 0) || !(tack_o0 = tack_main_greeting(false), tack_o1 = tack_main_greeting(true), (tack_compare_strings(tack_o0, tack_o1) > 0))) || (tack_o2 = tack_main_greeting(true), tack_o3 = tack_main_greeting(false), (tack_compare_strings(tack_o2, tack_o3) == 0))) {
-        exit(10);
+        exit((int)(10));
     }
     const tack_main_Person v_p = (tack_main_Person){.f_name = (tack_string){str24, 3}, .f_age = 30};
     if ((!tack_eq_12(v_p, (tack_main_Person){.f_name = (tack_string){str24, 3}, .f_age = 30})) || (tack_eq_12(v_p, (tack_main_Person){.f_name = (tack_string){str25, 4}, .f_age = 30}))) {
-        exit(11);
+        exit((int)(11));
     }
     tack_main_Person v_z = (tack_main_Person){0};
     if ((!tack_eq_12(v_z, (tack_main_Person){.f_name = (tack_string){str10, 0}, .f_age = 0})) || !(tack_compare_strings(v_z.f_name, v_p.f_name) < 0)) {
-        exit(12);
+        exit((int)(12));
     }
     const tack_array_15 v_words = (tack_array_15){{(tack_string){str11, 1}, (tack_string){str26, 1}, (tack_string){str27, 1}}};
     if ((!tack_eq_15(v_words, (tack_array_15){{(tack_string){str11, 1}, (tack_string){str26, 1}, (tack_string){str27, 1}}})) || (tack_eq_15(v_words, (tack_array_15){{(tack_string){str11, 1}, (tack_string){str26, 1}, (tack_string){str28, 1}}}))) {
-        exit(13);
+        exit((int)(13));
     }
     tack_array_14 v_blank = (tack_array_14){0};
     if ((!tack_eq_14(v_blank, (tack_array_14){{(tack_string){str10, 0}, (tack_string){str10, 0}}})) || (tack_eq_14(v_blank, (tack_array_14){{(tack_string){str10, 0}, (tack_string){str29, 1}}}))) {
-        exit(14);
+        exit((int)(14));
     }
     const tack_main_Team v_t = (tack_main_Team){.f_names = (tack_array_14){{(tack_string){str29, 1}, (tack_string){str30, 1}}}, .f_lead = v_p};
     if (!tack_eq_13(v_t, (tack_main_Team){.f_names = (tack_array_14){{(tack_string){str29, 1}, (tack_string){str30, 1}}}, .f_lead = (tack_main_Person){.f_name = (tack_string){str24, 3}, .f_age = 30}})) {
-        exit(15);
+        exit((int)(15));
     }
     if ((tack_eq_13(v_t, (tack_main_Team){.f_names = (tack_array_14){{(tack_string){str29, 1}, (tack_string){str23, 1}}}, .f_lead = v_p})) || (tack_eq_13(v_t, (tack_main_Team){.f_names = v_t.f_names, .f_lead = v_z}))) {
-        exit(16);
+        exit((int)(16));
     }
     const tack_array_16 v_sorted = (tack_array_16){{(tack_string){str10, 0}, (tack_string){str11, 1}, (tack_string){str18, 2}, (tack_string){str26, 1}, (tack_string){str22, 2}}};
     tack_string v_prev = (tack_string){str10, 0};
@@ -198,16 +198,16 @@ static void tack_main_main(void) {
         }
     }
     if (v_rising != 4) {
-        exit(17);
+        exit((int)(17));
     }
     int64_t v_i = 0;
     while (tack_compare_strings(tack_main_fruit(v_i), (tack_string){str26, 1}) < 0) {
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     if (v_i != 2) {
-        exit(18);
+        exit((int)(18));
     }
-    exit(((int64_t)((uint64_t)40 + (uint64_t)v_i)));
+    exit((int)(((int64_t)((uint64_t)40 + (uint64_t)v_i))));
 }
 
 int main(void) {

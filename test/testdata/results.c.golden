@@ -66,7 +66,7 @@ static void tack_main_main(void) {
     const tack_string v_label = tack_r1.r0;
     const bool v_ok = tack_r1.r1;
     if (v_ok) {
-        exit(1);
+        exit((int)(1));
     }
     tack_print(v_label);
     tack_print((tack_string){str2, 1});
@@ -75,7 +75,7 @@ static void tack_main_main(void) {
     const int64_t v_count = tack_r2.r1;
     v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_count));
     tack_main_divmod(1, 1);
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total)));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total))));
 }
 
 int main(void) {

@@ -39,12 +39,12 @@ static void tack_main_main(void) {
         v_done = true;
     }
     if (tack_main_not(v_done)) {
-        exit(1);
+        exit((int)(1));
     }
     if (v_done != tack_main_verbose) {
-        exit(2);
+        exit((int)(2));
     }
-    exit(9);
+    exit((int)(9));
 }
 
 int main(void) {
