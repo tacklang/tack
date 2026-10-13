@@ -1,9 +1,9 @@
 stage: resolve
 ---
 
-examples/invalid/defer-later-variable/main.tck:4:16: error: undefined: n
+examples/invalid/defer-later-variable/main.tck:4:18: error: undefined: n
 03 |	func main() {
-04 |	    defer exit(n)
-   |	               ^
+04 |	    defer { exit(n) }
+   |	                 ^
 05 |	    n := 3
 

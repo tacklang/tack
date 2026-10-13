@@ -15,18 +15,18 @@ var deferScopeCases = []struct {
 	src  string
 	want []string
 }{
-	{"reads a variable declared before", inMainOf("x := 1", "defer exit(x)"), nil},
+	{"reads a variable declared before", inMainOf("x := 1", "defer { exit(x) }"), nil},
 	{
 		"reads a variable declared after",
-		inMainOf("defer exit(x)", "x := 1", "exit(x)"),
+		inMainOf("defer { exit(x) }", "x := 1", "exit(x)"),
 		[]string{"undefined: x"},
 	},
 	{
 		"assigns a variable declared after",
-		inMainOf("defer x = 2", "mut x := 1", "exit(x)"),
+		inMainOf("defer { x = 2 }", "mut x := 1", "exit(x)"),
 		[]string{"undefined: x"},
 	},
-	{"a read only in a defer counts", inMainOf("x := 1", "defer exit(x)"), nil},
+	{"a read only in a defer counts", inMainOf("x := 1", "defer { exit(x) }"), nil},
 	{
 		"a block's own variable is not seen after it",
 		inMainOf("defer {", "    x := 1", "    exit(x)", "}", "exit(x)"),
@@ -61,13 +61,8 @@ var deferScopeCases = []struct {
 		),
 		nil,
 	},
-	{"undefined callee", inMainOf("defer g()"), []string{"undefined: g"}},
-	{"assigns _", inMainOf("defer _ = 1"), []string{"cannot assign to _"}},
-	{
-		"nested defer sees the outer block's names",
-		inMainOf("defer {", "    x := 1", "    defer exit(x)", "}"),
-		nil,
-	},
+	{"undefined callee", inMainOf("defer { g() }"), []string{"undefined: g"}},
+	{"assigns _", inMainOf("defer { _ = 1 }"), []string{"cannot assign to _"}},
 }
 
 // TestDeferScope checks a defer's statement is resolved where the defer is,
@@ -91,7 +86,7 @@ func TestDeferScope(t *testing.T) {
 
 // A deferred call's argument binds to the variable it names.
 func TestBindsDeferredNames(t *testing.T) {
-	file, diags := resolveTree(t, inMainOf("mut n := 1", "defer n++", "defer exit(n)"))
+	file, diags := resolveTree(t, inMainOf("mut n := 1", "defer { n++ }", "defer { exit(n) }"))
 	if len(diags) > 0 {
 		t.Fatalf("got %q, want no diagnostics", messagesOf(diags))
 	}

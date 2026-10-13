@@ -157,7 +157,8 @@
 //     both variables are immutable, and two over an integer are an error;
 //   - break and continue are inside a loop, and in deferred code inside a
 //     loop that is itself inside the deferred code; a return is never in
-//     deferred code, since nothing may leave it;
+//     deferred code, since nothing may leave it, and neither is a defer, at
+//     any depth, reported at its keyword;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, a switch
 //     with a default whose cases all terminate, or a loop with no condition

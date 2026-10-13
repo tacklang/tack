@@ -239,8 +239,8 @@ which is true today because `main` is the only package there is.
   values not matching. A case with several values proves nothing about
   them inside its body, as `||` gives nothing when true.
 - Defers, block-scoped as in Zig rather than function-scoped as in Go.
-  `defer f(x)` registers its statement when execution reaches it, and the
-  statement runs when the block holding the defer is left, by any path:
+  `defer { f(x) }` registers its block when execution reaches it, and the
+  block runs when the block holding the defer is left, by any path:
   falling off its end, or a `return`, `break` or `continue` that leaves it,
   through any number of nested blocks. Each block runs the defers it
   reached last first, and a jump out of several blocks runs the innermost
@@ -248,15 +248,17 @@ which is true today because `main` is the only package there is.
   loop's body runs at the end of each iteration that reached it, one ended
   by `continue` included, before a three-clause loop's post statement; one
   in a `switch` case runs when that case's body ends; one at the top of a
-  function body runs when the function returns. Directly after `defer` may
-  come a call, an assignment, a compound assignment, or `x++`/`x--`; any
-  other statement goes in a block, `defer { ... }`, which may hold anything
-  but a way out of it: a `return` anywhere in deferred code, or a `break` or
-  `continue` aimed at a loop outside it, is an error, while a loop inside
-  the block breaks and continues as usual. A declaration cannot be deferred
-  on its own. The deferred statement is evaluated when it runs, not when
-  the defer is reached, unlike Go, which evaluates a deferred call's
-  arguments at the defer: it reads every variable as it is then. It sees
+  function body runs when the function returns. `defer` is always followed
+  by a block, even for a single call: `defer f(x)` is an error, since it
+  looks like Go, which evaluates `x` at the defer, while a Tack defer
+  evaluates everything when it runs, and the braces show that. The block
+  may hold anything but a way out of it or another defer: a `return`
+  anywhere in deferred code, a `break` or `continue` aimed at a loop
+  outside it, and a `defer` at any depth in it are errors, while a loop
+  inside the block breaks and continues as usual. The deferred block is
+  evaluated when it runs, not when the defer is reached, unlike Go, which
+  evaluates a deferred call's arguments at the defer: it reads every
+  variable as it is then. It sees
   the names declared before the defer, not those after it. `return x`
   computes `x` before any defer runs, so a defer that changes `x` does not
   change what is returned, and the same holds for several results. `exit`
@@ -264,7 +266,7 @@ which is true today because `main` is the only package there is.
   with the facts in force where the defer is written (see division), which
   still hold when it runs: a fact holds only in a region that never
   assigns its variable, and that region takes in the rest of the defer's
-  block, every defer in it included.
+  block, every other defer in it included.
 - Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside

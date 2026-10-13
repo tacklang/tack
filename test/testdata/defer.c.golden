@@ -45,7 +45,6 @@ static int64_t tack_main_result(void);
 static tack_results_main_pair tack_main_pair(void);
 static void tack_main_guarded(int64_t p_d);
 static void tack_main_greet(void);
-static void tack_main_nestedDefer(void);
 static void tack_main_main(void);
 
 static void tack_main_mark(int64_t p_d) {
@@ -61,18 +60,28 @@ static void tack_main_expect(int64_t p_want, int64_t p_code) {
 
 static void tack_main_reverse(void) {
     tack_main_mark(4);
-    tack_main_mark(3);
-    tack_main_mark(2);
-    tack_main_mark(1);
+    {
+        tack_main_mark(3);
+    }
+    {
+        tack_main_mark(2);
+    }
+    {
+        tack_main_mark(1);
+    }
 }
 
 static void tack_main_nested(int64_t p_n) {
     if (p_n > 0) {
         tack_main_mark(3);
-        tack_main_mark(2);
+        {
+            tack_main_mark(2);
+        }
     }
     tack_main_mark(4);
-    tack_main_mark(1);
+    {
+        tack_main_mark(1);
+    }
 }
 
 static int64_t tack_main_early(int64_t p_n) {
@@ -87,13 +96,17 @@ static int64_t tack_main_early(int64_t p_n) {
                 tack_next1 = 1;
                 goto tack_defer0_1;
                 tack_defer0_1: ;
-                tack_main_mark(3);
+                {
+                    tack_main_mark(3);
+                }
                 if (tack_next1 == 1) goto tack_defer1_1;
             }
             tack_main_mark(5);
             tack_next1 = 0;
             tack_defer1_1: ;
-            tack_main_mark(2);
+            {
+                tack_main_mark(2);
+            }
             if (tack_next1 == 1) goto tack_defer2_1;
         }
     }
@@ -101,7 +114,9 @@ static int64_t tack_main_early(int64_t p_n) {
     tack_ret0 = 9;
     goto tack_defer2_1;
     tack_defer2_1: ;
-    tack_main_mark(1);
+    {
+        tack_main_mark(1);
+    }
     return tack_ret0;
 }
 
@@ -109,15 +124,21 @@ static void tack_main_unreached(int64_t p_n) {
     if (p_n > 0) {
         goto tack_defer3_1;
     }
-    tack_main_mark(2);
+    {
+        tack_main_mark(2);
+    }
     tack_defer3_1: ;
-    tack_main_mark(1);
+    {
+        tack_main_mark(1);
+    }
 }
 
 static void tack_main_late(void) {
     int64_t v_x = 1;
     v_x = 3;
-    tack_main_mark(v_x);
+    {
+        tack_main_mark(v_x);
+    }
 }
 
 static int64_t tack_main_result(void) {
@@ -126,8 +147,12 @@ static int64_t tack_main_result(void) {
     tack_ret4 = v_x;
     goto tack_defer4_2;
     tack_defer4_2: ;
-    v_x = 7;
-    tack_main_mark(v_x);
+    {
+        v_x = 7;
+    }
+    {
+        tack_main_mark(v_x);
+    }
     return tack_ret4;
 }
 
@@ -148,21 +173,19 @@ static tack_results_main_pair tack_main_pair(void) {
 
 static void tack_main_guarded(int64_t p_d) {
     if (p_d != 0) {
-        tack_main_mark(tack_div_int64(10, p_d));
+        {
+            tack_main_mark(tack_div_int64(10, p_d));
+        }
     }
 }
 
 static void tack_main_greet(void) {
     tack_print((tack_string){str2, 2});
-    tack_print((tack_string){str1, 2});
-    tack_print((tack_string){str0, 2});
-}
-
-static void tack_main_nestedDefer(void) {
-    tack_main_mark(3);
     {
-        tack_main_mark(2);
-        tack_main_mark(1);
+        tack_print((tack_string){str1, 2});
+    }
+    {
+        tack_print((tack_string){str0, 2});
     }
 }
 
@@ -202,11 +225,11 @@ static void tack_main_main(void) {
     tack_main_expect(2, 15);
     tack_main_guarded(0);
     tack_main_expect(0, 16);
-    tack_main_nestedDefer();
-    tack_main_expect(321, 17);
     tack_main_greet();
     exit(42);
-    tack_print((tack_string){str3, 6});
+    {
+        tack_print((tack_string){str3, 6});
+    }
 }
 
 int main(void) {

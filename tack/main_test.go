@@ -529,7 +529,7 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 			"package main\nfunc main() {\n    n := 1\n" +
 				strings.Repeat("switch n {\ncase 1:\n", 500) + strings.Repeat("}\n", 501),
 		},
-		{"truncated defer", "package main\nfunc main() {\n    defer {\n        defer f("},
+		{"truncated defer", "package main\nfunc main() {\n    defer {\n        if f("},
 		{"defer of nothing", "package main\nfunc main() {\n    defer\n"},
 		{
 			"deep defer nesting",
@@ -537,8 +537,13 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 				strings.Repeat("}\n", 501),
 		},
 		{
+			"deep loops in a defer",
+			"package main\nfunc main() {\ndefer {\n" + strings.Repeat("for range 2 {\nprint(\"x\")\n", 500) +
+				strings.Repeat("break\n}\n", 500) + "}\n}\n",
+		},
+		{
 			"deep defers with returns",
-			"package main\nfunc f() int64 {\n" + strings.Repeat("if true {\ndefer print(\"x\")\nreturn 1\n", 300) +
+			"package main\nfunc f() int64 {\n" + strings.Repeat("if true {\ndefer { print(\"x\") }\nreturn 1\n", 300) +
 				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    exit(f())\n}\n",
 		},
 	} {
@@ -1071,9 +1076,8 @@ func TestBuiltSwitchExits42(t *testing.T) {
 // block's before the rest of the outer one, through early returns from
 // several blocks, never one not reached, each reading variables as they
 // are when it runs, after a return's values are computed, with several
-// results, a division proven by the if around it, a deferred block that
-// defers again, and prints in order. Its main defers a print that exit
-// skips.
+// results, a division proven by the if around it, and prints in order.
+// Its main defers a print that exit skips.
 func TestBuiltDeferPrintsAndExits42(t *testing.T) {
 	bin := buildWithClang(t, "defer")
 	out, err := exec.CommandContext(t.Context(), bin).Output()

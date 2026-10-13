@@ -1324,56 +1324,40 @@ func isKeyword(tk *lexer.Token, kw lexer.KeywordType) bool {
 	return tk.Kind() == lexer.Keyword && tk.Value() == kw
 }
 
-// parseDefer parses a defer: the keyword, then either a block, which may
-// hold any statements, or one simple statement other than a declaration:
-// a call, an assignment, a compound assignment, an increment or a
-// decrement. Any other statement must be put in a block, and a declaration
-// cannot be deferred at all, since nothing could use what it declares.
+// parseDefer parses a defer: the keyword, then a block, which may hold any
+// statements. Anything else after the keyword is an error at that token,
+// a single statement included: the braces show that the deferred code
+// runs, and reads its variables, when the block holding the defer is left,
+// not where the defer is written.
 func (p *Parser) parseDefer() (*ast.Defer, []diag.Diagnostic) {
 	tk := p.next() // the defer keyword
 
+	if p.peek().Kind() != lexer.LCurl {
+		return nil, []diag.Diagnostic{p.diagNoDeferBlock(p.peek())}
+	}
 	stmt := &ast.Defer{Span: p.span(tk)}
-	switch {
-	case p.peek().Kind() == lexer.LCurl:
-		body, diags := p.parseBlock()
-		if body == nil {
-			return nil, diags
-		}
-		stmt.Body, stmt.Block = body, true
-		if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
-			return nil, semiDiags
-		}
-	case p.atSimpleStmt():
-		deferred, diags := p.parseSimpleStmt()
-		if deferred == nil {
-			return nil, diags
-		}
-		if isDecl(deferred) {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  "a variable declaration cannot be deferred",
-				Span:     deferred.Spanned(),
-			}}
-		}
-		if diags := p.endStmt(simpleStmtSpan(deferred)); diags != nil {
-			return nil, diags
-		}
-		stmt.Body = []ast.Stmt{deferred}
-	default:
-		return nil, []diag.Diagnostic{p.diagInvalidToken("call, assignment or block", p.peek())}
+	body, diags := p.parseBlock()
+	if body == nil {
+		return nil, diags
+	}
+	stmt.Body = body
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
 	}
 	stmt.Span.End = p.lastEnd()
 	return stmt, nil
 }
 
-// isDecl reports whether a simple statement declares variables.
-func isDecl(stmt ast.Stmt) bool {
-	switch stmt.(type) {
-	case *ast.Var, *ast.MultiVar:
-		return true
-	default:
-		return false
+// diagNoDeferBlock reports tk, the token after a defer keyword, for not
+// opening a block. It spans tk, or at the end of the file the point after
+// the keyword.
+func (p *Parser) diagNoDeferBlock(tk *lexer.Token) diag.Diagnostic {
+	const msg = "defer must be followed by a block: defer { ... }"
+	if tk.Kind() == lexer.EOF {
+		end := p.lastEnd()
+		return p.diag(diag.Error, msg, end, end)
 	}
+	return p.diag(diag.Error, msg, tk.OffsetStart(), tk.OffsetEnd())
 }
 
 // parseFor parses a loop: for, then its header, then the body. The header is

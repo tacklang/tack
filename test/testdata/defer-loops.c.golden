@@ -52,13 +52,17 @@ static void tack_main_clauses(void) {
                 tack_next0 = 1;
                 goto tack_defer1_1;
                 tack_defer1_1: ;
-                tack_main_mark(8);
+                {
+                    tack_main_mark(8);
+                }
                 if (tack_next0 == 1) goto tack_defer0_1;
             }
             tack_main_mark(9);
             tack_next0 = 0;
             tack_defer0_1: ;
-            tack_main_mark(v_i);
+            {
+                tack_main_mark(v_i);
+            }
             if (tack_next0 == 1) { tack_next0 = 0; break; }
         }
     }
@@ -77,16 +81,22 @@ static void tack_main_cases(void) {
                     tack_next2 = 1;
                     goto tack_defer2_1;
                     tack_defer2_1: ;
-                    tack_main_mark(2);
+                    {
+                        tack_main_mark(2);
+                    }
                     if (tack_next2 == 1) goto tack_defer3_1;
                 } else {
-                    tack_main_mark(4);
+                    {
+                        tack_main_mark(4);
+                    }
                 }
             }
             tack_main_mark(3);
             tack_next2 = 0;
             tack_defer3_1: ;
-            tack_main_mark(1);
+            {
+                tack_main_mark(1);
+            }
             if (tack_next2 == 1) { tack_next2 = 0; break; }
         }
     }
@@ -107,20 +117,28 @@ static void tack_main_deep(void) {
                                 tack_next5 = 1;
                                 goto tack_defer4_1;
                                 tack_defer4_1: ;
-                                tack_main_mark(4);
+                                {
+                                    tack_main_mark(4);
+                                }
                                 if (tack_next5 == 1) goto tack_defer5_1;
                             }
                             tack_next5 = 0;
                             tack_defer5_1: ;
-                            tack_main_mark(3);
+                            {
+                                tack_main_mark(3);
+                            }
                             if (tack_next5 == 1) { tack_next5 = 0; break; }
                         }
                     }
                     tack_main_mark(5);
-                    tack_main_mark(2);
+                    {
+                        tack_main_mark(2);
+                    }
                 }
             }
-            tack_main_mark(1);
+            {
+                tack_main_mark(1);
+            }
         }
     }
 }
@@ -148,8 +166,12 @@ static int64_t tack_main_counted(void) {
     {
         const int64_t tack_n12 = 4;
         for (int64_t tack_k13 = 0; tack_k13 < tack_n12; tack_k13++) {
-            v_n = ((int64_t)((uint64_t)v_n + (uint64_t)10));
-            v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
+            {
+                v_n = ((int64_t)((uint64_t)v_n + (uint64_t)10));
+            }
+            {
+                v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
+            }
         }
     }
     return v_n;
@@ -161,7 +183,9 @@ static void tack_main_many(void) {
         for (int64_t tack_k15 = 0; tack_k15 < 4; tack_k15++) {
             const int64_t v_d = tack_r14.e[tack_k15];
             tack_main_mark(0);
-            tack_main_mark(v_d);
+            {
+                tack_main_mark(v_d);
+            }
         }
     }
 }

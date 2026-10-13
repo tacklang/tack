@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/defer-inc/main.tck:5:11: error: defer must be followed by a block: defer { ... }
+04 |	    mut n := 1
+05 |	    defer n++
+   |	          ^
+06 |	    exit(n)
+

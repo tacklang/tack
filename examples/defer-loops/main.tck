@@ -21,12 +21,12 @@ func expect(want int64, code int64) {
 // reads i before i++ changes it.
 func clauses() {
     for mut i := 1; i < 9; i++ {
-        defer mark(i)
+        defer { mark(i) }
         if i == 2 {
             continue
         }
         if i == 3 {
-            defer mark(8)
+            defer { mark(8) }
             break
         }
         mark(9)
@@ -38,13 +38,13 @@ func clauses() {
 // leaves the loop through the case's defers and the loop body's.
 func cases() {
     for i := range 3 {
-        defer mark(1)
+        defer { mark(1) }
         switch i {
         case 1:
-            defer mark(2)
+            defer { mark(2) }
             break
         default:
-            defer mark(4)
+            defer { mark(4) }
         }
         mark(3)
     }
@@ -54,13 +54,13 @@ func cases() {
 // of the innermost loop's body and the blocks inside it.
 func deep() {
     for range 1 {
-        defer mark(1)
+        defer { mark(1) }
         for range 1 {
-            defer mark(2)
+            defer { mark(2) }
             for range 2 {
-                defer mark(3)
+                defer { mark(3) }
                 if true {
-                    defer mark(4)
+                    defer { mark(4) }
                     break
                 }
             }
@@ -90,8 +90,8 @@ func loopInDefer() {
 func counted() int64 {
     mut n := 0
     for range 4 {
-        defer n++
-        defer n += 10
+        defer { n++ }
+        defer { n += 10 }
     }
     return n
 }
@@ -100,7 +100,7 @@ func counted() int64 {
 // the element value the iteration sees.
 func many() {
     for _, d := range [4]int64{4, 3, 2, 1} {
-        defer mark(d)
+        defer { mark(d) }
         mark(0)
     }
 }

@@ -1,9 +1,9 @@
 stage: typeck
 ---
 
-examples/invalid/defer-unproven-divisor/main.tck:6:25: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+examples/invalid/defer-unproven-divisor/main.tck:6:27: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
 05 |	    if d != 0 {
-06 |	        defer exit(10 / d)
-   |	                        ^
-07 |	        defer d = 0
+06 |	        defer { exit(10 / d) }
+   |	                          ^
+07 |	        defer { d = 0 }
 

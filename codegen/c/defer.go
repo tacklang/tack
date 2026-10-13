@@ -45,10 +45,12 @@ import (
 // that jumps into its loop body's chain without storing a number, where
 // only breaks and returns are tested.
 //
-// Each deferred body is its own frame, with its own next variable, since a
-// loop in it may break or continue through its own defers while the exit
-// that is running it is still on its way; no exit leaves a deferred body.
-// A function body is the outermost frame.
+// The next variable belongs to the function, and is declared at its top.
+// A deferred body never touches it, though it runs while an exit is still
+// on its way: the checker rejects a defer anywhere in deferred code, so the
+// blocks of a deferred body have no chains, and a break or continue of a
+// loop in it is a plain C break or continue that stores no number. No exit
+// leaves a deferred body.
 //
 // A return evaluates its values first, into the function's ret variable,
 // declared at the top of the function with its result type and zero value,
@@ -82,8 +84,8 @@ type deferScope struct {
 	loop    bool
 }
 
-// deferFrame is what the generator knows about the frame being lowered: a
-// function body or a deferred body.
+// deferFrame is what the generator knows about the function body being
+// lowered.
 type deferFrame struct {
 	routes map[string]int // route numbers, by route
 	next   string         // the next variable, named when first needed
@@ -246,32 +248,41 @@ func (g *generator) chain(
 	return append(lines, sc.routes...), nil
 }
 
-// deferred lowers what d defers, once. It is generated as a frame of its
-// own, with no enclosing blocks, since nothing in it leaves it, so its own
-// defers run at its end and a break or continue in it finds the loop it is
-// in. A deferred block becomes a C block, which scopes the variables it
-// declares, its frame's next variable among them.
+// addDefer records d in the innermost block, whose chain lowers it. A
+// defer in a deferred body, which the checker rejects, is reported instead,
+// since its chain's exits would store numbers in the next variable while
+// the exit running the deferred body still needs the one it stored.
+func (g *generator) addDefer(d *ast.Defer) []diag.Diagnostic {
+	if g.deferring {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "cannot defer inside a defer",
+			Span:     d.Span,
+		}}
+	}
+	sc := g.scopes[len(g.scopes)-1]
+	sc.defers = append(sc.defers, d)
+	return nil
+}
+
+// deferred lowers what d defers, once, as a C block, which scopes the
+// variables it declares. It is generated with no enclosing blocks, since
+// nothing in it leaves it, so a break or continue in it finds the loop it
+// is in.
 func (g *generator) deferred(d *ast.Defer, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	outer, outerFrame := g.scopes, g.frame
-	g.scopes, g.frame = nil, &deferFrame{}
+	outer := g.scopes
+	g.scopes, g.deferring = nil, true
 	body, diags := g.generateBlock(d.Body, fn)
-	frame := g.frame
-	g.scopes, g.frame = outer, outerFrame
+	g.scopes, g.deferring = outer, false
 	if len(diags) > 0 {
 		return nil, diags
-	}
-	if frame.next != "" {
-		body = append([]string{fmt.Sprintf("int %s = 0;", frame.next)}, body...)
-	}
-	if !d.Block && frame.next == "" {
-		return body, nil
 	}
 	return append(append([]string{"{"}, indent(body)...), "}"), nil
 }
 
-// funcFrame lowers fn's body as the outermost frame: its variables are
-// declared first, and when a return holds its value in ret, the body ends
-// by returning it.
+// funcFrame lowers fn's body as a frame: its variables are declared
+// first, and when a return holds its value in ret, the body ends by
+// returning it.
 func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	outer := g.frame
 	g.frame = &deferFrame{}

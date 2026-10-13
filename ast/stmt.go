@@ -284,18 +284,14 @@ type CaseClause struct {
 // return, break or continue that leaves several blocks runs the innermost
 // block's first. A defer that execution never reached does not run. Body
 // is evaluated when it runs, not when the defer is reached, so it reads
-// variables as they are then. It is a block of its own, which no return,
-// and no break or continue aimed at a loop outside it, may leave.
-//
-// Written as defer { ... }, Block is set and Body holds the block's
-// statements, which may be any statements but those leaving it. Written
-// as defer followed by one statement, which must be a call, an assignment,
-// a compound assignment, an increment or a decrement, Body holds just that
-// statement.
+// variables as they are then. It is always written as a block,
+// defer { ... }, and Body holds the block's statements, which may be any
+// statements but those leaving it and, at any depth, another defer; the
+// parser builds a defer inside a deferred block, and the checker rejects
+// it.
 type Defer struct {
-	Body  []Stmt
-	Span  Span // 'defer' keyword through the end of the deferred statement
-	Block bool
+	Body []Stmt
+	Span Span // 'defer' keyword through the deferred block's closing brace
 }
 
 var _ Stmt = (*Defer)(nil)
@@ -305,5 +301,5 @@ func (d *Defer) stmtKey() stmtKey { return _stmtKey }
 func (d *Defer) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'defer' keyword through the
-// end of the deferred statement or block.
+// deferred block's closing brace.
 func (d *Defer) Spanned() Span { return d.Span }

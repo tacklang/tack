@@ -10,16 +10,22 @@ var acceptedDefers = []struct {
 	name string
 	src  string
 }{
-	{"call", inF("defer report()", "return 0")},
-	{"call with results discarded", inF("defer pair()", "return 0")},
-	{"assignment", inF("mut x := 1", "defer x = 2", "return x")},
-	{"compound assignment", inF("mut x := 1", "defer x *= n", "return x")},
-	{"increment", inF("mut x := 1", "defer x--", "return x")},
+	{"call", inF("defer { report() }", "return 0")},
+	{"call with results discarded", inF("defer { pair() }", "return 0")},
+	{"assignment", inF("mut x := 1", "defer { x = 2 }", "return x")},
+	{"compound assignment", inF("mut x := 1", "defer { x *= n }", "return x")},
+	{"increment", inF("mut x := 1", "defer { x-- }", "return x")},
 	{
 		"element and field",
-		inF("mut b := a", "mut p := P{x: 1}", "defer b[0] = 2", "defer p.x++", "return b[1] + p.x"),
+		inF(
+			"mut b := a",
+			"mut p := P{x: 1}",
+			"defer { b[0] = 2 }",
+			"defer { p.x++ }",
+			"return b[1] + p.x",
+		),
 	},
-	{"multi-assign", inF("mut x := 1", "mut y := 2", "defer x, y = pair()", "return x + y")},
+	{"multi-assign", inF("mut x := 1", "mut y := 2", "defer { x, y = pair() }", "return x + y")},
 	{"empty block", inF("defer {", "}", "return 0")},
 	{
 		"every statement in a block",
@@ -44,7 +50,6 @@ var acceptedDefers = []struct {
 			"        y++",
 			"        continue",
 			"    }",
-			"    defer report()",
 			"}",
 			"return 0",
 		),
@@ -64,18 +69,24 @@ var acceptedDefers = []struct {
 	},
 	{
 		"proven by an enclosing if",
-		inF("if d != 0 {", "    defer report()", "    defer f(n / d, d, i, s, a)", "}", "return 0"),
+		inF(
+			"if d != 0 {",
+			"    defer { report() }",
+			"    defer { f(n / d, d, i, s, a) }",
+			"}",
+			"return 0",
+		),
 	},
 	{
 		"proven by an if before it",
-		inF("if d == 0 {", "    return 0", "}", "defer f(n / d, d, i, s, a)", "return 1"),
+		inF("if d == 0 {", "    return 0", "}", "defer { f(n / d, d, i, s, a) }", "return 1"),
 	},
 	{
 		"proven by a range loop",
 		inF(
 			"for j := range 4 {",
 			"    mut b := a",
-			"    defer b[j] = 1",
+			"    defer { b[j] = 1 }",
 			"    b[0] = b[j]",
 			"}",
 			"return 0",
@@ -96,11 +107,11 @@ var acceptedDefers = []struct {
 	},
 	{
 		"known value of an immutable variable",
-		inF("k := 4", "defer f(n / k, k, i, s, a)", "return 0"),
+		inF("k := 4", "defer { f(n / k, k, i, s, a) }", "return 0"),
 	},
 	{
 		"reads a mutable variable at exit",
-		inF("mut x := 1", "defer report()", "defer x = x + n", "return x"),
+		inF("mut x := 1", "defer { report() }", "defer { x = x + n }", "return x"),
 	},
 }
 
@@ -114,6 +125,9 @@ func TestAcceptsDefers(t *testing.T) {
 		})
 	}
 }
+
+// deferInDefer is the message for a defer in deferred code.
+const deferInDefer = "cannot defer inside a defer"
 
 // divisorMayBeZero is the message for an unproven divisor d.
 const divisorMayBeZero = "divisor d may be zero; check d != 0 first, or use q, ok := ... / d"
@@ -181,7 +195,47 @@ var rejectedDefers = []struct {
 		[]switchError{{"cannot break out of a defer", "break"}},
 	},
 	{
-		"break out of a nested defer",
+		"defer in a deferred block",
+		inF("defer {", "    defer {", "    }", "}", "return 0"),
+		[]switchError{{deferInDefer, "defer"}},
+	},
+	{
+		"defer deep in a deferred block",
+		inF(
+			"defer {",
+			"    for {",
+			"        if n > 0 {",
+			"            switch n {",
+			"            case 1:",
+			"                defer {",
+			"                    report()",
+			"                }",
+			"            }",
+			"        }",
+			"        break",
+			"    }",
+			"}",
+			"return 0",
+		),
+		[]switchError{{deferInDefer, "defer"}},
+	},
+	{
+		"every defer in a deferred block, at every depth",
+		inF(
+			"defer {",
+			"    defer {",
+			"        defer {",
+			"        }",
+			"    }",
+			"    defer {",
+			"    }",
+			"}",
+			"return 0",
+		),
+		[]switchError{{deferInDefer, "defer"}, {deferInDefer, "defer"}, {deferInDefer, "defer"}},
+	},
+	{
+		"a rejected defer's block is still checked",
 		inF(
 			"defer {",
 			"    for {",
@@ -193,7 +247,7 @@ var rejectedDefers = []struct {
 			"}",
 			"return 0",
 		),
-		[]switchError{{"cannot break out of a defer", "break"}},
+		[]switchError{{deferInDefer, "defer"}, {"cannot break out of a defer", "break"}},
 	},
 	{
 		"break with no loop at all",
@@ -205,8 +259,8 @@ var rejectedDefers = []struct {
 		inF(
 			"mut e := d",
 			"if e != 0 {",
-			"    defer f(n / e, d, i, s, a)",
-			"    defer e = 0",
+			"    defer { f(n / e, d, i, s, a) }",
+			"    defer { e = 0 }",
 			"}",
 			"return 0",
 		),
@@ -219,7 +273,7 @@ var rejectedDefers = []struct {
 			"if e == 0 {",
 			"    return 0",
 			"}",
-			"defer f(n / e, d, i, s, a)",
+			"defer { f(n / e, d, i, s, a) }",
 			"e = 0",
 			"return 1",
 		),
@@ -241,17 +295,17 @@ var rejectedDefers = []struct {
 	},
 	{
 		"no fact at all",
-		inF("defer f(n / d, d, i, s, a)", "return 0"),
+		inF("defer { f(n / d, d, i, s, a) }", "return 0"),
 		[]switchError{{divisorMayBeZero, "d"}},
 	},
 	{
 		"wrong type in a deferred assignment",
-		inF("mut x := 1", "defer x = s", "return x"),
+		inF("mut x := 1", "defer { x = s }", "return x"),
 		[]switchError{{"cannot use string as int64 in assignment to x", "s"}},
 	},
 	{
 		"assignment to an immutable variable",
-		inF("x := 1", "defer x++", "return x"),
+		inF("x := 1", "defer { x++ }", "return x"),
 		[]switchError{{"cannot assign to immutable variable x", "x"}},
 	},
 }
@@ -280,7 +334,7 @@ func TestRejectsInvalidDefers(t *testing.T) {
 // TestDeferIsNotATerminatingStatement checks a function ending in a defer
 // that would return is still missing its return: a defer never ends one.
 func TestDeferIsNotATerminatingStatement(t *testing.T) {
-	_, diags := checkTree(t, inF("defer report()"))
+	_, diags := checkTree(t, inF("defer { report() }"))
 	if len(diags) != 1 || diags[0].Message != "f must end in a return" {
 		t.Errorf("got %v, want only %q", diags, "f must end in a return")
 	}

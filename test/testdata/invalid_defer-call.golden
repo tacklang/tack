@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/defer-call/main.tck:4:11: error: defer must be followed by a block: defer { ... }
+03 |	func main() {
+04 |	    defer print("x\n")
+   |	          ^~~~~
+05 |	}
+

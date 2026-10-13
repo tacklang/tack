@@ -56,13 +56,15 @@ type generator struct {
 	// scopes holds a deferScope for each block enclosing the statement
 	// being generated, innermost last; see defer.go.
 	scopes []*deferScope
-	// frame is the frame being lowered, a function body or a deferred
-	// body; see defer.go.
+	// frame is the function body being lowered; see defer.go.
 	frame *deferFrame
 
 	buf    bytes.Buffer
 	temps  int // how many temporaries have been named, for unique names
 	labels int // how many blocks' labels have been named, likewise
+
+	// deferring is whether a deferred body is being lowered; see defer.go.
+	deferring bool
 }
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
@@ -495,8 +497,8 @@ func (g *generator) resultType(fn *ast.Func) string {
 	}
 }
 
-// generateFuncBody lowers fn's body, the outermost block of fn, as the
-// outermost frame; see funcFrame.
+// generateFuncBody lowers fn's body, the outermost block of fn, as its
+// frame; see funcFrame.
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	return g.funcFrame(fn)
 }
@@ -557,8 +559,7 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 		return g.generateSwitch(x, fn)
 
 	case *ast.Defer:
-		g.scopes[len(g.scopes)-1].defers = append(g.scopes[len(g.scopes)-1].defers, x)
-		return nil, nil
+		return nil, g.addDefer(x)
 
 	case *ast.Break:
 		return g.generateJump("break;"), nil

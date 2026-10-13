@@ -1,0 +1,10 @@
+package main
+
+func main() {
+    defer {
+        defer {
+            print("x\n")
+        }
+        print("y\n")
+    }
+}

@@ -85,7 +85,10 @@
 // defers run, and a continue runs them before a three-clause loop's post
 // statement. Gotos only jump forward to the end of an enclosing block, and
 // deferred code reads no variable a goto can skip the initialization of.
-// defer.go has the details.
+// Each deferred block is lowered as a C block. The backend relies on the
+// checker having rejected a defer inside deferred code, so a deferred block
+// has no chains of its own and never disturbs the int of the exit running
+// it; one handed to it anyway is reported. defer.go has the details.
 //
 // A local variable becomes a C local declared where the Tack one is, inside
 // the same block. An immutable variable is a const C local, so the C compiler

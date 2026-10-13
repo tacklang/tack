@@ -75,7 +75,7 @@ Open questions about how a feature should behave are in
 | `switch`                   | yes   | yes    | yes     | yes | Tagged and tagless; no fallthrough; `break`/`continue` act on the loop; no init statement; lowered to C ifs   |
 | `break` / `continue`       | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                                |
 | Standalone blocks          | yes   | no     | no      | no  |                                                                                                               |
-| `defer`                    | yes   | yes    | yes     | yes | Block-scoped, as in Zig; runs when its block is left, last first, evaluated then; `exit` skips it             |
+| `defer`                    | yes   | yes    | yes     | yes | `defer { ... }` only, not in a defer; block-scoped, as in Zig; runs at block exit, last first; `exit` skips   |
 | `select`, `goto`           | yes   | no     | no      | no  |                                                                                                               |
 
 ### Expressions

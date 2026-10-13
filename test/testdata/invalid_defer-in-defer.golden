@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/defer-in-defer/main.tck:5:9: error: cannot defer inside a defer
+04 |	    defer {
+05 |	        defer {
+   |	        ^~~~~
+06 |	            print("x\n")
+
