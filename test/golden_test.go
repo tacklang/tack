@@ -361,6 +361,66 @@ func TestRejectsInvalidPrograms(t *testing.T) {
 	}
 }
 
+// TestCRLFMatchesLF runs every example and every invalid case again with
+// each \n turned into \r\n, and checks the result is the same: the stage
+// that ends the run, its diagnostics with their lines, columns and source
+// context, or the generated code. Line endings must not change anything a
+// program means or anything said about it. Cases that already hold a
+// carriage return are left out, since adding one before a line feed
+// changes what that byte is. A marker under a source line is compared up
+// to its caret: a span that runs past the end of its line, such as an
+// unterminated raw string's, is underlined for every byte it covers, and
+// covers one more for each carriage return.
+func TestCRLFMatchesLF(t *testing.T) {
+	type program struct{ name, src string }
+	paths := findExamples(t)
+	cases, err := invalid.Load(invalid.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	programs := make([]program, 0, len(paths)+len(cases))
+	for _, path := range paths {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		programs = append(
+			programs,
+			program{strings.TrimPrefix(filepath.ToSlash(path), "../"), string(src)},
+		)
+	}
+	for _, c := range cases {
+		programs = append(programs, program{c.Name + "/main.tck", string(c.Source)})
+	}
+
+	for _, p := range programs {
+		if strings.Contains(p.src, "\r") {
+			continue
+		}
+		t.Run(p.name, func(t *testing.T) {
+			lf := run(t, frontEndBackend, p.name, []byte(p.src))
+			crlf := run(t, frontEndBackend, p.name, []byte(strings.ReplaceAll(p.src, "\n", "\r\n")))
+			if carets(crlf.String()) != carets(lf.String()) {
+				t.Errorf("CRLF gave\n%s\nwant, as with LF,\n%s", crlf, lf)
+			}
+		})
+	}
+}
+
+// carets returns out, rendered output, with every marker line cut after
+// its caret.
+func carets(out string) string {
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "   |\t") {
+			if c := strings.IndexByte(line, '^'); c >= 0 {
+				lines[i] = line[:c+1]
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // TestLexIdentifierAtEOF pins the tokenisation of an identifier that ends the
 // file, which the scanning loops' upper bound gets wrong.
 func TestLexIdentifierAtEOF(t *testing.T) {

@@ -53,8 +53,9 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 }
 
 // checkCommentSpans fails the test unless every comment token covers its
-// source exactly: it starts with "//" and stops right before a newline or at
-// the end of src, so it neither drops its last byte nor swallows the newline.
+// source exactly: it starts with "//" and stops right before a newline, \n
+// or \r\n, or at the end of src, so it neither drops its last byte nor
+// swallows the newline.
 // Every line it covers must start with "//" past its indentation, so a
 // comment never runs across a blank line.
 func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
@@ -74,11 +75,17 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 		if !strings.HasPrefix(text, "//") || strings.HasSuffix(text, "\n") {
 			t.Errorf("%q: comment span [%d:%d] covers %q", src, start, end, text)
 		}
-		if end < len(src) && src[end] != '\n' {
+		if !atLineEnd(src, end) {
 			t.Errorf("%q: comment span [%d:%d] stops before the end of its line", src, start, end)
 		}
 		checkCommentLines(t, src, text)
 	}
+}
+
+// atLineEnd reports whether offset i of src is where a line ends: at a
+// newline, \n or \r\n, or at the end of src.
+func atLineEnd(src string, i int) bool {
+	return i >= len(src) || src[i] == '\n' || strings.HasPrefix(src[i:], "\r\n")
 }
 
 // checkRawStrings fails the test unless every backquoted string token's value
@@ -318,6 +325,14 @@ var adversarialInputs = []string{
 	"\xff",
 	"é",
 	"x\r\ny",
+	"x\r",
+	"\r\n",
+	"\r\r\n\n\r",
+	"\"\r\n",
+	"'\r\n",
+	"'\\\r\n",
+	"// a\r\n// b\r\n",
+	"// a\r",
 	"a.b",
 	"...",
 	"&^=",
@@ -368,56 +383,69 @@ func TestInvariantsHoldForEveryExample(t *testing.T) {
 	}
 }
 
-// TestTokenKinds pins the token stream for inputs whose correct lexing is
-// known, including where semicolons are and are not inserted.
-func TestTokenKinds(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want string
-	}{
-		{"empty", "", "EOF"},
-		{"ident at eof gets a semicolon", "x", "ident <semi> EOF"},
-		{"ident before newline gets one semicolon", "x\n\n\n", "ident <semi> EOF"},
-		{"operator before newline gets none", "+\n", "+ EOF"},
-		{"open paren gets none", "(\n", "( EOF"},
-		{"close paren gets one", ")\n", ") <semi> EOF"},
-		{"close brack gets one", "]\n", "] <semi> EOF"},
-		{"close curl gets one", "}\n", "} <semi> EOF"},
-		{"return gets one", "return\n", "keyword <semi> EOF"},
-		{"break gets one", "break\n", "keyword <semi> EOF"},
-		{"continue gets one", "continue\n", "keyword <semi> EOF"},
-		{"func gets none", "func\n", "keyword EOF"},
-		{"true gets one", "true\n", "keyword <semi> EOF"},
-		{"false gets one", "false\n", "keyword <semi> EOF"},
-		{"inc gets one", "x++\n", "ident ++ <semi> EOF"},
-		{"dec gets one", "x--\n", "ident -- <semi> EOF"},
-		{"int gets one", "1\n", "int <semi> EOF"},
-		{"float gets one", "1.5\n", "float <semi> EOF"},
-		{"string gets one", "\"s\"\n", "string <semi> EOF"},
-		{"char gets one", "'c'\n", "char <semi> EOF"},
-		{"raw string gets one", "`s`\n", "string <semi> EOF"},
-		{
-			"newlines inside a raw string get none",
-			"x := `a\n\nb`\ny",
-			"ident := string <semi> ident <semi> EOF",
-		},
-		{"raw string then tokens on its last line", "`a\nb` + c", "string + ident <semi> EOF"},
-		{"comment marker inside a raw string", "`// c` x", "string ident <semi> EOF"},
-		{"written semicolon", "x;", "ident ; EOF"},
-		{"semicolon before a trailing comment", "x // c\n", "ident <semi> comment EOF"},
-		{"longest operator wins", "<<= <<", "<<= << EOF"},
-		{"and-not assign", "&^=", "&^= EOF"},
-		{"ellipsis then period", "....", "... . EOF"},
-		{"define", "x := 1", "ident := int <semi> EOF"},
-		{"arrow", "<-", "<- EOF"},
-		{"digits in ident", "a1b2", "ident <semi> EOF"},
-		{"underscore ident", "_", "ident <semi> EOF"},
-		{"keyword prefix is an ident", "funcs", "ident <semi> EOF"},
-		{"second dot ends a float", "1.2.3", "float . int <semi> EOF"},
-	}
+// tokenKindCases are inputs whose correct lexing is known, with the token
+// kinds each gives, including where semicolons are and are not inserted.
+var tokenKindCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	{"empty", "", "EOF"},
+	{"ident at eof gets a semicolon", "x", "ident <semi> EOF"},
+	{"ident before newline gets one semicolon", "x\n\n\n", "ident <semi> EOF"},
+	{"operator before newline gets none", "+\n", "+ EOF"},
+	{"open paren gets none", "(\n", "( EOF"},
+	{"close paren gets one", ")\n", ") <semi> EOF"},
+	{"close brack gets one", "]\n", "] <semi> EOF"},
+	{"close curl gets one", "}\n", "} <semi> EOF"},
+	{"return gets one", "return\n", "keyword <semi> EOF"},
+	{"break gets one", "break\n", "keyword <semi> EOF"},
+	{"continue gets one", "continue\n", "keyword <semi> EOF"},
+	{"func gets none", "func\n", "keyword EOF"},
+	{"true gets one", "true\n", "keyword <semi> EOF"},
+	{"false gets one", "false\n", "keyword <semi> EOF"},
+	{"inc gets one", "x++\n", "ident ++ <semi> EOF"},
+	{"dec gets one", "x--\n", "ident -- <semi> EOF"},
+	{"int gets one", "1\n", "int <semi> EOF"},
+	{"float gets one", "1.5\n", "float <semi> EOF"},
+	{"string gets one", "\"s\"\n", "string <semi> EOF"},
+	{"char gets one", "'c'\n", "char <semi> EOF"},
+	{"raw string gets one", "`s`\n", "string <semi> EOF"},
+	{
+		"newlines inside a raw string get none",
+		"x := `a\n\nb`\ny",
+		"ident := string <semi> ident <semi> EOF",
+	},
+	{"raw string then tokens on its last line", "`a\nb` + c", "string + ident <semi> EOF"},
+	{"comment marker inside a raw string", "`// c` x", "string ident <semi> EOF"},
+	{"written semicolon", "x;", "ident ; EOF"},
+	{"semicolon before a trailing comment", "x // c\n", "ident <semi> comment EOF"},
+	{"longest operator wins", "<<= <<", "<<= << EOF"},
+	{"and-not assign", "&^=", "&^= EOF"},
+	{"ellipsis then period", "....", "... . EOF"},
+	{"define", "x := 1", "ident := int <semi> EOF"},
+	{"arrow", "<-", "<- EOF"},
+	{"digits in ident", "a1b2", "ident <semi> EOF"},
+	{"underscore ident", "_", "ident <semi> EOF"},
+	{"keyword prefix is an ident", "funcs", "ident <semi> EOF"},
+	{"second dot ends a float", "1.2.3", "float . int <semi> EOF"},
+	{"crlf ends a line", "x\r\ny\r\n", "ident <semi> ident <semi> EOF"},
+	{"a run of crlfs gets one semicolon", "x\r\n\r\n\r\ny", "ident <semi> ident <semi> EOF"},
+	{"crlf and lf mixed", "x\n\r\n\ny\r\n", "ident <semi> ident <semi> EOF"},
+	{"operator before crlf gets none", "+\r\nx", "+ ident <semi> EOF"},
+	{"comment before crlf", "x // c\r\ny", "ident <semi> comment ident <semi> EOF"},
+	{"string before crlf", "\"s\"\r\n'c'\r\n", "string <semi> char <semi> EOF"},
+	{
+		"crlf inside a raw string gets none",
+		"x := `a\r\nb`\r\ny",
+		"ident := string <semi> ident <semi> EOF",
+	},
+	{"crlf inside asm", "asm {\r\n\tmov\r\n}\r\nx", "keyword } <semi> ident <semi> EOF"},
+}
 
-	for _, tt := range tests {
+// TestTokenKinds pins the token stream for each of tokenKindCases.
+func TestTokenKinds(t *testing.T) {
+	for _, tt := range tokenKindCases {
 		t.Run(tt.name, func(t *testing.T) {
 			out := lex(t, tt.src)
 			checkInvariants(t, tt.src, out)
@@ -431,57 +459,62 @@ func TestTokenKinds(t *testing.T) {
 	}
 }
 
-// TestLiteralValues pins the decoded value of each kind of literal.
-func TestLiteralValues(t *testing.T) {
-	tests := []struct {
-		src  string
-		want string
-	}{
-		{`"hi"`, "hi"},
-		{`""`, ""},
-		{`"a\nb"`, "a\nb"},
-		{`"\a\b\f\v\t\r\\"`, "\a\b\f\v\t\r\\"},
-		{`"say \"hi\""`, `say "hi"`},
-		{"`raw\nline`", "raw\nline"},
-		{"``", ""},
-		{"`\\n`", `\n`},
-		{"`\\\"`", `\"`},
-		{"`\\\\`", `\\`},
-		{"`\\`", `\`},
-		{"`a\\\nb`", "a\\\nb"},
-		{"`\\t\\x41\\u00e9\\0`", `\t\x41\u00e9\0`},
-		{"`say \"hi\" // not a comment`", `say "hi" // not a comment`},
-		{"`'`", "'"},
-		{"`\n`", "\n"},
-		{"`\n\n`", "\n\n"},
-		{"`one\ntwo\nthree`", "one\ntwo\nthree"},
-		{"`a\r\nb\r\n`", "a\nb\n"},
-		{"`\r`", ""},
-		{"`a\rb\r\r`", "ab"},
-		{"`\xff\x00\x80é`", "\xff\x00\x80é"},
-		{"`\t`", "\t"},
-		{"`/* not a comment */`", "/* not a comment */"},
-		{"\"\xff\xfe\"", "\xff\xfe"},
-		{"\"é\"", "é"},
-		{`'a'`, "a"},
-		{`'\n'`, "\n"},
-		{`'\''`, "'"},
-		{`'"'`, `"`},
-		{"'\xff'", "\xff"},
-		{"'\x80'", "\x80"},
-		{"'\xc3'", "\xc3"},
-		{"'\x00'", "\x00"},
-		{"0", "0"},
-		{"70", "70"},
-		{"0.5", "0.5"},
-		{"00.5", "00.5"},
-		{"9223372036854775808", "9223372036854775808"},
-		{"1.25", "1.25"},
-		{"x_1", "x_1"},
-		{"// note", "note"},
-	}
+// literalValueCases are literals of each kind, with the value each
+// decodes to.
+var literalValueCases = []struct {
+	src  string
+	want string
+}{
+	{`"hi"`, "hi"},
+	{`""`, ""},
+	{`"a\nb"`, "a\nb"},
+	{`"\a\b\f\v\t\r\\"`, "\a\b\f\v\t\r\\"},
+	{`"say \"hi\""`, `say "hi"`},
+	{"`raw\nline`", "raw\nline"},
+	{"``", ""},
+	{"`\\n`", `\n`},
+	{"`\\\"`", `\"`},
+	{"`\\\\`", `\\`},
+	{"`\\`", `\`},
+	{"`a\\\nb`", "a\\\nb"},
+	{"`\\t\\x41\\u00e9\\0`", `\t\x41\u00e9\0`},
+	{"`say \"hi\" // not a comment`", `say "hi" // not a comment`},
+	{"`'`", "'"},
+	{"`\n`", "\n"},
+	{"`\n\n`", "\n\n"},
+	{"`one\ntwo\nthree`", "one\ntwo\nthree"},
+	{"`a\r\nb\r\n`", "a\nb\n"},
+	{"`\r`", ""},
+	{"`a\rb\r\r`", "ab"},
+	{"`\xff\x00\x80é`", "\xff\x00\x80é"},
+	{"`\t`", "\t"},
+	{"`/* not a comment */`", "/* not a comment */"},
+	{"\"\xff\xfe\"", "\xff\xfe"},
+	{"\"a\rb\r\"", "a\rb\r"},
+	{"'\r'", "\r"},
+	{"// a\r\n", "a"},
+	{"\"é\"", "é"},
+	{`'a'`, "a"},
+	{`'\n'`, "\n"},
+	{`'\''`, "'"},
+	{`'"'`, `"`},
+	{"'\xff'", "\xff"},
+	{"'\x80'", "\x80"},
+	{"'\xc3'", "\xc3"},
+	{"'\x00'", "\x00"},
+	{"0", "0"},
+	{"70", "70"},
+	{"0.5", "0.5"},
+	{"00.5", "00.5"},
+	{"9223372036854775808", "9223372036854775808"},
+	{"1.25", "1.25"},
+	{"x_1", "x_1"},
+	{"// note", "note"},
+}
 
-	for _, tt := range tests {
+// TestLiteralValues pins the decoded value of each of literalValueCases.
+func TestLiteralValues(t *testing.T) {
+	for _, tt := range literalValueCases {
 		t.Run(tt.src, func(t *testing.T) {
 			out := lex(t, tt.src)
 			checkInvariants(t, tt.src, out)
@@ -495,15 +528,32 @@ func TestLiteralValues(t *testing.T) {
 	}
 }
 
+// tokenSpan is a token's kind and the byte range it covers.
+type tokenSpan struct {
+	kind       lexer.TokenKind
+	start, end int
+}
+
+// checkOffsets fails the test unless toks are exactly want, in order.
+func checkOffsets(t *testing.T, toks []lexer.Token, want []tokenSpan) {
+	t.Helper()
+	if len(toks) != len(want) {
+		t.Fatalf("got %d tokens (%s), want %d", len(toks), kinds(toks), len(want))
+	}
+	for i, w := range want {
+		tok := &toks[i]
+		if tok.Kind() != w.kind || tok.OffsetStart() != w.start || tok.OffsetEnd() != w.end {
+			t.Errorf("token %d = %s, want %s [%d:%d]", i, tok.String(), w.kind, w.start, w.end)
+		}
+	}
+}
+
 // TestTokenOffsets pins the byte range each token covers.
 func TestTokenOffsets(t *testing.T) {
 	out := lex(t, "func f() {\n\t\"hi\"\n}")
 	checkInvariants(t, "func f() {\n\t\"hi\"\n}", out)
 
-	want := []struct {
-		kind       lexer.TokenKind
-		start, end int
-	}{
+	checkOffsets(t, out.tokens, []tokenSpan{
 		{lexer.Keyword, 0, 4},
 		{lexer.Ident, 5, 6},
 		{lexer.LParen, 6, 7},
@@ -514,15 +564,40 @@ func TestTokenOffsets(t *testing.T) {
 		{lexer.RCurl, 17, 18},
 		{lexer.Semi, 18, 18},
 		{lexer.EOF, 18, 18},
+	})
+}
+
+// TestCRLFOffsetsAndPositions checks that a \r\n ends a line as \n does:
+// the semicolon it implies sits at its carriage return, the next line
+// starts after its line feed, and a position on that line counts columns
+// from there.
+func TestCRLFOffsetsAndPositions(t *testing.T) {
+	src := "x := 1\r\n\r\n  @ y\r\n"
+	out := lex(t, src)
+	checkInvariants(t, src, out)
+
+	if got, want := out.file.LineStarts(), []int{0, 8, 10, 17}; !equalInts(got, want) {
+		t.Errorf("line starts = %v, want %v", got, want)
 	}
-	if len(out.tokens) != len(want) {
-		t.Fatalf("got %d tokens (%s), want %d", len(out.tokens), kinds(out.tokens), len(want))
+	checkOffsets(t, out.tokens, []tokenSpan{
+		{lexer.Ident, 0, 1},
+		{lexer.Define, 2, 4},
+		{lexer.Int, 5, 6},
+		{lexer.Semi, 6, 6},
+		{lexer.Ident, 14, 15},
+		{lexer.Semi, 15, 15},
+		{lexer.EOF, 17, 17},
+	})
+
+	if len(out.diags) != 1 || out.diags[0].Message != "invalid character @" {
+		t.Fatalf("diagnostics = %v, want one invalid character @", messages(out.diags))
 	}
-	for i, w := range want {
-		tok := &out.tokens[i]
-		if tok.Kind() != w.kind || tok.OffsetStart() != w.start || tok.OffsetEnd() != w.end {
-			t.Errorf("token %d = %s, want %s [%d:%d]", i, tok.String(), w.kind, w.start, w.end)
-		}
+	line, col := out.file.Position(out.diags[0].Span.Start)
+	if line != 3 || col != 3 {
+		t.Errorf("@ is at %d:%d, want 3:3", line, col)
+	}
+	if line, col := out.file.Position(6); line != 1 || col != 7 {
+		t.Errorf("the carriage return is at %d:%d, want 1:7", line, col)
 	}
 }
 
@@ -543,6 +618,11 @@ var commentSpanCases = []struct {
 	{"x\n// a\n//", 2, 9},
 	{"// a\n\nx", 0, 4},
 	{"// a\n\n", 0, 4},
+	{"// hi\r\n", 0, 5},
+	{"x // hi\r\ny", 2, 7},
+	{"// a\r\n// b\r\n", 0, 10},
+	{"// a\r", 0, 5},
+	{"// a\rb\n", 0, 6},
 }
 
 // commentValueCases pin the value of the one comment token in each source:
@@ -578,7 +658,13 @@ var commentGroupCases = []struct {
 	{"// a\n\n\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
 	{"// a\n \n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
 	{"// a\n\t\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 7, 11}}},
-	{"// a\r\n\r\n// b\r\n", "comment comment EOF", []commentTok{{"a", 0, 5}, {"b", 8, 13}}},
+	{"// a\r\n\r\n// b\r\n", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 8, 12}}},
+	{
+		"// a\r\n// b\r\n\r\n// c",
+		"comment comment EOF",
+		[]commentTok{{"a\nb", 0, 10}, {"c", 14, 18}},
+	},
+	{"// a\r\n  \r\n// b", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b", 10, 14}}},
 	{"//\n\n//", "comment comment EOF", []commentTok{{"", 0, 2}, {"", 4, 6}}},
 	{"// a\n// b\n\n// c", "comment comment EOF", []commentTok{{"a\nb", 0, 9}, {"c", 11, 15}}},
 	{"// a\n\n// b\n// c", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b\nc", 6, 15}}},
@@ -772,6 +858,24 @@ var diagnosticCases = []struct {
 		[]string{"unterminated asm block"},
 	},
 	{"terminated asm", "asm { mov }", nil},
+	{"lone carriage return", "x\ry", []string{"invalid character \r"}},
+	{"carriage return at the end", "x\r", []string{"invalid character \r"}},
+	{"two carriage returns before a newline", "x\r\r\ny", []string{"invalid character \r"}},
+	{"string cut off by crlf", "\"ab\r\nx", []string{"unterminated string"}},
+	{"char cut off by crlf", "'\r\nx", []string{"unterminated char literal"}},
+	{"char cut off by crlf after its byte", "'a\r\nx", []string{"unterminated char literal"}},
+	{"char too long before crlf", "'ab\r\nx", []string{"too many characters in char literal"}},
+	{"char escape cut off by crlf", "'\\\r\nx", []string{
+		`Invalid escape sequence "\\"`, "unterminated char literal",
+	}},
+	{"string escape cut off by crlf", "\"a\\\r\nb\"", []string{
+		`Invalid escape sequence "\\"`, "unterminated string", "unterminated string",
+	}},
+	{
+		"crlf inside a block comment",
+		"/* a\r\nb */\r\nx",
+		[]string{"block comments are not supported"},
+	},
 }
 
 // TestDiagnostics pins which inputs are errors, what each error says, and

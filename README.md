@@ -189,6 +189,13 @@ which is true today because `main` is the only package there is.
 ## The language today
 
 - `package main` is required, and must be the first declaration.
+- A line ends at a newline, `\n`, or a carriage return and newline,
+  `\r\n`, which means exactly the same everywhere: a file saved with
+  either compiles to the same program, and a diagnostic gives the same
+  line and column. A carriage return not followed by `\n` is not a line
+  ending: outside a literal or comment it is an error, `invalid
+  character`, and inside a string or character literal it is a byte like
+  any other.
 - Line comments, `// ...`, run to the end of the line and can be written
   anywhere a line can end: before `package`, between declarations, after a
   statement, or inside an expression, argument list or array literal that

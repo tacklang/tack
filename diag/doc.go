@@ -9,7 +9,9 @@
 // Render and RenderAll produce one compact line per diagnostic, which the
 // golden tests pin. RenderPretty and RenderAllPretty add the offending source
 // line with a marker under the span, for the command line: a caret under its
-// first byte and a tilde under each of the rest, with nothing after. Both
+// first byte and a tilde under each of the rest, with nothing after. A
+// source line is shown without its newline, \n or \r\n, so one saved with
+// CRLF line endings looks the same as one saved with LF. Both
 // take the source.File the spans refer to, which must already have its line
 // starts recorded by the lexer.
 package diag

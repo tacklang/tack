@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -49,7 +50,8 @@ func RenderPretty(f *source.File, d Diagnostic) string {
 }
 
 // renderCtx writes the n lines either side of line, and under line itself a
-// marker for d's span followed by d.Marker.
+// marker for d's span followed by d.Marker. Each line is written without
+// its newline, \n or \r\n, and ended with \n.
 func renderCtx(f *source.File, str *strings.Builder, line, col int, d *Diagnostic, n int) {
 	numLines := f.NumLines()
 	for i := range 2*n + 1 {
@@ -57,11 +59,13 @@ func renderCtx(f *source.File, str *strings.Builder, line, col int, d *Diagnosti
 		if l < 1 || l > numLines {
 			continue
 		}
-		lval := f.Line(l)
-		fmt.Fprintf(str, "%02d |\t%s", l, lval)
-		if len(lval) == 0 || lval[len(lval)-1] != '\n' {
-			str.WriteRune('\n')
+		lval := bytes.TrimSuffix(f.Line(l), []byte("\n"))
+		// A line ending in \r\n is shown without the carriage return, as
+		// the newline it is a part of; a lone one is shown as it is.
+		if len(lval) < len(f.Line(l)) {
+			lval = bytes.TrimSuffix(lval, []byte("\r"))
 		}
+		fmt.Fprintf(str, "%02d |\t%s\n", l, lval)
 		if l == line {
 			str.WriteString("   |\t")
 			renderTokenMarker(str, col, &d.Span)

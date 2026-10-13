@@ -97,7 +97,7 @@ func (l *Lexer) Lex() []diag.Diagnostic {
 		case c == ' ' || c == '\t':
 			l.handleSpace()
 
-		case c == '\n':
+		case l.newlineAt(l.pos) > 0:
 			l.handleNewline()
 
 		case l.handleToken():
@@ -216,17 +216,31 @@ func (l *Lexer) handleSpace() {
 	}
 }
 
-// handleNewline skips a run of newlines, recording where each new line
-// starts, and inserts a semicolon at the first one if the preceding token can
-// end a statement.
-func (l *Lexer) handleNewline() {
-	nl, data := l.pos, l.file.Data
-	if data[l.pos] != '\n' {
-		return
+// newlineAt returns the length of the newline starting at offset i: 1 for
+// a line feed, 2 for a carriage return followed by one, and 0 if no newline
+// starts there. A carriage return alone is not a newline.
+func (l *Lexer) newlineAt(i int) int {
+	data := l.file.Data
+	switch {
+	case i >= len(data):
+		return 0
+	case data[i] == '\n':
+		return 1
+	case data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n':
+		return 2
+	default:
+		return 0
 	}
-	for l.pos < len(data) && data[l.pos] == '\n' {
-		l.file.AddLineStart(l.pos + 1)
-		l.pos++
+}
+
+// handleNewline skips a run of newlines, each a line feed or a carriage
+// return and line feed, recording where each new line starts, and inserts a
+// semicolon at the first one if the preceding token can end a statement.
+func (l *Lexer) handleNewline() {
+	nl := l.pos
+	for n := l.newlineAt(l.pos); n > 0; n = l.newlineAt(l.pos) {
+		l.pos += n
+		l.file.AddLineStart(l.pos)
 	}
 	l.addSemi(nl)
 }
@@ -293,16 +307,17 @@ func (l *Lexer) handleString() bool {
 }
 
 // handleQuoted lexes a double-quoted string, decoding its escape sequences.
-// It may not span lines: a newline ends it unterminated and is left for the
-// main loop to record. An unterminated string still produces a token, along
-// with a diagnostic.
+// It may not span lines: a newline, \n or \r\n, ends it unterminated and is
+// left for the main loop to record. A carriage return not followed by a
+// line feed is a byte of the string like any other. An unterminated string
+// still produces a token, along with a diagnostic.
 func (l *Lexer) handleQuoted() {
 	start, data := l.pos, l.file.Data
 	l.pos++
 
 	terminated := false
 	var val strings.Builder
-	for l.pos < len(data) && data[l.pos] != '\n' {
+	for l.pos < len(data) && l.newlineAt(l.pos) == 0 {
 		if data[l.pos] == '"' {
 			terminated = true
 			l.pos++
@@ -372,7 +387,7 @@ func (l *Lexer) handleChar() bool {
 
 	// A char literal cannot span lines, so a newline ends it unterminated and
 	// is left for the main loop to record.
-	if l.pos >= len(data) || data[l.pos] == '\n' {
+	if l.pos >= len(data) || l.newlineAt(l.pos) > 0 {
 		l.diag("unterminated char literal", start, l.pos)
 		return true
 	}
@@ -388,7 +403,7 @@ func (l *Lexer) handleChar() bool {
 		l.pos++
 	}
 
-	if l.pos >= len(data) || data[l.pos] == '\n' {
+	if l.pos >= len(data) || l.newlineAt(l.pos) > 0 {
 		l.diag("unterminated char literal", start, l.pos)
 		return true
 	}
@@ -437,7 +452,7 @@ func (l *Lexer) skipEmptyOrWideChar(start int) bool {
 // semicolon as usual.
 func (l *Lexer) skipBadChar(start int) {
 	data := l.file.Data
-	for l.pos < len(data) && data[l.pos] != '\n' {
+	for l.pos < len(data) && l.newlineAt(l.pos) == 0 {
 		if data[l.pos] == '\'' {
 			l.pos++
 			break
@@ -465,8 +480,8 @@ var simpleEscapes = map[byte]byte{
 // themselves, such as the literal's own quote. An invalid sequence is
 // reported and decodes to 0. A backslash at the end of the input decodes to 0
 // unreported, since the literal it cut off reports itself as unterminated. A
-// backslash before a newline is reported and decodes to 0, and the newline is
-// left in place for the caller to handle.
+// backslash before a newline, \n or \r\n, is reported and decodes to 0, and
+// the newline is left in place for the caller to handle.
 func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 	start, data := l.pos, l.file.Data
 	if l.pos >= len(data) || data[l.pos] != '\\' {
@@ -476,7 +491,7 @@ func (l *Lexer) unescapeRune(additionalSequences ...byte) byte {
 	if l.pos >= len(data) {
 		return 0
 	}
-	if data[l.pos] == '\n' {
+	if l.newlineAt(l.pos) > 0 {
 		l.diag(fmt.Sprintf("Invalid escape sequence %q", data[start:l.pos]), start, l.pos)
 		return 0
 	}
@@ -568,15 +583,15 @@ func (l *Lexer) handleComment() bool {
 	// written to the value, which trims it anyway.
 	var val strings.Builder
 	for l.pos < len(data) {
-		if data[l.pos] == '\n' {
-			next := l.pos + 1
+		if n := l.newlineAt(l.pos); n > 0 {
+			next := l.pos + n
 			for next < len(data) && (data[next] == ' ' || data[next] == '\t') {
 				next++
 			}
 			if !bytes.HasPrefix(data[next:], []byte("//")) {
 				break
 			}
-			l.file.AddLineStart(l.pos + 1)
+			l.file.AddLineStart(l.pos + n)
 			val.WriteByte('\n')
 			l.pos = next + 2
 			continue

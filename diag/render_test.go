@@ -167,3 +167,29 @@ func TestRenderAllPrettyRendersEveryDiagnostic(t *testing.T) {
 		t.Errorf("RenderAllPretty lost or reordered diagnostics:\n%s", got)
 	}
 }
+
+// TestRenderPrettyDropsCarriageReturns checks a line ending in \r\n is shown
+// without its carriage return, so a source saved with CRLF line endings
+// renders as one saved with \n does, at the same line and column.
+func TestRenderPrettyDropsCarriageReturns(t *testing.T) {
+	lf := newFile("ab\ncd\nef\n")
+	crlf := newFile("ab\r\ncd\r\nef\r\n")
+
+	got := diag.RenderPretty(crlf, errorAt("bad", 4, 6))
+	want := diag.RenderPretty(lf, errorAt("bad", 3, 5))
+	if got != want {
+		t.Errorf("RenderPretty = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "\r") {
+		t.Errorf("RenderPretty kept a carriage return: %q", got)
+	}
+}
+
+// TestRenderPrettyKeepsALoneCarriageReturn checks a carriage return that
+// does not end a line is shown as the byte it is.
+func TestRenderPrettyKeepsALoneCarriageReturn(t *testing.T) {
+	got := diag.RenderPretty(newFile("a\rb\n"), errorAt("bad", 1, 2))
+	if !strings.Contains(got, "a\rb\n") {
+		t.Errorf("RenderPretty = %q, want the line a\\rb", got)
+	}
+}

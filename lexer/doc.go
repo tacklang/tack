@@ -7,9 +7,18 @@
 // an invalid character and skipped. Lexing continues past every error, so a
 // single run reports all lexical problems in the file.
 //
+// A newline is a line feed, or a carriage return followed by one, and the
+// two mean the same everywhere: they end a line, a comment, and an
+// unterminated string or char literal, and imply a semicolon, placed at
+// the newline's first byte. A carriage return not followed by a line feed
+// is not a newline: outside a literal or comment it is an invalid
+// character, and in a double-quoted string or a char literal it is a byte
+// of the value.
+//
 // Along the way the lexer records where each line starts in the source.File,
-// which is what later lets a diagnostic's byte offset be shown as a line and
-// column. A file must therefore be lexed exactly once.
+// one past each line feed, which is what later lets a diagnostic's byte
+// offset be shown as a line and column. A file must therefore be lexed
+// exactly once.
 //
 // Semicolons are inserted automatically, following Go's rule: at a newline,
 // before a comment, and at the end of input, a Semi token is added if the
@@ -45,7 +54,8 @@
 // holding only spaces and tabs, ends the token, as it ends a comment group
 // in Go. A Comment token runs from its first "//" to the end of its last
 // line, so it covers the indentation of every line after the first, but
-// never the newline after it. Its value trims each line alike.
+// never the newline after it, a carriage return before the line feed
+// included. Its value trims each line alike.
 //
 // Block comments ("/* ... */") are not part of the language, and "/*" is
 // reserved: one is reported and skipped, up to its "*/" or the end of the
