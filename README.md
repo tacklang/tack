@@ -193,7 +193,10 @@ which is true today because `main` is the only package there is.
   anywhere a line can end: before `package`, between declarations, after a
   statement, or inside an expression, argument list or array literal that
   spans lines. They mean the same as the newline that ends them. Block
-  comments, `/* ... */`, are not supported.
+  comments are not part of the language, and `/*` is reserved: anywhere
+  outside a string or comment it is an error, `block comments are not
+  supported`, and the lexer skips to the next `*/`, or the end of the file,
+  before going on.
 - `asm` is a keyword with no meaning yet: everything after it up to the
   next `}` is skipped unread, and an `asm` with no `}` after it is an error,
   `unterminated asm block`. No statement or declaration starts with `asm`,

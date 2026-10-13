@@ -37,11 +37,6 @@ order means the backend evaluates operands into temporaries first.
 lexer handles it. Is `asm` part of the language, and if so, what is its
 syntax?
 
-## Block comments
-
-`/* ... */` is reported as "block comments are not supported" and skipped.
-Whether Tack has block comments is open.
-
 ## Wording of the invalid character diagnostic
 
 A byte the lexer does not accept is reported as `invalid character %c`

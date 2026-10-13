@@ -746,6 +746,10 @@ var diagnosticCases = []struct {
 	{"lexing goes on after a block comment", "/* c */ @", []string{
 		"block comments are not supported", "invalid character @",
 	}},
+	{"/* between operands", "a/*b", []string{"block comments are not supported"}},
+	{"/* after a division", "4 / /* 2 */ 2", []string{"block comments are not supported"}},
+	{"/* inside a string is text", `"/* c */"`, nil},
+	{"*/ alone is two operators", "a */ b", nil},
 	{"unterminated asm", "asm { mov", []string{"unterminated asm block"}},
 	{"asm at end of input", "asm", []string{"unterminated asm block"}},
 	{
