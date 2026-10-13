@@ -32,11 +32,11 @@ func check(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return typeck.New(file, f.Data).Check()
+	return typeck.New(ast.SingleFile(file), f).Check()
 }
 
 func inMain(body string) string {
@@ -159,7 +159,7 @@ func TestRejectsUnknownArgumentExpression(t *testing.T) {
 		},
 	}
 
-	if diags := typeck.New(file, nil).Check(); len(diags) == 0 {
+	if diags := typeck.New(ast.SingleFile(file), nil).Check(); len(diags) == 0 {
 		t.Error("an argument of an unsupported expression kind was accepted")
 	}
 }
@@ -181,11 +181,11 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return file, typeck.New(file, f.Data).Check()
+	return file, typeck.New(ast.SingleFile(file), f).Check()
 }
 
 // The parameter's type is what the backend reads to size and place it, so the

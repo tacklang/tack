@@ -64,18 +64,3 @@ Decided, not yet implemented: a field of an immutable variable is to
 carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
 `p` is immutable. It is to be implemented with pointers. Today a field
 never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
-
-## Packages and imports
-
-Only `package main` exists today, and nothing can be imported. The
-direction is chosen: a package is imported under a namespace, as in
-`import x from "my/x/package"`, and its exported names are used through
-that namespace, never brought in bare. A package's names therefore never
-collide with a program's own; only the namespace name can, and it is
-declared like any other name. This is why a variable may not shadow
-another name visible where it is declared: with imports namespaced,
-nothing a package adds can make that rule bite, so it stays.
-
-Still open: the exact syntax, whether the namespace may be left out to
-default to the package's own name, what makes a name exported, and how
-a path maps to files.

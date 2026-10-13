@@ -12,6 +12,11 @@
 // first byte and a tilde under each of the rest, with nothing after. A
 // source line is shown without its newline, \n or \r\n, so one saved with
 // CRLF line endings looks the same as one saved with LF. Both
-// take the source.File the spans refer to, which must already have its line
-// starts recorded by the lexer.
+// take a source.Files, which finds the file each span points into by the
+// source.FileID the span carries, so a diagnostic and its notes may be in
+// different files of one package. A lone source.File stands for every span,
+// as when one file is compiled; a source.Set holds the files of a program.
+// Every file must already have its line starts recorded by the lexer. A span
+// in no file the source.Files knows is a compiler bug, and is rendered with
+// <unknown file> in place of a position rather than panicked on.
 package diag

@@ -1,7 +1,14 @@
-// Package resolver binds every name in a parsed file to what it refers to.
+// Package resolver binds every name in a parsed program to what it refers
+// to.
 //
-// It runs after the parser and before the type checker, taking an *ast.File
-// and returning the diagnostics it found. It checks the file's shape first:
+// It runs after the loader and before the type checker, taking an
+// *ast.Program and returning the diagnostics it found. A package may be
+// several files: every package-level name of every file is declared before
+// anything is resolved, so each is visible in all of them, in any order of
+// declarations and of files, and a name declared in two files is reported
+// as declared twice, with a note in the other file. A global that is never
+// read is reported only after every package has been resolved. It checks
+// the program's shape first:
 // the package must be main, a main function must exist, take no parameters
 // and declare no results, no function may be declared twice, and none may
 // reuse a builtin's name. It then walks each function body with that
@@ -19,7 +26,9 @@
 // global can be used from any function, and a type anywhere, whatever the
 // order of declarations. Functions are declared first, then types, then
 // globals, so a type or global that clashes with an earlier kind is the one
-// reported. A name bound to a type is reported where it is used as a
+// reported. Every global is declared before any global's type or
+// initializer is resolved, so either may name a global declared after it;
+// the type checker says whether that use is allowed. A name bound to a type is reported where it is used as a
 // value, assigned or called, and a name written as a type that is bound to
 // anything but a type is reported too; one bound to nothing is left for the
 // type checker, which reports it as an unknown type.

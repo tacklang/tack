@@ -1,0 +1,26 @@
+package main
+
+// Rect is used by main.tck, and holds no name of its own file.
+type Rect struct {
+    w int64
+    h int64
+}
+
+// origin is read by main, in main.tck.
+var origin = Rect{w: 1, h: 0}
+
+// size is the length of cells, in main.tck.
+var size int64 = 3
+
+// greeting is printed by main, in main.tck.
+var greeting = "split across files\n"
+
+// area scales by unit, declared in main.tck.
+func area(r Rect) int64 {
+    return r.w * r.h * unit
+}
+
+// perimeter calls twice, declared in main.tck.
+func perimeter(r Rect) int64 {
+    return twice(r.w + r.h)
+}

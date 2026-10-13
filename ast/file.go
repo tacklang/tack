@@ -18,6 +18,9 @@ type File struct {
 	Decls    []Decl
 	Comments []Comment
 	Span     Span
+
+	// PackageSpan is the span of the package clause's name.
+	PackageSpan Span
 }
 
 var _ Node = (*File)(nil)

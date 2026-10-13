@@ -16,7 +16,11 @@ func (f fakeBackend) Name() string { return f.name }
 
 func (f fakeBackend) Ext() string { return ".fake" }
 
-func (f fakeBackend) Generate(*ast.File) ([]byte, []diag.Diagnostic) { return []byte("fake"), nil }
+func (f fakeBackend) Generate(
+	*ast.Program,
+) ([]byte, []diag.Diagnostic) {
+	return []byte("fake"), nil
+}
 
 func (f fakeBackend) BuildCmd(src, out string) []string { return []string{"true", src, out} }
 

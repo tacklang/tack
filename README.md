@@ -64,9 +64,11 @@ make test        # runs go test ./...
 ```sh
 tack --out hello examples/hello/main.tck
 ./hello
+tack --out shapes examples/multi-file    # every .tck file in the directory
 ```
 
-Flags go before the file. The intermediate stages can be dumped instead of
+The target is a file, compiled alone, or a directory, compiled as the one
+package its `.tck` files make. Flags go before the target. The intermediate stages can be dumped instead of
 linking. A dump prints only that stage's output to stdout, so it can be
 redirected: `tack --emit x.tck > x.c` gives a C file that compiles. A dump
 does not take `--out`, and only one dump can be given at a time.
@@ -101,11 +103,12 @@ not reported.
 
 | Package    | Role                                                          |
 |------------|---------------------------------------------------------------|
-| `source`   | the source file, its bytes, and its line index                |
+| `source`   | the source files, their bytes, and their line indexes         |
 | `lexer`    | bytes into tokens, including Go-style semicolon insertion     |
 | `parser`   | tokens into an AST                                            |
-| `ast`      | node types, source spans, and `Walk`                          |
-| `resolver` | checks the program has a `main` package and a `main` function |
+| `loader`   | finds a target's files, lexes and parses them into packages   |
+| `ast`      | node types, packages, programs, source spans, and `Walk`      |
+| `resolver` | binds every name; checks there is a `main` package and `main` |
 | `types`    | Tack's type representation                                    |
 | `builtin`  | the builtins' names and signatures                            |
 | `typeck`   | checks calls pass the right number and type of arguments      |
@@ -189,6 +192,24 @@ which is true today because `main` is the only package there is.
 ## The language today
 
 - `package main` is required, and must be the first declaration.
+- A package may be split across files. Compiling a directory compiles every
+  file directly in it whose name ends in `.tck`, in the byte order of their
+  names, as one package; a name starting with `.` is skipped, as an
+  editor's or a tool's, and so are subdirectories, even one named like a
+  Tack file. A directory with no such file is an error, `no .tck files in
+  dir`. Every file's package clause must name the same package, or the
+  directory is reported as holding several, `directory dir holds two
+  packages, a and b`, with a note at the first file of each other one.
+  Every package-level name, function, type or global, of every file is
+  visible in every file, in any order, exactly as within one file: a name
+  declared in two files is `x is already declared`, with a note at the
+  other, a parameter or local may not reuse a global of another file, and a
+  global read only in another file is used. A global's type may name a
+  global declared after it, in its file or a later one, as in `mut cells
+  [size]int64`; one that needs itself is `initialization cycle: a refers to
+  itself`. Every file is lexed, and then every file parsed, before the
+  first stage with errors stops the run, so each file's problems are
+  reported. A file compiled on its own is the whole package.
 - A line ends at a newline, `\n`, or a carriage return and newline,
   `\r\n`, which means exactly the same everywhere: a file saved with
   either compiles to the same program, and a diagnostic gives the same

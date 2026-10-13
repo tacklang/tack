@@ -1,6 +1,11 @@
-// Package ast defines the syntax tree for a Tack source file.
+// Package ast defines the syntax tree for a Tack source file, and the
+// Package and Program that group files.
 //
-// The parser produces a *File from the lexer's tokens. Later passes read the
+// The parser produces a *File from the lexer's tokens. The loader groups
+// the files of one directory into a Package, and the packages a build
+// needs into a Program, whose last package is the one being built; the
+// later passes take a Program. File.PackageSpan is the span of a file's
+// package clause's name, where a problem with the clause is reported. Later passes read the
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, a type name's included,
 // and the type checker sets Param.Type, Var.Type, Func.ResultType and
@@ -9,8 +14,8 @@
 // Binary.Const and Unary.Const to the value of an integer constant
 // expression, Var.Const to a package-level variable's computed initial value,
 // CompositeLit.Type, Index.Type and Selector.Type to an array or struct
-// literal's, an element's and a field's type, Call.Const to a len the checker can compute, and File.Types to the
-// table that gives those types meaning. The types as
+// literal's, an element's and a field's type, Call.Const to a len the checker can compute, and Program.Types,
+// and File.Types of every file, to the table that gives those types meaning. The types as
 // written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
 // Func.Result. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a

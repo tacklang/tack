@@ -36,9 +36,18 @@ func (backend) BuildCmd(src, out string) []string {
 	return []string{"clang", "-w", "-o", out, src}
 }
 
-func (backend) Generate(file *ast.File) ([]byte, []diag.Diagnostic) {
-	g := &generator{file: file, globals: make(map[*ast.Var]bool)}
+// Generate lowers prog, which must have been type-checked, to one C
+// translation unit.
+func (backend) Generate(prog *ast.Program) ([]byte, []diag.Diagnostic) {
+	g := &generator{prog: prog, decls: prog.Decls(), globals: make(map[*ast.Var]bool)}
 	return g.generate()
+}
+
+// walk walks every file of the program with v, as ast.Walk walks one.
+func (g *generator) walk(v ast.Visitor) {
+	for _, f := range g.prog.Files() {
+		ast.Walk(f, v)
+	}
 }
 
 // str is one entry in the string pool: the C identifier it is emitted under
@@ -49,7 +58,8 @@ type str struct {
 }
 
 type generator struct {
-	file    *ast.File
+	prog    *ast.Program
+	decls   []ast.Decl // the program's package-level declarations, in order
 	strPool []str
 	globals map[*ast.Var]bool // the package-level variables
 
@@ -74,7 +84,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 
 	// Globals are known before any body is generated, since a body names a
 	// global differently from a local.
-	for _, decl := range g.file.Decls {
+	for _, decl := range g.decls {
 		if v, ok := decl.(*ast.Var); ok {
 			g.globals[v] = true
 		}
@@ -159,7 +169,7 @@ func (g *generator) collectStrings() {
 		}
 		return true
 	}
-	ast.Walk(g.file, visit)
+	g.walk(visit)
 }
 
 // emitConstantPool writes the pooled strings as byte arrays. Bytes rather than
@@ -207,7 +217,7 @@ type division struct {
 // way every time.
 func (g *generator) divisions() []division {
 	used := make(map[division]bool)
-	ast.Walk(g.file, func(n ast.Node) bool {
+	g.walk(func(n ast.Node) bool {
 		if d, ok := divisionIn(n); ok {
 			used[d] = true
 		}
@@ -273,7 +283,7 @@ func divisionName(op ast.BinaryOp, typ types.Type) string {
 
 func (g *generator) printsAnything() bool {
 	prints := false
-	ast.Walk(g.file, func(n ast.Node) bool {
+	g.walk(func(n ast.Node) bool {
 		if call, ok := n.(*ast.Call); ok {
 			if id, ok := call.Fn.(*ast.Ident); ok && id.Name == "print" {
 				prints = true
@@ -293,7 +303,7 @@ func (g *generator) generateDecls() (
 	bodies [][]string,
 	diags []diag.Diagnostic,
 ) {
-	for _, decl := range g.file.Decls {
+	for _, decl := range g.decls {
 		switch d := decl.(type) {
 		case *ast.Var:
 			global, diags := g.generateGlobal(d)
@@ -416,7 +426,7 @@ func (g *generator) constValue(c any) (string, bool) {
 // so on, in order. C returns one value, and a struct is one value that holds
 // all of them.
 func (g *generator) emitResultStructs() {
-	for _, decl := range g.file.Decls {
+	for _, decl := range g.decls {
 		fn, ok := decl.(*ast.Func)
 		if !ok || len(fn.ResultTypes) < 2 {
 			continue
@@ -435,17 +445,17 @@ func (g *generator) emitResultStructs() {
 // tack_ and the package, so it cannot collide with one while the package is
 // main.
 func (g *generator) resultsName(fn string) string {
-	return fmt.Sprintf("tack_results_%s_%s", g.file.Package, fn)
+	return fmt.Sprintf("tack_results_%s_%s", g.prog.Main().Name, fn)
 }
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
 // call one declared later in the file; C does not, without a prototype.
 func (g *generator) emitPrototypes() {
-	if len(g.file.Decls) == 0 {
+	if len(g.decls) == 0 {
 		return
 	}
 
-	for _, decl := range g.file.Decls {
+	for _, decl := range g.decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			g.buf.WriteString(g.signature(fn) + ";\n")
 		}
@@ -816,8 +826,8 @@ func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string)
 	xType := ast.TypeOf(loop.X)
 	r, k := g.temp("r"), g.temp("k")
 	n, field := r+".len", "ptr"
-	if g.file.Types.IsArray(xType) {
-		n, field = strconv.FormatInt(g.file.Types.Len(xType), 10), "e"
+	if g.prog.Types.IsArray(xType) {
+		n, field = strconv.FormatInt(g.prog.Types.Len(xType), 10), "e"
 	}
 
 	var vars []string
@@ -1376,8 +1386,8 @@ func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic
 				Severity: diag.Error,
 				Message: fmt.Sprintf(
 					"cannot use %s as %s",
-					g.file.Types.Name(got),
-					g.file.Types.Name(want),
+					g.prog.Types.Name(got),
+					g.prog.Types.Name(want),
 				),
 				Span: e.Spanned(),
 			},
@@ -1591,10 +1601,10 @@ func (g *generator) stringValue(s string) string {
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
 // an array or a struct the C struct emitTypes defines for it.
 func (g *generator) cType(typ types.Type) string {
-	if g.file.Types.IsArray(typ) {
+	if g.prog.Types.IsArray(typ) {
 		return arrayName(typ)
 	}
-	if g.file.Types.IsStruct(typ) {
+	if g.prog.Types.IsStruct(typ) {
 		return g.structName(typ)
 	}
 	return basicCType(typ)
@@ -1652,7 +1662,7 @@ func varName(name string) string { return "v_" + name }
 // names contain a dot, which C does not allow. This is unambiguous only while
 // package names cannot contain an underscore; the language has one package.
 func (g *generator) mangle(name string) string {
-	return fmt.Sprintf("tack_%s_%s", g.file.Package, name)
+	return fmt.Sprintf("tack_%s_%s", g.prog.Main().Name, name)
 }
 
 func (g *generator) seenStr(s string) bool {

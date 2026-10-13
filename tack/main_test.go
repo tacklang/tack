@@ -317,11 +317,11 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := readSource(path)
+	res, single, err := load(path, dumpNone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := compile(f, c.New(), dumpNone, 0)
+	want, err := compile(res, single, c.New(), dumpNone, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestInputFileFailures(t *testing.T) {
 	}{
 		{"missing file", filepath.Join(dir, "nope.tck"), "no such file"},
 		{"missing directory", filepath.Join(dir, "nope", "main.tck"), "no such file"},
-		{"directory", dir, "is a directory"},
+		{"directory with no Tack files", dir, "no .tck files in " + dir},
 		{"file as directory", filepath.Join(example("hello"), "main.tck"), "not a directory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -606,8 +606,11 @@ func checkCoherent(t *testing.T, r result) {
 	}
 }
 
+// FuzzRunEmit runs the driver's --emit on arbitrary source as a single
+// file and checks the result is coherent, never a panic. It is seeded with
+// every Tack file under examples/, each alone, and every invalid case.
 func FuzzRunEmit(f *testing.F) {
-	paths, _ := filepath.Glob(filepath.Join(examplesDir, "*", "main.tck"))
+	paths, _ := filepath.Glob(filepath.Join(examplesDir, "*", "*.tck"))
 	for _, p := range paths {
 		if src, err := os.ReadFile(p); err == nil {
 			f.Add(src)
@@ -766,12 +769,19 @@ func TestTempDirUnusableFails(t *testing.T) {
 // clang is not on PATH and checks the build left no temp files.
 func buildWithClang(t *testing.T, name string) string {
 	t.Helper()
+	return buildTargetWithClang(t, name, example(name))
+}
+
+// buildTargetWithClang is buildWithClang for any target the driver takes,
+// a file or a directory, writing the binary under the name name.
+func buildTargetWithClang(t *testing.T, name, target string) string {
+	t.Helper()
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
 	}
 	tmp := isolateTemp(t)
 	bin := filepath.Join(t.TempDir(), name)
-	r := runTack(t, "--out", bin, example(name))
+	r := runTack(t, "--out", bin, target)
 	if r.code != exitOK || r.stdout != "" || r.stderr != "" {
 		t.Fatalf("build: exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
 	}
@@ -1235,4 +1245,123 @@ func TestBuiltOrderIsLeftToRight(t *testing.T) {
 	if string(out) != want {
 		t.Errorf("order printed\n%s\nwant\n%s", out, want)
 	}
+}
+
+// TestBuiltMultiFileExits42 builds examples/multi-file, a package split
+// across two files that use each other's functions, type and globals, and
+// checks it prints the global from the other file and exits
+// 24 + 14 + 1 + 3, the last the length of an array whose length is a
+// global declared in the later file.
+func TestBuiltMultiFileExits42(t *testing.T) {
+	bin := buildTargetWithClang(t, "multi-file", filepath.Join(examplesDir, "multi-file"))
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("multi-file exited with %v, want status 42", err)
+	}
+	if string(out) != "split across files\n" {
+		t.Errorf("multi-file printed %q, want %q", out, "split across files\n")
+	}
+}
+
+// writeDir writes files, by name, into a fresh temp directory and returns
+// its path.
+func writeDir(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, src := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// TestDirectoryDumps checks each dump of a directory target: the tokens of
+// every file under a header naming it, the trees as a JSON list, the
+// resolved program as JSON, and the generated code.
+func TestDirectoryDumps(t *testing.T) {
+	dir := filepath.Join(examplesDir, "multi-file")
+
+	lex := runTack(t, "--lex", dir)
+	assertOnlyStdout(t, lex)
+	mainHeader := "-- " + filepath.ToSlash(filepath.Join(dir, "main.tck")) + " --\n"
+	shapesHeader := "-- " + filepath.ToSlash(filepath.Join(dir, "shapes.tck")) + " --\n"
+	if !strings.HasPrefix(lex.stdout, mainHeader) ||
+		!strings.Contains(lex.stdout, "\n"+shapesHeader) {
+		t.Errorf("--lex does not head each file's tokens with its name:\n%s", lex.stdout)
+	}
+
+	var trees []json.RawMessage
+	r := runTack(t, "--ast", dir)
+	assertOnlyStdout(t, r)
+	if err := json.Unmarshal([]byte(r.stdout), &trees); err != nil || len(trees) != 2 {
+		t.Errorf("--ast is not a JSON list of two trees (%v):\n%s", err, r.stdout)
+	}
+
+	var prog struct {
+		Packages []struct{ Files []json.RawMessage }
+	}
+	r = runTack(t, "--res", dir)
+	assertOnlyStdout(t, r)
+	if err := json.Unmarshal([]byte(r.stdout), &prog); err != nil ||
+		len(prog.Packages) != 1 || len(prog.Packages[0].Files) != 2 {
+		t.Errorf("--res is not a program of one package of two files (%v):\n%s", err, r.stdout)
+	}
+
+	assertOnlyStdout(t, runTack(t, "--emit", dir))
+}
+
+// TestDirectoryDiagnosticsNameEachFile checks a problem spanning two files
+// is shown in both, each by its own name.
+func TestDirectoryDiagnosticsNameEachFile(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"a.tck": "package main\n\nfunc main() {\n}\n",
+		"b.tck": "package main\n\nfunc main() {\n}\n",
+	})
+	r := runTack(t, "--emit", dir)
+	assertDiagnostics(t, r)
+	for _, want := range []string{
+		filepath.Join(dir, "b.tck") + ":3:6: error: main is already declared",
+		filepath.Join(dir, "a.tck") + ":3:6: note: previous declaration of main",
+	} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("stderr does not contain %q:\n%s", want, r.stderr)
+		}
+	}
+}
+
+// TestDirectoryFailures checks the ways a directory target fails before
+// there is any source to point at: unreadable, holding a .tck name that is
+// not a readable file, or a symbolic link loop.
+func TestDirectoryFailures(t *testing.T) {
+	t.Run("unreadable", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root can read any directory")
+		}
+		dir := writeDir(t, map[string]string{"main.tck": "package main\n"})
+		if err := os.Chmod(dir, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		assertFailure(t, runTack(t, "--emit", dir), "cannot read directory")
+	})
+	t.Run("tck link to a directory", func(t *testing.T) {
+		dir := writeDir(t, map[string]string{"main.tck": "package main\n", "sub/x": ""})
+		if err := os.Symlink(filepath.Join(dir, "sub"), filepath.Join(dir, "sub.tck")); err != nil {
+			t.Fatal(err)
+		}
+		assertFailure(t, runTack(t, "--emit", dir), "is a directory")
+	})
+	t.Run("symbolic link loop", func(t *testing.T) {
+		loop := filepath.Join(t.TempDir(), "loop")
+		if err := os.Symlink(loop, loop); err != nil {
+			t.Fatal(err)
+		}
+		assertFailure(t, runTack(t, "--emit", loop), "too many levels of symbolic links")
+	})
 }

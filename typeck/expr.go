@@ -142,13 +142,13 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 
 	var params []types.Type
-	if fn, isBuiltin := builtin.Lookup(id.Name); isBuiltin {
-		params = fn.Params
-	} else if fn, ok := c.funcs[id.Name]; ok {
+	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
 		params = make([]types.Type, len(fn.Params))
 		for i, param := range fn.Params {
 			params[i] = param.Type
 		}
+	} else if fn, isBuiltin := builtin.Lookup(id.Name); isBuiltin {
+		params = fn.Params
 	}
 
 	if !c.checkArity(call, id.Name, len(params)) {

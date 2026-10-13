@@ -365,7 +365,7 @@ func TestDeferInADeferIsReported(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(file)
+	out, diags := c.New().Generate(ast.SingleFile(file))
 	if len(diags) != 1 || diags[0].Message != "cannot defer inside a defer" {
 		t.Fatalf(
 			"got %v, want only %q, and emitted:\n%s",

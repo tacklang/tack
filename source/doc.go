@@ -8,5 +8,10 @@
 // it by byte offset; this package is what turns those offsets into the
 // line:column a diagnostic shows.
 //
+// A program of several files reads them into a Set, which finds a File by
+// its FileID. Both a Set and a lone File satisfy Files, the lookup that
+// diagnostics are rendered and source is quoted through; a lone File
+// stands for every span, as when one file is compiled.
+//
 // It is a leaf package and depends on nothing else in the compiler.
 package source

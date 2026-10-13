@@ -35,13 +35,13 @@ func compile(t *testing.T, src string) *ast.File {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
 	// The backend reads the types the checker records, so a tree that has not
 	// been checked is not a tree it is meant to be handed.
-	if diags := typeck.New(file, f.Data).Check(); len(diags) > 0 {
+	if diags := typeck.New(ast.SingleFile(file), f).Check(); len(diags) > 0 {
 		t.Fatalf("typeck: %s", diag.RenderAllPretty(f, diags))
 	}
 
@@ -52,7 +52,7 @@ func compile(t *testing.T, src string) *ast.File {
 func generate(t *testing.T, src string) string {
 	t.Helper()
 
-	out, diags := c.New().Generate(compile(t, src))
+	out, diags := c.New().Generate(ast.SingleFile(compile(t, src)))
 	if len(diags) > 0 {
 		t.Fatalf("generate reported %d diagnostic(s): %+v", len(diags), diags)
 	}
@@ -208,7 +208,7 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(file)
+	out, diags := c.New().Generate(ast.SingleFile(file))
 	if len(diags) == 0 {
 		t.Fatalf("generate accepted an unsupported statement and emitted:\n%s", out)
 	}

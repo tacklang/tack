@@ -1,0 +1,30 @@
+package main
+
+// A package may be split across files: every package-level name of every
+// file is visible in all of them, whatever the order of the files. This
+// file uses a type, a function and a global declared in shapes.tck, and
+// shapes.tck uses a function and a global declared here.
+
+// unit is read by area, in shapes.tck.
+var unit int64 = 2
+
+// cells has the length size, declared in shapes.tck, which comes after
+// this file: a global's type may name a global of any file.
+mut cells [size]int64
+
+// twice is called from perimeter, in shapes.tck.
+func twice(n int64) int64 {
+    return n * 2
+}
+
+func main() {
+    r := Rect{w: 3, h: 4}
+    if area(r) != 24 {
+        exit(1)
+    }
+    if perimeter(r) != 14 {
+        exit(2)
+    }
+    print(greeting)
+    exit(area(r) + perimeter(r) + origin.w + len(cells))
+}

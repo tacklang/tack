@@ -139,7 +139,7 @@ func TestAssignmentToANonVariableIsReported(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(file)
+	out, diags := c.New().Generate(ast.SingleFile(file))
 	if len(diags) == 0 {
 		t.Fatalf("generate accepted an assignment to a parameter and emitted:\n%s", out)
 	}

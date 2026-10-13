@@ -1422,7 +1422,7 @@ func sayHello() {
 stage: resolve
 ---
 
-dup-func-decl/main.tck:11:6: error: duplicate function declaration
+dup-func-decl/main.tck:11:6: error: sayHello is already declared
 10 |	
 11 |	func sayHello() {
    |	     ^~~~~~~~
@@ -1744,6 +1744,24 @@ global-short-decl/main.tck:3:1: error: expected 'func' found 'limit'
 02 |	
 03 |	limit := 10
    |	^
+04 |	
+
+-- global-type-names-itself/main.tck --
+package main
+
+mut a [len(a)]int64
+
+func main() {
+    exit(a[0])
+}
+-- global-type-names-itself/expected --
+stage: typeck
+---
+
+global-type-names-itself/main.tck:3:12: error: initialization cycle: a refers to itself
+02 |	
+03 |	mut a [len(a)]int64
+   |	           ^
 04 |	
 
 -- global-unused/main.tck --

@@ -6,6 +6,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/source"
 	"github.com/tacklang/tack/types"
 )
 
@@ -15,23 +16,39 @@ const (
 	mainFunc       = "main"
 )
 
-// Resolver binds names in one file. It is single-use: create one with New and
-// call Resolve once.
+// Resolver binds names in a program. It is single-use: create one with New
+// and call Resolve once.
 type Resolver struct {
-	file     *ast.File
-	funcRefs map[string]*ast.Func
-	read     map[*ast.Var]bool // variables read at least once
-	excused  map[*ast.Var]bool // variables never reported unused: see excuse
-	globals  *scope            // package-level variables and types, enclosing every function
+	prog    *ast.Program
+	read    map[*ast.Var]bool // variables read at least once
+	excused map[*ast.Var]bool // variables never reported unused: see excuse
 }
 
-// New returns a Resolver for file.
-func New(file *ast.File) *Resolver {
+// New returns a Resolver for prog.
+func New(prog *ast.Program) *Resolver {
 	return &Resolver{
-		file:     file,
+		prog:    prog,
+		read:    make(map[*ast.Var]bool),
+		excused: make(map[*ast.Var]bool),
+	}
+}
+
+// pkgResolver binds the names in one package of the program. It shares
+// what it learns about variables with the Resolver it belongs to.
+type pkgResolver struct {
+	*Resolver
+
+	pkg      *ast.Package
+	funcRefs map[string]*ast.Func
+	globals  *scope // package-level variables and types, enclosing every function
+}
+
+// newPkgResolver returns a pkgResolver for pkg, a package of r's program.
+func (r *Resolver) newPkgResolver(pkg *ast.Package) *pkgResolver {
+	return &pkgResolver{
+		Resolver: r,
+		pkg:      pkg,
 		funcRefs: make(map[string]*ast.Func),
-		read:     make(map[*ast.Var]bool),
-		excused:  make(map[*ast.Var]bool),
 		globals:  newScope(nil),
 	}
 }
@@ -81,7 +98,7 @@ func unrejected(diags []diag.Diagnostic, name string, sc *scope) []diag.Diagnost
 
 // excuse records that the variable v is not to be reported as unused,
 // since its declaration, or a use of it, was reported already.
-func (r *Resolver) excuse(v *ast.Var) {
+func (r *pkgResolver) excuse(v *ast.Var) {
 	r.excused[v] = true
 }
 
@@ -95,22 +112,53 @@ func (s *scope) lookup(name string) (ast.Decl, bool) {
 	return nil, false
 }
 
-// Resolve checks the file's top-level shape and binds every name in it,
-// returning every problem found. It panics if the file is nil, which is a
-// compiler bug rather than bad input.
+// Resolve checks the program's top-level shape and binds every name in it,
+// returning every problem found. It panics if the program is nil or has no
+// package, which is a compiler bug rather than bad input.
 func (r *Resolver) Resolve() []diag.Diagnostic {
-	if r.file == nil {
-		panic("file is nil")
+	if r.prog == nil || r.prog.Main() == nil {
+		panic("program is nil or empty")
 	}
 
-	if r.file.Package != mainPackage {
+	main := r.prog.Main()
+	if main.Name != mainPackage {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "main package not found",
-			Span:     ast.Span{Start: 0, End: 0, File: r.file.Span.File},
+			Span:     ast.Span{Start: 0, End: 0, File: firstFile(main)},
 		}}
 	}
 
+	var diags []diag.Diagnostic
+	resolvers := make([]*pkgResolver, 0, len(r.prog.Packages))
+	for _, pkg := range r.prog.Packages {
+		pr := r.newPkgResolver(pkg)
+		resolvers = append(resolvers, pr)
+		diags = append(diags, pr.resolve()...)
+	}
+
+	// A global is reported unused only once every package has been
+	// resolved, so a read from any of them counts.
+	for _, pr := range resolvers {
+		diags = append(diags, pr.unused(pr.globals)...)
+	}
+	return diags
+}
+
+// firstFile returns the ID of the first file of pkg, where a diagnostic
+// about the package as a whole points, or the zero ID for a package with
+// no files.
+func firstFile(pkg *ast.Package) source.FileID {
+	if len(pkg.Files) == 0 {
+		return ""
+	}
+	return pkg.Files[0].Span.File
+}
+
+// resolve declares every package-level name of the package, from every one
+// of its files, and then binds every name in it, returning every problem
+// found but the unused globals, which Resolve reports.
+func (r *pkgResolver) resolve() []diag.Diagnostic {
 	for _, name := range builtin.Names() {
 		r.funcRefs[r.refLabel(builtinPackage, name)] = nil
 	}
@@ -119,12 +167,14 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	diags = append(diags, r.declareTypes()...)
 	diags = append(diags, r.declareGlobals()...)
 	diags = append(diags, r.resolveStructs()...)
-	diags = append(diags, r.checkMain()...)
+	if r.pkg.Name == mainPackage {
+		diags = append(diags, r.checkMain()...)
+	}
 
 	// Resolution is per function body: a parameter is in scope inside the
 	// function that declares it and nowhere else, which the file-wide Walk
 	// this replaced could not express.
-	for _, decl := range r.file.Decls {
+	for _, decl := range r.pkg.Decls() {
 		fn, ok := decl.(*ast.Func)
 		if !ok {
 			continue
@@ -134,31 +184,27 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 		diags = append(diags, paramDiags...)
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
 	}
-
-	return append(diags, r.unused(r.globals)...)
+	return diags
 }
 
-// declareGlobals adds every package-level variable to the global scope, which
-// encloses every function, so a global can be used from any function whatever
-// the order of declarations. Functions and types were declared first, so a
-// global that shares a name with a function, a type, another global, or a
-// builtin is the one reported. Initializers are resolved too, so a name in one is bound and the
-// type checker can say why it is not allowed there.
-func (r *Resolver) declareGlobals() []diag.Diagnostic {
+// declareGlobals adds every package-level variable of every file of the
+// package to the global scope, which encloses every function, so a global
+// can be used from any function whatever the order of declarations and of
+// files. Functions and types were declared first, so a global that shares
+// a name with a function, a type, another global, or a builtin is the one
+// reported. Every global is declared before any global's type or
+// initializer is resolved, so those may name a global declared after them,
+// in the same file or another: the type checker then says whether the use
+// is allowed there.
+func (r *pkgResolver) declareGlobals() []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	for _, decl := range r.file.Decls {
+	var globals []*ast.Var
+	for _, decl := range r.pkg.Decls() {
 		v, ok := decl.(*ast.Var)
 		if !ok {
 			continue
 		}
-
-		if v.TypeExpr != nil {
-			diags = append(diags, r.resolveType(v.TypeExpr, r.globals)...)
-		}
-		if v.Value != nil {
-			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
-		}
-
+		globals = append(globals, v)
 		if clash := r.packageNameClash(v.Name, v.NameSpan); clash != nil {
 			diags = append(diags, clash...)
 			r.globals.reject(v.Name)
@@ -168,6 +214,15 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 		r.globals.names[v.Name] = v
 		r.globals.vars = append(r.globals.vars, v)
 	}
+
+	for _, v := range globals {
+		if v.TypeExpr != nil {
+			diags = append(diags, r.resolveType(v.TypeExpr, r.globals)...)
+		}
+		if v.Value != nil {
+			diags = append(diags, r.resolveExpr(v.Value, r.globals)...)
+		}
+	}
 	return diags
 }
 
@@ -176,9 +231,9 @@ func (r *Resolver) declareGlobals() []diag.Diagnostic {
 // shares one namespace with functions, package-level variables and
 // builtins. Functions were declared first, so a type that shares a name
 // with one is the one reported, as a global would be.
-func (r *Resolver) declareTypes() []diag.Diagnostic {
+func (r *pkgResolver) declareTypes() []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	for _, decl := range r.file.Decls {
+	for _, decl := range r.pkg.Decls() {
 		td, ok := decl.(*ast.TypeDecl)
 		if !ok {
 			continue
@@ -196,7 +251,7 @@ func (r *Resolver) declareTypes() []diag.Diagnostic {
 // name, written at span: the name is reserved, a builtin's, or already
 // declared by a function or in the global scope. It returns nil when the
 // name is free.
-func (r *Resolver) packageNameClash(name string, span ast.Span) []diag.Diagnostic {
+func (r *pkgResolver) packageNameClash(name string, span ast.Span) []diag.Diagnostic {
 	if reserved := reservedName(name, span); reserved != nil {
 		return reserved
 	}
@@ -222,9 +277,9 @@ func (r *Resolver) packageNameClash(name string, span ast.Span) []diag.Diagnosti
 // name, which must not be reserved or be another field's. Field names are a
 // namespace of their own, one per struct, so a field may share a name with
 // anything outside it.
-func (r *Resolver) resolveStructs() []diag.Diagnostic {
+func (r *pkgResolver) resolveStructs() []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	for _, decl := range r.file.Decls {
+	for _, decl := range r.pkg.Decls() {
 		td, ok := decl.(*ast.TypeDecl)
 		if !ok {
 			continue
@@ -239,7 +294,7 @@ func (r *Resolver) resolveStructs() []diag.Diagnostic {
 }
 
 // resolveFields resolves the fields of one struct type.
-func (r *Resolver) resolveFields(st *ast.StructType) []diag.Diagnostic {
+func (r *pkgResolver) resolveFields(st *ast.StructType) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seen := make(map[string]*ast.Field, len(st.Fields))
 	for _, f := range st.Fields {
@@ -304,27 +359,19 @@ func alreadyDeclared(name string, span ast.Span, existing ast.Decl) diag.Diagnos
 	}
 }
 
-// declareFuncs records every top-level function in the reference table,
-// reporting a name declared twice or one that reuses a builtin's name.
-func (r *Resolver) declareFuncs() []diag.Diagnostic {
+// declareFuncs records every top-level function of every file of the
+// package in the reference table, reporting a name declared twice, in one
+// file or in two, or one that reuses a builtin's name.
+func (r *pkgResolver) declareFuncs() []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	for _, decl := range r.file.Decls {
+	for _, decl := range r.pkg.Decls() {
 		if fn, ok := decl.(*ast.Func); ok {
 			if reserved := reservedName(fn.Name, fn.NameSpan); reserved != nil {
 				diags = append(diags, reserved...)
 				continue
 			}
 			if existing, seen := r.seen(fn.Name); seen {
-				diags = append(diags, diag.Diagnostic{
-					Severity: diag.Error,
-					Message:  "duplicate function declaration",
-					Span:     fn.NameSpan,
-					Related: []diag.Diagnostic{{
-						Severity: diag.Note,
-						Message:  fmt.Sprintf("previous declaration of %s", fn.Name),
-						Span:     existing.NameSpan,
-					}},
-				})
+				diags = append(diags, alreadyDeclared(fn.Name, fn.NameSpan, existing))
 				continue
 			}
 
@@ -337,7 +384,7 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 				continue
 			}
 
-			r.funcRefs[r.refLabel(r.file.Package, fn.Name)] = fn
+			r.funcRefs[r.refLabel(r.pkg.Name, fn.Name)] = fn
 		}
 	}
 
@@ -347,13 +394,13 @@ func (r *Resolver) declareFuncs() []diag.Diagnostic {
 // checkMain reports a missing main function, or one with any other signature
 // than taking nothing and returning nothing. Parameters and a result are
 // reported separately, so a main with both gets both diagnostics.
-func (r *Resolver) checkMain() []diag.Diagnostic {
+func (r *pkgResolver) checkMain() []diag.Diagnostic {
 	mainFn, mainDefined := r.funcRefs[r.refLabel(mainFunc, mainFunc)]
 	if !mainDefined {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "main function not found",
-			Span:     ast.Span{Start: 0, End: 0, File: r.file.Span.File},
+			Span:     ast.Span{Start: 0, End: 0, File: firstFile(r.pkg)},
 		}}
 	}
 	if mainFn == nil {
@@ -382,7 +429,7 @@ func (r *Resolver) checkMain() []diag.Diagnostic {
 
 // paramScope returns the outermost scope of a function, holding its
 // parameters, and reports any parameter name declared twice.
-func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
+func (r *pkgResolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 	params := newScope(r.globals)
 
 	// The types in a signature can name only package-level constants, so
@@ -409,7 +456,7 @@ func (r *Resolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 // paramClash reports why param cannot be declared in params, the scope of
 // its function's parameters: its name is reserved, a package-level name's,
 // or another parameter's. It returns nil when the name is free.
-func (r *Resolver) paramClash(param *ast.Param, params *scope) []diag.Diagnostic {
+func (r *pkgResolver) paramClash(param *ast.Param, params *scope) []diag.Diagnostic {
 	if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
 		return reserved
 	}
@@ -433,7 +480,7 @@ func (r *Resolver) paramClash(param *ast.Param, params *scope) []diag.Diagnostic
 
 // resolveBlock resolves a block's statements in a new scope nested in parent,
 // then reports every variable the block declared and never read.
-func (r *Resolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagnostic {
 	block := newScope(parent)
 
 	var diags []diag.Diagnostic
@@ -445,7 +492,7 @@ func (r *Resolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagnosti
 
 // unused reports every variable a scope declared and never read, unless it
 // is excused.
-func (r *Resolver) unused(sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
 		if !r.read[v] && !r.excused[v] {
@@ -463,7 +510,7 @@ func (r *Resolver) unused(sc *scope) []diag.Diagnostic {
 // first, so a variable cannot refer to itself. No variable may reuse a name
 // already visible from here, whether a parameter or a variable of this block
 // or an enclosing one.
-func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if v.TypeExpr != nil {
 		diags = r.resolveType(v.TypeExpr, sc)
@@ -498,7 +545,7 @@ func (r *Resolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 // A _ in the list declares nothing, and may not be mut. A list of nothing
 // but _ binds nothing at all, which is reported: the call can be made on
 // its own instead.
-func (r *Resolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(m.Value, sc)
 
 	blanks := 0
@@ -525,7 +572,7 @@ func (r *Resolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic
 // resolveMultiAssign resolves the value of an assignment of several results,
 // then binds each target other than _, which discards its result. A list of
 // nothing but _ is reported, as in declareMultiVar.
-func (r *Resolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(m.Value, sc)
 
 	blanks := 0
@@ -553,7 +600,7 @@ func nothingBound(span ast.Span) diag.Diagnostic {
 
 // resolveAssign binds an assignment's target to the variable it names and
 // resolves its value. Assigning does not count as reading the variable.
-func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(a.Value, sc)
 	return append(diags, r.resolveTarget(a.Target, sc)...)
 }
@@ -563,7 +610,7 @@ func (r *Resolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 // value, or a field of one, p.x, whose name the type checker looks up.
 // Writing to a variable, or to an element or field of it, does not count as
 // reading it.
-func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
 	switch t := target.(type) {
 	case *ast.Ident:
 		return r.resolveTargetName(t, sc)
@@ -583,13 +630,13 @@ func (r *Resolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
 
 // resolveTargetName binds the variable an assignment target names. A name
 // whose declaration was rejected is not reported again (unrejected).
-func (r *Resolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
 	return unrejected(r.bindTargetName(target, sc), target.Name, sc)
 }
 
 // bindTargetName does resolveTargetName's work, reporting every problem
 // with the target.
-func (r *Resolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
 	if target.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
@@ -640,7 +687,7 @@ func nameSpan(decl ast.Decl) ast.Span {
 // resolveStmt binds every name a statement mentions, and declares any
 // variable it introduces in sc. Each branch of an if, each case of a
 // switch, a loop's body, and what a defer defers, is a block of its own.
-func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
 		var diags []diag.Diagnostic
@@ -668,7 +715,7 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 // resolveSwitch resolves a switch: its tag and every case value where the
 // switch is, and each case's body as a block of its own nested in sc, in
 // source order, the default's included.
-func (r *Resolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if s.Tag != nil {
 		diags = r.resolveExpr(s.Tag, sc)
@@ -686,7 +733,7 @@ func (r *Resolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
 // any variable its init statement declares; the body is a block nested in
 // that. Everything is resolved in source order, so the post statement comes
 // before the body and cannot see what the body declares.
-func (r *Resolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
 	inner := newScope(sc)
 
 	var diags []diag.Diagnostic
@@ -707,7 +754,7 @@ func (r *Resolver) resolveFor(loop *ast.For, sc *scope) []diag.Diagnostic {
 // where the loop is, before the loop's variables exist, so it cannot refer
 // to them. The variables, if any, are declared in a scope of the loop's own,
 // with the body nested in that.
-func (r *Resolver) resolveForRange(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveForRange(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(loop.X, sc)
 
 	inner := newScope(sc)
@@ -720,7 +767,7 @@ func (r *Resolver) resolveForRange(loop *ast.ForRange, sc *scope) []diag.Diagnos
 // With two names, a _ declares nothing, and both being _ is reported, since
 // the loop then binds nothing and needs no names. A lone name is declared
 // like any variable, so a lone _ is reported as a name.
-func (r *Resolver) declareRangeVars(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) declareRangeVars(loop *ast.ForRange, sc *scope) []diag.Diagnostic {
 	if loop.Elem == nil {
 		if loop.Var == nil {
 			return nil
@@ -749,7 +796,7 @@ func (r *Resolver) declareRangeVars(loop *ast.ForRange, sc *scope) []diag.Diagno
 
 // resolveSimpleStmt resolves a statement that holds no other statement: a
 // declaration, an assignment, an increment or decrement, or an expression.
-func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		return r.resolveExpr(s.X, sc)
@@ -771,7 +818,7 @@ func (r *Resolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic
 // resolveExpr binds a call's callee to its declaration and an identifier to
 // the parameter or variable it names, marking a variable as read, recursing so that a call nested in an argument is
 // bound like any other.
-func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	switch x := e.(type) {
 	case *ast.Call:
 		return r.resolveCall(x, sc)
@@ -798,7 +845,7 @@ func (r *Resolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 
 // resolveLit binds the names in a composite literal: its type, if written,
 // and its elements.
-func (r *Resolver) resolveLit(lit *ast.CompositeLit, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveLit(lit *ast.CompositeLit, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if lit.TypeExpr != nil {
 		diags = r.resolveType(lit.TypeExpr, sc)
@@ -815,7 +862,7 @@ func (r *Resolver) resolveLit(lit *ast.CompositeLit, sc *scope) []diag.Diagnosti
 // needs no binding, and a name bound to nothing is left for the type
 // checker to report as an unknown type. A name bound to anything other than
 // a type is reported here.
-func (r *Resolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 	switch t := typ.(type) {
 	case *ast.Ident:
 		return r.resolveTypeName(t, sc)
@@ -832,7 +879,7 @@ func (r *Resolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 
 // resolveTypeName binds a name written as a type to the type declaration it
 // names.
-func (r *Resolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if _, isBasic := types.Lookup(id.Name); isBasic {
 		return nil
 	}
@@ -856,7 +903,7 @@ func (r *Resolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 
 // resolveCall binds a call's callee to the function or builtin it names, or
 // records the type a conversion converts to, and resolves its arguments.
-func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	ident, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		panic("expected ident")
@@ -894,12 +941,12 @@ func (r *Resolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 // resolveIdent binds a name used as a value to the parameter or variable it
 // names, and marks a variable as read. A name whose declaration was
 // rejected is not reported again (unrejected).
-func (r *Resolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	return unrejected(r.bindIdent(id, sc), id.Name, sc)
 }
 
 // bindIdent does resolveIdent's work, reporting every problem with the use.
-func (r *Resolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
+func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if id.Name == ast.Blank {
 		return []diag.Diagnostic{
 			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},
@@ -934,17 +981,17 @@ func (r *Resolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	return nil
 }
 
-func (r *Resolver) seen(ref string) (*ast.Func, bool) {
-	fn, seen := r.funcRefs[r.refLabel(r.file.Package, ref)]
+func (r *pkgResolver) seen(ref string) (*ast.Func, bool) {
+	fn, seen := r.funcRefs[r.refLabel(r.pkg.Name, ref)]
 	return fn, seen
 }
 
-func (r *Resolver) builtinSeen(ref string) (*ast.Func, bool) {
+func (r *pkgResolver) builtinSeen(ref string) (*ast.Func, bool) {
 	fn, seen := r.funcRefs[r.refLabel(builtinPackage, ref)]
 	return fn, seen
 }
 
-func (r *Resolver) refLabel(pkg, ref string) string {
+func (r *pkgResolver) refLabel(pkg, ref string) string {
 	return fmt.Sprintf("_%s.%s", pkg, ref)
 }
 

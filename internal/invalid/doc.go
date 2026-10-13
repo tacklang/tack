@@ -1,6 +1,7 @@
 // Package invalid reads and writes examples/invalid.txtar, the file that holds
-// every invalid example program together with the output the compiler must
-// produce for it.
+// every invalid example program of one file together with the output the
+// compiler must produce for it, and examples/invalid-packages.txtar, which
+// does the same for the invalid programs of several files.
 //
 // It is test infrastructure, not part of the compiler: the golden harness in
 // test/ checks each case's expected output and rewrites it under -update, and
@@ -44,4 +45,21 @@
 // as a header, an empty or newline-free expected output, and names that are
 // empty, contain a slash or a space, or are out of order. For every list of
 // cases Format accepts, Parse returns that list unchanged.
+//
+// # Tree cases
+//
+// examples/invalid-packages.txtar is a txtar archive too, read by ParseTree
+// and written by FormatTree. A case named n is any number of files, at
+// least one, each n/<path> with a clean relative path below n, followed by
+//
+//	-- n/expected --   what the compiler reports for it
+//
+// The case is built from the directory n, or from the directory that an
+// optional file n/.target names, relative to n; its name starts with a dot,
+// so the loader never reads it as source. Diagnostics name each file
+// n/<path>. A file may not repeat in a case, and every file must end with a
+// newline, since this format has no no-final-newline marker; a program
+// whose last line has none belongs in invalid.txtar. ParseTree is as strict
+// as Parse, and FormatTree as Format: for every list of tree cases
+// FormatTree accepts, ParseTree returns that list unchanged.
 package invalid

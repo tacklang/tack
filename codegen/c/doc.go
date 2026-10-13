@@ -1,5 +1,6 @@
-// Package c is the C backend. It translates a resolved, type-checked Tack file
-// into a single self-contained C translation unit, which clang compiles and
+// Package c is the C backend. It translates a resolved, type-checked Tack
+// program, every file of every package of it, into a single self-contained
+// C translation unit, which clang compiles and
 // links into an executable. It registers itself with codegen under the name
 // "c".
 //
@@ -26,7 +27,7 @@
 //   - every package-level variable, as a static C variable;
 //   - a results struct for each function with more than one result;
 //   - a prototype for every Tack function, since Tack lets a function call one
-//     declared later in the file and C does not;
+//     declared later in the file, or in another file, and C does not;
 //   - every Tack function, as a static C function;
 //   - a C main that calls the Tack main and returns 0.
 //

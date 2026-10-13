@@ -6,17 +6,19 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/source"
 	"github.com/tacklang/tack/types"
 )
 
-// Checker type-checks one file. It is single-use: create one with New and
+// Checker type-checks a program. It is single-use: create one with New and
 // call Check once.
 type Checker struct {
-	file  *ast.File
-	table *types.Table // the file's types, recorded on it by Check
+	prog  *ast.Program
+	table *types.Table // the program's types, recorded on it by Check
 
-	// src is the file's source text, which notes quote; see text.
-	src []byte
+	// files holds the source text of the program's files, which notes
+	// quote; see text.
+	files source.Files
 
 	// checkedDivision is the division whose value is being bound with ok,
 	// which needs no proof that its divisor is not zero.
@@ -26,7 +28,6 @@ type Checker struct {
 	// needs no proof that its index is in range.
 	checkedIndex *ast.Index
 
-	funcs   map[string]*ast.Func
 	globals map[*ast.Var]bool // the package-level variables
 
 	// globalState says how far each package-level variable's check has
@@ -70,14 +71,13 @@ type Checker struct {
 	inFields bool
 }
 
-// New returns a Checker for file, which must already have been resolved,
-// and whose spans point into src, its source text.
-func New(file *ast.File, src []byte) *Checker {
+// New returns a Checker for prog, which must already have been resolved,
+// and whose spans point into files.
+func New(prog *ast.Program, files source.Files) *Checker {
 	return &Checker{
-		file:    file,
-		src:     src,
+		prog:    prog,
+		files:   files,
 		table:   types.NewTable(),
-		funcs:   make(map[string]*ast.Func),
 		globals: make(map[*ast.Var]bool),
 
 		globalState: make(map[*ast.Var]progress),
@@ -88,13 +88,17 @@ func New(file *ast.File, src []byte) *Checker {
 	}
 }
 
-// Check reports every badly typed call in the file, in source order. Checking
+// Check reports every badly typed call in the program, in source order. Checking
 // continues past the first problem, so one run reports all of them.
 func (c *Checker) Check() []diag.Diagnostic {
-	if c.file == nil {
-		panic("file is nil")
+	if c.prog == nil {
+		panic("program is nil")
 	}
-	c.file.Types = c.table
+	c.prog.Types = c.table
+	for _, f := range c.prog.Files() {
+		f.Types = c.table
+	}
+	decls := c.prog.Decls()
 
 	// Every struct type exists before anything is checked, so any type can
 	// name any struct. Their fields are resolved next, then the globals,
@@ -105,29 +109,18 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// literal, whose fields are resolved early if it comes first. A
 	// global's initializer is a constant, so it never needs a function.
 	c.declareStructs()
-	for _, decl := range c.file.Decls {
-		if v, ok := decl.(*ast.Var); ok {
-			c.globals[v] = true
-		}
-	}
-	c.checkStructs()
-	for _, decl := range c.file.Decls {
-		if v, ok := decl.(*ast.Var); ok {
-			c.ensureGlobal(v, v.NameSpan)
-		}
-	}
+	c.checkGlobals(decls)
 
 	// Signatures are resolved for every function before any body is checked,
 	// so a call does not depend on its callee appearing first.
-	for _, decl := range c.file.Decls {
+	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
-			c.funcs[fn.Name] = fn
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
 		}
 	}
 
-	for _, decl := range c.file.Decls {
+	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			c.checkBody(fn)
 		}
@@ -136,6 +129,25 @@ func (c *Checker) Check() []diag.Diagnostic {
 	return c.diags
 }
 
+// checkGlobals records which of decls are package-level variables, then
+// resolves every struct's fields, then checks each variable, so that a
+// global's initializer may write a literal of any struct.
+func (c *Checker) checkGlobals(decls []ast.Decl) {
+	for _, decl := range decls {
+		if v, ok := decl.(*ast.Var); ok {
+			c.globals[v] = true
+		}
+	}
+	c.checkStructs()
+	for _, decl := range decls {
+		if v, ok := decl.(*ast.Var); ok {
+			c.ensureGlobal(v, v.NameSpan)
+		}
+	}
+}
+
+// checkBody checks the body of fn, and that it ends in a return if fn
+// declares a result.
 func (c *Checker) checkBody(fn *ast.Func) {
 	c.checkBlock(fn.Body, fn)
 

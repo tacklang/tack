@@ -125,13 +125,14 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 		})
 	}
 
-	pkg, pkgDiags := p.parsePkg()
+	keyword, pkg, pkgDiags := p.parsePkg()
 	if len(pkgDiags) > 0 {
 		return nil, pkgDiags
 	}
 
 	p.file.Package = pkg.Name
-	p.file.Span = pkg.Span
+	p.file.PackageSpan = pkg.Span
+	p.file.Span = keyword
 
 	for p.peek().Kind() != lexer.EOF {
 		dec, decDiags := p.parseDecl()
@@ -146,23 +147,24 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	return p.file, nil
 }
 
-func (p *Parser) parsePkg() (*ast.Ident, []diag.Diagnostic) {
+// parsePkg parses the package clause, and returns the span of its package
+// keyword and its name.
+func (p *Parser) parsePkg() (ast.Span, *ast.Ident, []diag.Diagnostic) {
 	tk := p.next()
 
 	switch {
 	case tk.Kind() == lexer.Keyword && tk.Value() == lexer.Package:
 		pkg, pkgDiags := p.parseIdent("package name")
 		if pkgDiags != nil {
-			return nil, pkgDiags
+			return ast.Span{}, nil, pkgDiags
 		}
-		pkg.Span = p.span(tk)
 
 		if ok, semiDiags := p.expect(lexer.Semi); !ok {
-			return nil, semiDiags
+			return ast.Span{}, nil, semiDiags
 		}
-		return pkg, nil
+		return p.span(tk), pkg, nil
 	default:
-		return nil, []diag.Diagnostic{p.diagInvalidToken("package", tk)}
+		return ast.Span{}, nil, []diag.Diagnostic{p.diagInvalidToken("package", tk)}
 	}
 }
 

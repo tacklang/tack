@@ -27,7 +27,7 @@ func resolve(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return resolver.New(file).Resolve()
+	return resolver.New(ast.SingleFile(file)).Resolve()
 }
 
 func TestResolvesEveryBuiltin(t *testing.T) {
@@ -76,7 +76,7 @@ func resolveFile(t *testing.T, src string) *ast.File {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 

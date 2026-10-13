@@ -26,7 +26,7 @@ func resolveTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
-	return file, resolver.New(file).Resolve()
+	return file, resolver.New(ast.SingleFile(file)).Resolve()
 }
 
 // inMain wraps statements in a main function.

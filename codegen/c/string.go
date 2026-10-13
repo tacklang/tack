@@ -43,7 +43,7 @@ func (g *generator) comparesStrings(compared map[types.Type]bool) bool {
 		}
 	}
 	found := false
-	ast.Walk(g.file, func(n ast.Node) bool {
+	g.walk(func(n ast.Node) bool {
 		if bin, ok := n.(*ast.Binary); ok && bin.Op.IsComparison() &&
 			ast.TypeOf(bin.X) == types.String {
 			found = true

@@ -193,3 +193,36 @@ func TestRenderPrettyKeepsALoneCarriageReturn(t *testing.T) {
 		t.Errorf("RenderPretty = %q, want the line a\\rb", got)
 	}
 }
+
+// TestRenderPrettyAcrossFiles checks a diagnostic and its note are each
+// shown in their own file, and a span in no known file is rendered, not
+// panicked on.
+func TestRenderPrettyAcrossFiles(t *testing.T) {
+	a := newFile("one")
+	a.ID, a.Filename = "a", "a.tck"
+	b := newFile("two")
+	b.ID, b.Filename = "b", "b.tck"
+	d := diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  "bad",
+		Span:     ast.Span{File: "b", Start: 0, End: 3},
+		Related: []diag.Diagnostic{
+			{Severity: diag.Note, Message: "here", Span: ast.Span{File: "a", Start: 0, End: 3}},
+			{Severity: diag.Note, Message: "lost", Span: ast.Span{File: "c", Start: 0, End: 1}},
+		},
+	}
+	got := diag.RenderPretty(source.NewSet(a, b), d)
+	want := "b.tck:1:1: error: bad\n" +
+		"01 |\ttwo\n" +
+		"   |\t^~~\n" +
+		"a.tck:1:1: note: here\n" +
+		"01 |\tone\n" +
+		"   |\t^~~\n" +
+		"<unknown file>: note: lost\n"
+	if got != want {
+		t.Errorf("RenderPretty =\n%s\nwant\n%s", got, want)
+	}
+	if got := diag.Render(source.NewSet(), d); got != "error: <unknown file>: (0) bad" {
+		t.Errorf("Render = %q", got)
+	}
+}

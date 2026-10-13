@@ -18,7 +18,7 @@ import (
 // holds itself, so this order exists. Each type is then emitted in the
 // order the checker met it, unless something it holds came later.
 func (g *generator) emitTypes() {
-	table := g.file.Types
+	table := g.prog.Types
 	defined := make(map[types.Type]bool)
 	for i := range table.Count() {
 		g.emitTypeDef(types.Added(i), defined)
@@ -39,13 +39,13 @@ func (g *generator) emitTypes() {
 // isComposite reports whether typ is an array or a struct type, which
 // lowers to a C struct of its own.
 func (g *generator) isComposite(typ types.Type) bool {
-	return g.file.Types.IsArray(typ) || g.file.Types.IsStruct(typ)
+	return g.prog.Types.IsArray(typ) || g.prog.Types.IsStruct(typ)
 }
 
 // parts returns the types a value of type typ is made of: an array's
 // element type, or a struct's field types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
-	table := g.file.Types
+	table := g.prog.Types
 	if table.IsArray(typ) {
 		return []types.Type{table.Elem(typ)}
 	}
@@ -68,7 +68,7 @@ func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	for _, part := range g.parts(typ) {
 		g.emitTypeDef(part, defined)
 	}
-	if g.file.Types.IsArray(typ) {
+	if g.prog.Types.IsArray(typ) {
 		g.emitArrayDef(typ)
 		return
 	}
@@ -81,7 +81,7 @@ func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 // reads it.
 func (g *generator) emitStructDef(typ types.Type) {
 	g.buf.WriteString("typedef struct {\n")
-	fields := g.file.Types.Fields(typ)
+	fields := g.prog.Types.Fields(typ)
 	if len(fields) == 0 {
 		g.buf.WriteString("    char unused;\n")
 	}
@@ -106,7 +106,7 @@ func (g *generator) comparedTypes() map[types.Type]bool {
 			mark(part)
 		}
 	}
-	ast.Walk(g.file, func(n ast.Node) bool {
+	g.walk(func(n ast.Node) bool {
 		if bin, ok := n.(*ast.Binary); ok && (bin.Op == ast.Eq || bin.Op == ast.Ne) {
 			mark(ast.TypeOf(bin.X))
 		}
@@ -129,7 +129,7 @@ func (g *generator) emitEqualityOf(typ types.Type, emitted map[types.Type]bool) 
 	for _, part := range g.parts(typ) {
 		g.emitEqualityOf(part, emitted)
 	}
-	if g.file.Types.IsArray(typ) {
+	if g.prog.Types.IsArray(typ) {
 		g.emitArrayEquality(typ)
 		return
 	}
@@ -142,7 +142,7 @@ func (g *generator) emitEqualityOf(typ types.Type, emitted map[types.Type]bool) 
 func (g *generator) emitStructEquality(typ types.Type) {
 	name := g.structName(typ)
 	fmt.Fprintf(&g.buf, "static bool %s(%s a, %s b) {\n", equalityName(typ), name, name)
-	fields := g.file.Types.Fields(typ)
+	fields := g.prog.Types.Fields(typ)
 	if len(fields) == 0 {
 		g.buf.WriteString("    (void)a;\n    (void)b;\n    return true;\n}\n\n")
 		return
@@ -173,7 +173,7 @@ func (g *generator) equalExpr(typ types.Type, l, r string) string {
 // namespace with functions and package-level variables, so the name is
 // never another declaration's.
 func (g *generator) structName(typ types.Type) string {
-	return g.mangle(g.file.Types.Name(typ))
+	return g.mangle(g.prog.Types.Name(typ))
 }
 
 // fieldName keeps a field's C member clear of C's keywords, for the same
@@ -257,13 +257,13 @@ func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 		return "{0}", true
 	}
 	parts, layout := g.parts(typ), "{%s}"
-	if g.file.Types.IsArray(typ) {
+	if g.prog.Types.IsArray(typ) {
 		layout = "{{%s}}"
 	}
 	out := make([]string, len(values))
 	for i, v := range values {
 		part := parts[0]
-		if !g.file.Types.IsArray(typ) {
+		if !g.prog.Types.IsArray(typ) {
 			if i >= len(parts) {
 				return "", false
 			}

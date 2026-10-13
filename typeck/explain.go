@@ -546,10 +546,11 @@ func lengthProof(s *ast.Ident, proven func() bool) proof {
 
 // text returns the source span covers, which notes quote.
 func (c *Checker) text(span ast.Span) string {
-	if span.Start < 0 || span.End > len(c.src) || span.Start > span.End {
+	f := c.files.Lookup(span.File)
+	if f == nil || span.Start < 0 || span.End > len(f.Data) || span.Start > span.End {
 		panic("typeck: a span outside the source given to New")
 	}
-	return string(c.src[span.Start:span.End])
+	return string(f.Data[span.Start:span.End])
 }
 
 // mutableGlobal returns the declaration of the variable e names when it is

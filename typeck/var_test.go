@@ -28,10 +28,10 @@ func checkTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
-	return file, typeck.New(file, f.Data).Check()
+	return file, typeck.New(ast.SingleFile(file), f).Check()
 }
 
 // mainLines wraps statements, one per line, in a main function.

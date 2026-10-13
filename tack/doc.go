@@ -1,7 +1,8 @@
 // Command tack is the Tack compiler driver.
 //
-// It reads one source file, runs it through the pipeline (lexer, parser,
-// resolver, type checker, code generation backend), writes the generated
+// It reads the program its target names, runs it through the pipeline
+// (loader, which lexes and parses, resolver, type checker, code generation
+// backend), writes the generated
 // source to a temporary file, and runs the backend's toolchain on it (clang,
 // for the c backend) to produce a native binary at the path given by --out.
 // The first stage that reports diagnostics ends the run; later stages never
@@ -9,11 +10,20 @@
 //
 // Usage:
 //
-//	tack --out <path> [flags] <file>
-//	tack (--lex | --ast | --res | --emit) [flags] <file>
+//	tack --out <path> [flags] <target>
+//	tack (--lex | --ast | --res | --emit) [flags] <target>
 //	tack --backends
 //
-// Flags must come before the file; "--" ends the flags, for a file name that
+// The target is a file or a directory. A file is compiled alone. A
+// directory is compiled as the one package its .tck files make (see
+// package loader); a directory with no .tck files is an error. For a
+// directory, --lex prints each file's tokens after a line naming it,
+// -- <file> --, --ast prints the list of the files' trees, and --res the
+// whole program; for a file, both print that file's tree, as before
+// directories were targets. Every file of a directory is lexed, and every
+// file parsed, before the run stops, so a problem in each is reported.
+//
+// Flags must come before the target; "--" ends the flags, for a file name that
 // starts with a dash. Each flag can be spelled with one dash or two.
 //
 //	--lex             print the token stream and stop

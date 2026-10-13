@@ -1,0 +1,290 @@
+Invalid example programs of several files, one case per program, in byte
+order of name.
+
+A case named n is its files, each a txtar file n/<path>, followed by
+n/expected, the compiler's output for it, with each file's path printed as
+n/<path>. The case is built from the directory n, or from the directory an
+optional n/.target file names, relative to n. Every file must end with a
+newline; a program whose last line has none belongs in invalid.txtar.
+internal/invalid documents the format; go test ./test -run
+TestInvalidPackages checks every case, and -update rewrites the expected
+sections.
+
+-- dup-func-across-files/a.tck --
+package main
+
+func helper() {
+}
+
+func main() {
+    helper()
+}
+-- dup-func-across-files/b.tck --
+package main
+
+func helper() {
+}
+-- dup-func-across-files/expected --
+stage: resolve
+---
+
+dup-func-across-files/b.tck:3:6: error: helper is already declared
+02 |	
+03 |	func helper() {
+   |	     ^~~~~~
+04 |	}
+dup-func-across-files/a.tck:3:6: note: previous declaration of helper
+02 |	
+03 |	func helper() {
+   |	     ^~~~~~
+04 |	}
+
+-- dup-global-across-files/a.tck --
+package main
+
+var limit int64 = 1
+
+func main() {
+    exit(limit)
+}
+-- dup-global-across-files/b.tck --
+package main
+
+type limit struct {
+    n int64
+}
+-- dup-global-across-files/expected --
+stage: resolve
+---
+
+dup-global-across-files/a.tck:3:5: error: limit is already declared
+02 |	
+03 |	var limit int64 = 1
+   |	    ^~~~~
+04 |	
+dup-global-across-files/b.tck:3:6: note: previous declaration of limit
+02 |	
+03 |	type limit struct {
+   |	     ^~~~~
+04 |	    n int64
+
+-- dup-param-across-files/a.tck --
+package main
+
+var size int64 = 1
+
+func main() {
+    exit(grow(size))
+}
+-- dup-param-across-files/b.tck --
+package main
+
+func grow(size int64) int64 {
+    return size + 1
+}
+-- dup-param-across-files/expected --
+stage: resolve
+---
+
+dup-param-across-files/b.tck:3:11: error: size is already declared
+02 |	
+03 |	func grow(size int64) int64 {
+   |	          ^~~~
+04 |	    return size + 1
+dup-param-across-files/a.tck:3:5: note: previous declaration of size
+02 |	
+03 |	var size int64 = 1
+   |	    ^~~~
+04 |	
+
+-- hidden-only/.main.tck --
+package main
+
+func main() {
+}
+-- hidden-only/expected --
+stage: load
+---
+no .tck files in hidden-only
+-- lex-errors-in-two-files/a.tck --
+package main
+
+func main() {
+    @
+}
+-- lex-errors-in-two-files/b.tck --
+package main
+
+func f() {
+    print("unterminated)
+}
+-- lex-errors-in-two-files/expected --
+stage: lex
+---
+
+lex-errors-in-two-files/a.tck:4:5: error: invalid character @
+03 |	func main() {
+04 |	    @
+   |	    ^
+05 |	}
+
+lex-errors-in-two-files/b.tck:4:11: error: unterminated string
+03 |	func f() {
+04 |	    print("unterminated)
+   |	          ^~~~~~~~~~~~~~
+05 |	}
+
+-- main-missing-across-files/a.tck --
+package main
+
+func a() {
+}
+-- main-missing-across-files/b.tck --
+package main
+
+func b() {
+}
+-- main-missing-across-files/expected --
+stage: resolve
+---
+
+main-missing-across-files/a.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
+
+-- no-tck-files/notes.txt --
+Not a Tack file.
+-- no-tck-files/expected --
+stage: load
+---
+no .tck files in no-tck-files
+-- not-main-package/a.tck --
+package tools
+
+func main() {
+}
+-- not-main-package/b.tck --
+package tools
+-- not-main-package/expected --
+stage: resolve
+---
+
+not-main-package/a.tck:1:1: error: main package not found
+01 |	package tools
+   |	^
+02 |	
+
+-- parse-errors-in-two-files/a.tck --
+package main
+
+func main() {
+    x :=
+}
+-- parse-errors-in-two-files/b.tck --
+package main
+
+func f( {
+}
+-- parse-errors-in-two-files/expected --
+stage: parse
+---
+
+parse-errors-in-two-files/a.tck:5:1: error: expected 'value' found '}'
+04 |	    x :=
+05 |	}
+   |	^
+06 |	
+
+parse-errors-in-two-files/b.tck:3:9: error: expected 'parameter name' found '{'
+02 |	
+03 |	func f( {
+   |	        ^
+04 |	}
+
+-- tck-directory-is-skipped/main.tck --
+package main
+
+func main() {
+    helper()
+}
+-- tck-directory-is-skipped/sub.tck/helper.tck --
+package main
+
+func helper() {
+}
+-- tck-directory-is-skipped/expected --
+stage: resolve
+---
+
+tck-directory-is-skipped/main.tck:4:5: error: undefined: helper
+03 |	func main() {
+04 |	    helper()
+   |	    ^~~~~~
+05 |	}
+
+-- three-packages/a.tck --
+package main
+
+func main() {
+}
+-- three-packages/b.tck --
+package lexer
+-- three-packages/c.tck --
+package parser
+-- three-packages/expected --
+stage: load
+---
+
+three-packages/a.tck:1:9: error: directory three-packages holds 3 packages, lexer, main and parser
+01 |	package main
+   |	        ^~~~
+02 |	
+three-packages/b.tck:1:9: note: package lexer is declared here
+01 |	package lexer
+   |	        ^~~~~
+02 |	
+three-packages/c.tck:1:9: note: package parser is declared here
+01 |	package parser
+   |	        ^~~~~~
+02 |	
+
+-- two-packages/a.tck --
+package main
+
+func main() {
+}
+-- two-packages/b.tck --
+package other
+-- two-packages/expected --
+stage: load
+---
+
+two-packages/b.tck:1:9: error: directory two-packages holds two packages, main and other
+01 |	package other
+   |	        ^~~~~
+02 |	
+two-packages/a.tck:1:9: note: package main is declared here
+01 |	package main
+   |	        ^~~~
+02 |	
+
+-- unused-global-in-other-file/a.tck --
+package main
+
+func main() {
+}
+-- unused-global-in-other-file/b.tck --
+package main
+
+var spare int64 = 3
+-- unused-global-in-other-file/expected --
+stage: resolve
+---
+
+unused-global-in-other-file/b.tck:3:5: error: declared and not used: spare
+02 |	
+03 |	var spare int64 = 3
+   |	    ^~~~~
+04 |	
+

@@ -16,7 +16,7 @@ import (
 // defines it. An array of no elements still holds one, since C has no
 // empty array, and is never indexed.
 func (g *generator) emitArrayDef(typ types.Type) {
-	table := g.file.Types
+	table := g.prog.Types
 	n := table.Len(typ)
 	if n == 0 {
 		n = 1
@@ -33,7 +33,7 @@ func (g *generator) emitArrayDef(typ types.Type) {
 // emitArrayEquality writes tack_eq_ for an array type, which compares two
 // arrays element by element.
 func (g *generator) emitArrayEquality(typ types.Type) {
-	table := g.file.Types
+	table := g.prog.Types
 	name := arrayName(typ)
 	differ := "a.e[i] != b.e[i]"
 	if elem := table.Elem(typ); g.isComposite(elem) || elem == types.String {
@@ -55,7 +55,7 @@ func equalityName(typ types.Type) string {
 // struct, its elements in order inside the struct's array, and a struct
 // literal as structLit does.
 func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnostic) {
-	if g.file.Types.IsStruct(lit.Type) {
+	if g.prog.Types.IsStruct(lit.Type) {
 		return g.structLit(lit)
 	}
 	if len(lit.Elems) == 0 {
@@ -120,8 +120,8 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
-	if typ := ast.TypeOf(arg); g.file.Types.IsArray(typ) {
-		return fmt.Sprintf("((void)%s, (int64_t)%d)", v, g.file.Types.Len(typ)), nil
+	if typ := ast.TypeOf(arg); g.prog.Types.IsArray(typ) {
+		return fmt.Sprintf("((void)%s, (int64_t)%d)", v, g.prog.Types.Len(typ)), nil
 	}
 	return fmt.Sprintf("(%s).len", v), nil
 }
@@ -185,7 +185,7 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 // uint64, which keeps the length's value, since a length is never negative.
 func (g *generator) indexIn(xType, indexType types.Type, x, at string) (in, read string) {
 	if xType != types.String {
-		n := g.file.Types.Len(xType)
+		n := g.prog.Types.Len(xType)
 		in = withinExpr(indexType, at, constant.Int{}, constant.FromInt64(n-1))
 		return in, fmt.Sprintf("%s.e[%s]", x, at)
 	}

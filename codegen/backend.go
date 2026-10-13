@@ -16,9 +16,10 @@ type Backend interface {
 	// Ext is the file extension of the generated output, including the dot.
 	Ext() string
 
-	// Generate turns a resolved file into target source. A non-empty
-	// diagnostic slice means generation failed and the bytes are unusable.
-	Generate(file *ast.File) ([]byte, []diag.Diagnostic)
+	// Generate turns a type-checked program into target source. A
+	// non-empty diagnostic slice means generation failed and the bytes are
+	// unusable.
+	Generate(prog *ast.Program) ([]byte, []diag.Diagnostic)
 
 	// BuildCmd is the command that turns generated output at src into an
 	// executable at out. The first element is the program, the rest its

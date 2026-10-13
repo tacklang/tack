@@ -199,7 +199,7 @@ func (l *Lexer) diag(msg string, start, end int) {
 	l.diags = append(l.diags, diag.Diagnostic{
 		Severity: diag.Error,
 		Message:  msg,
-		Span:     ast.Span{Start: start, End: end},
+		Span:     ast.Span{File: l.file.ID, Start: start, End: end},
 	})
 }
 

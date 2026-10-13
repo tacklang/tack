@@ -21,11 +21,11 @@ const (
 	checked
 )
 
-// declareStructs gives every type declaration in the file its struct type,
+// declareStructs gives every type declaration in the program its struct type,
 // with no fields yet, so that any type, a field's type included, can name
 // any struct whatever the order of declarations.
 func (c *Checker) declareStructs() {
-	for _, decl := range c.file.Decls {
+	for _, decl := range c.prog.Decls() {
 		if td, ok := decl.(*ast.TypeDecl); ok {
 			td.Type = c.table.Struct(td.Name)
 			c.structs[td.Type] = td
@@ -302,10 +302,11 @@ func (c *Checker) foldStruct(lit *ast.CompositeLit) (any, bool) {
 
 // ensureGlobal checks the package-level variable v, unless it has been
 // already. Globals are checked in order, and nothing checked before them
-// names one: a struct's field lengths name no variable, and a global's
-// type may name only a global declared before it. Checking on first need
-// keeps that order from being assumed; needing v while it is being
-// checked, at, means it depends on itself, which is reported.
+// names one, since a struct's field lengths name no variable, but a
+// global's type may name any global of its package, declared before or
+// after it. Checking on first need keeps the order of declarations from
+// mattering; needing v while it is being checked, at, means it depends on
+// itself, which is reported.
 func (c *Checker) ensureGlobal(v *ast.Var, at ast.Span) {
 	switch c.globalState[v] {
 	case checked:

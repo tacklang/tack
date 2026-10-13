@@ -9,9 +9,24 @@ import (
 	"github.com/tacklang/tack/source"
 )
 
+// unknownFile is what a diagnostic whose span points into no file given to
+// the renderer shows in place of the file's name. That is a compiler bug,
+// but it is rendered rather than panicked on.
+const unknownFile = "<unknown file>"
+
 // Render formats a diagnostic as a single line: severity, file:line:col, the
-// byte offset, and the message.
-func Render(f *source.File, d Diagnostic) string {
+// byte offset, and the message. files finds the file d's span points into.
+func Render(files source.Files, d Diagnostic) string {
+	f := files.Lookup(d.Span.File)
+	if f == nil {
+		return fmt.Sprintf(
+			"%s: %s: (%d) %s",
+			d.Severity.String(),
+			unknownFile,
+			d.Span.Start,
+			d.Message,
+		)
+	}
 	line, col := f.Position(d.Span.Start)
 	return fmt.Sprintf(
 		"%s: %s:%d:%d: (%d) %s",
@@ -25,28 +40,29 @@ func Render(f *source.File, d Diagnostic) string {
 }
 
 // RenderPretty formats a diagnostic and its related notes for a person, each
-// followed by the surrounding source lines with the span underlined.
-func RenderPretty(f *source.File, d Diagnostic) string {
-	line, col := f.Position(d.Span.Start)
+// followed by the surrounding source lines with the span underlined. files
+// finds the file each span points into, so a note may be in a different
+// file from its diagnostic.
+func RenderPretty(files source.Files, d Diagnostic) string {
 	var str strings.Builder
-	fmt.Fprintf(&str, "%s:%d:%d: %s: %s\n", f.Filename, line, col, d.Severity.String(), d.Message)
-	renderCtx(f, &str, line, col, &d, 1)
-
-	for _, r := range d.Related {
-		line, col := f.Position(r.Span.Start)
-		fmt.Fprintf(
-			&str,
-			"%s:%d:%d: %s: %s\n",
-			f.Filename,
-			line,
-			col,
-			r.Severity.String(),
-			r.Message,
-		)
-		renderCtx(f, &str, line, col, &r, 1)
+	renderOne(files, &str, &d)
+	for i := range d.Related {
+		renderOne(files, &str, &d.Related[i])
 	}
-
 	return str.String()
+}
+
+// renderOne writes d's header line and its source context, without its
+// related notes. A span in no known file gets the header alone.
+func renderOne(files source.Files, str *strings.Builder, d *Diagnostic) {
+	f := files.Lookup(d.Span.File)
+	if f == nil {
+		fmt.Fprintf(str, "%s: %s: %s\n", unknownFile, d.Severity.String(), d.Message)
+		return
+	}
+	line, col := f.Position(d.Span.Start)
+	fmt.Fprintf(str, "%s:%d:%d: %s: %s\n", f.Filename, line, col, d.Severity.String(), d.Message)
+	renderCtx(f, str, line, col, d, 1)
 }
 
 // renderCtx writes the n lines either side of line, and under line itself a
@@ -93,10 +109,10 @@ func renderTokenMarker(str *strings.Builder, col int, span *ast.Span) {
 }
 
 // RenderAll renders each diagnostic with Render, one per line.
-func RenderAll(f *source.File, diags []Diagnostic) string {
+func RenderAll(files source.Files, diags []Diagnostic) string {
 	var str strings.Builder
 	for _, d := range diags {
-		str.WriteString(Render(f, d))
+		str.WriteString(Render(files, d))
 		str.WriteString("\n")
 	}
 	return str.String()
@@ -104,11 +120,11 @@ func RenderAll(f *source.File, diags []Diagnostic) string {
 
 // RenderAllPretty renders each diagnostic with RenderPretty, separated by
 // blank lines.
-func RenderAllPretty(f *source.File, diags []Diagnostic) string {
+func RenderAllPretty(files source.Files, diags []Diagnostic) string {
 	var str strings.Builder
 	str.WriteString("\n")
 	for _, d := range diags {
-		str.WriteString(RenderPretty(f, d))
+		str.WriteString(RenderPretty(files, d))
 		str.WriteString("\n")
 	}
 	return str.String()

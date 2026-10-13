@@ -1,7 +1,12 @@
 // Package typeck checks that every expression is used at the type it has.
 //
 // It runs after the resolver and before code generation, taking a resolved
-// *ast.File and returning the diagnostics it found. Running after the resolver
+// *ast.Program and returning the diagnostics it found. It checks every
+// package of the program together, in one Checker, so the passes below
+// run over every package-level declaration of every file, in program
+// order, and the program has one types.Table, recorded on the Program and
+// on every file. The source text notes quote is found through a
+// source.Files, by the file a span points into. Running after the resolver
 // means every name it sees is known to be defined. Running before code
 // generation means a backend never has to decide what a badly typed program
 // should emit.
@@ -17,7 +22,9 @@
 // function's signature, recording the type each declared parameter and
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
 // the last checks each body. Resolving every signature first is what lets
-// a call check against a callee declared later in the file. A type name it
+// a call check against a callee declared later in the file, or in a file
+// after it. A call is checked against the function its callee is bound to,
+// Ident.Def, not one looked up by name. A type name it
 // does not know is reported, and the declaration keeps types.Invalid.
 // Anything that has no type only because of an error already reported,
 // such as a use of that parameter, is not reported again.
@@ -32,8 +39,9 @@
 // that writes a literal of its own struct needs them while they are being
 // resolved, which is reported as an invalid recursive type. A global is
 // checked on first need too, and one needed while it is being checked is
-// reported as an initialization cycle, though no program reaches that
-// today: a global's type names only globals declared before it.
+// reported as an initialization cycle: a global's type may name any global
+// of its package, declared before or after it, in its file or another, so
+// var a [len(a)]int64 needs a while checking it.
 //
 // Package-level variables are checked before any body, so their types
 // are known in every function. A global's initializer must be a constant

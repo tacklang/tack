@@ -13,16 +13,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"uuid"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen"
 	_ "github.com/tacklang/tack/codegen/c" // backends register from init; importing plugs one in
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/lexer"
-	"github.com/tacklang/tack/parser"
+	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
-	"github.com/tacklang/tack/source"
 	"github.com/tacklang/tack/typeck"
 )
 
@@ -280,8 +278,8 @@ func quoteAll(ss []string) []string {
 // printUsage writes the help text, listing every flag in fs, to w.
 func printUsage(fs *flag.FlagSet, w io.Writer) {
 	var b strings.Builder
-	b.WriteString("usage: tack --out <path> [flags] <file>\n")
-	b.WriteString("       tack (--lex | --ast | --res | --emit) [flags] <file>\n")
+	b.WriteString("usage: tack --out <path> [flags] <file or directory>\n")
+	b.WriteString("       tack (--lex | --ast | --res | --emit) [flags] <file or directory>\n")
 	b.WriteString("       tack --backends\n\nFlags:\n")
 	fs.VisitAll(func(f *flag.Flag) {
 		arg, usage := flag.UnquoteUsage(f)
@@ -317,12 +315,12 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 		}
 	}
 
-	srcFile, err := readSource(opts.file)
+	res, single, err := load(opts.file, opts.dump)
 	if err != nil {
 		return err
 	}
 
-	out, err := compile(srcFile, backend, opts.dump, opts.maxDiags)
+	out, err := compile(res, single, backend, opts.dump, opts.maxDiags)
 	if err != nil {
 		return err
 	}
@@ -333,18 +331,25 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 	return build(ctx, backend, out, opts.outBin, stdout, stderr)
 }
 
-// readSource reads the named file into a source.File.
-func readSource(fname string) (*source.File, error) {
-	// Reading the file the user named is the point of a compiler.
-	content, err := os.ReadFile(fname) //nolint:gosec // G304: path comes from the user by design
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+// load reads the program target names: the package in it if it is a
+// directory, otherwise the one file it names. A dump of the tokens or the
+// syntax trees stops loading there, having read only the target's own
+// files. It also reports whether the target is a single file.
+func load(target string, d dump) (*loader.Result, bool, error) {
+	l := &loader.Loader{FS: loader.OS{}}
+	switch d {
+	case dumpLex:
+		l.Stop = loader.StageLex
+	case dumpAST:
+		l.Stop = loader.StageParse
 	}
-	return &source.File{
-		ID:       source.FileID(uuid.New().String()),
-		Filename: fname,
-		Data:     content,
-	}, nil
+	name := filepath.ToSlash(target)
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		res, err := l.Dir(name)
+		return res, false, err //nolint:wrapcheck // the loader's errors are the driver's
+	}
+	res, err := l.File(name)
+	return res, true, err //nolint:wrapcheck // the loader's errors are the driver's
 }
 
 // checkOutPath fails early, before any compiling, when the binary could not
@@ -372,77 +377,102 @@ func checkOutPath(outBin, input string) error {
 	return nil
 }
 
-// compile runs the pipeline from lexing up to the stage d names, or through
-// code generation when d is dumpNone, and returns what that stage produced:
-// the formatted dump for a dump, the generated source otherwise. The first
-// stage to report diagnostics ends the run with a *diagnosticsError holding
-// at most maxDiags of them when maxDiags is positive.
-func compile(srcFile *source.File, backend codegen.Backend, d dump, maxDiags int) ([]byte, error) {
+// compile runs the pipeline on a loaded program up to the stage d names,
+// or through code generation when d is dumpNone, and returns what that
+// stage produced: the formatted dump for a dump, the generated source
+// otherwise. single says the program is a single file, whose trees are
+// dumped as that file rather than as a list or a program. The first stage
+// to report diagnostics, loading included, ends the run with a
+// *diagnosticsError holding at most maxDiags of them when maxDiags is
+// positive.
+func compile(
+	res *loader.Result,
+	single bool,
+	backend codegen.Backend,
+	d dump,
+	maxDiags int,
+) ([]byte, error) {
 	fail := func(diags []diag.Diagnostic) error {
 		if maxDiags > 0 && len(diags) > maxDiags {
 			diags = diags[:maxDiags]
 		}
-		return &diagnosticsError{rendered: diag.RenderAllPretty(srcFile, diags)}
+		return &diagnosticsError{rendered: diag.RenderAllPretty(res.Files, diags)}
 	}
 
-	lex := lexer.New(srcFile)
-	if diags := lex.Lex(); len(diags) > 0 {
+	if len(res.Diags) > 0 {
+		return nil, fail(res.Diags)
+	}
+	if d == dumpLex || d == dumpAST {
+		return loadedDump(res, single, d)
+	}
+
+	prog := res.Program
+	if diags := resolver.New(prog).Resolve(); len(diags) > 0 {
 		return nil, fail(diags)
 	}
-	if d == dumpLex {
-		return []byte(formatTokens(lex.Tokens())), nil
+	if d == dumpRes {
+		return resolvedDump(prog, single)
 	}
 
-	file, err := parseAndResolve(srcFile.ID, lex.Tokens(), d, fail)
-	if err != nil {
-		return nil, err
-	}
-	if d == dumpAST || d == dumpRes {
-		return marshalTree(file)
-	}
-
-	if diags := typeck.New(file, srcFile.Data).Check(); len(diags) > 0 {
+	if diags := typeck.New(prog, res.Files).Check(); len(diags) > 0 {
 		return nil, fail(diags)
 	}
-	out, genDiags := backend.Generate(file)
+	out, genDiags := backend.Generate(prog)
 	if len(genDiags) > 0 {
 		return nil, fail(genDiags)
 	}
 	return out, nil
 }
 
-// parseAndResolve parses tokens into a syntax tree and, unless d is dumpAST,
-// resolves it. Diagnostics from either stage are turned into the returned
-// error by fail.
-func parseAndResolve(
-	id source.FileID,
-	tokens []lexer.Token,
-	d dump,
-	fail func([]diag.Diagnostic) error,
-) (*ast.File, error) {
-	file, diags := parser.NewParser(id, tokens).Parse()
-	if len(diags) > 0 {
-		return nil, fail(diags)
+// loadedDump returns the dump d, --lex or --ast, of what res, loaded to
+// that stage, holds: a single file's tokens or tree as they are, several
+// files' tokens each under a header, and several files' trees as a list.
+func loadedDump(res *loader.Result, single bool, d dump) ([]byte, error) {
+	switch {
+	case d == dumpLex:
+		return []byte(formatFileTokens(res, single)), nil
+	case single:
+		return marshalTree(res.Trees[0])
+	default:
+		return marshalTree(res.Trees)
 	}
-	if d == dumpAST {
-		return file, nil
-	}
-	if diags := resolver.New(file).Resolve(); len(diags) > 0 {
-		return nil, fail(diags)
-	}
-	return file, nil
 }
 
-// marshalTree renders file as indented JSON, the same rendering as
-// ast.File.String. It marshals directly rather than calling String so that
-// a marshaling failure is an error, reported as such, rather than text
-// printed as if it were the dump.
-func marshalTree(file *ast.File) ([]byte, error) {
-	js, err := json.MarshalIndent(file, "", "  ")
+// resolvedDump returns the --res dump of prog: its one file's tree when it
+// is a single file, the whole program otherwise.
+func resolvedDump(prog *ast.Program, single bool) ([]byte, error) {
+	if single {
+		return marshalTree(prog.Packages[0].Files[0])
+	}
+	return marshalTree(prog)
+}
+
+// marshalTree renders v, a syntax tree or several, as indented JSON, the
+// same rendering as ast.File.String. It marshals directly rather than
+// calling String so that a marshaling failure is an error, reported as
+// such, rather than text printed as if it were the dump.
+func marshalTree(v any) ([]byte, error) {
+	js, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to render syntax tree: %w", err)
 	}
 	return js, nil
+}
+
+// formatFileTokens renders the tokens of every file res holds: a single
+// file's alone, as formatTokens does, and each of several after a header
+// line naming its file, -- name --.
+func formatFileTokens(res *loader.Result, single bool) string {
+	files := res.Files.Files()
+	if single {
+		return formatTokens(res.Tokens[0])
+	}
+	var b strings.Builder
+	for i, f := range files {
+		fmt.Fprintf(&b, "-- %s --\n", f.Filename)
+		b.WriteString(formatTokens(res.Tokens[i]))
+	}
+	return b.String()
 }
 
 // formatTokens renders tokens one per line, with every offset zero-padded to

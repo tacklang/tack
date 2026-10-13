@@ -123,12 +123,13 @@ func checkCommentActsAsNewline(t *testing.T, src string, at int) {
 	}
 }
 
-// examples returns the source of every example program, valid and invalid,
-// keyed by its path for a valid one and by invalid/<case> for an invalid
-// one.
+// examples returns the source of every example file, valid and invalid,
+// keyed by its path for a valid one, by invalid/<case> for an invalid one,
+// and by invalid/<case>/<path> for each Tack file of an invalid case of
+// several files.
 func examples(t testing.TB) map[string]string {
 	t.Helper()
-	paths, _ := filepath.Glob("../examples/*/main.tck")
+	paths, _ := filepath.Glob("../examples/*/*.tck")
 	srcs := make(map[string]string)
 	for _, path := range paths {
 		src, err := os.ReadFile(path)
@@ -143,6 +144,17 @@ func examples(t testing.TB) map[string]string {
 	}
 	for _, c := range cases {
 		srcs["invalid/"+c.Name] = string(c.Source)
+	}
+	trees, err := invalid.LoadTree(invalid.TreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range trees {
+		for _, f := range c.Files {
+			if filepath.Ext(f.Path) == ".tck" {
+				srcs["invalid/"+c.Name+"/"+f.Path] = string(f.Data)
+			}
+		}
 	}
 	return srcs
 }

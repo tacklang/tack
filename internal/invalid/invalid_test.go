@@ -1,6 +1,7 @@
 package invalid_test
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -228,4 +229,120 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("reparse differs: %v", err)
 		}
 	})
+}
+
+// TestTreeRoundTrip checks FormatTree and ParseTree are inverses on cases
+// with several files, nested paths, and a target.
+func TestTreeRoundTrip(t *testing.T) {
+	cases := []invalid.TreeCase{
+		{
+			Name: "a",
+			Files: []invalid.TreeFile{
+				{Path: "tack.mod", Data: []byte("module a\n")},
+				{Path: "cmd/x/main.tck", Data: []byte("package main\n")},
+				{Path: ".target", Data: []byte("cmd/x\n")},
+				{Path: "empty.tck", Data: nil},
+			},
+			Expected: []byte("stage: load\n"),
+		},
+		{
+			Name:     "b",
+			Files:    []invalid.TreeFile{{Path: "x.tck", Data: []byte("x\n")}},
+			Expected: []byte("e\n"),
+		},
+	}
+	data, err := invalid.FormatTree([]byte("comment\n"), cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, got, err := invalid.ParseTree(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(comment) != "comment\n" || len(got) != 2 {
+		t.Fatalf("got comment %q and %d cases", comment, len(got))
+	}
+	if got[0].Target() != "a/cmd/x" || got[1].Target() != "b" {
+		t.Errorf("targets = %q, %q", got[0].Target(), got[1].Target())
+	}
+	again, err := invalid.FormatTree(comment, got)
+	if err != nil || string(again) != string(data) {
+		t.Errorf("round trip changed the archive (%v):\n%s\nwant\n%s", err, again, data)
+	}
+}
+
+// TestParseTreeRejects checks every malformed structure of a tree archive
+// is an error naming it.
+func TestParseTreeRejects(t *testing.T) {
+	for _, tt := range []struct{ name, data, want string }{
+		{"no newline at end", "-- a/x --\nx", "newline"},
+		{"no slash", "-- a --\nx\n", "want a header"},
+		{"no expected", "-- a/x.tck --\nx\n", "ends without"},
+		{"other case before expected", "-- a/x.tck --\n-- b/expected --\ne\n", "ends without"},
+		{"expected alone", "-- a/expected --\ne\n", "has no files"},
+		{"empty expected", "-- a/x.tck --\n-- a/expected --\n", "empty expected"},
+		{"repeated file", "-- a/x.tck --\n-- a/x.tck --\n-- a/expected --\ne\n", "repeated"},
+		{"unclean path", "-- a/./x.tck --\n-- a/expected --\ne\n", "bad or repeated"},
+		{"parent path", "-- a/../x.tck --\n-- a/expected --\ne\n", "bad or repeated"},
+		{
+			"out of order",
+			"-- b/x --\n-- b/expected --\ne\n-- a/x --\n-- a/expected --\ne\n",
+			"strictly increasing",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := invalid.ParseTree([]byte(tt.data))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("ParseTree = %v, want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestFormatTreeRejects checks FormatTree refuses what the format cannot
+// hold.
+func TestFormatTreeRejects(t *testing.T) {
+	good := invalid.TreeCase{
+		Name: "a", Files: []invalid.TreeFile{{Path: "x.tck", Data: []byte("x\n")}},
+		Expected: []byte("e\n"),
+	}
+	for _, tt := range []struct {
+		name string
+		edit func(*invalid.TreeCase)
+		want string
+	}{
+		{"unterminated file", func(c *invalid.TreeCase) { c.Files[0].Data = []byte("x") }, "newline"},
+		{"header in file", func(c *invalid.TreeCase) { c.Files[0].Data = []byte("-- x --\n") }, "header"},
+		{"no files", func(c *invalid.TreeCase) { c.Files = nil }, "no files"},
+		{"bad path", func(c *invalid.TreeCase) { c.Files[0].Path = "/x" }, "bad or repeated"},
+		{"expected path", func(c *invalid.TreeCase) { c.Files[0].Path = "expected" }, "bad or repeated"},
+		{"empty expected", func(c *invalid.TreeCase) { c.Expected = nil }, "expected output"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := good
+			c.Files = append([]invalid.TreeFile(nil), good.Files...)
+			tt.edit(&c)
+			if _, err := invalid.FormatTree(nil, []invalid.TreeCase{c}); err == nil ||
+				!strings.Contains(err.Error(), tt.want) {
+				t.Errorf("FormatTree = %v, want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestLoadTreeArchive checks the real archive of tree cases parses and
+// formats back to itself.
+func TestLoadTreeArchive(t *testing.T) {
+	data, err := os.ReadFile("../../examples/invalid-packages.txtar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, cases, err := invalid.ParseTree(data)
+	if err != nil || len(cases) == 0 {
+		t.Fatalf("ParseTree: %d cases, %v", len(cases), err)
+	}
+	out, err := invalid.FormatTree(comment, cases)
+	if err != nil || string(out) != string(data) {
+		t.Errorf("the archive does not format back to itself: %v", err)
+	}
 }
