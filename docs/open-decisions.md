@@ -53,27 +53,17 @@ implementation deferred:
 
 ## Structs
 
-Structs follow the decisions recorded in the README. These points were
-settled by the implementation rather than decided, and each could go
-another way:
+Structs follow the decisions recorded in the README. One point was
+settled by the implementation rather than decided, and could go another
+way:
 
-- A struct literal in the header of an `if`, a `for` or a range loop must
-  be in parentheses, as in Go, since `if p == Point{x: 1} {` would
-  otherwise be ambiguous. `if p == Point{x: 1} {` is reported as needing
-  parentheses when the body would start with a name and a colon; other
-  forms, such as `if e == Empty{} {`, give a plain syntax error.
-- Inside an array literal, a struct literal may leave out its type,
-  `[2]Point{{x: 1, y: 2}, {x: 3, y: 4}}`, extending the rule that let an
-  inner array literal do so. A field's value may not.
-- `struct {}` is allowed, as in Go: its values are all equal, and the C
-  backend gives it one unused member, since C has no empty struct.
 - A struct holding itself through an array of length 0 is rejected like
   any other cycle, as in Go.
-- `_` cannot name a field, following the rule that `_` is not a name;
-  Go allows blank fields, as padding.
-- A field never carries a fact for proving a divisor non-zero or an index
-  in range, so a guard on `p.x` proves nothing; whether a field of an
-  immutable variable should is open.
+
+Decided, not yet implemented: a field of an immutable variable is to
+carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
+`p` is immutable. It is to be implemented with pointers. Today a field
+never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
 
 ## Packages and imports
 

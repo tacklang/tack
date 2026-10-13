@@ -334,7 +334,7 @@ which is true today because `main` is the only package there is.
   statements, never values, and there is no prefix form.
 - Structs. `type Point struct { x int64; y int64 }` declares a struct type,
   at package level only, with its fields one per line or separated by `;`;
-  `struct {}` has none. A type can be used anywhere in the file, before its
+  `struct {}` has none, and is allowed, as in Go. A type can be used anywhere in the file, before its
   declaration included, and its name shares one namespace with functions,
   package-level variables and builtins, so it cannot be declared again as
   any of them, nor as a local or a parameter; it cannot be used as a value,
@@ -367,7 +367,10 @@ which is true today because `main` is the only package there is.
   leave out its type. In the header of an `if`, a `for`, a range loop or a
   `switch`, a struct literal must be in parentheses, `if p == (Point{x: 1, y: 2})`, as
   in Go, since the brace would otherwise open the body; inside a call, an
-  index or another literal it needs none.
+  index or another literal it needs none. Written without them, as in
+  `if p == Point{x: 1} {`, it is reported as needing parentheses when the
+  brace is followed by a name and a colon; other forms, such as
+  `if e == Empty{} {`, are a plain syntax error.
 - A struct is a value, like an array: assigning, passing or returning one
   copies it, and a function may take and return structs, several results
   included. `p.x` reads a field of any struct value, a variable, an
@@ -418,7 +421,11 @@ which is true today because `main` is the only package there is.
   `constant expression overflows uint8`, covering the step that overflowed.
   So `x := 'a' * 3` is an error, and so are `-m`, `m - 1` and `m / -1`
   after `var m int8 = -128`, while `x++`, `x += 1` and arithmetic on a `mut`
-  variable or a parameter wrap.
+  variable or a parameter wrap. This is intended, and it means changing
+  `var` to `mut` can turn a compile error into wrapping at run time: after
+  `var m int8 = 127`, `m + 1` is an error, while after `mut m int8 = 127`
+  the same `m + 1` is `-128`, since a mutable variable's value is never
+  known.
   A comparison takes two
   operands of one type, after the same widening: two integers or two
   strings with any of the six, or two `bool`s, arrays or structs with `==`
