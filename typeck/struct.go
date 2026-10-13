@@ -44,9 +44,10 @@ func (c *Checker) checkStructs() {
 }
 
 // resolveFields records the fields of the struct type typ in the table the
-// first time they are needed: a field's type may be an array whose length
-// names a package-level constant, which is checked first if it has not
-// been. Needing them again while they are being resolved, at, means the
+// first time they are needed: a global's initializer, or a field's array
+// length, may need them before their turn. A field's array length names no
+// variable (see arrayLength), but it may still write a literal of a struct,
+// so needing the fields again while they are being resolved, at, means the
 // struct's fields depend on themselves, which is reported, and gives false.
 func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
 	switch c.structState[typ] {
@@ -61,9 +62,12 @@ func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
 	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
 	fields := make([]types.Field, 0)
 	if st != nil {
+		outer := c.inFields
+		c.inFields = true
 		for _, f := range st.Fields {
 			fields = append(fields, types.Field{Name: f.Name, Type: c.declaredType(f.TypeExpr)})
 		}
+		c.inFields = outer
 	}
 	c.table.SetFields(typ, fields)
 	c.structState[typ] = checked
@@ -297,10 +301,11 @@ func (c *Checker) foldStruct(lit *ast.CompositeLit) (any, bool) {
 }
 
 // ensureGlobal checks the package-level variable v, unless it has been
-// already: globals are checked in order, but a global named in the length
-// of an array in a struct's field may be needed before its turn. Needing it
-// while it is being checked, at, means it depends on itself, which is
-// reported.
+// already. Globals are checked in order, and nothing checked before them
+// names one: a struct's field lengths name no variable, and a global's
+// type may name only a global declared before it. Checking on first need
+// keeps that order from being assumed; needing v while it is being
+// checked, at, means it depends on itself, which is reported.
 func (c *Checker) ensureGlobal(v *ast.Var, at ast.Span) {
 	switch c.globalState[v] {
 	case checked:

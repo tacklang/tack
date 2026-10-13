@@ -27,8 +27,18 @@ func (c *Checker) arrayType(a *ast.ArrayType) types.Type {
 	return c.table.Array(elem, n)
 }
 
-// arrayLength checks the length of an array type and returns it.
+// arrayLength checks the length of an array type and returns it. In a
+// struct's field, the length must name no variable, not even an immutable
+// global holding a constant, so a struct's layout never depends on a
+// variable's initializer; that is checked before the length is, so a
+// global named there is never checked on its behalf.
 func (c *Checker) arrayLength(e ast.Expr) (int64, bool) {
+	if c.inFields {
+		if v := firstVar(e); v != nil {
+			c.errorf(v.Span, "array length in a struct field must not name variable %s", v.Name)
+			return 0, false
+		}
+	}
 	got := c.expr(e)
 	if got == types.Invalid {
 		return 0, false
@@ -46,6 +56,24 @@ func (c *Checker) arrayLength(e ast.Expr) (int64, bool) {
 		return 0, false
 	}
 	return v.Int64(), true
+}
+
+// firstVar returns the first name in e, in source order, that refers to a
+// variable, or nil if there is none.
+func firstVar(e ast.Expr) *ast.Ident {
+	var found *ast.Ident
+	ast.Walk(e, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if id, ok := n.(*ast.Ident); ok {
+			if _, isVar := id.Def.(*ast.Var); isVar {
+				found = id
+			}
+		}
+		return true
+	})
+	return found
 }
 
 // compositeLit checks an array or struct literal written with its type, or

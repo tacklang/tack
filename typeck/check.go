@@ -64,6 +64,10 @@ type Checker struct {
 	// defer already reported as a defer inside a defer, where a further
 	// nested defer is not reported again.
 	inRejectedDefer bool
+
+	// inFields is whether a struct's field types are being resolved, where
+	// an array length must name no variable.
+	inFields bool
 }
 
 // New returns a Checker for file, which must already have been resolved,
@@ -96,10 +100,10 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// name any struct. Their fields are resolved next, then the globals,
 	// so the types and values of both are known in every function, and in
 	// every signature, whose array lengths may name a global, whatever the
-	// order of declarations. A field's array length may name a global too,
-	// and a global's initializer may be a struct literal, so each is
-	// checked early when the other needs it. A global's initializer is a
-	// constant, so it never needs a function.
+	// order of declarations. A field's array length names no variable, so
+	// fields never need a global; a global's initializer may be a struct
+	// literal, whose fields are resolved early if it comes first. A
+	// global's initializer is a constant, so it never needs a function.
 	c.declareStructs()
 	for _, decl := range c.file.Decls {
 		if v, ok := decl.(*ast.Var); ok {

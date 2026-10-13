@@ -25,8 +25,9 @@
 // type checker, which reports it as an unknown type.
 //
 // A struct's fields are resolved after every package-level name is
-// declared, so a field's type may name any type, and an array length in it
-// any global. Field names are a namespace of their own, one per struct, so
+// declared, so a field's type may name any type. A name in an array length
+// in it is bound too, to a global if it names one, and the type checker
+// then reports it, since a field's length names no variable. Field names are a namespace of their own, one per struct, so
 // a field may share a name with anything outside it, but not with another
 // field of its struct, and the reserved names are reserved for fields too.
 // A field selection, p.x, and a key in a struct literal, x: v, name a field

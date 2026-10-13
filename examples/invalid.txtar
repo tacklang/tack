@@ -4845,6 +4845,84 @@ struct-field-immutable/main.tck:9:5: error: cannot assign to field of immutable 
    |	    ^
 10 |	    exit(p.x)
 
+-- struct-field-length-global/main.tck --
+package main
+
+type Buffer struct {
+    data [n * 2]int64
+}
+
+var n = 2
+
+func main() {
+    mut b Buffer
+    exit(len(b.data))
+}
+-- struct-field-length-global/expected --
+stage: typeck
+---
+
+struct-field-length-global/main.tck:4:11: error: array length in a struct field must not name variable n
+03 |	type Buffer struct {
+04 |	    data [n * 2]int64
+   |	          ^
+05 |	}
+
+-- struct-field-length-global-field/main.tck --
+package main
+
+type Outer struct {
+    a [len(g.b)]int64
+}
+
+type Inner struct {
+    b [len(g.b)]int64
+}
+
+var g = Inner{b: [1]int64{1}}
+
+func main() {
+    o := Outer{a: [1]int64{2}}
+    exit(o.a[0])
+}
+-- struct-field-length-global-field/expected --
+stage: typeck
+---
+
+struct-field-length-global-field/main.tck:4:12: error: array length in a struct field must not name variable g
+03 |	type Outer struct {
+04 |	    a [len(g.b)]int64
+   |	           ^
+05 |	}
+
+struct-field-length-global-field/main.tck:8:12: error: array length in a struct field must not name variable g
+07 |	type Inner struct {
+08 |	    b [len(g.b)]int64
+   |	           ^
+09 |	}
+
+-- struct-field-length-mut-global/main.tck --
+package main
+
+type Box struct {
+    items [len(b.items)]int64
+}
+
+mut b Box
+
+func main() {
+    exit(len(b.items))
+}
+-- struct-field-length-mut-global/expected --
+stage: typeck
+---
+
+struct-field-length-mut-global/main.tck:4:16: error: array length in a struct field must not name variable b
+03 |	type Box struct {
+04 |	    items [len(b.items)]int64
+   |	               ^
+05 |	}
+
 -- struct-field-param/main.tck --
 package main
 
@@ -4912,33 +4990,6 @@ struct-field-visibility/main.tck:4:5: error: field visibility is not supported
 04 |	    pub x int64
    |	    ^~~
 05 |	}
-
--- struct-init-cycle/main.tck --
-package main
-
-type Outer struct {
-    a [len(g.b)]int64
-}
-
-type Inner struct {
-    b [len(g.b)]int64
-}
-
-var g = Inner{b: [1]int64{1}}
-
-func main() {
-    o := Outer{a: [1]int64{2}}
-    exit(o.a[0])
-}
--- struct-init-cycle/expected --
-stage: typeck
----
-
-struct-init-cycle/main.tck:8:12: error: initialization cycle: g refers to itself
-07 |	type Inner struct {
-08 |	    b [len(g.b)]int64
-   |	           ^
-09 |	}
 
 -- struct-literal-bad-key/main.tck --
 package main
@@ -5266,12 +5317,11 @@ struct-recursive/main.tck:9:5: note: Node refers to Tree
 package main
 
 type Box struct {
-    items [len(b.items)]int64
+    items [len(Box{}.items)]int64
 }
 
-mut b Box
-
 func main() {
+    mut b Box
     exit(len(b.items))
 }
 -- struct-recursive-length/expected --
@@ -5280,8 +5330,8 @@ stage: typeck
 
 struct-recursive-length/main.tck:4:16: error: invalid recursive type Box
 03 |	type Box struct {
-04 |	    items [len(b.items)]int64
-   |	               ^~~~~~~
+04 |	    items [len(Box{}.items)]int64
+   |	               ^~~~~
 05 |	}
 
 -- switch-bad-clause/main.tck --

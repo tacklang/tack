@@ -51,7 +51,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | partial | yes | Accepted, and compiled as an empty body                                                     |
 | Constants                | yes   | no     | no      | no  |                                                                                             |
-| Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value               |
+| Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
 | Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; constant initializers, computed at compile time; usable from any function |
 | Methods                  | yes   | no     | no      | no  | Rejected with a diagnostic, declared or called                                              |

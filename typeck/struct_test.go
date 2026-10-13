@@ -233,18 +233,19 @@ var structCases = []struct{ name, src string }{
 		),
 	},
 	{
-		"field length from a global",
+		"field lengths from constant expressions",
 		withTypes(
-			"type B struct {\n    a [n * 2]int64\n}\n\nvar n = 2",
+			"type B struct {\n    a [2 * 3 - 2]int64\n    c ['c' - 'a'][len(\"abc\")]int8\n}",
 			"mut b B",
 			"b.a[3] = 1",
-			"exit(b.a[3])",
+			"b.c[1][2] = 1",
+			"exit(b.a[3] + len(b.c))",
 		),
 	},
 	{
-		"global literal of a struct with a global length",
+		"global literal of a struct with a constant length",
 		withTypes(
-			"var g = B{a: [2]int64{1, 2}}\n\nvar n = 2\n\ntype B struct {\n    a [n]int64\n}",
+			"var g = B{a: [2]int64{1, 2}}\n\ntype B struct {\n    a [len(\"ab\")]int64\n}",
 			"exit(g.a[1])",
 		),
 	},
@@ -629,9 +630,14 @@ var structErrorCases = []struct {
 		[]spanned{{"immutable variable p needs a value", "p"}},
 	},
 	{
-		"field length not constant",
+		"field length naming a mutable global",
 		withTypes("type B struct {\n    a [n]int64\n}\n\nmut n = 2", "mut b B", "exit(len(b.a))"),
-		[]spanned{{"array length must be a constant integer", "n"}},
+		[]spanned{{"array length in a struct field must not name variable n", "n"}},
+	},
+	{
+		"field length not constant",
+		withTypes("type B struct {\n    a [true]int64\n}", "mut b B", "exit(len(b.a))"),
+		[]spanned{{"array length must be a constant integer", "true"}},
 	},
 	{
 		"unknown field type",
@@ -680,6 +686,41 @@ var structErrorCases = []struct {
 		"constant field index out of range",
 		withTypes(pointDecls, "g := Grid{cells: [3]int8{1, 2, 3}, name: \"\"}", "exit(g.cells[3])"),
 		[]spanned{{"index 3 is out of range for [3]int8", "3"}},
+	},
+	{
+		"field length naming an immutable global",
+		withTypes(
+			"type B struct {\n    a [n * 2]int64\n}\n\nvar n = 2",
+			"mut b B",
+			"exit(len(b.a))",
+		),
+		[]spanned{{"array length in a struct field must not name variable n", "n"}},
+	},
+	{
+		"field length naming a field of a global",
+		withTypes(
+			"type B struct {\n    a [len(g.cells)]int64\n}\n\nvar g = Grid{cells: [3]int8{1, 2, 3}, name: \"\"}\n\n"+pointDecls,
+			"mut b B",
+			"exit(len(b.a))",
+		),
+		[]spanned{{"array length in a struct field must not name variable g", "g"}},
+	},
+	{
+		"inner field length naming a mutable global",
+		withTypes(
+			"type B struct {\n    a [2][1 + n]int64\n}\n\nmut n int64",
+			"mut b B",
+			"exit(len(b.a))",
+		),
+		[]spanned{{"array length in a struct field must not name variable n", "n"}},
+	},
+	{
+		"global literal of a struct whose length names a global",
+		withTypes(
+			"var g = B{a: [2]int64{1, 2}}\n\nvar n = 2\n\ntype B struct {\n    a [n]int64\n}",
+			"exit(g.a[1])",
+		),
+		[]spanned{{"array length in a struct field must not name variable n", "n"}},
 	},
 	{
 		"checked division of a known field divisor",
@@ -800,10 +841,11 @@ func TestCyclicStructUsedEverywhereStillEnds(t *testing.T) {
 	}
 }
 
-// A struct whose array length depends on itself, through a global or a
-// field of its own, is reported rather than looped on, once: a length that
-// cannot be worked out because of the cycle follows from it and is not
-// reported.
+// A struct whose array length depends on itself, through a literal of its
+// own type, is reported rather than looped on, once: a length that cannot
+// be worked out because of the cycle follows from it and is not reported.
+// A length can no longer reach itself through a global, since it names no
+// variable.
 func TestRejectsStructsDependingOnThemselvesThroughLengths(t *testing.T) {
 	tests := []struct{ name, src, first string }{
 		{
@@ -816,19 +858,13 @@ func TestRejectsStructsDependingOnThemselvesThroughLengths(t *testing.T) {
 			"len expects 1 argument(s), got 0",
 		},
 		{
-			"through a global of its own type",
+			"through a literal of its own type",
 			withTypes(
-				"type Box struct {\n    items [len(b.items)]int64\n}\n\nmut b Box",
+				"type Box struct {\n    items [len(Box{}.items)]int64\n}",
+				"mut b Box",
 				"exit(len(b.items))",
 			),
 			"invalid recursive type Box",
-		},
-		{
-			"through a global's initializer",
-			withTypes(
-				"type O struct {\n    a [len(g.b)]int64\n}\n\ntype I struct {\n    b [len(g.b)]int64\n}\n\nvar g = I{b: [1]int64{1}}",
-			),
-			"initialization cycle: g refers to itself",
 		},
 	}
 	for _, tt := range tests {

@@ -22,12 +22,18 @@
 // Anything that has no type only because of an error already reported,
 // such as a use of that parameter, is not reported again.
 //
-// A field's array length may name a package-level constant, and a global's
-// initializer may be a struct literal, which needs the struct's fields, so
-// a struct's fields and a global are each checked early, the first time the
-// other needs them, and only once. Needing one again while it is being
-// checked means it depends on itself, which is reported: a struct as an
-// invalid recursive type, a global as an initialization cycle.
+// A field's array length must name no variable, not even an immutable
+// global holding a constant: it is a constant expression of literals,
+// character literals, arithmetic and len of a string literal, and a name
+// of a variable in it is reported before the length is checked. So a
+// struct's fields never need a global. A global's initializer may be a
+// struct literal, which needs the struct's fields, so those are resolved
+// early, the first time they are needed, and only once; a field's length
+// that writes a literal of its own struct needs them while they are being
+// resolved, which is reported as an invalid recursive type. A global is
+// checked on first need too, and one needed while it is being checked is
+// reported as an initialization cycle, though no program reaches that
+// today: a global's type names only globals declared before it.
 //
 // Package-level variables are checked before any body, so their types
 // are known in every function. A global's initializer must be a constant

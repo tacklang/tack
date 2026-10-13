@@ -334,7 +334,14 @@ which is true today because `main` is the only package there is.
   one. Each declaration is a type of its own, even with the same fields as
   another. Field names are a namespace of their own, one per struct: a
   field may share a name with anything outside its struct, but not with
-  another of its fields, and `_` and the type names cannot name a field. A
+  another of its fields, and `_` and the type names cannot name a field. An
+  array length in a field's type is a constant expression that names no
+  variable: literals, character literals, arithmetic on them and `len` of
+  a string literal, as in `[len("abc") * 2]int64`. A length naming any
+  variable, even an immutable global holding a constant, as in `[n]int64`
+  or `[len(g.cells)]int64`, is an error, `array length in a struct field
+  must not name variable n`, so a struct's layout never depends on a
+  variable. A
   field's type may be any type, another struct or an array of one
   included, except one that holds the struct itself, directly, through
   other structs or through an array of any length, which would be
@@ -477,7 +484,8 @@ which is true today because `main` is the only package there is.
   comparison.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
   constant: a constant expression, an immutable variable holding one, or
-  `len` of an array or of a known string. `[3]int64{1, 2, 3}` is a literal,
+  `len` of an array or of a known string. In a struct field's type, `n`
+  names no variable (see structs). `[3]int64{1, 2, 3}` is a literal,
   which lists exactly one element for each of the array's, and
   `[...]int64{1, 2, 3}` takes its length from its elements. A literal
   inside another may leave out its type: `[2][2]bool{{true, false},
