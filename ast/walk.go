@@ -68,6 +68,8 @@ func walkStmt(s Stmt, v Visitor) {
 			walkAll(cl.Values, v)
 			walkAll(cl.Body, v)
 		}
+	case *Defer:
+		walkAll(s.Body, v)
 	case *Break, *Continue:
 		// leaves
 	default:

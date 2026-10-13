@@ -207,7 +207,7 @@ which is true today because `main` is the only package there is.
   function's results, but it can be called as a statement to discard them
   all.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `switch`, `for`, `break`, `continue`, a variable declaration, a
+  `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default` whose cases all terminate, or a `for` with no condition that no
@@ -238,6 +238,33 @@ which is true today because `main` is the only package there is.
   after it, and a later case and the default see every earlier case's
   values not matching. A case with several values proves nothing about
   them inside its body, as `||` gives nothing when true.
+- Defers, block-scoped as in Zig rather than function-scoped as in Go.
+  `defer f(x)` registers its statement when execution reaches it, and the
+  statement runs when the block holding the defer is left, by any path:
+  falling off its end, or a `return`, `break` or `continue` that leaves it,
+  through any number of nested blocks. Each block runs the defers it
+  reached last first, and a jump out of several blocks runs the innermost
+  block's first. A defer that was never reached never runs. A defer in a
+  loop's body runs at the end of each iteration that reached it, one ended
+  by `continue` included, before a three-clause loop's post statement; one
+  in a `switch` case runs when that case's body ends; one at the top of a
+  function body runs when the function returns. Directly after `defer` may
+  come a call, an assignment, a compound assignment, or `x++`/`x--`; any
+  other statement goes in a block, `defer { ... }`, which may hold anything
+  but a way out of it: a `return` anywhere in deferred code, or a `break` or
+  `continue` aimed at a loop outside it, is an error, while a loop inside
+  the block breaks and continues as usual. A declaration cannot be deferred
+  on its own. The deferred statement is evaluated when it runs, not when
+  the defer is reached, unlike Go, which evaluates a deferred call's
+  arguments at the defer: it reads every variable as it is then. It sees
+  the names declared before the defer, not those after it. `return x`
+  computes `x` before any defer runs, so a defer that changes `x` does not
+  change what is returned, and the same holds for several results. `exit`
+  ends the process without running any defer. Deferred code is checked
+  with the facts in force where the defer is written (see division), which
+  still hold when it runs: a fact holds only in a region that never
+  assigns its variable, and that region takes in the rest of the defer's
+  block, every defer in it included.
 - Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside
@@ -468,7 +495,7 @@ which is true today because `main` is the only package there is.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes an `int64`, or an integer that widens to one, and terminates
-  the process with that status.
+  the process with that status, without running any pending defer.
 - Integer constants. A literal, and any expression made only of literals and
   operators, is a constant with no type of its own: it is computed exactly,
   and takes the type of where it is used, the type it is assigned, passed or

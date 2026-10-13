@@ -16,7 +16,10 @@ import (
 // It holds inside an if's branches, a loop's body, and the right side of &&
 // and ||, according to whether the condition was true there, and in the
 // rest of a block after an if whose branch leaves it. A switch's cases are
-// that if's chain; see switch.go. The rules are syntactic, so any reader can follow them:
+// that if's chain; see switch.go. Deferred code is checked with the facts
+// in force at its defer, since the region a fact holds in takes in the rest
+// of the defer's block, where the code runs; see defer.go. The rules are
+// syntactic, so any reader can follow them:
 //
 //   - a fact is about a parameter, a local variable, or an immutable global;
 //     a mutable global can be changed by any call, so it never has one;

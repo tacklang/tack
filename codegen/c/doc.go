@@ -73,6 +73,15 @@
 // checked. The smallest int64 is written as an expression, since C has no
 // literal for it.
 //
+// A defer emits nothing where it is written. Its statement is copied to
+// every point that leaves its block after reaching it: the block's end, and
+// each return, break and continue that leaves the block, innermost block's
+// defers first and last first within each. Tack has no goto, so which
+// defers an exit has passed is known from where the exit is written, and no
+// flag records whether a defer was reached. A return holds its value in a
+// const temporary before the defers run, and a continue runs them before a
+// three-clause loop's post statement. defer.go has the details.
+//
 // A local variable becomes a C local declared where the Tack one is, inside
 // the same block. An immutable variable is a const C local, so the C compiler
 // holds it to the same rule. A mutable one declared without a value starts at

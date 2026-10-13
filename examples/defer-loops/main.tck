@@ -1,0 +1,123 @@
+package main
+
+// log records the order things run in, one decimal digit per step.
+mut log int64
+
+// mark appends the digit d to log.
+func mark(d int64) {
+    log = log * 10 + d
+}
+
+// expect exits with code unless log is want, then clears log.
+func expect(want int64, code int64) {
+    if log != want {
+        exit(code)
+    }
+    log = 0
+}
+
+// clauses runs its body's defer at the end of every iteration, including
+// one ended by continue or break, before the post statement: the defer
+// reads i before i++ changes it.
+func clauses() {
+    for mut i := 1; i < 9; i++ {
+        defer mark(i)
+        if i == 2 {
+            continue
+        }
+        if i == 3 {
+            defer mark(8)
+            break
+        }
+        mark(9)
+    }
+    mark(5)
+}
+
+// cases runs a case's defer when the case body ends, and a break in a case
+// leaves the loop through the case's defers and the loop body's.
+func cases() {
+    for i := range 3 {
+        defer mark(1)
+        switch i {
+        case 1:
+            defer mark(2)
+            break
+        default:
+            defer mark(4)
+        }
+        mark(3)
+    }
+}
+
+// deep leaves three nested loops with one break, running only the defers
+// of the innermost loop's body and the blocks inside it.
+func deep() {
+    for range 1 {
+        defer mark(1)
+        for range 1 {
+            defer mark(2)
+            for range 2 {
+                defer mark(3)
+                if true {
+                    defer mark(4)
+                    break
+                }
+            }
+            mark(5)
+        }
+    }
+}
+
+// loopInDefer defers a block holding a loop that breaks and continues on
+// its own.
+func loopInDefer() {
+    defer {
+        for mut i := 1; ; i++ {
+            if i == 2 {
+                continue
+            }
+            if i == 5 {
+                break
+            }
+            mark(i)
+        }
+    }
+    mark(9)
+}
+
+// counted defers an increment and a compound assignment.
+func counted() int64 {
+    mut n := 0
+    for range 4 {
+        defer n++
+        defer n += 10
+    }
+    return n
+}
+
+// many runs one defer per iteration of a range loop over an array, with
+// the element value the iteration sees.
+func many() {
+    for _, d := range [4]int64{4, 3, 2, 1} {
+        defer mark(d)
+        mark(0)
+    }
+}
+
+func main() {
+    clauses()
+    expect(912835, 1)
+    cases()
+    expect(43121, 2)
+    deep()
+    expect(43521, 3)
+    loopInDefer()
+    expect(9134, 4)
+    if counted() != 44 {
+        exit(5)
+    }
+    many()
+    expect(4030201, 6)
+    exit(42)
+}

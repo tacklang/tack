@@ -529,6 +529,18 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 			"package main\nfunc main() {\n    n := 1\n" +
 				strings.Repeat("switch n {\ncase 1:\n", 500) + strings.Repeat("}\n", 501),
 		},
+		{"truncated defer", "package main\nfunc main() {\n    defer {\n        defer f("},
+		{"defer of nothing", "package main\nfunc main() {\n    defer\n"},
+		{
+			"deep defer nesting",
+			"package main\nfunc main() {\n" + strings.Repeat("defer {\nprint(\"x\")\n", 500) +
+				strings.Repeat("}\n", 501),
+		},
+		{
+			"deep defers with returns",
+			"package main\nfunc f() int64 {\n" + strings.Repeat("if true {\ndefer print(\"x\")\nreturn 1\n", 300) +
+				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    exit(f())\n}\n",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeSource(t, []byte(tc.src))
@@ -1052,5 +1064,38 @@ func TestBuiltSwitchExits42(t *testing.T) {
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
 		t.Errorf("switch exited with %v, want status 42", err)
+	}
+}
+
+// The defer example runs defers last first when their block ends, an inner
+// block's before the rest of the outer one, through early returns from
+// several blocks, never one not reached, each reading variables as they
+// are when it runs, after a return's values are computed, with several
+// results, a division proven by the if around it, a deferred block that
+// defers again, and prints in order. Its main defers a print that exit
+// skips.
+func TestBuiltDeferPrintsAndExits42(t *testing.T) {
+	bin := buildWithClang(t, "defer")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("defer exited with %v, want status 42", err)
+	}
+	if want := "a\nb\nc\n"; string(out) != want {
+		t.Errorf("defer printed %q, want %q", out, want)
+	}
+}
+
+// The defer-loops example runs a loop body's defers at the end of every
+// iteration, one ended by continue or break included, before the post
+// statement; a case's defers when the case ends; only the innermost loop's
+// on a break out of nested loops; a deferred block whose own loop breaks
+// and continues; deferred increments; and one defer per range iteration.
+func TestBuiltDeferLoopsExits42(t *testing.T) {
+	bin := buildWithClang(t, "defer-loops")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("defer-loops exited with %v, want status 42", err)
 	}
 }

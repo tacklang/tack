@@ -18,6 +18,8 @@
 // StructType, whose Fields are part of it rather than nodes of their own.
 // A Switch's CaseClauses are likewise part of it: each holds its values
 // and its body, which Walk visits, but is not a node.
+// A Defer holds the statements it defers as a body, a block of their own:
+// the one statement written after defer, or the statements of defer { ... }.
 // A struct literal is a CompositeLit whose elements are KeyValues, a field's
 // name and a value, and a field read or written is a Selector; neither the
 // key nor the selected name is an Ident the resolver binds, since a field is

@@ -79,6 +79,14 @@
 // statement, since an if has none, and fallthrough is not a keyword: it is
 // an ordinary name.
 //
+// A defer is defer and then either a block in braces, which may hold any
+// statements, or one simple statement other than a declaration: a call, an
+// assignment, a compound assignment, an increment or a decrement. Any other
+// statement directly after defer is reported, as expected 'call,
+// assignment or block', and so is a declaration, which nothing could use.
+// Whether a return, break or continue in a deferred block leaves it is the
+// type checker's to report.
+//
 // The parser stops at the first syntax error and returns that error's
 // diagnostics with a nil file, so a caller never sees a partial tree.
 //

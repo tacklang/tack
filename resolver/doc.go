@@ -36,7 +36,10 @@
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is
 // nested in the block holding the statement; a switch's tag and case
-// values are resolved there too. A loop is a scope of its own, holding any variable its init
+// values are resolved there too. What a defer defers, its one statement or
+// its block, is a block nested in the one holding the defer, resolved where
+// the defer is written, so it sees only the names declared before it, though
+// it runs later, and a variable it reads counts as read. A loop is a scope of its own, holding any variable its init
 // statement or range declares, with the body nested in it. What a range
 // loop ranges over is resolved outside that scope. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to

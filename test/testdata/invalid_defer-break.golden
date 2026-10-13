@@ -1,0 +1,9 @@
+stage: typeck
+---
+
+examples/invalid/defer-break/main.tck:6:13: error: cannot break out of a defer
+05 |	        defer {
+06 |	            break
+   |	            ^~~~~
+07 |	        }
+

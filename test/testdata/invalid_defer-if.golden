@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/defer-if/main.tck:5:11: error: expected 'call, assignment or block' found 'if'
+04 |	    n := 3
+05 |	    defer if n > 0 {
+   |	          ^
+06 |	        exit(n)
+

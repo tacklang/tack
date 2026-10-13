@@ -62,7 +62,9 @@
 // variable, which must be a parameter, a local, or an immutable global. A
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
-// ..., in an expression switch, the default the final else.
+// ..., in an expression switch, the default the final else. Deferred code
+// is checked where the defer is written, with the facts in force there,
+// which still hold when it runs, at the end of the defer's block (defer.go).
 // q, ok := a / b needs no proof, and is an error where one exists. A fact is
 // about a variable, never a field: a guard on p.x proves nothing about p.x,
 // which needs the two-value form, or copying into a variable that the guard
@@ -153,7 +155,9 @@
 //     or over an array or a string, whose index is an int64 and whose
 //     element is the array's element type, or a string's byte, a uint8;
 //     both variables are immutable, and two over an integer are an error;
-//   - break and continue are inside a loop;
+//   - break and continue are inside a loop, and in deferred code inside a
+//     loop that is itself inside the deferred code; a return is never in
+//     deferred code, since nothing may leave it;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, a switch
 //     with a default whose cases all terminate, or a loop with no condition

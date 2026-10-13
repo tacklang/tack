@@ -52,8 +52,13 @@ type generator struct {
 	file    *ast.File
 	strPool []str
 	globals map[*ast.Var]bool // the package-level variables
-	buf     bytes.Buffer
-	temps   int // how many temporaries have been named, for unique names
+
+	// scopes holds a deferScope for each block enclosing the statement
+	// being generated, innermost last; see defer.go.
+	scopes []*deferScope
+
+	buf   bytes.Buffer
+	temps int // how many temporaries have been named, for unique names
 }
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
@@ -460,14 +465,7 @@ func (g *generator) emitEntryPoint() {
 }
 
 func (g *generator) signature(fn *ast.Func) string {
-	result := "void"
-	switch len(fn.ResultTypes) {
-	case 0:
-	case 1:
-		result = g.cType(fn.ResultTypes[0])
-	default:
-		result = g.resultsName(fn.Name)
-	}
+	result := g.resultType(fn)
 
 	if len(fn.Params) == 0 {
 		return fmt.Sprintf("static %s %s(void)", result, g.mangle(fn.Name))
@@ -480,13 +478,44 @@ func (g *generator) signature(fn *ast.Func) string {
 	return fmt.Sprintf("static %s %s(%s)", result, g.mangle(fn.Name), strings.Join(params, ", "))
 }
 
+// resultType returns the C type fn returns: void when it declares no
+// result, its one result's type, or its results struct.
+func (g *generator) resultType(fn *ast.Func) string {
+	switch len(fn.ResultTypes) {
+	case 0:
+		return "void"
+	case 1:
+		return g.cType(fn.ResultTypes[0])
+	default:
+		return g.resultsName(fn.Name)
+	}
+}
+
+// generateFuncBody lowers fn's body, the outermost block of fn.
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	return g.generateBlock(fn.Body, fn)
 }
 
+// generateBlock lowers a block of fn other than a loop's body; see block.
 func (g *generator) generateBlock(body []ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	lines := make([]string, 0)
+	return g.block(body, fn, false)
+}
 
+// generateLoopBody lowers the body of a loop of fn, the block a break or
+// continue leaves; see block.
+func (g *generator) generateLoopBody(body []ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	return g.block(body, fn, true)
+}
+
+// block lowers a block of fn, in a deferScope of its own, loop being
+// whether it is a loop's body. The defers it reaches run at its end,
+// unless its last statement leaves it, having run them itself.
+func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, []diag.Diagnostic) {
+	sc := &deferScope{loop: loop}
+	g.scopes = append(g.scopes, sc)
+	defer func() { g.scopes = g.scopes[:len(g.scopes)-1] }()
+
+	lines := make([]string, 0)
 	for _, stmt := range body {
 		got, diags := g.generateStmt(stmt, fn)
 		if len(diags) > 0 {
@@ -494,8 +523,14 @@ func (g *generator) generateBlock(body []ast.Stmt, fn *ast.Func) ([]string, []di
 		}
 		lines = append(lines, got...)
 	}
-
-	return lines, nil
+	if len(sc.defers) == 0 || endsInJump(body) {
+		return lines, nil
+	}
+	end, diags := g.unwind(1, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return append(lines, end...), nil
 }
 
 // generateStmt lowers a statement of fn to C lines.
@@ -516,11 +551,15 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.Switch:
 		return g.generateSwitch(x, fn)
 
+	case *ast.Defer:
+		g.scopes[len(g.scopes)-1].defers = append(g.scopes[len(g.scopes)-1].defers, x)
+		return nil, nil
+
 	case *ast.Break:
-		return []string{"break;"}, nil
+		return g.generateJump("break;", fn)
 
 	case *ast.Continue:
-		return []string{"continue;"}, nil
+		return g.generateJump("continue;", fn)
 
 	default:
 		return g.generateSimpleStmt(stmt)
@@ -554,29 +593,43 @@ func (g *generator) generateSimpleStmt(stmt ast.Stmt) ([]string, []diag.Diagnost
 
 // generateReturn lowers a return, with each value converted to the type of
 // fn's result in the same position. Several values are returned together, as
-// one value of fn's results struct.
+// one value of fn's results struct. A return that leaves blocks with defers
+// to run takes deferredReturn's form instead.
 func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	if len(ret.Values) == 0 {
+	value, diags := g.returnValue(ret, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	if g.pendingDefers() {
+		return g.deferredReturn(value, fn)
+	}
+	if value == "" {
 		return []string{"return;"}, nil
+	}
+	return []string{fmt.Sprintf("return %s;", value)}, nil
+}
+
+// returnValue renders the value a return gives, as one C expression: its
+// one value, a compound literal of fn's results struct holding several, or
+// "" for a bare return.
+func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.Diagnostic) {
+	if len(ret.Values) == 0 {
+		return "", nil
 	}
 
 	values := make([]string, len(ret.Values))
 	for i, v := range ret.Values {
 		value, diags := g.expr(v, fn.ResultTypes[i])
 		if len(diags) > 0 {
-			return nil, diags
+			return "", diags
 		}
 		values[i] = value
 	}
 
 	if len(values) == 1 {
-		return []string{fmt.Sprintf("return %s;", values[0])}, nil
+		return values[0], nil
 	}
-	return []string{fmt.Sprintf(
-		"return (%s){%s};",
-		g.resultsName(fn.Name),
-		strings.Join(values, ", "),
-	)}, nil
+	return fmt.Sprintf("(%s){%s}", g.resultsName(fn.Name), strings.Join(values, ", ")), nil
 }
 
 // parenthesised reports whether e is lowered to C wrapped in a pair of
@@ -617,7 +670,7 @@ func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.D
 		header = condHeader("while", loop.Cond, cond)
 	}
 
-	body, diags := g.generateBlock(loop.Body, fn)
+	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -676,7 +729,7 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 		post = p
 	}
 
-	body, diags := g.generateBlock(loop.Body, fn)
+	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -713,7 +766,7 @@ func (g *generator) generateForRange(
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	body, diags := g.generateBlock(loop.Body, fn)
+	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}

@@ -579,7 +579,7 @@ func nameSpan(decl ast.Decl) ast.Span {
 
 // resolveStmt binds every name a statement mentions, and declares any
 // variable it introduces in sc. Each branch of an if, each case of a
-// switch, and a loop's body, is a block of its own.
+// switch, a loop's body, and what a defer defers, is a block of its own.
 func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
@@ -598,6 +598,8 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		return r.resolveForRange(s, sc)
 	case *ast.Switch:
 		return r.resolveSwitch(s, sc)
+	case *ast.Defer:
+		return r.resolveBlock(s.Body, sc)
 	default:
 		return r.resolveSimpleStmt(stmt, sc)
 	}

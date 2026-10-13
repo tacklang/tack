@@ -533,20 +533,14 @@ func simpleStmtSpan(stmt ast.Stmt) *ast.Span {
 	}
 }
 
-// parseKeywordStmt parses a statement that starts with keyword tk.
+// parseKeywordStmt parses a statement that starts with keyword tk. One
+// that holds blocks is parsed by parseBlockStmt.
 func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	switch tk.Value() {
-	case lexer.If:
-		return p.parseIf()
+	case lexer.If, lexer.For, lexer.Switch, lexer.Defer:
+		return p.parseBlockStmt(tk)
 	case lexer.Return:
 		return p.parseReturn()
-	case lexer.For:
-		if p.atRange() {
-			return p.parseForRange()
-		}
-		return p.parseFor()
-	case lexer.Switch:
-		return p.parseSwitch()
 	case lexer.Break:
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
 	case lexer.Continue:
@@ -559,6 +553,24 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		}}
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+}
+
+// parseBlockStmt parses a statement that starts with keyword tk and holds
+// blocks: an if, a loop, a switch or a defer.
+func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	switch tk.Value() {
+	case lexer.If:
+		return p.parseIf()
+	case lexer.For:
+		if p.atRange() {
+			return p.parseForRange()
+		}
+		return p.parseFor()
+	case lexer.Switch:
+		return p.parseSwitch()
+	default: // lexer.Defer
+		return p.parseDefer()
 	}
 }
 
@@ -1310,6 +1322,58 @@ func (p *Parser) atClauseEnd() bool {
 // isKeyword reports whether tk is the keyword kw.
 func isKeyword(tk *lexer.Token, kw lexer.KeywordType) bool {
 	return tk.Kind() == lexer.Keyword && tk.Value() == kw
+}
+
+// parseDefer parses a defer: the keyword, then either a block, which may
+// hold any statements, or one simple statement other than a declaration:
+// a call, an assignment, a compound assignment, an increment or a
+// decrement. Any other statement must be put in a block, and a declaration
+// cannot be deferred at all, since nothing could use what it declares.
+func (p *Parser) parseDefer() (*ast.Defer, []diag.Diagnostic) {
+	tk := p.next() // the defer keyword
+
+	stmt := &ast.Defer{Span: p.span(tk)}
+	switch {
+	case p.peek().Kind() == lexer.LCurl:
+		body, diags := p.parseBlock()
+		if body == nil {
+			return nil, diags
+		}
+		stmt.Body, stmt.Block = body, true
+		if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+			return nil, semiDiags
+		}
+	case p.atSimpleStmt():
+		deferred, diags := p.parseSimpleStmt()
+		if deferred == nil {
+			return nil, diags
+		}
+		if isDecl(deferred) {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "a variable declaration cannot be deferred",
+				Span:     deferred.Spanned(),
+			}}
+		}
+		if diags := p.endStmt(simpleStmtSpan(deferred)); diags != nil {
+			return nil, diags
+		}
+		stmt.Body = []ast.Stmt{deferred}
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("call, assignment or block", p.peek())}
+	}
+	stmt.Span.End = p.lastEnd()
+	return stmt, nil
+}
+
+// isDecl reports whether a simple statement declares variables.
+func isDecl(stmt ast.Stmt) bool {
+	switch stmt.(type) {
+	case *ast.Var, *ast.MultiVar:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseFor parses a loop: for, then its header, then the body. The header is

@@ -47,6 +47,13 @@ type Checker struct {
 
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
+
+	// deferred is how many defers enclose the statement being checked, and
+	// deferLoops how many loops enclose the innermost of them: a break or
+	// continue with no more loops around it than that would leave the
+	// deferred code.
+	deferred   int
+	deferLoops int
 }
 
 // New returns a Checker for file, which must already have been resolved.
@@ -142,6 +149,9 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.Switch:
 		c.checkSwitch(s, fn)
+
+	case *ast.Defer:
+		c.checkDefer(s, fn)
 
 	case *ast.Break:
 		c.checkInLoop(s.Span, "break")
@@ -448,10 +458,14 @@ func (c *Checker) checkCond(cond ast.Expr) {
 	}
 }
 
-// checkInLoop reports a break or continue that no loop encloses.
+// checkInLoop reports a break or continue that no loop encloses, and one
+// in deferred code whose loop is outside it.
 func (c *Checker) checkInLoop(span ast.Span, keyword string) {
-	if c.loops == 0 {
+	switch {
+	case c.loops == 0:
 		c.errorf(span, "%s is not in a loop", keyword)
+	case c.deferred > 0 && c.loops == c.deferLoops:
+		c.errorf(span, "cannot %s out of a defer", keyword)
 	}
 }
 
@@ -884,10 +898,24 @@ func blockTerminates(body []ast.Stmt) bool {
 	return len(body) > 0 && terminates(body[len(body)-1])
 }
 
-// checkReturn checks that a return carries one value for each result fn
+// checkReturn checks a return of fn: see checkResults. A return in
+// deferred code is an error of its own, since nothing may leave deferred
+// code, and its values are then only checked for what is inside them.
+func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
+	if c.deferred == 0 {
+		c.checkResults(ret, fn)
+		return
+	}
+	c.errorf(ret.Span, "cannot return from a defer")
+	for _, v := range ret.Values {
+		c.discard(v)
+	}
+}
+
+// checkResults checks that a return carries one value for each result fn
 // declares, each usable as that result's type. A wrong count is one error,
 // and then no value is compared with a result.
-func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
+func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 	got, want := len(ret.Values), len(fn.Results)
 	if got == want {
 		for i, v := range ret.Values {

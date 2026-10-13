@@ -1,0 +1,9 @@
+stage: parse
+---
+
+examples/invalid/defer-var/main.tck:4:11: error: a variable declaration cannot be deferred
+03 |	func main() {
+04 |	    defer n := 3
+   |	          ^~~~~~
+05 |	}
+

@@ -12,7 +12,8 @@ package builtin
 // print writes s to standard output exactly as given, adding no newline.
 func print(s string)
 
-// exit ends the process immediately with the given status.
+// exit ends the process immediately with the given status. Pending defers
+// do not run, in the calling function or any other.
 func exit(code int64)
 
 // len(v) returns the number of elements of the array v, or the number of
