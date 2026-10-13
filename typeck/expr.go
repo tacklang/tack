@@ -641,8 +641,10 @@ func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
 
 // conversion checks a conversion whose single value is used, T(x), and
 // returns T. It must convert an integer to an integer type, and be one that
-// cannot fail: an untyped constant that fits T, or a value of a type that
-// widens to T. Any other is reported, since it needs the two-value form
+// cannot fail: an untyped constant that fits T, a value of a type that
+// widens to T, or a known value, as knownValue computes it, that is a value
+// of T. A constant or known value that is not one of T's is reported as
+// overflowing T, and any other conversion as needing the two-value form
 // v, ok := T(x).
 func (c *Checker) conversion(call *ast.Call) types.Type {
 	from, ok := c.conversionOperand(call)
@@ -650,22 +652,39 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	to := call.Conv
-	if from == types.UntypedInt {
-		if !c.settle(call.Args[0], to) {
+	arg := call.Args[0]
+	switch {
+	case from == types.UntypedInt:
+		if !c.settle(arg, to) {
 			return types.Invalid
 		}
-		return to
-	}
-	if !types.Widens(from, to) {
-		c.errorf(
-			call.Span,
-			"converting %s to %s can fail; use v, ok := %s(...)",
-			c.table.Name(from),
-			c.table.Name(to),
-			c.table.Name(to),
-		)
+	case types.Widens(from, to):
+	default:
+		v, known := c.knownValue(arg)
+		if !known {
+			c.errorf(
+				call.Span,
+				"converting %s to %s can fail; use v, ok := %s(...)",
+				c.table.Name(from),
+				c.table.Name(to),
+				c.table.Name(to),
+			)
+		} else if !c.knownFits(arg, v, to) {
+			return types.Invalid
+		}
 	}
 	return to
+}
+
+// knownFits reports whether v, the known value of e, is a value of the
+// integer type typ, and reports e as overflowing typ when it is not, as
+// settle reports an untyped constant.
+func (c *Checker) knownFits(e ast.Expr, v constant.Int, typ types.Type) bool {
+	if v.Fits(types.Bits(typ), !types.IsUnsigned(typ)) {
+		return true
+	}
+	c.errorf(e.Spanned(), "constant %s overflows %s", v, c.table.Name(typ))
+	return false
 }
 
 // conversionOperand checks what every conversion requires, whether its
@@ -698,21 +717,18 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 
 // checkedConversion checks a conversion in its two-value form,
 // v, ok := T(x), which is for conversions that can fail. One that cannot,
-// from an untyped constant or a type that widens to T, is reported, since
-// it has only one correct spelling. It reports whether the conversion is
-// valid in this form.
+// from an untyped constant, a known value that fits T, or a type that
+// widens to T, is reported, since it has only one correct spelling; so is
+// a constant or known value that does not fit, which always fails. It
+// reports whether the conversion is valid in this form.
 func (c *Checker) checkedConversion(call *ast.Call) bool {
 	from, ok := c.conversionOperand(call)
 	if !ok {
 		return false
 	}
 	to := call.Conv
+	arg := call.Args[0]
 	switch {
-	case from == types.UntypedInt:
-		if c.settle(call.Args[0], to) {
-			c.errorf(call.Span, "a constant needs no ok to convert; use %s(...)", c.table.Name(to))
-		}
-		return false
 	case types.Widens(from, to):
 		c.errorf(
 			call.Span,
@@ -721,6 +737,17 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 			c.table.Name(to),
 			c.table.Name(to),
 		)
+		return false
+	case from == types.UntypedInt:
+		if c.settle(arg, to) {
+			c.errorf(call.Span, "a constant needs no ok to convert; use %s(...)", c.table.Name(to))
+		}
+		return false
+	}
+	if v, known := c.knownValue(arg); known {
+		if c.knownFits(arg, v, to) {
+			c.errorf(call.Span, "a constant needs no ok to convert; use %s(...)", c.table.Name(to))
+		}
 		return false
 	}
 	return true

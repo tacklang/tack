@@ -74,7 +74,11 @@ var validCharPrograms = []struct{ name, src string }{
 	{"a mutable variable wraps", mainLines("mut x = 'a'", "x *= 3", "exit(x)")},
 	{"compared with a uint8", mainLines("var b uint8 = 97", "if b == 'a' {", "}")},
 	{"compared with an int64", mainLines("n := 97", "if n == 'a' {", "}")},
-	{"checked conversion", mainLines("v, ok := int8('a')", "if ok {", "    exit(v)", "}")},
+	{
+		"checked conversion",
+		mainLines("mut c := 'a'", "v, ok := int8(c)", "if ok {", "    exit(v)", "}"),
+	},
+	{"known conversion", mainLines("v := int8('a')", "exit(v)")},
 	{
 		"parameter and result",
 		"package main\n\nfunc up(c uint8) uint8 {\n    return c - 'a' + 'A'\n}\n\nfunc main() {\n    exit(up('b'))\n}\n",

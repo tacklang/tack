@@ -34,16 +34,16 @@ and diagnostic to check that the two still agree.
 | `a[i] = v`, writing one            | as above                         | as above                                        | none                  |
 | `s[i]`, reading a string's byte    | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                  | `v, ok := s[i]`       |
 | `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
-| `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
+| `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
 
 A write to an element covers every way of writing one: `a[i] = v`,
 `a[i] += v`, `a[i]++`, and targets that mix fields and indexes, such as
 `p.cells[i] = v` or `a[i].x = v`. Every index in such a target needs a
 proof.
 
-Conversions are the odd one out: they follow the type rule only. No guard,
-known value or fact makes `T(x)` compile when `x`'s type does not widen to
-`T` (see [Conversions](#conversions)).
+Conversions are the odd one out: no guard or fact makes `T(x)` compile
+when `x`'s type does not widen to `T`, only a known value that fits `T`
+(see [Conversions](#conversions)).
 
 ## The checked form
 
@@ -96,6 +96,7 @@ The details:
   | array index | the index is a known value, or proven in range                | <!-- error: checked-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
   | string index| the index is proven in range, a constant into a literal included | <!-- error: safety-checked-string-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
   | conversion  | the operand is an untyped constant                            | <!-- error: safety-checked-conversion-constant -->`a constant needs no ok to convert; use uint8(...)` |
+  | conversion  | the operand is a known value that fits, as `x` after `x := 5` | <!-- error: safety-checked-conversion-known-value -->`a constant needs no ok to convert; use uint8(...)` |
   | conversion  | the operand's type widens to `T`                              | <!-- error: safety-checked-conversion-widens -->`converting uint8 to int64 cannot fail; use int64(...)` |
 
 - **A failure known at compile time is still an error.** The checked form
@@ -129,8 +130,9 @@ field `p.i`, is proven only when it is a known value.
 
 ### Known values
 
-A known value proves itself: a divisor that is a known non-zero value, or
-an index that is a known value in range, needs nothing more. The compiler
+A known value proves itself: a divisor that is a known non-zero value, an
+index that is a known value in range, or a conversion of a known value that
+fits its type, needs nothing more. The compiler
 knows the value of:
 
 - a constant expression: literals and operators on them;
@@ -485,8 +487,9 @@ func low(x int64) uint8 {
 `converting int64 to uint8 can fail; use v, ok := uint8(...)`
 
 There is no guarded version. `T(x)` compiles only when `x` is an untyped
-constant that is a value of `T`, or `x`'s type widens to `T`, as `int64(b)`
-for a `uint8` `b`. A guard does not help, so this is the same error:
+constant or a [known value](#known-values) that is a value of `T`, or `x`'s
+type widens to `T`, as `int64(b)` for a `uint8` `b`. A guard does not help,
+so this is the same error:
 
 <!-- case: safety-conversion-guarded -->
 ```tack
@@ -498,11 +501,17 @@ func low(x int64) uint8 {
 }
 ```
 
-Nor does a known value of a type that does not widen:
-after <!-- case: safety-conversion-known-value -->`x := 5`, an `int64`,
-`uint8(x)` is an error, and so
-is <!-- case: safety-conversion-char-to-int8 -->`int8('a')`, since a
-character literal is a `uint8`.
+A known value is converted as a constant is, whatever its type:
+
+<!-- example: safety -->
+```tack
+x := 5
+small := uint8(x)   // small == 5
+letter := int8('a') // letter == 97, though 'a' is a uint8
+```
+
+and one that does not fit is an error: after `x := 300`, `uint8(x)`
+is <!-- error: safety-conversion-known-overflow -->`constant 300 overflows uint8`.
 
 Checked:
 
@@ -532,7 +541,7 @@ failure it can see from known values:
 | known index out of range, array           | `a[3]` on `[3]int64`                  | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64` |
 | known index out of range, string literal  | `"tack"[4]`                           | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
 | negative known index, any string          | `s[-1]`                               | <!-- error: string-index-negative -->`index -1 is out of range for a string` |
-| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`     | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
+| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300` | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
 | arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
 
 Arithmetic on values the compiler does not know wraps at runtime instead:

@@ -490,8 +490,11 @@ which is true today because `main` is the only package there is.
   either kind. That holds for assignments, arguments, results and the
   operands of an operator alike. Any other change of type is a conversion.
 - Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
-  allowed only where it cannot fail: `x` is a constant that is a value of
-  `T`, or of a type that widens to `T`. Every other conversion is written
+  allowed only where it cannot fail: `x` is a constant, or a known value (see
+  division), that is a value of `T`, as `uint8(x)` after `x := 5` or
+  `int8('a')`, or `x` is of a type that widens to `T`. A constant or known
+  value that is not a value of `T` is an error, as `uint8(x)` after
+  `x := 300`. Every other conversion is written
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
   `T`, and `v` is that value, or `0` when it is not. The two-value form is an
   error where the conversion cannot fail, so each conversion has one
@@ -544,7 +547,7 @@ which is true today because `main` is the only package there is.
   `'a' + 1` the `1` becomes a `uint8`, the arithmetic is `uint8`
   arithmetic, and `'a'` widens where a wider
   integer is expected, as in `exit('a')` or `var n int64 = 'a'`. It is a
-  known value for proofs and array lengths, and may appear in a
+  known value for proofs, conversions and array lengths, and may appear in a
   package-level initializer. Arithmetic on it, being on known values, must
   stay a value of its type at every step, wherever it is written:
   `'a' * 3` overflows `uint8` and is an error, while `c * 3` wraps at

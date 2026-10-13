@@ -107,6 +107,13 @@ func checkedConversion() {
     check("conversion fits", w == 44 && fine)
 }
 
+func knownConversions() {
+    x := 5
+    small := uint8(x)   // small == 5
+    letter := int8('a') // letter == 97, though 'a' is a uint8
+    check("known value converts", small == 5 && letter == 97)
+}
+
 func zeroValues() {
     mut i int64 = 3
     words := [2]string{"a", "b"}
@@ -162,6 +169,7 @@ func main() {
     check("first guarded", first("") == 0 && first("abc") == 'a')
     checkedByte()
     checkedConversion()
+    knownConversions()
     zeroValues()
     forms()
 }

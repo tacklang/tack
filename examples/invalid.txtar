@@ -977,7 +977,7 @@ continue-outside-loop/main.tck:5:9: error: continue is not in a loop
 package main
 
 func main() {
-    var wide int64 = 300
+    mut wide int64 = 300
     small := int8(wide)
     exit(small)
 }
@@ -986,7 +986,7 @@ stage: typeck
 ---
 
 conversion-can-fail/main.tck:5:14: error: converting int64 to int8 can fail; use v, ok := int8(...)
-04 |	    var wide int64 = 300
+04 |	    mut wide int64 = 300
 05 |	    small := int8(wide)
    |	             ^~~~~~~~~~
 06 |	    exit(small)
@@ -2533,6 +2533,26 @@ safety-checked-conversion-constant/main.tck:4:14: error: a constant needs no ok 
    |	             ^~~~~~~~
 05 |	    if ok {
 
+-- safety-checked-conversion-known-value/main.tck --
+package main
+
+func main() {
+    x := 5
+    v, ok := uint8(x)
+    if ok {
+        exit(v)
+    }
+}
+-- safety-checked-conversion-known-value/expected --
+stage: typeck
+---
+
+safety-checked-conversion-known-value/main.tck:5:14: error: a constant needs no ok to convert; use uint8(...)
+04 |	    x := 5
+05 |	    v, ok := uint8(x)
+   |	             ^~~~~~~~
+06 |	    if ok {
+
 -- safety-checked-conversion-overflow/main.tck --
 package main
 
@@ -2842,22 +2862,6 @@ safety-const-overflow-int8/main.tck:5:25: error: constant expression overflows i
    |	                        ^~~~~~
 06 |	}
 
--- safety-conversion-char-to-int8/main.tck --
-package main
-
-func main() {
-    exit(int8('a'))
-}
--- safety-conversion-char-to-int8/expected --
-stage: typeck
----
-
-safety-conversion-char-to-int8/main.tck:4:10: error: converting uint8 to int8 can fail; use v, ok := int8(...)
-03 |	func main() {
-04 |	    exit(int8('a'))
-   |	         ^~~~~~~~~
-05 |	}
-
 -- safety-conversion-constant-overflow/main.tck --
 package main
 
@@ -2904,21 +2908,21 @@ safety-conversion-guarded/main.tck:5:16: error: converting int64 to uint8 can fa
    |	               ^~~~~~~~
 06 |	    }
 
--- safety-conversion-known-value/main.tck --
+-- safety-conversion-known-overflow/main.tck --
 package main
 
 func main() {
-    x := 5
+    x := 300
     exit(uint8(x))
 }
--- safety-conversion-known-value/expected --
+-- safety-conversion-known-overflow/expected --
 stage: typeck
 ---
 
-safety-conversion-known-value/main.tck:5:10: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
-04 |	    x := 5
+safety-conversion-known-overflow/main.tck:5:16: error: constant 300 overflows uint8
+04 |	    x := 300
 05 |	    exit(uint8(x))
-   |	         ^~~~~~~~
+   |	               ^
 06 |	}
 
 -- safety-conversion-string/main.tck --

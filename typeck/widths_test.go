@@ -8,16 +8,17 @@ import (
 )
 
 // sized declares a variable of every integer type, each read once so none
-// is unused, for the programs below to combine.
+// is unused, for the programs below to combine. Each is mutable, so its
+// value is not known and a conversion of it is checked by its type alone.
 var sized = []string{
-	"var i8 int8 = 1",
-	"var i16 int16 = 1",
-	"var i32 int32 = 1",
-	"var i64 int64 = 1",
-	"var u8 uint8 = 1",
-	"var u16 uint16 = 1",
-	"var u32 uint32 = 1",
-	"var u64 uint64 = 1",
+	"mut i8 int8 = 1",
+	"mut i16 int16 = 1",
+	"mut i32 int32 = 1",
+	"mut i64 int64 = 1",
+	"mut u8 uint8 = 1",
+	"mut u16 uint16 = 1",
+	"mut u32 uint32 = 1",
+	"mut u64 uint64 = 1",
 	"if i8 == 0 || i16 == 0 || i32 == 0 || i64 == 0 || u8 == 0 || u16 == 0 || u32 == 0 || u64 == 0 {",
 	"}",
 }
@@ -341,7 +342,7 @@ func TestRecordsIntegerTypes(t *testing.T) {
 	file, diags := checkTree(t, mainLines(
 		"var a uint8 = 5",
 		"b := 5",
-		"var c int16 = 300",
+		"mut c int16 = 300",
 		"d := a + c",
 		"e := a + 1",
 		"f, ok := int8(c)",

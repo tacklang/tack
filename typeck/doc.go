@@ -125,9 +125,11 @@
 //     unsupported operator, is one error covering the whole comparison;
 //   - a divisor is proven not zero, or the division is bound with ok;
 //   - a conversion T(x) converts an integer to an integer type, and only
-//     where it cannot fail: a constant that fits T, or a type that widens to
-//     T. Any other is v, ok := T(x), which is an error where the conversion
-//     cannot fail;
+//     where it cannot fail: a constant or a known value, as knownValue
+//     computes it, that fits T, or a type that widens to T. A constant or
+//     known value that does not fit T is reported as overflowing it. Any
+//     other is v, ok := T(x), which is an error where the conversion cannot
+//     fail; no fact makes a conversion compile;
 //   - a variable's value is usable as its declared type, and a variable
 //     declared without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a
