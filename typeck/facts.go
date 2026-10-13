@@ -43,12 +43,30 @@ import (
 // not zero, or that it lies at or above lo, or at or below hi, or below the
 // length of the string variable lenOf. For a string variable, the fact is
 // about its length instead.
+//
+// A fact also records where it came from, for the notes that explain a
+// missing proof: src, the comparison, or the && or || whose sides it
+// unites, that gave it, when there is one, and guard, the condition, loop,
+// case or early exit whose region it was put in force for. drop is set on a
+// fact that does not hold where it is: one the region drops because it
+// assigns the variable, and one that would hold but for how its region is
+// written (see explain.go). Such a fact is kept in force only to explain an
+// error, and every query that proves something skips it: see inForce.
 type fact struct {
 	decl         ast.Decl
 	lenOf        ast.Decl
+	src          ast.Expr
+	guard        *guard
+	drop         *drop
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
+}
+
+// inForce reports whether f is in force where it is, and so may prove
+// something: it was not dropped.
+func (f fact) inForce() bool {
+	return f.drop == nil
 }
 
 // empty reports whether f says nothing about its variable: no bound, not
@@ -95,13 +113,9 @@ func (c *Checker) inRange(index ast.Expr, n int64) bool {
 // intervalOf returns what is known about the value of the variable id names:
 // its type's bounds, narrowed by every fact in force about it.
 func (c *Checker) intervalOf(id *ast.Ident) interval {
-	var known interval
-	if typ := ast.TypeOf(id); types.Bits(typ) > 0 {
-		known.lo, known.hi = typeBounds(typ)
-		known.hasLo, known.hasHi = true, true
-	}
+	known := typeInterval(id)
 	for _, f := range c.active {
-		if f.decl == id.Def {
+		if f.decl == id.Def && f.inForce() {
 			known = known.narrow(f)
 		}
 	}
@@ -305,12 +319,20 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 		case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
 			return append(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)...)
 		case x.Op == ast.And, x.Op == ast.Or:
-			return union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds))
+			return from(union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)), x)
 		case x.Op.IsComparison():
 			return c.comparisonFact(x, holds)
 		}
 	}
 	return nil
+}
+
+// from records src as where each of facts came from, and returns them.
+func from(facts []fact, src ast.Expr) []fact {
+	for i := range facts {
+		facts[i].src = src
+	}
+	return facts
 }
 
 // union returns the facts that hold when the facts a hold or the facts b
@@ -401,10 +423,10 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 		op = negate(op)
 	}
 	if f, ok := c.orientedFact(cmp.X, op, cmp.Y); ok {
-		return []fact{f}
+		return from([]fact{f}, cmp)
 	}
 	if f, ok := c.orientedFact(cmp.Y, flip(op), cmp.X); ok {
-		return []fact{f}
+		return from([]fact{f}, cmp)
 	}
 	return nil
 }
@@ -525,53 +547,108 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 	}
 }
 
-// assume puts facts in force for the region about to be checked, keeping
-// only those about variables the region never assigns, the string whose
-// length bounds one included. A fact that says nothing, such as the one
-// b != 3 gives, is dropped before the region is searched, which a long
-// chain of cases or ifs would otherwise do once per link. It returns how
-// many it put in force, for forget to remove when the region ends.
-func (c *Checker) assume(facts []fact, region []ast.Stmt) int {
-	n := 0
+// assume puts facts in force for the region about to be checked, coming
+// from g. A fact about a variable the region assigns, or about the string
+// whose length bounds one, is put in force dropped, marked with the
+// assignment, so it proves nothing but can explain an error. A fact that
+// says nothing, such as the one b != 3 gives, is left out before the region
+// is searched, which a long chain of cases or ifs would otherwise do once
+// per link. g itself is put in scope too. Everything assume puts in force
+// stays until a release to a mark taken before it.
+func (c *Checker) assume(g *guard, facts []fact, region []ast.Stmt) {
+	c.guards = append(c.guards, g)
 	for _, f := range facts {
 		if f.empty() {
 			continue
 		}
-		if !assigns(region, f.decl) && (f.lenOf == nil || !assigns(region, f.lenOf)) {
-			c.active = append(c.active, f)
-			n++
+		f.guard = g
+		if f.drop == nil {
+			f.drop = assignedIn(region, f)
+		}
+		c.active = append(c.active, f)
+	}
+}
+
+// mark records how many facts and guards are in force, for release.
+type mark struct {
+	facts, guards int
+}
+
+// mark returns how many facts and guards are in force now.
+func (c *Checker) mark() mark {
+	return mark{len(c.active), len(c.guards)}
+}
+
+// release takes out of force every fact and guard assumed since m was
+// taken.
+func (c *Checker) release(m mark) {
+	c.active = c.active[:m.facts]
+	c.guards = c.guards[:m.guards]
+}
+
+// assignedIn returns why region drops f: the first assignment in it, in
+// source order, to f's variable, or else to the string whose length bounds
+// it. It returns nil when region assigns neither.
+func assignedIn(region []ast.Stmt, f fact) *drop {
+	if target := assignment(region, f.decl); target != nil {
+		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(f.decl)}
+	}
+	if f.lenOf == nil {
+		return nil
+	}
+	if target := assignment(region, f.lenOf); target != nil {
+		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(f.lenOf)}
+	}
+	return nil
+}
+
+// assignment returns the first target, in source order, through which any
+// statement in region, however deeply nested, assigns to decl: an
+// assignment's target, a compound assignment's, an increment's or
+// decrement's, or one of an assignment of several values. It returns nil
+// when there is none.
+func assignment(region []ast.Stmt, decl ast.Decl) ast.Expr {
+	var found ast.Expr
+	visit := func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Assign:
+			found = writer(found, x.Target, decl)
+		case *ast.IncDec:
+			found = writer(found, x.Target, decl)
+		case *ast.MultiAssign:
+			for _, target := range x.Targets {
+				found = writer(found, target, decl)
+			}
+		}
+		return found == nil
+	}
+	for _, stmt := range region {
+		if ast.Walk(stmt, visit); found != nil {
+			return found
 		}
 	}
-	return n
+	return nil
 }
 
-// forget removes the n facts the matching assume put in force, the most
-// recent ones.
-func (c *Checker) forget(n int) {
-	c.active = c.active[:len(c.active)-n]
-}
-
-// assigns reports whether any statement in region, however deeply nested,
-// assigns to decl: as an assignment's target, a compound assignment's, an
-// increment's or decrement's, or one of an assignment of several values.
-func assigns(region []ast.Stmt, decl ast.Decl) bool {
-	found := false
-	for _, stmt := range region {
-		ast.Walk(stmt, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.Assign:
-				found = found || writes(x.Target, decl)
-			case *ast.IncDec:
-				found = found || writes(x.Target, decl)
-			case *ast.MultiAssign:
-				for _, target := range x.Targets {
-					found = found || writes(target, decl)
-				}
-			}
-			return !found
-		})
+// writer returns found, the target already found to assign decl, if any,
+// and otherwise target when assigning to it changes decl.
+func writer(found, target ast.Expr, decl ast.Decl) ast.Expr {
+	if found == nil && writes(target, decl) {
+		return target
 	}
 	return found
+}
+
+// declName returns the name a parameter or variable is declared with.
+func declName(decl ast.Decl) string {
+	switch d := decl.(type) {
+	case *ast.Param:
+		return d.Name
+	case *ast.Var:
+		return d.Name
+	default:
+		return ""
+	}
 }
 
 // writes reports whether assigning to target changes decl: target is decl
@@ -603,18 +680,31 @@ func leaves(body []ast.Stmt) bool {
 }
 
 // afterFacts returns the facts an if, or a switch, gives the statements
-// after it in its block; see exitFacts and switchAfterFacts.
-func (c *Checker) afterFacts(stmt ast.Stmt) []fact {
+// after it in its block, and the guard they come from; see exitFacts and
+// switchAfterFacts.
+func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 	switch s := stmt.(type) {
 	case *ast.If:
-		return exitFacts(leaves(s.Then), leaves(s.Else), func(holds bool) []fact {
+		facts := exitFacts(leaves(s.Then), leaves(s.Else), func(holds bool) []fact {
 			return c.factsFrom(s.Cond, holds)
 		})
+		if len(facts) == 0 {
+			return nil, nil
+		}
+		return ifGuard(s), facts
 	case *ast.Switch:
 		return c.switchAfterFacts(s)
 	default:
-		return nil
+		return nil, nil
 	}
+}
+
+// ifGuard returns the guard an if is as an early exit: its keyword
+// through its condition, which a note underlines.
+func ifGuard(s *ast.If) *guard {
+	span := s.Span
+	span.End = s.Cond.Spanned().End
+	return &guard{cond: s.Cond, span: span, kind: guardExit}
 }
 
 // exitFacts returns the facts a two-way branch gives the statements after

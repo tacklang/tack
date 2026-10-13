@@ -72,6 +72,17 @@
 // several values proves the union of what each does. Deferred code
 // is checked where the defer is written, with the facts in force there,
 // which still hold when it runs, at the end of the defer's block (defer.go).
+// An error for a missing proof carries notes when a guard in scope says
+// something about the operand (explain.go): the guard whose fact a region
+// dropped, with the assignment that dropped it, and what the facts would
+// still have lacked, or the guard whose fact holds but falls short, an
+// index bounded only above or allowed past the end. Every note's span is
+// the code it is about, so its text names no position. A fact a region
+// drops is kept in force for this, marked with the assignment, and every
+// query that proves something skips it; whether it would have been enough
+// is found by running the proof again with every fact counted. Each fact
+// records the comparison that gave it and its guard, the condition, loop,
+// case or early exit whose region it holds in.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
 // always being true; only a divisor known to be zero is reported. A fact is
 // about a variable, never a field: a guard on p.x proves nothing about p.x,

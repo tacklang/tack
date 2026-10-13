@@ -42,8 +42,10 @@ type Checker struct {
 	knownVars map[*ast.Var]knownResult
 
 	// active holds the facts in force where checking has reached, innermost
-	// last; see facts.go.
+	// last, and guards the guards they came from, with any guard in scope
+	// that gave none; see facts.go and explain.go.
 	active []fact
+	guards []*guard
 
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
@@ -143,8 +145,10 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.If:
 		c.checkCond(s.Cond)
-		c.checkGuarded(s.Then, c.factsFrom(s.Cond, true), fn)
-		c.checkGuarded(s.Else, c.factsFrom(s.Cond, false), fn)
+		then := &guard{cond: s.Cond, span: s.Cond.Spanned(), kind: guardCond}
+		c.checkGuarded(s.Then, then, c.factsFrom(s.Cond, true), fn)
+		els := &guard{cond: s.Cond, span: s.Cond.Spanned(), kind: guardElse}
+		c.checkGuarded(s.Else, els, c.factsFrom(s.Cond, false), fn)
 
 	case *ast.For:
 		c.checkFor(s, fn)
@@ -376,16 +380,22 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Post != nil {
 		c.checkSimpleStmt(loop.Post)
 	}
-	var facts []fact
+	m := c.mark()
 	if loop.Cond != nil {
-		facts = c.factsFrom(loop.Cond, true)
+		facts := c.factsFrom(loop.Cond, true)
+		c.assume(
+			&guard{cond: loop.Cond, span: loop.Cond.Spanned(), kind: guardCond},
+			facts,
+			loop.Body,
+		)
 		if f, ok := c.countingFact(loop, facts); ok {
-			facts = append(facts, f)
+			c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, loop.Body)
 		}
 	}
 	c.loops++
-	c.checkGuarded(loop.Body, facts, fn)
+	c.checkBlock(loop.Body, fn)
 	c.loops--
+	c.release(m)
 }
 
 // checkForRange checks a range loop. It ranges over an integer, of any
@@ -403,8 +413,9 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	if loop.Elem != nil {
 		loop.Elem.Type = elem
 	}
+	header := ast.Span{File: loop.Span.File, Start: loop.Span.Start, End: loop.X.Spanned().End}
 	c.loops++
-	c.checkGuarded(loop.Body, c.rangeFacts(loop, got), fn)
+	c.checkGuarded(loop.Body, &guard{span: header, kind: guardRange}, c.rangeFacts(loop, got), fn)
 	c.loops--
 }
 
@@ -475,22 +486,23 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 // leaves the block gives the statements after it the facts of having got
 // past it.
 func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
-	assumed := 0
+	m := c.mark()
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
-		if facts := c.afterFacts(stmt); len(facts) > 0 {
-			assumed += c.assume(facts, body[i+1:])
+		if g, facts := c.afterFacts(stmt); len(facts) > 0 {
+			c.assume(g, facts, body[i+1:])
 		}
 	}
-	c.forget(assumed)
+	c.release(m)
 }
 
-// checkGuarded checks a block reached only when facts hold, assuming those
-// the block cannot undo.
-func (c *Checker) checkGuarded(body []ast.Stmt, facts []fact, fn *ast.Func) {
-	assumed := c.assume(facts, body)
+// checkGuarded checks a block reached only when facts, which come from g,
+// hold, assuming those the block cannot undo.
+func (c *Checker) checkGuarded(body []ast.Stmt, g *guard, facts []fact, fn *ast.Func) {
+	m := c.mark()
+	c.assume(g, facts, body)
 	c.checkBlock(body, fn)
-	c.forget(assumed)
+	c.release(m)
 }
 
 // checkCond checks the condition of an if or a loop, which must be a bool.
@@ -1020,9 +1032,15 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 }
 
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {
+	c.errorNotes(span, nil, format, args...)
+}
+
+// errorNotes reports an error at span, with notes that explain it.
+func (c *Checker) errorNotes(span ast.Span, notes []diag.Diagnostic, format string, args ...any) {
 	c.diags = append(c.diags, diag.Diagnostic{
 		Severity: diag.Error,
 		Message:  fmt.Sprintf(format, args...),
 		Span:     span,
+		Related:  notes,
 	})
 }

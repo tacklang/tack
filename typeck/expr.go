@@ -267,9 +267,11 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 	if bin.Op.IsLogical() {
 		// The right side runs only when the left did not decide the
 		// result: after a true left side for &&, a false one for ||.
-		assumed := c.assume(c.factsFrom(bin.X, bin.Op == ast.And), nil)
+		m := c.mark()
+		left := &guard{cond: bin.X, span: bin.X.Spanned(), kind: guardCond}
+		c.assume(left, c.factsFrom(bin.X, bin.Op == ast.And), nil)
 		y = c.expr(bin.Y)
-		c.forget(assumed)
+		c.release(m)
 	} else {
 		y = c.expr(bin.Y)
 	}
@@ -391,15 +393,17 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
 	id, isName := divisor.(*ast.Ident)
 	switch {
 	case isName && withOk:
-		c.errorf(
+		c.errorNotes(
 			divisor.Spanned(),
+			c.explain(c.divisorProof(id)),
 			"divisor %s may be zero; check %s != 0 first, or use q, ok := ... / %s",
 			id.Name,
 			id.Name,
 			id.Name,
 		)
 	case isName:
-		c.errorf(divisor.Spanned(), "divisor %s may be zero; check %s != 0 first", id.Name, id.Name)
+		c.errorNotes(divisor.Spanned(), c.explain(c.divisorProof(id)),
+			"divisor %s may be zero; check %s != 0 first", id.Name, id.Name)
 	case withOk:
 		c.errorf(divisor.Spanned(), "divisor may be zero; use q, ok := ... / ...")
 	default:

@@ -5,6 +5,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -108,7 +109,7 @@ func (c *Checker) minLen(s ast.Expr) constant.Int {
 	}
 	var least interval
 	for _, f := range c.active {
-		if f.decl == id.Def {
+		if f.decl == id.Def && f.inForce() {
 			least = least.narrow(f)
 		}
 	}
@@ -131,7 +132,7 @@ func (c *Checker) belowLen(id *ast.Ident, s ast.Expr) bool {
 		return false
 	}
 	for _, f := range c.active {
-		if f.decl == id.Def && f.lenOf == name.Def {
+		if f.decl == id.Def && f.lenOf == name.Def && f.inForce() {
 			return true
 		}
 	}
@@ -150,7 +151,24 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 	if c.stringIndexProven(ix) {
 		return
 	}
-	c.errorf(ix.Index.Spanned(), "%s", c.stringIndexAdvice(ix))
+	c.errorNotes(ix.Index.Spanned(), c.stringIndexNotes(ix), "%s", c.stringIndexAdvice(ix))
+}
+
+// stringIndexNotes explains why the index of s[i] is not proven: from the
+// facts about i, a variable, or about the length of s, a variable, when i
+// is a known value.
+func (c *Checker) stringIndexNotes(ix *ast.Index) []diag.Diagnostic {
+	proven := func() bool { return c.stringIndexProven(ix) }
+	_, isConst := c.knownValue(ix.Index)
+	if id, ok := ix.Index.(*ast.Ident); ok && !isConst {
+		n, known := c.knownLen(ix.X)
+		e := extent{of: ix.X, unit: "byte", n: n, known: known}
+		return c.explain(c.indexProof(id, e, proven))
+	}
+	if s, ok := ix.X.(*ast.Ident); ok {
+		return c.explain(lengthProof(s, proven))
+	}
+	return nil
 }
 
 // stringIndexAdvice says why the index of s[i] may be out of range, and

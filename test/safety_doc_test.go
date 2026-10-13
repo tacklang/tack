@@ -29,12 +29,12 @@ var htmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
 // refers to. White space, a line break included, may separate a comment from
 // its code span because a comment that starts a line in Markdown is an HTML
 // block, which would swallow a code span on the same line.
-var annotation = regexp.MustCompile("<!-- (case|error|example): ([^ ]+) -->" +
+var annotation = regexp.MustCompile("<!-- (case|error|note|example): ([^ ]+) -->" +
 	"(?:\n```tack\n((?s:.*?\n))```|\\s*`([^`]+)`)?")
 
 // docAnnotation is one annotation on the safety page.
 type docAnnotation struct {
-	kind  string // case, error, or example
+	kind  string // case, error, note, or example
 	name  string // an invalid case, or a directory under examples/
 	block string // the fenced tack block that follows, if any
 	span  string // the code span that follows, if any
@@ -50,6 +50,7 @@ type docAnnotation struct {
 //     failing snippet written inline, and NAME must exist.
 //   - <!-- error: NAME --> is followed by a code span holding a diagnostic,
 //     which must be one of the diagnostics in NAME's expected output, whole.
+//   - <!-- note: NAME --> is the same for a note on one of them.
 //   - <!-- example: DIR --> is followed by a fenced tack block whose lines
 //     must appear in examples/DIR/main.tck, which TestBuiltSafetyPassesEveryCheck in
 //     tack/ runs.
@@ -90,7 +91,7 @@ func parseAnnotations(t *testing.T, doc string) []docAnnotation {
 	t.Helper()
 	for _, c := range htmlComment.FindAllString(doc, -1) {
 		if loc := annotation.FindStringIndex(c); loc == nil || loc[0] != 0 {
-			t.Errorf("%s: comment %q is not <!-- case|error|example: NAME -->", safetyDoc, c)
+			t.Errorf("%s: comment %q is not <!-- case|error|note|example: NAME -->", safetyDoc, c)
 		}
 	}
 	matches := annotation.FindAllStringSubmatch(doc, -1)
@@ -118,15 +119,24 @@ func checkAnnotation(t *testing.T, a docAnnotation, cases map[string]invalid.Cas
 		t.Errorf("%s: no such case in %s", where, invalid.Path)
 		return
 	}
-	switch {
-	case a.kind == "error" && a.span == "":
-		t.Errorf("%s must be followed directly by a code span", where)
-	case a.kind == "error":
-		if !hasDiagnostic(string(c.Expected), a.span) {
-			t.Errorf("%s: the case does not report %q; it reports:\n%s", where, a.span, c.Expected)
-		}
-	case a.block != "" && !containsLines(string(c.Source), a.block):
+	if a.kind == "error" || a.kind == "note" {
+		checkDiagnostic(t, where, a, c)
+		return
+	}
+	if a.block != "" && !containsLines(string(c.Source), a.block) {
 		t.Errorf("%s: the case's program does not contain the block\n%s", where, a.block)
+	}
+}
+
+// checkDiagnostic checks that the code span after an error or note
+// annotation is a diagnostic of that kind in the case c's expected output.
+func checkDiagnostic(t *testing.T, where string, a docAnnotation, c invalid.Case) {
+	t.Helper()
+	switch {
+	case a.span == "":
+		t.Errorf("%s must be followed directly by a code span", where)
+	case !hasDiagnostic(string(c.Expected), a.kind, a.span):
+		t.Errorf("%s: the case does not report %q; it reports:\n%s", where, a.span, c.Expected)
 	}
 }
 
@@ -149,11 +159,12 @@ func checkExample(t *testing.T, where string, a docAnnotation) {
 	}
 }
 
-// hasDiagnostic reports whether expected, a case's rendered output, holds an
-// error whose whole message is msg. Matching up to the end of the line keeps
-// a message from matching a longer one that starts with it.
-func hasDiagnostic(expected, msg string) bool {
-	return strings.Contains(expected, ": error: "+msg+"\n")
+// hasDiagnostic reports whether expected, a case's rendered output, holds a
+// diagnostic of severity kind, error or note, whose whole message is msg.
+// Matching up to the end of the line keeps a message from matching a longer
+// one that starts with it.
+func hasDiagnostic(expected, kind, msg string) bool {
+	return strings.Contains(expected, ": "+kind+": "+msg+"\n")
 }
 
 // containsLines reports whether the lines of snippet appear in src, in order

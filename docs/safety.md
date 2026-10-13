@@ -360,6 +360,27 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
 | <!-- case: safety-no-proof-conversion-guard -->any guard around `uint8(x)`                  | conversions follow the type rule only                                  |
 
+### Notes on a missing proof
+
+When a guard in scope says something about a divisor or index it did not
+prove, the error comes with notes that say why. Each note points at the
+code it is about, so its text never repeats a position:
+
+- a guard whose fact the region dropped says what it proves, and the next
+  note points at the assignment that dropped it;
+- when that fact would not have been enough anyway, a note says what it
+  would have lacked;
+- a guard whose fact holds but is too weak says what it allows, such as
+  `i == 3` for a `[3]T`, or that it bounds the index only above.
+
+For `for i < 3 { sum += a[i]; i++ }` the error is followed
+by <!-- note: safety-no-proof-loop-assigns -->`this guard proves i < 3`,
+under `i < 3`,
+then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the proof ends`,
+under the `i` of `i++`,
+and <!-- note: safety-no-proof-loop-assigns -->`this guard would bound i only above; i may be negative`.
+An operation no guard mentions keeps its error alone.
+
 ## Per operation
 
 Each failing example below shows its diagnostic, as the compiler prints it

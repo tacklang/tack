@@ -443,7 +443,10 @@ which is true today because `main` is the only package there is.
   parameter, a local, or an immutable global, and the region must not assign
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
-  leaving. [docs/safety.md](docs/safety.md) gathers these rules, the
+  leaving. When a guard says something about a divisor or index it did not
+  prove, the error comes with notes pointing at the guard and what it
+  proves, at the assignment that ended that proof, or at what the guard
+  allows that the operation does not, such as `i == 3` for a `[3]T`. [docs/safety.md](docs/safety.md) gathers these rules, the
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
   such as a two-value form whose `ok` is always `true`.

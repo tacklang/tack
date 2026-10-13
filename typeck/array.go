@@ -3,6 +3,7 @@ package typeck
 import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -162,7 +163,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 			return types.Invalid
 		}
 	default:
-		c.requireInRange(ix.Index, base, n, write)
+		c.requireInRange(ix.X, ix.Index, base, n, write)
 	}
 	return elem
 }
@@ -192,10 +193,10 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 	return []types.Type{elem, types.Bool}, true
 }
 
-// requireInRange reports an index that is not proven to be in range for an
-// array of type typ, with n elements: a constant outside it, or anything
-// else no fact covers.
-func (c *Checker) requireInRange(index ast.Expr, typ types.Type, n int64, write bool) {
+// requireInRange reports an index that is not proven to be in range for
+// the array of, of type typ, with n elements: a constant outside it, or
+// anything else no fact covers, with notes that explain why no fact did.
+func (c *Checker) requireInRange(of, index ast.Expr, typ types.Type, n int64, write bool) {
 	if v, ok := c.knownValue(index); ok {
 		if !c.constantInRange(v, n) {
 			c.errorf(index.Spanned(), "index %s is out of range for %s", v, c.table.Name(typ))
@@ -207,13 +208,26 @@ func (c *Checker) requireInRange(index ast.Expr, typ types.Type, n int64, write 
 	}
 
 	id, isName := index.(*ast.Ident)
+	var notes []diag.Diagnostic
+	if isName {
+		e := extent{of: of, unit: "element", n: n, known: true}
+		notes = c.explain(c.indexProof(id, e, func() bool { return c.inRange(index, n) }))
+	}
 	switch {
 	case isName && write:
-		c.errorf(index.Spanned(), "index %s may be out of range; check 0 <= %s && %s < %d first",
-			id.Name, id.Name, id.Name, n)
-	case isName:
-		c.errorf(
+		c.errorNotes(
 			index.Spanned(),
+			notes,
+			"index %s may be out of range; check 0 <= %s && %s < %d first",
+			id.Name,
+			id.Name,
+			id.Name,
+			n,
+		)
+	case isName:
+		c.errorNotes(
+			index.Spanned(),
+			notes,
 			"index %s may be out of range; check 0 <= %s && %s < %d first, or use v, ok := ...[%s]",
 			id.Name,
 			id.Name,

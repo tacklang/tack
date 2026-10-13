@@ -48,13 +48,18 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	}
 
 	seen := make(map[caseKey]ast.Expr)
-	assumed := 0
+	m := c.mark()
 	for i, cl := range order {
 		c.checkCaseValues(s, tagType, cl, seen)
-		c.checkGuarded(cl.Body, c.caseFacts(s, cl, true), fn)
-		assumed += c.assume(c.caseFacts(s, cl, false), later[rest[i]:])
+		span := caseSpan(cl)
+		c.checkGuarded(cl.Body, &guard{span: span, kind: guardCase}, c.caseFacts(s, cl, true), fn)
+		c.assume(
+			&guard{span: span, kind: guardLaterCase},
+			c.caseFacts(s, cl, false),
+			later[rest[i]:],
+		)
 	}
-	c.forget(assumed)
+	c.release(m)
 }
 
 // tryOrder returns a switch's cases in the order they are tried: every case
@@ -83,7 +88,7 @@ func (c *Checker) checkCaseValues(
 	cl *ast.CaseClause,
 	seen map[caseKey]ast.Expr,
 ) {
-	assumed := 0
+	m := c.mark()
 	for _, v := range cl.Values {
 		switch {
 		case s.Tag == nil:
@@ -91,9 +96,14 @@ func (c *Checker) checkCaseValues(
 		case c.checkCaseValue(tagType, v):
 			c.checkDuplicate(v, seen)
 		}
-		assumed += c.assume(c.factsFrom(caseCond(s, v), false), nil)
+		cond := caseCond(s, v)
+		c.assume(
+			&guard{cond: cond, span: v.Spanned(), kind: guardCase},
+			c.factsFrom(cond, false),
+			nil,
+		)
 	}
-	c.forget(assumed)
+	c.release(m)
 }
 
 // checkCaseValue checks a value of an expression switch whose tag has type
@@ -205,15 +215,27 @@ func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fac
 
 // switchAfterFacts returns the facts a switch gives the statements after it
 // in its block, as the chain of ifs it means does: its first case tried is
-// the if, and the rest of the chain its else.
-func (c *Checker) switchAfterFacts(s *ast.Switch) []fact {
+// the if, and the rest of the chain its else. The facts come from that
+// first case, as an early exit.
+func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
 	order := tryOrder(s)
 	if len(order) == 0 || order[0].Default {
-		return nil
+		return nil, nil
 	}
-	return exitFacts(leaves(order[0].Body), chainLeaves(order[1:]), func(holds bool) []fact {
+	facts := exitFacts(leaves(order[0].Body), chainLeaves(order[1:]), func(holds bool) []fact {
 		return c.caseFacts(s, order[0], holds)
 	})
+	return &guard{span: caseSpan(order[0]), kind: guardExit}, facts
+}
+
+// caseSpan returns what a note about a case underlines: its keyword
+// through its last value, or the whole clause for a default.
+func caseSpan(cl *ast.CaseClause) ast.Span {
+	span := cl.Span
+	if len(cl.Values) > 0 {
+		span.End = cl.Values[len(cl.Values)-1].Spanned().End
+	}
+	return span
 }
 
 // chainLeaves reports whether a chain of cases, in the order tried, always
