@@ -1,0 +1,137 @@
+package typeck
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/types"
+)
+
+// fieldVis returns the visibility the i'th field of the struct type typ has
+// in effect: the field's own, capped by its struct's.
+func (c *Checker) fieldVis(typ types.Type, i int) ast.Visibility {
+	td := c.structs[typ]
+	st, ok := td.TypeExpr.(*ast.StructType)
+	if !ok || i >= len(st.Fields) {
+		return ast.Private
+	}
+	return st.Fields[i].Vis.Capped(td.Vis)
+}
+
+// hiddenField returns why the code being checked may not use the i'th
+// field of the struct type typ, named name, by name, or "" when it may:
+// the field is not visible from the package being checked.
+func (c *Checker) hiddenField(typ types.Type, i int, name string) string {
+	owner := c.structPkg[typ]
+	vis := c.fieldVis(typ, i)
+	if owner == nil || c.pkg == nil || ast.Visible(vis, owner, c.pkg) {
+		return ""
+	}
+	if vis == ast.Lib {
+		return fmt.Sprintf("%s is lib in module %s and cannot be used from module %s",
+			name, owner.Module, c.pkg.Module)
+	}
+	return fmt.Sprintf("%s is not pub in %s", name, c.typeName(typ))
+}
+
+// checkLiteralFields reports a literal of the struct type typ, at span,
+// written in a package that cannot see every one of its fields: a literal
+// names every field, so it needs them all.
+func (c *Checker) checkLiteralFields(typ types.Type, span ast.Span) bool {
+	var hidden []string
+	for i, f := range c.table.Fields(typ) {
+		if c.hiddenField(typ, i, f.Name) != "" {
+			hidden = append(hidden, f.Name)
+		}
+	}
+	if len(hidden) == 0 {
+		return true
+	}
+	verb := "is"
+	if len(hidden) > 1 {
+		verb = "are"
+	}
+	c.errorf(span, "cannot write a %s literal outside package %s: %s %s %s not pub",
+		c.typeName(typ), c.structPkg[typ].Name, plural(len(hidden), "field"),
+		strings.Join(hidden, ", "), verb)
+	return false
+}
+
+// checkExposure reports every type a pub or lib declaration exposes that is
+// less visible than it: a type named in a function's signature, a global's
+// type, or a field's type, where the field's visibility is capped by its
+// struct's. A pub one may expose only pub types; a lib one, lib or pub
+// ones. A client of the declaration can then name every type it gets.
+func (c *Checker) checkExposure(decls []ast.Decl) {
+	for _, decl := range decls {
+		restore := c.enter(decl)
+		switch d := decl.(type) {
+		case *ast.Func:
+			c.funcExposure(d)
+		case *ast.Var:
+			// A mut global cannot be pub or lib, which the resolver
+			// reported.
+			if d.Vis != ast.Private && !d.Mutable {
+				at := d.NameSpan
+				if d.TypeExpr != nil {
+					at = d.TypeExpr.Spanned()
+				}
+				c.exposure(d.Vis, "variable "+d.Name, d.Type, at)
+			}
+		case *ast.TypeDecl:
+			c.fieldExposure(d)
+		}
+		restore()
+	}
+}
+
+// funcExposure reports every type the signature of fn, if pub or lib,
+// names that is less visible than fn.
+func (c *Checker) funcExposure(fn *ast.Func) {
+	if fn.Vis == ast.Private {
+		return
+	}
+	what := "function " + fn.Name
+	for _, p := range fn.Params {
+		c.exposure(fn.Vis, what, p.Type, p.TypeExpr.Spanned())
+	}
+	for i, r := range fn.Results {
+		if i < len(fn.ResultTypes) {
+			c.exposure(fn.Vis, what, fn.ResultTypes[i], r.Spanned())
+		}
+	}
+}
+
+// fieldExposure reports every type a field of td, visible beyond its
+// package, has that is less visible than the field.
+func (c *Checker) fieldExposure(td *ast.TypeDecl) {
+	st, ok := td.TypeExpr.(*ast.StructType)
+	if !ok {
+		return
+	}
+	fields := c.table.Fields(td.Type)
+	for i, f := range st.Fields {
+		if vis := f.Vis.Capped(td.Vis); vis != ast.Private && i < len(fields) {
+			c.exposure(vis, "field "+f.Name+" of "+td.Name, fields[i].Type, f.TypeExpr.Spanned())
+		}
+	}
+}
+
+// exposure reports typ, written at at in the declaration what, whose
+// visibility is vis, if it is or holds a struct type less visible than
+// vis.
+func (c *Checker) exposure(vis ast.Visibility, what string, typ types.Type, at ast.Span) {
+	for c.table.IsArray(typ) {
+		typ = c.table.Elem(typ)
+	}
+	td := c.structs[typ]
+	if !c.table.IsStruct(typ) || td == nil || td.Vis >= vis {
+		return
+	}
+	need := "pub"
+	if vis == ast.Lib {
+		need = "lib or pub"
+	}
+	c.errorf(at, "%s %s exposes %s, which is not %s", vis, what, c.typeName(typ), need)
+}

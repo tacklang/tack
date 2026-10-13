@@ -1,13 +1,14 @@
 package text
 
 // isDigit is imported by both lexer and geom, so this package is loaded
-// once and reached twice: a diamond.
-func isDigit(c uint8) bool {
+// once and reached twice: a diamond. It is lib: usable by every package of
+// module calc, and by no other module.
+lib func isDigit(c uint8) bool {
     return c >= '0' && c <= '9'
 }
 
 // divmod returns two results, bound by an importer.
-func divmod(a int64, b int64) (int64, int64) {
+lib func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
     }
@@ -16,6 +17,6 @@ func divmod(a int64, b int64) (int64, int64) {
 
 // size shares its name with geom.size and with a function of package main:
 // each package's names are its own.
-func size() int64 {
+lib func size() int64 {
     return 1
 }

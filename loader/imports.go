@@ -135,7 +135,7 @@ func (g *graph) loadPackage(imp *ast.Import) *ast.Package {
 		g.errorAt(imp, fmt.Sprintf("cannot import %s: it is a main package", show(p)))
 		return nil
 	}
-	pkg.Path = p
+	pkg.Path, pkg.Module = p, g.mod.name
 	g.stack = append(g.stack, p)
 	g.loadImports(pkg)
 	g.stack = g.stack[:len(g.stack)-1]

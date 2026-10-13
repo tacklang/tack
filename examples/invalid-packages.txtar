@@ -16,19 +16,19 @@ module calc
 -- assign-imported-immutable/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- assign-imported-immutable/main.tck --
@@ -223,19 +223,19 @@ module calc
 -- divide-by-imported-mutable/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- divide-by-imported-mutable/main.tck --
@@ -247,19 +247,14 @@ func main() {
     exit(10 / lexer.Count)
 }
 -- divide-by-imported-mutable/expected --
-stage: typeck
+stage: resolve
 ---
 
-divide-by-imported-mutable/main.tck:6:15: error: divisor lexer.Count may be zero; use q, ok := ... / lexer.Count
+divide-by-imported-mutable/main.tck:6:15: error: Count is not pub in package calc/lexer
 05 |	func main() {
 06 |	    exit(10 / lexer.Count)
    |	              ^~~~~~~~~~~
 07 |	}
-divide-by-imported-mutable/lexer/lexer.tck:9:5: note: Count is a mutable global, so no check proves it; copy it into a local first
-08 |	
-09 |	mut Count int64 = 0
-   |	    ^~~~~
-10 |	
 
 -- dup-func-across-files/tack.mod --
 module dup-func-across-files
@@ -389,19 +384,19 @@ module calc
 -- import-bad-paths/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-bad-paths/main.tck --
@@ -468,19 +463,19 @@ module calc
 -- import-blank-name/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-blank-name/main.tck --
@@ -505,19 +500,19 @@ module calc
 -- import-builtin-name/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-builtin-name/main.tck --
@@ -543,19 +538,19 @@ module calc
 -- import-clashes-with-func/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-clashes-with-func/main.tck --
@@ -589,19 +584,19 @@ module calc
 -- import-clashes-with-global-in-other-file/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-clashes-with-global-in-other-file/a.tck --
@@ -791,19 +786,19 @@ module calc
 -- import-duplicate-name/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-duplicate-name/parser/parser.tck --
@@ -846,19 +841,19 @@ module calc
 -- import-duplicate-path/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-duplicate-path/main.tck --
@@ -1090,19 +1085,19 @@ module calc
 -- import-per-file/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-per-file/a.tck --
@@ -1134,19 +1129,19 @@ module calc
 -- import-shadowed-by-local/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-shadowed-by-local/main.tck --
@@ -1173,19 +1168,19 @@ module calc
 -- import-shadowed-by-param/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-shadowed-by-param/main.tck --
@@ -1215,19 +1210,19 @@ module calc
 -- import-shadowed-in-loop/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-shadowed-in-loop/main.tck --
@@ -1301,19 +1296,19 @@ module calc
 -- import-two-on-a-line/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-two-on-a-line/main.tck --
@@ -1338,19 +1333,19 @@ module calc
 -- import-type-name/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-type-name/main.tck --
@@ -1375,11 +1370,11 @@ module calc
 -- import-typeck-error/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-func F() Token {
+pub func F() Token {
     return 1
 }
 -- import-typeck-error/main.tck --
@@ -1396,7 +1391,7 @@ stage: typeck
 ---
 
 import-typeck-error/lexer/lexer.tck:8:12: error: cannot use int64 as Token in return from F
-07 |	func F() Token {
+07 |	pub func F() Token {
 08 |	    return 1
    |	           ^
 09 |	}
@@ -1444,19 +1439,19 @@ module calc
 -- import-unused/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-unused/main.tck --
@@ -1481,19 +1476,19 @@ module calc
 -- import-unused-in-one-file/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- import-unused-in-one-file/a.tck --
@@ -1526,19 +1521,19 @@ module calc
 -- imported-mutable-in-initializer/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- imported-mutable-in-initializer/main.tck --
@@ -1552,13 +1547,13 @@ func main() {
     exit(x)
 }
 -- imported-mutable-in-initializer/expected --
-stage: typeck
+stage: resolve
 ---
 
-imported-mutable-in-initializer/main.tck:5:15: error: x must be initialized with a constant expression
+imported-mutable-in-initializer/main.tck:5:15: error: Count is not pub in package calc/lexer
 04 |	
 05 |	var x int64 = lexer.Count + 1
-   |	              ^~~~~~~~~~~~~~~
+   |	              ^~~~~~~~~~~
 06 |	
 
 -- lex-errors-in-two-files/tack.mod --
@@ -1617,14 +1612,14 @@ package a
 func main() {
 }
 
-func F() {
+pub func F() {
 }
 -- main-in-library/b/b.tck --
 package b
 
 var main int64 = 1
 
-var N int64 = main
+pub var N int64 = main
 -- main-in-library/c/c.tck --
 package c
 
@@ -1632,14 +1627,14 @@ type main struct {
     x int64
 }
 
-func F() {
+pub func F() {
 }
 -- main-in-library/d/d.tck --
 package d
 
 mut main int64 = 1
 
-func F() int64 {
+pub func F() int64 {
     return main
 }
 -- main-in-library/main.tck --
@@ -1992,19 +1987,19 @@ module calc
 -- package-misused/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- package-misused/main.tck --
@@ -2081,19 +2076,19 @@ module calc
 -- qualified-field-key/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- qualified-field-key/main.tck --
@@ -2120,19 +2115,19 @@ module calc
 -- qualified-type-in-message/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- qualified-type-in-message/lexer/bad.tck --
@@ -2178,19 +2173,19 @@ module calc
 -- qualified-undefined/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- qualified-undefined/main.tck --
@@ -2237,19 +2232,19 @@ module calc
 -- qualified-wrong-kind/lexer/lexer.tck --
 package lexer
 
-type Token struct {
-    kind int64
+pub type Token struct {
+    pub kind int64
 }
 
-var KindNumber int64 = 1
+pub var KindNumber int64 = 1
 
 mut Count int64 = 0
 
-func First(src string) Token {
+pub func First(src string) Token {
     return Token{kind: KindNumber}
 }
 
-func Get() int64 {
+pub func Get() int64 {
     return Count
 }
 -- qualified-wrong-kind/main.tck --
@@ -2420,4 +2415,625 @@ unused-global-in-other-file/b.tck:3:5: error: declared and not used: spare
 03 |	var spare int64 = 3
    |	    ^~~~~
 04 |	
+
+-- vis-exposes/tack.mod --
+module calc
+-- vis-exposes/text/text.tck --
+package text
+
+lib type Thing struct {
+    lib n int64
+}
+-- vis-exposes/lexer/lexer.tck --
+package lexer
+
+import text from "calc/text"
+
+type hidden struct {
+    n int64
+}
+
+lib type shared struct {
+    n int64
+}
+
+pub type Token struct {
+    pub h hidden
+    pub all [2]hidden
+    lib s shared
+    pub ok int64
+    secret hidden
+}
+
+type inner struct {
+    pub h hidden
+}
+
+lib type Half struct {
+    pub h hidden
+    pub s shared
+}
+
+pub func Result() hidden {
+    return hidden{n: 1}
+}
+
+pub func Param(h hidden) {
+}
+
+pub func Array() [3]hidden {
+    mut a [3]hidden
+    return a
+}
+
+pub func Pair() (int64, hidden) {
+    return 1, hidden{n: 1}
+}
+
+pub func Shared(s shared) {
+}
+
+pub func Foreign() text.Thing {
+    mut t text.Thing
+    return t
+}
+
+lib func Lib(h hidden) shared {
+    return shared{n: h.n}
+}
+
+pub var Origin = hidden{n: 0}
+pub var Typed hidden = hidden{n: 0}
+lib var Mid = hidden{n: 0}
+pub var Wide = shared{n: 0}
+lib var Fine = shared{n: 0}
+
+func Private(h hidden) hidden {
+    return h
+}
+-- vis-exposes/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    mut t lexer.Token
+    exit(t.ok)
+}
+-- vis-exposes/expected --
+stage: typeck
+---
+
+vis-exposes/lexer/lexer.tck:14:11: error: pub field h of Token exposes hidden, which is not pub
+13 |	pub type Token struct {
+14 |	    pub h hidden
+   |	          ^~~~~~
+15 |	    pub all [2]hidden
+
+vis-exposes/lexer/lexer.tck:15:13: error: pub field all of Token exposes hidden, which is not pub
+14 |	    pub h hidden
+15 |	    pub all [2]hidden
+   |	            ^~~~~~~~~
+16 |	    lib s shared
+
+vis-exposes/lexer/lexer.tck:26:11: error: lib field h of Half exposes hidden, which is not lib or pub
+25 |	lib type Half struct {
+26 |	    pub h hidden
+   |	          ^~~~~~
+27 |	    pub s shared
+
+vis-exposes/lexer/lexer.tck:30:19: error: pub function Result exposes hidden, which is not pub
+29 |	
+30 |	pub func Result() hidden {
+   |	                  ^~~~~~
+31 |	    return hidden{n: 1}
+
+vis-exposes/lexer/lexer.tck:34:18: error: pub function Param exposes hidden, which is not pub
+33 |	
+34 |	pub func Param(h hidden) {
+   |	                 ^~~~~~
+35 |	}
+
+vis-exposes/lexer/lexer.tck:37:18: error: pub function Array exposes hidden, which is not pub
+36 |	
+37 |	pub func Array() [3]hidden {
+   |	                 ^~~~~~~~~
+38 |	    mut a [3]hidden
+
+vis-exposes/lexer/lexer.tck:42:25: error: pub function Pair exposes hidden, which is not pub
+41 |	
+42 |	pub func Pair() (int64, hidden) {
+   |	                        ^~~~~~
+43 |	    return 1, hidden{n: 1}
+
+vis-exposes/lexer/lexer.tck:46:19: error: pub function Shared exposes shared, which is not pub
+45 |	
+46 |	pub func Shared(s shared) {
+   |	                  ^~~~~~
+47 |	}
+
+vis-exposes/lexer/lexer.tck:49:20: error: pub function Foreign exposes text.Thing, which is not pub
+48 |	
+49 |	pub func Foreign() text.Thing {
+   |	                   ^~~~~~~~~~
+50 |	    mut t text.Thing
+
+vis-exposes/lexer/lexer.tck:54:16: error: lib function Lib exposes hidden, which is not lib or pub
+53 |	
+54 |	lib func Lib(h hidden) shared {
+   |	               ^~~~~~
+55 |	    return shared{n: h.n}
+
+vis-exposes/lexer/lexer.tck:58:9: error: pub variable Origin exposes hidden, which is not pub
+57 |	
+58 |	pub var Origin = hidden{n: 0}
+   |	        ^~~~~~
+59 |	pub var Typed hidden = hidden{n: 0}
+
+vis-exposes/lexer/lexer.tck:59:15: error: pub variable Typed exposes hidden, which is not pub
+58 |	pub var Origin = hidden{n: 0}
+59 |	pub var Typed hidden = hidden{n: 0}
+   |	              ^~~~~~
+60 |	lib var Mid = hidden{n: 0}
+
+vis-exposes/lexer/lexer.tck:60:9: error: lib variable Mid exposes hidden, which is not lib or pub
+59 |	pub var Typed hidden = hidden{n: 0}
+60 |	lib var Mid = hidden{n: 0}
+   |	        ^~~
+61 |	pub var Wide = shared{n: 0}
+
+vis-exposes/lexer/lexer.tck:61:9: error: pub variable Wide exposes shared, which is not pub
+60 |	lib var Mid = hidden{n: 0}
+61 |	pub var Wide = shared{n: 0}
+   |	        ^~~~
+62 |	lib var Fine = shared{n: 0}
+
+-- vis-field-nested/tack.mod --
+module calc
+-- vis-field-nested/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+-- vis-field-nested/geom/geom.tck --
+package geom
+
+import lexer from "calc/lexer"
+
+pub type Box struct {
+    pub tok lexer.Token
+    pub toks [2]lexer.Token
+    size int64
+}
+-- vis-field-nested/main.tck --
+package main
+
+import geom from "calc/geom"
+
+func main() {
+    mut b geom.Box
+    b.tok.kind = 1
+    b.tok.end = 2
+    b.toks[1].end++
+    b.size += 1
+    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+}
+-- vis-field-nested/expected --
+stage: typeck
+---
+
+vis-field-nested/main.tck:8:11: error: end is not pub in lexer.Token
+07 |	    b.tok.kind = 1
+08 |	    b.tok.end = 2
+   |	          ^~~
+09 |	    b.toks[1].end++
+
+vis-field-nested/main.tck:9:15: error: end is not pub in lexer.Token
+08 |	    b.tok.end = 2
+09 |	    b.toks[1].end++
+   |	              ^~~
+10 |	    b.size += 1
+
+vis-field-nested/main.tck:10:7: error: size is not pub in geom.Box
+09 |	    b.toks[1].end++
+10 |	    b.size += 1
+   |	      ^~~~
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+
+vis-field-nested/main.tck:11:29: error: end is not pub in lexer.Token
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                            ^~~
+12 |	}
+
+vis-field-nested/main.tck:11:45: error: end is not pub in lexer.Token
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                                            ^~~
+12 |	}
+
+vis-field-nested/main.tck:11:53: error: size is not pub in geom.Box
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                                                    ^~~~
+12 |	}
+
+-- vis-field-read/tack.mod --
+module calc
+-- vis-field-read/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    lib start int64
+    end int64
+}
+
+pub func First() Token {
+    return Token{kind: 1, start: 0, end: 1}
+}
+-- vis-field-read/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.First()
+    exit(t.kind + t.start + t.end + lexer.First().end)
+}
+-- vis-field-read/expected --
+stage: typeck
+---
+
+vis-field-read/main.tck:7:31: error: end is not pub in lexer.Token
+06 |	    t := lexer.First()
+07 |	    exit(t.kind + t.start + t.end + lexer.First().end)
+   |	                              ^~~
+08 |	}
+
+vis-field-read/main.tck:7:51: error: end is not pub in lexer.Token
+06 |	    t := lexer.First()
+07 |	    exit(t.kind + t.start + t.end + lexer.First().end)
+   |	                                                  ^~~
+08 |	}
+
+-- vis-field-write/tack.mod --
+module calc
+-- vis-field-write/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+-- vis-field-write/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    mut t lexer.Token
+    mut a [2]lexer.Token
+    t.kind = 1
+    t.end = 3
+    t.end += 1
+    t.end++
+    t.end--
+    a[0].end = 2
+    exit(t.kind + a[1].kind)
+}
+-- vis-field-write/expected --
+stage: typeck
+---
+
+vis-field-write/main.tck:9:7: error: end is not pub in lexer.Token
+08 |	    t.kind = 1
+09 |	    t.end = 3
+   |	      ^~~
+10 |	    t.end += 1
+
+vis-field-write/main.tck:10:7: error: end is not pub in lexer.Token
+09 |	    t.end = 3
+10 |	    t.end += 1
+   |	      ^~~
+11 |	    t.end++
+
+vis-field-write/main.tck:11:7: error: end is not pub in lexer.Token
+10 |	    t.end += 1
+11 |	    t.end++
+   |	      ^~~
+12 |	    t.end--
+
+vis-field-write/main.tck:12:7: error: end is not pub in lexer.Token
+11 |	    t.end++
+12 |	    t.end--
+   |	      ^~~
+13 |	    a[0].end = 2
+
+vis-field-write/main.tck:13:10: error: end is not pub in lexer.Token
+12 |	    t.end--
+13 |	    a[0].end = 2
+   |	         ^~~
+14 |	    exit(t.kind + a[1].kind)
+
+-- vis-in-main/tack.mod --
+module calc
+-- vis-in-main/main.tck --
+package main
+
+pub type Point struct {
+    pub x int64
+    lib y int64
+    z int64
+}
+
+lib var origin = Point{x: 0, y: 0, z: 0}
+
+pub func helper() int64 {
+    return origin.x
+}
+
+pub func main() {
+    exit(helper())
+}
+-- vis-in-main/expected --
+stage: resolve
+---
+
+vis-in-main/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub type Point struct {
+   |	^~~
+04 |	    pub x int64
+
+vis-in-main/main.tck:4:5: error: pub has no effect in package main, which no package can import
+03 |	pub type Point struct {
+04 |	    pub x int64
+   |	    ^~~
+05 |	    lib y int64
+
+vis-in-main/main.tck:5:5: error: lib has no effect in package main, which no package can import
+04 |	    pub x int64
+05 |	    lib y int64
+   |	    ^~~
+06 |	    z int64
+
+vis-in-main/main.tck:9:1: error: lib has no effect in package main, which no package can import
+08 |	
+09 |	lib var origin = Point{x: 0, y: 0, z: 0}
+   |	^~~
+10 |	
+
+vis-in-main/main.tck:11:1: error: pub has no effect in package main, which no package can import
+10 |	
+11 |	pub func helper() int64 {
+   |	^~~
+12 |	    return origin.x
+
+vis-in-main/main.tck:15:1: error: pub has no effect in package main, which no package can import
+14 |	
+15 |	pub func main() {
+   |	^~~
+16 |	    exit(helper())
+
+-- vis-literal/tack.mod --
+module calc
+-- vis-literal/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    start int64
+    end int64
+}
+
+pub type Pos struct {
+    pub line int64
+    lib col int64
+}
+-- vis-literal/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token{kind: 1, start: 0, end: 1}
+    u := lexer.Token{kind: 1}
+    p := lexer.Pos{line: 1, col: 2}
+    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
+    exit(t.kind + u.kind + p.line + a[0].kind)
+}
+-- vis-literal/expected --
+stage: typeck
+---
+
+vis-literal/main.tck:6:10: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+05 |	func main() {
+06 |	    t := lexer.Token{kind: 1, start: 0, end: 1}
+   |	         ^~~~~~~~~~~
+07 |	    u := lexer.Token{kind: 1}
+
+vis-literal/main.tck:7:10: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+06 |	    t := lexer.Token{kind: 1, start: 0, end: 1}
+07 |	    u := lexer.Token{kind: 1}
+   |	         ^~~~~~~~~~~
+08 |	    p := lexer.Pos{line: 1, col: 2}
+
+vis-literal/main.tck:9:25: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+08 |	    p := lexer.Pos{line: 1, col: 2}
+09 |	    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
+   |	                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	    exit(t.kind + u.kind + p.line + a[0].kind)
+
+-- vis-mut-exported/tack.mod --
+module calc
+-- vis-mut-exported/lexer/lexer.tck --
+package lexer
+
+pub mut counter int64 = 0
+lib mut total int64
+pub var limit int64 = 3
+
+pub func Count() int64 {
+    counter++
+    total++
+    return counter + total
+}
+-- vis-mut-exported/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Count() + lexer.limit)
+}
+-- vis-mut-exported/expected --
+stage: resolve
+---
+
+vis-mut-exported/lexer/lexer.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
+02 |	
+03 |	pub mut counter int64 = 0
+   |	^~~
+04 |	lib mut total int64
+
+vis-mut-exported/lexer/lexer.tck:4:1: error: a mut variable cannot be lib; export a function that reads or changes it
+03 |	pub mut counter int64 = 0
+04 |	lib mut total int64
+   |	^~~
+05 |	pub var limit int64 = 3
+
+-- vis-private-global-in-initializer/tack.mod --
+module calc
+-- vis-private-global-in-initializer/text/text.tck --
+package text
+
+var hiddenTotal int64 = 3
+
+lib var Shared int64 = hiddenTotal
+-- vis-private-global-in-initializer/lexer/lexer.tck --
+package lexer
+
+import text from "calc/text"
+
+pub var Total = text.hiddenTotal
+pub var Fine = text.Shared
+-- vis-private-global-in-initializer/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Total + lexer.Fine)
+}
+-- vis-private-global-in-initializer/expected --
+stage: resolve
+---
+
+vis-private-global-in-initializer/lexer/lexer.tck:5:17: error: hiddenTotal is not pub in package calc/text
+04 |	
+05 |	pub var Total = text.hiddenTotal
+   |	                ^~~~~~~~~~~~~~~~
+06 |	pub var Fine = text.Shared
+
+-- vis-private-names/tack.mod --
+module calc
+-- vis-private-names/lexer/lexer.tck --
+package lexer
+
+type token struct {
+    kind int64
+}
+
+var count int64 = 1
+mut state int64 = 0
+
+func lex() int64 {
+    state++
+    return count + state
+}
+
+pub func Lex() int64 {
+    return lex()
+}
+-- vis-private-names/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+mut n [lexer.count]int64
+
+func use(t lexer.token) int64 {
+    return 0
+}
+
+func main() {
+    lexer.state = 2
+    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+}
+-- vis-private-names/expected --
+stage: resolve
+---
+
+vis-private-names/main.tck:5:8: error: count is not pub in package calc/lexer
+04 |	
+05 |	mut n [lexer.count]int64
+   |	       ^~~~~~~~~~~
+06 |	
+
+vis-private-names/main.tck:7:12: error: token is not pub in package calc/lexer
+06 |	
+07 |	func use(t lexer.token) int64 {
+   |	           ^~~~~~~~~~~
+08 |	    return 0
+
+vis-private-names/main.tck:12:5: error: state is not pub in package calc/lexer
+11 |	func main() {
+12 |	    lexer.state = 2
+   |	    ^~~~~~~~~~~
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+
+vis-private-names/main.tck:13:10: error: lex is not pub in package calc/lexer
+12 |	    lexer.state = 2
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+   |	         ^~~~~~~~~
+14 |	}
+
+vis-private-names/main.tck:13:24: error: count is not pub in package calc/lexer
+12 |	    lexer.state = 2
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+   |	                       ^~~~~~~~~~~
+14 |	}
+
+-- vis-unused-private-global/tack.mod --
+module calc
+-- vis-unused-private-global/lexer/lexer.tck --
+package lexer
+
+var hidden int64 = 1
+pub var Shown int64 = 2
+lib var Shared int64 = 3
+
+pub func One() int64 {
+    return 1
+}
+-- vis-unused-private-global/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.One())
+}
+-- vis-unused-private-global/expected --
+stage: resolve
+---
+
+vis-unused-private-global/lexer/lexer.tck:3:5: error: declared and not used: hidden
+02 |	
+03 |	var hidden int64 = 1
+   |	    ^~~~~~
+04 |	pub var Shown int64 = 2
 

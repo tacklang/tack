@@ -567,7 +567,13 @@ type Field struct {
 	TypeExpr Expr
 	Name     string
 	NameSpan Span // just the identifier
-	Span     Span // the name through the end of the type
+	Span     Span // pub or lib, if written, or the name, through the end of the type
+
+	// Vis is who may use the field by name outside its package, capped by
+	// its struct's visibility; VisSpan is the keyword that gave it, the
+	// zero Span for Private.
+	VisSpan Span       `json:"-"`
+	Vis     Visibility `json:",omitempty"`
 }
 
 // Selector is a field of a struct value, X.Name. It is also an assignment's

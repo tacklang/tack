@@ -43,6 +43,16 @@ func main() {
     check(one.Depth() == 3, 10)
     check(size() == 8 && lexer.Size() == 3 && geom.Size() == 4, 11)
 
+    // A Token has a private field, so main cannot write a literal of one,
+    // but it can declare one at its zero value, copy one and compare two,
+    // which compares the private field too. start is lib, so main, in the
+    // same module, reads it.
+    mut z lexer.Token
+    check(z.kind == 0 && z.start == 0 && t.start == 0, 12)
+    w := t
+    check(w == t && z != t && lexer.First("7") == t && lexer.First("+") != t, 13)
+    check(lexer.Width(t) == 1, 14)
+
     print("packages ok\n")
     exit(counts[3] + lexer.Size() + geom.Size() + one.Depth())
 }

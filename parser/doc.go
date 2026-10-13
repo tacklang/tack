@@ -45,9 +45,15 @@
 // slice, which is reported. A type declaration, at package level only, is
 // type Name struct { ... }, its fields a name and a type each, separated by
 // semicolons, written or inserted at line ends; struct {} has none. Other
-// named types, anonymous struct types, methods, embedded fields and a
-// visibility keyword on a field are each reported here, as is a type
-// declared inside a function. A composite literal is its type and its
+// named types, anonymous struct types, methods and embedded fields are
+// each reported here, as is a type declared inside a function. A field may
+// start with pub or lib, and so may a package-level function, variable
+// (var or mut) or type declaration, whose span then starts at the keyword;
+// the parser records the visibility and the keyword's span, and anything
+// else after the keyword, a second one included, is reported. Whether the
+// keyword is allowed where it is written is the resolver's to judge; one
+// on a local or a parameter is not parsed as a keyword there and is
+// reported as unexpected. A composite literal is its type and its
 // elements in braces, a comma allowed after the last; an element may have a
 // key, key: value, which is how a struct literal names its fields, and an
 // element or value that is only braces is a literal whose type comes from

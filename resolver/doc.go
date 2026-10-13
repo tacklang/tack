@@ -5,8 +5,16 @@
 // *ast.Program and returning the diagnostics it found. Packages are
 // resolved in the program's order, every package after those it imports,
 // so a qualified name, x.name, finds name among the package-level names of
-// the package the import x stands for. Every package-level name is
-// importable: visibility is not checked yet.
+// the package the import x stands for, and names it only if it is visible
+// from the package being resolved: pub, or lib with both packages in one
+// module (ast.Package.Module). Anything else is reported, name is not pub
+// in package path, or name is lib in module a and cannot be used from
+// module b. In package main, which nothing can import, pub and lib are
+// reported wherever written, on a declaration or a field; elsewhere, a mut
+// global may be neither. A global that is pub or lib is never reported as
+// unused, since packages that may read it may not be in the program. The
+// visibility of fields, and of the types a declaration exposes, is the
+// type checker's to judge.
 //
 // Imports are per file. Each file has a scope of its own holding its
 // imports, enclosed by the package's global scope and enclosing each of

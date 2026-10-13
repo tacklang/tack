@@ -3,6 +3,6 @@ package one
 import two from "calc/chain/two"
 
 // Depth counts the packages down the chain: one, two, three.
-func Depth() int64 {
+pub func Depth() int64 {
     return 1 + two.Depth()
 }

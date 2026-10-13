@@ -30,6 +30,7 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
 static const int64_t tack_4_calc5_lexer10_KindNumber = 1;
 static const int64_t tack_4_calc5_lexer8_KindPlus = 2;
 static const int64_t tack_4_calc5_lexer9_MaxTokens = 4;
+static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
 
 typedef struct {
     int64_t r0;
@@ -43,6 +44,7 @@ static bool tack_4_calc8_internal4_text7_isDigit(uint8_t p_c);
 static tack_results_4_calc8_internal4_text6_divmod tack_4_calc8_internal4_text6_divmod(int64_t p_a, int64_t p_b);
 static int64_t tack_4_calc8_internal4_text4_size(void);
 static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src);
+static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t);
 static int64_t tack_4_calc5_lexer4_size(void);
 static int64_t tack_4_calc5_lexer4_Size(void);
 static void tack_main_main(void);
@@ -79,6 +81,10 @@ static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src) {
         return (tack_4_calc5_lexer5_Token){.f_kind = tack_4_calc5_lexer10_KindNumber, .f_start = 0, .f_end = 1};
     }
     return (tack_4_calc5_lexer5_Token){.f_kind = tack_4_calc5_lexer8_KindPlus, .f_start = 0, .f_end = 1};
+}
+
+static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t) {
+    return ((int64_t)((uint64_t)p_t.f_end - (uint64_t)p_t.f_start));
 }
 
 static int64_t tack_4_calc5_lexer4_size(void) {

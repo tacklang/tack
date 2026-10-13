@@ -21,7 +21,10 @@
 // statement, so it can appear in a function body; at package level it is a
 // top-level declaration, as is a TypeDecl, which declares a struct type: a
 // StructType, whose Fields are part of it rather than nodes of their own.
-// A Switch's CaseClauses are likewise part of it: each holds its values
+// A Func, a package-level Var, a TypeDecl and a Field carry a Visibility,
+// Private unless pub or lib was written, with the keyword's span; a
+// Package carries the name of the module it is in, which lib is relative
+// to. A Switch's CaseClauses are likewise part of it: each holds its values
 // and its body, which Walk visits, but is not a node.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.

@@ -163,7 +163,8 @@ func (c *Checker) selector(sel *ast.Selector) types.Type {
 }
 
 // field returns the type of the field sel names of a value of type base,
-// which must be a struct with a field of that name.
+// which must be a struct with a field of that name, visible from the
+// package being checked.
 func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 	if base == types.Invalid {
 		return types.Invalid
@@ -173,9 +174,13 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 			return types.Invalid
 		}
 	}
-	f, _, ok := c.table.Field(base, sel.Name)
+	f, i, ok := c.table.Field(base, sel.Name)
 	if !ok {
 		c.errorf(sel.NameSpan, "%s has no field %s", c.typeName(base), sel.Name)
+		return types.Invalid
+	}
+	if msg := c.hiddenField(base, i, sel.Name); msg != "" {
+		c.errorf(sel.NameSpan, "%s", msg)
 		return types.Invalid
 	}
 	return f.Type
@@ -195,7 +200,8 @@ func (c *Checker) fieldTarget(sel *ast.Selector) (types.Type, bool) {
 
 // structLit checks the elements of a struct literal of the struct type typ:
 // each a field's name and a value usable as that field's type, every field
-// named exactly once. An element with no name, or with a key that is not a
+// named exactly once. Every field must be visible where the literal is
+// written; if one is not, only the values are checked. An element with no name, or with a key that is not a
 // name, is reported, and then a missing field is not, since which field the
 // element meant cannot be known.
 func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
@@ -204,6 +210,15 @@ func (c *Checker) structLit(lit *ast.CompositeLit, typ types.Type) types.Type {
 		c.discardElems(lit)
 		lit.Type = types.Invalid
 		return types.Invalid
+	}
+
+	at := lit.Span
+	if lit.TypeExpr != nil {
+		at = lit.TypeExpr.Spanned()
+	}
+	if !c.checkLiteralFields(typ, at) {
+		c.discardElems(lit)
+		return typ
 	}
 
 	set := make(map[string]bool)

@@ -264,8 +264,13 @@ func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
 // fromWord is the word between an import's name and its path.
 const fromWord = "from"
 
+// parseDecl parses one package-level declaration: a function, a variable or
+// a type, with the visibility keyword that may come first.
 func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 	tk := p.peek()
+	if vis, ok := visibilityOf(tk); ok {
+		return p.parseVisibleDecl(vis)
+	}
 	switch {
 	case isKeyword(tk, lexer.Import):
 		return nil, []diag.Diagnostic{{
@@ -281,6 +286,53 @@ func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 		return p.parseTypeDecl()
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("func", tk)}
+	}
+}
+
+// visibilityOf returns the visibility tk gives, if it is pub or lib.
+func visibilityOf(tk *lexer.Token) (ast.Visibility, bool) {
+	switch {
+	case isKeyword(tk, lexer.Pub):
+		return ast.Pub, true
+	case isKeyword(tk, lexer.Lib):
+		return ast.Lib, true
+	default:
+		return ast.Private, false
+	}
+}
+
+// parseVisibleDecl parses a package-level declaration that starts with the
+// keyword pub or lib, giving vis: a function, a variable or a type, whose
+// span then starts at the keyword. Anything else after the keyword, a
+// second one included, is reported.
+func (p *Parser) parseVisibleDecl(vis ast.Visibility) (ast.Decl, []diag.Diagnostic) {
+	kw := p.next()
+	visSpan := p.span(kw)
+	tk := p.peek()
+	switch {
+	case isKeyword(tk, lexer.Func):
+		fn, diags := p.parseFunc()
+		if fn == nil {
+			return nil, diags
+		}
+		fn.Vis, fn.VisSpan, fn.Span.Start = vis, visSpan, visSpan.Start
+		return fn, diags
+	case isKeyword(tk, lexer.Var) || isKeyword(tk, lexer.Mut):
+		v, diags := p.parsePackageVar()
+		if v == nil {
+			return nil, diags
+		}
+		v.Vis, v.VisSpan, v.Span.Start = vis, visSpan, visSpan.Start
+		return v, diags
+	case isKeyword(tk, lexer.Type):
+		td, diags := p.parseTypeDecl()
+		if td == nil {
+			return nil, diags
+		}
+		td.Vis, td.VisSpan, td.Span.Start = vis, visSpan, visSpan.Start
+		return td, diags
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("func, var, mut or type", tk)}
 	}
 }
 
@@ -1073,17 +1125,13 @@ func (p *Parser) parseStructType() (*ast.StructType, []diag.Diagnostic) {
 	return typ, nil
 }
 
-// parseField parses one field of a struct type, a name and a type. A
-// visibility keyword before the name, and a type alone, which would embed
-// it, are reported.
+// parseField parses one field of a struct type: pub or lib, if written,
+// a name and a type. A type alone, which would embed it, is reported.
 func (p *Parser) parseField() (*ast.Field, []diag.Diagnostic) {
-	if tk := p.peek(); tk.Kind() == lexer.Keyword &&
-		(tk.Value() == lexer.Pub || tk.Value() == lexer.Lib) {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "field visibility is not supported",
-			Span:     p.span(tk),
-		}}
+	vis, visible := visibilityOf(p.peek())
+	var visSpan ast.Span
+	if visible {
+		visSpan = p.span(p.next())
 	}
 
 	name, diags := p.parseIdent("field name")
@@ -1102,11 +1150,17 @@ func (p *Parser) parseField() (*ast.Field, []diag.Diagnostic) {
 	if typ == nil {
 		return nil, diags
 	}
+	start := name.Span.Start
+	if visible {
+		start = visSpan.Start
+	}
 	return &ast.Field{
 		TypeExpr: typ,
 		Name:     name.Name,
 		NameSpan: name.Span,
-		Span:     ast.Span{File: p.fileID, Start: name.Span.Start, End: typ.Spanned().End},
+		Span:     ast.Span{File: p.fileID, Start: start, End: typ.Spanned().End},
+		Vis:      vis,
+		VisSpan:  visSpan,
 	}, nil
 }
 

@@ -30,7 +30,12 @@ type Func struct {
 	ResultTypes []types.Type
 
 	NameSpan Span // just the identifier
-	Span     Span // 'func' keyword through closing brace
+	Span     Span // pub or lib, if written, or the 'func' keyword, through closing brace
+
+	// Vis is who may call the function by name; VisSpan is the keyword
+	// that gave it, the zero Span for Private.
+	VisSpan Span       `json:"-"`
+	Vis     Visibility `json:",omitempty"`
 }
 
 var _ Decl = (*Func)(nil)
@@ -39,8 +44,8 @@ func (f *Func) declKey() declKey { return _declKey }
 
 func (f *Func) astNode() nodeKey { return _nodeKey }
 
-// Spanned returns the source range from the 'func' keyword through the
-// closing brace.
+// Spanned returns the source range from the 'func' keyword, or the
+// visibility keyword before it, through the closing brace.
 func (f *Func) Spanned() Span { return f.Span }
 
 // Param is one parameter in a function's parameter list.
@@ -76,10 +81,17 @@ type Var struct {
 	Const any
 
 	Name     string
-	NameSpan Span       // just the identifier
-	Span     Span       // first token through the end of the declaration
-	Type     types.Type // filled in by the type checker, Invalid before
-	Mutable  bool       // declared with mut
+	NameSpan Span // just the identifier
+	Span     Span // first token through the end of the declaration
+
+	// Vis is who may use a package-level variable by name, always Private
+	// for a local; VisSpan is the keyword that gave it, the zero Span for
+	// Private. Span starts at that keyword.
+	VisSpan Span `json:"-"`
+
+	Type    types.Type // filled in by the type checker, Invalid before
+	Mutable bool       // declared with mut
+	Vis     Visibility `json:",omitempty"`
 }
 
 // A variable is a declaration so that an Ident can point at it through Def,
@@ -131,9 +143,14 @@ func (i *Import) Spanned() Span { return i.Span }
 type TypeDecl struct {
 	TypeExpr Expr // the type as written, a *StructType
 	Name     string
-	NameSpan Span       // just the identifier
-	Span     Span       // 'type' keyword through the end of the type
-	Type     types.Type // the declared type, set by the type checker
+	NameSpan Span // just the identifier
+	Span     Span // pub or lib, if written, or the 'type' keyword, through the end of the type
+
+	// Vis is who may name the type; VisSpan is the keyword that gave it,
+	// the zero Span for Private.
+	VisSpan Span       `json:"-"`
+	Type    types.Type // the declared type, set by the type checker
+	Vis     Visibility `json:",omitempty"`
 }
 
 var _ Decl = (*TypeDecl)(nil)
@@ -142,6 +159,6 @@ func (d *TypeDecl) declKey() declKey { return _declKey }
 
 func (d *TypeDecl) astNode() nodeKey { return _nodeKey }
 
-// Spanned returns the source range from the 'type' keyword through the end
-// of the type.
+// Spanned returns the source range from the 'type' keyword, or the
+// visibility keyword before it, through the end of the type.
 func (d *TypeDecl) Spanned() Span { return d.Span }

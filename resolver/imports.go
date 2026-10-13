@@ -137,8 +137,8 @@ func (r *pkgResolver) mainOutsideMain() []diag.Diagnostic {
 }
 
 // member returns the package-level declaration of the package named name:
-// a function, a type, or a global. Every package-level name is importable
-// until visibility is checked.
+// a function, a type, or a global, whatever its visibility, which access
+// checks.
 func (r *pkgResolver) member(name string) (ast.Decl, bool) {
 	if fn, ok := r.seen(name); ok && fn != nil {
 		return fn, true
@@ -149,8 +149,8 @@ func (r *pkgResolver) member(name string) (ast.Decl, bool) {
 
 // qualified returns the declaration the qualified name id, pkg.name, names
 // in the package the import pkg stands for, marking the import used, or
-// why it names none: pkg is not an import visible in sc, or the package
-// declares no name.
+// why it names none: pkg is not an import visible in sc, the package
+// declares no name, or the name is not visible from this package.
 func (r *pkgResolver) qualified(id *ast.Ident, sc *scope) (ast.Decl, []diag.Diagnostic) {
 	if r.rejectedImport(id.Pkg, sc) {
 		// The import's declaration was reported; what it would have
@@ -176,6 +176,9 @@ func (r *pkgResolver) qualified(id *ast.Ident, sc *scope) (ast.Decl, []diag.Diag
 	r.used[imp] = true
 	if target := r.packages[imp.Package]; target != nil {
 		if member, ok := target.member(id.Name); ok {
+			if diags := r.access(member, target.pkg, id); diags != nil {
+				return nil, diags
+			}
 			return member, nil
 		}
 	}

@@ -155,8 +155,15 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	}
 
 	// A global is reported unused only once every package has been
-	// resolved, so a read from any of them counts.
+	// resolved, so a read from any of them counts. One that is pub or lib
+	// is there for other packages, which may not read it, so it is never
+	// reported.
 	for _, pr := range resolvers {
+		for _, v := range pr.globals.vars {
+			if v.Vis != ast.Private {
+				pr.excuse(v)
+			}
+		}
 		diags = append(diags, pr.unused(pr.globals)...)
 	}
 	return diags
@@ -187,6 +194,7 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 	diags = append(diags, r.declareImports()...)
 	diags = append(diags, r.resolveGlobals(globals)...)
 	diags = append(diags, r.resolveStructs()...)
+	diags = append(diags, r.checkVisibility()...)
 	if r.pkg.Name == mainPackage {
 		diags = append(diags, r.checkMain()...)
 	} else {

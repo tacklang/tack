@@ -175,6 +175,8 @@ func (c *Checker) Check() []diag.Diagnostic {
 		}
 	}
 
+	c.checkExposure(decls)
+
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			restore := c.enter(fn)

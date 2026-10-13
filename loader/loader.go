@@ -159,7 +159,7 @@ func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Re
 		res.Stage, res.Diags = StageLoad, diags
 		return res, nil
 	}
-	pkg.Path = importPath
+	pkg.Path, pkg.Module = importPath, mod.name
 	g := newGraph(l, res, mod, pkg)
 	return g.finish(), nil
 }

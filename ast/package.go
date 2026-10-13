@@ -12,6 +12,10 @@ type Package struct {
 	// Path identifies the package within the program: main for a program
 	// built from a single file, otherwise where the loader found it.
 	Path string
+	// Module is the name of the module the package is in, which decides
+	// what of other packages' lib it may use: empty for a program built
+	// from a single file, which has none.
+	Module string
 	// Files are the package's files, in the byte order of their names.
 	Files []*File
 }

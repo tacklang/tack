@@ -30,7 +30,9 @@
 // reported as diagnostics, at StageLoad, against the tack.mod itself,
 // which is added to the Result's files like any source.
 //
-// A package's import path is the module's name, then its directory's path
+// Every package of a program records its module's name in
+// ast.Package.Module, empty for a program built from a single file. A
+// package's import path is the module's name, then its directory's path
 // below the root; the root's own is the module's name. Its name is the
 // last part of its import path, and every file's package clause must give
 // that name or main, which may be in any directory: one giving another

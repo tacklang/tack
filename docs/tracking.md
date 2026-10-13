@@ -46,7 +46,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `package` clause         | yes   | yes    | partial | yes | Must be first and must be `main`; every file of a directory names the same package          |
 | Several files per package | n/a  | yes    | yes     | yes | A directory is one package: its `.tck` files in name order, package-level names shared by all, any order |
 | Modules and `tack.mod`   | n/a   | yes    | yes     | n/a | `module <name>` only; a directory builds in the module found at or above it; package name is the import path's last part, or `main` |
-| Imports                  | yes   | yes    | yes     | yes | `import x from "path"`, per file, one per line after the package clause; cycles, unused and duplicate imports are errors; every name importable until visibility |
+| Imports                  | yes   | yes    | yes     | yes | `import x from "path"`, per file, one per line after the package clause; cycles, unused and duplicate imports are errors |
+| `pub` / `lib`            | yes   | yes    | yes     | n/a | Functions, types, immutable globals and fields; private by default; `lib` within the module; not on `mut` globals, nor anywhere in `main`; exposed types must be as visible |
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
 | `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
 | Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`)                                                   |
@@ -143,7 +144,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | Runtime                     | no     | Generated C calls libc directly                        |
 | Memory model and allocation | no     | Nothing allocates; strings are static                  |
 | Standard library            | no     | `src/std/fmt` is a sketch; nothing compiles against it |
-| Packages beyond `main`      | partial | Modules, imports and qualified names; no `pub`/`lib` yet, so every name is importable; no standard library packages |
+| Packages beyond `main`      | partial | Modules, imports, qualified names and `pub`/`lib` visibility; no standard library packages |
 | Concurrency                 | no     |                                                        |
 
 ### Toolchain

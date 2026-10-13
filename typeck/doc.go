@@ -21,7 +21,8 @@
 // The third checks the package-level variables, the fourth resolves every
 // function's signature, recording the type each declared parameter and
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
-// the last checks each body. Resolving every signature first is what lets
+// a fifth reports every type a pub or lib declaration exposes that is
+// less visible than it, and the last checks each body. Resolving every signature first is what lets
 // a call check against a callee declared later in the file, or in a file
 // after it. A call is checked against the function its callee is bound to,
 // Ident.Def, not one looked up by name. A type name it
@@ -53,6 +54,19 @@
 // every global on it, a refers to b refers to a. A mutable global is never
 // constant. A global's known value is its Const, never its initializer
 // followed again, so a cycle cannot be followed forever.
+//
+// Visibility. A field of a struct of another package is used by name, read,
+// written or named in a literal, only if it is visible from the package
+// being checked: pub, or lib and in the same module, with a field's
+// visibility capped by its struct's. A literal of such a struct names every
+// field, so it is reported, once, when any field is hidden, with the hidden
+// ones listed, and only its values are then checked; declaring a variable
+// of it at its zero value, copying one and comparing two need no field by
+// name and are allowed. A pub function's parameter and result types, a pub
+// global's type and a pub field's type (with the field's visibility capped
+// by its struct's) must be pub struct types, or arrays of them, or basic
+// types; for lib, lib or pub. The rest of visibility, names of other
+// packages and pub or lib where it cannot be, is the resolver's.
 //
 // A struct type of another package is named qualified in a diagnostic,
 // lexer.Token, and a struct of the package whose code is being checked by

@@ -1,5 +1,5 @@
 package three
 
-func Depth() int64 {
+pub func Depth() int64 {
     return 1
 }

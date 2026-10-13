@@ -5,31 +5,31 @@ import lexer from "calc/lexer"
 
 // Point and Box nest one struct in another; Box also holds a struct of
 // another package.
-type Point struct {
-    x int64
-    y int64
+pub type Point struct {
+    pub x int64
+    pub y int64
 }
 
-type Box struct {
-    min Point
-    max Point
-    tok lexer.Token
+pub type Box struct {
+    pub min Point
+    pub max Point
+    pub tok lexer.Token
 }
 
 // Origin is a struct global, read from main through two qualifiers.
-var Origin = Point{x: 0, y: 0}
+pub var Origin = Point{x: 0, y: 0}
 
 // Limit is computed from another package's global.
-var Limit int64 = lexer.KindPlus * 10
+pub var Limit int64 = lexer.KindPlus * 10
 
 // Area takes and returns types of its own package and another's.
-func Area(b Box) int64 {
+pub func Area(b Box) int64 {
     q, r := text.divmod(b.max.x - b.min.x, 1)
-    return q * (b.max.y - b.min.y) + r
+    return q * (b.max.y - b.min.y) + r + lexer.Width(b.tok) - 1
 }
 
 // Tokens returns an array of another package's struct type.
-func Tokens() [2]lexer.Token {
+pub func Tokens() [2]lexer.Token {
     return [2]lexer.Token{lexer.First("7"), lexer.First("+")}
 }
 
@@ -39,6 +39,6 @@ func size() int64 {
 }
 
 // Size reports size.
-func Size() int64 {
+pub func Size() int64 {
     return size()
 }

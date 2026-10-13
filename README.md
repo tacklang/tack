@@ -262,9 +262,40 @@ which is true today because `main` is the only package there is.
   used: lexer`, and importing one package twice in a file is `calc/lexer is
   already imported as a`. A qualified name that names nothing is
   `undefined: lexer.Nothing`; a qualified global may be assigned as any
-  global, under the same rules. Until visibility is checked, every
-  package-level name of a package, and every field of its structs, is
-  usable from a package that imports it.
+  global, under the same rules, though a mutable one can never be named
+  from another package (below).
+- Visibility. A package-level name is private to its package unless its
+  declaration starts with `pub`, which makes it usable from every package,
+  or `lib`, which makes it usable from every package of its module and from
+  no other module: `pub func First(src string) Token`, `lib type Pos
+  struct { ... }`, `pub var KindNumber = 1`. A name another package cannot
+  see is an error where it is named, `lex is not pub in package
+  calc/lexer`, or `isDigit is lib in module calc and cannot be used from
+  module other`. A struct's fields are private by default too, each made
+  `pub` or `lib` on its own, `pub kind int64`, and a field is never more
+  visible than its struct. Reading or writing a field another package
+  cannot see, by `=`, a compound assignment, `++` or `--`, is `end is not
+  pub in lexer.Token`, and since a literal names every field, a literal of
+  a struct with any such field is an error there too, `cannot write a
+  lexer.Token literal outside package lexer: field end is not pub` (`fields
+  start, end are not pub` for several): the package exports a function
+  that builds one instead. Declaring a variable of the struct at its zero
+  value, `mut t lexer.Token`, copying one, passing it and comparing two with
+  `==`, which compares every field, private ones included, are allowed. A
+  `mut` global can be neither `pub` nor `lib`, `a mut variable cannot be
+  pub; export a function that reads or changes it`, so only its own package
+  changes it. A `pub` declaration may expose only `pub` types, and a `lib`
+  one `lib` or `pub` types: every struct type, or array of one, that a
+  function's parameters or results, a global's type or a field's type
+  name, the field's visibility capped by its struct's, must be at least as
+  visible, or it is an error, `pub function Result exposes hidden, which is
+  not pub` (`which is not lib or pub` for `lib`; `variable` and `field kind
+  of Token` for the others). A `pub` or `lib` global is never reported as
+  unused, since the packages that read it may not be in the program; a
+  private one still is. `main` packages cannot be imported, so `pub` and
+  `lib` mean nothing there and are errors wherever written, on a
+  declaration or a field: `pub has no effect in package main, which no
+  package can import`. Locals and parameters take neither keyword.
 - An import path starts with the module's name; a relative or absolute
   path is an error that suggests the module-rooted one, `import path must
   start with a module name, such as calc/lexer; relative paths are not
@@ -452,8 +483,9 @@ which is true today because `main` is the only package there is.
   included, except one that holds the struct itself, directly, through
   other structs or through an array of any length, which would be
   infinitely large and is an error. Named types other than structs
-  (`type Celsius int64`), anonymous struct types, methods, embedded fields
-  and field visibility are not supported, and each is an error.
+  (`type Celsius int64`), anonymous struct types, methods and embedded
+  fields are not supported, and each is an error. A field may be `pub` or
+  `lib`, as described under visibility.
 - Struct literals name every field exactly once, in any order:
   `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
   field listed twice, a field the struct does not have, a field name in

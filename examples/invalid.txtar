@@ -5400,10 +5400,10 @@ type Point struct {
 func main() {
 }
 -- struct-field-visibility/expected --
-stage: parse
+stage: resolve
 ---
 
-struct-field-visibility/main.tck:4:5: error: field visibility is not supported
+struct-field-visibility/main.tck:4:5: error: pub has no effect in package main, which no package can import
 03 |	type Point struct {
 04 |	    pub x int64
    |	    ^~~
@@ -6527,5 +6527,153 @@ variadic-param/main.tck:3:10: error: variadic parameters are not supported
 02 |	
 03 |	func f(x ...int64) {
    |	         ^~~
+04 |	}
+
+-- vis-after-keyword-eof/main.tck --
+package main
+
+func main() {
+}
+
+pub
+-- vis-after-keyword-eof/expected --
+stage: parse
+---
+
+vis-after-keyword-eof/main.tck:6:4: error: expected 'func, var, mut or type' found 'EOF'
+05 |	
+06 |	pub
+   |	   ^
+07 |	
+
+-- vis-in-main-file/main.tck --
+package main
+
+pub type Point struct {
+    pub x int64
+    lib y int64
+}
+
+pub var origin = Point{x: 0, y: 0}
+lib mut count int64 = 0
+
+lib func helper() int64 {
+    count++
+    return origin.x + count
+}
+
+func main() {
+    exit(helper())
+}
+-- vis-in-main-file/expected --
+stage: resolve
+---
+
+vis-in-main-file/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub type Point struct {
+   |	^~~
+04 |	    pub x int64
+
+vis-in-main-file/main.tck:4:5: error: pub has no effect in package main, which no package can import
+03 |	pub type Point struct {
+04 |	    pub x int64
+   |	    ^~~
+05 |	    lib y int64
+
+vis-in-main-file/main.tck:5:5: error: lib has no effect in package main, which no package can import
+04 |	    pub x int64
+05 |	    lib y int64
+   |	    ^~~
+06 |	}
+
+vis-in-main-file/main.tck:8:1: error: pub has no effect in package main, which no package can import
+07 |	
+08 |	pub var origin = Point{x: 0, y: 0}
+   |	^~~
+09 |	lib mut count int64 = 0
+
+vis-in-main-file/main.tck:9:1: error: lib has no effect in package main, which no package can import
+08 |	pub var origin = Point{x: 0, y: 0}
+09 |	lib mut count int64 = 0
+   |	^~~
+10 |	
+
+vis-in-main-file/main.tck:11:1: error: lib has no effect in package main, which no package can import
+10 |	
+11 |	lib func helper() int64 {
+   |	^~~
+12 |	    count++
+
+-- vis-local/main.tck --
+package main
+
+func main() {
+    pub x := 1
+    exit(x)
+}
+-- vis-local/expected --
+stage: parse
+---
+
+vis-local/main.tck:4:5: error: expected 'statement' found 'pub'
+03 |	func main() {
+04 |	    pub x := 1
+   |	    ^
+05 |	    exit(x)
+
+-- vis-on-import/main.tck --
+package main
+
+pub import lexer from "calc/lexer"
+
+func main() {
+}
+-- vis-on-import/expected --
+stage: parse
+---
+
+vis-on-import/main.tck:3:5: error: expected 'func, var, mut or type' found 'import'
+02 |	
+03 |	pub import lexer from "calc/lexer"
+   |	    ^
+04 |	
+
+-- vis-param/main.tck --
+package main
+
+func f(pub x int64) int64 {
+    return x
+}
+
+func main() {
+    exit(f(1))
+}
+-- vis-param/expected --
+stage: parse
+---
+
+vis-param/main.tck:3:8: error: expected 'parameter name' found 'pub'
+02 |	
+03 |	func f(pub x int64) int64 {
+   |	       ^
+04 |	    return x
+
+-- vis-twice/main.tck --
+package main
+
+pub lib func f() {
+}
+
+func main() {
+}
+-- vis-twice/expected --
+stage: parse
+---
+
+vis-twice/main.tck:3:5: error: expected 'func, var, mut or type' found 'lib'
+02 |	
+03 |	pub lib func f() {
+   |	    ^
 04 |	}
 

@@ -66,6 +66,7 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
 static const int64_t tack_4_calc5_lexer10_KindNumber = 1;
 static const int64_t tack_4_calc5_lexer8_KindPlus = 2;
 static const int64_t tack_4_calc5_lexer9_MaxTokens = 4;
+static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
 static const tack_4_calc4_geom5_Point tack_4_calc4_geom6_Origin = {0, 0};
 static const int64_t tack_4_calc4_geom5_Limit = 20;
 static tack_array_15 tack_main_counts = {0};
@@ -79,6 +80,7 @@ static bool tack_4_calc8_internal4_text7_isDigit(uint8_t p_c);
 static tack_results_4_calc8_internal4_text6_divmod tack_4_calc8_internal4_text6_divmod(int64_t p_a, int64_t p_b);
 static int64_t tack_4_calc8_internal4_text4_size(void);
 static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src);
+static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t);
 static int64_t tack_4_calc5_lexer4_size(void);
 static int64_t tack_4_calc5_lexer4_Size(void);
 static int64_t tack_4_calc4_geom4_Area(tack_4_calc4_geom3_Box p_b);
@@ -114,6 +116,10 @@ static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src) {
     return (tack_4_calc5_lexer5_Token){.f_kind = tack_4_calc5_lexer8_KindPlus, .f_start = 0, .f_end = 1};
 }
 
+static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t) {
+    return ((int64_t)((uint64_t)p_t.f_end - (uint64_t)p_t.f_start));
+}
+
 static int64_t tack_4_calc5_lexer4_size(void) {
     return 2;
 }
@@ -128,7 +134,7 @@ static int64_t tack_4_calc4_geom4_Area(tack_4_calc4_geom3_Box p_b) {
     const tack_results_4_calc8_internal4_text6_divmod tack_r2 = tack_4_calc8_internal4_text6_divmod(((int64_t)((uint64_t)p_b.f_max.f_x - (uint64_t)p_b.f_min.f_x)), 1);
     const int64_t v_q = tack_r2.r0;
     const int64_t v_r = tack_r2.r1;
-    return ((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)((int64_t)((uint64_t)p_b.f_max.f_y - (uint64_t)p_b.f_min.f_y)))) + (uint64_t)v_r));
+    return ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)((int64_t)((uint64_t)p_b.f_max.f_y - (uint64_t)p_b.f_min.f_y)))) + (uint64_t)v_r)) + (uint64_t)tack_4_calc5_lexer5_Width(p_b.f_tok))) - (uint64_t)1));
 }
 
 static tack_array_16 tack_4_calc4_geom6_Tokens(void) {
@@ -189,6 +195,11 @@ static void tack_main_main(void) {
     tack_main_counts.e[3] = 5;
     tack_main_check((tack_4_calc5_chain3_one5_Depth() == 3), 10);
     tack_main_check((((tack_main_size() == 8) && (tack_4_calc5_lexer4_Size() == 3)) && (tack_4_calc4_geom4_Size() == 4)), 11);
+    tack_4_calc5_lexer5_Token v_z = (tack_4_calc5_lexer5_Token){0};
+    tack_main_check((((v_z.f_kind == 0) && (v_z.f_start == 0)) && (v_t.f_start == 0)), 12);
+    const tack_4_calc5_lexer5_Token v_w = v_t;
+    tack_main_check(((((tack_eq_12(v_w, v_t)) && (!tack_eq_12(v_z, v_t))) && (tack_eq_12(tack_4_calc5_lexer5_First((tack_string){str0, 1}), v_t))) && (!tack_eq_12(tack_4_calc5_lexer5_First((tack_string){str1, 1}), v_t))), 13);
+    tack_main_check((tack_4_calc5_lexer5_Width(v_t) == 1), 14);
     tack_print((tack_string){str2, 12});
     exit((int)((tack_o9 = (tack_o7 = (tack_o5 = tack_main_counts.e[3], tack_o6 = tack_4_calc5_lexer4_Size(), ((int64_t)((uint64_t)tack_o5 + (uint64_t)tack_o6))), tack_o8 = tack_4_calc4_geom4_Size(), ((int64_t)((uint64_t)tack_o7 + (uint64_t)tack_o8))), tack_o10 = tack_4_calc5_chain3_one5_Depth(), ((int64_t)((uint64_t)tack_o9 + (uint64_t)tack_o10)))));
 }

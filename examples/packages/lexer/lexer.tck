@@ -3,11 +3,17 @@ package lexer
 import text from "calc/internal/text"
 
 // First returns the first token of src.
-func First(src string) Token {
+pub func First(src string) Token {
     if len(src) > 0 && text.isDigit(src[0]) {
         return Token{kind: KindNumber, start: 0, end: 1}
     }
     return Token{kind: KindPlus, start: 0, end: 1}
+}
+
+// Width returns how many bytes t covers, reading its private end for the
+// module's other packages.
+lib func Width(t Token) int64 {
+    return t.end - t.start
 }
 
 // size shares its name with text.size.
@@ -16,6 +22,6 @@ func size() int64 {
 }
 
 // Size reports size, so main can tell the two apart.
-func Size() int64 {
+pub func Size() int64 {
     return size() + text.size()
 }
