@@ -3346,24 +3346,24 @@ safety-no-proof-loop-assigns/main.tck:7:26: error: index i may be out of range; 
    |	                         ^
 08 |	    exit(sum)
 
--- safety-no-proof-multi-value-case/main.tck --
+-- safety-no-proof-multi-value-case-out-of-range/main.tck --
 package main
 
 func f(a [3]int64, i int64) int64 {
-    switch i { case 0, 1: return a[i] }
+    switch i { case 0, 3: return a[i] }
     return 0
 }
 
 func main() {
-    exit(f([3]int64{10, 20, 30}, 1))
+    exit(f([3]int64{10, 20, 30}, 0))
 }
--- safety-no-proof-multi-value-case/expected --
+-- safety-no-proof-multi-value-case-out-of-range/expected --
 stage: typeck
 ---
 
-safety-no-proof-multi-value-case/main.tck:4:36: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+safety-no-proof-multi-value-case-out-of-range/main.tck:4:36: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
 03 |	func f(a [3]int64, i int64) int64 {
-04 |	    switch i { case 0, 1: return a[i] }
+04 |	    switch i { case 0, 3: return a[i] }
    |	                                   ^
 05 |	    return 0
 
@@ -3414,24 +3414,24 @@ safety-no-proof-not-a-name/main.tck:5:18: error: index may be out of range; use 
    |	                 ^~~~~
 06 |	    }
 
--- safety-no-proof-or/main.tck --
+-- safety-no-proof-or-one-side/main.tck --
 package main
 
-func f(a int64, b int64) int64 {
-    if b < 0 || b > 0 { return a / b }
+func f(a int64, b int64, c int64) int64 {
+    if b < 0 || c > 0 { return a / b }
     return 0
 }
 
 func main() {
-    exit(f(8, 2))
+    exit(f(8, 2, 1))
 }
--- safety-no-proof-or/expected --
+-- safety-no-proof-or-one-side/expected --
 stage: typeck
 ---
 
-safety-no-proof-or/main.tck:4:36: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
-03 |	func f(a int64, b int64) int64 {
-04 |	    if b < 0 || b > 0 { return a / b }
+safety-no-proof-or-one-side/main.tck:4:36: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
+03 |	func f(a int64, b int64, c int64) int64 {
+04 |	    if b < 0 || c > 0 { return a / b }
    |	                                   ^
 05 |	    return 0
 
@@ -4592,7 +4592,7 @@ package main
 
 func f(d int64) int64 {
     switch d {
-    case 1, 2:
+    case 1, 0:
         return 10 / d
     }
     return 0
@@ -4606,7 +4606,7 @@ stage: typeck
 ---
 
 switch-multi-value-no-proof/main.tck:6:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
-05 |	    case 1, 2:
+05 |	    case 1, 0:
 06 |	        return 10 / d
    |	                    ^
 07 |	    }

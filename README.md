@@ -236,8 +236,9 @@ which is true today because `main` is the only package there is.
   a tagless switch, and the same with `x == v` for each value `v` of an
   expression switch, so `switch d { case 0: return 0 }` proves `d != 0`
   after it, and a later case and the default see every earlier case's
-  values not matching. A case with several values proves nothing about
-  them inside its body, as `||` gives nothing when true.
+  values not matching. A case with several values proves what their `||`
+  does inside its body: `case 1, 2:` proves the tag is between 1 and 2,
+  and so not zero.
 - Defers, block-scoped as in Zig rather than function-scoped as in Go.
   `defer { f(x) }` registers its block when execution reaches it, and the
   block runs when the block holding the defer is left, by any path:
@@ -421,7 +422,10 @@ which is true today because `main` is the only package there is.
 
   The conditions that count are `&&` (when true), `||` (when false), `!`, and
   a comparison of the variable with a known value that excludes zero, such
-  as `b != 0`, `b > 0`, `b <= -1` or `b == 3`. A known value is a constant,
+  as `b != 0`, `b > 0`, `b <= -1` or `b == 3`. `||` when true, and `&&`
+  when false, count for what every side agrees on: `b < 0 || b > 0`
+  proves `b != 0`, and `i == 0 || i == 1` proves `i` between 0 and 1, but
+  `b < 0 || x` proves nothing about `b`. A known value is a constant,
   an immutable variable holding one, `len` of an array or of a known
   string (a string literal, or an immutable variable holding a known
   string), or arithmetic on those. The variable must be a

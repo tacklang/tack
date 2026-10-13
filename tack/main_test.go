@@ -1134,7 +1134,8 @@ func TestBuiltDeferLoopsExits42(t *testing.T) {
 // zero value and false on failure, for every element type, and its value
 // and true on success; a known value converted without ok; a byte of an
 // immutable string variable read by a known index; counting loops up and
-// down indexing every element; the int8 minimum
+// down indexing every element; a division guarded by ||, and an index by
+// a case with two values, on both sides of the guard; the int8 minimum
 // divided by -1 giving itself and true; the = form, parentheses, _, and
 // both operands of a checked division being evaluated. Each check prints
 // its name and "ok", or "FAIL".
@@ -1161,6 +1162,8 @@ func TestBuiltSafetyPassesEveryCheck(t *testing.T) {
 		"known value converts ok\n" +
 		"known string length ok\n" +
 		"counting loops ok\n" +
+		"or proves ok\n" +
+		"case proves ok\n" +
 		"zero string ok\n" +
 		"zero bool ok\n" +
 		"zero struct ok\n" +

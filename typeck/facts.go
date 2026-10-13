@@ -28,7 +28,9 @@ import (
 //   - a condition gives facts through && (when true), || (when false), !,
 //     and comparisons of a variable with a known value: b != 0, i >= 0,
 //     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
-//     one is never negative;
+//     one is never negative. || when true and && when false give what
+//     both sides agree on, the union of their facts, for each variable
+//     both sides constrain;
 //   - the length of a string parameter or mutable variable has no known
 //     value (an immutable one holding a known string has; see
 //     knownString), so two more comparisons give facts: len(s) with a known value bounds the length,
@@ -75,10 +77,7 @@ func (c *Checker) nonzero(e ast.Expr) bool {
 	if !ok {
 		return false
 	}
-	known := c.intervalOf(id)
-	zero := constant.Int{}
-	return known.nonzero || known.hasLo && known.lo.Cmp(zero) > 0 ||
-		known.hasHi && known.hi.Cmp(zero) < 0
+	return c.intervalOf(id).excludesZero()
 }
 
 // inRange reports whether a variable used as an index is known to lie in
@@ -291,8 +290,10 @@ func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) 
 }
 
 // factsFrom returns the facts cond gives where it evaluated to holds. &&
-// gives both sides' facts when true and none when false; || the reverse; !
-// swaps; a comparison of a variable with a known value gives one fact.
+// gives both sides' facts when true, and || both sides' facts of being
+// false when false. When one side or the other holds, && false or || true,
+// only what both sides agree on holds: see union. ! swaps; a comparison
+// of a variable with a known value gives one fact.
 func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	switch x := cond.(type) {
 	case *ast.Unary:
@@ -303,11 +304,91 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 		switch {
 		case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
 			return append(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)...)
+		case x.Op == ast.And, x.Op == ast.Or:
+			return union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds))
 		case x.Op.IsComparison():
 			return c.comparisonFact(x, holds)
 		}
 	}
 	return nil
+}
+
+// union returns the facts that hold when the facts a hold or the facts b
+// do, not knowing which: for each variable both say something about, the
+// smallest interval holding what each side allows, and not zero when
+// neither side allows zero. So b < 0 || b > 0 gives b != 0, and
+// i == 0 || i == 1 gives 0 <= i <= 1. A variable only one side constrains
+// gets nothing, since the other side may be the one that holds. A bound by
+// a string's length, i < len(s), is not carried over.
+func union(a, b []fact) []fact {
+	var out []fact
+	seen := make(map[ast.Decl]bool)
+	for _, f := range a {
+		if seen[f.decl] {
+			continue
+		}
+		seen[f.decl] = true
+		other, ok := sideInterval(b, f.decl)
+		if !ok {
+			continue
+		}
+		mine, _ := sideInterval(a, f.decl)
+		out = append(out, mine.hull(other).fact(f.decl))
+	}
+	return out
+}
+
+// sideInterval returns what the facts of one side say about decl, and
+// whether any of them is about it.
+func sideInterval(facts []fact, decl ast.Decl) (interval, bool) {
+	var known interval
+	found := false
+	for _, f := range facts {
+		if f.decl == decl {
+			known, found = known.narrow(f), true
+		}
+	}
+	return known, found
+}
+
+// hull returns the smallest interval that holds every value known or other
+// allows: the lower of the lower bounds and the higher of the upper ones,
+// each only when both have it, and not zero when neither allows zero.
+func (known interval) hull(other interval) interval {
+	h := interval{nonzero: known.excludesZero() && other.excludesZero()}
+	if known.hasLo && other.hasLo {
+		h.lo, h.hasLo = known.lo, true
+		if other.lo.Cmp(known.lo) < 0 {
+			h.lo = other.lo
+		}
+	}
+	if known.hasHi && other.hasHi {
+		h.hi, h.hasHi = known.hi, true
+		if other.hi.Cmp(known.hi) > 0 {
+			h.hi = other.hi
+		}
+	}
+	return h
+}
+
+// excludesZero reports whether known rules out zero: it says so, or its
+// bounds lie wholly above or below it.
+func (known interval) excludesZero() bool {
+	zero := constant.Int{}
+	return known.nonzero || known.hasLo && known.lo.Cmp(zero) > 0 ||
+		known.hasHi && known.hi.Cmp(zero) < 0
+}
+
+// fact returns the fact that decl lies in known.
+func (known interval) fact(decl ast.Decl) fact {
+	return fact{
+		decl:    decl,
+		lo:      known.lo,
+		hi:      known.hi,
+		hasLo:   known.hasLo,
+		hasHi:   known.hasHi,
+		nonzero: known.nonzero,
+	}
 }
 
 // comparisonFact returns the fact a comparison gives, when its value is

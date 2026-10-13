@@ -56,7 +56,9 @@
 // A divisor must be proven not zero where it is used, from facts: that a
 // variable is not zero within some region, learned from a condition just
 // tested. facts.go holds the rules, which are syntactic: a fact comes from
-// && || ! and comparisons with a constant, holds in an if's branches, a
+// && || ! and comparisons with a constant (one side or the other of an
+// || that is true, or an && that is false, giving the union of what each
+// side says about a variable both constrain), holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
 // variable, which must be a parameter, a local, or an immutable global. A
@@ -66,7 +68,8 @@
 // (counting.go). A
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
-// ..., in an expression switch, the default the final else. Deferred code
+// ..., in an expression switch, the default the final else, so a case with
+// several values proves the union of what each does. Deferred code
 // is checked where the defer is written, with the facts in force there,
 // which still hold when it runs, at the end of the defer's block (defer.go).
 // q, ok := a / b needs no proof, and is an error where one exists. A fact is

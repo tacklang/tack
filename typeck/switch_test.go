@@ -310,13 +310,13 @@ var rejectedSwitches = []struct {
 		[]switchError{{"continue is not in a loop", "continue"}},
 	},
 	{
-		"a list true gives nothing",
+		"a list true gives what every value agrees on",
 		inF("switch {", "case d != 0, n > 0:", "    return n / d", "}", "return 0"),
 		[]switchError{{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"}},
 	},
 	{
-		"an expression list true gives nothing",
-		inF("switch d {", "case 1, 2:", "    return n / d", "}", "return 0"),
+		"an expression list true allows any of its values",
+		inF("switch d {", "case 1, 0:", "    return n / d", "}", "return 0"),
 		[]switchError{{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"}},
 	},
 	{

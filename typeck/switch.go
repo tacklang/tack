@@ -181,18 +181,20 @@ func caseCond(s *ast.Switch, v ast.Expr) ast.Expr {
 }
 
 // caseFacts returns the facts a case of switch s gives where its condition,
-// the || of its values' conditions, evaluated to holds: as for ||, nothing
-// when true unless the case has one value, and every value's facts of being
-// false when false. The default has no condition, and gives nothing.
+// the || of its values' conditions, evaluated to holds: as for ||, what
+// every value's facts of being true agree on when true (see union), and
+// every value's facts of being false when false. The default has no
+// condition, and gives nothing.
 func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fact {
-	if cl.Default {
+	if cl.Default || len(cl.Values) == 0 {
 		return nil
 	}
 	if holds {
-		if len(cl.Values) != 1 {
-			return nil
+		facts := c.factsFrom(caseCond(s, cl.Values[0]), true)
+		for _, v := range cl.Values[1:] {
+			facts = union(facts, c.factsFrom(caseCond(s, v), true))
 		}
-		return c.factsFrom(caseCond(s, cl.Values[0]), true)
+		return facts
 	}
 	var facts []fact
 	for _, v := range cl.Values {

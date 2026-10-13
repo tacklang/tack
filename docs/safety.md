@@ -175,7 +175,14 @@ The conditions that give facts are:
   bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
-  gives the facts of both sides being false; `!c` swaps true and false.
+  gives the facts of both sides being false; `!c` swaps true and false;
+- `c1 || c2` when true, and `c1 && c2` when false, give only what every
+  side agrees on, since any one of them may be the side that decided: for
+  a variable every side constrains, the smallest range holding what each
+  side allows, and not zero when no side allows zero. So `b < 0 || b > 0`
+  proves `b != 0`, `i == 0 || i == 1` proves `0 <= i && i <= 1`, and the
+  `else` of `if b >= 0 && b <= 0` knows `b != 0`. A variable only some
+  sides constrain gets nothing.
 
 A fact holds in these places:
 
@@ -243,10 +250,28 @@ so <!-- case: safety-counting-loop-may-wrap -->`for mut i int8 = 2; i < 3; i += 
 proves nothing about `i`. An unsigned variable is never negative, so its
 condition alone bounds it from both sides.
 
-A `switch` case with one value proves what `tag == value` proves inside its
-body; a case with several values proves nothing inside it, as `||` gives
-nothing when true. Every later case, and the default, sees the earlier
-cases' values not matching.
+A `switch` case proves inside its body what `tag == v1 || tag == v2 ...`
+proves when true, so `case 1, 2:` proves `1 <= tag && tag <= 2`, and
+`tag != 0`. Every later case, and the default, sees the earlier cases'
+values not matching.
+
+<!-- example: safety -->
+```tack
+func split(a int64, b int64) int64 {
+    if b < 0 || b > 0 {
+        return a / b
+    }
+    return 0
+}
+
+func early(a [3]int64, i int64) int64 {
+    switch i {
+    case 0, 1:
+        return a[i]
+    }
+    return -1
+}
+```
 
 ### Where a fact holds
 
@@ -313,8 +338,8 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
 | <!-- case: safety-no-proof-unsigned-len -->`if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)` |
 | <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
-| <!-- case: safety-no-proof-or -->`if b < 0 \|\| b > 0 { a / b }`              | `\|\|` gives nothing when true                                          |
-| <!-- case: safety-no-proof-multi-value-case -->`switch i { case 0, 1: a[i] }`               | a case with several values gives nothing inside it                      |
+| <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
+| <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |
 | <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { a[i]; i++ }`                    | the body assigns `i`                                                    |
 | <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
 | <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
