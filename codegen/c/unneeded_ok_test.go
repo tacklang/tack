@@ -94,6 +94,17 @@ var unneededOkCases = []struct{ name, src string }{
 			"}",
 		),
 	},
+	{
+		"conversion of a value not known to its own type",
+		program(
+			"mut x int64 = -9",
+			"x *= 2",
+			"v, ok := int64(x)",
+			"if ok && v == -18 {",
+			"    exit(1)",
+			"}",
+		),
+	},
 }
 
 // TestUnneededOkAtRuntime builds each of unneededOkCases strictly, with the

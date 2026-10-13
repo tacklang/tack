@@ -31,6 +31,9 @@ static void tack_main_main(void) {
     if (((int64_t)((uint64_t)tack_main_smallest + (uint64_t)9223372036854775807)) != (-1)) {
         exit(1);
     }
+    if (tack_main_abs(tack_main_smallest) != tack_main_smallest) {
+        exit(2);
+    }
     exit(((int64_t)((uint64_t)(tack_o0 = tack_main_abs((-20)), tack_o1 = tack_main_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4)));
 }
 

@@ -86,14 +86,73 @@ func loopInDefer() {
     mark(9)
 }
 
-// counted defers an increment and a compound assignment.
+// counted defers an increment and compound assignments that do not
+// commute, so the result shows each iteration runs them last first: add i,
+// add one, then multiply by ten.
 func counted() int64 {
     mut n := 0
-    for range 4 {
+    for i := range 3 {
+        defer { n *= 10 }
         defer { n++ }
-        defer { n += 10 }
+        defer { n += i }
     }
     return n
+}
+
+// exits leaves a loop body holding a defer by a return on one call and by
+// a break on another, running the body's defer either way, then the
+// function's.
+func exits(n int64) int64 {
+    defer { mark(1) }
+    for i := range 5 {
+        defer { mark(2) }
+        if i == n {
+            return i
+        }
+        if i == 2 {
+            break
+        }
+        mark(3)
+    }
+    mark(4)
+    return 9
+}
+
+// skip continues out of a nested block with a defer of its own, inside a
+// loop body with a defer. The next iterations run their whole body, and
+// leave another nested block by falling off its end, not by continuing.
+func skip() {
+    for i := range 3 {
+        defer { mark(1) }
+        if i == 0 {
+            defer { mark(2) }
+            continue
+        }
+        if i >= 1 {
+            defer { mark(5) }
+        }
+        mark(3)
+    }
+    mark(4)
+}
+
+// inner returns from an inner loop nested in an outer loop, both with body
+// defers: the inner body's defer runs, then the outer body's, then the
+// function's.
+func inner(n int64) int64 {
+    defer { mark(1) }
+    for i := range 3 {
+        defer { mark(2) }
+        for j := range 3 {
+            defer { mark(3) }
+            if i * 3 + j == n {
+                return i * 10 + j
+            }
+            mark(4)
+        }
+        mark(5)
+    }
+    return 99
 }
 
 // many runs one defer per iteration of a range loop over an array, with
@@ -114,9 +173,23 @@ func main() {
     expect(43521, 3)
     loopInDefer()
     expect(9134, 4)
-    if counted() != 44 {
+    if counted() != 1230 {
         exit(5)
     }
+    if exits(1) != 1 {
+        exit(7)
+    }
+    expect(3221, 8)
+    if exits(7) != 9 {
+        exit(9)
+    }
+    expect(3232241, 10)
+    skip()
+    expect(215315314, 11)
+    if inner(4) != 11 {
+        exit(12)
+    }
+    expect(4343435243321, 13)
     many()
     expect(4030201, 6)
     exit(42)

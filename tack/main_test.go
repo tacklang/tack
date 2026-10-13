@@ -982,7 +982,8 @@ func TestBuiltCompoundExits14(t *testing.T) {
 }
 
 // The negate example uses the smallest int literal and negates through a
-// function, so its status pins negation in a real build.
+// function, the smallest int64 included, which wraps to itself, so its
+// status pins negation in a real build.
 func TestBuiltNegateExits19(t *testing.T) {
 	bin := buildWithClang(t, "negate")
 	err := exec.CommandContext(t.Context(), bin).Run()
@@ -1119,7 +1120,10 @@ func TestBuiltDeferPrintsAndExits42(t *testing.T) {
 // iteration, one ended by continue or break included, before the post
 // statement; a case's defers when the case ends; only the innermost loop's
 // on a break out of nested loops; a deferred block whose own loop breaks
-// and continues; deferred increments; and one defer per range iteration.
+// and continues; deferred updates that do not commute, run last first; a
+// body left by break and by return; a continue out of a nested block whose
+// next iterations run normally; a return out of nested loops with body
+// defers; and one defer per range iteration.
 func TestBuiltDeferLoopsExits42(t *testing.T) {
 	bin := buildWithClang(t, "defer-loops")
 	err := exec.CommandContext(t.Context(), bin).Run()

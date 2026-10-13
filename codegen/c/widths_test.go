@@ -61,6 +61,17 @@ var widthCases = []struct{ name, src string }{
 		),
 	},
 	{
+		"the smallest of each narrow width divided by -1",
+		widthProgram(
+			"a int32, b int16, c int8, m int8",
+			"-2147483648, -32768, -128, -1",
+			"if m == 0 {\n    return false\n}\nmut x := a\nx /= m\nmut y := b\ny %= m\n"+
+				"q, ok := c / m\nr, okR := c % m\n"+
+				"return a / m == a && a % m == 0 && b / m == b && b % m == 0 && c / m == c && c % m == 0 &&\n"+
+				"    x == a && y == 0 && ok && q == c && okR && r == 0",
+		),
+	},
+	{
 		"uint32 wraps",
 		widthProgram(
 			"a uint32, b uint32",
