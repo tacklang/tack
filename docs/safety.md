@@ -17,8 +17,12 @@ requires, and the exact diagnostics. The README's
 ["The language today"](../README.md#the-language-today) describes the same
 rules feature by feature.
 
-Every example here was compiled and, where it compiles, run with the
-compiler at the commit that added this page.
+Every example here is tested: each failing one is a case in
+[`examples/invalid.txtar`](../examples/invalid.txtar) whose expected output
+holds the diagnostic quoted here, the guarded and checked ones run in
+[`examples/safety/main.tck`](../examples/safety/main.tck), and
+`test/safety_doc_test.go` follows the HTML comment in front of each example
+and diagnostic to check that the two still agree.
 
 ## The operations
 
@@ -70,33 +74,41 @@ The details:
 - **`_` discards either value**, as in `v, _ := a[i]` or
   `_, fits := uint8(v)`.
 - **Exactly two names.** One name is the plain form, which then needs its
-  proof. Three or more are an error:
-  `assignment mismatch: 3 variables but a division gives 2 values`, and the
-  same with `an index` or `a conversion`.
-- **The operation must be the whole value.** Parentheses around it are
-  fine, `q, ok := (a / b)`, but `q, ok := a / b + 1` is not a checked
-  division: it reports the unproven divisor and
-  `assignment mismatch: 2 variables but 1 value`.
-- **Only the outermost index is checked.** In `v, ok := m[i][j]` the inner
-  `m[i]` is a plain index and needs its own proof.
+  proof. Three or more are an
+  error: <!-- error: safety-checked-three-names-division -->`assignment mismatch: 3 variables but a division gives 2 values`,
+  and
+  likewise <!-- error: safety-checked-three-names-index -->`assignment mismatch: 3 variables but an index gives 2 values`
+  and <!-- error: safety-checked-three-names-conversion -->`assignment mismatch: 3 variables but a conversion gives 2 values`.
+- **The operation must be the whole value.** Parentheses around it are fine,
+  `q, ok := (a / b)`,
+  but <!-- case: safety-checked-not-whole -->`q, ok := a / b + 1` is not a
+  checked division: it reports the unproven divisor
+  and <!-- error: safety-checked-not-whole -->`assignment mismatch: 2 variables but 1 value`.
+- **Only the outermost index is checked.**
+  In <!-- case: safety-checked-outer-index-only -->`v, ok := m[i][j]` the
+  inner `m[i]` is a plain index and needs its own proof.
 - **Drop the ok.** The checked form is an error where the operation cannot
   fail, so each operation has one spelling:
 
   | Operation   | Where it cannot fail                                          | Diagnostic                                                 |
   |-------------|---------------------------------------------------------------|------------------------------------------------------------|
-  | division    | the divisor is a known value or proven not zero, or both operands are untyped constants | `the divisor cannot be zero here; drop the ok` |
-  | array index | the index is a known value, or proven in range                | `the index cannot be out of range here; drop the ok`       |
-  | string index| the index is proven in range, a constant into a literal included | `the index cannot be out of range here; drop the ok`    |
-  | conversion  | the operand is an untyped constant                            | `a constant needs no ok to convert; use uint8(...)`        |
-  | conversion  | the operand's type widens to `T`                              | `converting uint8 to int64 cannot fail; use int64(...)`    |
+  | division    | the divisor is a known value or proven not zero, or both operands are untyped constants | <!-- error: checked-division-cannot-fail -->`the divisor cannot be zero here; drop the ok` |
+  | array index | the index is a known value, or proven in range                | <!-- error: checked-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
+  | string index| the index is proven in range, a constant into a literal included | <!-- error: safety-checked-string-index-cannot-fail -->`the index cannot be out of range here; drop the ok` |
+  | conversion  | the operand is an untyped constant                            | <!-- error: safety-checked-conversion-constant -->`a constant needs no ok to convert; use uint8(...)` |
+  | conversion  | the operand's type widens to `T`                              | <!-- error: safety-checked-conversion-widens -->`converting uint8 to int64 cannot fail; use int64(...)` |
 
 - **A failure known at compile time is still an error.** The checked form
-  does not accept an operation that always fails: `q, ok := a % 0` reports
-  `division by zero`, `v, ok := a[5]` on a `[3]int64` reports
-  `index 5 is out of range for [3]int64`, `v, ok := "tack"[4]` reports
-  `index 4 is out of range for a string of 4 bytes`, `v, ok := s[-1]`
-  reports `index -1 is out of range for a string`, and `v, ok := uint8(256)`
-  reports `constant 256 overflows uint8`.
+  does not accept an operation that always fails: `q, ok := a % 0`
+  reports <!-- error: safety-checked-known-zero -->`division by zero`,
+  `v, ok := a[5]` on a `[3]int64`
+  reports <!-- error: safety-checked-array-index-known-out-of-range -->`index 5 is out of range for [3]int64`,
+  `v, ok := "tack"[4]`
+  reports <!-- error: safety-checked-string-literal-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`,
+  `v, ok := s[-1]`
+  reports <!-- error: safety-checked-string-index-negative -->`index -1 is out of range for a string`,
+  and `v, ok := uint8(256)`
+  reports <!-- error: safety-checked-conversion-overflow -->`constant 256 overflows uint8`.
 - **No checked form for writes.** `x /= b`, `x %= b` and a write to an
   array element have no two-value form, so their divisor or index must be
   proven. Their diagnostics leave out the `v, ok` suggestion.
@@ -130,7 +142,9 @@ knows the value of:
 
 A mutable variable, a parameter and a call never have a known value, and
 neither does `len` of a string variable, even an immutable one initialized
-with a literal: after `s := "abc"`, `s[0]` still needs a proof.
+with a literal:
+after <!-- case: safety-known-string-variable -->`s := "abc"`, `s[0]` still
+needs a proof.
 
 ### Facts, and what gives them
 
@@ -167,12 +181,13 @@ A fact holds in these places:
 
 A range loop's index is at least 0 and at most its count less one, when the
 count is a known value, or the length of the array it ranges over less one,
-so it proves an index into any array at least as long. `for i := range
-len(s)` and `for i := range s` over a string variable bound `i` by `len(s)`;
-over a string literal, by its length. A three-clause loop gives only what
-its condition says: in `for mut i := 0; i < 3; i++` the body knows `i < 3`
-but not `i >= 0`, so `a[i]` needs `0 <= i && i < 3` in the condition, or an
-unsigned `i`.
+so it proves an index into any array at least as long.
+`for i := range len(s)` and `for i := range s` over a string variable bound
+`i` by `len(s)`; over a string literal, by its length. A three-clause loop
+gives only what its condition says:
+in <!-- case: safety-three-clause-loop -->`for mut i := 0; i < 3; i++` the
+body knows `i < 3` but not `i >= 0`, so `a[i]` needs `0 <= i && i < 3` in
+the condition, or an unsigned `i`.
 
 A `switch` case with one value proves what `tag == value` proves inside its
 body; a case with several values proves nothing inside it, as `||` gives
@@ -186,6 +201,7 @@ before or after the use: an assignment, a compound assignment, `++` or
 `--`, or one of several targets. If the region assigns it, the fact is
 dropped for the whole region:
 
+<!-- case: safety-region-assigned-later -->
 ```tack
 mut d int64 = 2
 mut x int64 = 0
@@ -194,6 +210,9 @@ if d != 0 {
     d = 0
 }
 ```
+
+The division
+reports <!-- error: safety-region-assigned-later -->`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
 
 The region is the branch for an `if`, the body for a loop (a three-clause
 loop's post statement is not part of it), and the rest of the block for an
@@ -211,6 +230,7 @@ written. The region those facts hold in takes in the rest of the defer's
 block, which is where the deferred code runs, so assigning the variable
 after the `defer` drops the fact:
 
+<!-- case: safety-defer-assigned-after -->
 ```tack
 mut b int64 = 3
 if b == 0 {
@@ -224,25 +244,28 @@ defer {
 b = 0
 ```
 
+The division
+reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check b != 0 first, or use q, ok := ... / b`.
+
 ### What does not count
 
 | Not a proof                                  | Why                                                                     |
 |----------------------------------------------|-------------------------------------------------------------------------|
-| `if p.d != 0 { n / p.d }`                    | a field never carries a fact; copy it into a variable first             |
-| `a[i + 1]` after `if 0 <= i && i < 2`        | only a plain name is proven                                             |
-| `if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
-| `if b > c { a / b }`                         | the same                                                                |
-| `if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
-| `if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
-| `if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)` |
-| `if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
-| `if b < 0 \|\| b > 0 { a / b }`              | `\|\|` gives nothing when true                                          |
-| `switch i { case 0, 1: a[i] }`               | a case with several values gives nothing inside it                      |
-| `for i < 3 { a[i]; i++ }`                    | the body assigns `i`                                                    |
-| `mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
-| `for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
-| `name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
-| any guard around `uint8(x)`                  | conversions follow the type rule only                                  |
+| <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }`                    | a field never carries a fact; copy it into a variable first             |
+| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`        | only a plain name is proven                                             |
+| <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
+| <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | the same                                                                |
+| <!-- case: safety-no-proof-string-len-minus-one -->`if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
+| <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
+| <!-- case: safety-no-proof-unsigned-len -->`if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)` |
+| <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
+| <!-- case: safety-no-proof-or -->`if b < 0 \|\| b > 0 { a / b }`              | `\|\|` gives nothing when true                                          |
+| <!-- case: safety-no-proof-multi-value-case -->`switch i { case 0, 1: a[i] }`               | a case with several values gives nothing inside it                      |
+| <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { a[i]; i++ }`                    | the body assigns `i`                                                    |
+| <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
+| <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
+| <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
+| <!-- case: safety-no-proof-conversion-guard -->any guard around `uint8(x)`                  | conversions follow the type rule only                                  |
 
 ## Per operation
 
@@ -251,19 +274,23 @@ after `error: `.
 
 ### Division and remainder
 
+<!-- case: divisor-may-be-zero -->
 ```tack
 func half(a int64, b int64) int64 {
     return a / b
 }
 ```
 
+<!-- error: divisor-may-be-zero -->
 `divisor b may be zero; check b != 0 first, or use q, ok := ... / b`
 
-A divisor that is not a name gets
-`divisor may be zero; use q, ok := ... / ...`, as in `a / (b + 1)`.
+A divisor that is not a name
+gets <!-- error: safety-div-not-a-name -->`divisor may be zero; use q, ok := ... / ...`,
+as in `a / (b + 1)`.
 
 Guarded:
 
+<!-- example: safety -->
 ```tack
 func half(a int64, b int64) int64 {
     if b == 0 {
@@ -275,6 +302,7 @@ func half(a int64, b int64) int64 {
 
 Checked:
 
+<!-- example: safety -->
 ```tack
 mut b int64 = 0
 q, ok := 8 / b      // q == 0, ok == false
@@ -283,12 +311,15 @@ r, fine := 9 % b    // r == 1, fine == true
 ```
 
 `%` follows the same rules as `/`. A known divisor is checked at compile
-time: `a / 0` and `a % 0` are `division by zero`, and two untyped
-constants, `1 / 0`, give `division by zero in constant expression`, in a
-function as at package level.
+time: `a / 0` and `a % 0`
+are <!-- error: safety-div-known-zero -->`division by zero`, and two untyped
+constants, `1 / 0`,
+give <!-- error: safety-div-constant-zero -->`division by zero in constant expression`,
+in a function as at package level.
 
 ### Compound division
 
+<!-- case: safety-compound-div-unguarded -->
 ```tack
 func f(b int64) int64 {
     mut x int64 = 100
@@ -297,11 +328,14 @@ func f(b int64) int64 {
 }
 ```
 
-`divisor b may be zero; check b != 0 first`, and for a divisor that is not
-a name, as in `x %= b + 1`, `divisor may be zero`.
+<!-- error: safety-compound-div-unguarded -->
+`divisor b may be zero; check b != 0 first`, and for a divisor that is not a
+name, as in
+`x %= b + 1`, <!-- error: safety-compound-rem-not-a-name -->`divisor may be zero`.
 
 Guarded:
 
+<!-- example: safety -->
 ```tack
 mut x int64 = 100
 if b != 0 {
@@ -313,19 +347,23 @@ There is no checked form; write `q, ok := x / b` and assign `q`.
 
 ### Reading an array element
 
+<!-- case: safety-index-read-unguarded -->
 ```tack
 func get(a [3]int64, i int64) int64 {
     return a[i]
 }
 ```
 
+<!-- error: safety-index-read-unguarded -->
 `index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]`
 
-An index that is not a name gets
-`index may be out of range; use v, ok := ...[...]`, as in `a[i + 1]`.
+An index that is not a name
+gets <!-- error: safety-index-read-not-a-name -->`index may be out of range; use v, ok := ...[...]`,
+as in `a[i + 1]`.
 
 Guarded:
 
+<!-- example: safety -->
 ```tack
 func get(a [3]int64, i int64) int64 {
     if 0 <= i && i < len(a) {
@@ -337,18 +375,21 @@ func get(a [3]int64, i int64) int64 {
 
 Checked:
 
+<!-- example: safety -->
 ```tack
 a := [3]int64{10, 20, 30}
 mut i int64 = 5
 v, ok := a[i]       // v == 0, ok == false
 ```
 
-A known index is checked at compile time: `a[3]` on a `[3]int64` is
-`index 3 is out of range for [3]int64`, and `a[-1]` is
-`index -1 is out of range for [3]int64`.
+A known index is checked at compile time: `a[3]` on a `[3]int64`
+is <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64`,
+and `a[-1]`
+is <!-- error: safety-index-read-negative -->`index -1 is out of range for [3]int64`.
 
 ### Writing an array element
 
+<!-- case: safety-index-write-unguarded -->
 ```tack
 func set(i int64) int64 {
     mut a [3]int64
@@ -357,11 +398,14 @@ func set(i int64) int64 {
 }
 ```
 
-`index i may be out of range; check 0 <= i && i < 3 first`, and for an
-index that is not a name, as in `a[i + 1] = 1`, `index may be out of range`.
+<!-- error: safety-index-write-unguarded -->
+`index i may be out of range; check 0 <= i && i < 3 first`, and for an index
+that is not a name, as in
+`a[i + 1] = 1`, <!-- error: safety-index-write-not-a-name -->`index may be out of range`.
 
 Guarded:
 
+<!-- example: safety -->
 ```tack
 mut a [3]int64
 if i < 0 || i >= 3 {
@@ -374,22 +418,26 @@ There is no checked form.
 
 ### Reading a string's byte
 
+<!-- case: safety-string-index-unguarded -->
 ```tack
 func at(s string, i int64) uint8 {
     return s[i]
 }
 ```
 
+<!-- error: safety-string-index-unguarded -->
 `index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]`
 
-A constant index into a string variable gets
-`index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]`.
+A constant index into a string variable
+gets <!-- error: string-constant-index-unguarded -->`index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]`.
 An index into a string that is neither a variable nor a literal, such as a
-call's result, gets `index i may be out of range; use v, ok := ...[i]`,
+call's result,
+gets <!-- error: string-index-of-call -->`index i may be out of range; use v, ok := ...[i]`,
 since only the checked form can help.
 
 Guarded:
 
+<!-- example: safety -->
 ```tack
 func at(s string, i int64) uint8 {
     if 0 <= i && i < len(s) {
@@ -408,6 +456,7 @@ func first(s string) uint8 {
 
 Checked:
 
+<!-- example: safety -->
 ```tack
 s := "abc"
 mut i int64 = 9
@@ -415,27 +464,31 @@ v, ok := s[i]       // v == 0, ok == false
 ```
 
 A constant index into a string literal is checked at compile time:
-`"tack"[1]` is `97`, `"tack"[4]` is
-`index 4 is out of range for a string of 4 bytes`, and a negative constant
-is always an error, `index -1 is out of range for a string`.
+`"tack"[1]` is `97`, `"tack"[4]`
+is <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`,
+and a negative constant is always an
+error, <!-- error: string-index-negative -->`index -1 is out of range for a string`.
 
-Writing a byte, even of a `mut` string, is
-`cannot assign to an element of a string; strings are immutable`.
+Writing a byte, even of a `mut` string,
+is <!-- error: string-element-assign -->`cannot assign to an element of a string; strings are immutable`.
 
 ### Conversions
 
+<!-- case: safety-conversion-unchecked -->
 ```tack
 func low(x int64) uint8 {
     return uint8(x)
 }
 ```
 
+<!-- error: safety-conversion-unchecked -->
 `converting int64 to uint8 can fail; use v, ok := uint8(...)`
 
 There is no guarded version. `T(x)` compiles only when `x` is an untyped
 constant that is a value of `T`, or `x`'s type widens to `T`, as `int64(b)`
 for a `uint8` `b`. A guard does not help, so this is the same error:
 
+<!-- case: safety-conversion-guarded -->
 ```tack
 func low(x int64) uint8 {
     if 0 <= x && x < 256 {
@@ -445,12 +498,15 @@ func low(x int64) uint8 {
 }
 ```
 
-Nor does a known value of a type that does not widen: after `x := 5`, an
-`int64`, `uint8(x)` is an error, and so is `int8('a')`, since a character
-literal is a `uint8`.
+Nor does a known value of a type that does not widen:
+after <!-- case: safety-conversion-known-value -->`x := 5`, an `int64`,
+`uint8(x)` is an error, and so
+is <!-- case: safety-conversion-char-to-int8 -->`int8('a')`, since a
+character literal is a `uint8`.
 
 Checked:
 
+<!-- example: safety -->
 ```tack
 mut x int64 = 300
 v, ok := uint8(x)   // v == 0, ok == false
@@ -459,8 +515,10 @@ w, fine := uint8(x) // w == 44, fine == true
 ```
 
 An untyped constant that does not fit is a compile error in either form:
-`uint8(256)` is `constant 256 overflows uint8`. Strings and bools cannot be
-converted: `int64("7")` is `cannot convert string to int64`.
+`uint8(256)`
+is <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8`.
+Strings and bools cannot be converted: `int64("7")`
+is <!-- error: safety-conversion-string -->`cannot convert string to int64`.
 
 ## Compile-time errors
 
@@ -469,13 +527,13 @@ failure it can see from known values:
 
 | Case                                      | Example                               | Diagnostic                                          |
 |-------------------------------------------|---------------------------------------|-----------------------------------------------------|
-| known zero divisor                        | `a / 0`                               | `division by zero`                                  |
-| zero divisor between untyped constants    | `x := 1 / 0`                          | `division by zero in constant expression`           |
-| known index out of range, array           | `a[3]` on `[3]int64`                  | `index 3 is out of range for [3]int64`              |
-| known index out of range, string literal  | `"tack"[4]`                           | `index 4 is out of range for a string of 4 bytes`   |
-| negative known index, any string          | `s[-1]`                               | `index -1 is out of range for a string`             |
-| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`     | `constant 256 overflows uint8`                      |
-| arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | `constant expression overflows uint8` (or `int8`) |
+| known zero divisor                        | `a / 0`                               | <!-- error: safety-div-known-zero -->`division by zero` |
+| zero divisor between untyped constants    | `x := 1 / 0`                          | <!-- error: safety-div-constant-zero -->`division by zero in constant expression` |
+| known index out of range, array           | `a[3]` on `[3]int64`                  | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64` |
+| known index out of range, string literal  | `"tack"[4]`                           | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
+| negative known index, any string          | `s[-1]`                               | <!-- error: string-index-negative -->`index -1 is out of range for a string` |
+| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`     | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
+| arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
 
 Arithmetic on values the compiler does not know wraps at runtime instead:
 for a `mut` `int8` `m` holding `-128`, `m / -1` is `-128` and `m % -1` is

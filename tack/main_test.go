@@ -1128,6 +1128,49 @@ func TestBuiltDeferLoopsExits42(t *testing.T) {
 	}
 }
 
+// The safety example holds the guarded and checked examples from
+// docs/safety.md and checks each one's result as the page states it: a
+// guarded operation's value on both sides of its guard; a checked one's
+// zero value and false on failure, for every element type, and its value
+// and true on success; the int8 minimum divided by -1 giving itself and
+// true; the = form, parentheses, _, and both operands of a checked division
+// being evaluated. Each check prints its name and "ok", or "FAIL".
+func TestBuiltSafetyPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "safety")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("safety exited with %v, want status 0", err)
+	}
+	want := "half guarded ok\n" +
+		"division by zero ok\n" +
+		"remainder ok\n" +
+		"compound guarded ok\n" +
+		"get guarded ok\n" +
+		"index out of range ok\n" +
+		"index in range ok\n" +
+		"set guarded ok\n" +
+		"at guarded ok\n" +
+		"first guarded ok\n" +
+		"byte out of range ok\n" +
+		"byte in range ok\n" +
+		"conversion fails ok\n" +
+		"conversion fits ok\n" +
+		"zero string ok\n" +
+		"zero bool ok\n" +
+		"zero struct ok\n" +
+		"int8 min / -1 wraps ok\n" +
+		"int8 min % -1 ok\n" +
+		"assign index ok\n" +
+		"assign conversion ok\n" +
+		"assign division in parentheses ok\n" +
+		"blank discards ok\n" +
+		"both operands evaluated ok\n" +
+		"constant index into a literal ok\n"
+	if string(out) != want {
+		t.Errorf("safety printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // TestDeepDeferNestingReportsOnce checks a long chain of nested defers is
 // reported once, at the second defer, not once per nested defer.
 func TestDeepDeferNestingReportsOnce(t *testing.T) {

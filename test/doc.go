@@ -23,6 +23,12 @@
 //
 //	go test ./test -update
 //
+// TestSafetyDoc ties docs/safety.md to the programs that test it. An HTML
+// comment before each example or quoted diagnostic on that page names a case
+// in examples/invalid.txtar or a directory under examples/, and the test
+// checks the block is in that program and the diagnostic in that case's
+// expected output. Every case named safety-* must be named by the page.
+//
 // The other tests here assert intended behavior directly, so a failure in one
 // of them is a bug, not a stale golden. TestAcceptsValidPrograms covers syntax
 // the language should accept that no example exercises. TestRejectsInvalidPrograms

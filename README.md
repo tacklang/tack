@@ -577,7 +577,9 @@ go test ./test -update
 Every directory under `examples/` is a test case, and so is every case in
 `examples/invalid.txtar`, which exists to pin the diagnostic each malformed
 program produces; `go test ./test -update` also rewrites its expected
-sections.
+sections. `TestSafetyDoc` keeps [docs/safety.md](docs/safety.md) honest: an
+HTML comment before each of its examples and quoted diagnostics names the
+case or example that holds it, and the test fails if they disagree.
 
 The goldens only pin that output is stable, not that it is correct. The test
 that checks correctness is in `codegen/c`: it compiles a generated translation

@@ -1,0 +1,167 @@
+package main
+
+// The guarded and checked examples from docs/safety.md, verbatim, each run
+// and checked. Every check prints its name and "ok", or "FAIL".
+
+type Point struct {
+    x int64
+    y int64
+}
+
+mut calls int64
+
+func check(name string, cond bool) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func count(n int64) int64 {
+    calls++
+    return n
+}
+
+func half(a int64, b int64) int64 {
+    if b == 0 {
+        return 0
+    }
+    return a / b
+}
+
+func checkedDivision() {
+    mut b int64 = 0
+    q, ok := 8 / b      // q == 0, ok == false
+    b = 2
+    r, fine := 9 % b    // r == 1, fine == true
+    check("division by zero", q == 0 && !ok)
+    check("remainder", r == 1 && fine)
+}
+
+func compound(b int64) int64 {
+    mut x int64 = 100
+    if b != 0 {
+        x /= b
+    }
+    return x
+}
+
+func get(a [3]int64, i int64) int64 {
+    if 0 <= i && i < len(a) {
+        return a[i]
+    }
+    return 0
+}
+
+func checkedIndex() {
+    a := [3]int64{10, 20, 30}
+    mut i int64 = 5
+    v, ok := a[i]       // v == 0, ok == false
+    check("index out of range", v == 0 && !ok)
+    i = 2
+    w, fine := a[i]
+    check("index in range", w == 30 && fine)
+}
+
+func set(i int64) int64 {
+    mut a [3]int64
+    if i < 0 || i >= 3 {
+        return 0
+    }
+    a[i] = 7
+    return a[i]
+}
+
+func at(s string, i int64) uint8 {
+    if 0 <= i && i < len(s) {
+        return s[i]
+    }
+    return 0
+}
+
+func first(s string) uint8 {
+    if len(s) > 0 {
+        return s[0]
+    }
+    return 0
+}
+
+func checkedByte() {
+    s := "abc"
+    mut i int64 = 9
+    v, ok := s[i]       // v == 0, ok == false
+    check("byte out of range", v == 0 && !ok)
+    i = 1
+    w, fine := s[i]
+    check("byte in range", w == 'b' && fine)
+}
+
+func checkedConversion() {
+    mut x int64 = 300
+    v, ok := uint8(x)   // v == 0, ok == false
+    x = 44
+    w, fine := uint8(x) // w == 44, fine == true
+    check("conversion fails", v == 0 && !ok)
+    check("conversion fits", w == 44 && fine)
+}
+
+func zeroValues() {
+    mut i int64 = 3
+    words := [2]string{"a", "b"}
+    flags := [2]bool{true, true}
+    points := [1]Point{Point{x: 1, y: 2}}
+    w, okWord := words[i]
+    f, okFlag := flags[i]
+    p, okPoint := points[i]
+    check("zero string", w == "" && !okWord)
+    check("zero bool", !f && !okFlag)
+    check("zero struct", p.x == 0 && p.y == 0 && !okPoint)
+}
+
+func forms() {
+    mut m int8 = -128
+    mut d int8 = -1
+    q, ok := m / d
+    check("int8 min / -1 wraps", q == -128 && ok)
+    check("int8 min % -1", m % -1 == 0 && m / -1 == -128)
+
+    a := [3]int64{10, 20, 30}
+    mut i int64 = 1
+    mut v int64 = 0
+    mut fine := false
+    v, fine = a[i]
+    check("assign index", v == 20 && fine)
+    mut x int64 = 9
+    mut b uint8 = 0
+    b, fine = uint8(x)
+    check("assign conversion", b == 9 && fine)
+    x, fine = (v / x)
+    check("assign division in parentheses", x == 2 && fine)
+
+    e, _ := a[i]
+    _, fits := uint8(e)
+    check("blank discards", e == 20 && fits)
+
+    calls = 0
+    r, nonzero := count(8) / count(0)
+    check("both operands evaluated", calls == 2 && r == 0 && !nonzero)
+    check("constant index into a literal", "tack"[1] == 97)
+}
+
+func main() {
+    check("half guarded", half(8, 0) == 0 && half(8, 2) == 4)
+    checkedDivision()
+    check("compound guarded", compound(0) == 100 && compound(4) == 25)
+    a := [3]int64{10, 20, 30}
+    check("get guarded", get(a, 5) == 0 && get(a, -1) == 0 && get(a, 1) == 20)
+    checkedIndex()
+    check("set guarded", set(3) == 0 && set(-1) == 0 && set(2) == 7)
+    check("at guarded", at("abc", 3) == 0 && at("abc", 2) == 'c')
+    check("first guarded", first("") == 0 && first("abc") == 'a')
+    checkedByte()
+    checkedConversion()
+    zeroValues()
+    forms()
+}
