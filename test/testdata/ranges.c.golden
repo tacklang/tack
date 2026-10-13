@@ -112,6 +112,8 @@ static int64_t tack_main_firstOver(tack_array_13 p_a, int64_t p_limit) {
 }
 
 static void tack_main_main(void) {
+    int64_t tack_o30;
+    int64_t tack_o31;
     const tack_array_13 v_a = (tack_array_13){{2, 7, 1, 8, 2}};
     int64_t v_sum = 0;
     {
@@ -260,7 +262,7 @@ static void tack_main_main(void) {
     if (v_upper != 2) {
         exit(11);
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_firstOver(v_a, 7) + (uint64_t)tack_main_firstOver(v_a, 8))) + (uint64_t)40)));
+    exit(((int64_t)((uint64_t)(tack_o30 = tack_main_firstOver(v_a, 7), tack_o31 = tack_main_firstOver(v_a, 8), ((int64_t)((uint64_t)tack_o30 + (uint64_t)tack_o31))) + (uint64_t)40)));
 }
 
 int main(void) {

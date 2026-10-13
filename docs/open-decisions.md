@@ -5,31 +5,6 @@ deliberate answer. Each entry says what happens today and why it matters.
 When a decision is made, the entry is removed and the answer goes into the
 README's "The language today".
 
-## Evaluation order
-
-C does not specify the order in which a call's arguments, or a binary
-expression's operands, are evaluated. Tack functions can print and also
-return a value, so the order is observable:
-
-```tack
-func a() int64 {
-    print("a")
-    return 1
-}
-
-func b() int64 {
-    print("b")
-    return 2
-}
-
-func main() {
-    exit(a() + b())
-}
-```
-
-may print `a` then `b`, or `b` then `a`. Go fixes left to right. Fixing any
-order means the backend evaluates operands into temporaries first.
-
 ## The `asm` keyword
 
 `asm` is a keyword, and the lexer skips everything after it up to the next
@@ -74,8 +49,6 @@ another way:
   any other cycle, as in Go.
 - `_` cannot name a field, following the rule that `_` is not a name;
   Go allows blank fields, as padding.
-- The fields of a struct literal are evaluated in the order C chooses, as
-  a call's arguments are (see evaluation order).
 - A field never carries a fact for proving a divisor non-zero or an index
   in range, so a guard on `p.x` proves nothing; whether a field of an
   immutable variable should is open.

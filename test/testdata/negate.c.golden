@@ -26,10 +26,12 @@ static int64_t tack_main_abs(int64_t p_n) {
 }
 
 static void tack_main_main(void) {
+    int64_t tack_o0;
+    int64_t tack_o1;
     if (((int64_t)((uint64_t)tack_main_smallest + (uint64_t)9223372036854775807)) != (-1)) {
         exit(1);
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_abs((-20)) + (uint64_t)tack_main_abs(3))) - (uint64_t)4)));
+    exit(((int64_t)((uint64_t)(tack_o0 = tack_main_abs((-20)), tack_o1 = tack_main_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4)));
 }
 
 int main(void) {

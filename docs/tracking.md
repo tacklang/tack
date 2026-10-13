@@ -104,7 +104,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                                                                                     |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                                                                                         |
 | `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                                                                                  |
-| Evaluation order                  | n/a   | n/a    | n/a     | partial | Unspecified, inherited from C                                                                                                                                           |
+| Evaluation order                  | n/a   | n/a    | n/a     | yes     | Left to right; the C backend holds operands in temporaries where the order could show                                                                                   |
 
 ### Types
 

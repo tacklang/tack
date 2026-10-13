@@ -59,6 +59,10 @@ static int64_t tack_main_sum(tack_string p_s) {
 }
 
 static void tack_main_main(void) {
+    int64_t tack_o2;
+    int64_t tack_o3;
+    int64_t tack_o4;
+    int64_t tack_o5;
     if ((((2 != 2) || (((tack_string){str2, 2}).ptr[0] != 92)) || (((tack_string){str2, 2}).ptr[1] != 110)) || (tack_compare_strings((tack_string){str2, 2}, (tack_string){str2, 2}) != 0)) {
         exit(1);
     }
@@ -79,7 +83,7 @@ static void tack_main_main(void) {
     if ((((v_two).len != 3) || (v_two.ptr[1] != 10)) || (tack_compare_strings(v_two, (tack_string){str8, 3}) != 0)) {
         exit(6);
     }
-    if ((((tack_main_pattern).len != 8) || (tack_compare_strings(tack_main_pattern, (tack_string){str0, 8}) != 0)) || (tack_main_sum(tack_main_pattern) != tack_main_sum((tack_string){str0, 8}))) {
+    if ((((tack_main_pattern).len != 8) || (tack_compare_strings(tack_main_pattern, (tack_string){str0, 8}) != 0)) || (tack_o2 = tack_main_sum(tack_main_pattern), tack_o3 = tack_main_sum((tack_string){str0, 8}), (tack_o2 != tack_o3))) {
         exit(7);
     }
     if ((((tack_main_banner).len != 48) || (tack_main_banner.ptr[47] != 10)) || (tack_main_banner.ptr[21] != 92)) {
@@ -89,7 +93,7 @@ static void tack_main_main(void) {
         exit(9);
     }
     tack_print(tack_main_banner);
-    exit(((int64_t)((uint64_t)tack_main_sum((tack_string){str10, 2}) - (uint64_t)tack_main_sum((tack_string){str5, 1}))));
+    exit((tack_o4 = tack_main_sum((tack_string){str10, 2}), tack_o5 = tack_main_sum((tack_string){str5, 1}), ((int64_t)((uint64_t)tack_o4 - (uint64_t)tack_o5))));
 }
 
 int main(void) {

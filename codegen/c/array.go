@@ -77,7 +77,9 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 		}
 		elems[i] = v
 	}
-	return fmt.Sprintf("(%s){{%s}}", arrayName(lit.Type), strings.Join(elems, ", ")), nil
+	return g.sequenced(lit.Elems, elems, func(ops []string) string {
+		return fmt.Sprintf("(%s){{%s}}", arrayName(lit.Type), strings.Join(ops, ", "))
+	}), nil
 }
 
 // indexExpr renders an element read, x.e[i], or a string's byte, x.ptr[i].
@@ -99,10 +101,13 @@ func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	}
 	switch ix.X.(type) {
 	case *ast.Ident, *ast.Index, *ast.Selector, *ast.Call:
-		return fmt.Sprintf("%s.%s[%s]", base, field, index), nil
 	default:
-		return fmt.Sprintf("(%s).%s[%s]", base, field, index), nil
+		base = "(" + base + ")"
 	}
+	operands := []ast.Expr{ix.X, ix.Index}
+	return g.sequenced(operands, []string{base, index}, func(ops []string) string {
+		return fmt.Sprintf("%s.%s[%s]", ops[0], field, ops[1])
+	}), nil
 }
 
 // lenValue renders a len other than of a string literal: the length of a

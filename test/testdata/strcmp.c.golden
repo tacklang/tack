@@ -124,6 +124,10 @@ static tack_string tack_main_fruit(int64_t p_i) {
 }
 
 static void tack_main_main(void) {
+    tack_string tack_o0;
+    tack_string tack_o1;
+    tack_string tack_o2;
+    tack_string tack_o3;
     const tack_string v_a = (tack_string){str5, 4};
     const tack_string v_b = (tack_string){str5, 4};
     if (((((tack_compare_strings(v_a, v_b) != 0) || !(tack_compare_strings(v_a, v_b) == 0)) || (tack_compare_strings(v_a, (tack_string){str6, 3}) == 0)) || (tack_compare_strings(v_a, (tack_string){str7, 5}) == 0)) || (tack_compare_strings((tack_string){str7, 5}, v_a) == 0)) {
@@ -154,7 +158,7 @@ static void tack_main_main(void) {
     if (((!(tack_compare_strings((tack_string){str19, 1}, (tack_string){str11, 1}) > 0) || !(tack_compare_strings((tack_string){str20, 1}, (tack_string){str21, 1}) > 0)) || !(tack_compare_strings((tack_string){str22, 2}, (tack_string){str23, 1}) > 0)) || (tack_compare_strings((tack_string){str19, 1}, (tack_string){str20, 1}) < 0)) {
         exit(9);
     }
-    if (((tack_compare_strings(tack_main_greeting(true), (tack_string){str0, 5}) != 0) || !(tack_compare_strings(tack_main_greeting(false), tack_main_greeting(true)) > 0)) || (tack_compare_strings(tack_main_greeting(true), tack_main_greeting(false)) == 0)) {
+    if (((tack_compare_strings(tack_main_greeting(true), (tack_string){str0, 5}) != 0) || !(tack_o0 = tack_main_greeting(false), tack_o1 = tack_main_greeting(true), (tack_compare_strings(tack_o0, tack_o1) > 0))) || (tack_o2 = tack_main_greeting(true), tack_o3 = tack_main_greeting(false), (tack_compare_strings(tack_o2, tack_o3) == 0))) {
         exit(10);
     }
     const tack_main_Person v_p = (tack_main_Person){.f_name = (tack_string){str24, 3}, .f_age = 30};
@@ -184,9 +188,9 @@ static void tack_main_main(void) {
     tack_string v_prev = (tack_string){str10, 0};
     int64_t v_rising = 0;
     {
-        const tack_array_16 tack_r0 = v_sorted;
-        for (int64_t tack_k1 = 0; tack_k1 < 5; tack_k1++) {
-            const tack_string v_w = tack_r0.e[tack_k1];
+        const tack_array_16 tack_r4 = v_sorted;
+        for (int64_t tack_k5 = 0; tack_k5 < 5; tack_k5++) {
+            const tack_string v_w = tack_r4.e[tack_k5];
             if (tack_compare_strings(v_w, v_prev) > 0) {
                 v_rising = ((int64_t)((uint64_t)v_rising + (uint64_t)1));
             }

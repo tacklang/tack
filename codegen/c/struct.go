@@ -190,6 +190,8 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 		return fmt.Sprintf("(%s){0}", g.structName(lit.Type)), nil
 	}
 	inits := make([]string, len(lit.Elems))
+	values := make([]ast.Expr, len(lit.Elems))
+	fields := make([]string, len(lit.Elems))
 	for i, e := range lit.Elems {
 		kv, isKV := e.(*ast.KeyValue)
 		key, isName := keyName(kv, isKV)
@@ -204,9 +206,14 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 		if len(diags) > 0 {
 			return "", diags
 		}
-		inits[i] = fmt.Sprintf(".%s = %s", fieldName(key.Name), v)
+		values[i], fields[i], inits[i] = kv.Value, fieldName(key.Name), v
 	}
-	return fmt.Sprintf("(%s){%s}", g.structName(lit.Type), strings.Join(inits, ", ")), nil
+	return g.sequenced(values, inits, func(ops []string) string {
+		for i, v := range ops {
+			ops[i] = fmt.Sprintf(".%s = %s", fields[i], v)
+		}
+		return fmt.Sprintf("(%s){%s}", g.structName(lit.Type), strings.Join(ops, ", "))
+	}), nil
 }
 
 // keyName returns the name kv's key is, if kv is a key and a value, isKV,

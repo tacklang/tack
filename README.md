@@ -447,6 +447,17 @@ which is true today because `main` is the only package there is.
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
   such as a two-value form whose `ok` is always `true`.
+- Evaluation order is left to right wherever Tack evaluates several
+  operands: the two sides of an operator, a call's arguments, a return's
+  values, an array literal's elements, a struct literal's values in the
+  order they are written, an indexed array before its index, and a
+  switch's tag before its case values, which run one by one up to the
+  first match. In an assignment the target's indexes come before the
+  value, and `x op= v` reads `x` before it evaluates `v`. The order shows
+  only through calls, which can print, exit or assign a mutable global
+  another operand reads: `f() + g()` always runs `f` first, and in
+  `g + bump()`, with `bump` adding one to the global `g`, `g` is read
+  before the call.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer

@@ -63,6 +63,8 @@ static uint8_t tack_main_first(tack_string p_s) {
 }
 
 static void tack_main_main(void) {
+    int64_t tack_o4;
+    uint8_t tack_o5;
     tack_string v_s = (tack_string){str1, 5};
     const int64_t tack_r2 = 9;
     const uint8_t v_v = ((tack_r2 >= 0 && tack_r2 < v_s.len) ? v_s.ptr[tack_r2] : 0);
@@ -85,7 +87,7 @@ static void tack_main_main(void) {
     if ((((((tack_string){str0, 4}).ptr[1] != 97) || (tack_main_at(tack_main_word, 4) != 0)) || (tack_main_at(tack_main_word, (-1)) != 0)) || (tack_main_first(tack_main_word) != 116)) {
         exit(4);
     }
-    exit(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_count((tack_string){str5, 6}, 97) + (uint64_t)tack_main_at(tack_main_word, 2))) - (uint64_t)97)));
+    exit(((int64_t)((uint64_t)(tack_o4 = tack_main_count((tack_string){str5, 6}, 97), tack_o5 = tack_main_at(tack_main_word, 2), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) - (uint64_t)97)));
 }
 
 int main(void) {

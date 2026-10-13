@@ -186,6 +186,29 @@
 // cast to void. A switch on a string, an array or a struct counts as
 // comparing that type when deciding which helpers to emit.
 //
+// Tack evaluates operands left to right everywhere it evaluates several,
+// and C leaves the order of a call's arguments, an operator's operands and
+// an initializer's values unspecified, so order.go enforces it where it
+// could show. An operand is pure when it calls no Tack function and reads
+// no mutable package-level variable: no call can change a constant, a
+// parameter, a local or an immutable global. When at least two of the
+// operands of one binary operator other than && and ||, one call's
+// arguments, one return's values, one array literal's elements, one
+// struct literal's values (in the order written, not the fields' order),
+// an index's array and index, or a compound assignment's target and value
+// are not pure, and one of those calls a function, every operand that is
+// not pure is assigned, left to right, to a temporary of its own type
+// with C's comma operator, and the operation reads the temporaries:
+// f(g(), h()) becomes (tack_o0 = g(), tack_o1 = h(), f(tack_o0, tack_o1)).
+// Otherwise nothing is held, since no order could be seen. The
+// temporaries are declared, uninitialized, at the top of the function, so
+// they work inside any expression, a loop's condition and the right side
+// of && included, and no goto can skip their declaration. A switch, a
+// checked division and a checked index already hold their operands in
+// order. An assignment's target is evaluated before its value, but the
+// checker allows no call and no mutable global in a target's indexes, so
+// that order needs nothing written.
+//
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
 // languages. A - and a negative literal are parenthesised, so that two minus

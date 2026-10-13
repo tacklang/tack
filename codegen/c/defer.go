@@ -90,6 +90,7 @@ type deferFrame struct {
 	routes map[string]int // route numbers, by route
 	next   string         // the next variable, named when first needed
 	ret    string         // the function's ret variable, likewise
+	temps  []string       // declarations of the temporaries sequenced holds operands in
 }
 
 // stop is one block on an exit's route: one with defers to run, and how
@@ -292,7 +293,7 @@ func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	var decls []string
+	decls := g.frame.temps
 	if g.frame.ret != "" {
 		decls = append(
 			decls,

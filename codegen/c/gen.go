@@ -635,7 +635,9 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 	if len(values) == 1 {
 		return values[0], nil
 	}
-	return fmt.Sprintf("(%s){%s}", g.resultsName(fn.Name), strings.Join(values, ", ")), nil
+	return g.sequenced(ret.Values, values, func(ops []string) string {
+		return fmt.Sprintf("(%s){%s}", g.resultsName(fn.Name), strings.Join(ops, ", "))
+	}), nil
 }
 
 // parenthesised reports whether e is lowered to C wrapped in a pair of
@@ -924,10 +926,12 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 		return nil, diags
 	}
 	if a.Op != ast.InvalidOp {
-		// x op= v is x = x op v, spelled out the way Tack defines it.
-		return []string{
-			fmt.Sprintf("%s = %s;", name, arith(a.Op, ast.TypeOf(a.Target), name, value)),
-		}, nil
+		// x op= v is x = x op v, spelled out the way Tack defines it, x
+		// read before v is evaluated.
+		operands := []ast.Expr{a.Target, a.Value}
+		value = g.sequenced(operands, []string{name, value}, func(ops []string) string {
+			return arith(a.Op, ast.TypeOf(a.Target), ops[0], ops[1])
+		})
 	}
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
 }
@@ -1357,7 +1361,9 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 		}
 		args[i] = expr
 	}
-	return fmt.Sprintf("%s(%s)", g.mangle(name), strings.Join(args, ", ")), nil
+	return g.sequenced(call.Args, args, func(ops []string) string {
+		return fmt.Sprintf("%s(%s)", g.mangle(name), strings.Join(ops, ", "))
+	}), nil
 }
 
 // expr renders an expression as C. want is the type the context requires;
@@ -1480,18 +1486,32 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
+	if bin.Op.IsLogical() {
+		// && and || are sequenced in C as in Tack, the right side running
+		// only when the left does not decide.
+		return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
+	}
+	operands := []ast.Expr{bin.X, bin.Y}
+	return g.sequenced(operands, []string{left, right}, func(ops []string) string {
+		return g.binaryOf(bin, ops[0], ops[1])
+	}), nil
+}
+
+// binaryOf renders bin, other than && and ||, applied to its operands
+// rendered as left and right.
+func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 	if bin.Op.IsArithmetic() {
-		return arith(bin.Op, bin.Type, left, right), nil
+		return arith(bin.Op, bin.Type, left, right)
 	}
 	if g.isComposite(ast.TypeOf(bin.X)) {
-		return g.arrayComparison(bin, left, right), nil
+		return g.arrayComparison(bin, left, right)
 	}
 	if ast.TypeOf(bin.X) == types.String {
-		return stringComparison(bin.Op, left, right), nil
+		return stringComparison(bin.Op, left, right)
 	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.
-	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
+	return fmt.Sprintf("(%s %s %s)", left, bin.Op, right)
 }
 
 // arith renders the arithmetic l op r in the integer type typ so that it

@@ -1200,3 +1200,34 @@ func TestDeepDeferNestingReportsOnce(t *testing.T) {
 		t.Errorf("diagnostic is not at the second defer:\n%s", r.stderr)
 	}
 }
+
+// TestBuiltOrderIsLeftToRight runs examples/order, whose operands each print
+// their name, and checks they ran left to right in every position Tack
+// evaluates several, and that the values they gave are right.
+func TestBuiltOrderIsLeftToRight(t *testing.T) {
+	bin := buildWithClang(t, "order")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("order exited with %v, want status 0", err)
+	}
+	want := "arithmetic: a b c ok\n" +
+		"subtraction: a b ok\n" +
+		"comparison: a b ok\n" +
+		"strings: a b ok\n" +
+		"structs: a b ok\n" +
+		"arguments: a b c ok\n" +
+		"nested arguments: a b c ok\n" +
+		"results: a b ok\n" +
+		"array elements: a b c ok\n" +
+		"struct fields: b a ok\n" +
+		"index: base index ok\n" +
+		"division: a b ok\n" +
+		"a global read before a call: ok\n" +
+		"a call before a global read: ok\n" +
+		"a global in arguments: ok\n" +
+		"compound assignment: ok\n" +
+		"switch cases: tag a b ok\n"
+	if string(out) != want {
+		t.Errorf("order printed\n%s\nwant\n%s", out, want)
+	}
+}
