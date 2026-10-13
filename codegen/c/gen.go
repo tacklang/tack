@@ -56,9 +56,13 @@ type generator struct {
 	// scopes holds a deferScope for each block enclosing the statement
 	// being generated, innermost last; see defer.go.
 	scopes []*deferScope
+	// frame is the frame being lowered, a function body or a deferred
+	// body; see defer.go.
+	frame *deferFrame
 
-	buf   bytes.Buffer
-	temps int // how many temporaries have been named, for unique names
+	buf    bytes.Buffer
+	temps  int // how many temporaries have been named, for unique names
+	labels int // how many blocks' labels have been named, likewise
 }
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
@@ -491,9 +495,10 @@ func (g *generator) resultType(fn *ast.Func) string {
 	}
 }
 
-// generateFuncBody lowers fn's body, the outermost block of fn.
+// generateFuncBody lowers fn's body, the outermost block of fn, as the
+// outermost frame; see funcFrame.
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
-	return g.generateBlock(fn.Body, fn)
+	return g.funcFrame(fn)
 }
 
 // generateBlock lowers a block of fn other than a loop's body; see block.
@@ -508,8 +513,8 @@ func (g *generator) generateLoopBody(body []ast.Stmt, fn *ast.Func) ([]string, [
 }
 
 // block lowers a block of fn, in a deferScope of its own, loop being
-// whether it is a loop's body. The defers it reaches run at its end,
-// unless its last statement leaves it, having run them itself.
+// whether it is a loop's body. It ends in the cleanup chain of the defers
+// it reaches, which falling off its end runs and its exits jump into.
 func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, []diag.Diagnostic) {
 	sc := &deferScope{loop: loop}
 	g.scopes = append(g.scopes, sc)
@@ -523,10 +528,10 @@ func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, [
 		}
 		lines = append(lines, got...)
 	}
-	if len(sc.defers) == 0 || endsInJump(body) {
+	if len(sc.defers) == 0 {
 		return lines, nil
 	}
-	end, diags := g.unwind(1, fn)
+	end, diags := g.chain(sc, body, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -556,10 +561,10 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 		return nil, nil
 
 	case *ast.Break:
-		return g.generateJump("break;", fn)
+		return g.generateJump("break;"), nil
 
 	case *ast.Continue:
-		return g.generateJump("continue;", fn)
+		return g.generateJump("continue;"), nil
 
 	default:
 		return g.generateSimpleStmt(stmt)
@@ -600,8 +605,8 @@ func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []d
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	if g.pendingDefers() {
-		return g.deferredReturn(value, fn)
+	if route := g.stops(len(g.scopes)); len(route) > 0 {
+		return g.deferredReturn(value, route), nil
 	}
 	if value == "" {
 		return []string{"return;"}, nil

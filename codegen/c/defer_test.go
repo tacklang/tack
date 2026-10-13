@@ -150,6 +150,55 @@ var deferRuntimeCases = []struct {
 		"9801982", 0,
 	},
 	{
+		"a continue after the loop was left by break before",
+		inMainProgram(printer,
+			"for j := range 2 {",
+			"    for i := range 3 {",
+			"        defer p(i)",
+			"        if i == 0 {",
+			"            continue",
+			"        }",
+			"        if i == 1 {",
+			"            defer p(j + 5)",
+			"            break",
+			"        }",
+			"    }",
+			"}",
+			"exit(15)"),
+		"051061", 15,
+	},
+	{
+		"returns from both branches of a final if",
+		inMainProgram(printer+
+			"func f(n int64) int64 {\n    defer p(1)\n    if n > 0 {\n        defer p(2)\n        return n\n"+
+			"    } else {\n        return 0 - n\n    }\n}\n",
+			"exit(f(3) + f(0 - 4))"),
+		"211", 7,
+	},
+	{
+		"a return from an endless loop through two blocks",
+		inMainProgram(printer+
+			"func f() int64 {\n    mut i := 0\n    for {\n        defer p(i)\n        i++\n"+
+			"        if i == 3 {\n            defer p(9)\n            return i * 10\n        }\n    }\n}\n",
+			"exit(f())"),
+		"1293", 30,
+	},
+	{
+		"a return from an inner block when the body has no defer",
+		inMainProgram(printer+
+			"func f(n int64) int64 {\n    if n > 0 {\n        defer p(n)\n        return n + 1\n    }\n    return 0\n}\n",
+			"exit(f(4) + f(0))"),
+		"4", 5,
+	},
+	{
+		"an exit skips a later variable only a later defer reads",
+		inMainProgram(printer+
+			"func f(n int64) {\n    defer p(n)\n    if n == 1 {\n        return\n    }\n"+
+			"    x := n + 1\n    defer p(x)\n    if n == 2 {\n        return\n    }\n    p(0)\n}\n",
+			"f(1)", "f(2)", "f(3)", "exit(16)"),
+		"132043", 16,
+	},
+	{
 		"a deferred division proven by the if around it",
 		inMainProgram(printer, "d := 3", "if d > 0 {", "    defer p(9 / d)", "}", "exit(13)"),
 		"3", 13,
@@ -231,5 +280,59 @@ func TestDeferEmitsNoFlags(t *testing.T) {
 	}
 	if strings.Contains(out, "bool tack_") {
 		t.Errorf("generated a flag:\n%s", out)
+	}
+}
+
+// nestedDeferLoops returns a function body, level d of a pattern that once
+// made the generated C grow exponentially: a loop whose body defers a block
+// holding level d-1, then leaves its iteration by continue and the loop by
+// break, so the deferred block is run by three exits of its block. Each
+// level's deferred block prints d first; level 0 prints 0. Tack has no
+// shadowing, so level d's loop variable is named for d.
+func nestedDeferLoops(d int) string {
+	if d == 0 {
+		return "p(0)\n"
+	}
+	i := "i" + strconv.Itoa(d)
+	return "for " + i + " := range 3 {\ndefer {\np(" + strconv.Itoa(d%10) + ")\n" +
+		nestedDeferLoops(
+			d-1,
+		) + "}\nif " + i + " == 0 {\ncontinue\n}\nif " + i + " == 1 {\nbreak\n}\n}\n"
+}
+
+// nestedDeferLoopsOutput is what level d of nestedDeferLoops prints: its
+// loop runs two iterations, the first ended by continue and the second by
+// break, each running the deferred block once.
+func nestedDeferLoopsOutput(d int) string {
+	if d == 0 {
+		return "0"
+	}
+	once := strconv.Itoa(d%10) + nestedDeferLoopsOutput(d-1)
+	return once + once
+}
+
+// TestNestedDeferLoopsGrowLinearly checks that the C generated for
+// nestedDeferLoops grows linearly with its depth, not exponentially, and
+// that the deepest one still runs every deferred block, in order, under
+// the undefined behavior sanitizer.
+func TestNestedDeferLoopsGrowLinearly(t *testing.T) {
+	// Lines, not bytes: each level indents its lines once more, so bytes
+	// grow with the square of the depth even when lines grow linearly.
+	size := func(d int) int {
+		return strings.Count(generate(t, inMainProgram(printer, nestedDeferLoops(d))), "\n")
+	}
+	s5, s8, s10 := size(5), size(8), size(10)
+	t.Logf("generated C lines: depth 5 %d, depth 8 %d, depth 10 %d", s5, s8, s10)
+	// Linear growth with a fixed preamble gives a ratio under 2 for twice
+	// the depth; exponential growth gives hundreds.
+	if float64(s10)/float64(s5) > 2 {
+		t.Fatalf("depth 10 is %d lines, %.1f times depth 5's %d", s10, float64(s10)/float64(s5), s5)
+	}
+
+	const depth = 10
+	src := inMainProgram(printer, nestedDeferLoops(depth), "exit(14)")
+	stdout, status := runSanitized(t, src)
+	if want := nestedDeferLoopsOutput(depth); stdout != want || status != 14 {
+		t.Errorf("got stdout %q, status %d; want %q, 14", stdout, status, want)
 	}
 }

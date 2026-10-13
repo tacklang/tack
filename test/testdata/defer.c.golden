@@ -76,33 +76,41 @@ static void tack_main_nested(int64_t p_n) {
 }
 
 static int64_t tack_main_early(int64_t p_n) {
+    int64_t tack_ret0 = 0;
+    int tack_next1 = 0;
     {
-        const int64_t tack_n1 = 3;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_n1; tack_k2++) {
-            const int64_t v_i = tack_k2;
+        const int64_t tack_n2 = 3;
+        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+            const int64_t v_i = tack_k3;
             if (v_i == p_n) {
-                const int64_t tack_ret0 = v_i;
+                tack_ret0 = v_i;
+                tack_next1 = 1;
+                goto tack_defer0_1;
+                tack_defer0_1: ;
                 tack_main_mark(3);
-                tack_main_mark(2);
-                tack_main_mark(1);
-                return tack_ret0;
+                if (tack_next1 == 1) goto tack_defer1_1;
             }
             tack_main_mark(5);
+            tack_next1 = 0;
+            tack_defer1_1: ;
             tack_main_mark(2);
+            if (tack_next1 == 1) goto tack_defer2_1;
         }
     }
     tack_main_mark(4);
-    const int64_t tack_ret3 = 9;
+    tack_ret0 = 9;
+    goto tack_defer2_1;
+    tack_defer2_1: ;
     tack_main_mark(1);
-    return tack_ret3;
+    return tack_ret0;
 }
 
 static void tack_main_unreached(int64_t p_n) {
     if (p_n > 0) {
-        tack_main_mark(1);
-        return;
+        goto tack_defer3_1;
     }
     tack_main_mark(2);
+    tack_defer3_1: ;
     tack_main_mark(1);
 }
 
@@ -113,17 +121,23 @@ static void tack_main_late(void) {
 }
 
 static int64_t tack_main_result(void) {
+    int64_t tack_ret4 = 0;
     int64_t v_x = 5;
-    const int64_t tack_ret4 = v_x;
+    tack_ret4 = v_x;
+    goto tack_defer4_2;
+    tack_defer4_2: ;
     v_x = 7;
     tack_main_mark(v_x);
     return tack_ret4;
 }
 
 static tack_results_main_pair tack_main_pair(void) {
+    tack_results_main_pair tack_ret5 = (tack_results_main_pair){0};
     int64_t v_a = 1;
     int64_t v_b = 2;
-    const tack_results_main_pair tack_ret5 = (tack_results_main_pair){v_a, v_b};
+    tack_ret5 = (tack_results_main_pair){v_a, v_b};
+    goto tack_defer5_1;
+    tack_defer5_1: ;
     {
         v_a = 8;
         v_b = ((int64_t)((uint64_t)v_b + (uint64_t)1));
