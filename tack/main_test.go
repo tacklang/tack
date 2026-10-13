@@ -495,7 +495,7 @@ func TestDoubleDashAllowsFileNamesStartingWithDash(t *testing.T) {
 }
 
 func TestInputFileFailures(t *testing.T) {
-	dir := t.TempDir()
+	dir := writeDir(t, map[string]string{"tack.mod": "module m\n"})
 	for _, tc := range []struct {
 		name string
 		path string
@@ -504,6 +504,7 @@ func TestInputFileFailures(t *testing.T) {
 		{"missing file", filepath.Join(dir, "nope.tck"), "no such file"},
 		{"missing directory", filepath.Join(dir, "nope", "main.tck"), "no such file"},
 		{"directory with no Tack files", dir, "no .tck files in " + dir},
+		{"directory with no tack.mod", t.TempDir(), "no tack.mod found in "},
 		{"file as directory", filepath.Join(example("hello"), "main.tck"), "not a directory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1289,8 +1290,14 @@ func TestDirectoryDumps(t *testing.T) {
 
 	lex := runTack(t, "--lex", dir)
 	assertOnlyStdout(t, lex)
-	mainHeader := "-- " + filepath.ToSlash(filepath.Join(dir, "main.tck")) + " --\n"
-	shapesHeader := "-- " + filepath.ToSlash(filepath.Join(dir, "shapes.tck")) + " --\n"
+	// The directory is outside the current one, so its files are shown by
+	// their absolute paths.
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainHeader := "-- " + filepath.ToSlash(filepath.Join(abs, "main.tck")) + " --\n"
+	shapesHeader := "-- " + filepath.ToSlash(filepath.Join(abs, "shapes.tck")) + " --\n"
 	if !strings.HasPrefix(lex.stdout, mainHeader) ||
 		!strings.Contains(lex.stdout, "\n"+shapesHeader) {
 		t.Errorf("--lex does not head each file's tokens with its name:\n%s", lex.stdout)
@@ -1320,8 +1327,9 @@ func TestDirectoryDumps(t *testing.T) {
 // is shown in both, each by its own name.
 func TestDirectoryDiagnosticsNameEachFile(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"a.tck": "package main\n\nfunc main() {\n}\n",
-		"b.tck": "package main\n\nfunc main() {\n}\n",
+		"tack.mod": "module m\n",
+		"a.tck":    "package main\n\nfunc main() {\n}\n",
+		"b.tck":    "package main\n\nfunc main() {\n}\n",
 	})
 	r := runTack(t, "--emit", dir)
 	assertDiagnostics(t, r)
@@ -1343,15 +1351,21 @@ func TestDirectoryFailures(t *testing.T) {
 		if os.Geteuid() == 0 {
 			t.Skip("root can read any directory")
 		}
-		dir := writeDir(t, map[string]string{"main.tck": "package main\n"})
+		root := writeDir(
+			t,
+			map[string]string{"tack.mod": "module m\n", "p/main.tck": "package main\n"},
+		)
+		dir := filepath.Join(root, "p")
 		if err := os.Chmod(dir, 0o000); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-		assertFailure(t, runTack(t, "--emit", dir), "cannot read directory")
+		assertFailure(t, runTack(t, "--emit", dir), "permission denied")
 	})
 	t.Run("tck link to a directory", func(t *testing.T) {
-		dir := writeDir(t, map[string]string{"main.tck": "package main\n", "sub/x": ""})
+		dir := writeDir(t, map[string]string{
+			"tack.mod": "module m\n", "main.tck": "package main\n", "sub/x": "",
+		})
 		if err := os.Symlink(filepath.Join(dir, "sub"), filepath.Join(dir, "sub.tck")); err != nil {
 			t.Fatal(err)
 		}
@@ -1364,4 +1378,110 @@ func TestDirectoryFailures(t *testing.T) {
 		}
 		assertFailure(t, runTack(t, "--emit", loop), "too many levels of symbolic links")
 	})
+}
+
+// runBuilt runs the binary at bin and returns what it printed and its exit
+// status.
+func runBuilt(t *testing.T, bin string) (string, int) {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exitErr):
+		return string(out), exitErr.ExitCode()
+	default:
+		t.Fatalf("running %s: %v", bin, err)
+		return "", 0
+	}
+}
+
+// TestBuiltModuleMainsByDirectoryAndPath builds both main packages of
+// examples/module-mains, each from its directory and from its import path
+// in the module found from the current directory, a subdirectory of the
+// module included, and checks each prints its name and exits with its own
+// status.
+func TestBuiltModuleMainsByDirectoryAndPath(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join(examplesDir, "module-mains"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, cwd, target, out string
+		code                   int
+	}{
+		{"root by directory", ".", root, "root\n", 3},
+		{"tool by directory", ".", filepath.Join(root, "tools", "hello-world"), "hello-world\n", 4},
+		{"root by path", root, "example.com/module-mains", "root\n", 3},
+		{"tool by path", root, "example.com/module-mains/tools/hello-world", "hello-world\n", 4},
+		{
+			"tool by path from below the root", filepath.Join(root, "tools"),
+			"example.com/module-mains/tools/hello-world", "hello-world\n", 4,
+		},
+		{"root by relative directory", filepath.Join(root, "tools"), "..", "root\n", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.cwd != "." {
+				t.Chdir(tc.cwd)
+			}
+			bin := buildTargetWithClang(t, "prog", tc.target)
+			if out, code := runBuilt(t, bin); out != tc.out || code != tc.code {
+				t.Errorf("printed %q and exited %d, want %q and %d", out, code, tc.out, tc.code)
+			}
+		})
+	}
+}
+
+// TestImportPathTargetFailures checks an import path target that names no
+// main package fails with an error saying why.
+func TestImportPathTargetFailures(t *testing.T) {
+	root := writeDir(t, map[string]string{
+		"tack.mod":         "module calc\n",
+		"lexer/lexer.tck":  "package lexer\n",
+		"cmd/x/main.tck":   "package main\nfunc main() {}\n",
+		"empty/notes.txt":  "",
+		"cmd/y/main.tck":   "package main\nfunc main() { undefined() }\n",
+		"bad/one.tck":      "package other\n",
+		"cmd/z/broken.tck": "package main\nfunc main() {\n",
+	})
+	t.Chdir(root)
+	for _, tc := range []struct{ target, want string }{
+		{"calc/nothing", "cannot find package calc/nothing: no directory calc/nothing in module calc"},
+		{"other/pkg", "unknown module other in import path other/pkg"},
+		{"calc//x", "invalid import path calc//x: a part between slashes is empty"},
+		{"calc/a/../x", "invalid import path calc/a/../x: a part cannot be . or .."},
+		{"calc/empty", "no .tck files in empty"},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			assertFailure(t, runTack(t, "--emit", tc.target), tc.want)
+		})
+	}
+	for _, tc := range []struct{ target, want string }{
+		{"calc/lexer", "\nlexer/lexer.tck:1:9: error: calc/lexer is not a main package"},
+		{"calc/cmd/y", "\ncmd/y/main.tck:2:15: error: undefined: undefined"},
+		{"calc/bad", "\nbad/one.tck:1:9: error: package other does not match its directory"},
+		{"calc/cmd/z", "\ncmd/z/broken.tck:2:14: error: expected '}' found 'EOF'"},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			r := runTack(t, "--emit", tc.target)
+			assertDiagnostics(t, r)
+			if !strings.Contains(r.stderr, tc.want) {
+				t.Errorf("stderr does not contain %q:\n%s", tc.want, r.stderr)
+			}
+		})
+	}
+	assertOnlyStdout(t, runTack(t, "--emit", "calc/cmd/x"))
+}
+
+// TestImportPathTargetWithoutModule checks a target that names nothing on
+// disk, outside any module, fails saying both that it is no file and that
+// no tack.mod was found.
+func TestImportPathTargetWithoutModule(t *testing.T) {
+	t.Chdir(t.TempDir())
+	assertFailure(
+		t,
+		runTack(t, "--emit", "calc/x"),
+		"calc/x is not a file or a directory, nor an import path: no tack.mod found in . or any parent directory",
+	)
 }

@@ -4,12 +4,177 @@ order of name.
 A case named n is its files, each a txtar file n/<path>, followed by
 n/expected, the compiler's output for it, with each file's path printed as
 n/<path>. The case is built from the directory n, or from the directory an
-optional n/.target file names, relative to n. Every file must end with a
+optional n/.target file names, relative to n. A directory is built in its
+module, so nearly every case has an n/tack.mod, usually module n. Every file must end with a
 newline; a program whose last line has none belongs in invalid.txtar.
 internal/invalid documents the format; go test ./test -run
 TestInvalidPackages checks every case, and -update rewrites the expected
 sections.
 
+-- clause-mismatch/tack.mod --
+module calc
+-- clause-mismatch/.target --
+lexer
+-- clause-mismatch/lexer/a.tck --
+package lexer
+-- clause-mismatch/lexer/b.tck --
+package lex
+-- clause-mismatch/lexer/c.tck --
+package parser
+-- clause-mismatch/expected --
+stage: load
+---
+
+clause-mismatch/lexer/b.tck:1:9: error: package lex does not match its directory; expected package lexer
+01 |	package lex
+   |	        ^~~
+02 |	
+
+clause-mismatch/lexer/c.tck:1:9: error: package parser does not match its directory; expected package lexer
+01 |	package parser
+   |	        ^~~~~~
+02 |	
+
+-- clause-mismatch-at-root/tack.mod --
+module calc
+-- clause-mismatch-at-root/main.tck --
+package main
+
+func main() {
+}
+-- clause-mismatch-at-root/other.tck --
+package other
+-- clause-mismatch-at-root/expected --
+stage: load
+---
+
+clause-mismatch-at-root/other.tck:1:9: error: package other does not match its directory; expected package calc
+01 |	package other
+   |	        ^~~~~
+02 |	
+
+-- dir-builtin-func-name/tack.mod --
+module calc
+-- dir-builtin-func-name/.target --
+print
+-- dir-builtin-func-name/print/a.tck --
+package print
+-- dir-builtin-func-name/expected --
+stage: load
+---
+
+dir-builtin-func-name/print/a.tck:1:9: error: print is not a valid package name: it is a builtin function
+01 |	package print
+   |	        ^~~~~
+02 |	
+
+-- dir-builtin-name/tack.mod --
+module calc
+-- dir-builtin-name/.target --
+builtin
+-- dir-builtin-name/builtin/a.tck --
+package builtin
+-- dir-builtin-name/expected --
+stage: load
+---
+
+dir-builtin-name/builtin/a.tck:1:9: error: builtin is not a valid package name: it is reserved
+01 |	package builtin
+   |	        ^~~~~~~
+02 |	
+
+-- dir-builtin-type-name/tack.mod --
+module calc
+-- dir-builtin-type-name/.target --
+int64
+-- dir-builtin-type-name/int64/a.tck --
+package int64
+-- dir-builtin-type-name/expected --
+stage: load
+---
+
+dir-builtin-type-name/int64/a.tck:1:9: error: int64 is not a valid package name: it is a builtin type
+01 |	package int64
+   |	        ^~~~~
+02 |	
+
+-- dir-digit-name/tack.mod --
+module calc
+-- dir-digit-name/.target --
+7up
+-- dir-digit-name/7up/a.tck --
+package up
+-- dir-digit-name/expected --
+stage: load
+---
+
+dir-digit-name/7up/a.tck:1:9: error: 7up is not a valid package name: start with a letter
+01 |	package up
+   |	        ^~
+02 |	
+
+-- dir-invalid-name/tack.mod --
+module calc
+-- dir-invalid-name/.target --
+my-tools
+-- dir-invalid-name/my-tools/a.tck --
+package mytools
+-- dir-invalid-name/expected --
+stage: load
+---
+
+dir-invalid-name/my-tools/a.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package mytools
+   |	        ^~~~~~~
+02 |	
+
+-- dir-keyword-name/tack.mod --
+module calc
+-- dir-keyword-name/.target --
+func
+-- dir-keyword-name/func/a.tck --
+package fn
+-- dir-keyword-name/expected --
+stage: load
+---
+
+dir-keyword-name/func/a.tck:1:9: error: func is not a valid package name: it is a keyword
+01 |	package fn
+   |	        ^~
+02 |	
+
+-- dir-reserved-name/tack.mod --
+module calc
+-- dir-reserved-name/.target --
+std
+-- dir-reserved-name/std/a.tck --
+package std
+-- dir-reserved-name/expected --
+stage: load
+---
+
+dir-reserved-name/std/a.tck:1:9: error: std is not a valid package name: it is reserved
+01 |	package std
+   |	        ^~~
+02 |	
+
+-- dir-uppercase-name/tack.mod --
+module calc
+-- dir-uppercase-name/.target --
+Lexer
+-- dir-uppercase-name/Lexer/a.tck --
+package Lexer
+-- dir-uppercase-name/expected --
+stage: load
+---
+
+dir-uppercase-name/Lexer/a.tck:1:9: error: Lexer is not a valid package name: use lowercase letters and digits
+01 |	package Lexer
+   |	        ^~~~~
+02 |	
+
+-- dup-func-across-files/tack.mod --
+module dup-func-across-files
 -- dup-func-across-files/a.tck --
 package main
 
@@ -39,6 +204,8 @@ dup-func-across-files/a.tck:3:6: note: previous declaration of helper
    |	     ^~~~~~
 04 |	}
 
+-- dup-global-across-files/tack.mod --
+module dup-global-across-files
 -- dup-global-across-files/a.tck --
 package main
 
@@ -68,6 +235,8 @@ dup-global-across-files/b.tck:3:6: note: previous declaration of limit
    |	     ^~~~~
 04 |	    n int64
 
+-- dup-param-across-files/tack.mod --
+module dup-param-across-files
 -- dup-param-across-files/a.tck --
 package main
 
@@ -97,6 +266,8 @@ dup-param-across-files/a.tck:3:5: note: previous declaration of size
    |	    ^~~~
 04 |	
 
+-- hidden-only/tack.mod --
+module hidden-only
 -- hidden-only/.main.tck --
 package main
 
@@ -106,6 +277,8 @@ func main() {
 stage: load
 ---
 no .tck files in hidden-only
+-- lex-errors-in-two-files/tack.mod --
+module lex-errors-in-two-files
 -- lex-errors-in-two-files/a.tck --
 package main
 
@@ -134,6 +307,26 @@ lex-errors-in-two-files/b.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~
 05 |	}
 
+-- library-target/tack.mod --
+module calc
+-- library-target/.target --
+lexer
+-- library-target/lexer/lexer.tck --
+package lexer
+
+func First() {
+}
+-- library-target/expected --
+stage: load
+---
+
+library-target/lexer/lexer.tck:1:9: error: calc/lexer is not a main package
+01 |	package lexer
+   |	        ^~~~~
+02 |	
+
+-- main-missing-across-files/tack.mod --
+module main-missing-across-files
 -- main-missing-across-files/a.tck --
 package main
 
@@ -153,28 +346,291 @@ main-missing-across-files/a.tck:1:1: error: main function not found
    |	^
 02 |	
 
+-- mod-empty/tack.mod --
+// nothing but a comment
+-- mod-empty/main.tck --
+package main
+
+func main() {
+}
+-- mod-empty/expected --
+stage: load
+---
+
+mod-empty/tack.mod:1:1: error: tack.mod declares no module; write module <name>
+01 |	// nothing but a comment
+   |	^
+02 |	
+
+-- mod-empty-part/tack.mod --
+module calc/
+-- mod-empty-part/main.tck --
+package main
+
+func main() {
+}
+-- mod-empty-part/expected --
+stage: load
+---
+
+mod-empty-part/tack.mod:1:8: error: invalid module name calc/: a part between slashes is empty
+01 |	module calc/
+   |	       ^~~~~
+02 |	
+
+-- mod-every-line-wrong/tack.mod --
+go 1.27
+module Calc
+module calc x
+-- mod-every-line-wrong/main.tck --
+package main
+
+func main() {
+}
+-- mod-every-line-wrong/expected --
+stage: load
+---
+
+mod-every-line-wrong/tack.mod:1:1: error: unknown directive go; tack.mod holds only a module line
+01 |	go 1.27
+   |	^~
+02 |	module Calc
+
+mod-every-line-wrong/tack.mod:2:8: error: invalid module name Calc: use lowercase letters, digits, -, . and _
+01 |	go 1.27
+02 |	module Calc
+   |	       ^~~~
+03 |	module calc x
+
+mod-every-line-wrong/tack.mod:3:13: error: unexpected x after the module name; a module has one name
+02 |	module Calc
+03 |	module calc x
+   |	            ^
+04 |	
+
+-- mod-in-parent/tack.mod --
+module calc
+-- mod-in-parent/.target --
+cmd/calc
+-- mod-in-parent/cmd/calc/main.tck --
+package main
+
+func main() {
+    undefined()
+}
+-- mod-in-parent/expected --
+stage: resolve
+---
+
+mod-in-parent/cmd/calc/main.tck:4:5: error: undefined: undefined
+03 |	func main() {
+04 |	    undefined()
+   |	    ^~~~~~~~~
+05 |	}
+
+-- mod-leading-dash/tack.mod --
+module -calc
+-- mod-leading-dash/main.tck --
+package main
+
+func main() {
+}
+-- mod-leading-dash/expected --
+stage: load
+---
+
+mod-leading-dash/tack.mod:1:8: error: invalid module name -calc: a part cannot start or end with . or -
+01 |	module -calc
+   |	       ^~~~~
+02 |	
+
+-- mod-no-name/tack.mod --
+module
+-- mod-no-name/main.tck --
+package main
+
+func main() {
+}
+-- mod-no-name/expected --
+stage: load
+---
+
+mod-no-name/tack.mod:1:1: error: module needs a name: module <name>
+01 |	module
+   |	^~~~~~
+02 |	
+
+-- mod-odd-byte/tack.mod --
+module calc
+-- mod-odd-byte/main.tck --
+package main
+
+func main() {
+}
+-- mod-odd-byte/expected --
+stage: load
+---
+
+mod-odd-byte/tack.mod:1:8: error: invalid module name "ca\x01lc": use lowercase letters, digits, -, . and _
+01 |	module calc
+   |	       ^~~~~
+02 |	
+
+-- mod-std/tack.mod --
+module std
+-- mod-std/main.tck --
+package main
+
+func main() {
+}
+-- mod-std/expected --
+stage: load
+---
+
+mod-std/tack.mod:1:8: error: module name std is reserved for the standard library
+01 |	module std
+   |	       ^~~
+02 |	
+
+-- mod-std-path/tack.mod --
+module std/calc
+-- mod-std-path/main.tck --
+package main
+
+func main() {
+}
+-- mod-std-path/expected --
+stage: load
+---
+
+mod-std-path/tack.mod:1:8: error: module name std/calc starts with std, which is reserved for the standard library
+01 |	module std/calc
+   |	       ^~~~~~~~
+02 |	
+
+-- mod-trailing-dot/tack.mod --
+module calc.
+-- mod-trailing-dot/main.tck --
+package main
+
+func main() {
+}
+-- mod-trailing-dot/expected --
+stage: load
+---
+
+mod-trailing-dot/tack.mod:1:8: error: invalid module name calc.: a part cannot start or end with . or -
+01 |	module calc.
+   |	       ^~~~~
+02 |	
+
+-- mod-two-module-lines/tack.mod --
+module calc
+module calc
+-- mod-two-module-lines/main.tck --
+package main
+
+func main() {
+}
+-- mod-two-module-lines/expected --
+stage: load
+---
+
+mod-two-module-lines/tack.mod:2:1: error: module is already declared
+01 |	module calc
+02 |	module calc
+   |	^~~~~~
+03 |	
+mod-two-module-lines/tack.mod:1:8: note: previous declaration of module
+01 |	module calc
+   |	       ^~~~
+02 |	module calc
+
+-- mod-two-names/tack.mod --
+module calc tools
+-- mod-two-names/main.tck --
+package main
+
+func main() {
+}
+-- mod-two-names/expected --
+stage: load
+---
+
+mod-two-names/tack.mod:1:13: error: unexpected tools after the module name; a module has one name
+01 |	module calc tools
+   |	            ^~~~~
+02 |	
+
+-- mod-unknown-directive/tack.mod --
+module calc
+require other v1.0.0
+-- mod-unknown-directive/main.tck --
+package main
+
+func main() {
+}
+-- mod-unknown-directive/expected --
+stage: load
+---
+
+mod-unknown-directive/tack.mod:2:1: error: unknown directive require; tack.mod holds only a module line
+01 |	module calc
+02 |	require other v1.0.0
+   |	^~~~~~~
+03 |	
+
+-- mod-uppercase/tack.mod --
+module Calc
+-- mod-uppercase/main.tck --
+package main
+
+func main() {
+}
+-- mod-uppercase/expected --
+stage: load
+---
+
+mod-uppercase/tack.mod:1:8: error: invalid module name Calc: use lowercase letters, digits, -, . and _
+01 |	module Calc
+   |	       ^~~~
+02 |	
+
+-- no-tack-mod/main.tck --
+package main
+
+func main() {
+}
+-- no-tack-mod/expected --
+stage: load
+---
+no tack.mod found in no-tack-mod or any parent directory
+-- no-tck-files/tack.mod --
+module no-tck-files
 -- no-tck-files/notes.txt --
 Not a Tack file.
 -- no-tck-files/expected --
 stage: load
 ---
 no .tck files in no-tck-files
--- not-main-package/a.tck --
-package tools
+-- not-main-package/tack.mod --
+module calc
+-- not-main-package/calc.tck --
+package calc
 
 func main() {
 }
--- not-main-package/b.tck --
-package tools
 -- not-main-package/expected --
-stage: resolve
+stage: load
 ---
 
-not-main-package/a.tck:1:1: error: main package not found
-01 |	package tools
-   |	^
+not-main-package/calc.tck:1:9: error: calc is not a main package
+01 |	package calc
+   |	        ^~~~
 02 |	
 
+-- parse-errors-in-two-files/tack.mod --
+module parse-errors-in-two-files
 -- parse-errors-in-two-files/a.tck --
 package main
 
@@ -202,6 +658,21 @@ parse-errors-in-two-files/b.tck:3:9: error: expected 'parameter name' found '{'
    |	        ^
 04 |	}
 
+-- root-package-invalid-name/tack.mod --
+module example.com/my-tools
+-- root-package-invalid-name/tools.tck --
+package tools
+-- root-package-invalid-name/expected --
+stage: load
+---
+
+root-package-invalid-name/tools.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package tools
+   |	        ^~~~~
+02 |	
+
+-- tck-directory-is-skipped/tack.mod --
+module tck-directory-is-skipped
 -- tck-directory-is-skipped/main.tck --
 package main
 
@@ -223,52 +694,32 @@ tck-directory-is-skipped/main.tck:4:5: error: undefined: helper
    |	    ^~~~~~
 05 |	}
 
--- three-packages/a.tck --
+-- two-packages/tack.mod --
+module calc
+-- two-packages/.target --
+lexer
+-- two-packages/lexer/a.tck --
 package main
 
 func main() {
 }
--- three-packages/b.tck --
+-- two-packages/lexer/b.tck --
 package lexer
--- three-packages/c.tck --
-package parser
--- three-packages/expected --
-stage: load
----
-
-three-packages/a.tck:1:9: error: directory three-packages holds 3 packages, lexer, main and parser
-01 |	package main
-   |	        ^~~~
-02 |	
-three-packages/b.tck:1:9: note: package lexer is declared here
-01 |	package lexer
-   |	        ^~~~~
-02 |	
-three-packages/c.tck:1:9: note: package parser is declared here
-01 |	package parser
-   |	        ^~~~~~
-02 |	
-
--- two-packages/a.tck --
-package main
-
-func main() {
-}
--- two-packages/b.tck --
-package other
 -- two-packages/expected --
 stage: load
 ---
 
-two-packages/b.tck:1:9: error: directory two-packages holds two packages, main and other
-01 |	package other
-   |	        ^~~~~
-02 |	
-two-packages/a.tck:1:9: note: package main is declared here
+two-packages/lexer/a.tck:1:9: error: directory two-packages/lexer holds two packages, lexer and main
 01 |	package main
    |	        ^~~~
 02 |	
+two-packages/lexer/b.tck:1:9: note: package lexer is declared here
+01 |	package lexer
+   |	        ^~~~~
+02 |	
 
+-- unused-global-in-other-file/tack.mod --
+module unused-global-in-other-file
 -- unused-global-in-other-file/a.tck --
 package main
 

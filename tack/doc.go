@@ -14,9 +14,15 @@
 //	tack (--lex | --ast | --res | --emit) [flags] <target>
 //	tack --backends
 //
-// The target is a file or a directory. A file is compiled alone. A
-// directory is compiled as the one package its .tck files make (see
-// package loader); a directory with no .tck files is an error. For a
+// The target is a file, a directory, or an import path. A file is compiled
+// alone. A directory is compiled as the one package its .tck files make,
+// in the module whose tack.mod is in it or the nearest directory above it
+// (see package loader); a directory with no .tck files, or no tack.mod at
+// or above it, is an error. A target that names nothing on disk, is not
+// absolute, does not start with a dot and does not end in .tck is an
+// import path, looked up in the module found from the current directory.
+// Files are shown relative to the current directory when they are in it or
+// below it, and by their absolute paths otherwise. For a
 // directory, --lex prints each file's tokens after a line naming it,
 // -- <file> --, --ast prints the list of the files' trees, and --res the
 // whole program; for a file, both print that file's tree, as before

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -332,9 +333,11 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 }
 
 // load reads the program target names: the package in it if it is a
-// directory, otherwise the one file it names. A dump of the tokens or the
-// syntax trees stops loading there, having read only the target's own
-// files. It also reports whether the target is a single file.
+// directory, the package with that import path in the module found from
+// the current directory if it names nothing on disk and looks like one,
+// and otherwise the one file it names. A dump of the tokens or the syntax
+// trees stops loading there, having read only the target's own files. It
+// also reports whether the target is a single file.
 func load(target string, d dump) (*loader.Result, bool, error) {
 	l := &loader.Loader{FS: loader.OS{}}
 	switch d {
@@ -343,13 +346,72 @@ func load(target string, d dump) (*loader.Result, bool, error) {
 	case dumpAST:
 		l.Stop = loader.StageParse
 	}
-	name := filepath.ToSlash(target)
-	if info, err := os.Stat(target); err == nil && info.IsDir() {
-		res, err := l.Dir(name)
-		return res, false, err //nolint:wrapcheck // the loader's errors are the driver's
+	info, statErr := os.Stat(target)
+	switch {
+	case statErr == nil && info.IsDir():
+		res, err := loadDir(l, target)
+		return res, false, err
+	case errors.Is(statErr, fs.ErrNotExist) && looksLikeImportPath(target):
+		res, err := loadPath(l, target)
+		return res, false, err
 	}
-	res, err := l.File(name)
+	res, err := l.File(filepath.ToSlash(target))
 	return res, true, err //nolint:wrapcheck // the loader's errors are the driver's
+}
+
+// loadDir loads the directory target with l. Its module is found from the
+// directory's absolute path, so a tack.mod above the current directory is
+// found too, and files are shown relative to the current directory.
+func loadDir(l *loader.Loader, target string) (*loader.Result, error) {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("cannot find %s: %w", target, err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("cannot find the current directory: %w", err)
+	}
+	l.Display = relativeTo(cwd)
+	return l.Dir(filepath.ToSlash(abs)) //nolint:wrapcheck // the loader's errors are the driver's
+}
+
+// loadPath loads the import path target with l, in the module found from
+// the current directory, showing files relative to it.
+func loadPath(l *loader.Loader, target string) (*loader.Result, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("cannot find the current directory: %w", err)
+	}
+	l.Display = relativeTo(cwd)
+	res, err := l.Path(filepath.ToSlash(cwd), target)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s is not a file or a directory, nor an import path: %w",
+			target,
+			err,
+		)
+	}
+	return res, nil
+}
+
+// looksLikeImportPath reports whether target, which names nothing on disk,
+// could be an import path rather than a mistyped file: it is not absolute,
+// does not start with a dot, and does not end in .tck.
+func looksLikeImportPath(target string) bool {
+	return target != "" && !filepath.IsAbs(target) && !strings.HasPrefix(target, ".") &&
+		!strings.HasSuffix(target, ".tck")
+}
+
+// relativeTo returns a loader Display function that shows a slash path
+// relative to dir when it is in dir or below it, and as it is otherwise.
+func relativeTo(dir string) func(string) string {
+	return func(name string) string {
+		rel, err := filepath.Rel(dir, filepath.FromSlash(name))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return name
+		}
+		return filepath.ToSlash(rel)
+	}
 }
 
 // checkOutPath fails early, before any compiling, when the binary could not
@@ -463,7 +525,7 @@ func marshalTree(v any) ([]byte, error) {
 // file's alone, as formatTokens does, and each of several after a header
 // line naming its file, -- name --.
 func formatFileTokens(res *loader.Result, single bool) string {
-	files := res.Files.Files()
+	files := res.Sources
 	if single {
 		return formatTokens(res.Tokens[0])
 	}

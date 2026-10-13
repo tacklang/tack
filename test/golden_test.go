@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -21,6 +22,7 @@ import (
 	"github.com/tacklang/tack/internal/invalid"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/loader"
+	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
 	"github.com/tacklang/tack/source"
 	"github.com/tacklang/tack/typeck"
@@ -181,17 +183,18 @@ func checkGolden(t *testing.T, path, got string) {
 	}
 }
 
-// example is one program under examples/: the directory holding it, and
-// the program itself.
+// example is one program under examples/: the directory holding its main
+// package, and the program itself.
 type example struct {
-	dir  string // the directory, as ../examples/<name>
+	dir  string // the main package's directory, as ../examples/<name>[/<path>]
 	prog program
 }
 
-// findExamples returns every program under examples/: each directory
-// directly in it that holds Tack files. A directory holding only main.tck
-// is compiled as that file alone; any other is compiled as the package its
-// files make together.
+// findExamples returns every program under examples/. A directory directly
+// in it holding a tack.mod is a module, and each main package in it is a
+// program built from its directory. Any other directory directly in it
+// that holds Tack files is one program: the file alone if it holds only
+// main.tck, and otherwise the package its files make.
 func findExamples(t *testing.T) []example {
 	t.Helper()
 
@@ -201,12 +204,8 @@ func findExamples(t *testing.T) []example {
 	}
 	var examples []example
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(examplesDir, e.Name())
-		if prog, ok := readExample(t, dir); ok {
-			examples = append(examples, example{dir: dir, prog: prog})
+		if e.IsDir() {
+			examples = append(examples, readExample(t, filepath.Join(examplesDir, e.Name()))...)
 		}
 	}
 	if len(examples) == 0 {
@@ -215,10 +214,30 @@ func findExamples(t *testing.T) []example {
 	return examples
 }
 
-// readExample reads every file under dir into a program, keyed by its path
-// without the leading ../, so the names diagnostics show do not depend on
-// where the test runs. It reports false for a directory with no Tack files.
-func readExample(t *testing.T, dir string) (program, bool) {
+// readExample reads every file under dir into an in-memory file system,
+// keyed by its path without the leading ../, so the names diagnostics show
+// do not depend on where the test runs, and returns the programs it holds.
+func readExample(t *testing.T, dir string) []example {
+	t.Helper()
+
+	files, sources := readTree(t, dir)
+	root := strings.TrimPrefix(filepath.ToSlash(dir), "../")
+	switch {
+	case len(sources) == 0:
+		return nil
+	case files[path.Join(root, "tack.mod")] != nil:
+		return moduleExamples(files, sources)
+	case len(sources) == 1 && path.Base(sources[0]) == "main.tck":
+		return []example{{dir: dir, prog: program{files: files, target: sources[0], single: true}}}
+	default:
+		return []example{{dir: dir, prog: program{files: files, target: root}}}
+	}
+}
+
+// readTree reads every file under dir into an in-memory file system, keyed
+// by its path without the leading ../, and returns it with the names of
+// its Tack files.
+func readTree(t *testing.T, dir string) (fstest.MapFS, []string) {
 	t.Helper()
 
 	files := fstest.MapFS{}
@@ -241,15 +260,48 @@ func readExample(t *testing.T, dir string) (program, bool) {
 	if err != nil {
 		t.Fatalf("walking %s: %v", dir, err)
 	}
-	target := strings.TrimPrefix(filepath.ToSlash(dir), "../")
-	switch {
-	case len(sources) == 0:
-		return program{}, false
-	case len(sources) == 1 && path.Base(sources[0]) == "main.tck":
-		return program{files: files, target: sources[0], single: true}, true
-	default:
-		return program{files: files, target: target}, true
+	return files, sources
+}
+
+// moduleExamples returns a program for each main package among sources,
+// the Tack files of a module in files, built from its directory.
+func moduleExamples(files fstest.MapFS, sources []string) []example {
+	mains := mainDirs(files, sources)
+	examples := make([]example, 0, len(mains))
+	for _, main := range mains {
+		examples = append(examples, example{
+			dir:  "../" + main,
+			prog: program{files: files, target: main},
+		})
 	}
+	return examples
+}
+
+// mainDirs returns the directories of sources, Tack files in files, whose
+// first file in name order says package main, or does not parse, so that a
+// broken example still fails.
+func mainDirs(files fstest.MapFS, sources []string) []string {
+	first := make(map[string]string)
+	for _, name := range sources {
+		dir := path.Dir(name)
+		if prev, ok := first[dir]; !ok || name < prev {
+			first[dir] = name
+		}
+	}
+	var dirs []string
+	for dir, name := range first {
+		f := &source.File{ID: source.FileID(name), Filename: name, Data: files[name].Data}
+		lex := lexer.New(f)
+		if diags := lex.Lex(); len(diags) == 0 {
+			if tree, _ := parser.NewParser(f.ID, lex.Tokens()).Parse(); tree != nil &&
+				tree.Package != "main" {
+				continue
+			}
+		}
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
 }
 
 // TestGolden locks in the current output for every program in examples/. It is

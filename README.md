@@ -65,10 +65,15 @@ make test        # runs go test ./...
 tack --out hello examples/hello/main.tck
 ./hello
 tack --out shapes examples/multi-file    # every .tck file in the directory
+cd examples/module-mains && tack --out hello example.com/module-mains/tools/hello-world
 ```
 
-The target is a file, compiled alone, or a directory, compiled as the one
-package its `.tck` files make. Flags go before the target. The intermediate stages can be dumped instead of
+The target is a file, compiled alone; a directory, compiled as the one
+package its `.tck` files make, in the module whose `tack.mod` is in that
+directory or the nearest one above it; or an import path, which names a
+package of the module found from the current directory. A target that
+names nothing on disk is taken for an import path unless it is absolute,
+starts with `.`, or ends in `.tck`. Flags go before the target. The intermediate stages can be dumped instead of
 linking. A dump prints only that stage's output to stdout, so it can be
 redirected: `tack --emit x.tck > x.c` gives a C file that compiles. A dump
 does not take `--out`, and only one dump can be given at a time.
@@ -106,7 +111,8 @@ not reported.
 | `source`   | the source files, their bytes, and their line indexes         |
 | `lexer`    | bytes into tokens, including Go-style semicolon insertion     |
 | `parser`   | tokens into an AST                                            |
-| `loader`   | finds a target's files, lexes and parses them into packages   |
+| `loader`   | finds a target's module and files, lexes and parses them      |
+| `modfile`  | parses `tack.mod`, the root file naming a module              |
 | `ast`      | node types, packages, programs, source spans, and `Walk`      |
 | `resolver` | binds every name; checks there is a `main` package and `main` |
 | `types`    | Tack's type representation                                    |
@@ -210,6 +216,33 @@ which is true today because `main` is the only package there is.
   itself`. Every file is lexed, and then every file parsed, before the
   first stage with errors stops the run, so each file's problems are
   reported. A file compiled on its own is the whole package.
+- A directory is compiled in its module. A module is a directory tree
+  whose root holds a `tack.mod`, which names it in one line, `module
+  calc`, and may hold `//` comments, which run to the end of the line
+  wherever they start, and blank lines. A module name is one or more parts
+  joined by `/`, each lowercase ASCII letters, digits, `-`, `.` and `_`,
+  not starting or ending with `.` or `-`, as in `example.com/my-tools`; it
+  may not be `std` or start with `std/`, which are the standard library's.
+  Anything else in `tack.mod` is an error at the line it is on: a second
+  `module` line, a `module` without a name or with two, another directive,
+  or a bad name. A directory with no `tack.mod` in it or above it is an
+  error, `no tack.mod found in dir or any parent directory`; a file
+  compiled on its own needs none.
+- A package's import path is the module's name followed by its
+  directory's path below the root, so `calc/lexer` is the directory
+  `lexer` of module `calc`, and a package at the root has the module's
+  name as its path. A package is named by the last part of its import path,
+  and every file's package clause must say that name, `package lex does not
+  match its directory; expected package lexer`, or `main`, which may be in
+  any directory. A package name is lowercase ASCII letters and digits,
+  starting with a letter, and is not a keyword, a builtin type's or
+  function's name, `builtin` or `std`: a directory holding a package of
+  another name is an error, such as `my-tools is not a valid package name:
+  use lowercase letters and digits`, though it may hold a `main` package,
+  and directories below it may hold packages. A program is built from a
+  `main` package; building any other is `calc/lexer is not a main
+  package`. One module may hold several main packages, each built from its
+  own directory or import path.
 - A line ends at a newline, `\n`, or a carriage return and newline,
   `\r\n`, which means exactly the same everywhere: a file saved with
   either compiles to the same program, and a diagnostic gives the same

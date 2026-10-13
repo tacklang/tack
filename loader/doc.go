@@ -9,14 +9,42 @@
 //
 // # Targets
 //
-// A target is a single file or a directory. A file is compiled on its own,
-// as the one file of a package whose path is main. A directory is compiled
-// as the package its Tack files make together: every file directly in it
+// A target is a single file, a directory, or an import path. A file is
+// compiled on its own, as the one file of a package whose path is main,
+// with no tack.mod. A directory is compiled in its module, as the main
+// package its Tack files make together, and an import path names such a
+// directory in the module found from a given directory (Path). A package's
+// files are every file directly in its directory
 // whose name ends in .tck, in the byte order of their names, without
 // recursing, leaving out a name that starts with a dot, as an editor's or a
 // tool's, and a directory, even one whose name ends in .tck. A directory
 // with no such file is an error, not a diagnostic, since there is no source
 // to point into; so is a file or directory that cannot be read.
+//
+// # Modules
+//
+// A directory belongs to the module whose root is the nearest directory at
+// or above it holding a tack.mod, parsed by package modfile. None found is
+// an error; a tack.mod that exists but cannot be read stops the search
+// with an error rather than being skipped. A malformed tack.mod is
+// reported as diagnostics, at StageLoad, against the tack.mod itself,
+// which is added to the Result's files like any source.
+//
+// A package's import path is the module's name, then its directory's path
+// below the root; the root's own is the module's name. Its name is the
+// last part of its import path, and every file's package clause must give
+// that name or main, which may be in any directory: one giving another
+// does not match its directory, and both in one directory are two
+// packages. A name other than main must be a valid package name: lowercase
+// ASCII letters and digits starting with a letter, not a keyword, a
+// builtin type's or function's name, builtin or std. The main package of a
+// program must be a main package.
+//
+// An import path starts with a module's name, never with . or /, and its
+// parts are neither empty nor . or ..; a relative or absolute one is
+// reported with the module-rooted path it probably means. A path outside
+// the module is an unknown module, and one naming no directory in it a
+// package that cannot be found.
 //
 // # Stages
 //

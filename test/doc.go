@@ -2,7 +2,8 @@
 // in process. It holds only tests.
 //
 // TestGolden runs every program under examples/, each directory directly in
-// it that holds Tack files, and compares what the compiler produced against
+// it that holds Tack files, or, for one holding a tack.mod, each directory
+// of that module whose first file says package main, and compares what the compiler produced against
 // a golden file in testdata/. A directory holding only main.tck is compiled
 // as that file alone; any other as the package its files make. The harness
 // reads every program into an in-memory file system and loads it through

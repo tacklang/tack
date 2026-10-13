@@ -30,9 +30,12 @@ const (
 // sourceExt is the extension of a Tack source file.
 const sourceExt = ".tck"
 
-// mainPath is the path of the main package of a program built from a
-// single file or from a directory alone.
+// mainPath is the path of the package of a program built from a single
+// file.
 const mainPath = "main"
+
+// mainPackage is the name of the package a program is built from.
+const mainPackage = "main"
 
 // Loader reads the files of a program and parses them. Its fields are
 // set by the caller; the zero value is not usable, since FS is required.
@@ -59,13 +62,13 @@ type Result struct {
 	// Files holds every file read, for rendering diagnostics.
 	Files *source.Set
 
-	// Tokens holds each file's tokens, in Files order, when loading
-	// stopped at StageLex.
-	Tokens [][]lexer.Token
-
-	// Trees holds each file's syntax tree, in Files order, when loading
-	// stopped at StageParse.
-	Trees []*ast.File
+	// Sources holds the target's own Tack files when loading stopped at
+	// StageLex or StageParse, and Tokens and Trees what was asked for, in
+	// the same order: each file's tokens when loading stopped at StageLex,
+	// and its syntax tree when it stopped at StageParse.
+	Sources []*source.File
+	Tokens  [][]lexer.Token
+	Trees   []*ast.File
 
 	// Stage is the stage that reported Diags, empty when there are none.
 	Stage Stage
@@ -93,12 +96,48 @@ func (l *Loader) File(name string) (*Result, error) {
 	return res, nil
 }
 
-// Dir loads the program the Tack files directly in the directory dir make
-// together: one package, whose path is main. A problem reading the
-// directory or a file in it, and a directory with no Tack files, are
-// returned as errors.
+// Dir loads the program whose main package is the directory dir: the
+// package the Tack files directly in it make together, in the module
+// whose root is the nearest directory at or above dir holding a tack.mod.
+// A problem reading a directory or a file, a directory with no Tack files,
+// and no tack.mod at or above dir are returned as errors; a malformed
+// tack.mod, as diagnostics.
 func (l *Loader) Dir(dir string) (*Result, error) {
 	res := &Result{Files: source.NewSet()}
+	mod, err := l.findModule(res, dir)
+	if err != nil || mod == nil {
+		return res, err
+	}
+	return l.loadMain(res, dir, mod.pathOf(dir))
+}
+
+// Path loads the program whose main package has the import path
+// importPath, in the module whose root is the nearest directory at or
+// above cwd holding a tack.mod. Problems with the path are returned as
+// errors, as Dir's are.
+func (l *Loader) Path(cwd, importPath string) (*Result, error) {
+	res := &Result{Files: source.NewSet()}
+	mod, err := l.findModule(res, cwd)
+	if err != nil || mod == nil {
+		return res, err
+	}
+	if msg := checkImportPath(importPath, mod.name); msg != "" {
+		return nil, fmt.Errorf("%s", msg)
+	}
+	dir, msg := mod.dirOf(importPath)
+	if msg != "" {
+		return nil, fmt.Errorf("%s", msg)
+	}
+	if _, err := l.FS.ReadDir(dir); err != nil {
+		return nil, fmt.Errorf("cannot find package %s: no directory %s in module %s",
+			show(importPath), show(importPath), mod.name)
+	}
+	return l.loadMain(res, dir, importPath)
+}
+
+// loadMain loads the package in dir, whose import path is importPath, as
+// the main package of a program, into res.
+func (l *Loader) loadMain(res *Result, dir, importPath string) (*Result, error) {
 	files, err := l.readPackageFiles(res, dir)
 	if err != nil {
 		return nil, err
@@ -107,10 +146,19 @@ func (l *Loader) Dir(dir string) (*Result, error) {
 	if !ok {
 		return res, nil
 	}
-	if !l.checkClauses(res, dir, pkg) {
+	if !l.checkClauses(res, dir, importPath, pkg) {
 		return res, nil
 	}
-	pkg.Path = mainPath
+	if pkg.Name != mainPackage {
+		res.Stage = StageLoad
+		res.Diags = []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("%s is not a main package", importPath),
+			Span:     pkg.Files[0].PackageSpan,
+		}}
+		return res, nil
+	}
+	pkg.Path = importPath
 	res.Program = &ast.Program{Packages: []*ast.Package{pkg}}
 	return res, nil
 }
@@ -184,7 +232,7 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		return nil, false
 	}
 	if l.Stop == StageLex {
-		res.Tokens = tokens
+		res.Sources, res.Tokens = files, tokens
 		return nil, false
 	}
 
@@ -201,19 +249,63 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		return nil, false
 	}
 	if l.Stop == StageParse {
-		res.Trees = pkg.Files
+		res.Sources, res.Trees = files, pkg.Files
 		return nil, false
 	}
 	pkg.Name = pkg.Files[0].Package
 	return pkg, true
 }
 
-// checkClauses reports, in res, files of the directory dir whose package
-// clauses disagree: a directory holds one package. The packages are named
-// in sorted order, whatever the order of the files, and the error is at
-// the first file of the second of them, with a note at the first file of
-// each of the others. It returns whether the clauses all agree.
-func (l *Loader) checkClauses(res *Result, dir string, pkg *ast.Package) bool {
+// checkClauses reports, in res, files of the directory dir, the package
+// whose import path is importPath, whose package clauses are wrong, and
+// returns whether they are all right. A package's name is the last part of
+// its import path, and every file's clause names it, or main, which may be
+// any directory's: a clause naming anything else does not match its
+// directory, and both names in one directory are two packages. A name
+// other than main must be a valid package name.
+func (l *Loader) checkClauses(res *Result, dir, importPath string, pkg *ast.Package) bool {
+	want := path.Base(importPath)
+	var diags []diag.Diagnostic
+	for _, f := range pkg.Files {
+		if f.Package == mainPackage || f.Package == want {
+			continue
+		}
+		if msg := checkPackageName(want); msg != "" {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error, Message: msg, Span: f.PackageSpan,
+			})
+			break
+		}
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message: fmt.Sprintf("package %s does not match its directory; expected package %s",
+				show(f.Package), want),
+			Span: f.PackageSpan,
+		})
+	}
+	if len(diags) == 0 {
+		diags = l.mixedPackages(dir, pkg)
+	}
+	if len(diags) == 0 && pkg.Name != mainPackage {
+		if msg := checkPackageName(want); msg != "" {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error, Message: msg, Span: pkg.Files[0].PackageSpan,
+			})
+		}
+	}
+	if len(diags) > 0 {
+		res.Stage, res.Diags = StageLoad, diags
+		return false
+	}
+	return true
+}
+
+// mixedPackages reports files of the directory dir whose package clauses
+// disagree, though each is allowed there: a directory holds one package.
+// The packages are named in sorted order, whatever the order of the files,
+// and the error is at the first file of the second of them, with a note at
+// the first file of each of the others.
+func (l *Loader) mixedPackages(dir string, pkg *ast.Package) []diag.Diagnostic {
 	first := make(map[string]*ast.File) // the first file declaring each package
 	var names []string
 	for _, f := range pkg.Files {
@@ -223,7 +315,7 @@ func (l *Loader) checkClauses(res *Result, dir string, pkg *ast.Package) bool {
 		}
 	}
 	if len(names) == 1 {
-		return true
+		return nil
 	}
 	sort.Strings(names)
 
@@ -242,8 +334,7 @@ func (l *Loader) checkClauses(res *Result, dir string, pkg *ast.Package) bool {
 			Span:     first[name].PackageSpan,
 		})
 	}
-	res.Stage, res.Diags = StageLoad, []diag.Diagnostic{d}
-	return false
+	return []diag.Diagnostic{d}
 }
 
 // packageList names the packages a directory holds, given in sorted

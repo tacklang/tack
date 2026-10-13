@@ -1,0 +1,8 @@
+package main
+
+// The module's root may hold a main package, though the module's last part,
+// module-mains, is not a valid package name: main may be in any directory.
+func main() {
+    print("root\n")
+    exit(3)
+}

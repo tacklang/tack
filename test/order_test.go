@@ -56,10 +56,11 @@ func runFrontEnd(files fstest.MapFS) (out frontEnd, err error) {
 	return out, nil
 }
 
-// orderedFiles returns parts as the files of directory p, named so that
-// they sort in the order given, or the reverse of it when reverse is set.
+// orderedFiles returns parts as the files of directory p, the root of
+// module m, named so that they sort in the order given, or the reverse of
+// it when reverse is set.
 func orderedFiles(parts [][]byte, reverse bool) fstest.MapFS {
-	files := fstest.MapFS{}
+	files := fstest.MapFS{"p/tack.mod": {Data: []byte("module m\n")}}
 	for i, part := range parts {
 		k := i
 		if reverse {

@@ -45,6 +45,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |--------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------|
 | `package` clause         | yes   | yes    | partial | yes | Must be first and must be `main`; every file of a directory names the same package          |
 | Several files per package | n/a  | yes    | yes     | yes | A directory is one package: its `.tck` files in name order, package-level names shared by all, any order |
+| Modules and `tack.mod`   | n/a   | yes    | yes     | n/a | `module <name>` only; a directory builds in the module found at or above it; package name is the import path's last part, or `main` |
 | Imports                  | yes   | no     | no      | no  |                                                                                             |
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
 | `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
@@ -150,11 +151,11 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |------------------------------------|---------|----------------------------------------------------------------------------|
 | C backend                          | yes     | Needs `clang` on `PATH`                                                    |
 | Other backends                     | no      | The registry allows them; arm64 was dropped                                |
-| `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2; a file or a directory |
+| `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2; a file, a directory or an import path |
 | Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/`, every case in `examples/invalid.txtar` and `examples/invalid-packages.txtar` |
-| Fuzzing                            | partial | Lexer alone, the whole pipeline through the driver, and a package's file order |
+| Fuzzing                            | partial | Lexer alone, the whole pipeline through the driver, a package's file order, `tack.mod`, and the loader on random file trees |
 | Self-hosting                       | no      | The goal: a Tack compiler written in Tack                                  |
 
 ## Timeline
