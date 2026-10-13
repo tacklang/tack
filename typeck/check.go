@@ -331,7 +331,9 @@ func plural(n int, word string) string {
 }
 
 // checkFor checks a loop's clauses, in source order, then its body, inside
-// which break and continue are allowed.
+// which break and continue are allowed. The body knows what the condition
+// says, and, when the loop counts its variable, the bound it counts from;
+// see counting.go.
 func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Init != nil {
 		c.checkSimpleStmt(loop.Init)
@@ -345,6 +347,9 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	var facts []fact
 	if loop.Cond != nil {
 		facts = c.factsFrom(loop.Cond, true)
+		if f, ok := c.countingFact(loop, facts); ok {
+			facts = append(facts, f)
+		}
 	}
 	c.loops++
 	c.checkGuarded(loop.Body, facts, fn)

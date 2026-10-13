@@ -121,6 +121,22 @@ func knownString() {
     check("known string length", last == 'k' && len(same) == 4)
 }
 
+func total(a [3]int64) int64 {
+    mut sum int64 = 0
+    for mut i := 0; i < len(a); i++ {
+        sum += a[i]
+    }
+    return sum
+}
+
+func reversed(a [3]int64) int64 {
+    mut digits int64 = 0
+    for mut i := len(a) - 1; i >= 0; i-- {
+        digits = digits * 10 + a[i]
+    }
+    return digits
+}
+
 func zeroValues() {
     mut i int64 = 3
     words := [2]string{"a", "b"}
@@ -178,6 +194,7 @@ func main() {
     checkedConversion()
     knownConversions()
     knownString()
+    check("counting loops", total(a) == 60 && reversed([3]int64{1, 2, 3}) == 321)
     zeroValues()
     forms()
 }

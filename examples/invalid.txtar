@@ -2961,6 +2961,49 @@ safety-conversion-unchecked/main.tck:4:12: error: converting int64 to uint8 can 
    |	           ^~~~~~~~
 05 |	}
 
+-- safety-counting-loop-assigns/main.tck --
+package main
+
+func main() {
+    a := [3]int64{10, 20, 30}
+    mut sum int64 = 0
+    for mut i := 0; i < 3; i++ {
+        sum += a[i]
+        i++
+    }
+    exit(sum)
+}
+-- safety-counting-loop-assigns/expected --
+stage: typeck
+---
+
+safety-counting-loop-assigns/main.tck:7:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+06 |	    for mut i := 0; i < 3; i++ {
+07 |	        sum += a[i]
+   |	                 ^
+08 |	        i++
+
+-- safety-counting-loop-may-wrap/main.tck --
+package main
+
+func main() {
+    a := [3]int64{10, 20, 30}
+    mut sum int64 = 0
+    for mut i int8 = 2; i < 3; i += 126 {
+        sum += a[i]
+    }
+    exit(sum)
+}
+-- safety-counting-loop-may-wrap/expected --
+stage: typeck
+---
+
+safety-counting-loop-may-wrap/main.tck:7:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+06 |	    for mut i int8 = 2; i < 3; i += 126 {
+07 |	        sum += a[i]
+   |	                 ^
+08 |	    }
+
 -- safety-defer-assigned-after/main.tck --
 package main
 
@@ -3562,27 +3605,6 @@ safety-string-index-unguarded/main.tck:4:14: error: index i may be out of range;
 04 |	    return s[i]
    |	             ^
 05 |	}
-
--- safety-three-clause-loop/main.tck --
-package main
-
-func main() {
-    a := [3]int64{10, 20, 30}
-    mut sum int64 = 0
-    for mut i := 0; i < 3; i++ {
-        sum += a[i]
-    }
-    exit(sum)
-}
--- safety-three-clause-loop/expected --
-stage: typeck
----
-
-safety-three-clause-loop/main.tck:7:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
-06 |	    for mut i := 0; i < 3; i++ {
-07 |	        sum += a[i]
-   |	                 ^
-08 |	    }
 
 -- string-arithmetic/main.tck --
 package main

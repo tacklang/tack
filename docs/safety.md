@@ -186,6 +186,7 @@ A fact holds in these places:
 | the rest of the block after an `if` whose branch leaves by `return`, `break` or `continue` | `if b == 0 { return 0 }` then `return a / b` |
 | a loop's body, by the loop's condition     | `for ; d != 0; d-- { sum += 12 / d }`                      |
 | a range loop's body, for its index         | `for i := range a { a[i] }`, `for i := range s { s[i] }`   |
+| a counting loop's body, for its variable   | `for mut i := 0; i < len(a); i++ { a[i] }`                 |
 | the right side of `&&`, by the left being true | `b != 0 && a / b > 1`                                 |
 | the right side of `\|\|`, by the left being false | `b == 0 \|\| a / b > 1`                            |
 | a `switch` case, as in the chain of ifs it stands for | `switch b { case 0: return 0 }` then `a / b`    |
@@ -195,11 +196,52 @@ A range loop's index is at least 0 and at most its count less one, when the
 count is a known value, or the length of the array it ranges over less one,
 so it proves an index into any array at least as long.
 `for i := range len(s)` and `for i := range s` over a string variable bound
-`i` by `len(s)`; over a known string, by its length. A three-clause loop
-gives only what its condition says:
-in <!-- case: safety-three-clause-loop -->`for mut i := 0; i < 3; i++` the
-body knows `i < 3` but not `i >= 0`, so `a[i]` needs `0 <= i && i < 3` in
-the condition, or an unsigned `i`.
+`i` by `len(s)`; over a known string, by its length.
+
+A three-clause loop's body knows what its condition says, and a
+*counting* loop's body knows one thing more: the value its variable
+starts from. A loop counts when
+
+- its init declares the variable with a known value, `mut i := c` (or
+  `mut i T = c`);
+- its post steps it by a known amount: up by `i++` or `i += k`, or down by
+  `i--` or `i -= k`, with `k` a known value above zero;
+- its condition bounds the variable on the side it moves towards, above
+  when counting up (`i < n`, `i <= n`, `n > i`, `i < len(s)`), below when
+  counting down (`i >= 0`), and the step from that bound cannot wrap past
+  the end of the variable's type;
+- its body never assigns the variable, as for any fact.
+
+The body then knows that `i` is at least `c` counting up, or at most `c`
+counting down, along with what the condition says:
+
+<!-- example: safety -->
+```tack
+func total(a [3]int64) int64 {
+    mut sum int64 = 0
+    for mut i := 0; i < len(a); i++ {
+        sum += a[i]
+    }
+    return sum
+}
+
+func reversed(a [3]int64) int64 {
+    mut digits int64 = 0
+    for mut i := len(a) - 1; i >= 0; i-- {
+        digits = digits * 10 + a[i]
+    }
+    return digits
+}
+```
+
+The fact holds in the body only: not in the condition, the post, or after
+the loop. A body that assigns the variable gets no fact about it, so
+in <!-- case: safety-counting-loop-assigns -->`for mut i := 0; i < 3; i++ { sum += a[i]; i++ }`
+`a[i]` needs a proof. Nor does a step that could wrap: an `int8` at 2
+plus 126 is -128, which is below 3 again,
+so <!-- case: safety-counting-loop-may-wrap -->`for mut i int8 = 2; i < 3; i += 126 { sum += a[i] }`
+proves nothing about `i`. An unsigned variable is never negative, so its
+condition alone bounds it from both sides.
 
 A `switch` case with one value proves what `tag == value` proves inside its
 body; a case with several values proves nothing inside it, as `||` gives

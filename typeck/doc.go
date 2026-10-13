@@ -60,6 +60,10 @@
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
 // variable, which must be a parameter, a local, or an immutable global. A
+// counting loop, a three-clause loop that steps a variable it declares
+// from a known start by a known amount towards a bound its condition gives,
+// without wrapping, also tells its body the start bounds the variable
+// (counting.go). A
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
 // ..., in an expression switch, the default the final else. Deferred code

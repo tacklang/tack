@@ -278,6 +278,13 @@ which is true today because `main` is the only package there is.
   included, and may be any of those except a declaration. Every part may be
   left out (`for ;; { ... }`). A variable `init` declares belongs to the
   loop, and needs `mut` to be updated: `for mut i := 0; i < n; i++ { ... }`.
+  A counting loop proves its variable in its body: when `init` declares it
+  with a known value `c`, `post` steps it by a known amount (`i++`,
+  `i += k`, or `i--`, `i -= k`, with `k` above zero), the condition bounds
+  it on the side it moves towards without the step wrapping past its
+  type, and the body never assigns it, the body knows `i >= c` counting
+  up, or `i <= c` counting down. So `for mut i := 0; i < len(a); i++`
+  proves `a[i]`; see [docs/safety.md](docs/safety.md).
 - Range over an integer. `for i := range n { ... }` runs once for each `i`
   from `0` to `n - 1`, and not at all when `n` is zero or less; `for range n`
   does the same without a variable. `n` is an integer of any type, a
@@ -406,7 +413,8 @@ which is true today because `main` is the only package there is.
     `else` when `c` being false does;
   - in the statements after an `if` whose branch ends in `return`, `break`
     or `continue`, by what got past it, as in `if b == 0 { return 0 }`;
-  - in a loop's body, by its condition;
+  - in a loop's body, by its condition, and in a counting loop's body by
+    the value its variable starts from (see three-clause loops);
   - in a `switch`, as in the chain of ifs it stands for (see switches);
   - on the right of `&&` by its left side being true, and of `||` by its left
     side being false.
