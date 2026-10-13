@@ -175,6 +175,11 @@
 //     type; ++ and -- need a mutable integer variable;
 //   - a return carries one value for each result the function declares, each
 //     usable as its result's type, and a wrong count is one error;
+//   - two names bound to a value that holds a division, a remainder or an
+//     index outside any call, but is more than it, as in q, ok := a / b + 1,
+//     are one error saying the checked form must be the whole value, which
+//     names the first such operation and what to compute from its result;
+//     that operation is then checked as bound with ok;
 //   - a, b := f() binds a call with exactly that many results, each variable
 //     taking its result's type, or a two-value conversion; a, b = f()
 //     assigns them to mutable variables they widen to, each named once, with

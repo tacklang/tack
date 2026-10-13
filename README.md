@@ -416,7 +416,9 @@ which is true today because `main` is the only package there is.
   compile only where the compiler can prove `b` is not zero; a constant zero
   is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)
   divides only when `b` is not zero: `ok` reports whether it was not, and `q`
-  is the result, or `0`. Both operands are always evaluated. Where the
+  is the result, or `0`. The division must be the whole value:
+  `q, ok := a / b + 1` is an error that suggests `q, ok := a / b`, then
+  `q + 1`. Both operands are always evaluated. Where the
   divisor is proven not zero the two-value form is allowed too, and `ok` is
   always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
   not zero when it is a non-zero constant, an immutable variable holding

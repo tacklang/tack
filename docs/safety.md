@@ -82,8 +82,12 @@ The details:
 - **The operation must be the whole value.** Parentheses around it are fine,
   `q, ok := (a / b)`,
   but <!-- case: safety-checked-not-whole -->`q, ok := a / b + 1` is not a
-  checked division: it reports the unproven divisor
-  and <!-- error: safety-checked-not-whole -->`assignment mismatch: 2 variables but 1 value`.
+  checked division. It is one
+  error, <!-- error: safety-checked-not-whole -->`the checked form must be the whole value: q, ok := a / b, then compute q + 1`,
+  covering the whole value, which names the first division, remainder or
+  index in it outside a call, and the rest of the value computed from the
+  first name. That operation needs no proof of its own; any other in the
+  value still does.
 - **Only the outermost index is checked.**
   In <!-- case: safety-checked-outer-index-only -->`v, ok := m[i][j]` the
   inner `m[i]` is a plain index and needs its own proof.

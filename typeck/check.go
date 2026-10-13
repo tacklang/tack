@@ -204,7 +204,11 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 // the value is wrong every variable keeps types.Invalid, so its uses are not
 // reported again.
 func (c *Checker) checkMultiVar(m *ast.MultiVar) {
-	results, ok := c.multiResults(m.Value, len(m.Vars), m.Span)
+	b := binding{op: ":="}
+	if len(m.Vars) == 2 {
+		b.first, b.second = m.Vars[0].Name, m.Vars[1].Name
+	}
+	results, ok := c.multiResults(m.Value, len(m.Vars), m.Span, b)
 	if !ok {
 		return
 	}
@@ -218,7 +222,11 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 // whose type the value in its position widens to. When the value is wrong,
 // the targets are still checked for being assignable.
 func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
-	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span)
+	b := binding{op: "="}
+	if len(m.Targets) == 2 {
+		b.first, b.second = c.text(m.Targets[0].Spanned()), c.text(m.Targets[1].Spanned())
+	}
+	results, ok := c.multiResults(m.Value, len(m.Targets), m.Span, b)
 	seen := make(map[ast.Decl]bool, len(m.Targets))
 	for i, target := range m.Targets {
 		got := types.Invalid
@@ -263,13 +271,19 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 }
 
 // multiResults checks the value of a MultiVar or MultiAssign, which binds
-// want names, and returns the type of each value it gives, in order, and
-// whether it gives exactly want of them. It must be a call to a function
-// with that many results, or a division, an index or a conversion, which
-// gives two.
+// want names as b says, and returns the type of each value it gives, in
+// order, and whether it gives exactly want of them. It must be a call to a
+// function with that many results, or a division, an index or a
+// conversion, which gives two.
 // Any other value is reported as one error covering span, the whole
-// statement.
-func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types.Type, bool) {
+// statement, unless it binds two names and holds a division, a remainder
+// or an index, when it is the checked form misused; see notWhole.
+func (c *Checker) multiResults(
+	value ast.Expr,
+	want int,
+	span ast.Span,
+	b binding,
+) ([]types.Type, bool) {
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
 	}
@@ -278,6 +292,10 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 	}
 	call, isCall := value.(*ast.Call)
 	if !isCall {
+		if op := fallible(value); want == 2 && op != nil {
+			c.notWhole(value, op, b)
+			return nil, false
+		}
 		c.expr(value)
 		c.errorf(span, "assignment mismatch: %d variables but 1 value", want)
 		return nil, false
@@ -287,6 +305,64 @@ func (c *Checker) multiResults(value ast.Expr, want int, span ast.Span) ([]types
 	}
 
 	return c.callResults(call, want, span)
+}
+
+// binding is how a MultiVar or MultiAssign binds its value: op, := or =,
+// and, when it binds two names, the first and second as written.
+type binding struct {
+	first, second, op string
+}
+
+// fallible returns the first division, remainder or index in value, in
+// source order, outside any call, or nil when there is none.
+func fallible(value ast.Expr) ast.Expr {
+	var found ast.Expr
+	ast.Walk(value, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.Call:
+			return false
+		case *ast.Binary:
+			if x.Op == ast.Div || x.Op == ast.Rem {
+				found = x
+			}
+		case *ast.Index:
+			found = x
+		}
+		return found == nil
+	})
+	return found
+}
+
+// notWhole reports value, bound to two names as b says, which holds op, a
+// division, a remainder or an index, but is more than it: the checked form
+// must be the whole value. The error names the form with op alone, and
+// what to compute from its first value, the value with op replaced by the
+// first name, or, when that is _, only says to use it. value is then
+// checked with op bound with ok, so op needs no proof, except that a
+// divisor known to be zero is still reported.
+func (c *Checker) notWhole(value, op ast.Expr, b binding) {
+	whole, part := value.Spanned(), op.Spanned()
+	rest := "then use its value"
+	if b.first != "_" {
+		text := c.text(whole)
+		rest = "then compute " + text[:part.Start-whole.Start] + b.first + text[part.End-whole.Start:]
+	}
+	c.errorf(whole, "the checked form must be the whole value: %s, %s %s %s, %s",
+		b.first, b.second, b.op, c.text(part), rest)
+
+	switch x := op.(type) {
+	case *ast.Binary:
+		if v, known := c.knownValue(x.Y); !known || !v.IsZero() {
+			c.checkedDivision = x
+		}
+	case *ast.Index:
+		c.checkedIndex = x
+	}
+	c.expr(value)
+	c.checkedDivision, c.checkedIndex = nil, nil
 }
 
 // settleResult returns the type of the value in one position of a MultiVar

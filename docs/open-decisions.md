@@ -29,6 +29,28 @@ program that does nothing. In Go a bodyless declaration means the body is
 provided elsewhere, in assembly. Options: reject them outside declaration
 files, or give them a meaning (external, `asm`, builtin).
 
+## Missing explanation notes
+
+An error for a missing proof comes with notes when a guard in scope says
+something about the operand (see [safety.md](safety.md#notes-on-a-missing-proof)).
+Some causes still get the error alone, because the cause leaves no fact
+behind, so explaining it means walking the condition again with logic that
+mirrors how facts are derived. The wording for each was drafted and its
+implementation deferred:
+
+- `||` where one side says nothing about the variable, as in
+  `if b < 0 || c > 0 { a / b }` (and `&&` when false): a note that the
+  condition proves nothing about `b`, since the other side may be the one
+  that holds.
+- A comparison with a value that is not known, as in `if 0 <= i && i < n`
+  or `if b > c`: a note that the comparison gives no fact about `i`, since
+  `n` has no known value.
+- `len(s)` in a form that gives no fact, as in `i <= len(s) - 1` or
+  `i <= len(s)`, and `len` of a call, `i < len(name())`: a note that only
+  `i < len(s)` of a string variable bounds `i` by its length.
+- A string equality, as in `if s == "abc" { s[0] }`: a note that comparing
+  strings says nothing about `len(s)`.
+
 ## Structs
 
 Structs follow the decisions recorded in the README. These points were

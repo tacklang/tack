@@ -702,6 +702,79 @@ char-too-long/main.tck:4:10: error: too many characters in char literal
    |	         ^~~~
 05 |	    exit(c)
 
+-- checked-not-whole-assign/main.tck --
+package main
+
+func f(a int64, b int64, c int64) int64 {
+    mut q int64 = 0
+    mut ok := false
+    q, ok = a / b * c
+    if ok {
+        return q
+    }
+    return 0
+}
+
+func main() {
+    exit(f(8, 2, 1))
+}
+-- checked-not-whole-assign/expected --
+stage: typeck
+---
+
+checked-not-whole-assign/main.tck:6:13: error: the checked form must be the whole value: q, ok = a / b, then compute q * c
+05 |	    mut ok := false
+06 |	    q, ok = a / b * c
+   |	            ^~~~~~~~~
+07 |	    if ok {
+
+-- checked-not-whole-blank/main.tck --
+package main
+
+func f(a int64, b int64) bool {
+    _, ok := a % b + 1
+    return ok
+}
+
+func main() {
+    if f(8, 2) {
+        exit(1)
+    }
+}
+-- checked-not-whole-blank/expected --
+stage: typeck
+---
+
+checked-not-whole-blank/main.tck:4:14: error: the checked form must be the whole value: _, ok := a % b, then use its value
+03 |	func f(a int64, b int64) bool {
+04 |	    _, ok := a % b + 1
+   |	             ^~~~~~~~~
+05 |	    return ok
+
+-- checked-not-whole-index/main.tck --
+package main
+
+func f(a [3]int64, i int64) int64 {
+    v, ok := a[i] + 1
+    if ok {
+        return v
+    }
+    return 0
+}
+
+func main() {
+    exit(f([3]int64{1, 2, 3}, 1))
+}
+-- checked-not-whole-index/expected --
+stage: typeck
+---
+
+checked-not-whole-index/main.tck:4:14: error: the checked form must be the whole value: v, ok := a[i], then compute v + 1
+03 |	func f(a [3]int64, i int64) int64 {
+04 |	    v, ok := a[i] + 1
+   |	             ^~~~~~~~
+05 |	    if ok {
+
 -- compare-mismatch/main.tck --
 package main
 
@@ -3351,16 +3424,10 @@ func main() {
 stage: typeck
 ---
 
-safety-checked-not-whole/main.tck:4:18: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
+safety-checked-not-whole/main.tck:4:14: error: the checked form must be the whole value: q, ok := a / b, then compute q + 1
 03 |	func f(a int64, b int64) int64 {
 04 |	    q, ok := a / b + 1
-   |	                 ^
-05 |	    if ok {
-
-safety-checked-not-whole/main.tck:4:5: error: assignment mismatch: 2 variables but 1 value
-03 |	func f(a int64, b int64) int64 {
-04 |	    q, ok := a / b + 1
-   |	    ^~~~~~~~~~~~~~~~~~
+   |	             ^~~~~~~~~
 05 |	    if ok {
 
 -- safety-checked-outer-index-only/main.tck --
