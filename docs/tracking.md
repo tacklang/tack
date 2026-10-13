@@ -14,7 +14,9 @@ diagnostic, never a crash or silently wrong code.
 
 Open questions about how a feature should behave are in
 [open-decisions.md](open-decisions.md), and bugs are in
-[known-bugs.md](known-bugs.md).
+[known-bugs.md](known-bugs.md). The rules that keep division, indexing and
+conversions from failing at runtime, proofs and the `v, ok :=` form, are in
+[safety.md](safety.md).
 
 ## Today
 

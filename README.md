@@ -419,7 +419,8 @@ which is true today because `main` is the only package there is.
   parameter, a local, or an immutable global, and the region must not assign
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
-  leaving.
+  leaving. [docs/safety.md](docs/safety.md) gathers these rules, the
+  two-value form and every operation they apply to in one place.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
@@ -458,7 +459,8 @@ which is true today because `main` is the only package there is.
   comparison with a known value bounds a variable, as in
   `if 0 <= i && i < len(a)`, and a variable's type bounds it too, so a
   `uint8` index into a `[256]T` needs nothing. Only a name is proven; an
-  index like `i + 1` needs the two-value form.
+  index like `i + 1` needs the two-value form. See
+  [docs/safety.md](docs/safety.md) for every proof and diagnostic.
 - Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
   the same rules: it compiles only where `i` is proven in range, and
   `v, ok := s[i]` (or `v, ok = s[i]`) reads it otherwise, giving `0` and
@@ -493,7 +495,8 @@ which is true today because `main` is the only package there is.
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
   `T`, and `v` is that value, or `0` when it is not. The two-value form is an
   error where the conversion cannot fail, so each conversion has one
-  spelling. Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
+  spelling. A guard never makes `T(x)` compile; see
+  [docs/safety.md](docs/safety.md). Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.

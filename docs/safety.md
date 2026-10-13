@@ -1,0 +1,482 @@
+# Safety rules
+
+Some operations can fail: a division by zero, an index out of range, a
+conversion to a type that cannot hold the value. Tack has no runtime error
+for any of them. The compiler accepts such an operation only in one of two
+ways:
+
+1. **The guard rule.** The compiler proves, where the operation is written,
+   that it cannot fail, and the plain form compiles: `a / b`, `a[i]`.
+2. **The checked form.** The program binds the operation to two names,
+   `v, ok := ...`, and handles the case where it failed: `ok` is `false` and
+   `v` is a zero value.
+
+Anything else is a compile error that names the variable and suggests both
+fixes. This page lists every operation the rules apply to, what each rule
+requires, and the exact diagnostics. The README's
+["The language today"](../README.md#the-language-today) describes the same
+rules feature by feature.
+
+Every example here was compiled and, where it compiles, run with the
+compiler at the commit that added this page.
+
+## The operations
+
+| Operation                          | Fails when                       | Plain form compiles when                        | Checked form          |
+|------------------------------------|----------------------------------|-------------------------------------------------|-----------------------|
+| `a / b`, `a % b`                   | `b` is zero                      | `b` is proven not zero                          | `q, ok := a / b`      |
+| `x /= b`, `x %= b`                 | `b` is zero                      | `b` is proven not zero                          | none                  |
+| `a[i]`, reading an array element   | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                  | `v, ok := a[i]`       |
+| `a[i] = v`, writing one            | as above                         | as above                                        | none                  |
+| `s[i]`, reading a string's byte    | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                  | `v, ok := s[i]`       |
+| `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
+| `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
+
+A write to an element covers every way of writing one: `a[i] = v`,
+`a[i] += v`, `a[i]++`, and targets that mix fields and indexes, such as
+`p.cells[i] = v` or `a[i].x = v`. Every index in such a target needs a
+proof.
+
+Conversions are the odd one out: they follow the type rule only. No guard,
+known value or fact makes `T(x)` compile when `x`'s type does not widen to
+`T` (see [Conversions](#conversions)).
+
+## The checked form
+
+The checked form is the operation, alone, as the value of a declaration or
+assignment of exactly two names:
+
+```tack
+q, ok := a / b      // or a % b
+v, ok := a[i]       // an array element
+v, ok := s[i]       // a string's byte
+v, ok := uint8(x)   // a conversion that can fail
+```
+
+The first value is the result when the operation succeeds, and the zero
+value of its type when it fails: `0` for a division, a conversion or a
+string's byte; the element type's zero value for an array, so `0`, `""`,
+`false`, or a struct with every field zero. The second is a `bool`, `true`
+when the operation succeeded. For a division `ok` says only that the
+divisor was not zero: `m / d` with `m` an `int8` holding `-128` and `d`
+holding `-1` gives `-128` and `true`, since that division wraps rather than
+fails. Both operands of a checked division are always evaluated.
+
+The details:
+
+- **`=` works too.** `q, ok = a / b`, `v, ok = a[i]` and `v, ok = T(x)`
+  assign to existing mutable variables, under the rules for assigning
+  several results.
+- **`_` discards either value**, as in `v, _ := a[i]` or
+  `_, fits := uint8(v)`.
+- **Exactly two names.** One name is the plain form, which then needs its
+  proof. Three or more are an error:
+  `assignment mismatch: 3 variables but a division gives 2 values`, and the
+  same with `an index` or `a conversion`.
+- **The operation must be the whole value.** Parentheses around it are
+  fine, `q, ok := (a / b)`, but `q, ok := a / b + 1` is not a checked
+  division: it reports the unproven divisor and
+  `assignment mismatch: 2 variables but 1 value`.
+- **Only the outermost index is checked.** In `v, ok := m[i][j]` the inner
+  `m[i]` is a plain index and needs its own proof.
+- **Drop the ok.** The checked form is an error where the operation cannot
+  fail, so each operation has one spelling:
+
+  | Operation   | Where it cannot fail                                          | Diagnostic                                                 |
+  |-------------|---------------------------------------------------------------|------------------------------------------------------------|
+  | division    | the divisor is a known value or proven not zero, or both operands are untyped constants | `the divisor cannot be zero here; drop the ok` |
+  | array index | the index is a known value, or proven in range                | `the index cannot be out of range here; drop the ok`       |
+  | string index| the index is proven in range, a constant into a literal included | `the index cannot be out of range here; drop the ok`    |
+  | conversion  | the operand is an untyped constant                            | `a constant needs no ok to convert; use uint8(...)`        |
+  | conversion  | the operand's type widens to `T`                              | `converting uint8 to int64 cannot fail; use int64(...)`    |
+
+- **A failure known at compile time is still an error.** The checked form
+  does not accept an operation that always fails: `q, ok := a % 0` reports
+  `division by zero`, `v, ok := a[5]` on a `[3]int64` reports
+  `index 5 is out of range for [3]int64`, `v, ok := "tack"[4]` reports
+  `index 4 is out of range for a string of 4 bytes`, `v, ok := s[-1]`
+  reports `index -1 is out of range for a string`, and `v, ok := uint8(256)`
+  reports `constant 256 overflows uint8`.
+- **No checked form for writes.** `x /= b`, `x %= b` and a write to an
+  array element have no two-value form, so their divisor or index must be
+  proven. Their diagnostics leave out the `v, ok` suggestion.
+
+## The guard rule
+
+### What must be proven
+
+| Operation        | Proof needed                                                                                     |
+|------------------|--------------------------------------------------------------------------------------------------|
+| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                       |
+| `a[i]` on `[n]T` | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                           |
+| `s[i]`           | `0 <= i` and `i` below the length of `s`: a literal's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
+
+A proof is about a **plain name**, the divisor or index written as a
+variable or parameter. Anything else, such as `b + 1`, `i + 1`, `-i` or a
+field `p.i`, is proven only when it is a known value.
+
+### Known values
+
+A known value proves itself: a divisor that is a known non-zero value, or
+an index that is a known value in range, needs nothing more. The compiler
+knows the value of:
+
+- a constant expression: literals and operators on them;
+- a character literal, such as `'a'`;
+- `len` of an array, and `len` of a string literal;
+- an immutable variable, local or package-level, whose initializer is a
+  known value, as in `last := len(a) - 1` or `var k int64 = 1`;
+- arithmetic on known values, such as `len(a) - 1`.
+
+A mutable variable, a parameter and a call never have a known value, and
+neither does `len` of a string variable, even an immutable one initialized
+with a literal: after `s := "abc"`, `s[0]` still needs a proof.
+
+### Facts, and what gives them
+
+Where the value is not known, the compiler uses *facts*: what a condition
+that has just been tested says about a variable. A fact is about a
+parameter, a local variable, or an immutable global. A variable's type also
+bounds it, so an unsigned variable is never negative and a `uint8` index
+into a `[256]T` needs nothing.
+
+The conditions that give facts are:
+
+- a comparison of the variable with a known value, either way round:
+  `b != 0`, `b > 0`, `b <= -1`, `b == 4`, `0 <= i`, `i < len(a)`,
+  `i <= len(a) - 1` (for an array, whose length is known);
+- for a string variable `s`: `len(s)` compared with a known value, which
+  bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
+  `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it;
+- `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
+  gives the facts of both sides being false; `!c` swaps true and false.
+
+A fact holds in these places:
+
+| Where                                      | Example                                                    |
+|--------------------------------------------|------------------------------------------------------------|
+| the `then` branch, by the condition being true | `if b != 0 { return a / b }`                           |
+| the `else` branch, by it being false       | `if b == 0 { return 0 } else { return a / b }`             |
+| the rest of the block after an `if` whose branch leaves by `return`, `break` or `continue` | `if b == 0 { return 0 }` then `return a / b` |
+| a loop's body, by the loop's condition     | `for ; d != 0; d-- { sum += 12 / d }`                      |
+| a range loop's body, for its index         | `for i := range a { a[i] }`, `for i := range s { s[i] }`   |
+| the right side of `&&`, by the left being true | `b != 0 && a / b > 1`                                 |
+| the right side of `\|\|`, by the left being false | `b == 0 \|\| a / b > 1`                            |
+| a `switch` case, as in the chain of ifs it stands for | `switch b { case 0: return 0 }` then `a / b`    |
+| deferred code, with the facts in force at its `defer` | `if b == 0 { return 0 }` then `defer { 12 / b }` |
+
+A range loop's index is at least 0 and at most its count less one, when the
+count is a known value, or the length of the array it ranges over less one,
+so it proves an index into any array at least as long. `for i := range
+len(s)` and `for i := range s` over a string variable bound `i` by `len(s)`;
+over a string literal, by its length. A three-clause loop gives only what
+its condition says: in `for mut i := 0; i < 3; i++` the body knows `i < 3`
+but not `i >= 0`, so `a[i]` needs `0 <= i && i < 3` in the condition, or an
+unsigned `i`.
+
+A `switch` case with one value proves what `tag == value` proves inside its
+body; a case with several values proves nothing inside it, as `||` gives
+nothing when true. Every later case, and the default, sees the earlier
+cases' values not matching.
+
+### Where a fact holds
+
+A fact holds only in a region that never assigns its variable, anywhere,
+before or after the use: an assignment, a compound assignment, `++` or
+`--`, or one of several targets. If the region assigns it, the fact is
+dropped for the whole region:
+
+```tack
+mut d int64 = 2
+mut x int64 = 0
+if d != 0 {
+    x = 10 / d      // error: d is assigned later in this branch
+    d = 0
+}
+```
+
+The region is the branch for an `if`, the body for a loop (a three-clause
+loop's post statement is not part of it), and the rest of the block for an
+early exit. A fact that names a string through `len(s)` also needs the
+region to leave `s` unassigned; `s` may be `mut` as long as the region does
+not change it. Assigning a whole array does not affect proofs about its
+indexes, since its length cannot change.
+
+A **mutable global** never has a fact, since any call can change it. An
+**immutable** global always has a known value, since its initializer is a
+constant.
+
+**Deferred code** is checked with the facts in force where the `defer` is
+written. The region those facts hold in takes in the rest of the defer's
+block, which is where the deferred code runs, so assigning the variable
+after the `defer` drops the fact:
+
+```tack
+mut b int64 = 3
+if b == 0 {
+    return
+}
+defer {
+    if 12 / b == 4 {    // error: b is assigned after the defer
+        print("ok\n")
+    }
+}
+b = 0
+```
+
+### What does not count
+
+| Not a proof                                  | Why                                                                     |
+|----------------------------------------------|-------------------------------------------------------------------------|
+| `if p.d != 0 { n / p.d }`                    | a field never carries a fact; copy it into a variable first             |
+| `a[i + 1]` after `if 0 <= i && i < 2`        | only a plain name is proven                                             |
+| `if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
+| `if b > c { a / b }`                         | the same                                                                |
+| `if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
+| `if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
+| `if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)` |
+| `if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
+| `if b < 0 \|\| b > 0 { a / b }`              | `\|\|` gives nothing when true                                          |
+| `switch i { case 0, 1: a[i] }`               | a case with several values gives nothing inside it                      |
+| `for i < 3 { a[i]; i++ }`                    | the body assigns `i`                                                    |
+| `mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
+| `for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
+| `name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
+| any guard around `uint8(x)`                  | conversions follow the type rule only                                  |
+
+## Per operation
+
+Each failing example below shows its diagnostic, as the compiler prints it
+after `error: `.
+
+### Division and remainder
+
+```tack
+func half(a int64, b int64) int64 {
+    return a / b
+}
+```
+
+`divisor b may be zero; check b != 0 first, or use q, ok := ... / b`
+
+A divisor that is not a name gets
+`divisor may be zero; use q, ok := ... / ...`, as in `a / (b + 1)`.
+
+Guarded:
+
+```tack
+func half(a int64, b int64) int64 {
+    if b == 0 {
+        return 0
+    }
+    return a / b
+}
+```
+
+Checked:
+
+```tack
+mut b int64 = 0
+q, ok := 8 / b      // q == 0, ok == false
+b = 2
+r, fine := 9 % b    // r == 1, fine == true
+```
+
+`%` follows the same rules as `/`. A known divisor is checked at compile
+time: `a / 0` and `a % 0` are `division by zero`, and two untyped
+constants, `1 / 0`, give `division by zero in constant expression`, in a
+function as at package level.
+
+### Compound division
+
+```tack
+func f(b int64) int64 {
+    mut x int64 = 100
+    x /= b
+    return x
+}
+```
+
+`divisor b may be zero; check b != 0 first`, and for a divisor that is not
+a name, as in `x %= b + 1`, `divisor may be zero`.
+
+Guarded:
+
+```tack
+mut x int64 = 100
+if b != 0 {
+    x /= b
+}
+```
+
+There is no checked form; write `q, ok := x / b` and assign `q`.
+
+### Reading an array element
+
+```tack
+func get(a [3]int64, i int64) int64 {
+    return a[i]
+}
+```
+
+`index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]`
+
+An index that is not a name gets
+`index may be out of range; use v, ok := ...[...]`, as in `a[i + 1]`.
+
+Guarded:
+
+```tack
+func get(a [3]int64, i int64) int64 {
+    if 0 <= i && i < len(a) {
+        return a[i]
+    }
+    return 0
+}
+```
+
+Checked:
+
+```tack
+a := [3]int64{10, 20, 30}
+mut i int64 = 5
+v, ok := a[i]       // v == 0, ok == false
+```
+
+A known index is checked at compile time: `a[3]` on a `[3]int64` is
+`index 3 is out of range for [3]int64`, and `a[-1]` is
+`index -1 is out of range for [3]int64`.
+
+### Writing an array element
+
+```tack
+func set(i int64) int64 {
+    mut a [3]int64
+    a[i] = 7
+    return a[0]
+}
+```
+
+`index i may be out of range; check 0 <= i && i < 3 first`, and for an
+index that is not a name, as in `a[i + 1] = 1`, `index may be out of range`.
+
+Guarded:
+
+```tack
+mut a [3]int64
+if i < 0 || i >= 3 {
+    return 0
+}
+a[i] = 7
+```
+
+There is no checked form.
+
+### Reading a string's byte
+
+```tack
+func at(s string, i int64) uint8 {
+    return s[i]
+}
+```
+
+`index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]`
+
+A constant index into a string variable gets
+`index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]`.
+An index into a string that is neither a variable nor a literal, such as a
+call's result, gets `index i may be out of range; use v, ok := ...[i]`,
+since only the checked form can help.
+
+Guarded:
+
+```tack
+func at(s string, i int64) uint8 {
+    if 0 <= i && i < len(s) {
+        return s[i]
+    }
+    return 0
+}
+
+func first(s string) uint8 {
+    if len(s) > 0 {
+        return s[0]
+    }
+    return 0
+}
+```
+
+Checked:
+
+```tack
+s := "abc"
+mut i int64 = 9
+v, ok := s[i]       // v == 0, ok == false
+```
+
+A constant index into a string literal is checked at compile time:
+`"tack"[1]` is `97`, `"tack"[4]` is
+`index 4 is out of range for a string of 4 bytes`, and a negative constant
+is always an error, `index -1 is out of range for a string`.
+
+Writing a byte, even of a `mut` string, is
+`cannot assign to an element of a string; strings are immutable`.
+
+### Conversions
+
+```tack
+func low(x int64) uint8 {
+    return uint8(x)
+}
+```
+
+`converting int64 to uint8 can fail; use v, ok := uint8(...)`
+
+There is no guarded version. `T(x)` compiles only when `x` is an untyped
+constant that is a value of `T`, or `x`'s type widens to `T`, as `int64(b)`
+for a `uint8` `b`. A guard does not help, so this is the same error:
+
+```tack
+func low(x int64) uint8 {
+    if 0 <= x && x < 256 {
+        return uint8(x)
+    }
+    return 0
+}
+```
+
+Nor does a known value of a type that does not widen: after `x := 5`, an
+`int64`, `uint8(x)` is an error, and so is `int8('a')`, since a character
+literal is a `uint8`.
+
+Checked:
+
+```tack
+mut x int64 = 300
+v, ok := uint8(x)   // v == 0, ok == false
+x = 44
+w, fine := uint8(x) // w == 44, fine == true
+```
+
+An untyped constant that does not fit is a compile error in either form:
+`uint8(256)` is `constant 256 overflows uint8`. Strings and bools cannot be
+converted: `int64("7")` is `cannot convert string to int64`.
+
+## Compile-time errors
+
+The compiler reports, rather than proves or checks, an operation whose
+failure it can see from known values:
+
+| Case                                      | Example                               | Diagnostic                                          |
+|-------------------------------------------|---------------------------------------|-----------------------------------------------------|
+| known zero divisor                        | `a / 0`                               | `division by zero`                                  |
+| zero divisor between untyped constants    | `x := 1 / 0`                          | `division by zero in constant expression`           |
+| known index out of range, array           | `a[3]` on `[3]int64`                  | `index 3 is out of range for [3]int64`              |
+| known index out of range, string literal  | `"tack"[4]`                           | `index 4 is out of range for a string of 4 bytes`   |
+| negative known index, any string          | `s[-1]`                               | `index -1 is out of range for a string`             |
+| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`     | `constant 256 overflows uint8`                      |
+| arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | `constant expression overflows uint8` (or `int8`) |
+
+Arithmetic on values the compiler does not know wraps at runtime instead:
+for a `mut` `int8` `m` holding `-128`, `m / -1` is `-128` and `m % -1` is
+`0`.
