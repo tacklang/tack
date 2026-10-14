@@ -44,6 +44,13 @@
 // checks the block is in that program and the diagnostic, an error or a
 // note on one, in that case's expected output. Every case named safety-* must be named by the page.
 //
+// TestHeaders checks that every example with C files carries, in each
+// directory tack --emit-header writes to, the tack.h the compiler generates
+// for it, so the header can be read beside the C files that include it,
+// and that no other example directory holds one. The build never reads
+// these copies, so the test is what keeps them current; -update rewrites
+// them.
+//
 // The other tests here assert intended behavior directly, so a failure in one
 // of them is a bug, not a stale golden. TestAcceptsValidPrograms covers syntax
 // the language should accept that no example exercises. TestRejectsInvalidPrograms

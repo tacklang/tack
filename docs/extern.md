@@ -99,7 +99,9 @@ with `divmod`.
 - A file may still `#include "tack.h"`, and needs to for an editor to know
   the types. `tack --emit-header <target>` writes `tack.h` into the
   target's directory and into every package directory with C files or
-  extern funcs, and stops; add it to `.gitignore`. A stale copy beside a C
+  extern funcs, and stops; add it to `.gitignore`. The programs under
+  `examples/` keep theirs, for reading beside the C files, and a test
+  checks each matches what the compiler generates. A stale copy beside a C
   file is skipped by the include guard of the one the build includes first.
   One `tack.h` serves the whole program, its extern funcs package by
   package.
@@ -137,8 +139,9 @@ types that hold it. Its names:
   `[2]lexer.Token` is `tack_array_2_lexer_Token`, and `[2][3]Point` is
   `tack_array_2_tack_array_3_Point`.
 - The results of extern func `f` are `tack_results_f`, after its C name.
-- The prototypes leave out the parameters' names, which could be C keywords
-  or clash with a type's name.
+- The prototypes name each parameter in a comment after its type,
+  `int64_t /* n */`, not as a C name, which could be a C keyword or clash
+  with a type's name.
 
 A name `tack.h` cannot give is an error whatever is built:
 
@@ -157,7 +160,7 @@ declares a type for Tack: every type is declared in Tack, and C structs a
 library owns, such as `struct stat`, are copied field by field into a Tack
 struct by a C wrapper.
 
-So `extern func grow(mut p Point, k int64)` is `void grow(Point *, int64_t);`
+So `extern func grow(mut p Point, k int64)` is `void grow(Point * /* p */, int64_t /* k */);`
 in `tack.h`, and the C side reads and writes the caller's point through
 `p->x`. Slices, which C would get as a `{ptr, len}` struct, do not exist in
 Tack yet.
@@ -366,9 +369,9 @@ typedef struct {
 } tack_results_c_divmod;
 
 // package main
-int64_t count(tack_string, uint8_t); // extern func count(s string, c uint8) int64
-int64_t point_sum(Point); // extern func sum(p Point) int64
-tack_results_c_divmod c_divmod(int64_t, int64_t); // extern func c_divmod(a int64, b int64) (int64, int64)
+int64_t count(tack_string /* s */, uint8_t /* c */); // extern func count(s string, c uint8) int64
+int64_t point_sum(Point /* p */); // extern func sum(p Point) int64
+tack_results_c_divmod c_divmod(int64_t /* a */, int64_t /* b */); // extern func c_divmod(a int64, b int64) (int64, int64)
 
 #endif
 ```

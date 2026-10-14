@@ -119,8 +119,9 @@
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,
-// with its parameters' types and not their names, which could be C
-// keywords, a mut parameter's being a pointer to its type, T *, and its
+// with each parameter's type followed by its name in a comment, not as a
+// C name, which could be a C keyword, a mut parameter's being a pointer to
+// its type, T *, and its
 // Tack declaration in a comment beside it. Every type has
 // the generated source's layout, member for member, under other names: a
 // struct of package main is its Tack name, one of another package

@@ -164,7 +164,7 @@ func TestEmitHeaderWritesTackH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(header), "int64_t add(int64_t, int64_t);") {
+	if !strings.Contains(string(header), "int64_t add(int64_t /* a */, int64_t /* b */);") {
 		t.Errorf("tack.h does not declare add:\n%s", header)
 	}
 	if r, bin := buildIn(t, dir); r.code != exitOK {

@@ -151,8 +151,8 @@ func TestHeaderDeclaresEveryExternFunc(t *testing.T) {
 		"#ifndef TACK_H\n#define TACK_H\n\n" +
 		"#include <stdbool.h>\n#include <stdint.h>\n\n" +
 		"// package main\n" +
-		"int64_t add(int64_t, int64_t); // extern func add(a int64, b int64) int64\n" +
-		"bool flip(bool); // extern func flip(b bool) bool\n" +
+		"int64_t add(int64_t /* a */, int64_t /* b */); // extern func add(a int64, b int64) int64\n" +
+		"bool flip(bool /* b */); // extern func flip(b bool) bool\n" +
 		"void tick(void); // extern func tick()\n\n" +
 		"#endif\n"
 	if got != want {
@@ -213,11 +213,25 @@ func TestHeaderUsesTheGivenCName(t *testing.T) {
 	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
 	for _, want := range []string{
 		"} tack_results_c_split;\n",
-		"tack_results_c_split c_split(int64_t); // extern func split(x int64) (int64, int64)\n",
+		"tack_results_c_split c_split(int64_t /* x */); // extern func split(x int64) (int64, int64)\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("tack.h is missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// TestHeaderNamesParamsInComments checks tack.h names each parameter in
+// a comment after its type, so a name that is a C keyword or one of
+// tack.h's type names, legal in Tack, cannot break the prototype.
+func TestHeaderNamesParamsInComments(t *testing.T) {
+	src := "package main\n\nextern func f(int int64, char bool, tack_string string)\n\n" +
+		"func main() {\n}\n"
+	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
+	want := "void f(int64_t /* int */, bool /* char */, tack_string /* tack_string */); " +
+		"// extern func f(int int64, char bool, tack_string string)\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("tack.h is missing %q:\n%s", want, got)
 	}
 }
 
@@ -229,7 +243,7 @@ func TestHeaderDeclaresMutParamsAsPointers(t *testing.T) {
 		"extern func move(mut p Point, mut n int64, k int64, mut a [2]int8) bool\n\n" +
 		"func main() {\n}\n"
 	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
-	want := "bool move(Point *, int64_t *, int64_t, tack_array_2_int8 *); " +
+	want := "bool move(Point * /* p */, int64_t * /* n */, int64_t /* k */, tack_array_2_int8 * /* a */); " +
 		"// extern func move(mut p Point, mut n int64, k int64, mut a [2]int8) bool\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("tack.h is missing %q:\n%s", want, got)
