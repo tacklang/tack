@@ -1095,6 +1095,37 @@ func TestBuiltStructsExits133(t *testing.T) {
 	}
 }
 
+// The mut-exclusive example passes several mut arguments to one call where
+// their places cannot overlap: different fields of a struct and of a mut
+// parameter, elements at known indexes and at indexes facts keep apart,
+// nested paths, whole elements of an array field, elements two levels
+// deep, and different fields of elements whose indexes are unknown; and a
+// plain argument that reads a place passed as mut, which is a copy taken
+// before the call, whether it is the whole place, a field of it, or a call
+// that changes it first. Each check prints its name and "ok", or "FAIL".
+func TestBuiltMutExclusivePassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "mut-exclusive")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("mut-exclusive exited with %v, want status 0", err)
+	}
+	want := "fields of one struct ok\n" +
+		"fields of a mut parameter ok\n" +
+		"elements at known indexes ok\n" +
+		"elements at indexes proven apart ok\n" +
+		"nested paths ok\n" +
+		"elements of a field ok\n" +
+		"two-level elements ok\n" +
+		"different fields of elements at unknown indexes ok\n" +
+		"overlapping plain argument copied ok\n" +
+		"field of the mut place as a plain argument ok\n" +
+		"inner call changes the place first ok\n" +
+		"two variables ok\n"
+	if string(out) != want {
+		t.Errorf("mut-exclusive printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The mut-params example passes mut arguments and checks what each call
 // did to the caller's variable: a field write and a compound assignment
 // through a reference, a whole value replaced, a swap, a reference passed

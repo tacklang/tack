@@ -133,9 +133,10 @@ func notOneValue(id *ast.Ident) string {
 	return fmt.Sprintf("%s returns no value", id.Qualified())
 }
 
-// checkCall checks a call to a function or builtin: its argument count, and
+// checkCall checks a call to a function or builtin: its argument count,
 // that each argument can be passed to the parameter in its position (see
-// checkArg). Its result, if any, is the caller's to use or discard.
+// checkArg), and that no two of its mut arguments overlap (see
+// checkExclusive). Its result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -150,9 +151,13 @@ func (c *Checker) checkCall(call *ast.Call) {
 		}
 		return
 	}
+	var muts []*ast.MutArg
 	for i, arg := range call.Args {
-		c.checkArg(arg, params[i], id.Qualified())
+		if m := c.checkArg(arg, params[i], id.Qualified()); m != nil {
+			muts = append(muts, m)
+		}
 	}
+	c.checkExclusive(muts)
 }
 
 // checkArity reports a call passing the wrong number of arguments, and returns

@@ -77,6 +77,16 @@ another way:
   argument is a variable, a field or an element, and otherwise says only
   a place can be passed as `mut`.
 - `mut x` counts as reading `x` for the unused-variable check.
+- Two indexes into one array are the same element when they are the same
+  variable, or known values that are equal, or variables the facts pin to
+  one equal value; then the call is `passed as mut twice`, not `may
+  overlap`. They differ when known values differ or the facts give the
+  two disjoint ranges. Relations between variables, such as `i != j` or
+  `i < j`, give no fact, so `if i != j { swap(mut a[i], mut a[j]) }` is
+  still an error.
+- An exclusivity error is at the later argument, with a note at the
+  first one it overlaps; each argument is reported once, against the
+  first.
 - A plain parameter is always passed by value in C, a copy, even when
   large; passing it by address where nothing overlaps, which the language
   allows, is not done.

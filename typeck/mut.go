@@ -54,34 +54,17 @@ func calleeParams(id *ast.Ident) []param {
 // a mut parameter must name a place of exactly its type, and any other
 // argument must be usable as its plain parameter's type. A mut argument to
 // a plain parameter, or a plain one to a mut parameter, is reported, and
-// what it holds is still checked for errors of its own.
-func (c *Checker) checkArg(arg ast.Expr, p param, callee string) {
+// what it holds is still checked for errors of its own. It returns the mut
+// argument when arg is one passed to a mut parameter with nothing
+// reported, for the exclusivity check, and nil otherwise.
+func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	m, isMut := arg.(*ast.MutArg)
 	switch {
 	case p.mut && isMut:
-		got := c.place(m.X, m)
-		if got != types.Invalid && p.typ != types.Invalid && got != p.typ {
-			c.errorf(m.X.Spanned(), "cannot use %s as %s in argument to %s",
-				c.typeName(got), c.typeName(p.typ), callee)
-		}
+		return c.mutToMut(m, p, callee)
 	case p.mut:
 		c.expr(arg)
-		if ast.Root(arg) == nil {
-			c.errorf(
-				arg.Spanned(),
-				"%s takes %s as mut; only a variable, a field or an element can be passed as mut",
-				callee,
-				p.name,
-			)
-			return
-		}
-		c.errorf(
-			arg.Spanned(),
-			"%s takes %s as mut; pass mut %s",
-			callee,
-			p.name,
-			c.text(arg.Spanned()),
-		)
+		c.missingMut(arg, p, callee)
 	case isMut:
 		c.expr(m.X)
 		text := c.text(m.X.Spanned())
@@ -89,6 +72,43 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) {
 	default:
 		c.use(arg, c.expr(arg), p.typ, "in argument to "+callee)
 	}
+	return nil
+}
+
+// mutToMut checks m, a mut argument passed to the mut parameter p of
+// callee: its place must be one of exactly p's type. It returns m when
+// nothing was reported, and nil otherwise.
+func (c *Checker) mutToMut(m *ast.MutArg, p param, callee string) *ast.MutArg {
+	got := c.place(m.X, m)
+	switch {
+	case got == types.Invalid:
+		return nil
+	case p.typ != types.Invalid && got != p.typ:
+		c.errorf(m.X.Spanned(), "cannot use %s as %s in argument to %s",
+			c.typeName(got), c.typeName(p.typ), callee)
+		return nil
+	default:
+		return m
+	}
+}
+
+// missingMut reports arg, a plain argument passed to the mut parameter p
+// of callee: the fix is mut before it when it is a variable, a field or an
+// element, and otherwise a place in its stead.
+func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
+	if ast.Root(arg) == nil {
+		c.errorf(arg.Spanned(),
+			"%s takes %s as mut; only a variable, a field or an element can be passed as mut",
+			callee, p.name)
+		return
+	}
+	c.errorf(
+		arg.Spanned(),
+		"%s takes %s as mut; pass mut %s",
+		callee,
+		p.name,
+		c.text(arg.Spanned()),
+	)
 }
 
 // argExpr checks an argument of a call whose argument count is wrong,

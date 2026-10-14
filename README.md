@@ -406,7 +406,25 @@ makes for itself, which has a letter after `tack_`.
   it on, `bump(mut p.x)` or `scale(mut p, 2)`, is how a reference reaches
   further, through any number of calls, recursion included, and deferred
   code may read, write and pass on a `mut` parameter like any other
-  statement. A `mut` parameter counts as a mutable variable for proofs, so
+  statement. During a call, a place passed as `mut` is reachable only
+  through its parameter, so no two `mut` arguments of one call may
+  overlap. Places compare as paths: different fields of one struct never
+  overlap, so `swap(mut p.x, mut p.y)` is allowed, and so is
+  `swap(mut a[0], mut a[3])`, but the same place twice is an error, `x is
+  passed as mut twice in this call; a mut argument must be the only way to
+  reach x during the call`, and so is a place with a part of it, `mut p`
+  and `mut p.x`, or `mut a` and `mut a[1]`: `p.x is part of p, and both
+  are passed as mut in this call; ...`, each with a note at the first.
+  Two elements of one array may be passed together only at indexes known
+  to differ: known values that differ, or indexes the facts in force keep
+  apart, as `i` in `[0, 1]` and `j` in `[2, 3]` after `if 0 <= i && i < 2
+  && 2 <= j && j < 4`; otherwise `a[i] and a[j] may overlap, and both are
+  passed as mut in this call; elements of one array can be passed as mut
+  together only at indexes known to differ`. A plain argument that reads
+  a place passed as `mut` in the same call is not an error: it is
+  evaluated, left to right with the others, before the call begins, and
+  passed as a copy, so in `scaleBy(mut b, b)` the callee's `q` keeps the
+  value `b` had, however it changes `p`. A `mut` parameter counts as a mutable variable for proofs, so
   a fact about it holds in a region that never assigns it, and a call
   that passes a variable, or a part of it, as `mut` assigns it at that
   call (see division). An extern func cannot take a `mut` parameter yet.

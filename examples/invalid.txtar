@@ -3581,6 +3581,282 @@ mut-arg-type-mismatch/main.tck:9:14: error: cannot use int32 as int64 in argumen
    |	             ^~~~~
 10 |	}
 
+-- mut-exclusive-element-and-array/main.tck --
+package main
+
+func clear(mut a [3]int64, mut n int64) {
+    a = [3]int64{0, 0, 0}
+    n = 1
+}
+
+func main() {
+    mut a [3]int64
+    clear(mut a, mut a[1])
+    exit(a[1])
+}
+-- mut-exclusive-element-and-array/expected --
+stage: typeck
+---
+
+mut-exclusive-element-and-array/main.tck:10:18: error: a[1] is part of a, and both are passed as mut in this call; a mut argument must be the only way to reach a[1] during the call
+09 |	    mut a [3]int64
+10 |	    clear(mut a, mut a[1])
+   |	                 ^~~~~~~~
+11 |	    exit(a[1])
+mut-exclusive-element-and-array/main.tck:10:11: note: first passed as mut here
+09 |	    mut a [3]int64
+10 |	    clear(mut a, mut a[1])
+   |	          ^~~~~
+11 |	    exit(a[1])
+
+-- mut-exclusive-elements-may-overlap/main.tck --
+package main
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    for i := range a {
+        for j := range a {
+            swap(mut a[i], mut a[j])
+        }
+    }
+    exit(a[0])
+}
+-- mut-exclusive-elements-may-overlap/expected --
+stage: typeck
+---
+
+mut-exclusive-elements-may-overlap/main.tck:13:28: error: a[i] and a[j] may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
+12 |	        for j := range a {
+13 |	            swap(mut a[i], mut a[j])
+   |	                           ^~~~~~~~
+14 |	        }
+mut-exclusive-elements-may-overlap/main.tck:13:18: note: first passed as mut here
+12 |	        for j := range a {
+13 |	            swap(mut a[i], mut a[j])
+   |	                 ^~~~~~~~
+14 |	        }
+
+-- mut-exclusive-elements-nested/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func main() {
+    mut pts [2]Point
+    for i := range pts {
+        swap(mut pts[i].x, mut pts[1].x)
+    }
+}
+-- mut-exclusive-elements-nested/expected --
+stage: typeck
+---
+
+mut-exclusive-elements-nested/main.tck:17:28: error: pts[i].x and pts[1].x may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
+16 |	    for i := range pts {
+17 |	        swap(mut pts[i].x, mut pts[1].x)
+   |	                           ^~~~~~~~~~~~
+18 |	    }
+mut-exclusive-elements-nested/main.tck:17:14: note: first passed as mut here
+16 |	    for i := range pts {
+17 |	        swap(mut pts[i].x, mut pts[1].x)
+   |	             ^~~~~~~~~~~~
+18 |	    }
+
+-- mut-exclusive-field-and-whole/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func shift(mut n int64, mut p Point) {
+    n++
+    p.x = 0
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    shift(mut p.x, mut p)
+    exit(p.x)
+}
+-- mut-exclusive-field-and-whole/expected --
+stage: typeck
+---
+
+mut-exclusive-field-and-whole/main.tck:15:20: error: p.x is part of p, and both are passed as mut in this call; a mut argument must be the only way to reach p.x during the call
+14 |	    mut p := Point{x: 1, y: 2}
+15 |	    shift(mut p.x, mut p)
+   |	                   ^~~~~
+16 |	    exit(p.x)
+mut-exclusive-field-and-whole/main.tck:15:11: note: first passed as mut here
+14 |	    mut p := Point{x: 1, y: 2}
+15 |	    shift(mut p.x, mut p)
+   |	          ^~~~~~~
+16 |	    exit(p.x)
+
+-- mut-exclusive-same-element/main.tck --
+package main
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    swap(mut a[2], mut a[2])
+    for i := range a {
+        swap(mut a[i], mut a[i])
+    }
+    exit(a[0])
+}
+-- mut-exclusive-same-element/expected --
+stage: typeck
+---
+
+mut-exclusive-same-element/main.tck:11:20: error: a[2] is passed as mut twice in this call; a mut argument must be the only way to reach a[2] during the call
+10 |	    mut a := [3]int64{1, 2, 3}
+11 |	    swap(mut a[2], mut a[2])
+   |	                   ^~~~~~~~
+12 |	    for i := range a {
+mut-exclusive-same-element/main.tck:11:10: note: first passed as mut here
+10 |	    mut a := [3]int64{1, 2, 3}
+11 |	    swap(mut a[2], mut a[2])
+   |	         ^~~~~~~~
+12 |	    for i := range a {
+
+mut-exclusive-same-element/main.tck:13:24: error: a[i] is passed as mut twice in this call; a mut argument must be the only way to reach a[i] during the call
+12 |	    for i := range a {
+13 |	        swap(mut a[i], mut a[i])
+   |	                       ^~~~~~~~
+14 |	    }
+mut-exclusive-same-element/main.tck:13:14: note: first passed as mut here
+12 |	    for i := range a {
+13 |	        swap(mut a[i], mut a[i])
+   |	             ^~~~~~~~
+14 |	    }
+
+-- mut-exclusive-three/main.tck --
+package main
+
+func three(mut a int64, mut b int64, mut c int64) {
+    a = b + c
+}
+
+func main() {
+    mut x int64 = 1
+    mut y int64 = 2
+    three(mut x, mut y, mut x)
+}
+-- mut-exclusive-three/expected --
+stage: typeck
+---
+
+mut-exclusive-three/main.tck:10:25: error: x is passed as mut twice in this call; a mut argument must be the only way to reach x during the call
+09 |	    mut y int64 = 2
+10 |	    three(mut x, mut y, mut x)
+   |	                        ^~~~~
+11 |	}
+mut-exclusive-three/main.tck:10:11: note: first passed as mut here
+09 |	    mut y int64 = 2
+10 |	    three(mut x, mut y, mut x)
+   |	          ^~~~~
+11 |	}
+
+-- mut-exclusive-twice/main.tck --
+package main
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func twice(mut n int64) {
+    swap(mut n, mut n)
+}
+
+func main() {
+    mut x int64 = 1
+    swap(mut x, mut x)
+    twice(mut x)
+}
+-- mut-exclusive-twice/expected --
+stage: typeck
+---
+
+mut-exclusive-twice/main.tck:10:17: error: n is passed as mut twice in this call; a mut argument must be the only way to reach n during the call
+09 |	func twice(mut n int64) {
+10 |	    swap(mut n, mut n)
+   |	                ^~~~~
+11 |	}
+mut-exclusive-twice/main.tck:10:10: note: first passed as mut here
+09 |	func twice(mut n int64) {
+10 |	    swap(mut n, mut n)
+   |	         ^~~~~
+11 |	}
+
+mut-exclusive-twice/main.tck:15:17: error: x is passed as mut twice in this call; a mut argument must be the only way to reach x during the call
+14 |	    mut x int64 = 1
+15 |	    swap(mut x, mut x)
+   |	                ^~~~~
+16 |	    twice(mut x)
+mut-exclusive-twice/main.tck:15:10: note: first passed as mut here
+14 |	    mut x int64 = 1
+15 |	    swap(mut x, mut x)
+   |	         ^~~~~
+16 |	    twice(mut x)
+
+-- mut-exclusive-whole-and-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func shift(mut p Point, mut n int64) {
+    p.x = 0
+    n++
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    shift(mut p, mut p.x)
+    exit(p.x)
+}
+-- mut-exclusive-whole-and-field/expected --
+stage: typeck
+---
+
+mut-exclusive-whole-and-field/main.tck:15:18: error: p.x is part of p, and both are passed as mut in this call; a mut argument must be the only way to reach p.x during the call
+14 |	    mut p := Point{x: 1, y: 2}
+15 |	    shift(mut p, mut p.x)
+   |	                 ^~~~~~~
+16 |	    exit(p.x)
+mut-exclusive-whole-and-field/main.tck:15:11: note: first passed as mut here
+14 |	    mut p := Point{x: 1, y: 2}
+15 |	    shift(mut p, mut p.x)
+   |	          ^~~~~
+16 |	    exit(p.x)
+
 -- mut-extern-param/main.tck --
 package main
 

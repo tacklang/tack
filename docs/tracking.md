@@ -52,7 +52,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
 | `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
 | Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`); immutable copies unless `mut`                    |
-| `mut` parameters         | yes   | yes    | yes     | yes | `mut p T`, a reference to the caller's variable for the call, a `T *` in C; passed as `mut x`, a mutable local, `mut` parameter, field or proven element; never stored or returned; not on an extern func yet |
+| `mut` parameters         | yes   | yes    | yes     | yes | `mut p T`, a reference to the caller's variable for the call, a `T *` in C; passed as `mut x`, a mutable local, `mut` parameter, field or proven element; no two `mut` arguments of a call overlap, by path, elements only at indexes known to differ; a plain argument overlapping one is a copy; never stored or returned; not on an extern func yet |
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | yes     | n/a | Only an `extern func`; any other is an error                                                |

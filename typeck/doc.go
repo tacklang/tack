@@ -169,6 +169,13 @@
 // mut one, or written anywhere but as a call's argument. The place's type
 // must be the parameter's exactly: no widening. No reference can be
 // stored or returned, since nothing but a call's argument may be mut x.
+// No two mut arguments of one call may overlap (exclusive.go): places
+// are compared as paths, a variable and its fields and elements, so two
+// different fields never overlap, the same place twice or a place and a
+// part of it always do, and two elements of one array overlap unless
+// their indexes are known values that differ, or the facts in force keep
+// them apart. A plain argument that reads a place passed as mut is
+// allowed: it is evaluated before the call, and passed as a copy.
 // An extern func cannot take a mut parameter yet.
 //
 // A struct type is a type of its own for each declaration, whatever its
