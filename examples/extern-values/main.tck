@@ -1,0 +1,88 @@
+package main
+
+// Every extern func below is written in C, in values.c. Each passes a
+// string, a struct or an array to C or gets one back, or gets several
+// results back at once, which C returns as one struct.
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Empty struct {
+}
+
+type Shape struct {
+    name string
+    corners [3]Point
+    closed bool
+    tag Empty
+}
+
+// length and sum read a string's length and add up its bytes.
+extern func length(s string) int64
+extern func sum(s string) int64
+
+// greeting returns a string whose bytes live in C.
+extern func greeting() string
+
+// manhattan takes a struct; mirror returns one.
+extern func manhattan(p Point) int64
+extern func mirror(p Point) Point
+
+// perimeter takes a struct holding a string, an array of structs, a bool
+// and an empty struct; grow returns one, changed.
+extern func perimeter(s Shape) int64
+extern func grow(s Shape, by int64) Shape
+
+// total takes an array; squares returns one.
+extern func total(a [4]int64) int64
+extern func squares(n int64) [4]int64
+
+// nothing takes an empty array and an empty struct and returns them.
+extern func nothing(a [0]int64, e Empty) ([0]int64, Empty)
+
+// divmod returns several results, which C returns as one struct.
+extern func divmod(a int64, b int64) (int64, int64, bool)
+
+// names returns an array of strings.
+extern func names() [2]string
+
+// check prints name and exits with status when ok is false.
+func check(ok bool, name string, status int64) {
+    if !ok {
+        print("FAIL ")
+        print(name)
+        print("\n")
+        exit(status)
+    }
+}
+
+func main() {
+    check(length("") == 0 && length("héllo") == 6, "length", 1)
+    check(sum("\x00\xff") == 255, "sum", 2)
+    g := greeting()
+    check(g == "hello from C" && len(g) == 12, "greeting", 3)
+    p := Point{x: -3, y: 4}
+    check(manhattan(p) == 7, "manhattan", 4)
+    m := mirror(p)
+    check(m == Point{x: 4, y: -3} && p.x == -3, "mirror", 5)
+    s := Shape{name: "tri", corners: [3]Point{{x: 0, y: 0}, {x: 3, y: 0}, {x: 3, y: 4}}, closed: true, tag: Empty{}}
+    check(perimeter(s) == 7 + 3, "perimeter", 6)
+    big := grow(s, 2)
+    check(big.name == "grown" && big.corners[2] == Point{x: 6, y: 8} && !big.closed, "grow", 7)
+    check(s.corners[2] == Point{x: 3, y: 4} && s.name == "tri", "grow copies", 8)
+    check(total([4]int64{1, 2, 3, 4}) == 10, "total", 9)
+    check(squares(3) == [4]int64{0, 1, 4, 9}, "squares", 10)
+    a, e := nothing([0]int64{}, Empty{})
+    check(len(a) == 0 && e == Empty{}, "nothing", 11)
+    q, r, mut ok := divmod(-7, 2)
+    check(q == -3 && r == -1 && ok, "divmod", 12)
+    _, _, ok = divmod(1, 0)
+    check(!ok, "divmod by zero", 13)
+    n := names()
+    check(n[0] == "ada" && n[1] == "" && len(n[1]) == 0, "names", 14)
+    print(greeting())
+    print("\n")
+    exit(42)
+}

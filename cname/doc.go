@@ -3,7 +3,10 @@
 // An extern func's body is a C function, defined under a C name, which has
 // to be one C can declare: a C identifier, ASCII letters, digits and
 // underscores not starting with a digit, that is not one of C's keywords.
-// The type checker holds an extern func's C name to that.
+// The type checker holds an extern func's C name to that, and the C
+// backend each name tack.h gives a type of package main or a field of a
+// struct an extern signature uses; other names tack.h makes, such as
+// lexer_Token, cannot be keywords.
 //
 // The keywords are those of C23, which include C11's and the words C23
 // made keywords (bool, true, false, alignas and the rest), together with

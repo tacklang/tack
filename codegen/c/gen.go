@@ -110,6 +110,12 @@ type generator struct {
 }
 
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
+	// tack.h is written only for a build with C files, but a name it
+	// cannot give is a problem with the program whatever is built.
+	if diags := headerDiags(g.prog); len(diags) > 0 {
+		return nil, diags
+	}
+
 	// The pool is filled first: generating a body needs the label of every
 	// string it mentions.
 	g.collectStrings()

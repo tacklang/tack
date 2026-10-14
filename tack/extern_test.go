@@ -339,3 +339,25 @@ func TestOutNamedLikeAnOption(t *testing.T) {
 		t.Errorf("exited %d, want 42", code)
 	}
 }
+
+// TestBuiltExternValuesExits42 builds examples/extern-values, whose
+// extern funcs pass strings, structs, arrays and an empty struct and array
+// to C and back, and return several results, and checks every value that
+// crossed came back as Tack expects.
+func TestBuiltExternValuesExits42(t *testing.T) {
+	bin := buildWithClang(t, "extern-values")
+	if out, code := runBuilt(t, bin); out != "hello from C\n" || code != 42 {
+		t.Errorf("printed %q and exited %d, want %q and 42", out, code, "hello from C\n")
+	}
+}
+
+// TestBuiltExternModuleExits42 builds examples/extern-module, whose main
+// package and geo package each have C files defining their own extern
+// funcs, over types tack.h names Point for main's and geo_Point and
+// geo_Rect for geo's.
+func TestBuiltExternModuleExits42(t *testing.T) {
+	bin := buildTargetWithClang(t, "prog", filepath.Join(examplesDir, "extern-module"))
+	if out, code := runBuilt(t, bin); out != "module ok\n" || code != 42 {
+		t.Errorf("printed %q and exited %d, want %q and 42", out, code, "module ok\n")
+	}
+}

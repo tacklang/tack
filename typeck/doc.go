@@ -24,8 +24,7 @@
 // a fifth reports every type a pub or lib declaration exposes that is
 // less visible than it, and the last checks each body, or for an extern
 // func, whose body is in C, its declaration: its C name must not be a C
-// keyword or main, and every parameter and result must be an integer or a
-// bool, with one result at most. Resolving every signature first is what lets
+// keyword or main. Every type can cross to C. Resolving every signature first is what lets
 // a call check against a callee declared later in the file, or in a file
 // after it. A call is checked against the function its callee is bound to,
 // Ident.Def, not one looked up by name. A type name it

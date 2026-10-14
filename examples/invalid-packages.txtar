@@ -364,6 +364,75 @@ dup-param-across-files/a.tck:3:5: note: previous declaration of size
    |	    ^~~~
 04 |	
 
+-- extern-same-package-names/tack.mod --
+module calc
+-- extern-same-package-names/main.tck --
+package main
+
+import first from "calc/a/lexer"
+import second from "calc/b/lexer"
+
+type lexer_Token struct {
+}
+
+extern func mine(t lexer_Token)
+
+func main() {
+    exit(first.Kind() + second.Kind())
+}
+-- extern-same-package-names/a/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+extern func scan(t Token) int64
+
+pub func Kind() int64 {
+    return scan(Token{kind: 1})
+}
+-- extern-same-package-names/b/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    text string
+}
+
+type Unexposed struct {
+}
+
+extern func read(t Token) int64
+
+pub func Kind() int64 {
+    return read(Token{text: "x"})
+}
+-- extern-same-package-names/expected --
+stage: codegen
+---
+
+extern-same-package-names/b/lexer/lexer.tck:3:6: error: type Token of package calc/b/lexer and type Token of package calc/a/lexer are both named lexer_Token in tack.h
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    text string
+extern-same-package-names/a/lexer/lexer.tck:3:6: note: type Token of package calc/a/lexer is declared here
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    kind int64
+
+extern-same-package-names/main.tck:6:6: error: type lexer_Token of package calc and type Token of package calc/a/lexer are both named lexer_Token in tack.h
+05 |	
+06 |	type lexer_Token struct {
+   |	     ^~~~~~~~~~~
+07 |	}
+extern-same-package-names/a/lexer/lexer.tck:3:6: note: type Token of package calc/a/lexer is declared here
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    kind int64
+
 -- hidden-only/tack.mod --
 module hidden-only
 -- hidden-only/.main.tck --

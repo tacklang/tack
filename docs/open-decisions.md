@@ -79,3 +79,14 @@ way:
 - tack.h's prototypes leave out the parameters' names, which could be C
   keywords or clash with a type's name; the Tack declaration is in a
   comment beside each.
+- tack.h names an array type, which has no Tack name, `tack_array_`, its
+  length and its element type's name (`tack_array_4_int64`,
+  `tack_array_2_string`), and an extern func's results struct
+  `tack_results_` and its C name, with members `r0`, `r1` and on.
+- A struct's members in tack.h are its fields' Tack names, so a field
+  named with a C keyword, or a type of package main named with one, is an
+  error when an extern signature uses its struct, rather than being
+  renamed. tack.h's own names, `tack_string` and the guard `TACK_H`, are
+  errors for a type of package main too.
+- A string C returns is taken as it is: nothing says who owns its bytes or
+  how long they live, which the memory model will have to.

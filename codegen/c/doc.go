@@ -99,11 +99,26 @@
 // the standard library.
 //
 // Header returns tack.h, which the C files are compiled against: an
-// include guard, stdbool.h and stdint.h, and a prototype for every extern
-// func under its C name, package by package, with its parameters' types
-// and not their names, which could be C keywords, and its Tack declaration
-// in a comment beside it. Integers and bools map to the same C types as in
-// the generated source, so the two agree on every call.
+// include guard, TACK_H, stdbool.h and stdint.h, tack_string if a
+// signature uses a string, a definition of every array and struct type an
+// extern signature uses, and of every type those hold, each after its
+// parts, the results struct of every extern func with several results, and
+// a prototype for every extern func under its C name, package by package,
+// with its parameters' types and not their names, which could be C
+// keywords, and its Tack declaration in a comment beside it. Every type has
+// the generated source's layout, member for member, under other names: a
+// struct of package main is its Tack name, one of another package
+// <package name>_<name>, an array tack_array_<length>_<element>, the
+// element's Tack name if basic, and a results struct tack_results_<C
+// name>, with members r0, r1 and on; a struct's members are its fields'
+// Tack names. The generated source declares each extern func with its own
+// types, so a value passes between the two unchanged. Generate reports,
+// before generating anything, a name tack.h would give two things (two
+// types, a type and a results struct or extern func, or one of tack.h's own
+// names, tack_string and TACK_H), and a type of package main or a field
+// named with a C keyword, among the types tack.h defines, whether or not
+// the program has C files: the diagnostic is at the second of two, with a
+// note at the first.
 //
 // A defer emits nothing where it is written. Each block with defers ends in
 // a cleanup chain that lowers each of its defers once, last first, so the C

@@ -31,6 +31,32 @@ int main(void) {
 }
 -- c-defines-main/expected --
 tack: c-defines-main/helpers.c defines main; a Tack program's main is its Tack main, so no C file may define one
+-- c-redefines-type/.target --
+main.tck
+-- c-redefines-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+extern func norm(p Point) int64
+
+func main() {
+    exit(norm(Point{x: 40, y: 2}))
+}
+-- c-redefines-type/helpers.c --
+typedef struct {
+    int32_t x;
+    int32_t y;
+} Point;
+
+int64_t norm(Point p) {
+    return p.x + p.y;
+}
+-- c-redefines-type/expected --
+tack: cannot compile c-redefines-type/helpers.c: clang failed: exit status 1
 -- c-syntax-error/.target --
 main.tck
 -- c-syntax-error/main.tck --
@@ -250,3 +276,24 @@ static int64_t add(int64_t a, int64_t b) {
 }
 -- static-definition/expected --
 tack: cannot compile static-definition/helpers.c: clang failed: exit status 1
+-- struct-result-mismatch/.target --
+main.tck
+-- struct-result-mismatch/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+extern func origin() Point
+
+func main() {
+    exit(origin().x)
+}
+-- struct-result-mismatch/helpers.c --
+tack_string origin(void) {
+    return (tack_string){0, 0};
+}
+-- struct-result-mismatch/expected --
+tack: cannot compile struct-result-mismatch/helpers.c: clang failed: exit status 1

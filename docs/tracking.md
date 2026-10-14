@@ -54,8 +54,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | yes     | n/a | Only an `extern func`; any other is an error                                                |
-| `extern func`            | yes   | yes    | partial | yes | Body in C, linked from the package directory's `.c` files; integers and `bool` only, one result at most; C name is the Tack name |
-| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c` against the generated `tack.h`; a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors |
+| `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; slices and `mut` parameters do not exist yet; C name is the Tack name |
+| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c` against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors |
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |

@@ -1674,6 +1674,68 @@ extern-duplicate/main.tck:3:13: note: previous declaration of f
    |	            ^
 04 |	
 
+-- extern-header-clash/main.tck --
+package main
+
+type tack_array_3_int64 struct {
+    x int64
+}
+
+type tack_string struct {
+}
+
+type TACK_H struct {
+}
+
+type tack_results_pair struct {
+}
+
+extern func row(a [3]int64, b tack_array_3_int64)
+
+extern func odd(s tack_string, g TACK_H) tack_results_pair
+
+extern func pair() (int64, bool)
+
+func main() {
+}
+-- extern-header-clash/expected --
+stage: codegen
+---
+
+extern-header-clash/main.tck:3:6: error: type tack_array_3_int64 of package main and array type [3]int64 are both named tack_array_3_int64 in tack.h
+02 |	
+03 |	type tack_array_3_int64 struct {
+   |	     ^~~~~~~~~~~~~~~~~~
+04 |	    x int64
+extern-header-clash/main.tck:16:19: note: array type [3]int64 is declared here
+15 |	
+16 |	extern func row(a [3]int64, b tack_array_3_int64)
+   |	                  ^~~~~~~~
+17 |	
+
+extern-header-clash/main.tck:7:6: error: type tack_string of package main cannot be named tack_string in tack.h: that is tack.h's string type
+06 |	
+07 |	type tack_string struct {
+   |	     ^~~~~~~~~~~
+08 |	}
+
+extern-header-clash/main.tck:10:6: error: type TACK_H of package main cannot be named TACK_H in tack.h: that is tack.h's include guard
+09 |	
+10 |	type TACK_H struct {
+   |	     ^~~~~~
+11 |	}
+
+extern-header-clash/main.tck:20:13: error: the results of extern func pair and type tack_results_pair of package main are both named tack_results_pair in tack.h
+19 |	
+20 |	extern func pair() (int64, bool)
+   |	            ^~~~
+21 |	
+extern-header-clash/main.tck:13:6: note: type tack_results_pair of package main is declared here
+12 |	
+13 |	type tack_results_pair struct {
+   |	     ^~~~~~~~~~~~~~~~~
+14 |	}
+
 -- extern-in-initializer/main.tck --
 package main
 
@@ -1694,6 +1756,55 @@ extern-in-initializer/main.tck:5:13: error: start must be initialized with a con
    |	            ^~~~~~
 06 |	
 
+-- extern-keyword-names/main.tck --
+package main
+
+type int struct {
+    while int64
+    x int64
+    char bool
+}
+
+type Ok struct {
+    register int64
+}
+
+type Unused struct {
+    while int64
+}
+
+extern func f(a int) Ok
+
+func main() {
+}
+-- extern-keyword-names/expected --
+stage: codegen
+---
+
+extern-keyword-names/main.tck:3:6: error: type int cannot be named int in C: it is a C keyword
+02 |	
+03 |	type int struct {
+   |	     ^~~
+04 |	    while int64
+
+extern-keyword-names/main.tck:4:5: error: field while of type int cannot be named while in C: it is a C keyword
+03 |	type int struct {
+04 |	    while int64
+   |	    ^~~~~
+05 |	    x int64
+
+extern-keyword-names/main.tck:6:5: error: field char of type int cannot be named char in C: it is a C keyword
+05 |	    x int64
+06 |	    char bool
+   |	    ^~~~
+07 |	}
+
+extern-keyword-names/main.tck:10:5: error: field register of type Ok cannot be named register in C: it is a C keyword
+09 |	type Ok struct {
+10 |	    register int64
+   |	    ^~~~~~~~
+11 |	}
+
 -- extern-main/main.tck --
 package main
 
@@ -1708,50 +1819,57 @@ extern-main/main.tck:3:1: error: main function must not be extern
    |	^~~~~~
 04 |	
 
--- extern-not-yet/main.tck --
+-- extern-recursive-struct/main.tck --
 package main
 
-type Point struct {
-    x int64
+type Node struct {
+    next Node
 }
 
-extern func name(s string) int64
+type Pair struct {
+    a Wrap
+}
 
-extern func origin() Point
+type Wrap struct {
+    p [1]Pair
+}
 
-extern func row(a [3]int64)
+extern func walk(n Node) Node
 
-extern func pair() (int64, bool)
+extern func pairs(p Pair)
 
 func main() {
 }
--- extern-not-yet/expected --
+-- extern-recursive-struct/expected --
 stage: typeck
 ---
 
-extern-not-yet/main.tck:7:20: error: extern func name cannot pass string to C yet
+extern-recursive-struct/main.tck:3:6: error: invalid recursive type Node
+02 |	
+03 |	type Node struct {
+   |	     ^~~~
+04 |	    next Node
+extern-recursive-struct/main.tck:4:5: note: Node refers to Node
+03 |	type Node struct {
+04 |	    next Node
+   |	    ^~~~~~~~~
+05 |	}
+
+extern-recursive-struct/main.tck:7:6: error: invalid recursive type Pair
 06 |	
-07 |	extern func name(s string) int64
-   |	                   ^~~~~~
-08 |	
-
-extern-not-yet/main.tck:9:22: error: extern func origin cannot return Point from C yet
-08 |	
-09 |	extern func origin() Point
-   |	                     ^~~~~
-10 |	
-
-extern-not-yet/main.tck:11:19: error: extern func row cannot pass [3]int64 to C yet
-10 |	
-11 |	extern func row(a [3]int64)
-   |	                  ^~~~~~~~
-12 |	
-
-extern-not-yet/main.tck:13:21: error: extern func pair cannot return several results from C yet
-12 |	
-13 |	extern func pair() (int64, bool)
-   |	                    ^~~~~~~~~~~
-14 |	
+07 |	type Pair struct {
+   |	     ^~~~
+08 |	    a Wrap
+extern-recursive-struct/main.tck:8:5: note: Pair refers to Wrap
+07 |	type Pair struct {
+08 |	    a Wrap
+   |	    ^~~~~~
+09 |	}
+extern-recursive-struct/main.tck:12:5: note: Wrap refers to Pair
+11 |	type Wrap struct {
+12 |	    p [1]Pair
+   |	    ^~~~~~~~~
+13 |	}
 
 -- extern-twice/main.tck --
 package main

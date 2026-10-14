@@ -1,0 +1,19 @@
+package geo
+
+pub type Point struct {
+    pub x int64
+    pub y int64
+}
+
+pub type Rect struct {
+    pub min Point
+    pub max Point
+}
+
+// area is written in C, in geo.c. An extern func is never pub: Area is
+// the package's Tack function that calls it.
+extern func area(r Rect) int64
+
+pub func Area(r Rect) int64 {
+    return area(r)
+}
