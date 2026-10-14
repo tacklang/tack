@@ -57,10 +57,10 @@ static bool tack_eq_15(tack_array_15 a, tack_array_15 b) {
     return true;
 }
 
-static const unsigned char str0[5] = {122, 101, 114, 111, 0};
-static const unsigned char str1[4] = {111, 110, 101, 0};
-static const unsigned char str2[4] = {116, 119, 111, 0};
-static const unsigned char str3[5] = {116, 97, 99, 107, 0};
+static const unsigned char tack_str0[5] = {122, 101, 114, 111, 0};
+static const unsigned char tack_str1[4] = {111, 110, 101, 0};
+static const unsigned char tack_str2[4] = {116, 119, 111, 0};
+static const unsigned char tack_str3[5] = {116, 97, 99, 107, 0};
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -69,8 +69,8 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
 static const tack_4_main5_Point tack_4_main6_origin = {3, 4};
 static const tack_4_main7_Segment tack_4_main3_seg = {{3, 4}, {6, 8}};
 static const tack_array_14 tack_4_main5_table = {{10, 20, 30, 40}};
-static const tack_array_15 tack_4_main5_names = {{{str0, 4}, {str1, 3}, {str2, 3}}};
-static const tack_string tack_4_main4_word = {str3, 4};
+static const tack_array_15 tack_4_main5_names = {{{tack_str0, 4}, {tack_str1, 3}, {tack_str2, 3}}};
+static const tack_string tack_4_main4_word = {tack_str3, 4};
 static const int8_t tack_4_main5_small = (-7);
 static const int64_t tack_4_main2_ox = 3;
 static const int64_t tack_4_main2_dy = 4;

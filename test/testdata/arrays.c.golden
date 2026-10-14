@@ -59,8 +59,8 @@ static bool tack_eq_16(tack_array_16 a, tack_array_16 b) {
     return true;
 }
 
-static const unsigned char str0[5] = {116, 97, 99, 107, 0};
-static const unsigned char str1[4] = {97, 98, 99, 0};
+static const unsigned char tack_str0[5] = {116, 97, 99, 107, 0};
+static const unsigned char tack_str1[4] = {97, 98, 99, 0};
 
 static const tack_array_12 tack_4_main6_primes = {{2, 3, 5, 7, 11}};
 
@@ -92,7 +92,7 @@ static void tack_4_main4_main(void) {
     if ((v_o.e[0] != 0) || (v_o.e[1] != 0)) {
         exit((int)(3));
     }
-    const tack_string v_word = (tack_string){str0, 4};
+    const tack_string v_word = (tack_string){tack_str0, 4};
     exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_sum3(v_b) + (uint64_t)((void)tack_4_main6_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_4_main6_primes.e[4]))));
 }
 

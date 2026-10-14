@@ -2,6 +2,7 @@ package loader
 
 import (
 	"fmt"
+	"io/fs"
 	"path"
 	"sort"
 	"strings"
@@ -29,6 +30,9 @@ const (
 
 // sourceExt is the extension of a Tack source file.
 const sourceExt = ".tck"
+
+// cExt is the extension of a C source file, which defines extern funcs.
+const cExt = ".c"
 
 // mainPath is the path of the package of a program built from a single
 // file.
@@ -91,9 +95,37 @@ func (l *Loader) File(name string) (*Result, error) {
 	if !ok {
 		return res, nil
 	}
-	pkg.Path = mainPath
+	pkg.Path, pkg.Dir = mainPath, path.Dir(name)
+	if pkg.CFiles, err = l.readCFiles(pkg.Dir); err != nil {
+		return nil, err
+	}
 	g := newGraph(l, res, nil, pkg)
 	return g.finish(), nil
+}
+
+// readCFiles returns the path of every C file directly in dir, in the
+// byte order of their names, leaving out a name that starts with a dot
+// and a directory, as readPackageFiles does for Tack files.
+func (l *Loader) readCFiles(dir string) ([]string, error) {
+	entries, err := l.FS.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
+	}
+	return cFilesIn(dir, entries), nil
+}
+
+// cFilesIn returns the path of every C file among entries, the entries of
+// the directory dir, in the byte order of their names.
+func cFilesIn(dir string, entries []fs.DirEntry) []string {
+	var names []string
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, cExt) {
+			names = append(names, path.Join(dir, name))
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Dir loads the program whose main package is the directory dir: the
@@ -139,7 +171,7 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 // mod, as the main package of a program, into res, with every package it
 // imports.
 func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Result, error) {
-	files, err := l.readPackageFiles(res, dir)
+	files, cFiles, err := l.readPackageFiles(res, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -159,18 +191,19 @@ func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Re
 		res.Stage, res.Diags = StageLoad, diags
 		return res, nil
 	}
-	pkg.Path, pkg.Module = importPath, mod.name
+	pkg.Path, pkg.Module, pkg.Dir, pkg.CFiles = importPath, mod.name, dir, cFiles
 	g := newGraph(l, res, mod, pkg)
 	return g.finish(), nil
 }
 
 // readPackageFiles reads every Tack file directly in dir, in the byte order
 // of their names, and adds each to res. A name starting with a dot is left
-// out, as an editor's or a tool's, and so is a directory.
-func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, error) {
+// out, as an editor's or a tool's, and so is a directory. It also returns
+// the path of every C file in dir, which it does not read.
+func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, []string, error) {
 	entries, err := l.FS.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
+		return nil, nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -181,7 +214,7 @@ func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, erro
 		names = append(names, name)
 	}
 	if len(names) == 0 {
-		return nil, fmt.Errorf("no %s files in %s", sourceExt, l.display(dir))
+		return nil, nil, fmt.Errorf("no %s files in %s", sourceExt, l.display(dir))
 	}
 	sort.Strings(names)
 
@@ -190,11 +223,11 @@ func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, erro
 		full := path.Join(dir, name)
 		data, err := l.FS.ReadFile(full)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open file: %w", err)
+			return nil, nil, fmt.Errorf("failed to open file: %w", err)
 		}
 		files = append(files, l.addFile(res, full, data))
 	}
-	return files, nil
+	return files, cFilesIn(dir, entries), nil
 }
 
 // addFile records the file read from name, with contents data, in res and

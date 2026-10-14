@@ -188,6 +188,7 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 	}
 
 	diags := r.declareFuncs()
+	diags = append(diags, r.checkBodies()...)
 	diags = append(diags, r.declareTypes()...)
 	globals, globalDiags := r.declareGlobals()
 	diags = append(diags, globalDiags...)
@@ -430,6 +431,26 @@ func (r *pkgResolver) declareFuncs() []diag.Diagnostic {
 	return diags
 }
 
+// checkBodies reports every function of the package declared without a
+// body that is not an extern func, whose body is in C: a function without
+// a body has nothing to run.
+func (r *pkgResolver) checkBodies() []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, decl := range r.pkg.Decls() {
+		if fn, ok := decl.(*ast.Func); ok && fn.NoBody && !fn.Extern {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"function %s has no body; only an extern func is declared without one",
+					fn.Name,
+				),
+				Span: fn.NameSpan,
+			})
+		}
+	}
+	return diags
+}
+
 // checkMain reports a missing main function, or one with any other signature
 // than taking nothing and returning nothing. Parameters and a result are
 // reported separately, so a main with both gets both diagnostics.
@@ -447,6 +468,13 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 	}
 
 	var diags []diag.Diagnostic
+	if mainFn.Extern {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  "main function must not be extern",
+			Span:     mainFn.ExternSpan,
+		})
+	}
 	if len(mainFn.Params) > 0 {
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,

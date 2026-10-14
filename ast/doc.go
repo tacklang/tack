@@ -24,7 +24,10 @@
 // A Func, a package-level Var, a TypeDecl and a Field carry a Visibility,
 // Private unless pub or lib was written, with the keyword's span; a
 // Package carries the name of the module it is in, which lib is relative
-// to. A Switch's CaseClauses are likewise part of it: each holds its values
+// to, and the directory it was read from and the C files in it, which the
+// driver compiles. A Func declared extern func has its body in C: Extern
+// is set, CName holds the C symbol, and like any function written without
+// a body it has NoBody set and an empty Body. A Switch's CaseClauses are likewise part of it: each holds its values
 // and its body, which Walk visits, but is not a node.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.

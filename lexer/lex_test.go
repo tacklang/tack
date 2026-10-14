@@ -1025,3 +1025,19 @@ func TestFromKeyword(t *testing.T) {
 		}
 	}
 }
+
+// TestExternKeyword pins extern as a keyword, reserved everywhere and not
+// only before func, and that a longer word starting with it is an
+// identifier.
+func TestExternKeyword(t *testing.T) {
+	out := lex(t, "extern")
+	checkInvariants(t, "extern", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.Extern {
+		t.Errorf("%q lexed as %s, want keyword extern", "extern", out.tokens[0].String())
+	}
+	for _, src := range []string{"externs", "Extern", "extern_"} {
+		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}

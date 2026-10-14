@@ -30,12 +30,29 @@ type Func struct {
 	ResultTypes []types.Type
 
 	NameSpan Span // just the identifier
-	Span     Span // pub or lib, if written, or the 'func' keyword, through closing brace
+	Span     Span // pub or lib, or extern, if written, or the 'func' keyword, through closing brace
 
 	// Vis is who may call the function by name; VisSpan is the keyword
 	// that gave it, the zero Span for Private.
-	VisSpan Span       `json:"-"`
-	Vis     Visibility `json:",omitempty"`
+	VisSpan Span `json:"-"`
+
+	// CName is the C symbol an extern func's body is defined under, the
+	// function's own name, and empty for a function that is not extern.
+	// ExternSpan is the extern keyword, the zero Span for a function that
+	// is not extern.
+	CName      string `json:",omitempty"`
+	ExternSpan Span   `json:"-"`
+
+	Vis Visibility `json:",omitempty"`
+
+	// Extern is whether the function was declared extern func: its body
+	// is written in C, and it has none in Tack.
+	Extern bool `json:",omitempty"`
+
+	// NoBody is whether the declaration has no body at all, ending after
+	// its signature, as an extern func does, rather than an empty one, {}.
+	// Body is empty either way.
+	NoBody bool `json:",omitempty"`
 }
 
 var _ Decl = (*Func)(nil)

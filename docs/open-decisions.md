@@ -19,16 +19,6 @@ formatted from a single byte, so 0xFF prints as `invalid character ÿ` and a
 UTF-8 letter such as `é` produces two diagnostics showing unrelated
 characters. Showing the byte in hex, or decoding UTF-8 first, are options.
 
-## Functions without a body
-
-The parser accepts `func f()` with no body, which is how
-`src/std/builtin/builtin.tck` declares the builtins. The rest of the
-pipeline then treats a missing body as an empty one, so `func f()` compiles
-to a function that does nothing, and `func main()` alone compiles to a
-program that does nothing. In Go a bodyless declaration means the body is
-provided elsewhere, in assembly. Options: reject them outside declaration
-files, or give them a meaning (external, `asm`, builtin).
-
 ## Missing explanation notes
 
 An error for a missing proof comes with notes when a guard in scope says
@@ -64,3 +54,28 @@ Decided, not yet implemented: a field of an immutable variable is to
 carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
 `p` is immutable. It is to be implemented with pointers. Today a field
 never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
+
+## Extern C
+
+Extern C follows the rules recorded in the README. These points were
+settled by the implementation rather than decided, and could go another
+way:
+
+- `extern` is a keyword reserved everywhere, as `from` is, rather than a
+  word that means something only before `func`.
+- An extern func whose C name C cannot define is an error: a C keyword
+  (C23's, with `asm` and `typeof`), and `main`, which the generated C
+  defines. A name a C header declares, such as `printf` or `int64_t`, is
+  not checked; it clashes only with what a C file declares.
+- A missing C definition is found when building, from the compiled
+  objects' symbol tables; `--emit` does not compile C files, so it does
+  not report one.
+- One `tack.h` serves the whole program, its extern funcs package by
+  package. `--emit-header` writes it into the target's directory and into
+  every package directory with C files or extern funcs.
+- C files are compiled with `-w`, as the generated C is, so clang's
+  warnings about the user's own C are not shown; its errors are. There is
+  no way yet to pass a C file other flags, or to link a library.
+- tack.h's prototypes leave out the parameters' names, which could be C
+  keywords or clash with a type's name; the Tack declaration is in a
+  comment beside each.

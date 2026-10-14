@@ -22,13 +22,14 @@
 //     inside an array or struct, then an equality helper for every array
 //     and struct type == compares;
 //   - the string pool: every distinct string the program uses, each as a
-//     static byte array named str0, str1, and so on;
+//     static byte array named tack_str0, tack_str1, and so on;
 //   - tack_print, the helper print lowers to, only if the program prints;
 //   - every package-level variable, as a static C variable;
 //   - a results struct for each function with more than one result;
+//   - TACK_C_NAME, if the program has an extern func;
 //   - a prototype for every Tack function, since Tack lets a function call one
 //     declared later in the file, or in another file, and C does not;
-//   - every Tack function, as a static C function;
+//   - every Tack function but an extern func, as a static C function;
 //   - a C main that calls the Tack main and returns 0.
 //
 // Values map to C types directly. Each integer type is the C fixed-width
@@ -73,7 +74,7 @@
 // the backend makes after tack_ has a letter where these have a digit; the
 // proof is on mangle.
 // A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
-// no reserved words and either may legally be called int, exit or str0.
+// no reserved words and either may legally be called int or exit.
 //
 // A package-level variable x becomes a static C variable named like a
 // function, tack_4_main1_x, since the two share a namespace. It is const unless
@@ -81,6 +82,28 @@
 // its source expression, so C never evaluates anything Tack has not already
 // checked. The smallest int64 is written as an expression, since C has no
 // literal for it.
+//
+// An extern func's body is C, compiled from the C files of its package and
+// linked with this translation unit. Its prototype is declared extern,
+// under its mangled name like any function, with an assembler label giving
+// the symbol it links to: TACK_C_NAME("add") expands to
+// __asm__ of __USER_LABEL_PREFIX__ and add, so the label is the symbol a C
+// definition of add gets on any platform, _add on macOS and add on Linux.
+// A call is then an ordinary call by the mangled name. The C name never
+// appears as a C identifier here, so it cannot clash with one this file
+// declares or includes: an extern func may be named puts, or str0, without
+// conflicting with stdio.h or anything generated. What it may not equal is
+// a symbol this file defines, since the label would bind to that instead:
+// main, which the type checker rejects as a C name, and the static
+// functions and pooled strings, which all start tack_, reserved outside
+// the standard library.
+//
+// Header returns tack.h, which the C files are compiled against: an
+// include guard, stdbool.h and stdint.h, and a prototype for every extern
+// func under its C name, package by package, with its parameters' types
+// and not their names, which could be C keywords, and its Tack declaration
+// in a comment beside it. Integers and bools map to the same C types as in
+// the generated source, so the two agree on every call.
 //
 // A defer emits nothing where it is written. Each block with defers ends in
 // a cleanup chain that lowers each of its defers once, last first, so the C

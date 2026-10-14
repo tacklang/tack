@@ -53,7 +53,7 @@ static bool tack_eq_16(tack_4_main5_Empty a, tack_4_main5_Empty b) {
     return true;
 }
 
-static const unsigned char str0[5] = {103, 114, 105, 100, 0};
+static const unsigned char tack_str0[5] = {103, 114, 105, 100, 0};
 
 static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
 static const tack_array_18 tack_4_main7_corners = {{{1, 1}, {2, 2}}};
@@ -128,7 +128,7 @@ static void tack_4_main4_main(void) {
     }
     tack_4_main4_Grid v_g = (tack_4_main4_Grid){0};
     v_g.f_cells.e[2] = 5;
-    v_g.f_name = (tack_string){str0, 4};
+    v_g.f_name = (tack_string){tack_str0, 4};
     {
         (void)v_g.f_cells;
         for (int64_t tack_k6 = 0; tack_k6 < 3; tack_k6++) {

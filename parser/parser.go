@@ -276,7 +276,9 @@ func (p *Parser) parseDecl() (ast.Decl, []diag.Diagnostic) {
 			Span:     p.span(tk),
 		}}
 	case tk.Value() == lexer.Func:
-		return p.parseFunc()
+		return p.parseFunc(false)
+	case isKeyword(tk, lexer.Extern):
+		return p.parseExternFunc()
 	case tk.Value() == lexer.Var || tk.Value() == lexer.Mut:
 		return p.parsePackageVar()
 	case tk.Value() == lexer.Type:
@@ -308,7 +310,7 @@ func (p *Parser) parseVisibleDecl(vis ast.Visibility) (ast.Decl, []diag.Diagnost
 	tk := p.peek()
 	switch {
 	case isKeyword(tk, lexer.Func):
-		fn, diags := p.parseFunc()
+		fn, diags := p.parseFunc(false)
 		if fn == nil {
 			return nil, diags
 		}
@@ -333,7 +335,23 @@ func (p *Parser) parseVisibleDecl(vis ast.Visibility) (ast.Decl, []diag.Diagnost
 	}
 }
 
-func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
+// parseExternFunc parses an extern func declaration, extern func name(...)
+// with its results and no body, whose span then starts at extern.
+func (p *Parser) parseExternFunc() (*ast.Func, []diag.Diagnostic) {
+	kw := p.next()
+	fn, diags := p.parseFunc(true)
+	if fn == nil {
+		return nil, diags
+	}
+	fn.Extern, fn.CName, fn.ExternSpan = true, fn.Name, p.span(kw)
+	fn.Span.Start = kw.OffsetStart()
+	return fn, nil
+}
+
+// parseFunc parses a function declaration from its func keyword: its
+// name, parameters, results and body, which an extern func, extern says,
+// must not have.
+func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	tk := p.peek()
 	if tk.Value() != lexer.Func {
 		return nil, []diag.Diagnostic{p.diagInvalidToken("func", tk)}
@@ -372,7 +390,7 @@ func (p *Parser) parseFunc() (*ast.Func, []diag.Diagnostic) {
 	}
 	fn.Results = results
 
-	if bodyDiags := p.parseFuncBody(fn); bodyDiags != nil {
+	if bodyDiags := p.parseFuncBody(fn, extern); bodyDiags != nil {
 		return nil, bodyDiags
 	}
 
@@ -467,8 +485,21 @@ func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
 
 // parseFuncBody parses what follows a function's signature into fn.Body: a
 // brace-delimited body with its terminator, or a lone semicolon for a
-// function declared without one.
-func (p *Parser) parseFuncBody(fn *ast.Func) []diag.Diagnostic {
+// function declared without one, which sets fn.NoBody. An extern func,
+// extern says, has no body to parse: its body is in C.
+func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
+	if tk := p.peek(); extern && tk.Kind() == lexer.LCurl {
+		return []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"extern func %s cannot have a body; its body is written in C",
+					fn.Name,
+				),
+				Span: p.span(tk),
+			},
+		}
+	}
 	switch p.next().Kind() {
 	case lexer.LCurl:
 		for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
@@ -483,6 +514,7 @@ func (p *Parser) parseFuncBody(fn *ast.Func) []diag.Diagnostic {
 		}
 		return nil
 	case lexer.Semi:
+		fn.NoBody = true
 		return nil
 	default:
 		return []diag.Diagnostic{{

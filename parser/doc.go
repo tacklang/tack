@@ -22,6 +22,15 @@
 // field selection. The
 // short forms x := v and mut x := v are for function bodies only.
 //
+// A function declaration ends in its body, or in nothing, its signature
+// followed by the end of the line, which sets Func.NoBody: whether a
+// function may go without a body is the resolver's to judge. extern before
+// func declares an extern func, whose body is written in C: it sets
+// Func.Extern, takes the function's name as its C name, Func.CName, and
+// starts the function's span, and an extern func written with a body is
+// reported at its opening brace. extern is a keyword, reserved everywhere,
+// and anything after it but func is reported.
+//
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment
 // ends at a newline, and the lexer has already inserted the semicolon that

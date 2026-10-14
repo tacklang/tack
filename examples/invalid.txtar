@@ -424,6 +424,42 @@ block-comment/main.tck:4:12: error: block comments are not supported
    |	           ^~~~~~~~~~~~~~~
 05 |	}
 
+-- bodyless-func/main.tck --
+package main
+
+func helper()
+
+func main() {
+    helper()
+}
+-- bodyless-func/expected --
+stage: resolve
+---
+
+bodyless-func/main.tck:3:6: error: function helper has no body; only an extern func is declared without one
+02 |	
+03 |	func helper()
+   |	     ^~~~~~
+04 |	
+
+-- bodyless-func-with-result/main.tck --
+package main
+
+func f() int64
+
+func main() {
+    exit(f())
+}
+-- bodyless-func-with-result/expected --
+stage: resolve
+---
+
+bodyless-func-with-result/main.tck:3:6: error: function f has no body; only an extern func is declared without one
+02 |	
+03 |	func f() int64
+   |	     ^
+04 |	
+
 -- bool-arithmetic/main.tck --
 package main
 
@@ -1555,6 +1591,285 @@ escape-hex-short/main.tck:6:11: error: Invalid escape sequence "\\x7"
 06 |	    c := '\x7'
    |	          ^~~
 07 |	    exit(c)
+
+-- extern-as-name/main.tck --
+package main
+
+func main() {
+    extern := 1
+    exit(extern)
+}
+-- extern-as-name/expected --
+stage: parse
+---
+
+extern-as-name/main.tck:4:5: error: expected 'statement' found 'extern'
+03 |	func main() {
+04 |	    extern := 1
+   |	    ^
+05 |	    exit(extern)
+
+-- extern-c-keyword/main.tck --
+package main
+
+extern func while()
+
+extern func int(x int64) int64
+
+func main() {
+    while()
+}
+-- extern-c-keyword/expected --
+stage: typeck
+---
+
+extern-c-keyword/main.tck:3:13: error: extern func while cannot be named while in C: it is a C keyword
+02 |	
+03 |	extern func while()
+   |	            ^~~~~
+04 |	
+
+extern-c-keyword/main.tck:5:13: error: extern func int cannot be named int in C: it is a C keyword
+04 |	
+05 |	extern func int(x int64) int64
+   |	            ^~~
+06 |	
+
+-- extern-duplicate/main.tck --
+package main
+
+extern func f()
+
+extern func f()
+
+func f() {
+}
+
+func main() {
+    f()
+}
+-- extern-duplicate/expected --
+stage: resolve
+---
+
+extern-duplicate/main.tck:5:13: error: f is already declared
+04 |	
+05 |	extern func f()
+   |	            ^
+06 |	
+extern-duplicate/main.tck:3:13: note: previous declaration of f
+02 |	
+03 |	extern func f()
+   |	            ^
+04 |	
+
+extern-duplicate/main.tck:7:6: error: f is already declared
+06 |	
+07 |	func f() {
+   |	     ^
+08 |	}
+extern-duplicate/main.tck:3:13: note: previous declaration of f
+02 |	
+03 |	extern func f()
+   |	            ^
+04 |	
+
+-- extern-in-initializer/main.tck --
+package main
+
+extern func seed() int64
+
+var start = seed()
+
+func main() {
+    exit(start)
+}
+-- extern-in-initializer/expected --
+stage: typeck
+---
+
+extern-in-initializer/main.tck:5:13: error: start must be initialized with a constant expression
+04 |	
+05 |	var start = seed()
+   |	            ^~~~~~
+06 |	
+
+-- extern-main/main.tck --
+package main
+
+extern func main()
+-- extern-main/expected --
+stage: resolve
+---
+
+extern-main/main.tck:3:1: error: main function must not be extern
+02 |	
+03 |	extern func main()
+   |	^~~~~~
+04 |	
+
+-- extern-not-yet/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+extern func name(s string) int64
+
+extern func origin() Point
+
+extern func row(a [3]int64)
+
+extern func pair() (int64, bool)
+
+func main() {
+}
+-- extern-not-yet/expected --
+stage: typeck
+---
+
+extern-not-yet/main.tck:7:20: error: extern func name cannot pass string to C yet
+06 |	
+07 |	extern func name(s string) int64
+   |	                   ^~~~~~
+08 |	
+
+extern-not-yet/main.tck:9:22: error: extern func origin cannot return Point from C yet
+08 |	
+09 |	extern func origin() Point
+   |	                     ^~~~~
+10 |	
+
+extern-not-yet/main.tck:11:19: error: extern func row cannot pass [3]int64 to C yet
+10 |	
+11 |	extern func row(a [3]int64)
+   |	                  ^~~~~~~~
+12 |	
+
+extern-not-yet/main.tck:13:21: error: extern func pair cannot return several results from C yet
+12 |	
+13 |	extern func pair() (int64, bool)
+   |	                    ^~~~~~~~~~~
+14 |	
+
+-- extern-twice/main.tck --
+package main
+
+extern extern func f()
+
+func main() {
+}
+-- extern-twice/expected --
+stage: parse
+---
+
+extern-twice/main.tck:3:8: error: expected 'func' found 'extern'
+02 |	
+03 |	extern extern func f()
+   |	       ^
+04 |	
+
+-- extern-unknown-type/main.tck --
+package main
+
+extern func f(x Missing) Gone
+
+func main() {
+}
+-- extern-unknown-type/expected --
+stage: typeck
+---
+
+extern-unknown-type/main.tck:3:17: error: unknown type: Missing
+02 |	
+03 |	extern func f(x Missing) Gone
+   |	                ^~~~~~~
+04 |	
+
+extern-unknown-type/main.tck:3:26: error: unknown type: Gone
+02 |	
+03 |	extern func f(x Missing) Gone
+   |	                         ^~~~
+04 |	
+
+-- extern-var/main.tck --
+package main
+
+extern var x int64 = 1
+
+func main() {
+}
+-- extern-var/expected --
+stage: parse
+---
+
+extern-var/main.tck:3:8: error: expected 'func' found 'var'
+02 |	
+03 |	extern var x int64 = 1
+   |	       ^
+04 |	
+
+-- extern-with-body/main.tck --
+package main
+
+extern func f() int64 {
+    return 1
+}
+
+func main() {
+}
+-- extern-with-body/expected --
+stage: parse
+---
+
+extern-with-body/main.tck:3:23: error: extern func f cannot have a body; its body is written in C
+02 |	
+03 |	extern func f() int64 {
+   |	                      ^
+04 |	    return 1
+
+-- extern-wrong-call/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+extern func flag() bool
+
+func main() {
+    print(add(1, 2))
+    exit(add(1))
+    if add(1, 2) {
+    }
+    exit(flag())
+}
+-- extern-wrong-call/expected --
+stage: typeck
+---
+
+extern-wrong-call/main.tck:8:11: error: cannot use int64 as string in argument to print
+07 |	func main() {
+08 |	    print(add(1, 2))
+   |	          ^~~~~~~~~
+09 |	    exit(add(1))
+
+extern-wrong-call/main.tck:9:10: error: add expects 2 argument(s), got 1
+08 |	    print(add(1, 2))
+09 |	    exit(add(1))
+   |	         ^~~~~~
+10 |	    if add(1, 2) {
+
+extern-wrong-call/main.tck:10:8: error: condition must be a bool, got int64
+09 |	    exit(add(1))
+10 |	    if add(1, 2) {
+   |	       ^~~~~~~~~
+11 |	    }
+
+extern-wrong-call/main.tck:12:10: error: cannot use bool as int64 in argument to exit
+11 |	    }
+12 |	    exit(flag())
+   |	         ^~~~~~
+13 |	}
 
 -- for-post-declaration/main.tck --
 package main

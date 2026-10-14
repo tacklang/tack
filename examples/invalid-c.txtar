@@ -1,0 +1,252 @@
+Invalid example programs with C files, one case per program, in byte
+order of name.
+
+A case named n is its files, each a txtar file n/<path>, its .c files
+among them, followed by n/expected, what tack writes to stderr for it, with
+each file's path printed as n/<path>. The case is built with clang from
+the directory n, or from what an optional n/.target file names, relative
+to n: main.tck for a single-file program. Every file must end with a
+newline. When clang rejects a C file, its own report, which varies with
+its version, is not pinned: n/expected holds what tack writes after it.
+internal/invalid documents the format; go test ./tack -run TestInvalidC
+builds every case, and -update rewrites the expected sections.
+
+-- c-defines-main/.target --
+main.tck
+-- c-defines-main/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- c-defines-main/helpers.c --
+int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+
+int main(void) {
+    return 0;
+}
+-- c-defines-main/expected --
+tack: c-defines-main/helpers.c defines main; a Tack program's main is its Tack main, so no C file may define one
+-- c-syntax-error/.target --
+main.tck
+-- c-syntax-error/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- c-syntax-error/helpers.c --
+int64_t add(int64_t a, int64_t b) {
+    return a + b
+}
+-- c-syntax-error/expected --
+tack: cannot compile c-syntax-error/helpers.c: clang failed: exit status 1
+-- definition-in-another-package/tack.mod --
+module calc
+-- definition-in-another-package/main.tck --
+package main
+
+import util from "calc/util"
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(util.Two(), 40))
+}
+-- definition-in-another-package/util/util.tck --
+package util
+
+pub func Two() int64 {
+    return 2
+}
+-- definition-in-another-package/util/util.c --
+int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+-- definition-in-another-package/expected --
+
+definition-in-another-package/main.tck:5:13: error: extern func add has no C definition in package main
+04 |	
+05 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+06 |	
+
+-- duplicate-definition/.target --
+main.tck
+-- duplicate-definition/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- duplicate-definition/a.c --
+int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+-- duplicate-definition/b.c --
+int64_t add(int64_t a, int64_t b) {
+    return b + a;
+}
+-- duplicate-definition/expected --
+tack: two C files define add: duplicate-definition/a.c and duplicate-definition/b.c
+-- duplicate-helper/.target --
+main.tck
+-- duplicate-helper/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- duplicate-helper/a.c --
+int counter = 0;
+
+int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+-- duplicate-helper/b.c --
+int counter = 1;
+-- duplicate-helper/expected --
+tack: two C files define counter: duplicate-helper/a.c and duplicate-helper/b.c
+-- empty-c-file/.target --
+main.tck
+-- empty-c-file/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- empty-c-file/empty.c --
+-- empty-c-file/expected --
+
+empty-c-file/main.tck:3:13: error: extern func add has no C definition in package main
+02 |	
+03 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- missing-definition/.target --
+main.tck
+-- missing-definition/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+extern func flip(b bool) bool
+
+extern func unused()
+
+func main() {
+    if flip(false) {
+        exit(add(40, 2))
+    }
+}
+-- missing-definition/helpers.c --
+bool flip(bool b) {
+    return !b;
+}
+
+int64_t ad(int64_t a, int64_t b) {
+    return a + b;
+}
+-- missing-definition/expected --
+
+missing-definition/main.tck:3:13: error: extern func add has no C definition in package main
+02 |	
+03 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+missing-definition/main.tck:7:13: error: extern func unused has no C definition in package main
+06 |	
+07 |	extern func unused()
+   |	            ^~~~~~
+08 |	
+
+-- missing-in-library/tack.mod --
+module calc
+-- missing-in-library/main.tck --
+package main
+
+import util from "calc/util"
+
+func main() {
+    exit(util.Sum(40, 2))
+}
+-- missing-in-library/util/util.tck --
+package util
+
+extern func add(a int64, b int64) int64
+
+pub func Sum(a int64, b int64) int64 {
+    return add(a, b)
+}
+-- missing-in-library/expected --
+
+missing-in-library/util/util.tck:3:13: error: extern func add has no C definition in package util
+02 |	
+03 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- no-c-files/.target --
+main.tck
+-- no-c-files/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- no-c-files/expected --
+
+no-c-files/main.tck:3:13: error: extern func add has no C definition in package main
+02 |	
+03 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- signature-mismatch/.target --
+main.tck
+-- signature-mismatch/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- signature-mismatch/helpers.c --
+int32_t add(int32_t a) {
+    return a + 2;
+}
+-- signature-mismatch/expected --
+tack: cannot compile signature-mismatch/helpers.c: clang failed: exit status 1
+-- static-definition/.target --
+main.tck
+-- static-definition/main.tck --
+package main
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(40, 2))
+}
+-- static-definition/helpers.c --
+static int64_t add(int64_t a, int64_t b) {
+    return a + b;
+}
+-- static-definition/expected --
+tack: cannot compile static-definition/helpers.c: clang failed: exit status 1

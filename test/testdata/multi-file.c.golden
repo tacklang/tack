@@ -21,7 +21,7 @@ typedef struct {
     int64_t e[3];
 } tack_array_13;
 
-static const unsigned char str0[20] = {115, 112, 108, 105, 116, 32, 97, 99, 114, 111, 115, 115, 32, 102, 105, 108, 101, 115, 10, 0};
+static const unsigned char tack_str0[20] = {115, 112, 108, 105, 116, 32, 97, 99, 114, 111, 115, 115, 32, 102, 105, 108, 101, 115, 10, 0};
 
 static void tack_print(tack_string s) {
     if (s.len > 0) {
@@ -33,7 +33,7 @@ static const int64_t tack_12_multi_2dfile4_unit = 2;
 static tack_array_13 tack_12_multi_2dfile5_cells = {0};
 static const tack_12_multi_2dfile4_Rect tack_12_multi_2dfile6_origin = {1, 0};
 static const int64_t tack_12_multi_2dfile4_size = 3;
-static const tack_string tack_12_multi_2dfile8_greeting = {str0, 19};
+static const tack_string tack_12_multi_2dfile8_greeting = {tack_str0, 19};
 
 static int64_t tack_12_multi_2dfile5_twice(int64_t p_n);
 static void tack_12_multi_2dfile4_main(void);

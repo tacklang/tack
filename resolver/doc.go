@@ -35,9 +35,10 @@
 // as declared twice, with a note in the other file. A global that is never
 // read is reported only after every package has been resolved. It checks
 // the program's shape first:
-// the package must be main, a main function must exist, take no parameters
-// and declare no results, no function may be declared twice, and none may
-// reuse a builtin's name. It then walks each function body with that
+// the package must be main, a main function must exist, not be extern, take
+// no parameters and declare no results, no function may be declared twice,
+// none may reuse a builtin's name, and only an extern func, whose body is
+// in C, may be declared without a body. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A call whose
 // callee is a type name, such as int8(x), is a conversion: it binds to no

@@ -21,10 +21,22 @@ type Backend interface {
 	// unusable.
 	Generate(prog *ast.Program) ([]byte, []diag.Diagnostic)
 
+	// Header returns the C header, tack.h, that declares every extern func
+	// of prog, which Generate must have accepted, and every type their
+	// signatures use, for the C files that define them.
+	Header(prog *ast.Program) []byte
+
+	// CompileCmd is the command that compiles the C file at src, one that
+	// defines extern funcs, into an object file at obj, with the header
+	// Header returned at header included first. The first element is the
+	// program, the rest its arguments.
+	CompileCmd(src, header, obj string) []string
+
 	// BuildCmd is the command that turns generated output at src into an
-	// executable at out. The first element is the program, the rest its
+	// executable at out, linked with the object files objs, which
+	// CompileCmd made. The first element is the program, the rest its
 	// arguments.
-	BuildCmd(src, out string) []string
+	BuildCmd(src string, objs []string, out string) []string
 }
 
 var backends = make(map[string]Backend)

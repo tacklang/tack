@@ -18,6 +18,15 @@ type Package struct {
 	Module string
 	// Files are the package's files, in the byte order of their names.
 	Files []*File
+
+	// Dir is the slash-separated path of the directory the loader read
+	// the package from, and CFiles the path of every C file in it, a file
+	// whose name ends in .c, in the byte order of their names: the files
+	// that define the package's extern funcs, which the driver compiles
+	// and links with the program. Both are left out of the JSON dump,
+	// which shows the Tack source only.
+	Dir    string   `json:"-"`
+	CFiles []string `json:"-"`
 }
 
 // Decls returns the package-level declarations of every file of the

@@ -1,0 +1,59 @@
+package main
+
+// Every extern func below is written in C, in helpers.c, which the driver
+// compiles and links with this file because it is in the same directory.
+
+// add returns a + b, wrapping as Tack's own + does.
+extern func add(a int64, b int64) int64
+
+// flip returns !b.
+extern func flip(b bool) bool
+
+// both reports whether a and b are both true.
+extern func both(a bool, b bool) bool
+
+// widen returns x as an int64, keeping its sign.
+extern func widen(x int8) int64
+
+// low returns the low byte of x.
+extern func low(x uint64) uint8
+
+// halves returns x / 2 in each of the four narrower signed and unsigned
+// widths, summed as an int64, so every width crosses the boundary.
+extern func halves(a int16, b uint16, c int32, d uint32) int64
+
+// largest and smallest return the extremes of uint64 and int64.
+extern func largest() uint64
+extern func smallest() int64
+
+// count adds one to a counter kept in C, and counted reads it.
+extern func count()
+extern func counted() int32
+
+// check prints name and exits with status when ok is false.
+func check(ok bool, name string, status int64) {
+    if !ok {
+        print("FAIL ")
+        print(name)
+        print("\n")
+        exit(status)
+    }
+}
+
+func main() {
+    check(add(40, 2) == 42, "add", 1)
+    check(add(9223372036854775807, 1) == -9223372036854775807 - 1, "add wraps", 2)
+    check(flip(true) == false && flip(false), "flip", 3)
+    check(both(true, true) && !both(true, false) && !both(false, true), "both", 4)
+    check(widen(-128) == -128 && widen(127) == 127, "widen", 5)
+    check(low(18446744073709551615) == 255 && low(256) == 0, "low", 6)
+    check(halves(-32768, 65535, -2147483648, 4294967295) == -16384 + 32767 - 1073741824 + 2147483647, "halves", 7)
+    check(largest() == 18446744073709551615, "largest", 8)
+    check(smallest() == -9223372036854775807 - 1, "smallest", 9)
+    for range 5 {
+        count()
+    }
+    check(counted() == 5, "count", 10)
+    print("extern ok\n")
+    exit(42)
+}

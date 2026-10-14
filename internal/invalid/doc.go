@@ -1,7 +1,8 @@
 // Package invalid reads and writes examples/invalid.txtar, the file that holds
 // every invalid example program of one file together with the output the
-// compiler must produce for it, and examples/invalid-packages.txtar, which
-// does the same for the invalid programs of several files.
+// compiler must produce for it, examples/invalid-packages.txtar, which
+// does the same for the invalid programs of several files, and
+// examples/invalid-c.txtar, for those with C files.
 //
 // It is test infrastructure, not part of the compiler: the golden harness in
 // test/ checks each case's expected output and rewrites it under -update, and
@@ -62,4 +63,19 @@
 // whose last line has none belongs in invalid.txtar. ParseTree is as strict
 // as Parse, and FormatTree as Format: for every list of tree cases
 // FormatTree accepts, ParseTree returns that list unchanged.
+//
+// # Cases with C files
+//
+// examples/invalid-c.txtar holds the invalid programs whose problem shows
+// only once their C files are compiled: a C file that does not compile, or
+// that defines what it must not, and an extern func that no C file
+// defines. It is an archive of tree cases, in the same format, read by
+// ParseTree, and a case's files include its .c files. A single-file
+// program names main.tck in its .target file. The driver's tests build
+// each case with clang, from a directory holding the case's files, and
+// compare what tack writes to standard error with the expected output.
+// clang's own report of a C file it cannot compile varies with its
+// version, so for such a case the expected output holds only what tack
+// writes after it, from its first line starting tack:, and the test checks
+// that clang reported an error before it.
 package invalid

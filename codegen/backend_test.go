@@ -22,7 +22,13 @@ func (f fakeBackend) Generate(
 	return []byte("fake"), nil
 }
 
-func (f fakeBackend) BuildCmd(src, out string) []string { return []string{"true", src, out} }
+func (f fakeBackend) Header(*ast.Program) []byte { return nil }
+
+func (f fakeBackend) CompileCmd(src, _, obj string) []string { return []string{"true", src, obj} }
+
+func (f fakeBackend) BuildCmd(src string, _ []string, out string) []string {
+	return []string{"true", src, out}
+}
 
 func TestGetReturnsRegisteredBackend(t *testing.T) {
 	codegen.Register(fakeBackend{"registry-test"})

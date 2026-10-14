@@ -22,16 +22,16 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static const unsigned char str0[4] = {97, 98, 99, 0};
-static const unsigned char str1[4] = {97, 98, 100, 0};
-static const unsigned char str2[1] = {0};
-static const unsigned char str3[2] = {97, 0};
-static const unsigned char str4[2] = {255, 0};
-static const unsigned char str5[3] = {97, 98, 0};
+static const unsigned char tack_str0[4] = {97, 98, 99, 0};
+static const unsigned char tack_str1[4] = {97, 98, 100, 0};
+static const unsigned char tack_str2[1] = {0};
+static const unsigned char tack_str3[2] = {97, 0};
+static const unsigned char tack_str4[2] = {255, 0};
+static const unsigned char tack_str5[3] = {97, 98, 0};
 
-static const tack_string tack_4_main1_a = {str0, 3};
-static const tack_string tack_4_main1_b = {str1, 3};
-static const tack_string tack_4_main5_empty = {str2, 0};
+static const tack_string tack_4_main1_a = {tack_str0, 3};
+static const tack_string tack_4_main1_b = {tack_str1, 3};
+static const tack_string tack_4_main5_empty = {tack_str2, 0};
 static const bool tack_4_main2_eq = true;
 static const bool tack_4_main2_ne = false;
 static const bool tack_4_main2_lt = true;

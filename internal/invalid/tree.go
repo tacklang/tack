@@ -12,6 +12,12 @@ import (
 // top-level package directory, as Path is.
 const TreePath = "../examples/invalid-packages.txtar"
 
+// CPath is where the cases with C files live, in the format of TreePath's
+// archive, relative to a top-level package directory, as Path is. Its
+// cases are built into binaries, which compiles their C files with clang,
+// so the driver's tests check them rather than the golden harness.
+const CPath = "../examples/invalid-c.txtar"
+
 // targetFile is the name, within a tree case, of the optional file that
 // says which directory to build. It starts with a dot, so the loader never
 // takes it for a source file.

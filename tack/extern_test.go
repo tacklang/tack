@@ -1,0 +1,314 @@
+package main
+
+import (
+	"flag"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tacklang/tack/internal/invalid"
+)
+
+// TestBuiltExternExits42 builds examples/extern, whose extern funcs are
+// written in the helpers.c beside it, and checks every value that crossed
+// the boundary came back as Tack expects: each integer width, the extremes
+// of int64 and uint64, bools, and state kept on the C side.
+func TestBuiltExternExits42(t *testing.T) {
+	bin := buildWithClang(t, "extern")
+	if out, code := runBuilt(t, bin); out != "extern ok\n" || code != 42 {
+		t.Errorf("printed %q and exited %d, want %q and 42", out, code, "extern ok\n")
+	}
+}
+
+// TestBuiltExternFromItsDirectory builds examples/extern from its
+// directory, where it is still a single file with no tack.mod, so the
+// .c files beside the target are linked the same way.
+func TestBuiltExternFromItsDirectory(t *testing.T) {
+	t.Chdir(filepath.Join(examplesDir, "extern"))
+	bin := buildTargetWithClang(t, "extern", "main.tck")
+	if out, code := runBuilt(t, bin); out != "extern ok\n" || code != 42 {
+		t.Errorf("printed %q and exited %d, want %q and 42", out, code, "extern ok\n")
+	}
+}
+
+// update rewrites the expected sections of examples/invalid-c.txtar.
+var update = flag.Bool("update", false, "rewrite the expected output of examples/invalid-c.txtar")
+
+// TestInvalidC builds every case of examples/invalid-c.txtar with clang,
+// from a fresh directory holding its files, and checks the build fails
+// with the expected output on stderr and nothing on stdout. When clang
+// rejects a C file, its own report, which varies with its version, comes
+// first; the expected output then holds what tack says after it, and the
+// test checks clang's report is there and names an error.
+func TestInvalidC(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	path := filepath.FromSlash(invalid.CPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, cases, err := invalid.ParseTree(data)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if len(cases) == 0 {
+		t.Fatalf("%s holds no cases", path)
+	}
+	for i := range cases {
+		c := &cases[i]
+		t.Run(c.Name, func(t *testing.T) {
+			got := buildInvalidC(t, *c)
+			if *update {
+				c.Expected = []byte(got)
+				return
+			}
+			if got != string(c.Expected) {
+				t.Errorf("output differs from %s\n\n--- want ---\n%s\n--- got ---\n%s",
+					path, c.Expected, got)
+			}
+		})
+	}
+	if *update {
+		rewriteInvalidC(t, path, comment, cases)
+	}
+}
+
+// rewriteInvalidC writes comment and cases to the archive at path.
+func rewriteInvalidC(t *testing.T, path string, comment []byte, cases []invalid.TreeCase) {
+	t.Helper()
+	out, err := invalid.FormatTree(comment, cases)
+	if err != nil {
+		t.Fatalf("cannot write %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// buildInvalidC writes the files of c to a fresh directory, builds its
+// target from there, and returns what tack wrote to stderr from its first
+// line, after checking the build failed, wrote nothing to stdout, and left
+// nothing in the temp directory.
+func buildInvalidC(t *testing.T, c invalid.TreeCase) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, f := range c.Files {
+		name := filepath.Join(root, c.Name, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, f.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(root)
+	tmp := isolateTemp(t)
+	r := runTack(t, "--out", filepath.Join(t.TempDir(), "bin"), filepath.FromSlash(c.Target()))
+	if r.code != exitFailure || r.stdout != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want a failed build", r.code, r.stdout, r.stderr)
+	}
+	assertEmptyDir(t, tmp)
+	if strings.HasPrefix(r.stderr, "tack: ") {
+		return r.stderr
+	}
+	i := strings.Index(r.stderr, "\ntack: cannot compile ")
+	if i < 0 {
+		return r.stderr
+	}
+	if before := r.stderr[:i]; !strings.Contains(before, "error") {
+		t.Errorf("clang's report before tack's does not name an error:\n%s", before)
+	}
+	return r.stderr[i+1:]
+}
+
+// addProgram is a single-file program whose one extern func, add, its C
+// file defines, and which exits with add(40, 2).
+const addProgram = "package main\n\nextern func add(a int64, b int64) int64\n\n" +
+	"func main() {\n    exit(add(40, 2))\n}\n"
+
+// addC defines add for addProgram.
+const addC = "int64_t add(int64_t a, int64_t b) {\n    return a + b;\n}\n"
+
+// buildIn builds main.tck, in dir, from dir, and returns the result and
+// the binary's path.
+func buildIn(t *testing.T, dir string) (result, string) {
+	t.Helper()
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	t.Chdir(dir)
+	tmp := isolateTemp(t)
+	bin := filepath.Join(t.TempDir(), "prog")
+	r := runTack(t, "--out", bin, "main.tck")
+	assertEmptyDir(t, tmp)
+	return r, bin
+}
+
+// TestEmitHeaderWritesTackH checks --emit-header writes tack.h into the
+// directory of a single-file target, prints nothing, and that the C file
+// beside it, which includes it by name, then compiles and links.
+func TestEmitHeaderWritesTackH(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"main.tck":  addProgram,
+		"helpers.c": "#include \"tack.h\"\n\n" + addC,
+	})
+	r := runTack(t, "--emit-header", filepath.Join(dir, "main.tck"))
+	if r.code != exitOK || r.stdout != "" || r.stderr != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want a silent success", r.code, r.stdout, r.stderr)
+	}
+	header, err := os.ReadFile(filepath.Join(dir, "tack.h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(header), "int64_t add(int64_t, int64_t);") {
+		t.Errorf("tack.h does not declare add:\n%s", header)
+	}
+	if r, bin := buildIn(t, dir); r.code != exitOK {
+		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
+	} else if _, code := runBuilt(t, bin); code != 42 {
+		t.Errorf("exited %d, want 42", code)
+	}
+}
+
+// TestEmitHeaderWritesEveryPackageWithC checks --emit-header on a module
+// writes one tack.h, for the whole program, into the main package's
+// directory and that of each package with C files or extern funcs, and
+// into no other.
+func TestEmitHeaderWritesEveryPackageWithC(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"tack.mod": "module calc\n",
+		"cmd/main.tck": "package main\n\nimport util from \"calc/util\"\nimport plain from \"calc/plain\"\n\n" +
+			"func main() {\n    exit(util.Sum(40, plain.Two()))\n}\n",
+		"util/util.tck": "package util\n\nextern func add(a int64, b int64) int64\n\n" +
+			"pub func Sum(a int64, b int64) int64 {\n    return add(a, b)\n}\n",
+		"util/util.c":     addC,
+		"plain/plain.tck": "package plain\n\npub func Two() int64 {\n    return 2\n}\n",
+	})
+	r := runTack(t, "--emit-header", filepath.Join(dir, "cmd"))
+	if r.code != exitOK || r.stdout != "" || r.stderr != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want a silent success", r.code, r.stdout, r.stderr)
+	}
+	for _, d := range []string{"cmd", "util"} {
+		if _, err := os.Stat(filepath.Join(dir, d, "tack.h")); err != nil {
+			t.Errorf("no tack.h in %s: %v", d, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plain", "tack.h")); err == nil {
+		t.Error("tack.h written into plain, which has no C")
+	}
+}
+
+// TestEmitHeaderOfABadProgram checks --emit-header reports the program's
+// diagnostics and writes nothing.
+func TestEmitHeaderOfABadProgram(t *testing.T) {
+	dir := writeDir(t, map[string]string{"main.tck": "package main\n\nextern func main()\n"})
+	assertDiagnostics(t, runTack(t, "--emit-header", filepath.Join(dir, "main.tck")))
+	if _, err := os.Stat(filepath.Join(dir, "tack.h")); err == nil {
+		t.Error("tack.h written for a program with errors")
+	}
+}
+
+// TestEmitHeaderUsageErrors checks --emit-header, which writes files
+// instead of printing a dump, still cannot be combined with --out or a
+// dump flag.
+func TestEmitHeaderUsageErrors(t *testing.T) {
+	path := writeSource(t, []byte(addProgram))
+	assertUsageError(t, runTack(t, "--emit-header", "--out", "x", path), "--out cannot be combined")
+	assertUsageError(t, runTack(t, "--emit-header", "--emit", path), "cannot be combined")
+}
+
+// TestEmitHeaderUnwritable checks a tack.h that cannot be written is a
+// failure that names it.
+func TestEmitHeaderUnwritable(t *testing.T) {
+	dir := writeDir(t, map[string]string{"main.tck": addProgram})
+	if err := os.Mkdir(filepath.Join(dir, "tack.h"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	assertFailure(t, runTack(t, "--emit-header", filepath.Join(dir, "main.tck")), "cannot write")
+}
+
+// TestStaleHeaderBesideCFileIsIgnored checks a build compiles C files
+// against the tack.h it generates, not one left beside them by an earlier
+// --emit-header: here the stale one declares add with other types, and a C
+// file that includes it by name still builds against the fresh one.
+func TestStaleHeaderBesideCFileIsIgnored(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"main.tck": addProgram,
+		"tack.h": "#ifndef TACK_H\n#define TACK_H\n#include <stdint.h>\n" +
+			"int32_t add(int32_t);\n#endif\n",
+		"helpers.c": "#include \"tack.h\"\n\n" + addC,
+	})
+	r, bin := buildIn(t, dir)
+	if r.code != exitOK {
+		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
+	}
+	if _, code := runBuilt(t, bin); code != 42 {
+		t.Errorf("exited %d, want 42", code)
+	}
+}
+
+// TestCFileWithoutTheHeaderIsStillChecked checks a C file that does not
+// include tack.h is still compiled against it, so a definition that does
+// not match its extern func is caught.
+func TestCFileWithoutTheHeaderIsStillChecked(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"main.tck":  addProgram,
+		"helpers.c": "#include <stdint.h>\n\nint32_t add(int32_t a) {\n    return a;\n}\n",
+	})
+	r, _ := buildIn(t, dir)
+	if r.code != exitFailure || !strings.Contains(r.stderr, "conflicting types for 'add'") ||
+		!strings.HasSuffix(
+			r.stderr,
+			"tack: cannot compile helpers.c: clang failed: exit status 1\n",
+		) {
+		t.Errorf(
+			"exit %d, stderr %q; want clang's conflicting types and tack's failure",
+			r.code,
+			r.stderr,
+		)
+	}
+}
+
+// TestNonUTF8CSourceBuilds checks a C file holding bytes that are not
+// UTF-8, in a comment and a string, compiles and links: tack never reads
+// C source, it hands it to clang.
+func TestNonUTF8CSourceBuilds(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"main.tck": addProgram,
+		"helpers.c": "// \xff\xfe not UTF-8\nstatic const char *junk = \"\x80\xc3\";\n" +
+			"int64_t add(int64_t a, int64_t b) {\n    return a + b + (junk[0] != 0) - 1;\n}\n",
+	})
+	r, bin := buildIn(t, dir)
+	if r.code != exitOK {
+		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
+	}
+	if _, code := runBuilt(t, bin); code != 42 {
+		t.Errorf("exited %d, want 42", code)
+	}
+}
+
+// TestHelperCFilesAndUnusedDefinitions checks C files may define what no
+// extern func names, helpers static or not, and that a file with no
+// definitions at all, or only comments, is fine beside one that has them.
+func TestHelperCFilesAndUnusedDefinitions(t *testing.T) {
+	dir := writeDir(t, map[string]string{
+		"main.tck": addProgram,
+		"a.c": "static int64_t twice(int64_t x) { return 2 * x; }\n" +
+			"int64_t half(int64_t x) { return x / 2; }\n" +
+			"int64_t add(int64_t a, int64_t b) { return half(twice(a)) + b; }\n",
+		"b.c":     "",
+		"c.c":     "// nothing here\n",
+		".skip.c": "this is not C and is never compiled\n",
+	})
+	r, bin := buildIn(t, dir)
+	if r.code != exitOK {
+		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
+	}
+	if _, code := runBuilt(t, bin); code != 42 {
+		t.Errorf("exited %d, want 42", code)
+	}
+}

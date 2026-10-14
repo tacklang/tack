@@ -17,6 +17,11 @@ requires, and the exact diagnostics. The README's
 ["The language today"](../README.md#the-language-today) describes the same
 rules feature by feature.
 
+These rules cover Tack code only. An extern func's body is C, which they
+do not reach: what it does, and what it returns, is a promise its
+declaration makes and nothing checks, as the README's
+["Extern C"](../README.md#extern-c) says.
+
 Every example here is tested: each failing one is a case in
 [`examples/invalid.txtar`](../examples/invalid.txtar) whose expected output
 holds the diagnostic quoted here, the guarded and checked ones run in

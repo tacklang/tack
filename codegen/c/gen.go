@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -26,14 +27,28 @@ func (backend) Name() string { return "c" }
 
 func (backend) Ext() string { return ".c" }
 
-// BuildCmd runs clang with its warnings off. A warning about generated C
-// names a temporary file and code the user never wrote, and a valid
-// program, such as one comparing a variable with itself, can cause one.
-// Errors are still reported. The backend's own tests compile with
-// -Wall -Wextra -Werror instead, so a warning the backend causes is caught
-// there.
-func (backend) BuildCmd(src, out string) []string {
-	return []string{"clang", "-w", "-o", out, src}
+// BuildCmd runs clang with its warnings off, compiling src and linking it
+// with objs. A warning about generated C names a temporary file and code
+// the user never wrote, and a valid program, such as one comparing a
+// variable with itself, can cause one. Errors are still reported. The
+// backend's own tests compile with -Wall -Wextra -Werror instead, so a
+// warning the backend causes is caught there.
+func (backend) BuildCmd(src string, objs []string, out string) []string {
+	return append([]string{"clang", "-w", "-o", out, src}, objs...)
+}
+
+// CompileCmd runs clang as BuildCmd does, with its warnings off, to
+// compile src, a C file of the program's, to the object obj. The header is
+// included before the file's first line, with -include, so every
+// definition is checked against its extern func's prototype whether the
+// file includes tack.h or not, and a stale tack.h beside the file, which
+// an #include "tack.h" would find first, is skipped by its include guard.
+// header's directory is also searched, with -I, for a file that includes
+// tack.h by name.
+func (backend) CompileCmd(src, header, obj string) []string {
+	return []string{
+		"clang", "-w", "-c", "-I", filepath.Dir(header), "-include", header, "-o", obj, src,
+	}
 }
 
 // Generate lowers prog, which must have been type-checked, to one C
@@ -119,6 +134,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	g.emitConstantPool()
 	g.emitGlobals(globals)
 	g.emitResultStructs()
+	g.emitCNameMacro()
 	g.emitPrototypes()
 
 	for i, fn := range funcs {
@@ -329,6 +345,10 @@ func (g *generator) generateDecls() (
 			globals = append(globals, global)
 
 		case *ast.Func:
+			if d.Extern {
+				// Its body is in C; its prototype declares it.
+				continue
+			}
 			body, diags := g.generateFuncBody(d)
 			if len(diags) > 0 {
 				return nil, nil, nil, diags
@@ -479,12 +499,45 @@ func (g *generator) emitPrototypes() {
 	}
 
 	for _, decl := range g.decls {
-		if fn, ok := decl.(*ast.Func); ok {
+		fn, ok := decl.(*ast.Func)
+		switch {
+		case !ok:
+		case fn.Extern:
+			fmt.Fprintf(&g.buf, "extern %s TACK_C_NAME(%q);\n",
+				strings.TrimPrefix(g.signature(fn), "static "), fn.CName)
+		default:
 			g.buf.WriteString(g.signature(fn) + ";\n")
 		}
 	}
 
 	g.buf.WriteString("\n")
+}
+
+// hasExterns reports whether the program declares an extern func.
+func (g *generator) hasExterns() bool {
+	for _, decl := range g.decls {
+		if fn, ok := decl.(*ast.Func); ok && fn.Extern {
+			return true
+		}
+	}
+	return false
+}
+
+// emitCNameMacro defines TACK_C_NAME, which binds an extern func's
+// prototype, declared under its mangled name, to the C symbol its body is
+// defined under. The symbol is written with the platform's prefix for C
+// names, __USER_LABEL_PREFIX__, an underscore on macOS and nothing on
+// Linux, so the label is exactly the symbol a C definition of that name
+// gets. Emitted only when the program has an extern func.
+func (g *generator) emitCNameMacro() {
+	if !g.hasExterns() {
+		return
+	}
+	g.buf.WriteString("#define TACK_C_STR(x) #x\n")
+	g.buf.WriteString("#define TACK_C_XSTR(x) TACK_C_STR(x)\n")
+	g.buf.WriteString(
+		"#define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)\n\n",
+	)
 }
 
 func (g *generator) emitFunc(fn *ast.Func, body []string) {
@@ -1682,7 +1735,7 @@ var cTypes = map[types.Type]string{
 
 // paramName keeps parameters clear of every other name the generated file
 // defines. Tack has no reserved words, so a parameter may legally be called
-// str0, exit, or int, each of which collides with something already emitted.
+// exit or int, each of which collides with something already emitted.
 func paramName(name string) string { return "p_" + name }
 
 // varRef is the C name of a variable: the mangled package-level name for a
@@ -1718,7 +1771,7 @@ func varName(name string) string { return "v_" + name }
 // inverse is injective. No other name the generator makes collides with
 // one either: after tack_, a mangled name has a digit, 1 to 9 since a path
 // part is never empty, and every other name starting tack_ (tack_string,
-// tack_print, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
+// tack_print, tack_str0, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
 // and temporaries such as tack_r0) has a letter; locals and parameters
 // start v_ and p_.
 func (g *generator) mangle(decl ast.Decl, name string) string {
@@ -1771,7 +1824,7 @@ func (g *generator) addStr(s string) {
 	if g.seenStr(s) {
 		return
 	}
-	g.strPool = append(g.strPool, str{fmt.Sprintf("str%d", len(g.strPool)), s})
+	g.strPool = append(g.strPool, str{fmt.Sprintf("tack_str%d", len(g.strPool)), s})
 }
 
 func (g *generator) strLabel(s string) string {

@@ -12,7 +12,7 @@ typedef struct {
     int64_t len;
 } tack_string;
 
-static const unsigned char str0[9] = {101, 120, 105, 116, 105, 110, 103, 10, 0};
+static const unsigned char tack_str0[9] = {101, 120, 105, 116, 105, 110, 103, 10, 0};
 
 static void tack_print(tack_string s) {
     if (s.len > 0) {
@@ -23,7 +23,7 @@ static void tack_print(tack_string s) {
 static void tack_4_main4_main(void);
 
 static void tack_4_main4_main(void) {
-    tack_print((tack_string){str0, 8});
+    tack_print((tack_string){tack_str0, 8});
     exit((int)(42));
 }
 

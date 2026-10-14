@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -45,11 +44,12 @@ type dump int
 
 // The stages a dump flag can stop the pipeline after, in pipeline order.
 const (
-	dumpNone dump = iota // build a binary
-	dumpLex              // --lex: the token stream
-	dumpAST              // --ast: the parsed syntax tree
-	dumpRes              // --res: the resolved syntax tree
-	dumpEmit             // --emit: the generated target source
+	dumpNone   dump = iota // build a binary
+	dumpLex                // --lex: the token stream
+	dumpAST                // --ast: the parsed syntax tree
+	dumpRes                // --res: the resolved syntax tree
+	dumpEmit               // --emit: the generated target source
+	dumpHeader             // --emit-header: tack.h, written to the package directories
 )
 
 // options is the validated command line.
@@ -142,6 +142,7 @@ type flagValues struct {
 	ast          bool
 	res          bool
 	emit         bool
+	emitHeader   bool
 	listBackends bool
 }
 
@@ -157,6 +158,9 @@ func newFlagSet() (*flag.FlagSet, *flagValues) {
 	fs.BoolVar(&v.ast, "ast", false, "print the parsed syntax tree as JSON and stop")
 	fs.BoolVar(&v.res, "res", false, "print the resolved syntax tree as JSON and stop")
 	fs.BoolVar(&v.emit, "emit", false, "print the generated code and stop")
+	fs.BoolVar(&v.emitHeader, "emit-header", false,
+		"write tack.h, which declares the extern funcs, into the target's directory and\n"+
+			"        every package directory with C files or extern funcs, and stop")
 	fs.StringVar(&v.backendName, "backend", defaultBackend,
 		"use the code generation backend `name`")
 	fs.BoolVar(&v.listBackends, "backends", false,
@@ -215,6 +219,7 @@ func dumpOf(v flagValues) (dump, error) {
 		{"--ast", dumpAST, v.ast},
 		{"--res", dumpRes, v.res},
 		{"--emit", dumpEmit, v.emit},
+		{"--emit-header", dumpHeader, v.emitHeader},
 	}
 	d := dumpNone
 	var names []string
@@ -280,7 +285,9 @@ func quoteAll(ss []string) []string {
 func printUsage(fs *flag.FlagSet, w io.Writer) {
 	var b strings.Builder
 	b.WriteString("usage: tack --out <path> [flags] <file or directory>\n")
-	b.WriteString("       tack (--lex | --ast | --res | --emit) [flags] <file or directory>\n")
+	b.WriteString(
+		"       tack (--lex | --ast | --res | --emit | --emit-header) [flags] <file or directory>\n",
+	)
 	b.WriteString("       tack --backends\n\nFlags:\n")
 	fs.VisitAll(func(f *flag.Flag) {
 		arg, usage := flag.UnquoteUsage(f)
@@ -326,10 +333,18 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 		return err
 	}
 
-	if opts.dump != dumpNone {
+	switch opts.dump {
+	case dumpNone:
+	case dumpHeader:
+		return writeHeaders(res.Program, backend.Header(res.Program))
+	default:
 		return writeAll(stdout, withTrailingNewline(out))
 	}
-	return build(ctx, backend, out, opts.outBin, stdout, stderr)
+	b := &builder{
+		ctx: ctx, backend: backend, res: res, maxDiags: opts.maxDiags,
+		stdout: stdout, stderr: stderr,
+	}
+	return b.build(out, opts.outBin)
 }
 
 // load reads the program target names: the package in it if it is a
@@ -455,10 +470,7 @@ func compile(
 	maxDiags int,
 ) ([]byte, error) {
 	fail := func(diags []diag.Diagnostic) error {
-		if maxDiags > 0 && len(diags) > maxDiags {
-			diags = diags[:maxDiags]
-		}
-		return &diagnosticsError{rendered: diag.RenderAllPretty(res.Files, diags)}
+		return diagnostics(res, diags, maxDiags)
 	}
 
 	if len(res.Diags) > 0 {
@@ -484,6 +496,16 @@ func compile(
 		return nil, fail(genDiags)
 	}
 	return out, nil
+}
+
+// diagnostics returns the *diagnosticsError that reports diags, problems
+// in the program res holds, at most maxDiags of them when maxDiags is
+// positive.
+func diagnostics(res *loader.Result, diags []diag.Diagnostic, maxDiags int) error {
+	if maxDiags > 0 && len(diags) > maxDiags {
+		diags = diags[:maxDiags]
+	}
+	return &diagnosticsError{rendered: diag.RenderAllPretty(res.Files, diags)}
 }
 
 // loadedDump returns the dump d, --lex or --ast, of what res, loaded to
@@ -570,51 +592,6 @@ func withTrailingNewline(b []byte) string {
 func writeAll(w io.Writer, s string) error {
 	if _, err := io.WriteString(w, s); err != nil {
 		return fmt.Errorf("failed to write output: %w", err)
-	}
-	return nil
-}
-
-// build writes the generated source to a temporary file and runs the
-// backend's build command on it to produce outBin. The toolchain's own
-// output is passed through to stdout and stderr. The temporary file is
-// removed on every path, including cancellation of ctx, which kills the
-// toolchain.
-func build(
-	ctx context.Context,
-	backend codegen.Backend,
-	out []byte,
-	outBin string,
-	stdout, stderr io.Writer,
-) (err error) {
-	tmpFile, err := os.CreateTemp("", "tk-*"+backend.Ext())
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if rmErr := os.Remove(tmpName); rmErr != nil {
-			err = errors.Join(err, fmt.Errorf("failed to delete temp file: %w", rmErr))
-		}
-	}()
-
-	_, writeErr := tmpFile.Write(out)
-	closeErr := tmpFile.Close()
-	if writeErr != nil {
-		return fmt.Errorf("failed to write temp file: %w", writeErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("failed to close temp file: %w", closeErr)
-	}
-
-	argv := backend.BuildCmd(tmpName, outBin)
-	// The command is the backend's own toolchain invocation; only the paths
-	// come from the user, so G204 does not apply.
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // see above
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
-		// The toolchain has already written its own errors to stderr.
-		return fmt.Errorf("%s failed: %w", argv[0], err)
 	}
 	return nil
 }

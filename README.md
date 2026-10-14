@@ -66,6 +66,7 @@ tack --out hello examples/hello/main.tck
 ./hello
 tack --out shapes examples/multi-file    # every .tck file in the directory
 cd examples/module-mains && tack --out hello example.com/module-mains/tools/hello-world
+tack --out ext examples/extern/main.tck  # links helpers.c, which defines its extern funcs
 ```
 
 The target is a file, compiled alone; a directory, compiled as the one
@@ -77,6 +78,12 @@ starts with `.`, or ends in `.tck`. Flags go before the target. The intermediate
 linking. A dump prints only that stage's output to stdout, so it can be
 redirected: `tack --emit x.tck > x.c` gives a C file that compiles. A dump
 does not take `--out`, and only one dump can be given at a time.
+`--emit-header` is not a dump but stops where one does: it writes the
+program's `tack.h` (see "Extern C" below) into the target's directory and
+into every other package directory with C files or extern funcs, replacing
+any `tack.h` there, for an editor such as clangd to find; it prints
+nothing, takes no `--out`, and cannot be combined with a dump. Builds never
+read that copy, so it can be left out of version control.
 
 | Flag               | Effect                                          |
 |--------------------|-------------------------------------------------|
@@ -84,6 +91,7 @@ does not take `--out`, and only one dump can be given at a time.
 | `--ast`            | print the parsed syntax tree as JSON and stop   |
 | `--res`            | print the resolved syntax tree as JSON and stop |
 | `--emit`           | print the generated code and stop               |
+| `--emit-header`    | write `tack.h` beside the C files and stop      |
 | `--backend <name>` | select the code generation backend, default `c` |
 | `--backends`       | list the available backends and stop            |
 | `--out <path>`     | compile and link to `<path>`                    |
@@ -119,7 +127,8 @@ not reported.
 | `builtin`  | the builtins' names and signatures                            |
 | `typeck`   | checks calls pass the right number and type of arguments      |
 | `codegen`  | the backend interface and its registry                        |
-| `codegen/c`| AST into C                                                    |
+| `codegen/c`| AST into C, and `tack.h` for the C files of extern funcs      |
+| `cname`    | which names C can declare: identifiers that are not keywords  |
 | `diag`     | diagnostics and their rendering                               |
 | `tack`     | the command line driver                                       |
 
@@ -172,15 +181,20 @@ A backend is anything that satisfies this interface:
 type Backend interface {
     Name() string                                    // "c"
     Ext() string                                     // ".c"
-    Generate(file *ast.File) ([]byte, []diag.Diagnostic)
-    BuildCmd(src, out string) []string               // {"clang", "-w", "-o", out, src}
+    Generate(prog *ast.Program) ([]byte, []diag.Diagnostic)
+    Header(prog *ast.Program) []byte                 // tack.h
+    CompileCmd(src, header, obj string) []string     // {"clang", "-w", "-c", ..., src}
+    BuildCmd(src string, objs []string, out string) []string // {"clang", "-w", "-o", out, src, objs...}
 }
 ```
 
-`Generate` receives the same resolved tree every backend sees and returns target
-source, or diagnostics if it meets something it cannot lower. `Ext` and
-`BuildCmd` are what keep the driver from knowing anything about the target: it
-writes the bytes to a temporary file with that extension and runs that command.
+`Generate` receives the same resolved program every backend sees and returns target
+source, or diagnostics if it meets something it cannot lower. `Ext`,
+`CompileCmd` and `BuildCmd` are what keep the driver from knowing anything
+about the target: it writes the bytes to a file with that extension in a
+temporary directory, writes `Header`'s output beside it as `tack.h`,
+compiles each C file of the program with `CompileCmd`, and links them with
+`BuildCmd`.
 
 Backends register themselves from `init`, so adding one means writing a package
 under `codegen/` and importing it for its side effect in `tack/main.go` and
@@ -193,7 +207,11 @@ path and its name, each part written as its length and its bytes, with every
 byte but an ASCII letter or digit escaped as `_` and two hex digits, so `First`
 in `calc/lexer` is `tack_4_calc5_lexer5_First` and `main` in a single-file
 program, whose path is `main`, is `tack_4_main4_main`;
-string literals are pooled into `unsigned char` byte arrays so that arbitrary
+an extern func is declared under its mangled name and bound to its C name
+with an assembler label, so the C name never meets a name the generated C
+declares;
+string literals are pooled into `unsigned char` byte arrays, `tack_str0` and
+on, so that arbitrary
 bytes survive without an escaping scheme, `print` lowers to a pair of `fwrite`
 calls on `stdout`, and a generated `int main(void)` calls the Tack `main`. Each
 part is read back by its length, so no two Tack names, whatever underscores
@@ -806,6 +824,69 @@ makes for itself, which has a letter after `tack_`.
   runtime for a `mut` variable `c`. A character literal is exactly one byte, so `''`, `'ab'` and a
   character longer than one byte in UTF-8, such as `'é'`, are errors.
 
+### Extern C
+
+- `extern func name(params) results` declares a function whose body is
+  written in C. It has no body in Tack, and one written with a body is an
+  error, `extern func f cannot have a body; its body is written in C`. A
+  function without a body that is not extern is an error too, `function f
+  has no body; only an extern func is declared without one`. `extern` is a
+  keyword, reserved everywhere, and is written only before `func`
+  (`extern var` is `expected 'func' found 'var'`). `main` cannot be extern,
+  `main function must not be extern`. An extern func is called like any
+  other function, and like any call, not in a package-level initializer,
+  which is a constant.
+- The C symbol of an extern func is its Tack name unchanged. A name C
+  cannot define is an error at the declaration: a C keyword, `extern func
+  while cannot be named while in C: it is a C keyword`, and `main`, which
+  the generated C defines, `extern func f cannot be named main in C: the
+  program's C main is the one that runs Tack's`.
+- Every file whose name ends in `.c` directly in a package's directory is
+  compiled and linked with the program; a single-file target has the `.c`
+  files in its own directory. Hidden files and directories are skipped, as
+  for `.tck` files, and there is no rule tying a `.c` file's name to a
+  `.tck` file's: `os.tck` beside `os.c` is a convention only. Each is
+  compiled on its own with `clang -w -c`, the generated C's flags, and
+  linked with it. A C file clang cannot compile fails the build after
+  clang's own errors, `tack: cannot compile helpers.c: clang failed: exit
+  status 1`.
+- The compiler generates `tack.h`, which declares a prototype for every
+  extern func of the program, under its C name, with its Tack declaration
+  in a comment beside it, and includes `<stdbool.h>` and `<stdint.h>`. A
+  build writes it to the temporary build directory, never the source tree,
+  and compiles every C file with that directory on the include path and
+  `tack.h` included before the file's first line, so clang checks each
+  definition against its extern func whether the file includes `tack.h` or
+  not; a definition that does not match is clang's `conflicting types`.
+  A file may `#include "tack.h"`; a stale copy beside it, from
+  `--emit-header`, is skipped by the include guard of the one already
+  included.
+- An extern func that no C file of its own package defines is an error at
+  its declaration, `extern func write has no C definition in package os`:
+  a definition in another package's C files, or a `static` one, does not
+  count. The driver reads which functions each compiled C file defines
+  from the object file's symbol table, Mach-O on macOS and ELF on Linux,
+  without running another tool. A C file that defines `main` is an error,
+  `tack: helpers.c defines main; a Tack program's main is its Tack main, so
+  no C file may define one`, and so are two C files that define one
+  symbol, function or variable, `tack: two C files define add: a.c and
+  b.c`.
+- Integers and `bool` cross the boundary: each `intN`/`uintN` is C's
+  `intN_t`/`uintN_t`, and `bool` is C's `bool`, in both directions. An
+  extern func takes and returns only those for now, `extern func f cannot
+  pass string to C yet`, `cannot return Point from C yet`, and returns at
+  most one result, `extern func f cannot return several results from C
+  yet`.
+- Extern C is Tack's unsafe: an extern func's declaration is a promise
+  about what its C body does, which the compiler cannot check. The proofs
+  that keep Tack code from dividing by zero or indexing out of range
+  cover nothing on the C side, the result of an extern func is a value
+  nothing is known about, and C can do anything a C program can,
+  including not returning, writing through stray pointers, or defining a
+  symbol the C library or the generated C also uses. tack.h makes clang
+  check that each C definition has the declared types; nothing checks
+  more than that.
+
 ## Tests
 
 ```sh
@@ -831,8 +912,14 @@ go test ./test -update
 
 Every directory under `examples/` is a test case, and so is every case in
 `examples/invalid.txtar`, which exists to pin the diagnostic each malformed
-program produces; `go test ./test -update` also rewrites its expected
-sections. `TestSafetyDoc` keeps [docs/safety.md](docs/safety.md) honest: an
+program produces, and in `examples/invalid-packages.txtar`, for programs of
+several files; `go test ./test -update` also rewrites their expected
+sections. The programs whose problem shows only once their C files are
+compiled, a C file that does not compile or defines what it must not, or
+an extern func no C file defines, are in `examples/invalid-c.txtar`, in the
+same format with the `.c` files among each case's files; the driver's
+tests build each one with clang, and `go test ./tack -run TestInvalidC
+-update` rewrites its expected sections. `TestSafetyDoc` keeps [docs/safety.md](docs/safety.md) honest: an
 HTML comment before each of its examples and quoted diagnostics names the
 case or example that holds it, and the test fails if they disagree.
 

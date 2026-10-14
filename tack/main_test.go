@@ -45,7 +45,8 @@ type fakeToolchain struct {
 func (f fakeToolchain) Name() string { return f.name }
 
 // BuildCmd returns argv with the {src} and {out} placeholders filled in.
-func (f fakeToolchain) BuildCmd(src, out string) []string {
+// The fakes build programs without C files, so there are no objects.
+func (f fakeToolchain) BuildCmd(src string, _ []string, out string) []string {
 	r := strings.NewReplacer("{src}", src, "{out}", out)
 	cmd := make([]string, len(f.argv))
 	for i, a := range f.argv {
@@ -553,6 +554,10 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 				strings.Repeat("switch n {\ncase 1:\n", 500) + strings.Repeat("}\n", 501),
 		},
 		{"truncated defer", "package main\nfunc main() {\n    defer {\n        if f("},
+		{"truncated extern", "package main\nextern func f(a int64"},
+		{"extern alone", "package main\nextern"},
+		{"extern with a body", "package main\nextern func f() {"},
+		{"many externs", "package main\n" + strings.Repeat("extern func f()\n", 500) + "func main() {}\n"},
 		{"defer of nothing", "package main\nfunc main() {\n    defer\n"},
 		{
 			"deep defer nesting",
@@ -762,7 +767,7 @@ func TestTempDirUnusableFails(t *testing.T) {
 		filepath.Join(t.TempDir(), "bin"),
 		example("hello"),
 	)
-	assertFailure(t, r, "failed to create temp file")
+	assertFailure(t, r, "failed to create temp directory")
 }
 
 // buildWithClang compiles examples/<name> with the real c backend into a

@@ -179,11 +179,17 @@ func (c *Checker) Check() []diag.Diagnostic {
 	c.checkExposure(decls)
 
 	for _, decl := range decls {
-		if fn, ok := decl.(*ast.Func); ok {
-			restore := c.enter(fn)
-			c.checkBody(fn)
-			restore()
+		fn, ok := decl.(*ast.Func)
+		if !ok {
+			continue
 		}
+		restore := c.enter(fn)
+		if fn.Extern {
+			c.checkExtern(fn)
+		} else {
+			c.checkBody(fn)
+		}
+		restore()
 	}
 
 	return c.diags

@@ -21,6 +21,18 @@
 // with no such file is an error, not a diagnostic, since there is no source
 // to point into; so is a file or directory that cannot be read.
 //
+// # C files
+//
+// Every package records the directory it was read from, Dir, and the path
+// of every C file directly in it, CFiles: each file whose name ends in .c,
+// in the byte order of their names, leaving out a name that starts with a
+// dot and a directory, as for Tack files. They define the package's extern
+// funcs, and the driver compiles and links them; the loader does not read
+// them. A single file's package has the directory the file is in, and the
+// C files there, whatever other Tack files the directory holds. A single
+// file's directory is not listed when loading stops after lexing or
+// parsing, and one that cannot be listed is an error.
+//
 // # Modules
 //
 // A directory belongs to the module whose root is the nearest directory at
