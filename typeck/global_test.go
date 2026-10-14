@@ -70,7 +70,7 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 		{int64(5), "mut x = 5", types.Int64},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range append(tests, computedGlobals...) {
 		t.Run(tt.decl, func(t *testing.T) {
 			file, diags := checkTree(t, withGlobal(tt.decl))
 			// Only the declaration is under test, not what the program
@@ -86,6 +86,66 @@ func TestFoldsGlobalInitializers(t *testing.T) {
 		})
 	}
 }
+
+// computedGlobals are package-level declarations whose initializers use
+// anything the compiler can compute: fields and elements of immutable
+// globals, len, conversions, comparisons and logical operators on known
+// values, and combinations of them, with the value each computes to.
+var computedGlobals = []struct {
+	want any
+	decl string
+	typ  types.Type
+}{
+	{int64(3), "var x = o.a\n\n" + oDecls, types.Int64},
+	{int64(4), "var x = o.b\n\n" + oDecls, types.Int64},
+	{int64(20), "var x = t[1]\n\nvar t = [3]int64{10, 20, 30}", types.Int64},
+	{int64(30), "var x = t[k]\n\nvar k = 2\n\nvar t = [3]int64{10, 20, 30}", types.Int64},
+	{int64(30), "var x = t[t[0] / 10 + 1]\n\nvar t = [3]int64{10, 20, 30}", types.Int64},
+	{int64(3), "var x = len(t)\n\nvar t = [3]int64{10, 20, 30}", types.Int64},
+	{int64(5), "var x = len(s)\n\nvar s = \"hello\"", types.Int64},
+	{int64(4), "var x = len(m)\n\nmut m [4]int64", types.Int64},
+	{int64(2), "var x = len(m[0])\n\nmut m [3][2]int64", types.Int64},
+	{int64('e'), "var x = s[1]\n\nvar s = \"hello\"", types.Uint8},
+	{int64(7), "var x = int64(int8(7))", types.Int64},
+	{int64(-1), "var x = int64(n)\n\nvar n int8 = -1", types.Int64},
+	{int64(200), "var x = uint8(n * 2)\n\nvar n int64 = 100", types.Uint8},
+	{
+		int64(4), "var x = g[1].b\n\nvar g = [2]P{P{a: 1, b: 2}, P{a: 3, b: 4}}\n\n" + pType,
+		types.Int64,
+	},
+	{int64(2), "var x = n.p.b\n\nvar n = N{p: P{a: 1, b: 2}}\n\n" +
+		"type N struct {\n    p P\n}\n\n" + pType, types.Int64},
+	{"b", "var x = names[1]\n\nvar names = [2]string{\"a\", \"b\"}", types.String},
+	{int64(2), "var x = len(names[1]) + 1\n\nvar names = [2]string{\"a\", \"b\"}", types.Int64},
+	{true, "var x = o.a < o.b && t[0] != 0\n\nvar t = [1]int64{1}\n\n" + oDecls, types.Bool},
+	{
+		false,
+		"var x = o.a > o.b || !(len(t) == 1)\n\nvar t = [1]int64{1}\n\n" + oDecls,
+		types.Bool,
+	},
+	{true, "var x = o == P{a: 3, b: 4}\n\n" + oDecls, types.Bool},
+	{false, "var x = o != o\n\n" + oDecls, types.Bool},
+	{
+		false,
+		"var x = t == [2]string{\"a\", \"c\"}\n\nvar t = [2]string{\"a\", \"b\"}",
+		types.Bool,
+	},
+	{true, "var x = b == true\n\nvar b = 1 < 2", types.Bool},
+	{int64(1), "var x = P{a: 1, b: 2}.a\n\n" + pType, types.Int64},
+	{int64(2), "var x = [2]int64{1, 2}[1]", types.Int64},
+	{
+		int64(8),
+		"var x = c.a * c.b\n\nvar c = o\n\nvar o = P{a: 2, b: 4}\n\n" + pType,
+		types.Int64,
+	},
+}
+
+// pType declares the struct P, with two int64 fields a and b, and
+// oDecls also declares the immutable global o, a P holding 3 and 4.
+const (
+	pType  = "type P struct {\n    a int64\n    b int64\n}"
+	oDecls = "var o = P{a: 3, b: 4}\n\n" + pType
+)
 
 // invalidGlobalPrograms are package-level declarations the checker must
 // reject, with the diagnostics each must produce.
@@ -117,6 +177,77 @@ var invalidGlobalPrograms = []struct {
 		"a call to a function returning nothing",
 		"package main\n\nfunc f() {\n}\n\nvar x = f()\n\nfunc main() {\n    exit(x)\n}\n",
 		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"a field of a mutable global",
+		withGlobal("var x = o.a\n\nmut o = P{a: 3, b: 4}\n\n" + pType),
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"an element of a mutable global",
+		withGlobal("var x = t[0]\n\nmut t = [1]int64{1}"),
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"a mutable index",
+		withGlobal("var x = t[i]\n\nmut i int64 = 0\n\nvar t = [1]int64{1}"),
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"len of a call",
+		"package main\n\nfunc f() string {\n    return \"a\"\n}\n\nvar x = len(f())\n\n" +
+			"func main() {\n    exit(x)\n}\n",
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"a conversion of a call",
+		"package main\n\nfunc f() int64 {\n    return 1\n}\n\nvar x = int8(f())\n\n" +
+			"func main() {\n    exit(x)\n}\n",
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"a builtin that gives nothing",
+		"package main\n\nvar x = exit(1)\n\nfunc main() {\n    exit(x)\n}\n",
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"len of a mutable string", withGlobal("var x = len(s)\n\nmut s = \"abc\""),
+		[]string{"x must be initialized with a constant expression"},
+	},
+	{
+		"a field of a global already reported",
+		withGlobal("var o = P{a: 1 / 0, b: 2}\n\nvar x = o.a\n\n" + pType),
+		[]string{"division by zero in constant expression"},
+	},
+	{
+		"an element of a global already reported",
+		withGlobal("var t = [1]string{1}\n\nvar x = len(t[0]) + 1"),
+		[]string{"cannot use int64 as string in array literal"},
+	},
+	{
+		"an index out of range", withGlobal("var x = t[3]\n\nvar t = [3]int64{1, 2, 3}"),
+		[]string{"index 3 is out of range for [3]int64"},
+	},
+	{
+		"a negative index", withGlobal("var x = t[0 - 1]\n\nvar t = [3]int64{1, 2, 3}"),
+		[]string{"index -1 is out of range for [3]int64"},
+	},
+	{
+		"a string index out of range", withGlobal("var x = s[2]\n\nvar s = \"ab\""),
+		[]string{"index 2 is out of range for a string of 2 bytes"},
+	},
+	{
+		"a conversion that overflows", withGlobal("var x = int8(n)\n\nvar n int64 = 300"),
+		[]string{"constant 300 overflows int8"},
+	},
+	{
+		"arithmetic on a field that overflows",
+		withGlobal("var x = o.a * 2\n\nvar o = Q{a: 100}\n\ntype Q struct {\n    a int8\n}"),
+		[]string{"constant expression overflows int8"},
+	},
+	{
+		"division by a zero element", withGlobal("var x = 10 / t[1]\n\nvar t = [2]int64{1, 0}"),
+		[]string{"division by zero"},
 	},
 	{
 		"overflow on +", withGlobal("var x = 9223372036854775807 + 1"),

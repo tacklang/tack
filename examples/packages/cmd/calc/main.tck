@@ -7,6 +7,12 @@ import one from "calc/chain/one"
 // counts is sized by another package's global.
 mut counts [lexer.MaxTokens]int64
 
+// corner, far and atOrigin are computed at compile time from elements and
+// fields of another package's globals.
+var corner = geom.Corners[1].x
+var far = geom.Corners[len(geom.Corners) - 1].y * lexer.MaxTokens
+var atOrigin = geom.Corners[0] == geom.Origin && geom.Origin.y == 0
+
 // size shares its name with a function of every library package.
 func size() int64 {
     return 8
@@ -52,6 +58,7 @@ func main() {
     w := t
     check(w == t && z != t && lexer.First("7") == t && lexer.First("+") != t, 13)
     check(lexer.Width(t) == 1, 14)
+    check(corner == 4 && far == 8 && atOrigin, 16)
 
     print("packages ok\n")
     exit(counts[3] + lexer.Size() + geom.Size() + one.Depth())

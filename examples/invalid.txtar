@@ -1787,6 +1787,25 @@ global-clash-func/main.tck:3:6: note: previous declaration of limit
    |	     ^~~~~
 04 |	}
 
+-- global-conversion-overflow/main.tck --
+package main
+
+var big int64 = 300
+var small = int8(big)
+
+func main() {
+    exit(small)
+}
+-- global-conversion-overflow/expected --
+stage: typeck
+---
+
+global-conversion-overflow/main.tck:4:18: error: constant 300 overflows int8
+03 |	var big int64 = 300
+04 |	var small = int8(big)
+   |	                 ^~~
+05 |	
+
 -- global-div-zero/main.tck --
 package main
 
@@ -1804,6 +1823,112 @@ global-div-zero/main.tck:3:13: error: division by zero in constant expression
 03 |	var ratio = 10 / (5 - 5)
    |	            ^~~~~~~~~~~~
 04 |	
+
+-- global-div-zero-element/main.tck --
+package main
+
+var divisors = [2]int64{1, 0}
+var ratio = 10 / divisors[1]
+
+func main() {
+    exit(ratio)
+}
+-- global-div-zero-element/expected --
+stage: typeck
+---
+
+global-div-zero-element/main.tck:4:18: error: division by zero
+03 |	var divisors = [2]int64{1, 0}
+04 |	var ratio = 10 / divisors[1]
+   |	                 ^~~~~~~~~~~
+05 |	
+
+-- global-field-overflow/main.tck --
+package main
+
+type Limits struct {
+    max int8
+}
+
+var limits = Limits{max: 100}
+var twice = limits.max * 2
+
+func main() {
+    exit(twice)
+}
+-- global-field-overflow/expected --
+stage: typeck
+---
+
+global-field-overflow/main.tck:8:13: error: constant expression overflows int8
+07 |	var limits = Limits{max: 100}
+08 |	var twice = limits.max * 2
+   |	            ^~~~~~~~~~~~~~
+09 |	
+
+-- global-index-mutable-index/main.tck --
+package main
+
+var table = [3]int64{1, 2, 3}
+
+mut i int64 = 0
+
+var picked = table[i]
+
+func main() {
+    i++
+    exit(picked)
+}
+-- global-index-mutable-index/expected --
+stage: typeck
+---
+
+global-index-mutable-index/main.tck:7:14: error: picked must be initialized with a constant expression
+06 |	
+07 |	var picked = table[i]
+   |	             ^~~~~~~~
+08 |	
+
+-- global-index-out-of-range/main.tck --
+package main
+
+var table = [3]int64{1, 2, 3}
+var past = table[len(table)]
+
+func main() {
+    exit(past)
+}
+-- global-index-out-of-range/expected --
+stage: typeck
+---
+
+global-index-out-of-range/main.tck:4:18: error: index 3 is out of range for [3]int64
+03 |	var table = [3]int64{1, 2, 3}
+04 |	var past = table[len(table)]
+   |	                 ^~~~~~~~~~
+05 |	
+
+-- global-len-of-call/main.tck --
+package main
+
+func name() string {
+    return "tack"
+}
+
+var n = len(name())
+
+func main() {
+    exit(n)
+}
+-- global-len-of-call/expected --
+stage: typeck
+---
+
+global-len-of-call/main.tck:7:9: error: n must be initialized with a constant expression
+06 |	
+07 |	var n = len(name())
+   |	        ^~~~~~~~~~~
+08 |	
 
 -- global-not-constant/main.tck --
 package main
@@ -1845,6 +1970,31 @@ global-overflow/main.tck:3:11: error: constant 9223372036854775808 overflows int
    |	          ^~~~~~~~~~~~~~~~~~~~~~~
 04 |	
 
+-- global-select-mutable/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+mut origin = Point{x: 1}
+
+var x = origin.x
+
+func main() {
+    origin.x = 2
+    exit(x)
+}
+-- global-select-mutable/expected --
+stage: typeck
+---
+
+global-select-mutable/main.tck:9:9: error: x must be initialized with a constant expression
+08 |	
+09 |	var x = origin.x
+   |	        ^~~~~~~~
+10 |	
+
 -- global-shadowed/main.tck --
 package main
 
@@ -1885,6 +2035,25 @@ global-short-decl/main.tck:3:1: error: expected 'func' found 'limit'
 03 |	limit := 10
    |	^
 04 |	
+
+-- global-string-index-out-of-range/main.tck --
+package main
+
+var word = "ab"
+var third = word[2]
+
+func main() {
+    exit(third)
+}
+-- global-string-index-out-of-range/expected --
+stage: typeck
+---
+
+global-string-index-out-of-range/main.tck:4:18: error: index 2 is out of range for a string of 2 bytes
+03 |	var word = "ab"
+04 |	var third = word[2]
+   |	                 ^
+05 |	
 
 -- global-type-names-itself/main.tck --
 package main
@@ -6082,6 +6251,34 @@ switch-duplicate-case/main.tck:9:20: note: previous case
 09 |	    case 4, 1 + 1, three:
    |	                   ^~~~~
 10 |	        exit(2)
+
+-- switch-duplicate-global-element/main.tck --
+package main
+
+var table = [2]int64{7, 7}
+
+func main() {
+    switch 7 {
+    case table[0]:
+        exit(1)
+    case table[1]:
+        exit(2)
+    }
+}
+-- switch-duplicate-global-element/expected --
+stage: typeck
+---
+
+switch-duplicate-global-element/main.tck:9:10: error: duplicate case 7 in switch
+08 |	        exit(1)
+09 |	    case table[1]:
+   |	         ^~~~~~~~
+10 |	        exit(2)
+switch-duplicate-global-element/main.tck:7:10: note: previous case
+06 |	    switch 7 {
+07 |	    case table[0]:
+   |	         ^~~~~~~~
+08 |	        exit(1)
 
 -- switch-duplicate-string-case/main.tck --
 package main

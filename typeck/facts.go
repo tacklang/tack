@@ -152,7 +152,10 @@ func typeBounds(typ types.Type) (lo, hi constant.Int) {
 // knownValue returns the value of e when the checker knows it: a constant
 // expression, len of an array or of a known string (see knownString), an
 // immutable variable initialized with one, at package level or in a
-// function, or arithmetic on known values whose exact result is a value of
+// function, a field or an element of a known struct or array, such as a
+// field of an immutable global, or a byte of a known string, at a known
+// index (see foldPart), a conversion of a known value that is a value of
+// its type, or arithmetic on known values whose exact result is a value of
 // its type, as in len(a) - 1.
 func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	if v, ok := constValue(e); ok {
@@ -162,7 +165,11 @@ func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	case *ast.Binary:
 		return c.knownArithmetic(x)
 	case *ast.Call:
-		return c.knownStringLen(x)
+		return c.knownCall(x)
+	case *ast.Selector, *ast.Index:
+		v, ok := c.foldPart(x)
+		k, isInt := v.(constant.Int)
+		return k, ok && isInt
 	case *ast.Unary:
 		v, ok := c.knownValue(x.X)
 		if !ok || x.Op != ast.Neg {
@@ -205,6 +212,29 @@ func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	return value, known
 }
 
+// knownCall returns the value of a call when it is known: a conversion of
+// a known value, or len of a known string.
+func (c *Checker) knownCall(call *ast.Call) (constant.Int, bool) {
+	if call.Conv != types.Invalid {
+		return c.knownConversion(call)
+	}
+	return c.knownStringLen(call)
+}
+
+// knownConversion returns the value of a conversion T(x) of a known value
+// x that is a value of the integer type T, which is that value. One that
+// is not has no value, and was reported when the conversion was checked.
+func (c *Checker) knownConversion(call *ast.Call) (constant.Int, bool) {
+	if len(call.Args) != 1 || !types.IsInteger(call.Conv) {
+		return constant.Int{}, false
+	}
+	v, ok := c.knownValue(call.Args[0])
+	if !ok || !v.Fits(types.Bits(call.Conv), !types.IsUnsigned(call.Conv)) {
+		return constant.Int{}, false
+	}
+	return v, true
+}
+
 // knownStringLen returns the length of the string call takes the len of,
 // when call is len(s) and s is a known string. len of a literal is already
 // a constant, recorded on the call; this adds an immutable variable
@@ -220,29 +250,40 @@ func (c *Checker) knownStringLen(call *ast.Call) (constant.Int, bool) {
 }
 
 // knownString returns the value of e when it is a string the checker
-// knows: a literal, or an immutable variable, local or package-level,
-// initialized with a known string. Such a variable always holds that
+// knows: a literal, an immutable variable, local or package-level,
+// initialized with a known string, or a field or an element of a known
+// struct or array (see foldPart). Such a variable always holds that
 // string, since nothing can assign it. A mutable variable, a parameter and
 // a call are never known.
 func (c *Checker) knownString(e ast.Expr) (string, bool) {
 	switch x := e.(type) {
 	case *ast.StrLit:
 		return x.Value, true
+	case *ast.Selector, *ast.Index:
+		v, ok := c.foldPart(x)
+		s, isString := v.(string)
+		return s, ok && isString
 	case *ast.Ident:
-		v, ok := x.Def.(*ast.Var)
-		if !ok || v.Mutable || v.Type != types.String {
-			return "", false
-		}
-		if s, ok := v.Const.(string); ok {
-			return s, true
-		}
-		if v.Value == nil {
-			return "", false
-		}
-		return c.knownString(v.Value)
+		return c.knownStringVar(x)
 	default:
 		return "", false
 	}
+}
+
+// knownStringVar returns the string the variable id names holds, when it
+// is immutable and initialized with a known string.
+func (c *Checker) knownStringVar(id *ast.Ident) (string, bool) {
+	v, ok := id.Def.(*ast.Var)
+	if !ok || v.Mutable || v.Type != types.String {
+		return "", false
+	}
+	if s, ok := v.Const.(string); ok {
+		return s, true
+	}
+	if v.Value == nil {
+		return "", false
+	}
+	return c.knownString(v.Value)
 }
 
 // knownLen returns the length of s, in bytes, when s is a known string.

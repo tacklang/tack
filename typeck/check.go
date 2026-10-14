@@ -732,11 +732,15 @@ func (c *Checker) checkVar(v *ast.Var) {
 }
 
 // checkGlobal checks a package-level variable like a local, and also
-// requires its initializer to be a constant expression, which it evaluates
-// into v.Const. A global without a value takes its type's zero value.
+// requires its initializer to be a constant expression, one the compiler
+// can compute, which it evaluates into v.Const. An initializer that calls
+// anything but len or a conversion, or names a mutable global, is
+// reported before it is checked, since the functions it could call have
+// no signatures yet. A global without a value takes its type's zero
+// value.
 func (c *Checker) checkGlobal(v *ast.Var) {
 	if v.Value != nil && !c.isConstant(v.Value) {
-		c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
+		c.notConstant(v)
 		if v.TypeExpr != nil {
 			v.Type = c.declaredType(v.TypeExpr)
 		}
@@ -753,31 +757,82 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 		v.Const = zeroConst(v.Type)
 		return
 	}
-	if value, ok := c.fold(v.Value); ok {
-		v.Const = value
+	value, ok := c.fold(v.Value)
+	if !ok {
+		if !c.namesFailedGlobal(v.Value) {
+			c.notConstant(v)
+		}
+		return
 	}
+	v.Const = value
+}
+
+// namesFailedGlobal reports whether e names an immutable global with no
+// computed value, whose initializer has been reported, so that e having no
+// value either is not reported again.
+func (c *Checker) namesFailedGlobal(e ast.Expr) bool {
+	found := false
+	ast.Walk(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			if g := c.constantGlobal(id); g != nil && g.Const == nil {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// notConstant reports that the initializer of the global v is not a
+// constant expression.
+func (c *Checker) notConstant(v *ast.Var) {
+	c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
 }
 
 // isConstant reports whether e is built only from literals, names of
 // immutable package-level variables, of its own package or an imported
-// one, and operators, array and struct literals of them included. A
-// mutable global is never constant, since any function can change it.
+// one, operators, array and struct literals, fields and elements, len and
+// conversions, all of them of such parts, except that len may take
+// anything that calls nothing, since an array's length is its type's,
+// whatever holds it. A call to anything else, a function or a builtin, is
+// never constant, since nothing runs before main to compute it, and a
+// mutable global never is, since any function can change it. Whether the
+// expression's value can be computed is found once it is checked, by fold.
 func (c *Checker) isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 		return true
 	case *ast.Ident:
 		return c.constantGlobal(x) != nil
+	case *ast.Call:
+		if isLen(x) && len(x.Args) == 1 && !hasCall(x.Args[0]) {
+			return true
+		}
+		return (x.Conv != types.Invalid || isLen(x)) && c.allConstant(x.Args)
+	}
+	parts, ok := subExprs(e)
+	return ok && c.allConstant(parts)
+}
+
+// subExprs returns the operands of e when it is an operator, a literal of
+// an array or a struct, one of its keyed elements, a field or an element,
+// and false for anything else.
+func subExprs(e ast.Expr) ([]ast.Expr, bool) {
+	switch x := e.(type) {
 	case *ast.KeyValue:
-		return c.isConstant(x.Value)
+		return []ast.Expr{x.Value}, true
 	case *ast.CompositeLit:
-		return c.allConstant(x.Elems)
+		return x.Elems, true
 	case *ast.Binary:
-		return c.isConstant(x.X) && c.isConstant(x.Y)
+		return []ast.Expr{x.X, x.Y}, true
 	case *ast.Unary:
-		return c.isConstant(x.X)
+		return []ast.Expr{x.X}, true
+	case *ast.Selector:
+		return []ast.Expr{x.X}, true
+	case *ast.Index:
+		return []ast.Expr{x.X, x.Index}, true
 	default:
-		return false
+		return nil, false
 	}
 }
 
@@ -820,7 +875,8 @@ func zeroConst(typ types.Type) any {
 // fold returns the value of a checked constant expression: a constant.Int,
 // computed exactly as it was checked, a string, a bool, or an array's
 // elements, or a struct's fields in declaration order, as a []any of
-// those. A bool expression
+// those. A field or an element is computed from the struct or array it is
+// part of (foldPart). A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
 // since any error on either side has already been reported. Arithmetic in
 // a type of its own, as on character literals, gives a value of that type
@@ -846,8 +902,55 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.foldBoolBinary(x)
 	case *ast.Unary:
 		return c.foldNot(x)
+	case *ast.Selector, *ast.Index:
+		return c.foldPart(x)
 	}
 	return nil, false
+}
+
+// foldPart computes a field or an element whose struct, array or string is
+// known: a literal of constants, the value of an immutable global, or a
+// part of one. An element's index must be a known value in range, and a
+// string's byte is a constant.Int. A part of anything else, a local's
+// included, has no value here.
+func (c *Checker) foldPart(e ast.Expr) (any, bool) {
+	if sel, ok := e.(*ast.Selector); ok {
+		base, ok := c.fold(sel.X)
+		fields, isStruct := base.([]any)
+		_, i, found := c.table.Field(ast.TypeOf(sel.X), sel.Name)
+		if !ok || !isStruct || !found || i >= len(fields) {
+			return nil, false
+		}
+		return fields[i], true
+	}
+	ix, ok := e.(*ast.Index)
+	if !ok {
+		return nil, false
+	}
+	i, ok := c.knownValue(ix.Index)
+	if !ok || i.IsNegative() || !i.Fits(64, true) {
+		return nil, false
+	}
+	return c.foldElement(ix.X, i.Int64())
+}
+
+// foldElement computes element i, not negative, of x, a known array or
+// string: a string's byte as a constant.Int, and an array's element as
+// fold gives it. An index past the end has no value.
+func (c *Checker) foldElement(x ast.Expr, i int64) (any, bool) {
+	if ast.TypeOf(x) == types.String {
+		s, ok := c.knownString(x)
+		if !ok || i >= int64(len(s)) {
+			return nil, false
+		}
+		return constant.FromInt64(int64(s[i])), true
+	}
+	base, ok := c.fold(x)
+	elems, isArray := base.([]any)
+	if !ok || !isArray || i >= int64(len(elems)) {
+		return nil, false
+	}
+	return elems[i], true
 }
 
 // foldLeaf computes e, a string or bool literal, or the name of an
@@ -906,19 +1009,23 @@ func (c *Checker) foldElems(lit *ast.CompositeLit) (any, bool) {
 }
 
 // foldBoolBinary computes an operator that gives a bool, on two bool
-// constants or a comparison of two integer or two string ones, folding both
-// sides first; strings only in a package-level initializer. It records no
-// Binary.Const.
+// constants, or a comparison of two integer or two string ones, or ==
+// and != on two bools, arrays or structs, folding both sides first;
+// strings, alone or in an array or a struct, only in a package-level
+// initializer. It records no Binary.Const.
 func (c *Checker) foldBoolBinary(bin *ast.Binary) (any, bool) {
 	left, okL := c.fold(bin.X)
 	right, okR := c.fold(bin.Y)
 	if !okL || !okR {
 		return nil, false
 	}
-	if bin.Op.IsComparison() {
-		if cmp, ok := c.compareConsts(left, right); ok {
-			return compare(bin.Op, cmp), true
-		}
+	switch {
+	case bin.Op == ast.Eq || bin.Op == ast.Ne:
+		equal, ok := c.equalConsts(left, right)
+		return equal == (bin.Op == ast.Eq), ok
+	case bin.Op.IsComparison():
+		cmp, ok := c.compareConsts(left, right)
+		return compare(bin.Op, cmp), ok
 	}
 	l, isBoolL := left.(bool)
 	r, isBoolR := right.(bool)
@@ -944,6 +1051,34 @@ func (c *Checker) compareConsts(left, right any) (int, bool) {
 		return strings.Compare(a, b), true
 	}
 	return 0, false
+}
+
+// equalConsts reports whether two constants of one type are equal, and
+// whether it could tell: two bools, two arrays or two structs, element by
+// element or field by field, or two integers or strings as compareConsts
+// compares them.
+func (c *Checker) equalConsts(left, right any) (equal, ok bool) {
+	switch a := left.(type) {
+	case bool:
+		b, isBool := right.(bool)
+		return a == b, isBool
+	case []any:
+		b, isComposite := right.([]any)
+		if !isComposite || len(a) != len(b) {
+			return false, false
+		}
+		equal = true
+		for i := range a {
+			same, known := c.equalConsts(a[i], b[i])
+			if !known {
+				return false, false
+			}
+			equal = equal && same
+		}
+		return equal, true
+	}
+	cmp, ok := c.compareConsts(left, right)
+	return cmp == 0, ok
 }
 
 // foldBools applies an operator to two bool constants.

@@ -1592,6 +1592,37 @@ imported-mutable-in-initializer/main.tck:5:15: error: Count is not pub in packag
    |	              ^~~~~~~~~~~
 06 |	
 
+-- init-selects-hidden-field/tack.mod --
+module calc
+-- init-selects-hidden-field/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+
+pub var Eof = Token{kind: 3, end: 0}
+-- init-selects-hidden-field/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+var end = lexer.Eof.end
+
+func main() {
+    exit(end)
+}
+-- init-selects-hidden-field/expected --
+stage: typeck
+---
+
+init-selects-hidden-field/main.tck:5:21: error: end is not pub in lexer.Token
+04 |	
+05 |	var end = lexer.Eof.end
+   |	                    ^~~
+06 |	
+
 -- lex-errors-in-two-files/tack.mod --
 module lex-errors-in-two-files
 -- lex-errors-in-two-files/a.tck --

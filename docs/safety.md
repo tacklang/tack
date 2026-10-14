@@ -155,11 +155,15 @@ knows the value of:
 
 - a constant expression: literals and operators on them;
 - a character literal, such as `'a'`;
-- `len` of an array, and `len` of a known string: a string literal, or an
+- `len` of an array, and `len` of a known string: a string literal, an
   immutable variable, local or package-level, initialized with a known
-  string;
+  string, or a string field or element of an immutable global;
 - an immutable variable, local or package-level, whose initializer is a
   known value, as in `last := len(a) - 1` or `var k int64 = 1`;
+- a field of an immutable global, `origin.x`, an element of one at a known
+  index, `table[0]`, and a byte of a known string at a known index, and
+  the same of a literal of known values;
+- a conversion of a known value that fits its type, such as `int8(k)`;
 - arithmetic on known values, such as `len(a) - 1`.
 
 A mutable variable, a parameter and a call never have a known value, and
@@ -324,7 +328,7 @@ form, <!-- error: safety-no-proof-mutable-global -->`divisor g may be zero; use 
 with a note at its
 declaration: <!-- note: safety-no-proof-mutable-global -->`g is a mutable global, so no check proves it; copy it into a local first`.
 An **immutable** global always has a known value, since its initializer
-is a constant.
+is a constant expression, and so do its fields and elements.
 
 **Deferred code** is checked with the facts in force where the `defer` is
 written. The region those facts hold in takes in the rest of the defer's

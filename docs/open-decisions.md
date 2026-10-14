@@ -64,12 +64,3 @@ Decided, not yet implemented: a field of an immutable variable is to
 carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
 `p` is immutable. It is to be implemented with pointers. Today a field
 never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
-
-## Constant initializers and the parts of a global
-
-A package-level initializer may name an immutable global, `var b = a + 1`,
-but not select a field of one or index one, `var b = origin.x`,
-`var c = table[0]`, which are reported as not constant. Both have a value
-known at compile time. Options: allow field selection and constant
-indexes of immutable globals in initializers, or keep initializers to
-names and operators.

@@ -319,10 +319,11 @@ makes for itself, which has a letter after `tack_`.
   standard library. Every import is checked, so one run reports each bad
   one.
 - A package-level variable's initializer may name any immutable global, of
-  its own package or an imported one, declared before or after it: `var
-  KindPlus = KindNumber + 1`, `var Limit = lexer.KindPlus * 10`. Selecting
-  a field of one or indexing one is not allowed there, and a mutable global
-  is never allowed. Globals that need each other are an `initialization
+  its own package or an imported one, declared before or after it, and
+  select its fields and index it: `var KindPlus = KindNumber + 1`, `var
+  Limit = lexer.KindPlus * 10`, `var x = geom.Corners[1].x` (see
+  package-level variables). A mutable global is never allowed, except
+  under `len` of an array. Globals that need each other are an `initialization
   cycle: a refers to b refers to a`. A type of another package is named
   qualified in a diagnostic, `cannot use lexer.Token as int64`.
 - A line ends at a newline, `\n`, or a carriage return and newline,
@@ -520,17 +521,37 @@ makes for itself, which has a letter after `tack_`.
   zero value, as `mut` does for any type. Two structs of one type compare
   with `==` and `!=`, field by field, a string field by its bytes, and a
   struct with no fields is always equal to another. Structs are not
-  ordered: `<` on two structs is an error. Structs may be package-level variables,
-  initialized with a literal of constants. A field never carries a fact
-  for a proof: `if p.d != 0 { n / p.d }` is still an error, and needs
+  ordered: `<` on two structs is an error. Structs may be package-level
+  variables, initialized with a constant expression (see package-level
+  variables). A field of an immutable global is a known value, so `n /
+  origin.d` compiles when `origin.d` is not zero, but a field never
+  carries a fact for a proof: `if p.d != 0 { n / p.d }` is still an error, and needs
   `q, ok := n / p.d`, or the field copied into a variable the guard then
   names, as in `d := p.d` and `if d != 0`.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
-  initialized with a constant expression, made only of literals and
-  operators, array and struct literals of them included, which the compiler
-  computes; overflow and division by zero in
-  one are compile errors. It can be used from any function, whatever the
+  initialized with a constant expression, which the compiler computes:
+  nothing runs before `main`. A constant expression is one built only from
+  - literals: integer, character, string and bool;
+  - names of immutable globals, of the package or of an import, declared
+    before or after;
+  - array and struct literals of constant expressions;
+  - a field of a constant expression, `origin.x`, an element of one at a
+    constant index, `table[0]` or `table[len(table) - 1]`, and a byte of a
+    constant string, `word[0]`; an index out of range is the usual error,
+    `index 3 is out of range for [3]int64`;
+  - `len` of a constant expression, and `len` of any array, even a mutable
+    one, whose length is its type's, as long as computing it calls nothing;
+  - a conversion `T(x)` of a constant expression, which, as anywhere, must
+    give a value of `T`;
+  - arithmetic, comparisons, `&&`, `||` and `!` on constant expressions,
+    strings, arrays and structs comparing as they do at run time.
+
+  Anything else is `x must be initialized with a constant expression`: a
+  call to a function, or to a builtin other than `len`, and a mutable
+  global outside `len` of an array. Overflow and division by zero in a
+  constant expression are compile errors, as for any known value (see
+  arithmetic). A global can be used from any function, whatever the
   order of declarations, and shares one namespace with functions and
   builtins.
 - A variable is in scope from its declaration to the end of its block. No
@@ -553,7 +574,8 @@ makes for itself, which has a letter after `tack_`.
   remainder 0. Only a value the compiler does not know wraps: arithmetic
   whose operands are all known values (a constant, a character literal, an
   immutable variable holding one, `len` of an array or of a known string,
-  or arithmetic on those) must give a value of its type at every step, in
+  a field or element of an immutable global, or arithmetic on those; see
+  division) must give a value of its type at every step, in
   a function as at package level, or it is an error,
   `constant expression overflows uint8`, covering the step that overflowed.
   So `x := 'a' * 3` is an error, and so are `-m`, `m - 1` and `m / -1`
@@ -571,8 +593,8 @@ makes for itself, which has a letter after `tack_`.
   byte like any other, and a byte from 0x80 up sorts after every ASCII
   byte, so `"é" > "z"`. Nothing is allocated. Inside a function, a
   comparison of two string literals is made at run time; in a
-  package-level variable's initializer, a comparison of string literals or
-  of immutable globals holding strings is computed at compile time, so `var
+  package-level variable's initializer, a comparison of known strings, or
+  of arrays or structs holding them, is computed at compile time, so `var
   x = "a" == "a"` is `true`.
 - Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
   compile only where the compiler can prove `b` is not zero; a constant zero
@@ -602,8 +624,12 @@ makes for itself, which has a letter after `tack_`.
   proves `b != 0`, and `i == 0 || i == 1` proves `i` between 0 and 1, but
   `b < 0 || x` proves nothing about `b`. A known value is a constant,
   an immutable variable holding one, `len` of an array or of a known
-  string (a string literal, or an immutable variable holding a known
-  string), or arithmetic on those. The variable must be a
+  string (a string literal, an immutable variable holding a known string,
+  or a string field or element of an immutable global), a field of an
+  immutable global or an element of one at a known index, as `origin.x`
+  or `table[0]`, a byte of a known string at a known index, a conversion
+  of a known value that fits its type, or arithmetic on those. The
+  variable must be a
   parameter, a local, or an immutable global, and the region must not assign
   it anywhere, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
@@ -638,8 +664,9 @@ makes for itself, which has a letter after `tack_`.
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
-  constant: a constant expression, an immutable variable holding one, or
-  `len` of an array or of a known string. In a struct field's type, `n`
+  known value (see division), such as a constant expression, an immutable
+  variable holding one, `len` of an array or of a known string, or a field
+  of an immutable global. In a struct field's type, `n`
   names no variable (see structs). `[3]int64{1, 2, 3}` is a literal,
   which lists exactly one element for each of the array's, and
   `[...]int64{1, 2, 3}` takes its length from its elements. A literal
@@ -650,8 +677,9 @@ makes for itself, which has a letter after `tack_`.
   follows its variable, so `a[i] = v` needs `a` to be `mut`, and assigning
   an element does not count as reading `a`. Two arrays of one type compare
   with `==` and `!=`, element by element, strings included; `<` on two
-  arrays is an error. Arrays may be package-level variables, initialized with a
-  literal of constants. There are no slices yet.
+  arrays is an error. Arrays may be package-level variables, initialized
+  with a constant expression (see package-level variables). There are no
+  slices yet.
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
   type. An index is never out of range at runtime. `a[i]`, and an
   assignment to it, compile only where the compiler proves `i` in range: a
@@ -693,9 +721,8 @@ makes for itself, which has a letter after `tack_`.
   is intended, not a gap. Convert it first, `i, ok := int64(u)`, and prove
   `i`, or use the two-value form.
 - `len(a)` is the number of elements of an array, a constant, and `len(s)`
-  the number of bytes of a string, a known value for a string literal or an
-  immutable variable holding a known string; either
-  is an `int64`.
+  the number of bytes of a string, a known value for a known string (see
+  division); either is an `int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of

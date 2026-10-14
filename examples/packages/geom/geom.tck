@@ -22,6 +22,10 @@ pub var Origin = Point{x: 0, y: 0}
 // Limit is computed from another package's global.
 pub var Limit int64 = lexer.KindPlus * 10
 
+// Corners is computed from a field of Origin and globals of another
+// package, and read from main through an element and a field.
+pub var Corners = [2]Point{Origin, Point{x: Origin.x + lexer.MaxTokens, y: lexer.KindPlus}}
+
 // Area takes and returns types of its own package and another's.
 pub func Area(b Box) int64 {
     q, r := text.divmod(b.max.x - b.min.x, 1)

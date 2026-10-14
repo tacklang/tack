@@ -1031,6 +1031,20 @@ func TestBuiltStringGlobalsExits42(t *testing.T) {
 	}
 }
 
+// The computed-globals example initializes globals with fields and
+// elements of immutable globals, len, conversions, comparisons and logical
+// operators on known values, and checks each value, and uses fields and
+// elements of immutable globals as known values in functions, so its
+// status is 42 only if all of them hold.
+func TestBuiltComputedGlobalsExits42(t *testing.T) {
+	bin := buildWithClang(t, "computed-globals")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("computed-globals exited with %v, want status 42", err)
+	}
+}
+
 // The comments example puts comments before the package clause, after
 // every statement form, inside expressions, argument lists, result lists
 // and array literals that span lines, and at the end of the file with no

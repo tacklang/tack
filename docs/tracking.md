@@ -57,7 +57,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
-| Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; constant initializers, which may name immutable globals of the package or an import, computed at compile time; usable from any function |
+| Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; initializers are constant expressions computed at compile time: immutable globals of the package or an import, their fields and elements, `len`, conversions, operators and comparisons; no calls; usable from any function |
 | Methods                  | yes   | no     | no      | no  | Rejected with a diagnostic, declared or called                                              |
 
 ### Statements

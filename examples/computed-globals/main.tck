@@ -1,0 +1,94 @@
+package main
+
+// Every initializer here is computed at compile time: fields and elements
+// of immutable globals, with constant or known indexes, len of any array
+// and of known strings, conversions, comparisons and logical operators on
+// known values, and combinations of them. main checks each value, so the
+// status is 42 only if all of them are right.
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Segment struct {
+    start Point
+    end Point
+}
+
+var origin = Point{x: 3, y: 4}
+var seg = Segment{start: origin, end: Point{x: 6, y: 8}}
+var table = [4]int64{10, 20, 30, 40}
+var names = [3]string{"zero", "one", "two"}
+var word = "tack"
+var small int8 = -7
+
+var ox = origin.x
+var dy = seg.end.y - seg.start.y
+var first = table[0]
+var last = table[len(table) - 1]
+var known = table[ox - 2]
+var nested = table[table[0] / 10]
+var count = len(table)
+var wordLen = len(word)
+var nameLen = len(names[2])
+var byteT = word[0]
+var widened = int64(small)
+var narrowed = uint8(table[3] * 6)
+var ordered = origin.x < origin.y && first != 0
+var either = len(names) == 2 || !(ox > 5)
+var same = origin == Point{x: 3, y: 4}
+var differ = seg.start != seg.end
+var arraysEqual = names == [3]string{"zero", "one", "two"}
+var picked = Point{x: 1, y: 2}.y + [2]int64{5, 6}[1]
+var copied = seg
+var deep = copied.end.x * 7
+
+// offsets is sized by a field of an immutable global. Its length is its
+// type's, so it is known though offsets is mutable.
+mut offsets [origin.y]int64
+var slots = len(offsets)
+
+// check exits with status when ok is false.
+func check(ok bool, status int64) {
+    if !ok {
+        exit(status)
+    }
+}
+
+// pick switches on a value with cases that are elements and fields of
+// immutable globals.
+func pick(v int64) int64 {
+    switch v {
+    case table[0]:
+        return 1
+    case origin.x, origin.y:
+        return 2
+    }
+    return 3
+}
+
+func main() {
+    check(ox == 3, 1)
+    check(dy == 4, 2)
+    check(first == 10 && last == 40, 3)
+    check(known == 20, 4)
+    check(nested == 20, 5)
+    check(count == 4 && wordLen == 4 && nameLen == 3, 6)
+    check(byteT == 't', 7)
+    check(widened == -7, 8)
+    check(narrowed == 240, 9)
+    check(ordered, 10)
+    check(either, 11)
+    check(same && differ && arraysEqual, 12)
+    check(picked == 8, 13)
+    check(deep == 42, 14)
+    check(len(offsets) == 4 && slots == 4, 15)
+
+    // A field or an element of an immutable global is a known value in a
+    // function too: it proves a divisor and an index.
+    check(100 / table[1] == 5, 16)
+    check(table[origin.x] == 40, 17)
+    check(pick(10) == 1 && pick(4) == 2 && pick(5) == 3, 18)
+    exit(deep)
+}

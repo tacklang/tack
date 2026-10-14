@@ -46,14 +46,27 @@
 //
 // Package-level variables are checked before any body, so their types
 // are known in every function. A global's initializer must be a constant
-// expression, made only of literals, names of immutable globals of its own
-// package or an imported one, and operators, and the checker records its
-// value in Var.Const. A global named in an initializer is checked first, on
-// first need, so the order of declarations does not matter, and one needed
-// while it is being checked closes an initialization cycle, reported with
-// every global on it, a refers to b refers to a. A mutable global is never
-// constant. A global's known value is its Const, never its initializer
-// followed again, so a cycle cannot be followed forever.
+// expression, one the checker can compute, and the checker records its
+// value in Var.Const. It is checked in two steps. Before it is checked,
+// isConstant requires it to be built only from literals, names of
+// immutable globals of its own package or an imported one, operators,
+// array and struct literals, fields, elements, conversions and len, with
+// len taking anything that calls nothing, since an array's length is its
+// type's; anything else, a call to a function or another builtin above
+// all, is reported then, since no function has a signature yet. Once it
+// has checked without errors, fold computes it, and an initializer it
+// cannot compute, such as len of a mutable string, is reported with the
+// same error, unless it names a global whose own initializer was reported
+// and so has no value. fold computes a field or an element from the value of the
+// struct, array or string it is part of (foldPart), at an index that is a
+// known value, which checking has already found in range. A global named
+// in an initializer is checked first, on first need, so the order of
+// declarations does not matter, and one needed while it is being checked
+// closes an initialization cycle, reported with every global on it, a
+// refers to b refers to a. A mutable global is never constant, though len
+// of one that is an array is. A global's known value is its Const, never
+// its initializer followed again, so a cycle cannot be followed forever,
+// and the known value of its field or element is taken from that Const.
 //
 // Visibility. A field of a struct of another package is used by name, read,
 // written or named in a literal, only if it is visible from the package
@@ -147,9 +160,10 @@
 // of one type compare with == and != when every field's type does.
 //
 // Array types are added to the Table as they are written, so [3]int64
-// written twice is one type. An array's length must be a constant: a
+// written twice is one type. An array's length must be a known value: a
 // constant expression, len of an array or of a known string, an immutable
-// variable holding one, or arithmetic on those; knownValue computes it. A
+// variable holding one, a field or an element of an immutable global, a
+// conversion of one, or arithmetic on those; knownValue computes it. A
 // literal lists exactly one element for each of the array's, none with a
 // key, and a literal inside it may leave out its type, an array's or a
 // struct's, which is then the element type. An index
@@ -159,9 +173,10 @@
 // allowed where one exists; only a constant index out of range is reported.
 //
 // A string is indexed the same way, s[i] giving a uint8, but its length is
-// known only for a known string (knownString): a literal, or an immutable
+// known only for a known string (knownString): a literal, an immutable
 // variable, local or package-level, initialized with a known string, which
-// nothing can assign. Any other string's length is not, so the facts also
+// nothing can assign, or a string field or element of an immutable global.
+// Any other string's length is not, so the facts also
 // bound a string variable's length (len(s) > 0) and bound a variable by one
 // (i < len(s), or a range loop over len(s) or over s). Such a fact holds
 // only in a region that assigns neither variable, and string.go uses it to
@@ -171,7 +186,10 @@
 // strings compare with all six comparison operators, by their bytes; a
 // comparison of strings gives no fact, and is computed only in a
 // package-level variable's initializer, where its operands are constant:
-// in a function it is left to run time, even of two literals.
+// in a function it is left to run time, even of two literals. The same
+// holds for == and != on arrays and structs holding strings; on ones that
+// hold none, and on bools, they are computed wherever their operands are
+// known.
 //
 // The third pass checks each function body:
 //
