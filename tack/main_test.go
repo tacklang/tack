@@ -1095,6 +1095,38 @@ func TestBuiltStructsExits133(t *testing.T) {
 	}
 }
 
+// The field-facts example guards fields of immutable variables and
+// parameters and uses them as proven divisors and indexes: a field, an
+// index after an early exit, a field of a field, elements of an array
+// field at a known index and at an immutable parameter's, a string
+// field's length guarding a constant index, a range over a string field,
+// a switch on a field, a field of an immutable local and of an immutable
+// global, a guard holding in deferred code that writes a mut parameter,
+// and two mut elements kept apart by guards on fields. Each check prints
+// its name and "ok", or "FAIL", on both sides of its guard.
+func TestBuiltFieldFactsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "field-facts")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("field-facts exited with %v, want status 0", err)
+	}
+	want := "field divisor ok\n" +
+		"field index after an early exit ok\n" +
+		"field of a field ok\n" +
+		"element of an array field ok\n" +
+		"string field length ok\n" +
+		"range over a string field ok\n" +
+		"switch on a field ok\n" +
+		"field of an immutable local ok\n" +
+		"field of an immutable global ok\n" +
+		"field guard around a defer ok\n" +
+		"field guard around a defer, not taken ok\n" +
+		"mut elements apart by field facts ok\n"
+	if string(out) != want {
+		t.Errorf("field-facts printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The mut-exclusive example passes several mut arguments to one call where
 // their places cannot overlap: different fields of a struct and of a mut
 // parameter, elements at known indexes and at indexes facts keep apart,

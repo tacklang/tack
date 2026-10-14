@@ -641,7 +641,7 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	if loop.Var == nil || loop.Var.Name == ast.Blank {
 		return nil
 	}
-	f := fact{decl: loop.Var, hasLo: true}
+	f := fact{about: declKey(loop.Var), hasLo: true}
 	one := constant.FromInt64(1)
 	switch {
 	case types.IsInteger(got):

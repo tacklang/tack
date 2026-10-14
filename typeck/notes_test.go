@@ -819,12 +819,13 @@ var otherCauseCases = []noteCase{
 	{
 		"a field divisor",
 		"package main\n\ntype P struct {\n    d int64\n}\n\n" +
-			"func f(n int64, p P) int64 {\n    if p.d != 0 { return n / p.d }\n    return 0\n}\n\n" +
+			"func f(n int64, mut p P) int64 {\n    if p.d != 0 { return n / p.d }\n    return 0\n}\n\n" +
 			"func main() {\n}\n",
 		"divisor may be zero; use q, ok := ... / ...",
 		[]wantNote{
 			{
-				"this guard proves nothing: a field never carries a fact; copy p.d into a variable first",
+				"this guard proves nothing: a field of a mutable variable or a mut parameter " +
+					"never carries a fact; copy p.d into a variable first",
 				"p.d != 0",
 				8,
 				8,
@@ -834,12 +835,13 @@ var otherCauseCases = []noteCase{
 	{
 		"a field index after an early exit",
 		"package main\n\ntype P struct {\n    i int64\n}\n\n" +
-			"func f(a [3]int64, p P) int64 {\n    if p.i < 0 || p.i >= 3 {\n        return 0\n    }\n" +
+			"func f(a [3]int64, mut p P) int64 {\n    if p.i < 0 || p.i >= 3 {\n        return 0\n    }\n" +
 			"    return a[p.i]\n}\n\nfunc main() {\n}\n",
 		"index may be out of range; use v, ok := ...[...]",
 		[]wantNote{
 			{
-				"this early exit proves nothing: a field never carries a fact; copy p.i into a variable first",
+				"this early exit proves nothing: a field of a mutable variable or a mut parameter " +
+					"never carries a fact; copy p.i into a variable first",
 				"p.i < 0 || p.i >= 3",
 				8,
 				8,
@@ -850,21 +852,29 @@ var otherCauseCases = []noteCase{
 		"an index that is not a name",
 		inF2("a [3]int64, i int64", "if 0 <= i && i < 2 {", "    return a[i + 1]", "}"),
 		"index may be out of range; use v, ok := ...[...]",
-		[]wantNote{{
-			"this guard bounds i, not i + 1; only a plain name is proven, " +
-				"so copy i + 1 into a variable and check it",
-			"0 <= i && i < 2", 4, 8,
-		}},
+		[]wantNote{
+			{
+				"this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, " +
+					"so copy i + 1 into a variable and check it",
+				"0 <= i && i < 2",
+				4,
+				8,
+			},
+		},
 	},
 	{
 		"a divisor that is not a name",
 		inF2("a int64, b int64", "if b > 1 {", "    return a / (b - 1)", "}"),
 		"divisor may be zero; use q, ok := ... / ...",
-		[]wantNote{{
-			"this guard bounds b, not b - 1; only a plain name is proven, " +
-				"so copy b - 1 into a variable and check it",
-			"b > 1", 4, 8,
-		}},
+		[]wantNote{
+			{
+				"this guard bounds b, not b - 1; only a name, or a field or element of an immutable variable, is proven, " +
+					"so copy b - 1 into a variable and check it",
+				"b > 1",
+				4,
+				8,
+			},
+		},
 	},
 	{
 		"a written index that is not a name",
@@ -877,11 +887,15 @@ var otherCauseCases = []noteCase{
 			"return a[0]",
 		),
 		"index may be out of range",
-		[]wantNote{{
-			"this guard bounds i, not i + 1; only a plain name is proven, " +
-				"so copy i + 1 into a variable and check it",
-			"0 <= i && i < 2", 5, 8,
-		}},
+		[]wantNote{
+			{
+				"this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, " +
+					"so copy i + 1 into a variable and check it",
+				"0 <= i && i < 2",
+				5,
+				8,
+			},
+		},
 	},
 	{
 		"only the outer index is checked",

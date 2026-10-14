@@ -146,16 +146,20 @@
 // kept dropped only to be explained: what an if or switch whose branch ends
 // in exit would give after it, and the bound a counting loop whose step
 // could wrap would count from. Other notes need no fact: a guard in scope
-// comparing a field, or bounding a variable used in a larger operand; the
+// comparing a field of a mutable variable, or bounding a variable used in a larger operand; the
 // element whose outer index alone v, ok := covers; the declaration of a
 // mutable global, whose error suggests only the checked form, since no
 // check proves it; and the operand to convert when a uint64 is compared
 // with len. Notes quote source text, so New takes the file's source.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
 // always being true; only a divisor known to be zero is reported. A fact is
-// about a variable, never a field: a guard on p.x proves nothing about p.x,
-// which needs the two-value form, or copying into a variable that the guard
-// then names.
+// about a subject (subject.go): a variable, or a path below an immutable
+// variable or parameter, a field, p.x, an element at a known index or an
+// immutable name's, p.a[1] or p.a[k], or a chain of those, which nothing
+// can change while it is in scope. A guard on a field of a mutable
+// variable or a mut parameter proves nothing about it, and its note says
+// so; the operation needs the two-value form, or copying the field into a
+// variable that the guard then names.
 //
 // A parameter written mut p T is a mutable reference to the caller's
 // variable for the duration of the call, checked in mut.go. Inside the

@@ -50,10 +50,22 @@ way:
 - A struct holding itself through an array of length 0 is rejected like
   any other cycle, as in Go.
 
-Decided, not yet implemented: a field of an immutable variable is to
-carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
-`p` is immutable. It is to be implemented with pointers. Today a field
-never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
+A field of an immutable variable or parameter carries facts, as decided.
+These points about it were settled by the implementation:
+
+- A path's element counts only at a known index or an immutable
+  variable's or plain parameter's, `p.a[1]` or `p.a[k]`, so that it names
+  one element wherever it is written; `p.a[j]` with `j` mutable never
+  carries a fact.
+- A string field of an immutable variable has facts about its length,
+  `len(p.s) > 0`, and bounds an index by it, `i < len(p.s)`, as a string
+  variable does; a range over `p.s` proves `p.s[i]`.
+- A field of an immutable global is still a known value first; a fact
+  about it adds nothing a known value does not.
+- The note for a guard that proves nothing about a field now says why, `a
+  field of a mutable variable or a mut parameter never carries a fact`,
+  and the note for an operand that is not proven says `only a name, or a
+  field or element of an immutable variable, is proven`.
 
 ## Mut parameters
 

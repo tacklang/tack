@@ -152,16 +152,16 @@ func note(span ast.Span, msg string) diag.Diagnostic {
 	return diag.Diagnostic{Severity: diag.Note, Message: msg, Span: span}
 }
 
-// proof is a missing proof to explain: about, the variable the facts that
+// proof is a missing proof to explain: about, the subject the facts that
 // could prove it are about; proven, which runs the proof again; claim,
 // which says what some facts about the variable prove; and weak, which
 // explains why facts that do not prove it fall short, phrased as what they
 // would do when would is set.
 type proof struct {
-	about  ast.Decl
 	proven func() bool
 	claim  func(facts []fact) string
 	weak   func(facts []fact, would bool) []diag.Diagnostic
+	about  factKey
 }
 
 // explain returns the notes for the missing proof p: for each fact about
@@ -171,7 +171,7 @@ type proof struct {
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
 	for _, f := range c.active {
-		if f.decl != p.about {
+		if f.about != p.about {
 			continue
 		}
 		facts = append(facts, f)
@@ -265,22 +265,22 @@ func verb(present, base string, would bool) string {
 	return present
 }
 
-// describe says what facts, all about the variable called name, prove
+// describe says what facts, all about the subject called name, prove
 // together: its bounds, a bound by a string's length, and that it is not
 // zero, when its bounds do not already say so. An upper bound is written
 // with <, as checks usually are.
 func describe(name string, facts []fact) string {
 	var known interval
-	var lenOf ast.Decl
+	var lenOf factKey
 	for _, f := range facts {
 		known = known.narrow(f)
-		if f.lenOf != nil {
+		if !f.lenOf.isZero() {
 			lenOf = f.lenOf
 		}
 	}
-	parts := bounds(name, known, lenOf != nil)
-	if lenOf != nil {
-		parts = append(parts, name+" < len("+declName(lenOf)+")")
+	parts := bounds(name, known, !lenOf.isZero())
+	if !lenOf.isZero() {
+		parts = append(parts, name+" < len("+lenOf.name()+")")
 	}
 	bounded := known
 	bounded.nonzero = false
@@ -319,21 +319,23 @@ func below(name string, hi constant.Int) string {
 	return name + " <= " + hi.String()
 }
 
-// divisorProof returns the proof that the divisor id, a variable, is not
+// divisorProof returns the proof that the divisor e, a subject, is not
 // zero.
-func (c *Checker) divisorProof(id *ast.Ident) proof {
+func (c *Checker) divisorProof(e ast.Expr) proof {
+	about, _ := c.subjectKey(e)
+	name := c.nameOf(e)
 	return proof{
-		about:  id.Def,
-		proven: func() bool { return c.nonzero(id) },
+		about:  about,
+		proven: func() bool { return c.nonzero(e) },
 		claim: func(facts []fact) string {
 			var known interval
 			for _, f := range facts {
 				known = known.narrow(f)
 			}
 			if known.excludesZero() {
-				return id.Qualified() + " != 0"
+				return name + " != 0"
 			}
-			return describe(id.Qualified(), facts)
+			return describe(name, facts)
 		},
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
 			if len(facts) == 0 {
@@ -344,7 +346,7 @@ func (c *Checker) divisorProof(id *ast.Ident) proof {
 				"allows",
 				"allow",
 				would,
-			) + " " + id.Qualified() + " == 0"
+			) + " " + name + " == 0"
 			return []diag.Diagnostic{note(f.span(), msg)}
 		},
 	}
@@ -352,42 +354,48 @@ func (c *Checker) divisorProof(id *ast.Ident) proof {
 
 // extent is what an index must stay below: the length n of an array or a
 // string, when known, and the array or string itself, of, whose items are
-// called unit.
+// called unit, and which notes call label.
 type extent struct {
 	of    ast.Expr
+	label string
 	unit  string
 	n     int64
 	known bool
 }
 
-// name returns how a note names the array or string e is the extent of.
-func (e extent) name() string {
-	if id, ok := e.of.(*ast.Ident); ok {
-		return id.Qualified()
+// newExtent returns the extent of of, an array or a string whose items are
+// called unit, with n of them when known, labeled by its name when it is
+// a subject, and as the array or the string otherwise.
+func (c *Checker) newExtent(of ast.Expr, unit string, n int64, known bool) extent {
+	label := "the array"
+	switch {
+	case c.isSubject(of):
+		label = c.nameOf(of)
+	case unit == "byte":
+		label = "the string"
 	}
-	if e.unit == "byte" {
-		return "the string"
-	}
-	return "the array"
+	return extent{of: of, label: label, unit: unit, n: n, known: known}
 }
 
-// indexProof returns the proof that the index id, a variable, is in range
+// indexProof returns the proof that the index i, a subject, is in range
 // for e, which proven checks.
-func (c *Checker) indexProof(id *ast.Ident, e extent, proven func() bool) proof {
+func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
+	about, _ := c.subjectKey(i)
+	name := c.nameOf(i)
 	return proof{
-		about:  id.Def,
+		about:  about,
 		proven: proven,
-		claim:  func(facts []fact) string { return describe(id.Qualified(), facts) },
+		claim:  func(facts []fact) string { return describe(name, facts) },
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
-			known := typeInterval(id)
+			known := typeInterval(i)
 			for _, f := range facts {
 				known = known.narrow(f)
 			}
 			var notes []diag.Diagnostic
-			if n, ok := lowerNote(id, facts, known, would); ok {
+			if n, ok := lowerNote(name, facts, known, would); ok {
 				notes = append(notes, n)
 			}
-			if n, ok := upperNote(id, facts, known, e, would); ok {
+			if n, ok := c.upperNote(i, facts, known, e, would); ok {
 				notes = append(notes, n)
 			}
 			return notes
@@ -395,22 +403,22 @@ func (c *Checker) indexProof(id *ast.Ident, e extent, proven func() bool) proof 
 	}
 }
 
-// typeInterval returns the bounds the type of the variable id names gives
-// it, none for a type without them.
-func typeInterval(id *ast.Ident) interval {
+// typeInterval returns the bounds the type of e, a subject, gives it, none
+// for a type without them.
+func typeInterval(e ast.Expr) interval {
 	var known interval
-	if typ := ast.TypeOf(id); types.Bits(typ) > 0 {
+	if typ := ast.TypeOf(e); types.Bits(typ) > 0 {
 		known.lo, known.hi = typeBounds(typ)
 		known.hasLo, known.hasHi = true, true
 	}
 	return known
 }
 
-// lowerNote explains why the facts about the index id, which with its
-// type's bounds give known, do not keep it at or above 0: the fact that set
-// the lower bound allows a negative value, or no fact gives a lower bound
-// while one gives an upper.
-func lowerNote(id *ast.Ident, facts []fact, known interval, would bool) (diag.Diagnostic, bool) {
+// lowerNote explains why the facts about the index called name, which with
+// its type's bounds give known, do not keep it at or above 0: the fact
+// that set the lower bound allows a negative value, or no fact gives a
+// lower bound while one gives an upper.
+func lowerNote(name string, facts []fact, known interval, would bool) (diag.Diagnostic, bool) {
 	if known.hasLo && !known.lo.IsNegative() {
 		return diag.Diagnostic{}, false
 	}
@@ -422,107 +430,114 @@ func lowerNote(id *ast.Ident, facts []fact, known interval, would bool) (diag.Di
 			"allows",
 			"allow",
 			would,
-		) + " " + id.Qualified() + " == " + known.lo.String()
+		) + " " + name + " == " + known.lo.String()
 		return note(f.span(), msg), true
 	}
-	if f, ok := setting(facts, func(f fact) bool { return f.hasHi || f.lenOf != nil }); ok {
-		msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Qualified() +
-			" only above; " + id.Qualified() + " may be negative"
+	if f, ok := setting(facts, func(f fact) bool { return f.hasHi || !f.lenOf.isZero() }); ok {
+		msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + name +
+			" only above; " + name + " may be negative"
 		return note(f.span(), msg), true
 	}
 	return diag.Diagnostic{}, false
 }
 
-// upperNote explains why the facts about the index id, which with its
+// upperNote explains why the facts about the index i, which with its
 // type's bounds give known, do not keep it below the length of e: the fact
-// that set the upper bound allows a value past the end, or bounds id by the
+// that set the upper bound allows a value past the end, or bounds i by the
 // length of something else.
-func upperNote(
-	id *ast.Ident,
+func (c *Checker) upperNote(
+	i ast.Expr,
 	facts []fact,
 	known interval,
 	e extent,
 	would bool,
 ) (diag.Diagnostic, bool) {
+	name := c.nameOf(i)
 	if !e.known {
-		return otherLenNote(id, facts, e, would)
+		return c.otherLenNote(name, facts, e, would)
 	}
 	if known.hasHi && known.hi.Cmp(constant.FromInt64(e.n-1)) <= 0 {
 		return diag.Diagnostic{}, false
 	}
 	f, ok := setting(facts, func(f fact) bool { return f.hasHi && f.hi.Cmp(known.hi) == 0 })
 	if !ok {
-		return otherLenNote(id, facts, e, would)
+		return c.otherLenNote(name, facts, e, would)
 	}
-	if other, ok := lenOfOther(f.src, id, e.of); ok {
-		return lengthNote(f, id, other, e, would), true
+	if other, ok := c.lenOfOther(f.src, i, e.of); ok {
+		return lengthNote(f, name, other, e, would), true
 	}
 	msg := f.guard.subject() + " " + verb(
 		"allows",
 		"allow",
 		would,
-	) + " " + id.Qualified() + " == " +
-		known.hi.String() + ", and " + e.name() + " has " + plural64(
+	) + " " + name + " == " +
+		known.hi.String() + ", and " + e.label + " has " + plural64(
 		e.n,
 		e.unit,
 	)
 	return note(f.span(), msg), true
 }
 
-// otherLenNote explains a bound on the index id by the length of a string
-// variable other than e's, when no fact bounds it by e's own.
-func otherLenNote(id *ast.Ident, facts []fact, e extent, would bool) (diag.Diagnostic, bool) {
-	s, isName := e.of.(*ast.Ident)
-	if !isName {
+// otherLenNote explains a bound on the index called name by the length of
+// a string subject other than e's, when no fact bounds it by e's own.
+func (c *Checker) otherLenNote(
+	name string,
+	facts []fact,
+	e extent,
+	would bool,
+) (diag.Diagnostic, bool) {
+	s, isSubject := c.subjectKey(e.of)
+	if !isSubject {
 		return diag.Diagnostic{}, false
 	}
-	if slices.ContainsFunc(facts, func(f fact) bool { return f.lenOf == s.Def }) {
+	if slices.ContainsFunc(facts, func(f fact) bool { return f.lenOf == s }) {
 		return diag.Diagnostic{}, false
 	}
-	f, ok := setting(facts, func(f fact) bool { return f.lenOf != nil })
+	f, ok := setting(facts, func(f fact) bool { return !f.lenOf.isZero() })
 	if !ok {
 		return diag.Diagnostic{}, false
 	}
-	return lengthNote(f, id, declName(f.lenOf), e, would), true
+	return lengthNote(f, name, f.lenOf.name(), e, would), true
 }
 
-// lengthNote returns the note that f bounds the index id by the length of
-// other, not of e.
-func lengthNote(f fact, id *ast.Ident, other string, e extent, would bool) diag.Diagnostic {
-	msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + id.Qualified() +
-		" by the length of " + other + ", not " + e.name()
+// lengthNote returns the note that f bounds the index called name by the
+// length of other, not of e.
+func lengthNote(f fact, name, other string, e extent, would bool) diag.Diagnostic {
+	msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + name +
+		" by the length of " + other + ", not " + e.label
 	return note(f.span(), msg)
 }
 
-// lenOfOther returns the name x when src is a comparison of the variable
-// id with len(x), x being a variable other than of.
-func lenOfOther(src ast.Expr, id *ast.Ident, of ast.Expr) (string, bool) {
+// lenOfOther returns the name of x when src is a comparison of the index
+// i with len(x), x being a subject other than of.
+func (c *Checker) lenOfOther(src ast.Expr, i, of ast.Expr) (string, bool) {
 	cmp, ok := src.(*ast.Binary)
 	if !ok || !cmp.Op.IsComparison() {
 		return "", false
 	}
+	ik, _ := c.subjectKey(i)
 	side := cmp.Y
-	if name, isName := cmp.Y.(*ast.Ident); isName && name.Def == id.Def {
+	if k, isSubject := c.subjectKey(cmp.Y); isSubject && k == ik {
 		side = cmp.X
 	}
 	x, ok := lenArg(side)
 	if !ok {
 		return "", false
 	}
-	if indexed, isName := of.(*ast.Ident); isName && indexed.Def == x.Def {
+	xk, isSubject := c.subjectKey(x)
+	if ofKey, ofIsSubject := c.subjectKey(of); !isSubject || ofIsSubject && ofKey == xk {
 		return "", false
 	}
-	return x.Name, true
+	return c.nameOf(x), true
 }
 
-// lenArg returns x when e is len(x), x a name.
-func lenArg(e ast.Expr) (*ast.Ident, bool) {
+// lenArg returns x when e is len(x).
+func lenArg(e ast.Expr) (ast.Expr, bool) {
 	call, ok := e.(*ast.Call)
 	if !ok || !isLen(call) || len(call.Args) != 1 {
 		return nil, false
 	}
-	x, ok := call.Args[0].(*ast.Ident)
-	return x, ok
+	return call.Args[0], true
 }
 
 // setting returns the innermost of facts for which match holds: the one
@@ -544,14 +559,16 @@ func plural64(n int64, unit string) string {
 	return constant.FromInt64(n).String() + " " + unit + "s"
 }
 
-// lengthProof returns the proof that the string variable s is long enough
+// lengthProof returns the proof that the string subject s is long enough
 // for a constant index, which proven checks. Its facts are about s's
 // length.
-func lengthProof(s *ast.Ident, proven func() bool) proof {
+func (c *Checker) lengthProof(s ast.Expr, proven func() bool) proof {
+	about, _ := c.subjectKey(s)
+	name := about.name()
 	return proof{
-		about:  s.Def,
+		about:  about,
 		proven: proven,
-		claim:  func(facts []fact) string { return describe("len("+s.Name+")", facts) },
+		claim:  func(facts []fact) string { return describe("len("+name+")", facts) },
 		weak:   func([]fact, bool) []diag.Diagnostic { return nil },
 	}
 }
@@ -584,9 +601,10 @@ func globalNote(v *ast.Var) []diag.Diagnostic {
 }
 
 // operandNotes explains why operand, a divisor or an index that is not a
-// variable, is not proven: a field a guard in scope compares, which never
-// carries a fact, or an expression using a variable a guard bounds, when
-// only a plain name is proven.
+// subject, is not proven: a field of a mutable variable a guard in scope
+// compares, which never carries a fact, or an expression using a variable
+// a guard bounds, when only a plain name or a path below an immutable one
+// is proven.
 func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 	if _, ok := operand.(*ast.Selector); ok {
 		return c.fieldNotes(operand)
@@ -604,14 +622,14 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 		seen = append(seen, id.Def)
 		f, bounded := setting(
 			c.active,
-			func(f fact) bool { return f.decl == id.Def && f.inForce() },
+			func(f fact) bool { return f.about == declKey(id.Def) && f.inForce() },
 		)
 		if bounded {
 			expr := c.text(operand.Spanned())
 			notes = append(
 				notes,
 				note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+", not "+expr+
-					"; only a plain name is proven, so copy "+expr+" into a variable and check it"),
+					"; only a name, or a field or element of an immutable variable, is proven, so copy "+expr+" into a variable and check it"),
 			)
 		}
 		return true
@@ -619,8 +637,9 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 	return notes
 }
 
-// fieldNotes returns the note for the field path, such as p.d, that the
-// innermost guard in scope comparing it proves nothing about it.
+// fieldNotes returns the note for the field path, such as p.d, of a
+// mutable variable or a mut parameter, that the innermost guard in scope
+// comparing it proves nothing about it.
 func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
 	for i := len(c.guards) - 1; i >= 0; i-- {
 		g := c.guards[i]
@@ -628,7 +647,8 @@ func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
 			continue
 		}
 		return []diag.Diagnostic{note(g.cond.Spanned(), g.subject()+
-			" proves nothing: a field never carries a fact; copy "+c.text(path.Spanned())+
+			" proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy "+
+			c.text(path.Spanned())+
 			" into a variable first")}
 	}
 	return nil

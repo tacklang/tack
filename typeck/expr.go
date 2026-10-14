@@ -391,33 +391,33 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
 	}
 	msg, notes := c.divisorError(divisor)
 	if withOk {
-		msg += orUse("q, ok := ... / "+operandName(divisor), strings.HasSuffix(msg, " first"))
+		msg += orUse("q, ok := ... / "+c.operandName(divisor), strings.HasSuffix(msg, " first"))
 	}
 	c.errorNotes(divisor.Spanned(), notes, "%s", msg)
 }
 
 // divisorError returns the error for a divisor no fact proves not zero,
 // before any mention of the checked form, and the notes that explain it.
-// A variable gets the check that would prove it, except a mutable global,
-// which no check proves.
+// A subject, a variable or a path below an immutable one, gets the check
+// that would prove it, except a mutable global, which no check proves.
 func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 	if v, ok := c.mutableGlobal(divisor); ok {
-		return "divisor " + operandName(divisor) + " may be zero", globalNote(v)
+		return "divisor " + c.operandName(divisor) + " may be zero", globalNote(v)
 	}
-	if id, ok := divisor.(*ast.Ident); ok {
-		return "divisor " + id.Qualified() + " may be zero; check " + id.Qualified() + " != 0 first",
-			c.explain(
-				c.divisorProof(id),
-			)
+	if c.isSubject(divisor) {
+		name := c.nameOf(divisor)
+		return "divisor " + name + " may be zero; check " + name + " != 0 first",
+			c.explain(c.divisorProof(divisor))
 	}
 	return "divisor may be zero", c.operandNotes(divisor)
 }
 
 // operandName returns how an error names a divisor or an index: by its
-// name when it is a variable, and as ... otherwise.
-func operandName(e ast.Expr) string {
-	if id, ok := e.(*ast.Ident); ok {
-		return id.Qualified()
+// name when it is a subject, a variable or a path below an immutable one,
+// and as ... otherwise.
+func (c *Checker) operandName(e ast.Expr) string {
+	if c.isSubject(e) {
+		return c.nameOf(e)
 	}
 	return "..."
 }

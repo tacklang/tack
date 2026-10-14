@@ -647,13 +647,15 @@ var structErrorCases = []struct {
 	{
 		"unproven divisor field",
 		withTypes(pointDecls, "p := Point{x: 6, y: 2}", "exit(p.x / p.y)"),
-		[]spanned{{"divisor may be zero; use q, ok := ... / ...", "p.y"}},
+		[]spanned{
+			{"divisor p.y may be zero; check p.y != 0 first, or use q, ok := ... / p.y", "p.y"},
+		},
 	},
 	{
-		"guarded divisor field",
+		"guarded divisor field of a mutable variable",
 		withTypes(
 			pointDecls,
-			"p := Point{x: 6, y: 2}",
+			"mut p := Point{x: 6, y: 2}",
 			"if p.y != 0 {",
 			"    exit(p.x / p.y)",
 			"}",
@@ -666,10 +668,10 @@ var structErrorCases = []struct {
 		[]spanned{{"divisor may be zero", "p.y"}},
 	},
 	{
-		"unproven index field",
+		"unproven index field of a mutable variable",
 		withTypes(
 			pointDecls,
-			"p := Point{x: 1, y: 1}",
+			"mut p := Point{x: 1, y: 1}",
 			"a := [2]int64{1, 2}",
 			"if p.y >= 0 && p.y < 2 {",
 			"    exit(a[p.y])",

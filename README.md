@@ -602,10 +602,16 @@ makes for itself, which has a letter after `tack_`.
   ordered: `<` on two structs is an error. Structs may be package-level
   variables, initialized with a constant expression (see package-level
   variables). A field of an immutable global is a known value, so `n /
-  origin.d` compiles when `origin.d` is not zero, but a field never
-  carries a fact for a proof: `if p.d != 0 { n / p.d }` is still an error, and needs
-  `q, ok := n / p.d`, or the field copied into a variable the guard then
-  names, as in `d := p.d` and `if d != 0`.
+  origin.d` compiles when `origin.d` is not zero. A field of any
+  immutable variable or parameter carries facts for proofs as a variable
+  does, since nothing can change it: `if p.d != 0 { n / p.d }` compiles
+  when `p` is immutable, and so do fields of fields, `p.inner.d`, elements
+  at a known index or an immutable name's, `p.a[1]` or `p.a[k]`, and a
+  string field's length, `if len(p.s) > 0 { p.s[0] }`. A field of a
+  mutable variable or a `mut` parameter never carries a fact: there the
+  guard proves nothing, and the division needs `q, ok := n / p.d`, or the
+  field copied into a variable the guard then names, as in `d := p.d` and
+  `if d != 0`.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:
@@ -709,7 +715,8 @@ makes for itself, which has a letter after `tack_`.
   or `table[0]`, a byte of a known string at a known index, a conversion
   of a known value that fits its type, or arithmetic on those. The
   variable must be a
-  parameter, a local, or an immutable global, and the region must not assign
+  parameter, a local, or an immutable global, or a field or element of an
+  immutable variable or parameter (see structs), and the region must not assign
   it anywhere, a call passing it, or a part of it, as `mut` included, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
   leaving. When a guard says something about a divisor or index it did not
@@ -717,7 +724,7 @@ makes for itself, which has a letter after `tack_`.
   proves, at the assignment or `mut` argument that ended that proof, or at what the guard
   allows that the operation does not, such as `i == 3` for a `[3]T`, and
   at a branch ending in `exit`, a counting loop's step that could wrap, or
-  a guard on a field. A mutable global's error suggests only the two-value
+  a guard on a field of a mutable variable. A mutable global's error suggests only the two-value
   form, with a note at its declaration, since no check proves it. [docs/safety.md](docs/safety.md) gathers these rules, the
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,

@@ -66,8 +66,9 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 // stringIndexProven reports whether the index of s[i] is known to be in
 // range for the string s where it is used: a constant below a known
 // string's length, or below the least length the facts in force give s; or
-// a variable at least 0 that is below a known string's length, below the
-// least length of s, or below len(s) itself by a fact.
+// a subject, a variable or a path below an immutable one, at least 0 that
+// is below a known string's length, below the least length of s, or below
+// len(s) itself by a fact.
 func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 	if v, ok := c.knownValue(ix.Index); ok {
 		if n, isKnown := c.knownLen(ix.X); isKnown {
@@ -75,42 +76,41 @@ func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 		}
 		return !v.IsNegative() && v.Cmp(c.minLen(ix.X)) < 0
 	}
-	id, ok := ix.Index.(*ast.Ident)
-	if !ok {
+	if !c.isSubject(ix.Index) {
 		return false
 	}
-	known := c.intervalOf(id)
+	known := c.intervalOf(ix.Index)
 	if !known.hasLo || known.lo.IsNegative() {
 		return false
 	}
-	return c.belowStringLen(id, known, ix.X)
+	return c.belowStringLen(ix.Index, known, ix.X)
 }
 
-// belowStringLen reports whether the variable id names, of which known is
-// what the facts say, is below the length of the string s: a known
-// string's constant length, the least length the facts give s, or len(s)
-// itself.
-func (c *Checker) belowStringLen(id *ast.Ident, known interval, s ast.Expr) bool {
+// belowStringLen reports whether the subject i, of which known is what the
+// facts say, is below the length of the string s: a known string's
+// constant length, the least length the facts give s, or len(s) itself.
+func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
 	if n, isKnown := c.knownLen(s); isKnown {
 		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0
 	}
 	if known.hasHi && known.hi.Cmp(c.minLen(s)) < 0 {
 		return true
 	}
-	return c.belowLen(id, s)
+	return c.belowLen(i, s)
 }
 
 // minLen returns the least length the facts in force give the string s,
-// when s is a variable, and 0 otherwise: a lower bound on len(s), or one
-// when len(s) is known not to be zero.
+// when s is a subject, a variable or a path below an immutable one, and 0
+// otherwise: a lower bound on len(s), or one when len(s) is known not to
+// be zero.
 func (c *Checker) minLen(s ast.Expr) constant.Int {
-	id, ok := s.(*ast.Ident)
+	k, ok := c.subjectKey(s)
 	if !ok {
 		return constant.Int{}
 	}
 	var least interval
 	for _, f := range c.active {
-		if f.decl == id.Def && f.inForce() {
+		if f.about == k && f.inForce() {
 			least = least.narrow(f)
 		}
 	}
@@ -125,15 +125,16 @@ func (c *Checker) minLen(s ast.Expr) constant.Int {
 	}
 }
 
-// belowLen reports whether a fact in force says the variable id names is
-// below the length of the string variable s names.
-func (c *Checker) belowLen(id *ast.Ident, s ast.Expr) bool {
-	name, ok := s.(*ast.Ident)
-	if !ok {
+// belowLen reports whether a fact in force says the subject i is below the
+// length of the string subject s.
+func (c *Checker) belowLen(i, s ast.Expr) bool {
+	ik, okI := c.subjectKey(i)
+	sk, okS := c.subjectKey(s)
+	if !okI || !okS {
 		return false
 	}
 	for _, f := range c.active {
-		if f.decl == id.Def && f.lenOf == name.Def && f.inForce() {
+		if f.about == ik && f.lenOf == sk && f.inForce() {
 			return true
 		}
 	}
@@ -158,16 +159,19 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 
 // stringIndexError returns the error for the index of s[i] that is not
 // proven in range, and the notes that explain it. A constant index gets the
-// check on the length of s that would prove it, when s is a variable or a
-// literal; a variable index gets indexError's, against len(s) or a
-// literal's length, and only the checked form when s is neither, since
-// only a variable's length can be guarded.
+// check on the length of s that would prove it, when s is a subject, a
+// variable or a path below an immutable one, or a literal; a subject index
+// gets indexError's, against len(s) or a literal's length, and only the
+// checked form when s is neither, since only a subject's length can be
+// guarded.
 func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 	var bound string
 	if n, ok := literalLen(ix.X); ok {
 		bound = fmt.Sprint(n)
 	} else if s, ok := ix.X.(*ast.Ident); ok {
 		bound = "len(" + s.Name + ")"
+	} else if c.isSubject(ix.X) {
+		bound = "len(" + c.nameOf(ix.X) + ")"
 	}
 	proven := func() bool { return c.stringIndexProven(ix) }
 	var msg string
@@ -177,14 +181,14 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 		if bound != "" {
 			msg += "; check " + bound + " > " + v.String() + " first"
 		}
-		if s, ok := ix.X.(*ast.Ident); ok {
-			notes = c.explain(lengthProof(s, proven))
+		if c.isSubject(ix.X) {
+			notes = c.explain(c.lengthProof(ix.X, proven))
 		}
 	} else {
-		msg, notes = c.indexError(ix, bound, func(id *ast.Ident) []diag.Diagnostic {
+		msg, notes = c.indexError(ix, bound, func(i ast.Expr) []diag.Diagnostic {
 			n, known := c.knownLen(ix.X)
-			e := extent{of: ix.X, unit: "byte", n: n, known: known}
-			return c.explain(c.indexProof(id, e, proven))
+			e := c.newExtent(ix.X, "byte", n, known)
+			return c.explain(c.indexProof(i, e, proven))
 		})
 	}
 	return msg + orUse(
@@ -194,10 +198,10 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 }
 
 // indexName returns how an error names an index: its known value, its
-// name, or ... for anything else.
+// name or path, or ... for anything else.
 func (c *Checker) indexName(e ast.Expr) string {
 	if v, ok := c.knownValue(e); ok {
 		return v.String()
 	}
-	return operandName(e)
+	return c.operandName(e)
 }

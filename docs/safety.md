@@ -147,9 +147,12 @@ e, widens := int64(small)   // e == 7, widens == true
 | `a[i]` on `[n]T` | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                           |
 | `s[i]`           | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
 
-A proof is about a **plain name**, the divisor or index written as a
-variable or parameter. Anything else, such as `b + 1`, `i + 1`, `-i` or a
-field `p.i`, is proven only when it is a known value.
+A proof is about a **name**, the divisor or index written as a variable or
+parameter, or a **field or element of an immutable variable or
+parameter**, such as `p.d`, `p.inner.d`, `p.a[1]` or `p.a[k]` with `k`
+immutable. Anything else, such as `b + 1`, `i + 1`, `-i`, or a field of a
+mutable variable or a `mut` parameter, is proven only when it is a known
+value.
 
 ### Known values
 
@@ -189,9 +192,23 @@ last := same[len(same) - 1]     // last == 'k'
 
 Where the value is not known, the compiler uses *facts*: what a condition
 that has just been tested says about a variable. A fact is about a
-parameter, a local variable, or an immutable global. A variable's type also
-bounds it, so an unsigned variable is never negative and a `uint8` index
-into a `[256]T` needs nothing.
+parameter, a local variable, an immutable global, or a field or element of
+an immutable variable or parameter, which nothing can change while it is in
+scope: a field, `p.d`, a field of a field, `p.inner.d`, an element at a
+known index or at an immutable variable's, `p.a[1]` or `p.a[k]`, and a
+string field's length, `len(p.s)`. A variable's type also bounds it, so an
+unsigned variable is never negative and a `uint8` index into a `[256]T`
+needs nothing.
+
+<!-- example: field-facts -->
+```tack
+func divide(n int64, p P) int64 {
+    if p.d != 0 {
+        return n / p.d
+    }
+    return -1
+}
+```
 
 The conditions that give facts are:
 
@@ -370,8 +387,9 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 
 | Not a proof                                  | Why                                                                     |
 |----------------------------------------------|-------------------------------------------------------------------------|
-| <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }`                    | a field never carries a fact; copy it into a variable first             |
-| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`        | only a plain name is proven                                             |
+| <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
+| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`        | only a name, or a field or element of an immutable variable, is proven  |
+| <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable | an element in a path is proven only at a known index or an immutable name's |
 | <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | the same                                                                |
 | <!-- case: safety-no-proof-string-len-minus-one -->`if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
@@ -409,7 +427,7 @@ An operation no guard mentions keeps its error alone.
 
 Other notes point at a branch that ends in `exit`, which would have left
 the block had it been a `return`; at a counting loop's step that could
-wrap; at a guard on a field, or on a variable used inside a larger divisor
+wrap; at a guard on a field of a mutable variable, or on a variable used inside a larger divisor
 or index; and, in `v, ok := m[i][j]`, at the element whose outer index
 alone the checked form covers. Two do not need a guard: the declaration of
 a mutable global, and, on comparing a `uint64` with `len`, the operand to

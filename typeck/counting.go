@@ -61,9 +61,9 @@ func (c *Checker) countingFact(loop *ast.For, cond []fact) (fact, counting) {
 	if !ok {
 		return fact{}, notCounting
 	}
-	f := fact{decl: v, lo: start, hasLo: true}
+	f := fact{about: declKey(v), lo: start, hasLo: true}
 	if step.IsNegative() {
-		f = fact{decl: v, hi: start, hasHi: true}
+		f = fact{about: declKey(v), hi: start, hasHi: true}
 	}
 	if !stepStaysInType(v, step, cond) {
 		return f, wraps
@@ -75,7 +75,7 @@ func (c *Checker) countingFact(loop *ast.For, cond []fact) (fact, counting) {
 // body, does not hold: its post could step its variable past the end of
 // its type.
 func wrapDrop(loop *ast.For, f fact) *drop {
-	v, _ := f.decl.(*ast.Var)
+	v, _ := f.about.decl.(*ast.Var)
 	lo, hi := typeBounds(v.Type)
 	past, start, side := hi, f.lo, "above"
 	if f.hasHi {
@@ -146,11 +146,11 @@ func stepStaysInType(v *ast.Var, step constant.Int, cond []fact) bool {
 	known := interval{lo: typeLo, hi: typeHi, hasLo: true, hasHi: true}
 	belowLen := fact{hi: constant.FromInt64(math.MaxInt64 - 1), hasHi: true}
 	for _, f := range cond {
-		if f.decl != v {
+		if f.about != declKey(v) {
 			continue
 		}
 		known = known.narrow(f)
-		if f.lenOf != nil {
+		if !f.lenOf.isZero() {
 			known = known.narrow(belowLen)
 		}
 	}

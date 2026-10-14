@@ -2167,6 +2167,119 @@ extern-wrong-call/main.tck:12:10: error: cannot use bool as int64 in argument to
    |	         ^~~~~~
 13 |	}
 
+-- field-fact-mutable-index/main.tck --
+package main
+
+type P struct {
+    a [3]int64
+}
+
+func f(n int64, p P) int64 {
+    mut j int64 = 1
+    if 0 <= j && j < 3 && p.a[j] != 0 {
+        return n / p.a[j]
+    }
+    return 0
+}
+
+func main() {
+    exit(f(6, P{a: [3]int64{1, 2, 3}}))
+}
+-- field-fact-mutable-index/expected --
+stage: typeck
+---
+
+field-fact-mutable-index/main.tck:10:20: error: divisor may be zero; use q, ok := ... / ...
+09 |	    if 0 <= j && j < 3 && p.a[j] != 0 {
+10 |	        return n / p.a[j]
+   |	                   ^~~~~~
+11 |	    }
+field-fact-mutable-index/main.tck:9:8: note: this guard bounds j, not p.a[j]; only a name, or a field or element of an immutable variable, is proven, so copy p.a[j] into a variable and check it
+08 |	    mut j int64 = 1
+09 |	    if 0 <= j && j < 3 && p.a[j] != 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	        return n / p.a[j]
+
+-- field-fact-string-unguarded/main.tck --
+package main
+
+type P struct {
+    s string
+}
+
+func first(p P) uint8 {
+    return p.s[0]
+}
+
+func main() {
+    exit(first(P{s: "a"}))
+}
+-- field-fact-string-unguarded/expected --
+stage: typeck
+---
+
+field-fact-string-unguarded/main.tck:8:16: error: index 0 may be out of range; check len(p.s) > 0 first, or use v, ok := ...[0]
+07 |	func first(p P) uint8 {
+08 |	    return p.s[0]
+   |	               ^
+09 |	}
+
+-- field-fact-unguarded/main.tck --
+package main
+
+type P struct {
+    d int64
+}
+
+func f(n int64, p P) int64 {
+    return n / p.d
+}
+
+func main() {
+    exit(f(8, P{d: 2}))
+}
+-- field-fact-unguarded/expected --
+stage: typeck
+---
+
+field-fact-unguarded/main.tck:8:16: error: divisor p.d may be zero; check p.d != 0 first, or use q, ok := ... / p.d
+07 |	func f(n int64, p P) int64 {
+08 |	    return n / p.d
+   |	               ^~~
+09 |	}
+
+-- field-fact-weak-guard/main.tck --
+package main
+
+type P struct {
+    i int64
+}
+
+func f(a [3]int64, p P) int64 {
+    if p.i < 3 {
+        return a[p.i]
+    }
+    return 0
+}
+
+func main() {
+    exit(f([3]int64{1, 2, 3}, P{i: 1}))
+}
+-- field-fact-weak-guard/expected --
+stage: typeck
+---
+
+field-fact-weak-guard/main.tck:9:18: error: index p.i may be out of range; check 0 <= p.i && p.i < 3 first, or use v, ok := ...[p.i]
+08 |	    if p.i < 3 {
+09 |	        return a[p.i]
+   |	                 ^~~
+10 |	    }
+field-fact-weak-guard/main.tck:8:8: note: this guard bounds p.i only above; p.i may be negative
+07 |	func f(a [3]int64, p P) int64 {
+08 |	    if p.i < 3 {
+   |	       ^~~~~~~
+09 |	        return a[p.i]
+
 -- for-post-declaration/main.tck --
 package main
 
@@ -4510,7 +4623,7 @@ type P struct {
     i int64
 }
 
-func f(a [3]int64, p P) int64 {
+func f(a [3]int64, mut p P) int64 {
     if p.i < 0 || p.i >= 3 {
         return 0
     }
@@ -4518,7 +4631,8 @@ func f(a [3]int64, p P) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, P{i: 1}))
+    mut p := P{i: 1}
+    exit(f([3]int64{1, 2, 3}, mut p))
 }
 -- note-field-early-exit/expected --
 stage: typeck
@@ -4529,8 +4643,8 @@ note-field-early-exit/main.tck:11:14: error: index may be out of range; use v, o
 11 |	    return a[p.i]
    |	             ^~~
 12 |	}
-note-field-early-exit/main.tck:8:8: note: this early exit proves nothing: a field never carries a fact; copy p.i into a variable first
-07 |	func f(a [3]int64, p P) int64 {
+note-field-early-exit/main.tck:8:8: note: this early exit proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.i into a variable first
+07 |	func f(a [3]int64, mut p P) int64 {
 08 |	    if p.i < 0 || p.i >= 3 {
    |	       ^~~~~~~~~~~~~~~~~~~
 09 |	        return 0
@@ -4868,7 +4982,7 @@ note-not-a-name-divisor/main.tck:5:21: error: divisor may be zero; use q, ok := 
 05 |	        return a / (b - 1)
    |	                    ^~~~~
 06 |	    }
-note-not-a-name-divisor/main.tck:4:8: note: this guard bounds b, not b - 1; only a plain name is proven, so copy b - 1 into a variable and check it
+note-not-a-name-divisor/main.tck:4:8: note: this guard bounds b, not b - 1; only a name, or a field or element of an immutable variable, is proven, so copy b - 1 into a variable and check it
 03 |	func f(a int64, b int64) int64 {
 04 |	    if b > 1 {
    |	       ^~~~~
@@ -6212,25 +6326,26 @@ type P struct {
     d int64
 }
 
-func f(n int64, p P) int64 {
+func f(n int64, mut p P) int64 {
     if p.d != 0 { return n / p.d }
     return 0
 }
 
 func main() {
-    exit(f(8, P{d: 2}))
+    mut p := P{d: 2}
+    exit(f(8, mut p))
 }
 -- safety-no-proof-field/expected --
 stage: typeck
 ---
 
 safety-no-proof-field/main.tck:8:30: error: divisor may be zero; use q, ok := ... / ...
-07 |	func f(n int64, p P) int64 {
+07 |	func f(n int64, mut p P) int64 {
 08 |	    if p.d != 0 { return n / p.d }
    |	                             ^~~
 09 |	    return 0
-safety-no-proof-field/main.tck:8:8: note: this guard proves nothing: a field never carries a fact; copy p.d into a variable first
-07 |	func f(n int64, p P) int64 {
+safety-no-proof-field/main.tck:8:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.d into a variable first
+07 |	func f(n int64, mut p P) int64 {
 08 |	    if p.d != 0 { return n / p.d }
    |	       ^~~~~~~~
 09 |	    return 0
@@ -6347,7 +6462,7 @@ safety-no-proof-not-a-name/main.tck:5:18: error: index may be out of range; use 
 05 |	        return a[i + 1]
    |	                 ^~~~~
 06 |	    }
-safety-no-proof-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; only a plain name is proven, so copy i + 1 into a variable and check it
+safety-no-proof-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
 03 |	func f(a [3]int64, i int64) int64 {
 04 |	    if 0 <= i && i < 2 {
    |	       ^~~~~~~~~~~~~~~
@@ -6924,7 +7039,7 @@ type Pair struct {
 }
 
 func main() {
-    p := Pair{a: 6, b: 3}
+    mut p := Pair{a: 6, b: 3}
     if p.b != 0 {
         exit(p.a / p.b)
     }
@@ -6938,8 +7053,8 @@ struct-field-divisor-unproven/main.tck:11:20: error: divisor may be zero; use q,
 11 |	        exit(p.a / p.b)
    |	                   ^~~
 12 |	    }
-struct-field-divisor-unproven/main.tck:10:8: note: this guard proves nothing: a field never carries a fact; copy p.b into a variable first
-09 |	    p := Pair{a: 6, b: 3}
+struct-field-divisor-unproven/main.tck:10:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.b into a variable first
+09 |	    mut p := Pair{a: 6, b: 3}
 10 |	    if p.b != 0 {
    |	       ^~~~~~~~
 11 |	        exit(p.a / p.b)

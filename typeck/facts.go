@@ -21,8 +21,10 @@ import (
 // of the defer's block, where the code runs; see defer.go. The rules are
 // syntactic, so any reader can follow them:
 //
-//   - a fact is about a parameter, a local variable, or an immutable global;
-//     a mutable global can be changed by any call, so it never has one;
+//   - a fact is about a parameter, a local variable, or an immutable global,
+//     or a field or element of an immutable variable or parameter (see
+//     subject.go); a mutable global can be changed by any call, so it never
+//     has one, and a field of a mutable variable never has one either;
 //   - a fact holds in a region only if the region never assigns the
 //     variable, anywhere, so nothing in it can make the fact false;
 //   - a condition gives facts through && (when true), || (when false), !,
@@ -39,10 +41,11 @@ import (
 //     holds only in a region that assigns neither variable; s may be
 //     mutable, since the region then never changes it.
 
-// fact is something known about a variable's value in a region: that it is
-// not zero, or that it lies at or above lo, or at or below hi, or below the
-// length of the string variable lenOf. For a string variable, the fact is
-// about its length instead.
+// fact is something known about a subject's value in a region, about: that
+// it is not zero, or that it lies at or above lo, or at or below hi, or
+// below the length of the string subject lenOf. A subject is a variable or
+// a path below an immutable one (see subject.go). For a string subject,
+// the fact can be about its length instead, which about then names.
 //
 // A fact also records where it came from, for the notes that explain a
 // missing proof: src, the comparison, or the && or || whose sides it
@@ -53,11 +56,11 @@ import (
 // written (see explain.go). Such a fact is kept in force only to explain an
 // error, and every query that proves something skips it: see inForce.
 type fact struct {
-	decl         ast.Decl
-	lenOf        ast.Decl
 	src          ast.Expr
 	guard        *guard
 	drop         *drop
+	about        factKey
+	lenOf        factKey
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
@@ -72,7 +75,7 @@ func (f fact) inForce() bool {
 // empty reports whether f says nothing about its variable: no bound, not
 // nonzero, and no length bounding it.
 func (f fact) empty() bool {
-	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf == nil
+	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf.isZero()
 }
 
 // interval is what all the facts in force say about a variable's value: at
@@ -86,36 +89,40 @@ type interval struct {
 
 // nonzero reports whether e is known not to be zero where it is checked: a
 // constant other than zero, an immutable variable whose value is one, or a
-// variable the facts in force keep away from zero.
+// subject, a variable or a path below an immutable one, the facts in force
+// keep away from zero.
 func (c *Checker) nonzero(e ast.Expr) bool {
 	if v, ok := c.knownValue(e); ok {
 		return !v.IsZero()
 	}
-	id, ok := e.(*ast.Ident)
-	if !ok {
+	if !c.isSubject(e) {
 		return false
 	}
-	return c.intervalOf(id).excludesZero()
+	return c.intervalOf(e).excludesZero()
 }
 
-// inRange reports whether a variable used as an index is known to lie in
-// [0, n) where it is used, by its type and the facts in force.
+// inRange reports whether a subject used as an index, a variable or a path
+// below an immutable one, is known to lie in [0, n) where it is used, by
+// its type and the facts in force.
 func (c *Checker) inRange(index ast.Expr, n int64) bool {
-	id, ok := index.(*ast.Ident)
-	if !ok || n == 0 {
+	if !c.isSubject(index) || n == 0 {
 		return false
 	}
-	known := c.intervalOf(id)
+	known := c.intervalOf(index)
 	return known.hasLo && !known.lo.IsNegative() &&
 		known.hasHi && known.hi.Cmp(constant.FromInt64(n-1)) <= 0
 }
 
-// intervalOf returns what is known about the value of the variable id names:
-// its type's bounds, narrowed by every fact in force about it.
-func (c *Checker) intervalOf(id *ast.Ident) interval {
-	known := typeInterval(id)
+// intervalOf returns what is known about the value of e, a subject: its
+// type's bounds, narrowed by every fact in force about it.
+func (c *Checker) intervalOf(e ast.Expr) interval {
+	known := typeInterval(e)
+	k, ok := c.subjectKey(e)
+	if !ok {
+		return known
+	}
 	for _, f := range c.active {
-		if f.decl == id.Def && f.inForce() {
+		if f.about == k && f.inForce() {
 			known = known.narrow(f)
 		}
 	}
@@ -387,29 +394,29 @@ func from(facts []fact, src ast.Expr) []fact {
 // a string's length, i < len(s), is not carried over.
 func union(a, b []fact) []fact {
 	var out []fact
-	seen := make(map[ast.Decl]bool)
+	seen := make(map[factKey]bool)
 	for _, f := range a {
-		if seen[f.decl] {
+		if seen[f.about] {
 			continue
 		}
-		seen[f.decl] = true
-		other, ok := sideInterval(b, f.decl)
+		seen[f.about] = true
+		other, ok := sideInterval(b, f.about)
 		if !ok {
 			continue
 		}
-		mine, _ := sideInterval(a, f.decl)
-		out = append(out, mine.hull(other).fact(f.decl))
+		mine, _ := sideInterval(a, f.about)
+		out = append(out, mine.hull(other).fact(f.about))
 	}
 	return out
 }
 
-// sideInterval returns what the facts of one side say about decl, and
-// whether any of them is about it.
-func sideInterval(facts []fact, decl ast.Decl) (interval, bool) {
+// sideInterval returns what the facts of one side say about the subject
+// k, and whether any of them is about it.
+func sideInterval(facts []fact, k factKey) (interval, bool) {
 	var known interval
 	found := false
 	for _, f := range facts {
-		if f.decl == decl {
+		if f.about == k {
 			known, found = known.narrow(f), true
 		}
 	}
@@ -444,10 +451,10 @@ func (known interval) excludesZero() bool {
 		known.hasHi && known.hi.Cmp(zero) < 0
 }
 
-// fact returns the fact that decl lies in known.
-func (known interval) fact(decl ast.Decl) fact {
+// fact returns the fact that the subject k lies in known.
+func (known interval) fact(k factKey) fact {
 	return fact{
-		decl:    decl,
+		about:   k,
 		lo:      known.lo,
 		hi:      known.hi,
 		hasLo:   known.hasLo,
@@ -475,55 +482,55 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 }
 
 // orientedFact returns the fact that left op right gives about left: a
-// variable, or len of a string variable, compared with a known value, or a
-// variable less than len of a string variable.
+// subject, or len of a string subject, compared with a known value, or a
+// subject less than len of a string subject.
 func (c *Checker) orientedFact(left ast.Expr, op ast.BinaryOp, right ast.Expr) (fact, bool) {
-	decl, ok := c.subject(left)
+	about, ok := c.subject(left)
 	if !ok {
 		return fact{}, false
 	}
 	if k, known := c.knownValue(right); known {
-		return bound(decl, op, k), true
+		return bound(about, op, k), true
 	}
-	_, isName := left.(*ast.Ident)
-	if s, ok := c.stringLen(right); ok && isName && op == ast.Lt {
-		return fact{decl: decl, lenOf: s}, true
+	if s, ok := c.stringLen(right); ok && !isLenCall(left) && op == ast.Lt {
+		return fact{about: about, lenOf: s}, true
 	}
 	return fact{}, false
 }
 
-// subject returns the declaration a fact about e would be about: the
-// variable e names, or the string variable whose length e is, len(s), when
-// that variable can have facts.
-func (c *Checker) subject(e ast.Expr) (ast.Decl, bool) {
-	if id, ok := e.(*ast.Ident); ok && c.canHoldFact(id.Def) {
-		return id.Def, true
+// subject returns the subject a fact about e would be about: the variable
+// e names, or the path below an immutable one e is, when it can have
+// facts, or the string subject whose length e is, len(s).
+func (c *Checker) subject(e ast.Expr) (factKey, bool) {
+	if k, ok := c.keyOf(e); ok {
+		return k, true
 	}
 	return c.stringLen(e)
 }
 
-// stringLen returns the string variable s when e is len(s) and s can have
+// stringLen returns the string subject s when e is len(s) and s can have
 // facts.
-func (c *Checker) stringLen(e ast.Expr) (ast.Decl, bool) {
+func (c *Checker) stringLen(e ast.Expr) (factKey, bool) {
 	call, ok := e.(*ast.Call)
 	if !ok || !isLen(call) || len(call.Args) != 1 {
-		return nil, false
+		return factKey{}, false
 	}
 	return c.stringVar(call.Args[0])
 }
 
-// stringVar returns the string variable e names, when it can have facts.
-func (c *Checker) stringVar(e ast.Expr) (ast.Decl, bool) {
-	id, ok := e.(*ast.Ident)
-	if !ok || ast.TypeOf(id) != types.String || !c.canHoldFact(id.Def) {
-		return nil, false
+// stringVar returns the string subject e is, a variable or a path below an
+// immutable one, when it can have facts.
+func (c *Checker) stringVar(e ast.Expr) (factKey, bool) {
+	if ast.TypeOf(e) != types.String {
+		return factKey{}, false
 	}
-	return id.Def, true
+	return c.keyOf(e)
 }
 
-// bound returns the fact that the variable decl compares with k as op says.
-func bound(decl ast.Decl, op ast.BinaryOp, k constant.Int) fact {
-	f := fact{decl: decl}
+// bound returns the fact that the subject about compares with k as op
+// says.
+func bound(about factKey, op ast.BinaryOp, k constant.Int) fact {
+	f := fact{about: about}
 	one := constant.FromInt64(1)
 	switch op {
 	case ast.Eq:
@@ -634,20 +641,21 @@ func (c *Checker) release(m mark) {
 // it, a call passing either as mut included. It returns nil when region
 // assigns neither.
 func assignedIn(region []ast.Stmt, f fact) *drop {
-	if d := assignedDrop(region, f.decl); d != nil {
+	if d := assignedDrop(region, f.about); d != nil {
 		return d
 	}
-	if f.lenOf == nil {
+	if f.lenOf.isZero() {
 		return nil
 	}
 	return assignedDrop(region, f.lenOf)
 }
 
-// assignedDrop returns the drop for the first assignment to decl in
-// region, which names the call when it is a mut argument, or nil when
-// there is none.
-func assignedDrop(region []ast.Stmt, decl ast.Decl) *drop {
-	target, call := assignment(region, decl)
+// assignedDrop returns the drop for the first assignment in region to the
+// variable the subject k starts from, which names the call when it is a
+// mut argument, or nil when there is none. A path's variable is immutable,
+// so nothing assigns it.
+func assignedDrop(region []ast.Stmt, k factKey) *drop {
+	target, call := assignment(region, k.decl)
 	switch {
 	case target == nil:
 		return nil
@@ -655,11 +663,11 @@ func assignedDrop(region []ast.Stmt, decl ast.Decl) *drop {
 		return &drop{
 			kind: dropMut,
 			at:   target.Spanned(),
-			name: declName(decl),
+			name: declName(k.decl),
 			text: calleeName(call),
 		}
 	default:
-		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(decl)}
+		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(k.decl)}
 	}
 }
 

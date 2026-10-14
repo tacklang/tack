@@ -239,52 +239,55 @@ func (c *Checker) requireInRange(ix *ast.Index, typ types.Type, n int64, write b
 	if c.inRange(index, n) {
 		return
 	}
-	msg, notes := c.indexError(ix, fmt.Sprint(n), func(id *ast.Ident) []diag.Diagnostic {
-		e := extent{of: ix.X, unit: "element", n: n, known: true}
-		return c.explain(c.indexProof(id, e, func() bool { return c.inRange(index, n) }))
+	msg, notes := c.indexError(ix, fmt.Sprint(n), func(i ast.Expr) []diag.Diagnostic {
+		e := c.newExtent(ix.X, "element", n, true)
+		return c.explain(c.indexProof(i, e, func() bool { return c.inRange(index, n) }))
 	})
 	if !write {
-		msg += orUse("v, ok := ...["+operandName(index)+"]", strings.HasSuffix(msg, " first"))
+		msg += orUse("v, ok := ...["+c.operandName(index)+"]", strings.HasSuffix(msg, " first"))
 	}
 	c.errorNotes(index.Spanned(), notes, "%s", msg)
 }
 
 // indexError returns the error for the index of ix, not a known value, that
 // no fact proves in range, before any mention of the checked form, and the
-// notes that explain it. A variable gets the check that would prove it,
-// below bound, with no lower bound for an unsigned one, except a mutable
-// global, which no check proves; explain gives the notes for a variable.
-// An index inside an element being bound with ok is also explained.
+// notes that explain it. A subject, a variable or a path below an
+// immutable one, gets the check that would prove it, below bound, with no
+// lower bound for an unsigned one, except a mutable global, which no check
+// proves; explain gives the notes for a subject. An index inside an
+// element being bound with ok is also explained.
 func (c *Checker) indexError(
 	ix *ast.Index,
 	bound string,
-	explain func(id *ast.Ident) []diag.Diagnostic,
+	explain func(i ast.Expr) []diag.Diagnostic,
 ) (string, []diag.Diagnostic) {
 	msg, notes := "index may be out of range", c.operandNotes(ix.Index)
-	id, isName := ix.Index.(*ast.Ident)
+	isSubject := c.isSubject(ix.Index)
+	name := c.nameOf(ix.Index)
 	switch v, isGlobal := c.mutableGlobal(ix.Index); {
 	case isGlobal:
-		msg, notes = "index "+operandName(ix.Index)+" may be out of range", globalNote(v)
-	case isName && bound == "":
-		msg, notes = "index "+id.Qualified()+" may be out of range", explain(id)
-	case isName:
-		msg, notes = "index "+id.Qualified()+" may be out of range; check "+inBounds(
-			id,
+		msg, notes = "index "+c.operandName(ix.Index)+" may be out of range", globalNote(v)
+	case isSubject && bound == "":
+		msg, notes = "index "+name+" may be out of range", explain(ix.Index)
+	case isSubject:
+		msg = "index " + name + " may be out of range; check " + inBounds(
+			ix.Index,
+			name,
 			bound,
-		)+" first", explain(
-			id,
-		)
+		) + " first"
+		notes = explain(ix.Index)
 	}
 	return msg, append(notes, c.outerIndexNote(ix)...)
 }
 
-// inBounds writes the check that proves the variable id below bound and,
-// unless its type is unsigned and so never negative, at least 0.
-func inBounds(id *ast.Ident, bound string) string {
-	if types.IsUnsigned(ast.TypeOf(id)) {
-		return id.Qualified() + " < " + bound
+// inBounds writes the check that proves i, a subject called name, below
+// bound and, unless its type is unsigned and so never negative, at least
+// 0.
+func inBounds(i ast.Expr, name, bound string) string {
+	if types.IsUnsigned(ast.TypeOf(i)) {
+		return name + " < " + bound
 	}
-	return "0 <= " + id.Qualified() + " && " + id.Qualified() + " < " + bound
+	return "0 <= " + name + " && " + name + " < " + bound
 }
 
 // lenCall checks a call to the builtin len, which takes one array or string

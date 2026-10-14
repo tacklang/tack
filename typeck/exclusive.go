@@ -165,7 +165,9 @@ func (c *Checker) stepOverlap(a, b step) overlap {
 		}
 		return disjoint
 	}
-	if samePath(a.index, b.index) {
+	ka, okA := c.subjectKey(a.index)
+	kb, okB := c.subjectKey(b.index)
+	if okA && okB && ka == kb {
 		return same
 	}
 	x, okX := c.indexInterval(a.index)
@@ -193,13 +195,14 @@ func intervalOverlap(x, y interval) overlap {
 
 // indexInterval returns what is known about the value of an index: a
 // known value, or what its type and the facts in force say about a
-// variable, and false for anything else.
+// subject, a variable or a path below an immutable one, and false for
+// anything else.
 func (c *Checker) indexInterval(e ast.Expr) (interval, bool) {
 	if v, ok := c.knownValue(e); ok {
 		return interval{lo: v, hi: v, hasLo: true, hasHi: true}, true
 	}
-	if id, ok := e.(*ast.Ident); ok {
-		return c.intervalOf(id), true
+	if c.isSubject(e) {
+		return c.intervalOf(e), true
 	}
 	return interval{}, false
 }
