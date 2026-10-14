@@ -16,7 +16,8 @@ Open questions about how a feature should behave are in
 [open-decisions.md](open-decisions.md), and bugs are in
 [known-bugs.md](known-bugs.md). The rules that keep division, indexing and
 conversions from failing at runtime, proofs and the `v, ok :=` form, are in
-[safety.md](safety.md). Checks for a future `tack vet`, for code that is
+[safety.md](safety.md), and extern C, Tack's unsafe, is in
+[extern.md](extern.md). Checks for a future `tack vet`, for code that is
 valid but says more than it needs to, are in [vet.md](vet.md).
 
 ## Today
@@ -55,7 +56,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | yes     | n/a | Only an `extern func`; any other is an error                                                |
 | `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; slices and `mut` parameters do not exist yet; C name is the Tack name or `extern("name")`'s, unique in the program, not `tack_` outside std; never `pub` or `lib` |
-| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c` against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors |
+| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c` against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors; all of extern C is in [extern.md](extern.md) |
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |

@@ -19,8 +19,8 @@ rules feature by feature.
 
 These rules cover Tack code only. An extern func's body is C, which they
 do not reach: what it does, and what it returns, is a promise its
-declaration makes and nothing checks, as the README's
-["Extern C"](../README.md#extern-c) says.
+declaration makes and nothing checks, as
+[extern.md](extern.md) says.
 
 Every example here is tested: each failing one is a case in
 [`examples/invalid.txtar`](../examples/invalid.txtar) whose expected output

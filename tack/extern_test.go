@@ -361,3 +361,55 @@ func TestBuiltExternModuleExits42(t *testing.T) {
 		t.Errorf("printed %q and exited %d, want %q and 42", out, code, "module ok\n")
 	}
 }
+
+// TestBuiltExternGuide builds examples/extern-guide, the worked example of
+// docs/extern.md, and checks it ran every check: a string, a struct and
+// several results crossed to C and back, and the Tack wrapper kept a zero
+// divisor from reaching C.
+func TestBuiltExternGuide(t *testing.T) {
+	bin := buildWithClang(t, "extern-guide")
+	if out, code := runBuilt(t, bin); out != "ok\n" || code != 0 {
+		t.Errorf("printed %q and exited %d, want %q and 0", out, code, "ok\n")
+	}
+}
+
+// externDoc is the page that documents extern C, whose worked example is
+// examples/extern-guide.
+var externDoc = filepath.Join("..", "docs", "extern.md")
+
+// TestExternDocShowsTheGuide checks docs/extern.md quotes the worked
+// example as it is: main.tck and guide.c whole, and the tack.h
+// --emit-header writes for it, so the page cannot drift from what the
+// compiler does.
+func TestExternDocShowsTheGuide(t *testing.T) {
+	doc, err := os.ReadFile(externDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(examplesDir, "extern-guide")
+	files := map[string]string{}
+	for _, name := range []string{"main.tck", "guide.c"} {
+		data, readErr := os.ReadFile(filepath.Join(src, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		files[name] = string(data)
+	}
+	dir := writeDir(t, files)
+	if r := runTack(t, "--emit-header", filepath.Join(dir, "main.tck")); r.code != exitOK {
+		t.Fatalf("--emit-header: exit %d, stderr %q", r.code, r.stderr)
+	}
+	header, err := os.ReadFile(filepath.Join(dir, "tack.h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"```tack\n" + files["main.tck"] + "```\n",
+		"```c\n" + files["guide.c"] + "```\n",
+		"```c\n" + string(header) + "```\n",
+	} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("%s does not quote, whole and fenced:\n%s", externDoc, want)
+		}
+	}
+}

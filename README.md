@@ -836,108 +836,19 @@ makes for itself, which has a letter after `tack_`.
 ### Extern C
 
 - `extern func name(params) results` declares a function whose body is
-  written in C. It has no body in Tack, and one written with a body is an
-  error, `extern func f cannot have a body; its body is written in C`. A
-  function without a body that is not extern is an error too, `function f
-  has no body; only an extern func is declared without one`. `extern` is a
-  keyword, reserved everywhere, and is written only before `func` or a C
-  name in parentheses (`extern var` is `expected 'func' found 'var'`,
-  `extern(add)` is `expected 'C name in quotes' found 'add'`). `main` cannot be extern,
-  `main function must not be extern`. An extern func is called like any
-  other function, and like any call, not in a package-level initializer,
-  which is a constant.
-- The C symbol of an extern func is its Tack name unchanged, or the
-  string `extern("c_name") func name(...)` gives, so `extern("c_twice")
-  func twice(x int64) int64` is defined in C as `c_twice`. A C name C
-  cannot define is an error at the declaration, at the string if one is
-  given: one that is not a C identifier, `extern func f cannot be named
-  "two words" in C: it is not a C identifier`, a C keyword, `extern func
-  while cannot be named while in C: it is a C keyword` (a Tack name that
-  is a C keyword needs `extern("name")`), and `main`, which the generated
-  C defines, `extern func f cannot be named main in C: the program's C
-  main is the one that runs Tack's`. Outside the standard library a C name
-  may not start with `tack_`, `extern func f cannot be named tack_f in C:
-  names starting tack_ are reserved for the standard library`; the
-  standard library names its own `tack_<package>_<name>`. Two extern funcs
-  of a program, in any packages, with one C name are an error at the
-  second, with a note at the first, `extern funcs add and util.plus both
-  have the C name add`.
-- An extern func is never `pub` or `lib`, `an extern func cannot be pub;
-  export a Tack function that calls it`: a package wraps it in a Tack
-  function, which is the one it exports.
-- Every file whose name ends in `.c` directly in a package's directory is
-  compiled and linked with the program; a single-file target has the `.c`
-  files in its own directory. Hidden files and directories are skipped, as
-  for `.tck` files, and there is no rule tying a `.c` file's name to a
-  `.tck` file's: `os.tck` beside `os.c` is a convention only. A C file
-  whose name starts with `-` is an error, `tack: file -x.c in dir starts
-  with -, which clang could read as an option; rename it`, and every path
-  the driver hands clang is absolute, so none is read as an option. Each is
-  compiled on its own with `clang -w -c`, the generated C's flags, and
-  linked with it. A C file clang cannot compile fails the build after
-  clang's own errors, `tack: cannot compile helpers.c: clang failed: exit
-  status 1`.
-- The compiler generates `tack.h`, which declares a prototype for every
-  extern func of the program, under its C name, with its Tack declaration
-  in a comment beside it, and the types they use (see below), and includes
-  `<stdbool.h>` and `<stdint.h>`. A
-  build writes it to the temporary build directory, never the source tree,
-  and compiles every C file with that directory on the include path and
-  `tack.h` included before the file's first line, so clang checks each
-  definition against its extern func whether the file includes `tack.h` or
-  not; a definition that does not match is clang's `conflicting types`.
-  A file may `#include "tack.h"`; a stale copy beside it, from
-  `--emit-header`, is skipped by the include guard of the one already
-  included.
-- An extern func that no C file of its own package defines is an error at
-  its declaration, `extern func write has no C definition in package os`:
-  a definition in another package's C files, or a `static` one, does not
-  count. The driver reads which functions each compiled C file defines
-  from the object file's symbol table, Mach-O on macOS and ELF on Linux,
-  without running another tool. A C file that defines `main` is an error,
-  `tack: helpers.c defines main; a Tack program's main is its Tack main, so
-  no C file may define one`, and so are two C files that define one
-  symbol, function or variable, `tack: two C files define add: a.c and
-  b.c`.
-- Every Tack type crosses the boundary, in both directions, by value,
-  with the layout the generated C gives it. Each `intN`/`uintN` is C's
-  `intN_t`/`uintN_t`, and `bool` is C's `bool`. A `string` is
-  `tack_string`, a struct of `const unsigned char *ptr` and `int64_t len`,
-  its bytes not ending in a zero; a string C returns must stay valid for as
-  long as Tack uses it. A struct is a C struct with a member per field,
-  under the field's Tack name, in order, and one `char unused` if it has
-  none. An array is a struct holding a C array, `e`, of at least one
-  element. Several results are returned as one C struct with a member
-  `r0`, `r1`, and so on per result. Slices and `mut` parameters, which C
-  would get as `{ptr, len}` and as a pointer, do not exist in Tack yet.
-  C never declares a type of its own for Tack: every type is declared in
-  Tack and defined for C by `tack.h`.
-- `tack.h` defines every type an extern func's signature uses, and every
-  type those hold, each before the types that hold it. A struct of package
-  `main` keeps its Tack name, `Point`; one of any other package is
-  `<package name>_<name>`, so `Token` of `calc/lexer` is `lexer_Token`. An
-  array is `tack_array_`, its length, and its element type's name, the Tack
-  name of a basic type, so `[4]int64` is `tack_array_4_int64` and
-  `[2]lexer.Token` is `tack_array_2_lexer_Token`. The results of extern
-  func `f` are `tack_results_f`. Two things given one name are an error at
-  the second, with a note at the first, `type Token of package calc/b/lexer
-  and type Token of package calc/a/lexer are both named lexer_Token in
-  tack.h`, and so is a type named like one of tack.h's own, `type
-  tack_string of package main cannot be named tack_string in tack.h: that
-  is tack.h's string type` (or `TACK_H`, its include guard). A type or a
-  field named with a C keyword cannot be declared in C: `type int cannot be
-  named int in C: it is a C keyword`, `field while of type Shape cannot be
-  named while in C: it is a C keyword`. A type no extern func uses is not
-  in `tack.h`, whatever its names.
+  written in C, and `extern("c_name") func ...` gives it a C name other
+  than its Tack name. Every `.c` file in a package's directory, or beside
+  a single-file target, is compiled and linked with the program, against
+  a generated `tack.h` that declares each extern func and the types it
+  uses; `--emit-header` writes `tack.h` for editors. Every Tack type
+  crosses by value. An extern func is never `pub` or `lib`, and one no C
+  file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
-  about what its C body does, which the compiler cannot check. The proofs
-  that keep Tack code from dividing by zero or indexing out of range
-  cover nothing on the C side, the result of an extern func is a value
-  nothing is known about, and C can do anything a C program can,
-  including not returning, writing through stray pointers, or defining a
-  symbol the C library or the generated C also uses. tack.h makes clang
-  check that each C definition has the declared types; nothing checks
-  more than that.
+  about what its C body does, which the compiler cannot check beyond its
+  types. [docs/extern.md](docs/extern.md) is the whole of it: the build,
+  the ABI and `tack.h`'s names, the rules for C names, what the C side
+  must promise, the missing-definition check, every diagnostic, and a
+  worked example.
 
 ## Tests
 

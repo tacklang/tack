@@ -57,9 +57,9 @@ never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
 
 ## Extern C
 
-Extern C follows the rules recorded in the README. These points were
-settled by the implementation rather than decided, and could go another
-way:
+Extern C follows the rules recorded in [extern.md](extern.md). These
+points were settled by the implementation rather than decided, and could
+go another way:
 
 - `extern` is a keyword reserved everywhere, as `from` is, rather than a
   word that means something only before `func`.
@@ -90,3 +90,10 @@ way:
   errors for a type of package main too.
 - A string C returns is taken as it is: nothing says who owns its bytes or
   how long they live, which the memory model will have to.
+- The builtins' C bodies are part of the C backend, one embedded file per
+  builtin in `codegen/c/builtin/`, written into the generated C as static
+  functions when called, rather than C files of `src/std/builtin` compiled
+  and linked like a package's: `go:embed` cannot reach `src/`, and the
+  generated C stays one self-contained file. Their C names are
+  `tack_builtin_print` and `tack_builtin_exit`. `exit`'s body is not
+  declared `_Noreturn`, as nothing depends on it.
