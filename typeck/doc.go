@@ -180,7 +180,7 @@
 // their indexes are known values that differ, or the facts in force keep
 // them apart. A plain argument that reads a place passed as mut is
 // allowed: it is evaluated before the call, and passed as a copy.
-// An extern func cannot take a mut parameter yet.
+// An extern func may take a mut parameter, which C gets as a pointer.
 //
 // A struct type is a type of its own for each declaration, whatever its
 // fields; struct.go checks its uses. A literal names each field exactly

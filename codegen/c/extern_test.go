@@ -220,3 +220,41 @@ func TestHeaderUsesTheGivenCName(t *testing.T) {
 		}
 	}
 }
+
+// TestHeaderDeclaresMutParamsAsPointers checks tack.h declares a mut
+// parameter as a pointer to its type, an integer's, a struct's and an
+// array's, with mut in the Tack declaration beside it.
+func TestHeaderDeclaresMutParamsAsPointers(t *testing.T) {
+	src := "package main\n\ntype Point struct {\n    x int64\n}\n\n" +
+		"extern func move(mut p Point, mut n int64, k int64, mut a [2]int8) bool\n\n" +
+		"func main() {\n}\n"
+	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
+	want := "bool move(Point *, int64_t *, int64_t, tack_array_2_int8 *); " +
+		"// extern func move(mut p Point, mut n int64, k int64, mut a [2]int8) bool\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("tack.h is missing %q:\n%s", want, got)
+	}
+}
+
+// TestExternMutExampleIsWarningFree builds examples/extern-mut with
+// clang's warnings as errors, its C file against its tack.h, so the
+// pointers a mut parameter becomes agree between the generated source,
+// the header and the C file, and checks every check it prints passed.
+func TestExternMutExampleIsWarningFree(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "extern-mut")
+	src, err := os.ReadFile(filepath.Join(dir, "main.tck"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrc, err := os.ReadFile(filepath.Join(dir, "mut.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(buildExtern(t, string(src), string(csrc))).Output()
+	if err != nil {
+		t.Fatalf("extern-mut failed: %v", err)
+	}
+	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 8 {
+		t.Errorf("extern-mut printed\n%s", out)
+	}
+}

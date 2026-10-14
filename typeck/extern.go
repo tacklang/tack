@@ -19,14 +19,9 @@ const stdPath = "std"
 // define, an identifier that is not a keyword; not main, which the
 // generated C defines; and, outside the standard library, not start
 // tack_, which the generated C's own names do. Every type can cross to C,
-// so its signature needs no check of its own, but a mut parameter cannot
-// cross yet.
+// and a mut parameter crosses as a pointer, so its signature needs no
+// check of its own.
 func (c *Checker) checkExtern(fn *ast.Func) {
-	for _, p := range fn.Params {
-		if p.Mut {
-			c.errorf(p.MutSpan, "extern func %s cannot take a mut parameter yet", fn.Name)
-		}
-	}
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan

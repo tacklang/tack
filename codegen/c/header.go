@@ -327,7 +327,8 @@ func (h *header) renderPrototypes(b *bytes.Buffer) {
 
 // prototype is the prototype of fn, an extern func, as tack.h declares it:
 // its C name, and the C type of each parameter and result, without the
-// parameters' names, which could be C keywords or tack.h's type names.
+// parameters' names, which could be C keywords or tack.h's type names. A
+// mut parameter is a pointer to its type, T *.
 func (h *header) prototype(fn *ast.Func) string {
 	result := "void"
 	switch len(fn.ResultTypes) {
@@ -340,6 +341,9 @@ func (h *header) prototype(fn *ast.Func) string {
 	params := make([]string, len(fn.Params))
 	for i, p := range fn.Params {
 		params[i] = h.cName(p.Type)
+		if p.Mut {
+			params[i] += " *"
+		}
 	}
 	if len(params) == 0 {
 		params = []string{"void"}
@@ -364,6 +368,9 @@ func (h *header) tackSignature(fn *ast.Func) string {
 	params := make([]string, len(fn.Params))
 	for i, p := range fn.Params {
 		params[i] = p.Name + " " + name(p.Type)
+		if p.Mut {
+			params[i] = "mut " + params[i]
+		}
 	}
 	results := make([]string, len(fn.ResultTypes))
 	for i, r := range fn.ResultTypes {

@@ -351,6 +351,26 @@ func TestBuiltExternValuesExits42(t *testing.T) {
 	}
 }
 
+// TestBuiltExternMutPassesEveryCheck builds examples/extern-mut, whose
+// extern funcs take mut parameters, as pointers in C, and checks what each
+// call did to the caller's variable: an integer, a struct, a field, an
+// element, a whole array, a bool alongside a result, two mut parameters
+// under a C name of their own, and a Tack mut parameter passed on to C.
+func TestBuiltExternMutPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "extern-mut")
+	want := "integer ok\n" +
+		"struct ok\n" +
+		"field ok\n" +
+		"element ok\n" +
+		"array ok\n" +
+		"bool and a result ok\n" +
+		"two mut parameters, C name ok\n" +
+		"passed on to C ok\n"
+	if out, code := runBuilt(t, bin); out != want || code != 0 {
+		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
 // TestBuiltExternModuleExits42 builds examples/extern-module, whose main
 // package and geo package each have C files defining their own extern
 // funcs, over types tack.h names Point for main's and geo_Point and

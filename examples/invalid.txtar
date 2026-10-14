@@ -3970,25 +3970,6 @@ mut-exclusive-whole-and-field/main.tck:15:11: note: first passed as mut here
    |	          ^~~~~
 16 |	    exit(p.x)
 
--- mut-extern-param/main.tck --
-package main
-
-extern func fill(mut n int64)
-
-func main() {
-    mut n int64 = 0
-    fill(mut n)
-}
--- mut-extern-param/expected --
-stage: typeck
----
-
-mut-extern-param/main.tck:3:18: error: extern func fill cannot take a mut parameter yet
-02 |	
-03 |	extern func fill(mut n int64)
-   |	                 ^~~
-04 |	
-
 -- mut-field-of-immutable/main.tck --
 package main
 

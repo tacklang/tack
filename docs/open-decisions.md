@@ -140,6 +140,9 @@ go another way:
   error when an extern signature uses its struct, rather than being
   renamed. tack.h's own names, `tack_string` and the guard `TACK_H`, are
   errors for a type of package main too.
+- A `mut` parameter is a plain `T *` in `tack.h`, not `T *restrict`,
+  though Tack never passes two that overlap, so C compilers make no
+  assumption Tack does not state elsewhere.
 - A string C returns is taken as it is: nothing says who owns its bytes or
   how long they live, which the memory model will have to.
 - The builtins' C bodies are part of the C backend, one embedded file per

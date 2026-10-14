@@ -119,7 +119,8 @@
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,
 // with its parameters' types and not their names, which could be C
-// keywords, and its Tack declaration in a comment beside it. Every type has
+// keywords, a mut parameter's being a pointer to its type, T *, and its
+// Tack declaration in a comment beside it. Every type has
 // the generated source's layout, member for member, under other names: a
 // struct of package main is its Tack name, one of another package
 // <package name>_<name>, an array tack_array_<length>_<element>, the

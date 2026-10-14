@@ -226,6 +226,24 @@ missing-in-library/util/util.tck:3:13: error: extern func add has no C definitio
    |	            ^~~
 04 |	
 
+-- mut-param-by-value/.target --
+main.tck
+-- mut-param-by-value/main.tck --
+package main
+
+extern func fill(mut n int64, v int64)
+
+func main() {
+    mut n int64 = 0
+    fill(mut n, 42)
+    exit(n)
+}
+-- mut-param-by-value/helpers.c --
+void fill(int64_t n, int64_t v) {
+    n = v;
+}
+-- mut-param-by-value/expected --
+tack: cannot compile mut-param-by-value/helpers.c: clang failed: exit status 1
 -- no-c-files/.target --
 main.tck
 -- no-c-files/main.tck --

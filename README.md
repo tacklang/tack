@@ -427,7 +427,8 @@ makes for itself, which has a letter after `tack_`.
   value `b` had, however it changes `p`. A `mut` parameter counts as a mutable variable for proofs, so
   a fact about it holds in a region that never assigns it, and a call
   that passes a variable, or a part of it, as `mut` assigns it at that
-  call (see division). An extern func cannot take a `mut` parameter yet.
+  call (see division). An extern func may take a `mut` parameter, which C
+  gets as a pointer (see extern C).
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -905,8 +906,8 @@ makes for itself, which has a letter after `tack_`.
   a single-file target, is compiled and linked with the program, against
   a generated `tack.h` that declares each extern func and the types it
   uses; `--emit-header` writes `tack.h` for editors. Every Tack type
-  crosses by value. An extern func cannot take a `mut` parameter yet,
-  `extern func fill cannot take a mut parameter yet`. An extern func is never `pub` or `lib`, and one no C
+  crosses by value, except a `mut` parameter, which C gets as a pointer to
+  the caller's variable, `T *`, to use only during the call. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its

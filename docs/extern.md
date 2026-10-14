@@ -107,7 +107,9 @@ with `divmod`.
 ## The ABI
 
 Every Tack type crosses the boundary, in both directions, by value, with
-the layout the generated C gives it, which is what `tack.h` defines.
+the layout the generated C gives it, which is what `tack.h` defines. A
+`mut` parameter is the one exception: it crosses as a pointer to the
+caller's variable.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -120,6 +122,7 @@ the layout the generated C gives it, which is what `tack.h` defines.
 | no result                    | `void`                                                                              |
 | one result                   | that result's C type                                                                |
 | several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on       |
+| a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, and defines every type an
 extern func's signature uses and every type those hold, each before the
@@ -154,8 +157,10 @@ declares a type for Tack: every type is declared in Tack, and C structs a
 library owns, such as `struct stat`, are copied field by field into a Tack
 struct by a C wrapper.
 
-Slices and `mut` parameters, which C would get as a `{ptr, len}` struct and
-as a pointer, do not exist in Tack yet.
+So `extern func grow(mut p Point, k int64)` is `void grow(Point *, int64_t);`
+in `tack.h`, and the C side reads and writes the caller's point through
+`p->x`. Slices, which C would get as a `{ptr, len}` struct, do not exist in
+Tack yet.
 
 ## The trust boundary
 
@@ -180,6 +185,16 @@ whole program, Tack code included, which no Tack proof can catch.
 - **No writes, no keeping.** C does not write through a `tack_string`'s
   `ptr`, which is `const`, and keeps no pointer into Tack data beyond the
   call: Tack promises nothing about how long the bytes it passes live.
+- **`mut` parameters.** C may read and write the caller's variable through
+  a `mut` parameter's pointer, but only during the call: it must not store
+  the pointer, return it, or use it after returning, since in Tack a
+  reference exists only for the call and the variable it points at may
+  be gone, or be changed by Tack code, the moment the call ends. A value C
+  writes there must be one of the type: a `bool` that is `true` or `false`,
+  and a string whose bytes stay valid as a returned string's must. Tack
+  passes two `mut` parameters of one call to places that do not overlap,
+  so C may treat them as distinct, but C must not reach the same variable
+  any other way during the call.
 - **Strings from C.** A string C returns is taken as it is: its bytes must
   stay valid, and unchanged, for as long as Tack might use the string,
   which today means for the rest of the program. Nothing says who owns them
@@ -366,7 +381,7 @@ be undefined.
 
 - Raw C pointer types usable only in extern signatures, so a C library
   function taking a pointer can be bound without a C wrapper.
-- Slices and `mut` parameters across the boundary.
+- Slices across the boundary.
 - Passing a C file flags, or linking a library.
 - An ownership story for strings C returns.
 
