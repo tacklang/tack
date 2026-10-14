@@ -1,0 +1,148 @@
+package lexer
+
+// Lex lexes src into l, replacing whatever l held. It goes on past an
+// error, so every error is recorded, and stops early only when toks is
+// full, setting overflow. The tokens end with an EOF token.
+pub func Lex(mut l Lexer, src string) {
+    l.src = src
+    l.pos = 0
+    l.n = 0
+    l.overflow = false
+    l.nerr = 0
+    l.dropped = 0
+    for l.pos < len(l.src) && !l.overflow {
+        c := byteAt(l.src, l.pos)
+        next := byteAt(l.src, l.pos + 1)
+        switch {
+        case c == ' ' || c == '\t':
+            l.pos++
+        case newlineAt(l.src, l.pos) > 0:
+            newlines(mut l)
+        case isIdentStart(c):
+            ident(mut l)
+        case c == '"':
+            quoted(mut l)
+        case c == '`':
+            raw(mut l)
+        case c == '\'':
+            char(mut l)
+        case isDigit(c):
+            number(mut l)
+        case c == '/' && next == '/':
+            comment(mut l)
+        case c == '/' && next == '*':
+            blockComment(mut l)
+        case operator(mut l):
+            // operator added the token and moved past it.
+        default:
+            fail(mut l, l.pos, l.pos + 1, "invalid character")
+            l.pos++
+        }
+    }
+    addSemi(mut l, l.pos)
+    add(mut l, KindEOF, 0, l.pos, l.pos, false)
+}
+
+// newlines skips a run of line ends and inserts a semicolon at the first
+// one if the token before it can end a statement.
+func newlines(mut l Lexer) {
+    first := l.pos
+    for mut n := newlineAt(l.src, l.pos); n > 0; n = newlineAt(l.src, l.pos) {
+        l.pos += n
+    }
+    addSemi(mut l, first)
+}
+
+// ident lexes an identifier, or a keyword when keywords has its text.
+func ident(mut l Lexer) {
+    start := l.pos
+    for l.pos < len(l.src) && (isIdentStart(byteAt(l.src, l.pos)) || isDigit(byteAt(l.src, l.pos))) {
+        l.pos++
+    }
+    k := keyword(l.src, start, l.pos)
+    w, isKeyword := keywords[k]
+    if isKeyword {
+        add(mut l, KindKeyword, k, start, l.pos, w.ends)
+        return
+    }
+    add(mut l, KindIdent, 0, start, l.pos, true)
+}
+
+// keyword returns the index in keywords of the keyword src[start:end]
+// spells, or -1 if it spells none. It is a linear search: there is no map,
+// and no substring to look one up by.
+func keyword(src string, start int64, end int64) int64 {
+    for i, w := range keywords {
+        if spanIs(src, start, end, w.text) {
+            return i
+        }
+    }
+    return -1
+}
+
+// number lexes a decimal integer, reporting one of more than one digit
+// that starts with 0.
+func number(mut l Lexer) {
+    start := l.pos
+    for l.pos < len(l.src) && isDigit(byteAt(l.src, l.pos)) {
+        l.pos++
+    }
+    if l.pos - start > 1 && byteAt(l.src, start) == '0' {
+        fail(mut l, start, l.pos, "integer literal has a leading zero")
+    }
+    add(mut l, KindInt, 0, start, l.pos, true)
+}
+
+// operator lexes the longest operator the source starts with at the
+// position, and reports false, consuming nothing, if none does.
+func operator(mut l Lexer) bool {
+    for i, op := range operators {
+        if hasPrefixAt(l.src, l.pos, op.text) {
+            add(mut l, KindOp, i, l.pos, l.pos + len(op.text), op.ends)
+            l.pos += len(op.text)
+            return true
+        }
+    }
+    return false
+}
+
+// comment lexes a line comment, or a run of them on consecutive lines,
+// however each is indented, as one token that ends before the last line's
+// end. A semicolon goes before it if the token before can end a
+// statement; the line end after it inserts none, since a comment cannot
+// end a statement.
+func comment(mut l Lexer) {
+    start := l.pos
+    l.pos += 2
+    for l.pos < len(l.src) {
+        n := newlineAt(l.src, l.pos)
+        if n == 0 {
+            l.pos++
+            continue
+        }
+        mut next := l.pos + n
+        for byteAt(l.src, next) == ' ' || byteAt(l.src, next) == '\t' {
+            next++
+        }
+        if !hasPrefixAt(l.src, next, "//") {
+            break
+        }
+        l.pos = next + 2
+    }
+    addSemi(mut l, start)
+    add(mut l, KindComment, 0, start, l.pos, false)
+}
+
+// blockComment reports a block comment, which Tack does not have, and
+// skips past its "*/", or to the end of the source.
+func blockComment(mut l Lexer) {
+    start := l.pos
+    l.pos += 2
+    for l.pos < len(l.src) && !hasPrefixAt(l.src, l.pos, "*/") {
+        l.pos++
+    }
+    if l.pos < len(l.src) {
+        l.pos += 2
+    }
+    fail(mut l, start, l.pos, "block comments are not supported")
+}

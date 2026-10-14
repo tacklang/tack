@@ -17,6 +17,8 @@ import (
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/internal/invalid"
+	"github.com/tacklang/tack/lexer"
+	"github.com/tacklang/tack/source"
 )
 
 // examplesDir is where the example programs live, relative to this package.
@@ -1650,4 +1652,290 @@ func TestBuiltPackagesRunsBothMains(t *testing.T) {
 			}
 		})
 	}
+}
+
+// tackLexer is examples/tack-lexer/cmd/lex, a lexer for a subset of Tack
+// written in Tack, which lexes its standard input and prints a line per
+// token.
+var tackLexer = filepath.Join(examplesDir, "tack-lexer", "cmd", "lex")
+
+// runBuiltWithStdin is runBuilt with stdin as the binary's standard input.
+func runBuiltWithStdin(t *testing.T, bin, stdin string) (string, int) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), bin)
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.Output()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exitErr):
+		return string(out), exitErr.ExitCode()
+	default:
+		t.Fatalf("running %s: %v", bin, err)
+		return "", 0
+	}
+}
+
+// tackLexerProgram is a small program for examples/tack-lexer, and
+// tackLexerProgramOut what it prints for it: every kind of token in the
+// subset, and semicolons inserted after an identifier, a literal, ++ and
+// closing brackets, and before a comment.
+const (
+	tackLexerProgram = "package main\n\nfunc main() {\n\tx := \"a\\tb\" // hi\n\ty := '\\n'\n" +
+		"\tif x <= 10 && y != 0 { x++ }\n}\n"
+	tackLexerProgramOut = `keyword 0 7 "package"
+ident 8 12 "main"
+; 12 12 ""
+keyword 14 18 "func"
+ident 19 23 "main"
+( 23 24 "("
+) 24 25 ")"
+{ 26 27 "{"
+ident 29 30 "x"
+:= 31 33 ":="
+string 34 40 "\"a\\tb\""
+; 41 41 ""
+comment 41 46 "// hi"
+ident 48 49 "y"
+:= 50 52 ":="
+char 53 57 "'\\n'"
+; 57 57 ""
+keyword 59 61 "if"
+ident 62 63 "x"
+<= 64 66 "<="
+int 67 69 "10"
+&& 70 72 "&&"
+ident 73 74 "y"
+!= 75 77 "!="
+int 78 79 "0"
+{ 80 81 "{"
+ident 82 83 "x"
+++ 83 85 "++"
+} 86 87 "}"
+; 87 87 ""
+} 88 89 "}"
+; 89 89 ""
+EOF 90 90 ""
+`
+)
+
+// tackLexerErrors is a source with one of each lexical error, and
+// tackLexerErrorsOut what examples/tack-lexer prints for it: the tokens,
+// then the errors.
+const (
+	tackLexerErrors    = "s := \"a\\q\" + 'ab' + 007 @ /* c */ \xff\n\"open\n`raw"
+	tackLexerErrorsOut = `ident 0 1 "s"
+:= 2 4 ":="
+string 5 10 "\"a\\q\""
++ 11 12 "+"
++ 18 19 "+"
+int 20 23 "007"
+; 35 35 ""
+string 36 41 "\"open"
+; 41 41 ""
+string 42 46 "` + "`raw" + `"
+; 46 46 ""
+EOF 46 46 ""
+error 7 9 invalid escape sequence
+error 13 17 too many characters in char literal
+error 20 23 integer literal has a leading zero
+error 24 25 invalid character
+error 26 33 block comments are not supported
+error 34 35 invalid character
+error 36 41 unterminated string
+error 42 46 unterminated string
+`
+)
+
+// tackLexerFull returns a source of exactly 4096 tokens, examples/tack-lexer's
+// capacity, and what it prints for it: 2047 lines of x, each an identifier
+// and a semicolon, then a written semicolon and the EOF.
+func tackLexerFull() (string, string) {
+	var out strings.Builder
+	for i := range 2047 {
+		at, next := strconv.Itoa(2*i), strconv.Itoa(2*i+1)
+		out.WriteString("ident " + at + " " + next + " \"x\"\n; " + next + " " + next + " \"\"\n")
+	}
+	out.WriteString("; 4094 4095 \";\"\nEOF 4095 4095 \"\"\n")
+	return strings.Repeat("x\n", 2047) + ";", out.String()
+}
+
+// TestBuiltTackLexer builds examples/tack-lexer and checks what it prints
+// and its exit status: the token count for a program, an empty one
+// included; 254 with every lexical error listed; and, at its capacity of
+// 4096 tokens, every token when they fit exactly and only an error, with
+// status 255, when one more does not.
+func TestBuiltTackLexer(t *testing.T) {
+	bin := buildTargetWithClang(t, "lex", tackLexer)
+	full, fullOut := tackLexerFull()
+	for _, tc := range []struct {
+		name, in, out string
+		code          int
+	}{
+		{"program", tackLexerProgram, tackLexerProgramOut, 33},
+		{"empty", "", "EOF 0 0 \"\"\n", 1},
+		{"errors", tackLexerErrors, tackLexerErrorsOut, 254},
+		{"exactly full", full, fullOut, 0},
+		{"one token too many", full + ";", "error: more than 4096 tokens\n", 255},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, code := runBuiltWithStdin(t, bin, tc.in)
+			if out != tc.out || code != tc.code {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand %d", out, code, tc.out, tc.code)
+			}
+		})
+	}
+}
+
+// TestBuiltTackLexerAgreesWithTheCompiler lexes every Tack file under
+// examples/, each also with CRLF line endings, and every case of
+// examples/invalid.txtar, with both the Tack lexer of examples/tack-lexer
+// and the compiler's own, and checks they agree: the same tokens, with the
+// same kinds, spans and text; errors over the same spans, in the same
+// order, though the Tack lexer's messages are fixed strings, since Tack
+// cannot format one; and a status of the token count, or 254 after an
+// error. Inputs outside the Tack lexer's subset, with a float or an asm
+// block, are skipped, and so are those of more tokens than it holds.
+func TestBuiltTackLexerAgreesWithTheCompiler(t *testing.T) {
+	bin := buildTargetWithClang(t, "lex", tackLexer)
+	inputs := tackLexerInputs(t)
+	compared, withErrors := 0, 0
+	for name, src := range inputs {
+		want, code, ok := goLexerTokens(src)
+		if !ok {
+			continue
+		}
+		compared++
+		if code == 254 {
+			withErrors++
+		}
+		out, gotCode := runBuiltWithStdin(t, bin, string(src))
+		if got := withoutErrorMessages(out); got != want || gotCode != code {
+			t.Errorf(
+				"%s: printed\n%s\nand exited %d, want\n%s\nand %d",
+				name,
+				got,
+				gotCode,
+				want,
+				code,
+			)
+		}
+	}
+	t.Logf("compared %d of %d inputs, %d with errors", compared, len(inputs), withErrors)
+	if compared < len(inputs)*9/10 || withErrors == 0 {
+		t.Errorf("compared %d of %d inputs, %d with errors; want nearly all, some with errors",
+			compared, len(inputs), withErrors)
+	}
+}
+
+// tackLexerInputs returns the sources TestBuiltTackLexerAgreesWithTheCompiler
+// lexes, by name: every Tack file under examples/, as it is and with CRLF
+// line endings, every case of examples/invalid.txtar, and
+// tackLexerHostileInputs.
+func tackLexerInputs(t *testing.T) map[string][]byte {
+	t.Helper()
+	inputs := map[string][]byte{}
+	err := filepath.WalkDir(examplesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".tck" {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputs[path] = data
+		inputs[path+" (CRLF)"] = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range invalidCases(t) {
+		inputs["invalid.txtar/"+tc.Name] = tc.Source
+	}
+	for i, src := range tackLexerHostileInputs {
+		inputs["hostile "+strconv.Itoa(i)] = []byte(src)
+	}
+	return inputs
+}
+
+// tackLexerHostileInputs are sources at the edges of what a lexer
+// handles: literals cut off by a line end or the end of the source, bad
+// escapes and characters, comment runs, longest-match operators, and a
+// nesting that nearly fills the Tack lexer.
+var tackLexerHostileInputs = []string{
+	`"abc`, `"a\`, "\"a\\\nb\"", `"\x4"`, `"\xZZ"`, `"\x41\x4a0"`, `"\'"`, `'\"'`,
+	`'`, `''`, `'ab'`, `'ab`, "'\n", `'\x4'`, `'\''`, "'\u00e9'", "'\xff'",
+	"/* open", "/**/x", "a\rb", "a\x00b", "\xff\xfe", "@#$",
+	"x // a\n  // b\n\n// c\ny", "x // a\r\n\t// b\r\ny", "// end", "x //",
+	"a&^=b<<=c>>=d...e&^f<-g", "x++\ny--\nreturn\nbreak\ncontinue\ntrue\nfalse\n)\n]\n}\n",
+	"00 007 0 10", "`a\nb\r\nc`", "`open\n", "x\n\n\r\n\n",
+	strings.Repeat("(", 2000) + strings.Repeat(")", 2000),
+}
+
+// goLexerTokens lexes src with the compiler's lexer and formats its tokens
+// as examples/tack-lexer prints them, and its errors without their
+// messages, and returns that lexer's exit status for src. It reports false
+// for a source outside that lexer's subset or capacity.
+func goLexerTokens(src []byte) (string, int, bool) {
+	lex := lexer.New(&source.File{ID: "in.tck", Filename: "in.tck", Data: src})
+	diags := lex.Lex()
+	if len(lex.Tokens()) > 4096 {
+		return "", 0, false
+	}
+	var b strings.Builder
+	for _, tok := range lex.Tokens() {
+		if tok.Kind() == lexer.Float || tok.Kind() == lexer.Keyword && tok.Value() == lexer.ASM {
+			return "", 0, false
+		}
+		start, end := tok.OffsetStart(), tok.OffsetEnd()
+		b.WriteString(
+			tok.Kind().String() + " " + strconv.Itoa(start) + " " + strconv.Itoa(end) + " ",
+		)
+		b.WriteString(quoteBytes(src[start:end]) + "\n")
+	}
+	for _, d := range diags {
+		b.WriteString("error " + strconv.Itoa(d.Span.Start) + " " + strconv.Itoa(d.Span.End) + "\n")
+	}
+	if len(diags) > 0 {
+		return b.String(), 254, true
+	}
+	return b.String(), len(lex.Tokens()) % 256, true
+}
+
+// withoutErrorMessages drops the message from each error line the Tack
+// lexer printed, keeping "error", its start and its end.
+func withoutErrorMessages(out string) string {
+	lines := strings.SplitAfter(out, "\n")
+	for i, line := range lines {
+		if f := strings.Fields(line); len(f) > 3 && f[0] == "error" {
+			lines[i] = strings.Join(f[:3], " ") + "\n"
+		}
+	}
+	return strings.Join(lines, "")
+}
+
+// quoteBytes quotes b as examples/tack-lexer does: a quote or backslash
+// escaped, a printable ASCII byte as itself, any other byte as \x and two
+// lowercase hex digits.
+func quoteBytes(b []byte) string {
+	const hex = "0123456789abcdef"
+	var s strings.Builder
+	s.WriteByte('"')
+	for _, c := range b {
+		switch {
+		case c == '"' || c == '\\':
+			s.WriteByte('\\')
+			s.WriteByte(c)
+		case c >= ' ' && c <= '~':
+			s.WriteByte(c)
+		default:
+			s.WriteString(`\x`)
+			s.WriteByte(hex[c>>4])
+			s.WriteByte(hex[c&15])
+		}
+	}
+	s.WriteByte('"')
+	return s.String()
 }

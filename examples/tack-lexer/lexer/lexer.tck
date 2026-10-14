@@ -1,0 +1,153 @@
+package lexer
+
+// Token is one token: its kind, the bytes [start, end) of the source it
+// covers, and for a keyword or operator its index in keywords or operators.
+// An inserted semicolon covers no bytes.
+pub type Token struct {
+    pub kind int64
+    pub start int64
+    pub end int64
+    pub sub int64
+
+    // ends says whether a line end right after the token inserts a
+    // semicolon. It is private, so only this package writes a Token.
+    ends bool
+}
+
+// Error is a lexical error over the bytes [start, end). Its message is
+// always a literal, since Tack cannot build a string.
+pub type Error struct {
+    pub start int64
+    pub end int64
+    pub msg string
+}
+
+// Lexer is the state of one Lex: the source, the position in it, and
+// every token and error so far. Tack has no list type, so tokens and
+// errors live in arrays of a fixed length, each with a count of how many
+// are used. A struct field's array length cannot name a variable, so the
+// capacities are written here as literals, and read elsewhere as
+// len(l.toks) and len(l.errs).
+//
+// The fields main reads are pub, which also lets main write them: Tack
+// has no read-only export, and a function that returned a token would
+// copy the whole Lexer to read it (see Count).
+pub type Lexer struct {
+    src string
+    pos int64
+
+    // n tokens of toks are used. overflow is set when one more did not
+    // fit; Lex then stops.
+    pub n int64
+    pub toks [4096]Token
+    pub overflow bool
+
+    // nerr errors of errs are used; dropped counts those that did not fit.
+    pub nerr int64
+    pub errs [64]Error
+    pub dropped int64
+}
+
+// Count returns how many tokens l holds. It takes l as mut only to avoid a
+// copy: a plain parameter is a copy of its argument, and a Lexer is about
+// 166 KB (165,944 bytes in the C backend).
+pub func Count(mut l Lexer) int64 {
+    return l.n
+}
+
+// add appends a token, or sets overflow when toks is full. The count is
+// copied into n first: a field of a mut parameter never carries a fact, so
+// only a local can be proven in range for the write.
+func add(mut l Lexer, kind int64, sub int64, start int64, end int64, ends bool) {
+    n := l.n
+    if n < 0 || n >= len(l.toks) {
+        l.overflow = true
+        return
+    }
+    l.toks[n] = Token{kind: kind, start: start, end: end, sub: sub, ends: ends}
+    l.n = n + 1
+}
+
+// addSemi inserts a semicolon at pos when the last token can end a
+// statement, following Go's rule. The last token's index is proven rather
+// than read with the checked form, last, ok := l.toks[l.n - 1], which
+// would compile but copies all of toks on every call.
+func addSemi(mut l Lexer, pos int64) {
+    last := l.n - 1
+    if last >= 0 && last < len(l.toks) && l.toks[last].ends {
+        add(mut l, KindSemi, 0, pos, pos, false)
+    }
+}
+
+// fail records an error over [start, end), or counts it as dropped when
+// errs is full.
+func fail(mut l Lexer, start int64, end int64, msg string) {
+    n := l.nerr
+    if n < 0 || n >= len(l.errs) {
+        l.dropped++
+        return
+    }
+    l.errs[n] = Error{start: start, end: end, msg: msg}
+    l.nerr = n + 1
+}
+
+// byteAt returns the byte of src at i, or 0 when i is out of range. Every
+// read of the source goes through it: the position is a field of a mut
+// parameter, which no guard proves in range, so a direct src[pos] never
+// compiles. Callers that must tell a 0 byte from the end compare the
+// position with len(src) first.
+func byteAt(src string, i int64) uint8 {
+    c, _ := src[i]
+    return c
+}
+
+// spanIs reports whether src[start:end] is word, comparing byte by byte,
+// since there is no substring to compare with ==.
+func spanIs(src string, start int64, end int64, word string) bool {
+    if end - start != len(word) {
+        return false
+    }
+    return hasPrefixAt(src, start, word)
+}
+
+// hasPrefixAt reports whether src holds word starting at pos.
+func hasPrefixAt(src string, pos int64, word string) bool {
+    for i := range len(word) {
+        c, ok := src[pos + i]
+        if !ok || c != word[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// newlineAt returns the length of the line ending at i of src: 1 for "\n",
+// 2 for "\r\n", and 0 for anything else, a lone "\r" included.
+func newlineAt(src string, i int64) int64 {
+    c, ok := src[i]
+    if !ok {
+        return 0
+    }
+    if c == '\n' {
+        return 1
+    }
+    if c == '\r' && byteAt(src, i + 1) == '\n' {
+        return 2
+    }
+    return 0
+}
+
+// isIdentStart reports whether c can start an identifier.
+func isIdentStart(c uint8) bool {
+    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
+}
+
+// isDigit reports whether c is a decimal digit.
+func isDigit(c uint8) bool {
+    return c >= '0' && c <= '9'
+}
+
+// isHex reports whether c is a hex digit, upper or lower case.
+func isHex(c uint8) bool {
+    return isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}

@@ -1,0 +1,126 @@
+package lexer
+
+// quoted lexes a double-quoted string, which ends at its closing quote or,
+// unterminated, at a line end or the end of the source. Either way it
+// gives a token. Its escapes are checked but not decoded: a token holds no
+// value, only its span.
+func quoted(mut l Lexer) {
+    start := l.pos
+    l.pos++
+    mut closed := false
+    for l.pos < len(l.src) && newlineAt(l.src, l.pos) == 0 {
+        c := byteAt(l.src, l.pos)
+        if c == '"' {
+            l.pos++
+            closed = true
+            break
+        }
+        if c == '\\' {
+            escape(mut l, '"')
+            continue
+        }
+        l.pos++
+    }
+    add(mut l, KindString, 0, start, l.pos, true)
+    if !closed {
+        fail(mut l, start, l.pos, "unterminated string")
+    }
+}
+
+// raw lexes a backquoted string, which may span lines and holds every byte
+// up to the next backquote as it is.
+func raw(mut l Lexer) {
+    start := l.pos
+    l.pos++
+    for l.pos < len(l.src) && byteAt(l.src, l.pos) != '`' {
+        l.pos++
+    }
+    closed := l.pos < len(l.src)
+    if closed {
+        l.pos++
+    }
+    add(mut l, KindString, 0, start, l.pos, true)
+    if !closed {
+        fail(mut l, start, l.pos, "unterminated string")
+    }
+}
+
+// char lexes a character literal: one byte or one escape between single
+// quotes. A malformed one gives an error and no token.
+func char(mut l Lexer) {
+    start := l.pos
+    l.pos++
+    if l.pos >= len(l.src) || newlineAt(l.src, l.pos) > 0 {
+        fail(mut l, start, l.pos, "unterminated char literal")
+        return
+    }
+    if byteAt(l.src, l.pos) == '\'' {
+        l.pos++
+        fail(mut l, start, l.pos, "empty char literal")
+        return
+    }
+    if byteAt(l.src, l.pos) == '\\' {
+        escape(mut l, '\'')
+    } else {
+        l.pos++
+    }
+    if l.pos >= len(l.src) || newlineAt(l.src, l.pos) > 0 {
+        fail(mut l, start, l.pos, "unterminated char literal")
+        return
+    }
+    if byteAt(l.src, l.pos) != '\'' {
+        tooLong(mut l, start)
+        return
+    }
+    l.pos++
+    add(mut l, KindChar, 0, start, l.pos, true)
+}
+
+// tooLong recovers from a character literal starting at start that holds
+// more than one byte: it skips past the closing quote, or up to the line
+// end, which is left for Lex, and reports the whole literal.
+func tooLong(mut l Lexer, start int64) {
+    for l.pos < len(l.src) && newlineAt(l.src, l.pos) == 0 {
+        c := byteAt(l.src, l.pos)
+        l.pos++
+        if c == '\'' {
+            break
+        }
+    }
+    fail(mut l, start, l.pos, "too many characters in char literal")
+}
+
+// escape moves past the escape sequence at the position, a backslash, and
+// reports it if it is not one of Go's single-letter escapes, a backslash,
+// the literal's own quote, or \x and two hex digits. A backslash before a
+// line end is reported and the line end left in place; one at the end of
+// the source is left to the literal, which is unterminated.
+func escape(mut l Lexer, quote uint8) {
+    start := l.pos
+    l.pos++
+    if l.pos >= len(l.src) {
+        return
+    }
+    if newlineAt(l.src, l.pos) > 0 {
+        fail(mut l, start, l.pos, "invalid escape sequence")
+        return
+    }
+    c := byteAt(l.src, l.pos)
+    l.pos++
+    switch c {
+    case 'a', 'b', 'f', 'v', 'n', 't', 'r', '\\', quote:
+        return
+    case 'x':
+        for range 2 {
+            if l.pos >= len(l.src) || !isHex(byteAt(l.src, l.pos)) {
+                break
+            }
+            l.pos++
+        }
+        if l.pos - start < 4 {
+            fail(mut l, start, l.pos, "invalid escape sequence")
+        }
+        return
+    }
+    fail(mut l, start, l.pos, "invalid escape sequence")
+}
