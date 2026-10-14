@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/internal/invalid"
 )
 
@@ -387,6 +388,27 @@ func TestBuiltExternStringsPassesEveryCheck(t *testing.T) {
 		"global ok\n"
 	if out, code := runBuilt(t, bin); out != want || code != 0 {
 		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
+// TestBuiltAtEveryOptLevel builds examples/extern-strings, generated
+// source and a C file both, at every optimization level, and checks each
+// binary passes every check: a level must not change what a program does.
+func TestBuiltAtEveryOptLevel(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "prog")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("extern-strings"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); code != 0 || strings.Count(out, " ok\n") != 7 {
+				t.Errorf("printed\n%s\nand exited %d", out, code)
+			}
+		})
 	}
 }
 

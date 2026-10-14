@@ -28,6 +28,7 @@ type builder struct {
 	stdout   io.Writer      // where the toolchain's output goes
 	stderr   io.Writer      // likewise
 	res      *loader.Result // the program, and the files its diagnostics render against
+	opt      codegen.Opt    // the optimization level every C file is compiled at
 	maxDiags int
 }
 
@@ -78,7 +79,7 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	for i, o := range objs {
 		paths[i] = o.obj
 	}
-	return b.runTool(b.backend.BuildCmd(src, paths, outBin), "")
+	return b.runTool(b.backend.BuildCmd(src, paths, outBin, b.opt), "")
 }
 
 // compileC writes tack.h to dir and compiles every C file of every package
@@ -107,7 +108,7 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot find %s: %w", shown, err)
 		}
-		if err := b.runTool(b.backend.CompileCmd(src, header, obj), shown); err != nil {
+		if err := b.runTool(b.backend.CompileCmd(src, header, obj, b.opt), shown); err != nil {
 			return nil, err
 		}
 		objs[i] = cObject{pkg: f.pkg, shown: shown, obj: obj}

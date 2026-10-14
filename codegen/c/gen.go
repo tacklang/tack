@@ -32,9 +32,10 @@ func (backend) Ext() string { return ".c" }
 // the user never wrote, and a valid program, such as one comparing a
 // variable with itself, can cause one. Errors are still reported. The
 // backend's own tests compile with -Wall -Wextra -Werror instead, so a
-// warning the backend causes is caught there.
-func (backend) BuildCmd(src string, objs []string, out string) []string {
-	return append([]string{"clang", "-w", "-o", out, src}, objs...)
+// warning the backend causes is caught there. opt becomes clang's -O
+// flag.
+func (backend) BuildCmd(src string, objs []string, out string, opt codegen.Opt) []string {
+	return append([]string{"clang", "-w", "-O" + string(opt), "-o", out, src}, objs...)
 }
 
 // CompileCmd runs clang as BuildCmd does, with its warnings off, to
@@ -45,10 +46,12 @@ func (backend) BuildCmd(src string, objs []string, out string) []string {
 // an #include "tack.h" would find first, is skipped by its include guard.
 // header's directory is also searched, with -I, for a file that includes
 // tack.h by name. The driver passes every path absolute, so none can be
-// read as an option.
-func (backend) CompileCmd(src, header, obj string) []string {
+// read as an option. The file is optimized at opt, as the generated
+// source is.
+func (backend) CompileCmd(src, header, obj string, opt codegen.Opt) []string {
 	return []string{
-		"clang", "-w", "-c", "-I", filepath.Dir(header), "-include", header, "-o", obj, src,
+		"clang", "-w", "-O" + string(opt), "-c", "-I", filepath.Dir(header), "-include", header,
+		"-o", obj, src,
 	}
 }
 

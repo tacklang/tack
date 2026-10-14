@@ -83,9 +83,10 @@ with `divmod`.
 - A C file whose name starts with `-` is an error: `tack: file -x.c in dir
   starts with -, which clang could read as an option; rename it`. Every
   path the driver hands clang is absolute, so none is read as an option.
-- Each C file is compiled on its own with `clang -w -c`, the generated C's
-  flags, with warnings off, so clang's warnings about the C are not shown;
-  its errors are, and then `tack: cannot compile helpers.c: clang failed:
+- Each C file is compiled on its own with `clang -w -O3 -c`, the generated
+  C's flags: at the build's optimization level, `-O3` unless an `-O` flag
+  says otherwise, and with warnings off, so clang's warnings about the C
+  are not shown; its errors are, and then `tack: cannot compile helpers.c: clang failed:
   exit status 1`. There is no way yet to pass a C file other flags, or to
   link a library.
 - The compiler generates `tack.h` for the program: the types the extern

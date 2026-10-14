@@ -32,11 +32,13 @@ const (
 	failBackend    = "test-fail"    // toolchain writes to stderr and exits 3
 	missingBackend = "test-missing" // toolchain does not exist
 	sleepBackend   = "test-sleep"   // toolchain hangs until killed
+	optBackend     = "test-opt"     // "builds" by writing the level to --out
 )
 
 // fakeToolchain is a backend that generates C with the real c backend but
 // builds with argv instead of clang. In argv, "{src}" and "{out}" are
-// replaced by the build's source and output paths.
+// replaced by the build's source and output paths, and "{opt}" by its
+// optimization level.
 type fakeToolchain struct {
 	codegen.Backend
 	name string
@@ -46,10 +48,11 @@ type fakeToolchain struct {
 // Name returns the name the fake is registered under.
 func (f fakeToolchain) Name() string { return f.name }
 
-// BuildCmd returns argv with the {src} and {out} placeholders filled in.
-// The fakes build programs without C files, so there are no objects.
-func (f fakeToolchain) BuildCmd(src string, _ []string, out string) []string {
-	r := strings.NewReplacer("{src}", src, "{out}", out)
+// BuildCmd returns argv with the {src}, {out} and {opt} placeholders
+// filled in. The fakes build programs without C files, so there are no
+// objects.
+func (f fakeToolchain) BuildCmd(src string, _ []string, out string, opt codegen.Opt) []string {
+	r := strings.NewReplacer("{src}", src, "{out}", out, "{opt}", string(opt))
 	cmd := make([]string, len(f.argv))
 	for i, a := range f.argv {
 		cmd[i] = r.Replace(a)
@@ -66,6 +69,7 @@ func init() {
 		}},
 		{name: missingBackend, argv: []string{"/nonexistent/tack-test-cc", "{src}", "{out}"}},
 		{name: sleepBackend, argv: []string{"sleep", "30"}},
+		{name: optBackend, argv: []string{"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{opt}", "{out}"}},
 	} {
 		f.Backend = c.New()
 		codegen.Register(f)
@@ -243,11 +247,15 @@ func TestHelpListsEveryFlagAndExitsZero(t *testing.T) {
 				t.Errorf("stderr = %q, want empty", r.stderr)
 			}
 			fs.VisitAll(func(f *flag.Flag) {
-				if !strings.Contains(r.stdout, "--"+f.Name) {
-					t.Errorf("help does not list --%s:\n%s", f.Name, r.stdout)
+				name := "--" + f.Name
+				if strings.HasPrefix(f.Name, "O") {
+					name = "-" + f.Name
+				}
+				if !strings.Contains(r.stdout, name) {
+					t.Errorf("help does not list %s:\n%s", name, r.stdout)
 				}
 			})
-			for _, want := range []string{"--help", "Exit status", "(default c)"} {
+			for _, want := range []string{"--help", "Exit status", "(default c)", "(default -O3)"} {
 				if !strings.Contains(r.stdout, want) {
 					t.Errorf("help does not mention %q", want)
 				}
@@ -471,6 +479,10 @@ func TestUsageErrors(t *testing.T) {
 		{"non-numeric --max-diags", "max-diags", []string{"--max-diags", "many", "--emit", hello}},
 		{"overflowing --max-diags", "max-diags", []string{"--max-diags", "99999999999999999999", "--emit", hello}},
 		{"bool flag with value", "emit", []string{"--emit=maybe", hello}},
+		{"two levels", "-O0 and -O2 cannot be combined", []string{"-O0", "-O2", "--out", "x", hello}},
+		{"level with a dump", "-O2 cannot be combined with a dump flag", []string{"-O2", "--emit", hello}},
+		{"unknown level", "O4", []string{"-O4", "--out", "x", hello}},
+		{"fast is not a level", "Ofast", []string{"-Ofast", "--out", "x", hello}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assertUsageError(t, runTack(t, tc.args...), tc.want)
@@ -706,6 +718,48 @@ func TestBuildPassesGeneratedCodeToToolchainAndCleansUp(t *testing.T) {
 		t.Errorf("toolchain received:\n%s\nwant the --emit output:\n%s", got, want)
 	}
 	assertEmptyDir(t, tmp)
+}
+
+// TestOptLevelReachesTheToolchain checks the level the command line asks
+// for, -O3 when it asks for none, is the one the build command gets.
+func TestOptLevelReachesTheToolchain(t *testing.T) {
+	for _, tc := range []struct {
+		want  string
+		flags []string
+	}{
+		{"3", nil},
+		{"0", []string{"-O0"}},
+		{"1", []string{"-O1"}},
+		{"2", []string{"-O2"}},
+		{"3", []string{"-O3"}},
+		{"s", []string{"-Os"}},
+		{"z", []string{"--Oz"}},
+	} {
+		t.Run(strings.Join(append([]string{"default"}, tc.flags...), " "), func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "bin")
+			args := append(
+				append([]string{}, tc.flags...),
+				"--backend",
+				optBackend,
+				"--out",
+				out,
+				example("fib"),
+			)
+			if r := runTack(t, args...); r.code != exitOK || r.stdout != "" || r.stderr != "" {
+				t.Fatalf(
+					"exit %d, stdout %q, stderr %q; want a silent success",
+					r.code,
+					r.stdout,
+					r.stderr,
+				)
+			}
+			if got, err := os.ReadFile(out); err != nil {
+				t.Fatal(err)
+			} else if string(got) != tc.want {
+				t.Errorf("toolchain got level %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestFailingToolchainSurfacesStderrAndCleansUp(t *testing.T) {

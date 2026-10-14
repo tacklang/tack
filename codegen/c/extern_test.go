@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
 )
 
@@ -177,7 +178,7 @@ func TestCompileCmdTakesAnOptionLikeNameAsAFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	argv := c.New().CompileCmd(src, header, obj)
+	argv := c.New().CompileCmd(src, header, obj, codegen.DefaultOpt)
 	if msg, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("%q: %v\n%s", argv, err, msg)
 	}

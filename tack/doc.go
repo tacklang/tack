@@ -42,6 +42,8 @@
 //	--backends        list the available backends, one per line, and stop
 //	--out <path>      write the linked binary to path
 //	--max-diags <n>   print at most n diagnostics; 0, the default, prints all
+//	-O0 ... -O3, -Os, -Oz
+//	                  optimize the build at that level (default -O3)
 //	-h, --help        print the help text to stdout and exit 0
 //
 // # Output streams
@@ -66,7 +68,8 @@
 //     file or more than one, an empty file name, an unknown backend, a
 //     negative --max-diags, more than one dump flag (--emit-header counts
 //     as one), --out missing when building, --out given together with a
-//     dump flag, or --out naming the input file itself.
+//     dump flag, two -O flags, an -O flag given together with a dump flag,
+//     or --out naming the input file itself.
 //
 // Usage errors are all detected before the input is read. --help wins over
 // everything else on the command line, and --backends ignores the rest of
@@ -103,6 +106,12 @@
 // func write has no C definition in package os", rendered and limited by
 // --max-diags like any other. Last, BuildCmd compiles program.c and links
 // the objects into --out.
+//
+// Both commands build at one optimization level, -O3 unless an -O flag
+// gives another: -O0 to -O3, -Os or -Oz, clang's levels. -Ofast is not
+// one, since it gives up the C standard's semantics that the generated
+// source relies on. Help lists the -O flags as one entry, with one dash,
+// as clang spells them; two dashes work too, as for every flag.
 //
 // --emit-header runs the pipeline as --emit does, then writes the
 // backend's header, tack.h, into the main package's directory and that of

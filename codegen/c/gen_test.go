@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/lexer"
@@ -75,8 +76,8 @@ func TestBackendIdentity(t *testing.T) {
 // tests' strict builds, buildStrict and buildWith, turn them back into
 // errors, so a warning the backend causes still fails a test.
 func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
-	got := c.New().BuildCmd("in.c", nil, "prog")
-	want := []string{"clang", "-w", "-o", "prog", "in.c"}
+	got := c.New().BuildCmd("in.c", nil, "prog", "3")
+	want := []string{"clang", "-w", "-O3", "-o", "prog", "in.c"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
 	}
@@ -86,8 +87,8 @@ func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 // files: their objects, compiled by CompileCmd, follow the generated
 // source.
 func TestBuildCmdLinksObjects(t *testing.T) {
-	got := c.New().BuildCmd("in.c", []string{"a.o", "b.o"}, "prog")
-	want := []string{"clang", "-w", "-o", "prog", "in.c", "a.o", "b.o"}
+	got := c.New().BuildCmd("in.c", []string{"a.o", "b.o"}, "prog", "0")
+	want := []string{"clang", "-w", "-O0", "-o", "prog", "in.c", "a.o", "b.o"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
 	}
@@ -99,9 +100,9 @@ func TestBuildCmdLinksObjects(t *testing.T) {
 // line, so a definition is checked against its prototype even in a file
 // that does not include tack.h.
 func TestCompileCmdIncludesTheHeader(t *testing.T) {
-	got := c.New().CompileCmd("pkg/helpers.c", "/tmp/b/tack.h", "/tmp/b/c0.o")
+	got := c.New().CompileCmd("pkg/helpers.c", "/tmp/b/tack.h", "/tmp/b/c0.o", "s")
 	want := []string{
-		"clang", "-w", "-c", "-I", "/tmp/b", "-include", "/tmp/b/tack.h",
+		"clang", "-w", "-Os", "-c", "-I", "/tmp/b", "-include", "/tmp/b/tack.h",
 		"-o", "/tmp/b/c0.o", "pkg/helpers.c",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -114,7 +115,7 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 // message.
 func TestBuildCmdStillReportsErrors(t *testing.T) {
 	e := c.New()
-	if _, err := exec.LookPath(e.BuildCmd("", nil, "")[0]); err != nil {
+	if _, err := exec.LookPath(e.BuildCmd("", nil, "", codegen.DefaultOpt)[0]); err != nil {
 		t.Skipf("%v", err)
 	}
 	dir := t.TempDir()
@@ -126,7 +127,7 @@ func TestBuildCmdStillReportsErrors(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	cmd := e.BuildCmd(csrc, nil, filepath.Join(dir, "prog"))
+	cmd := e.BuildCmd(csrc, nil, filepath.Join(dir, "prog"), codegen.DefaultOpt)
 	out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
 	if err == nil {
 		t.Fatalf("invalid C compiled; output:\n%s", out)
@@ -351,7 +352,7 @@ func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 // checks what the binary prints.
 func TestGeneratedProgramRuns(t *testing.T) {
 	e := c.New()
-	if _, err := exec.LookPath(e.BuildCmd("", nil, "")[0]); err != nil {
+	if _, err := exec.LookPath(e.BuildCmd("", nil, "", codegen.DefaultOpt)[0]); err != nil {
 		t.Skipf("%v", err)
 	}
 
@@ -367,7 +368,7 @@ func TestGeneratedProgramRuns(t *testing.T) {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin)
+	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
 	build := exec.Command(cmd[0], cmd[1:]...)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
@@ -388,7 +389,7 @@ func TestGeneratedProgramRuns(t *testing.T) {
 // integers: it is the only way to observe one until print can format them.
 func TestGeneratedProgramExitsWithTheGivenStatus(t *testing.T) {
 	e := c.New()
-	if _, err := exec.LookPath(e.BuildCmd("", nil, "")[0]); err != nil {
+	if _, err := exec.LookPath(e.BuildCmd("", nil, "", codegen.DefaultOpt)[0]); err != nil {
 		t.Skipf("%v", err)
 	}
 
@@ -401,7 +402,7 @@ func TestGeneratedProgramExitsWithTheGivenStatus(t *testing.T) {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin)
+	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
 	if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
 	}
@@ -455,7 +456,7 @@ func build(t *testing.T, src string) string {
 	t.Helper()
 
 	e := c.New()
-	if _, err := exec.LookPath(e.BuildCmd("", nil, "")[0]); err != nil {
+	if _, err := exec.LookPath(e.BuildCmd("", nil, "", codegen.DefaultOpt)[0]); err != nil {
 		t.Skipf("%v", err)
 	}
 
@@ -467,7 +468,7 @@ func build(t *testing.T, src string) string {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin)
+	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
 	if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
 	}

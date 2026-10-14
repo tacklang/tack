@@ -78,7 +78,11 @@ names nothing on disk is taken for an import path unless it is absolute,
 starts with `.`, or ends in `.tck`. Flags go before the target. The intermediate stages can be dumped instead of
 linking. A dump prints only that stage's output to stdout, so it can be
 redirected: `tack --emit x.tck > x.c` gives a C file that compiles. A dump
-does not take `--out`, and only one dump can be given at a time.
+does not take `--out` or an `-O` flag, and only one dump can be given at
+a time. A build compiles the generated C and the program's C files at one
+clang optimization level, `-O3` unless `-O0`, `-O1`, `-O2`, `-Os` or `-Oz`
+asks for another; `-Ofast` is not offered, since it gives up C semantics
+the generated code relies on.
 `--emit-header` is not a dump but stops where one does: it writes the
 program's `tack.h` (see "Extern C" below) into the target's directory and
 into every other package directory with C files or extern funcs, replacing
@@ -97,6 +101,7 @@ read that copy, so it can be left out of version control.
 | `--backends`       | list the available backends and stop            |
 | `--out <path>`     | compile and link to `<path>`                    |
 | `--max-diags <n>`  | print at most `n` diagnostics; 0 prints all     |
+| `-O0` ... `-O3`, `-Os`, `-Oz` | optimize the build at that clang level, default `-O3` |
 | `-h`, `--help`     | print usage and exit                            |
 
 Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when

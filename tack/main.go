@@ -57,6 +57,7 @@ type options struct {
 	file         string
 	backendName  string
 	outBin       string
+	opt          codegen.Opt
 	maxDiags     int
 	dump         dump
 	listBackends bool
@@ -135,6 +136,7 @@ func report(err error, stderr io.Writer) int {
 // flagValues holds the raw values a flag.FlagSet writes into, before
 // parseArgs validates and folds them into an options.
 type flagValues struct {
+	opts         map[codegen.Opt]*bool // -O0 and on, by level
 	backendName  string
 	outBin       string
 	maxDiags     int
@@ -169,6 +171,10 @@ func newFlagSet() (*flag.FlagSet, *flagValues) {
 		"write the linked binary to `path` (required unless a dump flag is given)")
 	fs.IntVar(&v.maxDiags, "max-diags", 0,
 		"print at most `n` diagnostics; 0 prints them all")
+	v.opts = make(map[codegen.Opt]*bool)
+	for _, opt := range codegen.Opts {
+		v.opts[opt] = fs.Bool("O"+string(opt), false, "optimize at level "+string(opt))
+	}
 	return fs, v
 }
 
@@ -196,6 +202,9 @@ func parseArgs(fs *flag.FlagSet, v *flagValues, args []string) (options, error) 
 
 	var err error
 	if opts.dump, err = dumpOf(*v); err != nil {
+		return options{}, err
+	}
+	if opts.opt, err = optOf(*v, opts.dump); err != nil {
 		return options{}, err
 	}
 	if opts.file, err = fileArg(fs.Args()); err != nil {
@@ -233,6 +242,30 @@ func dumpOf(v flagValues) (dump, error) {
 		return dumpNone, usagef("%s cannot be combined; pick one", strings.Join(names, " and "))
 	}
 	return d, nil
+}
+
+// optOf returns the optimization level the flags in v ask for, the
+// default if none. Asking for two is a usage error, as is asking for one
+// with d, a dump, which builds nothing to optimize.
+func optOf(v flagValues, d dump) (codegen.Opt, error) {
+	var names []string
+	opt := codegen.DefaultOpt
+	for _, o := range codegen.Opts {
+		if *v.opts[o] {
+			opt = o
+			names = append(names, "-O"+string(o))
+		}
+	}
+	switch {
+	case len(names) > 1:
+		return "", usagef("%s cannot be combined; pick one", strings.Join(names, " and "))
+	case len(names) == 1 && d != dumpNone:
+		return "", usagef(
+			"%s cannot be combined with a dump flag, which prints instead of building",
+			names[0],
+		)
+	}
+	return opt, nil
 }
 
 // fileArg returns the one input file named by the positional arguments.
@@ -290,6 +323,9 @@ func printUsage(fs *flag.FlagSet, w io.Writer) {
 	)
 	b.WriteString("       tack --backends\n\nFlags:\n")
 	fs.VisitAll(func(f *flag.Flag) {
+		if isOptFlag(f.Name) {
+			return
+		}
 		arg, usage := flag.UnquoteUsage(f)
 		b.WriteString("  --" + f.Name)
 		if arg != "" {
@@ -301,11 +337,35 @@ func printUsage(fs *flag.FlagSet, w io.Writer) {
 		}
 		b.WriteString("\n")
 	})
+	b.WriteString(optUsage())
 	b.WriteString("  -h, --help\n        print this help and exit\n\n")
 	b.WriteString("Exit status: 0 on success, 1 if the program has errors or the build\n")
 	b.WriteString("fails, 2 if the command line is wrong.\n")
 	// Help that cannot be written has no one to report the failure to.
 	_, _ = io.WriteString(w, b.String())
+}
+
+// isOptFlag reports whether name is an -O flag's.
+func isOptFlag(name string) bool {
+	for _, o := range codegen.Opts {
+		if name == "O"+string(o) {
+			return true
+		}
+	}
+	return false
+}
+
+// optUsage is the help's one entry for every -O flag, written as clang
+// writes them, with one dash.
+func optUsage() string {
+	names := make([]string, len(codegen.Opts))
+	for i, o := range codegen.Opts {
+		names[i] = "-O" + string(o)
+	}
+	return "  " + strings.Join(names, ", ") + "\n" +
+		"        optimize the generated C and the C files at that level, as clang's\n" +
+		"        -O flags do: 0 for none, 1 to 3 for faster code, s and z for smaller\n" +
+		"        (default -O" + string(codegen.DefaultOpt) + ")\n"
 }
 
 // execute carries out a validated command line.
@@ -341,7 +401,7 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 		return writeAll(stdout, withTrailingNewline(out))
 	}
 	b := &builder{
-		ctx: ctx, backend: backend, res: res, maxDiags: opts.maxDiags,
+		ctx: ctx, backend: backend, res: res, maxDiags: opts.maxDiags, opt: opts.opt,
 		stdout: stdout, stderr: stderr,
 	}
 	return b.build(out, opts.outBin)

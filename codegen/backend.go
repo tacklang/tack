@@ -27,20 +27,34 @@ type Backend interface {
 	Header(prog *ast.Program) []byte
 
 	// CompileCmd and BuildCmd take every path absolute, so that a file
-	// named like an option, -fplugin=x.c, is still read as a file.
+	// named like an option, -fplugin=x.c, is still read as a file, and
+	// both build at the optimization level opt.
 	//
 	// CompileCmd is the command that compiles the C file at src, one that
 	// defines extern funcs, into an object file at obj, with the header
 	// Header returned at header included first. The first element is the
 	// program, the rest its arguments.
-	CompileCmd(src, header, obj string) []string
+	CompileCmd(src, header, obj string, opt Opt) []string
 
 	// BuildCmd is the command that turns generated output at src into an
 	// executable at out, linked with the object files objs, which
 	// CompileCmd made. The first element is the program, the rest its
 	// arguments.
-	BuildCmd(src string, objs []string, out string) []string
+	BuildCmd(src string, objs []string, out string, opt Opt) []string
 }
+
+// Opt is an optimization level a build runs at, as clang's -O flags name
+// them: 0 for none, 1 to 3 for more, each faster code built more slowly,
+// and s and z for smaller code, z the smallest.
+type Opt string
+
+// Opts is every optimization level, in the order -O flags are listed.
+var Opts = []Opt{"0", "1", "2", "3", "s", "z"}
+
+// DefaultOpt is the level a build runs at unless asked for another: the
+// highest that keeps the C standard's semantics. clang's -Ofast is higher
+// but not a level here, since it gives those up.
+const DefaultOpt Opt = "3"
 
 var backends = make(map[string]Backend)
 
