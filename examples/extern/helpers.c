@@ -44,3 +44,15 @@ void count(void) {
 int32_t counted(void) {
     return counter;
 }
+
+int64_t c_twice(int64_t x) {
+    return 2 * x;
+}
+
+int64_t while_loop(int64_t n) {
+    int64_t sum = 0;
+    while (n > 0) {
+        sum += n--;
+    }
+    return sum;
+}

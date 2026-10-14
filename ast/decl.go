@@ -36,12 +36,14 @@ type Func struct {
 	// that gave it, the zero Span for Private.
 	VisSpan Span `json:"-"`
 
-	// CName is the C symbol an extern func's body is defined under, the
-	// function's own name, and empty for a function that is not extern.
-	// ExternSpan is the extern keyword, the zero Span for a function that
-	// is not extern.
+	// CName is the C symbol an extern func's body is defined under: the
+	// string extern("name") gives, or the function's own name, and empty
+	// for a function that is not extern. ExternSpan is the extern keyword,
+	// through the closing parenthesis if a C name is given, and CNameSpan
+	// that string, the zero Span when there is none.
 	CName      string `json:",omitempty"`
 	ExternSpan Span   `json:"-"`
+	CNameSpan  Span   `json:"-"`
 
 	Vis Visibility `json:",omitempty"`
 

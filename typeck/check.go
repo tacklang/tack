@@ -177,6 +177,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 	}
 
 	c.checkExposure(decls)
+	c.checkCNames(decls)
 
 	for _, decl := range decls {
 		fn, ok := decl.(*ast.Func)

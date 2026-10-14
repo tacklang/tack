@@ -1635,6 +1635,142 @@ extern-c-keyword/main.tck:5:13: error: extern func int cannot be named int in C:
    |	            ^~~
 06 |	
 
+-- extern-c-name-bad/main.tck --
+package main
+
+extern("") func empty()
+
+extern("two words") func spaced()
+
+extern("9lives") func digit()
+
+extern("while") func loop()
+
+extern("main") func entry()
+
+extern("tack_print") func reserved()
+
+extern("é") func accented()
+
+func main() {
+}
+-- extern-c-name-bad/expected --
+stage: typeck
+---
+
+extern-c-name-bad/main.tck:3:8: error: extern func empty cannot be named "" in C: it is not a C identifier
+02 |	
+03 |	extern("") func empty()
+   |	       ^~
+04 |	
+
+extern-c-name-bad/main.tck:5:8: error: extern func spaced cannot be named "two words" in C: it is not a C identifier
+04 |	
+05 |	extern("two words") func spaced()
+   |	       ^~~~~~~~~~~
+06 |	
+
+extern-c-name-bad/main.tck:7:8: error: extern func digit cannot be named "9lives" in C: it is not a C identifier
+06 |	
+07 |	extern("9lives") func digit()
+   |	       ^~~~~~~~
+08 |	
+
+extern-c-name-bad/main.tck:9:8: error: extern func loop cannot be named while in C: it is a C keyword
+08 |	
+09 |	extern("while") func loop()
+   |	       ^~~~~~~
+10 |	
+
+extern-c-name-bad/main.tck:11:8: error: extern func entry cannot be named main in C: the program's C main is the one that runs Tack's
+10 |	
+11 |	extern("main") func entry()
+   |	       ^~~~~~
+12 |	
+
+extern-c-name-bad/main.tck:13:8: error: extern func reserved cannot be named tack_print in C: names starting tack_ are reserved for the standard library
+12 |	
+13 |	extern("tack_print") func reserved()
+   |	       ^~~~~~~~~~~~
+14 |	
+
+extern-c-name-bad/main.tck:15:8: error: extern func accented cannot be named "é" in C: it is not a C identifier
+14 |	
+15 |	extern("é") func accented()
+   |	       ^~~~
+16 |	
+
+-- extern-c-name-duplicate/main.tck --
+package main
+
+extern("add") func plus(a int64, b int64) int64
+
+extern func add(a int64, b int64) int64
+
+extern("add") func sum(a int64, b int64) int64
+
+func main() {
+}
+-- extern-c-name-duplicate/expected --
+stage: typeck
+---
+
+extern-c-name-duplicate/main.tck:5:13: error: extern funcs add and plus both have the C name add
+04 |	
+05 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+06 |	
+extern-c-name-duplicate/main.tck:3:20: note: extern func plus is declared here
+02 |	
+03 |	extern("add") func plus(a int64, b int64) int64
+   |	                   ^~~~
+04 |	
+
+extern-c-name-duplicate/main.tck:7:8: error: extern funcs sum and plus both have the C name add
+06 |	
+07 |	extern("add") func sum(a int64, b int64) int64
+   |	       ^~~~~
+08 |	
+extern-c-name-duplicate/main.tck:3:20: note: extern func plus is declared here
+02 |	
+03 |	extern("add") func plus(a int64, b int64) int64
+   |	                   ^~~~
+04 |	
+
+-- extern-c-name-malformed/main.tck --
+package main
+
+extern(add) func plus()
+
+func main() {
+}
+-- extern-c-name-malformed/expected --
+stage: parse
+---
+
+extern-c-name-malformed/main.tck:3:8: error: expected 'C name in quotes' found 'add'
+02 |	
+03 |	extern(add) func plus()
+   |	       ^
+04 |	
+
+-- extern-c-name-unclosed/main.tck --
+package main
+
+extern("add" func plus()
+
+func main() {
+}
+-- extern-c-name-unclosed/expected --
+stage: parse
+---
+
+extern-c-name-unclosed/main.tck:3:14: error: expected ')' found 'func'
+02 |	
+03 |	extern("add" func plus()
+   |	             ^
+04 |	
+
 -- extern-duplicate/main.tck --
 package main
 
@@ -1819,6 +1955,23 @@ extern-main/main.tck:3:1: error: main function must not be extern
    |	^~~~~~
 04 |	
 
+-- extern-pub/main.tck --
+package main
+
+pub extern func f()
+
+func main() {
+}
+-- extern-pub/expected --
+stage: resolve
+---
+
+extern-pub/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub extern func f()
+   |	^~~
+04 |	
+
 -- extern-recursive-struct/main.tck --
 package main
 
@@ -1870,6 +2023,31 @@ extern-recursive-struct/main.tck:12:5: note: Wrap refers to Pair
 12 |	    p [1]Pair
    |	    ^~~~~~~~~
 13 |	}
+
+-- extern-tack-prefix/main.tck --
+package main
+
+extern func tack_helper()
+
+extern("tack_") func other()
+
+func main() {
+}
+-- extern-tack-prefix/expected --
+stage: typeck
+---
+
+extern-tack-prefix/main.tck:3:13: error: extern func tack_helper cannot be named tack_helper in C: names starting tack_ are reserved for the standard library
+02 |	
+03 |	extern func tack_helper()
+   |	            ^~~~~~~~~~~
+04 |	
+
+extern-tack-prefix/main.tck:5:8: error: extern func other cannot be named tack_ in C: names starting tack_ are reserved for the standard library
+04 |	
+05 |	extern("tack_") func other()
+   |	       ^~~~~~~
+06 |	
 
 -- extern-twice/main.tck --
 package main

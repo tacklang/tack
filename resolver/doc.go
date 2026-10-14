@@ -38,7 +38,8 @@
 // the package must be main, a main function must exist, not be extern, take
 // no parameters and declare no results, no function may be declared twice,
 // none may reuse a builtin's name, and only an extern func, whose body is
-// in C, may be declared without a body. It then walks each function body with that
+// in C, may be declared without a body. An extern func can be neither pub
+// nor lib: its package exports a Tack function that calls it. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A call whose
 // callee is a type name, such as int8(x), is a conversion: it binds to no

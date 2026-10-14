@@ -82,3 +82,61 @@ func TestExternErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestExternCName checks extern("c_name") gives the C name, its string's
+// span, and an ExternSpan running through the closing parenthesis.
+func TestExternCName(t *testing.T) {
+	src := "package main\n\nextern(\"c_add\") func add(a int64) int64\n"
+	fn := onlyFunc(t, src)
+	lit := strings.Index(src, "\"c_add\"")
+	start := strings.Index(src, "extern")
+	switch {
+	case fn.CName != "c_add" || fn.Name != "add" || !fn.Extern || !fn.NoBody:
+		t.Errorf("CName %q, Name %q, Extern %v, NoBody %v", fn.CName, fn.Name, fn.Extern, fn.NoBody)
+	case fn.CNameSpan.Start != lit || fn.CNameSpan.End != lit+7:
+		t.Errorf("CNameSpan %d-%d, want %d-%d", fn.CNameSpan.Start, fn.CNameSpan.End, lit, lit+7)
+	case fn.ExternSpan.Start != start || fn.ExternSpan.End != lit+8 || fn.Span.Start != start:
+		t.Errorf("ExternSpan %d-%d, Span from %d; want %d-%d and %d",
+			fn.ExternSpan.Start, fn.ExternSpan.End, fn.Span.Start, start, lit+8, start)
+	}
+}
+
+// TestVisibleExternParses checks pub or lib before extern is parsed, for
+// the resolver to report.
+func TestVisibleExternParses(t *testing.T) {
+	for _, tc := range []struct {
+		src string
+		vis ast.Visibility
+	}{
+		{"package util\n\npub extern func f()\n", ast.Pub},
+		{"package util\n\nlib extern(\"g\") func f()\n", ast.Lib},
+	} {
+		if fn := onlyFunc(t, tc.src); fn.Vis != tc.vis || !fn.Extern || fn.Span.Start != 14 {
+			t.Errorf(
+				"%q: Vis %v, Extern %v, Span from %d",
+				tc.src,
+				fn.Vis,
+				fn.Extern,
+				fn.Span.Start,
+			)
+		}
+	}
+}
+
+// TestExternCNameErrors checks each malformed extern("...") is reported.
+func TestExternCNameErrors(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{"package main\n\nextern(add) func f()\n", "expected 'C name in quotes' found 'add'"},
+		{"package main\n\nextern() func f()\n", "expected 'C name in quotes'"},
+		{"package main\n\nextern(\"a\" func f()\n", "expected ')' found 'func'"},
+		{"package main\n\nextern(\"a\", \"b\") func f()\n", "expected ')'"},
+		{"package main\n\nextern(\"a\")\n", "expected 'func'"},
+		{"package main\n\nextern(", "expected 'C name in quotes'"},
+		{"package main\n\nextern(\"a\") func f() {}\n", "cannot have a body"},
+	} {
+		_, diags := parse(t, tc.src)
+		if len(diags) == 0 || !strings.Contains(diags[0].Message, tc.want) {
+			t.Errorf("%q: diagnostics %+v, want one containing %q", tc.src, diags, tc.want)
+		}
+	}
+}

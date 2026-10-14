@@ -26,10 +26,12 @@
 // followed by the end of the line, which sets Func.NoBody: whether a
 // function may go without a body is the resolver's to judge. extern before
 // func declares an extern func, whose body is written in C: it sets
-// Func.Extern, takes the function's name as its C name, Func.CName, and
-// starts the function's span, and an extern func written with a body is
-// reported at its opening brace. extern is a keyword, reserved everywhere,
-// and anything after it but func is reported.
+// Func.Extern, takes the function's name as its C name, Func.CName, or the
+// string literal extern("c_name") gives, recording its span in CNameSpan,
+// and starts the function's span, and an extern func written with a body
+// is reported at its opening brace. extern is a keyword, reserved
+// everywhere, and anything after it but func or a parenthesized string is
+// reported. pub or lib may come before extern, which the resolver rejects.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment

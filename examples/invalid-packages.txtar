@@ -364,6 +364,41 @@ dup-param-across-files/a.tck:3:5: note: previous declaration of size
    |	    ^~~~
 04 |	
 
+-- extern-c-name-duplicate-packages/tack.mod --
+module calc
+-- extern-c-name-duplicate-packages/main.tck --
+package main
+
+import util from "calc/util"
+
+extern func add(a int64, b int64) int64
+
+func main() {
+    exit(add(util.Two(), 40))
+}
+-- extern-c-name-duplicate-packages/util/util.tck --
+package util
+
+extern("add") func plus(a int64, b int64) int64
+
+pub func Two() int64 {
+    return plus(1, 1)
+}
+-- extern-c-name-duplicate-packages/expected --
+stage: typeck
+---
+
+extern-c-name-duplicate-packages/main.tck:5:13: error: extern funcs add and util.plus both have the C name add
+04 |	
+05 |	extern func add(a int64, b int64) int64
+   |	            ^~~
+06 |	
+extern-c-name-duplicate-packages/util/util.tck:3:20: note: extern func util.plus is declared here
+02 |	
+03 |	extern("add") func plus(a int64, b int64) int64
+   |	                   ^~~~
+04 |	
+
 -- extern-same-package-names/tack.mod --
 module calc
 -- extern-same-package-names/main.tck --
@@ -432,6 +467,38 @@ extern-same-package-names/a/lexer/lexer.tck:3:6: note: type Token of package cal
 03 |	type Token struct {
    |	     ^~~~~
 04 |	    kind int64
+
+-- extern-visible/tack.mod --
+module calc
+-- extern-visible/main.tck --
+package main
+
+import util from "calc/util"
+
+func main() {
+    util.add(1, 2)
+}
+-- extern-visible/util/util.tck --
+package util
+
+pub extern func add(a int64, b int64) int64
+
+lib extern("sub") func minus(a int64, b int64) int64
+-- extern-visible/expected --
+stage: resolve
+---
+
+extern-visible/util/util.tck:3:1: error: an extern func cannot be pub; export a Tack function that calls it
+02 |	
+03 |	pub extern func add(a int64, b int64) int64
+   |	^~~
+04 |	
+
+extern-visible/util/util.tck:5:1: error: an extern func cannot be lib; export a Tack function that calls it
+04 |	
+05 |	lib extern("sub") func minus(a int64, b int64) int64
+   |	^~~
+06 |	
 
 -- hidden-only/tack.mod --
 module hidden-only

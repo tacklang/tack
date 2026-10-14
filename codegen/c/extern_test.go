@@ -204,3 +204,19 @@ func TestExternValuesExampleIsWarningFree(t *testing.T) {
 		t.Errorf("exit status = %d, want 42", got)
 	}
 }
+
+// TestHeaderUsesTheGivenCName checks tack.h declares an extern func given
+// extern("c_name") under that name, and its results struct after it.
+func TestHeaderUsesTheGivenCName(t *testing.T) {
+	src := "package main\n\nextern(\"c_split\") func split(x int64) (int64, int64)\n\n" +
+		"func main() {\n}\n"
+	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
+	for _, want := range []string{
+		"} tack_results_c_split;\n",
+		"tack_results_c_split c_split(int64_t); // extern func split(x int64) (int64, int64)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tack.h is missing %q:\n%s", want, got)
+		}
+	}
+}

@@ -24,28 +24,52 @@ func visibilityOf(decl ast.Decl) (ast.Visibility, ast.Span) {
 
 // checkVisibility reports every pub or lib the package cannot have: any at
 // all in package main, which no package can import, so that the keyword
-// would mean nothing, and one on a mut global, which only its own package
-// may change.
+// would mean nothing, one on a mut global, which only its own package may
+// change, and one on an extern func, which its package wraps instead.
 func (r *pkgResolver) checkVisibility() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
 		vis, span := visibilityOf(decl)
-		switch v, isVar := decl.(*ast.Var); {
-		case vis != ast.Private && r.pkg.Name == mainPackage:
-			diags = append(diags, visibleInMain(vis, span))
-		case vis != ast.Private && isVar && v.Mutable:
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Message: fmt.Sprintf(
-					"a mut variable cannot be %s; export a function that reads or changes it", vis),
-				Span: span,
-			})
+		if vis != ast.Private {
+			diags = append(diags, r.visibilityProblems(decl, vis, span)...)
 		}
 		if td, ok := decl.(*ast.TypeDecl); ok && r.pkg.Name == mainPackage {
 			diags = append(diags, fieldsVisibleInMain(td)...)
 		}
 	}
 	return diags
+}
+
+// visibilityProblems reports decl, written with the pub or lib that gives
+// vis at span, if it cannot have it: nothing in package main can, nor an
+// extern func, nor a mut global.
+func (r *pkgResolver) visibilityProblems(
+	decl ast.Decl,
+	vis ast.Visibility,
+	span ast.Span,
+) []diag.Diagnostic {
+	var msg string
+	v, isVar := decl.(*ast.Var)
+	switch {
+	case r.pkg.Name == mainPackage:
+		return []diag.Diagnostic{visibleInMain(vis, span)}
+	case isExtern(decl):
+		msg = fmt.Sprintf("an extern func cannot be %s; export a Tack function that calls it", vis)
+	case isVar && v.Mutable:
+		msg = fmt.Sprintf(
+			"a mut variable cannot be %s; export a function that reads or changes it",
+			vis,
+		)
+	default:
+		return nil
+	}
+	return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: span}}
+}
+
+// isExtern reports whether decl is an extern func.
+func isExtern(decl ast.Decl) bool {
+	fn, ok := decl.(*ast.Func)
+	return ok && fn.Extern
 }
 
 // fieldsVisibleInMain reports every field of td, a type of package main,

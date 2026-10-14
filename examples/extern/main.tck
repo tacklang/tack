@@ -30,6 +30,12 @@ extern func smallest() int64
 extern func count()
 extern func counted() int32
 
+// twice is defined in C as c_twice: extern("c_twice") gives the C name.
+extern("c_twice") func twice(x int64) int64
+
+// while is a C keyword, so it needs another C name to be defined in C.
+extern("while_loop") func while(n int64) int64
+
 // check prints name and exits with status when ok is false.
 func check(ok bool, name string, status int64) {
     if !ok {
@@ -54,6 +60,7 @@ func main() {
         count()
     }
     check(counted() == 5, "count", 10)
+    check(twice(21) == 42 && while(4) == 10, "C names", 11)
     print("extern ok\n")
     exit(42)
 }

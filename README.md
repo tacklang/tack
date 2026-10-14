@@ -831,16 +831,31 @@ makes for itself, which has a letter after `tack_`.
   error, `extern func f cannot have a body; its body is written in C`. A
   function without a body that is not extern is an error too, `function f
   has no body; only an extern func is declared without one`. `extern` is a
-  keyword, reserved everywhere, and is written only before `func`
-  (`extern var` is `expected 'func' found 'var'`). `main` cannot be extern,
+  keyword, reserved everywhere, and is written only before `func` or a C
+  name in parentheses (`extern var` is `expected 'func' found 'var'`,
+  `extern(add)` is `expected 'C name in quotes' found 'add'`). `main` cannot be extern,
   `main function must not be extern`. An extern func is called like any
   other function, and like any call, not in a package-level initializer,
   which is a constant.
-- The C symbol of an extern func is its Tack name unchanged. A name C
-  cannot define is an error at the declaration: a C keyword, `extern func
-  while cannot be named while in C: it is a C keyword`, and `main`, which
-  the generated C defines, `extern func f cannot be named main in C: the
-  program's C main is the one that runs Tack's`.
+- The C symbol of an extern func is its Tack name unchanged, or the
+  string `extern("c_name") func name(...)` gives, so `extern("c_twice")
+  func twice(x int64) int64` is defined in C as `c_twice`. A C name C
+  cannot define is an error at the declaration, at the string if one is
+  given: one that is not a C identifier, `extern func f cannot be named
+  "two words" in C: it is not a C identifier`, a C keyword, `extern func
+  while cannot be named while in C: it is a C keyword` (a Tack name that
+  is a C keyword needs `extern("name")`), and `main`, which the generated
+  C defines, `extern func f cannot be named main in C: the program's C
+  main is the one that runs Tack's`. Outside the standard library a C name
+  may not start with `tack_`, `extern func f cannot be named tack_f in C:
+  names starting tack_ are reserved for the standard library`; the
+  standard library names its own `tack_<package>_<name>`. Two extern funcs
+  of a program, in any packages, with one C name are an error at the
+  second, with a note at the first, `extern funcs add and util.plus both
+  have the C name add`.
+- An extern func is never `pub` or `lib`, `an extern func cannot be pub;
+  export a Tack function that calls it`: a package wraps it in a Tack
+  function, which is the one it exports.
 - Every file whose name ends in `.c` directly in a package's directory is
   compiled and linked with the program; a single-file target has the `.c`
   files in its own directory. Hidden files and directories are skipped, as

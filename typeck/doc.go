@@ -23,8 +23,11 @@
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
 // a fifth reports every type a pub or lib declaration exposes that is
 // less visible than it, and the last checks each body, or for an extern
-// func, whose body is in C, its declaration: its C name must not be a C
-// keyword or main. Every type can cross to C. Resolving every signature first is what lets
+// func, whose body is in C, its declaration: its C name must be a C
+// identifier, not a C keyword, not main, and, outside the standard
+// library, whose packages' paths are std or start std/, not start tack_.
+// Every type can cross to C. Before the bodies, every extern func of the
+// program whose C name an earlier one has is reported, with a note there. Resolving every signature first is what lets
 // a call check against a callee declared later in the file, or in a file
 // after it. A call is checked against the function its callee is bound to,
 // Ident.Def, not one looked up by name. A type name it

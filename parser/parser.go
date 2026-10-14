@@ -309,8 +309,8 @@ func (p *Parser) parseVisibleDecl(vis ast.Visibility) (ast.Decl, []diag.Diagnost
 	visSpan := p.span(kw)
 	tk := p.peek()
 	switch {
-	case isKeyword(tk, lexer.Func):
-		fn, diags := p.parseFunc(false)
+	case isKeyword(tk, lexer.Func) || isKeyword(tk, lexer.Extern):
+		fn, diags := p.parseAnyFunc(tk)
 		if fn == nil {
 			return nil, diags
 		}
@@ -335,15 +335,42 @@ func (p *Parser) parseVisibleDecl(vis ast.Visibility) (ast.Decl, []diag.Diagnost
 	}
 }
 
+// parseAnyFunc parses a function declaration starting at tk, an extern
+// func if tk is extern. One after pub or lib is parsed either way, so that
+// the resolver can say why an extern func cannot be either.
+func (p *Parser) parseAnyFunc(tk *lexer.Token) (*ast.Func, []diag.Diagnostic) {
+	if isKeyword(tk, lexer.Extern) {
+		return p.parseExternFunc()
+	}
+	return p.parseFunc(false)
+}
+
 // parseExternFunc parses an extern func declaration, extern func name(...)
-// with its results and no body, whose span then starts at extern.
+// with its results and no body, or extern("c_name") func name(...), whose
+// string gives its C name, whose span then starts at extern.
 func (p *Parser) parseExternFunc() (*ast.Func, []diag.Diagnostic) {
 	kw := p.next()
+	externSpan := p.span(kw)
+	var cName *lexer.Token
+	if p.peek().Kind() == lexer.LParen {
+		p.next()
+		if cName = p.peek(); cName.Kind() != lexer.Str {
+			return nil, []diag.Diagnostic{p.diagInvalidToken("C name in quotes", cName)}
+		}
+		p.next()
+		if ok, diags := p.expect(lexer.RParen); !ok {
+			return nil, diags
+		}
+		externSpan.End = p.lastEnd()
+	}
 	fn, diags := p.parseFunc(true)
 	if fn == nil {
 		return nil, diags
 	}
-	fn.Extern, fn.CName, fn.ExternSpan = true, fn.Name, p.span(kw)
+	fn.Extern, fn.CName, fn.ExternSpan = true, fn.Name, externSpan
+	if cName != nil {
+		fn.CName, fn.CNameSpan = lexer.ValueChecked[string](cName), p.span(cName)
+	}
 	fn.Span.Start = kw.OffsetStart()
 	return fn, nil
 }

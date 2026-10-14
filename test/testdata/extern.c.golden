@@ -24,7 +24,8 @@ static const unsigned char tack_str8[7] = {104, 97, 108, 118, 101, 115, 0};
 static const unsigned char tack_str9[8] = {108, 97, 114, 103, 101, 115, 116, 0};
 static const unsigned char tack_str10[9] = {115, 109, 97, 108, 108, 101, 115, 116, 0};
 static const unsigned char tack_str11[6] = {99, 111, 117, 110, 116, 0};
-static const unsigned char tack_str12[11] = {101, 120, 116, 101, 114, 110, 32, 111, 107, 10, 0};
+static const unsigned char tack_str12[8] = {67, 32, 110, 97, 109, 101, 115, 0};
+static const unsigned char tack_str13[11] = {101, 120, 116, 101, 114, 110, 32, 111, 107, 10, 0};
 
 static void tack_print(tack_string s) {
     if (s.len > 0) {
@@ -46,6 +47,8 @@ extern uint64_t tack_4_main7_largest(void) TACK_C_NAME("largest");
 extern int64_t tack_4_main8_smallest(void) TACK_C_NAME("smallest");
 extern void tack_4_main5_count(void) TACK_C_NAME("count");
 extern int32_t tack_4_main7_counted(void) TACK_C_NAME("counted");
+extern int64_t tack_4_main5_twice(int64_t p_x) TACK_C_NAME("c_twice");
+extern int64_t tack_4_main5_while(int64_t p_n) TACK_C_NAME("while_loop");
 static void tack_4_main5_check(bool p_ok, tack_string p_name, int64_t p_status);
 static void tack_4_main4_main(void);
 
@@ -75,7 +78,8 @@ static void tack_4_main4_main(void) {
         }
     }
     tack_4_main5_check((tack_4_main7_counted() == 5), (tack_string){tack_str11, 5}, 10);
-    tack_print((tack_string){tack_str12, 10});
+    tack_4_main5_check(((tack_4_main5_twice(21) == 42) && (tack_4_main5_while(4) == 10)), (tack_string){tack_str12, 7}, 11);
+    tack_print((tack_string){tack_str13, 10});
     exit((int)(42));
 }
 
