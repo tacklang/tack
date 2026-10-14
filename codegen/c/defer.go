@@ -88,9 +88,14 @@ type deferScope struct {
 // lowered.
 type deferFrame struct {
 	routes map[string]int // route numbers, by route
-	next   string         // the next variable, named when first needed
-	ret    string         // the function's ret variable, likewise
-	temps  []string       // declarations of the temporaries sequenced holds operands in
+
+	// mutated holds the variables and parameters the function passes as
+	// mut anywhere, which a call can change; see pure.
+	mutated map[ast.Decl]bool
+
+	next  string   // the next variable, named when first needed
+	ret   string   // the function's ret variable, likewise
+	temps []string // declarations of the temporaries sequenced holds operands in
 }
 
 // stop is one block on an exit's route: one with defers to run, and how
@@ -286,7 +291,7 @@ func (g *generator) deferred(d *ast.Defer, fn *ast.Func) ([]string, []diag.Diagn
 // returning it.
 func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	outer := g.frame
-	g.frame = &deferFrame{}
+	g.frame = &deferFrame{mutated: mutated(fn.Body)}
 	defer func() { g.frame = outer }()
 
 	body, diags := g.generateBlock(fn.Body, fn)

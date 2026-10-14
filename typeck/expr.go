@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
-	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
@@ -54,7 +53,8 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 }
 
 // compositeExpr checks a literal of an array or a struct, an element, or a
-// field, and returns its type.
+// field, and returns its type, or reports a mut argument written where no
+// mut parameter takes it.
 func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.CompositeLit:
@@ -63,6 +63,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.index(x)
 	case *ast.Selector:
 		return c.selector(x)
+	case *ast.MutArg:
+		return c.mutElsewhere(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid
@@ -132,8 +134,8 @@ func notOneValue(id *ast.Ident) string {
 }
 
 // checkCall checks a call to a function or builtin: its argument count, and
-// that each argument can be used as the parameter in its position. Its
-// result, if any, is the caller's to use or discard.
+// that each argument can be passed to the parameter in its position (see
+// checkArg). Its result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -141,24 +143,15 @@ func (c *Checker) checkCall(call *ast.Call) {
 		return
 	}
 
-	var params []types.Type
-	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
-		params = make([]types.Type, len(fn.Params))
-		for i, param := range fn.Params {
-			params[i] = param.Type
-		}
-	} else if fn, isBuiltin := builtin.Lookup(id.Name); isBuiltin {
-		params = fn.Params
-	}
-
+	params := calleeParams(id)
 	if !c.checkArity(call, id.Qualified(), len(params)) {
 		for _, arg := range call.Args {
-			c.expr(arg)
+			c.argExpr(arg)
 		}
 		return
 	}
 	for i, arg := range call.Args {
-		c.use(arg, c.expr(arg), params[i], "in argument to "+id.Qualified())
+		c.checkArg(arg, params[i], id.Qualified())
 	}
 }
 

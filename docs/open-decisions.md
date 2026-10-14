@@ -55,6 +55,36 @@ carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
 `p` is immutable. It is to be implemented with pointers. Today a field
 never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
 
+## Mut parameters
+
+Mut parameters follow the decisions recorded in the README. These points
+were settled by the implementation rather than decided, and could go
+another way:
+
+- A `mut` argument's type must be its parameter's exactly: a `mut int32`
+  variable cannot be passed to `mut n int64`, since a reference to one
+  cannot stand for a reference to the other. Widening still applies to
+  plain arguments.
+- `mut` is parsed before any operand, binding as a prefix operator does,
+  so `mut a + 1` is `(mut a) + 1`; anywhere but a call's argument it is the
+  type checker's error, `mut a can only be passed to a mut parameter`, and
+  `mut mut x` is that error once.
+- An immutable global passed as `mut` gets its own wording, `cannot pass
+  mut limit: limit is immutable; copy it into a mutable local`, rather
+  than the local's `declare it with mut`, which would lead to the mutable
+  global error.
+- Leaving `mut` out for a `mut` parameter suggests `pass mut b` when the
+  argument is a variable, a field or an element, and otherwise says only
+  a place can be passed as `mut`.
+- `mut x` counts as reading `x` for the unused-variable check.
+- A plain parameter is always passed by value in C, a copy, even when
+  large; passing it by address where nothing overlaps, which the language
+  allows, is not done.
+- In the C backend, a variable a function passes as `mut` anywhere is
+  treated as changeable by any call in that function when deciding where
+  evaluation order could show, so its reads around such calls are held in
+  temporaries; this is coarser than needed and costs only temporaries.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

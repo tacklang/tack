@@ -31,6 +31,10 @@
 // and its body, which Walk visits, but is not a node.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
+// A Param written mut p T has Mut set. A call's argument written mut x is
+// a MutArg holding x, the place the parameter refers to; the parser
+// accepts one before any operand, and the type checker reports one
+// anywhere but as a call's argument.
 // A struct literal is a CompositeLit whose elements are KeyValues, a field's
 // name and a value, and a field read or written is a Selector; neither the
 // key nor the selected name is an Ident the resolver binds, since a field is

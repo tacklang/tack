@@ -565,11 +565,20 @@ func (g *generator) signature(fn *ast.Func) string {
 
 	params := make([]string, len(fn.Params))
 	for i, param := range fn.Params {
-		params[i] = fmt.Sprintf("%s %s", g.cType(param.Type), paramName(param.Name))
+		params[i] = fmt.Sprintf("%s %s", g.paramType(param), paramName(param.Name))
 	}
 	return fmt.Sprintf(
 		"static %s %s(%s)", result, g.mangle(fn, fn.Name), strings.Join(params, ", "),
 	)
+}
+
+// paramType returns the C type param is passed as: its type's, or for a
+// mut parameter a pointer to it, the caller's variable.
+func (g *generator) paramType(param *ast.Param) string {
+	if param.Mut {
+		return g.cType(param.Type) + " *"
+	}
+	return g.cType(param.Type)
 }
 
 // resultType returns the C type fn returns: void when it declares no
@@ -1024,14 +1033,20 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
 }
 
-// targetRef renders an assignment target as a C lvalue: a variable, or an
+// targetRef renders an assignment target, or the place a mut argument
+// names, as a C lvalue: a variable or a mut parameter, (*p_x), or an
 // element of one, x.e[i], or a field of one, x.f_name. The checker has
 // proven every index in range.
 func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 	switch t := target.(type) {
 	case *ast.Ident:
-		if v, ok := t.Def.(*ast.Var); ok {
-			return g.varRef(v), nil
+		switch def := t.Def.(type) {
+		case *ast.Var:
+			return g.varRef(def), nil
+		case *ast.Param:
+			if def.Mut {
+				return g.paramRef(def), nil
+			}
 		}
 	case *ast.Index:
 		base, diags := g.targetRef(t.X)
@@ -1494,6 +1509,8 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 		return g.indexExpr(x)
 	case *ast.Selector:
 		return g.selectorExpr(x)
+	case *ast.MutArg:
+		return g.mutArg(x)
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -1548,11 +1565,11 @@ func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
 }
 
 // identExpr renders a reference to a parameter or variable as the C name it
-// was declared under.
+// was declared under, read through the pointer for a mut parameter.
 func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	switch def := id.Def.(type) {
 	case *ast.Param:
-		return paramName(def.Name), nil
+		return g.paramRef(def), nil
 	case *ast.Var:
 		return g.varRef(def), nil
 	default:
@@ -1720,6 +1737,33 @@ var cTypes = map[types.Type]string{
 // defines. Tack has no reserved words, so a parameter may legally be called
 // exit or int, each of which collides with something already emitted.
 func paramName(name string) string { return "p_" + name }
+
+// paramRef is how the parameter param is read and written: by its C name,
+// or, for a mut parameter, through the pointer it is, (*p_x), which C's
+// postfix operators can follow as they follow a name.
+func (g *generator) paramRef(param *ast.Param) string {
+	if param.Mut {
+		return "(*" + paramName(param.Name) + ")"
+	}
+	return paramName(param.Name)
+}
+
+// mutArg renders a mut argument as the address of the place it names: a
+// mut parameter passed on is the pointer it already holds, and any other
+// place, a variable, a field or an element, is &place. The checker has
+// proven every index in the place in range.
+func (g *generator) mutArg(m *ast.MutArg) (string, []diag.Diagnostic) {
+	if id, ok := m.X.(*ast.Ident); ok {
+		if param, isParam := id.Def.(*ast.Param); isParam && param.Mut {
+			return paramName(param.Name), nil
+		}
+	}
+	place, diags := g.targetRef(m.X)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return "&" + place, nil
+}
 
 // varRef is the C name of a variable: the mangled package-level name for a
 // global, the prefixed local name otherwise.

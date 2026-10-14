@@ -128,8 +128,8 @@ func walkExpr(e Expr, v Visitor) {
 	case *Binary:
 		Walk(e.X, v)
 		Walk(e.Y, v)
-	case *Unary:
-		Walk(e.X, v)
+	case *Unary, *MutArg, *Selector:
+		walkOperand(e, v)
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
@@ -139,13 +139,25 @@ func walkExpr(e Expr, v Visitor) {
 		for _, f := range e.Fields {
 			Walk(f.TypeExpr, v)
 		}
-	case *Selector:
-		Walk(e.X, v)
 	case *KeyValue:
 		Walk(e.Key, v)
 		Walk(e.Value, v)
 	default:
 		walkArrayExpr(e, v)
+	}
+}
+
+// walkOperand walks the one child of an expression that has one: a
+// prefix operator's operand, a mut argument's place, or the struct a field
+// is selected from.
+func walkOperand(e Expr, v Visitor) {
+	switch e := e.(type) {
+	case *Unary:
+		Walk(e.X, v)
+	case *MutArg:
+		Walk(e.X, v)
+	case *Selector:
+		Walk(e.X, v)
 	}
 }
 

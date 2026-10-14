@@ -631,27 +631,55 @@ func (c *Checker) release(m mark) {
 
 // assignedIn returns why region drops f: the first assignment in it, in
 // source order, to f's variable, or else to the string whose length bounds
-// it. It returns nil when region assigns neither.
+// it, a call passing either as mut included. It returns nil when region
+// assigns neither.
 func assignedIn(region []ast.Stmt, f fact) *drop {
-	if target := assignment(region, f.decl); target != nil {
-		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(f.decl)}
+	if d := assignedDrop(region, f.decl); d != nil {
+		return d
 	}
 	if f.lenOf == nil {
 		return nil
 	}
-	if target := assignment(region, f.lenOf); target != nil {
-		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(f.lenOf)}
+	return assignedDrop(region, f.lenOf)
+}
+
+// assignedDrop returns the drop for the first assignment to decl in
+// region, which names the call when it is a mut argument, or nil when
+// there is none.
+func assignedDrop(region []ast.Stmt, decl ast.Decl) *drop {
+	target, call := assignment(region, decl)
+	switch {
+	case target == nil:
+		return nil
+	case call != nil:
+		return &drop{
+			kind: dropMut,
+			at:   target.Spanned(),
+			name: declName(decl),
+			text: calleeName(call),
+		}
+	default:
+		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(decl)}
 	}
-	return nil
+}
+
+// calleeName returns the name call calls, as written.
+func calleeName(call *ast.Call) string {
+	if id, ok := call.Fn.(*ast.Ident); ok {
+		return id.Qualified()
+	}
+	return "a function"
 }
 
 // assignment returns the first target, in source order, through which any
 // statement in region, however deeply nested, assigns to decl: an
 // assignment's target, a compound assignment's, an increment's or
-// decrement's, or one of an assignment of several values. It returns nil
-// when there is none.
-func assignment(region []ast.Stmt, decl ast.Decl) ast.Expr {
+// decrement's, one of an assignment of several values, or a mut argument,
+// which a call may assign through, with the call. It returns nil when
+// there is none.
+func assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.Call) {
 	var found ast.Expr
+	var by *ast.Call
 	visit := func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.Assign:
@@ -662,12 +690,27 @@ func assignment(region []ast.Stmt, decl ast.Decl) ast.Expr {
 			for _, target := range x.Targets {
 				found = writer(found, target, decl)
 			}
+		case *ast.Call:
+			if m := mutWriter(x, decl); found == nil && m != nil {
+				found, by = m, x
+			}
 		}
 		return found == nil
 	}
 	for _, stmt := range region {
 		if ast.Walk(stmt, visit); found != nil {
-			return found
+			return found, by
+		}
+	}
+	return nil, nil
+}
+
+// mutWriter returns the first of call's arguments that passes decl, or a
+// part of it, as mut, or nil when none does.
+func mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
+	for _, arg := range call.Args {
+		if m, ok := arg.(*ast.MutArg); ok && writes(m.X, decl) {
+			return m
 		}
 	}
 	return nil

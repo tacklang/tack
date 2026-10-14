@@ -1095,6 +1095,44 @@ func TestBuiltStructsExits133(t *testing.T) {
 	}
 }
 
+// The mut-params example passes mut arguments and checks what each call
+// did to the caller's variable: a field write and a compound assignment
+// through a reference, a whole value replaced, a swap, a reference passed
+// on whole and by field, nested field and array element, a string field
+// assigned, a defer reading and writing a mut parameter after the return
+// value was taken, a mut argument in a defer, recursion a thousand deep, a reference passed through
+// five calls, elements by known and proven indexes, arguments evaluated
+// left to right around calls that change a variable another argument
+// reads, a checked index reading the array before its index's call changes
+// it, a bool, and a path four levels deep. Each check prints its name and
+// "ok", or "FAIL".
+func TestBuiltMutParamsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "mut-params")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("mut-params exited with %v, want status 0", err)
+	}
+	want := "in place ok\n" +
+		"whole value ok\n" +
+		"swap ok\n" +
+		"passed on ok\n" +
+		"array and string fields ok\n" +
+		"defer reads and writes a mut parameter ok\n" +
+		"mut argument in a defer ok\n" +
+		"recursion ok\n" +
+		"through five calls ok\n" +
+		"element by known index ok\n" +
+		"element by proven index ok\n" +
+		"left to right ok\n" +
+		"read before a later mut ok\n" +
+		"checked index reads the array first ok\n" +
+		"bool ok\n" +
+		"deep path ok\n"
+	if string(out) != want {
+		t.Errorf("mut-params printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The strcmp example compares strings with all six operators: by content,
 // a proper prefix less, the empty string least, embedded zero bytes and
 // bytes from 0x80 up compared as unsigned bytes, strings returned by calls,

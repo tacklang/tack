@@ -901,8 +901,8 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveCall(x, sc)
 	case *ast.Binary:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
-	case *ast.Unary:
-		return r.resolveExpr(x.X, sc)
+	case *ast.Unary, *ast.MutArg:
+		return r.resolveExpr(operand(x), sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
 	case *ast.Index:
@@ -916,6 +916,14 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	default:
 		return nil
 	}
+}
+
+// operand returns the operand of e, a prefix operator or a mut argument.
+func operand(e ast.Expr) ast.Expr {
+	if m, ok := e.(*ast.MutArg); ok {
+		return m.X
+	}
+	return e.(*ast.Unary).X
 }
 
 // resolveKeyValue resolves an element of a struct literal, key: value. A

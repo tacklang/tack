@@ -1120,15 +1120,18 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 	}
 }
 
-// assignable checks that target can be assigned: a mutable variable, not a
-// parameter, or an element of one, whose index must be in range, or a
-// field of one. It returns the type target holds and whether it can be
+// assignable checks that target can be assigned: a mutable variable or a
+// mut parameter, not a plain parameter, or an element of one, whose index
+// must be in range, or a field of one. It returns the type target holds and whether it can be
 // assigned.
 func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 	switch t := target.(type) {
 	case *ast.Ident:
 		switch def := t.Def.(type) {
 		case *ast.Param:
+			if def.Mut {
+				return def.Type, def.Type != types.Invalid
+			}
 			c.errorf(t.Span, "cannot assign to parameter %s", t.Name)
 		case *ast.Var:
 			if !def.Mutable {
@@ -1177,14 +1180,17 @@ func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 }
 
 // containerTarget checks x, which holds an element or a field, what, being
-// assigned: x must be a mutable variable, not a parameter, or itself an
-// element or field of one. It returns x's type, and false when anything was
+// assigned: x must be a mutable variable or a mut parameter, not a plain
+// parameter, or itself an element or field of one. It returns x's type, and false when anything was
 // reported or x's type is unknown.
 func (c *Checker) containerTarget(x ast.Expr, what string) (types.Type, bool) {
 	switch x := x.(type) {
 	case *ast.Ident:
 		switch def := x.Def.(type) {
 		case *ast.Param:
+			if def.Mut {
+				return def.Type, def.Type != types.Invalid
+			}
 			c.errorf(x.Span, "cannot assign to %s of parameter %s", what, x.Name)
 		case *ast.Var:
 			if def.Mutable {

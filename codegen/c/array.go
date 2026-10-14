@@ -137,8 +137,8 @@ func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string 
 }
 
 // indexValues lowers v, ok := a[i]: the index is held in a temporary, and
-// so is the array unless it is a variable, which reading again cannot
-// change, and the element is read only when the index is in range, giving
+// so is the array unless it is a variable that reading again cannot
+// change, one the function never passes as mut, and the element is read only when the index is in range, giving
 // the element type's zero value otherwise. A string is held the same way,
 // and its byte read only when the index is below its length, known only at
 // runtime, giving 0 otherwise.
@@ -155,7 +155,8 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 	// The array is evaluated before the index, as written.
 	arrayType, indexType := ast.TypeOf(ix.X), ast.TypeOf(ix.Index)
 	var src multiSource
-	_, isName := ix.X.(*ast.Ident)
+	name, isName := ix.X.(*ast.Ident)
+	isName = isName && !g.frame.mutated[name.Def]
 	if !isName {
 		src.temps = append(src.temps, multiTemp{g.cType(arrayType), base})
 	}

@@ -89,7 +89,8 @@
 // are bound too: a local's in its own scope, a global's and a signature's at
 // package level. The target of an assignment to an element or a field,
 // a[i].x, binds its variable without counting as a read of it, and its
-// index like any value.
+// index like any value. A mut argument, mut x, binds x as a value, so it
+// counts as a read: the callee may read the variable through it.
 //
 // The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
 // discards the result in its position and is neither declared nor bound;

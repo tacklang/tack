@@ -88,6 +88,12 @@
 //
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.
+// A parameter is a name and a type, with mut before the name for a mut
+// parameter, mut p T, whose span then starts at mut. mut before an operand
+// makes a MutArg of it, mut x, binding as a prefix operator does, so
+// mut a + 1 is (mut a) + 1. It is parsed wherever an operand may be, so
+// that the type checker can report one anywhere but as a call's argument,
+// and before anything that is not a place, with a precise message.
 //
 // A statement that starts with a name is told apart by the token after it:
 // := declares a variable, = or a compound operator such as += assigns, ++ or

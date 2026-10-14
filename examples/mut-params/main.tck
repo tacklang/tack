@@ -1,0 +1,210 @@
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Box struct {
+    lo    Point
+    hi    Point
+    cells [4]int64
+    name  string
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// scale multiplies the caller's point in place, through a field write and
+// a compound assignment.
+func scale(mut p Point, k int64) {
+    p.x = p.x * k
+    p.y *= k
+}
+
+// reset replaces the caller's whole value.
+func reset(mut p Point) {
+    p = Point{x: -1, y: -2}
+}
+
+// bump adds one to the caller's integer.
+func bump(mut n int64) {
+    n++
+}
+
+// swap exchanges two integers.
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+// grow passes its reference on, whole and by part: a field, a field of a
+// field, and every element of an array field.
+func grow(mut b Box) {
+    scale(mut b.lo, 2)
+    bump(mut b.hi.x)
+    for i := range b.cells {
+        bump(mut b.cells[i])
+    }
+    rename(mut b)
+}
+
+// rename assigns a string field of the caller's struct.
+func rename(mut b Box) {
+    b.name = "grown"
+}
+
+// later returns n plus one, and only then, in a defer, multiplies the
+// caller's n by 10: the value returned was taken before the defer ran.
+func later(mut n int64) int64 {
+    defer {
+        n = n * 10
+    }
+    n = n + 1
+    return n
+}
+
+// tenfoldPlusOne multiplies the caller's n by 10, and then, in a defer,
+// passes it on as mut to add one.
+func tenfoldPlusOne(mut n int64) {
+    defer {
+        bump(mut n)
+    }
+    n = n * 10
+}
+
+// count adds depth to n, one recursive call per step.
+func count(mut n int64, depth int64) {
+    if depth <= 0 {
+        return
+    }
+    n++
+    count(mut n, depth - 1)
+}
+
+// relay passes n through five calls before it is changed.
+func relay(mut n int64) { relay2(mut n) }
+func relay2(mut n int64) { relay3(mut n) }
+func relay3(mut n int64) { relay4(mut n) }
+func relay4(mut n int64) { relay5(mut n) }
+func relay5(mut n int64) { n = n + 100 }
+
+// next returns n and then adds one to it, so its calls show the order
+// arguments are evaluated in.
+func next(mut n int64) int64 {
+    old := n
+    n++
+    return old
+}
+
+// three returns its arguments as a number with one digit each.
+func three(a int64, b int64, c int64) int64 {
+    return a * 100 + b * 10 + c
+}
+
+// cell returns element i of the caller's array after setting it to v.
+func cell(mut a [4]int64, v int64) int64 {
+    a[0] = v
+    return a[0]
+}
+
+// read returns its argument.
+func read(p Point) int64 {
+    return p.x
+}
+
+// flip negates a bool in place.
+func flip(mut b bool) {
+    b = !b
+}
+
+// wide holds a deep path to an integer.
+type Wide struct {
+    rows [2]Row
+}
+
+type Row struct {
+    pts [2]Point
+}
+
+// deep reaches four levels into the caller's value.
+func deep(mut w Wide) {
+    bump(mut w.rows[1].pts[0].y)
+}
+
+func main() {
+    mut p := Point{x: 3, y: 4}
+    scale(mut p, 10)
+    check(p.x == 30 && p.y == 40, "in place")
+
+    reset(mut p)
+    check(p == Point{x: -1, y: -2}, "whole value")
+
+    mut a int64 = 1
+    mut b int64 = 2
+    swap(mut a, mut b)
+    check(a == 2 && b == 1, "swap")
+
+    mut box := Box{lo: Point{x: 1, y: 2}, hi: Point{x: 5, y: 6}, cells: [4]int64{1, 2, 3, 4}, name: "box"}
+    grow(mut box)
+    check(box.lo == Point{x: 2, y: 4} && box.hi.x == 6 && box.hi.y == 6, "passed on")
+    check(box.cells == [4]int64{2, 3, 4, 5} && box.name == "grown", "array and string fields")
+
+    mut n int64 = 1
+    r := later(mut n)
+    check(r == 2 && n == 20, "defer reads and writes a mut parameter")
+
+    tenfoldPlusOne(mut n)
+    check(n == 201, "mut argument in a defer")
+
+    mut c int64 = 0
+    count(mut c, 1000)
+    check(c == 1000, "recursion")
+
+    mut far int64 = 1
+    relay(mut far)
+    check(far == 101, "through five calls")
+
+    mut cells [4]int64
+    i := 2
+    bump(mut cells[i])
+    bump(mut cells[3])
+    check(cells == [4]int64{0, 0, 1, 1}, "element by known index")
+
+    for j := range cells {
+        bump(mut cells[j])
+    }
+    check(cells == [4]int64{1, 1, 2, 2}, "element by proven index")
+
+    mut k int64 = 1
+    check(three(next(mut k), k, next(mut k)) == 122 && k == 3, "left to right")
+
+    mut q := Point{x: 7, y: 0}
+    check(q.x + cell2(mut q) == 7 + 8 && q.x == 8, "read before a later mut")
+
+    mut arr := [4]int64{9, 9, 9, 9}
+    v, ok := arr[cell(mut arr, 1)]
+    check(v == 9 && ok && arr[0] == 1, "checked index reads the array first")
+
+    mut on := false
+    flip(mut on)
+    check(on, "bool")
+
+    mut w Wide
+    deep(mut w)
+    check(w.rows[1].pts[0].y == 1 && read(w.rows[1].pts[0]) == 0, "deep path")
+}
+
+// cell2 sets the caller's x to 8 and returns it.
+func cell2(mut p Point) int64 {
+    p.x = 8
+    return p.x
+}

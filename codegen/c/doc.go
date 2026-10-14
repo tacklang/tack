@@ -79,6 +79,17 @@
 // A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
 // no reserved words and either may legally be called int or exit.
 //
+// A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
+// variable. Every read and write of it goes through the pointer, (*p_p),
+// which C's postfix operators follow as they follow a name, so p.x is
+// (*p_p).f_x and p[i] (*p_p).e[i]. A mut argument is the address of its
+// place, &v_b, &v_b.f_lo or &v_cells.e[v_i], and a mut parameter passed on
+// is the pointer it already holds, p_p. The checker has proven every
+// index in a place in range, so taking its address is plain C. A plain
+// parameter of any type is still passed by value, a copy, so an argument
+// that reads a variable another argument passes as mut gets the value it
+// had when it was evaluated.
+//
 // A package-level variable x becomes a static C variable named like a
 // function, tack_4_main1_x, since the two share a namespace. It is const unless
 // mutable, and initialized with the value the type checker computed, never
@@ -157,7 +168,8 @@
 // tack_eq_ and its ID, that compares element by element. A package-level
 // array is initialized with braces, which a static variable needs, or
 // {0}. Every index the checker accepts is in range, so an element read is
-// plain C. v, ok := a[i] holds the array, unless it is a variable, and the
+// plain C. v, ok := a[i] holds the array, unless it is a variable the
+// function never passes as mut, and the
 // index in temporaries, the array first, and reads the element only when
 // the index is in range, testing only the bounds the index's type can
 // cross, and giving the element type's zero value otherwise. A string's
@@ -255,8 +267,11 @@
 // and C leaves the order of a call's arguments, an operator's operands and
 // an initializer's values unspecified, so order.go enforces it where it
 // could show. An operand is pure when it calls no Tack function and reads
-// no mutable package-level variable: no call can change a constant, a
-// parameter, a local or an immutable global. When at least two of the
+// no mutable package-level variable and no variable the function passes as
+// mut anywhere: no call can change a constant, an immutable global, or a
+// parameter or local except through a mut argument. A mut argument is
+// pure when the indexes in its place are, since a call cannot move the
+// place it names. When at least two of the
 // operands of one binary operator other than && and ||, one call's
 // arguments, one return's values, one array literal's elements, one
 // struct literal's values (in the order written, not the fields' order),

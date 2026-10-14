@@ -391,8 +391,8 @@ func TypeOf(expr Expr) types.Type {
 }
 
 // recordedType returns the type the type checker recorded on an operator
-// expression, a composite literal, an element or a field, or Invalid for
-// any other expression.
+// expression, a composite literal, an element or a field, the type of the
+// place a mut argument names, or Invalid for any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -405,6 +405,8 @@ func recordedType(expr Expr) types.Type {
 		return e.Type
 	case *Selector:
 		return e.Type
+	case *MutArg:
+		return TypeOf(e.X)
 	default:
 		return types.Invalid
 	}
@@ -622,3 +624,23 @@ func (k *KeyValue) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the start of the key through the
 // end of the value.
 func (k *KeyValue) Spanned() Span { return k.Span }
+
+// MutArg is an argument passed to a mut parameter, mut X: X is the place,
+// a variable, a field or an element, the parameter refers to for the
+// duration of the call. The parser accepts mut before any operand, so
+// that one written anywhere but as a call's argument, or before something
+// that is not a place, gets a precise error from the type checker.
+type MutArg struct {
+	X    Expr
+	Span Span // the mut keyword through the end of X
+}
+
+var _ Expr = (*MutArg)(nil)
+
+func (m *MutArg) exprKey() exprKey { return _exprKey }
+
+func (m *MutArg) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the mut keyword through the end of
+// X.
+func (m *MutArg) Spanned() Span { return m.Span }

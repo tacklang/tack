@@ -67,13 +67,18 @@ func (f *Func) astNode() nodeKey { return _nodeKey }
 // visibility keyword before it, through the closing brace.
 func (f *Func) Spanned() Span { return f.Span }
 
-// Param is one parameter in a function's parameter list.
+// Param is one parameter in a function's parameter list. A parameter
+// written mut p T is a mutable reference to the caller's variable for the
+// duration of a call: Mut is set, and MutSpan is the mut keyword. Any
+// other parameter is an immutable copy of its argument.
 type Param struct {
 	TypeExpr Expr // the type as written, e.g. *Ident{"int64"}
 	Name     string
 	NameSpan Span
-	Span     Span
+	MutSpan  Span       `json:"-"`
+	Span     Span       // mut, if written, or the name, through the end of the type
 	Type     types.Type // filled in by the type checker, Invalid before
+	Mut      bool       `json:",omitempty"`
 }
 
 // A parameter is a declaration so that an Ident referring to one can point at

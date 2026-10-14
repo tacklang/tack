@@ -119,6 +119,9 @@
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
 // variable, which must be a parameter, a local, or an immutable global. A
+// call passing the variable, or a part of it, as mut counts as assigning
+// it, and its note names the call; a mut parameter is a variable like any
+// other, which only its own function can assign while it runs. A
 // counting loop, a three-clause loop that steps a variable it declares
 // from a known start by a known amount towards a bound its condition gives,
 // without wrapping, also tells its body the start bounds the variable
@@ -153,6 +156,20 @@
 // about a variable, never a field: a guard on p.x proves nothing about p.x,
 // which needs the two-value form, or copying into a variable that the guard
 // then names.
+//
+// A parameter written mut p T is a mutable reference to the caller's
+// variable for the duration of the call, checked in mut.go. Inside the
+// function it is a mutable variable: it, its fields and its elements may
+// be assigned. A call passes it mut x, and the checker requires x to be a
+// place the caller may change: a mutable local, a mut parameter, a field
+// of one, or an element of one at an index proven in range, nested in any
+// combination. An immutable variable, a plain parameter, an immutable or
+// mutable global, a string's byte and anything that is not a place are
+// reported, and so is mut written for a plain parameter, left out for a
+// mut one, or written anywhere but as a call's argument. The place's type
+// must be the parameter's exactly: no widening. No reference can be
+// stored or returned, since nothing but a call's argument may be mut x.
+// An extern func cannot take a mut parameter yet.
 //
 // A struct type is a type of its own for each declaration, whatever its
 // fields; struct.go checks its uses. A literal names each field exactly
@@ -200,7 +217,8 @@
 //
 //   - a call passes the number of arguments its callee declares, each usable
 //     as the declared type, whether the callee is a Tack function or a
-//     builtin;
+//     builtin; a mut parameter takes mut x, where x is a place of exactly
+//     its type, and only a mut parameter does (mut.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value;
 //   - every operand of an arithmetic operator is an integer, the two having
@@ -231,8 +249,8 @@
 //   - a variable's value is usable as its declared type, and a variable
 //     declared without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a
-//     mutable variable, or an element or field of one, may be assigned to;
-//     parameters never may;
+//     mutable variable or a mut parameter, or an element or field of one,
+//     may be assigned to; plain parameters never may;
 //   - an assigned value is usable as the variable's type, and a compound
 //     assignment such as += has an integer target and a value usable as its
 //     type; ++ and -- need a mutable integer variable;

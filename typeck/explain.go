@@ -89,9 +89,9 @@ func (g *guard) where() string {
 }
 
 // drop is why a fact does not hold where it is put in force, which a note
-// points at, at: the region assigns name there, the branch that would have
-// left ends in exit there, or the loop's step there could wrap, which text
-// then explains.
+// points at, at: the region assigns name there, or passes it as mut to the
+// function text there, the branch that would have left ends in exit there,
+// or the loop's step there could wrap, which text then explains.
 type drop struct {
 	name string
 	text string
@@ -113,6 +113,9 @@ const (
 	// dropWraps is a counting loop whose step could wrap past the end of
 	// its variable's type, so the bound it counts from does not hold.
 	dropWraps
+	// dropMut is a region passing the fact's variable, or part of it, as
+	// mut to a call, text, which may assign it.
+	dropMut
 )
 
 // same reports whether d and other are the same reason, the same
@@ -128,6 +131,8 @@ func (d *drop) note() diag.Diagnostic {
 		return note(d.at, "but its branch ends in exit, not in return, break or continue")
 	case dropWraps:
 		return note(d.at, d.text)
+	case dropMut:
+		return note(d.at, "but "+d.name+" is passed as mut to "+d.text+" here, so the proof ends")
 	default:
 		return note(d.at, "but "+d.name+" is assigned here, so the proof ends")
 	}

@@ -51,11 +51,12 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `pub` / `lib`            | yes   | yes    | yes     | n/a | Functions, types, immutable globals and fields; private by default; `lib` within the module; not on `mut` globals, nor anywhere in `main`; exposed types must be as visible |
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
 | `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
-| Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`)                                                   |
+| Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`); immutable copies unless `mut`                    |
+| `mut` parameters         | yes   | yes    | yes     | yes | `mut p T`, a reference to the caller's variable for the call, a `T *` in C; passed as `mut x`, a mutable local, `mut` parameter, field or proven element; never stored or returned; not on an extern func yet |
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | yes     | n/a | Only an `extern func`; any other is an error                                                |
-| `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; slices and `mut` parameters do not exist yet; C name is the Tack name or `extern("name")`'s, unique in the program, not `tack_` outside std; never `pub` or `lib` |
+| `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; slices do not exist yet and `mut` parameters are rejected; C name is the Tack name or `extern("name")`'s, unique in the program, not `tack_` outside std; never `pub` or `lib` |
 | C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c` against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors; all of extern C is in [extern.md](extern.md) |
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
@@ -75,7 +76,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `if` / `else` / `else if`  | yes   | yes    | yes     | yes | Condition must be a bool                                                                                      |
 | Terminating statement rule | n/a   | n/a    | yes     | n/a | Syntactic, as in Go, including `for {}` without a `break`                                                     |
 | Local variables            | yes   | yes    | yes     | yes | `x :=`, `var`, `mut`; immutable by default; zero values for `mut x T`; no shadowing; unused is an error       |
-| Assignment `=`             | yes   | yes    | yes     | yes | Mutable variables only; parameters are immutable                                                              |
+| Assignment `=`             | yes   | yes    | yes     | yes | Mutable variables and `mut` parameters only; other parameters are immutable                                   |
 | Compound assignment        | yes   | yes    | yes     | yes | `+= -= *= /= %=` on any integer type; not a read of the target; bitwise forms come with the bitwise operators |
 | `++` `--`                  | yes   | yes    | yes     | yes | Postfix statements only, never values; integer targets; not a read of the target                              |
 | `for cond {}`, `for {}`    | yes   | yes    | yes     | yes | Condition must be a bool                                                                                      |
@@ -96,6 +97,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Parameter and variable references | yes   | yes    | yes     | yes     | Parameters and variables are the only names with values                                                                                                                 |
 | Qualified names `x.name`          | yes   | yes    | yes     | yes     | Through an import, for functions, globals and types, in calls, values, targets, types and literals; C names by package path and name, length-prefixed so none collide |
 | Calls                             | yes   | yes    | yes     | yes     | To a function by name; arity and argument types checked                                                                                                                 |
+| `mut` arguments `mut x`           | yes   | yes    | yes     | yes     | Only to a `mut` parameter, of exactly its type; a place the caller may change; `&place` in C; ends the facts about the variable for its region                          |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; on known values, overflow is an error; otherwise it wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
 | `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers and strings all six, `bool`, arrays and structs `==` `!=` only; strings by unsigned bytes, folded only in a global's initializer       |
@@ -112,7 +114,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `&&` `\|\|`                       | yes   | yes    | yes     | yes     | `bool` operands only; short-circuit                                                                                                                                     |
 | Bitwise and shift operators       | yes   | no     | no      | no      |                                                                                                                                                                         |
 | `true` / `false`                  | yes   | yes    | yes     | yes     | Keywords, so not usable as names; constant expressions                                                                                                                  |
-| Evaluation order                  | n/a   | n/a    | n/a     | yes     | Left to right; the C backend holds operands in temporaries where the order could show                                                                                   |
+| Evaluation order                  | n/a   | n/a    | n/a     | yes     | Left to right; the C backend holds operands in temporaries where the order could show, a variable passed as `mut` anywhere in the function counting as changeable       |
 
 ### Types
 
@@ -127,7 +129,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
 | Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
 | Slices, maps                       | no      | no  |                                                                   |
-| Pointers                           | no      | no  |                                                                   |
+| Pointers                           | no      | no  | None; a `mut` parameter is a reference that cannot be stored      |
 | Interfaces, generics               | no      | no  |                                                                   |
 
 ### Builtins

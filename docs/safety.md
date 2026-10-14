@@ -304,7 +304,8 @@ func early(a [3]int64, i int64) int64 {
 
 A fact holds only in a region that never assigns its variable, anywhere,
 before or after the use: an assignment, a compound assignment, `++` or
-`--`, or one of several targets. If the region assigns it, the fact is
+`--`, one of several targets, or a call that passes the variable, or a part
+of it, as `mut`, which may assign it. If the region assigns it, the fact is
 dropped for the whole region:
 
 <!-- case: safety-region-assigned-later -->
@@ -319,6 +320,14 @@ if d != 0 {
 
 The division
 reports <!-- error: safety-region-assigned-later -->`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
+
+A call passing the variable as `mut` ends the proof the same way, and the
+note names the
+call: <!-- case: mut-proof-ends-at-call -->`set(mut i, 7)` before `a[i]`
+inside `if 0 <= i && i < 3`
+adds <!-- note: mut-proof-ends-at-call -->`but i is passed as mut to set here, so the proof ends`.
+Inside a function, a `mut` parameter is a variable like any other: a fact
+about it holds in a region that never assigns it.
 
 The region is the branch for an `if`, the body for a loop (a three-clause
 loop's post statement is not part of it), and the rest of the block for an

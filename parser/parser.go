@@ -552,7 +552,14 @@ func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
 	}
 }
 
+// parseParam parses one parameter: a name and its type, with mut before
+// the name for a mut parameter, mut p T.
 func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
+	param := &ast.Param{}
+	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
+		p.next()
+		param.Mut, param.MutSpan = true, p.span(tk)
+	}
 	name, nameDiags := p.parseIdent("parameter name")
 	if name == nil {
 		return nil, nameDiags
@@ -563,16 +570,12 @@ func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 		return nil, typDiags
 	}
 
-	return &ast.Param{
-		Name:     name.Name,
-		NameSpan: name.Span,
-		TypeExpr: typ,
-		Span: ast.Span{
-			File:  p.fileID,
-			Start: name.Span.Start,
-			End:   typ.Spanned().End,
-		},
-	}, nil
+	param.Name, param.NameSpan, param.TypeExpr = name.Name, name.Span, typ
+	param.Span = ast.Span{File: p.fileID, Start: name.Span.Start, End: typ.Spanned().End}
+	if param.Mut {
+		param.Span.Start = param.MutSpan.Start
+	}
+	return param, nil
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
@@ -1978,14 +1981,17 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseOperand parses an expression with no infix operator at its root: a
-// literal, a name, a call, a parenthesised expression, or a prefix operator
-// and its operand.
+// literal, a name, a call, a parenthesised expression, a prefix operator
+// and its operand, or mut and an operand, which is only meaningful as a
+// call's argument; the type checker reports it anywhere else.
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
-	switch p.peek().Kind() {
-	case lexer.LogicalNot:
+	switch tk := p.peek(); {
+	case tk.Kind() == lexer.LogicalNot:
 		return p.parseUnary(ast.Not)
-	case lexer.Sub:
+	case tk.Kind() == lexer.Sub:
 		return p.parseUnary(ast.Neg)
+	case isKeyword(tk, lexer.Mut):
+		return p.parseMutArg()
 	}
 
 	x, diags := p.parsePrimary()
@@ -1993,6 +1999,19 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return nil, diags
 	}
 	return p.parsePostfix(x)
+}
+
+// parseMutArg parses mut and the operand after it, a mut argument.
+func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
+	kw := p.next()
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	return &ast.MutArg{
+		X:    x,
+		Span: ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.extent(x).End},
+	}, nil
 }
 
 // parsePrimary parses an operand that indexes and fields can follow: a

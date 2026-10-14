@@ -377,6 +377,39 @@ makes for itself, which has a letter after `tack_`.
   are Go-style, one type each, no grouping. A function declares no result,
   one, or several in parentheses, `func divmod(a int64, b int64) (int64, int64)`, and
   `return a / b, a % b` gives one value for each. Results are unnamed.
+- Mut parameters. A parameter written `mut p T`, as in `func scale(mut p
+  Point, k int64)`, is a mutable reference to the caller's variable for the
+  duration of the call: inside, `p`, `p.x` and `p.cells[i]` read and write
+  the caller's variable directly, `p = Point{...}` replaces it, and
+  `p.x++` changes it. Every other parameter is an immutable copy of its
+  argument, as before. The call writes `mut` before the argument,
+  `scale(mut b, 10)`, and only there: leaving it out for a `mut` parameter
+  is an error, `scale takes p as mut; pass mut b`, and so is writing it
+  for a plain one, `count does not take t as mut; pass t`. What follows
+  `mut` must be a place the caller may change: a mutable local, a `mut`
+  parameter, a field of one, `mut b.lo`, or an element of one whose index
+  is proven in range (see arrays), `mut cells[i]`, nested in any way,
+  `mut w.rows[1].pts[j].y`. Anything else is an error: an immutable
+  variable or plain parameter, `cannot pass mut c: c is immutable; declare
+  it with mut`, an immutable global, `cannot pass mut limit: limit is
+  immutable; copy it into a mutable local`, a mutable global, `a mutable
+  global cannot be passed as mut; copy it into a local`, since any function
+  can reach one, a string's byte, `cannot pass mut s[0]: strings are
+  immutable`, and a value that is not a place, such as a call's result or
+  a literal, `only a variable, a field or an element can be passed as mut`.
+  The argument's type must be the parameter's exactly, with no widening:
+  passing a `mut int32` to `mut n int64` is `cannot use int32 as int64 in
+  argument to bump`. A reference can never be stored or returned: there is
+  no syntax for it, and `mut x` anywhere but as a call's argument is an
+  error, `mut b can only be passed to a mut parameter`. Inside the callee,
+  `q := p` copies the caller's value and `return p` returns a copy; passing
+  it on, `bump(mut p.x)` or `scale(mut p, 2)`, is how a reference reaches
+  further, through any number of calls, recursion included, and deferred
+  code may read, write and pass on a `mut` parameter like any other
+  statement. A `mut` parameter counts as a mutable variable for proofs, so
+  a fact about it holds in a region that never assigns it, and a call
+  that passes a variable, or a part of it, as `mut` assigns it at that
+  call (see division). An extern func cannot take a `mut` parameter yet.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -490,7 +523,7 @@ makes for itself, which has a letter after `tack_`.
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
   value: `0`, `""` or `false`. An immutable variable must have a value.
 - `x = v` assigns to a mutable variable a value its type accepts. Parameters
-  are immutable.
+  are immutable, except a `mut` parameter (see mut parameters).
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
   mutable integer variable and a value its type accepts. Like a plain assignment, they do
   not count as reading `x`, so a variable that is only ever updated is still
@@ -585,7 +618,8 @@ makes for itself, which has a letter after `tack_`.
   variable or parameter may reuse the name of another variable or parameter
   in scope, package-level ones included, and a variable that is never read is
   an error. Reusing a function's name is allowed.
-- Expressions are literals, parameter and variable names, calls, parentheses,
+- Expressions are literals, parameter and variable names, calls, a call's
+  `mut` arguments, parentheses,
   array and struct literals, indexes, field selections, the infix
   operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
@@ -658,11 +692,11 @@ makes for itself, which has a letter after `tack_`.
   of a known value that fits its type, or arithmetic on those. The
   variable must be a
   parameter, a local, or an immutable global, and the region must not assign
-  it anywhere, so a loop that counts its divisor up needs the check beside the
+  it anywhere, a call passing it, or a part of it, as `mut` included, so a loop that counts its divisor up needs the check beside the
   division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
   leaving. When a guard says something about a divisor or index it did not
   prove, the error comes with notes pointing at the guard and what it
-  proves, at the assignment that ended that proof, or at what the guard
+  proves, at the assignment or `mut` argument that ended that proof, or at what the guard
   allows that the operation does not, such as `i == 3` for a `[3]T`, and
   at a branch ending in `exit`, a counting loop's step that could wrap, or
   a guard on a field. A mutable global's error suggests only the two-value
@@ -677,10 +711,15 @@ makes for itself, which has a letter after `tack_`.
   switch's tag before its case values, which run one by one up to the
   first match. In an assignment the target's indexes come before the
   value, and `x op= v` reads `x` before it evaluates `v`. The order shows
-  only through calls, which can print, exit or assign a mutable global
-  another operand reads: `f() + g()` always runs `f` first, and in
+  only through calls, which can print, exit, assign a mutable global
+  another operand reads, or change a variable another operand reads
+  through a `mut` argument: `f() + g()` always runs `f` first, in
   `g + bump()`, with `bump` adding one to the global `g`, `g` is read
-  before the call.
+  before the call, and in `three(next(mut k), k, next(mut k))`, with
+  `next` returning `k` and adding one to it, the middle `k` is read
+  between the two calls. A `mut` argument stands for its place, not a
+  value read from it: the callee sees the variable as it is when the call
+  begins, after every argument has been evaluated.
 - `&&`, `||` and `!` take `bool` operands. `&&` and `||` short-circuit: the
   right side runs only when the left does not decide the result, so
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
@@ -841,7 +880,8 @@ makes for itself, which has a letter after `tack_`.
   a single-file target, is compiled and linked with the program, against
   a generated `tack.h` that declares each extern func and the types it
   uses; `--emit-header` writes `tack.h` for editors. Every Tack type
-  crosses by value. An extern func is never `pub` or `lib`, and one no C
+  crosses by value. An extern func cannot take a `mut` parameter yet,
+  `extern func fill cannot take a mut parameter yet`. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its
