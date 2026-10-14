@@ -1,8 +1,8 @@
 // Package diag defines compiler diagnostics and renders them for people.
 //
-// Every stage of the pipeline (lexer, parser, resolver, type checker) reports
-// problems in user input as []Diagnostic rather than by panicking or
-// returning a Go error. A Diagnostic carries a Severity, a message, a Span
+// Every stage of the pipeline (loader, lexer, parser, resolver, type
+// checker, code generation backend) reports problems in user input as
+// []Diagnostic rather than by panicking or returning a Go error. A Diagnostic carries a Severity, a message, a Span
 // into the source, and optionally related diagnostics, such as a note
 // pointing at an earlier declaration a duplicate collides with.
 //

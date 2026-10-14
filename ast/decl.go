@@ -101,7 +101,10 @@ type Var struct {
 	Value    Expr // the initial value, nil if the variable starts at its zero value
 
 	// Const is a package-level variable's initial value, computed by the
-	// type checker: an int64, a string, or a bool. It is nil for a local.
+	// type checker: a constant.Int, a string, a bool, or, for an array or
+	// a struct, a []any of its elements' or fields' values in order. It is
+	// nil for a local, and for an array or struct global declared without
+	// a value, which starts at its zero value.
 	Const any
 
 	Name     string

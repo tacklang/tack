@@ -1,13 +1,17 @@
 // Package codegen defines the contract between the compiler front end and a
 // code generation backend, and the registry that makes backends pluggable.
 //
-// A backend implements Backend. It turns a resolved, type-checked *ast.File
-// into the bytes of some target language, or into diagnostics if the file uses
-// something it cannot lower. It also names the file extension those bytes
-// belong in, and the command that turns such a file into an executable. That
-// is all the driver needs: it writes the bytes to a temporary file with the
-// backend's extension and runs the backend's build command. Nothing above this
-// package knows what any particular backend emits.
+// A backend implements Backend. It turns a resolved, type-checked
+// *ast.Program into the bytes of some target language, or into diagnostics
+// if the program uses something it cannot lower. It also names the file
+// extension those bytes belong in, the header, tack.h, that the program's C
+// files are compiled against, the command that compiles each of those files
+// to an object, and the command that turns the generated file and the
+// objects into an executable. That is all the driver needs: it writes the
+// bytes to a temporary file with the backend's extension and the header
+// beside it, runs the compile command on each C file and then the build
+// command. Nothing above this package knows what any particular backend
+// emits.
 //
 // Backends live in sub-packages and register themselves from init by calling
 // Register, so plugging one in is a new package plus a blank import in the

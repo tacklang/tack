@@ -35,8 +35,9 @@
 // as declared twice, with a note in the other file. A global that is never
 // read is reported only after every package has been resolved. It checks
 // the program's shape first:
-// the package must be main, a main function must exist, not be extern, take
-// no parameters and declare no results, no function may be declared twice,
+// the package being built must be package main, which must declare a main
+// function that is not extern, takes no parameters and declares no results;
+// no function may be declared twice,
 // none may reuse a builtin's name, and only an extern func, whose body is
 // in C, may be declared without a body. An extern func can be neither pub
 // nor lib: its package exports a Tack function that calls it. It then walks each function body with that

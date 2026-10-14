@@ -76,8 +76,9 @@
 // never collide, whatever underscores either holds, and every other name
 // the backend makes after tack_ has a letter where these have a digit; the
 // proof is on mangle.
-// A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
-// no reserved words and either may legally be called int or exit.
+// A parameter x becomes p_x and a local variable x becomes v_x, since a Tack
+// name may be a C keyword or a name C declares, and either may legally be
+// called int or exit.
 //
 // A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
 // variable. Every read and write of it goes through the pointer, (*p_p),

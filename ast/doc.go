@@ -8,7 +8,7 @@
 // package clause's name, where a problem with the clause is reported. Later passes read the
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, a type name's included,
-// and the type checker sets Param.Type, Var.Type, Func.ResultType and
+// and the type checker sets Param.Type, Var.Type, Func.ResultTypes and
 // TypeDecl.Type to the types those declarations denote, the type of every operator expression and integer literal (a
 // character literal is always a uint8, so it has no field for one),
 // Binary.Const and Unary.Const to the value of an integer constant
@@ -17,7 +17,7 @@
 // literal's, an element's and a field's type, Call.Const to a len the checker can compute, and Program.Types,
 // and File.Types of every file, to the table that gives those types meaning. The types as
 // written in source are kept apart, in Param.TypeExpr, Var.TypeExpr and
-// Func.Result. A Var is both a declaration, so a name can refer to it, and a
+// Func.Results. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a
 // top-level declaration, as is a TypeDecl, which declares a struct type: a
 // StructType, whose Fields are part of it rather than nodes of their own.

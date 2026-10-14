@@ -142,7 +142,7 @@ func (c *Checker) enter(decl ast.Decl) (restore func()) {
 	return func() { c.pkg = old }
 }
 
-// Check reports every badly typed call in the program, in source order. Checking
+// Check reports every problem it finds in the program, in source order. Checking
 // continues past the first problem, so one run reports all of them.
 func (c *Checker) Check() []diag.Diagnostic {
 	if c.prog == nil {

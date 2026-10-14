@@ -1,7 +1,7 @@
 // Package constant holds the exact values of integer constant expressions.
 //
-// Tack computes a constant expression, such as 1 << 3 written as literals and
-// operators, exactly, before giving it a type. Every literal and every
+// Tack computes a constant expression, such as 1 + 2 * 3 written as literals
+// and operators, exactly, before giving it a type. Every literal and every
 // intermediate result must lie between -2^63 and 2^64-1: the smallest int64
 // through the largest uint64, which covers every value of every integer
 // type. A result outside that range is an error rather than a wider number,

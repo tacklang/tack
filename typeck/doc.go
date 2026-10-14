@@ -113,7 +113,7 @@
 // A divisor must be proven not zero where it is used, from facts: that a
 // variable is not zero within some region, learned from a condition just
 // tested. facts.go holds the rules, which are syntactic: a fact comes from
-// && || ! and comparisons with a constant (one side or the other of an
+// && || ! and comparisons with a known value (one side or the other of an
 // || that is true, or an && that is false, giving the union of what each
 // side says about a variable both constrain), holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
@@ -150,7 +150,8 @@
 // element whose outer index alone v, ok := covers; the declaration of a
 // mutable global, whose error suggests only the checked form, since no
 // check proves it; and the operand to convert when a uint64 is compared
-// with len. Notes quote source text, so New takes the file's source.
+// with len. Notes quote source text, so New takes the program's
+// source.Files.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
 // always being true; only a divisor known to be zero is reported. A fact is
 // about a subject (subject.go): a variable, or a path below an immutable
@@ -224,7 +225,7 @@
 // hold none, and on bools, they are computed wherever their operands are
 // known.
 //
-// The third pass checks each function body:
+// The last pass checks each function body:
 //
 //   - a call passes the number of arguments its callee declares, each usable
 //     as the declared type, whether the callee is a Tack function or a
@@ -301,10 +302,10 @@
 //     one, and one in a switch leaves the loop around it). The rule is syntactic, as in Go, so a call
 //     that never comes back, like exit, does not satisfy it.
 //
-// Before any of this, Check creates the file's types.Table and records it on
-// File.Types, and every diagnostic names a type through it, so a type is
-// always named by the compilation that gave it its ID. Later stages read the
-// same Table from the file.
+// Before any of this, Check records the program's types.Table on
+// Program.Types and on every file's File.Types, and every diagnostic names
+// a type through it, so a type is always named by the compilation that gave
+// it its ID. Later stages read the same Table from the program or a file.
 //
 // Checking continues past the first problem, so one run reports all of them,
 // in source order, each once. An error is not reported when it follows from

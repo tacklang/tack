@@ -25,9 +25,9 @@
 // which lets a field name a struct declared after its own. The Table does
 // not check that a struct does not contain itself; the type checker does.
 //
-// The type checker creates one Table per file and records it on the
-// ast.File. Name maps an ID back to the type's name as a program writes it,
-// for diagnostics: [3]int64 for an array, the declared name for a struct; Type deliberately has no String method, so naming a type
+// The type checker creates one Table per program and records it on the
+// ast.Program and on every ast.File of it. Name maps an ID back to the
+// type's name as a program writes it, for diagnostics: [3]int64 for an array, the declared name for a struct; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
 // "int64", to its Type.
