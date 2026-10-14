@@ -44,13 +44,13 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 
 | Feature                  | Lexer | Parser | Checker | C   | Notes                                                                                       |
 |--------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------|
-| `package` clause         | yes   | yes    | partial | yes | Must be first and must be `main`; every file of a directory names the same package          |
+| `package` clause         | yes   | yes    | yes     | yes | Must be first; `main`, or in a module the import path's last part; every file of a directory names the same package; a single file must be `main` |
 | Several files per package | n/a  | yes    | yes     | yes | A directory is one package: its `.tck` files in name order, package-level names shared by all, any order |
 | Modules and `tack.mod`   | n/a   | yes    | yes     | n/a | `module <name>` only; a directory builds in the module found at or above it; package name is the import path's last part, or `main` |
 | Imports                  | yes   | yes    | yes     | yes | `import x from "path"`, per file, one per line after the package clause; cycles, unused and duplicate imports are errors |
 | `pub` / `lib`            | yes   | yes    | yes     | n/a | Functions, types, immutable globals and fields; private by default; `lib` within the module; not on `mut` globals, nor anywhere in `main`; exposed types must be as visible |
 | Functions                | yes   | yes    | yes     | yes | Top level only; any order; no duplicates; none named after a builtin                        |
-| `main` function          | yes   | yes    | yes     | yes | Required; takes no parameters and declares no result                                        |
+| `main` function          | yes   | yes    | yes     | yes | Required in package `main`, not allowed in any other; takes no parameters and declares no result; not extern |
 | Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`); immutable copies unless `mut`                    |
 | `mut` parameters         | yes   | yes    | yes     | yes | `mut p T`, a reference to the caller's variable for the call, a `T *` in C; passed as `mut x`, a mutable local, `mut` parameter, field or proven element; no two `mut` arguments of a call overlap, by path, elements only at indexes known to differ; a plain argument overlapping one is a copy; never stored or returned; a `T *` in an extern func's C too |
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
@@ -104,7 +104,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                                                                     |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; the smallest known value is an overflow error; `-` before digits is a negative literal                                                    |
 | Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                                                                        |
-| Struct literals `T{f: v}`         | yes   | yes    | yes     | yes     | Every field named once, any order; parenthesized in an `if`/`for`/range header; type left out only inside an array literal                                              |
+| Struct literals `T{f: v}`         | yes   | yes    | yes     | yes     | Every field named once, any order; parenthesized in an `if`/`for`/range/`switch` header; type left out only inside an array literal                                              |
 | Field selection `x.f`             | yes   | yes    | yes     | yes     | On any struct value; written through a `mut` variable, mixed with indexes to any depth; facts for proofs below an immutable variable only                                  |
 | Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops (over a count or an array), guards and types, or `v, ok := a[i]`                                                           |
 | Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from a known string's length, `len(s)` guards and range loops over `len(s)` or `s`, or `v, ok := s[i]`; never assigned                               |
@@ -162,7 +162,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/`, every case in `examples/invalid.txtar` and `examples/invalid-packages.txtar` |
-| Fuzzing                            | partial | Lexer alone, the whole pipeline through the driver, a package's file order, `tack.mod`, and the loader on random file trees |
+| Fuzzing                            | partial | Lexer alone, the parser with a comment at any token boundary, the whole pipeline through the driver, a package's file order, `tack.mod`, the loader on random file trees, C name mangling, and constant arithmetic |
 | Self-hosting                       | no      | The goal: a Tack compiler written in Tack                                  |
 
 ## Timeline
