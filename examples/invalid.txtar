@@ -1574,6 +1574,146 @@ for-post-declaration/main.tck:4:28: error: cannot declare a variable in a for lo
    |	                           ^~~~~~
 05 |	        exit(i)
 
+-- from-keyword-field/main.tck --
+package main
+
+type Range struct {
+    from int64
+    to int64
+}
+
+func main() {
+}
+-- from-keyword-field/expected --
+stage: parse
+---
+
+from-keyword-field/main.tck:4:5: error: expected 'field name' found 'from'
+03 |	type Range struct {
+04 |	    from int64
+   |	    ^
+05 |	    to int64
+
+-- from-keyword-func/main.tck --
+package main
+
+func from() {
+}
+
+func main() {
+}
+-- from-keyword-func/expected --
+stage: parse
+---
+
+from-keyword-func/main.tck:3:6: error: expected 'function name' found 'from'
+02 |	
+03 |	func from() {
+   |	     ^
+04 |	}
+
+-- from-keyword-global/main.tck --
+package main
+
+var from int64 = 1
+
+func main() {
+}
+-- from-keyword-global/expected --
+stage: parse
+---
+
+from-keyword-global/main.tck:3:5: error: expected 'variable name' found 'from'
+02 |	
+03 |	var from int64 = 1
+   |	    ^
+04 |	
+
+-- from-keyword-local/main.tck --
+package main
+
+func main() {
+    from := 1
+    exit(from)
+}
+-- from-keyword-local/expected --
+stage: parse
+---
+
+from-keyword-local/main.tck:4:5: error: expected 'statement' found 'from'
+03 |	func main() {
+04 |	    from := 1
+   |	    ^
+05 |	    exit(from)
+
+-- from-keyword-package/main.tck --
+package from
+
+func main() {
+}
+-- from-keyword-package/expected --
+stage: parse
+---
+
+from-keyword-package/main.tck:1:9: error: expected 'package name' found 'from'
+01 |	package from
+   |	        ^
+02 |	
+
+-- from-keyword-param/main.tck --
+package main
+
+func f(from int64) int64 {
+    return from
+}
+
+func main() {
+}
+-- from-keyword-param/expected --
+stage: parse
+---
+
+from-keyword-param/main.tck:3:8: error: expected 'parameter name' found 'from'
+02 |	
+03 |	func f(from int64) int64 {
+   |	       ^
+04 |	    return from
+
+-- from-keyword-range/main.tck --
+package main
+
+func main() {
+    for from := range 3 {
+    }
+}
+-- from-keyword-range/expected --
+stage: parse
+---
+
+from-keyword-range/main.tck:4:9: error: expected 'value' found 'from'
+03 |	func main() {
+04 |	    for from := range 3 {
+   |	        ^
+05 |	    }
+
+-- from-keyword-type/main.tck --
+package main
+
+type from struct {
+}
+
+func main() {
+}
+-- from-keyword-type/expected --
+stage: parse
+---
+
+from-keyword-type/main.tck:3:6: error: expected 'type name' found 'from'
+02 |	
+03 |	type from struct {
+   |	     ^
+04 |	}
+
 -- garbage/main.tck --
 package main
 

@@ -1010,3 +1010,18 @@ func TestBoolKeywords(t *testing.T) {
 		}
 	}
 }
+
+// TestFromKeyword pins from as a keyword, reserved everywhere and not only
+// in an import, and that a longer word starting with it is an identifier.
+func TestFromKeyword(t *testing.T) {
+	out := lex(t, "from")
+	checkInvariants(t, "from", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.From {
+		t.Errorf("%q lexed as %s, want keyword from", "from", out.tokens[0].String())
+	}
+	for _, src := range []string{"fromage", "From", "from_"} {
+		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}

@@ -26,7 +26,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Feature                     | Lexer | Parser  | Checker | C       | Notes                                                                                                            |
 |-----------------------------|-------|---------|---------|---------|------------------------------------------------------------------------------------------------------------------|
 | Identifiers                 | yes   | yes     | yes     | yes     | ASCII letters, digits, `_`; no Unicode letters                                                                   |
-| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 29 lexed; 19 parsed, see the statements and expressions below |
+| Keywords                    | yes   | partial | n/a     | n/a     | Tack's own set, inspired by Go rather than copied: 30 lexed; 23 parsed, see the statements and expressions below |
 | Line endings                | yes   | n/a     | n/a     | n/a     | `\n` or `\r\n`, alike everywhere; a lone `\r` is an invalid character outside literals and comments              |
 | Automatic semicolons        | yes   | yes     | n/a     | n/a     | Go's rule                                                                                                        |
 | Line comments               | yes   | yes     | n/a     | n/a     | Anywhere a line can end, including before `package`; kept in the syntax tree, ignored by the grammar             |

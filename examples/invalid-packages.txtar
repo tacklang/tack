@@ -158,6 +158,21 @@ dir-digit-name/7up/a.tck:1:9: error: 7up is not a valid package name: start with
    |	        ^~
 02 |	
 
+-- dir-from-name/tack.mod --
+module calc
+-- dir-from-name/.target --
+from
+-- dir-from-name/from/a.tck --
+package fn
+-- dir-from-name/expected --
+stage: load
+---
+
+dir-from-name/from/a.tck:1:9: error: from is not a valid package name: it is a keyword
+01 |	package fn
+   |	        ^~
+02 |	
+
 -- dir-invalid-name/tack.mod --
 module calc
 -- dir-invalid-name/.target --
@@ -879,6 +894,27 @@ import-duplicate-path/main.tck:3:15: note: previous import of calc/lexer
 03 |	import a from "calc/lexer"
    |	              ^~~~~~~~~~~~
 04 |	import b from "calc/lexer"
+
+-- import-from-name/tack.mod --
+module calc
+-- import-from-name/lexer/lexer.tck --
+package lexer
+-- import-from-name/main.tck --
+package main
+
+import from from "calc/lexer"
+
+func main() {
+}
+-- import-from-name/expected --
+stage: parse
+---
+
+import-from-name/main.tck:3:8: error: expected 'import name' found 'from'
+02 |	
+03 |	import from from "calc/lexer"
+   |	       ^
+04 |	
 
 -- import-grouped/tack.mod --
 module calc

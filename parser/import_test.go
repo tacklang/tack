@@ -18,11 +18,10 @@ func mustParse(t *testing.T, src string) *ast.File {
 }
 
 // TestParsesImports checks each import's name, path and spans, in source
-// order, raw string paths and escapes included, and that from stays an
-// ordinary name everywhere else.
+// order, raw string paths and escapes included.
 func TestParsesImports(t *testing.T) {
 	src := "package main\n\nimport lexer from \"calc/lexer\"\nimport p from `calc/parser`\n" +
-		"import x from \"calc/\\x41\"\n\nfunc main() {\n    from := 1\n    exit(from)\n}\n"
+		"import x from \"calc/\\x41\"\n\nfunc main() {\n}\n"
 	file := mustParse(t, src)
 	want := []struct{ name, path, nameText, pathText string }{
 		{"lexer", "calc/lexer", "lexer", `"calc/lexer"`},
@@ -135,6 +134,7 @@ func TestRejectsMalformedImports(t *testing.T) {
 		{"two on a line", "import x from \"a\" import y from \"b\"\n", "expected ';'", "import"},
 		{"after a declaration", "func f() {}\nimport x from \"a\"\n", "imports must come before", "import"},
 		{"keyword name", "import func from \"a\"\n", "expected 'import name'", "func"},
+		{"from as the name", "import from from \"a\"\n", "expected 'import name'", "from"},
 		{"truncated", "import x from", "expected 'import path'", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

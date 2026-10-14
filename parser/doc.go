@@ -9,8 +9,8 @@
 //
 // Imports come right after the package clause, one per line, before every
 // other declaration: import x from "path", where the path is any string
-// literal. from is not a keyword; it is a name only an import gives a
-// meaning, and may name anything elsewhere. A grouped import, import (...),
+// literal. from is a keyword, reserved everywhere though only an import
+// uses it, so it is never a name. A grouped import, import (...),
 // an import without a name, and one after another declaration are each
 // reported. Since every import is known before any declaration is parsed,
 // and an import's name can never be redeclared, a name the file imports

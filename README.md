@@ -257,7 +257,9 @@ makes for itself, which has a letter after `tack_`.
   `for` or `switch` header like any struct literal. Imports come right
   after the package clause, one per line; `import (...)` and an import
   after another declaration are errors. The name is required and is the
-  importer's choice; `from` is not a keyword, only a word an import uses.
+  importer's choice. `from` is a keyword, reserved everywhere though only
+  an import uses it, so it cannot name a variable, function, type, field,
+  parameter, import or package.
   An import's name is declared in its file: it may not be a reserved name,
   a builtin's, any package-level name of the package, in any file, or
   another import's of the file, and no local or parameter may reuse it,

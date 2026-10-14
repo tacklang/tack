@@ -65,13 +65,6 @@ carry facts for proofs, so that `if p.d != 0 { n / p.d }` compiles when
 `p` is immutable. It is to be implemented with pointers. Today a field
 never carries a fact, mutable or not, so a guard on `p.x` proves nothing.
 
-## `from` is not a keyword
-
-`import x from "path"` reads `from` as a plain name that only an import
-gives a meaning, so `from := 1` still compiles. Making `from` a keyword
-would reserve it everywhere, which is easier to undo later than to add.
-Options: keep it a contextual word, or reserve it.
-
 ## Constant initializers and the parts of a global
 
 A package-level initializer may name an immutable global, `var b = a + 1`,

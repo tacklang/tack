@@ -28,9 +28,11 @@ const (
 	Map
 	ASM
 
-	// Package and Import structure a file.
+	// Package, Import and From structure a file. From is reserved
+	// everywhere, though only an import uses it.
 	Package
 	Import
+	From
 
 	// If and Else are conditionals.
 	If
@@ -77,6 +79,7 @@ var keywordNames = map[KeywordType]string{
 
 	Package: "package",
 	Import:  "import",
+	From:    "from",
 
 	If:   "if",
 	Else: "else",

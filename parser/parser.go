@@ -239,8 +239,8 @@ func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
 	if name == nil {
 		return nil, diags
 	}
-	if tk := p.peek(); tk.Kind() != lexer.Ident || tk.Value() != fromWord {
-		return nil, []diag.Diagnostic{p.diagInvalidToken(fromWord, tk)}
+	if tk := p.peek(); !isKeyword(tk, lexer.From) {
+		return nil, []diag.Diagnostic{p.diagInvalidToken(lexer.From.String(), tk)}
 	}
 	p.next()
 	path := p.peek()
@@ -260,9 +260,6 @@ func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
 	}
 	return imp, nil
 }
-
-// fromWord is the word between an import's name and its path.
-const fromWord = "from"
 
 // parseDecl parses one package-level declaration: a function, a variable or
 // a type, with the visibility keyword that may come first.
