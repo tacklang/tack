@@ -5,7 +5,6 @@ stage: ok
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 typedef struct {
     const unsigned char *ptr;
@@ -14,7 +13,10 @@ typedef struct {
 
 static const unsigned char tack_str0[4] = {104, 105, 10, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
@@ -23,7 +25,7 @@ static void tack_print(tack_string s) {
 static void tack_4_main4_main(void);
 
 static void tack_4_main4_main(void) {
-    tack_print((tack_string){tack_str0, 3});
+    tack_builtin_print((tack_string){tack_str0, 3});
 }
 
 int main(void) {

@@ -14,10 +14,19 @@ typedef struct {
 
 static const unsigned char tack_str0[7] = {98, 111, 111, 108, 115, 10, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 static const bool tack_4_main7_verbose = true;
@@ -35,16 +44,16 @@ static bool tack_4_main3_not(bool p_b) {
 static void tack_4_main4_main(void) {
     bool v_done = false;
     if (tack_4_main7_verbose) {
-        tack_print((tack_string){tack_str0, 6});
+        tack_builtin_print((tack_string){tack_str0, 6});
         v_done = true;
     }
     if (tack_4_main3_not(v_done)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (v_done != tack_4_main7_verbose) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
-    exit((int)(9));
+    tack_builtin_exit(9);
 }
 
 int main(void) {

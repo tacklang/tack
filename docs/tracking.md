@@ -133,9 +133,9 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
-| `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline                          |
+| `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, body in `codegen/c/builtin/print.c`, emitted with `<stdio.h>` only when called |
 | `len(v)`        | yes     | yes | Arrays and strings; known for arrays, string literals and immutable variables holding a known string |
-| `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit` |
+| `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, body in `codegen/c/builtin/exit.c`, emitted with `<stdlib.h>` only when called |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 

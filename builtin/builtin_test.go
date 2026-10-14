@@ -58,8 +58,13 @@ func declared(t *testing.T) []builtin.Func {
 				fn.Name,
 			)
 		}
+		if !fn.Extern {
+			t.Errorf("%s declares %s without extern; its body is C", declarationsPath, fn.Name)
+		}
 
-		funcs = append(funcs, builtin.Func{Name: fn.Name, Params: declaredParams(t, fn)})
+		funcs = append(funcs, builtin.Func{
+			Name: fn.Name, Params: declaredParams(t, fn), CName: fn.CName,
+		})
 	}
 	return funcs
 }
@@ -127,6 +132,10 @@ func TestDeclarationFileListsExactlyTheImplementedBuiltins(t *testing.T) {
 			continue
 		}
 
+		if declared.CName != fn.CName {
+			t.Errorf("%s names %s %s in C, the compiler calls %s",
+				declarationsPath, fn.Name, declared.CName, fn.CName)
+		}
 		if len(declared.Params) != len(fn.Params) {
 			t.Errorf("%s declares %s with %d parameter(s), the compiler takes %d",
 				declarationsPath, fn.Name, len(declared.Params), len(fn.Params))
@@ -183,10 +192,11 @@ func TestLookupFindsEveryBuiltin(t *testing.T) {
 func TestBuiltinSignatures(t *testing.T) {
 	tests := []struct {
 		name   string
+		cName  string
 		params []types.Type
 	}{
-		{"print", []types.Type{types.String}},
-		{"exit", []types.Type{types.Int64}},
+		{"print", "tack_builtin_print", []types.Type{types.String}},
+		{"exit", "tack_builtin_exit", []types.Type{types.Int64}},
 	}
 	if len(builtin.Funcs()) != len(tests) {
 		t.Errorf("Funcs() has %d builtins, want %d", len(builtin.Funcs()), len(tests))
@@ -196,6 +206,9 @@ func TestBuiltinSignatures(t *testing.T) {
 		if !ok {
 			t.Errorf("Lookup(%q) found nothing", tt.name)
 			continue
+		}
+		if got.CName != tt.cName {
+			t.Errorf("%s's C name = %q, want %q", tt.name, got.CName, tt.cName)
 		}
 		if len(got.Params) != len(tt.params) {
 			t.Errorf("%s takes %d params, want %d", tt.name, len(got.Params), len(tt.params))

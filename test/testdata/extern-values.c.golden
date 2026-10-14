@@ -97,10 +97,19 @@ static const unsigned char tack_str20[15] = {100, 105, 118, 109, 111, 100, 32, 9
 static const unsigned char tack_str21[4] = {97, 100, 97, 0};
 static const unsigned char tack_str22[6] = {110, 97, 109, 101, 115, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 typedef struct {
@@ -135,10 +144,10 @@ static void tack_4_main4_main(void);
 
 static void tack_4_main5_check(bool p_ok, tack_string p_name, int64_t p_status) {
     if (!p_ok) {
-        tack_print((tack_string){tack_str0, 5});
-        tack_print(p_name);
-        tack_print((tack_string){tack_str1, 1});
-        exit((int)(p_status));
+        tack_builtin_print((tack_string){tack_str0, 5});
+        tack_builtin_print(p_name);
+        tack_builtin_print((tack_string){tack_str1, 1});
+        tack_builtin_exit(p_status);
     }
 }
 
@@ -172,9 +181,9 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(!v_ok, (tack_string){tack_str20, 14}, 13);
     const tack_array_18 v_n = tack_4_main5_names();
     tack_4_main5_check((((tack_compare_strings(v_n.e[0], (tack_string){tack_str21, 3}) == 0) && (tack_compare_strings(v_n.e[1], (tack_string){tack_str2, 0}) == 0)) && ((v_n.e[1]).len == 0)), (tack_string){tack_str22, 5}, 14);
-    tack_print(tack_4_main8_greeting());
-    tack_print((tack_string){tack_str1, 1});
-    exit((int)(42));
+    tack_builtin_print(tack_4_main8_greeting());
+    tack_builtin_print((tack_string){tack_str1, 1});
+    tack_builtin_exit(42);
 }
 
 int main(void) {

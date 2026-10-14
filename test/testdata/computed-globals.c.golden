@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -62,6 +61,12 @@ static const unsigned char tack_str1[4] = {111, 110, 101, 0};
 static const unsigned char tack_str2[4] = {116, 119, 111, 0};
 static const unsigned char tack_str3[5] = {116, 97, 99, 107, 0};
 
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
+
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
@@ -101,7 +106,7 @@ static void tack_4_main4_main(void);
 
 static void tack_4_main5_check(bool p_ok, int64_t p_status) {
     if (!p_ok) {
-        exit((int)(p_status));
+        tack_builtin_exit(p_status);
     }
 }
 
@@ -136,7 +141,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_div_int64(100, tack_4_main5_table.e[1]) == 5), 16);
     tack_4_main5_check((tack_4_main5_table.e[tack_4_main6_origin.f_x] == 40), 17);
     tack_4_main5_check((((tack_4_main4_pick(10) == 1) && (tack_4_main4_pick(4) == 2)) && (tack_4_main4_pick(5) == 3)), 18);
-    exit((int)(tack_4_main4_deep));
+    tack_builtin_exit(tack_4_main4_deep);
 }
 
 int main(void) {

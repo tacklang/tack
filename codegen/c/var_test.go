@@ -55,7 +55,7 @@ func TestImmutableVariableIsAConstLocal(t *testing.T) {
 	if !strings.Contains(got, "const int64_t v_x = 7;") {
 		t.Errorf("immutable variable not emitted as a const local:\n%s", got)
 	}
-	if !strings.Contains(got, "exit((int)(v_x));") {
+	if !strings.Contains(got, "tack_builtin_exit(v_x);") {
 		t.Errorf("read of x not lowered to v_x:\n%s", got)
 	}
 }

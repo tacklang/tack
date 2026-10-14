@@ -23,10 +23,19 @@ typedef struct {
 
 static const unsigned char tack_str0[20] = {115, 112, 108, 105, 116, 32, 97, 99, 114, 111, 115, 115, 32, 102, 105, 108, 101, 115, 10, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 static const int64_t tack_12_multi_2dfile4_unit = 2;
@@ -51,13 +60,13 @@ static void tack_12_multi_2dfile4_main(void) {
     int64_t tack_o3;
     const tack_12_multi_2dfile4_Rect v_r = (tack_12_multi_2dfile4_Rect){.f_w = 3, .f_h = 4};
     if (tack_12_multi_2dfile4_area(v_r) != 24) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (tack_12_multi_2dfile9_perimeter(v_r) != 14) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
-    tack_print(tack_12_multi_2dfile8_greeting);
-    exit((int)((tack_o2 = ((int64_t)((uint64_t)(tack_o0 = tack_12_multi_2dfile4_area(v_r), tack_o1 = tack_12_multi_2dfile9_perimeter(v_r), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) + (uint64_t)tack_12_multi_2dfile6_origin.f_w)), tack_o3 = ((void)tack_12_multi_2dfile5_cells, (int64_t)3), ((int64_t)((uint64_t)tack_o2 + (uint64_t)tack_o3)))));
+    tack_builtin_print(tack_12_multi_2dfile8_greeting);
+    tack_builtin_exit((tack_o2 = ((int64_t)((uint64_t)(tack_o0 = tack_12_multi_2dfile4_area(v_r), tack_o1 = tack_12_multi_2dfile9_perimeter(v_r), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) + (uint64_t)tack_12_multi_2dfile6_origin.f_w)), tack_o3 = ((void)tack_12_multi_2dfile5_cells, (int64_t)3), ((int64_t)((uint64_t)tack_o2 + (uint64_t)tack_o3))));
 }
 
 static int64_t tack_12_multi_2dfile4_area(tack_12_multi_2dfile4_Rect p_r) {

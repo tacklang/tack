@@ -120,8 +120,18 @@ func TestOldSchemeCollisionsDoNotCollide(t *testing.T) {
 // generatorNames are the shapes of every other name the generator makes
 // starting tack_: the character after the prefix is a letter in each.
 var generatorNames = []string{
-	"tack_string", "tack_print", "tack_div_int8", "tack_rem_uint64", "tack_eq_12",
-	"tack_array_3", "tack_results_4_main1_f", "tack_n0", "tack_k1", "tack_r0", "tack_o9",
+	"tack_string",
+	"tack_builtin_print",
+	"tack_builtin_exit",
+	"tack_div_int8",
+	"tack_rem_uint64",
+	"tack_eq_12",
+	"tack_array_3",
+	"tack_results_4_main1_f",
+	"tack_n0",
+	"tack_k1",
+	"tack_r0",
+	"tack_o9",
 }
 
 // FuzzMangleIsInjective checks two different package paths and names never

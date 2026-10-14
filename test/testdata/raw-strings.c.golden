@@ -34,10 +34,19 @@ static const unsigned char tack_str8[4] = {97, 10, 98, 0};
 static const unsigned char tack_str9[3] = {195, 169, 0};
 static const unsigned char tack_str10[3] = {92, 116, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 static const tack_string tack_4_main7_pattern = {tack_str0, 8};
@@ -64,36 +73,36 @@ static void tack_4_main4_main(void) {
     int64_t tack_o4;
     int64_t tack_o5;
     if ((((2 != 2) || (((tack_string){tack_str2, 2}).ptr[0] != 92)) || (((tack_string){tack_str2, 2}).ptr[1] != 110)) || (tack_compare_strings((tack_string){tack_str2, 2}, (tack_string){tack_str2, 2}) != 0)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if ((((2 != 2) || (((tack_string){tack_str3, 2}).ptr[1] != 34)) || (tack_compare_strings((tack_string){tack_str4, 2}, (tack_string){tack_str4, 2}) != 0)) || (2 != 2)) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     if ((1 != 1) || (((tack_string){tack_str5, 1}).ptr[0] != 92)) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     if ((0 != 0) || (tack_compare_strings((tack_string){tack_str6, 0}, (tack_string){tack_str6, 0}) != 0)) {
-        exit((int)(4));
+        tack_builtin_exit(4);
     }
     const tack_string v_q = (tack_string){tack_str7, 25};
     if (((((v_q).len != 25) || (v_q.ptr[4] != 34)) || (v_q.ptr[9] != 47)) || (tack_compare_strings(v_q, (tack_string){tack_str7, 25}) != 0)) {
-        exit((int)(5));
+        tack_builtin_exit(5);
     }
     const tack_string v_two = (tack_string){tack_str8, 3};
     if ((((v_two).len != 3) || (v_two.ptr[1] != 10)) || (tack_compare_strings(v_two, (tack_string){tack_str8, 3}) != 0)) {
-        exit((int)(6));
+        tack_builtin_exit(6);
     }
     if ((((tack_4_main7_pattern).len != 8) || (tack_compare_strings(tack_4_main7_pattern, (tack_string){tack_str0, 8}) != 0)) || (tack_o2 = tack_4_main3_sum(tack_4_main7_pattern), tack_o3 = tack_4_main3_sum((tack_string){tack_str0, 8}), (tack_o2 != tack_o3))) {
-        exit((int)(7));
+        tack_builtin_exit(7);
     }
     if ((((tack_4_main6_banner).len != 48) || (tack_4_main6_banner.ptr[47] != 10)) || (tack_4_main6_banner.ptr[21] != 92)) {
-        exit((int)(8));
+        tack_builtin_exit(8);
     }
     if (((2 != 2) || (((tack_string){tack_str9, 2}).ptr[0] != 195)) || (((tack_string){tack_str9, 2}).ptr[1] != 169)) {
-        exit((int)(9));
+        tack_builtin_exit(9);
     }
-    tack_print(tack_4_main6_banner);
-    exit((int)((tack_o4 = tack_4_main3_sum((tack_string){tack_str10, 2}), tack_o5 = tack_4_main3_sum((tack_string){tack_str5, 1}), ((int64_t)((uint64_t)tack_o4 - (uint64_t)tack_o5)))));
+    tack_builtin_print(tack_4_main6_banner);
+    tack_builtin_exit((tack_o4 = tack_4_main3_sum((tack_string){tack_str10, 2}), tack_o5 = tack_4_main3_sum((tack_string){tack_str5, 1}), ((int64_t)((uint64_t)tack_o4 - (uint64_t)tack_o5))));
 }
 
 int main(void) {

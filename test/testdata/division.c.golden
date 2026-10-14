@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -12,6 +11,12 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -58,12 +63,12 @@ static void tack_4_main4_main(void) {
     const int64_t v_w = (tack_r4 != 0 ? tack_div_int64(tack_r3, tack_r4) : 0);
     const bool v_fine = (tack_r4 != 0);
     if ((v_ok || !v_fine) || (v_v != 0)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     const int64_t v_half = 3;
     int64_t v_steps = 100;
     v_steps = tack_div_int64(v_steps, v_half);
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_4_main7_average(v_steps, 3))) + (uint64_t)v_w))));
+    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_4_main7_average(v_steps, 3))) + (uint64_t)v_w)));
 }
 
 int main(void) {

@@ -140,7 +140,7 @@ func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n}\n")
 
 	for _, want := range []string{
-		"#include <stdio.h>",
+		"#include <stdint.h>",
 		"static void tack_4_main4_main(void);",
 		"static void tack_4_main4_main(void) {",
 		"int main(void) {\n    tack_4_main4_main();\n    return 0;\n}",
@@ -200,7 +200,7 @@ func TestEmitsStringLiteralsAsByteArrays(t *testing.T) {
 func TestPrintLowersToOneWrite(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	want := "    tack_print((tack_string){tack_str0, 2});\n}"
+	want := "    tack_builtin_print((tack_string){tack_str0, 2});\n}"
 	if !strings.Contains(got, want) {
 		t.Errorf("print did not lower to a single write of its argument:\n%s", got)
 	}
@@ -238,13 +238,15 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 	}
 }
 
-func TestGeneratesExitAsALibcCall(t *testing.T) {
+// exit lowers to a call of its C body, which calls C's exit, so the
+// header declaring that comes with it.
+func TestGeneratesExitAsACallToItsCBody(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(42)\n}\n")
 
 	if !strings.Contains(got, "#include <stdlib.h>") {
 		t.Errorf("generated C does not include stdlib.h, so exit is undeclared:\n%s", got)
 	}
-	if !strings.Contains(got, "    exit((int)(42));") {
+	if !strings.Contains(got, "    tack_builtin_exit(42);") {
 		t.Errorf("generated C does not call exit:\n%s", got)
 	}
 }
@@ -252,15 +254,15 @@ func TestGeneratesExitAsALibcCall(t *testing.T) {
 func TestExitAcceptsTheFullIntRange(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(9223372036854775807)\n}\n")
 
-	if !strings.Contains(got, "exit((int)(9223372036854775807));") {
+	if !strings.Contains(got, "tack_builtin_exit(9223372036854775807);") {
 		t.Errorf("generated C lost precision on a large literal:\n%s", got)
 	}
 }
 
 // TestExitNarrowsExplicitly checks exit's int64 status is cast to C's int
-// in the open, so clang's -Wconversion has no implicit narrowing to warn
-// about, and that only the low bits of a wide status reach the OS: 70000
-// exits with 70000 % 256, 112.
+// in the open, in its C body, so clang's -Wconversion has no implicit
+// narrowing to warn about, and that only the low bits of a wide status
+// reach the OS: 70000 exits with 70000 % 256, 112.
 func TestExitNarrowsExplicitly(t *testing.T) {
 	src := program("mut x int64 = 70000", "x++", "x--", "exit(x)")
 	bin := buildWith(t, src, "-Wconversion")
@@ -285,7 +287,7 @@ func TestGeneratesStringAsAPointerLengthStruct(t *testing.T) {
 func TestStringLiteralBecomesAStringValue(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	if !strings.Contains(got, "tack_print((tack_string){tack_str0, 2});") {
+	if !strings.Contains(got, "tack_builtin_print((tack_string){tack_str0, 2});") {
 		t.Errorf("a string literal did not become a tack_string value:\n%s", got)
 	}
 }
@@ -330,10 +332,10 @@ func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 		"package main\n\nfunc f(x int64, s string) {\n    print(s)\n    exit(x)\n}\n\nfunc main() {\n}\n",
 	)
 
-	if !strings.Contains(got, "tack_print(p_s);") {
+	if !strings.Contains(got, "tack_builtin_print(p_s);") {
 		t.Errorf("print of a parameter was not lowered:\n%s", got)
 	}
-	if !strings.Contains(got, "exit((int)(p_x));") {
+	if !strings.Contains(got, "tack_builtin_exit(p_x);") {
 		t.Errorf("exit of a parameter was not lowered:\n%s", got)
 	}
 }
@@ -566,7 +568,7 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
 	)
 
-	if !strings.Contains(got, "exit((int)(tack_4_main5_seven()));") {
+	if !strings.Contains(got, "tack_builtin_exit(tack_4_main5_seven());") {
 		t.Errorf("a call argument did not become a C expression:\n%s", got)
 	}
 }
@@ -576,7 +578,7 @@ func TestNestedCallsNest(t *testing.T) {
 		"func h() int64 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
 
 	got := generate(t, src)
-	if !strings.Contains(got, "exit((int)(tack_4_main1_g(tack_4_main1_h())));") {
+	if !strings.Contains(got, "tack_builtin_exit(tack_4_main1_g(tack_4_main1_h()));") {
 		t.Errorf("nested calls did not nest:\n%s", got)
 	}
 }
@@ -643,7 +645,7 @@ func TestGeneratesConstantExpressionAsItsValue(t *testing.T) {
 		t,
 		"package main\n\nfunc main() {\n    exit(1 + 2 * 3)\n    if 1 < 2 {\n    }\n}\n",
 	)
-	for _, want := range []string{"exit((int)(7));", "if (true) {"} {
+	for _, want := range []string{"tack_builtin_exit(7);", "if (true) {"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
 		}
@@ -680,7 +682,7 @@ func TestNestsStatementsInsideBranches(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(\"yes\")\n    }\n}\n"
 
 	got := generate(t, src)
-	if !strings.Contains(got, "\n        tack_print(") {
+	if !strings.Contains(got, "\n        tack_builtin_print(") {
 		t.Errorf("the branch body was not indented inside the if:\n%s", got)
 	}
 }

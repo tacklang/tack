@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -102,6 +101,12 @@ static const unsigned char tack_str28[2] = {100, 0};
 static const unsigned char tack_str29[2] = {120, 0};
 static const unsigned char tack_str30[2] = {121, 0};
 
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
+
 static tack_string tack_4_main8_greeting(bool p_formal);
 static tack_string tack_4_main5_fruit(int64_t p_i);
 static void tack_4_main4_main(void);
@@ -131,58 +136,58 @@ static void tack_4_main4_main(void) {
     const tack_string v_a = (tack_string){tack_str5, 4};
     const tack_string v_b = (tack_string){tack_str5, 4};
     if (((((tack_compare_strings(v_a, v_b) != 0) || !(tack_compare_strings(v_a, v_b) == 0)) || (tack_compare_strings(v_a, (tack_string){tack_str6, 3}) == 0)) || (tack_compare_strings(v_a, (tack_string){tack_str7, 5}) == 0)) || (tack_compare_strings((tack_string){tack_str7, 5}, v_a) == 0)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if ((!(tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str9, 3}) < 0) || !(tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str9, 3}) <= 0)) || !(tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str8, 3}) <= 0)) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     if ((!(tack_compare_strings((tack_string){tack_str9, 3}, (tack_string){tack_str8, 3}) > 0) || !(tack_compare_strings((tack_string){tack_str9, 3}, (tack_string){tack_str8, 3}) >= 0)) || !(tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str8, 3}) >= 0)) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     if ((((tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str8, 3}) < 0) || (tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str8, 3}) > 0)) || (tack_compare_strings((tack_string){tack_str9, 3}, (tack_string){tack_str8, 3}) <= 0)) || (tack_compare_strings((tack_string){tack_str8, 3}, (tack_string){tack_str9, 3}) >= 0)) {
-        exit((int)(4));
+        tack_builtin_exit(4);
     }
     if (((!(tack_compare_strings((tack_string){tack_str6, 3}, (tack_string){tack_str5, 4}) < 0) || (tack_compare_strings((tack_string){tack_str5, 4}, (tack_string){tack_str6, 3}) < 0)) || !(tack_compare_strings((tack_string){tack_str5, 4}, (tack_string){tack_str6, 3}) > 0)) || (tack_compare_strings((tack_string){tack_str6, 3}, (tack_string){tack_str5, 4}) >= 0)) {
-        exit((int)(5));
+        tack_builtin_exit(5);
     }
     tack_string v_e = (tack_string){tack_str10, 0};
     if (((((tack_compare_strings(v_e, (tack_string){tack_str10, 0}) != 0) || !(tack_compare_strings(v_e, (tack_string){tack_str11, 1}) < 0)) || (tack_compare_strings(v_e, (tack_string){tack_str10, 0}) > 0)) || !(tack_compare_strings(v_e, (tack_string){tack_str10, 0}) <= 0)) || !(tack_compare_strings((tack_string){tack_str11, 1}, v_e) > 0)) {
-        exit((int)(6));
+        tack_builtin_exit(6);
     }
     if (((!(tack_compare_strings((tack_string){tack_str10, 0}, (tack_string){tack_str12, 1}) < 0) || !(tack_compare_strings((tack_string){tack_str13, 2}, (tack_string){tack_str11, 1}) > 0)) || (tack_compare_strings((tack_string){tack_str14, 3}, (tack_string){tack_str15, 3}) == 0)) || !(tack_compare_strings((tack_string){tack_str14, 3}, (tack_string){tack_str15, 3}) < 0)) {
-        exit((int)(7));
+        tack_builtin_exit(7);
     }
     if ((!(tack_compare_strings((tack_string){tack_str13, 2}, (tack_string){tack_str16, 3}) < 0) || (tack_compare_strings((tack_string){tack_str14, 3}, (tack_string){tack_str14, 3}) != 0)) || !(tack_compare_strings((tack_string){tack_str17, 3}, (tack_string){tack_str18, 2}) < 0)) {
-        exit((int)(8));
+        tack_builtin_exit(8);
     }
     if (((!(tack_compare_strings((tack_string){tack_str19, 1}, (tack_string){tack_str11, 1}) > 0) || !(tack_compare_strings((tack_string){tack_str20, 1}, (tack_string){tack_str21, 1}) > 0)) || !(tack_compare_strings((tack_string){tack_str22, 2}, (tack_string){tack_str23, 1}) > 0)) || (tack_compare_strings((tack_string){tack_str19, 1}, (tack_string){tack_str20, 1}) < 0)) {
-        exit((int)(9));
+        tack_builtin_exit(9);
     }
     if (((tack_compare_strings(tack_4_main8_greeting(true), (tack_string){tack_str0, 5}) != 0) || !(tack_o0 = tack_4_main8_greeting(false), tack_o1 = tack_4_main8_greeting(true), (tack_compare_strings(tack_o0, tack_o1) > 0))) || (tack_o2 = tack_4_main8_greeting(true), tack_o3 = tack_4_main8_greeting(false), (tack_compare_strings(tack_o2, tack_o3) == 0))) {
-        exit((int)(10));
+        tack_builtin_exit(10);
     }
     const tack_4_main6_Person v_p = (tack_4_main6_Person){.f_name = (tack_string){tack_str24, 3}, .f_age = 30};
     if ((!tack_eq_12(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str24, 3}, .f_age = 30})) || (tack_eq_12(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str25, 4}, .f_age = 30}))) {
-        exit((int)(11));
+        tack_builtin_exit(11);
     }
     tack_4_main6_Person v_z = (tack_4_main6_Person){0};
     if ((!tack_eq_12(v_z, (tack_4_main6_Person){.f_name = (tack_string){tack_str10, 0}, .f_age = 0})) || !(tack_compare_strings(v_z.f_name, v_p.f_name) < 0)) {
-        exit((int)(12));
+        tack_builtin_exit(12);
     }
     const tack_array_15 v_words = (tack_array_15){{(tack_string){tack_str11, 1}, (tack_string){tack_str26, 1}, (tack_string){tack_str27, 1}}};
     if ((!tack_eq_15(v_words, (tack_array_15){{(tack_string){tack_str11, 1}, (tack_string){tack_str26, 1}, (tack_string){tack_str27, 1}}})) || (tack_eq_15(v_words, (tack_array_15){{(tack_string){tack_str11, 1}, (tack_string){tack_str26, 1}, (tack_string){tack_str28, 1}}}))) {
-        exit((int)(13));
+        tack_builtin_exit(13);
     }
     tack_array_14 v_blank = (tack_array_14){0};
     if ((!tack_eq_14(v_blank, (tack_array_14){{(tack_string){tack_str10, 0}, (tack_string){tack_str10, 0}}})) || (tack_eq_14(v_blank, (tack_array_14){{(tack_string){tack_str10, 0}, (tack_string){tack_str29, 1}}}))) {
-        exit((int)(14));
+        tack_builtin_exit(14);
     }
     const tack_4_main4_Team v_t = (tack_4_main4_Team){.f_names = (tack_array_14){{(tack_string){tack_str29, 1}, (tack_string){tack_str30, 1}}}, .f_lead = v_p};
     if (!tack_eq_13(v_t, (tack_4_main4_Team){.f_names = (tack_array_14){{(tack_string){tack_str29, 1}, (tack_string){tack_str30, 1}}}, .f_lead = (tack_4_main6_Person){.f_name = (tack_string){tack_str24, 3}, .f_age = 30}})) {
-        exit((int)(15));
+        tack_builtin_exit(15);
     }
     if ((tack_eq_13(v_t, (tack_4_main4_Team){.f_names = (tack_array_14){{(tack_string){tack_str29, 1}, (tack_string){tack_str23, 1}}}, .f_lead = v_p})) || (tack_eq_13(v_t, (tack_4_main4_Team){.f_names = v_t.f_names, .f_lead = v_z}))) {
-        exit((int)(16));
+        tack_builtin_exit(16);
     }
     const tack_array_16 v_sorted = (tack_array_16){{(tack_string){tack_str10, 0}, (tack_string){tack_str11, 1}, (tack_string){tack_str18, 2}, (tack_string){tack_str26, 1}, (tack_string){tack_str22, 2}}};
     tack_string v_prev = (tack_string){tack_str10, 0};
@@ -198,16 +203,16 @@ static void tack_4_main4_main(void) {
         }
     }
     if (v_rising != 4) {
-        exit((int)(17));
+        tack_builtin_exit(17);
     }
     int64_t v_i = 0;
     while (tack_compare_strings(tack_4_main5_fruit(v_i), (tack_string){tack_str26, 1}) < 0) {
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     if (v_i != 2) {
-        exit((int)(18));
+        tack_builtin_exit(18);
     }
-    exit((int)(((int64_t)((uint64_t)40 + (uint64_t)v_i))));
+    tack_builtin_exit(((int64_t)((uint64_t)40 + (uint64_t)v_i)));
 }
 
 int main(void) {

@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -62,6 +61,12 @@ static bool tack_eq_16(tack_array_16 a, tack_array_16 b) {
 static const unsigned char tack_str0[5] = {116, 97, 99, 107, 0};
 static const unsigned char tack_str1[4] = {97, 98, 99, 0};
 
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
+
 static const tack_array_12 tack_4_main6_primes = {{2, 3, 5, 7, 11}};
 
 static int64_t tack_4_main4_sum3(tack_array_13 p_v);
@@ -81,19 +86,19 @@ static void tack_4_main4_main(void) {
     const tack_array_13 v_b = v_a;
     v_a.e[0] = 10;
     if ((v_b.e[0] != 1) || (!tack_eq_13(v_a, (tack_array_13){{10, 2, 3}}))) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     tack_array_16 v_grid = (tack_array_16){0};
     v_grid.e[1].e[1] = true;
     if (!tack_eq_16(v_grid, (tack_array_16){{(tack_array_15){{false, false}}, (tack_array_15){{false, true}}}})) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     const tack_array_14 v_o = tack_4_main6_origin();
     if ((v_o.e[0] != 0) || (v_o.e[1] != 0)) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     const tack_string v_word = (tack_string){tack_str0, 4};
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_sum3(v_b) + (uint64_t)((void)tack_4_main6_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_4_main6_primes.e[4]))));
+    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_sum3(v_b) + (uint64_t)((void)tack_4_main6_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_4_main6_primes.e[4])));
 }
 
 int main(void) {

@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -12,6 +11,12 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static const int64_t tack_4_main8_smallest = (-9223372036854775807 - 1);
 
@@ -29,12 +34,12 @@ static void tack_4_main4_main(void) {
     int64_t tack_o0;
     int64_t tack_o1;
     if (((int64_t)((uint64_t)tack_4_main8_smallest + (uint64_t)9223372036854775807)) != (-1)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (tack_4_main3_abs(tack_4_main8_smallest) != tack_4_main8_smallest) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
-    exit((int)(((int64_t)((uint64_t)(tack_o0 = tack_4_main3_abs((-20)), tack_o1 = tack_4_main3_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4))));
+    tack_builtin_exit(((int64_t)((uint64_t)(tack_o0 = tack_4_main3_abs((-20)), tack_o1 = tack_4_main3_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4)));
 }
 
 int main(void) {

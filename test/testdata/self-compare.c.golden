@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -12,6 +11,12 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static bool tack_4_main4_same(int64_t p_x);
 static void tack_4_main4_main(void);
@@ -22,9 +27,9 @@ static bool tack_4_main4_same(int64_t p_x) {
 
 static void tack_4_main4_main(void) {
     if (tack_4_main4_same(3)) {
-        exit((int)(7));
+        tack_builtin_exit(7);
     }
-    exit((int)(1));
+    tack_builtin_exit(1);
 }
 
 int main(void) {

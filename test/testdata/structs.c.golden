@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -55,6 +54,12 @@ static bool tack_eq_16(tack_4_main5_Empty a, tack_4_main5_Empty b) {
 
 static const unsigned char tack_str0[5] = {103, 114, 105, 100, 0};
 
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
+
 static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
 static const tack_array_18 tack_4_main7_corners = {{{1, 1}, {2, 2}}};
 static tack_4_main5_Point tack_4_main7_counter = {0};
@@ -88,23 +93,23 @@ static void tack_4_main4_main(void) {
     const tack_4_main5_Point v_q = v_p;
     v_p.f_x = 10;
     if ((v_q.f_x != 1) || (v_p.f_x != 10)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (((tack_4_main4_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_4_main3_add(v_p, v_q).f_y != 4)) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     const tack_4_main4_Line v_l = (tack_4_main4_Line){.f_a = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_b = (tack_4_main5_Point){.f_y = 4, .f_x = 3}};
     const tack_results_4_main5_split tack_r0 = tack_4_main5_split(v_l);
     const tack_4_main5_Point v_a = tack_r0.r0;
     const tack_4_main5_Point v_b = tack_r0.r1;
     if ((!tack_eq_13(tack_4_main3_add(v_a, v_b), (tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_13(v_a, v_b))) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     tack_4_main4_Line v_ml = v_l;
     v_ml.f_a.f_x = 7;
     v_ml.f_b.f_y = ((int64_t)((uint64_t)v_ml.f_b.f_y + (uint64_t)5));
     if ((((v_ml.f_a.f_x != 7) || (v_ml.f_b.f_y != 9)) || (v_l.f_a.f_x != 1)) || (v_l.f_b.f_y != 4)) {
-        exit((int)(4));
+        tack_builtin_exit(4);
     }
     tack_array_18 v_pts = tack_4_main7_corners;
     v_pts.e[1].f_y = 20;
@@ -124,7 +129,7 @@ static void tack_4_main4_main(void) {
         }
     }
     if ((v_sum != 30) || (tack_4_main7_corners.e[1].f_y != 2)) {
-        exit((int)(5));
+        tack_builtin_exit(5);
     }
     tack_4_main4_Grid v_g = (tack_4_main4_Grid){0};
     v_g.f_cells.e[2] = 5;
@@ -137,24 +142,24 @@ static void tack_4_main4_main(void) {
         }
     }
     if ((((((void)v_g.f_cells, (int64_t)3) != 3) || (v_g.f_cells.e[2] != 6)) || (v_g.f_cells.e[0] != 1)) || ((v_g.f_name).len != 4)) {
-        exit((int)(6));
+        tack_builtin_exit(6);
     }
     tack_4_main5_Point v_z = (tack_4_main5_Point){0};
     if ((!tack_eq_13(v_z, tack_4_main6_origin)) || (!tack_eq_13(tack_4_main7_counter, v_z))) {
-        exit((int)(7));
+        tack_builtin_exit(7);
     }
     tack_4_main7_counter.f_y = ((int64_t)((uint64_t)tack_4_main7_counter.f_y - (uint64_t)1));
     tack_4_main7_counter.f_x = ((int64_t)((uint64_t)tack_4_main7_counter.f_y * (uint64_t)2));
     tack_4_main5_Small v_s = (tack_4_main5_Small){.f_n = 127};
     v_s.f_n = ((int8_t)((uint64_t)v_s.f_n + (uint64_t)1));
     if (v_s.f_n != (-128)) {
-        exit((int)(8));
+        tack_builtin_exit(8);
     }
     const tack_4_main5_Empty v_e = (tack_4_main5_Empty){0};
     if (!tack_eq_16(v_e, (tack_4_main5_Empty){0})) {
-        exit((int)(9));
+        tack_builtin_exit(9);
     }
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100))));
+    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100)));
 }
 
 int main(void) {

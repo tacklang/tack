@@ -12,15 +12,18 @@
 // no Func can describe, so it is listed apart and the type checker checks
 // it itself. Names lists every builtin's name, generic ones included.
 //
-// Each builtin is a Func: a name and the types of its parameters. No builtin
-// returns a value today, so a Func has no result. Funcs lists every builtin in
-// a fixed order, and Lookup finds one by name.
+// Each builtin is a Func: a name, the types of its parameters, and its C
+// name. No builtin returns a value today, so a Func has no result. Funcs
+// lists every builtin in a fixed order, and Lookup finds one by name.
 //
-// This package says what the builtins are, not how they run. Lowering a call
-// to print or exit is left to each code generation backend, since how a
-// builtin is emitted is a property of the target, not of the language.
+// print and exit are extern funcs: their bodies are C, under the C names
+// tack_builtin_print and tack_builtin_exit, and a call to one is a call to
+// that C function. This package says what the builtins are and what they
+// are called in C, not how they run: the C bodies belong to the code
+// generation backend, which supplies the ones for its target, so a target
+// without a C library can swap them without the language changing.
 //
-// src/std/builtin/builtin.tck documents the same builtins as Tack declarations
-// without bodies. A test in this package parses that file with the compiler's
-// own front end and fails if the two drift apart.
+// src/std/builtin/builtin.tck documents the same builtins as extern func
+// declarations. A test in this package parses that file with the compiler's
+// own front end and fails if the two drift apart, C names included.
 package builtin

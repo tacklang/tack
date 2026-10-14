@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -25,6 +24,12 @@ typedef struct {
 } tack_array_14;
 
 static const unsigned char tack_str0[5] = {65, 122, 0, 255, 0};
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static uint8_t tack_div_uint8(uint8_t a, uint8_t b) {
     return a / b;
@@ -54,19 +59,19 @@ static void tack_4_main4_main(void) {
     tack_array_14 v_counts = (tack_array_14){0};
     v_counts.e[2] = ((uint8_t)((uint64_t)122 - (uint64_t)97));
     if (((((v_d != 98) || !v_seen.e[120]) || (tack_4_main4_last != 122)) || !tack_4_main7_ordered) || (tack_4_main7_newline != 10)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (((((tack_4_main7_letters.e[2] != 99) || (v_wide != 97)) || (39 != 39)) || (92 != 92)) || (34 != 34)) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     if ((((((void)v_counts, (int64_t)3) != 3) || (v_gap != 5)) || (v_counts.e[2] != 25)) || (v_tripled != 35)) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     const tack_string v_hex = (tack_string){tack_str0, 4};
     if (((((((0 != 0) || (255 != 255)) || (65 != 65)) || ((v_hex).len != 4)) || (v_hex.ptr[1] != 122)) || (v_hex.ptr[2] != 0)) || (v_hex.ptr[3] != 255)) {
-        exit((int)(4));
+        tack_builtin_exit(4);
     }
-    exit((int)(v_c));
+    tack_builtin_exit(v_c);
 }
 
 int main(void) {

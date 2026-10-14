@@ -1,8 +1,11 @@
 package builtin
 
-// The functions Tack provides without a declaration. They have no bodies:
-// each code generation backend implements them for its own target, so there is
-// no Tack source that could be given here.
+// The functions Tack provides without a declaration. print and exit are
+// extern funcs: their bodies are C, under the C names given here, and the
+// compiler's code generation backend supplies those bodies for its target
+// (the C backend's are in codegen/c/builtin/), so there is no Tack source
+// that could be given here. A call to one is an ordinary call to its C
+// function. They are available in every file without an import.
 //
 // This file is the documentation of record. The compiler consults
 // builtin/builtin.go, and a test in that package parses this file and fails
@@ -10,13 +13,13 @@ package builtin
 // beside it. Anything not yet implemented belongs in PLANNED.md instead.
 
 // print writes s to standard output exactly as given, adding no newline.
-func print(s string)
+extern("tack_builtin_print") func print(s string)
 
 // exit ends the process immediately with the given status. Pending defers
 // do not run, in the calling function or any other. Only the low bits of
 // the status reach the operating system, the low 8 on Linux and macOS, so
 // exit(70000) ends with status 112.
-func exit(code int64)
+extern("tack_builtin_exit") func exit(code int64)
 
 // len(v) returns the number of elements of the array v, or the number of
 // bytes of the string v, as an int64. Its parameter takes any array or a

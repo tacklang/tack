@@ -124,7 +124,7 @@ not reported.
 | `ast`      | node types, packages, programs, source spans, and `Walk`      |
 | `resolver` | binds every name; checks there is a `main` package and `main` |
 | `types`    | Tack's type representation                                    |
-| `builtin`  | the builtins' names and signatures                            |
+| `builtin`  | the builtins' names, signatures and C names                   |
 | `typeck`   | checks calls pass the right number and type of arguments      |
 | `codegen`  | the backend interface and its registry                        |
 | `codegen/c`| AST into C, and `tack.h` for the C files of extern funcs      |
@@ -161,15 +161,24 @@ The integer types are emitted as C's fixed-width types, `int8_t` through
 
 `print` and `exit` have no declaration in a Tack program: the resolver knows
 their names and the type checker knows their signatures, both from the
-`builtin` package, and each backend lowers them for its own target.
+`builtin` package. They are extern funcs, whose bodies are C: a call to
+`print` is a call to `tack_builtin_print`, and to `exit` one to
+`tack_builtin_exit`. The C backend ships those bodies, one file per builtin
+in `codegen/c/builtin/`, and writes each into the generated C only when the
+program calls it, with the hosted header it needs (`<stdio.h>` for `print`,
+`<stdlib.h>` for `exit`). A program that calls neither includes only
+`<stdbool.h>` and `<stdint.h>`, which a freestanding C implementation has,
+so a target without a C library needs only different bodies. `len` is
+generic, so no Tack declaration can describe it, and the compiler lowers
+it itself.
 
-`src/std/builtin/builtin.tck` documents them as Tack declarations with no
-bodies, the way Go's `src/builtin/builtin.go` does. It is documentation rather
+`src/std/builtin/builtin.tck` documents them as extern func declarations,
+C names included, the way Go's `src/builtin/builtin.go` documents Go's. It is documentation rather
 than input, since `go:embed` cannot reach out of a package directory and
 moving the file into the Go tree would defeat the point of having a `src/std`.
 What keeps it honest is a test in the `builtin` package that parses it with
 the compiler's own front end and fails if it names a builtin the compiler does
-not implement, gives one the wrong signature, or stops parsing. Declarations
+not implement, gives one the wrong signature or C name, or stops parsing. Declarations
 that are wanted but not implemented go in `src/std/builtin/PLANNED.md`, which
 nothing checks and nothing claims is true.
 

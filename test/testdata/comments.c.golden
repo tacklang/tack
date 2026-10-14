@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -16,6 +15,12 @@ typedef struct {
     int64_t e[4];
 } tack_array_12;
 
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static const int64_t tack_4_main5_limit = 5;
 static int64_t tack_4_main5_calls = 0;
@@ -49,17 +54,17 @@ static int64_t tack_4_main3_sum(tack_array_12 p_xs) {
 static void tack_4_main4_main(void) {
     const int64_t v_x = 7;
     if (v_x != 7) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     const tack_results_4_main4_pair tack_r2 = tack_4_main4_pair(10, 20);
     const int64_t v_a = tack_r2.r0;
     const int64_t v_b = tack_r2.r1;
     if ((((int64_t)((uint64_t)v_a + (uint64_t)v_b)) != 30) || (tack_4_main5_calls != 1)) {
-        exit((int)(2));
+        tack_builtin_exit(2);
     }
     const tack_array_12 v_xs = (tack_array_12){{1, 2, 3, 4}};
     if (tack_4_main3_sum(v_xs) != 10) {
-        exit((int)(3));
+        tack_builtin_exit(3);
     }
     int64_t v_n = 0;
     const int64_t v_m = 3;
@@ -79,7 +84,7 @@ static void tack_4_main4_main(void) {
         }
     }
     if (v_n != 6) {
-        exit((int)(4));
+        tack_builtin_exit(4);
     }
     int64_t v_loops = 0;
     for (;;) {
@@ -92,9 +97,9 @@ static void tack_4_main4_main(void) {
         v_loops = ((int64_t)((uint64_t)v_loops - (uint64_t)1));
     }
     if (v_loops != 0) {
-        exit((int)(5));
+        tack_builtin_exit(5);
     }
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6))));
+    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6)));
 }
 
 int main(void) {

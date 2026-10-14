@@ -16,14 +16,17 @@
 // backend cannot lower produces a diagnostic instead of a half-written file.
 // The output is laid out in this order:
 //
-//   - a preamble: the C headers it uses and the tack_string type;
+//   - a preamble: <stdbool.h> and <stdint.h>, which a freestanding C
+//     implementation has, then the headers the C bodies of the builtins
+//     the program calls need, and the tack_string type;
 //   - a C struct for every array and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
 //     and struct type == compares;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named tack_str0, tack_str1, and so on;
-//   - tack_print, the helper print lowers to, only if the program prints;
+//   - the C body of each builtin extern func the program calls, only if
+//     it calls it, then the division helpers;
 //   - every package-level variable, as a static C variable;
 //   - a results struct for each function with more than one result;
 //   - TACK_C_NAME, if the program has an extern func;
@@ -175,7 +178,7 @@
 // returning a struct copies it, as C does. A package-level struct is
 // initialized with braces, its fields in order, or {0}, and a local one
 // without a value with a zeroed compound literal, which leaves a string
-// field a null pointer of length 0; tack_print writes nothing for it.
+// field a null pointer of length 0; print writes nothing for it.
 //
 // A function with several results returns them as one struct,
 // tack_results_4_main1_f for a function f, with a field r0, r1, and so on for
@@ -190,9 +193,19 @@
 // the loop's block instead, and the post assigns the call to it and then
 // each field, joined with the comma operator.
 //
-// print lowers to one tack_print call, a length-bounded fwrite of its argument
-// to stdout with nothing added. exit lowers to C's exit, which takes an int,
-// so its int64 status is cast to int explicitly, exit((int)(x)), rather than
+// print and exit are extern funcs, declared in src/std/builtin/builtin.tck,
+// and a call to one lowers like a call to any function, to its C name:
+// tack_builtin_print(s), tack_builtin_exit(x). Their C bodies are the files
+// in builtin/, embedded in the compiler, one per builtin and named after
+// it. Each is #include lines, which the preamble takes, then a static
+// definition, written after the string pool, only when the program calls
+// that builtin; a program that calls neither includes no hosted header,
+// and its C compiles with -ffreestanding. A target without a C library
+// swaps those files. They are static and their names start tack_, so
+// nothing the generated C or a C file of the program defines collides with
+// them. print's body is a length-bounded fwrite of its argument to stdout
+// with nothing added. exit's calls C's exit, which takes an int, so the
+// int64 status is cast to int explicitly, exit((int)code), rather than
 // narrowed implicitly. A status outside int's range gives an
 // implementation-defined value in C11 (6.3.1.3); clang keeps the low 32
 // bits, and the OS keeps fewer still, the low 8 on Linux and macOS, so only

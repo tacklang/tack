@@ -16,10 +16,19 @@ static const unsigned char tack_str0[9] = {110, 101, 103, 97, 116, 105, 118, 101
 static const unsigned char tack_str1[13] = {110, 111, 110, 45, 110, 101, 103, 97, 116, 105, 118, 101, 0};
 static const unsigned char tack_str2[2] = {10, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
@@ -66,16 +75,16 @@ static void tack_4_main4_main(void) {
     const tack_string v_label = tack_r1.r0;
     const bool v_ok = tack_r1.r1;
     if (v_ok) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
-    tack_print(v_label);
-    tack_print((tack_string){tack_str2, 1});
+    tack_builtin_print(v_label);
+    tack_builtin_print((tack_string){tack_str2, 1});
     const tack_results_4_main6_divmod tack_r2 = tack_4_main6_divmod(100, 7);
     int64_t v_total = tack_r2.r0;
     const int64_t v_count = tack_r2.r1;
     v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_count));
     tack_4_main6_divmod(1, 1);
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total))));
+    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total)));
 }
 
 int main(void) {

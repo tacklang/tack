@@ -5,7 +5,6 @@ stage: ok
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 typedef struct {
     const unsigned char *ptr;
@@ -61,7 +60,10 @@ static const unsigned char tack_str22[22] = {99, 111, 109, 112, 111, 117, 110, 1
 static const unsigned char tack_str23[15] = {115, 119, 105, 116, 99, 104, 32, 99, 97, 115, 101, 115, 58, 32, 0};
 static const unsigned char tack_str24[5] = {116, 97, 103, 32, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
@@ -90,17 +92,17 @@ static void tack_4_main5_check(bool p_cond);
 static void tack_4_main4_main(void);
 
 static int64_t tack_4_main3_say(tack_string p_s, int64_t p_n) {
-    tack_print(p_s);
+    tack_builtin_print(p_s);
     return p_n;
 }
 
 static tack_string tack_4_main4_word(tack_string p_s) {
-    tack_print(p_s);
+    tack_builtin_print(p_s);
     return p_s;
 }
 
 static tack_4_main4_Pair tack_4_main4_pair(tack_string p_s, int64_t p_a, int64_t p_b) {
-    tack_print(p_s);
+    tack_builtin_print(p_s);
     return (tack_4_main4_Pair){.f_a = p_a, .f_b = p_b};
 }
 
@@ -119,7 +121,7 @@ static tack_results_4_main4_both tack_4_main4_both(void) {
 }
 
 static tack_array_13 tack_4_main6_digits(void) {
-    tack_print((tack_string){tack_str2, 5});
+    tack_builtin_print((tack_string){tack_str2, 5});
     return (tack_array_13){{7, 8, 9}};
 }
 
@@ -130,9 +132,9 @@ static int64_t tack_4_main4_bump(void) {
 
 static void tack_4_main5_check(bool p_cond) {
     if (p_cond) {
-        tack_print((tack_string){tack_str3, 3});
+        tack_builtin_print((tack_string){tack_str3, 3});
     } else {
-        tack_print((tack_string){tack_str4, 5});
+        tack_builtin_print((tack_string){tack_str4, 5});
     }
 }
 
@@ -171,57 +173,57 @@ static void tack_4_main4_main(void) {
     int64_t tack_o38;
     int64_t tack_o39;
     int64_t tack_o40;
-    tack_print((tack_string){tack_str5, 12});
+    tack_builtin_print((tack_string){tack_str5, 12});
     tack_4_main5_check(((tack_o4 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), tack_o5 = (tack_o2 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), tack_o3 = tack_4_main3_say((tack_string){tack_str6, 2}, 3), ((int64_t)((uint64_t)tack_o2 * (uint64_t)tack_o3))), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) == 7));
-    tack_print((tack_string){tack_str7, 13});
+    tack_builtin_print((tack_string){tack_str7, 13});
     tack_4_main5_check(((tack_o6 = tack_4_main3_say((tack_string){tack_str0, 2}, 9), tack_o7 = tack_4_main3_say((tack_string){tack_str1, 2}, 4), ((int64_t)((uint64_t)tack_o6 - (uint64_t)tack_o7))) == 5));
-    tack_print((tack_string){tack_str8, 12});
+    tack_builtin_print((tack_string){tack_str8, 12});
     tack_4_main5_check((tack_o8 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), tack_o9 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), (tack_o8 < tack_o9)));
-    tack_print((tack_string){tack_str9, 9});
+    tack_builtin_print((tack_string){tack_str9, 9});
     tack_4_main5_check((tack_o10 = tack_4_main4_word((tack_string){tack_str0, 2}), tack_o11 = tack_4_main4_word((tack_string){tack_str1, 2}), (tack_compare_strings(tack_o10, tack_o11) < 0)));
-    tack_print((tack_string){tack_str10, 9});
+    tack_builtin_print((tack_string){tack_str10, 9});
     tack_4_main5_check((tack_o12 = tack_4_main4_pair((tack_string){tack_str0, 2}, 1, 2), tack_o13 = tack_4_main4_pair((tack_string){tack_str1, 2}, 1, 2), (tack_eq_12(tack_o12, tack_o13))));
-    tack_print((tack_string){tack_str11, 11});
+    tack_builtin_print((tack_string){tack_str11, 11});
     tack_4_main5_check(((tack_o14 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), tack_o15 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), tack_o16 = tack_4_main3_say((tack_string){tack_str6, 2}, 3), tack_4_main5_three(tack_o14, tack_o15, tack_o16)) == 123));
-    tack_print((tack_string){tack_str12, 18});
+    tack_builtin_print((tack_string){tack_str12, 18});
     tack_4_main5_check(((tack_o19 = (tack_o17 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), tack_o18 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), tack_4_main3_two(tack_o17, tack_o18)), tack_o20 = tack_4_main3_say((tack_string){tack_str6, 2}, 3), tack_4_main3_two(tack_o19, tack_o20)) == 123));
-    tack_print((tack_string){tack_str13, 9});
+    tack_builtin_print((tack_string){tack_str13, 9});
     const tack_results_4_main4_both tack_r21 = tack_4_main4_both();
     const int64_t v_x = tack_r21.r0;
     const int64_t v_y = tack_r21.r1;
     tack_4_main5_check(((v_x == 1) && (v_y == 2)));
-    tack_print((tack_string){tack_str14, 16});
+    tack_builtin_print((tack_string){tack_str14, 16});
     const tack_array_13 v_arr = (tack_o22 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), tack_o23 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), tack_o24 = tack_4_main3_say((tack_string){tack_str6, 2}, 3), (tack_array_13){{tack_o22, tack_o23, tack_o24}});
     tack_4_main5_check(((v_arr.e[0] == 1) && (v_arr.e[2] == 3)));
-    tack_print((tack_string){tack_str15, 15});
+    tack_builtin_print((tack_string){tack_str15, 15});
     const tack_4_main4_Pair v_p = (tack_o25 = tack_4_main3_say((tack_string){tack_str1, 2}, 2), tack_o26 = tack_4_main3_say((tack_string){tack_str0, 2}, 1), (tack_4_main4_Pair){.f_b = tack_o25, .f_a = tack_o26});
     tack_4_main5_check(((v_p.f_a == 1) && (v_p.f_b == 2)));
-    tack_print((tack_string){tack_str16, 7});
+    tack_builtin_print((tack_string){tack_str16, 7});
     const tack_array_13 tack_r27 = tack_4_main6_digits();
     const int64_t tack_r28 = tack_4_main3_say((tack_string){tack_str17, 6}, 1);
     const int64_t v_v = ((tack_r28 >= 0 && tack_r28 <= 2) ? tack_r27.e[tack_r28] : 0);
     const bool v_inRange = (tack_r28 >= 0 && tack_r28 <= 2);
     tack_4_main5_check(((v_v == 8) && v_inRange));
-    tack_print((tack_string){tack_str18, 10});
+    tack_builtin_print((tack_string){tack_str18, 10});
     const int64_t tack_r29 = tack_4_main3_say((tack_string){tack_str0, 2}, 9);
     const int64_t tack_r30 = tack_4_main3_say((tack_string){tack_str1, 2}, 3);
     const int64_t v_q = (tack_r30 != 0 ? tack_div_int64(tack_r29, tack_r30) : 0);
     const bool v_nonzero = (tack_r30 != 0);
     tack_4_main5_check(((v_q == 3) && v_nonzero));
-    tack_print((tack_string){tack_str19, 29});
+    tack_builtin_print((tack_string){tack_str19, 29});
     tack_4_main5_count = 0;
     tack_4_main5_check(((tack_o31 = tack_4_main5_count, tack_o32 = tack_4_main4_bump(), ((int64_t)((uint64_t)tack_o31 + (uint64_t)tack_o32))) == 1));
-    tack_print((tack_string){tack_str20, 29});
+    tack_builtin_print((tack_string){tack_str20, 29});
     tack_4_main5_count = 0;
     tack_4_main5_check(((tack_o33 = tack_4_main4_bump(), tack_o34 = tack_4_main5_count, ((int64_t)((uint64_t)tack_o33 + (uint64_t)tack_o34))) == 2));
-    tack_print((tack_string){tack_str21, 23});
+    tack_builtin_print((tack_string){tack_str21, 23});
     tack_4_main5_count = 0;
     tack_4_main5_check((((tack_o35 = tack_4_main5_count, tack_o36 = tack_4_main4_bump(), tack_4_main3_two(tack_o35, tack_o36)) == 1) && ((tack_o37 = tack_4_main4_bump(), tack_o38 = tack_4_main5_count, tack_4_main3_two(tack_o37, tack_o38)) == 22)));
-    tack_print((tack_string){tack_str22, 21});
+    tack_builtin_print((tack_string){tack_str22, 21});
     tack_4_main5_count = 5;
     tack_4_main5_count = (tack_o39 = tack_4_main5_count, tack_o40 = tack_4_main4_bump(), ((int64_t)((uint64_t)tack_o39 + (uint64_t)tack_o40)));
     tack_4_main5_check((tack_4_main5_count == 11));
-    tack_print((tack_string){tack_str23, 14});
+    tack_builtin_print((tack_string){tack_str23, 14});
     {
         const int64_t tack_s41 = tack_4_main3_say((tack_string){tack_str24, 4}, 2);
         if ((tack_s41 == tack_4_main3_say((tack_string){tack_str0, 2}, 1)) || (tack_s41 == tack_4_main3_say((tack_string){tack_str1, 2}, 2)) || (tack_s41 == tack_4_main3_say((tack_string){tack_str6, 2}, 3))) {

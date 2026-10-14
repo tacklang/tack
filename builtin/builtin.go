@@ -2,16 +2,21 @@ package builtin
 
 import "github.com/tacklang/tack/types"
 
-// Func is a builtin's signature. Builtins return nothing today, so parameters
-// are the whole of it.
+// Func is a builtin declared in builtin.tck as an extern func: its name, its
+// signature, and the C name its body is defined under. Builtins return
+// nothing today, so parameters are the whole of the signature.
 type Func struct {
-	Name   string
+	Name string
+	// CName is the C function a call to the builtin lowers to,
+	// tack_builtin_ and its name, as extern("...") gives it in builtin.tck.
+	// Its body is C, which the backend supplies for its target.
+	CName  string
 	Params []types.Type
 }
 
 var funcs = []Func{
-	{Name: "print", Params: []types.Type{types.String}},
-	{Name: "exit", Params: []types.Type{types.Int64}},
+	{Name: "print", Params: []types.Type{types.String}, CName: "tack_builtin_print"},
+	{Name: "exit", Params: []types.Type{types.Int64}, CName: "tack_builtin_exit"},
 }
 
 // Funcs returns every builtin, in a fixed order.

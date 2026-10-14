@@ -4,7 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -16,6 +15,12 @@ typedef struct {
     int64_t e[4];
 } tack_array_12;
 
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
+}
 
 static int64_t tack_4_main3_log = 0;
 
@@ -38,7 +43,7 @@ static void tack_4_main4_mark(int64_t p_d) {
 
 static void tack_4_main6_expect(int64_t p_want, int64_t p_code) {
     if (tack_4_main3_log != p_want) {
-        exit((int)(p_code));
+        tack_builtin_exit(p_code);
     }
     tack_4_main3_log = 0;
 }
@@ -316,25 +321,25 @@ static void tack_4_main4_main(void) {
     tack_4_main11_loopInDefer();
     tack_4_main6_expect(9134, 4);
     if (tack_4_main7_counted() != 1230) {
-        exit((int)(5));
+        tack_builtin_exit(5);
     }
     if (tack_4_main5_exits(1) != 1) {
-        exit((int)(7));
+        tack_builtin_exit(7);
     }
     tack_4_main6_expect(3221, 8);
     if (tack_4_main5_exits(7) != 9) {
-        exit((int)(9));
+        tack_builtin_exit(9);
     }
     tack_4_main6_expect(3232241, 10);
     tack_4_main4_skip();
     tack_4_main6_expect(215315314, 11);
     if (tack_4_main5_inner(4) != 11) {
-        exit((int)(12));
+        tack_builtin_exit(12);
     }
     tack_4_main6_expect(4343435243321, 13);
     tack_4_main4_many();
     tack_4_main6_expect(4030201, 6);
-    exit((int)(42));
+    tack_builtin_exit(42);
 }
 
 int main(void) {

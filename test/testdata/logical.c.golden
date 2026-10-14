@@ -17,10 +17,19 @@ static const unsigned char tack_str1[6] = {102, 105, 114, 115, 116, 0};
 static const unsigned char tack_str2[6] = {110, 101, 118, 101, 114, 0};
 static const unsigned char tack_str3[7] = {115, 101, 99, 111, 110, 100, 0};
 
-static void tack_print(tack_string s) {
+// print: write s to stdout exactly as given. An empty string is not
+// written: a zeroed one holds a null pointer, which C does not let fwrite
+// take even with nothing to write.
+static void tack_builtin_print(tack_string s) {
     if (s.len > 0) {
         fwrite(s.ptr, 1, s.len, stdout);
     }
+}
+
+// exit: end the process, running no defers. C's exit takes an int, so the
+// status is narrowed in the open; only its low bits reach the OS.
+static void tack_builtin_exit(int64_t code) {
+    exit((int)code);
 }
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
@@ -32,8 +41,8 @@ static bool tack_4_main4_safe(int64_t p_n);
 static void tack_4_main4_main(void);
 
 static bool tack_4_main5_check(tack_string p_name, bool p_ok) {
-    tack_print(p_name);
-    tack_print((tack_string){tack_str0, 1});
+    tack_builtin_print(p_name);
+    tack_builtin_print((tack_string){tack_str0, 1});
     return p_ok;
 }
 
@@ -43,11 +52,11 @@ static bool tack_4_main4_safe(int64_t p_n) {
 
 static void tack_4_main4_main(void) {
     if (tack_4_main5_check((tack_string){tack_str1, 5}, false) && tack_4_main5_check((tack_string){tack_str2, 5}, true)) {
-        exit((int)(1));
+        tack_builtin_exit(1);
     }
     if (tack_4_main5_check((tack_string){tack_str3, 6}, true) || tack_4_main5_check((tack_string){tack_str2, 5}, true)) {
         if (!tack_4_main4_safe(0) && tack_4_main4_safe(5)) {
-            exit((int)(13));
+            tack_builtin_exit(13);
         }
     }
 }
