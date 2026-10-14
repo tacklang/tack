@@ -312,3 +312,30 @@ func TestHelperCFilesAndUnusedDefinitions(t *testing.T) {
 		t.Errorf("exited %d, want 42", code)
 	}
 }
+
+// TestCFileNamedLikeAnOptionIsRejected checks the driver refuses to build
+// a program beside a C file whose name starts with -, which clang could
+// read as an option, and names the file.
+func TestCFileNamedLikeAnOptionIsRejected(t *testing.T) {
+	dir := writeDir(t, map[string]string{"main.tck": addProgram, "-fplugin=x.c": addC})
+	tmp := isolateTemp(t)
+	r := runTack(t, "--out", filepath.Join(t.TempDir(), "bin"), filepath.Join(dir, "main.tck"))
+	assertFailure(t, r, "file -fplugin=x.c")
+	assertEmptyDir(t, tmp)
+}
+
+// TestOutNamedLikeAnOption checks an --out that starts with - is written
+// as a file, not passed to clang as an option.
+func TestOutNamedLikeAnOption(t *testing.T) {
+	dir := writeDir(t, map[string]string{"main.tck": addProgram, "helpers.c": addC})
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	t.Chdir(dir)
+	if r := runTack(t, "--out", "-Wl,-x", "main.tck"); r.code != exitOK {
+		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
+	}
+	if _, code := runBuilt(t, filepath.Join(dir, "-Wl,-x")); code != 42 {
+		t.Errorf("exited %d, want 42", code)
+	}
+}

@@ -44,7 +44,8 @@ func (backend) BuildCmd(src string, objs []string, out string) []string {
 // file includes tack.h or not, and a stale tack.h beside the file, which
 // an #include "tack.h" would find first, is skipped by its include guard.
 // header's directory is also searched, with -I, for a file that includes
-// tack.h by name.
+// tack.h by name. The driver passes every path absolute, so none can be
+// read as an option.
 func (backend) CompileCmd(src, header, obj string) []string {
 	return []string{
 		"clang", "-w", "-c", "-I", filepath.Dir(header), "-include", header, "-o", obj, src,

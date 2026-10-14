@@ -26,6 +26,9 @@ type Backend interface {
 	// signatures use, for the C files that define them.
 	Header(prog *ast.Program) []byte
 
+	// CompileCmd and BuildCmd take every path absolute, so that a file
+	// named like an option, -fplugin=x.c, is still read as a file.
+	//
 	// CompileCmd is the command that compiles the C file at src, one that
 	// defines extern funcs, into an object file at obj, with the header
 	// Header returned at header included first. The first element is the

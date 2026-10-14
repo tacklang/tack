@@ -845,7 +845,10 @@ makes for itself, which has a letter after `tack_`.
   compiled and linked with the program; a single-file target has the `.c`
   files in its own directory. Hidden files and directories are skipped, as
   for `.tck` files, and there is no rule tying a `.c` file's name to a
-  `.tck` file's: `os.tck` beside `os.c` is a convention only. Each is
+  `.tck` file's: `os.tck` beside `os.c` is a convention only. A C file
+  whose name starts with `-` is an error, `tack: file -x.c in dir starts
+  with -, which clang could read as an option; rename it`, and every path
+  the driver hands clang is absolute, so none is read as an option. Each is
   compiled on its own with `clang -w -c`, the generated C's flags, and
   linked with it. A C file clang cannot compile fails the build after
   clang's own errors, `tack: cannot compile helpers.c: clang failed: exit

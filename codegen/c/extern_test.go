@@ -159,3 +159,29 @@ func TestHeaderDeclaresEveryExternFunc(t *testing.T) {
 		t.Errorf("Header =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// TestCompileCmdTakesAnOptionLikeNameAsAFile checks that a C file named
+// like a clang option, given absolute as the driver gives every path, is
+// compiled as a file: -DBAD would otherwise define a macro and compile
+// nothing, and the object would not exist.
+func TestCompileCmdTakesAnOptionLikeNameAsAFile(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skipf("%v", err)
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "-DBAD.c")
+	header := filepath.Join(dir, c.HeaderName)
+	obj := filepath.Join(dir, "-o.o")
+	for name, data := range map[string]string{src: "int defined_here;\n", header: "\n"} {
+		if err := os.WriteFile(name, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	argv := c.New().CompileCmd(src, header, obj)
+	if msg, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+		t.Fatalf("%q: %v\n%s", argv, err, msg)
+	}
+	if _, err := os.Stat(obj); err != nil {
+		t.Errorf("no object at %s: %v", obj, err)
+	}
+}

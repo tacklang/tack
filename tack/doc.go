@@ -82,6 +82,10 @@
 // an interrupt. On SIGINT the toolchain is killed and the temporary
 // directory removed before tack exits; a second SIGINT kills tack outright.
 //
+// Every path given to the toolchain, the C files, the temporary directory's
+// files and --out, is made absolute first, so that no file named like an
+// option, -fplugin=x.c, is read as one.
+//
 // The generated source is written there as program.c. A program with C
 // files, the .c files the loader found in each package's directory, gets
 // the backend's header written there as tack.h, and each C file, in

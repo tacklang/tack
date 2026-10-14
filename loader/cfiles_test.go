@@ -86,3 +86,24 @@ func TestCFilesOfAFileInTheCurrentDirectory(t *testing.T) {
 		t.Errorf("got %q, want %q", got, ".: x.c")
 	}
 }
+
+// TestCFileNamedLikeAnOption checks a C file whose name starts with - is
+// an error naming it, in a package directory and beside a single file:
+// clang could read such a name as an option.
+func TestCFileNamedLikeAnOption(t *testing.T) {
+	fsys := fstest.MapFS{
+		"tack.mod":          file("module m\n"),
+		"p/main.tck":        file("package main\n\nfunc main() {}\n"),
+		"p/-fplugin=evil.c": file("int x;\n"),
+		"s/main.tck":        file("package main\n\nfunc main() {}\n"),
+		"s/-include=/etc.c": file("not reached: a directory"),
+		"s/-Dx.c":           file("int x;\n"),
+	}
+	l := &loader.Loader{FS: loader.FromFS(fsys)}
+	if _, err := l.Dir("p"); err == nil || !strings.Contains(err.Error(), "-fplugin=evil.c") {
+		t.Errorf("Dir(p) error = %v, want one naming -fplugin=evil.c", err)
+	}
+	if _, err := l.File("s/main.tck"); err == nil || !strings.Contains(err.Error(), "-Dx.c") {
+		t.Errorf("File(s/main.tck) error = %v, want one naming -Dx.c", err)
+	}
+}

@@ -111,21 +111,31 @@ func (l *Loader) readCFiles(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
 	}
-	return cFilesIn(dir, entries), nil
+	return l.cFilesIn(dir, entries)
 }
 
 // cFilesIn returns the path of every C file among entries, the entries of
-// the directory dir, in the byte order of their names.
-func cFilesIn(dir string, entries []fs.DirEntry) []string {
+// the directory dir, in the byte order of their names. A C file whose name
+// starts with - is an error: the driver hands C files to clang, which could
+// take such a name for an option.
+func (l *Loader) cFilesIn(dir string, entries []fs.DirEntry) ([]string, error) {
 	var names []string
 	for _, e := range entries {
 		name := e.Name()
-		if !e.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, cExt) {
-			names = append(names, path.Join(dir, name))
+		if e.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, cExt) {
+			continue
 		}
+		if strings.HasPrefix(name, "-") {
+			return nil, fmt.Errorf(
+				"file %s in %s starts with -, which clang could read as an option; rename it",
+				name,
+				l.display(dir),
+			)
+		}
+		names = append(names, path.Join(dir, name))
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }
 
 // Dir loads the program whose main package is the directory dir: the
@@ -227,7 +237,11 @@ func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, []st
 		}
 		files = append(files, l.addFile(res, full, data))
 	}
-	return files, cFilesIn(dir, entries), nil
+	cFiles, cErr := l.cFilesIn(dir, entries)
+	if cErr != nil {
+		return nil, nil, cErr
+	}
+	return files, cFiles, nil
 }
 
 // addFile records the file read from name, with contents data, in res and

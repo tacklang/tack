@@ -54,6 +54,15 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 		}
 	}()
 
+	// Every path handed to the toolchain is absolute, so none, not even a
+	// C file named -fplugin=x.c or an --out starting with -, can be read as
+	// an option.
+	if dir, err = filepath.Abs(dir); err != nil {
+		return fmt.Errorf("cannot find the temp directory: %w", err)
+	}
+	if outBin, err = filepath.Abs(outBin); err != nil {
+		return fmt.Errorf("cannot find --out %s: %w", outBin, err)
+	}
 	src := filepath.Join(dir, "program"+b.backend.Ext())
 	if err = writeFile(src, out); err != nil {
 		return err
@@ -91,14 +100,17 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 	objs := make([]cObject, len(files))
 	for i, f := range files {
 		obj := filepath.Join(dir, fmt.Sprintf("c%d.o", i))
-		// The name shown is relative to the current directory, where
-		// clang runs, when the file is below it, so clang's own messages
-		// show it that way too.
-		src := filepath.FromSlash(show(f.path))
-		if err := b.runTool(b.backend.CompileCmd(src, header, obj), src); err != nil {
+		// The name tack's messages show is relative to the current
+		// directory when the file is below it; clang is given it absolute.
+		shown := filepath.FromSlash(show(f.path))
+		src, err := filepath.Abs(filepath.FromSlash(f.path))
+		if err != nil {
+			return nil, fmt.Errorf("cannot find %s: %w", shown, err)
+		}
+		if err := b.runTool(b.backend.CompileCmd(src, header, obj), shown); err != nil {
 			return nil, err
 		}
-		objs[i] = cObject{pkg: f.pkg, shown: src, obj: obj}
+		objs[i] = cObject{pkg: f.pkg, shown: shown, obj: obj}
 	}
 	return objs, nil
 }

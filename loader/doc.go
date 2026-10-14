@@ -26,7 +26,8 @@
 // Every package records the directory it was read from, Dir, and the path
 // of every C file directly in it, CFiles: each file whose name ends in .c,
 // in the byte order of their names, leaving out a name that starts with a
-// dot and a directory, as for Tack files. They define the package's extern
+// dot and a directory, as for Tack files; a C file whose name starts with -
+// is an error, since clang could read it as an option. They define the package's extern
 // funcs, and the driver compiles and links them; the loader does not read
 // them. A single file's package has the directory the file is in, and the
 // C files there, whatever other Tack files the directory holds. A single
