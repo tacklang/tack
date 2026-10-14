@@ -74,7 +74,7 @@ type header struct {
 	pkgOf   map[types.Type]*ast.Package  // and its package
 
 	externs []*ast.Func  // every extern func, in program order
-	order   []types.Type // the arrays and structs to define, each after its parts
+	order   []types.Type // the arrays, views and structs to define, each after its parts
 	seen    map[types.Type]bool
 	names   map[string]owner // what each name tack.h declares belongs to
 
@@ -175,20 +175,31 @@ func (h *header) use(typ types.Type, site ast.Span) {
 	case typ == types.UnsafeSize:
 		h.sizes = true
 		return
-	case h.seen[typ] || !table.IsArray(typ) && !table.IsStruct(typ):
+	case h.seen[typ] || !table.IsArray(typ) && !table.IsStruct(typ) && !table.IsView(typ):
 		return
 	}
 	h.seen[typ] = true
-	if table.IsArray(typ) {
+	h.useParts(typ, site)
+	h.order = append(h.order, typ)
+}
+
+// useParts records that tack.h needs the types typ, an array, view or
+// struct type used at site, is made of, and claims typ's name.
+func (h *header) useParts(typ types.Type, site ast.Span) {
+	table := h.prog.Types
+	switch {
+	case table.IsArray(typ):
 		h.use(table.Elem(typ), site)
 		h.claim(h.cName(typ), owner{what: "array type " + table.Name(typ), span: site})
-	} else {
+	case table.IsView(typ):
+		h.use(table.Elem(typ), site)
+		h.claim(h.cName(typ), owner{what: "view type " + table.Name(typ), span: site})
+	default:
 		for _, f := range table.Fields(typ) {
 			h.use(f.Type, site)
 		}
 		h.claimStruct(typ)
 	}
-	h.order = append(h.order, typ)
 }
 
 // claimStruct claims the name of the struct type typ, and checks its name
@@ -256,20 +267,19 @@ func (h *header) errorf(span ast.Span, format string, args ...any) {
 // cName is the name tack.h gives typ: a basic type's C type, as the
 // generated source writes it; a struct type's Tack name, after its
 // package's name and an underscore unless it is in package main, so
-// Token of package lexer is lexer_Token; and an array type tack_array_,
+// Token of package lexer is lexer_Token; an array type tack_array_,
 // its length, an underscore, and its element type's name, the Tack name
 // of a basic type, so [4]int64 is tack_array_4_int64 and [2][3]Point is
-// tack_array_2_tack_array_3_Point.
+// tack_array_2_tack_array_3_Point; and a view type tack_view_ and its
+// element type's name, likewise, so []int64 is tack_view_int64 and
+// [][2]Point is tack_view_tack_array_2_Point.
 func (h *header) cName(typ types.Type) string {
 	table := h.prog.Types
 	switch {
 	case table.IsArray(typ):
-		elem := table.Elem(typ)
-		elemName := table.Name(elem)
-		if table.IsArray(elem) || table.IsStruct(elem) {
-			elemName = h.cName(elem)
-		}
-		return fmt.Sprintf("tack_array_%d_%s", table.Len(typ), elemName)
+		return fmt.Sprintf("tack_array_%d_%s", table.Len(typ), h.elemName(table.Elem(typ)))
+	case table.IsView(typ):
+		return "tack_view_" + h.elemName(table.Elem(typ))
 	case table.IsStruct(typ):
 		td, pkg := h.structs[typ], h.pkgOf[typ]
 		if td == nil || pkg == nil {
@@ -282,6 +292,17 @@ func (h *header) cName(typ types.Type) string {
 	default:
 		return basicCType(typ)
 	}
+}
+
+// elemName is how the tack.h name of an array or view type names its
+// element type, elem: by its Tack name if it is a basic type, and by its
+// own tack.h name otherwise.
+func (h *header) elemName(elem types.Type) string {
+	table := h.prog.Types
+	if table.IsArray(elem) || table.IsStruct(elem) {
+		return h.cName(elem)
+	}
+	return table.Name(elem)
 }
 
 // resultsCName is the name tack.h gives the struct fn, an extern func with
@@ -324,31 +345,41 @@ func (h *header) render() []byte {
 	return b.Bytes()
 }
 
-// typeDef is tack.h's definition of typ, an array or struct type: the same
-// layout as the generated source's, so a value passes between the two
-// unchanged. An array is a struct holding a C array, e, of at least one
-// element; a struct has a member per field, under the field's Tack name,
-// or one unused char if it has none.
+// typeDef is tack.h's definition of typ, an array, view or struct type:
+// the same layout as the generated source's, so a value passes between the
+// two unchanged. An array is a struct holding a C array, e, of at least one
+// element; a view a pointer to its first element, ptr, to const, and its
+// number of elements, len; a struct has a member per field, under the
+// field's Tack name, or one unused char if it has none.
 func (h *header) typeDef(typ types.Type) string {
-	table := h.prog.Types
-	var members []string
-	if table.IsArray(typ) {
-		members = []string{
-			fmt.Sprintf("%s e[%d];", h.cName(table.Elem(typ)), max(table.Len(typ), 1)),
-		}
-	} else {
-		for _, f := range table.Fields(typ) {
-			members = append(members, fmt.Sprintf("%s %s;", h.cName(f.Type), f.Name))
-		}
-		if len(members) == 0 {
-			members = []string{"char unused;"}
-		}
-	}
 	return fmt.Sprintf(
 		"typedef struct {\n    %s\n} %s;\n",
-		strings.Join(members, "\n    "),
+		strings.Join(h.members(typ), "\n    "),
 		h.cName(typ),
 	)
+}
+
+// members returns the members of tack.h's definition of typ, as typeDef
+// describes them, each a declaration ending in a semicolon.
+func (h *header) members(typ types.Type) []string {
+	table := h.prog.Types
+	switch {
+	case table.IsArray(typ):
+		return []string{
+			fmt.Sprintf("%s e[%d];", h.cName(table.Elem(typ)), max(table.Len(typ), 1)),
+		}
+	case table.IsView(typ):
+		return []string{fmt.Sprintf("const %s *ptr;", h.cName(table.Elem(typ))), "int64_t len;"}
+	}
+	fields := table.Fields(typ)
+	if len(fields) == 0 {
+		return []string{"char unused;"}
+	}
+	members := make([]string, len(fields))
+	for i, f := range fields {
+		members[i] = fmt.Sprintf("%s %s;", h.cName(f.Type), f.Name)
+	}
+	return members
 }
 
 // renderPrototypes writes a prototype for every extern func, under a

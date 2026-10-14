@@ -82,7 +82,8 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 	}), nil
 }
 
-// indexExpr renders an element read, x.e[i], or a string's byte, x.ptr[i].
+// indexExpr renders an element read, x.e[i], or a string's byte or a
+// view's element, x.ptr[i].
 // The checker has proven the index in range. x is parenthesized unless it is
 // a name, an element, a field or a call, which C's postfix operators
 // already bind.
@@ -96,7 +97,7 @@ func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	field := "e"
-	if ast.TypeOf(ix.X) == types.String {
+	if g.hasLen(ast.TypeOf(ix.X)) {
 		field = "ptr"
 	}
 	switch ix.X.(type) {
@@ -187,16 +188,17 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 // is a place, a variable or a field or element of one, is held by its
 // address, which reads its element without copying it, unless evaluating
 // the index can change the array, which must then be read as it was
-// before: it is copied then, as a string always is, being two words, and
+// before: it is copied then, as a string or a view always is, being two
+// words, and
 // as anything else is, such as a call's result.
 func (g *generator) heldIndexed(ix *ast.Index, base string) *multiTemp {
 	typ := ast.TypeOf(ix.X)
 	_, isName := ix.X.(*ast.Ident)
 	readAfter := !callsFunc(ix.X) && !g.orderShows([]ast.Expr{ix.X, ix.Index})
-	if readAfter && (isName || typ != types.String) {
+	if readAfter && (isName || !g.hasLen(typ)) {
 		return nil
 	}
-	if typ == types.String || ast.Root(ix.X) == nil || g.indexChanges(ix) {
+	if g.hasLen(typ) || ast.Root(ix.X) == nil || g.indexChanges(ix) {
 		return &multiTemp{typ: g.cType(typ), init: base}
 	}
 	return &multiTemp{typ: g.cType(typ), init: "&" + base, ref: true}
@@ -236,12 +238,12 @@ func passesAsMut(n ast.Node, decl ast.Decl) bool {
 // indexIn renders the C test of whether the index at, of type indexType, is
 // in range for x, of type xType, and the read of the element it guards. For
 // an array the bounds are constants, and only those the index's type can
-// cross are tested. For a string the upper bound is its length: 0 is
+// cross are tested. For a string or a view the upper bound is its length: 0 is
 // tested only when the index's type can go below it, and the length
 // always. C compares the two in a common type, unsigned when the index is a
 // uint64, which keeps the length's value, since a length is never negative.
 func (g *generator) indexIn(xType, indexType types.Type, x, at string) (in, read string) {
-	if xType != types.String {
+	if !g.hasLen(xType) {
 		n := g.prog.Types.Len(xType)
 		in = withinExpr(indexType, at, constant.Int{}, constant.FromInt64(n-1))
 		return in, fmt.Sprintf("%s.e[%s]", x, at)

@@ -386,6 +386,10 @@ func (c *Checker) multiResults(
 	if call.Conv != types.Invalid {
 		return c.conversionResults(call, want, span)
 	}
+	if isViewConversion(call) {
+		c.viewConversionElsewhere(call)
+		return nil, false
+	}
 
 	return c.callResults(call, want, span)
 }
@@ -520,7 +524,8 @@ func (c *Checker) conversionResults(call *ast.Call, want int, span ast.Span) ([]
 // or a value checked only for what is inside it. A call may return
 // nothing, or several values, here.
 func (c *Checker) discard(e ast.Expr) {
-	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid && !isLen(call) {
+	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid && !isLen(call) &&
+		!isViewConversion(call) {
 		c.checkCall(call)
 		return
 	}
@@ -578,9 +583,9 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 
 // checkForRange checks a range loop. It ranges over an integer, of any
 // type, an untyped constant count being an int64, which gives the loop
-// variable the count's type; or over an array or a string, which gives the
-// index an int64 and the element the array's element type, or a string's
-// byte, a uint8. An integer gives only one value, so an element variable
+// variable the count's type; or over an array, a view or a string, which
+// gives the index an int64 and the element the array's or view's element
+// type, or a string's byte, a uint8. An integer gives only one value, so an element variable
 // over one is reported.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	got := c.valueOf(loop.X, c.expr(loop.X))
@@ -618,7 +623,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 			)
 		}
 		return got, types.Invalid
-	case c.table.IsArray(got):
+	case c.table.IsArray(got), c.table.IsView(got):
 		return types.Int64, c.table.Elem(got)
 	case got == types.String:
 		return types.Int64, types.Uint8
@@ -636,7 +641,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // When the count is len(s) of a string variable, or the loop ranges over a
 // string variable s, the index is below len(s) instead, which assume keeps
 // only while the body never assigns s; s then still holds the string the
-// loop copied.
+// loop copied. Over a view, whose length is never known, the index is
+// below len(v), which holds for the whole call.
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	if loop.Var == nil || loop.Var.Name == ast.Blank {
 		return nil
@@ -655,6 +661,8 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 		if n, ok := c.knownLen(loop.X); ok {
 			f.hi, f.hasHi = constant.FromInt64(n).Sub(one)
 		}
+		f.lenOf, _ = c.stringVar(loop.X)
+	case c.table.IsView(got):
 		f.lenOf, _ = c.stringVar(loop.X)
 	}
 	return []fact{f}
@@ -711,7 +719,8 @@ func (c *Checker) checkInLoop(span ast.Span, keyword string) {
 }
 
 // checkVar records a variable's type: its declared type if it has one,
-// otherwise its value's, an untyped constant being an int64. A value must be
+// otherwise its value's, an untyped constant being an int64, and never a
+// view, which only a parameter may be. A value must be
 // usable as the declared type, and only a mutable variable may leave out its
 // value and start from its zero value, since an immutable one could never
 // hold anything else.
@@ -732,6 +741,15 @@ func (c *Checker) checkVar(v *ast.Var) {
 	got := c.expr(v.Value)
 	if v.TypeExpr == nil {
 		v.Type = c.valueOf(v.Value, got)
+		if c.table.IsView(v.Type) {
+			c.errorf(
+				v.NameSpan,
+				"cannot declare %s as %s; a view can only be the type of a parameter",
+				v.Name,
+				c.typeName(v.Type),
+			)
+			v.Type = types.Invalid
+		}
 		return
 	}
 	c.use(v.Value, got, declared, "in declaration of "+v.Name)
@@ -1122,9 +1140,14 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 
 // assignable checks that target can be assigned: a mutable variable or a
 // mut parameter, not a plain parameter, or an element of one, whose index
-// must be in range, or a field of one. It returns the type target holds and whether it can be
+// must be in range, or a field of one. A view, or any part of one, is
+// read-only. It returns the type target holds and whether it can be
 // assigned.
 func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
+	if root, isView := c.viewRoot(target); isView {
+		c.readOnly(target.Spanned(), "assign to "+c.text(target.Spanned()), root)
+		return types.Invalid, false
+	}
 	switch t := target.(type) {
 	case *ast.Ident:
 		switch def := t.Def.(type) {
@@ -1268,10 +1291,15 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it. A name denotes a basic
-// type, or the struct type the resolver bound it to.
+// type, or the struct type the resolver bound it to. A view type is
+// reported, since only a parameter may have one; paramType gives a
+// parameter's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
-	if a, ok := expr.(*ast.ArrayType); ok {
-		return c.arrayType(a)
+	switch t := expr.(type) {
+	case *ast.ArrayType:
+		return c.arrayType(t)
+	case *ast.ViewType:
+		return c.viewElsewhere(t)
 	}
 	id, ok := expr.(*ast.Ident)
 	if !ok {
@@ -1407,12 +1435,13 @@ func (c *Checker) resolveResultTypes(fn *ast.Func) {
 	}
 }
 
-// resolveParamTypes records what each declared parameter type denotes. A
+// resolveParamTypes records what each declared parameter type denotes, a
+// view included, which only a parameter may have (see paramType). A
 // parameter whose type is unknown keeps types.Invalid, which every later check
 // reports rather than silently accepting.
 func (c *Checker) resolveParamTypes(fn *ast.Func) {
 	for _, param := range fn.Params {
-		param.Type = c.declaredType(param.TypeExpr)
+		param.Type = c.paramType(param)
 	}
 }
 

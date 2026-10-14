@@ -21,8 +21,8 @@ extern("tack_builtin_print") func print(s string)
 // exit(70000) ends with status 112.
 extern("tack_builtin_exit") func exit(code int64)
 
-// len(v) returns the number of elements of the array v, or the number of
-// bytes of the string v, as an int64. Its parameter takes any array or a
-// string, which no Tack declaration can say, so it is described here rather
-// than declared. The length of an array, and of a string literal, is a
-// constant.
+// len(v) returns the number of elements of the array or view v, or the
+// number of bytes of the string v, as an int64. Its parameter takes any
+// array, view or string, which no Tack declaration can say, so it is
+// described here rather than declared. The length of an array, and of a
+// string literal, is a constant; a view's is never known.

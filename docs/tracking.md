@@ -53,11 +53,12 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `main` function          | yes   | yes    | yes     | yes | Required in package `main`, not allowed in any other; takes no parameters and declares no result; not extern |
 | Parameters               | yes   | yes    | yes     | yes | One type each, no grouping (`a, b int64`); immutable copies unless `mut`                    |
 | `mut` parameters         | yes   | yes    | yes     | yes | `mut p T`, a reference to the caller's variable for the call, a `T *` in C; passed as `mut x`, a mutable local, `mut` parameter, field or proven element; no two `mut` arguments of a call overlap, by path, elements only at indexes known to differ; a plain argument overlapping one is a copy; never stored or returned; a `T *` in an extern func's C too |
+| View parameters `[]T`    | yes   | yes    | yes     | yes | Read-only, parameters only, never `mut`; an array place of exactly the element type passes as it is, a temporary array is an error, a string through `[]uint8(s)` only; `len`, proven or checked index, range, passed on; no `==` or conversion; copied first when overlapping a `mut` argument or part of a mutable global; `tack_view_<T>`, `{const T *ptr; int64_t len;}`, in C |
 | Variadic parameters      | yes   | no     | no      | no  | Rejected with a diagnostic                                                                  |
 | Results                  | yes   | yes    | yes     | yes | None, one, or several in parentheses; unnamed; several are returned as one C struct         |
 | Functions without a body | yes   | yes    | yes     | n/a | Only an `extern func`; any other is an error                                                |
-| `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; a `mut` parameter is a `T *`; slices do not exist yet; C name is the Tack name or `extern("name")`'s, unique in the program, not `tack_` outside std; never `pub` or `lib` |
-| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c`, at the build's `-O` level, against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors; with `tack_string` it defines the string helpers `TACK_STR`, `TACK_STR_N` and `TACK_C_STR_LEN`; all of extern C is in [extern.md](extern.md) |
+| `extern func`            | yes   | yes    | yes     | yes | Body in C, linked from the package directory's `.c` files; every type crosses by value, several results as one struct; a `mut` parameter is a `T *`; a view parameter a `tack_view_<T>`, read during the call only; C name is the Tack name or `extern("name")`'s, unique in the program, not `tack_` outside std; never `pub` or `lib` |
+| C files and `tack.h`     | n/a   | n/a    | n/a     | yes | Every `.c` in a package directory, or beside a single file, compiled with `clang -w -c`, at the build's `-O` level, against the generated `tack.h`, which defines the types the extern funcs use (`Point`, `lexer_Token`, `tack_array_4_int64`, `tack_view_int64`, `tack_results_f`); a missing definition is a diagnostic at the extern func; `--emit-header` writes `tack.h` for editors; with `tack_string` it defines the string helpers `TACK_STR`, `TACK_STR_N` and `TACK_C_STR_LEN`; all of extern C is in [extern.md](extern.md) |
 | Constants                | yes   | no     | no      | no  |                                                                                             |
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
@@ -82,7 +83,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `for cond {}`, `for {}`    | yes   | yes    | yes     | yes | Condition must be a bool                                                                                      |
 | Three-clause `for`         | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`; a counting loop proves its variable in the body |
 | `range` over an integer    | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable variable of `n`'s type           |
-| `range` over array/string  | yes   | yes    | yes     | yes | `for i, x := range a`, `_` index; evaluated once into a copy; `int64` index; string bytes `uint8`             |
+| `range` over array/string/view | yes | yes  | yes     | yes | `for i, x := range a`, `_` index; evaluated once into a copy; `int64` index; string bytes `uint8`; a view's elements read in place |
 | `switch`                   | yes   | yes    | yes     | yes | Tagged and tagless; no fallthrough; `break`/`continue` act on the loop; no init statement; lowered to C ifs   |
 | `break` / `continue`       | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                                |
 | Standalone blocks          | yes   | no     | no      | no  |                                                                                                               |
@@ -129,7 +130,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Float types                        | no      | no  |                                                                   |
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
 | Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
-| Slices, maps                       | no      | no  |                                                                   |
+| Views `[]T`                        | yes     | yes | Parameters only, read-only; a pointer to const elements and a length by value; no `==` |
+| Slices, maps                       | no      | no  | No slicing, `a[i:j]`, and no growable lists                       |
 | Pointers                           | no      | no  | None; a `mut` parameter is a reference that cannot be stored      |
 | Interfaces, generics               | no      | no  |                                                                   |
 
@@ -138,7 +140,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, body in `codegen/c/builtin/print.c`, emitted with `<stdio.h>` only when called |
-| `len(v)`        | yes     | yes | Arrays and strings; known for arrays, string literals and immutable variables holding a known string |
+| `len(v)`        | yes     | yes | Arrays, strings and views; known for arrays, string literals and immutable variables holding a known string, never for a view |
 | `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, body in `codegen/c/builtin/exit.c`, emitted with `<stdlib.h>` only when called |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.

@@ -2664,6 +2664,9 @@ pub func Result() hidden {
 pub func Param(h hidden) {
 }
 
+pub func View(v [][2]hidden) {
+}
+
 pub func Array() [3]hidden {
     mut a [3]hidden
     return a
@@ -2737,59 +2740,65 @@ vis-exposes/lexer/lexer.tck:34:18: error: pub function Param exposes hidden, whi
    |	                 ^~~~~~
 35 |	}
 
-vis-exposes/lexer/lexer.tck:37:18: error: pub function Array exposes hidden, which is not pub
+vis-exposes/lexer/lexer.tck:37:17: error: pub function View exposes hidden, which is not pub
 36 |	
-37 |	pub func Array() [3]hidden {
+37 |	pub func View(v [][2]hidden) {
+   |	                ^~~~~~~~~~~
+38 |	}
+
+vis-exposes/lexer/lexer.tck:40:18: error: pub function Array exposes hidden, which is not pub
+39 |	
+40 |	pub func Array() [3]hidden {
    |	                 ^~~~~~~~~
-38 |	    mut a [3]hidden
+41 |	    mut a [3]hidden
 
-vis-exposes/lexer/lexer.tck:42:25: error: pub function Pair exposes hidden, which is not pub
-41 |	
-42 |	pub func Pair() (int64, hidden) {
+vis-exposes/lexer/lexer.tck:45:25: error: pub function Pair exposes hidden, which is not pub
+44 |	
+45 |	pub func Pair() (int64, hidden) {
    |	                        ^~~~~~
-43 |	    return 1, hidden{n: 1}
+46 |	    return 1, hidden{n: 1}
 
-vis-exposes/lexer/lexer.tck:46:19: error: pub function Shared exposes shared, which is not pub
-45 |	
-46 |	pub func Shared(s shared) {
-   |	                  ^~~~~~
-47 |	}
-
-vis-exposes/lexer/lexer.tck:49:20: error: pub function Foreign exposes text.Thing, which is not pub
+vis-exposes/lexer/lexer.tck:49:19: error: pub function Shared exposes shared, which is not pub
 48 |	
-49 |	pub func Foreign() text.Thing {
+49 |	pub func Shared(s shared) {
+   |	                  ^~~~~~
+50 |	}
+
+vis-exposes/lexer/lexer.tck:52:20: error: pub function Foreign exposes text.Thing, which is not pub
+51 |	
+52 |	pub func Foreign() text.Thing {
    |	                   ^~~~~~~~~~
-50 |	    mut t text.Thing
+53 |	    mut t text.Thing
 
-vis-exposes/lexer/lexer.tck:54:16: error: lib function Lib exposes hidden, which is not lib or pub
-53 |	
-54 |	lib func Lib(h hidden) shared {
+vis-exposes/lexer/lexer.tck:57:16: error: lib function Lib exposes hidden, which is not lib or pub
+56 |	
+57 |	lib func Lib(h hidden) shared {
    |	               ^~~~~~
-55 |	    return shared{n: h.n}
+58 |	    return shared{n: h.n}
 
-vis-exposes/lexer/lexer.tck:58:9: error: pub variable Origin exposes hidden, which is not pub
-57 |	
-58 |	pub var Origin = hidden{n: 0}
+vis-exposes/lexer/lexer.tck:61:9: error: pub variable Origin exposes hidden, which is not pub
+60 |	
+61 |	pub var Origin = hidden{n: 0}
    |	        ^~~~~~
-59 |	pub var Typed hidden = hidden{n: 0}
+62 |	pub var Typed hidden = hidden{n: 0}
 
-vis-exposes/lexer/lexer.tck:59:15: error: pub variable Typed exposes hidden, which is not pub
-58 |	pub var Origin = hidden{n: 0}
-59 |	pub var Typed hidden = hidden{n: 0}
+vis-exposes/lexer/lexer.tck:62:15: error: pub variable Typed exposes hidden, which is not pub
+61 |	pub var Origin = hidden{n: 0}
+62 |	pub var Typed hidden = hidden{n: 0}
    |	              ^~~~~~
-60 |	lib var Mid = hidden{n: 0}
+63 |	lib var Mid = hidden{n: 0}
 
-vis-exposes/lexer/lexer.tck:60:9: error: lib variable Mid exposes hidden, which is not lib or pub
-59 |	pub var Typed hidden = hidden{n: 0}
-60 |	lib var Mid = hidden{n: 0}
+vis-exposes/lexer/lexer.tck:63:9: error: lib variable Mid exposes hidden, which is not lib or pub
+62 |	pub var Typed hidden = hidden{n: 0}
+63 |	lib var Mid = hidden{n: 0}
    |	        ^~~
-61 |	pub var Wide = shared{n: 0}
+64 |	pub var Wide = shared{n: 0}
 
-vis-exposes/lexer/lexer.tck:61:9: error: pub variable Wide exposes shared, which is not pub
-60 |	lib var Mid = hidden{n: 0}
-61 |	pub var Wide = shared{n: 0}
+vis-exposes/lexer/lexer.tck:64:9: error: pub variable Wide exposes shared, which is not pub
+63 |	lib var Mid = hidden{n: 0}
+64 |	pub var Wide = shared{n: 0}
    |	        ^~~~
-62 |	lib var Fine = shared{n: 0}
+65 |	lib var Fine = shared{n: 0}
 
 -- vis-field-nested/tack.mod --
 module calc

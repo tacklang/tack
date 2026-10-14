@@ -32,7 +32,7 @@ What each one needs before it could be declared for real:
 
 | Declaration               | Blocked on                                                        |
 |---------------------------|-------------------------------------------------------------------|
-| `append`, and any `[]any` | slice types in the parser, and a representation for them          |
+| `append`, and any `[]any` | growable lists, since `[]T` is only a read-only view parameter, and an `any` type |
 | `...any`                  | variadics, which the parser currently rejects, and an `any` type  |
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`, `printf`       | the above, plus string concatenation and formatting               |

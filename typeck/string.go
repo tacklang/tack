@@ -10,12 +10,14 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// stringElement checks the index of s[i], where s is a string, and returns
-// the type of the byte it reads, uint8. The index must be an integer proven
-// in range, unless s[i] is being bound with ok; a constant index is checked
-// against a string literal's length here, and a negative one is never in
-// range.
-func (c *Checker) stringElement(ix *ast.Index, idx types.Type) types.Type {
+// stringElement checks the index of s[i], where s is a string or a view,
+// and returns elem, the type of what it reads: a string's byte, a uint8,
+// or the view's element. The index must be an integer proven in range,
+// unless s[i] is being bound with ok; a constant index is checked against
+// a string literal's length here, and a negative one is never in range. A
+// view's length is never known, as a string parameter's is not, so its
+// index is proven as one into such a string is.
+func (c *Checker) stringElement(ix *ast.Index, idx, elem types.Type) types.Type {
 	switch {
 	case !c.indexType(ix, idx):
 	case c.checkedIndex == ix:
@@ -26,7 +28,7 @@ func (c *Checker) stringElement(ix *ast.Index, idx types.Type) types.Type {
 	default:
 		c.requireStringInRange(ix)
 	}
-	return types.Uint8
+	return elem
 }
 
 // literalLen returns the length of s when it is a string literal. Advice
@@ -58,7 +60,11 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 			v, n, plural(int(n), "byte"))
 		return
 	}
-	c.errorf(ix.Index.Spanned(), "index %s is out of range for a string", v)
+	what := "a string"
+	if c.table.IsView(ast.TypeOf(ix.X)) {
+		what = "a view"
+	}
+	c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, what)
 }
 
 // stringIndexProven reports whether the index of s[i] is known to be in
@@ -180,7 +186,11 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 	} else {
 		msg, notes = c.indexError(ix, bound, func(i ast.Expr) []diag.Diagnostic {
 			n, known := c.knownLen(ix.X)
-			e := c.newExtent(ix.X, "byte", n, known)
+			unit := "byte"
+			if c.table.IsView(ast.TypeOf(ix.X)) {
+				unit = "element"
+			}
+			e := c.newExtent(ix.X, unit, n, known)
 			return c.explain(c.indexProof(i, e, proven))
 		})
 	}

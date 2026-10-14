@@ -86,6 +86,9 @@ func (c *Checker) compositeLit(lit *ast.CompositeLit) types.Type {
 		return types.Invalid
 	}
 
+	if vt, ok := lit.TypeExpr.(*ast.ViewType); ok {
+		return c.literalOf(lit, c.viewType(vt))
+	}
 	a, ok := lit.TypeExpr.(*ast.ArrayType)
 	if !ok || a.Len != nil {
 		return c.literalOf(lit, c.declaredType(lit.TypeExpr))
@@ -163,7 +166,7 @@ func (c *Checker) index(ix *ast.Index) types.Type {
 }
 
 // element checks the index of x[i], where x has type base, and returns the
-// element's type. base must be an array or a string, and the index an
+// element's type. base must be an array, a string or a view, and the index an
 // integer that is in range: a constant is checked against the array's
 // length here. write says x[i] is being assigned, which only matters for
 // what the error suggests; a string's byte is never assigned, which
@@ -174,7 +177,10 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		return types.Invalid
 	}
 	if base == types.String {
-		return c.stringElement(ix, idx)
+		return c.stringElement(ix, idx, types.Uint8)
+	}
+	if c.table.IsView(base) {
+		return c.stringElement(ix, idx, c.table.Elem(base))
 	}
 	if !c.table.IsArray(base) {
 		c.errorf(ix.X.Spanned(), "cannot index %s", c.typeName(base))
@@ -317,10 +323,11 @@ func inBounds(i ast.Expr, name, bound string) string {
 	return "0 <= " + name + " && " + name + " < " + bound
 }
 
-// lenCall checks a call to the builtin len, which takes one array or string
-// and gives an int64. The length of an array, and of a string literal, is a
-// constant, recorded on the call, unless working it out runs a call, which
-// it must then still make. A call whose arguments are wrong, or whose
+// lenCall checks a call to the builtin len, which takes one array, string
+// or view and gives an int64. The length of an array, and of a string
+// literal, is a constant, recorded on the call, unless working it out runs
+// a call, which it must then still make; a view's is never known, as a
+// string parameter's is not. A call whose arguments are wrong, or whose
 // argument has no type, gives types.Invalid, so a length it was to give
 // is not reported as unknown too.
 func (c *Checker) lenCall(call *ast.Call) types.Type {
@@ -340,13 +347,14 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		if !hasCall(arg) {
 			call.Const = constant.FromInt64(c.table.Len(got))
 		}
-	case got == types.String:
+	case got == types.String, c.table.IsView(got):
 		if lit, ok := arg.(*ast.StrLit); ok {
 			call.Const = constant.FromInt64(int64(len(lit.Value)))
 		}
 	default:
 		if got = c.valueOf(arg, got); got != types.Invalid {
-			c.errorf(arg.Spanned(), "len expects an array or a string, got %s", c.typeName(got))
+			c.errorf(arg.Spanned(), "len expects an array, a string or a view, got %s",
+				c.typeName(got))
 		}
 		return types.Invalid
 	}

@@ -285,6 +285,49 @@ func TestArrayIDsBelongToTheirTable(t *testing.T) {
 	}
 }
 
+// View types are interned by element type.
+func TestViewTypesAreInterned(t *testing.T) {
+	table := types.NewTable()
+	v := table.View(types.Int64)
+	if w := table.View(types.Int64); w != v {
+		t.Fatalf("[]int64 got two IDs, %d and %d", v, w)
+	}
+	if table.View(types.Int32) == v {
+		t.Error("[]int32 got the same ID as []int64")
+	}
+}
+
+// View types are neither arrays nor structs, and have an element type but
+// no length.
+func TestViewTypeShapes(t *testing.T) {
+	table := types.NewTable()
+	v := table.View(types.Int64)
+	a := table.Array(types.Int64, 3)
+	if a == v || table.IsArray(v) || table.IsStruct(v) || !table.IsView(v) || table.IsView(a) {
+		t.Error("a view is described as an array or a struct, or an array as a view")
+	}
+	if table.Elem(v) != types.Int64 || table.Len(v) != 0 {
+		t.Errorf("[]int64 has element %v and length %d", table.Elem(v), table.Len(v))
+	}
+}
+
+// View types are named []elem, holding an array, widen from nothing else,
+// and mean nothing to another Table.
+func TestViewTypes(t *testing.T) {
+	table := types.NewTable()
+	v := table.View(types.Int64)
+	a := table.Array(types.Int64, 3)
+	if got := table.Name(table.View(a)); got != "[][3]int64" {
+		t.Errorf("Name = %q, want [][3]int64", got)
+	}
+	if types.Widens(table.View(types.Int8), v) || types.Widens(a, v) {
+		t.Error("a view widens from another type")
+	}
+	if other := types.NewTable(); other.IsView(v) {
+		t.Error("another Table knows a view type it never added")
+	}
+}
+
 // Struct types are told apart by declaration: two of the same name, or the
 // same fields, are two types.
 func TestStructTypesAreNotInterned(t *testing.T) {

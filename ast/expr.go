@@ -21,9 +21,10 @@ type Expr interface {
 }
 
 // Call is a function call, Fn(Args...), or a conversion, when Fn names a
-// type: int8(x) converts x to int8.
+// type: int8(x) converts x to int8, and []uint8(s) views the bytes of the
+// string s.
 type Call struct {
-	Fn Expr // the callee: for now always *Ident, later could be anything
+	Fn Expr // the callee: an *Ident, or a *ViewType for a view conversion
 
 	// Const is the value of a call the type checker can compute, a
 	// constant.Int: len of an array or a string literal. It is nil for any
@@ -34,7 +35,8 @@ type Call struct {
 	Span Span // start of Fn through the closing RParen
 
 	// Conv is the type a conversion converts to, set by the resolver when
-	// Fn names a type, and Invalid for a call to a function or builtin.
+	// Fn names a basic type, and by the type checker when Fn is a view
+	// type, and Invalid for a call to a function or builtin.
 	Conv types.Type
 }
 
@@ -470,6 +472,26 @@ func (a *ArrayType) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the opening bracket through the end
 // of the element type.
 func (a *ArrayType) Spanned() Span { return a.Span }
+
+// ViewType is a view type as written, []Elem: a read-only view of elements
+// of type Elem, which only a parameter may have. Like ArrayType it is an
+// expression only so it can stand where a type is written, and as the
+// callee of a conversion, []uint8(s), whose Call has it as Fn; it never
+// has a value of its own.
+type ViewType struct {
+	Elem Expr // the element type as written
+	Span Span // the opening bracket through the end of Elem
+}
+
+var _ Expr = (*ViewType)(nil)
+
+func (v *ViewType) exprKey() exprKey { return _exprKey }
+
+func (v *ViewType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the opening bracket through the
+// end of the element type.
+func (v *ViewType) Spanned() Span { return v.Span }
 
 // CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
 // element for each of the array's, or a struct literal, Point{x: 1, y: 2},

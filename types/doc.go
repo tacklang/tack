@@ -32,7 +32,10 @@
 // Composite types get their IDs from the Table of the compilation that uses
 // them. An array type is added the first time it is seen, and found by its
 // element type and length after that, so the same array type written twice
-// gets one ID. A struct type is added once per declaration, so two structs
+// gets one ID. A view type, []T, a read-only view of elements of type T,
+// is added the first time it is seen too, and found by its element type
+// after that; it has no length, and an array type is never a view type,
+// so []int64 and [3]int64 are two types. A struct type is added once per declaration, so two structs
 // with the same fields are two types; it is named by its declaration and
 // given its fields, a name and a type each, in order, after it is added,
 // which lets a field name a struct declared after its own. The Table does
@@ -40,7 +43,7 @@
 //
 // The type checker creates one Table per program and records it on the
 // ast.Program and on every ast.File of it. Name maps an ID back to the
-// type's name as a program writes it, for diagnostics: [3]int64 for an array, the declared name for a struct; Type deliberately has no String method, so naming a type
+// type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, the declared name for a struct; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
 // "int64", to its Type.

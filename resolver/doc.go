@@ -44,7 +44,10 @@
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A call whose
 // callee is a type name, such as int8(x), is a conversion: it binds to no
-// declaration, and the resolver records the type in Call.Conv instead. Type
+// declaration, and the resolver records the type in Call.Conv instead. A
+// conversion to a view type, []uint8(s), has the names in its type bound
+// as any type's are, and leaves Call.Conv to the type checker, which
+// builds the view type. Type
 // names are reserved like keywords: nothing may be declared with one, and
 // one is never read or assigned as a name. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no

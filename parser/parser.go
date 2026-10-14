@@ -1319,11 +1319,16 @@ func (p *Parser) parseCall() (*ast.Call, []diag.Diagnostic) {
 	if ident == nil {
 		return nil, identDiags
 	}
+	return p.parseArgs(ident, ident.Span)
+}
 
+// parseArgs parses the parenthesized arguments of a call to fn, which
+// spans fn's own span through the closing parenthesis.
+func (p *Parser) parseArgs(fn ast.Expr, span ast.Span) (*ast.Call, []diag.Diagnostic) {
 	call := &ast.Call{
-		Fn:   ident,
+		Fn:   fn,
 		Args: make([]ast.Expr, 0),
-		Span: ident.Span,
+		Span: span,
 	}
 
 	if ok, lparenDiags := p.expect(lexer.LParen); !ok {
@@ -2122,11 +2127,20 @@ func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseCompositeLit parses an array literal: an array type, which may use
-// [...] for its length, then its elements in braces.
+// [...] for its length, then its elements in braces. A view type, []T, is
+// followed by its conversion's argument in parentheses, []uint8(s), or by
+// braces, a literal of a view, which the type checker reports.
 func (p *Parser) parseCompositeLit() (ast.Expr, []diag.Diagnostic) {
 	typ, diags := p.parseArrayType(true)
 	if typ == nil {
 		return nil, diags
+	}
+	if view, ok := typ.(*ast.ViewType); ok && p.peek().Kind() == lexer.LParen {
+		call, argDiags := p.parseArgs(view, view.Span)
+		if call == nil {
+			return nil, argDiags
+		}
+		return call, nil
 	}
 	lit, diags := p.parseLitBody(typ, typ.Spanned().Start)
 	if lit == nil {
@@ -2208,12 +2222,14 @@ func (p *Parser) parseLitValue() (ast.Expr, []diag.Diagnostic) {
 
 // parseArrayType parses [n]T. In an array literal, literal is true and the
 // length may be [...], left for the elements to give. An empty length, [],
-// would be a slice, which Tack does not have yet.
+// makes it a view type, []T, which parseViewType parses.
 func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
 	open := p.next() // the opening bracket
 	typ := &ast.ArrayType{Span: p.span(open)}
 
 	switch tk := p.peek(); tk.Kind() {
+	case lexer.RBrack:
+		return p.parseViewType(open)
 	case lexer.Ellipsis:
 		p.next()
 		if !literal {
@@ -2223,12 +2239,6 @@ func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
 				Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
 			}}
 		}
-	case lexer.RBrack:
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "slices are not supported yet",
-			Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
-		}}
 	default:
 		restore := p.allowLits(true)
 		n, diags := p.parseExpr(1)
@@ -2249,6 +2259,20 @@ func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
 	typ.Elem = elem
 	typ.Span.End = elem.Spanned().End
 	return typ, nil
+}
+
+// parseViewType parses the rest of a view type, []T, whose opening bracket,
+// open, has been read and whose closing one is next.
+func (p *Parser) parseViewType(open *lexer.Token) (ast.Expr, []diag.Diagnostic) {
+	p.next() // the closing bracket
+	elem, diags := p.parseType()
+	if elem == nil {
+		return nil, diags
+	}
+	return &ast.ViewType{
+		Elem: elem,
+		Span: ast.Span{File: p.fileID, Start: open.OffsetStart(), End: elem.Spanned().End},
+	}, nil
 }
 
 // parseUnary parses a prefix operator, ! or -, and the operand after it. The

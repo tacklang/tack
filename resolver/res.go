@@ -966,6 +966,8 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 			diags = r.resolveExpr(t.Len, sc)
 		}
 		return append(diags, r.resolveType(t.Elem, sc)...)
+	case *ast.ViewType:
+		return r.resolveType(t.Elem, sc)
 	default:
 		return nil
 	}
@@ -1002,14 +1004,19 @@ func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnosti
 }
 
 // resolveCall binds a call's callee to the function or builtin it names, or
-// records the type a conversion converts to, and resolves its arguments.
+// records the type a conversion converts to, and resolves its arguments. A
+// conversion to a view type, []uint8(s), has its type's names bound, and
+// the type checker records the type it converts to.
 func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
-	ident, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		panic("expected ident")
+	var diags []diag.Diagnostic
+	switch fn := call.Fn.(type) {
+	case *ast.Ident:
+		diags = r.bindCallee(fn, call, sc)
+	case *ast.ViewType:
+		diags = r.resolveType(fn, sc)
+	default:
+		panic(fmt.Sprintf("resolver: a call of %T", call.Fn))
 	}
-
-	diags := r.bindCallee(ident, call, sc)
 	for _, arg := range call.Args {
 		diags = append(diags, r.resolveExpr(arg, sc)...)
 	}

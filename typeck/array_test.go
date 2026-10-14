@@ -267,7 +267,7 @@ var arrayErrorCases = []struct {
 	{
 		"len of an integer",
 		mainLines("n := 3", "exit(len(n))"),
-		[]spanned{{"len expects an array or a string, got int64", "n"}},
+		[]spanned{{"len expects an array, a string or a view, got int64", "n"}},
 	},
 	{
 		"len of two",

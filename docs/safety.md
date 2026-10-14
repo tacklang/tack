@@ -39,6 +39,8 @@ and diagnostic to check that the two still agree.
 | `a[i] = v`, writing one            | as above                         | as above                                        | none                  |
 | `s[i]`, reading a string's byte    | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                  | `v, ok := s[i]`       |
 | `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
+| `v[i]`, reading a view's element   | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                  | `x, ok := v[i]`       |
+| `v[i] = x`                         | always an error                  | never: views are read-only                      | none                  |
 | `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
 
 A write to an element covers every way of writing one: `a[i] = v`,
@@ -59,12 +61,13 @@ assignment of exactly two names:
 q, ok := a / b      // or a % b
 v, ok := a[i]       // an array element
 v, ok := s[i]       // a string's byte
+x, ok := v[i]       // a view's element
 v, ok := uint8(x)   // a conversion that can fail
 ```
 
 The first value is the result when the operation succeeds, and the zero
 value of its type when it fails: `0` for a division, a conversion or a
-string's byte; the element type's zero value for an array, so `0`, `""`,
+string's byte; the element type's zero value for an array or a view, so `0`, `""`,
 `false`, or a struct with every field zero. The second is a `bool`, `true`
 when the operation succeeded. For a division `ok` says only that the
 divisor was not zero: `m / d` with `m` an `int8` holding `-128` and `d`
@@ -226,6 +229,7 @@ The conditions that give facts are:
 - for a string variable `s`: `len(s)` compared with a known value, which
   bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it;
+  the same for a view `v`, `len(v) > 0` and `i < len(v)`;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
   gives the facts of both sides being false; `!c` swaps true and false;
 - `c1 || c2` when true, and `c1 && c2` when false, give only what every
@@ -255,7 +259,8 @@ A range loop's index is at least 0 and at most its count less one, when the
 count is a known value, or the length of the array it ranges over less one,
 so it proves an index into any array at least as long.
 `for i := range len(s)` and `for i := range s` over a string variable bound
-`i` by `len(s)`; over a known string, by its length.
+`i` by `len(s)`; over a known string, by its length. Over a view, `i` is
+bounded by `len(v)`.
 
 A three-clause loop's body knows what its condition says, and a
 *counting* loop's body knows one thing more: the value its variable
@@ -657,6 +662,83 @@ error, <!-- error: string-index-negative -->`index -1 is out of range for a stri
 
 Writing a byte, even of a `mut` string,
 is <!-- error: string-element-assign -->`cannot assign to an element of a string; strings are immutable`.
+
+### Reading a view's element
+
+A view, `[]T`, is a parameter whose length is never known, so its index is
+proven exactly as one into a string parameter is, against `len(v)`:
+
+<!-- case: view-unproven-index -->
+```tack
+func at(v []int64, i int64) int64 {
+    return v[i]
+}
+```
+
+<!-- error: view-unproven-index -->
+`index i may be out of range; check 0 <= i && i < len(v) first, or use v, ok := ...[i]`
+
+A constant index
+gets <!-- error: view-unproven-constant -->`index 0 may be out of range; check len(v) > 0 first, or use v, ok := ...[0]`,
+and a negative one is always an
+error, <!-- error: view-index-negative -->`index -1 is out of range for a view`.
+
+Guarded, by a check, a counting loop or a range loop:
+
+<!-- example: views -->
+```tack
+func guarded(v []int64, i int64) int64 {
+    if 0 <= i && i < len(v) {
+        return v[i]
+    }
+    return -1
+}
+```
+
+<!-- example: views -->
+```tack
+for mut i int64 = 0; i < len(v); i++ {
+    total += v[i]
+}
+```
+
+<!-- example: views -->
+```tack
+for i := range v {
+    total += v[i]
+}
+```
+
+A view cannot change during its function's call: nothing in it can assign
+the view or pass it as `mut`, and the caller passes a copy of an array the
+call could otherwise change. So a fact about `len(v)` holds for the rest of
+the function, calls and all:
+
+<!-- example: views -->
+```tack
+func firstTwo(v []int64) int64 {
+    if len(v) < 2 {
+        return -1
+    }
+    return v[0] + v[1]
+}
+```
+
+Checked:
+
+<!-- example: views -->
+```tack
+func at(v []int64, i int64) int64 {
+    x, ok := v[i]
+    if !ok {
+        return -1
+    }
+    return x
+}
+```
+
+A view is read-only: writing an element, in any form,
+is <!-- error: view-assign-element -->`cannot assign to v[0]: v is a read-only view`.
 
 ### Conversions
 

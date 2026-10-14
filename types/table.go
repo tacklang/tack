@@ -13,17 +13,21 @@ import "strconv"
 // type written twice gets one ID and == stays type identity. A struct type
 // is added once for each declaration, by Struct, since two declarations are
 // two types even when their fields are alike; its fields are set afterwards,
-// by SetFields, so a struct can have a field of a type declared after it.
+// by SetFields, so a struct can have a field of a type declared after it. A
+// view type, []T, is added the first time it is seen, like an array, and
+// found again by its element type.
 type Table struct {
 	ids     map[array]Type // each array type's ID, by its shape
+	views   map[Type]Type  // each view type's ID, by its element type
 	entries []entry        // the type with ID numBasic + i, at i
 }
 
-// entry is one type a Table added: an array, with its shape, or a struct,
-// with its name and fields.
+// entry is one type a Table added: an array, with its shape, a view, with
+// its element type in arr.elem, or a struct, with its name and fields.
 type entry struct {
-	strct *structType // nil for an array
+	strct *structType // nil for an array or a view
 	arr   array
+	view  bool
 }
 
 // array is the shape of an array type: its element type and its length.
@@ -46,7 +50,9 @@ type Field struct {
 }
 
 // NewTable returns a Table that knows the basic types.
-func NewTable() *Table { return &Table{ids: make(map[array]Type)} }
+func NewTable() *Table {
+	return &Table{ids: make(map[array]Type), views: make(map[Type]Type)}
+}
 
 // Array returns the type of arrays of n elements of type elem, adding it if
 // the Table does not have it yet. n must not be negative.
@@ -57,6 +63,17 @@ func (t *Table) Array(elem Type, n int64) Type {
 	}
 	id := t.add(entry{arr: shape})
 	t.ids[shape] = id
+	return id
+}
+
+// View returns the type of read-only views of elements of type elem, []elem,
+// adding it if the Table does not have it yet.
+func (t *Table) View(elem Type) Type {
+	if id, ok := t.views[elem]; ok {
+		return id
+	}
+	id := t.add(entry{arr: array{elem: elem}, view: true})
+	t.views[elem] = id
 	return id
 }
 
@@ -95,7 +112,13 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil
+	return ok && e.strct == nil && !e.view
+}
+
+// IsView reports whether typ is a view type, []T.
+func (t *Table) IsView(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.view
 }
 
 // IsStruct reports whether typ is a struct type.
@@ -104,10 +127,10 @@ func (t *Table) IsStruct(typ Type) bool {
 	return ok && e.strct != nil
 }
 
-// Elem returns the element type of the array type typ, or Invalid if typ is
-// not one.
+// Elem returns the element type of the array or view type typ, or Invalid
+// if typ is neither.
 func (t *Table) Elem(typ Type) Type {
-	if !t.IsArray(typ) {
+	if !t.IsArray(typ) && !t.IsView(typ) {
 		return Invalid
 	}
 	e, _ := t.entry(typ)
@@ -147,7 +170,7 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 
 // Count returns how many types the Table has added, so a caller can visit
 // each: their IDs are numBasic through numBasic + Count() - 1, in the order
-// they were added. An array type comes after its element type, but a struct
+// they were added. An array or view type comes after its element type, but a struct
 // type may come before the types of its fields, so a caller that needs
 // every type a type is made of first has to order them itself.
 func (t *Table) Count() int {
@@ -161,8 +184,8 @@ func (t *Table) Count() int {
 func Added(i int) Type { return numBasic + Type(i) }
 
 // Name returns a type's name as a program writes it, for diagnostics: a
-// basic type's own name, [n]elem for an array, or a struct type's declared
-// name. A type the Table does not know, including one from another Table,
+// basic type's own name, [n]elem for an array, []elem for a view, or a
+// struct type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
@@ -185,6 +208,8 @@ func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) s
 		return qualify(typ, e.strct.name)
 	case e.strct != nil:
 		return e.strct.name
+	case e.view:
+		return "[]" + t.NameWith(e.arr.elem, qualify)
 	default:
 		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.NameWith(e.arr.elem, qualify)
 	}

@@ -120,9 +120,9 @@ func (c *Checker) fieldExposure(td *ast.TypeDecl) {
 
 // exposure reports typ, written at at in the declaration what, whose
 // visibility is vis, if it is or holds a struct type less visible than
-// vis.
+// vis, as an array's or a view's element.
 func (c *Checker) exposure(vis ast.Visibility, what string, typ types.Type, at ast.Span) {
-	for c.table.IsArray(typ) {
+	for c.table.IsArray(typ) || c.table.IsView(typ) {
 		typ = c.table.Elem(typ)
 	}
 	td := c.structs[typ]

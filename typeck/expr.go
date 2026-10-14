@@ -89,10 +89,14 @@ func literalType(e ast.Expr) types.Type {
 }
 
 // callValue checks a call whose single value is used. A conversion gives
-// the type it converts to. A call to a function that returns nothing, or
+// the type it converts to, but for one to a view, []uint8(s), which only a
+// view parameter may take (see viewArg). A call to a function that returns nothing, or
 // several values, has no one value to give and is reported. A function
 // whose one result type is unknown was reported where it is declared.
 func (c *Checker) callValue(call *ast.Call) types.Type {
+	if isViewConversion(call) {
+		return c.viewConversionElsewhere(call)
+	}
 	if call.Conv != types.Invalid {
 		return c.conversion(call)
 	}

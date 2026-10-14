@@ -51,9 +51,13 @@
 // Ident a, spanning only the name. The keywords true and false are bool literals, so
 // neither can start a statement or be declared as a name.
 //
-// A type is a name or an array type, [n]T, nested to any depth; in an array
-// literal, [...]T leaves the length to the elements, and [] would be a
-// slice, which is reported. A type declaration, at package level only, is
+// A type is a name, an array type, [n]T, or a view type, []T, nested to
+// any depth; in an array literal, [...]T leaves the length to the
+// elements. Where a type is allowed is the type checker's to judge, so a
+// view type is parsed wherever a type is. In an expression, a view type
+// followed by parentheses is a conversion, []uint8(s), a Call whose Fn is
+// the ViewType, and one followed by braces is a literal, which the type
+// checker reports. A type declaration, at package level only, is
 // type Name struct { ... }, its fields a name and a type each, separated by
 // semicolons, written or inserted at line ends; struct {} has none. Other
 // named types, anonymous struct types, methods and embedded fields are

@@ -112,7 +112,9 @@ with `divmod`.
 Every Tack type crosses the boundary, in both directions, by value, with
 the layout the generated C gives it, which is what `tack.h` defines. A
 `mut` parameter is the one exception: it crosses as a pointer to the
-caller's variable.
+caller's variable. A view, `[]T`, is a parameter only, so it crosses only
+into C, as a struct of a pointer to its first element and its length; an
+extern func cannot return one, since no function can.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -128,6 +130,7 @@ caller's variable.
 | one result                   | that result's C type                                                                |
 | several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on       |
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
+| a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` when a
 signature uses `size_t`, and defines every type an extern func's signature
@@ -143,6 +146,16 @@ names:
   `[2]unsafe_size_t` is `tack_array_2_unsafe_size_t`,
   `[2]lexer.Token` is `tack_array_2_lexer_Token`, and `[2][3]Point` is
   `tack_array_2_tack_array_3_Point`.
+- A view is `tack_view_` and its element type's name, named as an array's
+  is: `[]int64` is `tack_view_int64`, `[]uint8` is `tack_view_uint8`,
+  `[]string` is `tack_view_string`, `[]Point` is `tack_view_Point`, and
+  `[][2]int64` is `tack_view_tack_array_2_int64`. Its members are `ptr`, a
+  pointer to `const` elements, and `len`, an `int64_t`, the layout of
+  `tack_string`, whose bytes a `[]uint8` views. Like every other name, it
+  is defined only when an extern signature uses it, and is reserved then: a
+  struct named `tack_view_int64` in a program whose extern func takes a
+  `[]int64` is `type tack_view_int64 of package main and view type []int64
+  are both named tack_view_int64 in tack.h`.
 - The results of extern func `f` are `tack_results_f`, after its C name.
 - The prototypes name each parameter in a comment after its type,
   `int64_t /* n */`, not as a C name, which could be a C keyword or clash
@@ -170,8 +183,10 @@ struct by a C wrapper.
 
 So `extern func grow(mut p Point, k int64)` is `void grow(Point * /* p */, int64_t /* k */);`
 in `tack.h`, and the C side reads and writes the caller's point through
-`p->x`. Slices, which C would get as a `{ptr, len}` struct, do not exist in
-Tack yet.
+`p->x`. `extern func total(v []int64) int64` is
+`int64_t total(tack_view_int64 /* v */);`, and the C side reads
+`v.ptr[0]` through `v.ptr[v.len - 1]`; `examples/extern-views` passes
+views of integers, a string's bytes, structs, arrays and strings.
 
 ## Helpers for C
 
@@ -225,6 +240,14 @@ whole program, Tack code included, which no Tack proof can catch.
 - **No writes, no keeping.** C does not write through a `tack_string`'s
   `ptr`, which is `const`, and keeps no pointer into Tack data beyond the
   call: Tack promises nothing about how long the bytes it passes live.
+- **Views.** A view's `ptr` points at `len` elements C may read during the
+  call, and only below `len`: a view of an empty array has a `len` of 0
+  and a `ptr` that must not be read. C does not write through `ptr`, which
+  is `const`, since Tack proves facts about a view's elements, its length
+  included, for the whole call; and it does not keep `ptr` after
+  returning, since the array may be a local that is gone, or a copy the
+  caller made for the call. The elements do not change during the call
+  unless C changes them, so C may read them more than once.
 - **`mut` parameters.** C may read and write the caller's variable through
   a `mut` parameter's pointer, but only during the call: it must not store
   the pointer, return it, or use it after returning, since in Tack a
@@ -433,7 +456,7 @@ be undefined.
 
 - Raw C pointer types usable only in extern signatures, so a C library
   function taking a pointer can be bound without a C wrapper.
-- Slices across the boundary.
+- Writable views, and slicing a view, across the boundary.
 - Passing a C file flags, or linking a library.
 - An ownership story for strings C returns.
 

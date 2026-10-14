@@ -23,7 +23,7 @@ var funcs = []Func{
 func Funcs() []Func { return funcs }
 
 // generic holds the builtins whose parameter no Tack type can describe, so
-// they have no Func: len takes any array or a string. The type checker
+// they have no Func: len takes any array, view or string. The type checker
 // checks each of them itself.
 var generic = []string{"len"}
 

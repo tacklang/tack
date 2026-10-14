@@ -524,9 +524,10 @@ func (c *Checker) stringLen(e ast.Expr) (factKey, bool) {
 }
 
 // stringVar returns the string subject e is, a variable or a path below an
-// immutable one, when it can have facts.
+// immutable one, when it can have facts. A view parameter is one too: its
+// length bounds an index as a string's does.
 func (c *Checker) stringVar(e ast.Expr) (factKey, bool) {
-	if ast.TypeOf(e) != types.String {
+	if typ := ast.TypeOf(e); typ != types.String && !c.table.IsView(typ) {
 		return factKey{}, false
 	}
 	return c.keyOf(e)

@@ -1285,6 +1285,62 @@ func TestBuiltUnsafeSizesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// viewsWant is what examples/views prints when every check passes.
+var viewsWant = "arrays of two lengths ok\n" +
+	"range loops ok\n" +
+	"range without variables ok\n" +
+	"zero length ok\n" +
+	"last element ok\n" +
+	"passed on ok\n" +
+	"checked index ok\n" +
+	"guard on len ok\n" +
+	"guarded index ok\n" +
+	"field of structs ok\n" +
+	"element of a field ok\n" +
+	"view of arrays ok\n" +
+	"string variable ok\n" +
+	"string literal ok\n" +
+	"empty string ok\n" +
+	"zero string field ok\n" +
+	"mut parameter's array ok\n" +
+	"view alongside mut of the same array ok\n" +
+	"view before a later mut ok\n" +
+	"view after the change ok\n" +
+	"mutable global array ok\n" +
+	"mutable global string ok\n" +
+	"view of bools ok\n" +
+	"view of strings ok\n" +
+	"view of unsafe_size_t ok\n"
+
+// TestBuiltViewsPassesEveryCheck builds examples/views at every
+// optimization level and checks each binary passes every check: arrays of
+// two lengths and of none through one view parameter, every range form,
+// a view passed on, the checked form in and out of range, a guard on
+// len, views of struct fields, of array elements and of arrays of arrays,
+// a string's bytes through []uint8(s), a mut parameter's array, a view
+// alongside a mut argument of the same array and before a later one, which
+// sees the array as it was, a mutable global array, which the callee
+// changes while the view keeps the value it had, a mutable global string
+// assigned during the call, and views of bools, strings and
+// unsafe_size_t. Each check prints its name and "ok", or "FAIL".
+func TestBuiltViewsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "views")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("views"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != viewsWant || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, viewsWant)
+			}
+		})
+	}
+}
+
 // The strcmp example compares strings with all six operators: by content,
 // a proper prefix less, the empty string least, embedded zero bytes and
 // bytes from 0x80 up compared as unsigned bytes, strings returned by calls,

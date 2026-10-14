@@ -1635,23 +1635,25 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 	return []string{expr + ";"}, nil
 }
 
-// callExpr renders a call to a declared function as a C expression.
+// callExpr renders a call to a declared function as a C expression, an
+// argument to a view parameter as a view (see viewArg).
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
-	args := make([]string, len(call.Args))
-	for i, a := range call.Args {
-		expr, diags := g.expr(a, ast.TypeOf(a))
-		if len(diags) > 0 {
-			return "", diags
-		}
-		args[i] = expr
-	}
 	callee := g.mangle(nil, name)
+	var fn *ast.Func
 	if id, ok := call.Fn.(*ast.Ident); ok {
-		if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
-			callee = g.mangle(fn, fn.Name)
+		if f, ok := id.Def.(*ast.Func); ok && f != nil {
+			fn, callee = f, g.mangle(f, f.Name)
 		}
 	}
-	return g.sequenced(call.Args, args, func(ops []string) string {
+	args, diags := g.callArgs(call, fn)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	var params []*ast.Param
+	if fn != nil {
+		params = fn.Params
+	}
+	return g.sequencedAs(call.Args, args, g.argTypes(call, params), func(ops []string) string {
 		return fmt.Sprintf("%s(%s)", callee, strings.Join(ops, ", "))
 	}), nil
 }
@@ -1887,10 +1889,13 @@ func (g *generator) strParts(s string) string {
 }
 
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
-// an array or a struct the C struct emitTypes defines for it.
+// an array, a view or a struct the C struct emitTypes defines for it.
 func (g *generator) cType(typ types.Type) string {
 	if g.prog.Types.IsArray(typ) {
 		return arrayName(typ)
+	}
+	if g.prog.Types.IsView(typ) {
+		return viewName(typ)
 	}
 	if g.prog.Types.IsStruct(typ) {
 		return g.structName(typ)

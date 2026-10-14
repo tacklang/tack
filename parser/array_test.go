@@ -192,10 +192,12 @@ func TestParsesElementTargetsInLoopHeaders(t *testing.T) {
 }
 
 // TestRejectsMalformedArrays checks each malformed array form is a parse
-// error, including slices and declaring an element.
+// error, including a view with no element type and declaring an element.
 func TestRejectsMalformedArrays(t *testing.T) {
 	tests := []struct{ stmt, want string }{
-		{"mut a []int64", "slices are not supported yet"},
+		{"mut a []", "expected 'type name' found ';'"},
+		{"x := []int64", "expected '{' found ';'"},
+		{"x := [](s)", "expected 'type name' found '('"},
 		{"mut a [...]int64", "[...] can only be used in an array literal"},
 		{"x := [3]int64{1 2}", "expected ',' found '2'"},
 		{"x := [3]int64{,}", "expected 'value' found ','"},

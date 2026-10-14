@@ -42,11 +42,11 @@ func (g *generator) isComposite(typ types.Type) bool {
 	return g.prog.Types.IsArray(typ) || g.prog.Types.IsStruct(typ)
 }
 
-// parts returns the types a value of type typ is made of: an array's
-// element type, or a struct's field types, in order.
+// parts returns the types a value of type typ is made of: an array's or a
+// view's element type, or a struct's field types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
-	if table.IsArray(typ) {
+	if table.IsArray(typ) || table.IsView(typ) {
 		return []types.Type{table.Elem(typ)}
 	}
 	fields := table.Fields(typ)
@@ -57,16 +57,20 @@ func (g *generator) parts(typ types.Type) []types.Type {
 	return out
 }
 
-// emitTypeDef defines the C struct for typ, after those of the types it is
-// made of, unless defined says it has been already. typ is marked before
+// emitTypeDef defines the C struct for typ, an array, a view or a struct,
+// after those of the types it is made of, unless defined says it has been already. typ is marked before
 // its parts are visited, so even a type that held itself could not loop.
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
-	if defined[typ] || !g.isComposite(typ) {
+	if defined[typ] || !g.isComposite(typ) && !g.prog.Types.IsView(typ) {
 		return
 	}
 	defined[typ] = true
 	for _, part := range g.parts(typ) {
 		g.emitTypeDef(part, defined)
+	}
+	if g.prog.Types.IsView(typ) {
+		g.emitViewDef(typ)
+		return
 	}
 	if g.prog.Types.IsArray(typ) {
 		g.emitArrayDef(typ)

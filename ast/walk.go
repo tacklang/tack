@@ -161,14 +161,16 @@ func walkOperand(e Expr, v Visitor) {
 	}
 }
 
-// walkArrayExpr walks the children of an array type, a composite literal or
-// an element. A part that is left out is nil, and skipped.
+// walkArrayExpr walks the children of an array type, a view type, a
+// composite literal or an element. A part that is left out is nil, and skipped.
 func walkArrayExpr(e Expr, v Visitor) {
 	switch e := e.(type) {
 	case *ArrayType:
 		if e.Len != nil {
 			Walk(e.Len, v)
 		}
+		Walk(e.Elem, v)
+	case *ViewType:
 		Walk(e.Elem, v)
 	case *CompositeLit:
 		if e.TypeExpr != nil {

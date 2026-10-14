@@ -23,6 +23,22 @@ func (g *generator) sequenced(
 	rendered []string,
 	build func([]string) string,
 ) string {
+	ctypes := make([]string, len(operands))
+	for i, e := range operands {
+		ctypes[i] = g.operandType(e)
+	}
+	return g.sequencedAs(operands, rendered, ctypes, build)
+}
+
+// sequencedAs is sequenced for operands whose rendered values have the C
+// types ctypes, which a temporary holding one is declared with: a call's
+// argument to a view parameter is a view, whatever the argument's own
+// type.
+func (g *generator) sequencedAs(
+	operands []ast.Expr,
+	rendered, ctypes []string,
+	build func([]string) string,
+) string {
 	if !g.orderShows(operands) {
 		return build(rendered)
 	}
@@ -33,7 +49,7 @@ func (g *generator) sequenced(
 			continue
 		}
 		t := g.temp("o")
-		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.operandType(e), t))
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", ctypes[i], t))
 		steps = append(steps, fmt.Sprintf("%s = %s", t, rendered[i]))
 		args[i] = t
 	}

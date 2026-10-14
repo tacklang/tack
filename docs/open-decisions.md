@@ -107,6 +107,42 @@ another way:
   evaluation order could show, so its reads around such calls are held in
   temporaries; this is coarser than needed and costs only temporaries.
 
+## Views
+
+Views follow the decisions recorded in the README. These points were
+settled by the implementation rather than decided, and could go another
+way:
+
+- `[]uint8(s)` takes any string: a literal, a variable, a field, an
+  element or a call's result. A string's bytes are static today and never
+  owned by its value, so no temporary is needed for any of them; a string
+  that owns its bytes, if the memory model brings one, would reopen this
+  for a call's result.
+- `[]uint8(s)` of a mutable global string, or of a variable the same call
+  passes as `mut`, views the bytes the string held when the argument was
+  evaluated: assigning the string later changes which bytes it holds, not
+  those bytes, so no copy is taken.
+- `[]uint8(a)` of an array is an error, `cannot convert [2]uint8 to
+  []uint8; pass the array itself to a view parameter`, so there is one way
+  to pass an array; a conversion to any view but `[]uint8`, or of anything
+  but a string, is `cannot convert ...`.
+- A view's copy, for a mutable global or an overlapping `mut` argument, is
+  taken when the argument is evaluated, left to right with the others, so
+  `f(a, set(mut a))` views `a` as it was before `set` ran. Overlap is by
+  path, but coarser than the exclusivity check's: any two elements of one
+  array count as overlapping, which can only add a copy no program sees.
+  Copying a large global array costs its size on every such call.
+- `x := v` is `cannot declare x as []int64; a view can only be the type of
+  a parameter`, at the name; a view written as any other type is `a view
+  can only be the type of a parameter`, at the type.
+- A switch on a view is `operator == is not defined on []int64`, even with
+  no cases, since a switch compares with `==`.
+- `len expects an array or a string` now reads `len expects an array, a
+  string or a view`.
+- Each view type is added to the type table when the checker first meets
+  it, as an array is, which moves the IDs, and so the C names, of the
+  types after it; only programs that use views see this.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

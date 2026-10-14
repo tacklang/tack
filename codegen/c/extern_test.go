@@ -274,6 +274,30 @@ func TestExternMutExampleIsWarningFree(t *testing.T) {
 	}
 }
 
+// TestExternViewsExampleIsWarningFree builds examples/extern-views with
+// clang's warnings as errors, its C file against its tack.h, so the
+// tack_view_ structs a view parameter becomes agree between the generated
+// source, the header and the C file, and checks every check it prints
+// passed.
+func TestExternViewsExampleIsWarningFree(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "extern-views")
+	src, err := os.ReadFile(filepath.Join(dir, "main.tck"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrc, err := os.ReadFile(filepath.Join(dir, "views.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(buildExtern(t, string(src), string(csrc))).Output()
+	if err != nil {
+		t.Fatalf("extern-views failed: %v", err)
+	}
+	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 7 {
+		t.Errorf("extern-views printed\n%s", out)
+	}
+}
+
 // TestExternSizesExampleIsWarningFree builds examples/extern-sizes with
 // clang's warnings as errors, its C file against its tack.h, so size_t and
 // uintptr_t agree between the generated source, the header and the C

@@ -444,6 +444,42 @@ makes for itself, which has a letter after `tack_`.
   that passes a variable, or a part of it, as `mut` assigns it at that
   call (see division). An extern func may take a `mut` parameter, which C
   gets as a pointer (see extern C).
+- Views. A parameter written `v []T`, as in `func sum(v []int64) int64`, is
+  a read-only view of elements of type `T`: one function takes arrays of
+  any length. An array `[N]T` of exactly the element type passes to it as
+  it is, `sum(a)`, with no widening, so `[4]int32` is `cannot use [4]int32
+  as []int64 in argument to sum`, and a `[]int32` is not a `[]int64`
+  either. The array must be a place, a variable or a parameter, a `mut`
+  one included, or a field or an element of one, `sum(p.items)` or
+  `sum(rows[i])`; a call's result or a literal is `cannot view a temporary
+  array; store it in a variable first`. A string's bytes pass through the
+  conversion `[]uint8(s)`, which takes only a string, any string, a literal
+  or a call's result included, and is allowed only as an argument to a
+  `[]uint8` parameter, `[]uint8(...) can only be passed to a []uint8
+  parameter`; a string without it is `cannot use string as []uint8 in
+  argument to count; view its bytes with []uint8(s)`. A view parameter is
+  passed on to another of the same type as it is, `sum(v)`. A view has
+  `len(v)`, an `int64` never known, with the facts a string variable's
+  length has; `v[i]`, with `i` proven in range against `len(v)` as for a
+  string, or the checked form `x, ok := v[i]`; and every range form, `for
+  i, x := range v`, whose index is proven for `v`. Nothing else: no `==`,
+  `operator == is not defined on []int64`, no conversion, no printing. A
+  view is the type of a parameter only: anywhere else, a local, a field, a
+  result, a global or an array's element, it is `a view can only be the
+  type of a parameter`, a variable declared from one, `x := v`, is `cannot
+  declare x as []int64; a view can only be the type of a parameter`, and
+  a view of views is `the element type of a view cannot be a view`. A view
+  is read-only: `mut v []T` is `a view cannot be a mut parameter; views are
+  read-only`, and assigning `v`, an element or a field of one, or passing
+  either as `mut`, is `cannot assign to v[0]: v is a read-only view` or
+  `cannot pass mut v[0]: v is a read-only view`. Like a plain parameter, a
+  view shows the callee the array as it was when the argument was
+  evaluated, for the whole call: when the same call passes an overlapping
+  place as `mut`, `f(mut a, a)`, or a call nested in its arguments does,
+  or the array is part of a mutable global, which the callee could change,
+  the view is of a copy taken then. So facts about `len(v)` and the
+  elements hold for the whole function. An extern func may take a view,
+  which C gets as a pointer and a length (see extern C).
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -549,9 +585,13 @@ makes for itself, which has a letter after `tack_`.
   writing `a[j]` or assigning `a` in the body does not change what later
   iterations see. Both variables are fresh and immutable each iteration,
   so `x = v` and `mut x` are errors; change an element through `a[i]`.
+  A view ranges the same way, its index an `int64` and its element of the
+  view's element type, without copying its elements, since a view never
+  changes.
   Over an integer, only one name is allowed, and three names are an error
   anywhere. An array's index is proven in range for any array at least as
-  long; a string's for the string it ranges over (see indexing a string).
+  long; a string's or a view's for the string or view it ranges over (see
+  indexing a string, and views).
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
@@ -772,8 +812,9 @@ makes for itself, which has a letter after `tack_`.
   is computed in full, so an error on either side is reported.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
-  `unsafe_size_t` and `unsafe_uintptr_t`, `string` and `bool`, arrays, and
-  the structs a program declares. There is no
+  `unsafe_size_t` and `unsafe_uintptr_t`, `string` and `bool`, arrays,
+  views, which only a parameter may have, and the structs a program
+  declares. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
 - Target-width integers. `unsafe_size_t` and `unsafe_uintptr_t` are C's
@@ -812,8 +853,8 @@ makes for itself, which has a letter after `tack_`.
   an element does not count as reading `a`. Two arrays of one type compare
   with `==` and `!=`, element by element, strings included; `<` on two
   arrays is an error. Arrays may be package-level variables, initialized
-  with a constant expression (see package-level variables). There are no
-  slices yet.
+  with a constant expression (see package-level variables). An array
+  passes to a view parameter, `[]T`, without a copy (see views).
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
   type but a target-width one, which is an error in either form, proven
   or not, `index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
@@ -856,9 +897,10 @@ makes for itself, which has a letter after `tack_`.
   `len(a)`, an `int64`, since `uint64` and `int64` have no common type; this
   is intended, not a gap. Convert it first, `i, ok := int64(u)`, and prove
   `i`, or use the two-value form.
-- `len(a)` is the number of elements of an array, a constant, and `len(s)`
+- `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
-  division); either is an `int64`.
+  division), and `len(v)` the number of elements of a view, never known;
+  each is an `int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of
@@ -962,7 +1004,9 @@ makes for itself, which has a letter after `tack_`.
   `TACK_C_STR_LEN`) when a string crosses; `--emit-header` writes `tack.h`
   for editors. Every Tack type
   crosses by value, except a `mut` parameter, which C gets as a pointer to
-  the caller's variable, `T *`, to use only during the call. An extern func is never `pub` or `lib`, and one no C
+  the caller's variable, `T *`, to use only during the call, and a view
+  parameter, which C gets as `tack_view_<T>`, a pointer to `const`
+  elements and a length, to read only during the call. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its

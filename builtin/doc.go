@@ -8,7 +8,7 @@
 // number and types of arguments. Both read them from here, which is what keeps
 // the two stages from disagreeing about what the builtins are.
 //
-// len is a builtin too, but generic: it takes any array or a string, which
+// len is a builtin too, but generic: it takes any array, view or string, which
 // no Func can describe, so it is listed apart and the type checker checks
 // it itself. Names lists every builtin's name, generic ones included.
 //

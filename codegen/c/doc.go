@@ -20,7 +20,7 @@
 //     program uses unsafe_size_t, which a freestanding C implementation
 //     has, then the headers the C bodies of the builtins the program
 //     calls need, and the tack_string type;
-//   - a C struct for every array and struct type, then
+//   - a C struct for every array, view and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
 //     and struct type == compares;
@@ -101,6 +101,28 @@
 // that reads a variable another argument passes as mut gets the value it
 // had when it was evaluated.
 //
+// A view, []T, lowers to a C struct of a pointer to const elements and a
+// length, tack_view_ and the type's ID, defined after its element type,
+// the layout of tack_string, so a view's element is x.ptr[i], its length
+// x.len, and v, ok := v[i] and a range over a view are lowered as they are
+// for a string. A view parameter is passed by value. A view passed on is
+// passed as it is; []uint8(s) is the string's pointer and length, the
+// string held in a temporary first unless it is a name or a literal, which
+// is its pooled array and that array's length; and an array, which the
+// checker has made sure is a place, is (tack_view_N){place.e, n}, a pointer
+// into the caller's array. The callee must see the elements as they were
+// when the argument was evaluated, as a plain argument's copy would show
+// them, so the array is first copied into a temporary declared at the top
+// of the function, and the view points at the copy, when the callee could
+// otherwise see it change: when it is part of a mutable global, which any
+// function can assign, or when the call's arguments, at any depth, pass as
+// mut a place that may overlap it. Places compare as paths: two different
+// fields never overlap, and any two elements may. A copy taken where none
+// was needed shows nothing. An array of no elements is viewed through its
+// struct's one unused element, with a length of 0. A temporary holding a
+// call's argument to a view parameter, for the order of evaluation, is a
+// view, whatever the argument's own type.
+//
 // A package-level variable x becomes a static C variable named like a
 // function, tack_4_main1_x, since the two share a namespace. It is const unless
 // mutable, and initialized with the value the type checker computed, never
@@ -138,7 +160,8 @@
 // the generated source's layout, member for member, under other names: a
 // struct of package main is its Tack name, one of another package
 // <package name>_<name>, an array tack_array_<length>_<element>, the
-// element's Tack name if basic, and a results struct tack_results_<C
+// element's Tack name if basic, a view tack_view_<element>, named the same
+// way, with members ptr and len, and a results struct tack_results_<C
 // name>, with members r0, r1 and on; a struct's members are its fields'
 // Tack names. The generated source declares each extern func with its own
 // types, so a value passes between the two unchanged. Generate reports,

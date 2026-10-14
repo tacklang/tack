@@ -610,7 +610,7 @@ var structErrorCases = []struct {
 	},
 	{
 		"len of a struct", withTypes(pointDecls, "p := Point{x: 1, y: 2}", "exit(len(p))"),
-		[]spanned{{"len expects an array or a string, got Point", "p"}},
+		[]spanned{{"len expects an array, a string or a view, got Point", "p"}},
 	},
 	{
 		"struct converted", withTypes(pointDecls, "p := Point{x: 1, y: 2}", "exit(int64(p))"),

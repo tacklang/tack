@@ -35,6 +35,10 @@
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one
 // anywhere but as a call's argument.
+// A view type written []T is a ViewType, wherever a type is written; the
+// type checker accepts it only as a parameter's type. A conversion to one,
+// []uint8(s), is a Call whose Fn is the ViewType, and whose Conv the type
+// checker sets, since the resolver sets Conv only for a basic type's name.
 // A struct literal is a CompositeLit whose elements are KeyValues, a field's
 // name and a value, and a field read or written is a Selector; neither the
 // key nor the selected name is an Ident the resolver binds, since a field is

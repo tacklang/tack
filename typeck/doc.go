@@ -202,6 +202,31 @@
 // allowed: it is evaluated before the call, and passed as a copy.
 // An extern func may take a mut parameter, which C gets as a pointer.
 //
+// A parameter written v []T is a read-only view of elements of type T, the
+// second kind of reference a parameter can be, checked in view.go. Only a
+// parameter may have a view type: one written anywhere else, a local's,
+// a field's, a result's, a global's or an array's element, and a view of
+// views, are reported, and so is a variable declared from a view's value,
+// x := v, and a view parameter written mut. It takes an array of exactly
+// its element type that is a place, a variable or a parameter or a field
+// or element of one, with no widening, so the callee reads the caller's
+// array; an array that is not a place, a call's result or a literal, would
+// need a temporary, and is reported. It takes a view of its own type,
+// passed on, and the bytes of a string through the conversion []uint8(s),
+// which is allowed nowhere but as such an argument and of nothing but a
+// string; a string passed without it is reported with the conversion to
+// write. A view's len is an int64 that is never a known value; an element,
+// v[i], is proven as a string parameter's byte is, against len(v), whose
+// facts hold for the whole function, since nothing can assign the view,
+// an element of it or pass either as mut, all reported, and the caller
+// passes a copy of an array the call could change (codegen/c); v, ok :=
+// v[i] needs no proof; and a range over a view gives an int64 index, below
+// len(v), and the element. A path below a view parameter, v[k].d, is a
+// subject facts can be about, like one below any immutable parameter. A
+// view has no ==, which a switch on one needs too, and no conversion, and
+// a view argument alongside a mut argument of an overlapping place is
+// allowed, as a plain argument is.
+//
 // A struct type is a type of its own for each declaration, whatever its
 // fields; struct.go checks its uses. A literal names each field exactly
 // once, with a value usable as the field's type, in any order; an element
@@ -306,8 +331,9 @@
 //     integer value, the same bool constant value, or two equal string
 //     literals, are a duplicate, reported with a note at the first;
 //   - a range loop ranges over an integer, whose one variable takes its type,
-//     or over an array or a string, whose index is an int64 and whose
-//     element is the array's element type, or a string's byte, a uint8;
+//     or over an array, a view or a string, whose index is an int64 and
+//     whose element is the array's or view's element type, or a string's
+//     byte, a uint8;
 //     both variables are immutable, and two over an integer are an error;
 //   - break and continue are inside a loop, and in deferred code inside a
 //     loop that is itself inside the deferred code; a return is never in

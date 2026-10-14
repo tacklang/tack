@@ -410,6 +410,25 @@ func TestBuiltExternStringsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternViewsPassesEveryCheck builds examples/extern-views,
+// whose extern funcs take views, as tack_view_ structs in C, and checks
+// what C read through each: integers, an empty array, a string's bytes,
+// structs, arrays under a C name of their own, strings, and a Tack view
+// passed on to C.
+func TestBuiltExternViewsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "extern-views")
+	want := "integers ok\n" +
+		"empty array ok\n" +
+		"string bytes ok\n" +
+		"structs ok\n" +
+		"arrays, C name ok\n" +
+		"strings ok\n" +
+		"passed on to C ok\n"
+	if out, code := runBuilt(t, bin); out != want || code != 0 {
+		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
 // TestBuiltAtEveryOptLevel builds examples/extern-strings, generated
 // source and a C file both, at every optimization level, and checks each
 // binary passes every check: a level must not change what a program does.

@@ -52,7 +52,8 @@ func calleeParams(id *ast.Ident) []param {
 
 // checkArg checks arg, passed to p in a call to callee: a mut argument to
 // a mut parameter must name a place of exactly its type, and any other
-// argument must be usable as its plain parameter's type. A mut argument to
+// argument must be usable as its plain parameter's type, or be what
+// viewArg allows a view parameter to take. A mut argument to
 // a plain parameter, or a plain one to a mut parameter, is reported, and
 // what it holds is still checked for errors of its own. It returns the mut
 // argument when arg is one passed to a mut parameter with nothing
@@ -69,6 +70,8 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 		c.expr(m.X)
 		text := c.text(m.X.Spanned())
 		c.errorf(m.Span, "%s does not take %s as mut; pass %s", callee, text, text)
+	case c.table.IsView(p.typ):
+		c.viewArg(arg, p.typ, callee)
 	default:
 		c.use(arg, c.expr(arg), p.typ, "in argument to "+callee)
 	}
@@ -170,6 +173,10 @@ func (c *Checker) placeName(id *ast.Ident, m *ast.MutArg) types.Type {
 	case *ast.Param:
 		if def.Mut {
 			return typ
+		}
+		if c.table.IsView(def.Type) {
+			c.readOnly(m.Span, "pass "+c.text(m.Span), id)
+			return types.Invalid
 		}
 		c.errorf(
 			m.Span,
