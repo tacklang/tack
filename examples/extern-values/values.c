@@ -15,10 +15,8 @@ int64_t sum(tack_string s) {
     return total;
 }
 
-static const unsigned char hello[] = "hello from C";
-
 tack_string greeting(void) {
-    return (tack_string){hello, sizeof hello - 1};
+    return TACK_STR("hello from C");
 }
 
 int64_t manhattan(Point p) {
@@ -38,14 +36,12 @@ int64_t perimeter(Shape s) {
     return s.closed ? n / 2 + s.name.len : 0;
 }
 
-static const unsigned char grown[] = "grown";
-
 Shape grow(Shape s, int64_t by) {
     for (int i = 0; i < 3; i++) {
         s.corners.e[i].x *= by;
         s.corners.e[i].y *= by;
     }
-    s.name = (tack_string){grown, 5};
+    s.name = TACK_STR("grown");
     s.closed = false;
     return s;
 }
@@ -77,8 +73,6 @@ tack_results_divmod divmod(int64_t a, int64_t b) {
     return (tack_results_divmod){a / b, a % b, true};
 }
 
-static const unsigned char ada[] = "ada";
-
 tack_array_2_string names(void) {
-    return (tack_array_2_string){{{ada, 3}, {0, 0}}};
+    return (tack_array_2_string){{TACK_STR("ada"), {0, 0}}};
 }

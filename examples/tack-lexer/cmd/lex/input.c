@@ -37,5 +37,5 @@ tack_results_readStdin readStdin(void) {
             break;
         }
     }
-    return (tack_results_readStdin){{buf, (int64_t)len}, true};
+    return (tack_results_readStdin){TACK_STR_N(buf, len), true};
 }
