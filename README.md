@@ -39,12 +39,13 @@ The language computes. Functions take parameters and return values, calls are
 expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
-Functions have local variables, immutable unless declared with `mut`. There
-are still no loops, so repetition means recursion. The process exit status
-is still the only way to observe an integer, since `print` takes strings only.
+Functions have local variables, immutable unless declared with `mut`, and
+loops. The process exit status is still the only way to observe an integer,
+since `print` takes strings only.
 
-`exit` is a global builtin as a stand-in. Once the language has packages it
-should become `os.Exit`, and the global goes away.
+`exit` is a global builtin as a stand-in for a future `os.Exit`, after which
+the global goes away. The language has packages now, but the standard
+library has none yet.
 
 ## Requirements
 
@@ -56,7 +57,7 @@ should become `os.Exit`, and the global goes away.
 ```sh
 make build       # builds ./bin/tack
 make install     # installs tack into $GOBIN, or $GOPATH/bin if unset
-make test        # runs go test ./...
+make test        # runs go test -race ./...
 ```
 
 ## Usage
@@ -125,7 +126,8 @@ not reported.
 | `resolver` | binds every name; checks there is a `main` package and `main` |
 | `types`    | Tack's type representation                                    |
 | `builtin`  | the builtins' names, signatures and C names                   |
-| `typeck`   | checks calls pass the right number and type of arguments      |
+| `typeck`   | checks types, proofs, `mut` arguments and field visibility    |
+| `constant` | exact values of integer constant expressions                  |
 | `codegen`  | the backend interface and its registry                        |
 | `codegen/c`| AST into C, and `tack.h` for the C files of extern funcs      |
 | `cname`    | which names C can declare: identifiers that are not keywords  |
@@ -135,8 +137,7 @@ not reported.
 Diagnostics carry a source span and render with the offending line and a caret:
 
 ```
-garbage/main.tck:4:5: error: invalid character '@'
-02 |
+garbage/main.tck:4:5: error: invalid character @
 03 |	func main() {
 04 |	    @#$%^ print("hi")
    |	    ^
@@ -221,15 +222,18 @@ with an assembler label, so the C name never meets a name the generated C
 declares;
 string literals are pooled into `unsigned char` byte arrays, `tack_str0` and
 on, so that arbitrary
-bytes survive without an escaping scheme, `print` lowers to a pair of `fwrite`
-calls on `stdout`, and a generated `int main(void)` calls the Tack `main`. Each
+bytes survive without an escaping scheme, a call to `print` is a call to the
+static `tack_builtin_print`, whose body is one `fwrite` to `stdout`, and a
+generated `int main(void)` calls the Tack `main`. Each
 part is read back by its length, so no two Tack names, whatever underscores
 they hold, map to one C name, and none takes the shape of a name the backend
 makes for itself, which has a letter after `tack_`.
 
 ## The language today
 
-- `package main` is required, and must be the first declaration.
+- Every file starts with a `package` clause, before any declaration. A
+  file compiled on its own must be `package main`; a package of a module
+  is named as described below.
 - A package may be split across files. Compiling a directory compiles every
   file directly in it whose name ends in `.tck`, in the byte order of their
   names, as one package; a name starting with `.` is skipped, as an
@@ -372,7 +376,9 @@ makes for itself, which has a letter after `tack_`.
   next `}` is skipped unread, and an `asm` with no `}` after it is an error,
   `unterminated asm block`. No statement or declaration starts with `asm`,
   so any use of it is still rejected.
-- A `func main()` is required. It takes no parameters and declares no result.
+- A `main` package must declare a `func main()`, which takes no parameters
+  and declares no result. No other package may declare anything named
+  `main` (see imports).
 - Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,
   one, or several in parentheses, `func divmod(a int64, b int64) (int64, int64)`, and
@@ -550,7 +556,7 @@ makes for itself, which has a letter after `tack_`.
   statements, never values, and there is no prefix form.
 - Structs. `type Point struct { x int64; y int64 }` declares a struct type,
   at package level only, with its fields one per line or separated by `;`;
-  `struct {}` has none, and is allowed, as in Go. A type can be used anywhere in the file, before its
+  `struct {}` has none, and is allowed, as in Go. A type can be used anywhere in its package, before its
   declaration included, and its name shares one namespace with functions,
   package-level variables and builtins, so it cannot be declared again as
   any of them, nor as a local or a parameter; it cannot be used as a value,
