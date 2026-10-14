@@ -906,15 +906,25 @@ func (g *generator) generateForRange(
 //	}
 //
 // An array's length is a constant; a string's is read from the copy, as
-// tack_r0.len, and its bytes as tack_r0.ptr[k]. Over an array with no
-// element variable nothing reads the copy, so the value is only evaluated,
-// cast to void, for any call in it to run. A _ index gets no C variable.
+// tack_r0.len, and its bytes as tack_r0.ptr[k]. When the array cannot
+// change while the loop runs (see rangesInPlace), x is a place, and the
+// temporary is a pointer to it instead, const tack_array_3 *const tack_r0
+// = &a, through which each element is read: the same values a copy gives,
+// without making one. Over an array with
+// no element variable nothing reads the copy, so the value is only
+// evaluated, cast to void. A _ index gets no C variable.
 func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string) []string {
 	xType := ast.TypeOf(loop.X)
 	r, k := g.temp("r"), g.temp("k")
 	n, field := r+".len", "ptr"
 	if g.prog.Types.IsArray(xType) {
 		n, field = strconv.FormatInt(g.prog.Types.Len(xType), 10), "e"
+	}
+	eval := fmt.Sprintf("const %s %s = %s;", g.cType(xType), r, x)
+	read := r
+	if g.rangesInPlace(loop) {
+		eval = fmt.Sprintf("const %s *const %s = &%s;", g.cType(xType), r, x)
+		read = "(*" + r + ")"
 	}
 
 	var vars []string
@@ -923,15 +933,81 @@ func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string)
 	}
 	if loop.Elem != nil && loop.Elem.Name != ast.Blank {
 		vars = append(vars, fmt.Sprintf("const %s %s = %s.%s[%s];",
-			g.cType(loop.Elem.Type), varName(loop.Elem.Name), r, field, k))
+			g.cType(loop.Elem.Type), varName(loop.Elem.Name), read, field, k))
 	}
 
-	eval := fmt.Sprintf("const %s %s = %s;", g.cType(xType), r, x)
-	if field == "e" && (loop.Elem == nil || loop.Elem.Name == ast.Blank) {
+	if field == "e" && !bindsElem(loop) {
 		eval = fmt.Sprintf("(void)%s;", x)
 	}
 	return rangeBlock(eval,
 		fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k), append(vars, body...))
+}
+
+// bindsElem reports whether a range loop binds its element to a variable,
+// not _.
+func bindsElem(loop *ast.ForRange) bool {
+	return loop.Elem != nil && loop.Elem.Name != ast.Blank
+}
+
+// rangesInPlace reports whether a range loop can read the elements of the
+// array it ranges over where they are rather than from a copy, since the
+// array cannot change while the loop runs: the loop binds the element, the
+// array is a place, a variable or a field or element of one, and the body
+// never assigns, increments, decrements or passes as mut that variable or
+// any part of it, nor, when it is a mutable global, which any function
+// can assign, calls a function. Any index in the place is evaluated once,
+// before the first iteration, as the copy's would be.
+func (g *generator) rangesInPlace(loop *ast.ForRange) bool {
+	root := ast.Root(loop.X)
+	if root == nil || !g.prog.Types.IsArray(ast.TypeOf(loop.X)) || !bindsElem(loop) {
+		return false
+	}
+	v, isVar := root.Def.(*ast.Var)
+	global := isVar && g.globals[v] && v.Mutable
+	for _, stmt := range loop.Body {
+		if writesTo(stmt, root.Def) || global && stmtCallsFunc(stmt) {
+			return false
+		}
+	}
+	return true
+}
+
+// writesTo reports whether stmt, at any depth, assigns, increments,
+// decrements or passes as mut decl or a part of it.
+func writesTo(stmt ast.Stmt, decl ast.Decl) bool {
+	found := false
+	ast.Walk(stmt, func(n ast.Node) bool {
+		var targets []ast.Expr
+		switch x := n.(type) {
+		case *ast.Assign:
+			targets = []ast.Expr{x.Target}
+		case *ast.IncDec:
+			targets = []ast.Expr{x.Target}
+		case *ast.MultiAssign:
+			targets = x.Targets
+		case *ast.MutArg:
+			targets = []ast.Expr{x.X}
+		}
+		for _, t := range targets {
+			if root := ast.Root(t); root != nil && root.Def == decl {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// stmtCallsFunc reports whether stmt, at any depth, calls a Tack function.
+func stmtCallsFunc(stmt ast.Stmt) bool {
+	found := false
+	ast.Walk(stmt, func(n ast.Node) bool {
+		if e, ok := n.(ast.Expr); ok && callsFunc(e) {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // rangeBlock assembles a lowered range loop: a C block holding eval, which
@@ -1160,7 +1236,7 @@ func (g *generator) holdTemps(src multiSource) (names, lines []string) {
 	for _, t := range src.temps {
 		name := g.temp("r")
 		names = append(names, name)
-		lines = append(lines, fmt.Sprintf("const %s %s = %s;", t.typ, name, t.init))
+		lines = append(lines, fmt.Sprintf("%s = %s;", t.decl("const ", name), t.init))
 	}
 	return names, lines
 }
@@ -1202,7 +1278,7 @@ func (g *generator) multiAssignPost(
 	for _, t := range src.temps {
 		name := g.temp("r")
 		names = append(names, name)
-		decls = append(decls, fmt.Sprintf("%s %s;", t.typ, name))
+		decls = append(decls, t.decl("", name)+";")
 		exprs = append(exprs, fmt.Sprintf("%s = %s", name, t.init))
 	}
 	assigns, diags := g.fieldAssigns(m, src, names)
@@ -1244,8 +1320,24 @@ type multiSource struct {
 }
 
 // multiTemp is one temporary a multiSource is held in: its C type and the
-// expression that initializes it.
-type multiTemp struct{ typ, init string }
+// expression that initializes it. When ref is set, init is the address of
+// a place of type typ, and the temporary is a pointer to const typ, read
+// through.
+type multiTemp struct {
+	typ, init string
+	ref       bool
+}
+
+// decl declares the temporary name, without a semicolon or an initializer:
+// as a typ, qualified by qual, which is "const " or empty, or, when it is
+// a ref, as a pointer to const typ, which the pointer itself is when qual
+// is "const ".
+func (t multiTemp) decl(qual, name string) string {
+	if t.ref {
+		return fmt.Sprintf("const %s *%s%s", t.typ, qual, name)
+	}
+	return fmt.Sprintf("%s%s %s", qual, t.typ, name)
+}
 
 // multiValues lowers the source of a MultiVar or MultiAssign: a call to a
 // function with several results, held as its results struct and read field
@@ -1273,7 +1365,7 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 		arg, diags := g.expr(c.Args[0], types.Invalid)
 		from, to := ast.TypeOf(c.Args[0]), c.Conv
 		return multiSource{
-			temps: []multiTemp{{g.cType(from), arg}},
+			temps: []multiTemp{{typ: g.cType(from), init: arg}},
 			field: func(tmps []string, i int) string {
 				fits := fitsExpr(from, to, tmps[0])
 				if i == 1 {
@@ -1304,7 +1396,7 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 	}
 	call, diags := g.callExpr(id.Name, c)
 	return multiSource{
-		temps: []multiTemp{{g.resultsName(fn), call}},
+		temps: []multiTemp{{typ: g.resultsName(fn), init: call}},
 		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
 	}, diags
 }
@@ -1326,7 +1418,7 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 	}
 	t := g.cType(bin.Type)
 	return multiSource{
-		temps: []multiTemp{{t, a}, {t, b}},
+		temps: []multiTemp{{typ: t, init: a}, {typ: t, init: b}},
 		field: func(tmps []string, i int) string {
 			if i == 1 {
 				return fmt.Sprintf("(%s != 0)", tmps[1])

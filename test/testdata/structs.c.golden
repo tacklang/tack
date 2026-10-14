@@ -122,9 +122,9 @@ static void tack_4_main4_main(void) {
     }
     int64_t v_sum = 0;
     {
-        const tack_array_18 tack_r3 = v_pts;
+        const tack_array_18 *const tack_r3 = &v_pts;
         for (int64_t tack_k4 = 0; tack_k4 < 2; tack_k4++) {
-            const tack_4_main5_Point v_pt = tack_r3.e[tack_k4];
+            const tack_4_main5_Point v_pt = (*tack_r3).e[tack_k4];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)((int64_t)((uint64_t)v_pt.f_x + (uint64_t)v_pt.f_y))));
         }
     }

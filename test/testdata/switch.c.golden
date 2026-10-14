@@ -375,9 +375,9 @@ static void tack_4_main4_main(void) {
     const tack_array_15 v_words = (tack_array_15){{(tack_string){tack_str1, 3}, (tack_string){tack_str3, 3}, (tack_string){tack_str2, 3}, (tack_string){tack_str6, 5}, (tack_string){tack_str0, 0}, (tack_string){tack_str3, 3}}};
     int64_t v_total = 0;
     {
-        const tack_array_15 tack_r15 = v_words;
+        const tack_array_15 *const tack_r15 = &v_words;
         for (int64_t tack_k16 = 0; tack_k16 < 6; tack_k16++) {
-            const tack_string v_w = tack_r15.e[tack_k16];
+            const tack_string v_w = (*tack_r15).e[tack_k16];
             {
                 const int64_t tack_s14 = tack_4_main4_word(v_w);
                 if (tack_s14 == 1) {

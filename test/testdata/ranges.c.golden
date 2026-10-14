@@ -104,10 +104,10 @@ static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
 
 static int64_t tack_4_main9_firstOver(tack_array_13 p_a, int64_t p_limit) {
     {
-        const tack_array_13 tack_r2 = p_a;
+        const tack_array_13 *const tack_r2 = &p_a;
         for (int64_t tack_k3 = 0; tack_k3 < 5; tack_k3++) {
             const int64_t v_i = tack_k3;
-            const int64_t v_x = tack_r2.e[tack_k3];
+            const int64_t v_x = (*tack_r2).e[tack_k3];
             if (v_x > p_limit) {
                 return v_i;
             }
@@ -122,9 +122,9 @@ static void tack_4_main4_main(void) {
     const tack_array_13 v_a = (tack_array_13){{2, 7, 1, 8, 2}};
     int64_t v_sum = 0;
     {
-        const tack_array_13 tack_r4 = v_a;
+        const tack_array_13 *const tack_r4 = &v_a;
         for (int64_t tack_k5 = 0; tack_k5 < 5; tack_k5++) {
-            const int64_t v_x = tack_r4.e[tack_k5];
+            const int64_t v_x = (*tack_r4).e[tack_k5];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)v_x));
         }
     }
@@ -212,17 +212,17 @@ static void tack_4_main4_main(void) {
     const tack_array_17 v_grid = (tack_array_17){{(tack_array_16){{1, 2}}, (tack_array_16){{3, 4}}, (tack_array_16){{5, 6}}}};
     int64_t v_cells = 0;
     {
-        const tack_array_17 tack_r22 = v_grid;
+        const tack_array_17 *const tack_r22 = &v_grid;
         for (int64_t tack_k23 = 0; tack_k23 < 3; tack_k23++) {
             const int64_t v_r = tack_k23;
-            const tack_array_16 v_row = tack_r22.e[tack_k23];
+            const tack_array_16 v_row = (*tack_r22).e[tack_k23];
             if (v_r == 1) {
                 continue;
             }
             {
-                const tack_array_16 tack_r20 = v_row;
+                const tack_array_16 *const tack_r20 = &v_row;
                 for (int64_t tack_k21 = 0; tack_k21 < 2; tack_k21++) {
-                    const int64_t v_v = tack_r20.e[tack_k21];
+                    const int64_t v_v = (*tack_r20).e[tack_k21];
                     if (v_v == 6) {
                         break;
                     }
@@ -243,9 +243,9 @@ static void tack_4_main4_main(void) {
     }
     int64_t v_quotient = 0;
     {
-        const tack_array_13 tack_r26 = v_a;
+        const tack_array_13 *const tack_r26 = &v_a;
         for (int64_t tack_k27 = 0; tack_k27 < 5; tack_k27++) {
-            const int64_t v_x = tack_r26.e[tack_k27];
+            const int64_t v_x = (*tack_r26).e[tack_k27];
             if (v_x != 0) {
                 v_quotient = ((int64_t)((uint64_t)v_quotient + (uint64_t)tack_div_int64(56, v_x)));
             }

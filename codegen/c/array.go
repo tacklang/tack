@@ -136,12 +136,12 @@ func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string 
 	return "(" + eq + ")"
 }
 
-// indexValues lowers v, ok := a[i]: the index is held in a temporary, and
-// so is the array unless it is a variable that reading again cannot
-// change, one the function never passes as mut, and the element is read only when the index is in range, giving
-// the element type's zero value otherwise. A string is held the same way,
-// and its byte read only when the index is below its length, known only at
-// runtime, giving 0 otherwise.
+// indexValues lowers v, ok := a[i]: the index is held in a temporary,
+// and the element is read only when the index is in range, giving the
+// element type's zero value otherwise. A string is held the same way, and
+// its byte read only when the index is below its length, known only at
+// runtime, giving 0 otherwise. What is indexed is evaluated before the
+// index, as written; see heldIndexed for whether, and how, it is held.
 func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
@@ -152,29 +152,85 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 		return multiSource{}, diags
 	}
 
-	// The array is evaluated before the index, as written.
 	arrayType, indexType := ast.TypeOf(ix.X), ast.TypeOf(ix.Index)
 	var src multiSource
-	name, isName := ix.X.(*ast.Ident)
-	isName = isName && !g.frame.mutated[name.Def]
-	if !isName {
-		src.temps = append(src.temps, multiTemp{g.cType(arrayType), base})
+	held := g.heldIndexed(ix, base)
+	if held != nil {
+		src.temps = append(src.temps, *held)
 	}
-	src.temps = append(src.temps, multiTemp{g.cType(indexType), index})
+	src.temps = append(src.temps, multiTemp{typ: g.cType(indexType), init: index})
 
 	zero := g.zeroValue(ix.Type)
 	src.field = func(tmps []string, i int) string {
-		array, at := base, tmps[0]
-		if !isName {
-			array, at = tmps[0], tmps[1]
+		x, at := base, tmps[0]
+		if held != nil {
+			x, at = tmps[0], tmps[1]
+			if held.ref {
+				x = "(*" + x + ")"
+			}
 		}
-		in, read := g.indexIn(arrayType, indexType, array, at)
+		in, read := g.indexIn(arrayType, indexType, x, at)
 		if i == 1 {
 			return in
 		}
 		return fmt.Sprintf("(%s ? %s : %s)", in, read, zero)
 	}
 	return src, nil
+}
+
+// heldIndexed returns the temporary that holds what ix indexes, base as
+// lowered, for indexValues, or nil when it is read where it is, after the
+// index. It needs no temporary when it calls no function and the order of
+// it and the index cannot show (see orderShows), unless it is a string
+// other than a name, which is read twice, for its length and its byte, and
+// so is held once. Otherwise an array that
+// is a place, a variable or a field or element of one, is held by its
+// address, which reads its element without copying it, unless evaluating
+// the index can change the array, which must then be read as it was
+// before: it is copied then, as a string always is, being two words, and
+// as anything else is, such as a call's result.
+func (g *generator) heldIndexed(ix *ast.Index, base string) *multiTemp {
+	typ := ast.TypeOf(ix.X)
+	_, isName := ix.X.(*ast.Ident)
+	readAfter := !callsFunc(ix.X) && !g.orderShows([]ast.Expr{ix.X, ix.Index})
+	if readAfter && (isName || typ != types.String) {
+		return nil
+	}
+	if typ == types.String || ast.Root(ix.X) == nil || g.indexChanges(ix) {
+		return &multiTemp{typ: g.cType(typ), init: base}
+	}
+	return &multiTemp{typ: g.cType(typ), init: "&" + base, ref: true}
+}
+
+// indexChanges reports whether evaluating the index of ix can change the
+// array it indexes, a place: the index calls a function, and the array is
+// part of a mutable global, which any function can assign, or of a
+// variable the index passes as mut. A call reaches a local or a parameter
+// of the caller only through a mut argument of its own.
+func (g *generator) indexChanges(ix *ast.Index) bool {
+	if !callsFunc(ix.Index) {
+		return false
+	}
+	root := ast.Root(ix.X)
+	if v, isVar := root.Def.(*ast.Var); isVar && g.globals[v] && v.Mutable {
+		return true
+	}
+	return passesAsMut(ix.Index, root.Def)
+}
+
+// passesAsMut reports whether n passes decl, or a part of it, as a mut
+// argument anywhere within it.
+func passesAsMut(n ast.Node, decl ast.Decl) bool {
+	found := false
+	ast.Walk(n, func(n ast.Node) bool {
+		if m, ok := n.(*ast.MutArg); ok {
+			if root := ast.Root(m.X); root != nil && root.Def == decl {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // indexIn renders the C test of whether the index at, of type indexType, is

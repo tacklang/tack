@@ -620,10 +620,10 @@ static void tack_12_tack_2dlexer5_lexer5_ident(tack_12_tack_2dlexer5_lexer5_Lexe
 
 static int64_t tack_12_tack_2dlexer5_lexer7_keyword(tack_string p_src, int64_t p_start, int64_t p_end) {
     {
-        const tack_array_19 tack_r11 = tack_12_tack_2dlexer5_lexer8_keywords;
+        const tack_array_19 *const tack_r11 = &tack_12_tack_2dlexer5_lexer8_keywords;
         for (int64_t tack_k12 = 0; tack_k12 < 31; tack_k12++) {
             const int64_t v_i = tack_k12;
-            const tack_12_tack_2dlexer5_lexer8_spelling v_w = tack_r11.e[tack_k12];
+            const tack_12_tack_2dlexer5_lexer8_spelling v_w = (*tack_r11).e[tack_k12];
             if (tack_12_tack_2dlexer5_lexer6_spanIs(p_src, p_start, p_end, v_w.f_text)) {
                 return v_i;
             }
@@ -645,10 +645,10 @@ static void tack_12_tack_2dlexer5_lexer6_number(tack_12_tack_2dlexer5_lexer5_Lex
 
 static bool tack_12_tack_2dlexer5_lexer8_operator(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     {
-        const tack_array_20 tack_r13 = tack_12_tack_2dlexer5_lexer9_operators;
+        const tack_array_20 *const tack_r13 = &tack_12_tack_2dlexer5_lexer9_operators;
         for (int64_t tack_k14 = 0; tack_k14 < 48; tack_k14++) {
             const int64_t v_i = tack_k14;
-            const tack_12_tack_2dlexer5_lexer8_spelling v_op = tack_r13.e[tack_k14];
+            const tack_12_tack_2dlexer5_lexer8_spelling v_op = (*tack_r13).e[tack_k14];
             if (tack_12_tack_2dlexer5_lexer11_hasPrefixAt((*p_l).f_src, (*p_l).f_pos, v_op.f_text)) {
                 tack_12_tack_2dlexer5_lexer3_add(p_l, tack_12_tack_2dlexer5_lexer6_KindOp, v_i, (*p_l).f_pos, ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)(v_op.f_text).len)), v_op.f_ends);
                 (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)(v_op.f_text).len));
@@ -728,12 +728,11 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
         }
     }
     {
-        const int64_t tack_n20 = v_lx.f_nerr;
-        for (int64_t tack_k21 = 0; tack_k21 < tack_n20; tack_k21++) {
-            const int64_t v_i = tack_k21;
-            const tack_array_17 tack_r18 = v_lx.f_errs;
-            const int64_t tack_r19 = v_i;
-            const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r19 >= 0 && tack_r19 <= 63) ? tack_r18.e[tack_r19] : (tack_12_tack_2dlexer5_lexer5_Error){0});
+        const int64_t tack_n19 = v_lx.f_nerr;
+        for (int64_t tack_k20 = 0; tack_k20 < tack_n19; tack_k20++) {
+            const int64_t v_i = tack_k20;
+            const int64_t tack_r18 = v_i;
+            const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r18 >= 0 && tack_r18 <= 63) ? v_lx.f_errs.e[tack_r18] : (tack_12_tack_2dlexer5_lexer5_Error){0});
             tack_builtin_print((tack_string){tack_str103, 6});
             tack_12_tack_2dlexer3_cmd3_lex8_printInt(v_e.f_start);
             tack_builtin_print((tack_string){tack_str101, 1});
@@ -770,8 +769,8 @@ static void tack_12_tack_2dlexer3_cmd3_lex8_printInt(int64_t p_n) {
     if (v_d < 0) {
         v_d = ((int64_t)((uint64_t)0 - (uint64_t)v_d));
     }
-    const int64_t tack_r22 = v_d;
-    const tack_string v_s = ((tack_r22 >= 0 && tack_r22 <= 9) ? tack_12_tack_2dlexer3_cmd3_lex6_digits.e[tack_r22] : (tack_string){tack_str87, 0});
+    const int64_t tack_r21 = v_d;
+    const tack_string v_s = ((tack_r21 >= 0 && tack_r21 <= 9) ? tack_12_tack_2dlexer3_cmd3_lex6_digits.e[tack_r21] : (tack_string){tack_str87, 0});
     tack_builtin_print(v_s);
 }
 
@@ -780,9 +779,9 @@ static void tack_12_tack_2dlexer3_cmd3_lex11_printQuoted(tack_string p_src, int6
     {
         int64_t v_i = p_start;
         for (; v_i < p_end; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
-            const int64_t tack_r23 = v_i;
-            const uint8_t v_c = ((tack_r23 >= 0 && tack_r23 < p_src.len) ? p_src.ptr[tack_r23] : 0);
-            const bool v_ok = (tack_r23 >= 0 && tack_r23 < p_src.len);
+            const int64_t tack_r22 = v_i;
+            const uint8_t v_c = ((tack_r22 >= 0 && tack_r22 < p_src.len) ? p_src.ptr[tack_r22] : 0);
+            const bool v_ok = (tack_r22 >= 0 && tack_r22 < p_src.len);
             if (!v_ok) {
                 break;
             }
@@ -797,16 +796,16 @@ static void tack_12_tack_2dlexer3_cmd3_lex9_printByte(uint8_t p_c) {
         tack_builtin_print((tack_string){tack_str154, 1});
     }
     if ((p_c >= 32) && (p_c <= 126)) {
-        const uint8_t tack_r24 = ((uint8_t)((uint64_t)p_c - (uint64_t)32));
-        const tack_string v_s = ((tack_r24 <= 94) ? tack_12_tack_2dlexer3_cmd3_lex9_printable.e[tack_r24] : (tack_string){tack_str87, 0});
+        const uint8_t tack_r23 = ((uint8_t)((uint64_t)p_c - (uint64_t)32));
+        const tack_string v_s = ((tack_r23 <= 94) ? tack_12_tack_2dlexer3_cmd3_lex9_printable.e[tack_r23] : (tack_string){tack_str87, 0});
         tack_builtin_print(v_s);
         return;
     }
     tack_builtin_print((tack_string){tack_str177, 2});
-    const uint8_t tack_r25 = tack_div_uint8(p_c, 16);
-    const tack_string v_hi = ((tack_r25 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r25] : (tack_string){tack_str87, 0});
-    const uint8_t tack_r26 = tack_rem_uint8(p_c, 16);
-    const tack_string v_lo = ((tack_r26 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r26] : (tack_string){tack_str87, 0});
+    const uint8_t tack_r24 = tack_div_uint8(p_c, 16);
+    const tack_string v_hi = ((tack_r24 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r24] : (tack_string){tack_str87, 0});
+    const uint8_t tack_r25 = tack_rem_uint8(p_c, 16);
+    const tack_string v_lo = ((tack_r25 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r25] : (tack_string){tack_str87, 0});
     tack_builtin_print(v_hi);
     tack_builtin_print(v_lo);
 }

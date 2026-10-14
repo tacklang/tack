@@ -169,15 +169,21 @@
 // tack_eq_ and its ID, that compares element by element. A package-level
 // array is initialized with braces, which a static variable needs, or
 // {0}. Every index the checker accepts is in range, so an element read is
-// plain C. v, ok := a[i] holds the array, unless it is a variable the
-// function never passes as mut, and the
-// index in temporaries, the array first, and reads the element only when
-// the index is in range, testing only the bounds the index's type can
-// cross, and giving the element type's zero value otherwise. A string's
-// byte is x.ptr[i]; v, ok := s[i] holds the string and the index the same
-// way, and reads the byte only when the index is at least 0, tested only
-// for a signed index, and below the string's length, read at runtime,
-// giving 0 otherwise.
+// plain C. v, ok := a[i] holds the index in a temporary and reads the
+// element only when the index is in range, testing only the bounds the
+// index's type can cross, and giving the element type's zero value
+// otherwise. The array is evaluated first, as Tack orders it, and is read
+// where it is, after the index, when it calls no function and the order
+// cannot show (see order.go). Otherwise it is held first: an array that is
+// a place, a variable or a field or element of one, by its address, a
+// pointer to const, so no element read copies the array, unless the index
+// calls a function and can change the array, being part of a mutable
+// global or passing it as mut, when the array is copied, so the read sees
+// it as it was. A string's byte is x.ptr[i]; v, ok := s[i] holds the index
+// the same way, and the string too unless it is a name read where it is,
+// and reads the byte only when the index is at least 0, tested only for a
+// signed index, and below the string's length, read at runtime, giving 0
+// otherwise.
 //
 // A struct type lowers to a typedef'd C struct named like a package-level
 // name of its package, tack_4_main5_Point, since the two share a namespace, with one member
@@ -249,9 +255,14 @@
 // a const temporary first, so the body assigning the array it came from
 // changes nothing the loop reads, and counts up to the array's constant
 // length or the copy's len; each iteration declares the index and the
-// element, read from the copy, as consts, and a _ gets no C variable. Over
-// an array with no element variable nothing reads the copy, so the value is
-// only evaluated, cast to void. Temporaries are named tack_ followed by a letter and a
+// element, read from the copy, as consts, and a _ gets no C variable. An
+// array that is a place the body never assigns, increments, decrements or
+// passes as mut in any part, and, for a mutable global, in a body that
+// calls no function, cannot change while the loop runs, so the block holds
+// a pointer to it instead and reads each element through it: the same
+// values a copy gives, without the copy. Over an array with no element
+// variable nothing reads the copy, so the value is only evaluated, cast to
+// void. Temporaries are named tack_ followed by a letter and a
 // number, which no mangled Tack name can be.
 //
 // A switch lowers to a chain of C ifs, never a C switch, whose break would
@@ -286,9 +297,10 @@
 // they work inside any expression, a loop's condition and the right side
 // of && included, and no goto can skip their declaration. A switch, a
 // checked division and a checked index already hold their operands in
-// order. An assignment's target is evaluated before its value, but the
-// checker allows no call and no mutable global in a target's indexes, so
-// that order needs nothing written.
+// order, a checked index's array by its address where it can. An
+// assignment's target is evaluated before its value, but the checker
+// allows no call and no mutable global in a target's indexes, so that
+// order needs nothing written.
 //
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
