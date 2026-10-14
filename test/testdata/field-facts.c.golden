@@ -19,13 +19,13 @@ typedef struct {
 
 typedef struct {
     int64_t e[3];
-} tack_array_15;
+} tack_array_17;
 
 typedef struct {
     int64_t f_d;
     int64_t f_i;
     tack_4_main5_Inner f_inner;
-    tack_array_15 f_a;
+    tack_array_17 f_a;
     tack_string f_s;
 } tack_4_main1_P;
 
@@ -36,9 +36,9 @@ typedef struct {
 
 typedef struct {
     int64_t e[4];
-} tack_array_16;
+} tack_array_18;
 
-static bool tack_eq_16(tack_array_16 a, tack_array_16 b) {
+static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
     for (int64_t i = 0; i < 4; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -82,14 +82,14 @@ static const tack_4_main1_P tack_4_main3_cfg = {4, 1, {2}, {{1, 2, 3}}, {tack_st
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static int64_t tack_4_main6_divide(int64_t p_n, tack_4_main1_P p_p);
-static int64_t tack_4_main4_pick(tack_array_15 p_a, tack_4_main1_P p_p);
+static int64_t tack_4_main4_pick(tack_array_17 p_a, tack_4_main1_P p_p);
 static int64_t tack_4_main6_nested(int64_t p_n, tack_4_main1_P p_p);
 static int64_t tack_4_main7_element(int64_t p_n, tack_4_main1_P p_p, int64_t p_k);
 static uint8_t tack_4_main5_first(tack_4_main1_P p_p);
 static int64_t tack_4_main3_sum(tack_4_main1_P p_p);
 static int64_t tack_4_main5_cases(int64_t p_n, tack_4_main1_P p_p);
 static void tack_4_main8_deferred(int64_t * p_out, int64_t p_n, tack_4_main1_P p_p);
-static void tack_4_main10_swapHalves(tack_array_16 * p_a, tack_4_main4_Pair p_q);
+static void tack_4_main10_swapHalves(tack_array_18 * p_a, tack_4_main4_Pair p_q);
 static void tack_4_main4_swap(int64_t * p_x, int64_t * p_y);
 static int64_t tack_4_main5_local(int64_t p_n);
 static void tack_4_main4_main(void);
@@ -110,7 +110,7 @@ static int64_t tack_4_main6_divide(int64_t p_n, tack_4_main1_P p_p) {
     return (-1);
 }
 
-static int64_t tack_4_main4_pick(tack_array_15 p_a, tack_4_main1_P p_p) {
+static int64_t tack_4_main4_pick(tack_array_17 p_a, tack_4_main1_P p_p) {
     if ((p_p.f_i < 0) || (p_p.f_i >= 3)) {
         return (-1);
     }
@@ -184,7 +184,7 @@ static void tack_4_main8_deferred(int64_t * p_out, int64_t p_n, tack_4_main1_P p
     }
 }
 
-static void tack_4_main10_swapHalves(tack_array_16 * p_a, tack_4_main4_Pair p_q) {
+static void tack_4_main10_swapHalves(tack_array_18 * p_a, tack_4_main4_Pair p_q) {
     if ((((0 <= p_q.f_i) && (p_q.f_i < 2)) && (2 <= p_q.f_j)) && (p_q.f_j < 4)) {
         const int64_t v_t = (*p_a).e[p_q.f_i];
         (*p_a).e[p_q.f_i] = (*p_a).e[p_q.f_j];
@@ -201,7 +201,7 @@ static void tack_4_main4_swap(int64_t * p_x, int64_t * p_y) {
 }
 
 static int64_t tack_4_main5_local(int64_t p_n) {
-    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 5, .f_i = 0, .f_inner = (tack_4_main5_Inner){.f_d = 1}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
+    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 5, .f_i = 0, .f_inner = (tack_4_main5_Inner){.f_d = 1}, .f_a = (tack_array_17){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
     if (v_p.f_d > 0) {
         return tack_div_int64(p_n, v_p.f_d);
     }
@@ -209,9 +209,9 @@ static int64_t tack_4_main5_local(int64_t p_n) {
 }
 
 static void tack_4_main4_main(void) {
-    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 2, .f_i = 2, .f_inner = (tack_4_main5_Inner){.f_d = 3}, .f_a = (tack_array_15){{1, 4, 5}}, .f_s = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}};
-    const tack_4_main1_P v_zero = (tack_4_main1_P){.f_d = 0, .f_i = 7, .f_inner = (tack_4_main5_Inner){.f_d = 0}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
-    const tack_array_15 v_a = (tack_array_15){{10, 20, 30}};
+    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 2, .f_i = 2, .f_inner = (tack_4_main5_Inner){.f_d = 3}, .f_a = (tack_array_17){{1, 4, 5}}, .f_s = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}};
+    const tack_4_main1_P v_zero = (tack_4_main1_P){.f_d = 0, .f_i = 7, .f_inner = (tack_4_main5_Inner){.f_d = 0}, .f_a = (tack_array_17){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
+    const tack_array_17 v_a = (tack_array_17){{10, 20, 30}};
     tack_4_main5_check(((tack_4_main6_divide(10, v_p) == 5) && (tack_4_main6_divide(10, v_zero) == (-1))), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_check(((tack_4_main4_pick(v_a, v_p) == 30) && (tack_4_main4_pick(v_a, v_zero) == (-1))), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     tack_4_main5_check(((tack_4_main6_nested(9, v_p) == 3) && (tack_4_main6_nested(9, v_zero) == (-1))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
@@ -226,9 +226,9 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((v_out == 4), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
     tack_4_main8_deferred(&v_out, 8, v_zero);
     tack_4_main5_check((v_out == (-1)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
-    tack_array_16 v_halves = (tack_array_16){{1, 2, 3, 4}};
+    tack_array_18 v_halves = (tack_array_18){{1, 2, 3, 4}};
     tack_4_main10_swapHalves(&v_halves, (tack_4_main4_Pair){.f_i = 0, .f_j = 3});
-    tack_4_main5_check((tack_eq_16(v_halves, (tack_array_16){{4, 2, 3, 1}})), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
+    tack_4_main5_check((tack_eq_18(v_halves, (tack_array_18){{4, 2, 3, 1}})), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
 }
 
 int main(void) {

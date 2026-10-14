@@ -118,6 +118,8 @@ caller's variable.
 |------------------------------|-------------------------------------------------------------------------------------|
 | `int8` ... `int64`           | `int8_t` ... `int64_t`                                                              |
 | `uint8` ... `uint64`         | `uint8_t` ... `uint64_t`                                                            |
+| `unsafe_size_t`              | `size_t`, from `<stddef.h>`, as wide as the target's                                |
+| `unsafe_uintptr_t`           | `uintptr_t`, from `<stdint.h>`, as wide as the target's                             |
 | `bool`                       | `bool`, from `<stdbool.h>`                                                          |
 | `string`                     | `tack_string`: `const unsigned char *ptr; int64_t len;`, by value                   |
 | a struct                     | a C struct with a member per field, under the field's Tack name, in order; `char unused;` if it has none |
@@ -127,9 +129,10 @@ caller's variable.
 | several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on       |
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 
-`tack.h` includes `<stdbool.h>` and `<stdint.h>`, and defines every type an
-extern func's signature uses and every type those hold, each before the
-types that hold it. Its names:
+`tack.h` includes `<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` when a
+signature uses `size_t`, and defines every type an extern func's signature
+uses and every type those hold, each before the types that hold it. Its
+names:
 
 - `tack_string` for `string`.
 - A struct of package `main` keeps its Tack name: `Point`. One of any other
@@ -137,6 +140,7 @@ types that hold it. Its names:
   `calc/lexer` is `lexer_Token`.
 - An array is `tack_array_`, its length, `_`, and its element type's name,
   a basic type's being its Tack name: `[4]int64` is `tack_array_4_int64`,
+  `[2]unsafe_size_t` is `tack_array_2_unsafe_size_t`,
   `[2]lexer.Token` is `tack_array_2_lexer_Token`, and `[2][3]Point` is
   `tack_array_2_tack_array_3_Point`.
 - The results of extern func `f` are `tack_results_f`, after its C name.

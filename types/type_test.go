@@ -72,7 +72,7 @@ func TestLookupRejectsNamesThatAreNotTypes(t *testing.T) {
 // or indexed out of range.
 func TestTableNamesUnknownIDsInvalid(t *testing.T) {
 	table := types.NewTable()
-	for _, typ := range []types.Type{-1, 12, 1 << 30, -1 << 62} {
+	for _, typ := range []types.Type{-1, types.Added(0), 1 << 30, -1 << 62} {
 		if got := table.Name(typ); got != "invalid" {
 			t.Errorf("Name(%d) = %q, want %q", typ, got, "invalid")
 		}
@@ -124,6 +124,82 @@ func TestWidens(t *testing.T) {
 	}
 }
 
+// TestWidensTargetWidth checks every pair of an integer type and a
+// target-width one: a type widens to another exactly when every value of
+// the first is a value of the second at every width a target-width type
+// can have, from 32 to 64 bits. So a target-width type takes only what
+// fits it at 32 bits and widens only to what holds it at 64, and the two
+// target-width types, which may differ in width, widen to neither each
+// other nor anything else.
+func TestWidensTargetWidth(t *testing.T) {
+	fixed := []types.Type{
+		types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint8, types.Uint16, types.Uint32, types.Uint64,
+	}
+	target := []types.Type{types.UnsafeSize, types.UnsafeUintptr}
+	for _, tw := range target {
+		for _, f := range fixed {
+			lo, hi := fixedRange(f)
+			wantWidens(t, f, tw, lo >= 0 && hi <= pow2(32)-1)
+			wantWidens(t, tw, f, lo <= 0 && hi >= pow2(64)-1)
+		}
+		for _, other := range target {
+			wantWidens(t, tw, other, tw == other)
+		}
+		for _, other := range []types.Type{types.Bool, types.String, types.UntypedInt, types.Invalid} {
+			wantWidens(t, other, tw, false)
+			wantWidens(t, tw, other, false)
+		}
+	}
+}
+
+// fixedRange returns the range of the fixed-width integer type typ, as a
+// pair of float64s, which hold every bound exactly.
+func fixedRange(typ types.Type) (float64, float64) {
+	n := float64(types.Bits(typ))
+	if types.IsUnsigned(typ) {
+		return 0, pow2(n) - 1
+	}
+	return -pow2(n - 1), pow2(n-1) - 1
+}
+
+// wantWidens reports Widens(from, to) when it is not want.
+func wantWidens(t *testing.T, from, to types.Type, want bool) {
+	t.Helper()
+	if got := types.Widens(from, to); got != want {
+		t.Errorf("Widens(%d, %d) = %v, want %v", from, to, got, want)
+	}
+}
+
+// TestTargetWidthBits checks the widths the target-width types are taken
+// to have: no fixed width, 32 bits for what every target holds, and 64
+// for what any target can.
+func TestTargetWidthBits(t *testing.T) {
+	for _, typ := range []types.Type{types.UnsafeSize, types.UnsafeUintptr} {
+		if !types.TargetWidth(typ) || !types.IsInteger(typ) || !types.IsUnsigned(typ) {
+			t.Errorf("type %d is not an unsigned target-width integer", typ)
+		}
+		if types.Bits(typ) != 0 || types.PortableBits(typ) != 32 || types.MaxBits(typ) != 64 {
+			t.Errorf("type %d: Bits %d, PortableBits %d, MaxBits %d, want 0, 32, 64",
+				typ, types.Bits(typ), types.PortableBits(typ), types.MaxBits(typ))
+		}
+	}
+	if types.PortableMax != 1<<32-1 {
+		t.Errorf("PortableMax = %d, want %d", uint64(types.PortableMax), uint64(1<<32-1))
+	}
+}
+
+// TestFixedWidthBits checks a fixed-width integer type is its own width in
+// Bits, PortableBits and MaxBits alike, and not a target-width type.
+func TestFixedWidthBits(t *testing.T) {
+	for _, typ := range []types.Type{types.Int8, types.Uint32, types.Int64, types.Uint64} {
+		n := types.Bits(typ)
+		if types.TargetWidth(typ) || types.PortableBits(typ) != n || types.MaxBits(typ) != n {
+			t.Errorf("type %d: TargetWidth or its widths differ from Bits", typ)
+		}
+	}
+}
+
 // pow2 returns 2 to the power n.
 func pow2(n float64) float64 {
 	v := 1.0
@@ -133,12 +209,22 @@ func pow2(n float64) float64 {
 	return v
 }
 
-// Every sized integer type can be named, and UntypedInt cannot.
+// Every sized integer type can be named, the target-width ones included,
+// and UntypedInt cannot.
 func TestLookupIntegerTypes(t *testing.T) {
-	for _, name := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
+	names := []string{
+		"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+		"unsafe_size_t", "unsafe_uintptr_t",
+	}
+	for _, name := range names {
 		typ, ok := types.Lookup(name)
-		if !ok || !types.IsInteger(typ) || types.Bits(typ) == 0 {
+		if !ok || !types.IsInteger(typ) || types.MaxBits(typ) == 0 {
 			t.Errorf("Lookup(%q) = %v, %v", name, typ, ok)
+		}
+	}
+	for _, name := range []string{"size_t", "uintptr_t", "unsafe_size", "unsafe_uintptr", "usize"} {
+		if _, ok := types.Lookup(name); ok {
+			t.Errorf("%s can be named", name)
 		}
 	}
 	if _, ok := types.Lookup("untyped int"); ok {

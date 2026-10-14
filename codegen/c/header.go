@@ -81,6 +81,7 @@ type header struct {
 	diags []diag.Diagnostic
 
 	strings bool // whether tack_string is used
+	sizes   bool // whether size_t is, which <stddef.h> declares
 }
 
 // owner is what a name in tack.h belongs to, as a diagnostic describes it,
@@ -163,12 +164,16 @@ func (h *header) useSignature(fn *ast.Func) {
 }
 
 // use records that tack.h needs typ, used at site, and every type it is
-// made of, which are defined before it.
+// made of, which are defined before it, and the header that declares a
+// basic type's C type when <stdint.h> does not: <stddef.h> for size_t.
 func (h *header) use(typ types.Type, site ast.Span) {
 	table := h.prog.Types
 	switch {
 	case typ == types.String:
 		h.strings = true
+		return
+	case typ == types.UnsafeSize:
+		h.sizes = true
 		return
 	case h.seen[typ] || !table.IsArray(typ) && !table.IsStruct(typ):
 		return
@@ -293,6 +298,9 @@ func (h *header) render() []byte {
 	b.WriteString("// define them, and the types their signatures use.\n\n")
 	fmt.Fprintf(&b, "#ifndef %s\n#define %s\n\n", guardName, guardName)
 	b.WriteString("#include <stdbool.h>\n#include <stdint.h>\n")
+	if h.sizes {
+		b.WriteString("#include <stddef.h>\n")
+	}
 	if h.strings {
 		b.WriteString(
 			"\ntypedef struct {\n    const unsigned char *ptr;\n    int64_t len;\n} tack_string;\n\n" +

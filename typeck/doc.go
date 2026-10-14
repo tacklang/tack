@@ -110,6 +110,25 @@
 // one type can be used where a type it widens to is expected, and an
 // operator on two integer types works in the one the other widens to.
 //
+// The target-width types, unsafe_size_t and unsafe_uintptr_t, are as wide
+// as the target makes them, from 32 to 64 bits, and every rule about them
+// holds at any width in that range (types.TargetWidth). Widening into and
+// out of them is types.Widens'. A constant of one must lie between 0 and
+// types.PortableMax, the most every target holds (settle), and so must
+// every step of a constant expression, made of literals, conversions and
+// operators (isConstantExpr), or of a package-level initializer, which is
+// reported as an overflow with a note that the width is unknown. Anywhere
+// else a known value past types.PortableMax is simply not known, since
+// whether it wraps depends on the target (fitting), and is computed at run
+// time; one below 0 wraps on every target and is an overflow error, as for
+// any unsigned type (knownOverflow). T(x) of a known value past
+// types.PortableMax but within 64 bits is reported as a conversion that
+// can fail, and checked at run time in the two-value form (fitsSomewhere).
+// For proofs a target-width type is bounded by its widest values, 0 to the
+// largest 64-bit unsigned value (typeBounds), but a counting loop's step
+// must stay at or below types.PortableMax not to wrap (stepBounds). No
+// index may be of a target-width type, proven or not (indexType).
+//
 // A divisor must be proven not zero where it is used, from facts: that a
 // variable is not zero within some region, learned from a condition just
 // tested. facts.go holds the rules, which are syntactic: a fact comes from

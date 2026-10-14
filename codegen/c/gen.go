@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -143,7 +144,11 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	g.emitPreamble(builtinIncludes(builtins))
+	includes := builtinIncludes(builtins)
+	if g.usesType(types.UnsafeSize) {
+		includes = append([]string{"#include <stddef.h>"}, includes...)
+	}
+	g.emitPreamble(includes)
 	g.emitTypes()
 	g.emitConstantPool(builtins)
 	g.emitGlobals(globals)
@@ -186,6 +191,44 @@ func (g *generator) emitPreamble(includes []string) {
 	// emitConstantPool adds, so the length a value carries is read off the
 	// array it points at rather than written out beside it.
 	g.buf.WriteString(strLenMacro + "\n")
+}
+
+// usesType reports whether the program has anything of the basic type
+// typ: a variable, a parameter, a result, an expression, or an element or
+// field of an array or struct type. Only unsafe_size_t needs asking, since
+// C declares its type, size_t, in a header of its own, <stddef.h>, which a
+// program that never uses it does not include.
+func (g *generator) usesType(typ types.Type) bool {
+	table := g.prog.Types
+	for i := range table.Count() {
+		if slices.Contains(g.parts(types.Added(i)), typ) {
+			return true
+		}
+	}
+	found := false
+	g.walk(func(n ast.Node) bool {
+		found = found || hasType(n, typ)
+		return !found
+	})
+	return found
+}
+
+// hasType reports whether the node n itself is of the basic type typ: a
+// function with a result of it, a parameter or variable of it, or an
+// expression of it.
+func hasType(n ast.Node, typ types.Type) bool {
+	switch x := n.(type) {
+	case *ast.Func:
+		return slices.Contains(x.ResultTypes, typ)
+	case *ast.Param:
+		return x.Type == typ
+	case *ast.Var:
+		return x.Type == typ
+	case ast.Expr:
+		return ast.TypeOf(x) == typ
+	default:
+		return false
+	}
 }
 
 // poolCheckedZero pools the empty string when value is v, ok := a[i] on an
@@ -1462,8 +1505,50 @@ func (g *generator) constantDivisionValues(bin *ast.Binary) (multiSource, []diag
 // fitsExpr renders a C test of whether v, of the integer type from, is also
 // a value of the integer type to.
 func fitsExpr(from, to types.Type, v string) string {
+	if types.TargetWidth(from) || types.TargetWidth(to) {
+		return targetFitsExpr(from, to, v)
+	}
 	lo, hi := bounds(to)
 	return withinExpr(from, v, lo, hi)
+}
+
+// targetFitsExpr is fitsExpr when from or to is a target-width type, whose
+// largest value C knows, as SIZE_MAX or UINTPTR_MAX, but the compiler does
+// not. A from that widens to to always fits. Neither type is ever negative, so a signed from is tested against 0.
+// A from that can exceed the target-width to's narrowest largest value,
+// types.PortableMax, is tested against its real largest, and a
+// target-width from against a to's largest value below the largest
+// uint64. Each such v is compared as a uint64_t, a value of any of these
+// types that is not negative being one, so the comparison is never
+// between a signed and an unsigned type, and never one clang can tell is
+// always true on a target where the types are as wide as each other.
+func targetFitsExpr(from, to types.Type, v string) string {
+	if types.Widens(from, to) {
+		return "true"
+	}
+	var tests []string
+	fromMin, fromMax := bounds(from)
+	if fromMin.IsNegative() {
+		tests = append(tests, v+" >= 0")
+	}
+	_, toMax := bounds(to)
+	switch {
+	case types.TargetWidth(to) && fromMax.Cmp(constant.FromUint64(types.PortableMax)) > 0:
+		tests = append(tests, fmt.Sprintf("(uint64_t)%s <= %s", v, maxMacros[to]))
+	case types.TargetWidth(from) && toMax.Cmp(constant.FromUint64(math.MaxUint64)) < 0:
+		tests = append(tests, fmt.Sprintf("(uint64_t)%s <= %s", v, intLiteral(toMax)))
+	}
+	if len(tests) == 0 {
+		return "true"
+	}
+	return "(" + strings.Join(tests, " && ") + ")"
+}
+
+// maxMacros names the C macro, from <stdint.h>, for the largest value of
+// each target-width type.
+var maxMacros = map[types.Type]string{
+	types.UnsafeSize:    "SIZE_MAX",
+	types.UnsafeUintptr: "UINTPTR_MAX",
 }
 
 // withinExpr renders a C test of whether v, of the integer type from, lies
@@ -1490,8 +1575,10 @@ func withinExpr(from types.Type, v string, lo, hi constant.Int) string {
 }
 
 // bounds returns the smallest and largest values of a sized integer type.
+// A target-width type's largest is the largest it can have on any target,
+// a 64-bit one's.
 func bounds(typ types.Type) (lo, hi constant.Int) {
-	n := types.Bits(typ)
+	n := types.MaxBits(typ)
 	if types.IsUnsigned(typ) {
 		return constant.Int{}, constant.FromUint64(math.MaxUint64 >> (64 - n))
 	}
@@ -1838,6 +1925,9 @@ var cTypes = map[types.Type]string{
 	types.Uint64: "uint64_t",
 	types.String: "tack_string",
 	types.Bool:   "bool",
+
+	types.UnsafeSize:    "size_t",
+	types.UnsafeUintptr: "uintptr_t",
 }
 
 // paramName keeps parameters clear of every other name the generated file

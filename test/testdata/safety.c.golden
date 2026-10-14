@@ -20,19 +20,19 @@ typedef struct {
 
 typedef struct {
     int64_t e[3];
-} tack_array_13;
-
-typedef struct {
-    tack_string e[2];
-} tack_array_14;
-
-typedef struct {
-    bool e[2];
 } tack_array_15;
 
 typedef struct {
-    tack_4_main5_Point e[1];
+    tack_string e[2];
 } tack_array_16;
+
+typedef struct {
+    bool e[2];
+} tack_array_17;
+
+typedef struct {
+    tack_4_main5_Point e[1];
+} tack_array_18;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -118,7 +118,7 @@ static int64_t tack_4_main5_count(int64_t p_n);
 static int64_t tack_4_main4_half(int64_t p_a, int64_t p_b);
 static void tack_4_main15_checkedDivision(void);
 static int64_t tack_4_main8_compound(int64_t p_b);
-static int64_t tack_4_main3_get(tack_array_13 p_a, int64_t p_i);
+static int64_t tack_4_main3_get(tack_array_15 p_a, int64_t p_i);
 static void tack_4_main12_checkedIndex(void);
 static int64_t tack_4_main3_set(int64_t p_i);
 static uint8_t tack_4_main2_at(tack_string p_s, int64_t p_i);
@@ -127,10 +127,10 @@ static void tack_4_main11_checkedByte(void);
 static void tack_4_main17_checkedConversion(void);
 static void tack_4_main16_knownConversions(void);
 static void tack_4_main11_knownString(void);
-static int64_t tack_4_main5_total(tack_array_13 p_a);
-static int64_t tack_4_main8_reversed(tack_array_13 p_a);
+static int64_t tack_4_main5_total(tack_array_15 p_a);
+static int64_t tack_4_main8_reversed(tack_array_15 p_a);
 static int64_t tack_4_main5_split(int64_t p_a, int64_t p_b);
-static int64_t tack_4_main5_early(tack_array_13 p_a, int64_t p_i);
+static int64_t tack_4_main5_early(tack_array_15 p_a, int64_t p_i);
 static void tack_4_main10_zeroValues(void);
 static void tack_4_main5_forms(void);
 static void tack_4_main10_unneededOk(void);
@@ -180,7 +180,7 @@ static int64_t tack_4_main8_compound(int64_t p_b) {
     return v_x;
 }
 
-static int64_t tack_4_main3_get(tack_array_13 p_a, int64_t p_i) {
+static int64_t tack_4_main3_get(tack_array_15 p_a, int64_t p_i) {
     if ((0 <= p_i) && (p_i < ((void)p_a, (int64_t)3))) {
         return p_a.e[p_i];
     }
@@ -188,7 +188,7 @@ static int64_t tack_4_main3_get(tack_array_13 p_a, int64_t p_i) {
 }
 
 static void tack_4_main12_checkedIndex(void) {
-    const tack_array_13 v_a = (tack_array_13){{10, 20, 30}};
+    const tack_array_15 v_a = (tack_array_15){{10, 20, 30}};
     int64_t v_i = 5;
     const int64_t tack_r4 = v_i;
     const int64_t v_v = ((tack_r4 >= 0 && tack_r4 <= 2) ? v_a.e[tack_r4] : 0);
@@ -202,7 +202,7 @@ static void tack_4_main12_checkedIndex(void) {
 }
 
 static int64_t tack_4_main3_set(int64_t p_i) {
-    tack_array_13 v_a = (tack_array_13){0};
+    tack_array_15 v_a = (tack_array_15){0};
     if ((p_i < 0) || (p_i >= 3)) {
         return 0;
     }
@@ -265,7 +265,7 @@ static void tack_4_main11_knownString(void) {
     tack_4_main5_check((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, ((v_last == 107) && ((v_same).len == 4)));
 }
 
-static int64_t tack_4_main5_total(tack_array_13 p_a) {
+static int64_t tack_4_main5_total(tack_array_15 p_a) {
     int64_t v_sum = 0;
     {
         int64_t v_i = 0;
@@ -276,7 +276,7 @@ static int64_t tack_4_main5_total(tack_array_13 p_a) {
     return v_sum;
 }
 
-static int64_t tack_4_main8_reversed(tack_array_13 p_a) {
+static int64_t tack_4_main8_reversed(tack_array_15 p_a) {
     int64_t v_digits = 0;
     {
         int64_t v_i = ((int64_t)((uint64_t)((void)p_a, (int64_t)3) - (uint64_t)1));
@@ -294,7 +294,7 @@ static int64_t tack_4_main5_split(int64_t p_a, int64_t p_b) {
     return 0;
 }
 
-static int64_t tack_4_main5_early(tack_array_13 p_a, int64_t p_i) {
+static int64_t tack_4_main5_early(tack_array_15 p_a, int64_t p_i) {
     {
         const int64_t tack_s10 = p_i;
         if ((tack_s10 == 0) || (tack_s10 == 1)) {
@@ -306,9 +306,9 @@ static int64_t tack_4_main5_early(tack_array_13 p_a, int64_t p_i) {
 
 static void tack_4_main10_zeroValues(void) {
     int64_t v_i = 3;
-    const tack_array_14 v_words = (tack_array_14){{(tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}}};
-    const tack_array_15 v_flags = (tack_array_15){{true, true}};
-    const tack_array_16 v_points = (tack_array_16){{(tack_4_main5_Point){.f_x = 1, .f_y = 2}}};
+    const tack_array_16 v_words = (tack_array_16){{(tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}}};
+    const tack_array_17 v_flags = (tack_array_17){{true, true}};
+    const tack_array_18 v_points = (tack_array_18){{(tack_4_main5_Point){.f_x = 1, .f_y = 2}}};
     const int64_t tack_r11 = v_i;
     const tack_string v_w = ((tack_r11 >= 0 && tack_r11 <= 1) ? v_words.e[tack_r11] : (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
     const bool v_okWord = (tack_r11 >= 0 && tack_r11 <= 1);
@@ -332,7 +332,7 @@ static void tack_4_main5_forms(void) {
     const bool v_ok = (tack_r15 != 0);
     tack_4_main5_check((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, ((v_q == (-128)) && v_ok));
     tack_4_main5_check((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, ((tack_rem_int8(v_m, (-1)) == 0) && (tack_div_int8(v_m, (-1)) == (-128))));
-    const tack_array_13 v_a = (tack_array_13){{10, 20, 30}};
+    const tack_array_15 v_a = (tack_array_15){{10, 20, 30}};
     int64_t v_i = 1;
     int64_t v_v = 0;
     bool v_fine = false;
@@ -373,7 +373,7 @@ static void tack_4_main10_unneededOk(void) {
     const bool v_ok = (tack_r25 != 0);
     const int64_t v_r = 3;
     const bool v_fine = true;
-    const tack_array_13 v_a = (tack_array_13){{1, 2, 3}};
+    const tack_array_15 v_a = (tack_array_15){{1, 2, 3}};
     const int64_t tack_r26 = 1;
     const int64_t v_v = ((tack_r26 >= 0 && tack_r26 <= 2) ? v_a.e[tack_r26] : 0);
     const bool v_inRange = (tack_r26 >= 0 && tack_r26 <= 2);
@@ -419,7 +419,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)}, ((tack_4_main4_half(8, 0) == 0) && (tack_4_main4_half(8, 2) == 4)));
     tack_4_main15_checkedDivision();
     tack_4_main5_check((tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)}, ((tack_4_main8_compound(0) == 100) && (tack_4_main8_compound(4) == 25)));
-    const tack_array_13 v_a = (tack_array_13){{10, 20, 30}};
+    const tack_array_15 v_a = (tack_array_15){{10, 20, 30}};
     tack_4_main5_check((tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)}, (((tack_4_main3_get(v_a, 5) == 0) && (tack_4_main3_get(v_a, (-1)) == 0)) && (tack_4_main3_get(v_a, 1) == 20)));
     tack_4_main12_checkedIndex();
     tack_4_main5_check((tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)}, (((tack_4_main3_set(3) == 0) && (tack_4_main3_set((-1)) == 0)) && (tack_4_main3_set(2) == 7)));
@@ -429,7 +429,7 @@ static void tack_4_main4_main(void) {
     tack_4_main17_checkedConversion();
     tack_4_main16_knownConversions();
     tack_4_main11_knownString();
-    tack_4_main5_check((tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)}, ((tack_4_main5_total(v_a) == 60) && (tack_4_main8_reversed((tack_array_13){{1, 2, 3}}) == 321)));
+    tack_4_main5_check((tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)}, ((tack_4_main5_total(v_a) == 60) && (tack_4_main8_reversed((tack_array_15){{1, 2, 3}}) == 321)));
     tack_4_main5_check((tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)}, (((tack_4_main5_split(9, (-3)) == (-3)) && (tack_4_main5_split(9, 0) == 0)) && (tack_4_main5_split(9, 3) == 3)));
     tack_4_main5_check((tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)}, (((tack_4_main5_early(v_a, 0) == 10) && (tack_4_main5_early(v_a, 1) == 20)) && (tack_4_main5_early(v_a, 2) == (-1))));
     tack_4_main10_zeroValues();

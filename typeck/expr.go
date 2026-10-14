@@ -205,10 +205,18 @@ func (c *Checker) use(e ast.Expr, got, want types.Type, context string) bool {
 // settle gives the untyped constant expression e the integer type typ, if
 // its value is one of typ's, and reports whether it is. The type is only
 // recorded on e itself: the backend writes out e's value, never its parts.
+// A constant of a target-width type must be one of its values on every
+// target, from 0 to types.PortableMax.
 func (c *Checker) settle(e ast.Expr, typ types.Type) bool {
 	value, _ := constValue(e)
-	if !value.Fits(types.Bits(typ), !types.IsUnsigned(typ)) {
-		c.errorf(e.Spanned(), "constant %s overflows %s", value, c.typeName(typ))
+	if !fitsPortably(value, typ) {
+		c.errorf(
+			e.Spanned(),
+			"constant %s overflows %s%s",
+			value,
+			c.typeName(typ),
+			widthNote(value, typ),
+		)
 		return false
 	}
 	switch x := e.(type) {
@@ -220,6 +228,28 @@ func (c *Checker) settle(e ast.Expr, typ types.Type) bool {
 		x.Type = typ
 	}
 	return true
+}
+
+// fitsPortably reports whether v is a value of the integer type typ on
+// every target: for a target-width type, whether it lies between 0 and
+// types.PortableMax.
+func fitsPortably(v constant.Int, typ types.Type) bool {
+	return v.Fits(types.PortableBits(typ), !types.IsUnsigned(typ))
+}
+
+// widthNote returns what an error about the value v overflowing the
+// integer type typ adds to say why: for a target-width type, and a v too
+// large for it rather than negative, that its width is unknown, so a
+// constant of it must be at most types.PortableMax. It is empty for any
+// other type or value.
+func widthNote(v constant.Int, typ types.Type) string {
+	if !types.TargetWidth(typ) || v.IsNegative() {
+		return ""
+	}
+	return fmt.Sprintf(
+		": its width is unknown, so a constant must be at most %d",
+		uint64(types.PortableMax),
+	)
 }
 
 // valueOf gives e, of type got, a type of its own where nothing else does:
@@ -338,6 +368,16 @@ func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 // wherever it is written, so the program never wraps a value the compiler
 // knew. A known zero divisor is not reported here, since requireNonzero
 // reports it, and arithmetic on a value not known wraps at run time.
+//
+// A target-width type's values are known only up to types.PortableMax,
+// since where it wraps above that depends on the target. A result past it
+// is an error in a constant expression, which must stay a value of its
+// type on every target at every step, as a literal must: one made of
+// literals, conversions and operators alone (see isConstantExpr), and a
+// package-level variable's initializer, checked while initStack holds it,
+// which must be one. Anywhere else such a result is just not known, and
+// left to run time. A result below 0 wraps on every target, so it is an
+// error wherever it is written.
 func (c *Checker) knownOverflow(bin *ast.Binary, typ types.Type) bool {
 	a, okA := c.knownValue(bin.X)
 	b, okB := c.knownValue(bin.Y)
@@ -347,8 +387,54 @@ func (c *Checker) knownOverflow(bin *ast.Binary, typ types.Type) bool {
 	if _, fits := knownStep(bin.Op, a, b, typ); fits {
 		return false
 	}
-	c.errorf(bin.Span, "constant expression overflows %s", c.typeName(typ))
+	note, overflows := c.targetOverflow(bin, typ, a, b)
+	if !overflows {
+		return false
+	}
+	c.errorf(bin.Span, "constant expression overflows %s%s", c.typeName(typ), note)
 	return true
+}
+
+// targetOverflow says whether bin, arithmetic on the known values a and b
+// in the type typ whose exact result is not a value of typ on every
+// target, overflows, as knownOverflow describes, and what the error adds
+// to say why. For a type other than a target-width one, it always
+// overflows, and nothing is added.
+func (c *Checker) targetOverflow(
+	bin *ast.Binary,
+	typ types.Type,
+	a, b constant.Int,
+) (string, bool) {
+	exact, inRange := knownStep(bin.Op, a, b, types.UntypedInt)
+	if !types.TargetWidth(typ) || !inRange {
+		return "", true
+	}
+	if !exact.IsNegative() && !isConstantExpr(bin) && len(c.initStack) == 0 {
+		return "", false
+	}
+	return widthNote(exact, typ), true
+}
+
+// isConstantExpr reports whether e is made of literals, conversions and
+// operators alone, and len of an array or of a string literal, which are
+// constants: it names no variable, so its value is the same wherever it is
+// written.
+func isConstantExpr(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.IntLit, *ast.CharLit:
+		return true
+	case *ast.Binary:
+		return isConstantExpr(x.X) && isConstantExpr(x.Y)
+	case *ast.Unary:
+		return isConstantExpr(x.X)
+	case *ast.Call:
+		if x.Conv != types.Invalid {
+			return len(x.Args) == 1 && isConstantExpr(x.Args[0])
+		}
+		return x.Const != nil
+	default:
+		return false
+	}
 }
 
 // typedArithmetic returns the type arithmetic on operands of types x and y
@@ -685,9 +771,10 @@ func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
 // returns T. It must convert an integer to an integer type, and be one that
 // cannot fail: an untyped constant that fits T, a value of a type that
 // widens to T, or a known value, as knownValue computes it, that is a value
-// of T. A constant or known value that is not one of T's is reported as
-// overflowing T, and any other conversion as needing the two-value form
-// v, ok := T(x).
+// of T on every target. A constant or known value that is not one of T's
+// is reported as overflowing T, and any other conversion as needing the
+// two-value form v, ok := T(x), a known value that is one of a
+// target-width T's on some targets only among them.
 func (c *Checker) conversion(call *ast.Call) types.Type {
 	from, ok := c.conversionOperand(call)
 	if !ok {
@@ -703,7 +790,7 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 	case types.Widens(from, to):
 	default:
 		v, known := c.knownValue(arg)
-		if !known {
+		if !known || fitsSomewhere(v, to) {
 			c.errorf(
 				call.Span,
 				"converting %s to %s can fail; use v, ok := %s(...)",
@@ -719,14 +806,22 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 }
 
 // knownFits reports whether v, the known value of e, is a value of the
-// integer type typ, and reports e as overflowing typ when it is not, as
-// settle reports an untyped constant.
+// integer type typ on every target, and reports e as overflowing typ when
+// it is not, as settle reports an untyped constant.
 func (c *Checker) knownFits(e ast.Expr, v constant.Int, typ types.Type) bool {
-	if v.Fits(types.Bits(typ), !types.IsUnsigned(typ)) {
+	if fitsPortably(v, typ) {
 		return true
 	}
-	c.errorf(e.Spanned(), "constant %s overflows %s", v, c.typeName(typ))
+	c.errorf(e.Spanned(), "constant %s overflows %s%s", v, c.typeName(typ), widthNote(v, typ))
 	return false
+}
+
+// fitsSomewhere reports whether v is a value of the target-width type typ
+// on some targets but not on others: it lies past types.PortableMax, but
+// within 64 bits. Converting a known value like that can fail, as
+// converting an unknown one can, and is checked at run time.
+func fitsSomewhere(v constant.Int, typ types.Type) bool {
+	return types.TargetWidth(typ) && !fitsPortably(v, typ) && v.Fits(64, false)
 }
 
 // conversionOperand checks what every conversion requires, whether its
@@ -761,8 +856,9 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 // v, ok := T(x), which is for conversions that can fail, and is allowed for
 // one that cannot, from an untyped constant, a known value that fits T, or
 // a type that widens to T, when ok is always true. Only a constant or known
-// value that does not fit, which always fails, is reported. It reports
-// whether the conversion is valid in this form.
+// value that does not fit, which always fails, is reported; a known value
+// that fits a target-width T on some targets only is checked at run time.
+// It reports whether the conversion is valid in this form.
 func (c *Checker) checkedConversion(call *ast.Call) bool {
 	from, ok := c.conversionOperand(call)
 	if !ok {
@@ -776,7 +872,7 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 	case from == types.UntypedInt:
 		return c.settle(arg, to)
 	}
-	if v, known := c.knownValue(arg); known {
+	if v, known := c.knownValue(arg); known && !fitsSomewhere(v, to) {
 		return c.knownFits(arg, v, to)
 	}
 	return true

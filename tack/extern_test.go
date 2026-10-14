@@ -372,6 +372,25 @@ func TestBuiltExternMutPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternSizesPassesEveryCheck builds examples/extern-sizes,
+// whose extern funcs take and return unsafe_size_t and unsafe_uintptr_t
+// as C's size_t and uintptr_t, and checks each value that crossed: a
+// sizeof, an address that comes back to C unchanged, a struct, an array
+// and two results of them, a mut parameter, and SIZE_MAX. Some checks
+// hold only on a 64-bit host.
+func TestBuiltExternSizesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "extern-sizes")
+	want := "size_t result ok\n" +
+		"uintptr_t round trip ok\n" +
+		"struct of both types ok\n" +
+		"array and two results ok\n" +
+		"mut parameter ok\n" +
+		"SIZE_MAX ok\n"
+	if out, code := runBuilt(t, bin); out != want || code != 0 {
+		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
 // TestBuiltExternStringsPassesEveryCheck builds examples/extern-strings,
 // whose C half makes the strings it returns with tack.h's string helpers,
 // and checks each string Tack got: a literal holding a zero byte, the

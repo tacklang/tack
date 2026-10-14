@@ -34,6 +34,14 @@ const (
 	Uint32
 	// Uint64 is an unsigned 64-bit integer.
 	Uint64
+	// UnsafeSize is unsafe_size_t, C's size_t: an unsigned integer as wide
+	// as the target makes it, from 32 to 64 bits. The compiler does not
+	// know which, so its rules hold whatever the width is (see TargetWidth).
+	UnsafeSize
+	// UnsafeUintptr is unsafe_uintptr_t, C's uintptr_t: an unsigned
+	// integer wide enough to hold an address, from 32 to 64 bits, like
+	// UnsafeSize, though not necessarily as wide as it.
+	UnsafeUintptr
 	// UntypedInt is the type of an integer constant expression, made only
 	// of literals and operators, until the place it is used gives it a
 	// type: the type it is assigned, passed or compared to, or Int64 where
@@ -49,18 +57,20 @@ const (
 // its ID. UntypedInt is named as Go names it, though no message should need
 // to.
 var basicNames = [numBasic]string{
-	Invalid:    "invalid",
-	Int64:      "int64",
-	String:     "string",
-	Bool:       "bool",
-	Int8:       "int8",
-	Int16:      "int16",
-	Int32:      "int32",
-	Uint8:      "uint8",
-	Uint16:     "uint16",
-	Uint32:     "uint32",
-	Uint64:     "uint64",
-	UntypedInt: "untyped int",
+	Invalid:       "invalid",
+	Int64:         "int64",
+	String:        "string",
+	Bool:          "bool",
+	Int8:          "int8",
+	Int16:         "int16",
+	Int32:         "int32",
+	Uint8:         "uint8",
+	Uint16:        "uint16",
+	Uint32:        "uint32",
+	Uint64:        "uint64",
+	UnsafeSize:    "unsafe_size_t",
+	UnsafeUintptr: "unsafe_uintptr_t",
+	UntypedInt:    "untyped int",
 }
 
 // Lookup returns the basic type a type name denotes. Invalid and UntypedInt
@@ -80,10 +90,24 @@ func IsInteger(t Type) bool {
 	return t == Int64 || (t >= Int8 && t <= UntypedInt)
 }
 
-// IsUnsigned reports whether t is an unsigned integer type.
-func IsUnsigned(t Type) bool { return t >= Uint8 && t <= Uint64 }
+// IsUnsigned reports whether t is an unsigned integer type, a
+// target-width one included.
+func IsUnsigned(t Type) bool { return t >= Uint8 && t <= UnsafeUintptr }
 
-// Bits returns the width of a sized integer type, or 0 for any other type.
+// TargetWidth reports whether t is one of the integer types whose width is
+// the target's, unsafe_size_t and unsafe_uintptr_t: somewhere from 32 to
+// 64 bits, and not known to the compiler. Every rule about such a type is
+// one that holds at any width in that range, so a program valid on one
+// target is valid on every other.
+func TargetWidth(t Type) bool { return t == UnsafeSize || t == UnsafeUintptr }
+
+// PortableMax is the largest value every target-width type holds on every
+// target: the largest 32-bit unsigned value. A constant of such a type
+// must lie between 0 and it.
+const PortableMax = 1<<32 - 1
+
+// Bits returns the width of a fixed-width integer type, or 0 for any other
+// type, a target-width one included, whose width is not known.
 func Bits(t Type) int {
 	switch t {
 	case Int8, Uint8:
@@ -99,15 +123,54 @@ func Bits(t Type) int {
 	}
 }
 
-// Widens reports whether every value of the sized integer type from is also
-// a value of to, so a value of from can be used where to is expected without
-// a conversion: a signed type to a wider signed one, and an unsigned type to
-// a wider type of either kind. A type widens to itself. No other pair does,
-// and no non-integer type widens to anything but itself.
-func Widens(from, to Type) bool {
-	if from == to {
-		return true
+// PortableBits returns the width in which every value of the integer type
+// t is a value of t on every target: Bits for a fixed-width type, and 32
+// for a target-width type, the narrowest it can be. A constant of t must
+// fit it. It is 0 for any other type.
+func PortableBits(t Type) int {
+	if TargetWidth(t) {
+		return 32
 	}
+	return Bits(t)
+}
+
+// MaxBits returns the widest the integer type t can be on any target:
+// Bits for a fixed-width type, and 64 for a target-width type. Every value
+// t can hold anywhere fits it. It is 0 for any other type.
+func MaxBits(t Type) int {
+	if TargetWidth(t) {
+		return 64
+	}
+	return Bits(t)
+}
+
+// Widens reports whether every value of the integer type from is also a
+// value of to, on every target, so a value of from can be used where to is
+// expected without a conversion: a signed type to a wider signed one, and
+// an unsigned type to a wider type of either kind. A target-width type
+// takes uint8, uint16 and uint32, which fit it at its narrowest, and
+// widens to uint64, which holds it at its widest; nothing else widens to
+// or from one, not even the other target-width type, which may be
+// narrower. A type widens to itself. No other pair does, and no
+// non-integer type widens to anything but itself.
+func Widens(from, to Type) bool {
+	switch {
+	case from == to:
+		return true
+	case TargetWidth(to):
+		return from == Uint8 || from == Uint16 || from == Uint32
+	case TargetWidth(from):
+		return to == Uint64
+	default:
+		return fixedWidens(from, to)
+	}
+}
+
+// fixedWidens is Widens for two different types of which neither is a
+// target-width type: both must be fixed-width integer types, the one
+// narrower than the other, and a signed type never widens to an unsigned
+// one.
+func fixedWidens(from, to Type) bool {
 	fb, tb := Bits(from), Bits(to)
 	if fb == 0 || tb == 0 {
 		return false

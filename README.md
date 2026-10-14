@@ -161,7 +161,10 @@ be returned, stored, and nested later without changing every signature that
 mentions it. The C backend emits it as a `tack_string` struct passed by value.
 
 The integer types are emitted as C's fixed-width types, `int8_t` through
-`uint64_t`, and a `bool` is emitted as C's `bool`.
+`uint64_t`, except the two whose width is the target's: `unsafe_size_t` is
+emitted as C's `size_t`, from `<stddef.h>`, which the generated source
+includes only when a program uses it, and `unsafe_uintptr_t` as
+`uintptr_t`. A `bool` is emitted as C's `bool`.
 
 ## Builtins
 
@@ -173,7 +176,8 @@ their names and the type checker knows their signatures, both from the
 in `codegen/c/builtin/`, and writes each into the generated C only when the
 program calls it, with the hosted header it needs (`<stdio.h>` for `print`,
 `<stdlib.h>` for `exit`). A program that calls neither includes only
-`<stdbool.h>` and `<stdint.h>`, which a freestanding C implementation has,
+`<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` if it uses
+`unsafe_size_t`, which a freestanding C implementation has,
 so a target without a C library needs only different bodies. `len` is
 generic, so no Tack declaration can describe it, and the compiler lowers
 it itself.
@@ -663,7 +667,8 @@ makes for itself, which has a letter after `tack_`.
   Arithmetic takes two integers and gives their common type: the type of
   both, or the wider when one widens to the other, as `int8 + int64` is an
   `int64`; `int8 + uint8` and `uint64 + int64` have no common type and are
-  errors. `-x` means `0 - x` and takes a signed integer; on an unsigned one it
+  errors, and so are `unsafe_size_t + int64` and
+  `unsafe_size_t + unsafe_uintptr_t` (see target-width integers). `-x` means `0 - x` and takes a signed integer; on an unsigned one it
   is an error, and `0 - x` says the wrapping is meant. At runtime,
   arithmetic that overflows wraps around at its type's width, as in Go: the
   largest value plus one is the smallest, negating the smallest signed value
@@ -675,6 +680,10 @@ makes for itself, which has a letter after `tack_`.
   division) must give a value of its type at every step, in
   a function as at package level, or it is an error,
   `constant expression overflows uint8`, covering the step that overflowed.
+  A target-width type is the exception above 4294967295, where it may or
+  may not wrap depending on the target: there, arithmetic on known values
+  is an error only in a constant expression (see target-width integers),
+  and anywhere else is not a known value, and is computed at run time.
   So `x := 'a' * 3` is an error, and so are `-m`, `m - 1` and `m / -1`
   after `var m int8 = -128`, while `x++`, `x += 1` and arithmetic on a `mut`
   variable or a parameter wrap. This is intended, and it means changing
@@ -762,10 +771,32 @@ makes for itself, which has a letter after `tack_`.
   `n != 0 && 10 / n > 1` never divides by zero. A package-level initializer
   is computed in full, so an error on either side is reported.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
-  `uint16`, `uint32` and `uint64`, `string` and `bool`, arrays, and the
-  structs a program declares. There is no
+  `uint16`, `uint32` and `uint64`, the target-width integers
+  `unsafe_size_t` and `unsafe_uintptr_t`, `string` and `bool`, arrays, and
+  the structs a program declares. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
+- Target-width integers. `unsafe_size_t` and `unsafe_uintptr_t` are C's
+  `size_t` and `uintptr_t`, for crossing to C (see Extern C): unsigned
+  integers as wide as the target makes them, somewhere from 32 to 64 bits,
+  and not necessarily as wide as each other. The `unsafe_` prefix is the
+  only marker; they may be used anywhere any other integer type can,
+  `pub` and `lib` signatures included, and have every operation an
+  unsigned integer has, arithmetic wrapping at their real width. Their
+  rules hold at every width, so a program valid on a 64-bit target stays
+  valid on a 32-bit one. `uint8`, `uint16` and `uint32` widen into either
+  of them, and either widens into `uint64`; nothing else widens into or
+  out of them, no signed type, not `int64`, and not one into the other.
+  A constant of one, a literal or any step of a constant expression made
+  of literals, conversions and operators, or a package-level variable's
+  initializer, must lie between 0 and 4294967295, the most every target
+  holds: `var s unsafe_size_t = 4294967296` and
+  `unsafe_size_t(4294967295) + 1` are errors,
+  `constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
+  A known value past 4294967295 elsewhere, such as `s + 1` after
+  `s := unsafe_size_t(4294967295)`, is not an error but is not known
+  either, and is computed at run time. One cannot index an array or a
+  string (see indexing). `len` stays an `int64`.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
   known value (see division), such as a constant expression, an immutable
   variable holding one, `len` of an array or of a known string, or a field
@@ -784,7 +815,9 @@ makes for itself, which has a letter after `tack_`.
   with a constant expression (see package-level variables). There are no
   slices yet.
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
-  type. An index is never out of range at runtime. `a[i]`, and an
+  type but a target-width one, which is an error in either form, proven
+  or not, `index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
+  An index is never out of range at runtime. `a[i]`, and an
   assignment to it, compile only where the compiler proves `i` in range: a
   constant, checked against the length at compile time, or a variable
   known to lie between 0 and the length less one. Elsewhere,
@@ -829,16 +862,22 @@ makes for itself, which has a letter after `tack_`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of
-  either kind. That holds for assignments, arguments, results and the
+  either kind. For a target-width type that must hold at every width it
+  can have: `uint8`, `uint16` and `uint32` in either, and either in
+  `uint64`, but neither in the other. That holds for assignments, arguments, results and the
   operands of an operator alike. Any other change of type is a conversion.
 - Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
   allowed only where it cannot fail: `x` is a constant, or a known value (see
   division), that is a value of `T`, as `uint8(x)` after `x := 5` or
   `int8('a')`, or `x` is of a type that widens to `T`. A constant or known
   value that is not a value of `T` is an error, as `uint8(x)` after
-  `x := 300`. Every other conversion is written
+  `x := 300`. For a target-width `T`, a value of `T` is one from 0 to
+  4294967295, a value on every target; a known value past that but
+  within 64 bits fits on some targets only, so converting it is like
+  converting a value not known. Every other conversion is written
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
-  `T`, and `v` is that value, or `0` when it is not. Where the conversion
+  `T`, and `v` is that value, or `0` when it is not; for a target-width `T`,
+  whether it is one on the target the program runs on. Where the conversion
   cannot fail the two-value form is allowed too, and `ok` is always `true`;
   a constant or known value that does not fit is an error in either form.
   A guard never makes `T(x)` compile; see
@@ -854,7 +893,9 @@ makes for itself, which has a letter after `tack_`.
   operators, is a constant with no type of its own: it is computed exactly,
   and takes the type of where it is used, the type it is assigned, passed or
   compared to, or `int64` where nothing gives it one. It must be a value of
-  that type: `var b uint8 = 256` and `x := 18446744073709551615` are errors.
+  that type: `var b uint8 = 256` and `x := 18446744073709551615` are errors,
+  and so is `var s unsafe_size_t = 4294967296`, past the most a target-width
+  type holds on every target.
   Every literal, and every step of a constant computation, must lie between
   the smallest `int64` and the largest `uint64`; beyond that is an error
   rather than a larger number. A `-` right before the digits is part of the
@@ -866,7 +907,8 @@ makes for itself, which has a letter after `tack_`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given.
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
-  a digit. The type names, `int8` through `uint64`, `string` and `bool`, are
+  a digit. The type names, `int8` through `uint64`, `unsafe_size_t`,
+  `unsafe_uintptr_t`, `string` and `bool`, are
   reserved like keywords: they can be written only as types and in
   conversions, never declared, read or assigned as names, nor used as a
   struct's or a field's name. `_` on its own is

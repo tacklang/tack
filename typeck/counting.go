@@ -73,20 +73,37 @@ func (c *Checker) countingFact(loop *ast.For, cond []fact) (fact, counting) {
 
 // wrapDrop returns why the fact f, which the counting loop would give its
 // body, does not hold: its post could step its variable past the end of
-// its type.
+// its type. For a target-width type the text names the 32-bit target,
+// the only one on which that end is types.PortableMax.
 func wrapDrop(loop *ast.For, f fact) *drop {
 	v, _ := f.about.decl.(*ast.Var)
-	lo, hi := typeBounds(v.Type)
+	lo, hi := stepBounds(v.Type)
 	past, start, side := hi, f.lo, "above"
 	if f.hasHi {
 		past, start, side = lo, f.hi, "below"
 	}
+	prefix := ""
+	if types.TargetWidth(v.Type) {
+		prefix = "on a 32-bit target, "
+	}
 	return &drop{
 		kind: dropWraps,
 		at:   loop.Post.Spanned(),
-		text: "this step could wrap " + v.Name + " past " + past.String() +
+		text: prefix + "this step could wrap " + v.Name + " past " + past.String() +
 			", so the loop does not keep " + v.Name + " at or " + side + " " + start.String(),
 	}
+}
+
+// stepBounds returns the smallest and largest values of the integer type
+// typ that a counter's step must stay within to be sure not to wrap: its
+// type's bounds, except that a target-width type is sure to hold values
+// only up to types.PortableMax, where it may wrap on a 32-bit target.
+func stepBounds(typ types.Type) (lo, hi constant.Int) {
+	lo, hi = typeBounds(typ)
+	if types.TargetWidth(typ) {
+		hi = constant.FromUint64(types.PortableMax)
+	}
+	return lo, hi
 }
 
 // counterStep returns how much post changes the variable v by, when it
@@ -142,7 +159,7 @@ func isVar(e ast.Expr, v *ast.Var) bool {
 // down, the lowest plus step is at least its smallest. A bound by len(s)
 // keeps v below the largest int64, which no length exceeds.
 func stepStaysInType(v *ast.Var, step constant.Int, cond []fact) bool {
-	typeLo, typeHi := typeBounds(v.Type)
+	typeLo, typeHi := stepBounds(v.Type)
 	known := interval{lo: typeLo, hi: typeHi, hasLo: true, hasHi: true}
 	belowLen := fact{hi: constant.FromInt64(math.MaxInt64 - 1), hasHi: true}
 	for _, f := range cond {

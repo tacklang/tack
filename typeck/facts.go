@@ -143,9 +143,10 @@ func (known interval) narrow(f fact) interval {
 }
 
 // typeBounds returns the smallest and largest values of a sized integer
-// type.
+// type. A target-width type's largest is the largest it can have on any
+// target, a 64-bit one's, so no value it holds anywhere lies outside them.
 func typeBounds(typ types.Type) (lo, hi constant.Int) {
-	n := types.Bits(typ)
+	n := types.MaxBits(typ)
 	if types.IsUnsigned(typ) {
 		return constant.Int{}, constant.FromUint64(math.MaxUint64 >> (64 - n))
 	}
@@ -229,14 +230,16 @@ func (c *Checker) knownCall(call *ast.Call) (constant.Int, bool) {
 }
 
 // knownConversion returns the value of a conversion T(x) of a known value
-// x that is a value of the integer type T, which is that value. One that
-// is not has no value, and was reported when the conversion was checked.
+// x that is a value of the integer type T on every target, which is that
+// value. One that is not has no value, and was reported when the
+// conversion was checked, unless it fits a target-width T on some targets
+// only, which is checked at run time.
 func (c *Checker) knownConversion(call *ast.Call) (constant.Int, bool) {
 	if len(call.Args) != 1 || !types.IsInteger(call.Conv) {
 		return constant.Int{}, false
 	}
 	v, ok := c.knownValue(call.Args[0])
-	if !ok || !v.Fits(types.Bits(call.Conv), !types.IsUnsigned(call.Conv)) {
+	if !ok || !fitsPortably(v, call.Conv) {
 		return constant.Int{}, false
 	}
 	return v, true
@@ -343,13 +346,15 @@ func knownStep(op ast.BinaryOp, a, b constant.Int, typ types.Type) (constant.Int
 }
 
 // fitting turns the result of a constant operation into a known value of
-// the type typ: it is known only if it was in range and is a value of typ.
+// the type typ: it is known only if it was in range and is a value of typ
+// on every target, so a target-width type's is not known past
+// types.PortableMax, where the program may wrap or not.
 func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) {
 	return func(typ types.Type) (constant.Int, bool) {
 		if !ok || !types.IsInteger(typ) || typ == types.UntypedInt {
 			return v, ok && typ == types.UntypedInt
 		}
-		return v, v.Fits(types.Bits(typ), !types.IsUnsigned(typ))
+		return v, fitsPortably(v, typ)
 	}
 }
 

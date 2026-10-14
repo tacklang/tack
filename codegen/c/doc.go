@@ -16,9 +16,10 @@
 // backend cannot lower produces a diagnostic instead of a half-written file.
 // The output is laid out in this order:
 //
-//   - a preamble: <stdbool.h> and <stdint.h>, which a freestanding C
-//     implementation has, then the headers the C bodies of the builtins
-//     the program calls need, and the tack_string type;
+//   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
+//     program uses unsafe_size_t, which a freestanding C implementation
+//     has, then the headers the C bodies of the builtins the program
+//     calls need, and the tack_string type;
 //   - a C struct for every array and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
@@ -36,12 +37,18 @@
 //   - a C main that calls the Tack main and returns 0.
 //
 // Values map to C types directly. Each integer type is the C fixed-width
-// type of its name, int8_t through uint64_t, and a bool is a C bool, with
-// true and false written as C's own. A lossless widening needs nothing
-// written, since C converts a narrower integer to a wider one keeping its
-// value. A conversion T(x), which the checker allows only where it cannot
-// fail, is a C cast; v, ok := T(x) holds x in a temporary, tests it against
-// only the bounds of T it can fall outside, and gives T's cast of it, or 0.
+// type of its name, int8_t through uint64_t, but for the target-width
+// types, unsafe_size_t and unsafe_uintptr_t, which are size_t and
+// uintptr_t, and a bool is a C bool, with true and false written as C's
+// own. A lossless widening needs nothing written, since C converts a
+// narrower integer to a wider one keeping its value. A conversion T(x),
+// which the checker allows only where it cannot fail, is a C cast;
+// v, ok := T(x) holds x in a temporary, tests it against only the bounds
+// of T it can fall outside, and gives T's cast of it, or 0. A target-width
+// T's largest value is tested as C's SIZE_MAX or UINTPTR_MAX, and a
+// target-width x is taken to reach the largest 64-bit value; either is
+// compared as a uint64_t, so the test is never one clang can tell is
+// always true on a target where the two types are as wide as each other.
 // A constant expression is written as the value the checker computed, never
 // as its operators; one too large for an int64 gets a u suffix. A character
 // literal is written as its byte's value, a plain C int literal; arithmetic
@@ -117,7 +124,8 @@
 // the standard library.
 //
 // Header returns tack.h, which the C files are compiled against: an
-// include guard, TACK_H, stdbool.h and stdint.h, tack_string if a
+// include guard, TACK_H, stdbool.h and stdint.h, stddef.h if a signature
+// uses size_t, tack_string if a
 // signature uses a string, and with it the string helpers TACK_C_STR_LEN,
 // TACK_STR and TACK_STR_N, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its

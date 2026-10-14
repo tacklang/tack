@@ -174,6 +174,14 @@ knows the value of:
 - a conversion of a known value that fits its type, such as `int8(k)`;
 - arithmetic on known values, such as `len(a) - 1`.
 
+A target-width type, `unsafe_size_t` or `unsafe_uintptr_t`, is as wide as
+the target makes it, from 32 to 64 bits, so where it wraps above
+4294967295 depends on the target. A value of one is known only up to
+4294967295: after `s := unsafe_size_t(4294967295)`, `s + 1` is not a
+known value, and is computed at run time. Below 0 every target wraps, so
+after `z := unsafe_size_t(0)`, `z - 1` is an error, as it is for any
+unsigned type.
+
 A mutable variable, a parameter and a call never have a known value, and
 neither does `len` of a mutable string variable, even one initialized with
 a literal:
@@ -291,7 +299,10 @@ in <!-- case: safety-counting-loop-assigns -->`for mut i := 0; i < 3; i++ { sum 
 `a[i]` needs a proof. Nor does a step that could wrap: an `int8` at 2
 plus 126 is -128, which is below 3 again,
 so <!-- case: safety-counting-loop-may-wrap -->`for mut i int8 = 2; i < 3; i += 126 { sum += a[i] }`
-proves nothing about `i`. An unsigned variable is never negative, so its
+proves nothing about `i`. A target-width variable could wrap past
+4294967295 on a 32-bit target, so its step must stay at or below that:
+<!-- case: unsafe-counting-loop-may-wrap -->`for mut i unsafe_size_t = 1; i <= 4294967295; i++ { q += 10 / i }`
+proves nothing about `i` either. An unsigned variable is never negative, so its
 condition alone bounds it from both sides.
 
 A `switch` case proves inside its body what `tag == v1 || tag == v2 ...`
@@ -437,6 +448,8 @@ a mutable global, and, on comparing a `uint64` with `len`, the operand to
 convert: <!-- note: safety-no-proof-unsigned-len -->`len gives an int64; convert u first with i, ok := int64(u)`.
 An unproven `uint64` index into a string gets the same advice in its
 error: <!-- error: string-index-uint64 -->`index u may be out of range; convert u first with i, ok := int64(u), or use v, ok := ...[u]`.
+A target-width index is an error whatever proves it, in either form, with
+the same advice: <!-- error: unsafe-index-array -->`index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
 
 ## Per operation
 
@@ -699,6 +712,19 @@ An untyped constant that does not fit is a compile error in either form:
 is <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8`.
 Strings and bools cannot be converted: `int64("7")`
 is <!-- error: safety-conversion-string -->`cannot convert string to int64`.
+
+A value fits a target-width type, `unsafe_size_t` or `unsafe_uintptr_t`,
+on every target only from 0 to 4294967295, and that is what `T(x)` takes
+from a constant or known value. A constant past it is an error in either
+form, <!-- error: unsafe-const-overflow -->`constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
+A known value past it, but within 64 bits, fits on some targets only, so
+`T(x)` is the error a value not known gets, as for `unsafe_size_t(x)`
+after `x := uint64(5000000000)`, <!-- error: unsafe-conversion-known-past-32-bits -->`converting uint64 to unsafe_size_t can fail; use v, ok := unsafe_size_t(...)`,
+and the checked form tests it against the target's real largest value at
+run time, as it does a value not known. The two target-width types do not
+widen to each other, since one may be narrower than the other, so
+`unsafe_uintptr_t(s)` for an `unsafe_size_t` `s` needs the checked form
+too.
 
 ## Compile-time errors
 

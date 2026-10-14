@@ -15,15 +15,15 @@ typedef struct {
 
 typedef struct {
     uint8_t e[3];
-} tack_array_12;
+} tack_array_14;
 
 typedef struct {
     bool e[256];
-} tack_array_13;
+} tack_array_15;
 
 typedef struct {
     int64_t e[3];
-} tack_array_14;
+} tack_array_16;
 
 static const unsigned char tack_str0[5] = {65, 122, 0, 255, 0};
 
@@ -38,7 +38,7 @@ static uint8_t tack_div_uint8(uint8_t a, uint8_t b) {
 }
 
 static const uint8_t tack_4_main7_newline = 10;
-static const tack_array_12 tack_4_main7_letters = {{97, 98, 99}};
+static const tack_array_14 tack_4_main7_letters = {{97, 98, 99}};
 static const uint8_t tack_4_main4_last = 122;
 static const bool tack_4_main7_ordered = true;
 
@@ -55,10 +55,10 @@ static void tack_4_main4_main(void) {
     v_tripled = ((uint8_t)((uint64_t)v_tripled * (uint64_t)3));
     const int64_t v_wide = 97;
     const uint8_t v_d = tack_4_main4_next(v_c);
-    tack_array_13 v_seen = (tack_array_13){0};
+    tack_array_15 v_seen = (tack_array_15){0};
     v_seen.e[120] = true;
     const uint8_t v_gap = tack_div_uint8(10, ((uint8_t)((uint64_t)99 - (uint64_t)97)));
-    tack_array_14 v_counts = (tack_array_14){0};
+    tack_array_16 v_counts = (tack_array_16){0};
     v_counts.e[2] = ((uint8_t)((uint64_t)122 - (uint64_t)97));
     if (((((v_d != 98) || !v_seen.e[120]) || (tack_4_main4_last != 122)) || !tack_4_main7_ordered) || (tack_4_main7_newline != 10)) {
         tack_builtin_exit(1);

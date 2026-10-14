@@ -404,10 +404,11 @@ func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 }
 
 // typeInterval returns the bounds the type of e, a subject, gives it, none
-// for a type without them.
+// for a type without them. A target-width type's are the widest it has on
+// any target (see typeBounds).
 func typeInterval(e ast.Expr) interval {
 	var known interval
-	if typ := ast.TypeOf(e); types.Bits(typ) > 0 {
+	if typ := ast.TypeOf(e); types.MaxBits(typ) > 0 {
 		known.lo, known.hi = typeBounds(typ)
 		known.hasLo, known.hasHi = true, true
 	}

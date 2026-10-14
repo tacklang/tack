@@ -148,6 +148,45 @@ var widthCases = []struct{ name, src string }{
 		),
 	},
 	{
+		"target widths wrap",
+		widthProgram(
+			"a unsafe_size_t, b uint32, p unsafe_uintptr_t",
+			"0, 1, 0",
+			"m := a - b\nq := p - b\nreturn m + 1 == 0 && m * m == 1 && m / 2 + 1 > m / 2 && q + 1 == 0 && m % 2 == 1",
+		),
+	},
+	{
+		"target widths widen",
+		widthProgram(
+			"a uint8, b uint16, c uint32, s unsafe_size_t, p unsafe_uintptr_t",
+			"255, 65535, 4294967295, 7, 9",
+			"var x unsafe_size_t = a\nvar y unsafe_uintptr_t = b\nvar z unsafe_size_t = c\n"+
+				"var w uint64 = s + c\nvar v uint64 = p\n"+
+				"return x == 255 && y == 65535 && z == 4294967295 && w == 4294967302 && v == 9 && c > s && a > p",
+		),
+	},
+	{
+		"target widths convert",
+		widthProgram(
+			"n int64, big uint64, s unsafe_size_t, small int8",
+			"-1, 18446744073709551615, 300, 5",
+			"a, okA := unsafe_size_t(n)\nb, okB := unsafe_uintptr_t(big)\nc, okC := uint8(s)\n"+
+				"d, okD := int64(s)\ne, okE := unsafe_uintptr_t(s)\nf, okF := unsafe_size_t(small)\n"+
+				"g, okG := int8(s)\nh, okH := uint32(s)\nvar wb uint64 = b\nsame, okSame := unsafe_size_t(s)\n"+
+				"return !okA && a == 0 && okB && wb == big && !okC && c == 0 && okD && d == 300 &&\n"+
+				"    okE && e == 300 && okF && f == 5 && !okG && g == 0 && okH && h == 300 && okSame && same == s",
+		),
+	},
+	{
+		"compound assignment in target widths",
+		widthProgram(
+			"s unsafe_size_t, c uint32",
+			"7, 8",
+			"mut x unsafe_size_t = s\nx -= c\nmut y := x\nx++\ny *= 2\nmut z unsafe_uintptr_t = 5\nz %= 3\n"+
+				"return x == 0 && y + 2 == 0 && z == 2",
+		),
+	},
+	{
 		"compound assignment in narrow types",
 		widthProgram(
 			"a int8, b uint16",

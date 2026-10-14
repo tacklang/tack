@@ -17,9 +17,7 @@ import (
 // range.
 func (c *Checker) stringElement(ix *ast.Index, idx types.Type) types.Type {
 	switch {
-	case idx == types.Invalid:
-	case !types.IsInteger(idx):
-		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.typeName(idx))
+	case !c.indexType(ix, idx):
 	case c.checkedIndex == ix:
 		if v, known := c.knownValue(ix.Index); known && c.constantOutside(ix.X, v) {
 			c.reportOutside(ix, v)

@@ -9,12 +9,25 @@
 //
 // The basic types have fixed IDs that mean the same thing in every Table, so
 // code can name them as constants: the signed integers Int8 to Int64, the
-// unsigned Uint8 to Uint64, String, a sequence of bytes, and Bool.
-// UntypedInt is the type of an integer constant expression until it is
-// given one where it is used; no program can name it. IsInteger, IsUnsigned
-// and Bits describe the integer types, and Widens says which can be used as
-// which without a conversion: every value of the one must be a value of the
-// other.
+// unsigned Uint8 to Uint64, the unsigned target-width integers UnsafeSize
+// and UnsafeUintptr, String, a sequence of bytes, and Bool. UntypedInt is
+// the type of an integer constant expression until it is given one where it
+// is used; no program can name it. IsInteger, IsUnsigned and Bits describe
+// the integer types, and Widens says which can be used as which without a
+// conversion: every value of the one must be a value of the other.
+//
+// A target-width type (TargetWidth), unsafe_size_t or unsafe_uintptr_t, is
+// C's size_t or uintptr_t, as wide as the target makes it, from 32 to 64
+// bits. The compiler does not know which, so it has no Bits; PortableBits
+// is the width every target gives it, 32, which bounds its constants at
+// PortableMax, and MaxBits the widest any target does, 64, which bounds
+// what it can hold anywhere. Widens holds only for a pair that widens at
+// every width in that range: uint8, uint16 and uint32 into either, and
+// either into uint64, but neither into the other.
+//
+// Adding a basic type moves the first ID a Table hands out, so the IDs of
+// arrays and structs, which the C backend names its types after, all
+// move with it.
 //
 // Composite types get their IDs from the Table of the compilation that uses
 // them. An array type is added the first time it is seen, and found by its

@@ -1252,6 +1252,39 @@ func TestBuiltMutParamsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The unsafe-sizes example uses unsafe_size_t and unsafe_uintptr_t, C's
+// size_t and uintptr_t: the narrow unsigned types widening into them and
+// both widening into uint64, the common type of mixed operands, checked
+// conversions that fit and that fail at the host's real width, arithmetic
+// wrapping there, arithmetic on known values past every 32-bit value left
+// to run time, division, struct fields, mut parameters, arrays,
+// globals, a range count, results and a switch. Each check prints its
+// name and "ok", or "FAIL". Some checks hold only on a 64-bit host, such
+// as a uint64 above every 32-bit value converting to unsafe_size_t.
+func TestBuiltUnsafeSizesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "unsafe-sizes")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("unsafe-sizes exited with %v, want status 0", err)
+	}
+	want := "widening in ok\n" +
+		"widening out ok\n" +
+		"common types ok\n" +
+		"checked conversions that fit ok\n" +
+		"checked conversions that fail ok\n" +
+		"wrapping ok\n" +
+		"known values past 32 bits ok\n" +
+		"division ok\n" +
+		"struct fields and mut parameters ok\n" +
+		"arrays ok\n" +
+		"globals and a range count ok\n" +
+		"results ok\n" +
+		"switch ok\n"
+	if string(out) != want {
+		t.Errorf("unsafe-sizes printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The strcmp example compares strings with all six operators: by content,
 // a proper prefix less, the empty string least, embedded zero bytes and
 // bytes from 0x80 up compared as unsigned bytes, strings returned by calls,

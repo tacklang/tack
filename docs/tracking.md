@@ -122,7 +122,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |------------------------------------|---------|-----|-------------------------------------------------------------------|
 | `int8` `int16` `int32` `int64`     | yes     | yes | Signed, `int8_t` to `int64_t`                                     |
 | `uint8` `uint16` `uint32` `uint64` | yes     | yes | Unsigned, `uint8_t` to `uint64_t`; no `byte`                      |
-| Lossless widening                  | yes     | yes | Implicit wherever a value is used; no `int`                       |
+| `unsafe_size_t` `unsafe_uintptr_t` | yes     | yes | Unsigned, the target's width (32 to 64 bits), `size_t` and `uintptr_t`; `uint8` to `uint32` widen in, they widen to `uint64`, not to each other; constants at most 4294967295; never an index |
+| Lossless widening                  | yes     | yes | Implicit wherever a value is used, when it holds on every target; no `int` |
 | `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes; all six comparisons, by unsigned bytes |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
 | Float types                        | no      | no  |                                                                   |

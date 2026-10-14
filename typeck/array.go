@@ -183,9 +183,7 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 
 	elem, n := c.table.Elem(base), c.table.Len(base)
 	switch {
-	case idx == types.Invalid:
-	case !types.IsInteger(idx):
-		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.typeName(idx))
+	case !c.indexType(ix, idx):
 	case c.checkedIndex == ix:
 		// Bound with ok, the index needs no proof; a constant one is still
 		// checked here, since one out of range always fails.
@@ -197,6 +195,28 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		c.requireInRange(ix, base, n, write)
 	}
 	return elem
+}
+
+// indexType reports whether idx, the type of the index of ix, an element
+// of an array or a string, is one an index can have, and reports it when
+// it is not: an integer, other than a target-width one, which no index
+// may be, in either form, whatever proves it. The error for that names the
+// conversion to make first, to int64, the type of len, which every proof
+// compares an index with. An Invalid idx has been reported already.
+func (c *Checker) indexType(ix *ast.Index, idx types.Type) bool {
+	switch {
+	case idx == types.Invalid:
+		return false
+	case !types.IsInteger(idx):
+		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.typeName(idx))
+		return false
+	case types.TargetWidth(idx):
+		c.errorf(ix.Index.Spanned(), "index cannot be %s; convert it first with i, ok := int64(%s)",
+			c.typeName(idx), c.text(ix.Index.Spanned()))
+		return false
+	default:
+		return true
+	}
 }
 
 // constantInRange reports whether the constant index v is in [0, n).
