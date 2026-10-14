@@ -1872,6 +1872,43 @@ extern-header-clash/main.tck:13:6: note: type tack_results_pair of package main 
    |	     ^~~~~~~~~~~~~~~~~
 14 |	}
 
+-- extern-header-helper-clash/main.tck --
+package main
+
+type TACK_STR struct {
+}
+
+type TACK_C_STR_LEN struct {
+}
+
+extern("TACK_STR_N") func wrap(s string) TACK_STR
+
+extern func size(t TACK_C_STR_LEN) int64
+
+func main() {
+}
+-- extern-header-helper-clash/expected --
+stage: codegen
+---
+
+extern-header-helper-clash/main.tck:3:6: error: type TACK_STR of package main cannot be named TACK_STR in tack.h: that is a tack.h string helper
+02 |	
+03 |	type TACK_STR struct {
+   |	     ^~~~~~~~
+04 |	}
+
+extern-header-helper-clash/main.tck:6:6: error: type TACK_C_STR_LEN of package main cannot be named TACK_C_STR_LEN in tack.h: that is a tack.h string helper
+05 |	
+06 |	type TACK_C_STR_LEN struct {
+   |	     ^~~~~~~~~~~~~~
+07 |	}
+
+extern-header-helper-clash/main.tck:9:27: error: extern func wrap of package main cannot be named TACK_STR_N in tack.h: that is a tack.h string helper
+08 |	
+09 |	extern("TACK_STR_N") func wrap(s string) TACK_STR
+   |	                          ^~~~
+10 |	
+
 -- extern-in-initializer/main.tck --
 package main
 

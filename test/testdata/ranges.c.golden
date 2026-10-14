@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t e[4];
 } tack_array_12;
@@ -85,7 +87,7 @@ static tack_array_12 tack_4_main7_numbers(void) {
 
 static tack_string tack_4_main4_word(void) {
     tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
-    return (tack_string){tack_str0, 4};
+    return (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
 }
 
 static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
@@ -179,21 +181,21 @@ static void tack_4_main4_main(void) {
     if ((tack_4_main5_calls != 2) || (v_total != 12)) {
         tack_builtin_exit(4);
     }
-    tack_string v_s = (tack_string){tack_str1, 2};
+    tack_string v_s = (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)};
     int64_t v_bytes = 0;
     {
         const tack_string tack_r14 = v_s;
         for (int64_t tack_k15 = 0; tack_k15 < tack_r14.len; tack_k15++) {
             const int64_t v_i = tack_k15;
             const uint8_t v_b = tack_r14.ptr[tack_k15];
-            v_s = (tack_string){tack_str2, 3};
+            v_s = (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)};
             v_bytes = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_bytes * (uint64_t)1000)) + (uint64_t)((int64_t)v_b))) + (uint64_t)v_i));
         }
     }
     if ((v_bytes != 97099) || ((v_s).len != 3)) {
         tack_builtin_exit(5);
     }
-    if ((tack_4_main5_count((tack_string){tack_str3, 6}, 97) != 3) || (tack_4_main5_count((tack_string){tack_str4, 0}, 97) != 0)) {
+    if ((tack_4_main5_count((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, 97) != 3) || (tack_4_main5_count((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, 97) != 0)) {
         tack_builtin_exit(6);
     }
     {
@@ -203,7 +205,7 @@ static void tack_4_main4_main(void) {
         }
     }
     {
-        const tack_string tack_r18 = (tack_string){tack_str4, 0};
+        const tack_string tack_r18 = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)};
         for (int64_t tack_k19 = 0; tack_k19 < tack_r18.len; tack_k19++) {
             const int64_t v_i = tack_k19;
             tack_builtin_exit(((int64_t)((uint64_t)v_i + (uint64_t)8)));
@@ -256,7 +258,7 @@ static void tack_4_main4_main(void) {
     }
     int64_t v_upper = 0;
     {
-        const tack_string tack_r28 = (tack_string){tack_str5, 12};
+        const tack_string tack_r28 = (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)};
         for (int64_t tack_k29 = 0; tack_k29 < tack_r28.len; tack_k29++) {
             const uint8_t v_b = tack_r28.ptr[tack_k29];
             if ((v_b >= 65) && (v_b <= 90)) {

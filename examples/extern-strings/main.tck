@@ -1,0 +1,45 @@
+package main
+
+// Every extern func below is written in C, in strings.c, and builds the
+// string it returns with one of tack.h's string helpers: TACK_STR for a
+// string literal, TACK_STR_N for bytes and a length, and TACK_C_STR_LEN
+// for the length of the string a byte array holds.
+
+// literal returns a C string literal holding a zero byte, which counts.
+extern func literal() string
+
+// empty returns the empty literal.
+extern func empty() string
+
+// prefix returns the first n letters of the alphabet, at most all ten.
+extern func prefix(n int64) string
+
+// buffer returns three bytes C wrote into a buffer of sixteen.
+extern func buffer() string
+
+// size returns TACK_C_STR_LEN of a literal, its length without the zero.
+extern func size() int64
+
+// global returns a string C built at file scope.
+extern func global() string
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    s := literal()
+    check(len(s) == 3 && s[0] == 'a' && s[1] == 0 && s[2] == 'b', "literal")
+    check(empty() == "" && len(empty()) == 0, "empty")
+    check(prefix(3) == "abc" && prefix(0) == "", "prefix")
+    check(prefix(99) == "abcdefghij", "prefix past the end")
+    check(buffer() == "xyz", "buffer")
+    check(size() == 5, "size")
+    check(global() == "global", "global")
+}

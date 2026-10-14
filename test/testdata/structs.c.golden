@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_x;
     int64_t f_y;
@@ -133,7 +135,7 @@ static void tack_4_main4_main(void) {
     }
     tack_4_main4_Grid v_g = (tack_4_main4_Grid){0};
     v_g.f_cells.e[2] = 5;
-    v_g.f_name = (tack_string){tack_str0, 4};
+    v_g.f_name = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
     {
         (void)v_g.f_cells;
         for (int64_t tack_k6 = 0; tack_k6 < 3; tack_k6++) {

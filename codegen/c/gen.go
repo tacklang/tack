@@ -157,7 +157,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	return g.buf.Bytes(), nil
 }
 
-// emitPreamble writes the headers and tack_string. <stdbool.h> and
+// emitPreamble writes the headers, tack_string and TACK_C_STR_LEN. <stdbool.h> and
 // <stdint.h> are always included, and a freestanding C implementation has
 // both; includes, the headers the bodies of the builtins the program calls
 // need, follow them, so a program that calls none needs no C library.
@@ -178,6 +178,11 @@ func (g *generator) emitPreamble(includes []string) {
 	g.buf.WriteString("    const unsigned char *ptr;\n")
 	g.buf.WriteString("    int64_t len;\n")
 	g.buf.WriteString("} tack_string;\n\n")
+
+	// A pooled string's length is its array's size less the trailing zero
+	// emitConstantPool adds, so the length a value carries is read off the
+	// array it points at rather than written out beside it.
+	g.buf.WriteString(strLenMacro + "\n")
 }
 
 // poolCheckedZero pools the empty string when value is v, ok := a[i] on an
@@ -457,7 +462,7 @@ func (g *generator) constValue(c any) (string, bool) {
 	case bool:
 		return strconv.FormatBool(v), true
 	case string:
-		return fmt.Sprintf("{%s, %d}", g.strLabel(v), len(v)), true
+		return "{" + g.strParts(v) + "}", true
 	default:
 		return "", false
 	}
@@ -1781,7 +1786,14 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 
 // stringValue is a string literal as a tack_string value.
 func (g *generator) stringValue(s string) string {
-	return fmt.Sprintf("(tack_string){%s, %d}", g.strLabel(s), len(s))
+	return "(tack_string){" + g.strParts(s) + "}"
+}
+
+// strParts is the members of s, a pooled string, as a tack_string: its
+// array and that array's length, TACK_C_STR_LEN of it.
+func (g *generator) strParts(s string) string {
+	label := g.strLabel(s)
+	return label + ", TACK_C_STR_LEN(" + label + ")"
 }
 
 // cType returns the C type a Tack type lowers to: a basic type's own, or for

@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 static const unsigned char tack_str0[13] = {104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 10, 0};
 
 // print: write s to stdout exactly as given. An empty string is not
@@ -32,7 +34,7 @@ static void tack_builtin_exit(int64_t code) {
 static void tack_13_example_2ecom14_module_2dmains5_tools13_hello_2dworld4_main(void);
 
 static void tack_13_example_2ecom14_module_2dmains5_tools13_hello_2dworld4_main(void) {
-    tack_builtin_print((tack_string){tack_str0, 12});
+    tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
     tack_builtin_exit(4);
 }
 

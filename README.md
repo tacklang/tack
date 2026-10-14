@@ -911,14 +911,16 @@ makes for itself, which has a letter after `tack_`.
   than its Tack name. Every `.c` file in a package's directory, or beside
   a single-file target, is compiled and linked with the program, against
   a generated `tack.h` that declares each extern func and the types it
-  uses; `--emit-header` writes `tack.h` for editors. Every Tack type
+  uses, with helpers for building strings in C (`TACK_STR`, `TACK_STR_N`,
+  `TACK_C_STR_LEN`) when a string crosses; `--emit-header` writes `tack.h`
+  for editors. Every Tack type
   crosses by value, except a `mut` parameter, which C gets as a pointer to
   the caller's variable, `T *`, to use only during the call. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its
   types. [docs/extern.md](docs/extern.md) is the whole of it: the build,
-  the ABI and `tack.h`'s names, the rules for C names, what the C side
+  the ABI and `tack.h`'s names and helpers, the rules for C names, what the C side
   must promise, the missing-definition check, every diagnostic, and a
   worked example.
 

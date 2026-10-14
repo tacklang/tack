@@ -371,6 +371,25 @@ func TestBuiltExternMutPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternStringsPassesEveryCheck builds examples/extern-strings,
+// whose C half makes the strings it returns with tack.h's string helpers,
+// and checks each string Tack got: a literal holding a zero byte, the
+// empty literal, a prefix of an array, cut at its length, bytes from a
+// buffer, an array's length, and a string built at file scope.
+func TestBuiltExternStringsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "extern-strings")
+	want := "literal ok\n" +
+		"empty ok\n" +
+		"prefix ok\n" +
+		"prefix past the end ok\n" +
+		"buffer ok\n" +
+		"size ok\n" +
+		"global ok\n"
+	if out, code := runBuilt(t, bin); out != want || code != 0 {
+		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
 // TestBuiltExternModuleExits42 builds examples/extern-module, whose main
 // package and geo package each have C files defining their own extern
 // funcs, over types tack.h names Point for main's and geo_Point and

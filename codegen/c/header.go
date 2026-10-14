@@ -19,6 +19,36 @@ const HeaderName = "tack.h"
 // it may be.
 const guardName = "TACK_H"
 
+// strLenMacro defines TACK_C_STR_LEN(x), the length of the string a byte
+// array holds: its size less the trailing zero a string literal, or the
+// generated source's pool, ends it with. The second term is 0 for an
+// array and fails to compile for a pointer, whose size says nothing about
+// its string: an array and a pointer to its first element have different
+// types, and a pointer and one to its first element have the same, which
+// makes the char array's size negative. Both tack.h and the generated
+// source define it.
+const strLenMacro = "#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * " +
+	"__builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))\n"
+
+// stringHelpers are the macros tack.h defines, after tack_string, for C
+// building strings to hand Tack: TACK_C_STR_LEN; TACK_STR(lit), a string
+// literal as a tack_string, which the "" around it makes anything but a
+// literal fail to compile; and TACK_STR_N(p, n), n bytes at p, which
+// _Generic restricts to the two pointers a string's bytes can be, so a
+// char * or NULL fails to compile rather than converting silently, as it
+// would under the build's -w.
+const stringHelpers = "// TACK_C_STR_LEN(a) is the length of the string the byte array a holds,\n" +
+	"// its size less the zero that ends it. A pointer does not compile.\n" +
+	strLenMacro +
+	"// TACK_STR(lit) is the string literal lit as a tack_string. Only a\n" +
+	"// literal compiles.\n" +
+	"#define TACK_STR(lit) ((tack_string){(const unsigned char *)(\"\" lit \"\"), " +
+	"sizeof (\"\" lit \"\") - 1})\n" +
+	"// TACK_STR_N(p, n) is the n bytes at p, a const unsigned char * or an\n" +
+	"// unsigned char *, as a tack_string. Any other pointer does not compile.\n" +
+	"#define TACK_STR_N(p, n) ((tack_string){_Generic((p), " +
+	"const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})\n"
+
 // Header returns tack.h for prog, which must have been generated without
 // diagnostics: the C declarations the C files linked with prog compile
 // against. It defines every type an extern func's signature uses, and
@@ -71,8 +101,11 @@ func newHeader(prog *ast.Program) *header {
 		pkgOf:   make(map[types.Type]*ast.Package),
 		seen:    make(map[types.Type]bool),
 		names: map[string]owner{
-			"tack_string": {what: "tack.h's string type"},
-			guardName:     {what: "tack.h's include guard"},
+			"tack_string":    {what: "tack.h's string type"},
+			"TACK_C_STR_LEN": {what: "a tack.h string helper"},
+			"TACK_STR":       {what: "a tack.h string helper"},
+			"TACK_STR_N":     {what: "a tack.h string helper"},
+			guardName:        {what: "tack.h's include guard"},
 		},
 	}
 	for _, pkg := range prog.Packages {
@@ -262,7 +295,8 @@ func (h *header) render() []byte {
 	b.WriteString("#include <stdbool.h>\n#include <stdint.h>\n")
 	if h.strings {
 		b.WriteString(
-			"\ntypedef struct {\n    const unsigned char *ptr;\n    int64_t len;\n} tack_string;\n",
+			"\ntypedef struct {\n    const unsigned char *ptr;\n    int64_t len;\n} tack_string;\n\n" +
+				stringHelpers,
 		)
 	}
 	for _, typ := range h.order {

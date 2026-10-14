@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_x;
     int64_t f_y;
@@ -74,36 +76,36 @@ static void tack_4_main5_twice(int64_t * p_n) {
 static void tack_4_main5_check(bool p_cond, tack_string p_name) {
     tack_builtin_print(p_name);
     if (p_cond) {
-        tack_builtin_print((tack_string){tack_str0, 4});
+        tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
     } else {
-        tack_builtin_print((tack_string){tack_str1, 6});
+        tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
     }
 }
 
 static void tack_4_main4_main(void) {
     int64_t v_n = 0;
     tack_4_main4_fill(&v_n, 42);
-    tack_4_main5_check((v_n == 42), (tack_string){tack_str2, 7});
+    tack_4_main5_check((v_n == 42), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 2, .f_y = (-3)};
     tack_4_main4_grow(&v_p, 5);
-    tack_4_main5_check((tack_eq_12(v_p, (tack_4_main5_Point){.f_x = 10, .f_y = (-15)})), (tack_string){tack_str3, 6});
+    tack_4_main5_check((tack_eq_12(v_p, (tack_4_main5_Point){.f_x = 10, .f_y = (-15)})), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     tack_4_main4_fill(&v_p.f_y, 7);
-    tack_4_main5_check(((v_p.f_y == 7) && (v_p.f_x == 10)), (tack_string){tack_str4, 5});
+    tack_4_main5_check(((v_p.f_y == 7) && (v_p.f_x == 10)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_array_13 v_a = (tack_array_13){{1, 2, 3, 4}};
     tack_4_main4_fill(&v_a.e[2], 9);
-    tack_4_main5_check((tack_eq_13(v_a, (tack_array_13){{1, 2, 9, 4}})), (tack_string){tack_str5, 7});
+    tack_4_main5_check((tack_eq_13(v_a, (tack_array_13){{1, 2, 9, 4}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_clear(&v_a);
-    tack_4_main5_check((tack_eq_13(v_a, (tack_array_13){{0, 0, 0, 0}})), (tack_string){tack_str6, 5});
+    tack_4_main5_check((tack_eq_13(v_a, (tack_array_13){{0, 0, 0, 0}})), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     bool v_on = true;
     const bool v_was = tack_4_main6_toggle(&v_on);
-    tack_4_main5_check((v_was && !v_on), (tack_string){tack_str7, 17});
+    tack_4_main5_check((v_was && !v_on), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     int64_t v_x = 9;
     int64_t v_y = 3;
     tack_4_main5_order(&v_x, &v_y);
-    tack_4_main5_check(((v_x == 3) && (v_y == 9)), (tack_string){tack_str8, 26});
+    tack_4_main5_check(((v_x == 3) && (v_y == 9)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     int64_t v_t = 5;
     tack_4_main5_twice(&v_t);
-    tack_4_main5_check((v_t == 20), (tack_string){tack_str9, 14});
+    tack_4_main5_check((v_t == 20), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
 }
 
 int main(void) {

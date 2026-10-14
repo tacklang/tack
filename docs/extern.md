@@ -150,7 +150,10 @@ A name `tack.h` cannot give is an error whatever is built:
   both named lexer_Token in tack.h`;
 - a type named like one of `tack.h`'s own: `type tack_string of package
   main cannot be named tack_string in tack.h: that is tack.h's string type`,
-  and likewise `TACK_H`, its include guard;
+  and likewise `TACK_H`, its include guard, and `TACK_C_STR_LEN`,
+  `TACK_STR` and `TACK_STR_N`, its string helpers, for a type or an extern
+  func's C name: `extern func wrap of package main cannot be named
+  TACK_STR_N in tack.h: that is a tack.h string helper`;
 - a type or field named with a C keyword, once an extern signature uses
   it: `type int cannot be named int in C: it is a C keyword`, `field while
   of type Shape cannot be named while in C: it is a C keyword`.
@@ -164,6 +167,35 @@ So `extern func grow(mut p Point, k int64)` is `void grow(Point * /* p */, int64
 in `tack.h`, and the C side reads and writes the caller's point through
 `p->x`. Slices, which C would get as a `{ptr, len}` struct, do not exist in
 Tack yet.
+
+## Helpers for C
+
+`tack.h` also defines helpers that make the C side shorter and harder to
+get wrong, each only when the program uses what it helps with. When
+`tack_string` is defined, because some extern signature uses a string,
+so are three macros for building one:
+
+- `TACK_STR(lit)` is a string literal as a `tack_string`:
+  `return TACK_STR("hello");`. Its length is the literal's size less the
+  zero C ends it with, so a zero byte inside the literal counts. Anything
+  but a literal is a compile error.
+- `TACK_STR_N(p, n)` is the `n` bytes at `p`, for bytes in a buffer or
+  behind a pointer, whose length only the caller knows. `p` must be a
+  `const unsigned char *` or an `unsigned char *`, or an array of either;
+  a `char *`, `NULL` or any other pointer is a compile error, not a silent
+  conversion, which under the build's `-w` it would otherwise be. Convert
+  a `char *` explicitly: `TACK_STR_N((const unsigned char *)s, len)`.
+- `TACK_C_STR_LEN(a)` is the length of the string the byte array `a`
+  holds: its size less one, for the zero that ends it. A pointer is a
+  compile error, since its size says nothing about its string, but an
+  array is taken at its full size, so `unsigned char buf[64]` holding
+  `"hi"` gives 63, not 2; use `TACK_STR_N` with the real length there.
+
+`examples/extern-strings` uses each. They make a string, not its bytes'
+lifetime: the bytes must still stay valid as the trust boundary below
+says, which a literal's and a static array's do. A future helper follows
+the same rule as these: it is defined in `tack.h`, only when the program
+uses the type it serves, and its names are reserved there.
 
 ## The trust boundary
 
@@ -357,6 +389,16 @@ typedef struct {
     const unsigned char *ptr;
     int64_t len;
 } tack_string;
+
+// TACK_C_STR_LEN(a) is the length of the string the byte array a holds,
+// its size less the zero that ends it. A pointer does not compile.
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+// TACK_STR(lit) is the string literal lit as a tack_string. Only a
+// literal compiles.
+#define TACK_STR(lit) ((tack_string){(const unsigned char *)("" lit ""), sizeof ("" lit "") - 1})
+// TACK_STR_N(p, n) is the n bytes at p, a const unsigned char * or an
+// unsigned char *, as a tack_string. Any other pointer does not compile.
+#define TACK_STR_N(p, n) ((tack_string){_Generic((p), const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})
 
 typedef struct {
     int64_t x;

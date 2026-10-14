@@ -53,7 +53,10 @@
 // Strings are pooled as byte arrays rather than C string literals, so any byte
 // survives without an escaping scheme. Each array has a trailing zero, so an
 // empty string is still a legal array, but the zero is never written out,
-// since every write is bounded by the length.
+// since every write is bounded by the length. A string value's length is
+// TACK_C_STR_LEN of its array, the array's size less that zero, rather than
+// a number written beside it: (tack_string){tack_str0,
+// TACK_C_STR_LEN(tack_str0)}.
 //
 // Every comparison of two strings, with any of the six operators, lowers to
 // tack_compare_strings(l, r) op 0, and an array or struct equality helper
@@ -115,7 +118,8 @@
 //
 // Header returns tack.h, which the C files are compiled against: an
 // include guard, TACK_H, stdbool.h and stdint.h, tack_string if a
-// signature uses a string, a definition of every array and struct type an
+// signature uses a string, and with it the string helpers TACK_C_STR_LEN,
+// TACK_STR and TACK_STR_N, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,

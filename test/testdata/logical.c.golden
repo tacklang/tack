@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 static const unsigned char tack_str0[2] = {10, 0};
 static const unsigned char tack_str1[6] = {102, 105, 114, 115, 116, 0};
 static const unsigned char tack_str2[6] = {110, 101, 118, 101, 114, 0};
@@ -42,7 +44,7 @@ static void tack_4_main4_main(void);
 
 static bool tack_4_main5_check(tack_string p_name, bool p_ok) {
     tack_builtin_print(p_name);
-    tack_builtin_print((tack_string){tack_str0, 1});
+    tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
     return p_ok;
 }
 
@@ -51,10 +53,10 @@ static bool tack_4_main4_safe(int64_t p_n) {
 }
 
 static void tack_4_main4_main(void) {
-    if (tack_4_main5_check((tack_string){tack_str1, 5}, false) && tack_4_main5_check((tack_string){tack_str2, 5}, true)) {
+    if (tack_4_main5_check((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, false) && tack_4_main5_check((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, true)) {
         tack_builtin_exit(1);
     }
-    if (tack_4_main5_check((tack_string){tack_str3, 6}, true) || tack_4_main5_check((tack_string){tack_str2, 5}, true)) {
+    if (tack_4_main5_check((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, true) || tack_4_main5_check((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, true)) {
         if (!tack_4_main4_safe(0) && tack_4_main4_safe(5)) {
             tack_builtin_exit(13);
         }

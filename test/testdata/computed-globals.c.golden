@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_x;
     int64_t f_y;
@@ -74,8 +76,8 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
 static const tack_4_main5_Point tack_4_main6_origin = {3, 4};
 static const tack_4_main7_Segment tack_4_main3_seg = {{3, 4}, {6, 8}};
 static const tack_array_14 tack_4_main5_table = {{10, 20, 30, 40}};
-static const tack_array_15 tack_4_main5_names = {{{tack_str0, 4}, {tack_str1, 3}, {tack_str2, 3}}};
-static const tack_string tack_4_main4_word = {tack_str3, 4};
+static const tack_array_15 tack_4_main5_names = {{{tack_str0, TACK_C_STR_LEN(tack_str0)}, {tack_str1, TACK_C_STR_LEN(tack_str1)}, {tack_str2, TACK_C_STR_LEN(tack_str2)}}};
+static const tack_string tack_4_main4_word = {tack_str3, TACK_C_STR_LEN(tack_str3)};
 static const int8_t tack_4_main5_small = (-7);
 static const int64_t tack_4_main2_ox = 3;
 static const int64_t tack_4_main2_dy = 4;

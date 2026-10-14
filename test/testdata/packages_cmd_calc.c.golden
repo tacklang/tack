@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_kind;
     int64_t f_start;
@@ -157,7 +159,7 @@ static int64_t tack_4_calc4_geom4_Area(tack_4_calc4_geom3_Box p_b) {
 static tack_array_17 tack_4_calc4_geom6_Tokens(void) {
     tack_4_calc5_lexer5_Token tack_o3;
     tack_4_calc5_lexer5_Token tack_o4;
-    return (tack_o3 = tack_4_calc5_lexer5_First((tack_string){tack_str0, 1}), tack_o4 = tack_4_calc5_lexer5_First((tack_string){tack_str1, 1}), (tack_array_17){{tack_o3, tack_o4}});
+    return (tack_o3 = tack_4_calc5_lexer5_First((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), tack_o4 = tack_4_calc5_lexer5_First((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}), (tack_array_17){{tack_o3, tack_o4}});
 }
 
 static int64_t tack_4_calc4_geom4_size(void) {
@@ -197,9 +199,9 @@ static void tack_4_calc3_cmd4_calc4_main(void) {
     int64_t tack_o8;
     int64_t tack_o9;
     int64_t tack_o10;
-    const tack_4_calc5_lexer5_Token v_t = tack_4_calc5_lexer5_First((tack_string){tack_str0, 1});
+    const tack_4_calc5_lexer5_Token v_t = tack_4_calc5_lexer5_First((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
     tack_4_calc3_cmd4_calc5_check((v_t.f_kind == tack_4_calc5_lexer10_KindNumber), 1);
-    tack_4_calc3_cmd4_calc5_check((tack_4_calc5_lexer5_First((tack_string){tack_str1, 1}).f_kind == tack_4_calc5_lexer8_KindPlus), 2);
+    tack_4_calc3_cmd4_calc5_check((tack_4_calc5_lexer5_First((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}).f_kind == tack_4_calc5_lexer8_KindPlus), 2);
     tack_4_calc3_cmd4_calc5_check((tack_4_calc5_lexer8_KindPlus == 2), 3);
     tack_4_calc3_cmd4_calc5_check((tack_4_calc4_geom5_Limit == 20), 4);
     const tack_4_calc4_geom3_Box v_b = (tack_4_calc4_geom3_Box){.f_min = (tack_4_calc4_geom5_Point){.f_x = 1, .f_y = 1}, .f_max = (tack_4_calc4_geom5_Point){.f_x = 4, .f_y = 3}, .f_tok = v_t};
@@ -215,10 +217,10 @@ static void tack_4_calc3_cmd4_calc4_main(void) {
     tack_4_calc5_lexer5_Token v_z = (tack_4_calc5_lexer5_Token){0};
     tack_4_calc3_cmd4_calc5_check((((v_z.f_kind == 0) && (v_z.f_start == 0)) && (v_t.f_start == 0)), 12);
     const tack_4_calc5_lexer5_Token v_w = v_t;
-    tack_4_calc3_cmd4_calc5_check(((((tack_eq_12(v_w, v_t)) && (!tack_eq_12(v_z, v_t))) && (tack_eq_12(tack_4_calc5_lexer5_First((tack_string){tack_str0, 1}), v_t))) && (!tack_eq_12(tack_4_calc5_lexer5_First((tack_string){tack_str1, 1}), v_t))), 13);
+    tack_4_calc3_cmd4_calc5_check(((((tack_eq_12(v_w, v_t)) && (!tack_eq_12(v_z, v_t))) && (tack_eq_12(tack_4_calc5_lexer5_First((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), v_t))) && (!tack_eq_12(tack_4_calc5_lexer5_First((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}), v_t))), 13);
     tack_4_calc3_cmd4_calc5_check((tack_4_calc5_lexer5_Width(v_t) == 1), 14);
     tack_4_calc3_cmd4_calc5_check((((tack_4_calc3_cmd4_calc6_corner == 4) && (tack_4_calc3_cmd4_calc3_far == 8)) && tack_4_calc3_cmd4_calc8_atOrigin), 16);
-    tack_builtin_print((tack_string){tack_str2, 12});
+    tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     tack_builtin_exit((tack_o9 = (tack_o7 = (tack_o5 = tack_4_calc3_cmd4_calc6_counts.e[3], tack_o6 = tack_4_calc5_lexer4_Size(), ((int64_t)((uint64_t)tack_o5 + (uint64_t)tack_o6))), tack_o8 = tack_4_calc4_geom4_Size(), ((int64_t)((uint64_t)tack_o7 + (uint64_t)tack_o8))), tack_o10 = tack_4_calc5_chain3_one5_Depth(), ((int64_t)((uint64_t)tack_o9 + (uint64_t)tack_o10))));
 }
 

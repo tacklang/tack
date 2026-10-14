@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
     for (int64_t i = 0; i < n; i++) {
@@ -34,9 +36,9 @@ static void tack_builtin_exit(int64_t code) {
     exit((int)code);
 }
 
-static const tack_string tack_4_main1_a = {tack_str0, 3};
-static const tack_string tack_4_main1_b = {tack_str1, 3};
-static const tack_string tack_4_main5_empty = {tack_str2, 0};
+static const tack_string tack_4_main1_a = {tack_str0, TACK_C_STR_LEN(tack_str0)};
+static const tack_string tack_4_main1_b = {tack_str1, TACK_C_STR_LEN(tack_str1)};
+static const tack_string tack_4_main5_empty = {tack_str2, TACK_C_STR_LEN(tack_str2)};
 static const bool tack_4_main2_eq = true;
 static const bool tack_4_main2_ne = false;
 static const bool tack_4_main2_lt = true;

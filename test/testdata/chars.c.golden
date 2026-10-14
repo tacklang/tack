@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     uint8_t e[3];
 } tack_array_12;
@@ -67,7 +69,7 @@ static void tack_4_main4_main(void) {
     if ((((((void)v_counts, (int64_t)3) != 3) || (v_gap != 5)) || (v_counts.e[2] != 25)) || (v_tripled != 35)) {
         tack_builtin_exit(3);
     }
-    const tack_string v_hex = (tack_string){tack_str0, 4};
+    const tack_string v_hex = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
     if (((((((0 != 0) || (255 != 255)) || (65 != 65)) || ((v_hex).len != 4)) || (v_hex.ptr[1] != 122)) || (v_hex.ptr[2] != 0)) || (v_hex.ptr[3] != 255)) {
         tack_builtin_exit(4);
     }

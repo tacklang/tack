@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_x;
     int64_t f_y;
@@ -68,7 +70,7 @@ static tack_results_4_main6_divmod tack_4_main6_divmod(int64_t p_a, int64_t p_b)
 }
 
 static void tack_4_main4_main(void) {
-    if ((tack_4_main5_count((tack_string){tack_str0, 6}, 97) != 3) || (tack_4_main5_count((tack_string){tack_str1, 0}, 97) != 0)) {
+    if ((tack_4_main5_count((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 97) != 3) || (tack_4_main5_count((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 97) != 0)) {
         tack_builtin_exit(1);
     }
     if (tack_4_main3_sum((tack_4_main5_Point){.f_x = (-3), .f_y = 10}) != 7) {
@@ -86,7 +88,7 @@ static void tack_4_main4_main(void) {
     if (v_divided) {
         tack_builtin_exit(4);
     }
-    tack_builtin_print((tack_string){tack_str2, 3});
+    tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
 }
 
 int main(void) {

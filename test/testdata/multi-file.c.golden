@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_w;
     int64_t f_h;
@@ -42,7 +44,7 @@ static const int64_t tack_12_multi_2dfile4_unit = 2;
 static tack_array_13 tack_12_multi_2dfile5_cells = {0};
 static const tack_12_multi_2dfile4_Rect tack_12_multi_2dfile6_origin = {1, 0};
 static const int64_t tack_12_multi_2dfile4_size = 3;
-static const tack_string tack_12_multi_2dfile8_greeting = {tack_str0, 19};
+static const tack_string tack_12_multi_2dfile8_greeting = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 
 static int64_t tack_12_multi_2dfile5_twice(int64_t p_n);
 static void tack_12_multi_2dfile4_main(void);

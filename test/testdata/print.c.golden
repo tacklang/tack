@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 static const unsigned char tack_str0[2] = {42, 0};
 static const unsigned char tack_str1[2] = {10, 0};
 static const unsigned char tack_str2[1] = {0};
@@ -34,17 +36,17 @@ static void tack_4_main3_row(int64_t p_n) {
     {
         const int64_t tack_n0 = p_n;
         for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
-            tack_builtin_print((tack_string){tack_str0, 1});
+            tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
         }
     }
-    tack_builtin_print((tack_string){tack_str1, 1});
+    tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
 }
 
 static void tack_4_main4_main(void) {
-    tack_builtin_print((tack_string){tack_str2, 0});
-    tack_builtin_print((tack_string){tack_str3, 10});
-    tack_builtin_print((tack_string){tack_str4, 12});
-    tack_builtin_print((tack_string){tack_str1, 1});
+    tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    tack_builtin_print((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
+    tack_builtin_print((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
     {
         const int64_t tack_n2 = 3;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
@@ -52,7 +54,7 @@ static void tack_4_main4_main(void) {
             tack_4_main3_row(((int64_t)((uint64_t)v_i + (uint64_t)1)));
         }
     }
-    tack_builtin_print((tack_string){tack_str5, 14});
+    tack_builtin_print((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
 }
 
 int main(void) {

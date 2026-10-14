@@ -118,7 +118,7 @@ func TestHeadersFollowTheBuiltinsUsed(t *testing.T) {
 func TestBuiltinsCallTheirCNames(t *testing.T) {
 	got := generate(t, program(`print("hi")`, "exit(42)"))
 	for _, want := range []string{
-		"tack_builtin_print((tack_string){tack_str0, 2});",
+		"tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});",
 		"tack_builtin_exit(42);",
 	} {
 		if !strings.Contains(got, want) {

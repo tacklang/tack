@@ -11,6 +11,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 typedef struct {
     int64_t f_d;
 } tack_4_main5_Inner;
@@ -76,7 +78,7 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static const tack_4_main1_P tack_4_main3_cfg = {4, 1, {2}, {{1, 2, 3}}, {tack_str0, 3}};
+static const tack_4_main1_P tack_4_main3_cfg = {4, 1, {2}, {{1, 2, 3}}, {tack_str0, TACK_C_STR_LEN(tack_str0)}};
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static int64_t tack_4_main6_divide(int64_t p_n, tack_4_main1_P p_p);
@@ -95,9 +97,9 @@ static void tack_4_main4_main(void);
 static void tack_4_main5_check(bool p_cond, tack_string p_name) {
     tack_builtin_print(p_name);
     if (p_cond) {
-        tack_builtin_print((tack_string){tack_str1, 4});
+        tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
     } else {
-        tack_builtin_print((tack_string){tack_str2, 6});
+        tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     }
 }
 
@@ -199,7 +201,7 @@ static void tack_4_main4_swap(int64_t * p_x, int64_t * p_y) {
 }
 
 static int64_t tack_4_main5_local(int64_t p_n) {
-    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 5, .f_i = 0, .f_inner = (tack_4_main5_Inner){.f_d = 1}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, 0}};
+    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 5, .f_i = 0, .f_inner = (tack_4_main5_Inner){.f_d = 1}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
     if (v_p.f_d > 0) {
         return tack_div_int64(p_n, v_p.f_d);
     }
@@ -207,26 +209,26 @@ static int64_t tack_4_main5_local(int64_t p_n) {
 }
 
 static void tack_4_main4_main(void) {
-    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 2, .f_i = 2, .f_inner = (tack_4_main5_Inner){.f_d = 3}, .f_a = (tack_array_15){{1, 4, 5}}, .f_s = (tack_string){tack_str4, 2}};
-    const tack_4_main1_P v_zero = (tack_4_main1_P){.f_d = 0, .f_i = 7, .f_inner = (tack_4_main5_Inner){.f_d = 0}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, 0}};
+    const tack_4_main1_P v_p = (tack_4_main1_P){.f_d = 2, .f_i = 2, .f_inner = (tack_4_main5_Inner){.f_d = 3}, .f_a = (tack_array_15){{1, 4, 5}}, .f_s = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}};
+    const tack_4_main1_P v_zero = (tack_4_main1_P){.f_d = 0, .f_i = 7, .f_inner = (tack_4_main5_Inner){.f_d = 0}, .f_a = (tack_array_15){{0, 0, 0}}, .f_s = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}};
     const tack_array_15 v_a = (tack_array_15){{10, 20, 30}};
-    tack_4_main5_check(((tack_4_main6_divide(10, v_p) == 5) && (tack_4_main6_divide(10, v_zero) == (-1))), (tack_string){tack_str5, 13});
-    tack_4_main5_check(((tack_4_main4_pick(v_a, v_p) == 30) && (tack_4_main4_pick(v_a, v_zero) == (-1))), (tack_string){tack_str6, 31});
-    tack_4_main5_check(((tack_4_main6_nested(9, v_p) == 3) && (tack_4_main6_nested(9, v_zero) == (-1))), (tack_string){tack_str7, 16});
-    tack_4_main5_check((((tack_4_main7_element(20, v_p, 2) == 9) && (tack_4_main7_element(20, v_p, 9) == 5)) && (tack_4_main7_element(20, v_zero, 0) == (-1))), (tack_string){tack_str8, 25});
-    tack_4_main5_check(((tack_4_main5_first(v_p) == 97) && (tack_4_main5_first(v_zero) == 0)), (tack_string){tack_str9, 19});
-    tack_4_main5_check((tack_4_main3_sum(v_p) == 0), (tack_string){tack_str10, 25});
-    tack_4_main5_check(((tack_4_main5_cases(8, v_p) == 4) && (tack_4_main5_cases(8, v_zero) == (-1))), (tack_string){tack_str11, 17});
-    tack_4_main5_check((tack_4_main5_local(10) == 2), (tack_string){tack_str12, 27});
-    tack_4_main5_check(((tack_div_int64(10, tack_4_main3_cfg.f_d) == 2) && (tack_div_int64(10, tack_4_main3_cfg.f_inner.f_d) == 5)), (tack_string){tack_str13, 28});
+    tack_4_main5_check(((tack_4_main6_divide(10, v_p) == 5) && (tack_4_main6_divide(10, v_zero) == (-1))), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_4_main5_check(((tack_4_main4_pick(v_a, v_p) == 30) && (tack_4_main4_pick(v_a, v_zero) == (-1))), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    tack_4_main5_check(((tack_4_main6_nested(9, v_p) == 3) && (tack_4_main6_nested(9, v_zero) == (-1))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check((((tack_4_main7_element(20, v_p, 2) == 9) && (tack_4_main7_element(20, v_p, 9) == 5)) && (tack_4_main7_element(20, v_zero, 0) == (-1))), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
+    tack_4_main5_check(((tack_4_main5_first(v_p) == 97) && (tack_4_main5_first(v_zero) == 0)), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check((tack_4_main3_sum(v_p) == 0), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
+    tack_4_main5_check(((tack_4_main5_cases(8, v_p) == 4) && (tack_4_main5_cases(8, v_zero) == (-1))), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+    tack_4_main5_check((tack_4_main5_local(10) == 2), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check(((tack_div_int64(10, tack_4_main3_cfg.f_d) == 2) && (tack_div_int64(10, tack_4_main3_cfg.f_inner.f_d) == 5)), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     int64_t v_out = 0;
     tack_4_main8_deferred(&v_out, 8, v_p);
-    tack_4_main5_check((v_out == 4), (tack_string){tack_str14, 26});
+    tack_4_main5_check((v_out == 4), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
     tack_4_main8_deferred(&v_out, 8, v_zero);
-    tack_4_main5_check((v_out == (-1)), (tack_string){tack_str15, 37});
+    tack_4_main5_check((v_out == (-1)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
     tack_array_16 v_halves = (tack_array_16){{1, 2, 3, 4}};
     tack_4_main10_swapHalves(&v_halves, (tack_4_main4_Pair){.f_i = 0, .f_j = 3});
-    tack_4_main5_check((tack_eq_16(v_halves, (tack_array_16){{4, 2, 3, 1}})), (tack_string){tack_str16, 33});
+    tack_4_main5_check((tack_eq_16(v_halves, (tack_array_16){{4, 2, 3, 1}})), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
 }
 
 int main(void) {

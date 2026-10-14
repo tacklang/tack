@@ -12,6 +12,8 @@ typedef struct {
     int64_t len;
 } tack_string;
 
+#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
     for (int64_t i = 0; i < n; i++) {
@@ -49,8 +51,8 @@ static void tack_builtin_exit(int64_t code) {
     exit((int)code);
 }
 
-static const tack_string tack_4_main7_pattern = {tack_str0, 8};
-static const tack_string tack_4_main6_banner = {tack_str1, 48};
+static const tack_string tack_4_main7_pattern = {tack_str0, TACK_C_STR_LEN(tack_str0)};
+static const tack_string tack_4_main6_banner = {tack_str1, TACK_C_STR_LEN(tack_str1)};
 
 static int64_t tack_4_main3_sum(tack_string p_s);
 static void tack_4_main4_main(void);
@@ -72,37 +74,37 @@ static void tack_4_main4_main(void) {
     int64_t tack_o3;
     int64_t tack_o4;
     int64_t tack_o5;
-    if ((((2 != 2) || (((tack_string){tack_str2, 2}).ptr[0] != 92)) || (((tack_string){tack_str2, 2}).ptr[1] != 110)) || (tack_compare_strings((tack_string){tack_str2, 2}, (tack_string){tack_str2, 2}) != 0)) {
+    if ((((2 != 2) || (((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}).ptr[0] != 92)) || (((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}).ptr[1] != 110)) || (tack_compare_strings((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}) != 0)) {
         tack_builtin_exit(1);
     }
-    if ((((2 != 2) || (((tack_string){tack_str3, 2}).ptr[1] != 34)) || (tack_compare_strings((tack_string){tack_str4, 2}, (tack_string){tack_str4, 2}) != 0)) || (2 != 2)) {
+    if ((((2 != 2) || (((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}).ptr[1] != 34)) || (tack_compare_strings((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}) != 0)) || (2 != 2)) {
         tack_builtin_exit(2);
     }
-    if ((1 != 1) || (((tack_string){tack_str5, 1}).ptr[0] != 92)) {
+    if ((1 != 1) || (((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}).ptr[0] != 92)) {
         tack_builtin_exit(3);
     }
-    if ((0 != 0) || (tack_compare_strings((tack_string){tack_str6, 0}, (tack_string){tack_str6, 0}) != 0)) {
+    if ((0 != 0) || (tack_compare_strings((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}) != 0)) {
         tack_builtin_exit(4);
     }
-    const tack_string v_q = (tack_string){tack_str7, 25};
-    if (((((v_q).len != 25) || (v_q.ptr[4] != 34)) || (v_q.ptr[9] != 47)) || (tack_compare_strings(v_q, (tack_string){tack_str7, 25}) != 0)) {
+    const tack_string v_q = (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)};
+    if (((((v_q).len != 25) || (v_q.ptr[4] != 34)) || (v_q.ptr[9] != 47)) || (tack_compare_strings(v_q, (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}) != 0)) {
         tack_builtin_exit(5);
     }
-    const tack_string v_two = (tack_string){tack_str8, 3};
-    if ((((v_two).len != 3) || (v_two.ptr[1] != 10)) || (tack_compare_strings(v_two, (tack_string){tack_str8, 3}) != 0)) {
+    const tack_string v_two = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)};
+    if ((((v_two).len != 3) || (v_two.ptr[1] != 10)) || (tack_compare_strings(v_two, (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}) != 0)) {
         tack_builtin_exit(6);
     }
-    if ((((tack_4_main7_pattern).len != 8) || (tack_compare_strings(tack_4_main7_pattern, (tack_string){tack_str0, 8}) != 0)) || (tack_o2 = tack_4_main3_sum(tack_4_main7_pattern), tack_o3 = tack_4_main3_sum((tack_string){tack_str0, 8}), (tack_o2 != tack_o3))) {
+    if ((((tack_4_main7_pattern).len != 8) || (tack_compare_strings(tack_4_main7_pattern, (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}) != 0)) || (tack_o2 = tack_4_main3_sum(tack_4_main7_pattern), tack_o3 = tack_4_main3_sum((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), (tack_o2 != tack_o3))) {
         tack_builtin_exit(7);
     }
     if ((((tack_4_main6_banner).len != 48) || (tack_4_main6_banner.ptr[47] != 10)) || (tack_4_main6_banner.ptr[21] != 92)) {
         tack_builtin_exit(8);
     }
-    if (((2 != 2) || (((tack_string){tack_str9, 2}).ptr[0] != 195)) || (((tack_string){tack_str9, 2}).ptr[1] != 169)) {
+    if (((2 != 2) || (((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}).ptr[0] != 195)) || (((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}).ptr[1] != 169)) {
         tack_builtin_exit(9);
     }
     tack_builtin_print(tack_4_main6_banner);
-    tack_builtin_exit((tack_o4 = tack_4_main3_sum((tack_string){tack_str10, 2}), tack_o5 = tack_4_main3_sum((tack_string){tack_str5, 1}), ((int64_t)((uint64_t)tack_o4 - (uint64_t)tack_o5))));
+    tack_builtin_exit((tack_o4 = tack_4_main3_sum((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}), tack_o5 = tack_4_main3_sum((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}), ((int64_t)((uint64_t)tack_o4 - (uint64_t)tack_o5))));
 }
 
 int main(void) {

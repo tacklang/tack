@@ -200,7 +200,7 @@ func TestEmitsStringLiteralsAsByteArrays(t *testing.T) {
 func TestPrintLowersToOneWrite(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	want := "    tack_builtin_print((tack_string){tack_str0, 2});\n}"
+	want := "    tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});\n}"
 	if !strings.Contains(got, want) {
 		t.Errorf("print did not lower to a single write of its argument:\n%s", got)
 	}
@@ -287,7 +287,10 @@ func TestGeneratesStringAsAPointerLengthStruct(t *testing.T) {
 func TestStringLiteralBecomesAStringValue(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
-	if !strings.Contains(got, "tack_builtin_print((tack_string){tack_str0, 2});") {
+	if !strings.Contains(
+		got,
+		"tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});",
+	) {
 		t.Errorf("a string literal did not become a tack_string value:\n%s", got)
 	}
 }
@@ -321,7 +324,10 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 		"package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n    f(7, \"hi\")\n}\n",
 	)
 
-	if !strings.Contains(got, "tack_4_main1_f(7, (tack_string){tack_str0, 2});") {
+	if !strings.Contains(
+		got,
+		"tack_4_main1_f(7, (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});",
+	) {
 		t.Errorf("call site does not pass its arguments:\n%s", got)
 	}
 }
