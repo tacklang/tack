@@ -29,6 +29,16 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		{"mut x bool", "if x {\n    }", "static bool tack_4_main1_x = false;"},
 		{"var x = \"hi\"", "print(x)", "static const tack_string tack_4_main1_x = {str0, 2};"},
 		{"mut x string", "print(x)", "static tack_string tack_4_main1_x = {str0, 0};"},
+		{"var x = \"a\" == \"a\"", "if x {\n    }", "static const bool tack_4_main1_x = true;"},
+		{"var x = \"a\" != \"a\"", "if x {\n    }", "static const bool tack_4_main1_x = false;"},
+		{"var x = \"ab\" < \"abc\"", "if x {\n    }", "static const bool tack_4_main1_x = true;"},
+		{"var x = \"b\" <= \"a\"", "if x {\n    }", "static const bool tack_4_main1_x = false;"},
+		{"var x = \"\\xff\" > \"a\"", "if x {\n    }", "static const bool tack_4_main1_x = true;"},
+		{"var x = \"\" >= \"a\"", "if x {\n    }", "static const bool tack_4_main1_x = false;"},
+		{
+			"var s = \"a\"\nvar x = s == \"a\" && \"b\" > s", "if x {\n    }",
+			"static const bool tack_4_main1_x = true;",
+		},
 	}
 
 	for _, tt := range tests {

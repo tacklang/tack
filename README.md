@@ -567,8 +567,11 @@ makes for itself, which has a letter after `tack_`.
   and `!=`. Strings compare byte by byte, each byte unsigned, as in Go: a
   proper prefix is less, so the empty string is least, a zero byte is a
   byte like any other, and a byte from 0x80 up sorts after every ASCII
-  byte, so `"é" > "z"`. Nothing is allocated, and a comparison of two
-  string literals is made at run time.
+  byte, so `"é" > "z"`. Nothing is allocated. Inside a function, a
+  comparison of two string literals is made at run time; in a
+  package-level variable's initializer, a comparison of string literals or
+  of immutable globals holding strings is computed at compile time, so `var
+  x = "a" == "a"` is `true`.
 - Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
   compile only where the compiler can prove `b` is not zero; a constant zero
   is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)

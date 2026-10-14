@@ -1019,6 +1019,18 @@ func TestBuiltRangesExits42(t *testing.T) {
 	}
 }
 
+// The string-globals example computes every comparison of string
+// constants at package level at compile time and checks each value, so
+// its status is 42 only if all of them hold.
+func TestBuiltStringGlobalsExits42(t *testing.T) {
+	bin := buildWithClang(t, "string-globals")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("string-globals exited with %v, want status 42", err)
+	}
+}
+
 // The comments example puts comments before the package clause, after
 // every statement form, inside expressions, argument lists, result lists
 // and array literals that span lines, and at the end of the file with no

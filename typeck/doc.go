@@ -169,8 +169,9 @@
 // compile time, a negative one
 // is always out of range, and a string's bytes are never assigned. Two
 // strings compare with all six comparison operators, by their bytes; a
-// comparison of strings is never folded, even of two literals, and gives no
-// fact.
+// comparison of strings gives no fact, and is computed only in a
+// package-level variable's initializer, where its operands are constant:
+// in a function it is left to run time, even of two literals.
 //
 // The third pass checks each function body:
 //

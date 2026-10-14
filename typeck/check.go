@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
@@ -905,20 +906,44 @@ func (c *Checker) foldElems(lit *ast.CompositeLit) (any, bool) {
 }
 
 // foldBoolBinary computes an operator that gives a bool, on two bool
-// constants or a comparison of two integer ones, folding both sides first.
+// constants or a comparison of two integer or two string ones, folding both
+// sides first; strings only in a package-level initializer. It records no
+// Binary.Const.
 func (c *Checker) foldBoolBinary(bin *ast.Binary) (any, bool) {
 	left, okL := c.fold(bin.X)
 	right, okR := c.fold(bin.Y)
-	if a, isInt := left.(constant.Int); okL && okR && isInt && bin.Op.IsComparison() {
-		b, _ := right.(constant.Int)
-		return compare(bin.Op, a.Cmp(b)), true
+	if !okL || !okR {
+		return nil, false
+	}
+	if bin.Op.IsComparison() {
+		if cmp, ok := c.compareConsts(left, right); ok {
+			return compare(bin.Op, cmp), true
+		}
 	}
 	l, isBoolL := left.(bool)
 	r, isBoolR := right.(bool)
-	if !okL || !okR || !isBoolL || !isBoolR {
+	if !isBoolL || !isBoolR {
 		return nil, false
 	}
 	return foldBools(bin.Op, l, r)
+}
+
+// compareConsts compares two integer or two string constants, giving -1, 0
+// or 1, and reports whether it could. Strings compare by their bytes,
+// unsigned, as strings.Compare does and as the backend does at run time.
+// Only a global's initializer, checked while initStack holds it, compares
+// them here: inside a function, as for a switch's case values, a
+// comparison of strings is left to run time.
+func (c *Checker) compareConsts(left, right any) (int, bool) {
+	if a, isInt := left.(constant.Int); isInt {
+		b, _ := right.(constant.Int)
+		return a.Cmp(b), true
+	}
+	if a, isString := left.(string); isString && len(c.initStack) > 0 {
+		b, _ := right.(string)
+		return strings.Compare(a, b), true
+	}
+	return 0, false
 }
 
 // foldBools applies an operator to two bool constants.
