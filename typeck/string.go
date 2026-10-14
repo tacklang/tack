@@ -163,16 +163,11 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 // variable or a path below an immutable one, or a literal; a subject index
 // gets indexError's, against len(s) or a literal's length, and only the
 // checked form when s is neither, since only a subject's length can be
-// guarded.
+// guarded. A mutable global s gets the note at its declaration that no
+// check proves it, and a field of a mutable variable or a mut parameter
+// the note at a guard on its length that the guard proves nothing.
 func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
-	var bound string
-	if n, ok := literalLen(ix.X); ok {
-		bound = fmt.Sprint(n)
-	} else if s, ok := ix.X.(*ast.Ident); ok {
-		bound = "len(" + s.Name + ")"
-	} else if c.isSubject(ix.X) {
-		bound = "len(" + c.nameOf(ix.X) + ")"
-	}
+	bound := c.stringBound(ix.X)
 	proven := func() bool { return c.stringIndexProven(ix) }
 	var msg string
 	var notes []diag.Diagnostic
@@ -191,10 +186,45 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 			return c.explain(c.indexProof(i, e, proven))
 		})
 	}
+	notes = append(notes, c.indexedNotes(ix.X)...)
 	return msg + orUse(
 		"v, ok := ...["+c.indexName(ix.Index)+"]",
-		strings.HasSuffix(msg, " first"),
+		strings.HasSuffix(msg, " first") || strings.Contains(msg, "; convert "),
 	), notes
+}
+
+// stringBound returns the bound a check on an index into the string s
+// would compare it with: a literal's length, or len(s) when s is a name or
+// a subject, a variable or a path below an immutable one, other than a
+// mutable global, which no check proves. It is empty otherwise.
+func (c *Checker) stringBound(s ast.Expr) string {
+	if n, ok := literalLen(s); ok {
+		return fmt.Sprint(n)
+	}
+	if _, isGlobal := c.mutableGlobal(s); isGlobal {
+		return ""
+	}
+	if id, ok := s.(*ast.Ident); ok {
+		return "len(" + id.Name + ")"
+	}
+	if c.isSubject(s) {
+		return "len(" + c.nameOf(s) + ")"
+	}
+	return ""
+}
+
+// indexedNotes returns the notes on why the length of the string s cannot
+// be proven: at its declaration, when s is a mutable global, or at the
+// guard on its length, when s is a field of a mutable variable or a mut
+// parameter.
+func (c *Checker) indexedNotes(s ast.Expr) []diag.Diagnostic {
+	if v, isGlobal := c.mutableGlobal(s); isGlobal {
+		return globalNote(v)
+	}
+	if _, isField := s.(*ast.Selector); isField && !c.isSubject(s) {
+		return c.fieldNotes(s)
+	}
+	return nil
 }
 
 // indexName returns how an error names an index: its known value, its

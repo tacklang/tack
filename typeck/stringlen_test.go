@@ -111,7 +111,7 @@ var unknownStringLenCases = []struct {
 	{
 		"mutable global",
 		stringing("return g[0]"),
-		spanned{"index 0 may be out of range; check len(g) > 0 first, or use v, ok := ...[0]", "0"},
+		spanned{"index 0 may be out of range; use v, ok := ...[0]", "0"},
 	},
 	{
 		"immutable local from a parameter",

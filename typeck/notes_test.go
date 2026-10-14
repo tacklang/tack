@@ -817,6 +817,45 @@ var otherCauseCases = []noteCase{
 		[]wantNote{globalNote},
 	},
 	{
+		"a mutable global string",
+		"package main\n\nmut g = \"tack\"\n\nfunc f() uint8 {\n    if len(g) > 0 {\n        return g[0]\n    }\n" +
+			"    return 0\n}\n\nfunc main() {\n}\n",
+		"index 0 may be out of range; use v, ok := ...[0]",
+		[]wantNote{globalNote},
+	},
+	{
+		"the length of a field",
+		"package main\n\ntype L struct {\n    src string\n    pos int64\n}\n\n" +
+			"func f(mut l L) uint8 {\n    i := l.pos\n    if i >= 0 && i < len(l.src) {\n        return l.src[i]\n    }\n" +
+			"    return 0\n}\n\nfunc main() {\n}\n",
+		"index i may be out of range; use v, ok := ...[i]",
+		[]wantNote{
+			{
+				"this guard proves nothing: a field of a mutable variable or a mut parameter " +
+					"never carries a fact; copy l.src into a variable first",
+				"i >= 0 && i < len(l.src)",
+				10,
+				8,
+			},
+		},
+	},
+	{
+		"the length of a field, for a constant",
+		"package main\n\ntype L struct {\n    src string\n}\n\n" +
+			"func f(mut l L) uint8 {\n    if len(l.src) > 0 {\n        return l.src[0]\n    }\n" +
+			"    return 0\n}\n\nfunc main() {\n}\n",
+		"index 0 may be out of range; use v, ok := ...[0]",
+		[]wantNote{
+			{
+				"this guard proves nothing: a field of a mutable variable or a mut parameter " +
+					"never carries a fact; copy l.src into a variable first",
+				"len(l.src) > 0",
+				8,
+				8,
+			},
+		},
+	},
+	{
 		"a field divisor",
 		"package main\n\ntype P struct {\n    d int64\n}\n\n" +
 			"func f(n int64, mut p P) int64 {\n    if p.d != 0 { return n / p.d }\n    return 0\n}\n\n" +

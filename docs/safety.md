@@ -358,6 +358,8 @@ its error suggests only the checked
 form, <!-- error: safety-no-proof-mutable-global -->`divisor g may be zero; use q, ok := ... / g`,
 with a note at its
 declaration: <!-- note: safety-no-proof-mutable-global -->`g is a mutable global, so no check proves it; copy it into a local first`.
+So does an index into a mutable global string, whose length no check
+proves: <!-- error: note-global-string-indexed -->`index 1 may be out of range; use v, ok := ...[1]`.
 An **immutable** global always has a known value, since its initializer
 is a constant expression, and so do its fields and elements.
 
@@ -427,11 +429,14 @@ An operation no guard mentions keeps its error alone.
 
 Other notes point at a branch that ends in `exit`, which would have left
 the block had it been a `return`; at a counting loop's step that could
-wrap; at a guard on a field of a mutable variable, or on a variable used inside a larger divisor
-or index; and, in `v, ok := m[i][j]`, at the element whose outer index
+wrap; at a guard on a field of a mutable variable, or on the length of
+one, <!-- note: note-field-len-guard -->`this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
+or on a variable used inside a larger divisor or index; and, in `v, ok := m[i][j]`, at the element whose outer index
 alone the checked form covers. Two do not need a guard: the declaration of
 a mutable global, and, on comparing a `uint64` with `len`, the operand to
 convert: <!-- note: safety-no-proof-unsigned-len -->`len gives an int64; convert u first with i, ok := int64(u)`.
+An unproven `uint64` index into a string gets the same advice in its
+error: <!-- error: string-index-uint64 -->`index u may be out of range; convert u first with i, ok := int64(u), or use v, ok := ...[u]`.
 
 ## Per operation
 

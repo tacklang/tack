@@ -4630,6 +4630,41 @@ note-field-early-exit/main.tck:8:8: note: this early exit proves nothing: a fiel
    |	       ^~~~~~~~~~~~~~~~~~~
 09 |	        return 0
 
+-- note-field-len-guard/main.tck --
+package main
+
+type Lexer struct {
+    src string
+    pos int64
+}
+
+func peek(mut l Lexer) uint8 {
+    i := l.pos
+    if i >= 0 && i < len(l.src) {
+        return l.src[i]
+    }
+    return 0
+}
+
+func main() {
+    mut l := Lexer{src: "tack", pos: 1}
+    exit(peek(mut l))
+}
+-- note-field-len-guard/expected --
+stage: typeck
+---
+
+note-field-len-guard/main.tck:11:22: error: index i may be out of range; use v, ok := ...[i]
+10 |	    if i >= 0 && i < len(l.src) {
+11 |	        return l.src[i]
+   |	                     ^
+12 |	    }
+note-field-len-guard/main.tck:10:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first
+09 |	    i := l.pos
+10 |	    if i >= 0 && i < len(l.src) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~
+11 |	        return l.src[i]
+
 -- note-global-compound/main.tck --
 package main
 
@@ -4734,6 +4769,31 @@ note-global-string-index/main.tck:6:14: error: index g may be out of range; use 
 note-global-string-index/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
 02 |	
 03 |	mut g int64
+   |	    ^
+04 |	
+
+-- note-global-string-indexed/main.tck --
+package main
+
+mut s = "tack"
+
+func main() {
+    if len(s) > 1 {
+        exit(s[1])
+    }
+}
+-- note-global-string-indexed/expected --
+stage: typeck
+---
+
+note-global-string-indexed/main.tck:7:16: error: index 1 may be out of range; use v, ok := ...[1]
+06 |	    if len(s) > 1 {
+07 |	        exit(s[1])
+   |	               ^
+08 |	    }
+note-global-string-indexed/main.tck:3:5: note: s is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut s = "tack"
    |	    ^
 04 |	
 
@@ -6880,6 +6940,26 @@ string-index-out-of-range/main.tck:4:17: error: index 4 is out of range for a st
 03 |	func main() {
 04 |	    exit("tack"[4])
    |	                ^
+05 |	}
+
+-- string-index-uint64/main.tck --
+package main
+
+func at(s string, u uint64) uint8 {
+    return s[u]
+}
+
+func main() {
+    exit(at("tack", 1))
+}
+-- string-index-uint64/expected --
+stage: typeck
+---
+
+string-index-uint64/main.tck:4:14: error: index u may be out of range; convert u first with i, ok := int64(u), or use v, ok := ...[u]
+03 |	func at(s string, u uint64) uint8 {
+04 |	    return s[u]
+   |	             ^
 05 |	}
 
 -- struct-anonymous/main.tck --

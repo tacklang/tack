@@ -639,7 +639,7 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 
 // fieldNotes returns the note for the field path, such as p.d, of a
 // mutable variable or a mut parameter, that the innermost guard in scope
-// comparing it proves nothing about it.
+// comparing it, or its length, proves nothing about it.
 func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
 	for i := len(c.guards) - 1; i >= 0; i-- {
 		g := c.guards[i]
@@ -655,7 +655,7 @@ func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
 }
 
 // compares reports whether cond, through && || and !, holds a comparison
-// one side of which is path.
+// one side of which is path, or len of path.
 func compares(cond, path ast.Expr) bool {
 	switch x := cond.(type) {
 	case *ast.Unary:
@@ -664,10 +664,18 @@ func compares(cond, path ast.Expr) bool {
 		if x.Op.IsLogical() {
 			return compares(x.X, path) || compares(x.Y, path)
 		}
-		return x.Op.IsComparison() && (samePath(x.X, path) || samePath(x.Y, path))
+		return x.Op.IsComparison() && (pathOrLen(x.X, path) || pathOrLen(x.Y, path))
 	default:
 		return false
 	}
+}
+
+// pathOrLen reports whether e is path, or a call to len of path.
+func pathOrLen(e, path ast.Expr) bool {
+	if call, ok := e.(*ast.Call); ok && isLen(call) && len(call.Args) == 1 {
+		return samePath(call.Args[0], path)
+	}
+	return samePath(e, path)
 }
 
 // samePath reports whether a and b are the same variable, or the same field

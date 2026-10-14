@@ -242,7 +242,20 @@ var unprovenStringIndexCases = []struct {
 	{
 		"mutable global",
 		stringing("if len(g) > 0 {", "    return g[0]", "}"),
-		spanned{"index 0 may be out of range; check len(g) > 0 first, or use v, ok := ...[0]", "0"},
+		spanned{"index 0 may be out of range; use v, ok := ...[0]", "0"},
+	},
+	{
+		"variable into a mutable global",
+		stringing("if 0 <= i && i < len(g) {", "    return g[i]", "}"),
+		spanned{"index i may be out of range; use v, ok := ...[i]", "i"},
+	},
+	{
+		"uint64 index",
+		stringing("return s[w]"),
+		spanned{
+			"index w may be out of range; convert w first with i, ok := int64(w), or use v, ok := ...[w]",
+			"w",
+		},
 	},
 	{
 		"constant into a call",

@@ -270,14 +270,21 @@ func (c *Checker) indexError(
 	case isSubject && bound == "":
 		msg, notes = "index "+name+" may be out of range", explain(ix.Index)
 	case isSubject:
-		msg = "index " + name + " may be out of range; check " + inBounds(
-			ix.Index,
-			name,
-			bound,
-		) + " first"
+		msg = "index " + name + " may be out of range; " + boundsAdvice(ix.Index, name, bound)
 		notes = explain(ix.Index)
 	}
 	return msg, append(notes, c.outerIndexNote(ix)...)
+}
+
+// boundsAdvice returns what to do first to prove i, a subject called name,
+// below bound: check it, unless i is a uint64 and bound is len of a
+// string, an int64 a uint64 cannot be compared with, when i must be
+// converted first.
+func boundsAdvice(i ast.Expr, name, bound string) string {
+	if ast.TypeOf(i) == types.Uint64 && strings.HasPrefix(bound, "len(") {
+		return "convert " + name + " first with i, ok := int64(" + name + ")"
+	}
+	return "check " + inBounds(i, name, bound) + " first"
 }
 
 // inBounds writes the check that proves i, a subject called name, below

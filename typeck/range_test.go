@@ -400,10 +400,7 @@ var unprovenRangeIndexCases = []struct {
 	{
 		"mutable global",
 		stringing("for j := range g {", "    return g[j]", "}"),
-		spanned{
-			"index j may be out of range; check 0 <= j && j < len(g) first, or use v, ok := ...[j]",
-			"j",
-		},
+		spanned{"index j may be out of range; use v, ok := ...[j]", "j"},
 	},
 	{
 		"ranged call",
