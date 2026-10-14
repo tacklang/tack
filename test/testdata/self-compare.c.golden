@@ -13,21 +13,21 @@ typedef struct {
 } tack_string;
 
 
-static bool tack_main_same(int64_t p_x);
-static void tack_main_main(void);
+static bool tack_4_main4_same(int64_t p_x);
+static void tack_4_main4_main(void);
 
-static bool tack_main_same(int64_t p_x) {
+static bool tack_4_main4_same(int64_t p_x) {
     return ((((p_x == p_x) && !(p_x != p_x)) && (p_x <= p_x)) && !(p_x < p_x));
 }
 
-static void tack_main_main(void) {
-    if (tack_main_same(3)) {
+static void tack_4_main4_main(void) {
+    if (tack_4_main4_same(3)) {
         exit((int)(7));
     }
     exit((int)(1));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

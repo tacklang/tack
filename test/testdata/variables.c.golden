@@ -24,22 +24,22 @@ static void tack_print(tack_string s) {
     }
 }
 
-static int64_t tack_main_square(int64_t p_n);
-static void tack_main_main(void);
+static int64_t tack_4_main6_square(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_square(int64_t p_n) {
+static int64_t tack_4_main6_square(int64_t p_n) {
     const int64_t v_r = ((int64_t)((uint64_t)p_n * (uint64_t)p_n));
     return v_r;
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     const tack_string v_greeting = (tack_string){str0, 9};
     tack_print(v_greeting);
     tack_print((tack_string){str1, 1});
     const int64_t v_base = 3;
     const int64_t v_step = 4;
-    int64_t v_total = tack_main_square(v_base);
-    v_total = ((int64_t)((uint64_t)v_total + (uint64_t)tack_main_square(v_step)));
+    int64_t v_total = tack_4_main6_square(v_base);
+    v_total = ((int64_t)((uint64_t)v_total + (uint64_t)tack_4_main6_square(v_step)));
     tack_string v_label = (tack_string){str2, 0};
     if (v_total == 25) {
         v_label = (tack_string){str3, 12};
@@ -57,6 +57,6 @@ static void tack_main_main(void) {
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

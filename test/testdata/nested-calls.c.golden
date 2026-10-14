@@ -13,23 +13,23 @@ typedef struct {
 } tack_string;
 
 
-static int64_t tack_main_base(void);
-static int64_t tack_main_same(int64_t p_n);
-static void tack_main_main(void);
+static int64_t tack_4_main4_base(void);
+static int64_t tack_4_main4_same(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_base(void) {
+static int64_t tack_4_main4_base(void) {
     return 5;
 }
 
-static int64_t tack_main_same(int64_t p_n) {
+static int64_t tack_4_main4_same(int64_t p_n) {
     return p_n;
 }
 
-static void tack_main_main(void) {
-    exit((int)(tack_main_same(tack_main_same(tack_main_base()))));
+static void tack_4_main4_main(void) {
+    exit((int)(tack_4_main4_same(tack_4_main4_same(tack_4_main4_base()))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

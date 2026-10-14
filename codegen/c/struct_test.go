@@ -302,10 +302,10 @@ func TestStructLowering(t *testing.T) {
 			"func main() {\n    a := A{b: B{x: 1}, c: [2]B{{x: 2}, {x: 3}}}\n    if a == a {\n        exit(a.c[1].x)\n    }\n}\n",
 	)
 	for _, want := range []string{
-		"typedef struct {\n    int64_t f_x;\n} tack_main_B;",
-		"    tack_main_B f_b;\n",
-		"} tack_main_A;",
-		"(tack_main_A){.f_b = (tack_main_B){.f_x = 1}, .f_c = ",
+		"typedef struct {\n    int64_t f_x;\n} tack_4_main1_B;",
+		"    tack_4_main1_B f_b;\n",
+		"} tack_4_main1_A;",
+		"(tack_4_main1_A){.f_b = (tack_4_main1_B){.f_x = 1}, .f_c = ",
 		"v_a.f_c.e[1].f_x",
 		"return tack_eq_",
 	} {
@@ -315,13 +315,13 @@ func TestStructLowering(t *testing.T) {
 	}
 	b, arr, a := strings.Index(
 		got,
-		"} tack_main_B;",
+		"} tack_4_main1_B;",
 	), strings.Index(
 		got,
-		"tack_main_B e[2];",
+		"tack_4_main1_B e[2];",
 	), strings.Index(
 		got,
-		"} tack_main_A;",
+		"} tack_4_main1_A;",
 	)
 	if b < 0 || arr < b || a < arr {
 		t.Errorf("types not defined before their use: B at %d, [2]B at %d, A at %d", b, arr, a)

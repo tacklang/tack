@@ -465,8 +465,8 @@ func (g *generator) emitResultStructs() {
 // resultsName is the name of the struct fn, a function with several
 // results, returns them in: tack_results_ and what follows tack_ in fn's
 // own name, as mangle gives it. It starts tack_results_ where a mangled
-// name starts with tack_ and a digit or main, so it collides with none, and
-// two are told apart as mangled names are.
+// name starts with tack_ and a digit, so it collides with none, and two are
+// told apart as mangled names are.
 func (g *generator) resultsName(fn *ast.Func) string {
 	return "tack_results_" + strings.TrimPrefix(g.mangle(fn, fn.Name), "tack_")
 }
@@ -1700,19 +1700,31 @@ func (g *generator) varRef(v *ast.Var) string {
 func varName(name string) string { return "v_" + name }
 
 // mangle returns the C identifier of decl, a package-level declaration
-// named name. One of the main package, or nil, which stands for the main
-// package, is tack_main_ and its name, as when a program was one file. One
-// of any other package is tack_ and the parts of its package's import path
-// and its name, each written by mangledPart, so tack_4_calc5_lexer5_First
-// for First in calc/lexer. The two forms cannot collide: the first has a
-// letter after tack_, the second a digit. Nor can two names of the second
-// form, since each part is read back by its length; and no other name the
-// generator makes has a digit after tack_. This is an interim scheme: the
-// main package is to use the second form too.
+// named name, in its package or, for nil, the main package: tack_ and the
+// parts of its package's import path and its name, each written by
+// mangledPart, so tack_4_calc5_lexer5_First for First in calc/lexer, and
+// tack_4_main4_main for main in a program built from one file, whose path
+// is main.
+//
+// No two (path, name) pairs give one C name. mangledPart's escaping can be
+// read back, since a letter or digit stands for itself and an underscore
+// always starts a three-byte escape. The whole name can then be read back
+// part by part: after tack_, the run of digits up to the first underscore
+// is a part's length, the bytes after that underscore are exactly that many
+// escaped bytes, and the next part follows them. A part is consumed by its
+// length, never by scanning, so digits or underscores inside it cannot
+// mislead the reader. That recovers the path's parts and the name, and
+// since path parts hold no slash, the path itself. A map with a left
+// inverse is injective. No other name the generator makes collides with
+// one either: after tack_, a mangled name has a digit, 1 to 9 since a path
+// part is never empty, and every other name starting tack_ (tack_string,
+// tack_print, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
+// and temporaries such as tack_r0) has a letter; locals and parameters
+// start v_ and p_.
 func (g *generator) mangle(decl ast.Decl, name string) string {
 	pkg := g.pkgOf[decl]
-	if pkg == nil || pkg == g.prog.Main() {
-		return "tack_main_" + name
+	if pkg == nil {
+		pkg = g.prog.Main()
 	}
 	return "tack_" + mangledParts(pkg.Path, name)
 }

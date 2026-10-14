@@ -17,33 +17,33 @@ typedef struct {
 } tack_array_12;
 
 
-static int64_t tack_main_log = 0;
+static int64_t tack_4_main3_log = 0;
 
-static void tack_main_mark(int64_t p_d);
-static void tack_main_expect(int64_t p_want, int64_t p_code);
-static void tack_main_clauses(void);
-static void tack_main_cases(void);
-static void tack_main_deep(void);
-static void tack_main_loopInDefer(void);
-static int64_t tack_main_counted(void);
-static int64_t tack_main_exits(int64_t p_n);
-static void tack_main_skip(void);
-static int64_t tack_main_inner(int64_t p_n);
-static void tack_main_many(void);
-static void tack_main_main(void);
+static void tack_4_main4_mark(int64_t p_d);
+static void tack_4_main6_expect(int64_t p_want, int64_t p_code);
+static void tack_4_main7_clauses(void);
+static void tack_4_main5_cases(void);
+static void tack_4_main4_deep(void);
+static void tack_4_main11_loopInDefer(void);
+static int64_t tack_4_main7_counted(void);
+static int64_t tack_4_main5_exits(int64_t p_n);
+static void tack_4_main4_skip(void);
+static int64_t tack_4_main5_inner(int64_t p_n);
+static void tack_4_main4_many(void);
+static void tack_4_main4_main(void);
 
-static void tack_main_mark(int64_t p_d) {
-    tack_main_log = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_log * (uint64_t)10)) + (uint64_t)p_d));
+static void tack_4_main4_mark(int64_t p_d) {
+    tack_4_main3_log = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_log * (uint64_t)10)) + (uint64_t)p_d));
 }
 
-static void tack_main_expect(int64_t p_want, int64_t p_code) {
-    if (tack_main_log != p_want) {
+static void tack_4_main6_expect(int64_t p_want, int64_t p_code) {
+    if (tack_4_main3_log != p_want) {
         exit((int)(p_code));
     }
-    tack_main_log = 0;
+    tack_4_main3_log = 0;
 }
 
-static void tack_main_clauses(void) {
+static void tack_4_main7_clauses(void) {
     int tack_next0 = 0;
     {
         int64_t v_i = 1;
@@ -56,23 +56,23 @@ static void tack_main_clauses(void) {
                 goto tack_defer1_1;
                 tack_defer1_1: ;
                 {
-                    tack_main_mark(8);
+                    tack_4_main4_mark(8);
                 }
                 if (tack_next0 == 1) goto tack_defer0_1;
             }
-            tack_main_mark(9);
+            tack_4_main4_mark(9);
             tack_next0 = 0;
             tack_defer0_1: ;
             {
-                tack_main_mark(v_i);
+                tack_4_main4_mark(v_i);
             }
             if (tack_next0 == 1) { tack_next0 = 0; break; }
         }
     }
-    tack_main_mark(5);
+    tack_4_main4_mark(5);
 }
 
-static void tack_main_cases(void) {
+static void tack_4_main5_cases(void) {
     int tack_next2 = 0;
     {
         const int64_t tack_n3 = 3;
@@ -85,27 +85,27 @@ static void tack_main_cases(void) {
                     goto tack_defer2_1;
                     tack_defer2_1: ;
                     {
-                        tack_main_mark(2);
+                        tack_4_main4_mark(2);
                     }
                     if (tack_next2 == 1) goto tack_defer3_1;
                 } else {
                     {
-                        tack_main_mark(4);
+                        tack_4_main4_mark(4);
                     }
                 }
             }
-            tack_main_mark(3);
+            tack_4_main4_mark(3);
             tack_next2 = 0;
             tack_defer3_1: ;
             {
-                tack_main_mark(1);
+                tack_4_main4_mark(1);
             }
             if (tack_next2 == 1) { tack_next2 = 0; break; }
         }
     }
 }
 
-static void tack_main_deep(void) {
+static void tack_4_main4_deep(void) {
     int tack_next5 = 0;
     {
         const int64_t tack_n10 = 1;
@@ -121,33 +121,33 @@ static void tack_main_deep(void) {
                                 goto tack_defer4_1;
                                 tack_defer4_1: ;
                                 {
-                                    tack_main_mark(4);
+                                    tack_4_main4_mark(4);
                                 }
                                 if (tack_next5 == 1) goto tack_defer5_1;
                             }
                             tack_next5 = 0;
                             tack_defer5_1: ;
                             {
-                                tack_main_mark(3);
+                                tack_4_main4_mark(3);
                             }
                             if (tack_next5 == 1) { tack_next5 = 0; break; }
                         }
                     }
-                    tack_main_mark(5);
+                    tack_4_main4_mark(5);
                     {
-                        tack_main_mark(2);
+                        tack_4_main4_mark(2);
                     }
                 }
             }
             {
-                tack_main_mark(1);
+                tack_4_main4_mark(1);
             }
         }
     }
 }
 
-static void tack_main_loopInDefer(void) {
-    tack_main_mark(9);
+static void tack_4_main11_loopInDefer(void) {
+    tack_4_main4_mark(9);
     {
         {
             int64_t v_i = 1;
@@ -158,13 +158,13 @@ static void tack_main_loopInDefer(void) {
                 if (v_i == 5) {
                     break;
                 }
-                tack_main_mark(v_i);
+                tack_4_main4_mark(v_i);
             }
         }
     }
 }
 
-static int64_t tack_main_counted(void) {
+static int64_t tack_4_main7_counted(void) {
     int64_t v_n = 0;
     {
         const int64_t tack_n12 = 3;
@@ -184,7 +184,7 @@ static int64_t tack_main_counted(void) {
     return v_n;
 }
 
-static int64_t tack_main_exits(int64_t p_n) {
+static int64_t tack_4_main5_exits(int64_t p_n) {
     int64_t tack_ret14 = 0;
     int tack_next15 = 0;
     {
@@ -200,27 +200,27 @@ static int64_t tack_main_exits(int64_t p_n) {
                 tack_next15 = 2;
                 goto tack_defer6_1;
             }
-            tack_main_mark(3);
+            tack_4_main4_mark(3);
             tack_next15 = 0;
             tack_defer6_1: ;
             {
-                tack_main_mark(2);
+                tack_4_main4_mark(2);
             }
             if (tack_next15 == 1) goto tack_defer7_1;
             if (tack_next15 == 2) { tack_next15 = 0; break; }
         }
     }
-    tack_main_mark(4);
+    tack_4_main4_mark(4);
     tack_ret14 = 9;
     goto tack_defer7_1;
     tack_defer7_1: ;
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
     return tack_ret14;
 }
 
-static void tack_main_skip(void) {
+static void tack_4_main4_skip(void) {
     int tack_next18 = 0;
     {
         const int64_t tack_n19 = 3;
@@ -231,26 +231,26 @@ static void tack_main_skip(void) {
                 goto tack_defer8_1;
                 tack_defer8_1: ;
                 {
-                    tack_main_mark(2);
+                    tack_4_main4_mark(2);
                 }
                 if (tack_next18 == 1) goto tack_defer9_1;
             }
             if (v_i >= 1) {
                 {
-                    tack_main_mark(5);
+                    tack_4_main4_mark(5);
                 }
             }
-            tack_main_mark(3);
+            tack_4_main4_mark(3);
             tack_defer9_1: ;
             {
-                tack_main_mark(1);
+                tack_4_main4_mark(1);
             }
         }
     }
-    tack_main_mark(4);
+    tack_4_main4_mark(4);
 }
 
-static int64_t tack_main_inner(int64_t p_n) {
+static int64_t tack_4_main5_inner(int64_t p_n) {
     int64_t tack_ret21 = 0;
     int tack_next22 = 0;
     {
@@ -266,20 +266,20 @@ static int64_t tack_main_inner(int64_t p_n) {
                         tack_next22 = 1;
                         goto tack_defer10_1;
                     }
-                    tack_main_mark(4);
+                    tack_4_main4_mark(4);
                     tack_next22 = 0;
                     tack_defer10_1: ;
                     {
-                        tack_main_mark(3);
+                        tack_4_main4_mark(3);
                     }
                     if (tack_next22 == 1) goto tack_defer11_1;
                 }
             }
-            tack_main_mark(5);
+            tack_4_main4_mark(5);
             tack_next22 = 0;
             tack_defer11_1: ;
             {
-                tack_main_mark(2);
+                tack_4_main4_mark(2);
             }
             if (tack_next22 == 1) goto tack_defer12_1;
         }
@@ -288,56 +288,56 @@ static int64_t tack_main_inner(int64_t p_n) {
     goto tack_defer12_1;
     tack_defer12_1: ;
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
     return tack_ret21;
 }
 
-static void tack_main_many(void) {
+static void tack_4_main4_many(void) {
     {
         const tack_array_12 tack_r27 = (tack_array_12){{4, 3, 2, 1}};
         for (int64_t tack_k28 = 0; tack_k28 < 4; tack_k28++) {
             const int64_t v_d = tack_r27.e[tack_k28];
-            tack_main_mark(0);
+            tack_4_main4_mark(0);
             {
-                tack_main_mark(v_d);
+                tack_4_main4_mark(v_d);
             }
         }
     }
 }
 
-static void tack_main_main(void) {
-    tack_main_clauses();
-    tack_main_expect(912835, 1);
-    tack_main_cases();
-    tack_main_expect(43121, 2);
-    tack_main_deep();
-    tack_main_expect(43521, 3);
-    tack_main_loopInDefer();
-    tack_main_expect(9134, 4);
-    if (tack_main_counted() != 1230) {
+static void tack_4_main4_main(void) {
+    tack_4_main7_clauses();
+    tack_4_main6_expect(912835, 1);
+    tack_4_main5_cases();
+    tack_4_main6_expect(43121, 2);
+    tack_4_main4_deep();
+    tack_4_main6_expect(43521, 3);
+    tack_4_main11_loopInDefer();
+    tack_4_main6_expect(9134, 4);
+    if (tack_4_main7_counted() != 1230) {
         exit((int)(5));
     }
-    if (tack_main_exits(1) != 1) {
+    if (tack_4_main5_exits(1) != 1) {
         exit((int)(7));
     }
-    tack_main_expect(3221, 8);
-    if (tack_main_exits(7) != 9) {
+    tack_4_main6_expect(3221, 8);
+    if (tack_4_main5_exits(7) != 9) {
         exit((int)(9));
     }
-    tack_main_expect(3232241, 10);
-    tack_main_skip();
-    tack_main_expect(215315314, 11);
-    if (tack_main_inner(4) != 11) {
+    tack_4_main6_expect(3232241, 10);
+    tack_4_main4_skip();
+    tack_4_main6_expect(215315314, 11);
+    if (tack_4_main5_inner(4) != 11) {
         exit((int)(12));
     }
-    tack_main_expect(4343435243321, 13);
-    tack_main_many();
-    tack_main_expect(4030201, 6);
+    tack_4_main6_expect(4343435243321, 13);
+    tack_4_main4_many();
+    tack_4_main6_expect(4030201, 6);
     exit((int)(42));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

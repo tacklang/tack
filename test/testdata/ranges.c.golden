@@ -65,25 +65,25 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static int64_t tack_main_calls = 0;
+static int64_t tack_4_main5_calls = 0;
 
-static tack_array_12 tack_main_numbers(void);
-static tack_string tack_main_word(void);
-static int64_t tack_main_count(tack_string p_s, uint8_t p_c);
-static int64_t tack_main_firstOver(tack_array_13 p_a, int64_t p_limit);
-static void tack_main_main(void);
+static tack_array_12 tack_4_main7_numbers(void);
+static tack_string tack_4_main4_word(void);
+static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c);
+static int64_t tack_4_main9_firstOver(tack_array_13 p_a, int64_t p_limit);
+static void tack_4_main4_main(void);
 
-static tack_array_12 tack_main_numbers(void) {
-    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
+static tack_array_12 tack_4_main7_numbers(void) {
+    tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
     return (tack_array_12){{3, 1, 4, 1}};
 }
 
-static tack_string tack_main_word(void) {
-    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
+static tack_string tack_4_main4_word(void) {
+    tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
     return (tack_string){str0, 4};
 }
 
-static int64_t tack_main_count(tack_string p_s, uint8_t p_c) {
+static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
     int64_t v_n = 0;
     {
         const tack_string tack_r0 = p_s;
@@ -97,7 +97,7 @@ static int64_t tack_main_count(tack_string p_s, uint8_t p_c) {
     return v_n;
 }
 
-static int64_t tack_main_firstOver(tack_array_13 p_a, int64_t p_limit) {
+static int64_t tack_4_main9_firstOver(tack_array_13 p_a, int64_t p_limit) {
     {
         const tack_array_13 tack_r2 = p_a;
         for (int64_t tack_k3 = 0; tack_k3 < 5; tack_k3++) {
@@ -111,7 +111,7 @@ static int64_t tack_main_firstOver(tack_array_13 p_a, int64_t p_limit) {
     return (-1);
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     int64_t tack_o30;
     int64_t tack_o31;
     const tack_array_13 v_a = (tack_array_13){{2, 7, 1, 8, 2}};
@@ -155,14 +155,14 @@ static void tack_main_main(void) {
     }
     int64_t v_total = 0;
     {
-        const tack_array_12 tack_r10 = tack_main_numbers();
+        const tack_array_12 tack_r10 = tack_4_main7_numbers();
         for (int64_t tack_k11 = 0; tack_k11 < 4; tack_k11++) {
             const int64_t v_x = tack_r10.e[tack_k11];
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_x));
         }
     }
     {
-        const tack_string tack_r12 = tack_main_word();
+        const tack_string tack_r12 = tack_4_main4_word();
         for (int64_t tack_k13 = 0; tack_k13 < tack_r12.len; tack_k13++) {
             const int64_t v_i = tack_k13;
             const uint8_t v_b = tack_r12.ptr[tack_k13];
@@ -171,7 +171,7 @@ static void tack_main_main(void) {
             }
         }
     }
-    if ((tack_main_calls != 2) || (v_total != 12)) {
+    if ((tack_4_main5_calls != 2) || (v_total != 12)) {
         exit((int)(4));
     }
     tack_string v_s = (tack_string){str1, 2};
@@ -188,7 +188,7 @@ static void tack_main_main(void) {
     if ((v_bytes != 97099) || ((v_s).len != 3)) {
         exit((int)(5));
     }
-    if ((tack_main_count((tack_string){str3, 6}, 97) != 3) || (tack_main_count((tack_string){str4, 0}, 97) != 0)) {
+    if ((tack_4_main5_count((tack_string){str3, 6}, 97) != 3) || (tack_4_main5_count((tack_string){str4, 0}, 97) != 0)) {
         exit((int)(6));
     }
     {
@@ -262,10 +262,10 @@ static void tack_main_main(void) {
     if (v_upper != 2) {
         exit((int)(11));
     }
-    exit((int)(((int64_t)((uint64_t)(tack_o30 = tack_main_firstOver(v_a, 7), tack_o31 = tack_main_firstOver(v_a, 8), ((int64_t)((uint64_t)tack_o30 + (uint64_t)tack_o31))) + (uint64_t)40))));
+    exit((int)(((int64_t)((uint64_t)(tack_o30 = tack_4_main9_firstOver(v_a, 7), tack_o31 = tack_4_main9_firstOver(v_a, 8), ((int64_t)((uint64_t)tack_o30 + (uint64_t)tack_o31))) + (uint64_t)40))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

@@ -17,24 +17,24 @@ typedef struct {
 } tack_array_12;
 
 
-static const int64_t tack_main_limit = 5;
-static int64_t tack_main_calls = 0;
+static const int64_t tack_4_main5_limit = 5;
+static int64_t tack_4_main5_calls = 0;
 
 typedef struct {
     int64_t r0;
     int64_t r1;
-} tack_results_main_pair;
+} tack_results_4_main4_pair;
 
-static tack_results_main_pair tack_main_pair(int64_t p_a, int64_t p_b);
-static int64_t tack_main_sum(tack_array_12 p_xs);
-static void tack_main_main(void);
+static tack_results_4_main4_pair tack_4_main4_pair(int64_t p_a, int64_t p_b);
+static int64_t tack_4_main3_sum(tack_array_12 p_xs);
+static void tack_4_main4_main(void);
 
-static tack_results_main_pair tack_main_pair(int64_t p_a, int64_t p_b) {
-    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
-    return (tack_results_main_pair){p_a, p_b};
+static tack_results_4_main4_pair tack_4_main4_pair(int64_t p_a, int64_t p_b) {
+    tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
+    return (tack_results_4_main4_pair){p_a, p_b};
 }
 
-static int64_t tack_main_sum(tack_array_12 p_xs) {
+static int64_t tack_4_main3_sum(tack_array_12 p_xs) {
     int64_t v_total = 0;
     {
         const tack_array_12 tack_r0 = p_xs;
@@ -46,19 +46,19 @@ static int64_t tack_main_sum(tack_array_12 p_xs) {
     return v_total;
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     const int64_t v_x = 7;
     if (v_x != 7) {
         exit((int)(1));
     }
-    const tack_results_main_pair tack_r2 = tack_main_pair(10, 20);
+    const tack_results_4_main4_pair tack_r2 = tack_4_main4_pair(10, 20);
     const int64_t v_a = tack_r2.r0;
     const int64_t v_b = tack_r2.r1;
-    if ((((int64_t)((uint64_t)v_a + (uint64_t)v_b)) != 30) || (tack_main_calls != 1)) {
+    if ((((int64_t)((uint64_t)v_a + (uint64_t)v_b)) != 30) || (tack_4_main5_calls != 1)) {
         exit((int)(2));
     }
     const tack_array_12 v_xs = (tack_array_12){{1, 2, 3, 4}};
-    if (tack_main_sum(v_xs) != 10) {
+    if (tack_4_main3_sum(v_xs) != 10) {
         exit((int)(3));
     }
     int64_t v_n = 0;
@@ -66,7 +66,7 @@ static void tack_main_main(void) {
     v_n = v_m;
     {
         int64_t v_i = 0;
-        for (; v_i < tack_main_limit; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (; v_i < tack_4_main5_limit; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
             if (v_i == 1) {
                 continue;
             } else {
@@ -98,6 +98,6 @@ static void tack_main_main(void) {
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

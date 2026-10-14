@@ -25,10 +25,10 @@ static void tack_print(tack_string s) {
     }
 }
 
-static void tack_main_row(int64_t p_n);
-static void tack_main_main(void);
+static void tack_4_main3_row(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static void tack_main_row(int64_t p_n) {
+static void tack_4_main3_row(int64_t p_n) {
     {
         const int64_t tack_n0 = p_n;
         for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
@@ -38,7 +38,7 @@ static void tack_main_row(int64_t p_n) {
     tack_print((tack_string){str1, 1});
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     tack_print((tack_string){str2, 0});
     tack_print((tack_string){str3, 10});
     tack_print((tack_string){str4, 12});
@@ -47,13 +47,13 @@ static void tack_main_main(void) {
         const int64_t tack_n2 = 3;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
             const int64_t v_i = tack_k3;
-            tack_main_row(((int64_t)((uint64_t)v_i + (uint64_t)1)));
+            tack_4_main3_row(((int64_t)((uint64_t)v_i + (uint64_t)1)));
         }
     }
     tack_print((tack_string){str5, 14});
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

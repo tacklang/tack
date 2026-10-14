@@ -15,12 +15,12 @@ typedef struct {
 typedef struct {
     int64_t f_x;
     int64_t f_y;
-} tack_main_Point;
+} tack_4_main5_Point;
 
 typedef struct {
-    tack_main_Point f_a;
-    tack_main_Point f_b;
-} tack_main_Line;
+    tack_4_main5_Point f_a;
+    tack_4_main5_Point f_b;
+} tack_4_main4_Line;
 
 typedef struct {
     int64_t e[3];
@@ -29,25 +29,25 @@ typedef struct {
 typedef struct {
     tack_array_17 f_cells;
     tack_string f_name;
-} tack_main_Grid;
+} tack_4_main4_Grid;
 
 typedef struct {
     int8_t f_n;
-} tack_main_Small;
+} tack_4_main5_Small;
 
 typedef struct {
     char unused;
-} tack_main_Empty;
+} tack_4_main5_Empty;
 
 typedef struct {
-    tack_main_Point e[2];
+    tack_4_main5_Point e[2];
 } tack_array_18;
 
-static bool tack_eq_13(tack_main_Point a, tack_main_Point b) {
+static bool tack_eq_13(tack_4_main5_Point a, tack_4_main5_Point b) {
     return a.f_x == b.f_x && a.f_y == b.f_y;
 }
 
-static bool tack_eq_16(tack_main_Empty a, tack_main_Empty b) {
+static bool tack_eq_16(tack_4_main5_Empty a, tack_4_main5_Empty b) {
     (void)a;
     (void)b;
     return true;
@@ -55,58 +55,58 @@ static bool tack_eq_16(tack_main_Empty a, tack_main_Empty b) {
 
 static const unsigned char str0[5] = {103, 114, 105, 100, 0};
 
-static const tack_main_Point tack_main_origin = {0, 0};
-static const tack_array_18 tack_main_corners = {{{1, 1}, {2, 2}}};
-static tack_main_Point tack_main_counter = {0};
+static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
+static const tack_array_18 tack_4_main7_corners = {{{1, 1}, {2, 2}}};
+static tack_4_main5_Point tack_4_main7_counter = {0};
 
 typedef struct {
-    tack_main_Point r0;
-    tack_main_Point r1;
-} tack_results_main_split;
+    tack_4_main5_Point r0;
+    tack_4_main5_Point r1;
+} tack_results_4_main5_split;
 
-static tack_main_Point tack_main_add(tack_main_Point p_p, tack_main_Point p_q);
-static tack_results_main_split tack_main_split(tack_main_Line p_l);
-static int64_t tack_main_bump(tack_main_Point p_p);
-static void tack_main_main(void);
+static tack_4_main5_Point tack_4_main3_add(tack_4_main5_Point p_p, tack_4_main5_Point p_q);
+static tack_results_4_main5_split tack_4_main5_split(tack_4_main4_Line p_l);
+static int64_t tack_4_main4_bump(tack_4_main5_Point p_p);
+static void tack_4_main4_main(void);
 
-static tack_main_Point tack_main_add(tack_main_Point p_p, tack_main_Point p_q) {
-    return (tack_main_Point){.f_x = ((int64_t)((uint64_t)p_p.f_x + (uint64_t)p_q.f_x)), .f_y = ((int64_t)((uint64_t)p_p.f_y + (uint64_t)p_q.f_y))};
+static tack_4_main5_Point tack_4_main3_add(tack_4_main5_Point p_p, tack_4_main5_Point p_q) {
+    return (tack_4_main5_Point){.f_x = ((int64_t)((uint64_t)p_p.f_x + (uint64_t)p_q.f_x)), .f_y = ((int64_t)((uint64_t)p_p.f_y + (uint64_t)p_q.f_y))};
 }
 
-static tack_results_main_split tack_main_split(tack_main_Line p_l) {
-    return (tack_results_main_split){p_l.f_a, p_l.f_b};
+static tack_results_4_main5_split tack_4_main5_split(tack_4_main4_Line p_l) {
+    return (tack_results_4_main5_split){p_l.f_a, p_l.f_b};
 }
 
-static int64_t tack_main_bump(tack_main_Point p_p) {
-    tack_main_Point v_c = p_p;
+static int64_t tack_4_main4_bump(tack_4_main5_Point p_p) {
+    tack_4_main5_Point v_c = p_p;
     v_c.f_x = ((int64_t)((uint64_t)v_c.f_x + (uint64_t)1));
     return v_c.f_x;
 }
 
-static void tack_main_main(void) {
-    tack_main_Point v_p = (tack_main_Point){.f_x = 1, .f_y = 2};
-    const tack_main_Point v_q = v_p;
+static void tack_4_main4_main(void) {
+    tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 1, .f_y = 2};
+    const tack_4_main5_Point v_q = v_p;
     v_p.f_x = 10;
     if ((v_q.f_x != 1) || (v_p.f_x != 10)) {
         exit((int)(1));
     }
-    if (((tack_main_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_main_add(v_p, v_q).f_y != 4)) {
+    if (((tack_4_main4_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_4_main3_add(v_p, v_q).f_y != 4)) {
         exit((int)(2));
     }
-    const tack_main_Line v_l = (tack_main_Line){.f_a = (tack_main_Point){.f_x = 1, .f_y = 2}, .f_b = (tack_main_Point){.f_y = 4, .f_x = 3}};
-    const tack_results_main_split tack_r0 = tack_main_split(v_l);
-    const tack_main_Point v_a = tack_r0.r0;
-    const tack_main_Point v_b = tack_r0.r1;
-    if ((!tack_eq_13(tack_main_add(v_a, v_b), (tack_main_Point){.f_x = 4, .f_y = 6})) || (tack_eq_13(v_a, v_b))) {
+    const tack_4_main4_Line v_l = (tack_4_main4_Line){.f_a = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_b = (tack_4_main5_Point){.f_y = 4, .f_x = 3}};
+    const tack_results_4_main5_split tack_r0 = tack_4_main5_split(v_l);
+    const tack_4_main5_Point v_a = tack_r0.r0;
+    const tack_4_main5_Point v_b = tack_r0.r1;
+    if ((!tack_eq_13(tack_4_main3_add(v_a, v_b), (tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_13(v_a, v_b))) {
         exit((int)(3));
     }
-    tack_main_Line v_ml = v_l;
+    tack_4_main4_Line v_ml = v_l;
     v_ml.f_a.f_x = 7;
     v_ml.f_b.f_y = ((int64_t)((uint64_t)v_ml.f_b.f_y + (uint64_t)5));
     if ((((v_ml.f_a.f_x != 7) || (v_ml.f_b.f_y != 9)) || (v_l.f_a.f_x != 1)) || (v_l.f_b.f_y != 4)) {
         exit((int)(4));
     }
-    tack_array_18 v_pts = tack_main_corners;
+    tack_array_18 v_pts = tack_4_main7_corners;
     v_pts.e[1].f_y = 20;
     {
         (void)v_pts;
@@ -119,14 +119,14 @@ static void tack_main_main(void) {
     {
         const tack_array_18 tack_r3 = v_pts;
         for (int64_t tack_k4 = 0; tack_k4 < 2; tack_k4++) {
-            const tack_main_Point v_pt = tack_r3.e[tack_k4];
+            const tack_4_main5_Point v_pt = tack_r3.e[tack_k4];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)((int64_t)((uint64_t)v_pt.f_x + (uint64_t)v_pt.f_y))));
         }
     }
-    if ((v_sum != 30) || (tack_main_corners.e[1].f_y != 2)) {
+    if ((v_sum != 30) || (tack_4_main7_corners.e[1].f_y != 2)) {
         exit((int)(5));
     }
-    tack_main_Grid v_g = (tack_main_Grid){0};
+    tack_4_main4_Grid v_g = (tack_4_main4_Grid){0};
     v_g.f_cells.e[2] = 5;
     v_g.f_name = (tack_string){str0, 4};
     {
@@ -139,25 +139,25 @@ static void tack_main_main(void) {
     if ((((((void)v_g.f_cells, (int64_t)3) != 3) || (v_g.f_cells.e[2] != 6)) || (v_g.f_cells.e[0] != 1)) || ((v_g.f_name).len != 4)) {
         exit((int)(6));
     }
-    tack_main_Point v_z = (tack_main_Point){0};
-    if ((!tack_eq_13(v_z, tack_main_origin)) || (!tack_eq_13(tack_main_counter, v_z))) {
+    tack_4_main5_Point v_z = (tack_4_main5_Point){0};
+    if ((!tack_eq_13(v_z, tack_4_main6_origin)) || (!tack_eq_13(tack_4_main7_counter, v_z))) {
         exit((int)(7));
     }
-    tack_main_counter.f_y = ((int64_t)((uint64_t)tack_main_counter.f_y - (uint64_t)1));
-    tack_main_counter.f_x = ((int64_t)((uint64_t)tack_main_counter.f_y * (uint64_t)2));
-    tack_main_Small v_s = (tack_main_Small){.f_n = 127};
+    tack_4_main7_counter.f_y = ((int64_t)((uint64_t)tack_4_main7_counter.f_y - (uint64_t)1));
+    tack_4_main7_counter.f_x = ((int64_t)((uint64_t)tack_4_main7_counter.f_y * (uint64_t)2));
+    tack_4_main5_Small v_s = (tack_4_main5_Small){.f_n = 127};
     v_s.f_n = ((int8_t)((uint64_t)v_s.f_n + (uint64_t)1));
     if (v_s.f_n != (-128)) {
         exit((int)(8));
     }
-    const tack_main_Empty v_e = (tack_main_Empty){0};
-    if (!tack_eq_16(v_e, (tack_main_Empty){0})) {
+    const tack_4_main5_Empty v_e = (tack_4_main5_Empty){0};
+    if (!tack_eq_16(v_e, (tack_4_main5_Empty){0})) {
         exit((int)(9));
     }
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_main_counter.f_x)) + (uint64_t)tack_main_counter.f_y)) + (uint64_t)100))));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

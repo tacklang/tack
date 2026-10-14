@@ -62,21 +62,21 @@
 // bytes. Two strings are equal by their bytes, never by where they point.
 //
 // Names are rewritten so that nothing a program declares can collide with what
-// the backend emits. A Tack function f in the main package becomes
-// tack_main_f. One in any other package becomes tack_ followed by each part
-// of its package's import path and then its name, each written as its
+// the backend emits. A package-level name becomes tack_ followed by each
+// part of its package's import path and then the name, each written as its
 // length, an underscore, and the part with every byte but an ASCII letter
 // or digit escaped as an underscore and two hex digits: First in calc/lexer
-// is tack_4_calc5_lexer5_First. A part is read back by its length, so two
-// such names never collide, and none collides with tack_main_f, which has a
-// letter after tack_ where they have a digit. This is an interim scheme:
-// the main package is to use the length-prefixed form too, which renames
-// every tack_main_ name.
+// is tack_4_calc5_lexer5_First, f in the main package of a program built
+// from one file, whose path is main, is tack_4_main1_f, and my_f there is
+// tack_4_main6_my_5ff. A part is read back by its length, so two such names
+// never collide, whatever underscores either holds, and every other name
+// the backend makes after tack_ has a letter where these have a digit; the
+// proof is on mangle.
 // A parameter x becomes p_x and a local variable x becomes v_x, since Tack has
 // no reserved words and either may legally be called int, exit or str0.
 //
 // A package-level variable x becomes a static C variable named like a
-// function, tack_main_x, since the two share a namespace. It is const unless
+// function, tack_4_main1_x, since the two share a namespace. It is const unless
 // mutable, and initialized with the value the type checker computed, never
 // its source expression, so C never evaluates anything Tack has not already
 // checked. The smallest int64 is written as an expression, since C has no
@@ -126,7 +126,7 @@
 // giving 0 otherwise.
 //
 // A struct type lowers to a typedef'd C struct named like a package-level
-// name of its package, tack_main_Point, since the two share a namespace, with one member
+// name of its package, tack_4_main5_Point, since the two share a namespace, with one member
 // per field, in order, named f_ and the field's name, so a field may be
 // called int or while. A struct with no fields holds one char member, since
 // C has no empty struct, and nothing reads it. A literal is a compound
@@ -140,7 +140,7 @@
 // field a null pointer of length 0; tack_print writes nothing for it.
 //
 // A function with several results returns them as one struct,
-// tack_results_main_f for a function f, with a field r0, r1, and so on for
+// tack_results_4_main1_f for a function f, with a field r0, r1, and so on for
 // each. The structs are defined before the prototypes, and only for functions
 // with more than one result. A return builds one with a compound literal. A
 // declaration a, mut b := f() holds the struct in a const temporary named

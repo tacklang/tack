@@ -20,13 +20,13 @@ static void tack_print(tack_string s) {
     }
 }
 
-static void tack_main_main(void);
+static void tack_4_main4_main(void);
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     tack_print((tack_string){str0, 3});
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

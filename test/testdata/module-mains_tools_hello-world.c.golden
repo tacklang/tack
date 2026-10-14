@@ -20,14 +20,14 @@ static void tack_print(tack_string s) {
     }
 }
 
-static void tack_main_main(void);
+static void tack_13_example_2ecom14_module_2dmains5_tools13_hello_2dworld4_main(void);
 
-static void tack_main_main(void) {
+static void tack_13_example_2ecom14_module_2dmains5_tools13_hello_2dworld4_main(void) {
     tack_print((tack_string){str0, 12});
     exit((int)(4));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_13_example_2ecom14_module_2dmains5_tools13_hello_2dworld4_main();
     return 0;
 }

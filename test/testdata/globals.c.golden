@@ -21,28 +21,28 @@ static void tack_print(tack_string s) {
     }
 }
 
-static const tack_string tack_main_greeting = {str0, 7};
-static const int64_t tack_main_limit = 42;
-static int64_t tack_main_calls = 0;
+static const tack_string tack_4_main8_greeting = {str0, 7};
+static const int64_t tack_4_main5_limit = 42;
+static int64_t tack_4_main5_calls = 0;
 
-static void tack_main_count(void);
-static void tack_main_main(void);
+static void tack_4_main5_count(void);
+static void tack_4_main4_main(void);
 
-static void tack_main_count(void) {
-    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
+static void tack_4_main5_count(void) {
+    tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
 }
 
-static void tack_main_main(void) {
-    tack_print(tack_main_greeting);
+static void tack_4_main4_main(void) {
+    tack_print(tack_4_main8_greeting);
     tack_print((tack_string){str1, 1});
-    tack_main_count();
-    tack_main_count();
-    if (tack_main_calls == 2) {
-        exit((int)(tack_main_limit));
+    tack_4_main5_count();
+    tack_4_main5_count();
+    if (tack_4_main5_calls == 2) {
+        exit((int)(tack_4_main5_limit));
     }
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

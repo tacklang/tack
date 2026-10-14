@@ -22,10 +22,10 @@ static void tack_print(tack_string s) {
     }
 }
 
-static tack_string tack_main_classify(int64_t p_n);
-static void tack_main_main(void);
+static tack_string tack_4_main8_classify(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static tack_string tack_main_classify(int64_t p_n) {
+static tack_string tack_4_main8_classify(int64_t p_n) {
     if (p_n < 10) {
         return (tack_string){str0, 5};
     } else {
@@ -33,14 +33,14 @@ static tack_string tack_main_classify(int64_t p_n) {
     }
 }
 
-static void tack_main_main(void) {
-    tack_print(tack_main_classify(3));
+static void tack_4_main4_main(void) {
+    tack_print(tack_4_main8_classify(3));
     tack_print((tack_string){str2, 1});
-    tack_print(tack_main_classify(30));
+    tack_print(tack_4_main8_classify(30));
     tack_print((tack_string){str2, 1});
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

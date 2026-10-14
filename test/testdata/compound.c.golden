@@ -21,13 +21,13 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
     return b == -1 ? 0 : (int64_t)(a % b);
 }
 
-static int64_t tack_main_calls = 0;
+static int64_t tack_4_main5_calls = 0;
 
-static int64_t tack_main_sumTo(int64_t p_n);
-static void tack_main_main(void);
+static int64_t tack_4_main5_sumTo(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_sumTo(int64_t p_n) {
-    tack_main_calls = ((int64_t)((uint64_t)tack_main_calls + (uint64_t)1));
+static int64_t tack_4_main5_sumTo(int64_t p_n) {
+    tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
     int64_t v_i = 0;
     int64_t v_sum = 0;
     while (v_i < p_n) {
@@ -37,13 +37,13 @@ static int64_t tack_main_sumTo(int64_t p_n) {
     return v_sum;
 }
 
-static void tack_main_main(void) {
-    int64_t v_x = tack_main_sumTo(10);
+static void tack_4_main4_main(void) {
+    int64_t v_x = tack_4_main5_sumTo(10);
     v_x = ((int64_t)((uint64_t)v_x - (uint64_t)13));
     v_x = ((int64_t)((uint64_t)v_x * (uint64_t)2));
     v_x = tack_div_int64(v_x, 7);
     v_x = tack_rem_int64(v_x, 100);
-    v_x = ((int64_t)((uint64_t)v_x + (uint64_t)tack_main_calls));
+    v_x = ((int64_t)((uint64_t)v_x + (uint64_t)tack_4_main5_calls));
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x - (uint64_t)1));
@@ -51,6 +51,6 @@ static void tack_main_main(void) {
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

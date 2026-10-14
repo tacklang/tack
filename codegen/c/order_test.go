@@ -136,7 +136,7 @@ func TestHoldsOperandsOnlyWhenOrderShows(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := generate(t, orderProgram(tt.lines...))
-			_, main, found := strings.Cut(got, "static void tack_main_main(void) {")
+			_, main, found := strings.Cut(got, "static void tack_4_main4_main(void) {")
 			if !found {
 				t.Fatalf("no main in:\n%s", got)
 			}

@@ -188,12 +188,17 @@ under `codegen/` and importing it for its side effect in `tack/main.go` and
 picks up golden coverage automatically.
 
 The C backend translates directly, with no intermediate representation. Each
-Tack function becomes a `static void` C function named `tack_<package>_<name>`,
+Tack function becomes a `static` C function named after its package's import
+path and its name, each part written as its length and its bytes, with every
+byte but an ASCII letter or digit escaped as `_` and two hex digits, so `First`
+in `calc/lexer` is `tack_4_calc5_lexer5_First` and `main` in a single-file
+program, whose path is `main`, is `tack_4_main4_main`;
 string literals are pooled into `unsigned char` byte arrays so that arbitrary
 bytes survive without an escaping scheme, `print` lowers to a pair of `fwrite`
-calls on `stdout`, and a generated `int main(void)` calls the Tack `main`. The
-mangling is unambiguous only while package names cannot contain an underscore,
-which is true today because `main` is the only package there is.
+calls on `stdout`, and a generated `int main(void)` calls the Tack `main`. Each
+part is read back by its length, so no two Tack names, whatever underscores
+they hold, map to one C name, and none takes the shape of a name the backend
+makes for itself, which has a letter after `tack_`.
 
 ## The language today
 

@@ -27,64 +27,64 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static int64_t tack_main_log = 0;
+static int64_t tack_4_main3_log = 0;
 
 typedef struct {
     int64_t r0;
     int64_t r1;
-} tack_results_main_pair;
+} tack_results_4_main4_pair;
 
-static void tack_main_mark(int64_t p_d);
-static void tack_main_expect(int64_t p_want, int64_t p_code);
-static void tack_main_reverse(void);
-static void tack_main_nested(int64_t p_n);
-static int64_t tack_main_early(int64_t p_n);
-static void tack_main_unreached(int64_t p_n);
-static void tack_main_late(void);
-static int64_t tack_main_result(void);
-static tack_results_main_pair tack_main_pair(void);
-static void tack_main_guarded(int64_t p_d);
-static void tack_main_greet(void);
-static void tack_main_main(void);
+static void tack_4_main4_mark(int64_t p_d);
+static void tack_4_main6_expect(int64_t p_want, int64_t p_code);
+static void tack_4_main7_reverse(void);
+static void tack_4_main6_nested(int64_t p_n);
+static int64_t tack_4_main5_early(int64_t p_n);
+static void tack_4_main9_unreached(int64_t p_n);
+static void tack_4_main4_late(void);
+static int64_t tack_4_main6_result(void);
+static tack_results_4_main4_pair tack_4_main4_pair(void);
+static void tack_4_main7_guarded(int64_t p_d);
+static void tack_4_main5_greet(void);
+static void tack_4_main4_main(void);
 
-static void tack_main_mark(int64_t p_d) {
-    tack_main_log = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_log * (uint64_t)10)) + (uint64_t)p_d));
+static void tack_4_main4_mark(int64_t p_d) {
+    tack_4_main3_log = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_log * (uint64_t)10)) + (uint64_t)p_d));
 }
 
-static void tack_main_expect(int64_t p_want, int64_t p_code) {
-    if (tack_main_log != p_want) {
+static void tack_4_main6_expect(int64_t p_want, int64_t p_code) {
+    if (tack_4_main3_log != p_want) {
         exit((int)(p_code));
     }
-    tack_main_log = 0;
+    tack_4_main3_log = 0;
 }
 
-static void tack_main_reverse(void) {
-    tack_main_mark(4);
+static void tack_4_main7_reverse(void) {
+    tack_4_main4_mark(4);
     {
-        tack_main_mark(3);
+        tack_4_main4_mark(3);
     }
     {
-        tack_main_mark(2);
+        tack_4_main4_mark(2);
     }
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
 }
 
-static void tack_main_nested(int64_t p_n) {
+static void tack_4_main6_nested(int64_t p_n) {
     if (p_n > 0) {
-        tack_main_mark(3);
+        tack_4_main4_mark(3);
         {
-            tack_main_mark(2);
+            tack_4_main4_mark(2);
         }
     }
-    tack_main_mark(4);
+    tack_4_main4_mark(4);
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
 }
 
-static int64_t tack_main_early(int64_t p_n) {
+static int64_t tack_4_main5_early(int64_t p_n) {
     int64_t tack_ret0 = 0;
     int tack_next1 = 0;
     {
@@ -97,51 +97,51 @@ static int64_t tack_main_early(int64_t p_n) {
                 goto tack_defer0_1;
                 tack_defer0_1: ;
                 {
-                    tack_main_mark(3);
+                    tack_4_main4_mark(3);
                 }
                 if (tack_next1 == 1) goto tack_defer1_1;
             }
-            tack_main_mark(5);
+            tack_4_main4_mark(5);
             tack_next1 = 0;
             tack_defer1_1: ;
             {
-                tack_main_mark(2);
+                tack_4_main4_mark(2);
             }
             if (tack_next1 == 1) goto tack_defer2_1;
         }
     }
-    tack_main_mark(4);
+    tack_4_main4_mark(4);
     tack_ret0 = 9;
     goto tack_defer2_1;
     tack_defer2_1: ;
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
     return tack_ret0;
 }
 
-static void tack_main_unreached(int64_t p_n) {
+static void tack_4_main9_unreached(int64_t p_n) {
     if (p_n > 0) {
         goto tack_defer3_1;
     }
     {
-        tack_main_mark(2);
+        tack_4_main4_mark(2);
     }
     tack_defer3_1: ;
     {
-        tack_main_mark(1);
+        tack_4_main4_mark(1);
     }
 }
 
-static void tack_main_late(void) {
+static void tack_4_main4_late(void) {
     int64_t v_x = 1;
     v_x = 3;
     {
-        tack_main_mark(v_x);
+        tack_4_main4_mark(v_x);
     }
 }
 
-static int64_t tack_main_result(void) {
+static int64_t tack_4_main6_result(void) {
     int64_t tack_ret4 = 0;
     int64_t v_x = 5;
     tack_ret4 = v_x;
@@ -151,35 +151,35 @@ static int64_t tack_main_result(void) {
         v_x = 7;
     }
     {
-        tack_main_mark(v_x);
+        tack_4_main4_mark(v_x);
     }
     return tack_ret4;
 }
 
-static tack_results_main_pair tack_main_pair(void) {
-    tack_results_main_pair tack_ret5 = (tack_results_main_pair){0};
+static tack_results_4_main4_pair tack_4_main4_pair(void) {
+    tack_results_4_main4_pair tack_ret5 = (tack_results_4_main4_pair){0};
     int64_t v_a = 1;
     int64_t v_b = 2;
-    tack_ret5 = (tack_results_main_pair){v_a, v_b};
+    tack_ret5 = (tack_results_4_main4_pair){v_a, v_b};
     goto tack_defer5_1;
     tack_defer5_1: ;
     {
         v_a = 8;
         v_b = ((int64_t)((uint64_t)v_b + (uint64_t)1));
-        tack_main_mark(((int64_t)((uint64_t)((int64_t)((uint64_t)v_a - (uint64_t)v_b)) + (uint64_t)2)));
+        tack_4_main4_mark(((int64_t)((uint64_t)((int64_t)((uint64_t)v_a - (uint64_t)v_b)) + (uint64_t)2)));
     }
     return tack_ret5;
 }
 
-static void tack_main_guarded(int64_t p_d) {
+static void tack_4_main7_guarded(int64_t p_d) {
     if (p_d != 0) {
         {
-            tack_main_mark(tack_div_int64(10, p_d));
+            tack_4_main4_mark(tack_div_int64(10, p_d));
         }
     }
 }
 
-static void tack_main_greet(void) {
+static void tack_4_main5_greet(void) {
     tack_print((tack_string){str2, 2});
     {
         tack_print((tack_string){str1, 2});
@@ -189,43 +189,43 @@ static void tack_main_greet(void) {
     }
 }
 
-static void tack_main_main(void) {
-    tack_main_reverse();
-    tack_main_expect(4321, 1);
-    tack_main_nested(1);
-    tack_main_expect(3241, 2);
-    tack_main_nested(0);
-    tack_main_expect(41, 3);
-    if (tack_main_early(1) != 1) {
+static void tack_4_main4_main(void) {
+    tack_4_main7_reverse();
+    tack_4_main6_expect(4321, 1);
+    tack_4_main6_nested(1);
+    tack_4_main6_expect(3241, 2);
+    tack_4_main6_nested(0);
+    tack_4_main6_expect(41, 3);
+    if (tack_4_main5_early(1) != 1) {
         exit((int)(4));
     }
-    tack_main_expect(52321, 5);
-    if (tack_main_early(7) != 9) {
+    tack_4_main6_expect(52321, 5);
+    if (tack_4_main5_early(7) != 9) {
         exit((int)(6));
     }
-    tack_main_expect(52525241, 7);
-    tack_main_unreached(1);
-    tack_main_expect(1, 8);
-    tack_main_unreached(0);
-    tack_main_expect(21, 9);
-    tack_main_late();
-    tack_main_expect(3, 10);
-    if (tack_main_result() != 5) {
+    tack_4_main6_expect(52525241, 7);
+    tack_4_main9_unreached(1);
+    tack_4_main6_expect(1, 8);
+    tack_4_main9_unreached(0);
+    tack_4_main6_expect(21, 9);
+    tack_4_main4_late();
+    tack_4_main6_expect(3, 10);
+    if (tack_4_main6_result() != 5) {
         exit((int)(11));
     }
-    tack_main_expect(7, 12);
-    const tack_results_main_pair tack_r6 = tack_main_pair();
+    tack_4_main6_expect(7, 12);
+    const tack_results_4_main4_pair tack_r6 = tack_4_main4_pair();
     const int64_t v_a = tack_r6.r0;
     const int64_t v_b = tack_r6.r1;
     if ((v_a != 1) || (v_b != 2)) {
         exit((int)(13));
     }
-    tack_main_expect(7, 14);
-    tack_main_guarded(5);
-    tack_main_expect(2, 15);
-    tack_main_guarded(0);
-    tack_main_expect(0, 16);
-    tack_main_greet();
+    tack_4_main6_expect(7, 14);
+    tack_4_main7_guarded(5);
+    tack_4_main6_expect(2, 15);
+    tack_4_main7_guarded(0);
+    tack_4_main6_expect(0, 16);
+    tack_4_main5_greet();
     exit((int)(42));
     {
         tack_print((tack_string){str3, 6});
@@ -233,6 +233,6 @@ static void tack_main_main(void) {
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

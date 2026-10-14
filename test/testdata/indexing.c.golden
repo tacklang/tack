@@ -25,13 +25,13 @@ typedef struct {
 } tack_array_14;
 
 
-static const tack_array_12 tack_main_squares = {{0, 1, 4, 9, 16}};
+static const tack_array_12 tack_4_main7_squares = {{0, 1, 4, 9, 16}};
 
-static int64_t tack_main_sum(tack_array_12 p_v);
-static int64_t tack_main_at(tack_array_12 p_v, int64_t p_i);
-static void tack_main_main(void);
+static int64_t tack_4_main3_sum(tack_array_12 p_v);
+static int64_t tack_4_main2_at(tack_array_12 p_v, int64_t p_i);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_sum(tack_array_12 p_v) {
+static int64_t tack_4_main3_sum(tack_array_12 p_v) {
     int64_t v_total = 0;
     {
         const int64_t tack_n0 = ((void)p_v, (int64_t)5);
@@ -43,14 +43,14 @@ static int64_t tack_main_sum(tack_array_12 p_v) {
     return v_total;
 }
 
-static int64_t tack_main_at(tack_array_12 p_v, int64_t p_i) {
+static int64_t tack_4_main2_at(tack_array_12 p_v, int64_t p_i) {
     if ((0 <= p_i) && (p_i < ((void)p_v, (int64_t)5))) {
         return p_v.e[p_i];
     }
     return (-1);
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     tack_array_13 v_counts = (tack_array_13){0};
     {
         const int64_t tack_n2 = 4;
@@ -59,9 +59,9 @@ static void tack_main_main(void) {
             v_counts.e[v_i] = ((int64_t)((uint64_t)v_i * (uint64_t)10));
         }
     }
-    const int64_t tack_r4 = tack_main_at(tack_main_squares, 9);
+    const int64_t tack_r4 = tack_4_main2_at(tack_4_main7_squares, 9);
     const bool v_ok = (tack_r4 >= 0 && tack_r4 <= 3);
-    const int64_t tack_r5 = tack_main_at(tack_main_squares, 1);
+    const int64_t tack_r5 = tack_4_main2_at(tack_4_main7_squares, 1);
     const int64_t v_v = ((tack_r5 >= 0 && tack_r5 <= 3) ? v_counts.e[tack_r5] : 0);
     const bool v_fine = (tack_r5 >= 0 && tack_r5 <= 3);
     tack_array_14 v_seen = (tack_array_14){0};
@@ -70,10 +70,10 @@ static void tack_main_main(void) {
     if ((v_ok || !v_fine) || !v_seen.e[200]) {
         exit((int)(1));
     }
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_main_sum(tack_main_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3]))));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_sum(tack_4_main7_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3]))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

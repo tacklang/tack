@@ -19,15 +19,15 @@ static const unsigned char str3[1] = {0};
 static const unsigned char str4[3] = {97, 98, 0};
 static const unsigned char str5[7] = {98, 97, 110, 97, 110, 97, 0};
 
-static const tack_string tack_main_word = {str0, 4};
+static const tack_string tack_4_main4_word = {str0, 4};
 
-static int64_t tack_main_count(tack_string p_s, uint8_t p_c);
-static uint8_t tack_main_at(tack_string p_s, int64_t p_i);
-static uint8_t tack_main_safe(tack_string p_s, int64_t p_i);
-static uint8_t tack_main_first(tack_string p_s);
-static void tack_main_main(void);
+static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c);
+static uint8_t tack_4_main2_at(tack_string p_s, int64_t p_i);
+static uint8_t tack_4_main4_safe(tack_string p_s, int64_t p_i);
+static uint8_t tack_4_main5_first(tack_string p_s);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_count(tack_string p_s, uint8_t p_c) {
+static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
     int64_t v_n = 0;
     {
         const int64_t tack_n0 = (p_s).len;
@@ -41,28 +41,28 @@ static int64_t tack_main_count(tack_string p_s, uint8_t p_c) {
     return v_n;
 }
 
-static uint8_t tack_main_at(tack_string p_s, int64_t p_i) {
+static uint8_t tack_4_main2_at(tack_string p_s, int64_t p_i) {
     if ((0 <= p_i) && (p_i < (p_s).len)) {
         return p_s.ptr[p_i];
     }
     return 0;
 }
 
-static uint8_t tack_main_safe(tack_string p_s, int64_t p_i) {
+static uint8_t tack_4_main4_safe(tack_string p_s, int64_t p_i) {
     if ((p_i < 0) || (p_i >= (p_s).len)) {
         return 0;
     }
     return p_s.ptr[p_i];
 }
 
-static uint8_t tack_main_first(tack_string p_s) {
+static uint8_t tack_4_main5_first(tack_string p_s) {
     if ((p_s).len > 0) {
         return p_s.ptr[0];
     }
     return 0;
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     int64_t tack_o4;
     uint8_t tack_o5;
     tack_string v_s = (tack_string){str1, 5};
@@ -81,16 +81,16 @@ static void tack_main_main(void) {
         }
     }
     v_s = (tack_string){str2, 5};
-    if ((((tack_main_first(v_s) != 119) || (tack_main_first((tack_string){str3, 0}) != 0)) || (tack_main_safe((tack_string){str4, 2}, 1) != 98)) || (tack_main_safe((tack_string){str4, 2}, 2) != 0)) {
+    if ((((tack_4_main5_first(v_s) != 119) || (tack_4_main5_first((tack_string){str3, 0}) != 0)) || (tack_4_main4_safe((tack_string){str4, 2}, 1) != 98)) || (tack_4_main4_safe((tack_string){str4, 2}, 2) != 0)) {
         exit((int)(3));
     }
-    if ((((((tack_string){str0, 4}).ptr[1] != 97) || (tack_main_at(tack_main_word, 4) != 0)) || (tack_main_at(tack_main_word, (-1)) != 0)) || (tack_main_first(tack_main_word) != 116)) {
+    if ((((((tack_string){str0, 4}).ptr[1] != 97) || (tack_4_main2_at(tack_4_main4_word, 4) != 0)) || (tack_4_main2_at(tack_4_main4_word, (-1)) != 0)) || (tack_4_main5_first(tack_4_main4_word) != 116)) {
         exit((int)(4));
     }
-    exit((int)(((int64_t)((uint64_t)(tack_o4 = tack_main_count((tack_string){str5, 6}, 97), tack_o5 = tack_main_at(tack_main_word, 2), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) - (uint64_t)97))));
+    exit((int)(((int64_t)((uint64_t)(tack_o4 = tack_4_main5_count((tack_string){str5, 6}, 97), tack_o5 = tack_4_main2_at(tack_4_main4_word, 2), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) - (uint64_t)97))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

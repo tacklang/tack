@@ -117,10 +117,10 @@ func TestMultipleResultsLowering(t *testing.T) {
 		"func main() {\n    a, mut b := pair()\n    b = false\n    if b {\n        exit(a)\n    }\n}\n")
 
 	for _, want := range []string{
-		"typedef struct {\n    int64_t r0;\n    bool r1;\n} tack_results_main_pair;",
-		"static tack_results_main_pair tack_main_pair(void);",
-		"return (tack_results_main_pair){1, true};",
-		"const tack_results_main_pair tack_r0 = tack_main_pair();",
+		"typedef struct {\n    int64_t r0;\n    bool r1;\n} tack_results_4_main4_pair;",
+		"static tack_results_4_main4_pair tack_4_main4_pair(void);",
+		"return (tack_results_4_main4_pair){1, true};",
+		"const tack_results_4_main4_pair tack_r0 = tack_4_main4_pair();",
 		"const int64_t v_a = tack_r0.r0;",
 		"    bool v_b = tack_r0.r1;",
 	} {

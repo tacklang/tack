@@ -13,23 +13,23 @@ typedef struct {
 } tack_string;
 
 
-static int64_t tack_main_fib(int64_t p_n);
-static void tack_main_main(void);
+static int64_t tack_4_main3_fib(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_fib(int64_t p_n) {
+static int64_t tack_4_main3_fib(int64_t p_n) {
     int64_t tack_o0;
     int64_t tack_o1;
     if (p_n < 2) {
         return p_n;
     }
-    return (tack_o0 = tack_main_fib(((int64_t)((uint64_t)p_n - (uint64_t)1))), tack_o1 = tack_main_fib(((int64_t)((uint64_t)p_n - (uint64_t)2))), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1)));
+    return (tack_o0 = tack_4_main3_fib(((int64_t)((uint64_t)p_n - (uint64_t)1))), tack_o1 = tack_4_main3_fib(((int64_t)((uint64_t)p_n - (uint64_t)2))), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1)));
 }
 
-static void tack_main_main(void) {
-    exit((int)(tack_main_fib(10)));
+static void tack_4_main4_main(void) {
+    exit((int)(tack_4_main3_fib(10)));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

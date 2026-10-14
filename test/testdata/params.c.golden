@@ -21,20 +21,20 @@ static void tack_print(tack_string s) {
     }
 }
 
-static void tack_main_greet(tack_string p_s, int64_t p_code);
-static void tack_main_main(void);
+static void tack_4_main5_greet(tack_string p_s, int64_t p_code);
+static void tack_4_main4_main(void);
 
-static void tack_main_greet(tack_string p_s, int64_t p_code) {
+static void tack_4_main5_greet(tack_string p_s, int64_t p_code) {
     tack_print(p_s);
     tack_print((tack_string){str0, 1});
     exit((int)(p_code));
 }
 
-static void tack_main_main(void) {
-    tack_main_greet((tack_string){str1, 5}, 7);
+static void tack_4_main4_main(void) {
+    tack_4_main5_greet((tack_string){str1, 5}, 7);
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

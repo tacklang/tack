@@ -47,7 +47,7 @@ static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src);
 static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t);
 static int64_t tack_4_calc5_lexer4_size(void);
 static int64_t tack_4_calc5_lexer4_Size(void);
-static void tack_main_main(void);
+static void tack_4_calc3_cmd5_count4_main(void);
 
 static int64_t tack_4_calc5_chain5_three5_Depth(void) {
     return 1;
@@ -97,11 +97,11 @@ static int64_t tack_4_calc5_lexer4_Size(void) {
     return (tack_o0 = tack_4_calc5_lexer4_size(), tack_o1 = tack_4_calc8_internal4_text4_size(), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1)));
 }
 
-static void tack_main_main(void) {
+static void tack_4_calc3_cmd5_count4_main(void) {
     exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_calc5_chain3_one5_Depth() * (uint64_t)10)) + (uint64_t)tack_4_calc5_lexer9_MaxTokens))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_calc3_cmd5_count4_main();
     return 0;
 }

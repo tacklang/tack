@@ -19,16 +19,16 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		read string
 		want string
 	}{
-		{"var x = 40 + 2", "exit(x)", "static const int64_t tack_main_x = 42;"},
-		{"mut x int64", "exit(x)", "static int64_t tack_main_x = 0;"},
+		{"var x = 40 + 2", "exit(x)", "static const int64_t tack_4_main1_x = 42;"},
+		{"mut x int64", "exit(x)", "static int64_t tack_4_main1_x = 0;"},
 		{
 			"var x = 0 - 9223372036854775807 - 1", "exit(x)",
-			"static const int64_t tack_main_x = (-9223372036854775807 - 1);",
+			"static const int64_t tack_4_main1_x = (-9223372036854775807 - 1);",
 		},
-		{"var x = 1 < 2", "if x {\n    }", "static const bool tack_main_x = true;"},
-		{"mut x bool", "if x {\n    }", "static bool tack_main_x = false;"},
-		{"var x = \"hi\"", "print(x)", "static const tack_string tack_main_x = {str0, 2};"},
-		{"mut x string", "print(x)", "static tack_string tack_main_x = {str0, 0};"},
+		{"var x = 1 < 2", "if x {\n    }", "static const bool tack_4_main1_x = true;"},
+		{"mut x bool", "if x {\n    }", "static bool tack_4_main1_x = false;"},
+		{"var x = \"hi\"", "print(x)", "static const tack_string tack_4_main1_x = {str0, 2};"},
+		{"mut x string", "print(x)", "static tack_string tack_4_main1_x = {str0, 0};"},
 	}
 
 	for _, tt := range tests {
@@ -46,8 +46,8 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 func TestGlobalsAreDeclaredBeforeFunctions(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(x)\n}\n\nvar x = 1\n")
 
-	global := strings.Index(got, "tack_main_x = 1;")
-	fn := strings.Index(got, "static void tack_main_main(void) {")
+	global := strings.Index(got, "tack_4_main1_x = 1;")
+	fn := strings.Index(got, "static void tack_4_main4_main(void) {")
 	if global < 0 || fn < 0 || global > fn {
 		t.Errorf("global not declared before the functions:\n%s", got)
 	}

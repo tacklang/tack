@@ -20,34 +20,34 @@ static void tack_print(tack_string s) {
     }
 }
 
-static const bool tack_main_verbose = true;
+static const bool tack_4_main7_verbose = true;
 
-static bool tack_main_not(bool p_b);
-static void tack_main_main(void);
+static bool tack_4_main3_not(bool p_b);
+static void tack_4_main4_main(void);
 
-static bool tack_main_not(bool p_b) {
+static bool tack_4_main3_not(bool p_b) {
     if (p_b) {
         return false;
     }
     return true;
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     bool v_done = false;
-    if (tack_main_verbose) {
+    if (tack_4_main7_verbose) {
         tack_print((tack_string){str0, 6});
         v_done = true;
     }
-    if (tack_main_not(v_done)) {
+    if (tack_4_main3_not(v_done)) {
         exit((int)(1));
     }
-    if (v_done != tack_main_verbose) {
+    if (v_done != tack_4_main7_verbose) {
         exit((int)(2));
     }
     exit((int)(9));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

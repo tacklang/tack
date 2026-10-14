@@ -13,18 +13,18 @@ typedef struct {
 } tack_string;
 
 
-static int64_t tack_main_seven(void);
-static void tack_main_main(void);
+static int64_t tack_4_main5_seven(void);
+static void tack_4_main4_main(void);
 
-static int64_t tack_main_seven(void) {
+static int64_t tack_4_main5_seven(void) {
     return 7;
 }
 
-static void tack_main_main(void) {
-    exit((int)(tack_main_seven()));
+static void tack_4_main4_main(void) {
+    exit((int)(tack_4_main5_seven()));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

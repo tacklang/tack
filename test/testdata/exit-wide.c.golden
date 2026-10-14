@@ -13,13 +13,13 @@ typedef struct {
 } tack_string;
 
 
-static void tack_main_main(void);
+static void tack_4_main4_main(void);
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     exit((int)(70000));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

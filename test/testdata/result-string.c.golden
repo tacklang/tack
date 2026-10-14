@@ -21,19 +21,19 @@ static void tack_print(tack_string s) {
     }
 }
 
-static tack_string tack_main_greeting(void);
-static void tack_main_main(void);
+static tack_string tack_4_main8_greeting(void);
+static void tack_4_main4_main(void);
 
-static tack_string tack_main_greeting(void) {
+static tack_string tack_4_main8_greeting(void) {
     return (tack_string){str0, 19};
 }
 
-static void tack_main_main(void) {
-    tack_print(tack_main_greeting());
+static void tack_4_main4_main(void) {
+    tack_print(tack_4_main8_greeting());
     tack_print((tack_string){str1, 1});
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

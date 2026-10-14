@@ -24,28 +24,28 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
 typedef struct {
     int64_t r0;
     int64_t r1;
-} tack_results_main_divmod;
+} tack_results_4_main6_divmod;
 
-static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b);
-static int64_t tack_main_average(int64_t p_total, int64_t p_count);
-static void tack_main_main(void);
+static tack_results_4_main6_divmod tack_4_main6_divmod(int64_t p_a, int64_t p_b);
+static int64_t tack_4_main7_average(int64_t p_total, int64_t p_count);
+static void tack_4_main4_main(void);
 
-static tack_results_main_divmod tack_main_divmod(int64_t p_a, int64_t p_b) {
+static tack_results_4_main6_divmod tack_4_main6_divmod(int64_t p_a, int64_t p_b) {
     if (p_b == 0) {
-        return (tack_results_main_divmod){0, 0};
+        return (tack_results_4_main6_divmod){0, 0};
     }
-    return (tack_results_main_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
+    return (tack_results_4_main6_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
 }
 
-static int64_t tack_main_average(int64_t p_total, int64_t p_count) {
+static int64_t tack_4_main7_average(int64_t p_total, int64_t p_count) {
     if (p_count > 0) {
         return tack_div_int64(p_total, p_count);
     }
     return 0;
 }
 
-static void tack_main_main(void) {
-    const tack_results_main_divmod tack_r0 = tack_main_divmod(17, 5);
+static void tack_4_main4_main(void) {
+    const tack_results_4_main6_divmod tack_r0 = tack_4_main6_divmod(17, 5);
     const int64_t v_q = tack_r0.r0;
     const int64_t v_r = tack_r0.r1;
     int64_t v_zero = 0;
@@ -63,10 +63,10 @@ static void tack_main_main(void) {
     const int64_t v_half = 3;
     int64_t v_steps = 100;
     v_steps = tack_div_int64(v_steps, v_half);
-    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_main_average(v_steps, 3))) + (uint64_t)v_w))));
+    exit((int)(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_4_main7_average(v_steps, 3))) + (uint64_t)v_w))));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

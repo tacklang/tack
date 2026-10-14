@@ -120,9 +120,9 @@ func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 
 	for _, want := range []string{
 		"#include <stdio.h>",
-		"static void tack_main_main(void);",
-		"static void tack_main_main(void) {",
-		"int main(void) {\n    tack_main_main();\n    return 0;\n}",
+		"static void tack_4_main4_main(void);",
+		"static void tack_4_main4_main(void) {",
+		"int main(void) {\n    tack_4_main4_main();\n    return 0;\n}",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
@@ -133,10 +133,10 @@ func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 func TestGeneratesCallBetweenTackFunctions(t *testing.T) {
 	got := generate(t, "package main\n\nfunc greet() {\n}\n\nfunc main() {\n    greet()\n}\n")
 
-	if !strings.Contains(got, "static void tack_main_greet(void) {") {
+	if !strings.Contains(got, "static void tack_4_main5_greet(void) {") {
 		t.Errorf("generated C does not define greet:\n%s", got)
 	}
-	if !strings.Contains(got, "    tack_main_greet();") {
+	if !strings.Contains(got, "    tack_4_main5_greet();") {
 		t.Errorf("generated C does not call greet from main:\n%s", got)
 	}
 }
@@ -146,8 +146,8 @@ func TestGeneratesCallBetweenTackFunctions(t *testing.T) {
 func TestForwardDeclaresEveryFunctionBeforeAnyDefinition(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    later()\n}\n\nfunc later() {\n}\n")
 
-	proto := strings.Index(got, "static void tack_main_later(void);")
-	def := strings.Index(got, "static void tack_main_main(void) {")
+	proto := strings.Index(got, "static void tack_4_main5_later(void);")
+	def := strings.Index(got, "static void tack_4_main4_main(void) {")
 	if proto == -1 {
 		t.Fatalf("generated C has no prototype for later:\n%s", got)
 	}
@@ -272,7 +272,7 @@ func TestStringLiteralBecomesAStringValue(t *testing.T) {
 func TestGeneratesParameterisedSignature(t *testing.T) {
 	got := generate(t, "package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n}\n")
 
-	want := "static void tack_main_f(int64_t p_x, tack_string p_s)"
+	want := "static void tack_4_main1_f(int64_t p_x, tack_string p_s)"
 	if !strings.Contains(got, want+";") {
 		t.Errorf("generated C is missing the prototype %q:\n%s", want, got)
 	}
@@ -287,7 +287,7 @@ func TestGeneratesParameterisedSignature(t *testing.T) {
 func TestParameterNamesCannotCollideWithGeneratedNames(t *testing.T) {
 	got := generate(t, "package main\n\nfunc f(str0 int64, exit int64) {\n}\n\nfunc main() {\n}\n")
 
-	if !strings.Contains(got, "static void tack_main_f(int64_t p_str0, int64_t p_exit)") {
+	if !strings.Contains(got, "static void tack_4_main1_f(int64_t p_str0, int64_t p_exit)") {
 		t.Errorf("parameter names were not kept clear of generated names:\n%s", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 		"package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n    f(7, \"hi\")\n}\n",
 	)
 
-	if !strings.Contains(got, "tack_main_f(7, (tack_string){str0, 2});") {
+	if !strings.Contains(got, "tack_4_main1_f(7, (tack_string){str0, 2});") {
 		t.Errorf("call site does not pass its arguments:\n%s", got)
 	}
 }
@@ -511,8 +511,8 @@ func TestGeneratesResultTypeInSignature(t *testing.T) {
 	)
 
 	for _, want := range []string{
-		"static int64_t tack_main_seven(void)",
-		"static tack_string tack_main_hi(void)",
+		"static int64_t tack_4_main5_seven(void)",
+		"static tack_string tack_4_main2_hi(void)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
@@ -545,7 +545,7 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
 	)
 
-	if !strings.Contains(got, "exit((int)(tack_main_seven()));") {
+	if !strings.Contains(got, "exit((int)(tack_4_main5_seven()));") {
 		t.Errorf("a call argument did not become a C expression:\n%s", got)
 	}
 }
@@ -555,7 +555,7 @@ func TestNestedCallsNest(t *testing.T) {
 		"func h() int64 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
 
 	got := generate(t, src)
-	if !strings.Contains(got, "exit((int)(tack_main_g(tack_main_h())));") {
+	if !strings.Contains(got, "exit((int)(tack_4_main1_g(tack_4_main1_h())));") {
 		t.Errorf("nested calls did not nest:\n%s", got)
 	}
 }
@@ -638,7 +638,7 @@ func TestGeneratesBoolInSignature(t *testing.T) {
 	if !strings.Contains(got, "#include <stdbool.h>") {
 		t.Errorf("generated C does not include stdbool.h:\n%s", got)
 	}
-	if !strings.Contains(got, "static bool tack_main_pick(bool p_b)") {
+	if !strings.Contains(got, "static bool tack_4_main4_pick(bool p_b)") {
 		t.Errorf("bool did not reach the signature:\n%s", got)
 	}
 }

@@ -27,32 +27,32 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static bool tack_main_check(tack_string p_name, bool p_ok);
-static bool tack_main_safe(int64_t p_n);
-static void tack_main_main(void);
+static bool tack_4_main5_check(tack_string p_name, bool p_ok);
+static bool tack_4_main4_safe(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static bool tack_main_check(tack_string p_name, bool p_ok) {
+static bool tack_4_main5_check(tack_string p_name, bool p_ok) {
     tack_print(p_name);
     tack_print((tack_string){str0, 1});
     return p_ok;
 }
 
-static bool tack_main_safe(int64_t p_n) {
+static bool tack_4_main4_safe(int64_t p_n) {
     return ((p_n != 0) && (tack_div_int64(100, p_n) > 10));
 }
 
-static void tack_main_main(void) {
-    if (tack_main_check((tack_string){str1, 5}, false) && tack_main_check((tack_string){str2, 5}, true)) {
+static void tack_4_main4_main(void) {
+    if (tack_4_main5_check((tack_string){str1, 5}, false) && tack_4_main5_check((tack_string){str2, 5}, true)) {
         exit((int)(1));
     }
-    if (tack_main_check((tack_string){str3, 6}, true) || tack_main_check((tack_string){str2, 5}, true)) {
-        if (!tack_main_safe(0) && tack_main_safe(5)) {
+    if (tack_4_main5_check((tack_string){str3, 6}, true) || tack_4_main5_check((tack_string){str2, 5}, true)) {
+        if (!tack_4_main4_safe(0) && tack_4_main4_safe(5)) {
             exit((int)(13));
         }
     }
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

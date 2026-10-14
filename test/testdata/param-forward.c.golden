@@ -21,24 +21,24 @@ static void tack_print(tack_string s) {
     }
 }
 
-static void tack_main_show(tack_string p_s);
-static void tack_main_forward(tack_string p_s);
-static void tack_main_main(void);
+static void tack_4_main4_show(tack_string p_s);
+static void tack_4_main7_forward(tack_string p_s);
+static void tack_4_main4_main(void);
 
-static void tack_main_show(tack_string p_s) {
+static void tack_4_main4_show(tack_string p_s) {
     tack_print(p_s);
     tack_print((tack_string){str0, 1});
 }
 
-static void tack_main_forward(tack_string p_s) {
-    tack_main_show(p_s);
+static void tack_4_main7_forward(tack_string p_s) {
+    tack_4_main4_show(p_s);
 }
 
-static void tack_main_main(void) {
-    tack_main_forward((tack_string){str1, 9});
+static void tack_4_main4_main(void) {
+    tack_4_main7_forward((tack_string){str1, 9});
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }

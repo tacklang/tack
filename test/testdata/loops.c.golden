@@ -24,11 +24,11 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
     return b == -1 ? 0 : (int64_t)(a % b);
 }
 
-static bool tack_main_isPrime(int64_t p_n);
-static int64_t tack_main_nthPrime(int64_t p_n);
-static void tack_main_main(void);
+static bool tack_4_main7_isPrime(int64_t p_n);
+static int64_t tack_4_main8_nthPrime(int64_t p_n);
+static void tack_4_main4_main(void);
 
-static bool tack_main_isPrime(int64_t p_n) {
+static bool tack_4_main7_isPrime(int64_t p_n) {
     if (p_n < 2) {
         return false;
     }
@@ -42,12 +42,12 @@ static bool tack_main_isPrime(int64_t p_n) {
     return true;
 }
 
-static int64_t tack_main_nthPrime(int64_t p_n) {
+static int64_t tack_4_main8_nthPrime(int64_t p_n) {
     int64_t v_found = 0;
     int64_t v_candidate = 1;
     for (;;) {
         v_candidate = ((int64_t)((uint64_t)v_candidate + (uint64_t)1));
-        if (!tack_main_isPrime(v_candidate)) {
+        if (!tack_4_main7_isPrime(v_candidate)) {
             continue;
         }
         v_found = ((int64_t)((uint64_t)v_found + (uint64_t)1));
@@ -57,7 +57,7 @@ static int64_t tack_main_nthPrime(int64_t p_n) {
     }
 }
 
-static void tack_main_main(void) {
+static void tack_4_main4_main(void) {
     int64_t v_i = 0;
     for (;;) {
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
@@ -96,10 +96,10 @@ static void tack_main_main(void) {
     if (v_squares != 16) {
         exit((int)(1));
     }
-    exit((int)(tack_main_nthPrime(10)));
+    exit((int)(tack_4_main8_nthPrime(10)));
 }
 
 int main(void) {
-    tack_main_main();
+    tack_4_main4_main();
     return 0;
 }
