@@ -213,8 +213,10 @@ reports:
 
 - an extern func that no C file of its own package defines, as an error at
   its declaration: `extern func write has no C definition in package os`.
-  A definition in another package's C files does not count, and neither
-  does a `static` one, which is not exported;
+  A definition in another package's C files does not count. A `static`
+  one would not count either, since it is not exported, but it never gets
+  that far: `tack.h` has already declared the name without `static`, so
+  clang rejects the file, as `cannot compile`;
 - a C file that defines `main`: `tack: helpers.c defines main; a Tack
   program's main is its Tack main, so no C file may define one`;
 - two C files, of any packages, that define one symbol, function or

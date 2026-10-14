@@ -33,9 +33,9 @@ What each one needs before it could be declared for real:
 | Declaration               | Blocked on                                                        |
 |---------------------------|-------------------------------------------------------------------|
 | `append`, and any `[]any` | slice types in the parser, and a representation for them          |
-| `...any`                  | variadics, which the parser currently discards, and an `any` type |
+| `...any`                  | variadics, which the parser currently rejects, and an `any` type  |
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`, `printf`       | the above, plus string concatenation and formatting               |
 
-`printf` also depends on `std/fmt`, and so on imports and packages, which do
-not exist.
+`printf` also depends on `std/fmt`, a standard library package; imports and
+packages exist, but the standard library has no packages yet.
