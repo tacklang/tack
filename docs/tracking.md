@@ -141,11 +141,13 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
-| `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, body in `codegen/c/builtin/print.c`, emitted with `<stdio.h>` only when called |
+| `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/print.c`, linked only when called |
 | `len(v)`        | yes     | yes | Arrays, strings and views; known for arrays, string literals and immutable variables holding a known string, never for a view, but for a slice at known bounds |
-| `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, body in `codegen/c/builtin/exit.c`, emitted with `<stdlib.h>` only when called |
+| `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called |
 
-Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
+The compiler reads the builtins from `$TACK_HOME/src/std/builtin`
+(`~/.tack` without `TACK_HOME`), installed by `make install`; it holds no
+list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 
 ### Runtime and memory
 
@@ -153,7 +155,7 @@ Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |-----------------------------|--------|--------------------------------------------------------|
 | Runtime                     | no     | Generated C calls libc directly                        |
 | Memory model and allocation | no     | Nothing allocates; strings are static                  |
-| Standard library            | no     | `src/std/fmt` is a sketch; nothing compiles against it |
+| Standard library            | partial | `src/std`, installed to `$TACK_HOME/src/std`: `std/builtin` only, the builtins and their C bodies; no importable packages |
 | Packages beyond `main`      | partial | Modules, imports, qualified names and `pub`/`lib` visibility; no standard library packages |
 | Concurrency                 | no     |                                                        |
 

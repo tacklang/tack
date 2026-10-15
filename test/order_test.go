@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/tacklang/tack/internal/invalid"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
 )
@@ -34,13 +35,15 @@ func runFrontEnd(files fstest.MapFS) (out frontEnd, err error) {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	res, err := (&loader.Loader{FS: loader.FromFS(files)}).Dir("p")
+	res, err := (&loader.Loader{FS: loader.FromFS(files), Builtins: stdtest.MustBuiltins()}).Dir(
+		"p",
+	)
 	if err != nil {
 		return frontEnd{stage: "error: " + err.Error()}, nil
 	}
 	diags, stage := res.Diags, string(res.Stage)
 	if len(diags) == 0 {
-		diags, stage = resolver.New(res.Program).Resolve(), "resolve"
+		diags, stage = resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(), "resolve"
 	}
 	if len(diags) == 0 {
 		return frontEnd{}, nil

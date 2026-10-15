@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/codegen"
 	_ "github.com/tacklang/tack/codegen/c" // backends register from init; importing plugs one in
 	"github.com/tacklang/tack/diag"
@@ -83,22 +84,37 @@ type diagnosticsError struct{ rendered string }
 // Error returns the rendered diagnostics.
 func (e *diagnosticsError) Error() string { return e.rendered }
 
-// main runs the compiler with the process's arguments and standard streams
-// and exits with the code run returns. An interrupt cancels the run so that
-// temporary files are still removed; a second interrupt kills the process.
+// environment is what the driver takes from the process's environment,
+// read by main and passed down, so nothing below main reads it and tests
+// can give their own.
+type environment struct {
+	// homeDir returns the user's home directory, as os.UserHomeDir does.
+	// It is called only when tackHome is empty, to find ~/.tack.
+	homeDir func() (string, error)
+	// tackHome is $TACK_HOME, the Tack installation, empty when it is
+	// unset or empty.
+	tackHome string
+}
+
+// main runs the compiler with the process's arguments, environment and
+// standard streams and exits with the code run returns. An interrupt
+// cancels the run so that temporary files are still removed; a second
+// interrupt kills the process.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	env := environment{tackHome: os.Getenv("TACK_HOME"), homeDir: os.UserHomeDir}
+	code := run(ctx, os.Args[1:], env, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
 // run is the whole driver: it parses args, compiles the named file, and
 // either prints the requested intermediate form to stdout or builds a
-// binary. Diagnostics and errors go to stderr. It returns the process exit
-// code (exitOK, exitFailure, or exitUsage) and never exits itself, which is
-// what lets tests call it in process.
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+// binary. The standard library is found from env. Diagnostics and errors
+// go to stderr. It returns the process exit code (exitOK, exitFailure, or
+// exitUsage) and never exits itself, which is what lets tests call it in
+// process.
+func run(ctx context.Context, args []string, env environment, stdout, stderr io.Writer) int {
 	fs, values := newFlagSet()
 	opts, err := parseArgs(fs, values, args)
 	if errors.Is(err, flag.ErrHelp) {
@@ -106,7 +122,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	if err == nil {
-		err = execute(ctx, opts, stdout, stderr)
+		err = execute(ctx, opts, env, stdout, stderr)
 	}
 	return report(err, stderr)
 }
@@ -368,8 +384,8 @@ func optUsage() string {
 		"        (default -O" + string(codegen.DefaultOpt) + ")\n"
 }
 
-// execute carries out a validated command line.
-func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error {
+// execute carries out a validated command line, in the environment env.
+func execute(ctx context.Context, opts options, env environment, stdout, stderr io.Writer) error {
 	if opts.listBackends {
 		return writeAll(stdout, strings.Join(codegen.Names(), "\n")+"\n")
 	}
@@ -383,12 +399,17 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 		}
 	}
 
-	res, single, err := load(opts.file, opts.dump)
+	lib, err := stdFor(opts.dump, env)
 	if err != nil {
 		return err
 	}
 
-	out, err := compile(res, single, backend, opts.dump, opts.maxDiags)
+	res, single, err := load(opts.file, opts.dump, lib.builtinSet())
+	if err != nil {
+		return err
+	}
+
+	out, err := compile(res, single, backend, lib.builtinSet(), opts.dump, opts.maxDiags)
 	if err != nil {
 		return err
 	}
@@ -401,7 +422,7 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 		return writeAll(stdout, withTrailingNewline(out))
 	}
 	b := &builder{
-		ctx: ctx, backend: backend, res: res, maxDiags: opts.maxDiags, opt: opts.opt,
+		ctx: ctx, backend: backend, res: res, std: lib, maxDiags: opts.maxDiags, opt: opts.opt,
 		stdout: stdout, stderr: stderr,
 	}
 	return b.build(out, opts.outBin)
@@ -411,10 +432,11 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) error 
 // directory, the package with that import path in the module found from
 // the current directory if it names nothing on disk and looks like one,
 // and otherwise the one file it names. A dump of the tokens or the syntax
-// trees stops loading there, having read only the target's own files. It
-// also reports whether the target is a single file.
-func load(target string, d dump) (*loader.Result, bool, error) {
-	l := &loader.Loader{FS: loader.OS{}}
+// trees stops loading there, having read only the target's own files. No
+// package may be named after one of builtins. It also reports whether the
+// target is a single file.
+func load(target string, d dump, builtins *builtin.Set) (*loader.Result, bool, error) {
+	l := &loader.Loader{FS: loader.OS{}, Builtins: builtins}
 	switch d {
 	case dumpLex:
 		l.Stop = loader.StageLex
@@ -514,10 +536,10 @@ func checkOutPath(outBin, input string) error {
 	return nil
 }
 
-// compile runs the pipeline on a loaded program up to the stage d names,
-// or through code generation when d is dumpNone, and returns what that
-// stage produced: the formatted dump for a dump, the generated source
-// otherwise. single says the program is a single file, whose trees are
+// compile runs the pipeline on a loaded program, with builtins, up to the
+// stage d names, or through code generation when d is dumpNone, and
+// returns what that stage produced: the formatted dump for a dump, the
+// generated source otherwise. single says the program is a single file, whose trees are
 // dumped as that file rather than as a list or a program. The first stage
 // to report diagnostics, loading included, ends the run with a
 // *diagnosticsError holding at most maxDiags of them when maxDiags is
@@ -526,6 +548,7 @@ func compile(
 	res *loader.Result,
 	single bool,
 	backend codegen.Backend,
+	builtins *builtin.Set,
 	d dump,
 	maxDiags int,
 ) ([]byte, error) {
@@ -541,17 +564,17 @@ func compile(
 	}
 
 	prog := res.Program
-	if diags := resolver.New(prog).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(prog, builtins).Resolve(); len(diags) > 0 {
 		return nil, fail(diags)
 	}
 	if d == dumpRes {
 		return resolvedDump(prog, single)
 	}
 
-	if diags := typeck.New(prog, res.Files).Check(); len(diags) > 0 {
+	if diags := typeck.New(prog, res.Files, builtins).Check(); len(diags) > 0 {
 		return nil, fail(diags)
 	}
-	out, genDiags := backend.Generate(prog)
+	out, genDiags := backend.Generate(prog, builtins)
 	if len(genDiags) > 0 {
 		return nil, fail(genDiags)
 	}

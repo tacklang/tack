@@ -1,106 +1,40 @@
 package c
 
 import (
-	"embed"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
 )
 
-// builtinFS holds the C body of each builtin extern func, one file per
-// builtin, named after it: builtin/print.c defines tack_builtin_print. A
-// file is its #include lines, then the definition, a static function under
-// the builtin's C name.
-//
-//go:embed builtin/*.c
-var builtinFS embed.FS
-
-// cBody is a builtin's C body, split as the generated C uses it.
-type cBody struct {
-	def      string   // all but its #include lines: its definition, with no surrounding blank lines
-	includes []string // its #include lines, which go in the preamble
+// builtinPrototype is the C prototype of fn, a builtin extern func, under
+// its C name: void, since no builtin returns a value, and its parameters'
+// C types, unnamed. Its body is in std/builtin, compiled and linked by the
+// driver, so the generated C only declares it.
+func (g *generator) builtinPrototype(fn builtin.Func) string {
+	params := make([]string, len(fn.Params))
+	for i, p := range fn.Params {
+		params[i] = g.cType(p)
+	}
+	if len(params) == 0 {
+		params = []string{"void"}
+	}
+	return fmt.Sprintf("void %s(%s);", fn.CName, strings.Join(params, ", "))
 }
 
-// builtinBody returns the C body of fn, read from builtinFS.
-func builtinBody(fn builtin.Func) (cBody, error) {
-	data, err := builtinFS.ReadFile("builtin/" + fn.Name + ".c")
-	if err != nil {
-		return cBody{}, fmt.Errorf("the C backend has no body for builtin %s: %w", fn.Name, err)
-	}
-	var body cBody
-	var rest []string
-	for line := range strings.Lines(string(data)) {
-		if strings.HasPrefix(line, "#include ") {
-			body.includes = append(body.includes, strings.TrimSpace(line))
-			continue
-		}
-		rest = append(rest, line)
-	}
-	body.def = strings.TrimSpace(strings.Join(rest, ""))
-	return body, nil
-}
-
-// isBuiltinCall returns the builtin extern func call calls, and whether it
-// calls one: its callee is a builtin's name, which the resolver binds to a
-// nil *ast.Func.
-func isBuiltinCall(call *ast.Call) (builtin.Func, bool) {
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		return builtin.Func{}, false
-	}
-	if fn, isFunc := id.Def.(*ast.Func); !isFunc || fn != nil {
-		return builtin.Func{}, false
-	}
-	return builtin.Lookup(id.Name)
-}
-
-// usedBuiltins returns the C body of every builtin the program calls, in
-// the order builtin.Funcs lists them, so the output is the same every
-// time. A builtin with no body is an error at its first call: the backend
-// cannot lower it.
-func (g *generator) usedBuiltins() ([]cBody, []diag.Diagnostic) {
-	first := make(map[string]*ast.Call)
-	g.walk(func(n ast.Node) bool {
-		if call, ok := n.(*ast.Call); ok {
-			if fn, ok := isBuiltinCall(call); ok && first[fn.Name] == nil {
-				first[fn.Name] = call
-			}
-		}
-		return true
-	})
-	var bodies []cBody
-	for _, fn := range builtin.Funcs() {
-		call := first[fn.Name]
-		if call == nil {
-			continue
-		}
-		body, err := builtinBody(fn)
-		if err != nil {
-			return nil, []diag.Diagnostic{{
-				Severity: diag.Error, Message: err.Error(), Span: call.Spanned(),
-			}}
-		}
-		bodies = append(bodies, body)
-	}
-	return bodies, nil
-}
-
-// builtinIncludes returns the #include lines bodies need, each once, in
-// the order the bodies first name them.
-func builtinIncludes(bodies []cBody) []string {
-	var includes []string
-	for _, b := range bodies {
-		for _, inc := range b.includes {
-			if !slices.Contains(includes, inc) {
-				includes = append(includes, inc)
+// builtinsTake reports whether any of fns has a parameter of type typ.
+func builtinsTake(fns []builtin.Func, typ types.Type) bool {
+	for _, fn := range fns {
+		for _, p := range fn.Params {
+			if p == typ {
+				return true
 			}
 		}
 	}
-	return includes
+	return false
 }
 
 // builtinCall lowers a call to fn, a builtin extern func, as a call to its

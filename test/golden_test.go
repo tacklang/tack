@@ -20,6 +20,7 @@ import (
 	_ "github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/internal/invalid"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/parser"
@@ -76,7 +77,7 @@ func runPipeline(backendName string, p program) result {
 		return result{"codegen", fmt.Sprintf("no backend registered under %q", backendName)}
 	}
 
-	l := &loader.Loader{FS: loader.FromFS(p.files)}
+	l := &loader.Loader{FS: loader.FromFS(p.files), Builtins: stdtest.MustBuiltins()}
 	var res *loader.Result
 	var err error
 	if p.single {
@@ -92,15 +93,18 @@ func runPipeline(backendName string, p program) result {
 	}
 
 	prog := res.Program
-	if resDiags := resolver.New(prog).Resolve(); len(resDiags) > 0 {
+	if resDiags := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(resDiags) > 0 {
 		return result{"resolve", diag.RenderAllPretty(res.Files, resDiags)}
 	}
 
-	if checkDiags := typeck.New(prog, res.Files).Check(); len(checkDiags) > 0 {
+	if checkDiags := typeck.New(prog, res.Files, stdtest.MustBuiltins()).
+		Check(); len(
+		checkDiags,
+	) > 0 {
 		return result{"typeck", diag.RenderAllPretty(res.Files, checkDiags)}
 	}
 
-	out, diags := backend.Generate(prog)
+	out, diags := backend.Generate(prog, stdtest.MustBuiltins())
 	if len(diags) > 0 {
 		return result{"codegen", diag.RenderAllPretty(res.Files, diags)}
 	}

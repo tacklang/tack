@@ -17,6 +17,7 @@ import (
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/internal/invalid"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/source"
 )
@@ -33,12 +34,15 @@ const (
 	missingBackend = "test-missing" // toolchain does not exist
 	sleepBackend   = "test-sleep"   // toolchain hangs until killed
 	optBackend     = "test-opt"     // "builds" by writing the level to --out
+	objsBackend    = "test-objs"    // "builds" by writing the objects it links to --out
 )
 
 // fakeToolchain is a backend that generates C with the real c backend but
 // builds with argv instead of clang. In argv, "{src}" and "{out}" are
-// replaced by the build's source and output paths, and "{opt}" by its
-// optimization level.
+// replaced by the build's source and output paths, "{opt}" by its
+// optimization level, and "{objs}", a whole element, by the paths of the
+// objects it links, one element each. It compiles C files, the program's
+// and std's, with clang, as the c backend does.
 type fakeToolchain struct {
 	codegen.Backend
 	name string
@@ -48,14 +52,17 @@ type fakeToolchain struct {
 // Name returns the name the fake is registered under.
 func (f fakeToolchain) Name() string { return f.name }
 
-// BuildCmd returns argv with the {src}, {out} and {opt} placeholders
-// filled in. The fakes build programs without C files, so there are no
-// objects.
-func (f fakeToolchain) BuildCmd(src string, _ []string, out string, opt codegen.Opt) []string {
+// BuildCmd returns argv with the {src}, {out}, {opt} and {objs}
+// placeholders filled in.
+func (f fakeToolchain) BuildCmd(src string, objs []string, out string, opt codegen.Opt) []string {
 	r := strings.NewReplacer("{src}", src, "{out}", out, "{opt}", string(opt))
-	cmd := make([]string, len(f.argv))
-	for i, a := range f.argv {
-		cmd[i] = r.Replace(a)
+	cmd := make([]string, 0, len(f.argv)+len(objs))
+	for _, a := range f.argv {
+		if a == "{objs}" {
+			cmd = append(cmd, objs...)
+			continue
+		}
+		cmd = append(cmd, r.Replace(a))
 	}
 	return cmd
 }
@@ -70,6 +77,9 @@ func init() {
 		{name: missingBackend, argv: []string{"/nonexistent/tack-test-cc", "{src}", "{out}"}},
 		{name: sleepBackend, argv: []string{"sleep", "30"}},
 		{name: optBackend, argv: []string{"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{opt}", "{out}"}},
+		{name: objsBackend, argv: []string{
+			"sh", "-c", `out=$1; shift; printf '%s\n' "$@" > "$out"`, "sh", "{out}", "{objs}",
+		}},
 	} {
 		f.Backend = c.New()
 		codegen.Register(f)
@@ -93,14 +103,34 @@ func runTack(t *testing.T, args ...string) result {
 // runTackCtx is runTack with an explicit context.
 func runTackCtx(t *testing.T, ctx context.Context, args ...string) result {
 	t.Helper()
+	return runTackEnv(t, ctx, testEnv(t), args...)
+}
+
+// runTackEnv is runTackCtx in the environment env.
+func runTackEnv(t *testing.T, ctx context.Context, env environment, args ...string) result {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("run(%q) panicked: %v", args, r)
 		}
 	}()
-	code := run(ctx, args, &stdout, &stderr)
+	code := run(ctx, args, env, &stdout, &stderr)
 	return result{stdout: stdout.String(), stderr: stderr.String(), code: code}
+}
+
+// testEnv is the environment every test runs the driver in unless it
+// says otherwise: TACK_HOME is the repository's root, so std is the
+// repository's own, whatever is installed, and the home directory is never
+// looked up, which fails the test if anything tries.
+func testEnv(t testing.TB) environment {
+	return environment{
+		tackHome: stdtest.Home(),
+		homeDir: func() (string, error) {
+			t.Error("the driver looked up the home directory though TACK_HOME is set")
+			return "", errors.New("no home directory in tests")
+		},
+	}
 }
 
 // example returns the path to examples/<name>/main.tck.
@@ -328,11 +358,12 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, single, err := load(path, dumpNone)
+	builtins := stdtest.Builtins(t)
+	res, single, err := load(path, dumpNone, builtins)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := compile(res, single, c.New(), dumpNone, 0)
+	want, err := compile(res, single, c.New(), builtins, dumpNone, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +687,7 @@ func (errWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") 
 
 func TestStdoutWriteFailureIsReported(t *testing.T) {
 	var stderr bytes.Buffer
-	code := run(t.Context(), []string{"--emit", example("hello")}, errWriter{}, &stderr)
+	code := run(t.Context(), []string{"--emit", example("hello")}, testEnv(t), errWriter{}, &stderr)
 	if code != exitFailure || !strings.Contains(stderr.String(), "disk full") {
 		t.Errorf("got exit %d, stderr %q; want 1 and the write error", code, stderr.String())
 	}

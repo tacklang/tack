@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -32,11 +33,14 @@ func check(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
+		Resolve(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return typeck.New(ast.SingleFile(file), f).Check()
+	return typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
 }
 
 func inMain(body string) string {
@@ -159,7 +163,10 @@ func TestRejectsUnknownArgumentExpression(t *testing.T) {
 		},
 	}
 
-	if diags := typeck.New(ast.SingleFile(file), nil).Check(); len(diags) == 0 {
+	if diags := typeck.New(ast.SingleFile(file), nil, stdtest.MustBuiltins()).
+		Check(); len(
+		diags,
+	) == 0 {
 		t.Error("an argument of an unsupported expression kind was accepted")
 	}
 }
@@ -181,11 +188,14 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
+		Resolve(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return file, typeck.New(ast.SingleFile(file), f).Check()
+	return file, typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
 }
 
 // The parameter's type is what the backend reads to size and place it, so the

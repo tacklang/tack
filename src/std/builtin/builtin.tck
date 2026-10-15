@@ -1,16 +1,23 @@
 package builtin
 
-// The functions Tack provides without a declaration. print and exit are
-// extern funcs: their bodies are C, under the C names given here, and the
-// compiler's code generation backend supplies those bodies for its target
-// (the C backend's are in codegen/c/builtin/), so there is no Tack source
-// that could be given here. A call to one is an ordinary call to its C
-// function. They are available in every file without an import.
+// The functions Tack provides without a declaration. They are available in
+// every file without an import.
 //
-// This file is the documentation of record. The compiler consults
-// builtin/builtin.go, and a test in that package parses this file and fails
-// if the two disagree, so everything written here is true of the compiler
-// beside it. Anything not yet implemented belongs in PLANNED.md instead.
+// The compiler holds no list of them: it reads this directory, every .tck
+// file in it, from $TACK_HOME/src/std/builtin, and each extern func
+// declared here is a builtin. Every declaration in this directory must be
+// one: an extern func with its C name given, starting tack_, that returns
+// nothing, and whose parameters are of basic types; anything else is an
+// error naming the file. A call to a builtin is an ordinary call to its C
+// function.
+//
+// The body of each is C, in a .c file beside this one, named after the
+// builtin and defining its C function: print.c defines tack_builtin_print.
+// The driver compiles each .c file here as it compiles a program's own,
+// and links only those that define a builtin the program calls, and the
+// ones those need in turn, so a program that calls neither print nor exit
+// links no C library code for them. Anything not yet implemented belongs
+// in PLANNED.md instead.
 
 // print writes s to standard output exactly as given, adding no newline.
 extern("tack_builtin_print") func print(s string)
@@ -23,6 +30,7 @@ extern("tack_builtin_exit") func exit(code int64)
 
 // len(v) returns the number of elements of the array or view v, or the
 // number of bytes of the string v, as an int64. Its parameter takes any
-// array, view or string, which no Tack declaration can say, so it is
-// described here rather than declared. The length of an array, and of a
-// string literal, is a constant; a view's is never known.
+// array, view or string, which no Tack declaration can say, so the
+// compiler implements it itself and it is described here rather than
+// declared. The length of an array, and of a string literal, is a
+// constant; a view's is never known.

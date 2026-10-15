@@ -12,20 +12,20 @@ import (
 )
 
 // Names a package may not have, beyond keywords and builtins: builtin,
-// which src/std/builtin documents the builtins under, and std, the
+// the package src/std/builtin declares the builtins in, and std, the
 // standard library's module.
 var reservedPackages = map[string]bool{"builtin": true, "std": true}
 
 // checkPackageName returns why name cannot be a package's name, or "" if
 // it can. A package name is lowercase ASCII letters and digits, starting
-// with a letter, and is not a keyword, a builtin type's or function's
-// name, builtin or std. main is a valid name; where it may be used is the
-// caller's to check.
-func checkPackageName(name string) string {
+// with a letter, and is not a keyword, a builtin type's name, the name of
+// a declared builtin of builtins, builtin or std. main is a valid name; where it
+// may be used is the caller's to check.
+func checkPackageName(name string, builtins *builtin.Set) string {
 	var reason string
 	_, isKeyword := lexer.LookupKeyword(name)
 	_, isType := types.Lookup(name)
-	_, isFunc := builtin.Lookup(name)
+	_, isFunc := builtins.Lookup(name)
 	switch {
 	case !lowerAlnum(name):
 		reason = "use lowercase letters and digits"

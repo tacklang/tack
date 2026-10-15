@@ -19,19 +19,23 @@ const (
 // Resolver binds names in a program. It is single-use: create one with New
 // and call Resolve once.
 type Resolver struct {
-	prog    *ast.Program
-	read    map[*ast.Var]bool // variables read at least once
-	excused map[*ast.Var]bool // variables never reported unused: see excuse
+	prog     *ast.Program
+	builtins *builtin.Set      // the builtins a call can bind to without a declaration
+	read     map[*ast.Var]bool // variables read at least once
+	excused  map[*ast.Var]bool // variables never reported unused: see excuse
 
 	// packages holds each package's resolver once its package-level names
 	// are declared, which is before any package importing it is resolved.
 	packages map[*ast.Package]*pkgResolver
 }
 
-// New returns a Resolver for prog.
-func New(prog *ast.Program) *Resolver {
+// New returns a Resolver for prog, whose calls can bind to builtins, the
+// builtins std/builtin declares and the generic ones. A nil builtins has
+// only the generic ones.
+func New(prog *ast.Program, builtins *builtin.Set) *Resolver {
 	return &Resolver{
 		prog:     prog,
+		builtins: builtins,
 		read:     make(map[*ast.Var]bool),
 		excused:  make(map[*ast.Var]bool),
 		packages: make(map[*ast.Package]*pkgResolver),
@@ -183,7 +187,7 @@ func firstFile(pkg *ast.Package) source.FileID {
 // of its files, and then binds every name in it, returning every problem
 // found but the unused globals, which Resolve reports.
 func (r *pkgResolver) resolve() []diag.Diagnostic {
-	for _, name := range builtin.Names() {
+	for _, name := range r.builtins.Names() {
 		r.funcRefs[r.refLabel(builtinPackage, name)] = nil
 	}
 

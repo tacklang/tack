@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -26,7 +27,7 @@ func resolveTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
-	return file, resolver.New(ast.SingleFile(file)).Resolve()
+	return file, resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).Resolve()
 }
 
 // inMain wraps statements in a main function.

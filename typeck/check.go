@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/source"
@@ -16,6 +17,9 @@ import (
 type Checker struct {
 	prog  *ast.Program
 	table *types.Table // the program's types, recorded on it by Check
+
+	// builtins holds the signature of each builtin a call can name.
+	builtins *builtin.Set
 
 	// files holds the source text of the program's files, which notes
 	// quote; see text.
@@ -94,13 +98,15 @@ type Checker struct {
 }
 
 // New returns a Checker for prog, which must already have been resolved,
-// and whose spans point into files.
-func New(prog *ast.Program, files source.Files) *Checker {
+// with builtins, and whose spans point into files. builtins gives each
+// builtin's signature; a nil builtins has none.
+func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker {
 	return &Checker{
-		prog:    prog,
-		files:   files,
-		table:   types.NewTable(),
-		globals: make(map[*ast.Var]bool),
+		prog:     prog,
+		files:    files,
+		builtins: builtins,
+		table:    types.NewTable(),
+		globals:  make(map[*ast.Var]bool),
 
 		globalState: make(map[*ast.Var]progress),
 		structs:     make(map[types.Type]*ast.TypeDecl),

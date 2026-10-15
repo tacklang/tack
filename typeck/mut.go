@@ -2,7 +2,6 @@ package typeck
 
 import (
 	"github.com/tacklang/tack/ast"
-	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/types"
 )
 
@@ -34,7 +33,7 @@ type param struct {
 
 // calleeParams returns the parameters of the function or builtin id
 // names, none when it names neither.
-func calleeParams(id *ast.Ident) []param {
+func (c *Checker) calleeParams(id *ast.Ident) []param {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
 		params := make([]param, len(fn.Params))
 		for i, p := range fn.Params {
@@ -42,7 +41,7 @@ func calleeParams(id *ast.Ident) []param {
 		}
 		return params
 	}
-	fn, _ := builtin.Lookup(id.Name)
+	fn, _ := c.builtins.Lookup(id.Name)
 	params := make([]param, len(fn.Params))
 	for i, typ := range fn.Params {
 		params[i] = param{typ: typ}

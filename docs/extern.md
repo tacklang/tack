@@ -304,14 +304,35 @@ Mach-O or ELF object file`.
 [`src/std/builtin/builtin.tck`](../src/std/builtin/builtin.tck) as
 `extern("tack_builtin_print") func print(s string)` and
 `extern("tack_builtin_exit") func exit(code int64)`, and available in every
-file without an import. The compiler ships their C bodies, one file per
-builtin in [`codegen/c/builtin/`](../codegen/c/builtin), and writes each
-into the generated C, as a `static` function, only when the program calls
-it, with the header it needs: `<stdio.h>` for `print`, `<stdlib.h>` for
-`exit`. A program that calls neither includes only `<stdbool.h>` and
-`<stdint.h>`, which every freestanding C implementation has, so a target
-without a C library needs only different bodies. Being static, they are not
-symbols a C file can call or clash with.
+file without an import. The compiler reads them from the installed copy,
+`$TACK_HOME/src/std/builtin`, or `~/.tack/src/std/builtin` without
+`TACK_HOME`, which `make install` writes; every extern func declared there
+is a builtin, and anything else declared there is an error in that file.
+
+Their C bodies are the `.c` files beside it,
+[`print.c`](../src/std/builtin/print.c) and
+[`exit.c`](../src/std/builtin/exit.c), ordinary non-static functions under
+the builtins' C names. They include `<tack/tack.h>`, from
+`src/std/include`, which defines `tack_string` exactly as the generated C
+does and nothing program-specific. The generated C declares each builtin
+the program calls with a prototype, `void tack_builtin_print(tack_string);`,
+and includes no hosted header for it, so it includes only `<stdbool.h>` and
+`<stdint.h>`, and `<stddef.h>` for `size_t`, which every freestanding C
+implementation has.
+
+A build compiles every `.c` file of `std/builtin`, when the program calls
+any builtin, as it compiles a package's: with clang, `-w`, at the build's
+`-O` level, but with `-I $TACK_HOME/src/std/include` in place of the
+program's `tack.h`. It reads each object's symbols, as it reads a package's,
+and links only the objects that define a builtin the program calls, and,
+in turn, those that define a symbol a linked one leaves undefined, the way
+a linker takes members from an archive; there is no archive, and no tool
+but clang. A program that calls neither builtin links neither object, and
+none of the C library they call. A builtin no std object defines is an
+error, `tack: builtin print has no C definition: no C file in
+<dir> defines tack_builtin_print`. A C file of the program may not define a
+builtin's C name the program calls: with std's linked, that is `tack: two C
+files define tack_builtin_print: helpers.c and <dir>/print.c`.
 
 ## A worked example
 

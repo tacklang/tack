@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -42,10 +43,10 @@ func checkWithLibrary(t *testing.T, libPath, lib string) []diag.Diagnostic {
 		{Name: libFile.Package, Path: libPath, Files: []*ast.File{libFile}},
 		{Name: "main", Path: "main", Files: []*ast.File{mainFile}},
 	}}
-	if diags := resolver.New(prog).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(set, diags))
 	}
-	return typeck.New(prog, set).Check()
+	return typeck.New(prog, set, stdtest.MustBuiltins()).Check()
 }
 
 // TestTackPrefixIsTheStandardLibrarys checks a package of the standard

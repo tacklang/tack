@@ -9,6 +9,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
 	"github.com/tacklang/tack/typeck"
@@ -52,7 +53,7 @@ func TestHeaders(t *testing.T) {
 func checkedProgram(t *testing.T, p program) *ast.Program {
 	t.Helper()
 
-	l := &loader.Loader{FS: loader.FromFS(p.files)}
+	l := &loader.Loader{FS: loader.FromFS(p.files), Builtins: stdtest.MustBuiltins()}
 	var res *loader.Result
 	var err error
 	if p.single {
@@ -63,8 +64,8 @@ func checkedProgram(t *testing.T, p program) *ast.Program {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver.New(res.Program).Resolve()
-	typeck.New(res.Program, res.Files).Check()
+	resolver.New(res.Program, stdtest.MustBuiltins()).Resolve()
+	typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()
 	return res.Program
 }
 

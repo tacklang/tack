@@ -56,9 +56,26 @@ library has none yet.
 
 ```sh
 make build       # builds ./bin/tack
-make install     # installs tack into $GOBIN, or $GOPATH/bin if unset
+make install     # installs tack into $GOBIN, or $GOPATH/bin if unset, and std
+make install-std # installs only the standard library, src/std
 make test        # runs go test -race ./...
 ```
+
+The compiler needs its standard library, `src/std`, installed beside it:
+it reads the builtins from there and links their C bodies from there. It
+looks in `$TACK_HOME/src/std`, or `~/.tack/src/std` when `TACK_HOME` is
+unset. `make install` and `make install-std` copy `src/std` there,
+replacing what is there, so a file deleted from the repository does not
+linger. Without it, every command that compiles a program fails:
+
+```
+tack: cannot find std at /Users/you/.tack/src/std; set TACK_HOME or run make install
+```
+
+`--help`, `--backends`, `--lex` and `--ast` need no builtins and work
+without it. The repository is laid out as an installation is, so
+`TACK_HOME=$PWD` runs a freshly built compiler against the `src/std` beside
+it; the tests do the same, and never read `~/.tack`.
 
 ## Usage
 
@@ -168,29 +185,41 @@ includes only when a program uses it, and `unsafe_uintptr_t` as
 
 ## Builtins
 
-`print` and `exit` have no declaration in a Tack program: the resolver knows
-their names and the type checker knows their signatures, both from the
-`builtin` package. They are extern funcs, whose bodies are C: a call to
-`print` is a call to `tack_builtin_print`, and to `exit` one to
-`tack_builtin_exit`. The C backend ships those bodies, one file per builtin
-in `codegen/c/builtin/`, and writes each into the generated C only when the
-program calls it, with the hosted header it needs (`<stdio.h>` for `print`,
-`<stdlib.h>` for `exit`). A program that calls neither includes only
-`<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` if it uses
-`unsafe_size_t`, which a freestanding C implementation has,
-so a target without a C library needs only different bodies. `len` is
-generic, so no Tack declaration can describe it, and the compiler lowers
-it itself.
+`print` and `exit` have no declaration in a Tack program. The compiler holds
+no list of them: it reads the `.tck` files of `std/builtin` in the
+installed standard library, `$TACK_HOME/src/std/builtin`, whose source is
+[`src/std/builtin/builtin.tck`](src/std/builtin/builtin.tck), and every
+extern func declared there is a builtin, with the name, signature and C
+name it is declared with:
 
-`src/std/builtin/builtin.tck` documents them as extern func declarations,
-C names included, the way Go's `src/builtin/builtin.go` documents Go's. It is documentation rather
-than input, since `go:embed` cannot reach out of a package directory and
-moving the file into the Go tree would defeat the point of having a `src/std`.
-What keeps it honest is a test in the `builtin` package that parses it with
-the compiler's own front end and fails if it names a builtin the compiler does
-not implement, gives one the wrong signature or C name, or stops parsing. Declarations
-that are wanted but not implemented go in `src/std/builtin/PLANNED.md`, which
-nothing checks and nothing claims is true.
+```tack
+extern("tack_builtin_print") func print(s string)
+extern("tack_builtin_exit") func exit(code int64)
+```
+
+Every declaration there must be such a builtin: an extern func with its C
+name given, starting `tack_`, returning nothing, with parameters of basic
+types, and not named after a basic type, `len`, `main` or `_`. Anything
+else, a syntax error included, is reported as a diagnostic in that file.
+
+A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
+`tack_builtin_exit`; the generated C declares each builtin the program
+calls with a prototype, `void tack_builtin_print(tack_string);`. Their
+bodies are the `.c` files beside `builtin.tck`, one per builtin and named
+after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
+`src/std/include` for `tack_string`. The driver compiles them as it
+compiles a program's C files and links only the objects that define a
+builtin the program calls, and those that define what those objects need
+in turn, as a linker takes an archive's members. So the generated C
+includes only `<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` if it uses
+`unsafe_size_t`, which a freestanding C implementation has, and a program
+that calls neither builtin links neither body and none of the C library
+they call. A target without a C library needs only different bodies.
+
+`len` is generic, so no Tack declaration can describe it: the compiler
+implements it itself, and `builtin.tck` describes it in a comment.
+Declarations that are wanted but not implemented go in
+`src/std/builtin/PLANNED.md`, which the compiler does not read.
 
 ## Code generation backends
 

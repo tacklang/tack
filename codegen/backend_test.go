@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/diag"
 )
@@ -17,7 +18,7 @@ func (f fakeBackend) Name() string { return f.name }
 func (f fakeBackend) Ext() string { return ".fake" }
 
 func (f fakeBackend) Generate(
-	*ast.Program,
+	*ast.Program, *builtin.Set,
 ) ([]byte, []diag.Diagnostic) {
 	return []byte("fake"), nil
 }
@@ -25,6 +26,10 @@ func (f fakeBackend) Generate(
 func (f fakeBackend) Header(*ast.Program) []byte { return nil }
 
 func (f fakeBackend) CompileCmd(src, _, obj string, _ codegen.Opt) []string {
+	return []string{"true", src, obj}
+}
+
+func (f fakeBackend) CompileStdCmd(src, _, obj string, _ codegen.Opt) []string {
 	return []string{"true", src, obj}
 }
 

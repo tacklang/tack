@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/diag"
 )
 
@@ -16,25 +17,34 @@ type Backend interface {
 	// Ext is the file extension of the generated output, including the dot.
 	Ext() string
 
-	// Generate turns a type-checked program into target source. A
-	// non-empty diagnostic slice means generation failed and the bytes are
-	// unusable.
-	Generate(prog *ast.Program) ([]byte, []diag.Diagnostic)
+	// Generate turns a type-checked program into target source. builtins
+	// are the builtins prog was resolved and checked with, whose C names
+	// its calls to them lower to. A non-empty diagnostic slice means
+	// generation failed and the bytes are unusable.
+	Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
 
 	// Header returns the C header, tack.h, that declares every extern func
 	// of prog, which Generate must have accepted, and every type their
 	// signatures use, for the C files that define them.
 	Header(prog *ast.Program) []byte
 
-	// CompileCmd and BuildCmd take every path absolute, so that a file
-	// named like an option, -fplugin=x.c, is still read as a file, and
-	// both build at the optimization level opt.
+	// CompileCmd, CompileStdCmd and BuildCmd take every path absolute,
+	// so that a file named like an option, -fplugin=x.c, is still read as
+	// a file, and all build at the optimization level opt.
 	//
 	// CompileCmd is the command that compiles the C file at src, one that
 	// defines extern funcs, into an object file at obj, with the header
 	// Header returned at header included first. The first element is the
 	// program, the rest its arguments.
 	CompileCmd(src, header, obj string, opt Opt) []string
+
+	// CompileStdCmd is the command that compiles the C file at src, one of
+	// the standard library's, such as the body of a builtin, into an
+	// object file at obj, as CompileCmd does a program's, but with the
+	// directory include, the standard library's own headers, on the
+	// include path, and no program's header. The first element is the
+	// program, the rest its arguments.
+	CompileStdCmd(src, include, obj string, opt Opt) []string
 
 	// BuildCmd is the command that turns generated output at src into an
 	// executable at out, linked with the object files objs, which

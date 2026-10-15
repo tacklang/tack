@@ -75,37 +75,26 @@ func TestNoBuiltinNeedsNoHostedHeader(t *testing.T) {
 	}
 }
 
-// TestHeadersFollowTheBuiltinsUsed checks each builtin brings in the one
-// hosted header its C body needs, and only when the program calls it.
-func TestHeadersFollowTheBuiltinsUsed(t *testing.T) {
+// TestBuiltinsIncludeNoHostedHeader checks a program calling builtins
+// includes no hosted header for them either: their bodies, which do, are
+// compiled apart, from std/builtin, and only declared here.
+func TestBuiltinsIncludeNoHostedHeader(t *testing.T) {
 	tests := []struct {
-		name     string
-		lines    []string
-		want     []string
-		dontWant []string
+		name  string
+		lines []string
 	}{
-		{"neither", []string{"if true {", "}"}, nil, []string{"<stdio.h>", "<stdlib.h>"}},
-		{"print", []string{`print("a")`}, []string{"<stdio.h>"}, []string{"<stdlib.h>"}},
-		{"exit", []string{"exit(1)"}, []string{"<stdlib.h>"}, []string{"<stdio.h>"}},
-		{"both", []string{`print("a")`, "exit(1)"}, []string{"<stdio.h>", "<stdlib.h>"}, nil},
-		{
-			"print in a defer",
-			[]string{`defer {`, `    print("a")`, `}`},
-			[]string{"<stdio.h>"},
-			[]string{"<stdlib.h>"},
-		},
+		{"neither", []string{"if true {", "}"}},
+		{"print", []string{`print("a")`}},
+		{"exit", []string{"exit(1)"}},
+		{"both", []string{`print("a")`, "exit(1)"}},
+		{"print in a defer", []string{`defer {`, `    print("a")`, `}`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := generate(t, program(tt.lines...))
-			for _, h := range tt.want {
-				if strings.Count(got, "#include "+h) != 1 {
-					t.Errorf("want %s included once:\n%s", h, got)
-				}
-			}
-			for _, h := range tt.dontWant {
+			for _, h := range []string{"<stdio.h>", "<stdlib.h>"} {
 				if strings.Contains(got, h) {
-					t.Errorf("%s included, though nothing uses it:\n%s", h, got)
+					t.Errorf("%s included:\n%s", h, got)
 				}
 			}
 		})
@@ -113,10 +102,11 @@ func TestHeadersFollowTheBuiltinsUsed(t *testing.T) {
 }
 
 // TestBuiltinsCallTheirCNames checks print and exit lower to calls of the
-// C functions builtin.tck names, each defined once and only when used, and
-// that nothing else calls the C library directly.
+// C functions builtin.tck names, each declared once, by a prototype, and
+// only when used, never defined, and that nothing else calls the C library
+// directly.
 func TestBuiltinsCallTheirCNames(t *testing.T) {
-	got := generate(t, program(`print("hi")`, "exit(42)"))
+	got := generate(t, program(`print("hi")`, "exit(42)", `print("again")`))
 	for _, want := range []string{
 		"tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});",
 		"tack_builtin_exit(42);",
@@ -125,21 +115,27 @@ func TestBuiltinsCallTheirCNames(t *testing.T) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)
 		}
 	}
-	for _, def := range []string{
-		"static void tack_builtin_print(tack_string s) {",
-		"static void tack_builtin_exit(int64_t code) {",
+	for _, decl := range []string{
+		"\nvoid tack_builtin_print(tack_string);\n",
+		"\nvoid tack_builtin_exit(int64_t);\n",
 	} {
-		if strings.Count(got, def) != 1 {
-			t.Errorf("want %q defined once:\n%s", def, got)
+		if strings.Count(got, decl) != 1 {
+			t.Errorf("want %q declared once:\n%s", decl, got)
 		}
 	}
-	if n := strings.Count(got, "exit("); n != 3 {
-		t.Errorf("want exit( three times, the call, the definition and C's exit; got %d:\n%s",
-			n, got)
+	if strings.Contains(got, "static void tack_builtin") || strings.Contains(got, "fwrite") {
+		t.Errorf("a builtin's body is in the generated C:\n%s", got)
+	}
+	if n := strings.Count(got, "exit("); n != 2 {
+		t.Errorf("want exit( twice, the call and the prototype; got %d:\n%s", n, got)
 	}
 
 	only := generate(t, program(`print("hi")`))
 	if strings.Contains(only, "tack_builtin_exit") {
-		t.Errorf("exit's body emitted for a program that does not call it:\n%s", only)
+		t.Errorf("exit declared for a program that does not call it:\n%s", only)
+	}
+	none := generate(t, program("if true {", "}"))
+	if strings.Contains(none, "tack_builtin_") {
+		t.Errorf("a builtin declared for a program that calls none:\n%s", none)
 	}
 }

@@ -2,34 +2,70 @@ package builtin
 
 import "github.com/tacklang/tack/types"
 
-// Func is a builtin declared in builtin.tck as an extern func: its name, its
-// signature, and the C name its body is defined under. Builtins return
-// nothing today, so parameters are the whole of the signature.
+// Func is a builtin declared in std/builtin as an extern func: its name,
+// its signature, and the C name its body is defined under. Builtins return
+// nothing, so parameters are the whole of the signature.
 type Func struct {
 	Name string
-	// CName is the C function a call to the builtin lowers to,
-	// tack_builtin_ and its name, as extern("...") gives it in builtin.tck.
-	// Its body is C, which the backend supplies for its target.
+	// CName is the C function a call to the builtin lowers to, as
+	// extern("...") gives it in std/builtin. Its body is C, in a .c file
+	// of std/builtin, which the driver compiles and links.
 	CName  string
 	Params []types.Type
 }
 
-var funcs = []Func{
-	{Name: "print", Params: []types.Type{types.String}, CName: "tack_builtin_print"},
-	{Name: "exit", Params: []types.Type{types.Int64}, CName: "tack_builtin_exit"},
+// Set is the builtins of one std/builtin directory, as Load read them. It
+// is never changed once loaded, so one Set can be shared by every stage of
+// a compilation, and by compilations running at once. A nil *Set has no
+// builtins: every method treats it as empty.
+type Set struct {
+	dir    string   // the directory loaded
+	funcs  []Func   // every builtin, in file order and then declaration order
+	cFiles []string // every .c file in dir, by name
 }
 
-// Funcs returns every builtin, in a fixed order.
-func Funcs() []Func { return funcs }
+// Dir returns the directory the builtins were loaded from.
+func (s *Set) Dir() string {
+	if s == nil {
+		return ""
+	}
+	return s.dir
+}
 
-// generic holds the builtins whose parameter no Tack type can describe, so
-// they have no Func: len takes any array, view or string. The type checker
-// checks each of them itself.
-var generic = []string{"len"}
+// Funcs returns every builtin, in the order the files of std/builtin, by
+// name, and then their declarations list them, the same every time.
+func (s *Set) Funcs() []Func {
+	if s == nil {
+		return nil
+	}
+	return s.funcs
+}
 
-// Names returns the name of every builtin, ordinary and generic, in a fixed
-// order. These are the names a call can bind to without a declaration.
-func Names() []string {
+// CFiles returns the path of every C file directly in the directory the
+// builtins were loaded from, in the byte order of their names: the files
+// that define the builtins' bodies, and whatever those call.
+func (s *Set) CFiles() []string {
+	if s == nil {
+		return nil
+	}
+	return s.cFiles
+}
+
+// Lookup returns the builtin named name.
+func (s *Set) Lookup(name string) (Func, bool) {
+	for _, f := range s.Funcs() {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return Func{}, false
+}
+
+// Names returns the name of every builtin, the declared ones in Funcs'
+// order and then the generic ones. These are the names a call can bind to
+// without a declaration.
+func (s *Set) Names() []string {
+	funcs := s.Funcs()
 	names := make([]string, 0, len(funcs)+len(generic))
 	for _, f := range funcs {
 		names = append(names, f.Name)
@@ -37,16 +73,13 @@ func Names() []string {
 	return append(names, generic...)
 }
 
-// Generic returns the builtins the type checker checks itself, since their
-// parameter accepts more than one type.
-func Generic() []string { return generic }
+// generic holds the builtins whose parameter no Tack type can describe, so
+// they have no declaration and no Func: len takes any array, view or
+// string. They are part of the compiler, not of std/builtin, and the type
+// checker checks each of them itself.
+var generic = []string{"len"}
 
-// Lookup returns the builtin named name.
-func Lookup(name string) (Func, bool) {
-	for _, f := range funcs {
-		if f.Name == name {
-			return f, true
-		}
-	}
-	return Func{}, false
-}
+// Generic returns the builtins the type checker checks itself, since their
+// parameter accepts more than one type. They are the same whatever
+// std/builtin declares.
+func Generic() []string { return generic }

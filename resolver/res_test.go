@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -27,7 +28,7 @@ func resolve(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return resolver.New(ast.SingleFile(file)).Resolve()
+	return resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).Resolve()
 }
 
 func TestResolvesEveryBuiltin(t *testing.T) {
@@ -76,7 +77,10 @@ func resolveFile(t *testing.T, src string) *ast.File {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
+		Resolve(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 

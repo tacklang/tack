@@ -1,5 +1,0 @@
-package fmt
-
-pub func sprintf(format string, args ...any) string {
-    return format
-}

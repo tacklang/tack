@@ -21,27 +21,31 @@ const headerName = "tack.h"
 
 // builder turns a compiled program into a binary: it compiles the C files
 // of the program's packages, checks they define the program's extern funcs,
-// and links them with the generated source.
+// compiles std's C files and picks the ones the program needs, and links
+// them with the generated source.
 type builder struct {
 	ctx      context.Context
 	backend  codegen.Backend
 	stdout   io.Writer      // where the toolchain's output goes
 	stderr   io.Writer      // likewise
 	res      *loader.Result // the program, and the files its diagnostics render against
+	std      *std           // the standard library the program was compiled with
 	opt      codegen.Opt    // the optimization level every C file is compiled at
 	maxDiags int
 }
 
-// cObject is a C file of the program and the object file it compiled to.
+// cObject is a C file of the program, or of std, and the object file it
+// compiled to.
 type cObject struct {
-	pkg   *ast.Package // the package whose directory holds the file
+	pkg   *ast.Package // the package whose directory holds the file, nil for std's
 	shown string       // the file's name as messages show it
 	obj   string       // the object's path
 }
 
 // build writes the generated source, out, to a fresh temporary directory,
-// compiles the program's C files there, checks they define every extern
-// func, and links everything into outBin. The toolchain's own output is
+// compiles the program's C files and std's there, checks they define every
+// extern func and every builtin the program calls, and links the
+// program's objects and the std objects it needs into outBin. The toolchain's own output is
 // passed through to stdout and stderr. The directory is removed on every
 // path, including cancellation of ctx, which kills the toolchain.
 func (b *builder) build(out []byte, outBin string) (err error) {
@@ -72,6 +76,11 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	if err != nil {
 		return err
 	}
+	stdObjs, err := b.linkStd(dir)
+	if err != nil {
+		return err
+	}
+	objs = append(objs, stdObjs...)
 	if err = b.checkDefinitions(objs); err != nil {
 		return err
 	}
@@ -94,10 +103,7 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 	if err := writeFile(header, b.backend.Header(b.res.Program)); err != nil {
 		return nil, err
 	}
-	show := func(name string) string { return name }
-	if cwd, err := os.Getwd(); err == nil {
-		show = relativeTo(cwd)
-	}
+	show := shower()
 	objs := make([]cObject, len(files))
 	for i, f := range files {
 		obj := filepath.Join(dir, fmt.Sprintf("c%d.o", i))
@@ -114,6 +120,16 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 		objs[i] = cObject{pkg: f.pkg, shown: shown, obj: obj}
 	}
 	return objs, nil
+}
+
+// shower returns the function that gives the name messages show for a C
+// file: relative to the current directory when the file is below it, as
+// clang's messages then show it, and as it is otherwise.
+func shower() func(string) string {
+	if cwd, err := os.Getwd(); err == nil {
+		return relativeTo(cwd)
+	}
+	return func(name string) string { return name }
 }
 
 // cFile is one C file of a program: its slash-separated path, and the
@@ -153,10 +169,11 @@ func (b *builder) runTool(argv []string, file string) error {
 	return nil
 }
 
-// checkDefinitions reads the symbols each of objs defines and reports, as
-// an error, a C file that defines main, which the generated source does,
-// and two C files that define one symbol; and then, as diagnostics at
-// their declarations, every extern func whose C name no C file of its own
+// checkDefinitions reads the symbols each of objs, the program's and the
+// std objects it links, defines and reports, as an error, a C file that
+// defines main, which the generated source does, and two C files that
+// define one symbol, std's included; and then, as diagnostics at their
+// declarations, every extern func whose C name no C file of its own
 // package defines.
 func (b *builder) checkDefinitions(objs []cObject) error {
 	defined, err := definitions(objs)
@@ -189,14 +206,14 @@ func definitions(objs []cObject) (map[*ast.Package]map[string]bool, error) {
 	defined := make(map[*ast.Package]map[string]bool)
 	first := make(map[string]string) // the file that first defines each symbol
 	for _, o := range objs {
-		syms, err := definedSymbols(o.obj)
+		syms, err := readSymbols(o.obj)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read what %s defines: %w", o.shown, err)
 		}
 		if defined[o.pkg] == nil {
 			defined[o.pkg] = make(map[string]bool)
 		}
-		for _, sym := range syms {
+		for _, sym := range syms.defined {
 			if err := checkSymbol(sym, o.shown, first); err != nil {
 				return nil, err
 			}

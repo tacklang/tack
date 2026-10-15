@@ -9,6 +9,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // TestViewsExampleIsSanitizerClean builds examples/views with clang's
@@ -94,7 +95,7 @@ func TestHeaderDefinesViews(t *testing.T) {
 func TestHeaderViewNameClash(t *testing.T) {
 	src := "package main\n\ntype tack_view_int64 struct {\n    x int64\n}\n\n" +
 		"extern func f(v []int64, s tack_view_int64)\n\nfunc main() {\n}\n"
-	_, diags := c.New().Generate(ast.SingleFile(compile(t, src)))
+	_, diags := c.New().Generate(ast.SingleFile(compile(t, src)), stdtest.MustBuiltins())
 	if len(diags) != 1 ||
 		!strings.Contains(diags[0].Message, "both named tack_view_int64 in tack.h") {
 		t.Errorf("diagnostics = %+v, want one clash on tack_view_int64", diags)

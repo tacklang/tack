@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
@@ -50,6 +51,11 @@ type Loader struct {
 	// Display returns the name a diagnostic shows for the file at name,
 	// which is also the file's source.FileID. Nil shows name as it is.
 	Display func(name string) string
+
+	// Builtins are the builtins of the program, whose names no package
+	// may have. Loading that stops at Stop never needs them; nil has only
+	// the generic ones, such as len.
+	Builtins *builtin.Set
 
 	// Stop, if StageLex or StageParse, stops after that stage, having
 	// read only the target's own files, for a dump of the tokens or the
@@ -317,7 +323,7 @@ func (l *Loader) checkClauses(dir, importPath string, pkg *ast.Package) []diag.D
 		if f.Package == mainPackage || f.Package == want {
 			continue
 		}
-		if msg := checkPackageName(want); msg != "" {
+		if msg := checkPackageName(want, l.Builtins); msg != "" {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error, Message: msg, Span: f.PackageSpan,
 			})
@@ -334,7 +340,7 @@ func (l *Loader) checkClauses(dir, importPath string, pkg *ast.Package) []diag.D
 		diags = l.mixedPackages(dir, pkg)
 	}
 	if len(diags) == 0 && pkg.Name != mainPackage {
-		if msg := checkPackageName(want); msg != "" {
+		if msg := checkPackageName(want, l.Builtins); msg != "" {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error, Message: msg, Span: pkg.Files[0].PackageSpan,
 			})

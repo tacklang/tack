@@ -8,6 +8,7 @@ import (
 	"testing/fstest"
 
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
 	"github.com/tacklang/tack/typeck"
@@ -41,13 +42,13 @@ func treeFromBytes(data []byte) (fstest.MapFS, string) {
 // the first stage that reports anything, so a fuzzed program reaches every
 // stage it can.
 func compileLoaded(res *loader.Result) {
-	if len(resolver.New(res.Program).Resolve()) > 0 {
+	if len(resolver.New(res.Program, stdtest.MustBuiltins()).Resolve()) > 0 {
 		return
 	}
-	if len(typeck.New(res.Program, res.Files).Check()) > 0 {
+	if len(typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()) > 0 {
 		return
 	}
-	_, _ = c.New().Generate(res.Program)
+	_, _ = c.New().Generate(res.Program, stdtest.MustBuiltins())
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports
@@ -77,7 +78,9 @@ func FuzzLoad(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		fsys, target := treeFromBytes(data)
-		res, err := (&loader.Loader{FS: loader.FromFS(fsys)}).Dir(target)
+		res, err := (&loader.Loader{FS: loader.FromFS(fsys), Builtins: stdtest.MustBuiltins()}).Dir(
+			target,
+		)
 		if err != nil {
 			return
 		}

@@ -75,6 +75,24 @@
 // everything else on the command line, and --backends ignores the rest of
 // it apart from unknown flags.
 //
+// # The standard library
+//
+// The builtins, print and exit, are not known to the compiler: they are the
+// extern funcs declared in the standard library's std/builtin, and their C
+// bodies the .c files beside them. The standard library is
+// $TACK_HOME/src/std, or ~/.tack/src/std when TACK_HOME is unset or
+// empty; `make install` copies the repository's src/std there. A relative
+// TACK_HOME is taken from the current directory and made absolute. Every
+// command that runs the resolver needs it, --res, --emit and
+// --emit-header included, and finds it after the command line is checked
+// and before the program is read; one that is not there, or is not a
+// directory, ends the run with exit 1 and "tack: cannot find std at
+// <path>; set TACK_HOME or run make install". --help, --backends, --lex and
+// --ast need no builtins and do not look for it. std/builtin is read with
+// builtin.Load: a Tack file there that declares anything but builtins is
+// reported as diagnostics in that file, exit 1, and a std/builtin that
+// cannot be read or holds no .tck file as a "tack:" error.
+//
 // # Building
 //
 // Before compiling, the driver checks that --out can be written: its parent
@@ -99,13 +117,34 @@
 // after clang's own errors, with "tack: cannot compile <file>: clang
 // failed: ...". The driver then reads each object's symbol table, Mach-O
 // or ELF, with debug/macho and debug/elf, so no tool beyond clang is
-// needed, for the external symbols it defines. A C file that defines main,
-// which the generated source does, or two that define one symbol are
-// "tack:" errors naming the files; an extern func whose C name no C file
+// needed, for the external symbols it defines.
+//
+// When the program calls a builtin, every .c file of std/builtin, in name
+// order, is compiled there too, to std-<name>.o, with the backend's
+// CompileStdCmd: CompileCmd's flags and level, with std/include, where
+// <tack/tack.h> is, on the include path in place of the program's tack.h.
+// A std file that does not compile ends the build as a program's does, its
+// path shown absolute unless it is below the current directory. Each std
+// object's symbols, defined and undefined, are read the same way, and the
+// objects linked are chosen as a linker takes an archive's members: those
+// defining a builtin the program calls, and in turn those defining a symbol
+// an object already chosen leaves undefined; a symbol no std object
+// defines, the C library's, is left to the linker. No ar is run and no
+// archive written. A program that calls no builtin compiles no std file and
+// links no std object, so it does not link the C library code print and
+// exit call. A builtin the program calls that no std object defines is
+// "tack: builtin print has no C definition: no C file in <dir> defines
+// tack_builtin_print".
+//
+// A C file, the program's or a chosen std object's, that defines main,
+// which the generated source does, or two that define one symbol, a C file
+// of the program defining a builtin the program calls included, are
+// "tack:" errors naming the files; two std files defining one symbol are
+// an error whether or not either is chosen; an extern func whose C name no C file
 // of its own package defines is a diagnostic at its declaration, "extern
 // func write has no C definition in package os", rendered and limited by
 // --max-diags like any other. Last, BuildCmd compiles program.c and links
-// the objects into --out.
+// the program's objects, then the chosen std objects, into --out.
 //
 // Both commands build at one optimization level, -O3 unless an -O flag
 // gives another: -O0 to -O3, -Os or -Oz, clang's levels. -Ofast is not
@@ -121,9 +160,11 @@
 //
 // # Structure
 //
-// main only wires the process to run, which takes the arguments and the two
+// main only wires the process to run, which takes the arguments, the
+// environment (TACK_HOME and a way to find the home directory) and the two
 // output streams and returns the exit code. Nothing below main exits the
-// process or touches package-level state, so tests drive run in process.
+// process, reads the environment or touches package-level state, so tests
+// drive run in process, each with the std it names.
 // Errors flow back to run, which turns them into output and an exit code in
 // one place (report): a *usageError for exit 2, a *diagnosticsError whose
 // rendered text is printed as is, and any other error as a "tack:" line.

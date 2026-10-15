@@ -4,8 +4,6 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 typedef struct {
     const unsigned char *ptr;
@@ -36,20 +34,8 @@ static const unsigned char tack_str8[4] = {97, 10, 98, 0};
 static const unsigned char tack_str9[3] = {195, 169, 0};
 static const unsigned char tack_str10[3] = {92, 116, 0};
 
-// print: write s to stdout exactly as given. An empty string is not
-// written: a zeroed one holds a null pointer, which C does not let fwrite
-// take even with nothing to write.
-static void tack_builtin_print(tack_string s) {
-    if (s.len > 0) {
-        fwrite(s.ptr, 1, s.len, stdout);
-    }
-}
-
-// exit: end the process, running no defers. C's exit takes an int, so the
-// status is narrowed in the open; only its low bits reach the OS.
-static void tack_builtin_exit(int64_t code) {
-    exit((int)code);
-}
+void tack_builtin_print(tack_string);
+void tack_builtin_exit(int64_t);
 
 static const tack_string tack_4_main7_pattern = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 static const tack_string tack_4_main6_banner = {tack_str1, TACK_C_STR_LEN(tack_str1)};

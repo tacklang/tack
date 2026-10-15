@@ -12,6 +12,7 @@ import (
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -36,13 +37,19 @@ func compile(t *testing.T, src string) *ast.File {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
+		Resolve(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
 	// The backend reads the types the checker records, so a tree that has not
 	// been checked is not a tree it is meant to be handed.
-	if diags := typeck.New(ast.SingleFile(file), f).Check(); len(diags) > 0 {
+	if diags := typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).
+		Check(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("typeck: %s", diag.RenderAllPretty(f, diags))
 	}
 
@@ -53,7 +60,7 @@ func compile(t *testing.T, src string) *ast.File {
 func generate(t *testing.T, src string) string {
 	t.Helper()
 
-	out, diags := c.New().Generate(ast.SingleFile(compile(t, src)))
+	out, diags := c.New().Generate(ast.SingleFile(compile(t, src)), stdtest.MustBuiltins())
 	if len(diags) > 0 {
 		t.Fatalf("generate reported %d diagnostic(s): %+v", len(diags), diags)
 	}
@@ -108,6 +115,40 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("CompileCmd = %q, want %q", got, want)
 	}
+}
+
+// TestCompileStdCmdSearchesStdHeaders pins the command that compiles a C
+// file of the standard library: CompileCmd's flags and level, std's
+// include directory searched, and no program's header included.
+func TestCompileStdCmdSearchesStdHeaders(t *testing.T) {
+	got := c.New().CompileStdCmd("/std/builtin/print.c", "/std/include", "/tmp/b/std-print.o", "1")
+	want := []string{
+		"clang", "-w", "-O1", "-c", "-I", "/std/include", "-o", "/tmp/b/std-print.o",
+		"/std/builtin/print.c",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("CompileStdCmd = %q, want %q", got, want)
+	}
+}
+
+// stdObjects compiles every C file of the repository's std/builtin, as the
+// driver does, into a fresh directory and returns the objects, for a test
+// that links a generated program itself.
+func stdObjects(t *testing.T) []string {
+	t.Helper()
+	e := c.New()
+	dir := t.TempDir()
+	files := stdtest.MustBuiltins().CFiles()
+	objs := make([]string, 0, len(files))
+	for _, src := range files {
+		obj := filepath.Join(dir, filepath.Base(src)+".o")
+		cmd := e.CompileStdCmd(src, stdtest.IncludeDir(), obj, codegen.DefaultOpt)
+		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("compiling %s: %v\n%s", src, err, out)
+		}
+		objs = append(objs, obj)
+	}
+	return objs
 }
 
 // TestBuildCmdStillReportsErrors checks silencing warnings does not
@@ -230,7 +271,7 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(ast.SingleFile(file))
+	out, diags := c.New().Generate(ast.SingleFile(file), stdtest.MustBuiltins())
 	if len(diags) == 0 {
 		t.Fatalf("generate accepted an unsupported statement and emitted:\n%s", out)
 	}
@@ -239,13 +280,16 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 	}
 }
 
-// exit lowers to a call of its C body, which calls C's exit, so the
-// header declaring that comes with it.
+// exit lowers to a call of its C body, declared by a prototype; the body,
+// which calls C's exit, is std's, so stdlib.h is std's to include.
 func TestGeneratesExitAsACallToItsCBody(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(42)\n}\n")
 
-	if !strings.Contains(got, "#include <stdlib.h>") {
-		t.Errorf("generated C does not include stdlib.h, so exit is undeclared:\n%s", got)
+	if !strings.Contains(got, "\nvoid tack_builtin_exit(int64_t);\n") {
+		t.Errorf("generated C does not declare tack_builtin_exit:\n%s", got)
+	}
+	if strings.Contains(got, "#include <stdlib.h>") {
+		t.Errorf("generated C includes stdlib.h, which only exit's body needs:\n%s", got)
 	}
 	if !strings.Contains(got, "    tack_builtin_exit(42);") {
 		t.Errorf("generated C does not call exit:\n%s", got)
@@ -368,7 +412,7 @@ func TestGeneratedProgramRuns(t *testing.T) {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
+	cmd := e.BuildCmd(csrc, stdObjects(t), bin, codegen.DefaultOpt)
 	build := exec.Command(cmd[0], cmd[1:]...)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
@@ -402,7 +446,7 @@ func TestGeneratedProgramExitsWithTheGivenStatus(t *testing.T) {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
+	cmd := e.BuildCmd(csrc, stdObjects(t), bin, codegen.DefaultOpt)
 	if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
 	}
@@ -443,8 +487,11 @@ func buildWith(t *testing.T, src string, flags ...string) string {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
+	// std's C is compiled with the program's flags, sanitizers included,
+	// so it is held to the same warnings.
 	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, flags...)
-	cmd := exec.Command("clang", append(args, "-o", bin, csrc)...)
+	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, csrc)
+	cmd := exec.Command("clang", append(args, stdtest.MustBuiltins().CFiles()...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, generate(t, src))
 	}
@@ -468,7 +515,7 @@ func build(t *testing.T, src string) string {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
-	cmd := e.BuildCmd(csrc, nil, bin, codegen.DefaultOpt)
+	cmd := e.BuildCmd(csrc, stdObjects(t), bin, codegen.DefaultOpt)
 	if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile: %v\n%s", err, out)
 	}

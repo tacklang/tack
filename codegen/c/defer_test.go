@@ -7,6 +7,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // printer declares p, which prints its argument's digit, so a program can
@@ -369,7 +370,7 @@ func TestDeferInADeferIsReported(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(ast.SingleFile(file))
+	out, diags := c.New().Generate(ast.SingleFile(file), stdtest.MustBuiltins())
 	if len(diags) != 1 || diags[0].Message != "cannot defer inside a defer" {
 		t.Fatalf(
 			"got %v, want only %q, and emitted:\n%s",

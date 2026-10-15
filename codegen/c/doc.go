@@ -17,16 +17,15 @@
 // The output is laid out in this order:
 //
 //   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
-//     program uses unsafe_size_t, which a freestanding C implementation
-//     has, then the headers the C bodies of the builtins the program
-//     calls need, and the tack_string type;
+//     program uses unsafe_size_t or calls a builtin that takes one, which
+//     a freestanding C implementation has, and the tack_string type;
 //   - a C struct for every array, view and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
 //     and struct type == compares;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named tack_str0, tack_str1, and so on;
-//   - the C body of each builtin extern func the program calls, only if
+//   - a prototype for each builtin extern func the program calls, only if
 //     it calls it, then the division helpers, then the slice helpers;
 //   - every package-level variable, as a static C variable;
 //   - a results struct for each function with more than one result;
@@ -284,20 +283,22 @@
 // the loop's block instead, and the post assigns the call to it and then
 // each field, joined with the comma operator.
 //
-// print and exit are extern funcs, declared in src/std/builtin/builtin.tck,
-// and a call to one lowers like a call to any function, to its C name:
-// tack_builtin_print(s), tack_builtin_exit(x). Their C bodies are the files
-// in builtin/, embedded in the compiler, one per builtin and named after
-// it. Each is #include lines, which the preamble takes, then a static
-// definition, written after the string pool, only when the program calls
-// that builtin; a program that calls neither includes no hosted header,
-// and its C compiles with -ffreestanding. A target without a C library
-// swaps those files. They are static and their names start tack_, so
-// nothing the generated C or a C file of the program defines collides with
-// them. print's body is a length-bounded fwrite of its argument to stdout
-// with nothing added. exit's calls C's exit, which takes an int, so the
-// int64 status is cast to int explicitly, exit((int)code), rather than
-// narrowed implicitly. A status outside int's range gives an
+// print and exit are extern funcs, declared in src/std/builtin/builtin.tck
+// and read from the installed std/builtin into the builtin.Set Generate is
+// given, and a call to one lowers like a call to any function, to its C
+// name: tack_builtin_print(s), tack_builtin_exit(x). The generated C only
+// declares them, one prototype for each builtin the program calls, after
+// the string pool: void tack_builtin_print(tack_string);, its parameters'
+// C types unnamed. Their bodies are the C files of std/builtin, which the
+// driver compiles with CompileStdCmd and links only when the program calls
+// that builtin, so the generated C includes no hosted header for them, and
+// a program that calls neither compiles with -ffreestanding. A target
+// without a C library swaps those files. Their names start tack_, which no
+// user extern func's C name may, and the generated C's own tack_ names
+// never start tack_builtin_. print's body is a length-bounded fwrite of its
+// argument to stdout with nothing added. exit's calls C's exit, which takes
+// an int, so the int64 status is cast to int explicitly, exit((int)code),
+// rather than narrowed implicitly. A status outside int's range gives an
 // implementation-defined value in C11 (6.3.1.3); clang keeps the low 32
 // bits, and the OS keeps fewer still, the low 8 on Linux and macOS, so only
 // the low bits of the status reach the OS: exit(70000) exits with 112.

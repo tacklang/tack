@@ -6,6 +6,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/resolver"
@@ -28,10 +29,13 @@ func checkTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
-	if diags := resolver.New(ast.SingleFile(file)).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
+		Resolve(); len(
+		diags,
+	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
-	return file, typeck.New(ast.SingleFile(file), f).Check()
+	return file, typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
 }
 
 // mainLines wraps statements, one per line, in a main function.

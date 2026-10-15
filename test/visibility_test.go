@@ -6,6 +6,7 @@ import (
 	"testing/fstest"
 
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
 	"github.com/tacklang/tack/typeck"
@@ -79,7 +80,9 @@ func main() {
 // on any problem.
 func loadModule(t *testing.T, files fstest.MapFS, target string) *loader.Result {
 	t.Helper()
-	res, err := (&loader.Loader{FS: loader.FromFS(files)}).Dir(target)
+	res, err := (&loader.Loader{FS: loader.FromFS(files), Builtins: stdtest.MustBuiltins()}).Dir(
+		target,
+	)
 	if err != nil || len(res.Diags) > 0 {
 		t.Fatalf("loading %s: %v %v", target, err, res.Diags)
 	}
@@ -127,7 +130,7 @@ func main() {
     exit(lexer.Line(p) + lexer.Limit + lexer.First().kind)
 }
 `)
-	got := messages(resolver.New(res.Program).Resolve())
+	got := messages(resolver.New(res.Program, stdtest.MustBuiltins()).Resolve())
 	want := []string{
 		"Pos is lib in module other and cannot be used from module calc",
 		"Line is lib in module other and cannot be used from module calc",
@@ -154,10 +157,10 @@ func main() {
     exit(t.kind + t.start + u.kind)
 }
 `)
-	if diags := resolver.New(res.Program).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %v", messages(diags))
 	}
-	got := messages(typeck.New(res.Program, res.Files).Check())
+	got := messages(typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check())
 	want := []string{
 		"start is lib in module other and cannot be used from module calc",
 		"cannot write a lexer.Token literal outside package lexer: fields start, end are not pub",

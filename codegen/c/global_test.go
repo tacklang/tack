@@ -7,6 +7,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/types"
 )
 
@@ -157,7 +158,7 @@ func TestAssignmentToANonVariableIsReported(t *testing.T) {
 		},
 	}
 
-	out, diags := c.New().Generate(ast.SingleFile(file))
+	out, diags := c.New().Generate(ast.SingleFile(file), stdtest.MustBuiltins())
 	if len(diags) == 0 {
 		t.Fatalf("generate accepted an assignment to a parameter and emitted:\n%s", out)
 	}

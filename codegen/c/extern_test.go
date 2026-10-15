@@ -11,6 +11,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // buildExtern compiles src, a program with extern funcs, and csrc, the C
@@ -23,7 +24,7 @@ func buildExtern(t *testing.T, src, csrc string) string {
 		t.Skipf("%v", err)
 	}
 	prog := ast.SingleFile(compile(t, src))
-	out, diags := c.New().Generate(prog)
+	out, diags := c.New().Generate(prog, stdtest.MustBuiltins())
 	if len(diags) > 0 {
 		t.Fatalf("generate reported %+v", diags)
 	}
@@ -44,7 +45,7 @@ func buildExtern(t *testing.T, src, csrc string) string {
 	bin := filepath.Join(dir, "prog")
 	for _, args := range [][]string{
 		append(strict, "-c", "-include", header, "-o", obj, filepath.Join(dir, "helpers.c")),
-		append(strict, "-o", bin, filepath.Join(dir, "program.c"), obj),
+		append(append(strict, "-o", bin, filepath.Join(dir, "program.c"), obj), stdObjects(t)...),
 	} {
 		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 			t.Fatalf(

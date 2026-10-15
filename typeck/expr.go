@@ -150,7 +150,7 @@ func (c *Checker) checkCall(call *ast.Call) {
 		return
 	}
 
-	params := calleeParams(id)
+	params := c.calleeParams(id)
 	if !c.checkArity(call, id.Qualified(), len(params)) {
 		for _, arg := range call.Args {
 			c.argExpr(arg)
