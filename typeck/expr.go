@@ -18,7 +18,7 @@ import (
 // so a caller never reports anything more about it.
 func (c *Checker) expr(e ast.Expr) types.Type {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit:
 		return literalType(x)
 	case *ast.Ident:
 		return c.ident(x)
@@ -37,7 +37,8 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 
 // ident checks a name used as a value and returns its type: its parameter's
 // or variable's. A package-level variable not checked yet, which a struct's
-// field may need first, is checked now.
+// field may need first, is checked now. A variable held by an error cannot
+// be read before the error is checked (requireChecked).
 func (c *Checker) ident(id *ast.Ident) types.Type {
 	// The resolver reports a name bound to nothing, and the pipeline stops
 	// there; a tree that skipped it is reported here instead of passing as
@@ -49,6 +50,7 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	if v, ok := id.Def.(*ast.Var); ok && c.globals[v] {
 		c.ensureGlobal(v, id.Span)
 	}
+	c.requireChecked(id)
 	return ast.TypeOf(id)
 }
 
@@ -74,8 +76,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 }
 
 // literalType returns the type of a literal: a string's or a bool's, a
-// character's, which is a uint8, or an integer's, which is untyped until
-// settled.
+// character's, which is a uint8, noerror's, an error, or an integer's,
+// which is untyped until settled.
 func literalType(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.IntLit:
@@ -85,6 +87,8 @@ func literalType(e ast.Expr) types.Type {
 		return types.Uint8
 	case *ast.StrLit:
 		return types.String
+	case *ast.NoErrorLit:
+		return types.Error
 	default:
 		return types.Bool
 	}

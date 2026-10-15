@@ -8,7 +8,7 @@ stage: ok
 
 typedef struct {
     int64_t e[4];
-} tack_array_15;
+} tack_array_16;
 
 
 void tack_builtin_exit(int32_t);
@@ -22,7 +22,7 @@ typedef struct {
 } tack_results_4_main4_pair;
 
 static tack_results_4_main4_pair tack_4_main4_pair(int64_t p_a, int64_t p_b);
-static int64_t tack_4_main3_sum(tack_array_15 p_xs);
+static int64_t tack_4_main3_sum(tack_array_16 p_xs);
 static void tack_4_main4_main(void);
 
 static tack_results_4_main4_pair tack_4_main4_pair(int64_t p_a, int64_t p_b) {
@@ -30,10 +30,10 @@ static tack_results_4_main4_pair tack_4_main4_pair(int64_t p_a, int64_t p_b) {
     return (tack_results_4_main4_pair){p_a, p_b};
 }
 
-static int64_t tack_4_main3_sum(tack_array_15 p_xs) {
+static int64_t tack_4_main3_sum(tack_array_16 p_xs) {
     int64_t v_total = 0;
     {
-        const tack_array_15 *const tack_r0 = &p_xs;
+        const tack_array_16 *const tack_r0 = &p_xs;
         for (int64_t tack_k1 = 0; tack_k1 < 4; tack_k1++) {
             const int64_t v_x = (*tack_r0).e[tack_k1];
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_x));
@@ -53,7 +53,7 @@ static void tack_4_main4_main(void) {
     if ((((int64_t)((uint64_t)v_a + (uint64_t)v_b)) != 30) || (tack_4_main5_calls != 1)) {
         tack_builtin_exit(2);
     }
-    const tack_array_15 v_xs = (tack_array_15){{1, 2, 3, 4}};
+    const tack_array_16 v_xs = (tack_array_16){{1, 2, 3, 4}};
     if (tack_4_main3_sum(v_xs) != 10) {
         tack_builtin_exit(3);
     }

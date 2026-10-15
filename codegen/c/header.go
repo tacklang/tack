@@ -146,11 +146,11 @@ func (h *header) useSignature(fn *ast.Func) {
 // use records that tack.h needs typ, used at site, and every type it is
 // made of, which are defined before it, and the header that declares a
 // basic type's C type when <stdint.h> does not: <stddef.h> for size_t, and
-// std's tack.h for tack_string and tack_any.
+// std's tack.h for tack_string, tack_any and tack_error.
 func (h *header) use(typ types.Type, site ast.Span) {
 	table := h.prog.Types
 	switch {
-	case typ == types.String || typ == types.Any:
+	case typ == types.String || typ == types.Any || typ == types.Error:
 		h.std = true
 		return
 	case typ == types.UnsafeSize:
@@ -252,7 +252,7 @@ func (h *header) errorf(span ast.Span, format string, args ...any) {
 }
 
 // cName is the name tack.h gives typ: a basic type's C type, as the
-// generated source writes it; a struct type's Tack name, after its
+// generated source writes it, tack_error for error; a struct type's Tack name, after its
 // package's name and an underscore unless it is in package main, so
 // Token of package lexer is lexer_Token; an array type tack_array_,
 // its length, an underscore, and its element type's name, the Tack name
@@ -263,6 +263,8 @@ func (h *header) errorf(span ast.Span, format string, args ...any) {
 func (h *header) cName(typ types.Type) string {
 	table := h.prog.Types
 	switch {
+	case typ == types.Error:
+		return basicCType(typ)
 	case table.IsArray(typ):
 		return fmt.Sprintf("tack_array_%d_%s", table.Len(typ), h.elemName(table.Elem(typ)))
 	case table.IsView(typ):
@@ -282,11 +284,12 @@ func (h *header) cName(typ types.Type) string {
 }
 
 // elemName is how the tack.h name of an array or view type names its
-// element type, elem: by its Tack name if it is a basic type, and by its
-// own tack.h name otherwise.
+// element type, elem: by its Tack name if it is a basic type, error
+// included, so []error is tack_view_error, and by its own tack.h name
+// otherwise.
 func (h *header) elemName(elem types.Type) string {
 	table := h.prog.Types
-	if table.IsArray(elem) || table.IsStruct(elem) {
+	if table.IsArray(elem) || table.IsStruct(elem) && elem != types.Error {
 		return h.cName(elem)
 	}
 	return table.Name(elem)

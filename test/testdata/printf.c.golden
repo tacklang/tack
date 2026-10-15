@@ -15,7 +15,7 @@ typedef struct {
 typedef struct {
     const tack_any *ptr;
     int64_t len;
-} tack_view_16;
+} tack_view_17;
 
 static const unsigned char tack_str0[2] = {10, 0};
 static const unsigned char tack_str1[3] = {104, 105, 0};
@@ -67,8 +67,8 @@ static const unsigned char tack_str46[7] = {37, 118, 32, 37, 120, 10, 0};
 
 void tack_builtin_print(tack_string);
 
-static tack_view_16 tack_slice_from_16(tack_view_16 s, int64_t lo) {
-    return (tack_view_16){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
+static tack_view_17 tack_slice_from_17(tack_view_17 s, int64_t lo) {
+    return (tack_view_17){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
 }
 
 static int64_t tack_4_main7_counter = 1;
@@ -79,17 +79,17 @@ static const tack_string tack_4_main8_greeting = {tack_str1, TACK_C_STR_LEN(tack
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
 static void tack_3_std3_fmt7_println(tack_string p_s);
-static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_16 p_args);
-extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_16 p_args) TACK_C_NAME("tack_fmt_printf");
+static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args);
+extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_17 p_args) TACK_C_NAME("tack_fmt_printf");
 static int64_t tack_4_main4_bump(void);
 static int64_t tack_4_main5_twice(int64_t p_n);
-static void tack_4_main4_show(tack_string p_format, tack_view_16 p_args);
+static void tack_4_main4_show(tack_string p_format, tack_view_17 p_args);
 static void tack_4_main3_one(tack_string p_format, tack_any p_a);
 static void tack_4_main14_changeThenShow(int64_t * p_x, tack_any p_a);
 static void tack_4_main8_deferred(tack_any p_a);
 static void tack_4_main5_depth(int64_t p_n, tack_any p_a);
-static void tack_4_main7_firstOf(tack_view_16 p_args);
-static void tack_4_main6_restOf(tack_string p_format, tack_view_16 p_args);
+static void tack_4_main7_firstOf(tack_view_17 p_args);
+static void tack_4_main6_restOf(tack_string p_format, tack_view_17 p_args);
 static void tack_4_main4_main(void);
 
 static void tack_3_std3_fmt7_println(tack_string p_s) {
@@ -97,7 +97,7 @@ static void tack_3_std3_fmt7_println(tack_string p_s) {
     tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
 }
 
-static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_16 p_args) {
+static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args) {
     tack_3_std3_fmt7_cprintf(p_format, p_args);
 }
 
@@ -110,45 +110,45 @@ static int64_t tack_4_main5_twice(int64_t p_n) {
     return ((int64_t)((uint64_t)p_n * (uint64_t)2));
 }
 
-static void tack_4_main4_show(tack_string p_format, tack_view_16 p_args) {
+static void tack_4_main4_show(tack_string p_format, tack_view_17 p_args) {
     tack_3_std3_fmt6_printf(p_format, p_args);
 }
 
 static void tack_4_main3_one(tack_string p_format, tack_any p_a) {
-    tack_3_std3_fmt6_printf(p_format, (tack_view_16){(const tack_any[1]){p_a}, 1});
+    tack_3_std3_fmt6_printf(p_format, (tack_view_17){(const tack_any[1]){p_a}, 1});
 }
 
 static void tack_4_main14_changeThenShow(int64_t * p_x, tack_any p_a) {
     (*p_x) = 99;
     tack_4_main7_counter = 500;
-    tack_3_std3_fmt6_printf((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, (tack_view_16){(const tack_any[1]){p_a}, 1});
+    tack_3_std3_fmt6_printf((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, (tack_view_17){(const tack_any[1]){p_a}, 1});
 }
 
 static void tack_4_main8_deferred(tack_any p_a) {
-    tack_3_std3_fmt6_printf((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, (tack_view_16){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, (tack_view_17){0, 0});
     {
-        tack_3_std3_fmt6_printf((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, (tack_view_16){(const tack_any[1]){p_a}, 1});
+        tack_3_std3_fmt6_printf((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, (tack_view_17){(const tack_any[1]){p_a}, 1});
     }
 }
 
 static void tack_4_main5_depth(int64_t p_n, tack_any p_a) {
     if (p_n == 0) {
-        tack_3_std3_fmt6_printf((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_view_16){(const tack_any[1]){p_a}, 1});
+        tack_3_std3_fmt6_printf((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_view_17){(const tack_any[1]){p_a}, 1});
         return;
     }
     tack_4_main5_depth(((int64_t)((uint64_t)p_n - (uint64_t)1)), p_a);
 }
 
-static void tack_4_main7_firstOf(tack_view_16 p_args) {
+static void tack_4_main7_firstOf(tack_view_17 p_args) {
     int64_t tack_a0;
     if ((p_args).len > 0) {
-        tack_3_std3_fmt6_printf((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_view_16){(const tack_any[2]){p_args.ptr[0], (tack_a0 = (p_args).len, (tack_any){TACK_TYPE_INT64, &tack_a0})}, 2});
+        tack_3_std3_fmt6_printf((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_view_17){(const tack_any[2]){p_args.ptr[0], (tack_a0 = (p_args).len, (tack_any){TACK_TYPE_INT64, &tack_a0})}, 2});
     }
 }
 
-static void tack_4_main6_restOf(tack_string p_format, tack_view_16 p_args) {
+static void tack_4_main6_restOf(tack_string p_format, tack_view_17 p_args) {
     if ((p_args).len > 0) {
-        tack_3_std3_fmt6_printf(p_format, tack_slice_from_16(p_args, (int64_t)1));
+        tack_3_std3_fmt6_printf(p_format, tack_slice_from_17(p_args, (int64_t)1));
     }
 }
 
@@ -230,69 +230,69 @@ static void tack_4_main4_main(void) {
     int64_t tack_a75;
     int64_t tack_a76;
     int64_t tack_a77;
-    tack_3_std3_fmt6_printf((tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}, (tack_view_16){0, 0});
-    tack_3_std3_fmt6_printf((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, (tack_view_16){0, 0});
-    tack_3_std3_fmt6_printf((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_view_16){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}, (tack_view_17){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, (tack_view_17){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_view_17){0, 0});
     const int8_t v_i8 = (-128);
     const int16_t v_i16 = (-32768);
     const int32_t v_i32 = (-2147483648);
     const int64_t v_i64 = (-9223372036854775807 - 1);
-    tack_3_std3_fmt6_printf((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_any){TACK_TYPE_INT64, &v_i64}}, 4});
-    tack_3_std3_fmt6_printf((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_any){TACK_TYPE_INT64, &v_i64}}, 4});
-    tack_3_std3_fmt6_printf((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}, (tack_view_16){(const tack_any[4]){(tack_a1 = ((int8_t)127), (tack_any){TACK_TYPE_INT8, &tack_a1}), (tack_a2 = ((int16_t)32767), (tack_any){TACK_TYPE_INT16, &tack_a2}), (tack_a3 = ((int32_t)2147483647), (tack_any){TACK_TYPE_INT32, &tack_a3}), (tack_a4 = 9223372036854775807, (tack_any){TACK_TYPE_INT64, &tack_a4})}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_any){TACK_TYPE_INT64, &v_i64}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_any){TACK_TYPE_INT64, &v_i64}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}, (tack_view_17){(const tack_any[4]){(tack_a1 = ((int8_t)127), (tack_any){TACK_TYPE_INT8, &tack_a1}), (tack_a2 = ((int16_t)32767), (tack_any){TACK_TYPE_INT16, &tack_a2}), (tack_a3 = ((int32_t)2147483647), (tack_any){TACK_TYPE_INT32, &tack_a3}), (tack_a4 = 9223372036854775807, (tack_any){TACK_TYPE_INT64, &tack_a4})}, 4});
     const uint8_t v_u8 = 255;
     const uint16_t v_u16 = 65535;
     const uint32_t v_u32 = 4294967295;
     const uint64_t v_u64 = 18446744073709551615u;
-    tack_3_std3_fmt6_printf((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}}, 4});
-    tack_3_std3_fmt6_printf((tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}}, 4});
     const size_t v_size = 4294967295;
     const uintptr_t v_addr = 0;
-    tack_3_std3_fmt6_printf((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}}, 4});
-    tack_3_std3_fmt6_printf((tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_16){(const tack_any[5]){(tack_a5 = 0, (tack_any){TACK_TYPE_INT64, &tack_a5}), (tack_a6 = 0, (tack_any){TACK_TYPE_INT64, &tack_a6}), (tack_a7 = (-1), (tack_any){TACK_TYPE_INT64, &tack_a7}), (tack_a8 = (-255), (tack_any){TACK_TYPE_INT64, &tack_a8}), (tack_a9 = 255, (tack_any){TACK_TYPE_INT64, &tack_a9})}, 5});
-    tack_3_std3_fmt6_printf((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, (tack_view_16){(const tack_any[3]){(tack_a10 = true, (tack_any){TACK_TYPE_BOOL, &tack_a10}), (tack_a11 = false, (tack_any){TACK_TYPE_BOOL, &tack_a11}), (tack_a12 = true, (tack_any){TACK_TYPE_BOOL, &tack_a12})}, 3});
-    tack_3_std3_fmt6_printf((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_view_16){(const tack_any[3]){(tack_a13 = (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_any){TACK_TYPE_STRING, &tack_a13}), (tack_a14 = (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}, (tack_any){TACK_TYPE_STRING, &tack_a14}), (tack_a15 = (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, (tack_any){TACK_TYPE_STRING, &tack_a15})}, 3});
+    tack_3_std3_fmt6_printf((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_17){(const tack_any[5]){(tack_a5 = 0, (tack_any){TACK_TYPE_INT64, &tack_a5}), (tack_a6 = 0, (tack_any){TACK_TYPE_INT64, &tack_a6}), (tack_a7 = (-1), (tack_any){TACK_TYPE_INT64, &tack_a7}), (tack_a8 = (-255), (tack_any){TACK_TYPE_INT64, &tack_a8}), (tack_a9 = 255, (tack_any){TACK_TYPE_INT64, &tack_a9})}, 5});
+    tack_3_std3_fmt6_printf((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, (tack_view_17){(const tack_any[3]){(tack_a10 = true, (tack_any){TACK_TYPE_BOOL, &tack_a10}), (tack_a11 = false, (tack_any){TACK_TYPE_BOOL, &tack_a11}), (tack_a12 = true, (tack_any){TACK_TYPE_BOOL, &tack_a12})}, 3});
+    tack_3_std3_fmt6_printf((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_view_17){(const tack_any[3]){(tack_a13 = (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_any){TACK_TYPE_STRING, &tack_a13}), (tack_a14 = (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}, (tack_any){TACK_TYPE_STRING, &tack_a14}), (tack_a15 = (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, (tack_any){TACK_TYPE_STRING, &tack_a15})}, 3});
     tack_4_main3_Box v_b = (tack_4_main3_Box){0};
-    tack_3_std3_fmt6_printf((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_view_16){(const tack_any[2]){(tack_a16 = v_b.f_s, (tack_any){TACK_TYPE_STRING, &tack_a16}), (tack_a17 = v_b.f_n, (tack_any){TACK_TYPE_INT64, &tack_a17})}, 2});
+    tack_3_std3_fmt6_printf((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_view_17){(const tack_any[2]){(tack_a16 = v_b.f_s, (tack_any){TACK_TYPE_STRING, &tack_a16}), (tack_a17 = v_b.f_n, (tack_any){TACK_TYPE_INT64, &tack_a17})}, 2});
     const uint8_t v_nl = 10;
-    tack_3_std3_fmt6_printf((tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}, (tack_view_16){(const tack_any[4]){(tack_a18 = 111, (tack_any){TACK_TYPE_UINT8, &tack_a18}), (tack_a19 = 107, (tack_any){TACK_TYPE_UINT8, &tack_a19}), (tack_a20 = 32, (tack_any){TACK_TYPE_UINT8, &tack_a20}), (tack_any){TACK_TYPE_UINT8, &v_nl}}, 4});
-    tack_3_std3_fmt6_printf((tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, (tack_view_16){(const tack_any[1]){(tack_a21 = ((uint8_t)0), (tack_any){TACK_TYPE_UINT8, &tack_a21})}, 1});
-    (tack_o22 = tack_4_main7_counter, tack_o23 = tack_4_main4_bump(), tack_o24 = tack_4_main7_counter, tack_3_std3_fmt6_printf((tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, (tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_STRING, &tack_4_main8_greeting}, (tack_any){TACK_TYPE_INT64, &tack_o22}, (tack_any){TACK_TYPE_INT64, &tack_o23}, (tack_any){TACK_TYPE_INT64, &tack_o24}}, 4}));
+    tack_3_std3_fmt6_printf((tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}, (tack_view_17){(const tack_any[4]){(tack_a18 = 111, (tack_any){TACK_TYPE_UINT8, &tack_a18}), (tack_a19 = 107, (tack_any){TACK_TYPE_UINT8, &tack_a19}), (tack_a20 = 32, (tack_any){TACK_TYPE_UINT8, &tack_a20}), (tack_any){TACK_TYPE_UINT8, &v_nl}}, 4});
+    tack_3_std3_fmt6_printf((tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, (tack_view_17){(const tack_any[1]){(tack_a21 = ((uint8_t)0), (tack_any){TACK_TYPE_UINT8, &tack_a21})}, 1});
+    (tack_o22 = tack_4_main7_counter, tack_o23 = tack_4_main4_bump(), tack_o24 = tack_4_main7_counter, tack_3_std3_fmt6_printf((tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, (tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_STRING, &tack_4_main8_greeting}, (tack_any){TACK_TYPE_INT64, &tack_o22}, (tack_any){TACK_TYPE_INT64, &tack_o23}, (tack_any){TACK_TYPE_INT64, &tack_o24}}, 4}));
     const int64_t v_n = 20;
-    (tack_o25 = tack_4_main5_twice(21), tack_o26 = (tack_4_main5_twice((-1)) < 0), tack_3_std3_fmt6_printf((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, (tack_view_16){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o25}, (tack_any){TACK_TYPE_BOOL, &tack_o26}, (tack_a27 = ((int64_t)((uint64_t)v_n + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a27})}, 3}));
+    (tack_o25 = tack_4_main5_twice(21), tack_o26 = (tack_4_main5_twice((-1)) < 0), tack_3_std3_fmt6_printf((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, (tack_view_17){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o25}, (tack_any){TACK_TYPE_BOOL, &tack_o26}, (tack_a27 = ((int64_t)((uint64_t)v_n + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a27})}, 3}));
     int64_t v_m = 5;
     v_m = ((int64_t)((uint64_t)v_m + (uint64_t)1));
-    tack_3_std3_fmt6_printf((tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_view_16){(const tack_any[1]){(tack_any){TACK_TYPE_INT64, &v_m}}, 1});
+    tack_3_std3_fmt6_printf((tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_view_17){(const tack_any[1]){(tack_any){TACK_TYPE_INT64, &v_m}}, 1});
     tack_string v_f = (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)};
-    tack_3_std3_fmt6_printf(v_f, (tack_view_16){(const tack_any[1]){(tack_a28 = 8, (tack_any){TACK_TYPE_INT64, &tack_a28})}, 1});
+    tack_3_std3_fmt6_printf(v_f, (tack_view_17){(const tack_any[1]){(tack_a28 = 8, (tack_any){TACK_TYPE_INT64, &tack_a28})}, 1});
     const tack_string v_format = (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)};
-    tack_3_std3_fmt6_printf(v_format, (tack_view_16){(const tack_any[2]){(tack_a29 = (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_any){TACK_TYPE_STRING, &tack_a29}), (tack_a30 = 1, (tack_any){TACK_TYPE_INT64, &tack_a30})}, 2});
+    tack_3_std3_fmt6_printf(v_format, (tack_view_17){(const tack_any[2]){(tack_a29 = (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_any){TACK_TYPE_STRING, &tack_a29}), (tack_a30 = 1, (tack_any){TACK_TYPE_INT64, &tack_a30})}, 2});
     tack_builtin_print((tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)});
-    tack_3_std3_fmt6_printf((tack_string){tack_str31, TACK_C_STR_LEN(tack_str31)}, (tack_view_16){0, 0});
-    tack_3_std3_fmt6_printf((tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)}, (tack_view_16){(const tack_any[20]){(tack_a31 = 1, (tack_any){TACK_TYPE_INT64, &tack_a31}), (tack_a32 = 2, (tack_any){TACK_TYPE_INT64, &tack_a32}), (tack_a33 = 3, (tack_any){TACK_TYPE_INT64, &tack_a33}), (tack_a34 = 4, (tack_any){TACK_TYPE_INT64, &tack_a34}), (tack_a35 = 5, (tack_any){TACK_TYPE_INT64, &tack_a35}), (tack_a36 = 6, (tack_any){TACK_TYPE_INT64, &tack_a36}), (tack_a37 = 7, (tack_any){TACK_TYPE_INT64, &tack_a37}), (tack_a38 = 8, (tack_any){TACK_TYPE_INT64, &tack_a38}), (tack_a39 = 9, (tack_any){TACK_TYPE_INT64, &tack_a39}), (tack_a40 = 0, (tack_any){TACK_TYPE_INT64, &tack_a40}), (tack_a41 = 1, (tack_any){TACK_TYPE_INT64, &tack_a41}), (tack_a42 = 2, (tack_any){TACK_TYPE_INT64, &tack_a42}), (tack_a43 = 3, (tack_any){TACK_TYPE_INT64, &tack_a43}), (tack_a44 = 4, (tack_any){TACK_TYPE_INT64, &tack_a44}), (tack_a45 = 5, (tack_any){TACK_TYPE_INT64, &tack_a45}), (tack_a46 = 6, (tack_any){TACK_TYPE_INT64, &tack_a46}), (tack_a47 = 7, (tack_any){TACK_TYPE_INT64, &tack_a47}), (tack_a48 = 8, (tack_any){TACK_TYPE_INT64, &tack_a48}), (tack_a49 = 9, (tack_any){TACK_TYPE_INT64, &tack_a49}), (tack_a50 = 0, (tack_any){TACK_TYPE_INT64, &tack_a50})}, 20});
+    tack_3_std3_fmt6_printf((tack_string){tack_str31, TACK_C_STR_LEN(tack_str31)}, (tack_view_17){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)}, (tack_view_17){(const tack_any[20]){(tack_a31 = 1, (tack_any){TACK_TYPE_INT64, &tack_a31}), (tack_a32 = 2, (tack_any){TACK_TYPE_INT64, &tack_a32}), (tack_a33 = 3, (tack_any){TACK_TYPE_INT64, &tack_a33}), (tack_a34 = 4, (tack_any){TACK_TYPE_INT64, &tack_a34}), (tack_a35 = 5, (tack_any){TACK_TYPE_INT64, &tack_a35}), (tack_a36 = 6, (tack_any){TACK_TYPE_INT64, &tack_a36}), (tack_a37 = 7, (tack_any){TACK_TYPE_INT64, &tack_a37}), (tack_a38 = 8, (tack_any){TACK_TYPE_INT64, &tack_a38}), (tack_a39 = 9, (tack_any){TACK_TYPE_INT64, &tack_a39}), (tack_a40 = 0, (tack_any){TACK_TYPE_INT64, &tack_a40}), (tack_a41 = 1, (tack_any){TACK_TYPE_INT64, &tack_a41}), (tack_a42 = 2, (tack_any){TACK_TYPE_INT64, &tack_a42}), (tack_a43 = 3, (tack_any){TACK_TYPE_INT64, &tack_a43}), (tack_a44 = 4, (tack_any){TACK_TYPE_INT64, &tack_a44}), (tack_a45 = 5, (tack_any){TACK_TYPE_INT64, &tack_a45}), (tack_a46 = 6, (tack_any){TACK_TYPE_INT64, &tack_a46}), (tack_a47 = 7, (tack_any){TACK_TYPE_INT64, &tack_a47}), (tack_a48 = 8, (tack_any){TACK_TYPE_INT64, &tack_a48}), (tack_a49 = 9, (tack_any){TACK_TYPE_INT64, &tack_a49}), (tack_a50 = 0, (tack_any){TACK_TYPE_INT64, &tack_a50})}, 20});
     int64_t v_x = 7;
     tack_4_main14_changeThenShow(&v_x, (tack_a51 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a51}));
-    tack_3_std3_fmt6_printf((tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)}, (tack_view_16){(const tack_any[2]){(tack_a52 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a52}), (tack_a53 = tack_4_main7_counter, (tack_any){TACK_TYPE_INT64, &tack_a53})}, 2});
+    tack_3_std3_fmt6_printf((tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)}, (tack_view_17){(const tack_any[2]){(tack_a52 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a52}), (tack_a53 = tack_4_main7_counter, (tack_any){TACK_TYPE_INT64, &tack_a53})}, 2});
     tack_4_main7_counter = 3;
     tack_4_main14_changeThenShow(&v_x, (tack_a54 = tack_4_main7_counter, (tack_any){TACK_TYPE_INT64, &tack_a54}));
-    tack_3_std3_fmt6_printf((tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)}, (tack_view_16){(const tack_any[2]){(tack_a55 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a55}), (tack_a56 = tack_4_main7_counter, (tack_any){TACK_TYPE_INT64, &tack_a56})}, 2});
-    tack_4_main4_show((tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)}, (tack_view_16){(const tack_any[2]){(tack_a57 = 5, (tack_any){TACK_TYPE_INT64, &tack_a57}), (tack_a58 = (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)}, (tack_any){TACK_TYPE_STRING, &tack_a58})}, 2});
+    tack_3_std3_fmt6_printf((tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)}, (tack_view_17){(const tack_any[2]){(tack_a55 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a55}), (tack_a56 = tack_4_main7_counter, (tack_any){TACK_TYPE_INT64, &tack_a56})}, 2});
+    tack_4_main4_show((tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)}, (tack_view_17){(const tack_any[2]){(tack_a57 = 5, (tack_any){TACK_TYPE_INT64, &tack_a57}), (tack_a58 = (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)}, (tack_any){TACK_TYPE_STRING, &tack_a58})}, 2});
     tack_4_main3_one((tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)}, (tack_a59 = ((uint16_t)48879), (tack_any){TACK_TYPE_UINT16, &tack_a59}));
     tack_4_main8_deferred((tack_a60 = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}, (tack_any){TACK_TYPE_STRING, &tack_a60}));
     tack_4_main5_depth(3, (tack_a61 = true, (tack_any){TACK_TYPE_BOOL, &tack_a61}));
-    tack_4_main7_firstOf((tack_view_16){(const tack_any[2]){(tack_a62 = 7, (tack_any){TACK_TYPE_INT64, &tack_a62}), (tack_a63 = (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)}, (tack_any){TACK_TYPE_STRING, &tack_a63})}, 2});
-    tack_4_main7_firstOf((tack_view_16){0, 0});
-    tack_4_main6_restOf((tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)}, (tack_view_16){(const tack_any[3]){(tack_a64 = 0, (tack_any){TACK_TYPE_INT64, &tack_a64}), (tack_a65 = 1, (tack_any){TACK_TYPE_INT64, &tack_a65}), (tack_a66 = 2, (tack_any){TACK_TYPE_INT64, &tack_a66})}, 3});
-    tack_4_main4_show((tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)}, (tack_view_16){(const tack_any[1]){(tack_a67 = (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, (tack_any){TACK_TYPE_STRING, &tack_a67})}, 1});
-    tack_4_main4_show((tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)}, (tack_view_16){(const tack_any[3]){(tack_a68 = 5, (tack_any){TACK_TYPE_INT64, &tack_a68}), (tack_a69 = 97, (tack_any){TACK_TYPE_UINT8, &tack_a69}), (tack_a70 = ((int64_t)65), (tack_any){TACK_TYPE_INT64, &tack_a70})}, 3});
-    tack_4_main4_show((tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)}, (tack_view_16){(const tack_any[1]){(tack_a71 = 1, (tack_any){TACK_TYPE_INT64, &tack_a71})}, 1});
-    tack_4_main4_show((tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)}, (tack_view_16){(const tack_any[3]){(tack_a72 = 1, (tack_any){TACK_TYPE_INT64, &tack_a72}), (tack_a73 = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}, (tack_any){TACK_TYPE_STRING, &tack_a73}), (tack_a74 = true, (tack_any){TACK_TYPE_BOOL, &tack_a74})}, 3});
-    tack_3_std3_fmt6_printf((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, (tack_view_16){0, 0});
-    tack_4_main4_show((tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)}, (tack_view_16){(const tack_any[1]){(tack_a75 = 1, (tack_any){TACK_TYPE_INT64, &tack_a75})}, 1});
-    tack_4_main4_show((tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)}, (tack_view_16){(const tack_any[1]){(tack_a76 = (-3), (tack_any){TACK_TYPE_INT64, &tack_a76})}, 1});
-    tack_4_main4_show((tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)}, (tack_view_16){0, 0});
-    tack_3_std3_fmt6_printf((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, (tack_view_16){0, 0});
-    tack_4_main4_show((tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)}, (tack_view_16){(const tack_any[2]){(tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_a77 = (-1), (tack_any){TACK_TYPE_INT64, &tack_a77})}, 2});
+    tack_4_main7_firstOf((tack_view_17){(const tack_any[2]){(tack_a62 = 7, (tack_any){TACK_TYPE_INT64, &tack_a62}), (tack_a63 = (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)}, (tack_any){TACK_TYPE_STRING, &tack_a63})}, 2});
+    tack_4_main7_firstOf((tack_view_17){0, 0});
+    tack_4_main6_restOf((tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)}, (tack_view_17){(const tack_any[3]){(tack_a64 = 0, (tack_any){TACK_TYPE_INT64, &tack_a64}), (tack_a65 = 1, (tack_any){TACK_TYPE_INT64, &tack_a65}), (tack_a66 = 2, (tack_any){TACK_TYPE_INT64, &tack_a66})}, 3});
+    tack_4_main4_show((tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)}, (tack_view_17){(const tack_any[1]){(tack_a67 = (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, (tack_any){TACK_TYPE_STRING, &tack_a67})}, 1});
+    tack_4_main4_show((tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)}, (tack_view_17){(const tack_any[3]){(tack_a68 = 5, (tack_any){TACK_TYPE_INT64, &tack_a68}), (tack_a69 = 97, (tack_any){TACK_TYPE_UINT8, &tack_a69}), (tack_a70 = ((int64_t)65), (tack_any){TACK_TYPE_INT64, &tack_a70})}, 3});
+    tack_4_main4_show((tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)}, (tack_view_17){(const tack_any[1]){(tack_a71 = 1, (tack_any){TACK_TYPE_INT64, &tack_a71})}, 1});
+    tack_4_main4_show((tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)}, (tack_view_17){(const tack_any[3]){(tack_a72 = 1, (tack_any){TACK_TYPE_INT64, &tack_a72}), (tack_a73 = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}, (tack_any){TACK_TYPE_STRING, &tack_a73}), (tack_a74 = true, (tack_any){TACK_TYPE_BOOL, &tack_a74})}, 3});
+    tack_3_std3_fmt6_printf((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, (tack_view_17){0, 0});
+    tack_4_main4_show((tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)}, (tack_view_17){(const tack_any[1]){(tack_a75 = 1, (tack_any){TACK_TYPE_INT64, &tack_a75})}, 1});
+    tack_4_main4_show((tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)}, (tack_view_17){(const tack_any[1]){(tack_a76 = (-3), (tack_any){TACK_TYPE_INT64, &tack_a76})}, 1});
+    tack_4_main4_show((tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)}, (tack_view_17){0, 0});
+    tack_3_std3_fmt6_printf((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, (tack_view_17){0, 0});
+    tack_4_main4_show((tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)}, (tack_view_17){(const tack_any[2]){(tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_a77 = (-1), (tack_any){TACK_TYPE_INT64, &tack_a77})}, 2});
 }
 
 int main(void) {

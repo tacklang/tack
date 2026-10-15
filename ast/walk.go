@@ -133,7 +133,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
-	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit:
+	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit, *NoErrorLit:
 		// leaves
 	case *StructType:
 		for _, f := range e.Fields {

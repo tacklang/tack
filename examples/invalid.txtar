@@ -2264,6 +2264,1388 @@ empty-file/main.tck:1:1: error: expected 'package' found 'EOF'
 01 |	
    |	^
 
+-- error-arithmetic/main.tck --
+package main
+
+func main() {
+    a := error{code: 1, msg: "a"}
+    b := a + 1
+    print(b.msg)
+}
+-- error-arithmetic/expected --
+stage: typeck
+---
+
+error-arithmetic/main.tck:5:10: error: operator + is not defined on error
+04 |	    a := error{code: 1, msg: "a"}
+05 |	    b := a + 1
+   |	         ^
+06 |	    print(b.msg)
+
+-- error-as-any/main.tck --
+package main
+
+func show(a any) {
+}
+
+func main() {
+    show(noerror)
+}
+-- error-as-any/expected --
+stage: typeck
+---
+
+error-as-any/main.tck:7:10: error: cannot pass error as any: only the builtin types can be passed as any for now
+06 |	func main() {
+07 |	    show(noerror)
+   |	         ^~~~~~~
+08 |	}
+
+-- error-as-func-name/main.tck --
+package main
+
+func error() {
+}
+
+func main() {
+}
+-- error-as-func-name/expected --
+stage: resolve
+---
+
+error-as-func-name/main.tck:3:6: error: cannot use error as a name; it is a type
+02 |	
+03 |	func error() {
+   |	     ^~~~~
+04 |	}
+
+-- error-as-name/main.tck --
+package main
+
+func main() {
+    error := 1
+    exit(error)
+}
+-- error-as-name/expected --
+stage: resolve
+---
+
+error-as-name/main.tck:4:5: error: cannot use error as a name; it is a type
+03 |	func main() {
+04 |	    error := 1
+   |	    ^~~~~
+05 |	    exit(error)
+
+-- error-assign-alone/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, mut err := parse("")
+    err = noerror
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-assign-alone/expected --
+stage: typeck
+---
+
+error-assign-alone/main.tck:12:5: error: err holds the error that came with v, so only a binding that also assigns v can assign it
+11 |	    v, mut err := parse("")
+12 |	    err = noerror
+   |	    ^~~
+13 |	    if err.code != 0 {
+error-assign-alone/main.tck:11:5: note: err is bound beside v here
+10 |	func main() {
+11 |	    v, mut err := parse("")
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+12 |	    err = noerror
+
+-- error-assign-field-alone/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, mut err := parse("")
+    err.code = 0
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-assign-field-alone/expected --
+stage: typeck
+---
+
+error-assign-field-alone/main.tck:12:5: error: err holds the error that came with v, so only a binding that also assigns v can assign it
+11 |	    v, mut err := parse("")
+12 |	    err.code = 0
+   |	    ^~~~~~~~
+13 |	    if err.code != 0 {
+error-assign-field-alone/main.tck:11:5: note: err is bound beside v here
+10 |	func main() {
+11 |	    v, mut err := parse("")
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+12 |	    err.code = 0
+
+-- error-assign-mut-arg/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func reset(mut e error) {
+    e = noerror
+}
+
+func main() {
+    v, mut err := parse("")
+    reset(mut err)
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-assign-mut-arg/expected --
+stage: typeck
+---
+
+error-assign-mut-arg/main.tck:16:11: error: cannot pass mut err: err holds the error that came with v, so only a binding that also assigns v can assign it
+15 |	    v, mut err := parse("")
+16 |	    reset(mut err)
+   |	          ^~~~~~~
+17 |	    if err.code != 0 {
+error-assign-mut-arg/main.tck:15:5: note: err is bound beside v here
+14 |	func main() {
+15 |	    v, mut err := parse("")
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+16 |	    reset(mut err)
+
+-- error-assign-other-binding/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, mut err := parse("")
+    mut w int64 = 0
+    w, err = parse("1")
+    if err.code != 0 {
+        return
+    }
+    if v > 0 && w > 0 {
+        print("parsed\n")
+    }
+}
+-- error-assign-other-binding/expected --
+stage: typeck
+---
+
+error-assign-other-binding/main.tck:13:8: error: err holds the error that came with v, so only a binding that also assigns v can assign it
+12 |	    mut w int64 = 0
+13 |	    w, err = parse("1")
+   |	       ^~~
+14 |	    if err.code != 0 {
+error-assign-other-binding/main.tck:11:5: note: err is bound beside v here
+10 |	func main() {
+11 |	    v, mut err := parse("")
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+12 |	    mut w int64 = 0
+
+-- error-bind-field/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+type P struct {
+    x int64
+}
+
+func main() {
+    mut p P
+    mut err error
+    p.x, err = parse("1")
+    if err.code != 0 {
+        return
+    }
+    if p.x > 0 {
+        print("parsed\n")
+    }
+}
+-- error-bind-field/expected --
+stage: typeck
+---
+
+error-bind-field/main.tck:17:5: error: p.x cannot take a result of parse beside its error; bind it to a local variable
+16 |	    mut err error
+17 |	    p.x, err = parse("1")
+   |	    ^~~
+18 |	    if err.code != 0 {
+
+-- error-bind-global-error/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+mut last error
+
+func main() {
+    mut v int64 = 0
+    v, last = parse("1")
+    print(last.msg)
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-bind-global-error/expected --
+stage: typeck
+---
+
+error-bind-global-error/main.tck:14:8: error: last cannot take the error of parse beside v; bind it to a local variable
+13 |	    mut v int64 = 0
+14 |	    v, last = parse("1")
+   |	       ^~~~
+15 |	    print(last.msg)
+
+-- error-bind-param/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func into(mut n int64) {
+    mut err error
+    n, err = parse("1")
+    print(err.msg)
+}
+
+func main() {
+    mut n int64 = 0
+    into(mut n)
+    if n > 0 {
+        print("parsed\n")
+    }
+}
+-- error-bind-param/expected --
+stage: typeck
+---
+
+error-bind-param/main.tck:12:5: error: n cannot take a result of parse beside its error; bind it to a local variable
+11 |	    mut err error
+12 |	    n, err = parse("1")
+   |	    ^
+13 |	    print(err.msg)
+
+-- error-conversion/main.tck --
+package main
+
+func main() {
+    e := noerror
+    exit(int32(e))
+}
+-- error-conversion/expected --
+stage: typeck
+---
+
+error-conversion/main.tck:5:10: error: cannot convert error to int32
+04 |	    e := noerror
+05 |	    exit(int32(e))
+   |	         ^~~~~~~~
+06 |	}
+
+-- error-dropped-all-blank/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    _, _ := parse("1")
+}
+-- error-dropped-all-blank/expected --
+stage: typeck
+---
+
+error-dropped-all-blank/main.tck:11:8: error: the error parse returns cannot be dropped; bind it to a variable instead of _
+10 |	func main() {
+11 |	    _, _ := parse("1")
+   |	       ^
+12 |	}
+
+-- error-dropped-all-blank-assign/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    _, _ = parse("1")
+}
+-- error-dropped-all-blank-assign/expected --
+stage: typeck
+---
+
+error-dropped-all-blank-assign/main.tck:11:8: error: the error parse returns cannot be dropped; bind it to a variable instead of _
+10 |	func main() {
+11 |	    _, _ = parse("1")
+   |	       ^
+12 |	}
+
+-- error-dropped-blank/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, _ := parse("1")
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-dropped-blank/expected --
+stage: typeck
+---
+
+error-dropped-blank/main.tck:11:8: error: the error parse returns cannot be dropped; bind it to a variable instead of _
+10 |	func main() {
+11 |	    v, _ := parse("1")
+   |	       ^
+12 |	    if v > 0 {
+
+-- error-dropped-blank-assign/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    mut v int64 = 0
+    v, _ = parse("1")
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-dropped-blank-assign/expected --
+stage: typeck
+---
+
+error-dropped-blank-assign/main.tck:12:8: error: the error parse returns cannot be dropped; bind it to a variable instead of _
+11 |	    mut v int64 = 0
+12 |	    v, _ = parse("1")
+   |	       ^
+13 |	    if v > 0 {
+
+-- error-dropped-call/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    parse("1")
+}
+-- error-dropped-call/expected --
+stage: typeck
+---
+
+error-dropped-call/main.tck:11:5: error: the error parse returns cannot be dropped; bind it, as in _, err := parse(...)
+10 |	func main() {
+11 |	    parse("1")
+   |	    ^~~~~~~~~~
+12 |	}
+
+-- error-dropped-call-single/main.tck --
+package main
+
+func ready() error {
+    return noerror
+}
+
+func main() {
+    ready()
+}
+-- error-dropped-call-single/expected --
+stage: typeck
+---
+
+error-dropped-call-single/main.tck:8:5: error: the error ready returns cannot be dropped; bind it, as in err := ready(...)
+07 |	func main() {
+08 |	    ready()
+   |	    ^~~~~~~
+09 |	}
+
+-- error-dropped-for-post/main.tck --
+package main
+
+func ready() error {
+    return noerror
+}
+
+func main() {
+    for mut i := 0; i < 3; ready() {
+        i++
+    }
+}
+-- error-dropped-for-post/expected --
+stage: typeck
+---
+
+error-dropped-for-post/main.tck:8:28: error: the error ready returns cannot be dropped; bind it, as in err := ready(...)
+07 |	func main() {
+08 |	    for mut i := 0; i < 3; ready() {
+   |	                           ^~~~~~~
+09 |	        i++
+
+-- error-dropped-in-defer/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    defer {
+        parse("1")
+    }
+}
+-- error-dropped-in-defer/expected --
+stage: typeck
+---
+
+error-dropped-in-defer/main.tck:12:9: error: the error parse returns cannot be dropped; bind it, as in _, err := parse(...)
+11 |	    defer {
+12 |	        parse("1")
+   |	        ^~~~~~~~~~
+13 |	    }
+
+-- error-literal-code-int64/main.tck --
+package main
+
+func main() {
+    n := int64(3)
+    e := error{code: n, msg: "x"}
+    print(e.msg)
+}
+-- error-literal-code-int64/expected --
+stage: typeck
+---
+
+error-literal-code-int64/main.tck:5:22: error: cannot use int64 as int32 in field code of error literal
+04 |	    n := int64(3)
+05 |	    e := error{code: n, msg: "x"}
+   |	                     ^
+06 |	    print(e.msg)
+
+-- error-literal-code-overflow/main.tck --
+package main
+
+func main() {
+    e := error{code: 3000000000, msg: "x"}
+    print(e.msg)
+}
+-- error-literal-code-overflow/expected --
+stage: typeck
+---
+
+error-literal-code-overflow/main.tck:4:22: error: constant 3000000000 overflows int32
+03 |	func main() {
+04 |	    e := error{code: 3000000000, msg: "x"}
+   |	                     ^~~~~~~~~~
+05 |	    print(e.msg)
+
+-- error-literal-empty/main.tck --
+package main
+
+func main() {
+    e := error{}
+    print(e.msg)
+}
+-- error-literal-empty/expected --
+stage: typeck
+---
+
+error-literal-empty/main.tck:4:10: error: error literal is missing fields code, msg
+03 |	func main() {
+04 |	    e := error{}
+   |	         ^~~~~~~
+05 |	    print(e.msg)
+
+-- error-literal-missing-field/main.tck --
+package main
+
+func main() {
+    e := error{code: 1}
+    print(e.msg)
+}
+-- error-literal-missing-field/expected --
+stage: typeck
+---
+
+error-literal-missing-field/main.tck:4:10: error: error literal is missing field msg
+03 |	func main() {
+04 |	    e := error{code: 1}
+   |	         ^~~~~~~~~~~~~~
+05 |	    print(e.msg)
+
+-- error-literal-msg-not-string/main.tck --
+package main
+
+func main() {
+    e := error{code: 1, msg: 2}
+    print(e.msg)
+}
+-- error-literal-msg-not-string/expected --
+stage: typeck
+---
+
+error-literal-msg-not-string/main.tck:4:30: error: cannot use int64 as string in field msg of error literal
+03 |	func main() {
+04 |	    e := error{code: 1, msg: 2}
+   |	                             ^
+05 |	    print(e.msg)
+
+-- error-literal-positional/main.tck --
+package main
+
+func main() {
+    e := error{1, "x"}
+    print(e.msg)
+}
+-- error-literal-positional/expected --
+stage: typeck
+---
+
+error-literal-positional/main.tck:4:16: error: missing field name in error literal
+03 |	func main() {
+04 |	    e := error{1, "x"}
+   |	               ^
+05 |	    print(e.msg)
+
+error-literal-positional/main.tck:4:19: error: missing field name in error literal
+03 |	func main() {
+04 |	    e := error{1, "x"}
+   |	                  ^~~
+05 |	    print(e.msg)
+
+-- error-literal-unknown-field/main.tck --
+package main
+
+func main() {
+    e := error{code: 1, msg: "x", why: 2}
+    print(e.msg)
+}
+-- error-literal-unknown-field/expected --
+stage: typeck
+---
+
+error-literal-unknown-field/main.tck:4:35: error: error has no field why
+03 |	func main() {
+04 |	    e := error{code: 1, msg: "x", why: 2}
+   |	                                  ^~~
+05 |	    print(e.msg)
+
+-- error-no-field/main.tck --
+package main
+
+func main() {
+    e := noerror
+    print(e.message)
+}
+-- error-no-field/expected --
+stage: typeck
+---
+
+error-no-field/main.tck:5:13: error: error has no field message
+04 |	    e := noerror
+05 |	    print(e.message)
+   |	            ^~~~~~~
+06 |	}
+
+-- error-noerror-as-name/main.tck --
+package main
+
+func main() {
+    noerror := 1
+    exit(noerror)
+}
+-- error-noerror-as-name/expected --
+stage: parse
+---
+
+error-noerror-as-name/main.tck:4:5: error: expected 'statement' found 'noerror'
+03 |	func main() {
+04 |	    noerror := 1
+   |	    ^
+05 |	    exit(noerror)
+
+-- error-not-last/main.tck --
+package main
+
+func f() (error, int64) {
+    return noerror, 1
+}
+
+func main() {
+}
+-- error-not-last/expected --
+stage: typeck
+---
+
+error-not-last/main.tck:3:11: error: error must be the last result of f
+02 |	
+03 |	func f() (error, int64) {
+   |	          ^~~~~
+04 |	    return noerror, 1
+
+-- error-not-last-extern/main.tck --
+package main
+
+extern func f() (error, int64)
+
+func main() {
+}
+-- error-not-last-extern/expected --
+stage: typeck
+---
+
+error-not-last-extern/main.tck:3:18: error: error must be the last result of f
+02 |	
+03 |	extern func f() (error, int64)
+   |	                 ^~~~~
+04 |	
+
+-- error-ordered/main.tck --
+package main
+
+func main() {
+    a := error{code: 1, msg: "a"}
+    if a < noerror {
+        print("less\n")
+    }
+}
+-- error-ordered/expected --
+stage: typeck
+---
+
+error-ordered/main.tck:5:8: error: operator < is not defined on error
+04 |	    a := error{code: 1, msg: "a"}
+05 |	    if a < noerror {
+   |	       ^~~~~~~~~~~
+06 |	        print("less\n")
+
+-- error-read-after-rebinding/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    mut v, mut err := parse("1")
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+    v, err = parse("")
+    if err.code != 0 {
+        return
+    }
+    if v > 1 {
+        print("parsed again\n")
+    }
+}
+-- error-read-after-rebinding/expected --
+stage: typeck
+---
+
+error-read-after-rebinding/main.tck:15:8: error: v cannot be read before err is checked; check err.code == 0 first
+14 |	    }
+15 |	    if v > 0 {
+   |	       ^
+16 |	        print("parsed\n")
+error-read-after-rebinding/main.tck:12:5: note: this early exit proves err.code == 0 after it
+11 |	    mut v, mut err := parse("1")
+12 |	    if err.code != 0 {
+   |	    ^~~~~~~~~~~~~~~~
+13 |	        return
+error-read-after-rebinding/main.tck:18:8: note: but err is assigned here, so the proof ends
+17 |	    }
+18 |	    v, err = parse("")
+   |	       ^~~
+19 |	    if err.code != 0 {
+
+-- error-read-before-check-in-cond/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if v > 0 && err.code == 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-before-check-in-cond/expected --
+stage: typeck
+---
+
+error-read-before-check-in-cond/main.tck:12:8: error: v cannot be read before err is checked; check err.code == 0 first
+11 |	    v, err := parse("1")
+12 |	    if v > 0 && err.code == 0 {
+   |	       ^
+13 |	        print("parsed\n")
+
+-- error-read-check-does-not-leave/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code != 0 {
+        print(err.msg)
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-check-does-not-leave/expected --
+stage: typeck
+---
+
+error-read-check-does-not-leave/main.tck:15:8: error: v cannot be read before err is checked; check err.code == 0 first
+14 |	    }
+15 |	    if v > 0 {
+   |	       ^
+16 |	        print("parsed\n")
+
+-- error-read-compound/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    mut v, err := parse("1")
+    v += 1
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-compound/expected --
+stage: typeck
+---
+
+error-read-compound/main.tck:12:5: error: v cannot be read before err is checked; check err.code == 0 first
+11 |	    mut v, err := parse("1")
+12 |	    v += 1
+   |	    ^
+13 |	    if err.code != 0 {
+
+-- error-read-else-of-no-error/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code == 0 {
+        print("fine\n")
+    } else {
+        if v > 0 {
+            print("parsed\n")
+        }
+    }
+}
+-- error-read-else-of-no-error/expected --
+stage: typeck
+---
+
+error-read-else-of-no-error/main.tck:15:12: error: v cannot be read before err is checked; check err.code == 0 first
+14 |	    } else {
+15 |	        if v > 0 {
+   |	           ^
+16 |	            print("parsed\n")
+error-read-else-of-no-error/main.tck:12:8: note: this guard allows err.code == 1
+11 |	    v, err := parse("1")
+12 |	    if err.code == 0 {
+   |	       ^~~~~~~~~~~~~
+13 |	        print("fine\n")
+
+-- error-read-exit/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code != 0 {
+        exit(1)
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-exit/expected --
+stage: typeck
+---
+
+error-read-exit/main.tck:15:8: error: v cannot be read before err is checked; check err.code == 0 first
+14 |	    }
+15 |	    if v > 0 {
+   |	       ^
+16 |	        print("parsed\n")
+error-read-exit/main.tck:12:5: note: this early exit would prove err.code == 0 after it
+11 |	    v, err := parse("1")
+12 |	    if err.code != 0 {
+   |	    ^~~~~~~~~~~~~~~~
+13 |	        exit(1)
+error-read-exit/main.tck:13:9: note: but its branch ends in exit, not in return, break or continue
+12 |	    if err.code != 0 {
+13 |	        exit(1)
+   |	        ^~~~~~~
+14 |	    }
+
+-- error-read-in-defer/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    defer {
+        if v > 0 {
+            print("parsed\n")
+        }
+    }
+    if err.code != 0 {
+        return
+    }
+}
+-- error-read-in-defer/expected --
+stage: typeck
+---
+
+error-read-in-defer/main.tck:13:12: error: v cannot be read before err is checked; check err.code == 0 first
+12 |	    defer {
+13 |	        if v > 0 {
+   |	           ^
+14 |	            print("parsed\n")
+
+-- error-read-incdec/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    mut v, err := parse("1")
+    v++
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-incdec/expected --
+stage: typeck
+---
+
+error-read-incdec/main.tck:12:5: error: v cannot be read before err is checked; check err.code == 0 first
+11 |	    mut v, err := parse("1")
+12 |	    v++
+   |	    ^
+13 |	    if err.code != 0 {
+
+-- error-read-loop-rebinding/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    mut v, mut err := parse("1")
+    for i := range 3 {
+        if err.code != 0 {
+            break
+        }
+        if v > i {
+            print("parsed\n")
+        }
+        v, err = parse("2")
+    }
+}
+-- error-read-loop-rebinding/expected --
+stage: typeck
+---
+
+error-read-loop-rebinding/main.tck:16:12: error: v cannot be read before err is checked; check err.code == 0 first
+15 |	        }
+16 |	        if v > i {
+   |	           ^
+17 |	            print("parsed\n")
+error-read-loop-rebinding/main.tck:13:9: note: this early exit proves err.code == 0 after it
+12 |	    for i := range 3 {
+13 |	        if err.code != 0 {
+   |	        ^~~~~~~~~~~~~~~~
+14 |	            break
+error-read-loop-rebinding/main.tck:19:12: note: but err is assigned here, so the proof ends
+18 |	        }
+19 |	        v, err = parse("2")
+   |	           ^~~
+20 |	    }
+
+-- error-read-mut-arg/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func bump(mut n int64) {
+    n++
+}
+
+func main() {
+    mut v, err := parse("1")
+    bump(mut v)
+    if err.code != 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-mut-arg/expected --
+stage: typeck
+---
+
+error-read-mut-arg/main.tck:16:14: error: v cannot be read before err is checked; check err.code == 0 first
+15 |	    mut v, err := parse("1")
+16 |	    bump(mut v)
+   |	             ^
+17 |	    if err.code != 0 {
+
+-- error-read-or/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code == 0 || v > 3 {
+        print("maybe\n")
+    }
+}
+-- error-read-or/expected --
+stage: typeck
+---
+
+error-read-or/main.tck:12:25: error: v cannot be read before err is checked; check err.code == 0 first
+11 |	    v, err := parse("1")
+12 |	    if err.code == 0 || v > 3 {
+   |	                        ^
+13 |	        print("maybe\n")
+error-read-or/main.tck:12:8: note: this guard allows err.code == 1
+11 |	    v, err := parse("1")
+12 |	    if err.code == 0 || v > 3 {
+   |	       ^~~~~~~~~~~~~
+13 |	        print("maybe\n")
+
+-- error-read-returned-unchecked/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func twice(s string) (int64, error) {
+    v, err := parse(s)
+    return v * 2, err
+}
+
+func main() {
+    v, err := twice("1")
+    if err.code == 0 && v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-returned-unchecked/expected --
+stage: typeck
+---
+
+error-read-returned-unchecked/main.tck:12:12: error: v cannot be read before err is checked; check err.code == 0 first
+11 |	    v, err := parse(s)
+12 |	    return v * 2, err
+   |	           ^
+13 |	}
+
+-- error-read-three-results/main.tck --
+package main
+
+func divide(a int64, b int64) (int64, int64, error) {
+    if b == 0 {
+        return 0, 0, error{code: 5, msg: "division by zero"}
+    }
+    return a / b, a % b, noerror
+}
+
+func main() {
+    q, r, err := divide(7, 2)
+    if r > 0 {
+        print("remainder\n")
+    }
+    if err.code != 0 {
+        return
+    }
+    if q > 0 {
+        print("quotient\n")
+    }
+}
+-- error-read-three-results/expected --
+stage: typeck
+---
+
+error-read-three-results/main.tck:12:8: error: r cannot be read before err is checked; check err.code == 0 first
+11 |	    q, r, err := divide(7, 2)
+12 |	    if r > 0 {
+   |	       ^
+13 |	        print("remainder\n")
+
+-- error-read-unchecked/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    print(err.msg)
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-unchecked/expected --
+stage: typeck
+---
+
+error-read-unchecked/main.tck:13:8: error: v cannot be read before err is checked; check err.code == 0 first
+12 |	    print(err.msg)
+13 |	    if v > 0 {
+   |	       ^
+14 |	        print("parsed\n")
+
+-- error-read-weak-check/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code > 0 {
+        return
+    }
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-read-weak-check/expected --
+stage: typeck
+---
+
+error-read-weak-check/main.tck:15:8: error: v cannot be read before err is checked; check err.code == 0 first
+14 |	    }
+15 |	    if v > 0 {
+   |	       ^
+16 |	        print("parsed\n")
+error-read-weak-check/main.tck:12:8: note: this early exit allows err.code == -1
+11 |	    v, err := parse("1")
+12 |	    if err.code > 0 {
+   |	       ^~~~~~~~~~~~
+13 |	        return
+
+-- error-read-wrong-branch/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    if err.code != 0 {
+        if v > 0 {
+            print("parsed\n")
+        }
+    }
+}
+-- error-read-wrong-branch/expected --
+stage: typeck
+---
+
+error-read-wrong-branch/main.tck:13:12: error: v cannot be read before err is checked; check err.code == 0 first
+12 |	    if err.code != 0 {
+13 |	        if v > 0 {
+   |	           ^
+14 |	            print("parsed\n")
+error-read-wrong-branch/main.tck:12:8: note: this guard allows err.code == 1
+11 |	    v, err := parse("1")
+12 |	    if err.code != 0 {
+   |	       ^~~~~~~~~~~~~
+13 |	        if v > 0 {
+
+-- error-read-wrong-case/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func main() {
+    v, err := parse("1")
+    switch err.code {
+    case 1:
+        if v > 0 {
+            print("parsed\n")
+        }
+    }
+}
+-- error-read-wrong-case/expected --
+stage: typeck
+---
+
+error-read-wrong-case/main.tck:14:12: error: v cannot be read before err is checked; check err.code == 0 first
+13 |	    case 1:
+14 |	        if v > 0 {
+   |	           ^
+15 |	            print("parsed\n")
+error-read-wrong-case/main.tck:13:10: note: this case allows err.code == 1
+12 |	    switch err.code {
+13 |	    case 1:
+   |	         ^
+14 |	        if v > 0 {
+
+-- error-reserved-field/main.tck --
+package main
+
+type P struct {
+    TACK_NO_ERROR int64
+}
+
+extern func f(p P)
+
+func main() {
+}
+-- error-reserved-field/expected --
+stage: codegen
+---
+
+error-reserved-field/main.tck:4:5: error: field TACK_NO_ERROR of type P cannot be named TACK_NO_ERROR in tack.h: that is a tack.h error helper
+03 |	type P struct {
+04 |	    TACK_NO_ERROR int64
+   |	    ^~~~~~~~~~~~~
+05 |	}
+
+-- error-reserved-helper/main.tck --
+package main
+
+type TACK_ERROR struct {
+    code int32
+}
+
+extern func f(p TACK_ERROR)
+
+func main() {
+}
+-- error-reserved-helper/expected --
+stage: codegen
+---
+
+error-reserved-helper/main.tck:3:6: error: type TACK_ERROR of package main cannot be named TACK_ERROR in tack.h: that is a tack.h error helper
+02 |	
+03 |	type TACK_ERROR struct {
+   |	     ^~~~~~~~~~
+04 |	    code int32
+
+-- error-reserved-type/main.tck --
+package main
+
+type tack_error struct {
+    code int32
+}
+
+extern func f(p tack_error)
+
+func main() {
+}
+-- error-reserved-type/expected --
+stage: codegen
+---
+
+error-reserved-type/main.tck:3:6: error: type tack_error of package main cannot be named tack_error in tack.h: that is tack.h's error type
+02 |	
+03 |	type tack_error struct {
+   |	     ^~~~~~~~~~
+04 |	    code int32
+
+-- error-two-errors/main.tck --
+package main
+
+func f() (error, error) {
+    return noerror, noerror
+}
+
+func main() {
+}
+-- error-two-errors/expected --
+stage: typeck
+---
+
+error-two-errors/main.tck:3:11: error: error must be the last result of f
+02 |	
+03 |	func f() (error, error) {
+   |	          ^~~~~
+04 |	    return noerror, noerror
+
 -- escape-hex-short/main.tck --
 package main
 

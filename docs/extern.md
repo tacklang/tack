@@ -109,10 +109,11 @@ with `divmod`.
   One `tack.h` serves the whole program, its extern funcs package by
   package.
 - `tack.h` holds only what is the program's own. What every program
-  shares, `tack_string` and the string helpers below, and `tack_any`, its
+  shares, `tack_string` and the string helpers below, `tack_error` and
+  the error helpers, and `tack_any`, its
   type ids and its unpack helpers, is defined once, in
   std's [`tack/tack.h`](../src/std/include/tack/tack.h), which `tack.h`
-  includes as `<tack/tack.h>` when a signature uses a string or `any`, and which the
+  includes as `<tack/tack.h>` when a signature uses a string, an error or `any`, and which the
   generated C and std's own C files include too. An editor that reads such
   a `tack.h` needs std's include directory on its include path, as the
   build has it: `-I $TACK_HOME/src/std/include`, or `~/.tack/src/std/include`
@@ -142,11 +143,12 @@ of them.
 | `unsafe_uintptr_t`           | `uintptr_t`, from `<stdint.h>`, as wide as the target's                             |
 | `bool`                       | `bool`, from `<stdbool.h>`                                                          |
 | `string`                     | `tack_string`: `const unsigned char *ptr; int64_t len;`, by value                   |
+| `error`                      | `tack_error`: `int32_t code; tack_string msg;`, by value; code 0 is no error        |
 | a struct                     | a C struct with a member per field, under the field's Tack name, in order; `char unused;` if it has none |
 | `[N]T`                       | a struct holding one C array, `T e[N]`, of at least one element                     |
 | no result                    | `void`                                                                              |
 | one result                   | that result's C type                                                                |
-| several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on       |
+| several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on; an error, always the last result, in the last member |
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 | a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
 | an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
@@ -154,12 +156,15 @@ of them.
 | an `args ...any` parameter   | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
-signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string
-or `any`, and defines every type an extern func's signature uses and every type
+signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
+an error or `any`, and defines every type an extern func's signature uses and every type
 those hold, each before the types that hold it. Its names:
 
-- `tack_string` for `string`, and `tack_any` for `any`, which std's
-  `<tack/tack.h>` defines. `[]any`, and so `...any`, is `tack_view_any`.
+- `tack_string` for `string`, `tack_error` for `error`, and `tack_any`
+  for `any`, which std's `<tack/tack.h>` defines. `[]any`, and so
+  `...any`, is `tack_view_any`; `[]error` is `tack_view_error`, and
+  `[2]error` `tack_array_2_error`, after error's Tack name, as for any
+  basic type.
 - A struct of package `main` keeps its Tack name: `Point`. One of any other
   package is its package's name, `_`, and its name: `Token` of
   `calc/lexer` is `lexer_Token`.
@@ -200,8 +205,11 @@ A name `tack.h` cannot give is an error whatever is built:
   twelve `tack_any_<type>` unpack helpers, `tack_any_signed` and
   `tack_any_unsigned`, each `a tack.h any helper`: `type tack_any of
   package main cannot be named tack_any in tack.h: that is tack.h's any
-  type`. Each is reserved whether or not the program uses strings or
-  `any`;
+  type`. So are `tack_error`, `tack.h's error type`, and `TACK_ERROR`
+  and `TACK_NO_ERROR`, each `a tack.h error helper`: `type tack_error of
+  package main cannot be named tack_error in tack.h: that is tack.h's
+  error type`. Each is reserved whether or not the program uses strings,
+  errors or `any`;
 - a type or an extern func's C name named like a macro the C standard
   specifies one of the headers `tack.h` includes defines, whether or not
   this `tack.h` includes it: `type NULL of package main cannot be named
@@ -228,7 +236,9 @@ A name `tack.h` cannot give is an error whatever is built:
   named TACK_H in tack.h: that is tack.h's include guard`, `field NULL of
   type Limits cannot be named NULL in tack.h: that is a macro of
   <stddef.h>`, `field TACK_TYPE_STRING of type P cannot be named
-  TACK_TYPE_STRING in tack.h: that is a tack.h any type id`. A field may
+  TACK_TYPE_STRING in tack.h: that is a tack.h any type id`, `field
+  TACK_NO_ERROR of type P cannot be named TACK_NO_ERROR in tack.h: that
+  is a tack.h error helper`. A field may
   be named like a function-like macro, such as `TACK_STR`, `TACK_ANY_IS`,
   `offsetof` or `INT64_C`, which C expands only before a `(`, or like
   `tack_string`, `tack_any` or an unpack helper, whose names a member's
@@ -256,6 +266,13 @@ and `extern func sum(args ...any) int64` is
 `int64_t sum(tack_view_any /* args */);`, whose C reads `args.ptr[i]`
 for `i` below `args.len`; `examples/extern-any` passes every basic type
 at its edges and unpacks each.
+`extern func half(n int64) (int64, error)` is
+`tack_results_half half(int64_t /* n */);`, whose C returns
+`(tack_results_half){n / 2, TACK_NO_ERROR}`, or a value and
+`TACK_ERROR(9, "odd")`; its Tack callers bind and check the error as
+they would any function's. `examples/extern-errors` returns errors alone
+and last, passes them to C, as a struct's field through a `mut`
+parameter and as `...error`.
 
 ## any
 
@@ -309,7 +326,7 @@ Std's `<tack/tack.h>` also defines helpers that make the C side shorter
 and harder to get wrong, beside `tack_string`, and beside `tack_any` the
 ones under any above. A program's `tack.h` includes it only when the
 program uses what they help with, because some extern signature uses a
-string or `any`, and then three macros for building a string come with
+string, an error or `any`, and then three macros for building a string come with
 it:
 
 - `TACK_STR(lit)` is a string literal as a `tack_string`:
@@ -328,7 +345,19 @@ it:
   array is taken at its full size, so `unsigned char buf[64]` holding
   `"hi"` gives 63, not 2; use `TACK_STR_N` with the real length there.
 
-`examples/extern-strings` uses each. They make a string, not its bytes'
+`examples/extern-strings` uses each. Beside `tack_error`, two build an
+error:
+
+- `TACK_ERROR(code, lit)` is an error with the code `code`, converted to
+  `int32_t`, and the string literal `lit` as its message, built by
+  `TACK_STR`: `return TACK_ERROR(2, "not found");`. Anything but a
+  literal message is a compile error; an error whose message is not a
+  literal is a compound literal, `(tack_error){code, TACK_STR_N(p, n)}`,
+  whose bytes must outlive the program's use of them, as below.
+- `TACK_NO_ERROR` is no error, Tack's `noerror`: code 0 and an empty
+  message.
+
+`examples/extern-errors` uses both. They make a string, not its bytes'
 lifetime: the bytes must still stay valid as the trust boundary below
 says, which a literal's and a static array's do. A future helper follows
 the same rule as these: it is defined once, in std's `<tack/tack.h>` or a
@@ -392,7 +421,13 @@ whole program, Tack code included, which no Tack proof can catch.
 - **Strings from C.** A string C returns is taken as it is: its bytes must
   stay valid, and unchanged, for as long as Tack might use the string,
   which today means for the rest of the program. Nothing says who owns them
-  or frees them; the memory model has not decided it yet.
+  or frees them; the memory model has not decided it yet. An error's
+  message is such a string, whatever the code.
+- **Errors from C.** Only the code says whether there is an error: 0 is
+  none, and Tack reads the other results only then, so C returns the
+  results that go with a code of 0 as it would any result. Tack does not
+  check that C sets a code other than 0 when it fails: an extern func
+  that fails with code 0 returns its results as if it succeeded.
 - **Control.** C can end the process, with `exit` or `abort`, or never
   return, and either way no Tack defer runs. There is no way for C to call
   back into Tack: every Tack function is static in the generated C.

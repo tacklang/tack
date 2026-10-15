@@ -8,7 +8,7 @@ stage: ok
 
 typedef struct {
     int64_t e[4];
-} tack_array_15;
+} tack_array_16;
 
 
 void tack_builtin_exit(int32_t);
@@ -291,7 +291,7 @@ static int64_t tack_4_main5_inner(int64_t p_n) {
 
 static void tack_4_main4_many(void) {
     {
-        const tack_array_15 tack_r27 = (tack_array_15){{4, 3, 2, 1}};
+        const tack_array_16 tack_r27 = (tack_array_16){{4, 3, 2, 1}};
         for (int64_t tack_k28 = 0; tack_k28 < 4; tack_k28++) {
             const int64_t v_d = tack_r27.e[tack_k28];
             tack_4_main4_mark(0);

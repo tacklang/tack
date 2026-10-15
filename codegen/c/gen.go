@@ -1256,7 +1256,7 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 		if len(diags) > 0 {
 			return "", diags
 		}
-		return base + "." + fieldName(t.Name), nil
+		return base + "." + memberName(ast.TypeOf(t.X), t.Name), nil
 	}
 	return "", []diag.Diagnostic{{
 		Severity: diag.Error,
@@ -1821,8 +1821,8 @@ func (g *generator) literal(e ast.Expr) (string, bool) {
 	}
 }
 
-// plainLiteral renders an int, character, string or bool literal as C, and
-// reports whether e was one. A negative int is parenthesised, so a minus
+// plainLiteral renders an int, character, string or bool literal, or
+// noerror, a zeroed tack_error, as C, and reports whether e was one. A negative int is parenthesised, so a minus
 // sign before it can never make C's decrement operator, and the smallest int
 // is written as an expression, since C has no literal for it.
 func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
@@ -1838,6 +1838,8 @@ func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
 		return g.stringValue(x.Value), true
 	case *ast.BoolLit:
 		return strconv.FormatBool(x.Value), true
+	case *ast.NoErrorLit:
+		return g.zeroValue(types.Error), true
 	default:
 		return "", false
 	}
@@ -2030,6 +2032,7 @@ var cTypes = map[types.Type]string{
 	types.String: "tack_string",
 	types.Bool:   "bool",
 	types.Any:    "tack_any",
+	types.Error:  "tack_error",
 
 	types.UnsafeSize:    "size_t",
 	types.UnsafeUintptr: "uintptr_t",

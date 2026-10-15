@@ -229,6 +229,21 @@ func (b *BoolLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the keyword.
 func (b *BoolLit) Spanned() Span { return b.Span }
 
+// NoErrorLit is the literal noerror: the error value that is no error,
+// with code 0 and an empty message, the zero value of type error.
+type NoErrorLit struct {
+	Span Span
+}
+
+var _ Expr = (*NoErrorLit)(nil)
+
+func (n *NoErrorLit) exprKey() exprKey { return _exprKey }
+
+func (n *NoErrorLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the keyword.
+func (n *NoErrorLit) Spanned() Span { return n.Span }
+
 // BinaryOp is an infix operator.
 type BinaryOp int
 
@@ -390,6 +405,8 @@ func TypeOf(expr Expr) types.Type {
 		return types.Uint8
 	case *BoolLit:
 		return types.Bool
+	case *NoErrorLit:
+		return types.Error
 	case *Ident:
 		return identType(e)
 	case *Call:

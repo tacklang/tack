@@ -70,6 +70,7 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	m, isMut := arg.(*ast.MutArg)
 	switch {
 	case p.mut && isMut:
+		c.checkErrorMut(m)
 		return c.mutToMut(m, p, callee)
 	case p.mut:
 		c.expr(arg)

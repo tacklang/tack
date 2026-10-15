@@ -244,10 +244,11 @@ calls with a prototype, `void tack_builtin_print(tack_string);`. Their
 bodies are the `.c` files beside `builtin.tck`, one per builtin and named
 after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
 `src/std/include` for `tack_string`. That header is the one definition of
-what every program's C shares, `tack_string` and the string helpers, and
+what every program's C shares, `tack_string` and the string helpers,
+`tack_error` and the error helpers, and
 `tack_any`, its type ids and its unpack helpers: the generated C includes
-it too, and so does a program's `tack.h` when an extern func uses a string
-or `any`, so every C file is compiled with
+it too, and so does a program's `tack.h` when an extern func uses a string,
+an error or `any`, so every C file is compiled with
 `-I $TACK_HOME/src/std/include`, and `--emit` output needs that flag to
 compile on its own. The driver compiles them as it
 compiles a program's C files and links only the objects that define a
@@ -694,7 +695,59 @@ makes for itself, which has a letter after `tack_`.
   results. A call with several results cannot be used as a single value,
   passed straight to another call, or returned directly as another
   function's results, but it can be called as a statement to discard them
-  all.
+  all, unless its last result is an error (see errors).
+- Errors. A function that can fail returns an error, of the builtin type
+  `error`, as its last result: `func parse(s string) (int64, error)`, or
+  `func check() error` alone. An error anywhere else in a result list is
+  `error must be the last result of f`. An error is a struct of two
+  fields, `code`, an `int32`, and `msg`, a `string`: a code of 0 is no
+  error, whatever the message, and any other code is an error. It is
+  written as a struct literal naming both fields, `error{code: 2, msg:
+  "not found"}`, any string being a message, since every string is
+  static, and `noerror`, a keyword like `true`, is the error that is no
+  error, code 0 and an empty message: the zero value of `error`, so `mut e
+  error` starts as `noerror`, and a function that succeeds returns it,
+  `return n, noerror`. An error does what a struct does: its fields are
+  read from any error, `err.msg`, and written through a mutable variable,
+  `e.code = 7`; two compare with `==` and `!=`, the code and the message's
+  bytes, so a sentinel global, `var notFound = error{code: 2, msg: "not
+  found"}`, is tested with `err == notFound`; and an error may be a local,
+  a parameter, a result, a field, an array's element or a global, `mut`
+  or not, `noerror` and a literal being constant expressions. It has no
+  order, no conversion, and cannot be passed as `any`. Three rules hold
+  for a call to a function that returns an error:
+  - Its error cannot be dropped. A call statement is `the error f returns
+    cannot be dropped; bind it, as in _, err := f(...)`, and `_` where the
+    error goes, a binding of nothing but `_` included, is `the error f
+    returns cannot be dropped; bind it to a variable instead of _`. A call
+    returning an error alone is a value like any other, so it may be
+    passed, returned or compared, `if check() == noerror`.
+  - The results bound beside the error cannot be read until it is
+    checked. After `v, err := f()`, or `v, err = f()`, reading `v`,
+    passing `mut v`, or updating it with a compound assignment, `++` or
+    `--`, is `v cannot be read before err is checked; check err.code == 0
+    first` wherever the facts in force do not prove `err.code == 0`. The
+    check is a fact like a divisor's (see division, and
+    [docs/safety.md](docs/safety.md#errors)): `if err.code != 0 { return
+    0, err }` proves it for the rest of the block, `if err.code == 0 {
+    ... }` in its branch, the `else` of `if err.code != 0` in that
+    branch, a `switch err.code` in its `case 0:`, and `err.code == 0 &&`
+    on its right. Like any fact it holds only in a region that never
+    assigns `err`, so binding a new error to it later in the same block
+    ends it, and a branch ending in `exit` does not leave. Comparing the
+    whole error, `err == noerror`, is no check. So that a check is about
+    the error that came with `v`, both are bound to local variables,
+    never a parameter, a global, a field or an element, `p.x cannot take
+    a result of f beside its error; bind it to a local variable`, and an
+    error that holds variables is assigned only by a binding that assigns
+    them all with it, `v, err = f()`: `err = noerror`, `err.code = 0`,
+    `++`, `mut err` or `w, err = g()` are `err holds the error that came
+    with v, so only a binding that also assigns v can assign it`. A
+    variable bound beside two errors needs both checked.
+  - The error is the last result, as above.
+
+  The rules are the compiler's: an error is a plain value at run time,
+  in C a `tack_error` passed by value (see extern C).
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
@@ -1033,7 +1086,7 @@ makes for itself, which has a letter after `tack_`.
   is computed in full, so an error on either side is reported.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
-  `unsafe_size_t` and `unsafe_uintptr_t`, `string` and `bool`, arrays,
+  `unsafe_size_t` and `unsafe_uintptr_t`, `string`, `bool` and `error`, arrays,
   views and `any`, which only a parameter may have, and the structs a
   program declares. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
@@ -1193,7 +1246,8 @@ makes for itself, which has a letter after `tack_`.
   a constant or known value that does not fit is an error in either form.
   A guard never makes `T(x)` compile; see
   [docs/safety.md](docs/safety.md). Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
-  used as a name, and both are constant expressions.
+  used as a name, and both are constant expressions, as is `noerror`, a
+  keyword too (see errors).
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes an `int32`, or an integer that widens to one
@@ -1226,7 +1280,7 @@ makes for itself, which has a letter after `tack_`.
   parameters, `f expects at least 1 argument(s), got 0` (see variadics).
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
   a digit. The type names, `int8` through `uint64`, `unsafe_size_t`,
-  `unsafe_uintptr_t`, `string` and `bool`, are
+  `unsafe_uintptr_t`, `string`, `bool` and `error`, are
   reserved like keywords: they can be written only as types and in
   conversions, never declared, read or assigned as names, nor used as a
   struct's or a field's name. `_` on its own is
@@ -1236,7 +1290,8 @@ makes for itself, which has a letter after `tack_`.
   variables, as in `for _, x := range a`. It cannot be declared, read or
   assigned anywhere else, cannot be `mut`, and a binding whose every name is
   `_` is an error, since the call can be made on its own, or the loop
-  written without names.
+  written without names; for a call that returns an error, it is the
+  error dropped (see errors).
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged. A
   backslash starts an escape: `\a \b \f \v \n \t \r \\ \"`, as in Go, or
@@ -1289,7 +1344,12 @@ makes for itself, which has a letter after `tack_`.
   checks the type id with `TACK_ANY_IS(a, INT64)` or reads the value with
   a checked unpack helper, `tack_any_int64(a, &v)`, from std's
   `<tack/tack.h>`, during the call only, and never writes through the
-  pointer or keeps it. An extern func is never `pub` or `lib`, and one no C
+  pointer or keeps it. An error is a `tack_error`, `{int32_t code;
+  tack_string msg;}`, by value, which C builds with `TACK_ERROR(code,
+  "literal")`, or `TACK_NO_ERROR` for none, from std's `<tack/tack.h>`;
+  an extern func that returns one returns it last, in its results struct
+  when it has several, and its callers check it as any function's. An
+  extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its

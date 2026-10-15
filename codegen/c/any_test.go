@@ -68,29 +68,29 @@ var anyCTests = []struct{ name, src, want string }{
 		"held for the order of evaluation, by the holding temporary's address",
 		anyProgram("many(g, get(), g)"),
 		"(tack_o0 = tack_4_main1_g, tack_o1 = tack_4_main3_get(), tack_o2 = tack_4_main1_g, " +
-			"tack_4_main4_many((tack_view_15){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o0}, " +
+			"tack_4_main4_many((tack_view_16){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o0}, " +
 			"(tack_any){TACK_TYPE_INT64, &tack_o1}, (tack_any){TACK_TYPE_INT64, &tack_o2}}, 3}));",
 	},
 	{
 		"no values",
 		anyProgram("many()"),
-		"tack_4_main4_many((tack_view_15){0, 0});",
+		"tack_4_main4_many((tack_view_16){0, 0});",
 	},
 	{
 		"an any passed on as itself",
 		anyProgram("on(1)"),
 		"    tack_4_main3_one(p_a);\n    tack_4_main4_many(p_xs);\n" +
-			"    tack_4_main4_many((tack_view_15){(const tack_any[2]){p_a, p_a}, 2});\n",
+			"    tack_4_main4_many((tack_view_16){(const tack_any[2]){p_a, p_a}, 2});\n",
 	},
 	{
 		"view of anys",
 		anyProgram("many()"),
-		"typedef struct {\n    const tack_any *ptr;\n    int64_t len;\n} tack_view_15;\n",
+		"typedef struct {\n    const tack_any *ptr;\n    int64_t len;\n} tack_view_16;\n",
 	},
 	{
 		"any parameter",
 		anyProgram("many()"),
-		"static void tack_4_main2_on(tack_any p_a, tack_view_15 p_xs);\n",
+		"static void tack_4_main2_on(tack_any p_a, tack_view_16 p_xs);\n",
 	},
 }
 

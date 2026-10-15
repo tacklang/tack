@@ -48,8 +48,9 @@
 // smallest int64 is written. Parentheses group without leaving a node of
 // their own, but an expression whose first or last operand is written in
 // them spans them: (a) == (b) covers both pairs, while (a) alone is the
-// Ident a, spanning only the name. The keywords true and false are bool literals, so
-// neither can start a statement or be declared as a name.
+// Ident a, spanning only the name. The keywords true and false are bool literals, and
+// noerror is a NoErrorLit, the error that is no error, so none of the three
+// can start a statement or be declared as a name.
 //
 // A type is a name, an array type, [n]T, or a view type, []T, nested to
 // any depth; in an array literal, [...]T leaves the length to the

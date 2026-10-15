@@ -13,7 +13,9 @@ ways:
 
 Anything else is a compile error that names the variable and suggests both
 fixes. This page lists every operation the rules apply to, what each rule
-requires, and the exact diagnostics. The README's
+requires, and the exact diagnostics. The same proofs keep the results of
+a call that returned an error from being read before the error is
+checked (see [Errors](#errors)). The README's
 ["The language today"](../README.md#the-language-today) describes the same
 rules feature by feature.
 
@@ -950,6 +952,131 @@ run time, as it does a value not known. The two target-width types do not
 widen to each other, since one may be narrower than the other, so
 `unsafe_uintptr_t(s)` for an `unsafe_size_t` `s` needs the checked form
 too.
+
+## Errors
+
+A function that can fail returns an error, a value of type `error`, as
+its last result, and the results before it are what it gives when it
+succeeds. The error is `code` and `msg`, an `int32` and a `string`; a
+code of 0 is no error, whatever the message, and `noerror` is that value.
+The proof system covers the rest: the results that come with an error
+are not read until the facts in force prove the error's code is 0, just
+as a divisor is not used until they prove it is not zero.
+
+After `v, err := f()`, or `v, err = f()`, `err` holds `v`, and each read
+of `v`, as a value, a `mut` argument, or the target of a compound
+assignment, `++` or `--`, needs a check of `err`:
+
+<!-- case: error-read-unchecked -->
+```tack
+v, err := parse("1")
+print(err.msg)
+if v > 0 {
+```
+
+reports <!-- error: error-read-unchecked -->`v cannot be read before err is checked; check err.code == 0 first`.
+Checked, by an early exit:
+
+<!-- example: errors -->
+```tack
+func double(s string) (int64, error) {
+    v, err := parse(s)
+    if err.code != 0 {
+        return 0, err
+    }
+    return v * 2, noerror
+}
+```
+
+A check is a comparison of `err.code` with a known value whose facts
+bound the code to exactly 0, under every rule a fact follows: `err.code
+== 0` being true, `err.code != 0` being false, `!`, `&&` and `||`
+combining them, and a `switch` on `err.code`, whose `case 0:` proves it
+in its body. It holds where any fact holds: an `if`'s branch, the rest
+of a block after an early exit, a loop's body, the right of `&&` or
+`||`, a case, and deferred code, with the facts in force at its
+`defer`. `err.code` carries this fact whether `err` is mutable or not,
+though a field of a mutable variable carries none for any other proof.
+Comparing `err` itself, `err == noerror`, is not a check.
+
+<!-- example: errors -->
+```tack
+func describe(s string) string {
+    v, err := parse(s)
+    switch err.code {
+    case 0:
+        if v > 9 {
+            return "big"
+        }
+        return "small"
+    case 1:
+        return "empty"
+    default:
+        return err.msg
+    }
+}
+```
+
+A check that leaves an error possible is not one, and its note says
+what it allows: after `if err.code > 0 { return }`, a code may still be
+negative, <!-- note: error-read-weak-check -->`this early exit allows err.code == -1`.
+A branch ending in `exit` does not leave, as for any fact,
+so <!-- case: error-read-exit -->`if err.code != 0 { exit(1) }` checks
+nothing, <!-- note: error-read-exit -->`but its branch ends in exit, not in return, break or continue`.
+
+A check holds only in a region that never assigns `err`, so binding a
+new error to it later in the same block ends the proof for the whole
+block, as assigning a divisor does:
+
+<!-- case: error-read-after-rebinding -->
+```tack
+mut v, mut err := parse("1")
+if err.code != 0 {
+    return
+}
+if v > 0 {
+    print("parsed\n")
+}
+v, err = parse("")
+```
+
+reports the read with the notes <!-- note: error-read-after-rebinding -->`this early exit proves err.code == 0 after it`
+and <!-- note: error-read-after-rebinding -->`but err is assigned here, so the proof ends`.
+A check in a branch of its own, or a new pair of variables, keeps the
+rebinding out of its region.
+
+The proof is about `err`'s value, and `v` is read on its strength, so
+`err` must still hold the error of the call that gave `v`. Two rules
+keep it so. A binding that takes a result beside an error binds both to
+local variables, never to a parameter, a global, a field or an
+element: <!-- error: error-bind-field -->`p.x cannot take a result of parse beside its error; bind it to a local variable`,
+and <!-- error: error-bind-global-error -->`last cannot take the error of parse beside v; bind it to a local variable`.
+And an error that holds variables is assigned only by a binding that
+assigns all of them with it. Anything else, an assignment, to it or to
+a field of it, `++`, a `mut` argument, or a binding that leaves one of
+them out, could make it no error while `v` keeps the failed call's
+value:
+
+<!-- case: error-assign-alone -->
+```tack
+v, mut err := parse("")
+err = noerror
+if err.code != 0 {
+    return
+}
+```
+
+reports <!-- error: error-assign-alone -->`err holds the error that came with v, so only a binding that also assigns v can assign it`,
+with <!-- note: error-assign-alone -->`err is bound beside v here`.
+A variable bound beside two errors, at two bindings, needs both checked.
+
+An error cannot be dropped either. A call statement whose callee returns
+one
+is <!-- error: error-dropped-call -->`the error parse returns cannot be dropped; bind it, as in _, err := parse(...)`,
+and `_` in its
+place <!-- error: error-dropped-blank -->`the error parse returns cannot be dropped; bind it to a variable instead of _`.
+A function's error is its last
+result: <!-- error: error-not-last -->`error must be the last result of f`.
 
 ## Compile-time errors
 

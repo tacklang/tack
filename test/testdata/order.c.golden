@@ -13,7 +13,7 @@ typedef struct {
 
 typedef struct {
     int64_t e[3];
-} tack_array_16;
+} tack_array_17;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -25,7 +25,7 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_15(tack_4_main4_Pair a, tack_4_main4_Pair b) {
+static bool tack_eq_16(tack_4_main4_Pair a, tack_4_main4_Pair b) {
     return a.f_a == b.f_a && a.f_b == b.f_b;
 }
 
@@ -74,7 +74,7 @@ static tack_4_main4_Pair tack_4_main4_pair(tack_string p_s, int64_t p_a, int64_t
 static int64_t tack_4_main3_two(int64_t p_a, int64_t p_b);
 static int64_t tack_4_main5_three(int64_t p_a, int64_t p_b, int64_t p_c);
 static tack_results_4_main4_both tack_4_main4_both(void);
-static tack_array_16 tack_4_main6_digits(void);
+static tack_array_17 tack_4_main6_digits(void);
 static int64_t tack_4_main4_bump(void);
 static void tack_4_main5_check(bool p_cond);
 static void tack_4_main4_main(void);
@@ -108,9 +108,9 @@ static tack_results_4_main4_both tack_4_main4_both(void) {
     return (tack_o0 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), tack_o1 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), (tack_results_4_main4_both){tack_o0, tack_o1});
 }
 
-static tack_array_16 tack_4_main6_digits(void) {
+static tack_array_17 tack_4_main6_digits(void) {
     tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    return (tack_array_16){{7, 8, 9}};
+    return (tack_array_17){{7, 8, 9}};
 }
 
 static int64_t tack_4_main4_bump(void) {
@@ -170,7 +170,7 @@ static void tack_4_main4_main(void) {
     tack_builtin_print((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_check((tack_o10 = tack_4_main4_word((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), tack_o11 = tack_4_main4_word((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}), (tack_compare_strings(tack_o10, tack_o11) < 0)));
     tack_builtin_print((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
-    tack_4_main5_check((tack_o12 = tack_4_main4_pair((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1, 2), tack_o13 = tack_4_main4_pair((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 1, 2), (tack_eq_15(tack_o12, tack_o13))));
+    tack_4_main5_check((tack_o12 = tack_4_main4_pair((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1, 2), tack_o13 = tack_4_main4_pair((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 1, 2), (tack_eq_16(tack_o12, tack_o13))));
     tack_builtin_print((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
     tack_4_main5_check(((tack_o14 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), tack_o15 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), tack_o16 = tack_4_main3_say((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, 3), tack_4_main5_three(tack_o14, tack_o15, tack_o16)) == 123));
     tack_builtin_print((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
@@ -181,13 +181,13 @@ static void tack_4_main4_main(void) {
     const int64_t v_y = tack_r21.r1;
     tack_4_main5_check(((v_x == 1) && (v_y == 2)));
     tack_builtin_print((tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
-    const tack_array_16 v_arr = (tack_o22 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), tack_o23 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), tack_o24 = tack_4_main3_say((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, 3), (tack_array_16){{tack_o22, tack_o23, tack_o24}});
+    const tack_array_17 v_arr = (tack_o22 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), tack_o23 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), tack_o24 = tack_4_main3_say((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, 3), (tack_array_17){{tack_o22, tack_o23, tack_o24}});
     tack_4_main5_check(((v_arr.e[0] == 1) && (v_arr.e[2] == 3)));
     tack_builtin_print((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
     const tack_4_main4_Pair v_p = (tack_o25 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), tack_o26 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), (tack_4_main4_Pair){.f_b = tack_o25, .f_a = tack_o26});
     tack_4_main5_check(((v_p.f_a == 1) && (v_p.f_b == 2)));
     tack_builtin_print((tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
-    const tack_array_16 tack_r27 = tack_4_main6_digits();
+    const tack_array_17 tack_r27 = tack_4_main6_digits();
     const int64_t tack_r28 = tack_4_main3_say((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, 1);
     const int64_t v_v = ((tack_r28 >= 0 && tack_r28 <= 2) ? tack_r27.e[tack_r28] : 0);
     const bool v_inRange = (tack_r28 >= 0 && tack_r28 <= 2);

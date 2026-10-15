@@ -1,5 +1,6 @@
 // The C every Tack program shares: the string type and the macros that
-// build strings, and any, its type ids and the helpers that read one,
+// build strings, the error type and the macros that build errors, and
+// any, its type ids and the helpers that read one,
 // defined here once for the generated source, the C files of the standard
 // library and a program's own C files alike. Each
 // includes it as <tack/tack.h>, and the driver compiles each with this
@@ -9,7 +10,7 @@
 // It holds only what is the same for every program. The tack.h a build
 // generates for a program's own C files is another file: it declares that
 // program's extern funcs and the types their signatures use, and includes
-// this one when a signature uses a string or any. The generated source
+// this one when a signature uses a string, an error or any. The generated source
 // always includes it.
 //
 // Every name it defines, its include guard among them, is reserved: no
@@ -51,6 +52,25 @@ typedef struct {
 // char * or NULL fails to compile rather than converting silently, as it
 // would under the build's -w.
 #define TACK_STR_N(p, n) ((tack_string){_Generic((p), const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})
+
+// A Tack error, passed by value: a code, 0 when there is no error, and a
+// message, whose bytes must outlive every use of the error, as a string
+// literal's do. Only the code says whether there is an error; a zeroed
+// tack_error, code 0 and a message of length 0 holding a null pointer, is
+// no error, Tack's noerror. A function that returns an error returns it
+// as its last result, in its results struct when it has several.
+typedef struct {
+    int32_t code;
+    tack_string msg;
+} tack_error;
+
+// TACK_ERROR(code, lit) is an error with that code and the string literal
+// lit as its message: TACK_ERROR(2, "not found"). Only a literal compiles,
+// as for TACK_STR.
+#define TACK_ERROR(code, lit) ((tack_error){(int32_t)(code), TACK_STR(lit)})
+// TACK_NO_ERROR is no error, as noerror is in Tack: code 0 and an empty
+// message.
+#define TACK_NO_ERROR ((tack_error){0, {0, 0}})
 
 // A Tack any, passed by value: the id of the type of the value it refers
 // to, one of the TACK_TYPE_ ids below, and a pointer to that value, which

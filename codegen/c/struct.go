@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
@@ -29,6 +30,11 @@ func (g *generator) emitTypes() {
 		g.emitStringCompare()
 	}
 	emitted := make(map[types.Type]bool)
+	// error is no type the Table added, so it is not among them, though
+	// == may compare two.
+	if compared[types.Error] {
+		g.emitEqualityOf(types.Error, emitted)
+	}
 	for i := range table.Count() {
 		if typ := types.Added(i); compared[typ] {
 			g.emitEqualityOf(typ, emitted)
@@ -60,8 +66,10 @@ func (g *generator) parts(typ types.Type) []types.Type {
 // emitTypeDef defines the C struct for typ, an array, a view or a struct,
 // after those of the types it is made of, unless defined says it has been already. typ is marked before
 // its parts are visited, so even a type that held itself could not loop.
+// error's struct, tack_error, is std's tack.h's, so it is never defined
+// here.
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
-	if defined[typ] || !g.isComposite(typ) && !g.prog.Types.IsView(typ) {
+	if defined[typ] || typ == types.Error || !g.isComposite(typ) && !g.prog.Types.IsView(typ) {
 		return
 	}
 	defined[typ] = true
@@ -90,7 +98,7 @@ func (g *generator) emitStructDef(typ types.Type) {
 		g.buf.WriteString("    char unused;\n")
 	}
 	for _, f := range fields {
-		fmt.Fprintf(&g.buf, "    %s %s;\n", g.cType(f.Type), fieldName(f.Name))
+		fmt.Fprintf(&g.buf, "    %s %s;\n", g.cType(f.Type), memberName(typ, f.Name))
 	}
 	fmt.Fprintf(&g.buf, "} %s;\n\n", g.structName(typ))
 }
@@ -153,7 +161,7 @@ func (g *generator) emitStructEquality(typ types.Type) {
 	}
 	tests := make([]string, len(fields))
 	for i, f := range fields {
-		member := "." + fieldName(f.Name)
+		member := "." + memberName(typ, f.Name)
 		tests[i] = g.equalExpr(f.Type, "a"+member, "b"+member)
 	}
 	fmt.Fprintf(&g.buf, "    return %s;\n}\n\n", strings.Join(tests, " && "))
@@ -175,18 +183,29 @@ func (g *generator) equalExpr(typ types.Type, l, r string) string {
 // structName is the name of the C struct a struct type lowers to: the
 // struct's name, mangled as a package-level name is. A struct shares one
 // namespace with functions and package-level variables, so the name is
-// never another declaration's.
+// never another declaration's. error's is tack_error, which std's tack.h
+// defines.
 func (g *generator) structName(typ types.Type) string {
+	if typ == types.Error {
+		return basicCType(typ)
+	}
 	if td := g.structs[typ]; td != nil {
 		return g.mangle(td, td.Name)
 	}
 	return g.mangle(nil, g.prog.Types.Name(typ))
 }
 
-// fieldName keeps a field's C member clear of C's keywords, for the same
-// reason paramName keeps a parameter's name clear: a Tack field may be
-// called int or while.
-func fieldName(name string) string { return "f_" + name }
+// memberName is the C member a field called name of the struct type typ
+// lowers to. A declared struct's keeps clear of C's keywords, for the
+// same reason paramName keeps a parameter's name clear: a Tack field may
+// be called int or while, so it is f_ and the name. error's fields are
+// tack_error's members, code and msg, as std's tack.h names them.
+func memberName(typ types.Type, name string) string {
+	if typ == types.Error {
+		return name
+	}
+	return "f_" + name
+}
 
 // structLit renders a struct literal as a C compound literal of its
 // struct, each field set by a designated initializer in the order the
@@ -213,7 +232,7 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 		if len(diags) > 0 {
 			return "", diags
 		}
-		values[i], fields[i], inits[i] = kv.Value, fieldName(key.Name), v
+		values[i], fields[i], inits[i] = kv.Value, memberName(lit.Type, key.Name), v
 	}
 	return g.sequenced(values, inits, func(ops []string) string {
 		for i, v := range ops {
@@ -241,11 +260,12 @@ func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) 
 	if len(diags) > 0 {
 		return "", diags
 	}
+	member := memberName(ast.TypeOf(sel.X), sel.Name)
 	switch sel.X.(type) {
 	case *ast.Ident, *ast.Index, *ast.Selector, *ast.Call:
-		return base + "." + fieldName(sel.Name), nil
+		return base + "." + member, nil
 	default:
-		return "(" + base + ")." + fieldName(sel.Name), nil
+		return "(" + base + ")." + member, nil
 	}
 }
 
@@ -254,13 +274,15 @@ func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) 
 // struct's as a brace-enclosed initializer, which a static variable needs
 // instead of a compound literal, built from its elements or fields in
 // order. No elements or fields is a zeroed initializer, which also fills
-// the one member an empty array or struct holds.
+// the one member an empty array or struct holds, and so is an error with
+// code 0 and an empty message, noerror, whose message has no string in
+// the pool to point at.
 func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 	values, isList := c.([]any)
 	if !isList || !g.isComposite(typ) {
 		return g.constValue(c)
 	}
-	if len(values) == 0 {
+	if zeroed(typ, values) {
 		return "{0}", true
 	}
 	parts, layout := g.parts(typ), "{%s}"
@@ -283,4 +305,22 @@ func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 		out[i] = rendered
 	}
 	return fmt.Sprintf(layout, strings.Join(out, ", ")), true
+}
+
+// zeroed reports whether values, the computed elements or fields of a
+// value of type typ, are written as a zeroed initializer: there are none,
+// or typ is error and they are noerror's.
+func zeroed(typ types.Type, values []any) bool {
+	return len(values) == 0 || typ == types.Error && isNoError(values)
+}
+
+// isNoError reports whether values, an error's computed fields, are
+// noerror's: code 0 and the empty message.
+func isNoError(values []any) bool {
+	if len(values) != 2 {
+		return false
+	}
+	code, isInt := values[0].(constant.Int)
+	msg, isString := values[1].(string)
+	return isInt && code.IsZero() && isString && msg == ""
 }

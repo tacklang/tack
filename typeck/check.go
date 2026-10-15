@@ -65,6 +65,10 @@ type Checker struct {
 	active []fact
 	guards []*guard
 
+	// holding is what the bindings of errors in the function being checked
+	// tie together; see errors.go.
+	holding holding
+
 	// declPkg holds the package of each package-level declaration, and
 	// structPkg that of each struct type. pkg is the package whose code is
 	// being checked, which a type of another package is named relative to:
@@ -231,6 +235,7 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 // checkBody checks the body of fn, and that it ends in a return if fn
 // declares a result.
 func (c *Checker) checkBody(fn *ast.Func) {
+	c.collectHolds(fn)
 	c.checkBlock(fn.Body, fn)
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
@@ -282,12 +287,15 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		c.discard(s.X)
+		c.droppedError(s.X)
 	case *ast.Var:
 		c.checkVar(s)
 	case *ast.Assign:
 		c.checkAssign(s)
 	case *ast.IncDec:
+		c.readHeld(s.Target)
 		c.checkIntTarget(s.Target, s.Op())
+		c.checkErrorAssign(s, s.Target)
 	case *ast.MultiVar:
 		c.checkMultiVar(s)
 	case *ast.MultiAssign:
@@ -314,6 +322,12 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 		v.Type = c.settleResult(m.Value, results[i], types.Invalid)
 		c.anyLocal(v)
 	}
+	blank := make([]bool, len(m.Vars))
+	spans := make([]ast.Span, len(m.Vars))
+	for i, v := range m.Vars {
+		blank[i], spans[i] = v.Name == ast.Blank, v.NameSpan
+	}
+	c.checkErrorBinding(m.Value, blank, spans)
 }
 
 // checkMultiAssign checks an assignment of several values, given as a
@@ -333,6 +347,21 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 			got = results[i]
 		}
 		c.checkMultiTarget(m.Value, target, got, seen)
+	}
+	if !ok {
+		return
+	}
+	blank := make([]bool, len(m.Targets))
+	spans := make([]ast.Span, len(m.Targets))
+	for i, target := range m.Targets {
+		blank[i], spans[i] = ast.IsBlank(target), target.Spanned()
+	}
+	c.checkErrorBinding(m.Value, blank, spans)
+	c.checkErrorTargets(m)
+	for _, target := range m.Targets {
+		if !ast.IsBlank(target) {
+			c.checkErrorAssign(m, target)
+		}
 	}
 }
 
@@ -878,7 +907,7 @@ func (c *Checker) notConstant(v *ast.Var) {
 // expression's value can be computed is found once it is checked, by fold.
 func (c *Checker) isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit:
 		return true
 	case *ast.Ident:
 		return c.constantGlobal(x) != nil
@@ -982,7 +1011,7 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return v, ok
 	}
 	switch x := e.(type) {
-	case *ast.StrLit, *ast.BoolLit, *ast.Ident:
+	case *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit, *ast.Ident:
 		return c.foldLeaf(x)
 	case *ast.CompositeLit:
 		if c.table.IsStruct(x.Type) {
@@ -1049,15 +1078,18 @@ func (c *Checker) foldElement(x ast.Expr, i int64) (any, bool) {
 	return elems[i], true
 }
 
-// foldLeaf computes e, a string or bool literal, or the name of an
-// immutable global, which, checked before the initializer naming it, holds
-// its computed value; a mutable one is never folded.
+// foldLeaf computes e, a string or bool literal, noerror, an error's
+// fields as a struct's are, a code of 0 and an empty message, or the name
+// of an immutable global, which, checked before the initializer naming it,
+// holds its computed value; a mutable one is never folded.
 func (c *Checker) foldLeaf(e ast.Expr) (any, bool) {
 	switch x := e.(type) {
 	case *ast.StrLit:
 		return x.Value, true
 	case *ast.BoolLit:
 		return x.Value, true
+	case *ast.NoErrorLit:
+		return []any{constant.Int{}, ""}, true
 	case *ast.Ident:
 		if v := c.constantGlobal(x); v != nil && v.Const != nil {
 			return v.Const, true
@@ -1200,13 +1232,16 @@ func foldBools(op ast.BinaryOp, x, y bool) (any, bool) {
 func (c *Checker) checkAssign(a *ast.Assign) {
 	got := c.expr(a.Value)
 	if a.Op != ast.InvalidOp {
+		c.readHeld(a.Target)
 		c.checkCompound(a, got)
+		c.checkErrorAssign(a, a.Target)
 		return
 	}
 
 	if typ, ok := c.assignable(a.Target); ok {
 		c.use(a.Value, got, typ, "in assignment to "+targetName(a.Target))
 	}
+	c.checkErrorAssign(a, a.Target)
 }
 
 // assignable checks that target can be assigned: a mutable variable or a
@@ -1522,6 +1557,7 @@ func (c *Checker) resolveResultTypes(fn *ast.Func) {
 	for i, result := range fn.Results {
 		fn.ResultTypes[i] = c.declaredType(result)
 	}
+	c.checkErrorLast(fn)
 }
 
 // resolveParamTypes records what each declared parameter type denotes, a

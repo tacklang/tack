@@ -2434,7 +2434,7 @@ func (p *Parser) extent(x ast.Expr) ast.Span {
 }
 
 // parseLiteral parses a single-token operand: a string, integer, character
-// or bool literal, or a reference to a parameter or variable.
+// or bool literal, noerror, or a reference to a parameter or variable.
 func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 	tk := p.next()
 	switch tk.Kind() {
@@ -2454,6 +2454,8 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 			return &ast.BoolLit{Value: true, Span: p.span(tk)}, nil
 		case lexer.False:
 			return &ast.BoolLit{Value: false, Span: p.span(tk)}, nil
+		case lexer.NoError:
+			return &ast.NoErrorLit{Span: p.span(tk)}, nil
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
 	default:

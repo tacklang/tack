@@ -617,7 +617,8 @@ func (r *pkgResolver) declareVar(v *ast.Var, sc *scope) []diag.Diagnostic {
 //
 // A _ in the list declares nothing, and may not be mut. A list of nothing
 // but _ binds nothing at all, which is reported: the call can be made on
-// its own instead.
+// its own instead, unless the call returns an error, which the type
+// checker reports as dropped.
 func (r *pkgResolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(m.Value, sc)
 
@@ -636,7 +637,7 @@ func (r *pkgResolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnos
 			})
 		}
 	}
-	if blanks == len(m.Vars) {
+	if blanks == len(m.Vars) && !returnsError(m.Value) {
 		diags = append(diags, nothingBound(m.Span))
 	}
 	return diags
@@ -656,10 +657,32 @@ func (r *pkgResolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.D
 		}
 		diags = append(diags, r.resolveTarget(target, sc)...)
 	}
-	if blanks == len(m.Targets) {
+	if blanks == len(m.Targets) && !returnsError(m.Value) {
 		diags = append(diags, nothingBound(m.Span))
 	}
 	return diags
+}
+
+// returnsError reports whether value is a call to a function whose last
+// result is written error, the builtin type, whose name nothing can
+// declare. Binding nothing but _ from such a call drops its error, which
+// the type checker reports instead, since making the call on its own
+// would drop it too.
+func returnsError(value ast.Expr) bool {
+	call, ok := value.(*ast.Call)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	fn, ok := id.Def.(*ast.Func)
+	if !ok || fn == nil || len(fn.Results) == 0 {
+		return false
+	}
+	last, ok := fn.Results[len(fn.Results)-1].(*ast.Ident)
+	return ok && last.Pkg == "" && last.Name == "error"
 }
 
 // nothingBound reports a binding of several results whose every name is _.

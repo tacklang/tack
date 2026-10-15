@@ -21,7 +21,8 @@ type reservation struct {
 
 // reservedNames holds every name reserved in tack.h: tack.h's include
 // guard; what std's tack.h defines, its include guard, tack_string and
-// the string helpers, tack_any, its type ids and its helpers; and the
+// the string helpers, tack_error and the error helpers, tack_any, its
+// type ids and its helpers; and the
 // macros the C standard specifies that <stdbool.h>, <stdint.h> and
 // <stddef.h> define, C23's and Annex K's among them. Each is reserved whether or not tack.h includes the header
 // that defines it, so whether a name is allowed does not depend on what
@@ -41,6 +42,9 @@ var reservedNames = func() map[string]reservation {
 		"TACK_STR_N":     {what: "a tack.h string helper"},
 		"tack_any":       {what: "tack.h's any type"},
 		"TACK_ANY_IS":    {what: "a tack.h any helper"},
+		"tack_error":     {what: "tack.h's error type"},
+		"TACK_ERROR":     {what: "a tack.h error helper"},
+		"TACK_NO_ERROR":  {what: "a tack.h error helper", objectMacro: true},
 	}
 	for _, id := range anyIDs {
 		names[id] = reservation{what: "a tack.h any type id", objectMacro: true}

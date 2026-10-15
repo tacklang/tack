@@ -102,7 +102,10 @@
 //
 // The name _ (ast.Blank) binds nothing. In a, _ := f() or a, _ = f() it
 // discards the result in its position and is neither declared nor bound;
-// a list of nothing but _ is reported, as is mut on _. In a range loop with
+// a list of nothing but _ is reported, as is mut on _, except from a call
+// to a function whose last result is written error: that drops the error,
+// which the type checker reports, since the call made on its own, which
+// this error would suggest, drops it too. In a range loop with
 // two variables, for _, x := range a, a _ declares nothing, and both being
 // _ is reported. Anywhere else, _ is
 // reported: as a declared name of any kind, as a value, and as the target

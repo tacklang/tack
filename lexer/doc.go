@@ -23,7 +23,7 @@
 // Semicolons are inserted automatically, following Go's rule: at a newline,
 // before a comment, and at the end of input, a Semi token is added if the
 // preceding token is an identifier, a literal, ++ or --, a closing bracket, or
-// one of the keywords break, continue, return, true and false. An inserted
+// one of the keywords break, continue, return, true, false and noerror. An inserted
 // Semi covers no bytes. The token stream always ends with an EOF token.
 //
 // Literals carry decoded values: double-quoted string and char literals

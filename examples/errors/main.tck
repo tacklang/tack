@@ -1,0 +1,266 @@
+package main
+
+// Errors are returned values. An error is a code and a message, code 0
+// meaning no error, and is the last result of a function that returns
+// one. A call's error cannot be dropped, and the results that came with
+// it cannot be read until it is checked: until the code is known to be 0.
+
+// notFound is a sentinel error, compared with ==.
+var notFound = error{code: 2, msg: "not found"}
+
+// none is no error, as a constant global.
+var none = noerror
+
+// lastErr is a mutable global error, which records the last failure.
+mut lastErr error
+
+// Entry is a struct with an error field.
+type Entry struct {
+    key string
+    err error
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// parse reads s as a decimal number: error 1 when s is empty, error 3
+// when it holds a byte that is not a digit.
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    mut n int64 = 0
+    for i := range s {
+        c := s[i]
+        if c < '0' || c > '9' {
+            return 0, error{code: 3, msg: "not a digit"}
+        }
+        n = n * 10 + (c - '0')
+    }
+    return n, noerror
+}
+
+// positive returns only an error: error 4 unless n is above 0.
+func positive(n int64) error {
+    if n <= 0 {
+        return error{code: 4, msg: "not positive"}
+    }
+    return noerror
+}
+
+// double parses s and doubles it, passing parse's error on.
+func double(s string) (int64, error) {
+    v, err := parse(s)
+    if err.code != 0 {
+        return 0, err
+    }
+    return v * 2, noerror
+}
+
+// quadruple doubles what double gives, two calls deep, checking the error
+// in an if with an else.
+func quadruple(s string) (int64, error) {
+    d, err := double(s)
+    if err.code == 0 {
+        return d * 2, noerror
+    } else {
+        return 0, err
+    }
+}
+
+// divide gives the quotient and remainder, and an error for a zero
+// divisor: three results, the error last.
+func divide(a int64, b int64) (int64, int64, error) {
+    if b == 0 {
+        return 0, 0, error{code: 5, msg: "division by zero"}
+    }
+    return a / b, a % b, noerror
+}
+
+// find looks key up in a table of two, returning the sentinel notFound
+// for any other key.
+func find(key string) (int64, error) {
+    switch key {
+    case "one":
+        return 1, noerror
+    case "two":
+        return 2, noerror
+    }
+    return 0, notFound
+}
+
+// soft returns an error with code 0 and a message: the code alone says
+// whether there is an error, so this is none.
+func soft() (int64, error) {
+    return 9, error{code: 0, msg: "a note"}
+}
+
+// describe names what parse made of s, switching on the error's code; a
+// case 0 proves there is no error, so v is read there.
+func describe(s string) string {
+    v, err := parse(s)
+    switch err.code {
+    case 0:
+        if v > 9 {
+            return "big"
+        }
+        return "small"
+    case 1:
+        return "empty"
+    default:
+        return err.msg
+    }
+}
+
+// sumAll adds every word that parses, skipping the others, and counts
+// those it skipped.
+func sumAll(words [5]string) (int64, int64) {
+    mut total int64 = 0
+    mut bad int64 = 0
+    for _, w := range words {
+        v, err := parse(w)
+        if err.code != 0 {
+            bad++
+            continue
+        }
+        total += v
+    }
+    return total, bad
+}
+
+// rebinding binds v and err three times, checking err each time before
+// reading v.
+func rebinding() int64 {
+    mut v, mut err := parse("4")
+    mut total int64 = 0
+    if err.code == 0 {
+        total += v
+    }
+    v, err = parse("y")
+    if err.code != 0 {
+        total += 100
+    } else {
+        total += v
+    }
+    v, err = parse("5")
+    if err.code != 0 {
+        return -1
+    }
+    return total + v
+}
+
+// deferred reads v in a defer, after the check, and sets out from it.
+func deferred(mut out int64) {
+    v, err := parse("8")
+    if err.code != 0 {
+        return
+    }
+    defer {
+        out = v * 2
+    }
+    out = 1
+}
+
+// record keeps err in lastErr and returns its code.
+func record(err error) int32 {
+    lastErr = err
+    return err.code
+}
+
+// wrap passes an error on as a value.
+func wrap(err error) error {
+    return err
+}
+
+// both checks two errors in one condition, reading a and b on the right of
+// the &&, where both are proven.
+func both(x string, y string) int64 {
+    a, errA := parse(x)
+    b, errB := parse(y)
+    if errA.code == 0 && errB.code == 0 && a < b {
+        return b - a
+    }
+    return -1
+}
+
+func main() {
+    v, err := parse("42")
+    check(err.code == 0 && err == noerror && v == 42, "success")
+
+    _, bad := parse("4x2")
+    check(bad.code == 3 && bad.msg == "not a digit", "failure")
+
+    _, empty := parse("")
+    check(empty == error{code: 1, msg: "empty"}, "empty")
+
+    check(positive(5) == noerror && positive(-1).code == 4, "error alone")
+
+    d, errD := double("21")
+    _, errX := double("x")
+    if errD.code == 0 {
+        check(d == 42 && errX.msg == "not a digit", "propagated")
+    }
+
+    q, errQ := quadruple("5")
+    _, errE := quadruple("")
+    if errQ.code != 0 {
+        check(false, "nested")
+        return
+    }
+    check(q == 20 && errE.code == 1, "nested")
+
+    quo, rem, errDiv := divide(7, 2)
+    _, _, errZero := divide(7, 0)
+    if errDiv.code == 0 {
+        check(quo == 3 && rem == 1 && errZero.code == 5, "three results")
+    }
+
+    total, skipped := sumAll([5]string{"1", "x", "20", "", "300"})
+    check(total == 321 && skipped == 2, "loop")
+
+    check(describe("7") == "small" && describe("70") == "big", "switch on code")
+    check(describe("") == "empty" && describe("?") == "not a digit", "switch default")
+
+    check(rebinding() == 109, "rebinding")
+
+    mut out int64 = 0
+    deferred(mut out)
+    check(out == 16, "deferred")
+
+    _, missing := find("three")
+    one, errOne := find("one")
+    check(missing == notFound && missing != noerror, "sentinel")
+    if errOne.code == 0 {
+        check(one == 1, "sentinel success")
+    }
+
+    check(record(missing) == 2 && lastErr == notFound, "mutable global")
+
+    entry := Entry{key: "k", err: notFound}
+    errs := [2]error{noerror, notFound}
+    check(errs[1] == entry.err && errs[0].code == 0 && entry.err.msg == "not found", "fields and arrays")
+
+    mut built error
+    check(built == noerror && built == none, "zero value")
+    built.code = 7
+    built.msg = "seven"
+    check(built == error{code: 7, msg: "seven"}, "fields assigned")
+
+    nine, errNote := soft()
+    if errNote.code == 0 {
+        check(nine == 9 && errNote.msg == "a note", "code alone decides")
+    }
+
+    word := "parse failed"
+    sliced := error{code: 6, msg: word[6:]}
+    check(sliced.msg == "failed" && wrap(sliced) == sliced, "message from a slice")
+
+    check(both("3", "10") == 7 && both("x", "10") == -1, "checked together")
+}

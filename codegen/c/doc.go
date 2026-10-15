@@ -6,7 +6,8 @@
 // The unit, and the tack.h of a program's C files, include std's
 // <tack/tack.h>, src/std/include/tack/tack.h, which defines what every
 // program's C shares: tack_string and the string helpers TACK_C_STR_LEN,
-// TACK_STR and TACK_STR_N, and tack_any, its type ids TACK_TYPE_INVALID
+// TACK_STR and TACK_STR_N, tack_error and the error helpers TACK_ERROR and
+// TACK_NO_ERROR, and tack_any, its type ids TACK_TYPE_INVALID
 // through TACK_TYPE_STRING, TACK_ANY_IS and the unpack helpers. Nothing the backend generates defines them, so
 // there is one definition, which std's own C files include as well, and
 // CompileCmd and BuildCmd put std's include directory on the include path
@@ -32,8 +33,8 @@
 //   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
 //     program uses unsafe_size_t or calls a builtin that takes one, which
 //     a freestanding C implementation has, and std's <tack/tack.h>, for
-//     tack_string, TACK_C_STR_LEN, tack_any and its type ids, which
-//     includes only those three;
+//     tack_string, TACK_C_STR_LEN, tack_error, tack_any and its type ids,
+//     which includes only those three;
 //   - a C struct for every array, view and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
@@ -221,8 +222,8 @@
 //
 // Header returns tack.h, which the C files are compiled against: an
 // include guard, TACK_H, stdbool.h and stdint.h, stddef.h if a signature
-// uses size_t, std's <tack/tack.h> if a signature uses a string or any,
-// for tack_string, tack_any and their helpers, a definition of every array and struct type an
+// uses size_t, std's <tack/tack.h> if a signature uses a string, an error
+// or any, for tack_string, tack_error, tack_any and their helpers, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,
@@ -235,13 +236,15 @@
 // <package name>_<name>, an array tack_array_<length>_<element>, the
 // element's Tack name if basic, a view tack_view_<element>, named the same
 // way, with members ptr and len, so []any is tack_view_any, an any being
-// std's tack_any, and a results struct tack_results_<C
+// std's tack_any, and []error tack_view_error, an error being std's
+// tack_error, and a results struct tack_results_<C
 // name>, with members r0, r1 and on; a struct's members are its fields'
 // Tack names. The generated source declares each extern func with its own
 // types, so a value passes between the two unchanged. Generate reports,
 // before generating anything, a name tack.h would give two things (two
 // types, a type and a results struct or extern func, or one of tack.h's own
 // names, TACK_H, or of std's tack.h, tack_string, its string helpers,
+// tack_error, its error helpers,
 // tack_any, its type ids and its helpers, and its guard TACK_STD_TACK_H,
 // whether or not tack.h includes it, or a macro the C
 // standard specifies <stdbool.h>, <stdint.h> or <stddef.h> defines, such as
@@ -325,6 +328,18 @@
 // initialized with braces, its fields in order, or {0}, and a local one
 // without a value with a zeroed compound literal, which leaves a string
 // field a null pointer of length 0; print writes nothing for it.
+//
+// An error is the struct no declaration gives: std's tack_error,
+// {int32_t code; tack_string msg;}, which the generated source never
+// defines, whose members are code and msg, not f_code and f_msg, and
+// whose equality helper, tack_eq_ and error's ID, is emitted, like any
+// struct's, when == compares two. A literal is a compound literal of it,
+// (tack_error){.code = 2, .msg = ...}, noerror the zeroed (tack_error){0},
+// and a global holding noerror, or any error with code 0 and an empty
+// message, is initialized with {0}, whose message is a null pointer of
+// length 0, as a zeroed string field's is. The rules that keep an error
+// from being dropped or its results from being read unchecked are the
+// type checker's, so an error is lowered as the plain value it is.
 //
 // A function with several results returns them as one struct,
 // tack_results_4_main1_f for a function f, with a field r0, r1, and so on for

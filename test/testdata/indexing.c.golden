@@ -8,26 +8,26 @@ stage: ok
 
 typedef struct {
     int64_t e[5];
-} tack_array_15;
-
-typedef struct {
-    int64_t e[4];
 } tack_array_16;
 
 typedef struct {
-    bool e[256];
+    int64_t e[4];
 } tack_array_17;
+
+typedef struct {
+    bool e[256];
+} tack_array_18;
 
 
 void tack_builtin_exit(int32_t);
 
-static const tack_array_15 tack_4_main7_squares = {{0, 1, 4, 9, 16}};
+static const tack_array_16 tack_4_main7_squares = {{0, 1, 4, 9, 16}};
 
-static int64_t tack_4_main3_sum(tack_array_15 p_v);
-static int64_t tack_4_main2_at(tack_array_15 p_v, int64_t p_i);
+static int64_t tack_4_main3_sum(tack_array_16 p_v);
+static int64_t tack_4_main2_at(tack_array_16 p_v, int64_t p_i);
 static void tack_4_main4_main(void);
 
-static int64_t tack_4_main3_sum(tack_array_15 p_v) {
+static int64_t tack_4_main3_sum(tack_array_16 p_v) {
     int64_t v_total = 0;
     {
         const int64_t tack_n0 = ((void)p_v, (int64_t)5);
@@ -39,7 +39,7 @@ static int64_t tack_4_main3_sum(tack_array_15 p_v) {
     return v_total;
 }
 
-static int64_t tack_4_main2_at(tack_array_15 p_v, int64_t p_i) {
+static int64_t tack_4_main2_at(tack_array_16 p_v, int64_t p_i) {
     if ((0 <= p_i) && (p_i < ((void)p_v, (int64_t)5))) {
         return p_v.e[p_i];
     }
@@ -47,7 +47,7 @@ static int64_t tack_4_main2_at(tack_array_15 p_v, int64_t p_i) {
 }
 
 static void tack_4_main4_main(void) {
-    tack_array_16 v_counts = (tack_array_16){0};
+    tack_array_17 v_counts = (tack_array_17){0};
     {
         const int64_t tack_n2 = 4;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
@@ -60,7 +60,7 @@ static void tack_4_main4_main(void) {
     const int64_t tack_r5 = tack_4_main2_at(tack_4_main7_squares, 1);
     const int64_t v_v = ((tack_r5 >= 0 && tack_r5 <= 3) ? v_counts.e[tack_r5] : 0);
     const bool v_fine = (tack_r5 >= 0 && tack_r5 <= 3);
-    tack_array_17 v_seen = (tack_array_17){0};
+    tack_array_18 v_seen = (tack_array_18){0};
     const uint8_t v_b = 200;
     v_seen.e[v_b] = true;
     if ((v_ok || !v_fine) || !v_seen.e[200]) {

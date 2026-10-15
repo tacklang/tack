@@ -1041,3 +1041,25 @@ func TestExternKeyword(t *testing.T) {
 		}
 	}
 }
+
+// TestNoErrorKeyword pins noerror as a keyword, the literal of the error
+// that is no error, which ends a statement at a newline as true does, and
+// that a longer word starting with it is an identifier.
+func TestNoErrorKeyword(t *testing.T) {
+	out := lex(t, "noerror\n")
+	checkInvariants(t, "noerror\n", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.NoError {
+		t.Errorf("noerror lexed as %s, want keyword %s", out.tokens[0].String(), lexer.NoError)
+	}
+	if out.tokens[1].Kind() != lexer.Semi {
+		t.Errorf(
+			"after noerror and a newline came %s, want an inserted semicolon",
+			out.tokens[1].String(),
+		)
+	}
+	for _, src := range []string{"noerrors", "noError", "no_error"} {
+		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}

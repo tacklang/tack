@@ -63,6 +63,9 @@ const (
 	// True and False are the boolean literals.
 	True
 	False
+
+	// NoError is the literal noerror, the error value that is no error.
+	NoError
 )
 
 var keywordNames = map[KeywordType]string{
@@ -105,6 +108,8 @@ var keywordNames = map[KeywordType]string{
 
 	True:  "true",
 	False: "false",
+
+	NoError: "noerror",
 }
 
 // String returns the keyword as written in source.

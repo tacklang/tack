@@ -268,6 +268,29 @@
 // or the format. A value of type any matches every verb, and a spread is
 // checked for its verbs only. Any other format is printf's C's to handle.
 //
+// An error, checked in errors.go, is types.Error, a struct no declaration
+// gives, of code, an int32, and msg, a string, code 0 being no error: it
+// is written as a literal naming both, or noerror, the error that is no
+// error, a constant expression, and does what a struct does, its fields
+// read and written, compared with ==. A function returns it as its last
+// result only, and an error earlier in a result list is reported where
+// it is written. A call's error is never dropped: a call statement whose
+// callee returns one, and a binding with _ where the error goes, are
+// reported. The results a binding takes beside the error are held by the
+// error's variable, and each read of one, as a value, a mut argument or
+// the target of a compound assignment, ++ or --, is reported unless the
+// facts in force prove the error's code is 0: a check is a fact about
+// err.code (errorCodeKey), from the conditions facts come from, under the
+// region rule, which the notes of explain.go explain when it falls
+// short. Which variables an error holds is collected from the whole
+// function first, since a loop may bind them after a read. So that a
+// check is of the error that came with the values, a binding that holds
+// any binds the error and them to local variables, and an error that
+// holds variables is assigned only by a binding of a call returning an
+// error that assigns every one of them too; anything else that assigns
+// it, a mut argument included, is reported, with a note at the binding
+// that tied them.
+//
 // A slice, x[i:j], checked in slice.go, is a string for a string, any
 // string, and a view of the elements for an array that is a place or a
 // view; anything else, and a bound that is not an integer, of any type, is
@@ -340,7 +363,7 @@
 //     value of a basic type or an any (any.go); and std/fmt's printf a
 //     known format its values match (printf.go);
 //   - a call to a function that returns nothing, or several values, cannot
-//     be used as a value;
+//     be used as a value, and a call statement cannot drop an error;
 //   - every operand of an arithmetic operator is an integer, the two having
 //     a common type, and the operand of - a signed integer; every operand of
 //     && || and ! is a bool; a binary expression whose operator is not
@@ -381,7 +404,8 @@
 //     assignment such as += has an integer target and a value usable as its
 //     type; ++ and -- need a mutable integer variable;
 //   - a return carries one value for each result the function declares, each
-//     usable as its result's type, and a wrong count is one error;
+//     usable as its result's type, and a wrong count is one error; an error
+//     is only ever the last result declared;
 //   - two names bound to a value that holds a division, a remainder, an
 //     index or a slice outside any call, but is more than it, as in q, ok := a / b + 1,
 //     are one error saying the checked form must be the whole value, which
@@ -391,7 +415,9 @@
 //     taking its result's type, or a two-value conversion; a, b = f()
 //     assigns them to mutable variables they widen to, each named once, with
 //     _ discarding a value of any type and allowed more than once; and a call
-//     with several results is never used as one value;
+//     with several results is never used as one value; a binding of a call
+//     that returns an error puts no _ where the error goes, and the
+//     variables beside it are read only once it is checked (errors.go);
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
 //   - a switch's tag, an untyped constant being an int64, compares with each

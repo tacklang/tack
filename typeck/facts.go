@@ -560,9 +560,13 @@ func (c *Checker) relation(
 
 // subject returns the subject a fact about e would be about: the variable
 // e names, or the path below an immutable one e is, when it can have
-// facts, or the string subject whose length e is, len(s).
+// facts, the code of an error variable, mutable or not (errorCodeKey), or
+// the string subject whose length e is, len(s).
 func (c *Checker) subject(e ast.Expr) (factKey, bool) {
 	if k, ok := c.keyOf(e); ok {
+		return k, true
+	}
+	if k, ok := c.errorCodeKey(e); ok {
 		return k, true
 	}
 	return c.stringLen(e)

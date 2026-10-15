@@ -106,3 +106,18 @@ func TestRejectsBlankMisuse(t *testing.T) {
 		})
 	}
 }
+
+// TestLeavesAllBlankErrorBindingsToTheChecker checks a binding of nothing
+// but _ to a call whose last result is written error is not reported as
+// binding nothing, since making the call on its own, which that error
+// suggests, drops the error too: the type checker reports the error as
+// dropped instead.
+func TestLeavesAllBlankErrorBindingsToTheChecker(t *testing.T) {
+	fn := "func f() (int64, error) {\n    return 1, noerror\n}\n\n"
+	for _, body := range []string{"_, _ := f()", "_, _ = f()"} {
+		src := "package main\n\n" + fn + "func main() {\n    " + body + "\n}\n"
+		if _, diags := resolveTree(t, src); len(diags) > 0 {
+			t.Errorf("%s: got %q, want none", body, messagesOf(diags))
+		}
+	}
+}

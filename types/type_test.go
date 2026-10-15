@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/tacklang/tack/types"
@@ -428,5 +429,61 @@ func TestNameWithQualifiesStructs(t *testing.T) {
 	}
 	if got := table.NameWith(arr, nil); got != table.Name(arr) || got != "[3][2]Token" {
 		t.Errorf("NameWith(nil) = %q, want %q", got, table.Name(arr))
+	}
+}
+
+// TestErrorIsABasicType checks error is a basic type, looked up by its
+// name, that is neither an integer nor passed as any.
+func TestErrorIsABasicType(t *testing.T) {
+	if got, ok := types.Lookup("error"); !ok || got != types.Error {
+		t.Errorf("Lookup(error) = %v, %v, want Error, true", got, ok)
+	}
+	if types.InAny(types.Error) || types.IsInteger(types.Error) {
+		t.Errorf("error can be passed as any, or is an integer")
+	}
+}
+
+// TestErrorIsAFixedStruct checks every Table, a nil one included, names
+// error and reports it as a struct with the fields code, an int32, and
+// msg, a string, in that order, and no other basic type as one.
+func TestErrorIsAFixedStruct(t *testing.T) {
+	for _, table := range []*types.Table{types.NewTable(), nil} {
+		checkErrorStruct(t, table)
+		for _, typ := range []types.Type{types.Int64, types.String, types.Any} {
+			if table.IsStruct(typ) {
+				t.Errorf("%s is a struct", table.Name(typ))
+			}
+		}
+	}
+}
+
+// checkErrorStruct checks table names error and gives it its two fields.
+func checkErrorStruct(t *testing.T, table *types.Table) {
+	t.Helper()
+	if got := table.Name(types.Error); got != "error" {
+		t.Errorf("Name(Error) = %q, want error", got)
+	}
+	if !table.IsStruct(types.Error) || table.IsArray(types.Error) || table.IsView(types.Error) {
+		t.Errorf("Error is not a struct alone")
+	}
+	want := []types.Field{{Name: "code", Type: types.Int32}, {Name: "msg", Type: types.String}}
+	if fields := table.Fields(types.Error); !slices.Equal(fields, want) {
+		t.Errorf("Fields(Error) = %v, want %v", fields, want)
+	}
+	if f, i, ok := table.Field(types.Error, "msg"); !ok || i != 1 || f.Type != types.String {
+		t.Errorf("Field(Error, msg) = %v, %d, %v", f, i, ok)
+	}
+}
+
+// TestSetFieldsLeavesErrorAlone checks SetFields cannot change error's
+// fields, and that knowing error adds no type to a Table.
+func TestSetFieldsLeavesErrorAlone(t *testing.T) {
+	table := types.NewTable()
+	table.SetFields(types.Error, []types.Field{{Name: "x", Type: types.Int64}})
+	if fields := table.Fields(types.Error); len(fields) != 2 || fields[0].Name != "code" {
+		t.Errorf("SetFields changed error's fields to %v", fields)
+	}
+	if table.Count() != 0 {
+		t.Errorf("a Table added %d types for error", table.Count())
 	}
 }

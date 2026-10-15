@@ -50,7 +50,11 @@ func (c *Checker) checkStructs() {
 // variable (see arrayLength), but it may still write a literal of a struct,
 // so needing the fields again while they are being resolved, at, means the
 // struct's fields depend on themselves, which is reported, and gives false.
+// error's fields are fixed, and need no resolving.
 func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
+	if typ == types.Error {
+		return true
+	}
 	switch c.structState[typ] {
 	case checked:
 		return true
@@ -117,12 +121,13 @@ func (c *Checker) visitStruct(typ types.Type, state map[types.Type]progress, pat
 
 // structIn returns the struct type a value of type typ holds by value at its
 // core: typ itself if it is a struct, the element type of an array, of an
-// array of arrays included, if that is one.
+// array of arrays included, if that is one. error is a struct no
+// declaration gives, which holds no other struct, so it is not one here.
 func (c *Checker) structIn(typ types.Type) (types.Type, bool) {
 	for c.table.IsArray(typ) {
 		typ = c.table.Elem(typ)
 	}
-	return typ, c.table.IsStruct(typ)
+	return typ, c.table.IsStruct(typ) && typ != types.Error
 }
 
 // reportCycle reports the cycle that path, the fields followed so far, closes

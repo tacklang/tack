@@ -21,11 +21,15 @@ func (c *Checker) fieldVis(typ types.Type, i int) ast.Visibility {
 
 // hiddenField returns why the code being checked may not use the i'th
 // field of the struct type typ, named name, by name, or "" when it may:
-// the field is not visible from the package being checked.
+// the field is not visible from the package being checked. A struct with
+// no package, error, has every field visible.
 func (c *Checker) hiddenField(typ types.Type, i int, name string) string {
 	owner := c.structPkg[typ]
+	if owner == nil || c.pkg == nil {
+		return ""
+	}
 	vis := c.fieldVis(typ, i)
-	if owner == nil || c.pkg == nil || ast.Visible(vis, owner, c.pkg) {
+	if ast.Visible(vis, owner, c.pkg) {
 		return ""
 	}
 	if vis == ast.Lib {

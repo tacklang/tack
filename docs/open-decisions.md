@@ -180,6 +180,64 @@ decided, and could go another way:
   writes to, in its own C file of `std/fmt`, rather than through
   `print`'s object, which is linked only when the program calls `print`.
 
+## Errors
+
+Errors follow the decisions recorded in the README: a returned value, a
+code and a static message whose zero value is no error, `tack_error` in
+C, and three rules, enforced by the compiler. These points were settled
+by the implementation, for consistency with the rules already there,
+rather than decided, and could go another way:
+
+- `error` is a builtin type, reserved as a type's name like `string`, and
+  a struct of two fields, `code`, an `int32` as `exit` takes, and `msg`, a
+  `string`. Everything a struct does it does: a literal names both
+  fields, `error{}` included, which is an error; its fields are written
+  through a mutable variable, `e.code = 7`; `==` compares the code and
+  the message's bytes; and it may be a local, a parameter, a field, an
+  array's element, a mutable or immutable global, or a result anywhere a
+  struct may.
+- The error that is no error is `noerror`, a keyword like `true`: the
+  struct literal, `error{code: 0, msg: ""}`, means the same but is long
+  for every successful return, and Tack has no `nil`. It is a constant
+  expression, and the zero value, so `mut e error` starts as it.
+- The code alone says whether there is an error: `error{code: 0, msg:
+  "x"}` is no error, and is not reported, though its message is never
+  what a check reads.
+- An error result cannot be dropped by `_` either, as the rule says, a
+  binding of nothing but `_` included, which the resolver leaves to the
+  type checker for a call whose last result is written `error`, rather
+  than suggesting the call on its own. A call that returns an error
+  alone is a value like any other: passing it, returning it or comparing
+  it, `f() == noerror`, uses its error rather than dropping it.
+- A check is a fact about `err.code` that bounds it to exactly 0, from
+  the conditions every fact comes from, `if`, `else`, an early exit, a
+  loop's condition, `&&`, `||`, `!` and `switch`, holding only in a
+  region that never assigns `err`; `err == noerror` is not one. `exit`
+  in a branch does not leave, as for any fact. `err.code` carries this
+  fact even for a mutable `err`, though a field of a mutable variable
+  carries none for a divisor or an index.
+- A read is a use of the variable as a value, a `mut` argument, or the
+  target of a compound assignment, `++` or `--`; assigning it whole, or a
+  field or element of it, is not. The rule holds for every read in the
+  variable's scope, before the binding that ties it to an error
+  included, and a variable bound beside two errors, at two bindings,
+  needs both checked.
+- So that a check is about the error that came with the values, a
+  binding that takes a result beside an error binds both to local
+  variables, never to a parameter, a global, a field or an element, and
+  an error variable that holds results is assigned only by a binding of
+  a call that returns an error and assigns every variable it holds:
+  plain assignment, a field's, `++`, a `mut` argument and a binding that
+  leaves one out are errors. Without that, `err = noerror` before the
+  check would let the failed call's values be read.
+- An error must be the last result exactly; `[2]error` or a struct
+  holding one anywhere in a result list is an ordinary value, to which
+  none of the rules apply.
+- printf takes no error, since `any` takes only the basic types.
+- In C, `tack_error` and the helpers `TACK_ERROR(code, lit)`, whose
+  message must be a literal, and `TACK_NO_ERROR` are in std's `tack.h`,
+  reserved in a program's `tack.h`; `[]error` is `tack_view_error`.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

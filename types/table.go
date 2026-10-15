@@ -15,7 +15,8 @@ import "strconv"
 // two types even when their fields are alike; its fields are set afterwards,
 // by SetFields, so a struct can have a field of a type declared after it. A
 // view type, []T, is added the first time it is seen, like an array, and
-// found again by its element type.
+// found again by its element type. Error is a struct the Table never adds:
+// IsStruct and Fields know it without an entry.
 type Table struct {
 	ids     map[array]Type // each array type's ID, by its shape
 	views   map[Type]Type  // each view type's ID, by its element type
@@ -121,11 +122,20 @@ func (t *Table) IsView(typ Type) bool {
 	return ok && e.view
 }
 
-// IsStruct reports whether typ is a struct type.
+// IsStruct reports whether typ is a struct type: one a Table added for a
+// declaration, or Error, the struct no declaration gives, whose fields
+// are fixed. A nil Table knows Error too.
 func (t *Table) IsStruct(typ Type) bool {
+	if typ == Error {
+		return true
+	}
 	e, ok := t.entry(typ)
 	return ok && e.strct != nil
 }
+
+// errorFields are the fields of Error, in the order tack_error declares
+// them in C: code, which is 0 when there is no error, and msg.
+var errorFields = []Field{{Name: "code", Type: Int32}, {Name: "msg", Type: String}}
 
 // Elem returns the element type of the array or view type typ, or Invalid
 // if typ is neither.
@@ -147,9 +157,12 @@ func (t *Table) Len(typ Type) int64 {
 }
 
 // Fields returns the fields of the struct type typ, in declaration order,
-// or nil if typ is not one or has none yet. The caller must not change
-// them.
+// or nil if typ is not one or has none yet. Error's are code and msg. The
+// caller must not change them.
 func (t *Table) Fields(typ Type) []Field {
+	if typ == Error {
+		return errorFields
+	}
 	if !t.IsStruct(typ) {
 		return nil
 	}

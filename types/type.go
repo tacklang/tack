@@ -54,6 +54,11 @@ const (
 	// passed on to another any parameter. Only a value of a basic type,
 	// one InAny accepts, can be passed as one.
 	Any
+	// Error is error, a code and a message, code 0 meaning no error: in C,
+	// tack_error, defined in std's tack.h. It is a struct whose fields
+	// are fixed, code, an int32, and msg, a string (see errorFields), so
+	// a Table reports it as a struct, though no declaration gives it.
+	Error
 
 	// numBasic is the number of basic types, Invalid included. It is the
 	// first ID a Table would hand out.
@@ -79,6 +84,7 @@ var basicNames = [numBasic]string{
 	UnsafeUintptr: "unsafe_uintptr_t",
 	UntypedInt:    "untyped int",
 	Any:           "any",
+	Error:         "error",
 }
 
 // Lookup returns the basic type a type name denotes. Invalid and UntypedInt

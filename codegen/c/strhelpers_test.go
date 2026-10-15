@@ -110,6 +110,11 @@ var helperMisuses = []struct {
 		"not compatible with any generic association type",
 	},
 	{
+		"TACK_ERROR of a pointer, whose message is built by TACK_STR",
+		"tack_error bad(const unsigned char *p) { return TACK_ERROR(1, p); }",
+		"expected ')'",
+	},
+	{
 		"TACK_STR_N of NULL",
 		"#include <stddef.h>\ntack_string bad(void) { return TACK_STR_N(NULL, 0); }",
 		"not compatible with any generic association type",

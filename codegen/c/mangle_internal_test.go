@@ -121,6 +121,7 @@ func TestOldSchemeCollisionsDoNotCollide(t *testing.T) {
 // starting tack_: the character after the prefix is a letter in each.
 var generatorNames = []string{
 	"tack_string",
+	"tack_error",
 	"tack_builtin_print",
 	"tack_builtin_exit",
 	"tack_div_int8",

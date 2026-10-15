@@ -1,0 +1,65 @@
+package main
+
+// Errors crossing to C and back. C gets and returns an error as
+// tack_error, {int32_t code; tack_string msg;}, by value, defined in std's
+// tack.h with TACK_ERROR(code, lit), which builds one from a string
+// literal, and TACK_NO_ERROR, no error. An extern func that returns an
+// error returns it last, and its callers check it as any other's.
+
+// Point is a struct with an error field, which crosses as a member.
+type Point struct {
+    x   int64
+    err error
+}
+
+// fail returns error code with the message "failed in C", or no error
+// when code is 0.
+extern func fail(code int32) error
+
+// half returns n halved, or error 9, "odd", for an odd n, in a results
+// struct.
+extern func half(n int64) (int64, error)
+
+// codeOf returns e's code, read in C.
+extern("code_of") func codeOf(e error) int32
+
+// msgLen returns the length of e's message, read in C.
+extern("msg_len") func msgLen(e error) int64
+
+// clear sets the error of p to no error and its x to 0, through a pointer.
+extern func clear(mut p Point)
+
+// codes adds the codes of every error in errs.
+extern func codes(errs ...error) int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    check(fail(0) == noerror, "no error from C")
+    check(fail(7) == error{code: 7, msg: "failed in C"}, "error from C")
+
+    h, err := half(10)
+    if err.code != 0 {
+        check(false, "results struct")
+        return
+    }
+    _, odd := half(3)
+    check(h == 5 && odd.code == 9 && odd.msg == "odd", "results struct")
+
+    e := error{code: -3, msg: "four"}
+    check(codeOf(e) == -3 && msgLen(e) == 4 && msgLen(noerror) == 0, "error to C")
+
+    mut p := Point{x: 5, err: e}
+    clear(mut p)
+    check(p.x == 0 && p.err == noerror, "struct field through a pointer")
+
+    check(codes(e, fail(2), noerror) == -1 && codes() == 0, "variadic errors")
+}
