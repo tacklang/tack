@@ -197,3 +197,39 @@ func TestStringIndexesAtRuntime(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckedUint64IndexIsWarningFree builds, with clang's warnings as
+// errors, a program reading a string parameter and a view parameter at
+// checked uint64 indexes, in range, at the length and at the largest
+// uint64, and checks each result. A uint64 index compared with a length
+// read from a parameter, an int64_t, differs from it in sign, which
+// -Wsign-compare rejects unless both sides are cast to uint64_t first.
+func TestCheckedUint64IndexIsWarningFree(t *testing.T) {
+	src := "package main\n\n" +
+		"func inString(s string, in uint64, at uint64, top uint64) bool {\n" +
+		"    v, ok := s[in]\n" +
+		"    w, atLen := s[at]\n" +
+		"    _, atTop := s[top]\n" +
+		"    return ok && v == 'c' && !atLen && w == 0 && !atTop\n" +
+		"}\n\n" +
+		"func inView(v []int64, in uint64, at uint64, top uint64) bool {\n" +
+		"    x, ok := v[in]\n" +
+		"    y, atLen := v[at]\n" +
+		"    _, atTop := v[top]\n" +
+		"    return ok && x == 30 && !atLen && y == 0 && !atTop\n" +
+		"}\n\n" +
+		"func main() {\n" +
+		"    a := [3]int64{10, 20, 30}\n" +
+		"    mut status := 0\n" +
+		"    if inString(\"abc\", 2, 3, 18446744073709551615) {\n" +
+		"        status += 1\n" +
+		"    }\n" +
+		"    if inView(a, 2, 3, 18446744073709551615) {\n" +
+		"        status += 2\n" +
+		"    }\n" +
+		"    exit(status)\n" +
+		"}\n"
+	if out, status := run(t, src); out != "" || status != 3 {
+		t.Errorf("got stdout %q, status %d; want \"\", 3", out, status)
+	}
+}
