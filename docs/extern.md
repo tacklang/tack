@@ -93,8 +93,9 @@ with `divmod`.
   funcs' signatures use and a prototype for each extern func, under its C
   name, with its Tack declaration in a comment beside it. A build writes it
   into its temporary build directory, never into the source tree, and
-  compiles every C file with that directory on the include path and
-  `tack.h` included before the file's first line. So clang checks every
+  compiles every C file with that directory on the include path, then
+  std's, `$TACK_HOME/src/std/include`, and `tack.h` included before the
+  file's first line. So clang checks every
   definition against its extern func, whether the file includes `tack.h` or
   not; a definition that does not match is clang's `conflicting types`.
 - A file may still `#include "tack.h"`, and needs to for an editor to know
@@ -106,6 +107,14 @@ with `divmod`.
   file is skipped by the include guard of the one the build includes first.
   One `tack.h` serves the whole program, its extern funcs package by
   package.
+- `tack.h` holds only what is the program's own. What every program
+  shares, `tack_string` and the string helpers below, is defined once, in
+  std's [`tack/tack.h`](../src/std/include/tack/tack.h), which `tack.h`
+  includes as `<tack/tack.h>` when a signature uses a string, and which the
+  generated C and std's own C files include too. An editor that reads such
+  a `tack.h` needs std's include directory on its include path, as the
+  build has it: `-I $TACK_HOME/src/std/include`, or `~/.tack/src/std/include`
+  without `TACK_HOME`, in whatever compile flags the editor reads.
 
 ## The ABI
 
@@ -132,12 +141,12 @@ extern func cannot return one, since no function can.
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 | a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
 
-`tack.h` includes `<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` when a
-signature uses `size_t`, and defines every type an extern func's signature
-uses and every type those hold, each before the types that hold it. Its
-names:
+`tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
+signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
+and defines every type an extern func's signature uses and every type
+those hold, each before the types that hold it. Its names:
 
-- `tack_string` for `string`.
+- `tack_string` for `string`, which std's `<tack/tack.h>` defines.
 - A struct of package `main` keeps its Tack name: `Point`. One of any other
   package is its package's name, `_`, and its name: `Token` of
   `calc/lexer` is `lexer_Token`.
@@ -166,12 +175,14 @@ A name `tack.h` cannot give is an error whatever is built:
 - two things given one name, at the second with a note at the first: `type
   Token of package calc/b/lexer and type Token of package calc/a/lexer are
   both named lexer_Token in tack.h`;
-- a type named like one of `tack.h`'s own: `type tack_string of package
-  main cannot be named tack_string in tack.h: that is tack.h's string type`,
-  and likewise `TACK_H`, its include guard, and `TACK_C_STR_LEN`,
-  `TACK_STR` and `TACK_STR_N`, its string helpers, for a type or an extern
-  func's C name: `extern func wrap of package main cannot be named
-  TACK_STR_N in tack.h: that is a tack.h string helper`;
+- a type named like one of `tack.h`'s own, or of the std header it
+  includes: `type tack_string of package main cannot be named tack_string
+  in tack.h: that is tack.h's string type`, and likewise `TACK_H`, its
+  include guard, `TACK_STD_TACK_H`, the include guard of std's `tack.h`,
+  and `TACK_C_STR_LEN`, `TACK_STR` and `TACK_STR_N`, the string helpers,
+  for a type or an extern func's C name: `extern func wrap of package main
+  cannot be named TACK_STR_N in tack.h: that is a tack.h string helper`.
+  Each is reserved whether or not the program uses strings;
 - a type or field named with a C keyword, once an extern signature uses
   it: `type int cannot be named int in C: it is a C keyword`, `field while
   of type Shape cannot be named while in C: it is a C keyword`.
@@ -190,10 +201,11 @@ views of integers, a string's bytes, structs, arrays and strings.
 
 ## Helpers for C
 
-`tack.h` also defines helpers that make the C side shorter and harder to
-get wrong, each only when the program uses what it helps with. When
-`tack_string` is defined, because some extern signature uses a string,
-so are three macros for building one:
+Std's `<tack/tack.h>` also defines helpers that make the C side shorter
+and harder to get wrong, beside `tack_string`. A program's `tack.h`
+includes it only when the program uses what they help with, because some
+extern signature uses a string, and then three macros for building one
+come with it:
 
 - `TACK_STR(lit)` is a string literal as a `tack_string`:
   `return TACK_STR("hello");`. Its length is the literal's size less the
@@ -214,8 +226,9 @@ so are three macros for building one:
 `examples/extern-strings` uses each. They make a string, not its bytes'
 lifetime: the bytes must still stay valid as the trust boundary below
 says, which a literal's and a static array's do. A future helper follows
-the same rule as these: it is defined in `tack.h`, only when the program
-uses the type it serves, and its names are reserved there.
+the same rule as these: it is defined once, in std's `<tack/tack.h>` or a
+std header beside it, reaches a program's C through `tack.h` only when the
+program uses the type it serves, and its names are reserved in `tack.h`.
 
 ## The trust boundary
 
@@ -313,16 +326,19 @@ Their C bodies are the `.c` files beside it,
 [`print.c`](../src/std/builtin/print.c) and
 [`exit.c`](../src/std/builtin/exit.c), ordinary non-static functions under
 the builtins' C names. They include `<tack/tack.h>`, from
-`src/std/include`, which defines `tack_string` exactly as the generated C
-does and nothing program-specific. The generated C declares each builtin
-the program calls with a prototype, `void tack_builtin_print(tack_string);`,
-and includes no hosted header for it, so it includes only `<stdbool.h>` and
-`<stdint.h>`, and `<stddef.h>` for `size_t`, which every freestanding C
-implementation has.
+`src/std/include`, the one definition of `tack_string`, which the
+generated C includes too, and nothing program-specific. The generated C
+declares each builtin the program calls with a prototype,
+`void tack_builtin_print(tack_string);`, and includes no hosted header for
+it, so it includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` for
+`size_t`, which every freestanding C implementation has, and
+`<tack/tack.h>`, which includes only `<stdint.h>`. The generated C is
+compiled with `-I $TACK_HOME/src/std/include`, so `tack --emit` output
+needs that flag too to compile on its own.
 
 A build compiles every `.c` file of `std/builtin`, when the program calls
 any builtin, as it compiles a package's: with clang, `-w`, at the build's
-`-O` level, but with `-I $TACK_HOME/src/std/include` in place of the
+`-O` level, with `-I $TACK_HOME/src/std/include` but without the
 program's `tack.h`. It reads each object's symbols, as it reads a package's,
 and links only the objects that define a builtin the program calls, and,
 in turn, those that define a symbol a linked one leaves undefined, the way
@@ -436,21 +452,7 @@ prints `ok`. `tack --emit-header examples/extern-guide/main.tck` writes the
 
 #include <stdbool.h>
 #include <stdint.h>
-
-typedef struct {
-    const unsigned char *ptr;
-    int64_t len;
-} tack_string;
-
-// TACK_C_STR_LEN(a) is the length of the string the byte array a holds,
-// its size less the zero that ends it. A pointer does not compile.
-#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
-// TACK_STR(lit) is the string literal lit as a tack_string. Only a
-// literal compiles.
-#define TACK_STR(lit) ((tack_string){(const unsigned char *)("" lit ""), sizeof ("" lit "") - 1})
-// TACK_STR_N(p, n) is the n bytes at p, a const unsigned char * or an
-// unsigned char *, as a tack_string. Any other pointer does not compile.
-#define TACK_STR_N(p, n) ((tack_string){_Generic((p), const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})
+#include <tack/tack.h>
 
 typedef struct {
     int64_t x;

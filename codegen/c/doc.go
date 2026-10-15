@@ -1,8 +1,16 @@
 // Package c is the C backend. It translates a resolved, type-checked Tack
-// program, every file of every package of it, into a single self-contained
-// C translation unit, which clang compiles and
-// links into an executable. It registers itself with codegen under the name
-// "c".
+// program, every file of every package of it, into a single C translation
+// unit, which clang compiles and links into an executable. It registers
+// itself with codegen under the name "c".
+//
+// The unit, and the tack.h of a program's C files, include std's
+// <tack/tack.h>, src/std/include/tack/tack.h, which defines what every
+// program's C shares: tack_string and the string helpers TACK_C_STR_LEN,
+// TACK_STR and TACK_STR_N. Nothing the backend generates defines them, so
+// there is one definition, which std's own C files include as well, and
+// CompileCmd and BuildCmd put std's include directory on the include path
+// for it. --emit output therefore compiles only with that directory on
+// the include path.
 //
 // The build runs clang with -w. A warning about the generated C would name a
 // temporary file and code the user never wrote, and a valid program can
@@ -18,7 +26,8 @@
 //
 //   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
 //     program uses unsafe_size_t or calls a builtin that takes one, which
-//     a freestanding C implementation has, and the tack_string type;
+//     a freestanding C implementation has, and std's <tack/tack.h>, for
+//     tack_string and TACK_C_STR_LEN, which includes only <stdint.h>;
 //   - a C struct for every array, view and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
@@ -176,9 +185,8 @@
 //
 // Header returns tack.h, which the C files are compiled against: an
 // include guard, TACK_H, stdbool.h and stdint.h, stddef.h if a signature
-// uses size_t, tack_string if a
-// signature uses a string, and with it the string helpers TACK_C_STR_LEN,
-// TACK_STR and TACK_STR_N, a definition of every array and struct type an
+// uses size_t, std's <tack/tack.h> if a signature uses a string, for
+// tack_string and the string helpers, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,
@@ -196,7 +204,9 @@
 // types, so a value passes between the two unchanged. Generate reports,
 // before generating anything, a name tack.h would give two things (two
 // types, a type and a results struct or extern func, or one of tack.h's own
-// names, tack_string and TACK_H), and a type of package main or a field
+// names, TACK_H, or of std's tack.h, tack_string, its string helpers and its
+// guard TACK_STD_TACK_H, whether or not tack.h includes it), and a type of
+// package main or a field
 // named with a C keyword, among the types tack.h defines, whether or not
 // the program has C files: the diagnostic is at the second of two, with a
 // note at the first.

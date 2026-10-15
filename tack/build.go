@@ -88,7 +88,7 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	for i, o := range objs {
 		paths[i] = o.obj
 	}
-	return b.runTool(b.backend.BuildCmd(src, paths, outBin, b.opt), "")
+	return b.runTool(b.backend.BuildCmd(src, b.std.includeDir(), paths, outBin, b.opt), "")
 }
 
 // compileC writes tack.h to dir and compiles every C file of every package
@@ -114,7 +114,10 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot find %s: %w", shown, err)
 		}
-		if err := b.runTool(b.backend.CompileCmd(src, header, obj, b.opt), shown); err != nil {
+		if err := b.runTool(
+			b.backend.CompileCmd(src, header, b.std.includeDir(), obj, b.opt),
+			shown,
+		); err != nil {
 			return nil, err
 		}
 		objs[i] = cObject{pkg: f.pkg, shown: shown, obj: obj}

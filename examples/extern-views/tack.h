@@ -8,21 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-
-typedef struct {
-    const unsigned char *ptr;
-    int64_t len;
-} tack_string;
-
-// TACK_C_STR_LEN(a) is the length of the string the byte array a holds,
-// its size less the zero that ends it. A pointer does not compile.
-#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
-// TACK_STR(lit) is the string literal lit as a tack_string. Only a
-// literal compiles.
-#define TACK_STR(lit) ((tack_string){(const unsigned char *)("" lit ""), sizeof ("" lit "") - 1})
-// TACK_STR_N(p, n) is the n bytes at p, a const unsigned char * or an
-// unsigned char *, as a tack_string. Any other pointer does not compile.
-#define TACK_STR_N(p, n) ((tack_string){_Generic((p), const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})
+#include <tack/tack.h>
 
 typedef struct {
     const int64_t *ptr;

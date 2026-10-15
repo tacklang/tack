@@ -9,9 +9,10 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
-// stringHelperDefs is how tack.h defines its string helpers.
+// stringHelperDefs is how std's tack.h defines its string helpers.
 var stringHelperDefs = []string{
 	"#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * " +
 		"__builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))\n",
@@ -21,22 +22,39 @@ var stringHelperDefs = []string{
 		"const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})\n",
 }
 
-// TestHeaderDefinesStringHelpers checks tack.h defines the string helpers
-// after tack_string when a signature uses a string, and not otherwise.
-func TestHeaderDefinesStringHelpers(t *testing.T) {
-	src := "package main\n\nextern func take(s string)\n\nfunc main() {\n}\n"
-	got := string(c.New().Header(ast.SingleFile(compile(t, src))))
-	typedef := strings.Index(got, "} tack_string;\n")
+// TestStdHeaderDefinesStringHelpers checks std's tack.h defines the string
+// helpers after tack_string, and a program's tack.h defines none of them:
+// it includes std's header when a signature uses a string, and not
+// otherwise.
+func TestStdHeaderDefinesStringHelpers(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(stdtest.IncludeDir(), "tack", "tack.h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	std := string(data)
+	typedef := strings.Index(std, "} tack_string;\n")
 	for _, def := range stringHelperDefs {
-		if i := strings.Index(got, def); i < 0 || i < typedef {
-			t.Errorf("tack.h does not define, after tack_string, %q:\n%s", def, got)
+		if i := strings.Index(std, def); i < 0 || i < typedef {
+			t.Errorf("std's tack.h does not define, after tack_string, %q:\n%s", def, std)
 		}
 	}
 
-	src = "package main\n\nextern func take(n int64)\n\nfunc main() {\n}\n"
-	got = string(c.New().Header(ast.SingleFile(compile(t, src))))
-	if strings.Contains(got, "TACK_STR") || strings.Contains(got, "TACK_C_STR_LEN") {
-		t.Errorf("tack.h of a program without strings defines a string helper:\n%s", got)
+	for _, tc := range []struct {
+		param   string
+		include bool
+	}{
+		{"s string", true},
+		{"n int64", false},
+	} {
+		src := "package main\n\nextern func take(" + tc.param + ")\n\nfunc main() {\n}\n"
+		got := string(c.New().Header(ast.SingleFile(compile(t, src))))
+		if strings.Contains(got, "TACK_STR") || strings.Contains(got, "TACK_C_STR_LEN") {
+			t.Errorf("tack.h for take(%s) defines a string helper:\n%s", tc.param, got)
+		}
+		if strings.Contains(got, stdInclude) != tc.include {
+			t.Errorf("tack.h for take(%s): includes std's header = %v, want %v:\n%s",
+				tc.param, !tc.include, tc.include, got)
+		}
 	}
 }
 
@@ -100,7 +118,10 @@ var helperMisuses = []struct {
 
 // TestStringHelperMisusesDoNotCompile checks each misuse of a string
 // helper is a clang error even with warnings off, as the build compiles C
-// files, rather than a wrong length or a pointer of the wrong type.
+// files, rather than a wrong length or a pointer of the wrong type. Each is
+// compiled as the build compiles a C file: with tack.h included first and
+// std's include directory, where tack.h finds the helpers, on the include
+// path.
 func TestStringHelperMisusesDoNotCompile(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
@@ -121,8 +142,8 @@ func TestStringHelperMisusesDoNotCompile(t *testing.T) {
 			if err := os.WriteFile(file, []byte(m.body+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			out, err := exec.Command("clang", "-w", "-fsyntax-only", "-include", header, file).
-				CombinedOutput()
+			out, err := exec.Command("clang", "-w", "-fsyntax-only",
+				"-I", stdtest.IncludeDir(), "-include", header, file).CombinedOutput()
 			if err == nil {
 				t.Fatalf("compiled; want an error saying %q", m.want)
 			}

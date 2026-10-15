@@ -4,13 +4,7 @@ stage: ok
 
 #include <stdbool.h>
 #include <stdint.h>
-
-typedef struct {
-    const unsigned char *ptr;
-    int64_t len;
-} tack_string;
-
-#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * __builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))
+#include <tack/tack.h>
 
 typedef struct {
     int64_t e[5];

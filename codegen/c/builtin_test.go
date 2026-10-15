@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // freestanding is a program that uses every construct the C backend lowers
@@ -69,7 +71,8 @@ func TestNoBuiltinNeedsNoHostedHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("clang", "-std=c11", "-ffreestanding", "-nostdlib",
-		"-Wall", "-Wextra", "-Werror", "-c", "-o", filepath.Join(dir, "out.o"), csrc)
+		"-Wall", "-Wextra", "-Werror", "-I", stdtest.IncludeDir(),
+		"-c", "-o", filepath.Join(dir, "out.o"), csrc)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("freestanding compile failed: %v\n%s\n%s", err, out, got)
 	}

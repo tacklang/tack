@@ -25,7 +25,7 @@ func (f fakeBackend) Generate(
 
 func (f fakeBackend) Header(*ast.Program) []byte { return nil }
 
-func (f fakeBackend) CompileCmd(src, _, obj string, _ codegen.Opt) []string {
+func (f fakeBackend) CompileCmd(src, _, _, obj string, _ codegen.Opt) []string {
 	return []string{"true", src, obj}
 }
 
@@ -33,7 +33,7 @@ func (f fakeBackend) CompileStdCmd(src, _, obj string, _ codegen.Opt) []string {
 	return []string{"true", src, obj}
 }
 
-func (f fakeBackend) BuildCmd(src string, _ []string, out string, _ codegen.Opt) []string {
+func (f fakeBackend) BuildCmd(src, _ string, _ []string, out string, _ codegen.Opt) []string {
 	return []string{"true", src, out}
 }
 

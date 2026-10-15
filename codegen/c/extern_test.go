@@ -39,7 +39,7 @@ func buildExtern(t *testing.T, src, csrc string) string {
 			t.Fatal(err)
 		}
 	}
-	strict := []string{"-std=c11", "-Wall", "-Wextra", "-Werror"}
+	strict := []string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-I", stdtest.IncludeDir()}
 	header := filepath.Join(dir, c.HeaderName)
 	obj := filepath.Join(dir, "helpers.o")
 	bin := filepath.Join(dir, "prog")
@@ -179,7 +179,7 @@ func TestCompileCmdTakesAnOptionLikeNameAsAFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	argv := c.New().CompileCmd(src, header, obj, codegen.DefaultOpt)
+	argv := c.New().CompileCmd(src, header, stdtest.IncludeDir(), obj, codegen.DefaultOpt)
 	if msg, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("%q: %v\n%s", argv, err, msg)
 	}

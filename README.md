@@ -106,7 +106,10 @@ into every other package directory of its module with C files or extern
 funcs, never a standard library package's, replacing
 any `tack.h` there, for an editor such as clangd to find; it prints
 nothing, takes no `--out`, and cannot be combined with a dump. Builds never
-read that copy, so it can be left out of version control.
+read that copy, so it can be left out of version control. A `tack.h` whose
+extern funcs use strings includes std's `<tack/tack.h>`, so the editor
+needs `-I $TACK_HOME/src/std/include` in its compile flags, as the build
+has.
 
 | Flag               | Effect                                          |
 |--------------------|-------------------------------------------------|
@@ -208,12 +211,18 @@ A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
 calls with a prototype, `void tack_builtin_print(tack_string);`. Their
 bodies are the `.c` files beside `builtin.tck`, one per builtin and named
 after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
-`src/std/include` for `tack_string`. The driver compiles them as it
+`src/std/include` for `tack_string`. That header is the one definition of
+what every program's C shares, `tack_string` and the string helpers: the
+generated C includes it too, and so does a program's `tack.h` when an
+extern func uses a string, so every C file is compiled with
+`-I $TACK_HOME/src/std/include`, and `--emit` output needs that flag to
+compile on its own. The driver compiles them as it
 compiles a program's C files and links only the objects that define a
 builtin the program calls, and those that define what those objects need
 in turn, as a linker takes an archive's members. So the generated C
-includes only `<stdbool.h>` and `<stdint.h>`, and `<stddef.h>` if it uses
-`unsafe_size_t`, which a freestanding C implementation has, and a program
+includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
+`unsafe_size_t`, which a freestanding C implementation has, and
+`<tack/tack.h>`, which includes only `<stdint.h>`, and a program
 that calls neither builtin links neither body and none of the C library
 they call. A target without a C library needs only different bodies.
 
@@ -230,20 +239,22 @@ A backend is anything that satisfies this interface:
 type Backend interface {
     Name() string                                    // "c"
     Ext() string                                     // ".c"
-    Generate(prog *ast.Program) ([]byte, []diag.Diagnostic)
+    Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
     Header(prog *ast.Program) []byte                 // tack.h
-    CompileCmd(src, header, obj string) []string     // {"clang", "-w", "-c", ..., src}
-    BuildCmd(src string, objs []string, out string) []string // {"clang", "-w", "-o", out, src, objs...}
+    CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-O3", "-c", ..., src}
+    CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for std's C
+    BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-O3", "-I", include, "-o", out, src, objs...}
 }
 ```
 
 `Generate` receives the same resolved program every backend sees and returns target
 source, or diagnostics if it meets something it cannot lower. `Ext`,
-`CompileCmd` and `BuildCmd` are what keep the driver from knowing anything
-about the target: it writes the bytes to a file with that extension in a
-temporary directory, writes `Header`'s output beside it as `tack.h`,
-compiles each C file of the program with `CompileCmd`, and links them with
-`BuildCmd`.
+`CompileCmd`, `CompileStdCmd` and `BuildCmd` are what keep the driver from
+knowing anything about the target: it writes the bytes to a file with that
+extension in a temporary directory, writes `Header`'s output beside it as
+`tack.h`, compiles each C file of the program with `CompileCmd` and std's
+with `CompileStdCmd`, and links them with `BuildCmd`, each given std's
+include directory, `include`, where `<tack/tack.h>` is.
 
 Backends register themselves from `init`, so adding one means writing a package
 under `codegen/` and importing it for its side effect in `tack/main.go` and
@@ -1119,9 +1130,9 @@ makes for itself, which has a letter after `tack_`.
   than its Tack name. Every `.c` file in a package's directory, or beside
   a single-file target, is compiled and linked with the program, against
   a generated `tack.h` that declares each extern func and the types it
-  uses, with helpers for building strings in C (`TACK_STR`, `TACK_STR_N`,
-  `TACK_C_STR_LEN`) when a string crosses; `--emit-header` writes `tack.h`
-  for editors. Every Tack type
+  uses, and includes std's `<tack/tack.h>`, with `tack_string` and helpers
+  for building strings in C (`TACK_STR`, `TACK_STR_N`, `TACK_C_STR_LEN`),
+  when a string crosses; `--emit-header` writes `tack.h` for editors. Every Tack type
   crosses by value, except a `mut` parameter, which C gets as a pointer to
   the caller's variable, `T *`, to use only during the call, and a view
   parameter, which C gets as `tack_view_<T>`, a pointer to `const`

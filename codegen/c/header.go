@@ -19,35 +19,17 @@ const HeaderName = "tack.h"
 // it may be.
 const guardName = "TACK_H"
 
-// strLenMacro defines TACK_C_STR_LEN(x), the length of the string a byte
-// array holds: its size less the trailing zero a string literal, or the
-// generated source's pool, ends it with. The second term is 0 for an
-// array and fails to compile for a pointer, whose size says nothing about
-// its string: an array and a pointer to its first element have different
-// types, and a pointer and one to its first element have the same, which
-// makes the char array's size negative. Both tack.h and the generated
-// source define it.
-const strLenMacro = "#define TACK_C_STR_LEN(x) (sizeof (x) - 1 + 0 * sizeof (char[1 - 2 * " +
-	"__builtin_types_compatible_p(__typeof__(x), __typeof__(&(x)[0]))]))\n"
+// stdGuardName is the macro the include guard of std's tack.h defines.
+// std's header defines tack_string and the string helpers, and the
+// generated source and a program's tack.h include it, so these names are
+// reserved in tack.h as if it defined them itself.
+const stdGuardName = "TACK_STD_TACK_H"
 
-// stringHelpers are the macros tack.h defines, after tack_string, for C
-// building strings to hand Tack: TACK_C_STR_LEN; TACK_STR(lit), a string
-// literal as a tack_string, which the "" around it makes anything but a
-// literal fail to compile; and TACK_STR_N(p, n), n bytes at p, which
-// _Generic restricts to the two pointers a string's bytes can be, so a
-// char * or NULL fails to compile rather than converting silently, as it
-// would under the build's -w.
-const stringHelpers = "// TACK_C_STR_LEN(a) is the length of the string the byte array a holds,\n" +
-	"// its size less the zero that ends it. A pointer does not compile.\n" +
-	strLenMacro +
-	"// TACK_STR(lit) is the string literal lit as a tack_string. Only a\n" +
-	"// literal compiles.\n" +
-	"#define TACK_STR(lit) ((tack_string){(const unsigned char *)(\"\" lit \"\"), " +
-	"sizeof (\"\" lit \"\") - 1})\n" +
-	"// TACK_STR_N(p, n) is the n bytes at p, a const unsigned char * or an\n" +
-	"// unsigned char *, as a tack_string. Any other pointer does not compile.\n" +
-	"#define TACK_STR_N(p, n) ((tack_string){_Generic((p), " +
-	"const unsigned char *: (p), unsigned char *: (p)), (int64_t)(n)})\n"
+// stdHeader is the line that includes std's tack.h, which the generated
+// source always writes and a program's tack.h writes when a signature uses
+// a string. clang finds it on the include path, at the standard library's
+// include directory, which CompileCmd and BuildCmd are given.
+const stdHeader = "#include <tack/tack.h>\n"
 
 // Header returns tack.h for prog, which must have been generated without
 // diagnostics: the C declarations the C files linked with prog compile
@@ -80,7 +62,7 @@ type header struct {
 
 	diags []diag.Diagnostic
 
-	strings bool // whether tack_string is used
+	strings bool // whether tack_string is used, which std's tack.h defines
 	sizes   bool // whether size_t is, which <stddef.h> declares
 }
 
@@ -107,6 +89,7 @@ func newHeader(prog *ast.Program) *header {
 			"TACK_STR":       {what: "a tack.h string helper"},
 			"TACK_STR_N":     {what: "a tack.h string helper"},
 			guardName:        {what: "tack.h's include guard"},
+			stdGuardName:     {what: "the include guard of std's tack.h"},
 		},
 	}
 	for _, pkg := range prog.Packages {
@@ -323,10 +306,7 @@ func (h *header) render() []byte {
 		b.WriteString("#include <stddef.h>\n")
 	}
 	if h.strings {
-		b.WriteString(
-			"\ntypedef struct {\n    const unsigned char *ptr;\n    int64_t len;\n} tack_string;\n\n" +
-				stringHelpers,
-		)
+		b.WriteString(stdHeader)
 	}
 	for _, typ := range h.order {
 		b.WriteString("\n" + h.typeDef(typ))

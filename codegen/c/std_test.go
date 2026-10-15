@@ -3,33 +3,72 @@ package c_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/internal/stdtest"
 )
 
-// TestStdTackStringMatchesGenerated checks the tack_string std's C files
-// are compiled against, in std/include/tack/tack.h, is the one the
-// generated C defines, member for member, so a string passed to a builtin
-// is laid out as its body reads it.
-func TestStdTackStringMatchesGenerated(t *testing.T) {
+// stdInclude is how the generated source, and a tack.h that needs it,
+// include std's header.
+const stdInclude = "#include <tack/tack.h>\n"
+
+// tackStringDef matches a definition of tack_string: a struct typedef
+// that names it.
+var tackStringDef = regexp.MustCompile(`typedef\s+struct\s*\{[^}]*\}\s*tack_string\s*;`)
+
+// TestOnlyStdDefinesTackString checks tack_string is defined once, in
+// std's include/tack/tack.h, and that the generated source and a tack.h
+// whose signatures use a string include that header rather than define
+// the type themselves, so every C file of a program, std's among them,
+// sees one definition.
+func TestOnlyStdDefinesTackString(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(stdtest.IncludeDir(), "tack", "tack.h"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := generate(t, program(`print("hi")`))
-	start := strings.Index(got, "typedef struct {\n")
-	end := strings.Index(got, "} tack_string;\n")
-	if start < 0 || end < start {
-		t.Fatalf("the generated C defines no tack_string:\n%s", got)
+	if n := len(tackStringDef.FindAllString(string(data), -1)); n != 1 {
+		t.Errorf("std's tack.h defines tack_string %d times, want once:\n%s", n, data)
 	}
-	def := got[start : end+len("} tack_string;\n")]
-	if !strings.Contains(string(data), def) {
-		t.Errorf("std's tack.h does not define tack_string as the generated C does:\n%s\nwant:\n%s",
-			data, def)
+
+	src := "package main\n\nextern func take(s string)\n\nfunc main() {\n    print(\"hi\")\n}\n"
+	prog := ast.SingleFile(compile(t, src))
+	out, diags := c.New().Generate(prog, stdtest.MustBuiltins())
+	if len(diags) > 0 {
+		t.Fatalf("generate reported %+v", diags)
 	}
-	if strings.Count(string(data), "tack_string;") != 1 {
-		t.Errorf("std's tack.h defines tack_string more than once:\n%s", data)
+	for name, got := range map[string]string{
+		"the generated source": string(out),
+		"tack.h":               string(c.New().Header(prog)),
+	} {
+		if !strings.Contains(got, stdInclude) {
+			t.Errorf("%s does not include std's header:\n%s", name, got)
+		}
+		if tackStringDef.MatchString(got) {
+			t.Errorf("%s defines tack_string itself:\n%s", name, got)
+		}
+	}
+	checkNoStdCFileDefinesTackString(t)
+}
+
+// checkNoStdCFileDefinesTackString checks no C file of std/builtin defines
+// tack_string: each takes it from std's tack.h.
+func checkNoStdCFileDefinesTackString(t *testing.T) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(stdtest.BuiltinDir(), "*.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tackStringDef.Match(data) {
+			t.Errorf("%s defines tack_string; only std's tack.h may", f)
+		}
 	}
 }

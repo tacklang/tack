@@ -1950,6 +1950,34 @@ extern-header-helper-clash/main.tck:9:27: error: extern func wrap of package mai
    |	                          ^~~~
 10 |	
 
+-- extern-header-std-guard-clash/main.tck --
+package main
+
+type TACK_STD_TACK_H struct {
+}
+
+extern func take(s string, g TACK_STD_TACK_H)
+
+extern("TACK_STD_TACK_H") func give() string
+
+func main() {
+}
+-- extern-header-std-guard-clash/expected --
+stage: codegen
+---
+
+extern-header-std-guard-clash/main.tck:3:6: error: type TACK_STD_TACK_H of package main cannot be named TACK_STD_TACK_H in tack.h: that is the include guard of std's tack.h
+02 |	
+03 |	type TACK_STD_TACK_H struct {
+   |	     ^~~~~~~~~~~~~~~
+04 |	}
+
+extern-header-std-guard-clash/main.tck:8:32: error: extern func give of package main cannot be named TACK_STD_TACK_H in tack.h: that is the include guard of std's tack.h
+07 |	
+08 |	extern("TACK_STD_TACK_H") func give() string
+   |	                               ^~~~
+09 |	
+
 -- extern-in-initializer/main.tck --
 package main
 

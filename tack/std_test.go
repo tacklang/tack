@@ -102,6 +102,26 @@ func TestStdFromHomeDirectory(t *testing.T) {
 	)
 }
 
+// The generated source is built with std's include directory on the
+// include path, where it finds <tack/tack.h>, given absolute even for a
+// relative TACK_HOME: the tests run in tack/, whose parent is the
+// repository's root.
+func TestBuildSearchesStdInclude(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "include")
+	r := runTackEnv(t, t.Context(), envAt(t, ".."),
+		"--backend", includeBackend, "--out", out, program(t, ""))
+	if r.code != exitOK || r.stderr != "" {
+		t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := stdtest.IncludeDir(); string(data) != want {
+		t.Errorf("BuildCmd was given include directory %q, want %q", data, want)
+	}
+}
+
 // --help, --backends, --lex and --ast need no builtins, so they work with
 // no std at all.
 func TestCommandsThatNeedNoStd(t *testing.T) {

@@ -35,12 +35,14 @@ const (
 	sleepBackend   = "test-sleep"   // toolchain hangs until killed
 	optBackend     = "test-opt"     // "builds" by writing the level to --out
 	objsBackend    = "test-objs"    // "builds" by writing the objects it links to --out
+	includeBackend = "test-include" // "builds" by writing std's include directory to --out
 )
 
 // fakeToolchain is a backend that generates C with the real c backend but
 // builds with argv instead of clang. In argv, "{src}" and "{out}" are
 // replaced by the build's source and output paths, "{opt}" by its
-// optimization level, and "{objs}", a whole element, by the paths of the
+// optimization level, "{include}" by std's include directory, and
+// "{objs}", a whole element, by the paths of the
 // objects it links, one element each. It compiles C files, the program's
 // and std's, with clang, as the c backend does.
 type fakeToolchain struct {
@@ -52,10 +54,13 @@ type fakeToolchain struct {
 // Name returns the name the fake is registered under.
 func (f fakeToolchain) Name() string { return f.name }
 
-// BuildCmd returns argv with the {src}, {out}, {opt} and {objs}
-// placeholders filled in.
-func (f fakeToolchain) BuildCmd(src string, objs []string, out string, opt codegen.Opt) []string {
-	r := strings.NewReplacer("{src}", src, "{out}", out, "{opt}", string(opt))
+// BuildCmd returns argv with the {src}, {out}, {opt}, {include} and
+// {objs} placeholders filled in.
+func (f fakeToolchain) BuildCmd(
+	src, include string, objs []string, out string, opt codegen.Opt,
+) []string {
+	r := strings.NewReplacer(
+		"{src}", src, "{out}", out, "{opt}", string(opt), "{include}", include)
 	cmd := make([]string, 0, len(f.argv)+len(objs))
 	for _, a := range f.argv {
 		if a == "{objs}" {
@@ -77,6 +82,9 @@ func init() {
 		{name: missingBackend, argv: []string{"/nonexistent/tack-test-cc", "{src}", "{out}"}},
 		{name: sleepBackend, argv: []string{"sleep", "30"}},
 		{name: optBackend, argv: []string{"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{opt}", "{out}"}},
+		{name: includeBackend, argv: []string{
+			"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{include}", "{out}",
+		}},
 		{name: objsBackend, argv: []string{
 			"sh", "-c", `out=$1; shift; printf '%s\n' "$@" > "$out"`, "sh", "{out}", "{objs}",
 		}},
@@ -382,6 +390,9 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 	}
 }
 
+// TestEmitRedirectedToFileIsValidC checks --emit's output compiles on
+// its own, given what any build of it needs: std's include directory on
+// the include path, where it finds <tack/tack.h>.
 func TestEmitRedirectedToFileIsValidC(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
@@ -391,7 +402,9 @@ func TestEmitRedirectedToFileIsValidC(t *testing.T) {
 	if err := os.WriteFile(cFile, []byte(r.stdout), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.CommandContext(t.Context(), "clang", "-fsyntax-only", cFile).CombinedOutput()
+	out, err := exec.CommandContext(
+		t.Context(), "clang", "-fsyntax-only", "-I", stdtest.IncludeDir(), cFile,
+	).CombinedOutput()
 	if err != nil {
 		t.Errorf("clang rejected --emit output: %v\n%s", err, out)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // stddefCases are programs and whether the C generated for each must
@@ -315,12 +316,16 @@ func TestTargetWidthIndexesRunStrictly(t *testing.T) {
 }
 
 // compile32 writes src to path and checks it compiles for i386 with
-// warnings as errors, passing clang the extra flags as well.
+// warnings as errors, with std's include directory on the include path,
+// passing clang the extra flags as well.
 func compile32(t *testing.T, path, src string, flags ...string) {
 	t.Helper()
 	writeFile(t, path, src)
 	args := append(
-		[]string{"-target", i386, "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only"},
+		[]string{
+			"-target", i386, "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+			"-I", stdtest.IncludeDir(),
+		},
 		flags...)
 	if out, err := exec.Command("clang", append(args, path)...).CombinedOutput(); err != nil {
 		t.Errorf("%s did not compile cleanly for %s: %v\n%s", filepath.Base(path), i386, err, out)

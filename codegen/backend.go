@@ -34,9 +34,11 @@ type Backend interface {
 	//
 	// CompileCmd is the command that compiles the C file at src, one that
 	// defines extern funcs, into an object file at obj, with the header
-	// Header returned at header included first. The first element is the
+	// Header returned at header included first, and the directory include,
+	// the standard library's own headers, on the include path, where that
+	// header finds what it includes from there. The first element is the
 	// program, the rest its arguments.
-	CompileCmd(src, header, obj string, opt Opt) []string
+	CompileCmd(src, header, include, obj string, opt Opt) []string
 
 	// CompileStdCmd is the command that compiles the C file at src, one of
 	// the standard library's, such as the body of a builtin, into an
@@ -48,9 +50,11 @@ type Backend interface {
 
 	// BuildCmd is the command that turns generated output at src into an
 	// executable at out, linked with the object files objs, which
-	// CompileCmd made. The first element is the program, the rest its
-	// arguments.
-	BuildCmd(src string, objs []string, out string, opt Opt) []string
+	// CompileCmd and CompileStdCmd made, with the directory include, the
+	// standard library's own headers, on the include path, where the
+	// generated output finds what it includes from there. The first
+	// element is the program, the rest its arguments.
+	BuildCmd(src, include string, objs []string, out string, opt Opt) []string
 }
 
 // Opt is an optimization level a build runs at, as clang's -O flags name

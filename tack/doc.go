@@ -121,7 +121,9 @@
 // package's included, gets
 // the backend's header written there as tack.h, and each C file, in
 // package order and then name order, is compiled to an object there with
-// the backend's CompileCmd, which includes tack.h first: the file is named
+// the backend's CompileCmd, which includes tack.h first and is given std's
+// include directory, $TACK_HOME/src/std/include, absolute, where the
+// <tack/tack.h> that tack.h includes when a signature uses a string is: the file is named
 // relative to the current directory when it is below it, as clang's
 // messages then show it. A C file that does not compile ends the build,
 // after clang's own errors, with "tack: cannot compile <file>: clang
@@ -153,8 +155,10 @@
 // an error whether or not either is chosen; an extern func whose C name no C file
 // of its own package defines is a diagnostic at its declaration, "extern
 // func write has no C definition in package os", rendered and limited by
-// --max-diags like any other. Last, BuildCmd compiles program.c and links
-// the program's objects, then the chosen std objects, into --out.
+// --max-diags like any other. Last, BuildCmd compiles program.c, with
+// std's include directory, for the <tack/tack.h> every generated source
+// includes, and links the program's objects, then the chosen std objects,
+// into --out.
 //
 // Both commands build at one optimization level, -O3 unless an -O flag
 // gives another: -O0 to -O3, -Os or -Oz, clang's levels. -Ofast is not
@@ -165,7 +169,9 @@
 // --emit-header runs the pipeline as --emit does, then writes the
 // backend's header, tack.h, into the main package's directory and that of
 // every other package of its module with C files or extern funcs,
-// replacing any there, and prints nothing. A package of another module, a
+// replacing any there, and prints nothing. A tack.h whose signatures use a
+// string includes std's <tack/tack.h>, which an editor finds only with
+// std's include directory on its include path. A package of another module, a
 // std package, is not written into: it is not the program's. A build never reads those copies: CompileCmd's
 // -include of the fresh one makes a stale one's include guard skip it.
 //
