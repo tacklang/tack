@@ -204,21 +204,17 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 }
 
 // indexType reports whether idx, the type of the index of ix, an element
-// of an array or a string, is one an index can have, and reports it when
-// it is not: an integer, other than a target-width one, which no index
-// may be, in either form, whatever proves it. The error for that names the
-// conversion to make first, to int64, the type of len, which every proof
-// compares an index with. An Invalid idx has been reported already.
+// of an array, a string or a view, is one an index can have, and reports
+// it when it is not: any integer, a target-width one included. Every
+// proof compares an index with a length by value, and a target-width
+// index's values are bounded by its widest, 64 bits (types.MaxBits), so
+// one is proven as a uint64 is. An Invalid idx has been reported already.
 func (c *Checker) indexType(ix *ast.Index, idx types.Type) bool {
 	switch {
 	case idx == types.Invalid:
 		return false
 	case !types.IsInteger(idx):
 		c.errorf(ix.Index.Spanned(), "index must be an integer, got %s", c.typeName(idx))
-		return false
-	case types.TargetWidth(idx):
-		c.errorf(ix.Index.Spanned(), "index cannot be %s; convert it first with i, ok := int64(%s)",
-			c.typeName(idx), c.text(ix.Index.Spanned()))
 		return false
 	default:
 		return true

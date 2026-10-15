@@ -197,7 +197,7 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 	notes = append(notes, c.indexedNotes(ix.X)...)
 	return msg + orUse(
 		"v, ok := ...["+c.indexName(ix.Index)+"]",
-		strings.HasSuffix(msg, " first") || strings.Contains(msg, "; convert "),
+		strings.HasSuffix(msg, " first"),
 	), notes
 }
 

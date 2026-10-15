@@ -22,8 +22,9 @@ func targetWidth(lines ...string) string {
 
 // acceptedTargetWidthCases are uses of the target-width types that must
 // check cleanly: widening into and out of them, their common types,
-// constants up to the largest every target holds, known values, and the
-// checked conversions that can fail.
+// constants up to the largest every target holds, known values, the
+// checked conversions that can fail, and indexes proven as a uint64's are,
+// or checked.
 var acceptedTargetWidthCases = []struct{ name, src string }{
 	{"narrow unsigned widen in", targetWidth(
 		"var a unsafe_size_t = u8", "var b unsafe_uintptr_t = u32", "if a == s && b == p {", "}")},
@@ -92,6 +93,36 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		"array length from a known value",
 		targetWidth("n := unsafe_size_t(3)", "a := [n]int64{1, 2, 3}", "exit(a[0])"),
 	},
+	{
+		"index guarded by len",
+		targetWidth(
+			"a := [2]int64{1, 2}",
+			"str := \"tack\"",
+			"if s < len(a) && p < len(str) {",
+			"    exit(a[s] + str[p])",
+			"}",
+		),
+	},
+	{
+		"index guarded by a known value of another type",
+		targetWidth("a := [2]int64{1, 2}", "if p <= int8(1) {", "    exit(a[p])", "}"),
+	},
+	{
+		"index proven by a counting loop",
+		targetWidth(
+			"a := [4]int64{1, 2, 3, 4}",
+			"for mut i unsafe_uintptr_t = 3; i >= 1; i-- {",
+			"    exit(a[i])",
+			"}",
+			"for mut j unsafe_size_t = 0; j < len(a); j++ {",
+			"    exit(a[j])",
+			"}",
+		),
+	},
+	{"checked index with uintptr", targetWidth(
+		"a := [2]int64{1, 2}", "v, ok := a[p - 1]", "if ok {", "    exit(v)", "}")},
+	{"string index with a known size", targetWidth(
+		"n := unsafe_size_t(3)", "exit(\"tack\"[n] + \"tack\"[unsafe_uintptr_t(0)])")},
 }
 
 // TestAcceptsTargetWidthUses checks each of acceptedTargetWidthCases has no
@@ -114,7 +145,8 @@ const unknownWidth = ": its width is unknown, so a constant must be at most 4294
 // one error, with its message and the source it covers: a widening that
 // does not hold at every width, operands with no common type, a
 // conversion that can fail, a constant past the largest every target
-// holds, and an index.
+// holds, and an index that is not proven in range, or is known to be out
+// of it.
 var rejectedTargetWidthCases = []struct {
 	name, src string
 	want      spanned
@@ -236,20 +268,42 @@ var rejectedTargetWidthCases = []struct {
 		spanned{"constant 4294967296 overflows unsafe_size_t" + unknownWidth, "4294967296"},
 	},
 	{
-		"index with size", targetWidth("a := [2]int64{1, 2}", "exit(a[s])"),
-		spanned{"index cannot be unsafe_size_t; convert it first with i, ok := int64(s)", "s"},
+		"unproven index with size", targetWidth("a := [2]int64{1, 2}", "exit(a[s])"),
+		spanned{"index s may be out of range; check s < 2 first, or use v, ok := ...[s]", "s"},
 	},
 	{
-		"checked index with uintptr",
-		targetWidth("a := [2]int64{1, 2}", "v, ok := a[p - 1]", "if ok {", "    exit(v)", "}"),
+		"index with uintptr guarded by <= len",
+		targetWidth("a := [2]int64{1, 2}", "if p <= len(a) {", "    exit(a[p])", "}"),
+		spanned{"index p may be out of range; check p < 2 first, or use v, ok := ...[p]", "p"},
+	},
+	{
+		"string index with size guarded past its length",
+		targetWidth("str := \"tack\"", "if s <= 4 {", "    exit(str[s])", "}"),
 		spanned{
-			"index cannot be unsafe_uintptr_t; convert it first with i, ok := int64(p - 1)",
-			"p - 1",
+			"index s may be out of range; check s < len(str) first, or use v, ok := ...[s]",
+			"s",
 		},
 	},
 	{
-		"string index with a known size", targetWidth("n := unsafe_size_t(0)", "exit(\"tack\"[n])"),
-		spanned{"index cannot be unsafe_size_t; convert it first with i, ok := int64(n)", "n"},
+		"known index out of range", targetWidth("a := [2]int64{1, 2}", "exit(a[unsafe_size_t(2)])"),
+		spanned{"index 2 is out of range for [2]int64", "unsafe_size_t(2)"},
+	},
+	{
+		"checked known index out of range",
+		targetWidth(
+			"a := [2]int64{1, 2}",
+			"x := unsafe_uintptr_t(4294967295)",
+			"v, ok := a[x]",
+			"if ok {",
+			"    exit(v)",
+			"}",
+		),
+		spanned{"index 4294967295 is out of range for [2]int64", "x"},
+	},
+	{
+		"string index with a known size out of range",
+		targetWidth("n := unsafe_size_t(4)", "exit(\"tack\"[n])"),
+		spanned{"index 4 is out of range for a string of 4 bytes", "n"},
 	},
 	{
 		"negation", targetWidth("a := -s", "if a == s {", "}"),

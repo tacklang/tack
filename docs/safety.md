@@ -232,7 +232,7 @@ The conditions that give facts are:
 - for a string variable `s`: `len(s)` compared with a known value, which
   bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it,
-  whatever `i`'s integer type, a `uint64` included;
+  whatever `i`'s integer type, a `uint64` or a target-width type included;
   the same for a view `v`, `len(v) > 0` and `i < len(v)`;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
   gives the facts of both sides being false; `!c` swaps true and false;
@@ -457,8 +457,9 @@ a mutable global. An unproven unsigned index into a string is told to
 check only the upper bound, whatever its width, since any integer
 compares with `len(s)` by
 value: <!-- error: string-index-uint64 -->`index u may be out of range; check u < len(s) first, or use v, ok := ...[u]`.
-A target-width index is an error whatever proves it, in either form,
-even after `s < len(a)`, which compiles: <!-- error: unsafe-index-array -->`index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
+A target-width index, `unsafe_size_t` or `unsafe_uintptr_t`, is told the
+same, whatever the target's width, here into a
+`[4]int64`: <!-- error: unsafe-index-array -->`index s may be out of range; check s < 4 first, or use v, ok := ...[s]`.
 
 ## Per operation
 
@@ -657,6 +658,20 @@ func at(s string, u uint64) uint8 {
         return s[u]
     }
     return 0
+}
+```
+
+So does a target-width one, `unsafe_size_t` or `unsafe_uintptr_t`, whose
+values the compiler bounds by its widest, 64 bits, whatever the target's
+width. A counting loop over one proves its index by its condition, here
+`i < len(str)`, even though its step is not sure not to wrap on a 32-bit
+target, since the condition is tested on every entry to the body:
+
+<!-- example: unsafe-sizes -->
+```tack
+mut bytes int64 = 0
+for mut i unsafe_size_t = 0; i < len(str); i++ {
+    bytes += str[i]
 }
 ```
 

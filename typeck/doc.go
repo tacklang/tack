@@ -128,8 +128,10 @@
 // can fail, and checked at run time in the two-value form (fitsSomewhere).
 // For proofs a target-width type is bounded by its widest values, 0 to the
 // largest 64-bit unsigned value (typeBounds), but a counting loop's step
-// must stay at or below types.PortableMax not to wrap (stepBounds). No
-// index may be of a target-width type, proven or not (indexType).
+// must stay at or below types.PortableMax not to wrap (stepBounds). An
+// index may be of a target-width type, and is proven, or checked, as a
+// uint64 one is: by its value, against a length compared by value
+// (indexType).
 //
 // A divisor must be proven not zero where it is used, from facts: that a
 // variable is not zero within some region, learned from a condition just

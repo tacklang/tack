@@ -233,7 +233,12 @@
 // the same way, and the string too unless it is a name read where it is,
 // and reads the byte only when the index is at least 0, tested only for a
 // signed index, and below the string's length, read at runtime, giving 0
-// otherwise.
+// otherwise. A uint64 or target-width index is compared with the length
+// with both cast to uint64_t, which keeps every value of either, since a
+// length is never negative, and draws no warning that their signs differ
+// where size_t is 64 bits wide. Any other index converts to int64_t, the
+// length's type, as C does by itself. A target-width index reads an
+// element as size_t or uintptr_t, at any width.
 //
 // A struct type lowers to a typedef'd C struct named like a package-level
 // name of its package, tack_4_main5_Point, since the two share a namespace, with one member

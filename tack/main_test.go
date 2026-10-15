@@ -1258,9 +1258,11 @@ func TestBuiltMutParamsPassesEveryCheck(t *testing.T) {
 // conversions that fit and that fail at the host's real width, arithmetic
 // wrapping there, arithmetic on known values past every 32-bit value left
 // to run time, division, struct fields, mut parameters, arrays,
-// globals, a range count, results and a switch. Each check prints its
-// name and "ok", or "FAIL". Some checks hold only on a 64-bit host, such
-// as a uint64 above every 32-bit value converting to unsafe_size_t.
+// globals, a range count, results, a switch, and indexes of arrays,
+// strings and views by either type, proven by a guard, a counting loop or
+// a known value, and checked. Each check prints its name and "ok", or
+// "FAIL". Some checks hold only on a 64-bit host, such as a uint64 above
+// every 32-bit value converting to unsafe_size_t.
 func TestBuiltUnsafeSizesPassesEveryCheck(t *testing.T) {
 	bin := buildWithClang(t, "unsafe-sizes")
 	out, err := exec.CommandContext(t.Context(), bin).Output()
@@ -1279,7 +1281,12 @@ func TestBuiltUnsafeSizesPassesEveryCheck(t *testing.T) {
 		"arrays ok\n" +
 		"globals and a range count ok\n" +
 		"results ok\n" +
-		"switch ok\n"
+		"switch ok\n" +
+		"index proven by a guard ok\n" +
+		"index guard that fails ok\n" +
+		"index proven by a counting loop ok\n" +
+		"known index ok\n" +
+		"checked index ok\n"
 	if string(out) != want {
 		t.Errorf("unsafe-sizes printed\n%s\nwant\n%s", out, want)
 	}

@@ -8239,29 +8239,6 @@ unsafe-checked-conversion-negative/main.tck:5:28: error: constant -1 overflows u
    |	                           ^
 06 |	    if ok && v == 0 {
 
--- unsafe-compare-len-index/main.tck --
-package main
-
-func at(a [4]int64, s unsafe_size_t) int64 {
-    if s < len(a) {
-        return a[s]
-    }
-    return 0
-}
-
-func main() {
-    exit(at([4]int64{1, 2, 3, 4}, 2))
-}
--- unsafe-compare-len-index/expected --
-stage: typeck
----
-
-unsafe-compare-len-index/main.tck:5:18: error: index cannot be unsafe_size_t; convert it first with i, ok := int64(s)
-04 |	    if s < len(a) {
-05 |	        return a[s]
-   |	                 ^
-06 |	    }
-
 -- unsafe-const-negative/main.tck --
 package main
 
@@ -8475,19 +8452,84 @@ func main() {
 stage: typeck
 ---
 
-unsafe-index-array/main.tck:4:14: error: index cannot be unsafe_size_t; convert it first with i, ok := int64(s)
+unsafe-index-array/main.tck:4:14: error: index s may be out of range; check s < 4 first, or use v, ok := ...[s]
 03 |	func at(a [4]int64, s unsafe_size_t) int64 {
 04 |	    return a[s]
    |	             ^
 05 |	}
 
--- unsafe-index-checked/main.tck --
+-- unsafe-index-checked-const/main.tck --
+package main
+
+func main() {
+    a := [4]int64{1, 2, 3, 4}
+    v, ok := a[unsafe_uintptr_t(4)]
+    if ok {
+        exit(v)
+    }
+}
+-- unsafe-index-checked-const/expected --
+stage: typeck
+---
+
+unsafe-index-checked-const/main.tck:5:16: error: index 4 is out of range for [4]int64
+04 |	    a := [4]int64{1, 2, 3, 4}
+05 |	    v, ok := a[unsafe_uintptr_t(4)]
+   |	               ^~~~~~~~~~~~~~~~~~~
+06 |	    if ok {
+
+-- unsafe-index-const/main.tck --
+package main
+
+func main() {
+    a := [4]int64{1, 2, 3, 4}
+    exit(a[unsafe_size_t(4)])
+}
+-- unsafe-index-const/expected --
+stage: typeck
+---
+
+unsafe-index-const/main.tck:5:12: error: index 4 is out of range for [4]int64
+04 |	    a := [4]int64{1, 2, 3, 4}
+05 |	    exit(a[unsafe_size_t(4)])
+   |	           ^~~~~~~~~~~~~~~~
+06 |	}
+
+-- unsafe-index-counting-wraps/main.tck --
+package main
+
+func sum(a [4]int64, n unsafe_size_t) int64 {
+    mut total int64 = 0
+    for mut i unsafe_size_t = 2; i <= n; i++ {
+        total += a[i]
+    }
+    return total
+}
+
+func main() {
+    exit(sum([4]int64{1, 2, 3, 4}, 3))
+}
+-- unsafe-index-counting-wraps/expected --
+stage: typeck
+---
+
+unsafe-index-counting-wraps/main.tck:6:20: error: index i may be out of range; check i < 4 first, or use v, ok := ...[i]
+05 |	    for mut i unsafe_size_t = 2; i <= n; i++ {
+06 |	        total += a[i]
+   |	                   ^
+07 |	    }
+unsafe-index-counting-wraps/main.tck:5:42: note: on a 32-bit target, this step could wrap i past 4294967295, so the loop does not keep i at or above 2
+04 |	    mut total int64 = 0
+05 |	    for mut i unsafe_size_t = 2; i <= n; i++ {
+   |	                                         ^~~
+06 |	        total += a[i]
+
+-- unsafe-index-guard-allows-len/main.tck --
 package main
 
 func at(a [4]int64, s unsafe_uintptr_t) int64 {
-    v, ok := a[s]
-    if ok {
-        return v
+    if s <= len(a) {
+        return a[s]
     }
     return 0
 }
@@ -8495,15 +8537,20 @@ func at(a [4]int64, s unsafe_uintptr_t) int64 {
 func main() {
     exit(at([4]int64{1, 2, 3, 4}, 2))
 }
--- unsafe-index-checked/expected --
+-- unsafe-index-guard-allows-len/expected --
 stage: typeck
 ---
 
-unsafe-index-checked/main.tck:4:16: error: index cannot be unsafe_uintptr_t; convert it first with i, ok := int64(s)
+unsafe-index-guard-allows-len/main.tck:5:18: error: index s may be out of range; check s < 4 first, or use v, ok := ...[s]
+04 |	    if s <= len(a) {
+05 |	        return a[s]
+   |	                 ^
+06 |	    }
+unsafe-index-guard-allows-len/main.tck:4:8: note: this guard allows s == 4, and a has 4 elements
 03 |	func at(a [4]int64, s unsafe_uintptr_t) int64 {
-04 |	    v, ok := a[s]
-   |	               ^
-05 |	    if ok {
+04 |	    if s <= len(a) {
+   |	       ^~~~~~~~~~~
+05 |	        return a[s]
 
 -- unsafe-index-string/main.tck --
 package main
@@ -8522,11 +8569,48 @@ func main() {
 stage: typeck
 ---
 
-unsafe-index-string/main.tck:5:20: error: index cannot be unsafe_size_t; convert it first with i, ok := int64(i)
+unsafe-index-string/main.tck:5:20: error: index i may be out of range; check i < len(str) first, or use v, ok := ...[i]
 04 |	    for i := range s {
 05 |	        return str[i]
    |	                   ^
 06 |	    }
+
+-- unsafe-index-string-const/main.tck --
+package main
+
+func main() {
+    exit("tack"[unsafe_size_t(4)])
+}
+-- unsafe-index-string-const/expected --
+stage: typeck
+---
+
+unsafe-index-string-const/main.tck:4:17: error: index 4 is out of range for a string of 4 bytes
+03 |	func main() {
+04 |	    exit("tack"[unsafe_size_t(4)])
+   |	                ^~~~~~~~~~~~~~~~
+05 |	}
+
+-- unsafe-index-view/main.tck --
+package main
+
+func at(v []int64, p unsafe_uintptr_t) int64 {
+    return v[p]
+}
+
+func main() {
+    a := [4]int64{1, 2, 3, 4}
+    exit(at(a, 2))
+}
+-- unsafe-index-view/expected --
+stage: typeck
+---
+
+unsafe-index-view/main.tck:4:14: error: index p may be out of range; check p < len(v) first, or use v, ok := ...[p]
+03 |	func at(v []int64, p unsafe_uintptr_t) int64 {
+04 |	    return v[p]
+   |	             ^
+05 |	}
 
 -- unsafe-mismatch-int64/main.tck --
 package main

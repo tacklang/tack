@@ -137,7 +137,9 @@ const i386 = "i386-unknown-linux-gnu"
 // arithmetic, comparisons with wider and narrower types, and with signed
 // types and each other, by value, constants of other types included,
 // widening, a struct, an array, a switch, one with case values of other
-// integer types, a range count, globals and a mut parameter.
+// integer types, a range count, globals, a mut parameter, and indexes of
+// an array, a string and a view, proven by a guard, a counting loop or a
+// known value, and checked.
 const width32Program = `package main
 
 type B struct {
@@ -185,6 +187,20 @@ func mixed(s unsafe_size_t, p unsafe_uintptr_t, i int64, i8 int8, u64 uint64) bo
         s <= u64 && i < s && i8 == p && s > int8(-1) && p == uint8(255) && hits == 0
 }
 
+func index(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_uintptr_t) int64 {
+    x, okA := a[s]
+    y, okS := str[p]
+    z, okV := v[s]
+    mut sum int64 = x + y + z
+    if okA && okS && okV && s < len(v) && p < len(a) && s < len(str) {
+        sum += v[s] + a[p] + str[s]
+    }
+    for mut i unsafe_uintptr_t = 0; i < len(v); i++ {
+        sum += v[i]
+    }
+    return sum + a[unsafe_size_t(3)]
+}
+
 func main() {
     mut b := B{n: 1, p: 2}
     if mixed(b.n, b.p, -1, 3, 4) {
@@ -192,6 +208,7 @@ func main() {
     }
     grow(mut b.n, 4294967295)
     a := [2]unsafe_uintptr_t{b.p, 3}
+    a4 := [4]int64{1, 2, 3, 4}
     count += a[1] * b.p - 1
     for i := range b.p {
         count += i
@@ -207,6 +224,9 @@ func main() {
     }
     if count == 1 {
         count = 2
+    }
+    if index(a4, "abc", a4, b.n, b.p) == 0 {
+        count = 3
     }
 }
 `
@@ -246,6 +266,37 @@ func TestTargetWidthsCompileFor32Bits(t *testing.T) {
 		"-include",
 		header,
 	)
+}
+
+// TestTargetWidthIndexesRunStrictly runs, compiled with warnings as
+// errors on the 64-bit host, a program reading a string parameter at a
+// checked index of each target-width type and of uint64, in range, at the
+// length and at the largest value, each of which C would compare with the
+// length's int64_t across signs but for the casts, and reading an array at
+// a proven one.
+func TestTargetWidthIndexesRunStrictly(t *testing.T) {
+	src := "package main\n\n" +
+		"func at(str string, s unsafe_size_t, p unsafe_uintptr_t, w uint64, top unsafe_size_t) bool {\n" +
+		"    v, inS := str[s]\n" +
+		"    _, atLen := str[p]\n" +
+		"    x, inW := str[w]\n" +
+		"    _, atTop := str[top]\n" +
+		"    return inS && v == 'c' && !atLen && inW && x == 'b' && !atTop\n" +
+		"}\n\n" +
+		"func main() {\n" +
+		"    a := [3]int64{4, 5, 6}\n" +
+		"    mut s unsafe_size_t = 0\n" +
+		"    s--\n" +
+		"    if at(\"abc\", 2, 3, 1, s) && s > len(a) {\n" +
+		"        s = 2\n" +
+		"    }\n" +
+		"    if s < len(a) {\n" +
+		"        exit(a[s])\n" +
+		"    }\n" +
+		"}\n"
+	if out, status := run(t, src); out != "" || status != 6 {
+		t.Errorf("got stdout %q, status %d; want \"\", 6", out, status)
+	}
 }
 
 // compile32 writes src to path and checks it compiles for i386 with

@@ -853,8 +853,10 @@ makes for itself, which has a letter after `tack_`.
   `constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
   A known value past 4294967295 elsewhere, such as `s + 1` after
   `s := unsafe_size_t(4294967295)`, is not an error but is not known
-  either, and is computed at run time. One cannot index an array or a
-  string (see indexing). `len` stays an `int64`.
+  either, and is computed at run time. Either may index an array, a
+  string or a view, proven or checked as a `uint64` index is (see
+  indexing): `if s < len(a)` proves `a[s]` on every target. `len` stays
+  an `int64`.
 - Arrays. `[n]T` is an array of `n` elements of type `T`, where `n` is a
   known value (see division), such as a constant expression, an immutable
   variable holding one, `len` of an array or of a known string, or a field
@@ -873,9 +875,7 @@ makes for itself, which has a letter after `tack_`.
   with a constant expression (see package-level variables). An array
   passes to a view parameter, `[]T`, without a copy (see views).
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
-  type but a target-width one, which is an error in either form, proven
-  or not, `index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
-  An index is never out of range at runtime. `a[i]`, and an
+  type, a target-width one included. An index is never out of range at runtime. `a[i]`, and an
   assignment to it, compile only where the compiler proves `i` in range: a
   constant, checked against the length at compile time, or a variable
   known to lie between 0 and the length less one. Elsewhere,
@@ -912,7 +912,8 @@ makes for itself, which has a letter after `tack_`.
   package-level string never gets a proof. An unsigned index needs only
   the upper bound. Any integer index compares with `len(s)` or `len(a)`,
   an `int64`, by value (see comparisons), so for a `uint64` `u`,
-  `if u < len(s)` proves `s[u]`.
+  `if u < len(s)` proves `s[u]`, and the same holds for an
+  `unsafe_size_t` or `unsafe_uintptr_t` `u`, whatever the target's width.
 - `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
   division), and `len(v)` the number of elements of a view, never known;

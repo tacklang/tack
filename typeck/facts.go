@@ -41,7 +41,7 @@ import (
 //     knownString), so two more comparisons give facts: len(s) with a known value bounds the length,
 //     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
 //     over len(s), or over s itself, does its index, whatever i's integer
-//     type, a uint64 included. A fact that names s
+//     type, a uint64 or a target-width one included. A fact that names s
 //     holds only in a region that assigns neither variable; s may be
 //     mutable, since the region then never changes it.
 

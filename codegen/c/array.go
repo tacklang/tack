@@ -240,12 +240,13 @@ func passesAsMut(n ast.Node, decl ast.Decl) bool {
 // an array the bounds are constants, and only those the index's type can
 // cross are tested. For a string or a view the upper bound is its length: 0 is
 // tested only when the index's type can go below it, and the length
-// always. C compares the two in a common type. A uint64 index is compared
-// with the length as a uint64_t, both cast to it, which keeps the
-// length's value, since a length is never negative, and which C would
-// otherwise do implicitly, with a warning that the operands' signs
-// differ. Any other index's type converts to int64_t, the length's,
-// which holds its every value.
+// always. C compares the two in a common type. An unsigned index that can
+// be 64 bits wide, a uint64 or a target-width one, is compared with the
+// length as a uint64_t, both cast to it, which keeps the length's value,
+// since a length is never negative, and which C would otherwise do
+// implicitly where the index is 64 bits wide, with a warning that the
+// operands' signs differ, and not where it is 32. Any other index's type
+// converts to int64_t, the length's, which holds its every value.
 func (g *generator) indexIn(xType, indexType types.Type, x, at string) (in, read string) {
 	if !g.hasLen(xType) {
 		n := g.prog.Types.Len(xType)
