@@ -881,6 +881,12 @@ func TestMissingToolchainFailsAndCleansUp(t *testing.T) {
 	assertEmptyDir(t, tmp)
 }
 
+// TestCancelledBuildKillsToolchainAndCleansUp cancels a build while its
+// toolchain hangs and checks the toolchain is killed and the temp dir
+// removed. The program calls no builtin, so the hanging toolchain is the
+// build's first command: with one that called a builtin, compiling std's C
+// into an empty cache could outlast the 200ms deadline on a loaded
+// machine, and the cancellation would kill clang instead.
 func TestCancelledBuildKillsToolchainAndCleansUp(t *testing.T) {
 	tmp := isolateTemp(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
@@ -893,7 +899,7 @@ func TestCancelledBuildKillsToolchainAndCleansUp(t *testing.T) {
 		sleepBackend,
 		"--out",
 		filepath.Join(t.TempDir(), "bin"),
-		example("hello"),
+		example("empty"),
 	)
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("run took %s after cancellation; the toolchain was not killed", elapsed)
