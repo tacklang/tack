@@ -15,7 +15,7 @@ func converting(lines ...string) string {
 	return "package main\n\nvar k int64 = 200\nvar big uint64 = 18446744073709551615\n" +
 		"mut g int64 = 1\n\n" +
 		"func f(x int64) uint8 {\n    a := [3]int64{1, 2, 3}\n" + body +
-		"    exit(a[0] + g + k)\n    if big > 0 {\n        return 0\n    }\n    return 0\n}\n\n" +
+		"    code, _ := int32(a[0] + g + k)\n    exit(code)\n    if big > 0 {\n        return 0\n    }\n    return 0\n}\n\n" +
 		"func main() {\n    exit(f(1))\n}\n"
 }
 
@@ -40,7 +40,16 @@ var knownConversionCases = []struct{ name, src string }{
 		converting("n := 9223372036854775807", "w := uint64(n)", "if w > 0 {", "    return 1", "}"),
 	},
 	{"uint8 to int8", converting("var u uint8 = 127", "exit(int8(u))")},
-	{"uint64 to int64", converting("var u uint64 = 9223372036854775807", "exit(int64(u))")},
+	{
+		"uint64 to int64",
+		converting(
+			"var u uint64 = 9223372036854775807",
+			"w := int64(u)",
+			"if w > 0 {",
+			"    return 1",
+			"}",
+		),
+	},
 	{"chain of immutable locals", converting("n := 2", "m := n * 100", "return uint8(m)")},
 	{"negated known value", converting("n := 128", "exit(int8(-n))")},
 	{

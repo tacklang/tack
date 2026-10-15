@@ -12,7 +12,7 @@ var loopRuntimeCases = []struct {
 }{
 	{
 		"counts",
-		"package main\n\nfunc main() {\n    mut i = 0\n    for i < 10 {\n        i = i + 1\n    }\n    exit(i)\n}\n",
+		"package main\n\nfunc main() {\n    mut i = 0\n    for i < 10 {\n        i = i + 1\n    }\n    code, _ := int32(i)\n    exit(code)\n}\n",
 		"",
 		10,
 	},
@@ -23,48 +23,48 @@ var loopRuntimeCases = []struct {
 	},
 	{
 		"break leaves forever",
-		"package main\n\nfunc main() {\n    mut i = 0\n    for {\n        i = i + 1\n        if i == 7 {\n            break\n        }\n    }\n    exit(i)\n}\n",
+		"package main\n\nfunc main() {\n    mut i = 0\n    for {\n        i = i + 1\n        if i == 7 {\n            break\n        }\n    }\n    code, _ := int32(i)\n    exit(code)\n}\n",
 		"",
 		7,
 	},
 	{
 		"continue skips the rest of the body",
 		"package main\n\nfunc main() {\n    mut i = 0\n    mut odd = 0\n    for i < 10 {\n        i = i + 1\n        if i % 2 == 0 {\n            continue\n        }\n" +
-			"        odd = odd + 1\n    }\n    exit(odd)\n}\n",
+			"        odd = odd + 1\n    }\n    code, _ := int32(odd)\n    exit(code)\n}\n",
 		"",
 		5,
 	},
 	{
 		"break leaves only the inner loop",
 		"package main\n\nfunc main() {\n    mut n = 0\n    mut i = 0\n    for i < 3 {\n        i = i + 1\n        for {\n            n = n + 1\n            break\n        }\n" +
-			"        n = n + 10\n    }\n    exit(n)\n}\n",
+			"        n = n + 10\n    }\n    code, _ := int32(n)\n    exit(code)\n}\n",
 		"",
 		33,
 	},
 	{
 		"returns from forever",
 		"package main\n\nfunc first(over int64) int64 {\n    mut i = 0\n    for {\n        if i * i > over {\n            return i\n        }\n        i = i + 1\n    }\n}\n\n" +
-			"func main() {\n    exit(first(50))\n}\n",
+			"func main() {\n    code, _ := int32(first(50))\n    exit(code)\n}\n",
 		"",
 		8,
 	},
 	{
 		"fresh variable each iteration",
-		"package main\n\nfunc main() {\n    mut i = 0\n    mut sum = 0\n    for i < 4 {\n        sq := i * i\n        sum = sum + sq\n        i = i + 1\n    }\n    exit(sum)\n}\n",
+		"package main\n\nfunc main() {\n    mut i = 0\n    mut sum = 0\n    for i < 4 {\n        sq := i * i\n        sum = sum + sq\n        i = i + 1\n    }\n    code, _ := int32(sum)\n    exit(code)\n}\n",
 		"",
 		14,
 	},
 	{
 		"condition re-evaluated each time",
 		"package main\n\nmut calls int64\n\nfunc more() bool {\n    calls = calls + 1\n    print(\"check\")\n    return calls < 3\n}\n\n" +
-			"func main() {\n    for more() {\n    }\n    exit(calls)\n}\n",
+			"func main() {\n    for more() {\n    }\n    code, _ := int32(calls)\n    exit(code)\n}\n",
 		"checkcheckcheck",
 		3,
 	},
 	{
 		"iterative fib",
 		"package main\n\nfunc fib(n int64) int64 {\n    mut a = 0\n    mut b = 1\n    mut i = 0\n    for i < n {\n        next := a + b\n        a = b\n        b = next\n        i = i + 1\n    }\n    return a\n}\n\n" +
-			"func main() {\n    exit(fib(10))\n}\n",
+			"func main() {\n    code, _ := int32(fib(10))\n    exit(code)\n}\n",
 		"",
 		55,
 	},

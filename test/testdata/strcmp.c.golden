@@ -96,7 +96,7 @@ static const unsigned char tack_str28[2] = {100, 0};
 static const unsigned char tack_str29[2] = {120, 0};
 static const unsigned char tack_str30[2] = {121, 0};
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static tack_string tack_4_main8_greeting(bool p_formal);
 static tack_string tack_4_main5_fruit(int64_t p_i);
@@ -203,7 +203,13 @@ static void tack_4_main4_main(void) {
     if (v_i != 2) {
         tack_builtin_exit(18);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)40 + (uint64_t)v_i)));
+    const int64_t tack_r6 = ((int64_t)((uint64_t)40 + (uint64_t)v_i));
+    const int32_t v_code = ((tack_r6 >= (-2147483648) && tack_r6 <= 2147483647) ? (int32_t)tack_r6 : 0);
+    const bool v_ok = (tack_r6 >= (-2147483648) && tack_r6 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(19);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

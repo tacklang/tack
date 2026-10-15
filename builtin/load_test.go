@@ -19,7 +19,7 @@ func TestRepositoryBuiltins(t *testing.T) {
 	set := stdtest.Builtins(t)
 	want := []builtin.Func{
 		{Name: "print", CName: "tack_builtin_print", Params: []types.Type{types.String}},
-		{Name: "exit", CName: "tack_builtin_exit", Params: []types.Type{types.Int64}},
+		{Name: "exit", CName: "tack_builtin_exit", Params: []types.Type{types.Int32}},
 	}
 	got := set.Funcs()
 	if len(got) != len(want) {

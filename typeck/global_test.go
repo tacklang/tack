@@ -284,12 +284,12 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"assign to an immutable global",
-		"package main\n\nvar x = 1\n\nfunc main() {\n    x = 2\n    exit(x)\n}\n",
+		"package main\n\nvar x = 1\n\nfunc main() {\n    x = 2\n    exit(int32(x))\n}\n",
 		[]string{"cannot assign to immutable variable x"},
 	},
 	{
 		"assign the wrong type to a global",
-		"package main\n\nmut x = 1\n\nfunc main() {\n    x = \"s\"\n    exit(x)\n}\n",
+		"package main\n\nmut x = 1\n\nfunc main() {\n    x = \"s\"\n    code, _ := int32(x)\n    exit(code)\n}\n",
 		[]string{"cannot use string as int64 in assignment to x"},
 	},
 }
@@ -312,7 +312,7 @@ func TestRejectsInvalidGlobals(t *testing.T) {
 // A global's type is known in every function, whatever the order of
 // declarations, since globals are checked before any body.
 func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
-	src := "package main\n\nfunc main() {\n    exit(limit + 1)\n}\n\nvar limit = 41\n"
+	src := "package main\n\nfunc main() {\n    exit(int32(limit + 1))\n}\n\nvar limit = 41\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
@@ -320,7 +320,7 @@ func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
 
 // A mutable global can be assigned from any function.
 func TestMutableGlobalIsAssignable(t *testing.T) {
-	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    exit(count)\n}\n"
+	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    code, _ := int32(count)\n    exit(code)\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}

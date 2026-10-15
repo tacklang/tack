@@ -76,7 +76,7 @@ var integerWidthCases = []struct{ name, src string }{
 	},
 	{
 		"compound with a narrower value",
-		withSized("mut a int64 = 0", "a += i8", "a -= u32", "exit(a)"),
+		withSized("mut a int64 = 0", "a += i8", "a -= u32", "code, _ := int32(a)", "exit(code)"),
 	},
 	{
 		"increment any width",
@@ -89,7 +89,10 @@ var integerWidthCases = []struct{ name, src string }{
 			"}",
 		),
 	},
-	{"exit with a narrower value", withSized("exit(i8)", "exit(u32)")},
+	{
+		"exit with a narrower value",
+		withSized("exit(i8)", "exit(i16)", "exit(i32)", "exit(u8)", "exit(u16)"),
+	},
 	{"range over a sized count", withSized("for i := range u8 {", "    exit(i)", "}")},
 	{"negate a signed value", withSized("var a int8 = -i8", "if a < 0 {", "}")},
 	{
@@ -112,7 +115,8 @@ var integerWidthCases = []struct{ name, src string }{
 			"a, ok := uint64(i64)",
 			"b, fits := int64(u64)",
 			"if ok && fits && a > 0 {",
-			"    exit(b)",
+			"    code, _ := int32(b)",
+			"    exit(code)",
 			"}",
 		),
 	},
@@ -221,7 +225,17 @@ var widthErrorCases = []struct {
 	{
 		"narrowing argument",
 		withSized("exit(u64)"),
-		[]spanned{{"cannot use uint64 as int64 in argument to exit", "u64"}},
+		[]spanned{{"cannot use uint64 as int32 in argument to exit", "u64"}},
+	},
+	{
+		"int64 argument to exit",
+		withSized("exit(i64)"),
+		[]spanned{{"cannot use int64 as int32 in argument to exit", "i64"}},
+	},
+	{
+		"uint32 argument to exit",
+		withSized("exit(u32)"),
+		[]spanned{{"cannot use uint32 as int32 in argument to exit", "u32"}},
 	},
 	{
 		"narrowing result",
@@ -305,7 +319,13 @@ var widthErrorCases = []struct {
 	},
 	{
 		"checked conversion assigned to the wrong type",
-		withSized("mut a int8 = 0", "mut ok := 0", "a, ok = int8(i64)", "exit(a + ok)"),
+		withSized(
+			"mut a int8 = 0",
+			"mut ok := 0",
+			"a, ok = int8(i64)",
+			"code, _ := int32(a + ok)",
+			"exit(code)",
+		),
 		[]spanned{{"cannot use bool as int64 in assignment to ok", "ok"}},
 	},
 	{
@@ -356,7 +376,8 @@ func TestRecordsIntegerTypes(t *testing.T) {
 		"    exit(i)",
 		"}",
 		"if ok {",
-		"    exit(b + d + e + f)",
+		"    code, _ := int32(b + d + e + f)",
+		"    exit(code)",
 		"}",
 	))
 	if len(diags) > 0 {

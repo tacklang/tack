@@ -18,7 +18,7 @@ var charCases = []struct {
 	{"high byte", "package main\n\nfunc main() {\n    exit('\xff' - 200)\n}\n", 55},
 	{"wraps above at run time", program("mut c = 'a'", "c = c * 3", "exit(c)"), 35},
 	{"wraps below at run time", program("mut c = 'a'", "c -= 'b'", "exit(c)"), 255},
-	{"widens before arithmetic", program("var n int64 = 'a'", "exit(n * 3 - 200)"), 91},
+	{"widens before arithmetic", program("var n int64 = 'a'", "exit(int32(n * 3 - 200))"), 91},
 	{"uint8 arithmetic", program("c := 'z'", "exit(c - 'a' + 1)"), 26},
 	{"compare", program("c := 'q'", "if c > 'p' && c < 'r' && c == 113 {", "    exit(1)", "}"), 1},
 	{
@@ -33,7 +33,8 @@ var charCases = []struct {
 			"counts['a'] = 3",
 			"c := 'a'",
 			"counts[c] += 4",
-			"exit(counts[97])",
+			"code, _ := int32(counts[97])",
+			"exit(code)",
 		),
 		7,
 	},

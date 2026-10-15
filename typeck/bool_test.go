@@ -45,7 +45,7 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 		src  string
 		want []string
 	}{
-		{"exit status", inMain("exit(true)"), []string{"cannot use bool as int64"}},
+		{"exit status", inMain("exit(true)"), []string{"cannot use bool as int32"}},
 		{"printed", inMain("print(false)"), []string{"cannot use bool as string"}},
 		{
 			// The operand is reported, and the arithmetic has no type, so
@@ -56,17 +56,17 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 		},
 		{
 			"int64 variable",
-			mainLines("var x int64 = true", "exit(x)"),
+			mainLines("var x int64 = true", "code, _ := int32(x)", "exit(code)"),
 			[]string{"cannot use bool as int64 in declaration of x"},
 		},
 		{
 			"assigned to an int64",
-			mainLines("mut x = 1", "x = false", "exit(x)"),
+			mainLines("mut x = 1", "x = false", "code, _ := int32(x)", "exit(code)"),
 			[]string{"cannot use bool as int64 in assignment to x"},
 		},
 		{
 			"returned as an int64",
-			"package main\n\nfunc f() int64 {\n    return true\n}\n\nfunc main() {\n    exit(f())\n}\n",
+			"package main\n\nfunc f() int64 {\n    return true\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
 			[]string{"cannot use bool as int64"},
 		},
 	}

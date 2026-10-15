@@ -104,7 +104,7 @@ var stringIndexCases = []struct {
 		"sum by range",
 		"package main\n\nfunc sum(s string) int64 {\n    mut n := 0\n    for i := range len(s) {\n" +
 			"        n += s[i]\n    }\n    return n\n}\n\n" +
-			"func main() {\n    if sum(\"\") == 0 && sum(\"abc\") == 294 {\n        exit(sum(\"\\n\\n\"))\n    }\n}\n",
+			"func main() {\n    if sum(\"\") == 0 && sum(\"abc\") == 294 {\n        code, _ := int32(sum(\"\\n\\n\"))\n        exit(code)\n    }\n}\n",
 		"",
 		20,
 	},
@@ -124,7 +124,8 @@ var stringIndexCases = []struct {
 			"if len(s) > 0 {",
 			"    exit(1)",
 			"}",
-			"exit(total)",
+			"code, _ := int32(total)",
+			"exit(code)",
 		),
 		"",
 		'y',
@@ -149,7 +150,8 @@ var stringIndexCases = []struct {
 			"    n += v",
 			"    i++",
 			"}",
-			"exit(n - 300)",
+			"code, _ := int32(n - 300)",
+			"exit(code)",
 		),
 		// The first pass adds the 'a' v starts at, and the post reads from
 		// s[1], so s[0] is never added.
@@ -177,7 +179,7 @@ var stringIndexCases = []struct {
 			"if len(s) > 0 {",
 			"    var n int64 = s[0]",
 			"    var m uint16 = s[0]",
-			"    exit(n + m - 200)",
+			"    exit(int32(n + m - 200))",
 			"}",
 		),
 		"",
@@ -220,7 +222,7 @@ func TestCheckedUint64IndexIsWarningFree(t *testing.T) {
 		"}\n\n" +
 		"func main() {\n" +
 		"    a := [3]int64{10, 20, 30}\n" +
-		"    mut status := 0\n" +
+		"    mut status int32 = 0\n" +
 		"    if inString(\"abc\", 2, 3, 18446744073709551615) {\n" +
 		"        status += 1\n" +
 		"    }\n" +

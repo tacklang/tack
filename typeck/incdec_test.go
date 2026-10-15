@@ -11,7 +11,7 @@ var invalidIncDecCases = []struct {
 }{
 	{
 		"immutable",
-		mainLines("x := 1", "x++", "exit(x)"),
+		mainLines("x := 1", "x++", "exit(int32(x))"),
 		[]spanned{{"cannot assign to immutable variable x", "x"}},
 	},
 	{
@@ -34,8 +34,8 @@ var invalidIncDecCases = []struct {
 // TestIncDec checks ++ and -- need a mutable int variable.
 func TestIncDec(t *testing.T) {
 	ok := []string{
-		mainLines("mut x = 1", "x++", "x--", "x++", "exit(x)"),
-		"package main\n\nmut n int64\n\nfunc main() {\n    n++\n    exit(n)\n}\n",
+		mainLines("mut x = 1", "x++", "x--", "x++", "code, _ := int32(x)", "exit(code)"),
+		"package main\n\nmut n int64\n\nfunc main() {\n    n++\n    code, _ := int32(n)\n    exit(code)\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {

@@ -7,7 +7,7 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -59,7 +59,13 @@ static void tack_4_main4_main(void) {
     const int64_t v_half = 3;
     int64_t v_steps = 100;
     v_steps = tack_div_int64(v_steps, v_half);
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_4_main7_average(v_steps, 3))) + (uint64_t)v_w)));
+    const int64_t tack_r5 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)tack_4_main7_average(v_steps, 3))) + (uint64_t)v_w));
+    const int32_t v_code = ((tack_r5 >= (-2147483648) && tack_r5 <= 2147483647) ? (int32_t)tack_r5 : 0);
+    const bool v_fits = (tack_r5 >= (-2147483648) && tack_r5 <= 2147483647);
+    if (!v_fits) {
+        tack_builtin_exit(2);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

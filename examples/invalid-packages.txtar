@@ -374,7 +374,8 @@ import util from "calc/util"
 extern func add(a int64, b int64) int64
 
 func main() {
-    exit(add(util.Two(), 40))
+    code, _ := int32(add(util.Two(), 40))
+    exit(code)
 }
 -- extern-c-name-duplicate-packages/util/util.tck --
 package util
@@ -413,7 +414,8 @@ type lexer_Token struct {
 extern func mine(t lexer_Token)
 
 func main() {
-    exit(first.Kind() + second.Kind())
+    code, _ := int32(first.Kind() + second.Kind())
+    exit(code)
 }
 -- extern-same-package-names/a/lexer/lexer.tck --
 package lexer
@@ -1570,7 +1572,8 @@ import lexer from "calc/lexer"
 
 func main() {
     t := lexer.F()
-    exit(t.kind)
+    code, _ := int32(t.kind)
+    exit(code)
 }
 -- import-typeck-error/expected --
 stage: typeck
@@ -2315,7 +2318,8 @@ import lexer from "calc/lexer"
 
 func main() {
     t := lexer.Token{lexer.kind: 1}
-    exit(t.kind)
+    code, _ := int32(t.kind)
+    exit(code)
 }
 -- qualified-field-key/expected --
 stage: typeck
@@ -2325,7 +2329,7 @@ qualified-field-key/main.tck:6:22: error: invalid field name in lexer.Token lite
 05 |	func main() {
 06 |	    t := lexer.Token{lexer.kind: 1}
    |	                     ^~~~~~~~~~
-07 |	    exit(t.kind)
+07 |	    code, _ := int32(t.kind)
 
 -- qualified-type-in-message/tack.mod --
 module calc
@@ -2361,7 +2365,8 @@ import lexer from "calc/lexer"
 func main() {
     var x int64 = lexer.First("1")
     var a [2]lexer.Token = 1
-    exit(x + a[0].kind)
+    code, _ := int32(x + a[0].kind)
+    exit(code)
 }
 -- qualified-type-in-message/expected --
 stage: typeck
@@ -2383,7 +2388,7 @@ qualified-type-in-message/main.tck:7:28: error: cannot use int64 as [2]lexer.Tok
 06 |	    var x int64 = lexer.First("1")
 07 |	    var a [2]lexer.Token = 1
    |	                           ^
-08 |	    exit(x + a[0].kind)
+08 |	    code, _ := int32(x + a[0].kind)
 
 -- qualified-undefined/tack.mod --
 module calc
@@ -3125,7 +3130,8 @@ import lexer from "calc/lexer"
 
 func main() {
     mut t lexer.Token
-    exit(t.ok)
+    code, _ := int32(t.ok)
+    exit(code)
 }
 -- vis-exposes/expected --
 stage: typeck
@@ -3355,7 +3361,8 @@ func main() {
     t.end++
     t.end--
     a[0].end = 2
-    exit(t.kind + a[1].kind)
+    code, _ := int32(t.kind + a[1].kind)
+    exit(code)
 }
 -- vis-field-write/expected --
 stage: typeck
@@ -3389,7 +3396,7 @@ vis-field-write/main.tck:13:10: error: end is not pub in lexer.Token
 12 |	    t.end--
 13 |	    a[0].end = 2
    |	         ^~~
-14 |	    exit(t.kind + a[1].kind)
+14 |	    code, _ := int32(t.kind + a[1].kind)
 
 -- vis-in-main/tack.mod --
 module calc
@@ -3476,7 +3483,8 @@ func main() {
     u := lexer.Token{kind: 1}
     p := lexer.Pos{line: 1, col: 2}
     a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
-    exit(t.kind + u.kind + p.line + a[0].kind)
+    code, _ := int32(t.kind + u.kind + p.line + a[0].kind)
+    exit(code)
 }
 -- vis-literal/expected --
 stage: typeck
@@ -3498,7 +3506,7 @@ vis-literal/main.tck:9:25: error: cannot write a lexer.Token literal outside pac
 08 |	    p := lexer.Pos{line: 1, col: 2}
 09 |	    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
    |	                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
-10 |	    exit(t.kind + u.kind + p.line + a[0].kind)
+10 |	    code, _ := int32(t.kind + u.kind + p.line + a[0].kind)
 
 -- vis-mut-exported/tack.mod --
 module calc

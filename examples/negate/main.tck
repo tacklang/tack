@@ -18,5 +18,9 @@ func main() {
     if abs(smallest) != smallest {
         exit(2)
     }
-    exit(abs(-20) + abs(3) - -(-4))
+    code, ok := int32(abs(-20) + abs(3) - -(-4))
+    if !ok {
+        exit(3)
+    }
+    exit(code)
 }

@@ -31,5 +31,9 @@ func main() {
     if ok || !fine || !seen[200] {
         exit(1)
     }
-    exit(sum(squares) + v + counts[3])
+    code, fits := int32(sum(squares) + v + counts[3])
+    if !fits {
+        exit(2)
+    }
+    exit(code)
 }

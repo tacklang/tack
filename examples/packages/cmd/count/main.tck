@@ -5,5 +5,9 @@ import lexer from "calc/lexer"
 
 // A second main package of the module, sharing its libraries.
 func main() {
-    exit(one.Depth() * 10 + lexer.MaxTokens)
+    code, ok := int32(one.Depth() * 10 + lexer.MaxTokens)
+    if !ok {
+        exit(1)
+    }
+    exit(code)
 }

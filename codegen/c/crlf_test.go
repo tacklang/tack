@@ -35,8 +35,9 @@ const crlfProgram = "package main\n" +
 	"    default:\n" +
 	"        exit(2)\n" +
 	"    }\n" +
-	"    exit(count(5) +\n" +
+	"    code, _ := int32(count(5) +\n" +
 	"        0)\n" +
+	"    exit(code)\n" +
 	"}\n"
 
 // TestCRLFProgramRuns builds a program saved with \r\n line endings and

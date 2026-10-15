@@ -130,5 +130,9 @@ func main() {
         exit(18)
     }
 
-    exit(40 + i)
+    code, ok := int32(40 + i)
+    if !ok {
+        exit(19)
+    }
+    exit(code)
 }

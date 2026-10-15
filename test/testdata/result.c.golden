@@ -7,12 +7,12 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
-static int64_t tack_4_main5_seven(void);
+static int32_t tack_4_main5_seven(void);
 static void tack_4_main4_main(void);
 
-static int64_t tack_4_main5_seven(void) {
+static int32_t tack_4_main5_seven(void) {
     return 7;
 }
 

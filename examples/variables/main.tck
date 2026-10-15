@@ -28,6 +28,10 @@ func main() {
     count = count + 1
     done := count == 1
     if done {
-        exit(total)
+        code, ok := int32(total)
+        if !ok {
+            exit(1)
+        }
+        exit(code)
     }
 }

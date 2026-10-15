@@ -105,7 +105,13 @@ var provenStringIndexCases = []struct{ name, src string }{
 	},
 	{
 		"byte is a uint8",
-		stringing("if 0 <= i && i < len(s) {", "    var x int64 = s[i]", "    exit(x)", "}"),
+		stringing(
+			"if 0 <= i && i < len(s) {",
+			"    var x int64 = s[i]",
+			"    code, _ := int32(x)",
+			"    exit(code)",
+			"}",
+		),
 	},
 	{
 		"checked with a proven index",

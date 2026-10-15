@@ -25,5 +25,9 @@ func main() {
     half := 7 / 2
     mut steps int64 = 100
     steps /= half
-    exit(q * 10 + r + average(steps, 3) + w)
+    code, fits := int32(q * 10 + r + average(steps, 3) + w)
+    if !fits {
+        exit(2)
+    }
+    exit(code)
 }

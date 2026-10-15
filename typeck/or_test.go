@@ -129,7 +129,14 @@ var noOrFactCases = []struct {
 	},
 	{
 		"region assigns the variable",
-		divide("mut d := b", "if d < 0 || d > 0 {", "    exit(a / d)", "    d = 0", "}"),
+		divide(
+			"mut d := b",
+			"if d < 0 || d > 0 {",
+			"    code, _ := int32(a / d)",
+			"    exit(code)",
+			"    d = 0",
+			"}",
+		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{"index past the end", indexing("if i == 0 || i == 3 {", "    return a[i]", "}"), indexI},

@@ -7,7 +7,7 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const int64_t tack_4_main8_smallest = (-9223372036854775807 - 1);
 
@@ -30,7 +30,13 @@ static void tack_4_main4_main(void) {
     if (tack_4_main3_abs(tack_4_main8_smallest) != tack_4_main8_smallest) {
         tack_builtin_exit(2);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)(tack_o0 = tack_4_main3_abs((-20)), tack_o1 = tack_4_main3_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4)));
+    const int64_t tack_r2 = ((int64_t)((uint64_t)(tack_o0 = tack_4_main3_abs((-20)), tack_o1 = tack_4_main3_abs(3), ((int64_t)((uint64_t)tack_o0 + (uint64_t)tack_o1))) - (uint64_t)4));
+    const int32_t v_code = ((tack_r2 >= (-2147483648) && tack_r2 <= 2147483647) ? (int32_t)tack_r2 : 0);
+    const bool v_ok = (tack_r2 >= (-2147483648) && tack_r2 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(3);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

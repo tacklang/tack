@@ -7,7 +7,7 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -43,7 +43,13 @@ static void tack_4_main4_main(void) {
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x + (uint64_t)1));
     v_x = ((int64_t)((uint64_t)v_x - (uint64_t)1));
-    tack_builtin_exit(v_x);
+    const int64_t tack_r0 = v_x;
+    const int32_t v_code = ((tack_r0 >= (-2147483648) && tack_r0 <= 2147483647) ? (int32_t)tack_r0 : 0);
+    const bool v_ok = (tack_r0 >= (-2147483648) && tack_r0 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(1);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

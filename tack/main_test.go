@@ -634,7 +634,7 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 		{
 			"deep defers with returns",
 			"package main\nfunc f() int64 {\n" + strings.Repeat("if true {\ndefer { print(\"x\") }\nreturn 1\n", 300) +
-				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    exit(f())\n}\n",
+				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1024,7 +1024,7 @@ func TestBuiltIndexingExits70(t *testing.T) {
 
 // The chars example uses character literals as uint8 constants: in
 // arithmetic, comparisons, indexes, array lengths and package-level
-// initializers, and widened to int64 for exit; a mutable copy of one wraps
+// initializers, and widened to int32 for exit; a mutable copy of one wraps
 // at run time when tripled. Hex escapes give their bytes, in a character
 // literal and in a string.
 func TestBuiltCharsExits97(t *testing.T) {

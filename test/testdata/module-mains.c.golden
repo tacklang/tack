@@ -9,7 +9,7 @@ stage: ok
 static const unsigned char tack_str0[6] = {114, 111, 111, 116, 10, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static void tack_13_example_2ecom14_module_2dmains4_main(void);
 

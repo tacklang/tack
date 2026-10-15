@@ -13,7 +13,7 @@ static const unsigned char tack_str3[13] = {102, 105, 118, 101, 32, 115, 113, 11
 static const unsigned char tack_str4[15] = {115, 111, 109, 101, 116, 104, 105, 110, 103, 32, 101, 108, 115, 101, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_4_main6_square(int64_t p_n);
 static void tack_4_main4_main(void);
@@ -43,7 +43,13 @@ static void tack_4_main4_main(void) {
     v_count = ((int64_t)((uint64_t)v_count + (uint64_t)1));
     const bool v_done = (v_count == 1);
     if (v_done) {
-        tack_builtin_exit(v_total);
+        const int64_t tack_r0 = v_total;
+        const int32_t v_code = ((tack_r0 >= (-2147483648) && tack_r0 <= 2147483647) ? (int32_t)tack_r0 : 0);
+        const bool v_ok = (tack_r0 >= (-2147483648) && tack_r0 <= 2147483647);
+        if (!v_ok) {
+            tack_builtin_exit(1);
+        }
+        tack_builtin_exit(v_code);
     }
 }
 

@@ -20,7 +20,7 @@ var both = a == "abc" && b != a
 var notEqual = !(empty == a)
 
 // check exits with status when ok is false.
-func check(ok bool, status int64) {
+func check(ok bool, status int32) {
     if !ok {
         exit(status)
     }

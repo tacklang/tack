@@ -24,7 +24,15 @@ func withMulti(lines ...string) string {
 func TestRecordsMultiVarTypes(t *testing.T) {
 	file, diags := checkTree(
 		t,
-		withMulti("s, b, mut n := three()", "n = 4", "if b {", "    print(s)", "}", "exit(n)"),
+		withMulti(
+			"s, b, mut n := three()",
+			"n = 4",
+			"if b {",
+			"    print(s)",
+			"}",
+			"code, _ := int32(n)",
+			"exit(code)",
+		),
 	)
 	if len(diags) > 0 {
 		t.Fatalf("check reported %v", diags)
@@ -40,47 +48,72 @@ func TestRecordsMultiVarTypes(t *testing.T) {
 	}
 }
 
-// TestAcceptsMultipleResults lists programs using several results that must
-// check cleanly.
-func TestAcceptsMultipleResults(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-	}{
-		{"bind both", withMulti("q, r := divmod(7, 2)", "exit(q + r)")},
-		{"discard all as a statement", withMulti("divmod(7, 2)")},
-		{"mixed types", withMulti("s, b, n := three()", "if b {", "    print(s)", "}", "exit(n)")},
-		{"mutable one", withMulti("q, mut r := divmod(7, 2)", "r += q", "exit(r)")},
-		{
-			"in a loop init",
-			withMulti("for q, mut r := divmod(9, 4); r > 0; r-- {", "    exit(q)", "}"),
-		},
-		{
-			"results as arguments",
-			withMulti("q, r := divmod(7, 2)", "a, b := divmod(q, r)", "exit(a + b)"),
-		},
-		{
-			"recursive",
-			"package main\n\nfunc fib(n int64) (int64, int64) {\n    if n == 0 {\n        return 0, 1\n    }\n" +
-				"    a, b := fib(n - 1)\n    return b, a + b\n}\n\nfunc main() {\n    x, y := fib(10)\n    exit(x + y)\n}\n",
-		},
-		{
-			"declared after its caller",
-			"package main\n\nfunc main() {\n    a, b := later()\n    exit(a + b)\n}\n\n" +
-				"func later() (int64, int64) {\n    return 1, 2\n}\n",
-		},
-		{
-			"ends in a loop",
-			"package main\n\nfunc f() (int64, int64) {\n    for {\n    }\n}\n\nfunc main() {\n    f()\n}\n",
-		},
-		{
-			"ends in an if with an else",
-			"package main\n\nfunc f(n int64) (int64, int64) {\n    if n > 0 {\n        return 1, 2\n    } else {\n        return 3, 4\n    }\n}\n\n" +
-				"func main() {\n    f(1)\n}\n",
-		},
-	}
+// multipleResultCases are programs using several results that must check
+// cleanly.
+var multipleResultCases = []struct {
+	name string
+	src  string
+}{
+	{"bind both", withMulti("q, r := divmod(7, 2)", "code, _ := int32(q + r)", "exit(code)")},
+	{"discard all as a statement", withMulti("divmod(7, 2)")},
+	{
+		"mixed types",
+		withMulti(
+			"s, b, n := three()",
+			"if b {",
+			"    print(s)",
+			"}",
+			"code, _ := int32(n)",
+			"exit(code)",
+		),
+	},
+	{
+		"mutable one",
+		withMulti("q, mut r := divmod(7, 2)", "r += q", "code, _ := int32(r)", "exit(code)"),
+	},
+	{
+		"in a loop init",
+		withMulti(
+			"for q, mut r := divmod(9, 4); r > 0; r-- {",
+			"    code, _ := int32(q)",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"results as arguments",
+		withMulti(
+			"q, r := divmod(7, 2)",
+			"a, b := divmod(q, r)",
+			"code, _ := int32(a + b)",
+			"exit(code)",
+		),
+	},
+	{
+		"recursive",
+		"package main\n\nfunc fib(n int64) (int64, int64) {\n    if n == 0 {\n        return 0, 1\n    }\n" +
+			"    a, b := fib(n - 1)\n    return b, a + b\n}\n\nfunc main() {\n    x, y := fib(10)\n    code, _ := int32(x + y)\n    exit(code)\n}\n",
+	},
+	{
+		"declared after its caller",
+		"package main\n\nfunc main() {\n    a, b := later()\n    code, _ := int32(a + b)\n    exit(code)\n}\n\n" +
+			"func later() (int64, int64) {\n    return 1, 2\n}\n",
+	},
+	{
+		"ends in a loop",
+		"package main\n\nfunc f() (int64, int64) {\n    for {\n    }\n}\n\nfunc main() {\n    f()\n}\n",
+	},
+	{
+		"ends in an if with an else",
+		"package main\n\nfunc f(n int64) (int64, int64) {\n    if n > 0 {\n        return 1, 2\n    } else {\n        return 3, 4\n    }\n}\n\n" +
+			"func main() {\n    f(1)\n}\n",
+	},
+}
 
-	for _, tt := range tests {
+// TestAcceptsMultipleResults checks each of multipleResultCases has no
+// diagnostics.
+func TestAcceptsMultipleResults(t *testing.T) {
+	for _, tt := range multipleResultCases {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, diags := checkTree(t, tt.src); len(diags) > 0 {
 				t.Errorf("got %v, want no diagnostics", diags)
@@ -156,27 +189,41 @@ var multipleResultMisuseCases = []struct {
 	},
 	{
 		"several results as a nested argument",
-		withMulti("q, r := divmod(divmod(1, 2), 3)", "exit(q + r)"),
+		withMulti("q, r := divmod(divmod(1, 2), 3)", "code, _ := int32(q + r)", "exit(code)"),
 		[]spanned{{"divmod returns 2 values", "divmod(1, 2)"}},
 	},
 	{
 		"bad argument to the call",
-		withMulti("q, r := divmod(\"x\", 3)", "exit(q + r)"),
+		withMulti("q, r := divmod(\"x\", 3)", "code, _ := int32(q + r)", "exit(code)"),
 		[]spanned{{"cannot use string as int64 in argument to divmod", "\"x\""}},
 	},
 	{
 		"result type flows into uses",
-		withMulti("s, b, n := three()", "exit(s)", "if b {", "    exit(n)", "}"),
-		[]spanned{{"cannot use string as int64 in argument to exit", "s"}},
+		withMulti(
+			"s, b, n := three()",
+			"exit(s)",
+			"if b {",
+			"    code, _ := int32(n)",
+			"    exit(code)",
+			"}",
+		),
+		[]spanned{{"cannot use string as int32 in argument to exit", "s"}},
 	},
 	{
 		"immutable result variable",
-		withMulti("q, mut r := divmod(1, 2)", "q = r", "exit(q)"),
+		withMulti("q, mut r := divmod(1, 2)", "q = r", "code, _ := int32(q)", "exit(code)"),
 		[]spanned{{"cannot assign to immutable variable q", "q"}},
 	},
 	{
 		"mutable result variable gets the wrong type",
-		withMulti("s, b, mut n := three()", "n = s", "if b {", "    exit(n)", "}"),
+		withMulti(
+			"s, b, mut n := three()",
+			"n = s",
+			"if b {",
+			"    code, _ := int32(n)",
+			"    exit(code)",
+			"}",
+		),
 		[]spanned{{"cannot use string as int64 in assignment to n", "s"}},
 	},
 	{
@@ -319,31 +366,42 @@ var multiAssignCases = []struct {
 }{
 	{
 		"both mutable",
-		withMulti("mut q, mut r := divmod(7, 2)", "q, r = divmod(q, r)", "exit(q + r)"),
+		withMulti(
+			"mut q, mut r := divmod(7, 2)",
+			"q, r = divmod(q, r)",
+			"code, _ := int32(q + r)",
+			"exit(code)",
+		),
 		nil,
 	},
 	{
 		"loop post",
 		withMulti(
 			"for mut a, mut b := divmod(9, 1); a > 0; a, b = divmod(a, 2) {",
-			"    exit(b)",
+			"    code, _ := int32(b)",
+			"    exit(code)",
 			"}",
 		),
 		nil,
 	},
 	{
 		"mutable global",
-		"package main\n\nmut g int64\n\n" + multiFuncs + mainLines("mut r := 0", "g, r = divmod(7, 2)", "exit(g + r)")[len("package main\n\n"):],
+		"package main\n\nmut g int64\n\n" + multiFuncs + mainLines("mut r := 0", "g, r = divmod(7, 2)", "code, _ := int32(g + r)", "exit(code)")[len("package main\n\n"):],
 		nil,
 	},
 	{
 		"immutable target",
-		withMulti("q, mut r := divmod(7, 2)", "q, r = divmod(1, 1)", "exit(q + r)"),
+		withMulti(
+			"q, mut r := divmod(7, 2)",
+			"q, r = divmod(1, 1)",
+			"code, _ := int32(q + r)",
+			"exit(code)",
+		),
 		[]spanned{{"cannot assign to immutable variable q", "q"}},
 	},
 	{
 		"parameter target",
-		"package main\n\n" + multiFuncs + "func f(p int64) {\n    mut r := 0\n    p, r = divmod(1, 1)\n    exit(r)\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\n" + multiFuncs + "func f(p int64) {\n    mut r := 0\n    p, r = divmod(1, 1)\n    code, _ := int32(r)\n    exit(code)\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]spanned{{"cannot assign to parameter p", "p"}},
 	},
 	{
@@ -353,7 +411,8 @@ var multiAssignCases = []struct {
 			"mut b := true",
 			"mut n := 0",
 			"s, b, n = three()",
-			"exit(s + n)",
+			"code, _ := int32(s + n)",
+			"exit(code)",
 			"if b {",
 			"}",
 		),
@@ -361,19 +420,25 @@ var multiAssignCases = []struct {
 	},
 	{
 		"same target twice",
-		withMulti("mut q := 0", "q, q = divmod(7, 2)", "exit(q)"),
+		withMulti("mut q := 0", "q, q = divmod(7, 2)", "code, _ := int32(q)", "exit(code)"),
 		[]spanned{{"q is assigned more than once", "q"}},
 	},
 	{
 		"count mismatch",
-		withMulti("mut a := 0", "mut b := 0", "a, b = three()", "exit(a + b)"),
+		withMulti(
+			"mut a := 0",
+			"mut b := 0",
+			"a, b = three()",
+			"code, _ := int32(a + b)",
+			"exit(code)",
+		),
 		[]spanned{
 			{"assignment mismatch: 2 variables but three returns 3 values", "a, b = three()"},
 		},
 	},
 	{
 		"count mismatch and an immutable target",
-		withMulti("a := 0", "mut b := 0", "a, b = one()", "exit(a + b)"),
+		withMulti("a := 0", "mut b := 0", "a, b = one()", "code, _ := int32(a + b)", "exit(code)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but one returns 1 value", "a, b = one()"},
 			{"cannot assign to immutable variable a", "a"},
@@ -381,7 +446,7 @@ var multiAssignCases = []struct {
 	},
 	{
 		"not a call",
-		withMulti("mut a := 0", "mut b := 0", "a, b = 5", "exit(a + b)"),
+		withMulti("mut a := 0", "mut b := 0", "a, b = 5", "code, _ := int32(a + b)", "exit(code)"),
 		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b = 5"}},
 	},
 }
@@ -417,7 +482,8 @@ func TestBlankInMultiBindings(t *testing.T) {
 			"mut n := 0",
 			"_, _, n = three()",
 			"if b {",
-			"    exit(n)",
+			"    code, _ := int32(n)",
+			"    exit(code)",
 			"}",
 		),
 	)

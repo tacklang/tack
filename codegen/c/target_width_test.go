@@ -22,7 +22,11 @@ var stddefCases = []struct {
 	name, src string
 	want      bool
 }{
-	{"no target-width type", "package main\n\nfunc main() {\n    x := 1\n    exit(x)\n}\n", false},
+	{
+		"no target-width type",
+		"package main\n\nfunc main() {\n    x := 1\n    exit(int32(x))\n}\n",
+		false,
+	},
 	{
 		"unsafe_uintptr_t only",
 		"package main\n\nfunc f(p unsafe_uintptr_t) unsafe_uintptr_t {\n    return p + 1\n}\n\n" +
@@ -307,7 +311,8 @@ func TestTargetWidthIndexesRunStrictly(t *testing.T) {
 		"        s = 2\n" +
 		"    }\n" +
 		"    if s < len(a) {\n" +
-		"        exit(a[s])\n" +
+		"        code, _ := int32(a[s])\n" +
+		"        exit(code)\n" +
 		"    }\n" +
 		"}\n"
 	if out, status := run(t, src); out != "" || status != 6 {

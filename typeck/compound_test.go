@@ -6,10 +6,19 @@ import "testing"
 // cleanly.
 func TestAcceptsCompoundAssignment(t *testing.T) {
 	tests := []string{
-		mainLines("mut x = 1", "x += 2", "x -= 1", "x *= 3", "x /= 2", "x %= 5", "exit(x)"),
-		mainLines("mut x int64", "x += 1 + 2 * 3", "exit(x)"),
-		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    exit(x)\n}\n",
-		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    exit(total)\n}\n",
+		mainLines(
+			"mut x = 1",
+			"x += 2",
+			"x -= 1",
+			"x *= 3",
+			"x /= 2",
+			"x %= 5",
+			"code, _ := int32(x)",
+			"exit(code)",
+		),
+		mainLines("mut x int64", "x += 1 + 2 * 3", "code, _ := int32(x)", "exit(code)"),
+		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    code, _ := int32(total)\n    exit(code)\n}\n",
 	}
 
 	for _, src := range tests {
@@ -33,7 +42,7 @@ var invalidCompoundCases = []struct {
 }{
 	{
 		"immutable",
-		mainLines("x := 1", "x += 1", "exit(x)"),
+		mainLines("x := 1", "x += 1", "exit(int32(x))"),
 		[]spanned{{"cannot assign to immutable variable x", "x"}},
 	},
 	{
@@ -43,7 +52,7 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"immutable global",
-		"package main\n\nvar limit = 3\n\nfunc main() {\n    limit -= 1\n    exit(limit)\n}\n",
+		"package main\n\nvar limit = 3\n\nfunc main() {\n    limit -= 1\n    exit(int32(limit))\n}\n",
 		[]spanned{{"cannot assign to immutable variable limit", "limit"}},
 	},
 	{
@@ -60,12 +69,12 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"string value",
-		mainLines("mut x = 1", "x -= \"s\"", "exit(x)"),
+		mainLines("mut x = 1", "x -= \"s\"", "code, _ := int32(x)", "exit(code)"),
 		[]spanned{{"cannot use string as int64 in -=", "\"s\""}},
 	},
 	{
 		"bool value",
-		mainLines("mut x = 1", "x %= 1 < 2", "exit(x)"),
+		mainLines("mut x = 1", "x %= 1 < 2", "code, _ := int32(x)", "exit(code)"),
 		[]spanned{{"cannot use bool as int64 in %=", "1 < 2"}},
 	},
 	{
@@ -77,12 +86,12 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"value from a function returning nothing",
-		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x = 1\n    x += f()\n    exit(x)\n}\n",
+		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x = 1\n    x += f()\n    code, _ := int32(x)\n    exit(code)\n}\n",
 		[]spanned{{"f returns no value", "f()"}},
 	},
 	{
 		"error inside the value",
-		mainLines("mut x = 1", "x += 1 + \"s\"", "exit(x)"),
+		mainLines("mut x = 1", "x += 1 + \"s\"", "code, _ := int32(x)", "exit(code)"),
 		[]spanned{{"operator + is not defined on string", "\"s\""}},
 	},
 }

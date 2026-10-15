@@ -16,6 +16,6 @@ func main() {
     count()
     count()
     if calls == 2 {
-        exit(limit)
+        exit(int32(limit))
     }
 }

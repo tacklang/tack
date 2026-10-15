@@ -49,7 +49,7 @@ static bool tack_eq_18(tack_4_main5_Empty a, tack_4_main5_Empty b) {
 
 static const unsigned char tack_str0[5] = {103, 114, 105, 100, 0};
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
 static const tack_array_20 tack_4_main7_corners = {{{1, 1}, {2, 2}}};
@@ -150,7 +150,13 @@ static void tack_4_main4_main(void) {
     if (!tack_eq_18(v_e, (tack_4_main5_Empty){0})) {
         tack_builtin_exit(9);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100)));
+    const int64_t tack_r7 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100));
+    const int32_t v_code = ((tack_r7 >= (-2147483648) && tack_r7 <= 2147483647) ? (int32_t)tack_r7 : 0);
+    const bool v_ok = (tack_r7 >= (-2147483648) && tack_r7 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(10);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

@@ -13,7 +13,7 @@ static const unsigned char tack_str3[1] = {0};
 static const unsigned char tack_str4[3] = {97, 98, 0};
 static const unsigned char tack_str5[7] = {98, 97, 110, 97, 110, 97, 0};
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const tack_string tack_4_main4_word = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 
@@ -83,7 +83,13 @@ static void tack_4_main4_main(void) {
     if ((((((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}).ptr[1] != 97) || (tack_4_main2_at(tack_4_main4_word, 4) != 0)) || (tack_4_main2_at(tack_4_main4_word, (-1)) != 0)) || (tack_4_main5_first(tack_4_main4_word) != 116)) {
         tack_builtin_exit(4);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)(tack_o4 = tack_4_main5_count((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, 97), tack_o5 = tack_4_main2_at(tack_4_main4_word, 2), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) - (uint64_t)97)));
+    const int64_t tack_r6 = ((int64_t)((uint64_t)(tack_o4 = tack_4_main5_count((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, 97), tack_o5 = tack_4_main2_at(tack_4_main4_word, 2), ((int64_t)((uint64_t)tack_o4 + (uint64_t)tack_o5))) - (uint64_t)97));
+    const int32_t v_code = ((tack_r6 >= (-2147483648) && tack_r6 <= 2147483647) ? (int32_t)tack_r6 : 0);
+    const bool v_fits = (tack_r6 >= (-2147483648) && tack_r6 <= 2147483647);
+    if (!v_fits) {
+        tack_builtin_exit(6);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

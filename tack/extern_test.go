@@ -129,7 +129,7 @@ func buildInvalidC(t *testing.T, c invalid.TreeCase) string {
 // addProgram is a single-file program whose one extern func, add, its C
 // file defines, and which exits with add(40, 2).
 const addProgram = "package main\n\nextern func add(a int64, b int64) int64\n\n" +
-	"func main() {\n    exit(add(40, 2))\n}\n"
+	"func main() {\n    code, _ := int32(add(40, 2))\n    exit(code)\n}\n"
 
 // addC defines add for addProgram.
 const addC = "int64_t add(int64_t a, int64_t b) {\n    return a + b;\n}\n"
@@ -183,7 +183,7 @@ func TestEmitHeaderWritesEveryPackageWithC(t *testing.T) {
 	dir := writeDir(t, map[string]string{
 		"tack.mod": "module calc\n",
 		"cmd/main.tck": "package main\n\nimport util from \"calc/util\"\nimport plain from \"calc/plain\"\n\n" +
-			"func main() {\n    exit(util.Sum(40, plain.Two()))\n}\n",
+			"func main() {\n    code, _ := int32(util.Sum(40, plain.Two()))\n    exit(code)\n}\n",
 		"util/util.tck": "package util\n\nextern func add(a int64, b int64) int64\n\n" +
 			"pub func Sum(a int64, b int64) int64 {\n    return add(a, b)\n}\n",
 		"util/util.c":     addC,

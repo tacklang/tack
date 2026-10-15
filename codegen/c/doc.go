@@ -314,12 +314,12 @@
 // without a C library swaps those files. Their names start tack_, which no
 // user extern func's C name may, and the generated C's own tack_ names
 // never start tack_builtin_. print's body is a length-bounded fwrite of its
-// argument to stdout with nothing added. exit's calls C's exit, which takes
-// an int, so the int64 status is cast to int explicitly, exit((int)code),
-// rather than narrowed implicitly. A status outside int's range gives an
-// implementation-defined value in C11 (6.3.1.3); clang keeps the low 32
-// bits, and the OS keeps fewer still, the low 8 on Linux and macOS, so only
-// the low bits of the status reach the OS: exit(70000) exits with 112.
+// argument to stdout with nothing added. exit's status is an int32, an
+// int32_t in C, which its body passes to C's exit as its int: on every
+// target Tack builds for int32_t is int, and the type checker has already
+// made the program convert any wider status, so no narrowing is left to
+// the C. The OS keeps only the low bits of the
+// status, the low 8 on Linux and macOS: exit(70000) exits with 112.
 // Every binary expression is parenthesised, so Tack's grouping survives
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.

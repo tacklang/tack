@@ -67,7 +67,8 @@ func main() {
     if w != t || z == t || t.start != 4 || z.kind != 0 {
         exit(1)
     }
-    exit(t.kind + lexer.Limit + lexer.Line(p) + lexer.Line(lexer.Origin) + p.line)
+    code, _ := int32(t.kind + lexer.Limit + lexer.Line(p) + lexer.Line(lexer.Origin) + p.line)
+    exit(code)
 }
 `)},
 	}

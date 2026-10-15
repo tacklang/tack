@@ -50,18 +50,18 @@ func program(lines ...string) string {
 }
 
 func TestImmutableVariableIsAConstLocal(t *testing.T) {
-	got := generate(t, program("x := 7", "exit(x)"))
+	got := generate(t, program("x := 7", "exit(int32(x))"))
 
 	if !strings.Contains(got, "const int64_t v_x = 7;") {
 		t.Errorf("immutable variable not emitted as a const local:\n%s", got)
 	}
-	if !strings.Contains(got, "tack_builtin_exit(v_x);") {
+	if !strings.Contains(got, "tack_builtin_exit(((int32_t)v_x));") {
 		t.Errorf("read of x not lowered to v_x:\n%s", got)
 	}
 }
 
 func TestMutableVariableIsAPlainLocal(t *testing.T) {
-	got := generate(t, program("mut x := 7", "x = 8", "exit(x)"))
+	got := generate(t, program("mut x := 7", "x = 8", "code, _ := int32(x)", "exit(code)"))
 
 	if !strings.Contains(got, "int64_t v_x = 7;") || strings.Contains(got, "const int64_t v_x") {
 		t.Errorf("mutable variable not emitted as a plain local:\n%s", got)
@@ -78,11 +78,16 @@ var variableRuntimeCases = []struct {
 	stdout string
 	status int
 }{
-	{"read back", program("x := 42", "exit(x)"), "", 42},
-	{"computed from others", program("a := 6", "b := 7", "c := a * b", "exit(c)"), "", 42},
-	{"reassigned", program("mut x := 1", "x = 41", "exit(x)"), "", 41},
-	{"updated from itself", program("mut x := 5", "x = x * x", "x = x + 1", "exit(x)"), "", 26},
-	{"declared type", program("var x int64 = 9", "exit(x)"), "", 9},
+	{"read back", program("x := 42", "exit(int32(x))"), "", 42},
+	{"computed from others", program("a := 6", "b := 7", "c := a * b", "exit(int32(c))"), "", 42},
+	{"reassigned", program("mut x := 1", "x = 41", "code, _ := int32(x)", "exit(code)"), "", 41},
+	{
+		"updated from itself",
+		program("mut x := 5", "x = x * x", "x = x + 1", "code, _ := int32(x)", "exit(code)"),
+		"",
+		26,
+	},
+	{"declared type", program("var x int64 = 9", "exit(int32(x))"), "", 9},
 	{"string variable", program("s := \"hi\"", "print(s)"), "hi", 0},
 	{"string reassigned", program("mut s := \"a\"", "s = \"b\"", "print(s)"), "b", 0},
 	{"bool variable", program("b := 1 < 2", "if b {", "    exit(3)", "}"), "", 3},
@@ -92,12 +97,12 @@ var variableRuntimeCases = []struct {
 		"",
 		4,
 	},
-	{"zero int64", program("mut n int64", "exit(n + 5)"), "", 5},
+	{"zero int64", program("mut n int64", "code, _ := int32(n + 5)", "exit(code)"), "", 5},
 	{"zero string", program("mut s string", "print(s)"), "", 0},
 	{"zero bool", program("mut b bool", "if b {", "    exit(1)", "}", "exit(2)"), "", 2},
 	{
 		"assigned in a branch",
-		program("mut x := 1", "if x < 2 {", "    x = 10", "}", "exit(x)"),
+		program("mut x := 1", "if x < 2 {", "    x = 10", "}", "code, _ := int32(x)", "exit(code)"),
 		"",
 		10,
 	},
@@ -106,18 +111,18 @@ var variableRuntimeCases = []struct {
 		program(
 			"if 1 < 2 {",
 			"    x := 7",
-			"    exit(x)",
+			"    exit(int32(x))",
 			"} else {",
 			"    x := 8",
-			"    exit(x)",
+			"    exit(int32(x))",
 			"}",
 		),
 		"",
 		7,
 	},
 	{"names the C side uses", program(
-		"int := 1", "str0 := 2", "tack_print := 3", "exit(int + str0 + tack_print)"), "", 6},
-	{"named like a builtin", program("exit := 9", "exit(exit)"), "", 9},
+		"int := 1", "str0 := 2", "tack_print := 3", "exit(int32(int + str0 + tack_print))"), "", 6},
+	{"named like a builtin", program("exit := 9", "exit(int32(exit))"), "", 9},
 }
 
 // TestVariablesAtRuntime runs programs whose exit status or output shows that
@@ -144,7 +149,7 @@ func TestVariablesAtRuntime(t *testing.T) {
 // A variable holds a value computed once. Later changes to what it was
 // computed from do not reach it.
 func TestVariableCopiesItsValue(t *testing.T) {
-	src := program("mut a := 1", "b := a", "a = 2", "exit(b * 10 + a)")
+	src := program("mut a := 1", "b := a", "a = 2", "code, _ := int32(b * 10 + a)", "exit(code)")
 	if _, status := run(t, src); status != 12 {
 		t.Errorf("status = %d, want 12", status)
 	}
@@ -154,7 +159,7 @@ func TestVariableCopiesItsValue(t *testing.T) {
 func TestVariablesWithParametersAndCalls(t *testing.T) {
 	src := "package main\n\n" +
 		"func square(n int64) int64 {\n    r := n * n\n    return r\n}\n\n" +
-		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    exit(total)\n}\n"
+		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    code, _ := int32(total)\n    exit(code)\n}\n"
 	if _, status := run(t, src); status != 25 {
 		t.Errorf("status = %d, want 25", status)
 	}

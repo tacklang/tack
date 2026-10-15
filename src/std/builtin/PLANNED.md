@@ -25,8 +25,6 @@ func println(args ...any)
 
 // printf formats the given arguments C-style and writes to stderr.
 func printf(format string, args ...any)
-
-func exit(code int)
 ```
 
 What each one needs before it could be declared for real:

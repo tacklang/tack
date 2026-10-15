@@ -11,7 +11,7 @@ static const unsigned char tack_str1[13] = {110, 111, 110, 45, 110, 101, 103, 97
 static const unsigned char tack_str2[2] = {10, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -66,7 +66,13 @@ static void tack_4_main4_main(void) {
     const int64_t v_count = tack_r2.r1;
     v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_count));
     tack_4_main6_divmod(1, 1);
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total)));
+    const int64_t tack_r3 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_q * (uint64_t)10)) + (uint64_t)v_r)) + (uint64_t)v_total));
+    const int32_t v_code = ((tack_r3 >= (-2147483648) && tack_r3 <= 2147483647) ? (int32_t)tack_r3 : 0);
+    const bool v_fits = (tack_r3 >= (-2147483648) && tack_r3 <= 2147483647);
+    if (!v_fits) {
+        tack_builtin_exit(2);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

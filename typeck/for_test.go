@@ -85,7 +85,7 @@ func TestRejectsInvalidLoops(t *testing.T) {
 		{
 			"error in the body",
 			inMain("for true {\n        exit(\"s\")\n    }"),
-			[]want{{"cannot use string as int64 in argument to exit", "\"s\""}},
+			[]want{{"cannot use string as int32 in argument to exit", "\"s\""}},
 		},
 		{
 			"break in another function",
@@ -160,7 +160,7 @@ func TestLoopTermination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			src := "package main\n\nfunc f(n int64) int64 {\n    " + tt.body + "\n}\n\nfunc main() {\n    exit(f(1))\n}\n"
+			src := "package main\n\nfunc f(n int64) int64 {\n    " + tt.body + "\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n"
 			_, diags := checkTree(t, src)
 			if tt.terminates && len(diags) > 0 {
 				t.Errorf("got %v, want no diagnostics", diags)

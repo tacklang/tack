@@ -23,5 +23,9 @@ func main() {
     x++
     x++
     x--
-    exit(x)
+    code, ok := int32(x)
+    if !ok {
+        exit(1)
+    }
+    exit(code)
 }

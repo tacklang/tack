@@ -120,7 +120,7 @@ func TestBuiltinsCallTheirCNames(t *testing.T) {
 	}
 	for _, decl := range []string{
 		"\nvoid tack_builtin_print(tack_string);\n",
-		"\nvoid tack_builtin_exit(int64_t);\n",
+		"\nvoid tack_builtin_exit(int32_t);\n",
 	} {
 		if strings.Count(got, decl) != 1 {
 			t.Errorf("want %q declared once:\n%s", decl, got)

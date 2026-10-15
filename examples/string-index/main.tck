@@ -52,5 +52,9 @@ func main() {
     if "tack"[1] != 'a' || at(word, 4) != 0 || at(word, -1) != 0 || first(word) != 't' {
         exit(4)
     }
-    exit(count("banana", 'a') + at(word, 2) - 'a')
+    code, fits := int32(count("banana", 'a') + at(word, 2) - 'a')
+    if !fits {
+        exit(6)
+    }
+    exit(code)
 }

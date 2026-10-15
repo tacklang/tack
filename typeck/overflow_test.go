@@ -202,13 +202,22 @@ var validRuntimeArithmetic = []struct{ name, src string }{
 	{"element of an immutable array", mainLines("a := [2]uint8{200, 200}", "exit(a[0] + a[1])")},
 	{"largest uint8", mainLines("exit('a' + 158)")},
 	{"zero uint8", mainLines("exit('a' - 'a' + 0)")},
-	{"largest int64", mainLines("var m int64 = 9223372036854775806", "exit(m + 1)")},
-	{"smallest int64", mainLines("var m int64 = -9223372036854775807", "exit(m - 1)")},
+	{
+		"largest int64",
+		mainLines("var m int64 = 9223372036854775806", "x := m + 1", "if x == x {", "}"),
+	},
+	{
+		"smallest int64",
+		mainLines("var m int64 = -9223372036854775807", "x := m - 1", "if x == x {", "}"),
+	},
 	{"negated int8 above the minimum", mainLines("var m int8 = -127", "exit(-m)")},
 	{"minimum divided by 1", mainLines("var m int8 = -128", "var d int8 = 1", "exit(m / d)")},
 	{"minimum remainder by -1", mainLines("var m int8 = -128", "var d int8 = -1", "exit(m % d)")},
-	{"untyped steps are exact", mainLines("exit(9223372036854775807 + 1 - 1)")},
-	{"negated untyped minimum", mainLines("x := -(-9223372036854775807 - 1 + 1)", "exit(x)")},
+	{"untyped steps are exact", mainLines("x := 9223372036854775807 + 1 - 1", "if x == x {", "}")},
+	{
+		"negated untyped minimum",
+		mainLines("x := -(-9223372036854775807 - 1 + 1)", "if x == x {", "}"),
+	},
 }
 
 // TestAcceptsRuntimeArithmetic checks each of validRuntimeArithmetic has no

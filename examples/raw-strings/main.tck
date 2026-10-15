@@ -64,5 +64,9 @@ b`
     }
 
     print(banner)
-    exit(sum(`\t`) - sum("\\"))
+    code, ok := int32(sum(`\t`) - sum("\\"))
+    if !ok {
+        exit(10)
+    }
+    exit(code)
 }

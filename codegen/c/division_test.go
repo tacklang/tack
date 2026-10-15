@@ -73,9 +73,20 @@ var checkedDivisionCases = []struct {
 	},
 	{
 		"as a loop post",
-		program("mut n int64 = 100", "mut d int64 = 3", "mut steps := 0", "mut ok := true",
-			"for ; ok && n > 0; n, ok = n / d {", "    steps++", "    d--", "}", "exit(steps)"),
-		"", 3,
+		program(
+			"mut n int64 = 100",
+			"mut d int64 = 3",
+			"mut steps := 0",
+			"mut ok := true",
+			"for ; ok && n > 0; n, ok = n / d {",
+			"    steps++",
+			"    d--",
+			"}",
+			"code, _ := int32(steps)",
+			"exit(code)",
+		),
+		"",
+		3,
 	},
 }
 

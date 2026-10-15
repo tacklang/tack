@@ -15,5 +15,9 @@ func main() {
     for mut a, mut b := divmod(100, 1); a > 1; a, b = divmod(a, 2) {
         steps += 1 + b
     }
-    exit(q * 10 + r + steps)
+    code, ok := int32(q * 10 + r + steps)
+    if !ok {
+        exit(1)
+    }
+    exit(code)
 }

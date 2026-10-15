@@ -10,7 +10,7 @@ import (
 func TestNegationNeverEmitsDecrement(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc main() {\n    x := 5\n    exit(- -x + - -5 + -(-5))\n}\n",
+		"package main\n\nfunc main() {\n    x := 5\n    exit(int32(- -x + - -5 + -(-5)))\n}\n",
 	)
 	if strings.Contains(got, "--") {
 		t.Errorf("generated C contains --:\n%s", got)
@@ -25,14 +25,22 @@ var negateRuntimeCases = []struct {
 	status int
 }{
 	{"negative literal", "package main\n\nfunc main() {\n    exit(-5 + 12)\n}\n", 7},
-	{"negated variable", "package main\n\nfunc main() {\n    x := 5\n    exit(-x + 10)\n}\n", 5},
-	{"double negation", "package main\n\nfunc main() {\n    x := 6\n    exit(- -x)\n}\n", 6},
+	{
+		"negated variable",
+		"package main\n\nfunc main() {\n    x := 5\n    exit(int32(-x + 10))\n}\n",
+		5,
+	},
+	{"double negation", "package main\n\nfunc main() {\n    x := 6\n    exit(int32(- -x))\n}\n", 6},
 	{"negated negative literal", "package main\n\nfunc main() {\n    exit(- -9)\n}\n", 9},
-	{"minus a negative", "package main\n\nfunc main() {\n    x := 3\n    exit(x - -4)\n}\n", 7},
+	{
+		"minus a negative",
+		"package main\n\nfunc main() {\n    x := 3\n    exit(int32(x - -4))\n}\n",
+		7,
+	},
 	{"negated sum", "package main\n\nfunc main() {\n    exit(-(1 - 12))\n}\n", 11},
 	{
 		"negated call",
-		"package main\n\nfunc f() int64 {\n    return -12\n}\n\nfunc main() {\n    exit(-f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    return -12\n}\n\nfunc main() {\n    code, _ := int32(-f())\n    exit(code)\n}\n",
 		12,
 	},
 	{
@@ -42,7 +50,7 @@ var negateRuntimeCases = []struct {
 	},
 	{
 		"global",
-		"package main\n\nvar low = -9223372036854775808\n\nvar back = -(-40)\n\nfunc main() {\n    if low < 0 {\n        exit(back + 2)\n    }\n}\n",
+		"package main\n\nvar low = -9223372036854775808\n\nvar back = -(-40)\n\nfunc main() {\n    if low < 0 {\n        exit(int32(back + 2))\n    }\n}\n",
 		42,
 	},
 }

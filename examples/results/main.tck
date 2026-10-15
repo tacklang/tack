@@ -26,5 +26,9 @@ func main() {
     mut total, count := divmod(100, 7)
     total += count
     divmod(1, 1)
-    exit(q * 10 + r + total)
+    code, fits := int32(q * 10 + r + total)
+    if !fits {
+        exit(2)
+    }
+    exit(code)
 }

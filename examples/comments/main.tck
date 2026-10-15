@@ -88,6 +88,10 @@ func main() {
         exit(5)
     }
 
-    exit(x + a + b - n + 6) // 7 + 10 + 20 - 6 + 6 = 37
+    code, ok := int32(x + a + b - n + 6) // 7 + 10 + 20 - 6 + 6 = 37
+    if !ok {
+        exit(6)
+    }
+    exit(code)
 }
 // A comment at the end of the file, with no newline after it.

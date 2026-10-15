@@ -9,7 +9,7 @@ func mark(d int64) {
 }
 
 // expect exits with code unless log is want, then clears log.
-func expect(want int64, code int64) {
+func expect(want int64, code int32) {
     if log != want {
         exit(code)
     }

@@ -24,52 +24,181 @@ func slicing(lines ...string) string {
 // sliceProofCases are slices whose bounds are proven, each one way a proof
 // can be had, and the places a slice may be used.
 var sliceProofCases = []struct{ name, src string }{
-	{"every form of a known string", slicing(
-		`t := "hello"`, "exit(h(t[1:3]) + h(t[:2]) + h(t[3:]) + h(t[:]) + h(t[5:]) + h(t[0:0]))")},
+	{
+		"every form of a known string",
+		slicing(
+			`t := "hello"`,
+			"code, _ := int32(h(t[1:3]) + h(t[:2]) + h(t[3:]) + h(t[:]) + h(t[5:]) + h(t[0:0]))",
+			"exit(code)",
+		),
+	},
 	{
 		"every form of an array",
-		slicing("exit(g(a[1:3]) + g(a[:2]) + g(a[3:]) + g(a[:]) + g(a[5:5]))"),
+		slicing(
+			"code, _ := int32(g(a[1:3]) + g(a[:2]) + g(a[3:]) + g(a[:]) + g(a[5:5]))",
+			"exit(code)",
+		),
 	},
-	{"omitted bounds need nothing", slicing("exit(h(s[:]) + g(v[:]))")},
-	{"zero bounds of any string", slicing("exit(h(s[0:0]) + h(s[:0]) + g(v[0:0]))")},
-	{"len of the string", slicing("exit(h(s[len(s):]) + h(s[:len(s)]) + h(s[0:len(s)]))")},
+	{"omitted bounds need nothing", slicing("code, _ := int32(h(s[:]) + g(v[:]))", "exit(code)")},
+	{
+		"zero bounds of any string",
+		slicing("code, _ := int32(h(s[0:0]) + h(s[:0]) + g(v[0:0]))", "exit(code)"),
+	},
+	{
+		"len of the string",
+		slicing("code, _ := int32(h(s[len(s):]) + h(s[:len(s)]) + h(s[0:len(s)]))", "exit(code)"),
+	},
 	{
 		"guard on both bounds",
-		slicing("if 0 <= i && i <= j && j <= len(s) {", "    exit(h(s[i:j]))", "}"),
+		slicing(
+			"if 0 <= i && i <= j && j <= len(s) {",
+			"    code, _ := int32(h(s[i:j]))",
+			"    exit(code)",
+			"}",
+		),
 	},
-	{"guard written the other way", slicing(
-		"if i >= 0 && j >= i && len(s) >= j {", "    exit(h(s[i:j]))", "}")},
-	{"strict guard", slicing("if 0 <= i && i < j && j < len(s) {", "    exit(h(s[i:j]))", "}")},
-	{"early exit", slicing("if i < 0 || i > len(s) {", "    return 0", "}", "exit(h(s[i:]))")},
-	{"negated guard", slicing("if !(j > len(v)) && j >= 0 {", "    exit(g(v[:j]))", "}")},
-	{"unsigned high bound", slicing("if u <= len(s) {", "    exit(h(s[:u]))", "}")},
-	{"unsafe_size_t bound", slicing("if z <= len(v) {", "    exit(g(v[:z]) + g(v[z:]))", "}")},
-	{"int8 bound", slicing("if 0 <= k && k <= len(s) {", "    exit(h(s[k:]))", "}")},
-	{"mixed types in order", slicing(
-		"if 0 <= k && u <= len(s) && k <= u {", "    exit(h(s[k:u]))", "}")},
-	{"same bound twice", slicing("if 0 <= i && i <= len(s) {", "    exit(h(s[i:i]))", "}")},
+	{
+		"guard written the other way",
+		slicing(
+			"if i >= 0 && j >= i && len(s) >= j {",
+			"    code, _ := int32(h(s[i:j]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"strict guard",
+		slicing(
+			"if 0 <= i && i < j && j < len(s) {",
+			"    code, _ := int32(h(s[i:j]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"early exit",
+		slicing(
+			"if i < 0 || i > len(s) {",
+			"    return 0",
+			"}",
+			"code, _ := int32(h(s[i:]))",
+			"exit(code)",
+		),
+	},
+	{
+		"negated guard",
+		slicing(
+			"if !(j > len(v)) && j >= 0 {",
+			"    code, _ := int32(g(v[:j]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"unsigned high bound",
+		slicing("if u <= len(s) {", "    code, _ := int32(h(s[:u]))", "    exit(code)", "}"),
+	},
+	{
+		"unsafe_size_t bound",
+		slicing(
+			"if z <= len(v) {",
+			"    code, _ := int32(g(v[:z]) + g(v[z:]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"int8 bound",
+		slicing(
+			"if 0 <= k && k <= len(s) {",
+			"    code, _ := int32(h(s[k:]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"mixed types in order",
+		slicing(
+			"if 0 <= k && u <= len(s) && k <= u {",
+			"    code, _ := int32(h(s[k:u]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"same bound twice",
+		slicing(
+			"if 0 <= i && i <= len(s) {",
+			"    code, _ := int32(h(s[i:i]))",
+			"    exit(code)",
+			"}",
+		),
+	},
 	{"array bound by a constant", slicing("if 0 <= i && i <= 3 && 3 <= j && j <= 5 {",
-		"    exit(g(a[i:j]))", "}")},
+		"    code, _ := int32(g(a[i:j]))", "    exit(code)", "}")},
 	{
 		"array bound by its len",
-		slicing("if 0 <= i && i <= len(a) {", "    exit(g(a[i:]) + g(a[:i]))", "}"),
+		slicing(
+			"if 0 <= i && i <= len(a) {",
+			"    code, _ := int32(g(a[i:]) + g(a[:i]))",
+			"    exit(code)",
+			"}",
+		),
 	},
 	{
 		"length bound proves a constant",
-		slicing("if len(s) >= 2 {", "    exit(h(s[2:]) + h(s[1:2]))", "}"),
+		slicing(
+			"if len(s) >= 2 {",
+			"    code, _ := int32(h(s[2:]) + h(s[1:2]))",
+			"    exit(code)",
+			"}",
+		),
 	},
 	{
 		"counting loop",
-		slicing("for mut n := 0; n < len(s); n++ {", "    exit(h(s[n:]) + h(s[:n]))", "}"),
+		slicing(
+			"for mut n := 0; n < len(s); n++ {",
+			"    code, _ := int32(h(s[n:]) + h(s[:n]))",
+			"    exit(code)",
+			"}",
+		),
 	},
-	{"range loop", slicing("for n := range v {", "    exit(g(v[n:]) + g(v[:n]))", "}")},
-	{"slice of a slice", slicing("exit(g(a[1:][1:3]) + g(a[:4][2:]))")},
-	{"len of a view slice", slicing("exit(len(a[1:]) + len(v[:]))")},
-	{"checked form needs no proof", slicing("t, ok := s[i:j]", "if ok {", "    exit(h(t))", "}")},
-	{"checked form assigned", slicing(
-		`mut t string`, "mut ok bool", "t, ok = s[u:]", "if ok {", "    exit(h(t))", "}")},
-	{"string slice stored anywhere", slicing(
-		`t := "abc"[1:]`, "var w [2]string = [2]string{t, s[:]}", "exit(h(w[0]))")},
+	{
+		"range loop",
+		slicing(
+			"for n := range v {",
+			"    code, _ := int32(g(v[n:]) + g(v[:n]))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{"slice of a slice", slicing("code, _ := int32(g(a[1:][1:3]) + g(a[:4][2:]))", "exit(code)")},
+	{"len of a view slice", slicing("code, _ := int32(len(a[1:]) + len(v[:]))", "exit(code)")},
+	{
+		"checked form needs no proof",
+		slicing("t, ok := s[i:j]", "if ok {", "    code, _ := int32(h(t))", "    exit(code)", "}"),
+	},
+	{
+		"checked form assigned",
+		slicing(
+			`mut t string`,
+			"mut ok bool",
+			"t, ok = s[u:]",
+			"if ok {",
+			"    code, _ := int32(h(t))",
+			"    exit(code)",
+			"}",
+		),
+	},
+	{
+		"string slice stored anywhere",
+		slicing(
+			`t := "abc"[1:]`,
+			"var w [2]string = [2]string{t, s[:]}",
+			"code, _ := int32(h(w[0]))",
+			"exit(code)",
+		),
+	},
 	{
 		"slice of a string's slice indexed",
 		slicing(`t := s[:]`, "if len(t) > 0 {", "    exit(t[0])", "}"),
@@ -92,78 +221,104 @@ func TestAcceptsSliceProofs(t *testing.T) {
 // diagnostic it gives.
 var sliceErrorCases = []struct{ name, src, want string }{
 	{
-		"no proof", slicing("exit(h(s[i:j]))"),
+		"no proof", slicing("code, _ := int32(h(s[i:j]))", "exit(code)"),
 		"slice bounds i:j may be out of range; check 0 <= i && i <= j && j <= len(s) first, " +
 			"or use v, ok := ...[i:j]",
 	},
 	{
-		"lower only", slicing("if i <= len(s) {", "    exit(h(s[i:]))", "}"),
+		"lower only",
+		slicing("if i <= len(s) {", "    code, _ := int32(h(s[i:]))", "    exit(code)", "}"),
 		"slice bound i may be out of range; check 0 <= i first, or use v, ok := ...[i:]",
 	},
 	{
 		"high only from the start",
-		slicing("exit(h(s[:j]))"),
+		slicing("code, _ := int32(h(s[:j]))", "exit(code)"),
 		"slice bound j may be out of range; check 0 <= j && j <= len(s) first, or use v, ok := ...[:j]",
 	},
 	{
-		"unsigned high bound needs only the length", slicing("exit(h(s[:u]))"),
+		"unsigned high bound needs only the length",
+		slicing("code, _ := int32(h(s[:u]))", "exit(code)"),
 		"slice bound u may be out of range; check u <= len(s) first, or use v, ok := ...[:u]",
 	},
 	{
-		"order", slicing("if 0 <= i && j <= len(s) {", "    exit(h(s[i:j]))", "}"),
+		"order",
+		slicing(
+			"if 0 <= i && j <= len(s) {",
+			"    code, _ := int32(h(s[i:j]))",
+			"    exit(code)",
+			"}",
+		),
 		"slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]",
 	},
 	{
 		"guard by another relation",
-		slicing("if 0 <= i && j <= len(s) && j <= i {", "    exit(h(s[i:j]))", "}"),
+		slicing(
+			"if 0 <= i && j <= len(s) && j <= i {",
+			"    code, _ := int32(h(s[i:j]))",
+			"    exit(code)",
+			"}",
+		),
 		"slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]",
 	},
 	{
-		"view has no checked form", slicing("exit(g(v[i:]))"),
+		"view has no checked form", slicing("code, _ := int32(g(v[i:]))", "exit(code)"),
 		"slice bound i may be out of range; check 0 <= i && i <= len(v) first",
 	},
 	{
-		"array bound past its length", slicing("if 0 <= i && i <= 6 {", "    exit(g(a[i:]))", "}"),
+		"array bound past its length",
+		slicing("if 0 <= i && i <= 6 {", "    code, _ := int32(g(a[i:]))", "    exit(code)", "}"),
 		"slice bound i may be out of range; check i <= 5 first",
 	},
 	{
-		"constant needs the length", slicing("exit(h(s[2:]))"),
+		"constant needs the length", slicing("code, _ := int32(h(s[2:]))", "exit(code)"),
 		"slice bound 2 may be out of range; check len(s) >= 2 first, or use v, ok := ...[2:]",
 	},
 	{
-		"not a name", slicing("exit(h(s[i - 1:]))"),
+		"not a name", slicing("code, _ := int32(h(s[i - 1:]))", "exit(code)"),
 		"slice bound ... may be out of range; use v, ok := ...[...:]",
 	},
-	{"out of order", slicing("exit(h(s[3:1]))"), "slice bounds 3:1 are out of order"},
 	{
-		"out of order in the checked form",
-		slicing("t, ok := s[3:1]", "if ok {", "    exit(h(t))", "}"),
+		"out of order",
+		slicing("code, _ := int32(h(s[3:1]))", "exit(code)"),
 		"slice bounds 3:1 are out of order",
 	},
-	{"negative", slicing("exit(h(s[-1:]))"), "slice bound -1 is out of range for a string"},
-	{"past an array", slicing("exit(g(a[:6]))"), "slice bound 6 is out of range for [5]int64"},
+	{
+		"out of order in the checked form",
+		slicing("t, ok := s[3:1]", "if ok {", "    code, _ := int32(h(t))", "    exit(code)", "}"),
+		"slice bounds 3:1 are out of order",
+	},
+	{
+		"negative",
+		slicing("code, _ := int32(h(s[-1:]))", "exit(code)"),
+		"slice bound -1 is out of range for a string",
+	},
+	{
+		"past an array",
+		slicing("code, _ := int32(g(a[:6]))", "exit(code)"),
+		"slice bound 6 is out of range for [5]int64",
+	},
 	{
 		"past a known string",
-		slicing(`exit(h("ab"[3:]))`),
+		slicing(`code, _ := int32(h("ab"[3:]))`, `exit(code)`),
 		"slice bound 3 is out of range for a string of 2 bytes",
 	},
 	{
 		"past a known view slice",
-		slicing("exit(g(a[1:3][:3]))"),
+		slicing("code, _ := int32(g(a[1:3][:3]))", "exit(code)"),
 		"slice bound 3 is out of range for a view of 2 elements",
 	},
 	{
 		"not an integer bound",
-		slicing(`exit(h(s["a":]))`),
+		slicing(`code, _ := int32(h(s["a":]))`, `exit(code)`),
 		"slice bound must be an integer, got string",
 	},
-	{"not sliceable", slicing("exit(h(i[1:]))"), "cannot slice int64"},
+	{"not sliceable", slicing("code, _ := int32(h(i[1:]))", "exit(code)"), "cannot slice int64"},
 	{
-		"temporary array", slicing("exit(g([2]int64{1, 2}[1:]))"),
+		"temporary array", slicing("code, _ := int32(g([2]int64{1, 2}[1:]))", "exit(code)"),
 		"cannot slice a temporary array; store it in a variable first",
 	},
 	{
-		"view stored", slicing("w := a[1:]", "exit(g(w))"),
+		"view stored", slicing("w := a[1:]", "code, _ := int32(g(w))", "exit(code)"),
 		"a[1:] is a view, []int64, which can only be passed to a view parameter or to len",
 	},
 	{
@@ -175,34 +330,37 @@ var sliceErrorCases = []struct{ name, src, want string }{
 		"a[:] is a view, []int64, which can only be passed to a view parameter or to len",
 	},
 	{
-		"view checked", slicing("w, ok := a[i:]", "if ok {", "    exit(g(w))", "}"),
+		"view checked",
+		slicing("w, ok := a[i:]", "if ok {", "    code, _ := int32(g(w))", "    exit(code)", "}"),
 		"a[i:] is a view, []int64, which cannot be bound with ok; prove its bounds instead",
 	},
 	{
-		"view passed to a string", slicing("exit(h(a[1:]))"),
+		"view passed to a string", slicing("code, _ := int32(h(a[1:]))", "exit(code)"),
 		"a[1:] is a view, []int64, which can only be passed to a view parameter or to len",
 	},
 	{
 		"assigned",
-		slicing("mut t := s", "t[1:] = s", "exit(h(t))"),
+		slicing("mut t := s", "t[1:] = s", "code, _ := int32(h(t))", "exit(code)"),
 		"cannot assign to t[1:]: a slice is not a place",
 	},
 	{
-		"element assigned", slicing("mut b := a", "b[1:][0] = 1", "exit(g(b))"),
+		"element assigned",
+		slicing("mut b := a", "b[1:][0] = 1", "code, _ := int32(g(b))", "exit(code)"),
 		"cannot assign to b[1:][0]: a slice is not a place",
 	},
 	{
-		"string's byte of a slice assigned", slicing("mut t := s", "t[1:][0] = 1", "exit(h(t))"),
+		"string's byte of a slice assigned",
+		slicing("mut t := s", "t[1:][0] = 1", "code, _ := int32(h(t))", "exit(code)"),
 		"cannot assign to t[1:][0]: a slice is not a place",
 	},
 	{
 		"incremented",
-		slicing("mut b := a", "b[1:]++", "exit(g(b))"),
+		slicing("mut b := a", "b[1:]++", "code, _ := int32(g(b))", "exit(code)"),
 		"cannot assign to b[1:]: a slice is not a place",
 	},
 	{
 		"wrong count",
-		slicing("t, _, _ := s[:]", "exit(h(t))"),
+		slicing("t, _, _ := s[:]", "code, _ := int32(h(t))", "exit(code)"),
 		"assignment mismatch: 3 variables but a slice gives 2 values",
 	},
 }
@@ -224,7 +382,10 @@ func TestRejectsSliceMisuse(t *testing.T) {
 // array's or a view's a view of its elements, the same type a view
 // parameter of that element has.
 func TestRecordsSliceTypes(t *testing.T) {
-	file, diags := checkTree(t, slicing("exit(h(s[:]) + g(a[1:]) + g(v[:]))"))
+	file, diags := checkTree(
+		t,
+		slicing("code, _ := int32(h(s[:]) + g(a[1:]) + g(v[:]))", "exit(code)"),
+	)
 	if len(diags) > 0 {
 		t.Fatalf("got %v", diags)
 	}
@@ -253,11 +414,11 @@ func TestRecordsSliceTypes(t *testing.T) {
 // length, and a view slice's length at known bounds is known too.
 func TestKnownSliceValues(t *testing.T) {
 	src := slicing(`t := "abcdef"[1:4]`, "mut w [len(t)]int64", "mut x [len(a[1:4])]int64",
-		"w[2] = 1", "x[2] = 1", "exit(w[2] + x[2] + 10 / (len(t) - 2))")
+		"w[2] = 1", "x[2] = 1", "code, _ := int32(w[2] + x[2] + 10 / (len(t) - 2))", "exit(code)")
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
-	src = slicing(`t := "abcdef"[1:4]`, "exit(10 / (len(t) - 3))")
+	src = slicing(`t := "abcdef"[1:4]`, "code, _ := int32(10 / (len(t) - 3))", "exit(code)")
 	if _, diags := checkTree(t, src); len(diags) != 1 || diags[0].Message != "division by zero" {
 		t.Errorf("got %v, want division by zero", diags)
 	}

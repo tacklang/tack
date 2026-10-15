@@ -91,7 +91,7 @@ func TestRejectsNonBoolLogicalOperands(t *testing.T) {
 // A logical expression is a bool, so it is reported where an int is wanted.
 func TestLogicalExpressionWhereAnIntIsWanted(t *testing.T) {
 	_, diags := checkTree(t, inMain("exit(true && false)"))
-	if len(diags) != 1 || diags[0].Message != "cannot use bool as int64 in argument to exit" {
+	if len(diags) != 1 || diags[0].Message != "cannot use bool as int32 in argument to exit" {
 		t.Errorf("got %v, want one argument error", diags)
 	}
 }

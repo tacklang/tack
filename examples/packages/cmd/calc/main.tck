@@ -19,7 +19,7 @@ func size() int64 {
 }
 
 // check exits with status when ok is false.
-func check(ok bool, status int64) {
+func check(ok bool, status int32) {
     if !ok {
         exit(status)
     }
@@ -61,5 +61,9 @@ func main() {
     check(corner == 4 && far == 8 && atOrigin, 16)
 
     print("packages ok\n")
-    exit(counts[3] + lexer.Size() + geom.Size() + one.Depth())
+    code, fits := int32(counts[3] + lexer.Size() + geom.Size() + one.Depth())
+    if !fits {
+        exit(17)
+    }
+    exit(code)
 }

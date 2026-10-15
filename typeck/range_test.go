@@ -51,7 +51,9 @@ var invalidRangeCases = []struct {
 	},
 	{
 		"element compound assigned",
-		inMain("for _, x := range [2]int64{1, 2} {\n        x *= 2\n        exit(x)\n    }"),
+		inMain(
+			"for _, x := range [2]int64{1, 2} {\n        x *= 2\n        code, _ := int32(x)\n        exit(code)\n    }",
+		),
 		[]spanned{{"cannot assign to immutable variable x", "x"}},
 	},
 	{
@@ -62,18 +64,20 @@ var invalidRangeCases = []struct {
 	{
 		"element's element assigned",
 		inMain(
-			"for _, row := range [2][2]int64{{1, 2}, {3, 4}} {\n        row[0] = 1\n        exit(row[0])\n    }",
+			"for _, row := range [2][2]int64{{1, 2}, {3, 4}} {\n        row[0] = 1\n        code, _ := int32(row[0])\n        exit(code)\n    }",
 		),
 		[]spanned{{"cannot assign to element of immutable variable row", "row"}},
 	},
 	{
 		"array index assigned",
-		inMain("for i, x := range [2]int64{1, 2} {\n        i = 1\n        exit(i + x)\n    }"),
+		inMain(
+			"for i, x := range [2]int64{1, 2} {\n        i = 1\n        code, _ := int32(i + x)\n        exit(code)\n    }",
+		),
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
 		"index assigned with several",
-		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range \"ab\" {\n        mut y := 0\n        y, i = two()\n        exit(i + x + y)\n    }\n}\n",
+		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range \"ab\" {\n        mut y := 0\n        y, i = two()\n        code, _ := int32(i + x + y)\n        exit(code)\n    }\n}\n",
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
@@ -84,7 +88,7 @@ var invalidRangeCases = []struct {
 	{
 		"element of a bool array is a bool",
 		inMain("for _, x := range [1]bool{true} {\n        exit(x)\n    }"),
-		[]spanned{{"cannot use bool as int64 in argument to exit", "x"}},
+		[]spanned{{"cannot use bool as int32 in argument to exit", "x"}},
 	},
 	{
 		"bool",
@@ -98,7 +102,9 @@ var invalidRangeCases = []struct {
 	},
 	{
 		"assigned",
-		inMain("for i := range 3 {\n        i++\n        exit(i)\n    }"),
+		inMain(
+			"for i := range 3 {\n        i++\n        code, _ := int32(i)\n        exit(code)\n    }",
+		),
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
@@ -109,14 +115,14 @@ var invalidRangeCases = []struct {
 	{
 		"error in the body",
 		inMain("for range 3 {\n        exit(\"s\")\n    }"),
-		[]spanned{{"cannot use string as int64 in argument to exit", "\"s\""}},
+		[]spanned{{"cannot use string as int32 in argument to exit", "\"s\""}},
 	},
 }
 
 // TestRangeLoops checks the count is an int, the variable an immutable int,
 // and the body a loop body.
 func TestRangeLoops(t *testing.T) {
-	src := "package main\n\nfunc main() {\n    for i := range 3 {\n        if i == 1 {\n            continue\n        }\n        exit(i + 1)\n    }\n}\n"
+	src := "package main\n\nfunc main() {\n    for i := range 3 {\n        if i == 1 {\n            continue\n        }\n        code, _ := int32(i + 1)\n        exit(code)\n    }\n}\n"
 	file, diags := checkTree(t, src)
 	if len(diags) > 0 {
 		t.Fatalf("got %v, want no diagnostics", diags)
@@ -125,7 +131,7 @@ func TestRangeLoops(t *testing.T) {
 		t.Errorf("variable type = %v, want int64", v.Type)
 	}
 
-	forever := "package main\n\nfunc f() int64 {\n    for range 3 {\n        return 1\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
+	forever := "package main\n\nfunc f() int64 {\n    for range 3 {\n        return 1\n    }\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n"
 	if _, diags := checkTree(
 		t,
 		forever,
@@ -160,36 +166,46 @@ var rangeTypeCases = []struct {
 }{
 	{
 		"array",
-		"a := [3]int64{1, 2, 3}\n    for i, x := range a {\n        exit(i + x)\n    }",
+		"a := [3]int64{1, 2, 3}\n    for i, x := range a {\n        code, _ := int32(i + x)\n        exit(code)\n    }",
 		"int64",
 		"int64",
 	},
 	{
 		"array of bytes",
-		"for i, x := range [2]uint8{1, 2} {\n        exit(i + x)\n    }",
+		"for i, x := range [2]uint8{1, 2} {\n        code, _ := int32(i + x)\n        exit(code)\n    }",
 		"int64",
 		"uint8",
 	},
 	{
 		"array of arrays",
-		"for i, row := range [2][3]int8{{1, 2, 3}, {4, 5, 6}} {\n        exit(i + row[0])\n    }",
+		"for i, row := range [2][3]int8{{1, 2, 3}, {4, 5, 6}} {\n        code, _ := int32(i + row[0])\n        exit(code)\n    }",
 		"int64",
 		"[3]int8",
 	},
 	{
 		"array of strings",
-		"for i, x := range [1]string{\"a\"} {\n        print(x)\n        exit(i)\n    }",
+		"for i, x := range [1]string{\"a\"} {\n        print(x)\n        code, _ := int32(i)\n        exit(code)\n    }",
 		"int64",
 		"string",
 	},
-	{"string literal", "for i, b := range \"ab\" {\n        exit(i + b)\n    }", "int64", "uint8"},
 	{
-		"string variable",
-		"s := \"ab\"\n    for i, b := range s {\n        exit(i + b)\n    }",
+		"string literal",
+		"for i, b := range \"ab\" {\n        code, _ := int32(i + b)\n        exit(code)\n    }",
 		"int64",
 		"uint8",
 	},
-	{"empty array", "for i, x := range [0]int64{} {\n        exit(i + x)\n    }", "int64", "int64"},
+	{
+		"string variable",
+		"s := \"ab\"\n    for i, b := range s {\n        code, _ := int32(i + b)\n        exit(code)\n    }",
+		"int64",
+		"uint8",
+	},
+	{
+		"empty array",
+		"for i, x := range [0]int64{} {\n        code, _ := int32(i + x)\n        exit(code)\n    }",
+		"int64",
+		"int64",
+	},
 	{"typed count", "var n int16 = 3\n    for i := range n {\n        exit(i)\n    }", "int16", ""},
 	{"count read from a string", "for i := range \"ab\"[0] {\n        exit(i)\n    }", "uint8", ""},
 	{"blank index", "for _, x := range \"ab\" {\n        exit(x)\n    }", "int64", "uint8"},
@@ -321,7 +337,7 @@ var provenRangeIndexCases = []struct{ name, src string }{
 	{
 		"checked index into the ranged array",
 		inMain(
-			"a := [2]int64{1, 2}\n    for i := range a {\n        v, ok := a[i]\n        if ok {\n            exit(v)\n        }\n    }",
+			"a := [2]int64{1, 2}\n    for i := range a {\n        v, ok := a[i]\n        if ok {\n            code, _ := int32(v)\n            exit(code)\n        }\n    }",
 		),
 	},
 	{

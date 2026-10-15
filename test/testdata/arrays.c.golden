@@ -56,7 +56,7 @@ static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
 static const unsigned char tack_str0[5] = {116, 97, 99, 107, 0};
 static const unsigned char tack_str1[4] = {97, 98, 99, 0};
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const tack_array_14 tack_4_main6_primes = {{2, 3, 5, 7, 11}};
 
@@ -89,7 +89,13 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(3);
     }
     const tack_string v_word = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_sum3(v_b) + (uint64_t)((void)tack_4_main6_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_4_main6_primes.e[4])));
+    const int64_t tack_r0 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_sum3(v_b) + (uint64_t)((void)tack_4_main6_primes, (int64_t)5))) + (uint64_t)(v_word).len)) + (uint64_t)3)) + (uint64_t)tack_4_main6_primes.e[4]));
+    const int32_t v_code = ((tack_r0 >= (-2147483648) && tack_r0 <= 2147483647) ? (int32_t)tack_r0 : 0);
+    const bool v_ok = (tack_r0 >= (-2147483648) && tack_r0 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(4);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

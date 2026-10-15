@@ -37,12 +37,23 @@ var knownStringLenCases = []struct{ name, src string }{
 	{"unsigned index", stringing("x := \"abc\"", "if u < 3 {", "    return x[u]", "}")},
 	{
 		"array length",
-		stringing("x := \"abc\"", "arr := [len(x)]int64{1, 2, 3}", "exit(arr[2])"),
+		stringing(
+			"x := \"abc\"",
+			"arr := [len(x)]int64{1, 2, 3}",
+			"code, _ := int32(arr[2])",
+			"exit(code)",
+		),
 	},
-	{"array length of a global", stringing("arr := [len(k)]int64{7}", "exit(arr[0])")},
-	{"divisor", stringing("x := \"ab\"", "exit(10 / len(x))")},
+	{
+		"array length of a global",
+		stringing("arr := [len(k)]int64{7}", "code, _ := int32(arr[0])", "exit(code)"),
+	},
+	{"divisor", stringing("x := \"ab\"", "exit(int32(10 / len(x)))")},
 	{"conversion", stringing("x := \"abc\"", "return uint8(len(x))")},
-	{"empty string length", stringing("x := \"\"", "arr := [len(x)]int64{}", "exit(len(arr))")},
+	{
+		"empty string length",
+		stringing("x := \"\"", "arr := [len(x)]int64{}", "exit(int32(len(arr)))"),
+	},
 	{"raw string", stringing("x := `a\\b`", "return x[2]")},
 	{
 		"checked index proven",
@@ -135,7 +146,7 @@ var unknownStringLenCases = []struct {
 	},
 	{
 		"divisor of an empty string's length",
-		stringing("x := \"\"", "exit(10 / len(x))"),
+		stringing("x := \"\"", "code, _ := int32(10 / len(x))", "exit(code)"),
 		spanned{"division by zero", "len(x)"},
 	},
 }

@@ -49,7 +49,7 @@ extern func divmod(a int64, b int64) (int64, int64, bool)
 extern func names() [2]string
 
 // check prints name and exits with status when ok is false.
-func check(ok bool, name string, status int64) {
+func check(ok bool, name string, status int32) {
     if !ok {
         print("FAIL ")
         print(name)

@@ -26,5 +26,9 @@ func main() {
         exit(2)
     }
     print(greeting)
-    exit(area(r) + perimeter(r) + origin.w + len(cells))
+    code, ok := int32(area(r) + perimeter(r) + origin.w + len(cells))
+    if !ok {
+        exit(3)
+    }
+    exit(code)
 }

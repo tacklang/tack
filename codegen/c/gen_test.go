@@ -307,7 +307,7 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 func TestGeneratesExitAsACallToItsCBody(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(42)\n}\n")
 
-	if !strings.Contains(got, "\nvoid tack_builtin_exit(int64_t);\n") {
+	if !strings.Contains(got, "\nvoid tack_builtin_exit(int32_t);\n") {
 		t.Errorf("generated C does not declare tack_builtin_exit:\n%s", got)
 	}
 	if strings.Contains(got, "#include <stdlib.h>") {
@@ -318,25 +318,81 @@ func TestGeneratesExitAsACallToItsCBody(t *testing.T) {
 	}
 }
 
-func TestExitAcceptsTheFullIntRange(t *testing.T) {
-	got := generate(t, "package main\n\nfunc main() {\n    exit(9223372036854775807)\n}\n")
+// TestExitAcceptsTheFullInt32Range checks exit takes every value of its
+// int32 parameter, the bounds included, and that each reaches the OS as
+// its low 8 bits: 2147483647 ends with 255, -2147483647 with 1, and
+// -2147483648, whose low 8 bits are all zero, with 0.
+func TestExitAcceptsTheFullInt32Range(t *testing.T) {
+	got := generate(t, program("exit(2147483647)"))
+	if !strings.Contains(got, "tack_builtin_exit(2147483647);") {
+		t.Errorf("generated C lost precision on the largest int32:\n%s", got)
+	}
 
-	if !strings.Contains(got, "tack_builtin_exit(9223372036854775807);") {
-		t.Errorf("generated C lost precision on a large literal:\n%s", got)
+	for _, tc := range []struct {
+		code string
+		want int
+	}{
+		{"2147483647", 255},
+		{"-2147483647", 1},
+		{"-2147483648", 0},
+	} {
+		if _, status := run(t, program("exit("+tc.code+")")); status != tc.want {
+			t.Errorf("exit(%s): status %d, want %d", tc.code, status, tc.want)
+		}
 	}
 }
 
-// TestExitNarrowsExplicitly checks exit's int64 status is cast to C's int
-// in the open, in its C body, so clang's -Wconversion has no implicit
-// narrowing to warn about, and that only the low bits of a wide status
-// reach the OS: 70000 exits with 70000 % 256, 112.
-func TestExitNarrowsExplicitly(t *testing.T) {
-	src := program("mut x int64 = 70000", "x++", "x--", "exit(x)")
+// TestExitWidensNarrowerIntegers checks exit takes, with no conversion,
+// a variable of every integer type that widens into int32, and that the
+// status keeps the value's sign and width: int8 -1 ends with 255, uint16
+// 300 with 44.
+func TestExitWidensNarrowerIntegers(t *testing.T) {
+	for _, tc := range []struct {
+		decl string
+		want int
+	}{
+		{"mut x int8 = -1", 255},
+		{"mut x int16 = -2", 254},
+		{"mut x int32 = 70000", 112},
+		{"mut x uint8 = 200", 200},
+		{"mut x uint16 = 300", 44},
+	} {
+		src := program(tc.decl, "x++", "x--", "exit(x)")
+		if _, status := run(t, src); status != tc.want {
+			t.Errorf("%s; exit(x): status %d, want %d", tc.decl, status, tc.want)
+		}
+	}
+}
+
+// TestExitNarrowsInTheOpen checks a wide status reaches exit only through
+// a checked conversion to int32, that exit's C body passes it to C's exit
+// with no implicit narrowing for clang's -Wconversion to warn about, and
+// that only its low bits reach the OS: 70000 exits with 70000 % 256, 112.
+func TestExitNarrowsInTheOpen(t *testing.T) {
+	src := program(
+		"mut x int64 = 70000", "x++", "x--",
+		"v, ok := int32(x)", "if !ok {", "    exit(1)", "}",
+		"exit(v)",
+	)
 	bin := buildWith(t, src, "-Wconversion")
 	err := exec.Command(bin).Run()
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 112 {
 		t.Errorf("got %v, want exit status 112", err)
+	}
+}
+
+// TestExitOfAnInt64PastInt32 checks the checked conversion an int64
+// status needs reports a value past int32 as not converted, rather than
+// handing exit its low bits: 3000000001 gives ok false and v 0.
+func TestExitOfAnInt64PastInt32(t *testing.T) {
+	src := program(
+		"mut x int64 = 3000000000", "x++",
+		"v, ok := int32(x)", "if ok {", "    exit(1)", "}",
+		"exit(v + 2)",
+	)
+	if _, status := run(t, src); status != 2 {
+		t.Errorf("status %d, want 2", status)
 	}
 }
 
@@ -408,7 +464,7 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc f(x int64, s string) {\n    print(s)\n    exit(x)\n}\n\nfunc main() {\n}\n",
+		"package main\n\nfunc f(x int32, s string) {\n    print(s)\n    exit(x)\n}\n\nfunc main() {\n}\n",
 	)
 
 	if !strings.Contains(got, "tack_builtin_print(p_s);") {
@@ -552,7 +608,7 @@ func build(t *testing.T, src string) string {
 
 func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 	src := "package main\n\n" +
-		"func greet(s string, n int64) {\n    print(s)\n    exit(n)\n}\n\n" +
+		"func greet(s string, n int64) {\n    print(s)\n    code, _ := int32(n)\n    exit(code)\n}\n\n" +
 		"func main() {\n    greet(\"hello\", 7)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -574,7 +630,7 @@ func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 func TestParameterSurvivesAnInterveningCall(t *testing.T) {
 	src := "package main\n\n" +
 		"func other() {\n    print(\"side effect\")\n}\n\n" +
-		"func f(n int64) {\n    other()\n    exit(n)\n}\n\n" +
+		"func f(n int64) {\n    other()\n    code, _ := int32(n)\n    exit(code)\n}\n\n" +
 		"func main() {\n    f(9)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -647,7 +703,7 @@ func TestGeneratesBareReturn(t *testing.T) {
 func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
+		"package main\n\nfunc seven() int32 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n",
 	)
 
 	if !strings.Contains(got, "tack_builtin_exit(tack_4_main5_seven());") {
@@ -656,8 +712,8 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 }
 
 func TestNestedCallsNest(t *testing.T) {
-	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
-		"func h() int64 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
+	src := "package main\n\nfunc g(x int32) int32 {\n    return x\n}\n\n" +
+		"func h() int32 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
 
 	got := generate(t, src)
 	if !strings.Contains(got, "tack_builtin_exit(tack_4_main1_g(tack_4_main1_h()));") {
@@ -666,7 +722,7 @@ func TestNestedCallsNest(t *testing.T) {
 }
 
 func TestGeneratedProgramReturnsAnIntResult(t *testing.T) {
-	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}\n"
+	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, _ := int32(seven())\n    exit(code)\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -695,7 +751,7 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 	src := "package main\n\n" +
 		"func base() int64 {\n    return 5\n}\n\n" +
 		"func same(n int64) int64 {\n    return n\n}\n\n" +
-		"func main() {\n    exit(same(same(base())))\n}\n"
+		"func main() {\n    code, _ := int32(same(same(base())))\n    exit(code)\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -711,7 +767,7 @@ func TestGeneratesBinaryExpression(t *testing.T) {
 	got := generate(
 		t,
 		"package main\n\nfunc f(a int64, b int64, c int64) int64 {\n    return a + b * c\n}\n\n"+
-			"func main() {\n    exit(f(1, 2, 3))\n}\n",
+			"func main() {\n    code, _ := int32(f(1, 2, 3))\n    exit(code)\n}\n",
 	)
 
 	want := "return ((int64_t)((uint64_t)p_a + (uint64_t)((int64_t)((uint64_t)p_b * (uint64_t)p_c))));"
@@ -775,7 +831,7 @@ func TestGeneratedProgramComputesFib(t *testing.T) {
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
-		"func main() {\n    exit(fib(10))\n}\n"
+		"func main() {\n    code, _ := int32(fib(10))\n    exit(code)\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -824,7 +880,7 @@ func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
 	src := "package main\n\n" +
 		"func sub(a int64, b int64) int64 {\n    return a - b\n}\n\n" +
 		"func ten() int64 {\n    return 10\n}\n\n" +
-		"func main() {\n    exit(sub(ten(), 3) * 10 + sub(20, ten()))\n}\n"
+		"func main() {\n    code, _ := int32(sub(ten(), 3) * 10 + sub(20, ten()))\n    exit(code)\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -843,7 +899,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 	src := "package main\n\n" +
 		"func seven() int64 {\n    return 7\n}\n\n" +
 		"func two() int64 {\n    return 2\n}\n\n" +
-		"func main() {\n    exit((seven() + two()) * 10 + (seven() - two()))\n}\n"
+		"func main() {\n    code, _ := int32((seven() + two()) * 10 + (seven() - two()))\n    exit(code)\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -858,7 +914,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 // An if condition is emitted with one pair of parentheses. Doubled ones make
 // clang warn on every equality test, and the warning reaches the user.
 func TestIfConditionHasOnePairOfParentheses(t *testing.T) {
-	src := "package main\n\nfunc f(n int64) int64 {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    exit(f(1))\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n"
 
 	if got := generate(t, src); !strings.Contains(got, "if (p_n == 1) {") {
 		t.Errorf("condition not emitted with one pair of parentheses:\n%s", got)

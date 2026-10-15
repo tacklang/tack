@@ -11,7 +11,7 @@ typedef struct {
 } tack_array_14;
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const int64_t tack_4_main5_limit = 5;
 static int64_t tack_4_main5_calls = 0;
@@ -90,7 +90,13 @@ static void tack_4_main4_main(void) {
     if (v_loops != 0) {
         tack_builtin_exit(5);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6)));
+    const int64_t tack_r3 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_x + (uint64_t)v_a)) + (uint64_t)v_b)) - (uint64_t)v_n)) + (uint64_t)6));
+    const int32_t v_code = ((tack_r3 >= (-2147483648) && tack_r3 <= 2147483647) ? (int32_t)tack_r3 : 0);
+    const bool v_ok = (tack_r3 >= (-2147483648) && tack_r3 <= 2147483647);
+    if (!v_ok) {
+        tack_builtin_exit(6);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

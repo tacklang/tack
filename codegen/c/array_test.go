@@ -20,7 +20,8 @@ var arrayCases = []struct {
 			"mut b := a",
 			"b[0] = 9",
 			"a[2] = 7",
-			"exit(a[0] * 100 + b[0] * 10 + b[2])",
+			"code, _ := int32(a[0] * 100 + b[0] * 10 + b[2])",
+			"exit(code)",
 		),
 		"",
 		193,
@@ -28,13 +29,13 @@ var arrayCases = []struct {
 	{
 		"passing copies",
 		"package main\n\nfunc clobber(v [2]int64) int64 {\n    mut w := v\n    w[0] = 50\n    return w[0] + v[0]\n}\n\n" +
-			"func main() {\n    a := [2]int64{1, 2}\n    exit(clobber(a) + a[0])\n}\n",
+			"func main() {\n    a := [2]int64{1, 2}\n    code, _ := int32(clobber(a) + a[0])\n    exit(code)\n}\n",
 		"",
 		52,
 	},
 	{
 		"returned",
-		"package main\n\nfunc pair(x int64) [2]int64 {\n    return [2]int64{x, x * 2}\n}\n\nfunc main() {\n    exit(pair(4)[1] + pair(1)[0])\n}\n",
+		"package main\n\nfunc pair(x int64) [2]int64 {\n    return [2]int64{x, x * 2}\n}\n\nfunc main() {\n    code, _ := int32(pair(4)[1] + pair(1)[0])\n    exit(code)\n}\n",
 		"",
 		9,
 	},
@@ -59,7 +60,8 @@ var arrayCases = []struct {
 			"g[2][1] = 5",
 			"g[0][0] = g[2][1] + 1",
 			"row := g[2]",
-			"exit(g[0][0] * 10 + row[1])",
+			"code, _ := int32(g[0][0] * 10 + row[1])",
+			"exit(code)",
 		),
 		"",
 		65,
@@ -86,7 +88,8 @@ var arrayCases = []struct {
 			"names := [3]string{\"a\", \"bc\", \"def\"}",
 			"print(names[2])",
 			"print(names[0])",
-			"exit(len(names[1]) + len(names))",
+			"code, _ := int32(len(names[1]) + len(names))",
+			"exit(code)",
 		),
 		"defa",
 		5,
@@ -99,14 +102,14 @@ var arrayCases = []struct {
 	{
 		"globals",
 		"package main\n\nvar primes = [4]int64{2, 3, 5, 7}\n\nmut counts [3]int64\n\nvar grid = [2][2]bool{{false, true}, {true, false}}\n\n" +
-			"func bump() {\n    counts[1] += 2\n}\n\nfunc main() {\n    bump()\n    bump()\n    if grid[0][1] && !grid[1][1] {\n        exit(counts[1] + primes[3])\n    }\n}\n",
+			"func bump() {\n    counts[1] += 2\n}\n\nfunc main() {\n    bump()\n    bump()\n    if grid[0][1] && !grid[1][1] {\n        code, _ := int32(counts[1] + primes[3])\n        exit(code)\n    }\n}\n",
 		"",
 		11,
 	},
 	{
 		"len",
 		"package main\n\nfunc noisy() [4]int64 {\n    print(\"n\")\n    return [4]int64{1, 2, 3, 4}\n}\n\n" +
-			"func main() {\n    s := \"tack\"\n    a := [3]bool{true, true, true}\n    exit(len(s) * 100 + len(a) * 10 + len(noisy()))\n}\n",
+			"func main() {\n    s := \"tack\"\n    a := [3]bool{true, true, true}\n    code, _ := int32(len(s) * 100 + len(a) * 10 + len(noisy()))\n    exit(code)\n}\n",
 		"n",
 		434 % 256,
 	},
@@ -115,7 +118,8 @@ var arrayCases = []struct {
 		program(
 			"a := [5]int64{1, 2, 3, 4, 5}",
 			"last := len(a) - 1",
-			"exit(a[last] * 10 + a[len(a) / 2])",
+			"code, _ := int32(a[last] * 10 + a[len(a) / 2])",
+			"exit(code)",
 		),
 		"",
 		53,
@@ -123,7 +127,7 @@ var arrayCases = []struct {
 	{
 		"element assigned several values",
 		"package main\n\nfunc p() (int64, int64) {\n    return 3, 4\n}\n\n" +
-			"func main() {\n    mut a [2]int64\n    a[1], a[0] = p()\n    exit(a[0] * 10 + a[1])\n}\n",
+			"func main() {\n    mut a [2]int64\n    a[1], a[0] = p()\n    code, _ := int32(a[0] * 10 + a[1])\n    exit(code)\n}\n",
 		"", 43,
 	},
 }
@@ -150,7 +154,8 @@ func TestArrayLowering(t *testing.T) {
 			"a := [3]int64{1, 2, 3}",
 			"b := [3]int64{4, 5, 6}",
 			"if a == b {",
-			"    exit(a[0])",
+			"    code, _ := int32(a[0])",
+			"    exit(code)",
 			"}",
 		),
 	)

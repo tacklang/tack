@@ -11,12 +11,12 @@ typedef struct {
 } tack_array_14;
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_4_main3_log = 0;
 
 static void tack_4_main4_mark(int64_t p_d);
-static void tack_4_main6_expect(int64_t p_want, int64_t p_code);
+static void tack_4_main6_expect(int64_t p_want, int32_t p_code);
 static void tack_4_main7_clauses(void);
 static void tack_4_main5_cases(void);
 static void tack_4_main4_deep(void);
@@ -32,7 +32,7 @@ static void tack_4_main4_mark(int64_t p_d) {
     tack_4_main3_log = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_log * (uint64_t)10)) + (uint64_t)p_d));
 }
 
-static void tack_4_main6_expect(int64_t p_want, int64_t p_code) {
+static void tack_4_main6_expect(int64_t p_want, int32_t p_code) {
     if (tack_4_main3_log != p_want) {
         tack_builtin_exit(p_code);
     }

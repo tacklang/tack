@@ -23,7 +23,7 @@ static const unsigned char tack_str3[2] = {97, 0};
 static const unsigned char tack_str4[2] = {255, 0};
 static const unsigned char tack_str5[3] = {97, 98, 0};
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const tack_string tack_4_main1_a = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 static const tack_string tack_4_main1_b = {tack_str1, TACK_C_STR_LEN(tack_str1)};
@@ -39,10 +39,10 @@ static const bool tack_4_main6_prefix = true;
 static const bool tack_4_main4_both = true;
 static const bool tack_4_main8_notEqual = true;
 
-static void tack_4_main5_check(bool p_ok, int64_t p_status);
+static void tack_4_main5_check(bool p_ok, int32_t p_status);
 static void tack_4_main4_main(void);
 
-static void tack_4_main5_check(bool p_ok, int64_t p_status) {
+static void tack_4_main5_check(bool p_ok, int32_t p_status) {
     if (!p_ok) {
         tack_builtin_exit(p_status);
     }

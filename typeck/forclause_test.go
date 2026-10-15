@@ -32,7 +32,7 @@ var invalidClauseCases = []struct {
 	{
 		"error in post",
 		inMain("for mut i := 0; i < 3; exit(\"s\") {\n        i++\n    }"),
-		[]spanned{{"cannot use string as int64 in argument to exit", "\"s\""}},
+		[]spanned{{"cannot use string as int32 in argument to exit", "\"s\""}},
 	},
 }
 
@@ -40,10 +40,18 @@ var invalidClauseCases = []struct {
 // condition it is, and the terminating rule follows the condition.
 func TestThreeClauseLoops(t *testing.T) {
 	ok := []string{
-		inMain("for mut i := 0; i < 3; i++ {\n        exit(i)\n    }"),
-		mainLines("mut i = 5", "for i = 0; i < 3; i += 1 {", "}", "exit(i)"),
+		inMain(
+			"for mut i := 0; i < 3; i++ {\n        code, _ := int32(i)\n        exit(code)\n    }",
+		),
+		mainLines(
+			"mut i = 5",
+			"for i = 0; i < 3; i += 1 {",
+			"}",
+			"code, _ := int32(i)",
+			"exit(code)",
+		),
 		inMain("for ;; {\n        break\n    }"),
-		"package main\n\nfunc f() int64 {\n    for mut i := 0; ; i++ {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    for mut i := 0; ; i++ {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {
@@ -51,7 +59,7 @@ func TestThreeClauseLoops(t *testing.T) {
 		}
 	}
 
-	notTerminating := "package main\n\nfunc f() int64 {\n    for mut i := 0; i < 9; i++ {\n        return i\n    }\n}\n\nfunc main() {\n    exit(f())\n}\n"
+	notTerminating := "package main\n\nfunc f() int64 {\n    for mut i := 0; i < 9; i++ {\n        return i\n    }\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n"
 	if _, diags := checkTree(
 		t,
 		notTerminating,

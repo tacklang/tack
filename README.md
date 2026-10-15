@@ -20,7 +20,7 @@ working native binaries, but the language it accepts is still small.
 ```tack
 package main
 
-func fib(n int64) int64 {
+func fib(n int32) int32 {
     if n < 2 {
         return n
     }
@@ -198,7 +198,7 @@ name it is declared with:
 
 ```tack
 extern("tack_builtin_print") func print(s string)
-extern("tack_builtin_exit") func exit(code int64)
+extern("tack_builtin_exit") func exit(code int32)
 ```
 
 Every declaration there must be such a builtin: an extern func with its C
@@ -1057,10 +1057,15 @@ makes for itself, which has a letter after `tack_`.
   used as a name, and both are constant expressions.
 - `print` takes one string and writes exactly its bytes to standard output,
   adding no newline; a line ends where the string has a `\n`.
-- `exit` takes an `int64`, or an integer that widens to one, and terminates
-  the process with that status, without running any pending defer. Only
-  the low bits of the status reach the operating system, the low 8 on
-  Linux and macOS, so `exit(70000)` ends with status 112.
+- `exit` takes an `int32`, or an integer that widens to one
+  (`int8`, `int16`, `uint8`, `uint16`), and terminates the process with that
+  status, without running any pending defer. An `int64`, `uint32` or
+  `uint64` status is converted first: `exit(int32(x))` where `x` is a
+  constant or known value that fits, and otherwise the checked form,
+  `v, ok := int32(x)`. A constant outside `int32` is an error, as
+  `exit(3000000000)` is. Only the low bits of the status reach the
+  operating system, the low 8 on Linux and macOS, so `exit(70000)` ends
+  with status 112.
 - Integer constants. A literal, and any expression made only of literals and
   operators, is a constant with no type of its own: it is computed exactly,
   and takes the type of where it is used, the type it is assigned, passed or

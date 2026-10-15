@@ -52,7 +52,8 @@ package main
 func main() {
     a := [2]int64{1, 2}
     a[0] = 5
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- array-immutable-element/expected --
 stage: typeck
@@ -62,24 +63,25 @@ array-immutable-element/main.tck:5:5: error: cannot assign to element of immutab
 04 |	    a := [2]int64{1, 2}
 05 |	    a[0] = 5
    |	    ^
-06 |	    exit(a[0])
+06 |	    code, _ := int32(a[0])
 
 -- array-index-out-of-range/main.tck --
 package main
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(a[3])
+    code, _ := int32(a[3])
+    exit(code)
 }
 -- array-index-out-of-range/expected --
 stage: typeck
 ---
 
-array-index-out-of-range/main.tck:5:12: error: index 3 is out of range for [3]int64
+array-index-out-of-range/main.tck:5:24: error: index 3 is out of range for [3]int64
 04 |	    a := [3]int64{1, 2, 3}
-05 |	    exit(a[3])
-   |	           ^
-06 |	}
+05 |	    code, _ := int32(a[3])
+   |	                       ^
+06 |	    exit(code)
 
 -- array-length-not-constant/main.tck --
 package main
@@ -108,7 +110,8 @@ package main
 
 func main() {
     a := [3]int64{1, 2}
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- array-literal-count/expected --
 stage: typeck
@@ -118,14 +121,15 @@ array-literal-count/main.tck:4:10: error: [3]int64 literal has 2 elements, want 
 03 |	func main() {
 04 |	    a := [3]int64{1, 2}
    |	         ^~~~~~~~~~~~~~
-05 |	    exit(a[0])
+05 |	    code, _ := int32(a[0])
 
 -- array-literal-key/main.tck --
 package main
 
 func main() {
     a := [3]int64{0: 1, 1: 2, 2: 3}
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- array-literal-key/expected --
 stage: typeck
@@ -135,19 +139,19 @@ array-literal-key/main.tck:4:19: error: keys are not allowed in an array literal
 03 |	func main() {
 04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
    |	                  ^~~~
-05 |	    exit(a[0])
+05 |	    code, _ := int32(a[0])
 
 array-literal-key/main.tck:4:25: error: keys are not allowed in an array literal
 03 |	func main() {
 04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
    |	                        ^~~~
-05 |	    exit(a[0])
+05 |	    code, _ := int32(a[0])
 
 array-literal-key/main.tck:4:31: error: keys are not allowed in an array literal
 03 |	func main() {
 04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
    |	                              ^~~~
-05 |	    exit(a[0])
+05 |	    code, _ := int32(a[0])
 
 -- array-ordering/main.tck --
 package main
@@ -470,7 +474,7 @@ func main() {
 stage: typeck
 ---
 
-bool-as-int/main.tck:4:10: error: cannot use bool as int64 in argument to exit
+bool-as-int/main.tck:4:10: error: cannot use bool as int32 in argument to exit
 03 |	func main() {
 04 |	    exit(1 < 2)
    |	         ^~~~~
@@ -551,7 +555,8 @@ func main() {
     mut ok bool = false
     n, ok = len("ab")
     if ok {
-        exit(n)
+        code, _ := int32(n)
+        exit(code)
     }
 }
 -- builtin-len-assign-two-values/expected --
@@ -793,7 +798,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- checked-assign-immutable/expected --
 stage: typeck
@@ -825,7 +831,8 @@ func f(a int64, b int64, c int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2, 1))
+    code, _ := int32(f(8, 2, 1))
+    exit(code)
 }
 -- checked-not-whole-assign/expected --
 stage: typeck
@@ -872,7 +879,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- checked-not-whole-index/expected --
 stage: typeck
@@ -926,7 +934,7 @@ package main
 func main() {
     total := 0
     total += 1
-    exit(total)
+    exit(int32(total))
 }
 -- compound-immutable/expected --
 stage: typeck
@@ -936,7 +944,7 @@ compound-immutable/main.tck:5:5: error: cannot assign to immutable variable tota
 04 |	    total := 0
 05 |	    total += 1
    |	    ^~~~~
-06 |	    exit(total)
+06 |	    exit(int32(total))
 
 -- compound-non-int/main.tck --
 package main
@@ -1356,7 +1364,8 @@ func f() int64 {
 }
 
 func main() {
-    exit(f())
+    code, _ := int32(f())
+    exit(code)
 }
 -- defer-return/expected --
 stage: typeck
@@ -1372,7 +1381,7 @@ defer-return/main.tck:5:9: error: cannot return from a defer
 package main
 
 func main() {
-    mut d := 2
+    mut d int32 = 2
     if d != 0 {
         defer { exit(10 / d) }
         defer { d = 0 }
@@ -1388,7 +1397,7 @@ defer-unproven-divisor/main.tck:6:27: error: divisor d may be zero; check d != 0
    |	                          ^
 07 |	        defer { d = 0 }
 defer-unproven-divisor/main.tck:5:8: note: this guard proves d != 0
-04 |	    mut d := 2
+04 |	    mut d int32 = 2
 05 |	    if d != 0 {
    |	       ^~~~~~
 06 |	        defer { exit(10 / d) }
@@ -1420,7 +1429,8 @@ package main
 func main() {
     mut n int64 = 8
     n /= 0
-    exit(n)
+    code, _ := int32(n)
+    exit(code)
 }
 -- division-by-zero/expected --
 stage: typeck
@@ -1430,7 +1440,7 @@ division-by-zero/main.tck:5:10: error: division by zero
 04 |	    mut n int64 = 8
 05 |	    n /= 0
    |	         ^
-06 |	    exit(n)
+06 |	    code, _ := int32(n)
 
 -- divisor-changed-in-guard/main.tck --
 package main
@@ -1439,18 +1449,19 @@ func main() {
     mut d int64 = 4
     if d != 0 {
         d--
-        exit(8 / d)
+        code, _ := int32(8 / d)
+        exit(code)
     }
 }
 -- divisor-changed-in-guard/expected --
 stage: typeck
 ---
 
-divisor-changed-in-guard/main.tck:7:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+divisor-changed-in-guard/main.tck:7:30: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
 06 |	        d--
-07 |	        exit(8 / d)
-   |	                 ^
-08 |	    }
+07 |	        code, _ := int32(8 / d)
+   |	                             ^
+08 |	        exit(code)
 divisor-changed-in-guard/main.tck:5:8: note: this guard proves d != 0
 04 |	    mut d int64 = 4
 05 |	    if d != 0 {
@@ -1460,7 +1471,7 @@ divisor-changed-in-guard/main.tck:6:9: note: but d is assigned here, so the proo
 05 |	    if d != 0 {
 06 |	        d--
    |	        ^
-07 |	        exit(8 / d)
+07 |	        code, _ := int32(8 / d)
 
 -- divisor-may-be-zero/main.tck --
 package main
@@ -1470,7 +1481,8 @@ func half(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(half(8, 2))
+    code, _ := int32(half(8, 2))
+    exit(code)
 }
 -- divisor-may-be-zero/expected --
 stage: typeck
@@ -1546,7 +1558,8 @@ func f(a int64, c int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- early-exit-then-assigned/expected --
 stage: typeck
@@ -1576,7 +1589,8 @@ func main() {
     for i := range 4 {
         a[i] = i
     }
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- element-write-unguarded/expected --
 stage: typeck
@@ -1632,6 +1646,74 @@ escape-hex-short/main.tck:6:11: error: Invalid escape sequence "\\x7"
 06 |	    c := '\x7'
    |	          ^~~
 07 |	    exit(c)
+
+-- exit-int64-variable/main.tck --
+package main
+
+func main() {
+    mut code int64 = 3
+    code++
+    exit(code)
+}
+-- exit-int64-variable/expected --
+stage: typeck
+---
+
+exit-int64-variable/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	    code++
+06 |	    exit(code)
+   |	         ^~~~
+07 |	}
+
+-- exit-out-of-range-constant/main.tck --
+package main
+
+func main() {
+    exit(3000000000)
+}
+-- exit-out-of-range-constant/expected --
+stage: typeck
+---
+
+exit-out-of-range-constant/main.tck:4:10: error: constant 3000000000 overflows int32
+03 |	func main() {
+04 |	    exit(3000000000)
+   |	         ^~~~~~~~~~
+05 |	}
+
+-- exit-out-of-range-constant-expression/main.tck --
+package main
+
+func main() {
+    exit(70000 * 70000)
+}
+-- exit-out-of-range-constant-expression/expected --
+stage: typeck
+---
+
+exit-out-of-range-constant-expression/main.tck:4:10: error: constant 4900000000 overflows int32
+03 |	func main() {
+04 |	    exit(70000 * 70000)
+   |	         ^~~~~~~~~~~~~
+05 |	}
+
+-- exit-uint32-variable/main.tck --
+package main
+
+func main() {
+    mut code uint32 = 3
+    code++
+    exit(code)
+}
+-- exit-uint32-variable/expected --
+stage: typeck
+---
+
+exit-uint32-variable/main.tck:6:10: error: cannot use uint32 as int32 in argument to exit
+05 |	    code++
+06 |	    exit(code)
+   |	         ^~~~
+07 |	}
 
 -- extern-as-name/main.tck --
 package main
@@ -2382,7 +2464,8 @@ extern func flag() bool
 
 func main() {
     print(add(1, 2))
-    exit(add(1))
+    code, _ := int32(add(1))
+    exit(code)
     if add(1, 2) {
     }
     exit(flag())
@@ -2395,25 +2478,25 @@ extern-wrong-call/main.tck:8:11: error: cannot use int64 as string in argument t
 07 |	func main() {
 08 |	    print(add(1, 2))
    |	          ^~~~~~~~~
-09 |	    exit(add(1))
+09 |	    code, _ := int32(add(1))
 
-extern-wrong-call/main.tck:9:10: error: add expects 2 argument(s), got 1
+extern-wrong-call/main.tck:9:22: error: add expects 2 argument(s), got 1
 08 |	    print(add(1, 2))
-09 |	    exit(add(1))
-   |	         ^~~~~~
-10 |	    if add(1, 2) {
+09 |	    code, _ := int32(add(1))
+   |	                     ^~~~~~
+10 |	    exit(code)
 
-extern-wrong-call/main.tck:10:8: error: condition must be a bool, got int64
-09 |	    exit(add(1))
-10 |	    if add(1, 2) {
+extern-wrong-call/main.tck:11:8: error: condition must be a bool, got int64
+10 |	    exit(code)
+11 |	    if add(1, 2) {
    |	       ^~~~~~~~~
-11 |	    }
+12 |	    }
 
-extern-wrong-call/main.tck:12:10: error: cannot use bool as int64 in argument to exit
-11 |	    }
-12 |	    exit(flag())
+extern-wrong-call/main.tck:13:10: error: cannot use bool as int32 in argument to exit
+12 |	    }
+13 |	    exit(flag())
    |	         ^~~~~~
-13 |	}
+14 |	}
 
 -- field-fact-mutable-index/main.tck --
 package main
@@ -2431,7 +2514,8 @@ func f(n int64, p P) int64 {
 }
 
 func main() {
-    exit(f(6, P{a: [3]int64{1, 2, 3}}))
+    code, _ := int32(f(6, P{a: [3]int64{1, 2, 3}}))
+    exit(code)
 }
 -- field-fact-mutable-index/expected --
 stage: typeck
@@ -2484,7 +2568,8 @@ func f(n int64, p P) int64 {
 }
 
 func main() {
-    exit(f(8, P{d: 2}))
+    code, _ := int32(f(8, P{d: 2}))
+    exit(code)
 }
 -- field-fact-unguarded/expected --
 stage: typeck
@@ -2511,7 +2596,8 @@ func f(a [3]int64, p P) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, P{i: 1}))
+    code, _ := int32(f([3]int64{1, 2, 3}, P{i: 1}))
+    exit(code)
 }
 -- field-fact-weak-guard/expected --
 stage: typeck
@@ -2721,7 +2807,7 @@ var limit = 10
 
 func main() {
     limit = 5
-    exit(limit)
+    exit(int32(limit))
 }
 -- global-assign-immutable/expected --
 stage: typeck
@@ -2731,7 +2817,7 @@ global-assign-immutable/main.tck:6:5: error: cannot assign to immutable variable
 05 |	func main() {
 06 |	    limit = 5
    |	    ^~~~~
-07 |	    exit(limit)
+07 |	    exit(int32(limit))
 
 -- global-clash-func/main.tck --
 package main
@@ -2803,7 +2889,8 @@ var divisors = [2]int64{1, 0}
 var ratio = 10 / divisors[1]
 
 func main() {
-    exit(ratio)
+    code, _ := int32(ratio)
+    exit(code)
 }
 -- global-div-zero-element/expected --
 stage: typeck
@@ -2868,7 +2955,8 @@ var table = [3]int64{1, 2, 3}
 var past = table[len(table)]
 
 func main() {
-    exit(past)
+    code, _ := int32(past)
+    exit(code)
 }
 -- global-index-out-of-range/expected --
 stage: typeck
@@ -3118,7 +3206,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- guard-else-branch/expected --
 stage: typeck
@@ -3176,7 +3265,8 @@ func f(a int64, c int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- guard-multi-assign-then-divide/expected --
 stage: typeck
@@ -3209,7 +3299,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- guard-negated/expected --
 stage: typeck
@@ -3287,7 +3378,7 @@ package main
 func main() {
     n := 0
     n++
-    exit(n)
+    exit(int32(n))
 }
 -- incdec-immutable/expected --
 stage: typeck
@@ -3297,7 +3388,7 @@ incdec-immutable/main.tck:5:5: error: cannot assign to immutable variable n
 04 |	    n := 0
 05 |	    n++
    |	    ^
-06 |	    exit(n)
+06 |	    exit(int32(n))
 
 -- incdec-non-int/main.tck --
 package main
@@ -3326,7 +3417,8 @@ func pick(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(pick([3]int64{1, 2, 3}, 1))
+    code, _ := int32(pick([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- index-may-be-out-of-range/expected --
 stage: typeck
@@ -3364,7 +3456,8 @@ func f(a [255]int64, i uint8) int64 {
 
 func main() {
     mut a [255]int64
-    exit(f(a, 3))
+    code, _ := int32(f(a, 3))
+    exit(code)
 }
 -- index-uint8-short-array/expected --
 stage: typeck
@@ -3386,7 +3479,8 @@ var b int64 = a
 var c int64 = b
 
 func main() {
-    exit(a + b + c)
+    code, _ := int32(a + b + c)
+    exit(code)
 }
 -- init-cycle-three/expected --
 stage: typeck
@@ -3406,7 +3500,8 @@ var a int64 = b + 1
 var b int64 = a * 2
 
 func main() {
-    exit(a + b)
+    code, _ := int32(a + b)
+    exit(code)
 }
 -- init-cycle-two/expected --
 stage: typeck
@@ -3427,7 +3522,8 @@ var twice int64 = count * 2
 
 func main() {
     count++
-    exit(twice)
+    code, _ := int32(twice)
+    exit(code)
 }
 -- init-names-mutable-global/expected --
 stage: typeck
@@ -3465,7 +3561,8 @@ int-literal-leading-zero/main.tck:4:16: error: integer literal 00 has a leading 
 package main
 
 func main() {
-    exit(9223372036854775808)
+    x := 9223372036854775808
+    exit(int32(x))
 }
 -- int-overflow/expected --
 stage: typeck
@@ -3473,9 +3570,9 @@ stage: typeck
 
 int-overflow/main.tck:4:10: error: constant 9223372036854775808 overflows int64
 03 |	func main() {
-04 |	    exit(9223372036854775808)
+04 |	    x := 9223372036854775808
    |	         ^~~~~~~~~~~~~~~~~~~
-05 |	}
+05 |	    exit(int32(x))
 
 -- invalid-func-syntax-0/main.tck --
 package main
@@ -3568,7 +3665,8 @@ func f() int64 {
 }
 
 func main() {
-    exit(f())
+    code, _ := int32(f())
+    exit(code)
 }
 -- loop-break-missing-return/expected --
 stage: typeck
@@ -3737,7 +3835,8 @@ func f(a int64, b uint64) int64 {
 }
 
 func main() {
-    exit(f(1, 2))
+    code, _ := int32(f(1, 2))
+    exit(code)
 }
 -- mixed-compare-arithmetic/expected --
 stage: typeck
@@ -3803,7 +3902,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- mixed-compare-no-lower-bound/expected --
 stage: typeck
@@ -3832,7 +3932,8 @@ func f(b uint8) int64 {
 }
 
 func main() {
-    exit(f(255))
+    code, _ := int32(f(255))
+    exit(code)
 }
 -- mixed-switch-constant-out-of-range/expected --
 stage: typeck
@@ -3876,7 +3977,8 @@ func pair() (int64, int64) {
 func main() {
     mut a := 0
     a, a = pair()
-    exit(a)
+    code, _ := int32(a)
+    exit(code)
 }
 -- multi-assign-twice/expected --
 stage: typeck
@@ -3886,7 +3988,7 @@ multi-assign-twice/main.tck:9:8: error: a is assigned more than once
 08 |	    mut a := 0
 09 |	    a, a = pair()
    |	       ^
-10 |	    exit(a)
+10 |	    code, _ := int32(a)
 
 -- multi-value-as-value/main.tck --
 package main
@@ -4027,17 +4129,18 @@ func count(n int64) int64 {
 
 func main() {
     mut t int64 = 3
-    exit(count(mut t))
+    code, _ := int32(count(mut t))
+    exit(code)
 }
 -- mut-arg-to-plain-param/expected --
 stage: typeck
 ---
 
-mut-arg-to-plain-param/main.tck:9:16: error: count does not take t as mut; pass t
+mut-arg-to-plain-param/main.tck:9:28: error: count does not take t as mut; pass t
 08 |	    mut t int64 = 3
-09 |	    exit(count(mut t))
-   |	               ^~~~~
-10 |	}
+09 |	    code, _ := int32(count(mut t))
+   |	                           ^~~~~
+10 |	    exit(code)
 
 -- mut-arg-type-mismatch/main.tck --
 package main
@@ -4071,7 +4174,8 @@ func clear(mut a [3]int64, mut n int64) {
 func main() {
     mut a [3]int64
     clear(mut a, mut a[1])
-    exit(a[1])
+    code, _ := int32(a[1])
+    exit(code)
 }
 -- mut-exclusive-element-and-array/expected --
 stage: typeck
@@ -4081,12 +4185,12 @@ mut-exclusive-element-and-array/main.tck:10:18: error: a[1] is part of a, and bo
 09 |	    mut a [3]int64
 10 |	    clear(mut a, mut a[1])
    |	                 ^~~~~~~~
-11 |	    exit(a[1])
+11 |	    code, _ := int32(a[1])
 mut-exclusive-element-and-array/main.tck:10:11: note: first passed as mut here
 09 |	    mut a [3]int64
 10 |	    clear(mut a, mut a[1])
    |	          ^~~~~
-11 |	    exit(a[1])
+11 |	    code, _ := int32(a[1])
 
 -- mut-exclusive-elements-may-overlap/main.tck --
 package main
@@ -4104,7 +4208,8 @@ func main() {
             swap(mut a[i], mut a[j])
         }
     }
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- mut-exclusive-elements-may-overlap/expected --
 stage: typeck
@@ -4172,7 +4277,8 @@ func shift(mut n int64, mut p Point) {
 func main() {
     mut p := Point{x: 1, y: 2}
     shift(mut p.x, mut p)
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- mut-exclusive-field-and-whole/expected --
 stage: typeck
@@ -4182,12 +4288,12 @@ mut-exclusive-field-and-whole/main.tck:15:20: error: p.x is part of p, and both 
 14 |	    mut p := Point{x: 1, y: 2}
 15 |	    shift(mut p.x, mut p)
    |	                   ^~~~~
-16 |	    exit(p.x)
+16 |	    code, _ := int32(p.x)
 mut-exclusive-field-and-whole/main.tck:15:11: note: first passed as mut here
 14 |	    mut p := Point{x: 1, y: 2}
 15 |	    shift(mut p.x, mut p)
    |	          ^~~~~~~
-16 |	    exit(p.x)
+16 |	    code, _ := int32(p.x)
 
 -- mut-exclusive-same-element/main.tck --
 package main
@@ -4204,7 +4310,8 @@ func main() {
     for i := range a {
         swap(mut a[i], mut a[i])
     }
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- mut-exclusive-same-element/expected --
 stage: typeck
@@ -4319,7 +4426,8 @@ func shift(mut p Point, mut n int64) {
 func main() {
     mut p := Point{x: 1, y: 2}
     shift(mut p, mut p.x)
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- mut-exclusive-whole-and-field/expected --
 stage: typeck
@@ -4329,12 +4437,12 @@ mut-exclusive-whole-and-field/main.tck:15:18: error: p.x is part of p, and both 
 14 |	    mut p := Point{x: 1, y: 2}
 15 |	    shift(mut p, mut p.x)
    |	                 ^~~~~~~
-16 |	    exit(p.x)
+16 |	    code, _ := int32(p.x)
 mut-exclusive-whole-and-field/main.tck:15:11: note: first passed as mut here
 14 |	    mut p := Point{x: 1, y: 2}
 15 |	    shift(mut p, mut p.x)
    |	          ^~~~~
-16 |	    exit(p.x)
+16 |	    code, _ := int32(p.x)
 
 -- mut-field-of-immutable/main.tck --
 package main
@@ -4350,7 +4458,8 @@ func bump(mut n int64) {
 func main() {
     c := Point{x: 1}
     bump(mut c.x)
-    exit(c.x)
+    code, _ := int32(c.x)
+    exit(code)
 }
 -- mut-field-of-immutable/expected --
 stage: typeck
@@ -4360,7 +4469,7 @@ mut-field-of-immutable/main.tck:13:10: error: cannot pass mut c.x: c is immutabl
 12 |	    c := Point{x: 1}
 13 |	    bump(mut c.x)
    |	         ^~~~~~~
-14 |	    exit(c.x)
+14 |	    code, _ := int32(c.x)
 
 -- mut-immutable-global/main.tck --
 package main
@@ -4398,7 +4507,8 @@ func scale(mut p Point, k int64) {
 func main() {
     c := Point{x: 1}
     scale(mut c, 2)
-    exit(c.x)
+    code, _ := int32(c.x)
+    exit(code)
 }
 -- mut-immutable-local/expected --
 stage: typeck
@@ -4408,7 +4518,7 @@ mut-immutable-local/main.tck:13:11: error: cannot pass mut c: c is immutable; de
 12 |	    c := Point{x: 1}
 13 |	    scale(mut c, 2)
    |	          ^~~~~
-14 |	    exit(c.x)
+14 |	    code, _ := int32(c.x)
 
 -- mut-immutable-param/main.tck --
 package main
@@ -4423,7 +4533,8 @@ func twice(n int64) int64 {
 }
 
 func main() {
-    exit(twice(1))
+    code, _ := int32(twice(1))
+    exit(code)
 }
 -- mut-immutable-param/expected --
 stage: typeck
@@ -4453,7 +4564,8 @@ func main() {
     if 0 <= i && i < 3 {
         set(mut a[i], next(mut i))
     }
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- mut-index-changed-in-call/expected --
 stage: typeck
@@ -4489,7 +4601,8 @@ func scale(mut p Point, k int64) {
 func main() {
     mut b := Point{x: 1}
     scale(b, 10)
-    exit(b.x)
+    code, _ := int32(b.x)
+    exit(code)
 }
 -- mut-missing/expected --
 stage: typeck
@@ -4499,7 +4612,7 @@ mut-missing/main.tck:13:11: error: scale takes p as mut; pass mut b
 12 |	    mut b := Point{x: 1}
 13 |	    scale(b, 10)
    |	          ^
-14 |	    exit(b.x)
+14 |	    code, _ := int32(b.x)
 
 -- mut-missing-not-a-place/main.tck --
 package main
@@ -4606,18 +4719,19 @@ func main() {
     mut i int64 = 0
     if 0 <= i && i < 3 {
         set(mut i, 7)
-        exit(a[i])
+        code, _ := int32(a[i])
+        exit(code)
     }
 }
 -- mut-proof-ends-at-call/expected --
 stage: typeck
 ---
 
-mut-proof-ends-at-call/main.tck:12:16: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+mut-proof-ends-at-call/main.tck:12:28: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
 11 |	        set(mut i, 7)
-12 |	        exit(a[i])
-   |	               ^
-13 |	    }
+12 |	        code, _ := int32(a[i])
+   |	                           ^
+13 |	        exit(code)
 mut-proof-ends-at-call/main.tck:10:8: note: this guard proves 0 <= i && i < 3
 09 |	    mut i int64 = 0
 10 |	    if 0 <= i && i < 3 {
@@ -4627,7 +4741,7 @@ mut-proof-ends-at-call/main.tck:11:13: note: but i is passed as mut to set here,
 10 |	    if 0 <= i && i < 3 {
 11 |	        set(mut i, 7)
    |	            ^~~~~
-12 |	        exit(a[i])
+12 |	        code, _ := int32(a[i])
 
 -- mut-return/main.tck --
 package main
@@ -4638,7 +4752,8 @@ func bump(mut n int64) int64 {
 
 func main() {
     mut n int64 = 0
-    exit(bump(mut n))
+    code, _ := int32(bump(mut n))
+    exit(code)
 }
 -- mut-return/expected --
 stage: typeck
@@ -4684,7 +4799,8 @@ func main() {
     mut a [3]int64
     mut i int64 = 4
     bump(mut a[i])
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- mut-unproven-index/expected --
 stage: typeck
@@ -4694,7 +4810,7 @@ mut-unproven-index/main.tck:10:16: error: index i may be out of range; check 0 <
 09 |	    mut i int64 = 4
 10 |	    bump(mut a[i])
    |	               ^
-11 |	    exit(a[0])
+11 |	    code, _ := int32(a[0])
 
 -- narrowing-declaration/main.tck --
 package main
@@ -4846,7 +4962,8 @@ func f(n int64) int64 {
 }
 
 func main() {
-    exit(f(2))
+    code, _ := int32(f(2))
+    exit(code)
 }
 -- note-case-assigned/expected --
 stage: typeck
@@ -4879,7 +4996,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- note-early-exit-upper-bound-only/expected --
 stage: typeck
@@ -4904,7 +5022,8 @@ func main() {
     if d == 0 {
         exit(1)
     } else {
-        exit(10 / d)
+        code, _ := int32(10 / d)
+        exit(code)
         d = 1
     }
 }
@@ -4912,21 +5031,21 @@ func main() {
 stage: typeck
 ---
 
-note-else-branch-assigned/main.tck:8:19: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+note-else-branch-assigned/main.tck:8:31: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
 07 |	    } else {
-08 |	        exit(10 / d)
-   |	                  ^
-09 |	        d = 1
+08 |	        code, _ := int32(10 / d)
+   |	                              ^
+09 |	        exit(code)
 note-else-branch-assigned/main.tck:5:8: note: this guard proves d != 0 in its else branch
 04 |	    mut d int64 = 2
 05 |	    if d == 0 {
    |	       ^~~~~~
 06 |	        exit(1)
-note-else-branch-assigned/main.tck:9:9: note: but d is assigned here, so the proof ends
-08 |	        exit(10 / d)
-09 |	        d = 1
+note-else-branch-assigned/main.tck:10:9: note: but d is assigned here, so the proof ends
+09 |	        exit(code)
+10 |	        d = 1
    |	        ^
-10 |	    }
+11 |	    }
 
 -- note-exit-in-else/main.tck --
 package main
@@ -4941,7 +5060,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2))
+    code, _ := int32(f(8, 2))
+    exit(code)
 }
 -- note-exit-in-else/expected --
 stage: typeck
@@ -4979,7 +5099,8 @@ func f(a [3]int64, mut p P) int64 {
 
 func main() {
     mut p := P{i: 1}
-    exit(f([3]int64{1, 2, 3}, mut p))
+    code, _ := int32(f([3]int64{1, 2, 3}, mut p))
+    exit(code)
 }
 -- note-field-early-exit/expected --
 stage: typeck
@@ -5039,7 +5160,8 @@ mut g int64 = 2
 func main() {
     mut x int64 = 8
     x /= g
-    exit(x)
+    code, _ := int32(x)
+    exit(code)
 }
 -- note-global-compound/expected --
 stage: typeck
@@ -5049,7 +5171,7 @@ note-global-compound/main.tck:7:10: error: divisor g may be zero
 06 |	    mut x int64 = 8
 07 |	    x /= g
    |	         ^
-08 |	    exit(x)
+08 |	    code, _ := int32(x)
 note-global-compound/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
 02 |	
 03 |	mut g int64 = 2
@@ -5069,7 +5191,8 @@ func f(a [3]int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}))
+    code, _ := int32(f([3]int64{1, 2, 3}))
+    exit(code)
 }
 -- note-global-index/expected --
 stage: typeck
@@ -5094,7 +5217,8 @@ mut g int64
 func main() {
     mut a [3]int64
     a[g] = 1
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- note-global-index-write/expected --
 stage: typeck
@@ -5104,7 +5228,7 @@ note-global-index-write/main.tck:7:7: error: index g may be out of range
 06 |	    mut a [3]int64
 07 |	    a[g] = 1
    |	      ^
-08 |	    exit(a[0])
+08 |	    code, _ := int32(a[0])
 note-global-index-write/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
 02 |	
 03 |	mut g int64
@@ -5178,7 +5302,8 @@ func f(a [3]int64, n int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- note-inner-post/expected --
 stage: typeck
@@ -5244,7 +5369,8 @@ func f(n int64) int64 {
 }
 
 func main() {
-    exit(f(2))
+    code, _ := int32(f(2))
+    exit(code)
 }
 -- note-later-case-assigned/expected --
 stage: typeck
@@ -5280,7 +5406,8 @@ func main() {
         x = 10 / d
         x, d = g()
     }
-    exit(x)
+    code, _ := int32(x)
+    exit(code)
 }
 -- note-multi-target/expected --
 stage: typeck
@@ -5313,7 +5440,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- note-negative-lower-bound/expected --
 stage: typeck
@@ -5345,7 +5473,8 @@ func f(n int64, x int64) int64 {
 }
 
 func main() {
-    exit(f(2, 1))
+    code, _ := int32(f(2, 1))
+    exit(code)
 }
 -- note-nested-block/expected --
 stage: typeck
@@ -5378,7 +5507,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(8, 3))
+    code, _ := int32(f(8, 3))
+    exit(code)
 }
 -- note-not-a-name-divisor/expected --
 stage: typeck
@@ -5406,7 +5536,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- note-off-by-one/expected --
 stage: typeck
@@ -5434,7 +5565,8 @@ func f(a [3]int64, b [4]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, [4]int64{1, 2, 3, 4}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, [4]int64{1, 2, 3, 4}, 1))
+    exit(code)
 }
 -- note-other-array/expected --
 stage: typeck
@@ -5487,7 +5619,8 @@ func main() {
     if d != 0 {
         if d > 0 {
             d = 1
-            exit(10 / d)
+            code, _ := int32(10 / d)
+            exit(code)
         }
     }
 }
@@ -5495,11 +5628,11 @@ func main() {
 stage: typeck
 ---
 
-note-two-guards/main.tck:8:23: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+note-two-guards/main.tck:8:35: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
 07 |	            d = 1
-08 |	            exit(10 / d)
-   |	                      ^
-09 |	        }
+08 |	            code, _ := int32(10 / d)
+   |	                                  ^
+09 |	            exit(code)
 note-two-guards/main.tck:5:8: note: this guard proves d != 0
 04 |	    mut d int64 = 2
 05 |	    if d != 0 {
@@ -5514,7 +5647,7 @@ note-two-guards/main.tck:7:13: note: but d is assigned here, so the proof ends
 06 |	        if d > 0 {
 07 |	            d = 1
    |	            ^
-08 |	            exit(10 / d)
+08 |	            code, _ := int32(10 / d)
 
 -- note-upper-bound-only/main.tck --
 package main
@@ -5527,7 +5660,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, 1))
+    exit(code)
 }
 -- note-upper-bound-only/expected --
 stage: typeck
@@ -5580,7 +5714,8 @@ func main() {
     mut i int64 = 0
     mut sum int64 = 0
     for i <= 3 { sum += a[i]; i++ }
-    exit(sum)
+    code, _ := int32(sum)
+    exit(code)
 }
 -- note-would-allow/expected --
 stage: typeck
@@ -5590,27 +5725,27 @@ note-would-allow/main.tck:7:27: error: index i may be out of range; check 0 <= i
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { sum += a[i]; i++ }
    |	                          ^
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 note-would-allow/main.tck:7:9: note: this guard proves i < 4
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { sum += a[i]; i++ }
    |	        ^~~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 note-would-allow/main.tck:7:31: note: but i is assigned here, so the proof ends
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { sum += a[i]; i++ }
    |	                              ^
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 note-would-allow/main.tck:7:9: note: this guard would bound i only above; i may be negative
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { sum += a[i]; i++ }
    |	        ^~~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 note-would-allow/main.tck:7:9: note: this guard would allow i == 3, and a has 3 elements
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { sum += a[i]; i++ }
    |	        ^~~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 
 -- note-wrap-down/main.tck --
 package main
@@ -5623,7 +5758,8 @@ func f(a int64) int64 {
 }
 
 func main() {
-    exit(f(8))
+    code, _ := int32(f(8))
+    exit(code)
 }
 -- note-wrap-down/expected --
 stage: typeck
@@ -5704,7 +5840,8 @@ package main
 func main() {
     for i := range 3 {
         i += 1
-        exit(i)
+        code, _ := int32(i)
+        exit(code)
     }
 }
 -- range-assign-immutable/expected --
@@ -5715,7 +5852,7 @@ range-assign-immutable/main.tck:5:9: error: cannot assign to immutable variable 
 04 |	    for i := range 3 {
 05 |	        i += 1
    |	        ^
-06 |	        exit(i)
+06 |	        code, _ := int32(i)
 
 -- range-blank-nothing-bound/main.tck --
 package main
@@ -5762,7 +5899,8 @@ func main() {
     a := [3]int64{1, 2, 3}
     for _, x := range a {
         x *= 2
-        exit(x)
+        code, _ := int32(x)
+        exit(code)
     }
 }
 -- range-elem-assign-immutable/expected --
@@ -5773,7 +5911,7 @@ range-elem-assign-immutable/main.tck:6:9: error: cannot assign to immutable vari
 05 |	    for _, x := range a {
 06 |	        x *= 2
    |	        ^
-07 |	        exit(x)
+07 |	        code, _ := int32(x)
 
 -- range-mut/main.tck --
 package main
@@ -5927,7 +6065,8 @@ func half(n int64) int64 {
 }
 
 func main() {
-    exit(half(7))
+    code, _ := int32(half(7))
+    exit(code)
 }
 -- return-too-many/expected --
 stage: typeck
@@ -6029,7 +6168,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2))
+    code, _ := int32(f(8, 2))
+    exit(code)
 }
 -- safety-checked-not-whole/expected --
 stage: typeck
@@ -6053,7 +6193,8 @@ func f(m [2][3]int64, i int64, j int64) int64 {
 }
 
 func main() {
-    exit(f([2][3]int64{[3]int64{1, 2, 3}, [3]int64{4, 5, 6}}, 1, 2))
+    code, _ := int32(f([2][3]int64{[3]int64{1, 2, 3}, [3]int64{4, 5, 6}}, 1, 2))
+    exit(code)
 }
 -- safety-checked-outer-index-only/expected --
 stage: typeck
@@ -6184,7 +6325,8 @@ func f(b int64) int64 {
 }
 
 func main() {
-    exit(f(4))
+    code, _ := int32(f(4))
+    exit(code)
 }
 -- safety-compound-div-unguarded/expected --
 stage: typeck
@@ -6206,7 +6348,8 @@ func f(b int64) int64 {
 }
 
 func main() {
-    exit(f(4))
+    code, _ := int32(f(4))
+    exit(code)
 }
 -- safety-compound-rem-not-a-name/expected --
 stage: typeck
@@ -6356,7 +6499,8 @@ func main() {
         sum += a[i]
         i++
     }
-    exit(sum)
+    code, _ := int32(sum)
+    exit(code)
 }
 -- safety-counting-loop-assigns/expected --
 stage: typeck
@@ -6392,7 +6536,8 @@ func main() {
     for mut i int8 = 2; i < 3; i += 126 {
         sum += a[i]
     }
-    exit(sum)
+    code, _ := int32(sum)
+    exit(code)
 }
 -- safety-counting-loop-may-wrap/expected --
 stage: typeck
@@ -6474,23 +6619,24 @@ package main
 
 func main() {
     mut a int64 = 7
-    exit(a / 0 + a % 0)
+    code, _ := int32(a / 0 + a % 0)
+    exit(code)
 }
 -- safety-div-known-zero/expected --
 stage: typeck
 ---
 
-safety-div-known-zero/main.tck:5:14: error: division by zero
+safety-div-known-zero/main.tck:5:26: error: division by zero
 04 |	    mut a int64 = 7
-05 |	    exit(a / 0 + a % 0)
-   |	             ^
-06 |	}
+05 |	    code, _ := int32(a / 0 + a % 0)
+   |	                         ^
+06 |	    exit(code)
 
-safety-div-known-zero/main.tck:5:22: error: division by zero
+safety-div-known-zero/main.tck:5:34: error: division by zero
 04 |	    mut a int64 = 7
-05 |	    exit(a / 0 + a % 0)
-   |	                     ^
-06 |	}
+05 |	    code, _ := int32(a / 0 + a % 0)
+   |	                                 ^
+06 |	    exit(code)
 
 -- safety-div-not-a-name/main.tck --
 package main
@@ -6500,7 +6646,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(8, 1))
+    code, _ := int32(f(8, 1))
+    exit(code)
 }
 -- safety-div-not-a-name/expected --
 stage: typeck
@@ -6517,17 +6664,18 @@ package main
 
 func main() {
     a := [3]int64{10, 20, 30}
-    exit(a[-1])
+    code, _ := int32(a[-1])
+    exit(code)
 }
 -- safety-index-read-negative/expected --
 stage: typeck
 ---
 
-safety-index-read-negative/main.tck:5:12: error: index -1 is out of range for [3]int64
+safety-index-read-negative/main.tck:5:24: error: index -1 is out of range for [3]int64
 04 |	    a := [3]int64{10, 20, 30}
-05 |	    exit(a[-1])
-   |	           ^~
-06 |	}
+05 |	    code, _ := int32(a[-1])
+   |	                       ^~
+06 |	    exit(code)
 
 -- safety-index-read-not-a-name/main.tck --
 package main
@@ -6537,7 +6685,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{10, 20, 30}, 1))
+    code, _ := int32(f([3]int64{10, 20, 30}, 1))
+    exit(code)
 }
 -- safety-index-read-not-a-name/expected --
 stage: typeck
@@ -6557,7 +6706,8 @@ func get(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(get([3]int64{10, 20, 30}, 1))
+    code, _ := int32(get([3]int64{10, 20, 30}, 1))
+    exit(code)
 }
 -- safety-index-read-unguarded/expected --
 stage: typeck
@@ -6579,7 +6729,8 @@ func f(i int64) int64 {
 }
 
 func main() {
-    exit(f(1))
+    code, _ := int32(f(1))
+    exit(code)
 }
 -- safety-index-write-not-a-name/expected --
 stage: typeck
@@ -6601,7 +6752,8 @@ func set(i int64) int64 {
 }
 
 func main() {
-    exit(set(1))
+    code, _ := int32(set(1))
+    exit(code)
 }
 -- safety-index-write-unguarded/expected --
 stage: typeck
@@ -6704,7 +6856,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2))
+    code, _ := int32(f(8, 2))
+    exit(code)
 }
 -- safety-no-proof-exit/expected --
 stage: typeck
@@ -6740,7 +6893,8 @@ func f(n int64, mut p P) int64 {
 
 func main() {
     mut p := P{d: 2}
-    exit(f(8, mut p))
+    code, _ := int32(f(8, mut p))
+    exit(code)
 }
 -- safety-no-proof-field/expected --
 stage: typeck
@@ -6765,7 +6919,8 @@ func main() {
     mut i int64 = 0
     mut sum int64 = 0
     for i < 3 { sum += a[i]; i++ }
-    exit(sum)
+    code, _ := int32(sum)
+    exit(code)
 }
 -- safety-no-proof-loop-assigns/expected --
 stage: typeck
@@ -6775,22 +6930,22 @@ safety-no-proof-loop-assigns/main.tck:7:26: error: index i may be out of range; 
 06 |	    mut sum int64 = 0
 07 |	    for i < 3 { sum += a[i]; i++ }
    |	                         ^
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 safety-no-proof-loop-assigns/main.tck:7:9: note: this guard proves i < 3
 06 |	    mut sum int64 = 0
 07 |	    for i < 3 { sum += a[i]; i++ }
    |	        ^~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 safety-no-proof-loop-assigns/main.tck:7:30: note: but i is assigned here, so the proof ends
 06 |	    mut sum int64 = 0
 07 |	    for i < 3 { sum += a[i]; i++ }
    |	                             ^
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 safety-no-proof-loop-assigns/main.tck:7:9: note: this guard would bound i only above; i may be negative
 06 |	    mut sum int64 = 0
 07 |	    for i < 3 { sum += a[i]; i++ }
    |	        ^~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 
 -- safety-no-proof-multi-value-case-out-of-range/main.tck --
 package main
@@ -6801,7 +6956,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{10, 20, 30}, 0))
+    code, _ := int32(f([3]int64{10, 20, 30}, 0))
+    exit(code)
 }
 -- safety-no-proof-multi-value-case-out-of-range/expected --
 stage: typeck
@@ -6830,7 +6986,8 @@ func f(x int64) int64 {
 
 func main() {
     g = 2
-    exit(f(8))
+    code, _ := int32(f(8))
+    exit(code)
 }
 -- safety-no-proof-mutable-global/expected --
 stage: typeck
@@ -6858,7 +7015,8 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{10, 20, 30}, 1))
+    code, _ := int32(f([3]int64{10, 20, 30}, 1))
+    exit(code)
 }
 -- safety-no-proof-not-a-name/expected --
 stage: typeck
@@ -6884,7 +7042,8 @@ func f(a int64, b int64, c int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2, 1))
+    code, _ := int32(f(8, 2, 1))
+    exit(code)
 }
 -- safety-no-proof-or-one-side/expected --
 stage: typeck
@@ -6904,7 +7063,8 @@ func main() {
     b := [4]int64{1, 2, 3, 4}
     mut sum int64 = 0
     for i := range b { sum += a[i] }
-    exit(sum)
+    code, _ := int32(sum)
+    exit(code)
 }
 -- safety-no-proof-range-longer/expected --
 stage: typeck
@@ -6914,12 +7074,12 @@ safety-no-proof-range-longer/main.tck:7:33: error: index i may be out of range; 
 06 |	    mut sum int64 = 0
 07 |	    for i := range b { sum += a[i] }
    |	                                ^
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 safety-no-proof-range-longer/main.tck:7:5: note: this loop allows i == 3, and a has 3 elements
 06 |	    mut sum int64 = 0
 07 |	    for i := range b { sum += a[i] }
    |	    ^~~~~~~~~~~~~~~~
-08 |	    exit(sum)
+08 |	    code, _ := int32(sum)
 
 -- safety-no-proof-string-equality/main.tck --
 package main
@@ -6974,7 +7134,8 @@ func f(a [3]int64, i int64, n int64) int64 {
 }
 
 func main() {
-    exit(f([3]int64{10, 20, 30}, 1, 3))
+    code, _ := int32(f([3]int64{10, 20, 30}, 1, 3))
+    exit(code)
 }
 -- safety-no-proof-unknown-bound/expected --
 stage: typeck
@@ -6995,7 +7156,8 @@ func f(a int64, b int64, c int64) int64 {
 }
 
 func main() {
-    exit(f(8, 2, 0))
+    code, _ := int32(f(8, 2, 0))
+    exit(code)
 }
 -- safety-no-proof-variable-comparison/expected --
 stage: typeck
@@ -7017,7 +7179,8 @@ func main() {
         x = 10 / d      // error: d is assigned later in this branch
         d = 0
     }
-    exit(x + d)
+    code, _ := int32(x + d)
+    exit(code)
 }
 -- safety-region-assigned-later/expected --
 stage: typeck
@@ -7114,7 +7277,8 @@ package main
 func main() {
     mut a := [3]int64{1, 2, 3}
     a[1:][0] = 5
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- slice-assign-element/expected --
 stage: typeck
@@ -7124,24 +7288,25 @@ slice-assign-element/main.tck:5:5: error: cannot assign to a[1:][0]: a slice is 
 04 |	    mut a := [3]int64{1, 2, 3}
 05 |	    a[1:][0] = 5
    |	    ^~~~~~~~
-06 |	    exit(a[0])
+06 |	    code, _ := int32(a[0])
 
 -- slice-bound-negative/main.tck --
 package main
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(len(a[-1:]))
+    code, _ := int32(len(a[-1:]))
+    exit(code)
 }
 -- slice-bound-negative/expected --
 stage: typeck
 ---
 
-slice-bound-negative/main.tck:5:16: error: slice bound -1 is out of range for [3]int64
+slice-bound-negative/main.tck:5:28: error: slice bound -1 is out of range for [3]int64
 04 |	    a := [3]int64{1, 2, 3}
-05 |	    exit(len(a[-1:]))
-   |	               ^~
-06 |	}
+05 |	    code, _ := int32(len(a[-1:]))
+   |	                           ^~
+06 |	    exit(code)
 
 -- slice-bound-negative-view/main.tck --
 package main
@@ -7152,7 +7317,8 @@ func f(v []int64) int64 {
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(f(a))
+    code, _ := int32(f(a))
+    exit(code)
 }
 -- slice-bound-negative-view/expected --
 stage: typeck
@@ -7186,16 +7352,16 @@ package main
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(len(a[1:4]))
+    exit(int32(len(a[1:4])))
 }
 -- slice-bound-past-array/expected --
 stage: typeck
 ---
 
-slice-bound-past-array/main.tck:5:18: error: slice bound 4 is out of range for [3]int64
+slice-bound-past-array/main.tck:5:24: error: slice bound 4 is out of range for [3]int64
 04 |	    a := [3]int64{1, 2, 3}
-05 |	    exit(len(a[1:4]))
-   |	                 ^
+05 |	    exit(int32(len(a[1:4])))
+   |	                       ^
 06 |	}
 
 -- slice-bound-past-known-slice/main.tck --
@@ -7316,7 +7482,8 @@ package main
 func main() {
     mut a := [3]int64{1, 2, 3}
     a[:]++
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- slice-incdec/expected --
 stage: typeck
@@ -7326,7 +7493,7 @@ slice-incdec/main.tck:5:5: error: cannot assign to a[:]: a slice is not a place
 04 |	    mut a := [3]int64{1, 2, 3}
 05 |	    a[:]++
    |	    ^~~~
-06 |	    exit(a[0])
+06 |	    code, _ := int32(a[0])
 
 -- slice-mut-arg/main.tck --
 package main
@@ -7338,7 +7505,8 @@ func zero(mut a [2]int64) {
 func main() {
     mut a := [3]int64{1, 2, 3}
     zero(mut a[1:])
-    exit(a[0])
+    code, _ := int32(a[0])
+    exit(code)
 }
 -- slice-mut-arg/expected --
 stage: typeck
@@ -7348,7 +7516,7 @@ slice-mut-arg/main.tck:9:10: error: cannot pass mut a[1:]: a slice is not a plac
 08 |	    mut a := [3]int64{1, 2, 3}
 09 |	    zero(mut a[1:])
    |	         ^~~~~~~~~
-10 |	    exit(a[0])
+10 |	    code, _ := int32(a[0])
 
 -- slice-not-sliceable-bool/main.tck --
 package main
@@ -7414,17 +7582,18 @@ func count(b []uint8) int64 {
 
 func main() {
     s := "abc"
-    exit(count([]uint8(s)[1:]))
+    code, _ := int32(count([]uint8(s)[1:]))
+    exit(code)
 }
 -- slice-of-bytes-view/expected --
 stage: typeck
 ---
 
-slice-of-bytes-view/main.tck:9:16: error: []uint8(...) can only be passed to a []uint8 parameter
+slice-of-bytes-view/main.tck:9:28: error: []uint8(...) can only be passed to a []uint8 parameter
 08 |	    s := "abc"
-09 |	    exit(count([]uint8(s)[1:]))
-   |	               ^~~~~~~~~~
-10 |	}
+09 |	    code, _ := int32(count([]uint8(s)[1:]))
+   |	                           ^~~~~~~~~~
+10 |	    exit(code)
 
 -- slice-temporary-array-call/main.tck --
 package main
@@ -7438,17 +7607,18 @@ func sum(v []int64) int64 {
 }
 
 func main() {
-    exit(sum(three()[1:]))
+    code, _ := int32(sum(three()[1:]))
+    exit(code)
 }
 -- slice-temporary-array-call/expected --
 stage: typeck
 ---
 
-slice-temporary-array-call/main.tck:12:14: error: cannot slice a temporary array; store it in a variable first
+slice-temporary-array-call/main.tck:12:26: error: cannot slice a temporary array; store it in a variable first
 11 |	func main() {
-12 |	    exit(sum(three()[1:]))
-   |	             ^~~~~~~
-13 |	}
+12 |	    code, _ := int32(sum(three()[1:]))
+   |	                         ^~~~~~~
+13 |	    exit(code)
 
 -- slice-temporary-array-literal/main.tck --
 package main
@@ -7458,17 +7628,18 @@ func sum(v []int64) int64 {
 }
 
 func main() {
-    exit(sum([3]int64{1, 2, 3}[:2]))
+    code, _ := int32(sum([3]int64{1, 2, 3}[:2]))
+    exit(code)
 }
 -- slice-temporary-array-literal/expected --
 stage: typeck
 ---
 
-slice-temporary-array-literal/main.tck:8:14: error: cannot slice a temporary array; store it in a variable first
+slice-temporary-array-literal/main.tck:8:26: error: cannot slice a temporary array; store it in a variable first
 07 |	func main() {
-08 |	    exit(sum([3]int64{1, 2, 3}[:2]))
-   |	             ^~~~~~~~~~~~~~~~~
-09 |	}
+08 |	    code, _ := int32(sum([3]int64{1, 2, 3}[:2]))
+   |	                         ^~~~~~~~~~~~~~~~~
+09 |	    exit(code)
 
 -- slice-three-index/main.tck --
 package main
@@ -7558,7 +7729,8 @@ func part(a [3]int64, j int64) int64 {
 }
 
 func main() {
-    exit(part([3]int64{1, 2, 3}, 2))
+    code, _ := int32(part([3]int64{1, 2, 3}, 2))
+    exit(code)
 }
 -- slice-unproven-high-past-array/expected --
 stage: typeck
@@ -7782,7 +7954,8 @@ func rest(v []int64, i int64) int64 {
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(rest(a, 1))
+    code, _ := int32(rest(a, 1))
+    exit(code)
 }
 -- slice-unproven-view/expected --
 stage: typeck
@@ -7805,7 +7978,8 @@ func main() {
     a := [3]int64{1, 2, 3}
     v, ok := a[1:]
     if ok {
-        exit(sum(v))
+        code, _ := int32(sum(v))
+        exit(code)
     }
 }
 -- slice-view-checked/expected --
@@ -7848,7 +8022,8 @@ func f(v []int64) int64 {
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(f(a))
+    code, _ := int32(f(a))
+    exit(code)
 }
 -- slice-view-param-indexed/expected --
 stage: typeck
@@ -7887,7 +8062,8 @@ func tail(a [3]int64) [2]int64 {
 }
 
 func main() {
-    exit(tail([3]int64{1, 2, 3})[0])
+    code, _ := int32(tail([3]int64{1, 2, 3})[0])
+    exit(code)
 }
 -- slice-view-returned/expected --
 stage: typeck
@@ -7909,7 +8085,8 @@ type Box struct {
 func main() {
     a := [3]int64{1, 2, 3}
     b := Box{items: a[1:]}
-    exit(b.items[0])
+    code, _ := int32(b.items[0])
+    exit(code)
 }
 -- slice-view-stored-in-field/expected --
 stage: typeck
@@ -7919,7 +8096,7 @@ slice-view-stored-in-field/main.tck:9:21: error: a[1:] is a view, []int64, which
 08 |	    a := [3]int64{1, 2, 3}
 09 |	    b := Box{items: a[1:]}
    |	                    ^~~~~
-10 |	    exit(b.items[0])
+10 |	    code, _ := int32(b.items[0])
 
 -- slice-view-stored-in-variable/main.tck --
 package main
@@ -7948,17 +8125,18 @@ func sum(v []int32) int64 {
 
 func main() {
     a := [3]int64{1, 2, 3}
-    exit(sum(a[1:]))
+    code, _ := int32(sum(a[1:]))
+    exit(code)
 }
 -- slice-view-wrong-element/expected --
 stage: typeck
 ---
 
-slice-view-wrong-element/main.tck:9:14: error: cannot use []int64 as []int32 in argument to sum
+slice-view-wrong-element/main.tck:9:26: error: cannot use []int64 as []int32 in argument to sum
 08 |	    a := [3]int64{1, 2, 3}
-09 |	    exit(sum(a[1:]))
-   |	             ^~~~~
-10 |	}
+09 |	    code, _ := int32(sum(a[1:]))
+   |	                         ^~~~~
+10 |	    exit(code)
 
 -- string-arithmetic/main.tck --
 package main
@@ -8310,23 +8488,24 @@ type Pair struct {
 func main() {
     mut p := Pair{a: 6, b: 3}
     if p.b != 0 {
-        exit(p.a / p.b)
+        code, _ := int32(p.a / p.b)
+        exit(code)
     }
 }
 -- struct-field-divisor-unproven/expected --
 stage: typeck
 ---
 
-struct-field-divisor-unproven/main.tck:11:20: error: divisor may be zero; use q, ok := ... / ...
+struct-field-divisor-unproven/main.tck:11:32: error: divisor may be zero; use q, ok := ... / ...
 10 |	    if p.b != 0 {
-11 |	        exit(p.a / p.b)
-   |	                   ^~~
-12 |	    }
+11 |	        code, _ := int32(p.a / p.b)
+   |	                               ^~~
+12 |	        exit(code)
 struct-field-divisor-unproven/main.tck:10:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.b into a variable first
 09 |	    mut p := Pair{a: 6, b: 3}
 10 |	    if p.b != 0 {
    |	       ^~~~~~~~
-11 |	        exit(p.a / p.b)
+11 |	        code, _ := int32(p.a / p.b)
 
 -- struct-field-immutable/main.tck --
 package main
@@ -8338,7 +8517,8 @@ type Point struct {
 func main() {
     p := Point{x: 1}
     p.x = 2
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-field-immutable/expected --
 stage: typeck
@@ -8348,7 +8528,7 @@ struct-field-immutable/main.tck:9:5: error: cannot assign to field of immutable 
 08 |	    p := Point{x: 1}
 09 |	    p.x = 2
    |	    ^
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 -- struct-field-length-global/main.tck --
 package main
@@ -8465,7 +8645,8 @@ type Line struct {
 
 func main() {
     l := Line{a: {x: 1}}
-    exit(l.a.x)
+    code, _ := int32(l.a.x)
+    exit(code)
 }
 -- struct-field-untyped-literal/expected --
 stage: typeck
@@ -8475,7 +8656,7 @@ struct-field-untyped-literal/main.tck:12:18: error: a literal without a type nee
 11 |	func main() {
 12 |	    l := Line{a: {x: 1}}
    |	                 ^~~~~~
-13 |	    exit(l.a.x)
+13 |	    code, _ := int32(l.a.x)
 
 -- struct-field-visibility/main.tck --
 package main
@@ -8505,7 +8686,8 @@ type Point struct {
 
 func main() {
     p := Point{"x": 1}
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-literal-bad-key/expected --
 stage: typeck
@@ -8515,7 +8697,7 @@ struct-literal-bad-key/main.tck:8:16: error: invalid field name in Point literal
 07 |	func main() {
 08 |	    p := Point{"x": 1}
    |	               ^~~
-09 |	    exit(p.x)
+09 |	    code, _ := int32(p.x)
 
 -- struct-literal-duplicate-field/main.tck --
 package main
@@ -8527,7 +8709,8 @@ type Point struct {
 
 func main() {
     p := Point{x: 1, y: 2, x: 3}
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-literal-duplicate-field/expected --
 stage: typeck
@@ -8537,7 +8720,7 @@ struct-literal-duplicate-field/main.tck:9:28: error: duplicate field x in Point 
 08 |	func main() {
 09 |	    p := Point{x: 1, y: 2, x: 3}
    |	                           ^
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 -- struct-literal-in-header/main.tck --
 package main
@@ -8572,7 +8755,8 @@ type Point struct {
 
 func main() {
     p := Point{x: 1}
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-literal-missing-field/expected --
 stage: typeck
@@ -8582,7 +8766,7 @@ struct-literal-missing-field/main.tck:9:10: error: Point literal is missing fiel
 08 |	func main() {
 09 |	    p := Point{x: 1}
    |	         ^~~~~~~~~~~
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 -- struct-literal-paren-key/main.tck --
 package main
@@ -8594,7 +8778,8 @@ type Point struct {
 
 func main() {
     p := Point{(x): 1, y: 2}
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-literal-paren-key/expected --
 stage: typeck
@@ -8604,7 +8789,7 @@ struct-literal-paren-key/main.tck:9:17: error: invalid field name in Point liter
 08 |	func main() {
 09 |	    p := Point{(x): 1, y: 2}
    |	                ^
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 -- struct-literal-positional/main.tck --
 package main
@@ -8616,7 +8801,8 @@ type Point struct {
 
 func main() {
     p := Point{1, 2}
-    exit(p.x)
+    code, _ := int32(p.x)
+    exit(code)
 }
 -- struct-literal-positional/expected --
 stage: typeck
@@ -8626,13 +8812,13 @@ struct-literal-positional/main.tck:9:16: error: missing field name in Point lite
 08 |	func main() {
 09 |	    p := Point{1, 2}
    |	               ^
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 struct-literal-positional/main.tck:9:19: error: missing field name in Point literal
 08 |	func main() {
 09 |	    p := Point{1, 2}
    |	                  ^
-10 |	    exit(p.x)
+10 |	    code, _ := int32(p.x)
 
 -- struct-local-type/main.tck --
 package main
@@ -8871,7 +9057,8 @@ func f(n int64) int64 {
 }
 
 func main() {
-    exit(f(1))
+    code, _ := int32(f(1))
+    exit(code)
 }
 -- switch-break-missing-return/expected --
 stage: typeck
@@ -8937,7 +9124,8 @@ func f(a int64, b int64) int64 {
 }
 
 func main() {
-    exit(f(4, 2))
+    code, _ := int32(f(4, 2))
+    exit(code)
 }
 -- switch-case-not-leaving/expected --
 stage: typeck
@@ -9098,7 +9286,8 @@ func f(n int64) int64 {
 }
 
 func main() {
-    exit(f(1))
+    code, _ := int32(f(1))
+    exit(code)
 }
 -- switch-missing-default-return/expected --
 stage: typeck
@@ -9122,7 +9311,8 @@ func f(d int64) int64 {
 }
 
 func main() {
-    exit(f(1))
+    code, _ := int32(f(1))
+    exit(code)
 }
 -- switch-multi-value-no-proof/expected --
 stage: typeck
@@ -9447,7 +9637,8 @@ func low(s unsafe_size_t) uint32 {
 }
 
 func main() {
-    exit(low(5))
+    code, _ := int32(low(5))
+    exit(code)
 }
 -- unsafe-conversion-can-fail/expected --
 stage: typeck
@@ -9543,7 +9734,8 @@ func at(a [4]int64, s unsafe_size_t) int64 {
 }
 
 func main() {
-    exit(at([4]int64{1, 2, 3, 4}, 2))
+    code, _ := int32(at([4]int64{1, 2, 3, 4}, 2))
+    exit(code)
 }
 -- unsafe-index-array/expected --
 stage: typeck
@@ -9580,17 +9772,18 @@ package main
 
 func main() {
     a := [4]int64{1, 2, 3, 4}
-    exit(a[unsafe_size_t(4)])
+    code, _ := int32(a[unsafe_size_t(4)])
+    exit(code)
 }
 -- unsafe-index-const/expected --
 stage: typeck
 ---
 
-unsafe-index-const/main.tck:5:12: error: index 4 is out of range for [4]int64
+unsafe-index-const/main.tck:5:24: error: index 4 is out of range for [4]int64
 04 |	    a := [4]int64{1, 2, 3, 4}
-05 |	    exit(a[unsafe_size_t(4)])
-   |	           ^~~~~~~~~~~~~~~~
-06 |	}
+05 |	    code, _ := int32(a[unsafe_size_t(4)])
+   |	                       ^~~~~~~~~~~~~~~~
+06 |	    exit(code)
 
 -- unsafe-index-guard-allows-len/main.tck --
 package main
@@ -9603,7 +9796,8 @@ func at(a [4]int64, s unsafe_uintptr_t) int64 {
 }
 
 func main() {
-    exit(at([4]int64{1, 2, 3, 4}, 2))
+    code, _ := int32(at([4]int64{1, 2, 3, 4}, 2))
+    exit(code)
 }
 -- unsafe-index-guard-allows-len/expected --
 stage: typeck
@@ -9632,7 +9826,8 @@ func sum(a [4]int64, n unsafe_size_t) int64 {
 }
 
 func main() {
-    exit(sum([4]int64{1, 2, 3, 4}, 3))
+    code, _ := int32(sum([4]int64{1, 2, 3, 4}, 3))
+    exit(code)
 }
 -- unsafe-index-loop-unbounded/expected --
 stage: typeck
@@ -9692,7 +9887,8 @@ func at(v []int64, p unsafe_uintptr_t) int64 {
 
 func main() {
     a := [4]int64{1, 2, 3, 4}
-    exit(at(a, 2))
+    code, _ := int32(at(a, 2))
+    exit(code)
 }
 -- unsafe-index-view/expected --
 stage: typeck
@@ -9712,7 +9908,8 @@ func add(s unsafe_size_t, n int64) int64 {
 }
 
 func main() {
-    exit(add(1, 2))
+    code, _ := int32(add(1, 2))
+    exit(code)
 }
 -- unsafe-mismatch-int64/expected --
 stage: typeck
@@ -9905,7 +10102,8 @@ func count(s unsafe_size_t) int64 {
 }
 
 func main() {
-    exit(count(1))
+    code, _ := int32(count(1))
+    exit(code)
 }
 -- unsafe-widen-to-int64/expected --
 stage: typeck
@@ -9925,7 +10123,8 @@ func low(p unsafe_uintptr_t) uint32 {
 }
 
 func main() {
-    exit(low(1))
+    code, _ := int32(low(1))
+    exit(code)
 }
 -- unsafe-widen-to-uint32/expected --
 stage: typeck
@@ -9947,7 +10146,8 @@ func f(a [3]int64, s string, u uint64, w uint32) int64 {
 }
 
 func main() {
-    exit(f([3]int64{1, 2, 3}, "tack", 1, 1))
+    code, _ := int32(f([3]int64{1, 2, 3}, "tack", 1, 1))
+    exit(code)
 }
 -- unsigned-index-advice/expected --
 stage: typeck
@@ -10060,7 +10260,7 @@ package main
 func main() {
     x := 1
     x = 2
-    exit(x)
+    exit(int32(x))
 }
 -- var-assign-immutable/expected --
 stage: typeck
@@ -10070,7 +10270,7 @@ var-assign-immutable/main.tck:5:5: error: cannot assign to immutable variable x
 04 |	    x := 1
 05 |	    x = 2
    |	    ^
-06 |	    exit(x)
+06 |	    exit(int32(x))
 
 -- var-assign-param/main.tck --
 package main
@@ -10117,7 +10317,8 @@ package main
 
 func main() {
     var x int64
-    exit(x)
+    code, _ := int32(x)
+    exit(code)
 }
 -- var-immutable-no-value/expected --
 stage: typeck
@@ -10127,7 +10328,7 @@ var-immutable-no-value/main.tck:4:9: error: immutable variable x needs a value
 03 |	func main() {
 04 |	    var x int64
    |	        ^
-05 |	    exit(x)
+05 |	    code, _ := int32(x)
 
 -- var-no-type-or-value/main.tck --
 package main
@@ -10201,7 +10402,8 @@ package main
 
 func main() {
     var x int64 = "one"
-    exit(x)
+    code, _ := int32(x)
+    exit(code)
 }
 -- var-type-mismatch/expected --
 stage: typeck
@@ -10211,7 +10413,7 @@ var-type-mismatch/main.tck:4:19: error: cannot use string as int64 in declaratio
 03 |	func main() {
 04 |	    var x int64 = "one"
    |	                  ^~~~~
-05 |	    exit(x)
+05 |	    code, _ := int32(x)
 
 -- var-unused/main.tck --
 package main

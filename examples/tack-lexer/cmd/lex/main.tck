@@ -10,8 +10,9 @@ package main
 // It exits with the number of tokens, the EOF token included, of which
 // the operating system keeps the low 8 bits; with 254 when there were
 // lexical errors; with 255, printing nothing but the error, when the
-// source has more tokens than the lexer holds; and with 253 when standard
-// input cannot be read.
+// source has more tokens than the lexer holds; with 253 when standard
+// input cannot be read; and with 252 if the token count does not fit an
+// int32, which the lexer's capacity rules out.
 //
 // It reads standard input rather than a file named by an argument because
 // a Tack program cannot see its arguments, and C reached through an extern
@@ -74,5 +75,9 @@ func main() {
     if lx.nerr > 0 {
         exit(254)
     }
-    exit(lx.n)
+    code, fits := int32(lx.n)
+    if !fits {
+        exit(252)
+    }
+    exit(code)
 }

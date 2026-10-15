@@ -143,7 +143,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/print.c`, linked only when called |
 | `len(v)`        | yes     | yes | Arrays, strings and views; known for arrays, string literals and immutable variables holding a known string, never for a view, but for a slice at known bounds |
-| `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called |
+| `exit(int32)`   | yes     | yes | Terminates with that status; narrower integers widen, and an `int64`, `uint32` or `uint64` needs a conversion; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called |
 
 The compiler reads the builtins from `$TACK_HOME/src/std/builtin`
 (`~/.tack` without `TACK_HOME`), installed by `make install`; it holds no

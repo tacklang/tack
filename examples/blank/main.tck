@@ -11,5 +11,9 @@ func main() {
     _, r := divmod(17, 5)
     mut q := 0
     q, _ = divmod(r * 10, 3)
-    exit(q * 10 + r)
+    code, ok := int32(q * 10 + r)
+    if !ok {
+        exit(1)
+    }
+    exit(code)
 }

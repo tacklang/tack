@@ -104,7 +104,11 @@ func main() {
         exit(7)
     }
     for i := range "" {
-        exit(i + 8)
+        code, ok := int32(i + 8)
+        if !ok {
+            exit(8)
+        }
+        exit(code)
     }
 
     grid := [3][2]int64{{1, 2}, {3, 4}, {5, 6}}
@@ -148,5 +152,9 @@ func main() {
         exit(11)
     }
 
-    exit(firstOver(a, 7) + firstOver(a, 8) + 40)
+    code, fits := int32(firstOver(a, 7) + firstOver(a, 8) + 40)
+    if !fits {
+        exit(12)
+    }
+    exit(code)
 }

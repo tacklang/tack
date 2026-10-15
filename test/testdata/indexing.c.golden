@@ -19,7 +19,7 @@ typedef struct {
 } tack_array_16;
 
 
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static const tack_array_14 tack_4_main7_squares = {{0, 1, 4, 9, 16}};
 
@@ -66,7 +66,13 @@ static void tack_4_main4_main(void) {
     if ((v_ok || !v_fine) || !v_seen.e[200]) {
         tack_builtin_exit(1);
     }
-    tack_builtin_exit(((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_sum(tack_4_main7_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3])));
+    const int64_t tack_r6 = ((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main3_sum(tack_4_main7_squares) + (uint64_t)v_v)) + (uint64_t)v_counts.e[3]));
+    const int32_t v_code = ((tack_r6 >= (-2147483648) && tack_r6 <= 2147483647) ? (int32_t)tack_r6 : 0);
+    const bool v_fits = (tack_r6 >= (-2147483648) && tack_r6 <= 2147483647);
+    if (!v_fits) {
+        tack_builtin_exit(2);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

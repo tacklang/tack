@@ -1,6 +1,6 @@
 package main
 
-func seven() int64 {
+func seven() int32 {
     return 7
 }
 

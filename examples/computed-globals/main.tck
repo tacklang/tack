@@ -50,7 +50,7 @@ mut offsets [origin.y]int64
 var slots = len(offsets)
 
 // check exits with status when ok is false.
-func check(ok bool, status int64) {
+func check(ok bool, status int32) {
     if !ok {
         exit(status)
     }
@@ -90,5 +90,5 @@ func main() {
     check(100 / table[1] == 5, 16)
     check(table[origin.x] == 40, 17)
     check(pick(10) == 1 && pick(4) == 2 && pick(5) == 3, 18)
-    exit(deep)
+    exit(int32(deep))
 }

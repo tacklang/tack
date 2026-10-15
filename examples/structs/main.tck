@@ -115,5 +115,9 @@ func main() {
         exit(9)
     }
 
-    exit(sum + g.cells[2] + counter.x + counter.y + 100)
+    code, ok := int32(sum + g.cells[2] + counter.x + counter.y + 100)
+    if !ok {
+        exit(10)
+    }
+    exit(code)
 }

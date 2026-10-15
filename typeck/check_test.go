@@ -63,7 +63,7 @@ func TestRejectsBuiltinArgumentOfTheWrongType(t *testing.T) {
 		want string
 	}{
 		{`print(42)`, "cannot use int64 as string"},
-		{`exit("boom")`, "cannot use string as int64"},
+		{`exit("boom")`, "cannot use string as int32"},
 	}
 
 	for _, tt := range tests {
@@ -237,7 +237,7 @@ func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
 	}{
 		{
 			name: "int64 parameter to exit",
-			src:  "func f(x int64) {\n    exit(x)\n}",
+			src:  "func f(x int64) {\n    code, _ := int32(x)\n    exit(code)\n}",
 			ok:   true,
 		},
 		{
@@ -248,7 +248,7 @@ func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
 		{
 			name: "string parameter to exit",
 			src:  "func f(s string) {\n    exit(s)\n}",
-			want: "cannot use string as int64",
+			want: "cannot use string as int32",
 		},
 		{
 			name: "int64 parameter to print",
@@ -433,7 +433,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 	}{
 		{
 			name: "int64 result into exit",
-			src:  "func seven() int64 {\n    return 7\n}\n\nfunc main() {\n    exit(seven())\n}",
+			src:  "func seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, _ := int32(seven())\n    exit(code)\n}",
 		},
 		{
 			name: "string result into print",
@@ -442,7 +442,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 		{
 			name: "string result into exit",
 			src:  "func hi() string {\n    return \"hi\"\n}\n\nfunc main() {\n    exit(hi())\n}",
-			want: "cannot use string as int64",
+			want: "cannot use string as int32",
 		},
 		{
 			name: "call to a function returning nothing",
@@ -473,7 +473,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 
 func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
 	src := "package main\n\nfunc g() int64 {\n    return 1\n}\n\n" +
-		"func f() int64 {\n    return g()\n}\n\nfunc main() {\n    exit(f())\n}\n"
+		"func f() int64 {\n    return g()\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("returning a call's result was rejected: %+v", diags)
@@ -482,7 +482,7 @@ func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
 
 func TestChecksArgumentsOfANestedCall(t *testing.T) {
 	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
-		"func main() {\n    exit(g(\"hi\"))\n}\n"
+		"func main() {\n    code, _ := int32(g(\"hi\"))\n    exit(code)\n}\n"
 
 	_, diags := checkFile(t, src)
 	if len(diags) == 0 {
@@ -541,11 +541,11 @@ func TestRejectsBoolWhereAnIntIsWanted(t *testing.T) {
 	if len(diags) == 0 {
 		t.Fatal("a bool was accepted as an exit status")
 	}
-	if !strings.Contains(diags[0].Message, "cannot use bool as int64") {
+	if !strings.Contains(diags[0].Message, "cannot use bool as int32") {
 		t.Errorf(
 			"message = %q, want it to contain %q",
 			diags[0].Message,
-			"cannot use bool as int64",
+			"cannot use bool as int32",
 		)
 	}
 }
@@ -614,7 +614,7 @@ func TestFibTypechecks(t *testing.T) {
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
-		"func main() {\n    exit(fib(10))\n}\n"
+		"func main() {\n    code, _ := int32(fib(10))\n    exit(code)\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("fib was rejected: %+v", diags)
@@ -627,7 +627,7 @@ func TestBuiltinUsedAsAValueIsReported(t *testing.T) {
 	tests := []string{
 		inMain("exit(print(\"x\"))"),
 		inMain("if print(\"x\") == 1 {\n    }"),
-		"package main\n\nfunc f() int64 {\n    return exit(1)\n}\n\nfunc main() {\n    exit(f())\n}\n",
+		"package main\n\nfunc f() int64 {\n    return exit(1)\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
 	}
 	for _, src := range tests {
 		diags := check(t, src)
@@ -651,7 +651,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter in arithmetic",
-			"package main\n\nfunc f(x foo) int64 {\n    return x + 1\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x + 1\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n",
 		},
 		{
 			"parameter as a condition",
@@ -659,7 +659,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter returned",
-			"package main\n\nfunc f(x foo) int64 {\n    return x\n}\n\nfunc main() {\n    exit(f(1))\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n",
 		},
 		{
 			"result type",

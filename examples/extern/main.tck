@@ -37,7 +37,7 @@ extern("c_twice") func twice(x int64) int64
 extern("while_loop") func while(n int64) int64
 
 // check prints name and exits with status when ok is false.
-func check(ok bool, name string, status int64) {
+func check(ok bool, name string, status int32) {
     if !ok {
         print("FAIL ")
         print(name)

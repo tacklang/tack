@@ -343,7 +343,7 @@ Mach-O or ELF object file`.
 `print` and `exit` are extern funcs too, declared in
 [`src/std/builtin/builtin.tck`](../src/std/builtin/builtin.tck) as
 `extern("tack_builtin_print") func print(s string)` and
-`extern("tack_builtin_exit") func exit(code int64)`, and available in every
+`extern("tack_builtin_exit") func exit(code int32)`, and available in every
 file without an import. The compiler reads them from the installed copy,
 `$TACK_HOME/src/std/builtin`, or `~/.tack/src/std/builtin` without
 `TACK_HOME`, which `make install` writes; every extern func declared there

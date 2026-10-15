@@ -20,10 +20,14 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		read string
 		want string
 	}{
-		{"var x = 40 + 2", "exit(x)", "static const int64_t tack_4_main1_x = 42;"},
-		{"mut x int64", "exit(x)", "static int64_t tack_4_main1_x = 0;"},
+		{"var x = 40 + 2", "exit(int32(x))", "static const int64_t tack_4_main1_x = 42;"},
 		{
-			"var x = 0 - 9223372036854775807 - 1", "exit(x)",
+			"mut x int64",
+			"code, _ := int32(x)\n    exit(code)",
+			"static int64_t tack_4_main1_x = 0;",
+		},
+		{
+			"var x = 0 - 9223372036854775807 - 1", "if x < 0 {\n        exit(1)\n    }",
 			"static const int64_t tack_4_main1_x = (-9223372036854775807 - 1);",
 		},
 		{"var x = 1 < 2", "if x {\n    }", "static const bool tack_4_main1_x = true;"},
@@ -63,7 +67,7 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 // Globals are declared before any function, so a function can use one
 // declared after it in the Tack source.
 func TestGlobalsAreDeclaredBeforeFunctions(t *testing.T) {
-	got := generate(t, "package main\n\nfunc main() {\n    exit(x)\n}\n\nvar x = 1\n")
+	got := generate(t, "package main\n\nfunc main() {\n    exit(int32(x))\n}\n\nvar x = 1\n")
 
 	global := strings.Index(got, "tack_4_main1_x = 1;")
 	fn := strings.Index(got, "static void tack_4_main4_main(void) {")
@@ -81,16 +85,16 @@ var globalRuntimeCases = []struct {
 }{
 	{
 		"read",
-		"package main\n\nvar limit = 6 * 7\n\nfunc main() {\n    exit(limit)\n}\n", "", 42,
+		"package main\n\nvar limit = 6 * 7\n\nfunc main() {\n    exit(int32(limit))\n}\n", "", 42,
 	},
 	{
 		"declared after its reader",
-		"package main\n\nfunc main() {\n    exit(limit)\n}\n\nvar limit = 9\n", "", 9,
+		"package main\n\nfunc main() {\n    exit(int32(limit))\n}\n\nvar limit = 9\n", "", 9,
 	},
 	{
 		"updated across calls",
 		"package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\n" +
-			"func main() {\n    bump()\n    bump()\n    bump()\n    exit(count)\n}\n", "", 3,
+			"func main() {\n    bump()\n    bump()\n    bump()\n    code, _ := int32(count)\n    exit(code)\n}\n", "", 3,
 	},
 	{
 		"string",
@@ -116,12 +120,12 @@ var globalRuntimeCases = []struct {
 	{
 		"names the C side uses",
 		"package main\n\nvar str0 = 1\n\nvar int = 2\n\nvar tack_print = 3\n\n" +
-			"func main() {\n    print(\"x\")\n    exit(str0 + int + tack_print)\n}\n", "x", 6,
+			"func main() {\n    print(\"x\")\n    exit(int32(str0 + int + tack_print))\n}\n", "x", 6,
 	},
 	{
 		"global and local together",
 		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total + n\n}\n\n" +
-			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    exit(total)\n}\n", "", 15,
+			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    code, _ := int32(total)\n    exit(code)\n}\n", "", 15,
 	},
 }
 

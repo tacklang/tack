@@ -48,7 +48,7 @@ static const unsigned char tack_str1[2] = {43, 0};
 static const unsigned char tack_str2[13] = {112, 97, 99, 107, 97, 103, 101, 115, 32, 111, 107, 10, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int64_t);
+void tack_builtin_exit(int32_t);
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
@@ -90,7 +90,7 @@ static int64_t tack_4_calc5_chain5_three5_Depth(void);
 static int64_t tack_4_calc5_chain3_two5_Depth(void);
 static int64_t tack_4_calc5_chain3_one5_Depth(void);
 static int64_t tack_4_calc3_cmd4_calc4_size(void);
-static void tack_4_calc3_cmd4_calc5_check(bool p_ok, int64_t p_status);
+static void tack_4_calc3_cmd4_calc5_check(bool p_ok, int32_t p_status);
 static void tack_4_calc3_cmd4_calc4_main(void);
 
 static bool tack_4_calc8_internal4_text7_isDigit(uint8_t p_c) {
@@ -166,7 +166,7 @@ static int64_t tack_4_calc3_cmd4_calc4_size(void) {
     return 8;
 }
 
-static void tack_4_calc3_cmd4_calc5_check(bool p_ok, int64_t p_status) {
+static void tack_4_calc3_cmd4_calc5_check(bool p_ok, int32_t p_status) {
     if (!p_ok) {
         tack_builtin_exit(p_status);
     }
@@ -201,7 +201,13 @@ static void tack_4_calc3_cmd4_calc4_main(void) {
     tack_4_calc3_cmd4_calc5_check((tack_4_calc5_lexer5_Width(v_t) == 1), 14);
     tack_4_calc3_cmd4_calc5_check((((tack_4_calc3_cmd4_calc6_corner == 4) && (tack_4_calc3_cmd4_calc3_far == 8)) && tack_4_calc3_cmd4_calc8_atOrigin), 16);
     tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    tack_builtin_exit((tack_o9 = (tack_o7 = (tack_o5 = tack_4_calc3_cmd4_calc6_counts.e[3], tack_o6 = tack_4_calc5_lexer4_Size(), ((int64_t)((uint64_t)tack_o5 + (uint64_t)tack_o6))), tack_o8 = tack_4_calc4_geom4_Size(), ((int64_t)((uint64_t)tack_o7 + (uint64_t)tack_o8))), tack_o10 = tack_4_calc5_chain3_one5_Depth(), ((int64_t)((uint64_t)tack_o9 + (uint64_t)tack_o10))));
+    const int64_t tack_r11 = (tack_o9 = (tack_o7 = (tack_o5 = tack_4_calc3_cmd4_calc6_counts.e[3], tack_o6 = tack_4_calc5_lexer4_Size(), ((int64_t)((uint64_t)tack_o5 + (uint64_t)tack_o6))), tack_o8 = tack_4_calc4_geom4_Size(), ((int64_t)((uint64_t)tack_o7 + (uint64_t)tack_o8))), tack_o10 = tack_4_calc5_chain3_one5_Depth(), ((int64_t)((uint64_t)tack_o9 + (uint64_t)tack_o10)));
+    const int32_t v_code = ((tack_r11 >= (-2147483648) && tack_r11 <= 2147483647) ? (int32_t)tack_r11 : 0);
+    const bool v_fits = (tack_r11 >= (-2147483648) && tack_r11 <= 2147483647);
+    if (!v_fits) {
+        tack_builtin_exit(17);
+    }
+    tack_builtin_exit(v_code);
 }
 
 int main(void) {

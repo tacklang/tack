@@ -80,7 +80,7 @@ func TestRecordsEachVariablesType(t *testing.T) {
 // A variable's type flows into everything that reads it.
 func TestVariableTypeFlowsIntoUses(t *testing.T) {
 	src := "package main\n\nfunc show(s string) {\n    print(s)\n}\n\nfunc main() {\n" +
-		"    s := \"hi\"\n    show(s)\n    n := 2\n    m := n * 3\n    exit(m)\n}\n"
+		"    s := \"hi\"\n    show(s)\n    n := 2\n    m := n * 3\n    exit(int32(m))\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
@@ -89,11 +89,11 @@ func TestVariableTypeFlowsIntoUses(t *testing.T) {
 // TestAcceptsValidVariablePrograms lists programs the checker must accept.
 func TestAcceptsValidVariablePrograms(t *testing.T) {
 	tests := []string{
-		mainLines("mut x := 1", "x = 2", "exit(x)"),
-		mainLines("mut x int64", "x = x + 1", "exit(x)"),
+		mainLines("mut x := 1", "x = 2", "code, _ := int32(x)", "exit(code)"),
+		mainLines("mut x int64", "x = x + 1", "code, _ := int32(x)", "exit(code)"),
 		mainLines("mut s string", "s = \"x\"", "print(s)"),
 		mainLines("mut b bool", "b = 1 < 2", "if b {", "}"),
-		mainLines("x := 1", "mut y = x", "y = x * 2", "exit(y)"),
+		mainLines("x := 1", "mut y = x", "y = x * 2", "code, _ := int32(y)", "exit(code)"),
 	}
 	for _, src := range tests {
 		if _, diags := checkTree(t, src); len(diags) > 0 {
@@ -109,11 +109,12 @@ var invalidVariablePrograms = []struct {
 	want []string
 }{
 	{
-		"immutable without a value", mainLines("var x int64", "exit(x)"),
+		"immutable without a value", mainLines("var x int64", "code, _ := int32(x)", "exit(code)"),
 		[]string{"immutable variable x needs a value"},
 	},
 	{
-		"declared type mismatch", mainLines("var x int64 = \"s\"", "exit(x)"),
+		"declared type mismatch",
+		mainLines("var x int64 = \"s\"", "code, _ := int32(x)", "exit(code)"),
 		[]string{"cannot use string as int64 in declaration of x"},
 	},
 	{
@@ -134,20 +135,21 @@ var invalidVariablePrograms = []struct {
 		[]string{"print returns no value"},
 	},
 	{
-		"assign to an immutable variable", mainLines("x := 1", "x = 2", "exit(x)"),
+		"assign to an immutable variable", mainLines("x := 1", "x = 2", "exit(int32(x))"),
 		[]string{"cannot assign to immutable variable x"},
 	},
 	{
-		"assign to an immutable var declaration", mainLines("var x = 1", "x = 2", "exit(x)"),
+		"assign to an immutable var declaration", mainLines("var x = 1", "x = 2", "exit(int32(x))"),
 		[]string{"cannot assign to immutable variable x"},
 	},
 	{
-		"assign a different type", mainLines("mut x := 1", "x = \"s\"", "exit(x)"),
+		"assign a different type",
+		mainLines("mut x := 1", "x = \"s\"", "code, _ := int32(x)", "exit(code)"),
 		[]string{"cannot use string as int64 in assignment to x"},
 	},
 	{
 		"assign nothing",
-		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x := 1\n    x = f()\n    exit(x)\n}\n",
+		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x := 1\n    x = f()\n    code, _ := int32(x)\n    exit(code)\n}\n",
 		[]string{"f returns no value"},
 	},
 	{

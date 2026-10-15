@@ -68,7 +68,8 @@ var unneededOkCases = []struct{ name, src string }{
 			"        sum += v",
 			"    }",
 			"}",
-			"exit(sum)",
+			"code, _ := int32(sum)",
+			"exit(code)",
 		),
 	},
 	{
