@@ -1,0 +1,28 @@
+package main
+
+// Methods may be declared in any file of their type's package, before
+// the type and after it: these are on Builder, declared in main.tck, and
+// on Tally, declared below them.
+
+// empty reports whether b holds no bytes.
+func (b Builder) empty() bool {
+    return b.len() == 0
+}
+
+// add adds n to t.
+func (mut t Tally) add(n int64) {
+    t.n += n
+}
+
+// Tally is declared after its method.
+type Tally struct {
+    n int64
+}
+
+// tallies checks methods declared in another file, and before their type.
+func tallies() {
+    mut t := Tally{n: 1}
+    mut t.add(2)
+    b := newBuilder()
+    check(t.n == 3 && b.empty(), "declared in another file, before the type")
+}

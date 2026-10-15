@@ -41,6 +41,14 @@
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one
 // anywhere but as a call's argument.
+// A method, func (b Builder) len(), is a Func with Method set, whose
+// receiver is its first parameter, Params[0] (Func.Recv); the resolver
+// records each method on its type's TypeDecl.Methods and the type on
+// Func.RecvType. A method call, x.m(args), is a Call whose Fn is a
+// Selector, whose X is the receiver, a MutArg for mut x.m(args); Receiver
+// returns it and Operands every value the call passes, the receiver
+// first. The type checker records the method it calls in Call.Method, and
+// Callee gives a call's function either way.
 // A Param written args ...T, the last of a function's, has Variadic set
 // and T as its TypeExpr; the type checker gives it the view type []T. A
 // call whose last argument is followed by ..., f(v...), has Spread set;

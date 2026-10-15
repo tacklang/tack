@@ -90,18 +90,27 @@ func (c *Checker) checkExposure(decls []ast.Decl) {
 }
 
 // funcExposure reports every type the signature of fn, if pub or lib,
-// names that is less visible than fn.
+// names that is less visible than fn: for a method, its receiver's type
+// included, with its visibility capped by that type's.
 func (c *Checker) funcExposure(fn *ast.Func) {
-	if fn.Vis == ast.Private {
+	vis, what := fn.Vis, "function "+fn.Name
+	if fn.Method {
+		// A method is never more visible than its type, as a field is
+		// not; its receiver, of that type, is then never less visible.
+		if fn.RecvType != nil {
+			vis = vis.Capped(fn.RecvType.Vis)
+		}
+		what = "method " + c.displayName(fn)
+	}
+	if vis == ast.Private {
 		return
 	}
-	what := "function " + fn.Name
 	for _, p := range fn.Params {
-		c.exposure(fn.Vis, what, p.Type, p.TypeExpr.Spanned())
+		c.exposure(vis, what, p.Type, p.TypeExpr.Spanned())
 	}
 	for i, r := range fn.Results {
 		if i < len(fn.ResultTypes) {
-			c.exposure(fn.Vis, what, fn.ResultTypes[i], r.Spanned())
+			c.exposure(vis, what, fn.ResultTypes[i], r.Spanned())
 		}
 	}
 }

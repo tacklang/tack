@@ -248,14 +248,26 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 
 // checkBody checks the body of fn, and that it ends in a return if fn
 // declares a result.
+//
+// What a binding of an error ties together is collected before the body
+// is checked (see collectHolds), but a binding of a method call's results
+// calls a method found only once its receiver is checked. So a body with
+// one is checked twice: first to find every method its calls call, with
+// what it reports dropped, and then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
+	if hasMethodBinding(fn) {
+		before := len(c.diags)
+		c.collectHolds(fn)
+		c.checkBlock(fn.Body, fn)
+		c.diags = c.diags[:before]
+	}
 	c.collectHolds(fn)
 	c.checkBlock(fn.Body, fn)
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
 	// like exit, does not satisfy it.
 	if fn.Results != nil && !blockTerminates(fn.Body) {
-		c.errorf(fn.NameSpan, "%s must end in a return", fn.Name)
+		c.errorf(fn.NameSpan, "%s must end in a return", c.displayName(fn))
 	}
 }
 
@@ -342,6 +354,7 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 		blank[i], spans[i] = v.Name == ast.Blank, v.NameSpan
 	}
 	c.checkErrorBinding(m.Value, blank, spans)
+	c.nothingBound(m.Value, blank, m.Span)
 }
 
 // checkMultiAssign checks an assignment of several values, given as a
@@ -371,6 +384,7 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 		blank[i], spans[i] = ast.IsBlank(target), target.Spanned()
 	}
 	c.checkErrorBinding(m.Value, blank, spans)
+	c.nothingBound(m.Value, blank, m.Span)
 	c.checkErrorTargets(m)
 	for _, target := range m.Targets {
 		if !ast.IsBlank(target) {
@@ -562,8 +576,8 @@ func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
 	return c.valueOf(value, got)
 }
 
-// callResults checks a call bound to want names: its callee must declare
-// exactly that many results. The builtins len, make and append give one
+// callResults checks a call bound to want names: its callee, a function
+// or a method, must declare exactly that many results. The builtins len, make and append give one
 // value each; every other builtin gives none. A call to one of those three
 // whose arguments are wrong was reported where it was checked, and is not
 // reported again.
@@ -578,13 +592,13 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 	} else {
 		c.checkCall(call)
 	}
-	id, ok := call.Fn.(*ast.Ident)
+	name, ok := c.calleeName(call)
 	if !ok {
 		return nil, false
 	}
 
 	// Any other builtin's Def is a nil *Func, and it returns nothing.
-	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
+	if fn := ast.Callee(call); fn != nil {
 		results = fn.ResultTypes
 	}
 	switch got := len(results); {
@@ -593,14 +607,14 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 			span,
 			"assignment mismatch: %d variables but %s returns no value",
 			want,
-			id.Qualified(),
+			name,
 		)
 	case got != want:
 		c.errorf(
 			span,
 			"assignment mismatch: %d variables but %s returns %d %s",
 			want,
-			id.Qualified(),
+			name,
 			got,
 			plural(got, "value"),
 		)
@@ -1558,7 +1572,7 @@ func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 	got, want := len(ret.Values), len(fn.Results)
 	if got == want {
 		for i, v := range ret.Values {
-			c.use(v, c.expr(v), fn.ResultTypes[i], "in return from "+fn.Name)
+			c.use(v, c.expr(v), fn.ResultTypes[i], "in return from "+c.displayName(fn))
 		}
 		return
 	}
@@ -1566,23 +1580,24 @@ func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 	for _, v := range ret.Values {
 		c.discard(v)
 	}
+	name := c.displayName(fn)
 	switch {
 	case want == 0:
-		c.errorf(spanOf(ret.Values), "%s declares no result, so it cannot return a value", fn.Name)
+		c.errorf(spanOf(ret.Values), "%s declares no result, so it cannot return a value", name)
 	case got == 0 && want == 1:
 		c.errorf(
 			ret.Span,
 			"%s must return a value of type %s",
-			fn.Name,
+			name,
 			c.typeName(fn.ResultTypes[0]),
 		)
 	case got < want:
-		c.errorf(ret.Span, "not enough return values: %s returns %d, got %d", fn.Name, want, got)
+		c.errorf(ret.Span, "not enough return values: %s returns %d, got %d", name, want, got)
 	default:
 		c.errorf(
 			spanOf(ret.Values),
 			"too many return values: %s returns %d, got %d",
-			fn.Name,
+			name,
 			want,
 			got,
 		)

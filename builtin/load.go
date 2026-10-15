@@ -175,8 +175,9 @@ func (d *declarer) file(f *ast.File) {
 }
 
 // fn checks fn, a function declared in std/builtin, and adds it as a
-// builtin if it is one: an extern func with a C name of its own, starting
-// tack_, named nothing a builtin cannot be named, neither pub nor lib, and
+// builtin if it is one: an extern func, not a method, with a C name of its
+// own, starting tack_, named nothing a builtin cannot be named, neither
+// pub nor lib, and
 // returning nothing, whose parameters are each of a basic type but any and
 // none is mut or variadic.
 func (d *declarer) fn(fn *ast.Func) {
@@ -188,6 +189,9 @@ func (d *declarer) fn(fn *ast.Func) {
 			"builtin %s must be an extern func; its body is C, in a .c file of std/builtin",
 			fn.Name,
 		)
+		return
+	case fn.Method:
+		d.errorf(fn.NameSpan, "builtin %s cannot be a method; a builtin is a function", fn.Name)
 		return
 	case fn.Vis != ast.Private:
 		d.errorf(fn.VisSpan, "builtin %s cannot be %s; every builtin is visible everywhere",

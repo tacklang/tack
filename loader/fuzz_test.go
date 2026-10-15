@@ -81,6 +81,13 @@ func FuzzLoad(f *testing.F) {
 			"\x00std/tack.mod\nmodule std\n\x00std/fmt/fmt.tck\npackage fmt\nimport f from \"std/fmt\"\n",
 		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.p() }\n" +
 			"\x00std/fmt/fmt.tck\npackage fmt\nimport b from \"std/builtin\"\nimport m from \"m\"\nfunc p() {}\n",
+		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
+			"func (c C) f() int64 { return c.n }\ntype C struct { n int64 }\n" +
+			"func main() { mut x := t.New()\nmut x.Add(1)\nexit(int32(x.Get() - x.Get()))\n" +
+			"c := C{n: 1}\nexit(int32(c.f())) }\n" +
+			"\x00t/t.tck\npackage t\npub type T struct { n int64 }\npub func New() T { return T{n: 0} }\n" +
+			"pub func (mut t T) Add(k int64) { t.n += k }\nlib func (t T) Get() int64 { return t.n }\n" +
+			"func (t T) hidden() {}\n",
 	} {
 		f.Add([]byte(seed))
 	}

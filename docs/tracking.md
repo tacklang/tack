@@ -63,13 +63,13 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Struct type declarations | yes   | yes    | yes     | yes | `type T struct { ... }`, package level only; any order; no recursion by value; field array lengths name no variable |
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
 | Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; initializers are constant expressions computed at compile time: immutable globals of the package or an import, their fields and elements, `len`, conversions, operators and comparisons; no calls; usable from any function; never a list, or a struct holding one |
-| Methods                  | yes   | no     | no      | no  | Rejected with a diagnostic, declared or called                                              |
+| Methods                  | yes   | yes    | yes     | yes | `func (b T) m()` and `func (mut b T) m()`, `pub`/`lib` capped by `T`'s visibility, on a struct type `T` of the same package, in any file and order; the receiver is the first parameter, under every parameter rule; called `x.m(args)`, on any value of `T`, a temporary included, or `mut x.m(args)` on a place, as a statement or a value, `mut` covering what comes before the last `.m(`; the receiver is a mut argument for exclusivity and list borrows; named in `T`'s namespace, not a field's or another method's name, a builtin's allowed; no method values or expressions, no extern methods; a C function `tack_<path><T.m>` taking the receiver first, a pointer for `mut`, evaluated first |
 
 ### Statements
 
 | Feature                    | Lexer | Parser | Checker | C   | Notes                                                                                                         |
 |----------------------------|-------|--------|---------|-----|---------------------------------------------------------------------------------------------------------------|
-| Call statement             | yes   | yes    | yes     | yes | A result may be discarded, but not an error, nor a list or a struct holding one                               |
+| Call statement             | yes   | yes    | yes     | yes | A function's or a method's, `x.m()` or `mut x.m()`; a result may be discarded, but not an error, nor a list or a struct holding one |
 | `return`                   | yes   | yes    | yes     | yes | One value for each declared result; `return f()` cannot forward another call's results                        |
 | Several results `a, b :=`  | yes   | yes    | yes     | yes | One call with exactly that many results; `mut` per name; no `var` form, no `x, y := 1, 2`                     |
 | Several results `a, b =`   | yes   | yes    | yes     | yes | Mutable targets, each named once, no `mut`; allowed as a loop's post statement                                |

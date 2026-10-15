@@ -24,8 +24,21 @@ type Expr interface {
 // type: int8(x) converts x to int8, and []uint8(s) views the bytes of the
 // string s. A call written f(a, v...) spreads its last argument, v, into
 // f's variadic parameter.
+//
+// A method call, x.m(Args...), has a *Selector as Fn, whose X is the
+// receiver, x, and whose Name is the method's: the receiver is passed
+// first, before Args, as a method's receiver is its first parameter. A
+// call to a mut receiver, mut x.m(Args...), has a *MutArg as the
+// selector's X, mut x, so the receiver is passed as a mut argument is.
+// The type checker finds the method from the receiver's type and records
+// it in Method.
 type Call struct {
-	Fn Expr // the callee: an *Ident, or a *ViewType for a view conversion
+	Fn Expr // the callee: an *Ident, a *ViewType for a view conversion, or a *Selector for a method call
+
+	// Method is the method a method call calls, set by the type checker;
+	// it is nil for any other call, and for a method call it could not
+	// check. It is left out of the JSON dump: a method's body can call it.
+	Method *Func `json:"-"`
 
 	// Const is the value of a call the type checker can compute, a
 	// constant.Int: len of an array or a string literal. It is nil for any
@@ -62,6 +75,43 @@ func (c *Call) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the callee through the closing
 // parenthesis.
 func (c *Call) Spanned() Span { return c.Span }
+
+// Receiver returns what a method call is called on: x in x.m(...), or the
+// *MutArg mut x in mut x.m(...). It returns nil for a call that is not a
+// method call.
+func (c *Call) Receiver() Expr {
+	if sel, ok := c.Fn.(*Selector); ok {
+		return sel.X
+	}
+	return nil
+}
+
+// Operands returns every value the call passes, in the order they are
+// evaluated and passed: a method call's receiver first, then Args. For
+// any other call it is Args.
+func (c *Call) Operands() []Expr {
+	recv := c.Receiver()
+	if recv == nil {
+		return c.Args
+	}
+	return append([]Expr{recv}, c.Args...)
+}
+
+// Callee returns the function call calls: the function its name is bound
+// to, or the method the type checker found for a method call. It returns
+// nil for a builtin, whose declaration is a nil *Func, for a conversion,
+// and for a method call the type checker has not found a method for.
+func Callee(call *Call) *Func {
+	if call.Method != nil {
+		return call.Method
+	}
+	if id, ok := call.Fn.(*Ident); ok {
+		if fn, ok := id.Def.(*Func); ok && fn != nil {
+			return fn
+		}
+	}
+	return nil
+}
 
 // Ident is a use of a name. Def links it to what it names once the resolver
 // has run. A qualified name, x.name where x is an import's name, is one
@@ -502,7 +552,7 @@ func identType(id *Ident) types.Type {
 
 // callType returns the type a call yields: the type a conversion converts
 // to, the type the checker recorded for a call to make or append, or its
-// callee's result, when it
+// callee's result, a function's or the method the checker found, when it
 // declares exactly one. A call to a function with several results yields
 // them only to a MultiVar, never as one value, so its type here is Invalid,
 // as is that of a call to a function or builtin that returns nothing. A
@@ -521,10 +571,8 @@ func callType(call *Call) types.Type {
 			return types.Int64
 		}
 	}
-	if id, ok := call.Fn.(*Ident); ok {
-		if fn, ok := id.Def.(*Func); ok && fn != nil && len(fn.ResultTypes) == 1 {
-			return fn.ResultTypes[0]
-		}
+	if fn := Callee(call); fn != nil && len(fn.ResultTypes) == 1 {
+		return fn.ResultTypes[0]
 	}
 	return types.Invalid
 }
@@ -768,7 +816,9 @@ type Field struct {
 // Selector is a field of a struct value, X.Name. It is also an assignment's
 // target when X is a mutable variable, or an element or field of one. The
 // name is a field's, which the type checker finds from X's type, so it is
-// not an Ident and the resolver never binds it.
+// not an Ident and the resolver never binds it. As a Call's Fn it names a
+// method of X's type instead, whose receiver X is (see Call), and has no
+// Type of its own.
 type Selector struct {
 	X        Expr
 	Name     string

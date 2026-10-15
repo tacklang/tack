@@ -735,17 +735,18 @@ func (c *Checker) assignedDrop(region []ast.Stmt, k factKey) *drop {
 			kind: dropMut,
 			at:   target.Spanned(),
 			name: declName(k.decl),
-			text: calleeName(call),
+			text: c.factCallee(call),
 		}
 	default:
 		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(k.decl)}
 	}
 }
 
-// calleeName returns the name call calls, as written.
-func calleeName(call *ast.Call) string {
-	if id, ok := call.Fn.(*ast.Ident); ok {
-		return id.Qualified()
+// factCallee returns the name call calls, as calleeName gives it, or "a
+// function" for a call it cannot name.
+func (c *Checker) factCallee(call *ast.Call) string {
+	if name, ok := c.calleeName(call); ok {
+		return name
 	}
 	return "a function"
 }
@@ -784,10 +785,10 @@ func (c *Checker) assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.C
 	return nil, nil
 }
 
-// mutWriter returns the first of call's arguments that passes decl, or a
-// part of it, as mut, or nil when none does.
+// mutWriter returns the first of call's arguments, its receiver first,
+// that passes decl, or a part of it, as mut, or nil when none does.
 func (c *Checker) mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
-	for _, arg := range call.Args {
+	for _, arg := range call.Operands() {
 		if m, ok := arg.(*ast.MutArg); ok && c.writes(m.X, decl) {
 			return m
 		}

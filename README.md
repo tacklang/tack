@@ -427,7 +427,15 @@ makes for itself, which has a letter after `tack_`.
   private one still is. `main` packages cannot be imported, so `pub` and
   `lib` mean nothing there and are errors wherever written, on a
   declaration or a field: `pub has no effect in package main, which no
-  package can import`. Locals and parameters take neither keyword.
+  package can import`. Locals and parameters take neither keyword. A
+  method is `pub` or `lib` as a function is, `pub func (t Token) Kind()
+  int64`, and like a field is never more visible than its type; calling
+  one another package cannot see is `hidden is not pub in lexer.Token`, or
+  `Sum is lib in module std and cannot be used from module calc`. A `pub`
+  method exposes only `pub` types, its receiver's included, as a function
+  does, and a `lib` one, or a `pub` one capped at `lib` by its type, `lib`
+  or `pub` types: `pub method Token.Get exposes hidden, which is not pub`
+  (see methods).
 - An import path starts with the module's name; a relative or absolute
   path is an error that suggests the module-rooted one, `import path must
   start with a module name, such as calc/lexer; relative paths are not
@@ -503,7 +511,9 @@ makes for itself, which has a letter after `tack_`.
 - Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,
   one, or several in parentheses, `func divmod(a int64, b int64) (int64, int64)`, and
-  `return a / b, a % b` gives one value for each. Results are unnamed.
+  `return a / b, a % b` gives one value for each. Results are unnamed. A
+  function written with a receiver before its name, `func (b Builder)
+  len() int64`, is a method of a struct type (see methods).
 - Mut parameters. A parameter written `mut p T`, as in `func scale(mut p
   Point, k int64)`, is a mutable reference to the caller's variable for the
   duration of the call: inside, `p`, `p.x` and `p.cells[i]` read and write
@@ -555,7 +565,9 @@ makes for itself, which has a letter after `tack_`.
   a fact about it holds in a region that never assigns it, and a call
   that passes a variable, or a part of it, as `mut` assigns it at that
   call (see division). An extern func may take a `mut` parameter, which C
-  gets as a pointer (see extern C).
+  gets as a pointer (see extern C). A method's `mut` receiver is a `mut`
+  parameter too, and its call, `mut b.write(s)`, passes the receiver as a
+  `mut` argument under every rule above (see methods).
 - Views. A parameter written `v []T`, as in `func sum(v []int64) int64`, is
   a read-only view of elements of type `T`: one function takes arrays of
   any length. An array `[N]T` of exactly the element type passes to it as
@@ -1098,9 +1110,10 @@ makes for itself, which has a letter after `tack_`.
   included, except one that holds the struct itself, directly, through
   other structs or through an array of any length, which would be
   infinitely large and is an error. Named types other than structs
-  (`type Celsius int64`), anonymous struct types, methods and embedded
-  fields are not supported, and each is an error. A field may be `pub` or
-  `lib`, as described under visibility.
+  (`type Celsius int64`), anonymous struct types and embedded fields are
+  not supported, and each is an error. A field may be `pub` or `lib`, as
+  described under visibility. A struct type may have methods (see
+  methods).
 - Struct literals name every field exactly once, in any order:
   `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
   field listed twice, a field the struct does not have, a field name in
@@ -1143,6 +1156,69 @@ makes for itself, which has a letter after `tack_`.
   guard proves nothing, and the division needs `q, ok := n / p.d`, or the
   field copied into a variable the guard then names, as in `d := p.d` and
   `if d != 0`.
+- Methods. A function written with a receiver before its name, `func (b
+  Builder) len() int64` or `func (mut b Builder) write(s string) error`, is
+  a method of the receiver's type, which must be a struct type declared in
+  the same package, in any file of it, before or after the method; any
+  other type, one of another package, a basic type, `any`, `error`, an
+  array, a view or a list, is `cannot declare a method on lexer.Token:
+  only a struct type declared in this package can have methods`. A method
+  is called on a value of its type, `b.len()`: a local, a parameter, a
+  field, `w.out.len()`, an element, `rows[i].len()`, or a temporary,
+  `makePoint(3, 4).norm()` or `Point{x: 1}.norm()`, and it is found from
+  that value's type, of any package, as `t.kind()` for a `lexer.Token`
+  `t`. A type with no such method is `Builder has no method nope`. The
+  receiver is a parameter, written first, with a parameter's rules for its
+  name: `_` and a type's name are errors, and no other parameter or local
+  may reuse it. A plain receiver is a plain parameter, an immutable copy
+  of any value of the type, and a struct holding a list is borrowed, not
+  copied, so a temporary one is `cannot use a temporary Builder here;
+  store it in a variable first`. A `mut` receiver is a `mut` parameter: the
+  call writes `mut` before it, `mut b.write(s)`, as a statement or as a
+  value, `err := mut b.write(s)`, and `mut` covers what comes before the
+  last `.name(`, so `mut w.out.write(s)` changes `w.out`. The receiver is
+  then a place the caller may change, under every rule of a `mut`
+  argument: `cannot pass mut b: b is immutable; declare it with mut`, `a
+  mutable global cannot be passed as mut; copy it into a local`, and, for
+  a call's result, `only a variable, a field or an element can be passed
+  as mut`. It is one of the call's `mut` arguments, which must not
+  overlap, so `mut p.take(mut p)` is `p is passed as mut twice in this
+  call; ...`, no plain argument may read a list it holds, `mut b.fill(b)`
+  being `cannot pass b alongside mut b in this call: ...`, and like any
+  `mut` argument it ends the facts about its place. Leaving `mut` out for
+  a `mut` receiver is `Builder.write takes its receiver as mut; call mut
+  b.write(s)`, and writing it for a plain one is `Builder.len does not
+  take its receiver as mut; call b.len()`. The receiver is evaluated
+  first, then the arguments, left to right. A method's name is in its
+  type's namespace: it may share one with a function, a global, `main` or
+  a builtin, as `func (b Builder) len() int64` and `func (mut b Builder)
+  append(c uint8) error` do, since a method is only ever reached as
+  `x.name(...)`, and inside a method a bare `len(x)` is still the
+  builtin; it may not share one with a field of its type, `len is already
+  declared as a field of Builder`, or with another method of it,
+  `Builder.len is already declared`, and it follows a field's naming
+  rule. There are no method values or method expressions: `b.write`
+  without a call is `write is a method of Builder, not a field; a method
+  can only be called`, and `Builder.write(b, s)` is `cannot use Builder
+  as a value; it is a type`; a field called as a method is `n is a field
+  of Builder, not a method; a field cannot be called`. Inside a method
+  the receiver is an ordinary parameter: fields are reached as `b.x`, with
+  no implicit receiver, and methods call each other, and themselves,
+  whatever the order of their declarations. A method follows every rule
+  of a function: its results, an error returned last that its callers
+  must check, `the error Builder.write returns cannot be dropped; bind
+  it, as in err := mut b.write(...)`, defers, lists and moves, so a
+  receiver is never moved, `any` and variadic parameters, a spread, and
+  forwarding a variadic to `fmt.printf`; a diagnostic names a method by
+  its type and its name, `Builder.write expects 1 argument(s), got 2`. A
+  method may call an extern func but cannot be one, `a method cannot be
+  extern; declare an extern func and call it from the method`, nor be
+  declared without a body, `method Builder.write has no body`. Builtins
+  stay functions: there is no `l.len()`. In C a method is a function of
+  its own, named from its package's path, its type's name and its own,
+  taking the receiver first, a `mut` one as a pointer, as a `mut`
+  parameter is. There are no interfaces, method sets, embedding or
+  generic methods.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:

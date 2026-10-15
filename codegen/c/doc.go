@@ -113,7 +113,12 @@
 // tack_4_main6_my_5ff. A part is read back by its length, so two such names
 // never collide, whatever underscores either holds, and every other name
 // the backend makes after tack_ has a letter where these have a digit; the
-// proof is on mangle.
+// proof is on mangle. A method is named as if its type's name and its own,
+// joined by a period, were one name, so write on Builder in the main
+// package is tack_4_main13_Builder_2ewrite: no other name holds a period,
+// so a method's C name is never a function's, a type's, a global's or
+// another method's, even a function's of a package whose path ends in the
+// type's name (see funcCName).
 // A parameter x becomes p_x and a local variable x becomes v_x, since a Tack
 // name may be a C keyword or a name C declares, and either may legally be
 // called int or exit.
@@ -128,6 +133,14 @@
 // parameter of any type is still passed by value, a copy, so an argument
 // that reads a variable another argument passes as mut gets the value it
 // had when it was evaluated.
+//
+// A method is a C function of its own taking its receiver first, a mut
+// receiver as a pointer, as a mut parameter is. A method call, x.m(args)
+// or mut x.m(args), is lowered as the call of that function with the
+// receiver as its first argument (see lowered), so the receiver is
+// evaluated first, a mut one as the address of its place, then the
+// arguments, under every rule of a call's order and of the copies and
+// views an argument may need.
 //
 // A view, []T, lowers to a C struct of a pointer to const elements and a
 // length, tack_view_ and the type's ID, defined after its element type,

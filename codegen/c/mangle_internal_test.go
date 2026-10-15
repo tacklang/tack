@@ -164,3 +164,61 @@ func FuzzMangleIsInjective(f *testing.F) {
 		}
 	})
 }
+
+// TestMethodNamesDoNotCollide checks a method's C name against the names
+// most like it: a function of the same name, the method's type, a
+// function of a package whose path ends with the type's name, a method of
+// another type, and the function named as the type and method joined by
+// an underscore, which an earlier scheme, tack_<pkg>_<Type>_<method>,
+// would have written alike.
+func TestMethodNamesDoNotCollide(t *testing.T) {
+	method := "tack_" + mangledParts("calc", methodCName("Builder", "write"))
+	for _, other := range []struct{ path, name string }{
+		{"calc", "write"},
+		{"calc", "Builder"},
+		{"calc/Builder", "write"},
+		{"calc", "Builder_write"},
+		{"calc", "Builderwrite"},
+		{"calc", methodCName("Builde", "rwrite")},
+		{"calc", methodCName("Writer", "write")},
+		{"calc/x", methodCName("Builder", "write")},
+	} {
+		if got := "tack_" + mangledParts(other.path, other.name); got == method {
+			t.Errorf(
+				"%s.%s mangles to %s, as Builder.write in calc does",
+				other.path,
+				other.name,
+				got,
+			)
+		}
+	}
+	parts, ok := decodeMangled(method)
+	if !ok || strings.Join(parts, "/") != "calc/Builder.write" {
+		t.Errorf("%s decodes to %q, want calc and Builder.write", method, parts)
+	}
+}
+
+// FuzzMethodCNamesAreDistinct checks that a method's C name is never the
+// C name of a function, a type or a global, whose names hold no period,
+// nor another method's, whatever the package paths and names. Type and
+// method names are identifiers, so they hold no period either.
+func FuzzMethodCNamesAreDistinct(f *testing.F) {
+	f.Add("calc", "Builder", "write", "calc/Builder", "write", "Builder")
+	f.Add("a", "b", "c", "a", "b_c", "b")
+	f.Add("m", "T", "f", "m", "T_2ef", "U")
+	f.Fuzz(func(t *testing.T, path1, typ1, name1, path2, name2, typ2 string) {
+		if strings.Contains(typ1+name1+name2+typ2, ".") {
+			return
+		}
+		method := "tack_" + mangledParts(path1, methodCName(typ1, name1))
+		if fn := "tack_" + mangledParts(path2, name2); fn == method {
+			t.Fatalf("method %q.%q.%q and %q.%q both mangle to %s",
+				path1, typ1, name1, path2, name2, fn)
+		}
+		other := "tack_" + mangledParts(path2, methodCName(typ2, name2))
+		if (path1 != path2 || typ1 != typ2 || name1 != name2) && other == method {
+			t.Fatalf("methods %q.%q.%q and %q.%q.%q both mangle to %s",
+				path1, typ1, name1, path2, typ2, name2, method)
+		}
+	})
+}

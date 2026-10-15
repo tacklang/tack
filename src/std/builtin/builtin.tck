@@ -6,10 +6,13 @@ package builtin
 // The compiler holds no list of them: it reads this directory, every .tck
 // file in it, from $TACK_HOME/src/std/builtin, and each extern func
 // declared here is a builtin. Every declaration in this directory must be
-// one: an extern func with its C name given, starting tack_, that returns
-// nothing, and whose parameters are of basic types; anything else is an
-// error naming the file. A call to a builtin is an ordinary call to its C
-// function.
+// one: an extern func, not a method, with its C name given, starting
+// tack_, that returns nothing, and whose parameters are of basic types;
+// anything else is an error naming the file. A call to a builtin is an
+// ordinary call to its C function. Builtins are functions: a method may
+// share a builtin's name, len or append among them, since it is only ever
+// called on a value, x.len(), and a bare len(x), in a method too, is
+// still the builtin.
 //
 // The body of each is C, in a .c file beside this one, named after the
 // builtin and defining its C function: print.c defines tack_builtin_print.

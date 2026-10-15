@@ -380,18 +380,15 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 	if !ok {
 		return
 	}
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		return
-	}
-	fn, ok := id.Def.(*ast.Func)
-	if !ok || fn == nil || len(fn.ResultTypes) != len(blank) {
+	fn := ast.Callee(call)
+	name, named := m.c.calleeName(call)
+	if fn == nil || !named || len(fn.ResultTypes) != len(blank) {
 		return
 	}
 	for i, typ := range fn.ResultTypes {
 		if blank[i] && m.c.table.Owned(typ) {
 			m.errorNotes(spans[i], nil, "%s returns %s; bind it to a variable instead of _",
-				id.Qualified(), m.droppedName(typ))
+				name, m.droppedName(typ))
 		}
 	}
 }
@@ -418,9 +415,9 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 	m.call(call, moveCtx, cur)
 	results := []types.Type{ast.TypeOf(call)}
 	name := "make"
-	if id, ok := call.Fn.(*ast.Ident); ok {
-		name = id.Qualified()
-		if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil {
+	if callee, ok := m.c.calleeName(call); ok {
+		name = callee
+		if fn := ast.Callee(call); fn != nil {
 			results = fn.ResultTypes
 		}
 	}
@@ -663,11 +660,13 @@ func prefixOf(a, b ast.Expr) bool {
 	return true
 }
 
-// call follows a call used in ctx: its arguments, then, for one of an
-// owned type, that its result has an owner.
+// call follows a call used in ctx: its arguments, a method call's
+// receiver first, then, for one of an owned type, that its result has an
+// owner. A plain receiver is read as a plain argument is, borrowed, so a
+// temporary of an owned type is one no variable owns.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
-	for i, arg := range call.Args {
+	for i, arg := range call.Operands() {
 		if _, isType := arg.(*ast.ListType); isType {
 			continue
 		}
@@ -680,23 +679,21 @@ func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	m.temporary(call, ctx)
 }
 
-// callParams says, for each argument of call, whether it is passed to a
-// view parameter, or spread into a variadic one, append's included, where
-// viewArg checks a list that is not a place.
+// callParams says, for each operand of call, a method call's receiver
+// first, whether it is passed to a view parameter, or spread into a
+// variadic one, append's included, where viewArg checks a list that is
+// not a place.
 func (m *mover) callParams(call *ast.Call) []bool {
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		return nil
-	}
 	if isAppend(call) {
 		return appendViews(call)
 	}
-	fn, ok := id.Def.(*ast.Func)
-	if !ok || fn == nil {
+	fn := ast.Callee(call)
+	if fn == nil {
 		return nil
 	}
-	views := make([]bool, len(call.Args))
-	for i := range call.Args {
+	operands := call.Operands()
+	views := make([]bool, len(operands))
+	for i := range operands {
 		if i >= len(fn.Params) {
 			break
 		}

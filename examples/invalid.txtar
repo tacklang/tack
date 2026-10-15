@@ -8025,6 +8025,1704 @@ main-with-result/main.tck:3:13: error: main function must not declare a result
    |	            ^~~~~
 04 |	    return 7
 
+-- method-all-blank/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) pair() (int64, int64) {
+    return p.x, p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    _, _ := p.pair()
+    mut a int64 = 0
+    _, _ = p.pair()
+    use(a)
+}
+-- method-all-blank/expected --
+stage: typeck
+---
+
+method-all-blank/main.tck:16:5: error: every name is _, so nothing is bound; make the call on its own
+15 |	    p := P{x: 1}
+16 |	    _, _ := p.pair()
+   |	    ^~~~~~~~~~~~~~~~
+17 |	    mut a int64 = 0
+
+method-all-blank/main.tck:18:5: error: every name is _, so nothing is bound; make the call on its own
+17 |	    mut a int64 = 0
+18 |	    _, _ = p.pair()
+   |	    ^~~~~~~~~~~~~~~
+19 |	    use(a)
+
+-- method-arg-type/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) digits(a int64, b int64) int64 {
+    return a + b
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    use(p.digits("x", 1))
+}
+-- method-arg-type/expected --
+stage: typeck
+---
+
+method-arg-type/main.tck:16:18: error: cannot use string as int64 in argument to P.digits
+15 |	    p := P{x: 1}
+16 |	    use(p.digits("x", 1))
+   |	                 ^~~
+17 |	}
+
+-- method-arity/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) digits(a int64, b int64) int64 {
+    return a + b
+}
+
+func (p P) all(xs ...int64) {
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    use(p.digits(1))
+    use(p.digits(1, 2, 3))
+    p.all("x")
+    xs := [2]int64{1, 2}
+    use(p.digits(xs[:]...))
+}
+-- method-arity/expected --
+stage: typeck
+---
+
+method-arity/main.tck:19:9: error: P.digits expects 2 argument(s), got 1
+18 |	    p := P{x: 1}
+19 |	    use(p.digits(1))
+   |	        ^~~~~~~~~~~
+20 |	    use(p.digits(1, 2, 3))
+
+method-arity/main.tck:20:9: error: P.digits expects 2 argument(s), got 3
+19 |	    use(p.digits(1))
+20 |	    use(p.digits(1, 2, 3))
+   |	        ^~~~~~~~~~~~~~~~~
+21 |	    p.all("x")
+
+method-arity/main.tck:21:11: error: cannot use string as int64 in argument to P.all
+20 |	    use(p.digits(1, 2, 3))
+21 |	    p.all("x")
+   |	          ^~~
+22 |	    xs := [2]int64{1, 2}
+
+method-arity/main.tck:23:23: error: cannot use ... in a call to non-variadic P.digits
+22 |	    xs := [2]int64{1, 2}
+23 |	    use(p.digits(xs[:]...))
+   |	                      ^~~
+24 |	}
+
+method-arity/main.tck:23:18: error: xs[:] is a view, []int64, which can only be passed to a view parameter or to len
+22 |	    xs := [2]int64{1, 2}
+23 |	    use(p.digits(xs[:]...))
+   |	                 ^~~~~
+24 |	}
+
+-- method-defer-moves/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (b B) len() int64 {
+    return len(b.buf)
+}
+
+func use(n int64) {
+}
+
+func main() {
+    b := B{buf: make(list[int64], c_allocator)}
+    defer {
+        use(b.len())
+    }
+    c := b
+    use(c.len())
+}
+-- method-defer-moves/expected --
+stage: typeck
+---
+
+method-defer-moves/main.tck:17:13: error: b is moved after this defer, which reads it when its block ends
+16 |	    defer {
+17 |	        use(b.len())
+   |	            ^
+18 |	    }
+method-defer-moves/main.tck:19:10: note: b is moved here
+18 |	    }
+19 |	    c := b
+   |	         ^
+20 |	    use(c.len())
+
+-- method-dropped-owned-result/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (b B) clone() B {
+    return B{buf: make(list[int64], c_allocator)}
+}
+
+func (b B) pair() (B, int64) {
+    return B{buf: make(list[int64], c_allocator)}, 1
+}
+
+func use(n int64) {
+}
+
+func main() {
+    b := B{buf: make(list[int64], c_allocator)}
+    b.clone()
+    _, n := b.pair()
+    use(n)
+}
+-- method-dropped-owned-result/expected --
+stage: typeck
+---
+
+method-dropped-owned-result/main.tck:20:5: error: B.clone returns B, which holds a list and cannot be dropped; bind it to a variable
+19 |	    b := B{buf: make(list[int64], c_allocator)}
+20 |	    b.clone()
+   |	    ^~~~~~~~~
+21 |	    _, n := b.pair()
+
+method-dropped-owned-result/main.tck:21:5: error: B.pair returns B, which holds a list and cannot be dropped; bind it to a variable instead of _
+20 |	    b.clone()
+21 |	    _, n := b.pair()
+   |	    ^
+22 |	    use(n)
+
+-- method-error-dropped/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (mut b B) write(s string) error {
+    return noerror
+}
+
+func (b B) pair() (int64, error) {
+    return 1, noerror
+}
+
+func use(n int64) {
+}
+
+func main() {
+    mut b := B{n: 0}
+    mut b.write("x")
+    b.pair()
+    x, _ := b.pair()
+    use(x)
+}
+-- method-error-dropped/expected --
+stage: typeck
+---
+
+method-error-dropped/main.tck:20:5: error: the error B.write returns cannot be dropped; bind it, as in err := mut b.write(...)
+19 |	    mut b := B{n: 0}
+20 |	    mut b.write("x")
+   |	    ^~~~~~~~~~~~~~~~
+21 |	    b.pair()
+
+method-error-dropped/main.tck:21:5: error: the error B.pair returns cannot be dropped; bind it, as in _, err := b.pair(...)
+20 |	    mut b.write("x")
+21 |	    b.pair()
+   |	    ^~~~~~~~
+22 |	    x, _ := b.pair()
+
+method-error-dropped/main.tck:22:8: error: the error B.pair returns cannot be dropped; bind it to a variable instead of _
+21 |	    b.pair()
+22 |	    x, _ := b.pair()
+   |	       ^
+23 |	    use(x)
+
+-- method-error-unchecked/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (b B) pair() (int64, error) {
+    return 1, noerror
+}
+
+func use(n int64) {
+}
+
+func main() {
+    b := B{n: 0}
+    x, err := b.pair()
+    use(x)
+    if err.code != 0 {
+    }
+}
+-- method-error-unchecked/expected --
+stage: typeck
+---
+
+method-error-unchecked/main.tck:17:9: error: x cannot be read before err is checked; check err.code == 0 first
+16 |	    x, err := b.pair()
+17 |	    use(x)
+   |	        ^
+18 |	    if err.code != 0 {
+
+-- method-error-unchecked-loop/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (b B) pair() (int64, error) {
+    return 1, noerror
+}
+
+func use(n int64) {
+}
+
+func main() {
+    b := B{n: 0}
+    mut x int64 = 0
+    mut err := noerror
+    for i := range 2 {
+        if i == 1 {
+            use(x)
+        }
+        x, err = b.pair()
+    }
+    if err.code != 0 {
+    }
+}
+-- method-error-unchecked-loop/expected --
+stage: typeck
+---
+
+method-error-unchecked-loop/main.tck:20:17: error: x cannot be read before err is checked; check err.code == 0 first
+19 |	        if i == 1 {
+20 |	            use(x)
+   |	                ^
+21 |	        }
+
+-- method-expression/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    use(P.norm(p))
+}
+-- method-expression/expected --
+stage: resolve
+---
+
+method-expression/main.tck:16:9: error: cannot use P as a value; it is a type
+15 |	    p := P{x: 1}
+16 |	    use(P.norm(p))
+   |	        ^
+17 |	}
+
+-- method-extern/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+extern func (p P) f() int64
+
+func main() {
+}
+-- method-extern/expected --
+stage: resolve
+---
+
+method-extern/main.tck:7:1: error: a method cannot be extern; declare an extern func and call it from the method
+06 |	
+07 |	extern func (p P) f() int64
+   |	^~~~~~
+08 |	
+
+-- method-extra-mut/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    mut p := P{x: 1}
+    use(mut p.norm())
+}
+-- method-extra-mut/expected --
+stage: typeck
+---
+
+method-extra-mut/main.tck:16:9: error: P.norm does not take its receiver as mut; call p.norm()
+15 |	    mut p := P{x: 1}
+16 |	    use(mut p.norm())
+   |	        ^~~~~
+17 |	}
+
+-- method-field-called/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    use(p.x())
+}
+-- method-field-called/expected --
+stage: typeck
+---
+
+method-field-called/main.tck:12:11: error: x is a field of P, not a method; a field cannot be called
+11 |	    p := P{x: 1}
+12 |	    use(p.x())
+   |	          ^
+13 |	}
+
+-- method-in-global-initializer/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+var n = P{x: 1}.norm()
+
+func use(v int64) {
+}
+
+func main() {
+    use(n)
+}
+-- method-in-global-initializer/expected --
+stage: typeck
+---
+
+method-in-global-initializer/main.tck:11:9: error: n must be initialized with a constant expression
+10 |	
+11 |	var n = P{x: 1}.norm()
+   |	        ^~~~~~~~~~~~~~
+12 |	
+
+-- method-list-borrow/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (b B) peek(mut o B) {
+}
+
+func (mut b B) fill(o B) {
+}
+
+func main() {
+    mut b := B{buf: make(list[int64], c_allocator)}
+    b.peek(mut b)
+    mut b.fill(b)
+}
+-- method-list-borrow/expected --
+stage: typeck
+---
+
+method-list-borrow/main.tck:15:5: error: cannot pass b alongside mut b in this call: a list is not copied for a call, and a mut argument must be the only way to reach b during it
+14 |	    mut b := B{buf: make(list[int64], c_allocator)}
+15 |	    b.peek(mut b)
+   |	    ^
+16 |	    mut b.fill(b)
+method-list-borrow/main.tck:15:12: note: passed as mut here
+14 |	    mut b := B{buf: make(list[int64], c_allocator)}
+15 |	    b.peek(mut b)
+   |	           ^~~~~
+16 |	    mut b.fill(b)
+
+method-list-borrow/main.tck:16:16: error: cannot pass b alongside mut b in this call: a list is not copied for a call, and a mut argument must be the only way to reach b during it
+15 |	    b.peek(mut b)
+16 |	    mut b.fill(b)
+   |	               ^
+17 |	}
+method-list-borrow/main.tck:16:5: note: passed as mut here
+15 |	    b.peek(mut b)
+16 |	    mut b.fill(b)
+   |	    ^~~~~
+17 |	}
+
+-- method-local-shadows-receiver/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) f() int64 {
+    p := 2
+    return p
+}
+
+func main() {
+}
+-- method-local-shadows-receiver/expected --
+stage: resolve
+---
+
+method-local-shadows-receiver/main.tck:8:5: error: p is already declared
+07 |	func (p P) f() int64 {
+08 |	    p := 2
+   |	    ^
+09 |	    return p
+method-local-shadows-receiver/main.tck:7:7: note: previous declaration of p
+06 |	
+07 |	func (p P) f() int64 {
+   |	      ^
+08 |	    p := 2
+
+-- method-missing-mut/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func main() {
+    mut p := P{x: 1}
+    p.scale(2)
+}
+-- method-missing-mut/expected --
+stage: typeck
+---
+
+method-missing-mut/main.tck:13:5: error: P.scale takes its receiver as mut; call mut p.scale(2)
+12 |	    mut p := P{x: 1}
+13 |	    p.scale(2)
+   |	    ^
+14 |	}
+
+-- method-moved-receiver/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (b B) len() int64 {
+    return len(b.buf)
+}
+
+func use(n int64) {
+}
+
+func main() {
+    b := B{buf: make(list[int64], c_allocator)}
+    c := b
+    use(b.len())
+    use(c.len())
+}
+-- method-moved-receiver/expected --
+stage: typeck
+---
+
+method-moved-receiver/main.tck:17:9: error: b is used after it was moved
+16 |	    c := b
+17 |	    use(b.len())
+   |	        ^
+18 |	    use(c.len())
+method-moved-receiver/main.tck:16:10: note: b is moved here
+15 |	    b := B{buf: make(list[int64], c_allocator)}
+16 |	    c := b
+   |	         ^
+17 |	    use(b.len())
+
+-- method-moves-receiver/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (b B) take() B {
+    return b
+}
+
+func (mut b B) steal() B {
+    return b
+}
+
+func main() {
+}
+-- method-moves-receiver/expected --
+stage: typeck
+---
+
+method-moves-receiver/main.tck:8:12: error: cannot move b: it is a parameter, which borrows its caller's value
+07 |	func (b B) take() B {
+08 |	    return b
+   |	           ^
+09 |	}
+
+method-moves-receiver/main.tck:12:12: error: cannot move b: it is a mut parameter, whose value stays its caller's
+11 |	func (mut b B) steal() B {
+12 |	    return b
+   |	           ^
+13 |	}
+
+-- method-multiple-receivers/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P, q P) m() {
+}
+
+func main() {
+}
+-- method-multiple-receivers/expected --
+stage: parse
+---
+
+method-multiple-receivers/main.tck:7:10: error: method has multiple receivers
+06 |	
+07 |	func (p P, q P) m() {
+   |	         ^
+08 |	}
+
+-- method-must-return/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    if p.x > 0 {
+        return p.x
+    }
+}
+
+func (p P) twice() (int64, error) {
+    return p.x
+}
+
+func main() {
+}
+-- method-must-return/expected --
+stage: typeck
+---
+
+method-must-return/main.tck:7:12: error: P.norm must end in a return
+06 |	
+07 |	func (p P) norm() int64 {
+   |	           ^~~~
+08 |	    if p.x > 0 {
+
+method-must-return/main.tck:14:5: error: not enough return values: P.twice returns 2, got 1
+13 |	func (p P) twice() (int64, error) {
+14 |	    return p.x
+   |	    ^~~~~~~~~~
+15 |	}
+
+-- method-mut-global/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+mut g = P{x: 1}
+
+var h = P{x: 2}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func main() {
+    mut g.scale(2)
+    mut h.scale(2)
+}
+-- method-mut-global/expected --
+stage: typeck
+---
+
+method-mut-global/main.tck:16:5: error: a mutable global cannot be passed as mut; copy it into a local
+15 |	func main() {
+16 |	    mut g.scale(2)
+   |	    ^~~~~
+17 |	    mut h.scale(2)
+
+method-mut-global/main.tck:17:5: error: cannot pass mut h: h is immutable; copy it into a mutable local
+16 |	    mut g.scale(2)
+17 |	    mut h.scale(2)
+   |	    ^~~~~
+18 |	}
+
+-- method-mut-immutable/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func main() {
+    p := P{x: 1}
+    mut p.scale(2)
+}
+-- method-mut-immutable/expected --
+stage: typeck
+---
+
+method-mut-immutable/main.tck:13:5: error: cannot pass mut p: p is immutable; declare it with mut
+12 |	    p := P{x: 1}
+13 |	    mut p.scale(2)
+   |	    ^~~~~
+14 |	}
+
+-- method-mut-mut/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func main() {
+    mut p := P{x: 1}
+    mut mut p.scale(2)
+}
+-- method-mut-mut/expected --
+stage: parse
+---
+
+method-mut-mut/main.tck:13:9: error: expected 'variable name' found 'mut'
+12 |	    mut p := P{x: 1}
+13 |	    mut mut p.scale(2)
+   |	        ^
+14 |	}
+
+-- method-mut-overlap/main.tck --
+package main
+
+type P struct {
+    x int64
+    y int64
+}
+
+func (mut p P) take(mut q P) {
+}
+
+func (mut p P) bump(mut n int64) {
+}
+
+func main() {
+    mut p := P{x: 1, y: 2}
+    mut p.take(mut p)
+    mut p.bump(mut p.x)
+    mut q := [2]P{p, p}
+    i := 0
+    j := 1
+    if i < 2 && j < 2 {
+        mut q[i].take(mut q[j])
+        mut q[0].take(mut q[1])
+        mut q[i].take(mut q[i])
+    }
+}
+-- method-mut-overlap/expected --
+stage: typeck
+---
+
+method-mut-overlap/main.tck:16:16: error: p is passed as mut twice in this call; a mut argument must be the only way to reach p during the call
+15 |	    mut p := P{x: 1, y: 2}
+16 |	    mut p.take(mut p)
+   |	               ^~~~~
+17 |	    mut p.bump(mut p.x)
+method-mut-overlap/main.tck:16:5: note: first passed as mut here
+15 |	    mut p := P{x: 1, y: 2}
+16 |	    mut p.take(mut p)
+   |	    ^~~~~
+17 |	    mut p.bump(mut p.x)
+
+method-mut-overlap/main.tck:17:16: error: p.x is part of p, and both are passed as mut in this call; a mut argument must be the only way to reach p.x during the call
+16 |	    mut p.take(mut p)
+17 |	    mut p.bump(mut p.x)
+   |	               ^~~~~~~
+18 |	    mut q := [2]P{p, p}
+method-mut-overlap/main.tck:17:5: note: first passed as mut here
+16 |	    mut p.take(mut p)
+17 |	    mut p.bump(mut p.x)
+   |	    ^~~~~
+18 |	    mut q := [2]P{p, p}
+
+method-mut-overlap/main.tck:24:23: error: q[i] is passed as mut twice in this call; a mut argument must be the only way to reach q[i] during the call
+23 |	        mut q[0].take(mut q[1])
+24 |	        mut q[i].take(mut q[i])
+   |	                      ^~~~~~~~
+25 |	    }
+method-mut-overlap/main.tck:24:9: note: first passed as mut here
+23 |	        mut q[0].take(mut q[1])
+24 |	        mut q[i].take(mut q[i])
+   |	        ^~~~~~~~
+25 |	    }
+
+-- method-mut-plain-param/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func f(p P) {
+    mut p.scale(2)
+}
+
+func (p P) g() {
+    mut p.scale(2)
+}
+
+func main() {
+}
+-- method-mut-plain-param/expected --
+stage: typeck
+---
+
+method-mut-plain-param/main.tck:12:5: error: cannot pass mut p: p is immutable; declare it with mut
+11 |	func f(p P) {
+12 |	    mut p.scale(2)
+   |	    ^~~~~
+13 |	}
+
+method-mut-plain-param/main.tck:16:5: error: cannot pass mut p: p is immutable; declare it with mut
+15 |	func (p P) g() {
+16 |	    mut p.scale(2)
+   |	    ^~~~~
+17 |	}
+
+-- method-mut-ranged/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func (mut b B) add(n int64) error {
+    return append(mut b.buf, n)
+}
+
+func main() {
+    mut b := B{buf: make(list[int64], c_allocator)}
+    for _, x := range b.buf {
+        err := mut b.add(x)
+        if err.code != 0 {
+            return
+        }
+    }
+}
+-- method-mut-ranged/expected --
+stage: typeck
+---
+
+method-mut-ranged/main.tck:14:20: error: b.buf is being ranged over, so this loop cannot pass mut b
+13 |	    for _, x := range b.buf {
+14 |	        err := mut b.add(x)
+   |	                   ^
+15 |	        if err.code != 0 {
+
+-- method-mut-string-byte/main.tck --
+package main
+
+func main() {
+    mut s := "abc"
+    mut s[0].f()
+}
+-- method-mut-string-byte/expected --
+stage: typeck
+---
+
+method-mut-string-byte/main.tck:5:5: error: cannot pass mut s[0]: strings are immutable
+04 |	    mut s := "abc"
+05 |	    mut s[0].f()
+   |	    ^~~~~~~~
+06 |	}
+
+-- method-mut-temporary/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func makeP() P {
+    return P{x: 1}
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func main() {
+    mut makeP().scale(2)
+    makeP().scale(2)
+}
+-- method-mut-temporary/expected --
+stage: typeck
+---
+
+method-mut-temporary/main.tck:16:5: error: only a variable, a field or an element can be passed as mut
+15 |	func main() {
+16 |	    mut makeP().scale(2)
+   |	    ^~~~~~~~~~~
+17 |	    makeP().scale(2)
+
+method-mut-temporary/main.tck:17:5: error: P.scale takes its receiver as mut; only a variable, a field or an element can be passed as mut
+16 |	    mut makeP().scale(2)
+17 |	    makeP().scale(2)
+   |	    ^~~~~~~
+18 |	}
+
+-- method-mut-unproven-index/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func f(i int64) {
+    mut ps := [2]P{P{x: 1}, P{x: 2}}
+    mut ps[i].scale(2)
+}
+
+func main() {
+}
+-- method-mut-unproven-index/expected --
+stage: typeck
+---
+
+method-mut-unproven-index/main.tck:13:12: error: index i may be out of range; check 0 <= i && i < 2 first
+12 |	    mut ps := [2]P{P{x: 1}, P{x: 2}}
+13 |	    mut ps[i].scale(2)
+   |	           ^
+14 |	}
+
+-- method-mut-variadic-arg/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) all(xs ...int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    mut n int64 = 0
+    p.all(mut n)
+}
+-- method-mut-variadic-arg/expected --
+stage: typeck
+---
+
+method-mut-variadic-arg/main.tck:13:11: error: P.all does not take n as mut; pass n
+12 |	    mut n int64 = 0
+13 |	    p.all(mut n)
+   |	          ^~~~~
+14 |	}
+
+-- method-mut-view-element/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) scale(k int64) {
+    p.x *= k
+}
+
+func f(v []P) {
+    mut v[0].scale(2)
+}
+
+func main() {
+}
+-- method-mut-view-element/expected --
+stage: typeck
+---
+
+method-mut-view-element/main.tck:12:5: error: cannot pass mut v[0]: v is a read-only view
+11 |	func f(v []P) {
+12 |	    mut v[0].scale(2)
+   |	    ^~~~~~~~
+13 |	}
+
+-- method-mut-whole-call/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    use(mut (p.norm()))
+}
+-- method-mut-whole-call/expected --
+stage: typeck
+---
+
+method-mut-whole-call/main.tck:16:9: error: use does not take p.norm() as mut; pass p.norm()
+15 |	    p := P{x: 1}
+16 |	    use(mut (p.norm()))
+   |	        ^~~~~~~~~~~~~~
+17 |	}
+
+-- method-name-blank/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) _() {
+}
+
+func main() {
+}
+-- method-name-blank/expected --
+stage: resolve
+---
+
+method-name-blank/main.tck:7:12: error: cannot use _ as a name
+06 |	
+07 |	func (p P) _() {
+   |	           ^
+08 |	}
+
+-- method-name-field/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) x() int64 {
+    return p.x
+}
+
+func main() {
+}
+-- method-name-field/expected --
+stage: resolve
+---
+
+method-name-field/main.tck:7:12: error: x is already declared as a field of P
+06 |	
+07 |	func (p P) x() int64 {
+   |	           ^
+08 |	    return p.x
+method-name-field/main.tck:4:5: note: previous declaration of x
+03 |	type P struct {
+04 |	    x int64
+   |	    ^
+05 |	}
+
+-- method-name-twice/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) f() int64 {
+    return p.x
+}
+
+func (mut p P) f() {
+}
+
+func main() {
+}
+-- method-name-twice/expected --
+stage: resolve
+---
+
+method-name-twice/main.tck:11:16: error: P.f is already declared
+10 |	
+11 |	func (mut p P) f() {
+   |	               ^
+12 |	}
+method-name-twice/main.tck:7:12: note: previous declaration of P.f
+06 |	
+07 |	func (p P) f() int64 {
+   |	           ^
+08 |	    return p.x
+
+-- method-name-type/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) int64() int64 {
+    return p.x
+}
+
+func main() {
+}
+-- method-name-type/expected --
+stage: resolve
+---
+
+method-name-type/main.tck:7:12: error: cannot use int64 as a name; it is a type
+06 |	
+07 |	func (p P) int64() int64 {
+   |	           ^~~~~
+08 |	    return p.x
+
+-- method-no-body/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) f() int64
+
+func main() {
+}
+-- method-no-body/expected --
+stage: resolve
+---
+
+method-no-body/main.tck:7:12: error: method P.f has no body
+06 |	
+07 |	func (p P) f() int64
+   |	           ^
+08 |	
+
+-- method-no-receiver/main.tck --
+package main
+
+func () m() {
+}
+
+func main() {
+}
+-- method-no-receiver/expected --
+stage: parse
+---
+
+method-no-receiver/main.tck:3:6: error: method has no receiver
+02 |	
+03 |	func () m() {
+   |	     ^~
+04 |	}
+
+-- method-not-found/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func main() {
+    p := P{x: 1}
+    p.nope()
+}
+-- method-not-found/expected --
+stage: typeck
+---
+
+method-not-found/main.tck:9:7: error: P has no method nope
+08 |	    p := P{x: 1}
+09 |	    p.nope()
+   |	      ^~~~
+10 |	}
+
+-- method-on-any/main.tck --
+package main
+
+func (a any) f() {
+}
+
+func main() {
+}
+-- method-on-any/expected --
+stage: resolve
+---
+
+method-on-any/main.tck:3:9: error: cannot declare a method on any: only a struct type declared in this package can have methods
+02 |	
+03 |	func (a any) f() {
+   |	        ^~~
+04 |	}
+
+-- method-on-array/main.tck --
+package main
+
+func (a [3]int64) sum() int64 {
+    return a[0]
+}
+
+func main() {
+}
+-- method-on-array/expected --
+stage: resolve
+---
+
+method-on-array/main.tck:3:9: error: cannot declare a method on an array type: only a struct type declared in this package can have methods
+02 |	
+03 |	func (a [3]int64) sum() int64 {
+   |	        ^~~~~~~~
+04 |	    return a[0]
+
+-- method-on-error/main.tck --
+package main
+
+func (e error) text() string {
+    return e.msg
+}
+
+func main() {
+}
+-- method-on-error/expected --
+stage: resolve
+---
+
+method-on-error/main.tck:3:9: error: cannot declare a method on error: only a struct type declared in this package can have methods
+02 |	
+03 |	func (e error) text() string {
+   |	        ^~~~~
+04 |	    return e.msg
+
+-- method-on-function/main.tck --
+package main
+
+func g() {
+}
+
+func (x g) f() {
+}
+
+func main() {
+}
+-- method-on-function/expected --
+stage: typeck
+---
+
+method-on-function/main.tck:6:9: error: unknown type: g
+05 |	
+06 |	func (x g) f() {
+   |	        ^
+07 |	}
+
+-- method-on-int/main.tck --
+package main
+
+func (n int64) double() int64 {
+    return n * 2
+}
+
+func main() {
+}
+-- method-on-int/expected --
+stage: resolve
+---
+
+method-on-int/main.tck:3:9: error: cannot declare a method on int64: only a struct type declared in this package can have methods
+02 |	
+03 |	func (n int64) double() int64 {
+   |	        ^~~~~
+04 |	    return n * 2
+
+-- method-on-int-value/main.tck --
+package main
+
+func main() {
+    x := 5
+    x.double()
+}
+-- method-on-int-value/expected --
+stage: typeck
+---
+
+method-on-int-value/main.tck:5:7: error: int64 has no method double
+04 |	    x := 5
+05 |	    x.double()
+   |	      ^~~~~~
+06 |	}
+
+-- method-on-list/main.tck --
+package main
+
+func (l list[int64]) first() int64 {
+    return 0
+}
+
+func main() {
+}
+-- method-on-list/expected --
+stage: resolve
+---
+
+method-on-list/main.tck:3:9: error: cannot declare a method on a list type: only a struct type declared in this package can have methods
+02 |	
+03 |	func (l list[int64]) first() int64 {
+   |	        ^~~~~~~~~~~
+04 |	    return 0
+
+-- method-on-unknown-type/main.tck --
+package main
+
+func (x Nope) f() {
+}
+
+func main() {
+}
+-- method-on-unknown-type/expected --
+stage: typeck
+---
+
+method-on-unknown-type/main.tck:3:9: error: unknown type: Nope
+02 |	
+03 |	func (x Nope) f() {
+   |	        ^~~~
+04 |	}
+
+-- method-on-view/main.tck --
+package main
+
+func (v []int64) first() int64 {
+    return 0
+}
+
+func main() {
+}
+-- method-on-view/expected --
+stage: resolve
+---
+
+method-on-view/main.tck:3:9: error: cannot declare a method on a view type: only a struct type declared in this package can have methods
+02 |	
+03 |	func (v []int64) first() int64 {
+   |	        ^~~~~~~
+04 |	    return 0
+
+-- method-param-same-as-receiver/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) f(p int64) int64 {
+    return p
+}
+
+func main() {
+}
+-- method-param-same-as-receiver/expected --
+stage: resolve
+---
+
+method-param-same-as-receiver/main.tck:7:14: error: duplicate parameter name
+06 |	
+07 |	func (p P) f(p int64) int64 {
+   |	             ^
+08 |	    return p
+method-param-same-as-receiver/main.tck:7:7: note: previous declaration of p
+06 |	
+07 |	func (p P) f(p int64) int64 {
+   |	      ^
+08 |	    return p
+
+-- method-pointer-receiver/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p *P) m() {
+}
+
+func main() {
+}
+-- method-pointer-receiver/expected --
+stage: parse
+---
+
+method-pointer-receiver/main.tck:7:9: error: expected 'type name' found '*'
+06 |	
+07 |	func (p *P) m() {
+   |	        ^
+08 |	}
+
+-- method-pub-in-main/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+pub func (p P) norm() int64 {
+    return p.x
+}
+
+lib func (p P) norm2() int64 {
+    return p.x
+}
+
+func main() {
+}
+-- method-pub-in-main/expected --
+stage: resolve
+---
+
+method-pub-in-main/main.tck:7:1: error: pub has no effect in package main, which no package can import
+06 |	
+07 |	pub func (p P) norm() int64 {
+   |	^~~
+08 |	    return p.x
+
+method-pub-in-main/main.tck:11:1: error: lib has no effect in package main, which no package can import
+10 |	
+11 |	lib func (p P) norm2() int64 {
+   |	^~~
+12 |	    return p.x
+
+-- method-receiver-blank/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (_ P) f() {
+}
+
+func main() {
+}
+-- method-receiver-blank/expected --
+stage: resolve
+---
+
+method-receiver-blank/main.tck:7:7: error: cannot use _ as a name
+06 |	
+07 |	func (_ P) f() {
+   |	      ^
+08 |	}
+
+-- method-receiver-named-like-type/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (P P) f() {
+}
+
+func main() {
+}
+-- method-receiver-named-like-type/expected --
+stage: resolve
+---
+
+method-receiver-named-like-type/main.tck:7:7: error: P is already declared
+06 |	
+07 |	func (P P) f() {
+   |	      ^
+08 |	}
+method-receiver-named-like-type/main.tck:3:6: note: previous declaration of P
+02 |	
+03 |	type P struct {
+   |	     ^
+04 |	    x int64
+
+-- method-receiver-shadows-global/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+var p = 1
+
+func (p P) f() int64 {
+    return p.x
+}
+
+func main() {
+}
+-- method-receiver-shadows-global/expected --
+stage: resolve
+---
+
+method-receiver-shadows-global/main.tck:9:7: error: p is already declared
+08 |	
+09 |	func (p P) f() int64 {
+   |	      ^
+10 |	    return p.x
+method-receiver-shadows-global/main.tck:7:5: note: previous declaration of p
+06 |	
+07 |	var p = 1
+   |	    ^
+08 |	
+
+-- method-receiver-truncated/main.tck --
+package main
+
+type Builder struct {
+    n int64
+}
+
+func (b Builder
+-- method-receiver-truncated/expected --
+stage: parse
+---
+
+method-receiver-truncated/main.tck:7:16: error: expected ')' found ';'
+06 |	
+07 |	func (b Builder
+   |	               ^
+
+-- method-receiver-truncated/no-final-newline --
+-- method-results-mismatch/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+func (mut p P) clear() {
+    p.x = 0
+}
+
+func (p P) pair() (int64, int64) {
+    return p.x, p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    mut p := P{x: 1}
+    a, b := p.norm()
+    c := mut p.clear()
+    d := p.pair()
+    c2, d2 := mut p.clear()
+    use(a + b + c + d + c2 + d2)
+}
+-- method-results-mismatch/expected --
+stage: typeck
+---
+
+method-results-mismatch/main.tck:24:5: error: assignment mismatch: 2 variables but P.norm returns 1 value
+23 |	    mut p := P{x: 1}
+24 |	    a, b := p.norm()
+   |	    ^~~~~~~~~~~~~~~~
+25 |	    c := mut p.clear()
+
+method-results-mismatch/main.tck:25:10: error: P.clear returns no value
+24 |	    a, b := p.norm()
+25 |	    c := mut p.clear()
+   |	         ^~~~~~~~~~~~~
+26 |	    d := p.pair()
+
+method-results-mismatch/main.tck:26:10: error: P.pair returns 2 values
+25 |	    c := mut p.clear()
+26 |	    d := p.pair()
+   |	         ^~~~~~~~
+27 |	    c2, d2 := mut p.clear()
+
+method-results-mismatch/main.tck:27:5: error: assignment mismatch: 2 variables but P.clear returns no value
+26 |	    d := p.pair()
+27 |	    c2, d2 := mut p.clear()
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+28 |	    use(a + b + c + d + c2 + d2)
+
+-- method-temporary-list/main.tck --
+package main
+
+type B struct {
+    buf list[int64]
+}
+
+func newB() B {
+    return B{buf: make(list[int64], c_allocator)}
+}
+
+func (b B) len() int64 {
+    return len(b.buf)
+}
+
+func use(n int64) {
+}
+
+func main() {
+    use(newB().len())
+}
+-- method-temporary-list/expected --
+stage: typeck
+---
+
+method-temporary-list/main.tck:19:9: error: cannot use a temporary B here; store it in a variable first
+18 |	func main() {
+19 |	    use(newB().len())
+   |	        ^~~~~~
+20 |	}
+
+-- method-value/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) norm() int64 {
+    return p.x
+}
+
+func use(n int64) {
+}
+
+func main() {
+    p := P{x: 1}
+    f := p.norm
+    use(f)
+}
+-- method-value/expected --
+stage: typeck
+---
+
+method-value/main.tck:16:12: error: norm is a method of P, not a field; a method can only be called
+15 |	    p := P{x: 1}
+16 |	    f := p.norm
+   |	           ^~~~
+17 |	    use(f)
+
+-- method-variadic-receiver/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (ps ...P) m() {
+}
+
+func main() {
+}
+-- method-variadic-receiver/expected --
+stage: parse
+---
+
+method-variadic-receiver/main.tck:7:10: error: a receiver cannot be variadic
+06 |	
+07 |	func (ps ...P) m() {
+   |	         ^~~
+08 |	}
+
 -- mismatched-int-types/main.tck --
 package main
 
@@ -14407,29 +16105,6 @@ struct-local-type/main.tck:4:5: error: types can only be declared at package lev
 04 |	    type Point struct {
    |	    ^~~~
 05 |	        x int64
-
--- struct-method/main.tck --
-package main
-
-type Point struct {
-    x int64
-}
-
-func (p Point) norm() int64 {
-    return p.x
-}
-
-func main() {
-}
--- struct-method/expected --
-stage: parse
----
-
-struct-method/main.tck:7:6: error: methods are not supported
-06 |	
-07 |	func (p Point) norm() int64 {
-   |	     ^
-08 |	    return p.x
 
 -- struct-name-clash/main.tck --
 package main

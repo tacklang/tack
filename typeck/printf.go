@@ -67,7 +67,7 @@ func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
 // isPrintf reports whether fn is std/fmt's printf.
 func (c *Checker) isPrintf(fn *ast.Func) bool {
 	pkg := c.declPkg[fn]
-	return fn != nil && fn.Name == "printf" && pkg != nil && pkg.Path == stdFmt
+	return fn != nil && !fn.Method && fn.Name == "printf" && pkg != nil && pkg.Path == stdFmt
 }
 
 // formatProblem is one mistake checkFormat finds: its message, and the

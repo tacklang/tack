@@ -1959,6 +1959,273 @@ main-missing-across-files/a.tck:1:1: error: main function not found
    |	^
 02 |	
 
+-- method-exposes/tack.mod --
+module calc
+-- method-exposes/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+type hidden struct {
+    n int64
+}
+
+lib type Mid struct {
+    n int64
+}
+
+pub func (t Token) Get() hidden {
+    return hidden{n: t.kind}
+}
+
+pub func (t Token) Put(h hidden) {
+}
+
+lib func (t Token) Lib(m Mid) hidden {
+    return hidden{n: m.n}
+}
+
+pub func (m Mid) Get() hidden {
+    return hidden{n: m.n}
+}
+
+pub func (m Mid) Fine() Mid {
+    return m
+}
+
+pub func (h hidden) Peek() hidden {
+    return h
+}
+-- method-exposes/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(t lexer.Token) {
+}
+
+func main() {
+    use(lexer.Token{kind: 1})
+}
+-- method-exposes/expected --
+stage: typeck
+---
+
+method-exposes/lexer/lexer.tck:15:26: error: pub method Token.Get exposes hidden, which is not pub
+14 |	
+15 |	pub func (t Token) Get() hidden {
+   |	                         ^~~~~~
+16 |	    return hidden{n: t.kind}
+
+method-exposes/lexer/lexer.tck:19:26: error: pub method Token.Put exposes hidden, which is not pub
+18 |	
+19 |	pub func (t Token) Put(h hidden) {
+   |	                         ^~~~~~
+20 |	}
+
+method-exposes/lexer/lexer.tck:22:31: error: lib method Token.Lib exposes hidden, which is not lib or pub
+21 |	
+22 |	lib func (t Token) Lib(m Mid) hidden {
+   |	                              ^~~~~~
+23 |	    return hidden{n: m.n}
+
+method-exposes/lexer/lexer.tck:26:24: error: lib method Mid.Get exposes hidden, which is not lib or pub
+25 |	
+26 |	pub func (m Mid) Get() hidden {
+   |	                       ^~~~~~
+27 |	    return hidden{n: m.n}
+
+-- method-expression-qualified/tack.mod --
+module calc
+-- method-expression-qualified/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+-- method-expression-qualified/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(n int64) {
+}
+
+func main() {
+    t := lexer.Token{kind: 1}
+    use(lexer.Token.Kind(t))
+}
+-- method-expression-qualified/expected --
+stage: resolve
+---
+
+method-expression-qualified/main.tck:10:9: error: cannot use lexer.Token as a value; it is a type
+09 |	    t := lexer.Token{kind: 1}
+10 |	    use(lexer.Token.Kind(t))
+   |	        ^~~~~~~~~~~
+11 |	}
+
+-- method-lib-other-module/tack.mod --
+module calc
+-- method-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+lib type Box struct {
+    pub n int64
+}
+
+// Sum is lib: only std's packages may call it.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+
+// A is pub.
+pub func (p Pair) A() int64 {
+    return p.a
+}
+
+// Get is pub, capped at lib by its type.
+pub func (b Box) Get() int64 {
+    return b.n
+}
+-- method-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func use(n int64) {
+}
+
+func main() {
+    p := util.Pair{a: 1}
+    use(p.A())
+    use(p.Sum())
+}
+-- method-lib-other-module/expected --
+stage: typeck
+---
+
+method-lib-other-module/main.tck:11:11: error: Sum is lib in module std and cannot be used from module calc
+10 |	    use(p.A())
+11 |	    use(p.Sum())
+   |	          ^~~
+12 |	}
+
+-- method-on-imported-type/tack.mod --
+module calc
+-- method-on-imported-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+-- method-on-imported-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func (t lexer.Token) twice() int64 {
+    return t.kind * 2
+}
+
+func main() {
+}
+-- method-on-imported-type/expected --
+stage: resolve
+---
+
+method-on-imported-type/main.tck:5:9: error: cannot declare a method on lexer.Token: only a struct type declared in this package can have methods
+04 |	
+05 |	func (t lexer.Token) twice() int64 {
+   |	        ^~~~~~~~~~~
+06 |	    return t.kind * 2
+
+-- method-visibility/tack.mod --
+module calc
+-- method-visibility/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+lib type Half struct {
+    pub n int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// Mid is lib, usable in module calc.
+lib func (t Token) Mid() int64 {
+    return t.kind
+}
+
+// hidden is private.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// Get is pub on a lib type, so lib in effect.
+pub func (h Half) Get() int64 {
+    return h.n
+}
+
+pub func Make() Token {
+    return Token{kind: 1}
+}
+-- method-visibility/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(n int64) {
+}
+
+func main() {
+    t := lexer.Make()
+    use(t.Kind() + t.Mid())
+    use(t.hidden())
+    h := lexer.Half{n: 2}
+    use(h.Get())
+    use(t.nope())
+    k := t.Kind
+    use(k)
+}
+-- method-visibility/expected --
+stage: typeck
+---
+
+method-visibility/main.tck:11:11: error: hidden is not pub in lexer.Token
+10 |	    use(t.Kind() + t.Mid())
+11 |	    use(t.hidden())
+   |	          ^~~~~~
+12 |	    h := lexer.Half{n: 2}
+
+method-visibility/main.tck:14:11: error: lexer.Token has no method nope
+13 |	    use(h.Get())
+14 |	    use(t.nope())
+   |	          ^~~~
+15 |	    k := t.Kind
+
+method-visibility/main.tck:15:12: error: Kind is a method of lexer.Token, not a field; a method can only be called
+14 |	    use(t.nope())
+15 |	    k := t.Kind
+   |	           ^~~~
+16 |	    use(k)
+
 -- mod-empty/tack.mod --
 // nothing but a comment
 -- mod-empty/main.tck --

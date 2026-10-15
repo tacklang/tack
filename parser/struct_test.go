@@ -240,15 +240,7 @@ var structParseErrors = []struct{ name, src, msg, at string }{
 	{"named array", "type A [2]int64\n", "only struct types can be declared", "["},
 	{"alias", "type A = P\n", "expected 'struct' found '='", ""},
 	{"grouped", "type (\n    P struct {}\n)\n", "expected 'type name' found '('", ""},
-	{"method declaration", "func (p P) f() {\n}\n", "methods are not supported", "("},
-	{"pointer receiver", "func (p *P) f() {\n}\n", "methods are not supported", "("},
-	{"method call statement", "func main() {\n    p.f()\n}\n", "methods are not supported", "("},
-	{
-		"method call value",
-		"func main() {\n    x := p.a.f(1)\n}\n",
-		"methods are not supported",
-		"(",
-	},
+	{"pointer receiver", "func (p *P) f() {\n}\n", "expected 'type name' found '*'", ""},
 	{"embedded", "type P struct {\n    Q\n}\n", "embedded fields are not supported", "Q"},
 	{"embedded last", "type P struct { x int64; Q }\n", "embedded fields are not supported", "Q"},
 	{

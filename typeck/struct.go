@@ -169,7 +169,8 @@ func (c *Checker) selector(sel *ast.Selector) types.Type {
 
 // field returns the type of the field sel names of a value of type base,
 // which must be a struct with a field of that name, visible from the
-// package being checked.
+// package being checked. A method of base named without a call is
+// reported as such: there are no method values.
 func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 	if base == types.Invalid {
 		return types.Invalid
@@ -181,6 +182,11 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 	}
 	f, i, ok := c.table.Field(base, sel.Name)
 	if !ok {
+		if td := c.structs[base]; td != nil && td.Method(sel.Name) != nil {
+			c.errorf(sel.NameSpan, "%s is a method of %s, not a field; a method can only be called",
+				sel.Name, c.typeName(base))
+			return types.Invalid
+		}
 		c.errorf(sel.NameSpan, "%s has no field %s", c.typeName(base), sel.Name)
 		return types.Invalid
 	}

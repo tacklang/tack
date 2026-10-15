@@ -20,7 +20,8 @@
 // must be a builtin:
 //
 //   - an extern func, in a file that is package builtin and imports
-//     nothing; a var, a type, or a func with a Tack body is an error;
+//     nothing; a var, a type, a func with a Tack body, or a method, is an
+//     error;
 //   - with its C name given, extern("tack_builtin_print"): one that is a C
 //     identifier, not a C keyword, and starts tack_, the prefix a user's
 //     extern func may not take, so no C file of a program can mean to

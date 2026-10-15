@@ -32,6 +32,13 @@
 // is reported at its opening brace. extern is a keyword, reserved
 // everywhere, and anything after it but func or a parenthesized string is
 // reported. pub or lib may come before extern, which the resolver rejects.
+// A parenthesis right after func starts a method's receiver, func (b
+// Builder) len() or func (mut b Builder) write(s string): one parameter,
+// a comma after it allowed, which becomes the method's first parameter,
+// Params[0], with Func.Method set. No receiver before a name, func () m(),
+// several, and a variadic one are reported; func () with no name after
+// it is a function's name left out. Which types may have methods, and
+// whether one may be extern, is the resolver's to judge.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment
@@ -66,8 +73,8 @@
 // checker reports. A type declaration, at package level only, is
 // type Name struct { ... }, its fields a name and a type each, separated by
 // semicolons, written or inserted at line ends; struct {} has none. Other
-// named types, anonymous struct types, methods and embedded fields are
-// each reported here, as is a type declared inside a function. A field may
+// named types, anonymous struct types and embedded fields are each
+// reported here, as is a type declared inside a function. A field may
 // start with pub or lib, and so may a package-level function, variable
 // (var or mut) or type declaration, whose span then starts at the keyword;
 // the parser records the visibility and the keyword's span, and anything
@@ -81,8 +88,19 @@
 // the enclosing one. Which literal may have keys, and which needs them, is
 // the type checker's to judge. Indexes, x[i], slices, x[i:j], field
 // selections, x.f, and type assertions, x.(T) with any type T or x.(type),
-// follow any operand and bind tighter than every operator; a call right
-// after a field selection would call a method and is reported. Where an
+// follow any operand and bind tighter than every operator; a field
+// selection followed by parentheses is a method call, x.m(args), a Call
+// whose Fn is the Selector, whose X is the receiver. mut before an operand
+// that is a method call, mut x.m(args), makes the receiver, what comes
+// before the last .m(, a MutArg, the call of a mut receiver; mut before a
+// call in parentheses, mut (x.m()), covers the call. A statement may be a
+// method call, x.m(), f().m() or a[i].f.m(), told apart from an
+// assignment by looking past its brackets, fields, calls and assertions,
+// each matched pair scanned once, to see that it ends in .name(...); and
+// one starting with mut is a mut receiver's call, mut x.m(), rather than
+// a declaration, mut x := v, by the same look ahead. A for header
+// starting with one is a condition, or a call statement before a
+// semicolon, as for any call. Where an
 // assertion, and which types, may be written is the type checker's to
 // judge. Either bound of a slice may be left out, x[:j], x[i:] or
 // x[:], and a second colon, Go's three-index form x[i:j:k], is reported

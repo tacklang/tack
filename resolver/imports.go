@@ -103,29 +103,12 @@ func (r *pkgResolver) unusedImports() []diag.Diagnostic {
 }
 
 // mainOutsideMain reports every package-level declaration named main in a
-// package other than main: the name is the main package's.
+// package other than main: the name is the main package's. A method is
+// not one, since its name is in its type's namespace.
 func (r *pkgResolver) mainOutsideMain() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
-		keyword := ""
-		switch d := decl.(type) {
-		case *ast.Func:
-			if d.Name == mainFunc {
-				keyword = "func"
-			}
-		case *ast.TypeDecl:
-			if d.Name == mainFunc {
-				keyword = "type"
-			}
-		case *ast.Var:
-			if d.Name == mainFunc {
-				keyword = "var"
-				if d.Mutable {
-					keyword = "mut"
-				}
-			}
-		}
-		if keyword != "" {
+		if keyword := mainKeyword(decl); keyword != "" {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
 				Message:  fmt.Sprintf("%s main is allowed only in package main", keyword),
@@ -134,6 +117,30 @@ func (r *pkgResolver) mainOutsideMain() []diag.Diagnostic {
 		}
 	}
 	return diags
+}
+
+// mainKeyword returns the keyword that declares decl, a package-level
+// declaration, when it is named main, and "" otherwise. A method named
+// main is not one: its name is in its type's namespace.
+func mainKeyword(decl ast.Decl) string {
+	switch d := decl.(type) {
+	case *ast.Func:
+		if d.Name == mainFunc && !d.Method {
+			return "func"
+		}
+	case *ast.TypeDecl:
+		if d.Name == mainFunc {
+			return "type"
+		}
+	case *ast.Var:
+		if d.Name == mainFunc && d.Mutable {
+			return "mut"
+		}
+		if d.Name == mainFunc {
+			return "var"
+		}
+	}
+	return ""
 }
 
 // member returns the package-level declaration of the package named name:

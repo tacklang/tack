@@ -215,8 +215,8 @@ func (known interval) single() bool {
 	return known.hasLo && known.hasHi && known.lo.Cmp(known.hi) == 0
 }
 
-// checkListBorrows reports each argument of call that reads a list in
-// place while the same call, or a call nested in its arguments, passes a
+// checkListBorrows reports each argument of call, a method call's
+// receiver among them, that reads a list in place while the same call, or a call nested in its arguments, passes a
 // place that may overlap it as mut, with a note at that mut argument. An
 // argument reads a list in place when it is an owned place, a list or a
 // struct holding one, passed to a plain parameter, which borrows it, or a
@@ -229,7 +229,7 @@ func (known interval) single() bool {
 // fields never do, and two elements always may.
 func (c *Checker) checkListBorrows(call *ast.Call) {
 	var muts []*ast.MutArg
-	for _, arg := range call.Args {
+	for _, arg := range call.Operands() {
 		ast.Walk(arg, func(n ast.Node) bool {
 			if m, ok := n.(*ast.MutArg); ok {
 				muts = append(muts, m)
@@ -240,7 +240,7 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 	if len(muts) == 0 {
 		return
 	}
-	for _, arg := range call.Args {
+	for _, arg := range call.Operands() {
 		place := c.borrowedList(arg)
 		if place == nil {
 			continue

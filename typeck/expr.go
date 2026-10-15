@@ -120,14 +120,15 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 	}
 	c.checkCall(call)
 
-	id, ok := call.Fn.(*ast.Ident)
+	name, ok := c.calleeName(call)
 	if !ok {
 		return types.Invalid
 	}
-	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && len(fn.ResultTypes) == 1 {
+	fn := ast.Callee(call)
+	if fn != nil && len(fn.ResultTypes) == 1 {
 		return fn.ResultTypes[0]
 	}
-	c.errorf(call.Spanned(), "%s", notOneValue(id))
+	c.errorf(call.Spanned(), "%s", notOneValue(fn, name))
 	return types.Invalid
 }
 
@@ -142,17 +143,18 @@ func isLen(call *ast.Call) bool {
 	return ok && fn == nil
 }
 
-// notOneValue says why a call to the function id names cannot be used as a
-// value: it returns nothing, or more than one value. A builtin returns
-// nothing.
-func notOneValue(id *ast.Ident) string {
-	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && len(fn.Results) > 1 {
-		return fmt.Sprintf("%s returns %d values", id.Qualified(), len(fn.Results))
+// notOneValue says why a call to fn, named name, cannot be used as a
+// value: it returns nothing, or more than one value. A builtin, whose fn is
+// nil, returns nothing.
+func notOneValue(fn *ast.Func, name string) string {
+	if fn != nil && len(fn.Results) > 1 {
+		return fmt.Sprintf("%s returns %d values", name, len(fn.Results))
 	}
-	return fmt.Sprintf("%s returns no value", id.Qualified())
+	return fmt.Sprintf("%s returns no value", name)
 }
 
-// checkCall checks a call to a function or builtin: its argument count,
+// checkCall checks a call to a function, a builtin or a method (see
+// checkMethodCall): its argument count,
 // that each argument can be passed to the parameter in its position (see
 // checkArg), or to a variadic one (see checkVariadicCall), that no two of
 // its mut arguments overlap (see checkExclusive), that none reads a list
@@ -160,6 +162,10 @@ func notOneValue(id *ast.Ident) string {
 // printf, a known format against the values (see checkPrintf). Its
 // result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
+	if call.Receiver() != nil {
+		c.checkMethodCall(call)
+		return
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		c.errorf(call.Spanned(), "cannot call %T", call.Fn)
@@ -167,28 +173,42 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 
 	params := c.calleeParams(id)
-	if isVariadic(params) {
-		c.checkExclusive(c.checkVariadicCall(call, id.Qualified(), params))
-		c.checkListBorrows(call)
-		if fn, ok := id.Def.(*ast.Func); ok {
-			c.checkPrintf(call, fn)
-		}
+	muts, counted := c.checkArgs(call, id.Qualified(), params)
+	if !counted {
 		return
-	}
-	if !c.checkArity(call, id.Qualified(), len(params)) {
-		for _, arg := range call.Args {
-			c.argExpr(arg)
-		}
-		return
-	}
-	var muts []*ast.MutArg
-	for i, arg := range call.Args {
-		if m := c.checkArg(arg, params[i], id.Qualified()); m != nil {
-			muts = append(muts, m)
-		}
 	}
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
+	if fn, ok := id.Def.(*ast.Func); ok && isVariadic(params) {
+		c.checkPrintf(call, fn)
+	}
+}
+
+// checkArgs checks the arguments of call, Args, against params, the
+// parameters callee, as a message names it, takes for them: their count,
+// and each argument against its parameter (see checkArg), or a variadic
+// parameter's values (see checkVariadicCall). It returns the mut
+// arguments passed to mut parameters with nothing reported, for the
+// exclusivity check, and false when a callee that is not variadic was
+// passed the wrong number of arguments, so that no argument was matched
+// with a parameter.
+func (c *Checker) checkArgs(call *ast.Call, callee string, params []param) ([]*ast.MutArg, bool) {
+	if isVariadic(params) {
+		return c.checkVariadicCall(call, callee, params), true
+	}
+	if !c.checkArity(call, callee, len(params)) {
+		for _, arg := range call.Args {
+			c.argExpr(arg)
+		}
+		return nil, false
+	}
+	var muts []*ast.MutArg
+	for i, arg := range call.Args {
+		if m := c.checkArg(arg, params[i], callee); m != nil {
+			muts = append(muts, m)
+		}
+	}
+	return muts, true
 }
 
 // checkArity reports a call to name, or a conversion to it, that is not

@@ -631,7 +631,7 @@ func (g *generator) emitResultStructs() {
 // name starts with tack_ and a digit, so it collides with none, and two are
 // told apart as mangled names are.
 func (g *generator) resultsName(fn *ast.Func) string {
-	return "tack_results_" + strings.TrimPrefix(g.mangle(fn, fn.Name), "tack_")
+	return "tack_results_" + strings.TrimPrefix(g.funcCName(fn), "tack_")
 }
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
@@ -711,11 +711,14 @@ func (g *generator) emitEntryPoint() {
 	g.buf.WriteString("}\n")
 }
 
+// signature returns fn's C declaration, without a body or semicolon: a
+// static function under its C name (see funcCName) taking each parameter,
+// a method's receiver first, as paramType gives it.
 func (g *generator) signature(fn *ast.Func) string {
 	result := g.resultType(fn)
 
 	if len(fn.Params) == 0 {
-		return fmt.Sprintf("static %s %s(void)", result, g.mangle(fn, fn.Name))
+		return fmt.Sprintf("static %s %s(void)", result, g.funcCName(fn))
 	}
 
 	params := make([]string, len(fn.Params))
@@ -723,7 +726,7 @@ func (g *generator) signature(fn *ast.Func) string {
 		params[i] = fmt.Sprintf("%s %s", g.paramType(param), paramName(param.Name))
 	}
 	return fmt.Sprintf(
-		"static %s %s(%s)", result, g.mangle(fn, fn.Name), strings.Join(params, ", "),
+		"static %s %s(%s)", result, g.funcCName(fn), strings.Join(params, ", "),
 	)
 }
 
@@ -1377,7 +1380,7 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
-// to a named function today.
+// to a named function or a method today.
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
 	call, ok := stmt.X.(*ast.Call)
 	if !ok {
@@ -1388,6 +1391,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 		}}
 	}
 
+	if call.Receiver() != nil {
+		return g.generateCall("", call)
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil, []diag.Diagnostic{{
@@ -1614,11 +1620,7 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 // callValues lowers a, b := f(): the call, held as its results struct,
 // read field by field.
 func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
-	id, _ := c.Fn.(*ast.Ident)
-	var fn *ast.Func
-	if id != nil {
-		fn, _ = id.Def.(*ast.Func)
-	}
+	fn := ast.Callee(c)
 	if fn == nil {
 		return multiSource{}, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -1626,7 +1628,7 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 			Span:     c.Fn.Spanned(),
 		}}
 	}
-	call, diags := g.callExpr(id.Name, c)
+	call, diags := g.callExpr(fn.Name, c)
 	return multiSource{
 		temps: []multiTemp{{typ: g.resultsName(fn), init: call}},
 		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
@@ -1839,13 +1841,23 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 // parameter as one view of them (see packed). Every argument, each value
 // for a variadic among them, is an operand evaluated left to right (see
 // sequenced) before it is made an any and the values are packed.
+//
+// A method call is lowered as the call of its method's C function with
+// the receiver as the first argument (see lowered), so the receiver is
+// the first operand evaluated, a mut one as the address of its place.
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
+	if call.Receiver() != nil && call.Method == nil {
+		return "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a method call must be checked before code is generated for it",
+			Span:     call.Spanned(),
+		}}
+	}
+	call = lowered(call)
 	callee := g.mangle(nil, name)
 	var fn *ast.Func
-	if id, ok := call.Fn.(*ast.Ident); ok {
-		if f, ok := id.Def.(*ast.Func); ok && f != nil {
-			fn, callee = f, g.mangle(f, f.Name)
-		}
+	if f := ast.Callee(call); f != nil {
+		fn, callee = f, g.funcCName(f)
 	}
 	args, diags := g.callArgs(call, fn)
 	if len(diags) > 0 {
@@ -2080,7 +2092,8 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 }
 
 // callValue renders a call used where a value is wanted, rejecting a callee
-// that is not a plain name and a builtin, which has no value to give.
+// that is neither a plain name nor a method and a builtin, which has no
+// value to give.
 func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if call.Conv != types.Invalid {
 		// The checker allows a single-value conversion only where it
@@ -2090,6 +2103,9 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 			return "", diags
 		}
 		return fmt.Sprintf("((%s)%s)", g.cType(call.Conv), arg), nil
+	}
+	if call.Receiver() != nil {
+		return g.callExpr("", call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -2242,6 +2258,47 @@ func (g *generator) varRef(v *ast.Var) string {
 // defines, for the same reason paramName does. The distinct prefix keeps a
 // variable and a parameter apart even if Tack ever let them share a name.
 func varName(name string) string { return "v_" + name }
+
+// funcCName returns the C name of fn: a function's mangled name, and a
+// method's mangled from its receiver type's name and its own joined by a
+// period, Builder.write, as if that were one name, so
+// tack_4_main13_Builder_2ewrite for write on Builder in package main. No
+// function, type or global name holds a period, and mangle tells every
+// two (path, name) pairs apart, so a method's C name is never a
+// function's, a type's, a global's or another method's, even one of a
+// package whose path ends with the type's name, calc/Builder's write.
+func (g *generator) funcCName(fn *ast.Func) string {
+	if fn.Method && fn.RecvType != nil {
+		return g.mangle(fn, methodCName(fn.RecvType.Name, fn.Name))
+	}
+	return g.mangle(fn, fn.Name)
+}
+
+// methodCName returns the name a method, name on the type typeName, is
+// mangled as: the two joined by a period, which no other name holds.
+func methodCName(typeName, name string) string {
+	return typeName + "." + name
+}
+
+// lowered returns call as code generation lowers it: a method call, x.m(args)
+// or mut x.m(args), as a call of its method with the receiver as the first
+// argument, m(x, args) or m(mut x, args), which is how the method's C
+// function takes it, so every rule for a call's arguments, their order,
+// the address of a mut one, the view and the copies an argument may need,
+// holds for the receiver too. Any other call is returned as it is.
+func lowered(call *ast.Call) *ast.Call {
+	sel, ok := call.Fn.(*ast.Selector)
+	if !ok || call.Method == nil {
+		return call
+	}
+	return &ast.Call{
+		Fn:           &ast.Ident{Name: call.Method.Name, Def: call.Method, Span: sel.NameSpan},
+		Args:         call.Operands(),
+		Span:         call.Span,
+		EllipsisSpan: call.EllipsisSpan,
+		Spread:       call.Spread,
+	}
+}
 
 // mangle returns the C identifier of decl, a package-level declaration
 // named name, in its package or, for nil, the main package: tack_ and the

@@ -39,7 +39,7 @@
 // function that is not extern, takes no parameters and declares no results;
 // no function may be declared twice,
 // none may reuse a builtin's name, and only an extern func, whose body is
-// in C, may be declared without a body. An extern func can be neither pub
+// in C, may be declared without a body, and a method never may. An extern func can be neither pub
 // nor lib: its package exports a Tack function that calls it. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A call whose
@@ -76,6 +76,25 @@
 // A field selection, p.x, and a key in a struct literal, x: v, name a field
 // the type checker finds through the type of what holds it, so neither is
 // bound here.
+//
+// A method, func (b Builder) len(), is a function whose first parameter is
+// its receiver, so its body is resolved as any function's, the receiver in
+// scope as a parameter under every parameter's rule, _ and type names
+// reserved and no other parameter, local or global sharing its name. Its
+// name is not one of the package's: methods are not declared with the
+// functions, so one may share a name with a function, a global, a builtin
+// or main. Once every receiver's type is bound, each method is recorded on
+// its type, in TypeDecl.Methods, and its type in Func.RecvType. Its
+// receiver's type must be a struct type declared in the package; a type of
+// another package, a basic type, an array, a view or a list is reported,
+// and a name bound to nothing is left for the type checker to report as
+// an unknown type. A method's name follows a field's rule, and may not be
+// a field's of its type or another method's of it. An extern method is
+// reported: a method calls an extern func instead. A method call, x.m(),
+// has its receiver resolved as a value, and mut x.m() as a mut argument;
+// which method it calls is the type checker's to find, from the
+// receiver's type, so a binding of nothing but _ of a method call's
+// results is left to the type checker to report too.
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is

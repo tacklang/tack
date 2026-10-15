@@ -210,6 +210,33 @@
 // allowed: it is evaluated before the call, and passed as a copy.
 // An extern func may take a mut parameter, which C gets as a pointer.
 //
+// A method, checked in method.go, is a function whose first parameter is
+// its receiver, so its signature and body are checked as any function's,
+// and a diagnostic names it by its receiver's type and its name,
+// Builder.write. A method call, x.m(args), checks its receiver first,
+// whose type gives the method, found among those the resolver recorded on
+// the type, of any package (TypeDecl.Methods), and recorded in
+// Call.Method: a type with no such method, a field called, and a method
+// another package cannot see, its visibility capped by its type's as a
+// field's is, are reported. The receiver is then checked as an argument to
+// the method's first parameter: a plain one as a value, a temporary
+// included, and mut x as a mut argument, whose place is checked as one
+// once the method says it is wanted; mut left out for a mut receiver, or
+// written for a plain one, is reported. The arguments follow, as for a
+// function, and the receiver is one of the call's mut arguments for
+// exclusivity, and of its operands for list borrows and for the moves of
+// move.go, a plain receiver borrowing what it is. A method named without
+// a call, b.write, is reported, as there are no method values. Whether a
+// binding of a call's results ties them to an error is collected before
+// a body is checked (errors.go), but a method call's method is known only
+// once its receiver is, so a body binding a method call's results is
+// checked twice: once to find every method, with what it reports dropped,
+// and then with every tie known. A binding of nothing but _ of a method
+// call that returns no error is reported here, as the resolver reports one
+// of a function's call. A pub or lib method exposes only types as visible
+// as it, capped by its type's, its receiver's included, as a function
+// does.
+//
 // A parameter written v []T is a read-only view of elements of type T, the
 // second kind of reference a parameter can be, checked in view.go. Only a
 // parameter may have a view type: one written anywhere else, a local's,

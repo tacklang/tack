@@ -385,6 +385,8 @@ note names the
 call: <!-- case: mut-proof-ends-at-call -->`set(mut i, 7)` before `a[i]`
 inside `if 0 <= i && i < 3`
 adds <!-- note: mut-proof-ends-at-call -->`but i is passed as mut to set here, so the proof ends`.
+A method call's `mut` receiver, `mut p.reset()`, is a `mut` argument
+too, and ends a proof about its place the same way.
 Inside a function, a `mut` parameter is a variable like any other: a fact
 about it holds in a region that never assigns it.
 

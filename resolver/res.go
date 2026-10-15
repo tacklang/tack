@@ -219,6 +219,9 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 		diags = append(diags, paramDiags...)
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
 	}
+	// Every receiver's type is bound by now, so each method can be found
+	// a type to belong to.
+	diags = append(diags, r.declareMethods()...)
 	return append(diags, r.unusedImports()...)
 }
 
@@ -405,11 +408,12 @@ func alreadyDeclared(name string, span ast.Span, existing ast.Decl) diag.Diagnos
 
 // declareFuncs records every top-level function of every file of the
 // package in the reference table, reporting a name declared twice, in one
-// file or in two, or one that reuses a builtin's name.
+// file or in two, or one that reuses a builtin's name. A method is not
+// one: its name is in its type's namespace (see declareMethods).
 func (r *pkgResolver) declareFuncs() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
-		if fn, ok := decl.(*ast.Func); ok {
+		if fn, ok := decl.(*ast.Func); ok && !fn.Method {
 			if reserved := reservedName(fn.Name, fn.NameSpan); reserved != nil {
 				diags = append(diags, reserved...)
 				continue
@@ -437,11 +441,25 @@ func (r *pkgResolver) declareFuncs() []diag.Diagnostic {
 
 // checkBodies reports every function of the package declared without a
 // body that is not an extern func, whose body is in C: a function without
-// a body has nothing to run.
+// a body has nothing to run. A method is never extern (see
+// declareMethods), so one without a body is reported as a method.
 func (r *pkgResolver) checkBodies() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
-		if fn, ok := decl.(*ast.Func); ok && fn.NoBody && !fn.Extern {
+		fn, ok := decl.(*ast.Func)
+		if ok && fn.Method && fn.NoBody && !fn.Extern {
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"method %s.%s has no body",
+					typeText(fn.Recv().TypeExpr),
+					fn.Name,
+				),
+				Span: fn.NameSpan,
+			})
+			continue
+		}
+		if ok && fn.NoBody && !fn.Extern {
 			diags = append(diags, diag.Diagnostic{
 				Severity: diag.Error,
 				Message: fmt.Sprintf(
@@ -667,11 +685,17 @@ func (r *pkgResolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.D
 // result is written error, the builtin type, whose name nothing can
 // declare. Binding nothing but _ from such a call drops its error, which
 // the type checker reports instead, since making the call on its own
-// would drop it too.
+// would drop it too. A method call is left to the type checker too.
 func returnsError(value ast.Expr) bool {
 	call, ok := value.(*ast.Call)
 	if !ok {
 		return false
+	}
+	if call.Receiver() != nil {
+		// Which method a method call calls is known only from its
+		// receiver's type, so the type checker reports a binding of
+		// nothing but _ instead, as it reports a dropped error.
+		return true
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -1146,7 +1170,9 @@ func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnosti
 // resolveCall binds a call's callee to the function or builtin it names, or
 // records the type a conversion converts to, and resolves its arguments. A
 // conversion to a view type, []uint8(s), has its type's names bound, and
-// the type checker records the type it converts to.
+// the type checker records the type it converts to. A method call has its
+// receiver resolved as a value, or as a mut argument; the method itself is
+// found by the type checker, from the receiver's type.
 func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	switch fn := call.Fn.(type) {
@@ -1154,6 +1180,8 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 		diags = r.bindCallee(fn, call, sc)
 	case *ast.ViewType:
 		diags = r.resolveType(fn, sc)
+	case *ast.Selector:
+		diags = r.resolveExpr(fn.X, sc)
 	default:
 		panic(fmt.Sprintf("resolver: a call of %T", call.Fn))
 	}

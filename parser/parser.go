@@ -377,7 +377,10 @@ func (p *Parser) parseExternFunc() (*ast.Func, []diag.Diagnostic) {
 
 // parseFunc parses a function declaration from its func keyword: its
 // name, parameters, results and body, which an extern func, extern says,
-// must not have.
+// must not have. A parenthesis right after func starts a method's
+// receiver, func (b Builder) len(), which becomes the method's first
+// parameter; whether an extern func may be a method is the resolver's to
+// judge.
 func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	tk := p.peek()
 	if tk.Value() != lexer.Func {
@@ -387,13 +390,17 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	// advance past the func keyword
 	p.next()
 
-	if p.atReceiver() {
-		return nil, []diag.Diagnostic{
-			{Severity: diag.Error, Message: "methods are not supported", Span: p.span(p.peek())},
+	var recv *ast.Param
+	expected := "function name"
+	if p.peek().Kind() == lexer.LParen {
+		var diags []diag.Diagnostic
+		if recv, diags = p.parseReceiver(); recv == nil {
+			return nil, diags
 		}
+		expected = "method name"
 	}
 
-	ident, identDiags := p.parseIdent("function name")
+	ident, identDiags := p.parseIdent(expected)
 	if ident == nil {
 		return nil, identDiags
 	}
@@ -403,11 +410,15 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 		NameSpan: ident.Span,
 		Span:     p.span(tk),
 		Body:     make([]ast.Stmt, 0),
+		Method:   recv != nil,
 	}
 
 	params, paramsDiags := p.parseParams()
 	if paramsDiags != nil {
 		return nil, paramsDiags
+	}
+	if recv != nil {
+		params = append([]*ast.Param{recv}, params...)
 	}
 	fn.Params = params
 
@@ -437,27 +448,56 @@ func notFinal(span ast.Span) diag.Diagnostic {
 	}
 }
 
-// atReceiver reports whether the tokens after func are a method's
-// receiver: a parenthesized list followed by a name, as in
-// func (p Point) norm(). A list with no name after it is left to be
-// reported as a missing function name.
-func (p *Parser) atReceiver() bool {
-	if p.peek().Kind() != lexer.LParen {
-		return false
+// parseReceiver parses a method's receiver, in the parentheses that come
+// next: one parameter, mut b Builder or b Builder, followed by a comma or
+// not. No receiver, () before a method's name, several, and a variadic
+// one are reported; () with no name after it is a function's name left
+// out. Which types a receiver may have is the resolver's to judge.
+func (p *Parser) parseReceiver() (*ast.Param, []diag.Diagnostic) {
+	if p.peekNext().Kind() == lexer.RParen && p.peekAt(2).Kind() != lexer.Ident {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("function name", p.peek())}
 	}
-	depth := 0
-	for k := 0; ; k++ {
-		switch p.peekAt(k).Kind() {
-		case lexer.LParen:
-			depth++
-		case lexer.RParen:
-			depth--
-			if depth == 0 {
-				return p.peekAt(k+1).Kind() == lexer.Ident
-			}
-		case lexer.EOF:
-			return false
-		}
+	open := p.next() // the opening parenthesis
+	if tk := p.peek(); tk.Kind() == lexer.RParen {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "method has no receiver",
+			Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
+		}}
+	}
+	recv, diags := p.parseParam("receiver name")
+	if recv == nil {
+		return nil, diags
+	}
+	if recv.Variadic {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a receiver cannot be variadic",
+			Span:     recv.EllipsisSpan,
+		}}
+	}
+	return p.endReceiver(recv)
+}
+
+// endReceiver parses what follows recv, a method's receiver, up to and
+// including the closing parenthesis: a comma before it may be written, as
+// after a parameter, and another receiver is reported.
+func (p *Parser) endReceiver(recv *ast.Param) (*ast.Param, []diag.Diagnostic) {
+	if p.peek().Kind() == lexer.Comma && p.peekNext().Kind() == lexer.RParen {
+		p.next()
+	}
+	switch tk := p.peek(); {
+	case tk.Kind() == lexer.RParen:
+		p.next()
+		return recv, nil
+	case tk.Kind() == lexer.Comma || tk.Kind() == lexer.Ident || isKeyword(tk, lexer.Mut):
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "method has multiple receivers",
+			Span:     p.span(tk),
+		}}
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken(")", tk)}
 	}
 }
 
@@ -475,7 +515,7 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 		if n := len(params); n > 0 && params[n-1].Variadic {
 			return nil, []diag.Diagnostic{notFinal(params[n-1].EllipsisSpan)}
 		}
-		param, paramDiags := p.parseParam()
+		param, paramDiags := p.parseParam("parameter name")
 		if param == nil {
 			return nil, paramDiags
 		}
@@ -572,14 +612,16 @@ func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
 
 // parseParam parses one parameter: a name and its type, with mut before
 // the name for a mut parameter, mut p T, and ... before the type for a
-// variadic one, args ...T, whose type is then its element type.
-func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
+// variadic one, args ...T, whose type is then its element type. expected
+// names what the name is, for the error when there is none: a parameter's
+// or a receiver's.
+func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 	param := &ast.Param{}
 	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
 		p.next()
 		param.Mut, param.MutSpan = true, p.span(tk)
 	}
-	name, nameDiags := p.parseIdent("parameter name")
+	name, nameDiags := p.parseIdent(expected)
 	if name == nil {
 		return nil, nameDiags
 	}
@@ -732,7 +774,8 @@ func (p *Parser) atSimpleStmt() bool {
 }
 
 // parseSimpleStmt parses a simple statement, without the semicolon that ends
-// it: a declaration, an assignment, an increment or decrement, or a call.
+// it: a declaration, an assignment, an increment or decrement, or a call,
+// a method call included, mut x.m() among them.
 // These are the statements a three-clause loop's init and post may be, so
 // the loop can end them with its own separators. On an error the statement
 // is an untyped nil, as in parseStmt.
@@ -748,6 +791,8 @@ func (p *Parser) parseSimpleStmt() (ast.Stmt, []diag.Diagnostic) {
 		stmt, diags = p.parseMulti()
 	case tk.Kind() == lexer.Ident:
 		stmt, diags = p.parseIdentStmt(tk)
+	case p.atMutCall():
+		stmt, diags = p.parseCallStmt(tk)
 	case p.atSimpleStmt():
 		stmt, diags = p.parseVarDecl()
 	default:
@@ -824,10 +869,10 @@ func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 
 // parseIdentStmt parses a statement that starts with the name tk: a short
 // variable declaration, an assignment (plain or compound), an increment or
-// decrement, or a call. A name followed by indexes or fields can only be
-// assigned, incremented or decremented; anything else after them is
-// reported by parsing them first, so a malformed index or field, or a
-// method call, gets its own error.
+// decrement, or a call, a method call included. A name followed by indexes
+// or fields can only be assigned, incremented or decremented, or have a
+// method called on it; anything else after them is reported by parsing
+// them first, so a malformed index or field gets its own error.
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	// A qualified name can be assigned or called but not declared.
 	n := p.nameEnd()
@@ -843,10 +888,7 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.ModAssign:
 		return p.parseAssign()
 	case lexer.LParen:
-		if postfixed {
-			return nil, p.badTarget(tk)
-		}
-		return p.parseFuncCall()
+		return p.parseCallLike(tk, n, postfixed)
 	case lexer.Inc, lexer.Dec:
 		return p.parseIncDec()
 	default:
@@ -855,6 +897,24 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// parseCallLike parses a statement that starts with the name tk, which
+// ends n places ahead, and holds a call: a method call, x.m(), f().m() or
+// a[i].m(), a call of the function the name names, or, after indexes or
+// fields, postfixed says, anything else, which is reported.
+func (p *Parser) parseCallLike(
+	tk *lexer.Token,
+	n int,
+	postfixed bool,
+) (ast.Stmt, []diag.Diagnostic) {
+	if p.atMethodCall(n) {
+		return p.parseCallStmt(tk)
+	}
+	if postfixed {
+		return nil, p.badTarget(tk)
+	}
+	return p.parseFuncCall()
 }
 
 // nameEnd returns how many places ahead the name that starts the next
@@ -912,6 +972,71 @@ func (p *Parser) afterTarget(n int) *lexer.Token {
 			return p.peekAt(k)
 		}
 	}
+}
+
+// atMethodCall reports whether the name n places ahead, and every index,
+// field selection, call and type assertion after it, end in a method
+// call: a field's name and its parenthesized arguments, x.m(), a[i].f.m(),
+// f().m() or x.m().n(), which is a call statement. The brackets and
+// parentheses are matched, so an index or an argument may hold its own,
+// and each token is looked at once.
+func (p *Parser) atMethodCall(n int) bool {
+	k, method := n+1, false
+	for {
+		switch tk := p.peekAt(k); tk.Kind() {
+		case lexer.LBrack:
+			k, method = p.afterGroup(k, lexer.LBrack, lexer.RBrack), false
+		case lexer.LParen:
+			method = k >= 2 && p.peekAt(k-1).Kind() == lexer.Ident &&
+				p.peekAt(k-2).Kind() == lexer.Period
+			k = p.afterGroup(k, lexer.LParen, lexer.RParen)
+		case lexer.Period:
+			if k = p.afterSelection(k); k < 0 {
+				return false
+			}
+			method = false
+		default:
+			return method
+		}
+	}
+}
+
+// afterSelection returns how many places ahead the token after the period
+// k places ahead, and the name or the parenthesized type assertion after
+// it, is, or -1 when neither follows the period.
+func (p *Parser) afterSelection(k int) int {
+	switch p.peekAt(k + 1).Kind() {
+	case lexer.Ident:
+		return k + 2
+	case lexer.LParen:
+		return p.afterGroup(k+1, lexer.LParen, lexer.RParen)
+	default:
+		return -1
+	}
+}
+
+// atMutCall reports whether the next tokens are mut, then a name, and
+// what follows it ends in a method call (see atMethodCall): mut x.m(),
+// the call of a mut receiver, rather than the declaration mut x := v.
+func (p *Parser) atMutCall() bool {
+	return isKeyword(p.peek(), lexer.Mut) && p.peekNext().Kind() == lexer.Ident &&
+		p.atMethodCall(1)
+}
+
+// parseCallStmt parses a statement that starts with tk and is a method
+// call, x.m(args) or mut x.m(args), without the semicolon that ends it.
+// What follows the call, an index or a field of its result, is not a
+// statement, and is reported at tk.
+func (p *Parser) parseCallStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	call, ok := x.(*ast.Call)
+	if !ok {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+	return &ast.ExprStmt{X: call, Span: call.Span}, nil
 }
 
 // afterGroup returns how many places ahead the token after the group that
@@ -1927,7 +2052,7 @@ func (p *Parser) parseForHeader(loop *ast.For) []diag.Diagnostic {
 // increment or decrement.
 func (p *Parser) atDeclOrUpdate() bool {
 	if p.peek().Kind() == lexer.Keyword {
-		return p.atSimpleStmt()
+		return p.atSimpleStmt() && !p.atMutCall()
 	}
 	if p.peek().Kind() != lexer.Ident {
 		return false
@@ -2121,12 +2246,33 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	return p.parsePostfix(x)
 }
 
-// parseMutArg parses mut and the operand after it, a mut argument.
+// parseMutArg parses mut and the operand after it, a mut argument, or,
+// when the operand is a method call, mut x.m(args), the call of a mut
+// receiver: mut then covers the receiver, what comes before the last
+// .m(, so mut w.out.write(s) passes w.out as mut. A call written in
+// parentheses, mut (x.m()), is not one: mut covers the whole call, which
+// is not a place.
 func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
 	kw := p.next()
 	x, diags := p.parseOperand()
 	if x == nil {
 		return nil, diags
+	}
+	if call, ok := x.(*ast.Call); ok && x.Spanned() == p.extent(x) {
+		if sel, isMethod := call.Fn.(*ast.Selector); isMethod {
+			if _, already := sel.X.(*ast.MutArg); !already {
+				sel.X = &ast.MutArg{
+					X: sel.X,
+					Span: ast.Span{
+						File:  p.fileID,
+						Start: kw.OffsetStart(),
+						End:   p.extent(sel.X).End,
+					},
+				}
+				sel.Span.Start, call.Span.Start = kw.OffsetStart(), kw.OffsetStart()
+				return call, nil
+			}
+		}
 	}
 	return &ast.MutArg{
 		X:    x,
@@ -2269,25 +2415,29 @@ func (p *Parser) parseSlice(x, lo ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	}, nil
 }
 
-// parseSelector parses one field selection after x, x.f. A call right after
-// it would call a method, which Tack does not have.
+// parseSelector parses one field selection after x, x.f, or, when an
+// opening parenthesis follows the name, a method call on x, x.m(args),
+// whose callee is the selection (see ast.Call).
 func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	p.next() // the period
 	name, diags := p.parseIdent("field name")
 	if name == nil {
 		return nil, diags
 	}
-	if tk := p.peek(); tk.Kind() == lexer.LParen {
-		return nil, []diag.Diagnostic{
-			{Severity: diag.Error, Message: "methods are not supported", Span: p.span(tk)},
-		}
-	}
-	return &ast.Selector{
+	sel := &ast.Selector{
 		X:        x,
 		Name:     name.Name,
 		NameSpan: name.Span,
 		Span:     ast.Span{File: p.fileID, Start: p.extent(x).Start, End: name.Span.End},
-	}, nil
+	}
+	if p.peek().Kind() != lexer.LParen {
+		return sel, nil
+	}
+	call, diags := p.parseArgs(sel, sel.Span)
+	if call == nil {
+		return nil, diags
+	}
+	return call, nil
 }
 
 // parseTypeAssert parses a type assertion after x, from the period: x.(T),

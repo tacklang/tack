@@ -59,26 +59,23 @@ type tie struct {
 }
 
 // returnsError returns the function call calls, when it is one whose last
-// result is an error.
+// result is an error. A method call calls one only once it has been
+// checked, which finds its method.
 func returnsError(call *ast.Call) (*ast.Func, bool) {
 	if call.Conv != types.Invalid {
 		return nil, false
 	}
-	id, ok := call.Fn.(*ast.Ident)
-	if !ok {
-		return nil, false
-	}
-	fn, ok := id.Def.(*ast.Func)
-	if !ok || fn == nil || len(fn.ResultTypes) == 0 {
+	fn := ast.Callee(call)
+	if fn == nil || len(fn.ResultTypes) == 0 {
 		return nil, false
 	}
 	return fn, fn.ResultTypes[len(fn.ResultTypes)-1] == types.Error
 }
 
-// errorCall returns the name, as written, of the function value calls,
-// when value is a call to a function whose last result is an error and
-// which returns want results.
-func errorCall(value ast.Expr, want int) (string, bool) {
+// errorCall returns the name, as calleeName gives it, of the function
+// value calls, when value is a call to a function or a method whose last
+// result is an error and which returns want results.
+func (c *Checker) errorCall(value ast.Expr, want int) (string, bool) {
 	call, ok := value.(*ast.Call)
 	if !ok {
 		return "", false
@@ -87,8 +84,7 @@ func errorCall(value ast.Expr, want int) (string, bool) {
 	if !ok || len(fn.ResultTypes) != want {
 		return "", false
 	}
-	id, _ := call.Fn.(*ast.Ident)
-	return id.Qualified(), true
+	return c.calleeName(call)
 }
 
 // checkErrorLast reports every result of fn before its last that is an
@@ -96,7 +92,11 @@ func errorCall(value ast.Expr, want int) (string, bool) {
 func (c *Checker) checkErrorLast(fn *ast.Func) {
 	for i, typ := range fn.ResultTypes[:max(len(fn.ResultTypes)-1, 0)] {
 		if typ == types.Error {
-			c.errorf(fn.Results[i].Spanned(), "error must be the last result of %s", fn.Name)
+			c.errorf(
+				fn.Results[i].Spanned(),
+				"error must be the last result of %s",
+				c.displayName(fn),
+			)
 		}
 	}
 }
@@ -124,10 +124,10 @@ func (c *Checker) droppedError(e ast.Expr) {
 	if !ok {
 		return
 	}
-	id, _ := call.Fn.(*ast.Ident)
+	name, _ := c.calleeName(call)
 	names := strings.Repeat("_, ", len(fn.ResultTypes)-1) + "err"
 	c.errorf(call.Spanned(), "the error %s returns cannot be dropped; bind it, as in %s := %s(...)",
-		id.Qualified(), names, id.Qualified())
+		name, names, c.callText(call))
 }
 
 // checkErrorBinding reports a binding of value, whose results checked as
@@ -135,7 +135,7 @@ func (c *Checker) droppedError(e ast.Expr) {
 // last of the binding's targets, blank saying which are _ and spans where
 // each is written, is _.
 func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Span) {
-	name, ok := errorCall(value, len(blank))
+	name, ok := c.errorCall(value, len(blank))
 	if !ok || !blank[len(blank)-1] {
 		return
 	}
@@ -149,7 +149,7 @@ func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Sp
 // local variables, so the error's check can be tracked, and only after it
 // the others read.
 func (c *Checker) checkErrorTargets(m *ast.MultiAssign) {
-	name, ok := errorCall(m.Value, len(m.Targets))
+	name, ok := c.errorCall(m.Value, len(m.Targets))
 	if !ok {
 		return
 	}
@@ -233,7 +233,7 @@ func (c *Checker) collectHolds(fn *ast.Func) {
 // variable each result goes to or nil, ties together, when value is a
 // call that returns an error: the error's variable holds every other one.
 func (c *Checker) hold(value ast.Expr, targets []ast.Decl, span ast.Span) {
-	if _, ok := errorCall(value, len(targets)); !ok {
+	if _, ok := c.errorCall(value, len(targets)); !ok {
 		return
 	}
 	errDecl := targets[len(targets)-1]
@@ -406,7 +406,7 @@ func (c *Checker) checkErrorAssign(stmt ast.Stmt, target ast.Expr) {
 // target is an error variable, does not assign, all of them when its
 // value is not a call that returns an error.
 func (c *Checker) unassigned(m *ast.MultiAssign, held []ast.Decl) []ast.Decl {
-	if _, ok := errorCall(m.Value, len(m.Targets)); !ok {
+	if _, ok := c.errorCall(m.Value, len(m.Targets)); !ok {
 		return held
 	}
 	var missing []ast.Decl

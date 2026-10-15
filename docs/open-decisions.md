@@ -368,6 +368,59 @@ rules already there, rather than decided, and could go another way:
   object leaves undefined, so a C file calling std's list macros links
   what they call.
 
+## Methods
+
+Methods follow the decisions recorded in the README. These points were
+settled by the implementation, for consistency with the rules already
+there, rather than decided, and could go another way:
+
+- A receiver may be followed by a comma, `func (b Builder,) len()`, as a
+  parameter may. `func () m()` is `method has no receiver`, but `func ()
+  {}`, with no name after the parentheses, keeps the missing function
+  name's error. Two receivers are `method has multiple receivers`, and a
+  variadic one `a receiver cannot be variadic`.
+- A method's name follows a field's rule, so it may be `main`, a
+  function's or a builtin's name. A method sharing a name with a field is
+  `len is already declared as a field of Builder`, with a note at the
+  field, and two methods of one type sharing one is `Builder.len is
+  already declared`, with a note at the first; a method on another
+  package's type, a basic type, `any`, `error`, an array, a view or a
+  list is `cannot declare a method on X: only a struct type declared in
+  this package can have methods`, X naming an array, view or list type by
+  its kind. A receiver type bound to nothing is `unknown type: X`, as a
+  parameter's is.
+- A method's name in a diagnostic is its type's and its own, as the type
+  is named there, `Builder.write`, or `lexer.Token.kind` from another
+  package: in an argument count, an argument's type, a missing return, a
+  dropped error and a pub method's exposure, `pub method Token.Get
+  exposes hidden, which is not pub`. The wording for `mut` left out or
+  written follows the parameter's, with the call to write as the fix:
+  `Builder.write takes its receiver as mut; call mut b.write(s)` and
+  `Builder.len does not take its receiver as mut; call b.len()`; for a
+  receiver that is not a place, `Builder.write takes its receiver as mut;
+  only a variable, a field or an element can be passed as mut`.
+- A method named without a call is `write is a method of Builder, not a
+  field; a method can only be called`, and a field called is `n is a
+  field of Builder, not a method; a field cannot be called`. A method
+  expression, `Builder.write(b, s)`, gets no message of its own: it is
+  `cannot use Builder as a value; it is a type`, as any type name used
+  as a value is.
+- `mut` before a method call in parentheses, `mut (b.f())`, covers the
+  whole call, not its receiver, and is reported as a mut argument that is
+  not a place. A statement may start with a call whose result a method is
+  called on, `makePoint().scale(2)` or `mut makePoint().scale(2)`, which
+  the checker then reports as a temporary passed as `mut`.
+- A `pub` method of a private or `lib` type is capped at its type's
+  visibility without a diagnostic, as a `pub` field of one is.
+- A method declared without a body is `method Builder.write has no body`,
+  without the extern func suggestion a function's error makes, since a
+  method cannot be extern.
+- A binding of nothing but `_` from a method call that returns no error is
+  reported by the type checker, not the resolver, with the resolver's
+  wording, `every name is _, so nothing is bound; make the call on its
+  own`, since which method is called is known only from the receiver's
+  type.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

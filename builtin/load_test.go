@@ -379,6 +379,14 @@ var rejected = []struct {
 		[]string{"builtin p cannot return a value; builtins return nothing"},
 	},
 	{
+		"method", "package builtin\n\nextern(\"tack_p\") func (s string) p()\n",
+		[]string{"builtin p cannot be a method; a builtin is a function"},
+	},
+	{
+		"method, not extern", "package builtin\n\nfunc (s string) p() {\n}\n",
+		[]string{"builtin p must be an extern func"},
+	},
+	{
 		"mut param", "package builtin\n\nextern(\"tack_p\") func p(mut x int64)\n",
 		[]string{"parameter x of builtin p cannot be mut"},
 	},

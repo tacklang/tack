@@ -37,18 +37,7 @@ type param struct {
 // names, none when it names neither.
 func (c *Checker) calleeParams(id *ast.Ident) []param {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
-		params := make([]param, len(fn.Params))
-		for i, p := range fn.Params {
-			// A mut variadic was reported where it is declared; its
-			// values are not asked to be mut too.
-			params[i] = param{
-				name:     p.Name,
-				typ:      p.Type,
-				mut:      p.Mut && !p.Variadic,
-				variadic: p.Variadic,
-			}
-		}
-		return params
+		return c.funcParams(fn.Params)
 	}
 	fn, _ := c.builtins.Lookup(id.Name)
 	params := make([]param, len(fn.Params))

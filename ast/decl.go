@@ -18,16 +18,28 @@ type Decl interface {
 // Func is a function declaration, with its parameters, its result types, and
 // its body. A function may declare no result, one, or several; a call to one
 // with several gives all of them at once, to be bound by a MultiVar.
+//
+// A method, func (b Builder) len() int64, is a Func too, with Method set:
+// its receiver is its first parameter, Params[0], which Recv returns, so
+// inside its body it is a parameter like any other, and a call passes it
+// first. Name is the method's name alone, which lives in its type's
+// namespace rather than the package's.
 type Func struct {
 	Name    string
-	Params  []*Param
-	Results []Expr // declared result types as written, empty if none
+	Params  []*Param // a method's receiver first
+	Results []Expr   // declared result types as written, empty if none
 	Body    []Stmt
 
 	// ResultTypes holds what each of Results denotes, in order. The type
 	// checker fills it in; before then it is nil, and an entry it could not
 	// determine is Invalid.
 	ResultTypes []types.Type
+
+	// RecvType is the declaration of the struct type a method's receiver
+	// has, set by the resolver once it has found it to be a struct type of
+	// the method's package; it is nil for a function, and for a method
+	// whose receiver type was reported.
+	RecvType *TypeDecl `json:"-"`
 
 	NameSpan Span // just the identifier
 	Span     Span // pub or lib, or extern, if written, or the 'func' keyword, through closing brace
@@ -55,9 +67,23 @@ type Func struct {
 	// its signature, as an extern func does, rather than an empty one, {}.
 	// Body is empty either way.
 	NoBody bool `json:",omitempty"`
+
+	// Method is whether the function is a method, declared with a
+	// receiver, which is Params[0].
+	Method bool `json:",omitempty"`
 }
 
 var _ Decl = (*Func)(nil)
+
+// Recv returns a method's receiver, its first parameter, or nil for a
+// function, or for a method declared without one, which the parser has
+// reported.
+func (f *Func) Recv() *Param {
+	if !f.Method || len(f.Params) == 0 {
+		return nil
+	}
+	return f.Params[0]
+}
 
 func (f *Func) declKey() declKey { return _declKey }
 
@@ -175,6 +201,13 @@ func (i *Import) Spanned() Span { return i.Span }
 // TypeExpr is always a *StructType.
 type TypeDecl struct {
 	TypeExpr Expr // the type as written, a *StructType
+
+	// Methods are the methods declared on the type, in program order, as
+	// the resolver records them: each one it accepted, whose receiver has
+	// the type and whose name no field or other method of the type has.
+	// They are left out of the JSON dump, which shows each with its file.
+	Methods []*Func `json:"-"`
+
 	Name     string
 	NameSpan Span // just the identifier
 	Span     Span // pub or lib, if written, or the 'type' keyword, through the end of the type
@@ -184,6 +217,17 @@ type TypeDecl struct {
 	VisSpan Span       `json:"-"`
 	Type    types.Type // the declared type, set by the type checker
 	Vis     Visibility `json:",omitempty"`
+}
+
+// Method returns the method of the type named name, or nil when it has
+// none.
+func (d *TypeDecl) Method(name string) *Func {
+	for _, m := range d.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
 }
 
 var _ Decl = (*TypeDecl)(nil)
