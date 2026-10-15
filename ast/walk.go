@@ -64,17 +64,30 @@ func walkStmt(s Stmt, v Visitor) {
 	case *For, *ForRange:
 		walkLoop(s, v)
 	case *Switch:
-		Walk(s.Tag, v)
-		for _, cl := range s.Cases {
-			walkAll(cl.Values, v)
-			walkAll(cl.Body, v)
-		}
+		walkSwitch(s, v)
 	case *Defer:
 		walkAll(s.Body, v)
 	case *Break, *Continue:
 		// leaves
 	default:
 		walkSimpleStmt(s, v)
+	}
+}
+
+// walkSwitch walks a switch's children in source order: the variable a
+// type switch binds, if written, its tag, and each case's values, then the
+// variable it declares, if any, then its body.
+func walkSwitch(s *Switch, v Visitor) {
+	if s.Bind != nil {
+		Walk(s.Bind, v)
+	}
+	Walk(s.Tag, v)
+	for _, cl := range s.Cases {
+		walkAll(cl.Values, v)
+		if cl.Var != nil {
+			Walk(cl.Var, v)
+		}
+		walkAll(cl.Body, v)
 	}
 }
 
@@ -128,7 +141,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Binary:
 		Walk(e.X, v)
 		Walk(e.Y, v)
-	case *Unary, *MutArg, *Selector:
+	case *Unary, *MutArg, *Selector, *TypeAssert:
 		walkOperand(e, v)
 	case *Call:
 		Walk(e.Fn, v)
@@ -147,9 +160,10 @@ func walkExpr(e Expr, v Visitor) {
 	}
 }
 
-// walkOperand walks the one child of an expression that has one: a
-// prefix operator's operand, a mut argument's place, or the struct a field
-// is selected from.
+// walkOperand walks the children of an expression with one operand: a
+// prefix operator's operand, a mut argument's place, the struct a field
+// is selected from, or a type assertion's operand and then its type, if
+// written.
 func walkOperand(e Expr, v Visitor) {
 	switch e := e.(type) {
 	case *Unary:
@@ -158,6 +172,11 @@ func walkOperand(e Expr, v Visitor) {
 		Walk(e.X, v)
 	case *Selector:
 		Walk(e.X, v)
+	case *TypeAssert:
+		Walk(e.X, v)
+		if e.TypeExpr != nil {
+			Walk(e.TypeExpr, v)
+		}
 	}
 }
 

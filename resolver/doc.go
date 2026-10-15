@@ -80,7 +80,14 @@
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is
 // nested in the block holding the statement; a switch's tag and case
-// values are resolved there too. What a defer defers, its block, is a
+// values are resolved there too, a type switch's case values as types. A
+// type switch's binding, v in switch v := x.(type), is checked where the
+// switch is, as a variable declared there would be, but declared in no
+// scope there: each case declares its own variable under the name at the
+// start of its block, so the tag cannot see it, and the binding is
+// reported unused, once, at the binding, when no case reads its
+// variable. A type assertion, x.(T), binds x as a value and T as a type,
+// and is reported as an assignment's target. What a defer defers, its block, is a
 // block nested in the one holding the defer, resolved where
 // the defer is written, so it sees only the names declared before it, though
 // it runs later, and a variable it reads counts as read. A loop is a scope of its own, holding any variable its init

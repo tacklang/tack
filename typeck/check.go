@@ -37,6 +37,10 @@ type Checker struct {
 	// bounds need no proof.
 	checkedSlice *ast.Slice
 
+	// checkedAssert is the type assertion whose value is being bound with
+	// ok, the one place an assertion may be.
+	checkedAssert *ast.TypeAssert
+
 	// viewSlice is the slice about to be checked where a view may be: an
 	// argument to a view parameter, len's argument, or what another slice
 	// slices. A slice of an array or a view anywhere else is reported.
@@ -411,8 +415,8 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 // multiResults checks the value of a MultiVar or MultiAssign, which binds
 // want names as b says, and returns the type of each value it gives, in
 // order, and whether it gives exactly want of them. It must be a call to a
-// function with that many results, or a division, an index, a slice or a
-// conversion, which gives two.
+// function with that many results, or a division, an index, a slice, a
+// conversion or a type assertion, which gives two.
 // Any other value is reported as one error covering span, the whole
 // statement, unless it binds two names and holds a division, a remainder,
 // an index or a slice, when it is the checked form misused; see notWhole.
@@ -425,7 +429,7 @@ func (c *Checker) multiResults(
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
 	}
-	if results, ok, isElement := c.elementResults(value, want, span); isElement {
+	if results, ok, isChecked := c.checkedResults(value, want, span); isChecked {
 		return results, ok
 	}
 	call, isCall := value.(*ast.Call)
@@ -449,23 +453,25 @@ func (c *Checker) multiResults(
 	return c.callResults(call, want, span)
 }
 
-// elementResults checks value, bound to want names, when it is an index or
-// a slice, either of which gives two, and reports whether it was one.
-func (c *Checker) elementResults(
+// checkedResults checks value, bound to want names, when it is an index,
+// a slice or a type assertion, each of which gives two, and reports
+// whether it was one.
+func (c *Checker) checkedResults(
 	value ast.Expr,
 	want int,
 	span ast.Span,
-) (results []types.Type, ok, isElement bool) {
+) (results []types.Type, ok, isChecked bool) {
 	switch x := value.(type) {
 	case *ast.Index:
 		results, ok = c.indexResults(x, want, span)
-		return results, ok, true
 	case *ast.Slice:
 		results, ok = c.sliceResults(x, want, span)
-		return results, ok, true
+	case *ast.TypeAssert:
+		results, ok = c.assertResults(x, want, span)
 	default:
 		return nil, false, false
 	}
+	return results, ok, true
 }
 
 // binding is how a MultiVar or MultiAssign binds its value: op, := or =,
@@ -474,8 +480,9 @@ type binding struct {
 	first, second, op string
 }
 
-// fallible returns the first division, remainder, index or slice in
-// value, in source order, outside any call, or nil when there is none.
+// fallible returns the first division, remainder, index, slice or type
+// assertion x.(T) in value, in source order, outside any call, or nil when
+// there is none.
 func fallible(value ast.Expr) ast.Expr {
 	var found ast.Expr
 	ast.Walk(value, func(n ast.Node) bool {
@@ -493,6 +500,10 @@ func fallible(value ast.Expr) ast.Expr {
 			found = x
 		case *ast.Slice:
 			found = x
+		case *ast.TypeAssert:
+			if x.TypeExpr != nil {
+				found = x
+			}
 		}
 		return found == nil
 	})
@@ -500,7 +511,8 @@ func fallible(value ast.Expr) ast.Expr {
 }
 
 // notWhole reports value, bound to two names as b says, which holds op, a
-// division, a remainder, an index or a slice, but is more than it: the checked form
+// division, a remainder, an index, a slice or a type assertion, but is
+// more than it: the checked form
 // must be the whole value. The error names the form with op alone, and
 // what to compute from its first value, the value with op replaced by the
 // first name, or, when that is _, only says to use it. value is then
@@ -525,9 +537,11 @@ func (c *Checker) notWhole(value, op ast.Expr, b binding) {
 		c.checkedIndex = x
 	case *ast.Slice:
 		c.checkedSlice = x
+	case *ast.TypeAssert:
+		c.checkedAssert = x
 	}
 	c.expr(value)
-	c.checkedDivision, c.checkedIndex, c.checkedSlice = nil, nil, nil
+	c.checkedDivision, c.checkedIndex, c.checkedSlice, c.checkedAssert = nil, nil, nil, nil
 }
 
 // settleResult returns the type of the value in one position of a MultiVar

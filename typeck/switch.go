@@ -29,10 +29,15 @@ import (
 // give one, as when the tag is a variable.
 
 // checkSwitch checks a switch in fn: its tag, then each case, its values and
-// its body, in the order they are tried, the default last. A tag of a type
+// its body, in the order they are tried, the default last. A type switch
+// is checked by checkTypeSwitch. A tag of a type
 // with no ==, a view, an any, a list, an Allocator, or a struct or array
 // holding one, is reported, since a switch compares its tag with ==.
 func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
+	if s.IsTypeSwitch() {
+		c.checkTypeSwitch(s, fn)
+		return
+	}
 	tagType := types.Invalid
 	if s.Tag != nil {
 		tagType = c.valueOf(s.Tag, c.expr(s.Tag))
@@ -221,9 +226,10 @@ func caseCond(s *ast.Switch, v ast.Expr) ast.Expr {
 // the || of its values' conditions, evaluated to holds: as for ||, what
 // every value's facts of being true agree on when true (see union), and
 // every value's facts of being false when false. The default has no
-// condition, and gives nothing.
+// condition, and gives nothing, and neither does a type switch's case,
+// whose values are types.
 func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fact {
-	if cl.Default || len(cl.Values) == 0 {
+	if cl.Default || len(cl.Values) == 0 || s.IsTypeSwitch() {
 		return nil
 	}
 	if holds {

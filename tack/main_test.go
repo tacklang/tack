@@ -687,6 +687,69 @@ func TestHostileVariadicSourceNeverPanics(t *testing.T) {
 	}
 }
 
+// TestHostileTypeSwitchSourceNeverPanics runs every dump and --emit on
+// malformed and extreme type assertions and type switches, truncated,
+// nested five hundred deep, with thousands of cases and a chain of
+// thousands of assertions, and checks each result is coherent, never a
+// panic.
+func TestHostileTypeSwitchSourceNeverPanics(t *testing.T) {
+	head := "package main\nfunc f(a any) {\n"
+	var nested strings.Builder
+	nested.WriteString(head + "    v0 := a\n")
+	for i := range 500 {
+		n, prev := strconv.Itoa(i+1), strconv.Itoa(i)
+		nested.WriteString("switch v" + n + " := v" + prev + ".(type) {\ncase int64:\n    f(v" + n +
+			")\ndefault:\n")
+	}
+	nested.WriteString(strings.Repeat("}\n", 501) + "func main() {\n    f(1)\n}\n")
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"truncated assertion", head + "    v, ok := a.("},
+		{"truncated type", head + "    v, ok := a.(int64"},
+		{"truncated .(type", head + "    switch a.(type"},
+		{"truncated binding", head + "    switch v :="},
+		{"truncated binding tag", head + "    switch v := a.("},
+		{"truncated case", head + "    switch v := a.(type) {\n    case int64, "},
+		{"type keyword alone", head + "    v, ok := a.type"},
+		{"assertion of nothing", head + "    v, ok := .(int64)"},
+		{"assertion of a literal", head + "    v, ok := 1.(int64)\n}\n"},
+		{"assertion of a call", head + "    v, ok := f(a).(int64)\n}\n"},
+		{"assertion as a statement", head + "    a.(int64)\n}\nfunc main() {}\n"},
+		{"odd bytes in the type", head + "    v, ok := a.(\xff\x00)\n}\n"},
+		{"deep type switch nesting", nested.String()},
+		{
+			"deep assertion chain",
+			head + "    v, ok := a" + strings.Repeat(".(int64)", 3000) + "\n    f(v)\n    f(ok)\n}\n" +
+				"func main() {}\n",
+		},
+		{
+			"many cases",
+			head + "    switch a.(type) {\n" + strings.Repeat("case int64, string:\n", 3000) +
+				"    }\n}\nfunc main() {}\n",
+		},
+		{
+			"many types in one case",
+			head + "    switch v := a.(type) {\n    case " + strings.Repeat("bool, ", 3000) +
+				"bool:\n        f(v)\n    }\n}\nfunc main() {}\n",
+		},
+		{
+			"type switch in a defer in a loop",
+			head + "    for range 3 {\n        defer {\n            switch v := a.(type) {\n" +
+				"            case int64:\n                f(v)\n                break\n            }\n" +
+				"        }\n    }\n}\nfunc main() {}\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeSource(t, []byte(tc.src))
+			for _, flag := range []string{"--lex", "--ast", "--res", "--emit"} {
+				checkCoherent(t, runTack(t, flag, path))
+			}
+		})
+	}
+}
+
 func TestEmptyFileIsRejectedWithDiagnostics(t *testing.T) {
 	assertDiagnostics(t, runTack(t, "--emit", writeSource(t, nil)))
 }
@@ -1527,6 +1590,39 @@ func TestBuiltPrintfWritesItsOutput(t *testing.T) {
 		t.Run(string(opt), func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "printf")
 			r := runTack(t, "-O"+string(opt), "--out", bin, example("printf"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
+// TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
+// anys which type they hold from Tack, at every optimization level, and
+// checks each binary writes exactly examples/any-switch/output: every
+// check ok, each of the twelve types in a type switch case of its own,
+// cases naming several types and the default binding the any, a switch
+// with no binding, exact matches, zero values on a mismatch, any locals
+// from a range, an index and a binding, break and continue in a case,
+// nested switches, defers, and values passed on to printf.
+func TestBuiltAnySwitchWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "any-switch", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/any-switch/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "any-switch")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("any-switch"))
 			if r.code != exitOK || r.stderr != "" {
 				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
 			}

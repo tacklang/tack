@@ -504,9 +504,10 @@ func (m *mover) selector(x *ast.Selector, ctx useCtx, cur *flow) {
 }
 
 // readParts returns the operands e reads, in the order they are
-// evaluated, when it is an element, a slice or an operator: what is
-// indexed or sliced and the index or each bound written, or each
-// operand. A literal or a type has none.
+// evaluated, when it is an element, a slice, an operator or a type
+// assertion: what is indexed or sliced and the index or each bound
+// written, each operand, or the any asked about. A literal or a type has
+// none.
 func readParts(e ast.Expr) []ast.Expr {
 	switch x := e.(type) {
 	case *ast.Index:
@@ -517,6 +518,8 @@ func readParts(e ast.Expr) []ast.Expr {
 	case *ast.Binary:
 		return []ast.Expr{x.X, x.Y}
 	case *ast.Unary:
+		return []ast.Expr{x.X}
+	case *ast.TypeAssert:
 		return []ast.Expr{x.X}
 	default:
 		return nil
@@ -734,8 +737,8 @@ func (m *mover) literal(lit *ast.CompositeLit, ctx useCtx, cur *flow) {
 	m.temporary(lit, ctx)
 }
 
-// switchStmt follows a switch from cur: its tag, then each case's values
-// and body, every body starting from what is known after the tag, and
+// switchStmt follows a switch from cur: its tag, then each case's values,
+// which a type switch's are types, and so read nothing, and body, every body starting from what is known after the tag, and
 // returns their join, with cur when no default runs a body.
 func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 	if s.Tag != nil {
@@ -745,7 +748,9 @@ func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 	hasDefault := false
 	for _, cl := range s.Cases {
 		for _, v := range cl.Values {
-			m.expr(v, readCtx, &cur)
+			if !s.IsTypeSwitch() {
+				m.expr(v, readCtx, &cur)
+			}
 		}
 		hasDefault = hasDefault || cl.Default
 		out = join(out, m.block(cl.Body, cur.clone()))

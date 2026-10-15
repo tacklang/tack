@@ -102,6 +102,10 @@ type deferFrame struct {
 	// mut anywhere, which a call can change; see pure.
 	mutated map[ast.Decl]bool
 
+	// read holds the variables of the type switches' cases in the
+	// function that their bodies read; see caseBody.
+	read map[*ast.Var]bool
+
 	next  string   // the next variable, named when first needed
 	ret   string   // the function's ret variable, likewise
 	temps []string // declarations of the temporaries sequenced holds operands in
@@ -312,7 +316,7 @@ func (g *generator) deferred(d *ast.Defer, fn *ast.Func) ([]string, []diag.Diagn
 // returning it.
 func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	outer := g.frame
-	g.frame = &deferFrame{mutated: mutated(fn.Body)}
+	g.frame = &deferFrame{mutated: mutated(fn.Body), read: caseVarsRead(fn.Body)}
 	defer func() { g.frame = outer }()
 
 	body, diags := g.generateBlock(fn.Body, fn)

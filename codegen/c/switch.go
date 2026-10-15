@@ -32,21 +32,46 @@ import (
 // A tagless switch tests its values themselves, with no block around the
 // chain. The default, wherever it is written, is the final else, and a
 // switch with only a default is its body in a C block of its own. A tag no
-// case tests is still evaluated, cast to void, for any call in it to run.
+// case tests, and no binding reads, is still evaluated, cast to void, for
+// any call in it to run.
+//
+// A type switch, switch v := x.(type), holds x, a tack_any, in the
+// temporary, and a case tests its type id against each type's, as
+// TACK_ANY_IS does. Its variable is declared first in the case's body:
+// for a case naming one type T, a const T read through the any's pointer,
+// which the id just tested says points at a T, and for any other case, and
+// the default, a const copy of the tack_any. A case whose body does not
+// read its variable declares none:
+//
+//	{
+//	    const tack_any tack_s0 = p_a;
+//	    if (tack_s0.type == TACK_TYPE_INT64) {
+//	        const int64_t v_v = *(const int64_t *)tack_s0.ptr;
+//	        body
+//	    } else if ((tack_s0.type == TACK_TYPE_INT8) || (tack_s0.type == TACK_TYPE_BOOL)) {
+//	        const tack_any v_v = tack_s0;
+//	        body
+//	    }
+//	}
 func (g *generator) generateSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	if s.Tag == nil {
 		return g.caseChain(s, "", fn)
 	}
 
-	tag, diags := g.expr(s.Tag, types.Invalid)
+	// A type switch's tag is x.(type), whose value is x's, an any.
+	tagExpr := s.Tag
+	if ta, ok := s.Tag.(*ast.TypeAssert); ok && s.IsTypeSwitch() {
+		tagExpr = ta.X
+	}
+	tag, diags := g.expr(tagExpr, types.Invalid)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 	tagRef := ""
 	eval := fmt.Sprintf("(void)(%s);", tag)
-	if hasValues(s) {
+	if hasValues(s) || s.Bind != nil {
 		tagRef = g.temp("s")
-		eval = fmt.Sprintf("const %s %s = %s;", g.cType(ast.TypeOf(s.Tag)), tagRef, tag)
+		eval = fmt.Sprintf("const %s %s = %s;", g.cType(ast.TypeOf(tagExpr)), tagRef, tag)
 	}
 
 	chain, diags := g.caseChain(s, tagRef, fn)
@@ -85,7 +110,7 @@ func (g *generator) caseChain(
 		if len(diags) > 0 {
 			return nil, diags
 		}
-		body, diags := g.generateBlock(cl.Body, fn)
+		body, diags := g.caseBody(cl, tagRef, fn)
 		if len(diags) > 0 {
 			return nil, diags
 		}
@@ -103,7 +128,7 @@ func (g *generator) caseChain(
 		}
 		return lines, nil
 	}
-	body, diags := g.generateBlock(def.Body, fn)
+	body, diags := g.caseBody(def, tagRef, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
@@ -115,8 +140,55 @@ func (g *generator) caseChain(
 	return append(lines, "}"), nil
 }
 
+// caseBody lowers the body of cl, a case of a switch whose tag tagRef
+// holds, in fn, after the declaration of the variable a type switch's case
+// declares, when the body reads it (see generateSwitch); a case that does
+// not read it declares none, which C would warn about.
+func (g *generator) caseBody(
+	cl *ast.CaseClause,
+	tagRef string,
+	fn *ast.Func,
+) ([]string, []diag.Diagnostic) {
+	body, diags := g.generateBlock(cl.Body, fn)
+	if len(diags) > 0 || cl.Var == nil || !g.frame.read[cl.Var] {
+		return body, diags
+	}
+	value := tagRef
+	if typ := cl.Var.Type; typ != types.Any {
+		value = fmt.Sprintf("*(const %s *)%s.ptr", g.cType(typ), tagRef)
+	}
+	decl := fmt.Sprintf("const %s %s = %s;", g.cType(cl.Var.Type), varName(cl.Var.Name), value)
+	return append([]string{decl}, body...), nil
+}
+
+// caseVarsRead returns the variables of the cases of the type switches in
+// body, at any depth, that a name in body reads, found in one walk.
+func caseVarsRead(body []ast.Stmt) map[*ast.Var]bool {
+	vars := make(map[*ast.Var]bool)
+	read := make(map[*ast.Var]bool)
+	for _, stmt := range body {
+		ast.Walk(stmt, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.Switch:
+				for _, cl := range x.Cases {
+					if cl.Var != nil {
+						vars[cl.Var] = true
+					}
+				}
+			case *ast.Ident:
+				if v, ok := x.Def.(*ast.Var); ok && vars[v] {
+					read[v] = true
+				}
+			}
+			return true
+		})
+	}
+	return read
+}
+
 // caseTest renders the C test of a case: each value's test, joined with ||
-// and each parenthesized when there are several. A single test is left
+// and each parenthesized when there are several. A type switch's value is
+// a type, tested against the id the tag's tack_any holds. A single test is left
 // bare, since the if adds the parentheses and a second pair around an
 // equality makes clang warn.
 func (g *generator) caseTest(
@@ -126,6 +198,10 @@ func (g *generator) caseTest(
 ) (string, []diag.Diagnostic) {
 	tests := make([]string, len(cl.Values))
 	for i, v := range cl.Values {
+		if s.IsTypeSwitch() {
+			tests[i] = fmt.Sprintf("%s.type == %s", tagRef, anyIDs[cl.Types[i]])
+			continue
+		}
 		test, diags := g.valueTest(s, tagRef, v)
 		if len(diags) > 0 {
 			return "", diags
@@ -193,10 +269,10 @@ func (g *generator) intTest(typ types.Type, tagRef string, v ast.Expr, value str
 // switchCompares returns the type of the tag when n is an expression
 // switch that compares its tag with at least one value, with ==, so that
 // the type's equality helper, or the string comparison helper, is
-// emitted.
+// emitted. A type switch compares type ids, and needs neither.
 func switchCompares(n ast.Node) (types.Type, bool) {
 	s, ok := n.(*ast.Switch)
-	if !ok || s.Tag == nil || !hasValues(s) {
+	if !ok || s.Tag == nil || !hasValues(s) || s.IsTypeSwitch() {
 		return types.Invalid, false
 	}
 	return ast.TypeOf(s.Tag), true

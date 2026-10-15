@@ -49,10 +49,11 @@ const (
 	UntypedInt
 	// Any is any, a reference to a value of some other type, which one
 	// known only at run time: in C, a type id and a pointer to the value.
-	// It can only be the type of a parameter, or the element type of a
-	// variadic one or of a view parameter; a value of it can only be
-	// passed on to another any parameter. Only a value of a basic type,
-	// one InAny accepts, can be passed as one.
+	// It can only be written as the type of a parameter, or the element
+	// type of a variadic one or of a view parameter, though an immutable
+	// local declared from one is one too; a value of it can be passed on
+	// to another any parameter, or asked which of the types InAny accepts
+	// it holds. Only a value of such a type can be passed as one.
 	Any
 	// Error is error, a code and a message, code 0 meaning no error: in C,
 	// tack_error, defined in std's tack.h. It is a struct whose fields

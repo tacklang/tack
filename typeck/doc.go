@@ -251,17 +251,28 @@
 // any, checked in any.go, is a reference to a value whose type is known
 // only at run time, and second-class like a view: only a parameter's type,
 // a f(a any), and the element type of a variadic or a view parameter,
-// ...any and []any, may be it; anywhere else, a local, a field, a global,
-// a result or an array element, it is reported, and so is a variable that
-// would take it from its value, x := a, v, ok := args[i] or a range's
-// element. A mut any is reported. An argument to an any parameter, or a
-// value of an ...any, is a value of a basic type, an untyped constant
-// settled to int64, or an any passed on; an array, a struct or a view is
-// reported. Nothing widens to any or from it, and it supports no operator
-// and no conversion, so every other use of an any, ==, a switch on it,
-// arithmetic, len, an index, a range, a conversion, printing, a return,
-// is reported by the rule that would report a value of any other wrong
-// type. A value passed as any is a plain argument for exclusivity, a copy.
+// ...any and []any, may be written as it; written anywhere else, a local's
+// type, a field's, a global's, a result's or an array element's, it is
+// reported. An immutable local whose type is left out takes any from its
+// value, x := a, v, ok := args[i], a range's element or a type switch's
+// variable, and a mutable one is reported. A mut any parameter is
+// reported. An argument to an any parameter, or a value of an ...any, is a
+// value of a basic type, an untyped constant settled to int64, or an any
+// passed on; an array, a struct or a view is reported. Nothing widens to
+// any or from it, and it supports no operator and no conversion, so every
+// other use of an any, ==, an expression switch on it, arithmetic, len, an
+// index, a range, a conversion, printing, a return, is reported by the
+// rule that would report a value of any other wrong type. A value passed
+// as any is a plain argument for exclusivity, a copy.
+//
+// Which type an any holds is asked in assert.go. A type assertion, v, ok
+// := x.(T), is a checked form, bound with ok as a division, an index or a
+// conversion may be, sharing their rules, and reported anywhere else, as
+// x.(type) is anywhere but a switch's tag. x must be an any and T one of
+// the types one can hold. A type switch, switch v := x.(type), checks each
+// case's types the same way, reports a type named twice, and gives each
+// case's variable the case's one type, or any; it gives no facts, and is
+// otherwise checked as a switch, its default last.
 //
 // A call to std/fmt's printf, checked in printf.go, has its format read
 // when it is a known string (knownString): every verb against the value
@@ -364,6 +375,8 @@
 //     and only a mut parameter does (mut.go); an any parameter takes a
 //     value of a basic type or an any (any.go); and std/fmt's printf a
 //     known format its values match (printf.go);
+//   - a type assertion is bound with ok, on an any, to a type an any can
+//     hold, and .(type) is only a switch's tag (assert.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value, and a call statement cannot drop an error;
 //   - every operand of an arithmetic operator is an integer, the two having
@@ -414,7 +427,8 @@
 //     names the first such operation and what to compute from its result;
 //     that operation is then checked as bound with ok;
 //   - a, b := f() binds a call with exactly that many results, each variable
-//     taking its result's type, or a two-value conversion; a, b = f()
+//     taking its result's type, or a two-value conversion or type
+//     assertion; a, b = f()
 //     assigns them to mutable variables they widen to, each named once, with
 //     _ discarding a value of any type and allowed more than once; and a call
 //     with several results is never used as one value; a binding of a call
@@ -428,7 +442,8 @@
 //     comparing with an integer tag by value, and in a tagless switch each case
 //     value is a bool condition; two case values with the same known
 //     integer value, the same bool constant value, or two equal string
-//     literals, are a duplicate, reported with a note at the first;
+//     literals, are a duplicate, reported with a note at the first; a type
+//     switch's case values are types, none named twice (assert.go);
 //   - a range loop ranges over an integer, whose one variable takes its type,
 //     or over an array, a view, a list or a string, whose index is an int64 and
 //     whose element is the array's, view's or list's element type, or a string's

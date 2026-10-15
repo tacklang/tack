@@ -824,19 +824,87 @@ func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 
 // resolveSwitch resolves a switch: its tag and every case value where the
 // switch is, and each case's body as a block of its own nested in sc, in
-// source order, the default's included.
+// source order, the default's included. A type switch's case values are
+// types, and resolved as types are.
+//
+// A type switch's binding, v in switch v := x.(type), is declared in no
+// scope of its own: its name is checked where the switch is, as any
+// variable's would be, and each case then declares a variable of its own
+// under it, at the start of the case's block, so the tag cannot refer to
+// it. The binding is reported unused, once, when no case reads its
+// variable, and a case that does not read its own is not reported, as in
+// Go: a case that does not need v need not use it.
 func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if s.Tag != nil {
 		diags = r.resolveExpr(s.Tag, sc)
 	}
+	bound, bindDiags := r.checkBinding(s, sc)
+	diags = append(diags, bindDiags...)
+	used := false
 	for _, cl := range s.Cases {
 		for _, v := range cl.Values {
-			diags = append(diags, r.resolveExpr(v, sc)...)
+			if s.IsTypeSwitch() {
+				diags = append(diags, r.resolveType(v, sc)...)
+			} else {
+				diags = append(diags, r.resolveExpr(v, sc)...)
+			}
 		}
-		diags = append(diags, r.resolveBlock(cl.Body, sc)...)
+		diags = append(diags, r.resolveCase(cl, bound, s.Bind, sc)...)
+		used = used || cl.Var != nil && r.read[cl.Var]
+	}
+	if bound && !used {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("declared and not used: %s", s.Bind.Name),
+			Span:     s.Bind.NameSpan,
+		})
 	}
 	return diags
+}
+
+// checkBinding reports the name a type switch binds when no variable can
+// be declared with it where the switch is, sc: it is reserved, or reuses a
+// name visible there. It reports whether each case may declare its
+// variable under that name.
+func (r *pkgResolver) checkBinding(s *ast.Switch, sc *scope) (bool, []diag.Diagnostic) {
+	b := s.Bind
+	if b == nil {
+		return false, nil
+	}
+	if reserved := reservedName(b.Name, b.NameSpan); reserved != nil {
+		return false, reserved
+	}
+	if existing, visible := sc.lookup(b.Name); visible {
+		return false, []diag.Diagnostic{redeclared(b.Name, b.NameSpan, existing)}
+	}
+	return true, nil
+}
+
+// resolveCase resolves the body of cl, a case of a switch nested in sc, as
+// a block of its own, with the case's variable, if bound says the binding
+// b allows one, declared at its start; one whose binding was reported is
+// rejected there instead, so a use of the name is not reported again. The
+// variable is never reported unused here: resolveSwitch reports the
+// binding.
+func (r *pkgResolver) resolveCase(
+	cl *ast.CaseClause,
+	bound bool,
+	b *ast.Var,
+	sc *scope,
+) []diag.Diagnostic {
+	block := newScope(sc)
+	switch {
+	case cl.Var != nil && bound:
+		block.names[cl.Var.Name] = cl.Var
+	case b != nil:
+		block.reject(b.Name)
+	}
+	var diags []diag.Diagnostic
+	for _, stmt := range cl.Body {
+		diags = append(diags, r.resolveStmt(stmt, block)...)
+	}
+	return append(diags, r.unused(block)...)
 }
 
 // resolveFor resolves a loop in a scope of its own, nested in sc, which holds
@@ -944,13 +1012,27 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
 		return r.resolveKeyValue(x, sc)
-	case *ast.ListType:
-		// make's first argument, a type; anywhere else the type checker
-		// reports it.
-		return r.resolveType(x, sc)
+	case *ast.ListType, *ast.TypeAssert:
+		return r.resolveTyped(x, sc)
 	default:
 		return nil
 	}
+}
+
+// resolveTyped resolves an operand that names a type: a list type, make's
+// first argument, which the type checker reports anywhere else, or a type
+// assertion, x.(T) or x.(type), whose x is a value and whose T, when
+// written, is a type.
+func (r *pkgResolver) resolveTyped(e ast.Expr, sc *scope) []diag.Diagnostic {
+	a, ok := e.(*ast.TypeAssert)
+	if !ok {
+		return r.resolveType(e, sc)
+	}
+	diags := r.resolveExpr(a.X, sc)
+	if a.TypeExpr != nil {
+		diags = append(diags, r.resolveType(a.TypeExpr, sc)...)
+	}
+	return diags
 }
 
 // resolveElement resolves an element, x[i], or a slice, x[lo:hi]: what

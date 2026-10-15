@@ -250,9 +250,12 @@ func hasType(n ast.Node, typ types.Type) bool {
 
 // poolCheckedZero pools the empty string when value is v, ok := a[i] on an
 // array of strings, or t, ok := s[i:j], either of which gives one when out
-// of range.
+// of range, or v, ok := x.(string), which gives one on a mismatch.
 func (g *generator) poolCheckedZero(value ast.Expr) {
 	if ix, ok := value.(*ast.Index); ok && ix.Type == types.String {
+		g.addStr("")
+	}
+	if a, ok := value.(*ast.TypeAssert); ok && a.Type == types.String {
 		g.addStr("")
 	}
 	if s, ok := value.(*ast.Slice); ok && s.Type == types.String {
@@ -299,9 +302,10 @@ func holdsSlice(e ast.Expr) bool {
 // the empty string if a string variable starts from its zero value, and
 // the computed value of a global whose initializer slices a string, which
 // may be no literal's. The
-// variables of a MultiVar, and of a range loop, have no value of their own
-// but never start from zero, so only the call, or the ranged expression and
-// the body, are visited. A program that calls append pools the message of
+// variables of a MultiVar, of a range loop and of a type switch's cases
+// have no value of their own but never start from zero, so only the call,
+// the ranged expression, the tag, the case values and the bodies are
+// visited. A program that calls append pools the message of
 // the error a failed append gives.
 func (g *generator) collectStrings() {
 	var visit ast.Visitor
@@ -323,12 +327,30 @@ func (g *generator) collectStrings() {
 				ast.Walk(stmt, visit)
 			}
 			return false
+		case *ast.Switch:
+			walkSwitchValues(x, visit)
+			return false
 		}
 		return true
 	}
 	g.walk(visit)
 	if g.usesAppend() {
 		g.addStr(outOfMemory)
+	}
+}
+
+// walkSwitchValues walks s with v, as ast.Walk does, but for the
+// variables a type switch declares, its binding and each case's, which
+// take the tag's value.
+func walkSwitchValues(s *ast.Switch, v ast.Visitor) {
+	ast.Walk(s.Tag, v)
+	for _, cl := range s.Cases {
+		for _, value := range cl.Values {
+			ast.Walk(value, v)
+		}
+		for _, stmt := range cl.Body {
+			ast.Walk(stmt, v)
+		}
 	}
 }
 
@@ -1514,8 +1536,9 @@ func (t multiTemp) decl(qual, name string) string {
 // function with several results, held as its results struct and read field
 // by field; a conversion that can fail, held as the value converted and
 // read as the converted value, or 0 when it does not fit, and whether it
-// fit; or a division, held as its two operands and read as
-// the result, or 0 when the divisor is zero, and whether it was not.
+// fit; a division, held as its two operands and read as
+// the result, or 0 when the divisor is zero, and whether it was not; an
+// index or a slice; or a type assertion (see assertValues).
 func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic) {
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return g.divisionValues(bin)
@@ -1525,6 +1548,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	}
 	if s, ok := value.(*ast.Slice); ok {
 		return g.sliceValues(s)
+	}
+	if a, ok := value.(*ast.TypeAssert); ok {
+		return g.assertValues(a)
 	}
 	c, ok := value.(*ast.Call)
 	if !ok {
@@ -1718,9 +1744,12 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer. An array or a struct is zeroed in full, so a string
 // in it starts with a null pointer and a length of 0, which print's C body
-// never passes on.
+// never passes on. An any's zero value, which v, ok := args[i] gives out
+// of range, is a zeroed tack_any: type id 0, TACK_TYPE_INVALID, which
+// holds nothing, and a null pointer, never read.
 func (g *generator) zeroValue(typ types.Type) string {
-	if g.isComposite(typ) || g.prog.Types.IsList(typ) || typ == types.Allocator {
+	if g.isComposite(typ) || g.prog.Types.IsList(typ) || typ == types.Allocator ||
+		typ == types.Any {
 		return fmt.Sprintf("(%s){0}", g.cType(typ))
 	}
 	switch typ {

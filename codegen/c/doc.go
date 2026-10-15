@@ -179,7 +179,18 @@
 // same call passes as mut, is copied, and the callee sees the value as
 // at the call, as a plain argument's copy shows it. An any passed on is
 // passed as it is. The values of an ...any are made anys before they are
-// packed.
+// packed. An any local, b := a, is a const tack_any, and the empty any an
+// index out of range gives, (tack_any){0}, type id 0 and a null pointer.
+//
+// A type assertion, v, ok := x.(T), holds x in a const temporary, as a
+// call bound to two names holds its results, and reads v as (tmp.type ==
+// TACK_TYPE_T ? *(const T *)tmp.ptr : zero), the id checked before the
+// pointer is read, and ok as the comparison (any.go). A type switch is a
+// chain of ifs like any switch (switch.go), on a const temporary holding
+// x, each case comparing its id with each type's; a case's variable, when
+// its body reads it, is declared first in its block, *(const T *)tmp.ptr
+// for a case naming one type and the tack_any itself otherwise. Neither
+// needs a helper: std's tack.h names the ids.
 //
 // A slice, x[i:j], is a call to a helper for its type, tack_slice_string
 // or tack_slice_N for the view type N, or tack_slice_from_ either when j is

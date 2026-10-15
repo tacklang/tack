@@ -152,8 +152,8 @@ decided, and could go another way:
 - A Tack function may declare `any` and `...any` parameters, not only an
   extern func, because `printf` must be a `pub` Tack function wrapping a
   private extern one, extern funcs never being `pub`. Inside it an `any`
-  can only be passed on; every Tack-side operation is an error until the
-  type assertion and type switch are designed.
+  can be passed on, held in an immutable local, or asked which type it
+  holds with a type assertion or a type switch (below).
 - A view parameter may be `[]any`, as a variadic `...any` is inside its
   function; `[N]any` is an error, as is `any` anywhere but a parameter.
 - `any` is a type's name, so it is reserved as one: a variable, function,
@@ -180,6 +180,43 @@ decided, and could go another way:
   writes to, in its own C file of `std/fmt`, rather than through
   `print`'s object, which is linked only when the program calls `print`.
 
+
+## Type assertions and type switches
+
+`v, ok := a.(T)` and `switch v := a.(type)` follow the decisions recorded
+in the README. These points were settled by the implementation, by
+consistency with the rules around them, and could go another way:
+
+- `v, ok := a.(T)` follows every rule of the other checked forms, by
+  sharing their code: `v, ok = a.(T)` assigns existing mutable variables,
+  `T` widening to the target's type as a conversion's value does, `_`
+  drops either value but not both, each name may have its own `mut`, and
+  an assertion in a larger value bound to two names is `the checked form
+  must be the whole value: v, ok := a.(int64), then compute v + 1`.
+- A type switch's binding is reported unused once, at the binding, when
+  no case reads its variable, as Go does; a case that does not read it is
+  not reported, and declares no C variable.
+- `switch mut v := a.(type)` is a parse error, `cannot use mut on a type
+  switch variable`, worded as a range loop's `mut` is.
+- A switch whose header binds a name to anything but `x.(type)` is a parse
+  error, `a switch has no init statement; only a type switch binds a
+  name, as in switch v := x.(type)`, which replaces `expected '{' found
+  ':='` for `switch x := 1; x {`.
+- The operand of `.(type)` that is not an `any` is reported with the
+  assertion's wording, `cannot assert on s: it is string, not any`.
+- A type an `any` never holds, written as a case, is reported with the
+  assertion's wording, `an any never holds Point: only the builtin types
+  can be passed as any for now`; a duplicate gets a `previous case` note,
+  as an expression switch's does.
+- `var b any = a`, with the type written, stays `any can only be the type
+  of a parameter`: only a local whose type is left out may be an `any`.
+- `v, ok := args[i]` out of range gives the empty `any`, a zeroed
+  `tack_any` of type id 0, the checked form's zero value; it matches no
+  assertion and no case, printf writes it `%!v(invalid)`, and it reaches
+  C if passed on to an extern func, which the C helpers refuse.
+- `a.(T) = 1` is parsed as an assignment to the assertion, which the
+  resolver reports as `cannot assign to this expression`, and a statement
+  that is an assertion alone is `expected 'statement'`.
 ## Errors
 
 Errors follow the decisions recorded in the README: a returned value, a

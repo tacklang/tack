@@ -1,0 +1,35 @@
+signed cases ok
+unsigned cases ok
+target-width cases ok
+bool and string cases ok
+untyped constant is int64 ok
+exact types ok
+multi-type cases and default ok
+switch without a binding ok
+continue in a case ok
+break in a case leaves the loop ok
+no values ok
+first int64 by index ok
+out of range gives an empty any ok
+switch on an element ok
+nested switches ok
+assertion in a function returning an error ok
+mismatch returns an error ok
+zero values on a mismatch ok
+assignment and blanks ok
+mixed comparisons ok
+an any is a copy taken at the call ok
+default tried last ok
+int64 255 ff
+string [héllo] 6
+any true %!d(bool=true) %!s(bool=true) true
+any 120 120 %!s(uint8=120) %!t(uint8=120)
+default 32767
+0=1 1=two 2=false 3=120 | 4 values
+| 0 values
+body first
+deferred x
+body first
+deferred other
+empty false %!v(invalid)
+empty false %!v(invalid)

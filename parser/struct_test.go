@@ -315,8 +315,8 @@ var structParseErrors = []struct{ name, src, msg, at string }{
 	{"field statement", "func main() {\n    p.x\n}\n", "expected 'statement' found 'p'", ""},
 	{
 		"malformed field target",
-		"func main() {\n    p.(x) = 1\n}\n",
-		"expected 'field name' found '('",
+		"func main() {\n    p.() = 1\n}\n",
+		"expected 'type name' found ')'",
 		"",
 	},
 	{"field of a call written", "func main() {\n    f().x = 1\n}\n", "expected ';' found '.'", ""},

@@ -637,7 +637,9 @@ makes for itself, which has a letter after `tack_`.
   an array on the caller's stack, built for the call, and the parameter
   the view of it, `tack_view_<T>`, with a null pointer and a length of 0
   for no values. An extern func may take one (see extern C); a builtin
-  may not.
+  may not. An `...any`'s values are `any`s: `for _, v := range args` and
+  `v, ok := args[i]` declare immutable `any` locals, and `switch v :=
+  args[i].(type)` asks which type one holds (see any and type switches).
 - `any`. A parameter `a any` takes a value of any basic type, an integer
   of any type, a `bool` or a `string`, which the function sees as a
   reference to the caller's value with its type known only at run time:
@@ -653,22 +655,83 @@ makes for itself, which has a letter after `tack_`.
   the call, and a mutable global is copied too. `args ...any` is a
   variadic of them, a read-only `[]any` under every view rule (see
   variadics), and a view parameter may be `[]any`. `any` is second-class,
-  as a view is: anywhere but a parameter's type or a variadic's or view
-  parameter's element type, a local, a field, a global, a result or an
-  array's element, it is `any can only be the type of a parameter`, and a
-  variable declared from one, `b := a`, `v, ok := args[0]` or `for _, v :=
-  range args`, is `cannot declare b as any; any can only be the type of a
-  parameter`. `mut a any` is `mut has no effect on an any parameter; take
-  mut p T to change the caller's value`. Inside its function an `any` can
-  only be passed on, to another `any` parameter, `g(a)`, or as a value of
-  an `...any`, `many(a, args[0])`, and an `[]any` spread, `many(args...)`,
-  `many(args[1:]...)`, or passed to an `[]any` parameter: it supports no
-  operator, `operator == is not defined on any` (a `switch` on one too),
+  as a view is: written as the type of anything but a parameter, or a
+  variadic's or view parameter's element, a local's, a field's, a
+  global's, a result's or an array's element's, it is `any can only be the
+  type of a parameter`, `var b any = a` included. An immutable local may
+  still hold one, declared from an `any` with its type left out: `b := a`,
+  `v, ok := args[0]`, `for _, v := range args`, and a type switch's `v`
+  (below). It refers to the caller's value just as the `any` it came from
+  does, and for no longer, since nothing an `any` could be kept in
+  outlives the call: no field, global, result, array, list or mutable
+  variable holds one, and a `defer` runs before the call returns. A
+  mutable one, `mut b := a` or `mut v, ok := args[0]`, is `cannot declare
+  mut b as any; an any variable cannot be reassigned`. `v, ok := args[i]`
+  with `i` out of range gives the empty `any`, which holds no type: no
+  assertion matches it, a type switch runs its default, printf writes it
+  `%!v(invalid)`, and C sees a zeroed `tack_any`, type id 0. `mut a any`
+  is `mut has no effect on an any parameter; take mut p T to change the
+  caller's value`. Inside its function an `any` is passed on, to another
+  `any` parameter, `g(a)`, or as a value of an `...any`, `many(a,
+  args[0])`, and an `[]any` spread, `many(args...)`, `many(args[1:]...)`,
+  or passed to an `[]any` parameter, or asked which type it holds, with a
+  type assertion or a type switch (below). It supports no operator,
+  `operator == is not defined on any` (an expression `switch` on one too),
   no conversion, `cannot convert any to int64`, and no use as another type,
-  `cannot use any as string in argument to print`. Asking which type an
-  `any` holds, and reading its value, is for C only in this version (see
-  extern C). `any` is a type's name, so it cannot name anything else,
-  `cannot use any as a name; it is a type`.
+  `cannot use any as string in argument to print`. `any` is a type's name,
+  so it cannot name anything else, `cannot use any as a name; it is a
+  type`.
+- Type assertions. `v, ok := a.(T)` asks whether the `any` `a` holds a
+  `T`, exactly: `v` is the value when it does and `T`'s zero value when it
+  does not, and `ok` says which. An `int8` passed as `any` is not an
+  `int64`, so `a.(int64)` is false for it, and an untyped constant, passed
+  as an `int64`, is one. It is a checked form, as `q, ok := a / b`, `v, ok
+  := a[i]` and `v, ok := T(x)` are, under the same rules: either name may
+  be `_`, `v, _ := a.(T)`, but not both, each may have its own `mut`, `v, ok
+  = a.(T)` assigns existing mutable variables, `T` widening to `v`'s type,
+  and it must be the whole value, `the checked form must be the whole
+  value: v, ok := a.(int64), then compute v + 1`. There is no one-value
+  form, since a mismatch would have no value to give: `a.(int64)` anywhere
+  else, a declaration, an argument, a condition, is `a type assertion needs
+  two results; write v, ok := a.(int64)`, and three names are `assignment
+  mismatch: 3 variables but a type assertion gives 2 values`. `T` is one
+  of the twelve types an `any` can hold; any other, a struct, an array, a
+  view, a list, `error`, `Allocator` or `any`, is `an any never holds
+  Point: only the builtin types can be passed as any for now`, and an
+  operand that is not an `any` is `cannot assert on x: it is int64, not
+  any`. Nothing about what an `any` holds is known at compile time, so an
+  assertion proves nothing, but `ok` and `v` give facts as any variables
+  do: `if ok && v != 0` proves a divisor. In C, `a` is held in a
+  temporary, its type id compared with `T`'s, and `v` read as `*(const T
+  *)ptr`, or `T`'s zero value.
+- Type switches. `switch v := a.(type) { case int64: ... case int8, int16:
+  ... default: ... }` runs the first case naming the type `a` holds,
+  exactly, as an assertion matches. In a case naming one type, `v` is a
+  value of that type, `a`'s value; in a case naming several, and in the
+  default, `v` is the `any` itself. `v` is immutable in every case, and
+  each case's `v` is a variable of its own. `v :=` is a binding, not an
+  init statement, which a switch never has: `switch x := f() {` is `a
+  switch has no init statement; only a type switch binds a name, as in
+  switch v := x.(type)`, and `switch mut v := a.(type)` is `cannot use mut
+  on a type switch variable`. `switch a.(type) { ... }` binds nothing. `v`
+  is used if any case reads it, and otherwise is `declared and not used:
+  v` at the binding, since a case that does not need it need not read it.
+  `v` may reuse no name visible at the switch, as no variable may, so
+  `switch a := a.(type)` is `a is already declared`. A case's values are
+  types: a type named twice, in one case or two, is `int64 appears twice
+  in this type switch`, a type an `any` never holds is the assertion's
+  error, and a value is a parse error, `expected 'type name' found '1'`.
+  `default` is optional, and there is no check that the cases cover every
+  type. Otherwise it is a switch: `a` is evaluated once, the cases are
+  tried top to bottom and the default last, wherever it is written, there
+  is no fallthrough, and `break` and `continue` act on the loop around
+  it. It gives no facts, since what `a` holds is never known at compile
+  time. `.(type)` anywhere but a switch's tag is `.(type) can only be the
+  tag of a switch`. The syntax is meant to serve tagged unions too, which
+  are not in the language yet. In C, a type switch is a chain of ifs on a
+  temporary holding `a`, each comparing its type id, and `v` is `*(const
+  T *)ptr` in a one-type case, or the `tack_any` itself, declared only in
+  a case that reads it.
 - printf. `fmt.printf(format, args...)`, from `std/fmt`, writes `format`
   to standard output with each verb replaced by its argument: `%d` an
   integer of any type in decimal, `%x` one in lowercase hexadecimal, with
@@ -683,8 +746,11 @@ makes for itself, which has a letter after `tack_`.
   "%\n"`), `printf format ends in a lone %`, and `printf format has 2
   verbs but 1 argument` at the format, or at the arguments left over when
   there are more than verbs. An `any` passed on matches any verb, since
-  its type is known only at run time, and a spread, `printf(f,
-  args...)`, has its verbs checked but not its count. A format the
+  its type is known only at run time, an `any` local and a type switch's
+  `v` in a case naming several types included, while a type switch's `v`
+  in a case naming one type is a value of that type, checked as one, and
+  a spread, `printf(f, args...)`, has its verbs checked but not its
+  count. A format the
   compiler does not know is accepted, and each mistake is written into the
   output as Go's `fmt` writes it, never undefined: `%!d(string=hi)` for a
   verb given an argument it does not take, or an unknown verb,
@@ -893,7 +959,8 @@ makes for itself, which has a letter after `tack_`.
   switch. Two cases with the same constant value, a known integer, a bool
   constant expression such as `true` or `1 > 2`, or a string literal, are
   an error. There is no init statement,
-  `switch v := f(); v`, as `if` has none. A switch proves what the chain
+  `switch v := f(); v`, as `if` has none; the `v :=` of a type switch,
+  `switch v := a.(type)`, is a binding, not one (see type switches). A switch proves what the chain
   of ifs it stands for proves: `if c1 {} else if c2 || c3 {} else {}` for
   a tagless switch, and the same with `x == v` for each value `v` of an
   expression switch, so `switch d { case 0: return 0 }` proves `d != 0`
@@ -1154,7 +1221,8 @@ makes for itself, which has a letter after `tack_`.
     or `continue`, by what got past it, as in `if b == 0 { return 0 }`;
   - in a loop's body, by its condition, and in a counting loop's body by
     the value its variable starts from (see three-clause loops);
-  - in a `switch`, as in the chain of ifs it stands for (see switches);
+  - in a `switch`, as in the chain of ifs it stands for (see switches),
+    though a type switch, whose cases are types, proves nothing;
   - on the right of `&&` by its left side being true, and of `||` by its left
     side being false.
 

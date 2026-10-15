@@ -336,7 +336,10 @@ condition alone bounds it from both sides.
 A `switch` case proves inside its body what `tag == v1 || tag == v2 ...`
 proves when true, so `case 1, 2:` proves `1 <= tag && tag <= 2`, and
 `tag != 0`. Every later case, and the default, sees the earlier cases'
-values not matching.
+values not matching. A type switch, `switch v := a.(type)`, proves
+nothing, since what an `any` holds is never known at compile time; a
+case's `v` is a variable like any other, so a check on it inside the case
+proves what that check proves.
 
 <!-- example: safety -->
 ```tack

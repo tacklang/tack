@@ -85,7 +85,93 @@ any-as-name/main.tck:4:5: error: cannot use any as a name; it is a type
 package main
 
 func f(a any) int64 {
-    v, ok := a.(int64)
+    n := a.(int64)
+    return n
+}
+
+func main() {
+}
+-- any-assert/expected --
+stage: typeck
+---
+
+any-assert/main.tck:4:10: error: a type assertion needs two results; write v, ok := a.(int64)
+03 |	func f(a any) int64 {
+04 |	    n := a.(int64)
+   |	         ^~~~~~~~~
+05 |	    return n
+
+-- any-assert-assign-target/main.tck --
+package main
+
+func f(a any) {
+    a.(int64) = 1
+}
+
+func main() {
+}
+-- any-assert-assign-target/expected --
+stage: resolve
+---
+
+any-assert-assign-target/main.tck:4:5: error: cannot assign to this expression
+03 |	func f(a any) {
+04 |	    a.(int64) = 1
+   |	    ^~~~~~~~~
+05 |	}
+
+-- any-assert-in-call/main.tck --
+package main
+
+func g(n int64) {
+}
+
+func f(args ...any) {
+    if len(args) > 0 {
+        g(args[0].(int64))
+    }
+}
+
+func main() {
+}
+-- any-assert-in-call/expected --
+stage: typeck
+---
+
+any-assert-in-call/main.tck:8:11: error: a type assertion needs two results; write v, ok := args[0].(int64)
+07 |	    if len(args) > 0 {
+08 |	        g(args[0].(int64))
+   |	          ^~~~~~~~~~~~~~~
+09 |	    }
+
+-- any-assert-list/main.tck --
+package main
+
+func f(a any) int64 {
+    l, ok := a.(list[int64])
+    if ok {
+        return len(l)
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert-list/expected --
+stage: typeck
+---
+
+any-assert-list/main.tck:4:17: error: an any never holds list[int64]: only the builtin types can be passed as any for now
+03 |	func f(a any) int64 {
+04 |	    l, ok := a.(list[int64])
+   |	                ^~~~~~~~~~~
+05 |	    if ok {
+
+-- any-assert-not-any/main.tck --
+package main
+
+func f(x int64) int64 {
+    v, ok := x.(int64)
     if ok {
         return v
     }
@@ -94,15 +180,110 @@ func f(a any) int64 {
 
 func main() {
 }
--- any-assert/expected --
-stage: parse
+-- any-assert-not-any/expected --
+stage: typeck
 ---
 
-any-assert/main.tck:4:16: error: expected 'field name' found '('
-03 |	func f(a any) int64 {
-04 |	    v, ok := a.(int64)
-   |	               ^
+any-assert-not-any/main.tck:4:14: error: cannot assert on x: it is int64, not any
+03 |	func f(x int64) int64 {
+04 |	    v, ok := x.(int64)
+   |	             ^
 05 |	    if ok {
+
+-- any-assert-not-whole/main.tck --
+package main
+
+func f(a any) int64 {
+    v, ok := a.(int64) + 1
+    if ok {
+        return v
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert-not-whole/expected --
+stage: typeck
+---
+
+any-assert-not-whole/main.tck:4:14: error: the checked form must be the whole value: v, ok := a.(int64), then compute v + 1
+03 |	func f(a any) int64 {
+04 |	    v, ok := a.(int64) + 1
+   |	             ^~~~~~~~~~~~~
+05 |	    if ok {
+
+-- any-assert-struct/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f(a any) int64 {
+    p, ok := a.(Point)
+    if ok {
+        return p.x
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert-struct/expected --
+stage: typeck
+---
+
+any-assert-struct/main.tck:8:17: error: an any never holds Point: only the builtin types can be passed as any for now
+07 |	func f(a any) int64 {
+08 |	    p, ok := a.(Point)
+   |	                ^~~~~
+09 |	    if ok {
+
+-- any-assert-three-names/main.tck --
+package main
+
+func f(a any) int64 {
+    v, ok, w := a.(int64)
+    if ok && w {
+        return v
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert-three-names/expected --
+stage: typeck
+---
+
+any-assert-three-names/main.tck:4:5: error: assignment mismatch: 3 variables but a type assertion gives 2 values
+03 |	func f(a any) int64 {
+04 |	    v, ok, w := a.(int64)
+   |	    ^~~~~~~~~~~~~~~~~~~~~
+05 |	    if ok && w {
+
+-- any-assert-type-outside-switch/main.tck --
+package main
+
+func g(a any) {
+}
+
+func f(a any) {
+    g(a.(type))
+}
+
+func main() {
+}
+-- any-assert-type-outside-switch/expected --
+stage: typeck
+---
+
+any-assert-type-outside-switch/main.tck:7:7: error: .(type) can only be the tag of a switch
+06 |	func f(a any) {
+07 |	    g(a.(type))
+   |	      ^~~~~~~~
+08 |	}
 
 -- any-assign-param/main.tck --
 package main
@@ -127,7 +308,7 @@ any-assign-param/main.tck:4:5: error: cannot assign to parameter a
 package main
 
 func f(args ...any) {
-    v, ok := args[0]
+    mut v, ok := args[0]
     if ok {
         f(v)
     }
@@ -139,10 +320,10 @@ func main() {
 stage: typeck
 ---
 
-any-checked-element/main.tck:4:5: error: cannot declare v as any; any can only be the type of a parameter
+any-checked-element/main.tck:4:9: error: cannot declare mut v as any; an any variable cannot be reassigned
 03 |	func f(args ...any) {
-04 |	    v, ok := args[0]
-   |	    ^
+04 |	    mut v, ok := args[0]
+   |	        ^
 05 |	    if ok {
 
 -- any-compare/main.tck --
@@ -285,7 +466,7 @@ any-local/main.tck:7:11: error: any can only be the type of a parameter
 package main
 
 func f(a any) {
-    b := a
+    mut b := a
     f(b)
 }
 
@@ -295,10 +476,10 @@ func main() {
 stage: typeck
 ---
 
-any-local-inferred/main.tck:4:5: error: cannot declare b as any; any can only be the type of a parameter
+any-local-inferred/main.tck:4:9: error: cannot declare mut b as any; an any variable cannot be reassigned
 03 |	func f(a any) {
-04 |	    b := a
-   |	    ^
+04 |	    mut b := a
+   |	        ^
 05 |	    f(b)
 
 -- any-mut/main.tck --
@@ -378,27 +559,6 @@ any-range/main.tck:4:20: error: cannot range over any
 04 |	    for x := range a {
    |	                   ^
 05 |	        f(x)
-
--- any-range-element/main.tck --
-package main
-
-func f(args ...any) {
-    for _, a := range args {
-        f(a)
-    }
-}
-
-func main() {
-}
--- any-range-element/expected --
-stage: typeck
----
-
-any-range-element/main.tck:4:12: error: cannot declare a as any; any can only be the type of a parameter
-03 |	func f(args ...any) {
-04 |	    for _, a := range args {
-   |	           ^
-05 |	        f(a)
 
 -- any-reserved-helper/main.tck --
 package main
@@ -566,6 +726,283 @@ any-switch/main.tck:4:12: error: operator == is not defined on any
 04 |	    switch a {
    |	           ^
 05 |	    case 1:
+
+-- any-switch-case-value/main.tck --
+package main
+
+func f(a any) {
+    switch a.(type) {
+    case 1:
+    }
+}
+
+func main() {
+}
+-- any-switch-case-value/expected --
+stage: parse
+---
+
+any-switch-case-value/main.tck:5:10: error: expected 'type name' found '1'
+04 |	    switch a.(type) {
+05 |	    case 1:
+   |	         ^
+06 |	    }
+
+-- any-switch-duplicate-type/main.tck --
+package main
+
+func f(a any) int64 {
+    switch v := a.(type) {
+    case int64, string:
+        return 1
+    case bool, int64:
+        return 2
+    default:
+        f(v)
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-switch-duplicate-type/expected --
+stage: typeck
+---
+
+any-switch-duplicate-type/main.tck:7:16: error: int64 appears twice in this type switch
+06 |	        return 1
+07 |	    case bool, int64:
+   |	               ^~~~~
+08 |	        return 2
+any-switch-duplicate-type/main.tck:5:10: note: previous case
+04 |	    switch v := a.(type) {
+05 |	    case int64, string:
+   |	         ^~~~~
+06 |	        return 1
+
+-- any-switch-mut-binding/main.tck --
+package main
+
+func f(a any) {
+    switch mut v := a.(type) {
+    case int64:
+        v++
+    }
+}
+
+func main() {
+}
+-- any-switch-mut-binding/expected --
+stage: parse
+---
+
+any-switch-mut-binding/main.tck:4:12: error: cannot use mut on a type switch variable
+03 |	func f(a any) {
+04 |	    switch mut v := a.(type) {
+   |	           ^~~~~
+05 |	    case int64:
+
+-- any-switch-never-held/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f(a any) int64 {
+    switch v := a.(type) {
+    case Point:
+        return v.x
+    case int64:
+        return v
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-switch-never-held/expected --
+stage: typeck
+---
+
+any-switch-never-held/main.tck:9:10: error: an any never holds Point: only the builtin types can be passed as any for now
+08 |	    switch v := a.(type) {
+09 |	    case Point:
+   |	         ^~~~~
+10 |	        return v.x
+
+-- any-switch-not-any/main.tck --
+package main
+
+func f(s string) int64 {
+    switch v := s.(type) {
+    case string:
+        return len(v)
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-switch-not-any/expected --
+stage: typeck
+---
+
+any-switch-not-any/main.tck:4:17: error: cannot assert on s: it is string, not any
+03 |	func f(s string) int64 {
+04 |	    switch v := s.(type) {
+   |	                ^
+05 |	    case string:
+
+-- any-switch-printf-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func f(a any) {
+    switch v := a.(type) {
+    case string:
+        fmt.printf("%d\n", v)
+    case int8, int16:
+        fmt.printf("%d %s %t\n", v, v, v)
+    }
+}
+
+func main() {
+    f("s")
+}
+-- any-switch-printf-verb/expected --
+stage: typeck
+---
+
+any-switch-printf-verb/main.tck:8:28: error: printf verb %d does not take string
+07 |	    case string:
+08 |	        fmt.printf("%d\n", v)
+   |	                           ^
+09 |	    case int8, int16:
+
+-- any-switch-shadow/main.tck --
+package main
+
+func f(a any) int64 {
+    switch a := a.(type) {
+    case int64:
+        return a
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-switch-shadow/expected --
+stage: resolve
+---
+
+any-switch-shadow/main.tck:4:12: error: a is already declared
+03 |	func f(a any) int64 {
+04 |	    switch a := a.(type) {
+   |	           ^
+05 |	    case int64:
+any-switch-shadow/main.tck:3:8: note: previous declaration of a
+02 |	
+03 |	func f(a any) int64 {
+   |	       ^
+04 |	    switch a := a.(type) {
+
+-- any-switch-type-in-tagless/main.tck --
+package main
+
+func f(a any) {
+    switch {
+    case a.(type):
+    }
+}
+
+func main() {
+}
+-- any-switch-type-in-tagless/expected --
+stage: typeck
+---
+
+any-switch-type-in-tagless/main.tck:5:10: error: .(type) can only be the tag of a switch
+04 |	    switch {
+05 |	    case a.(type):
+   |	         ^~~~~~~~
+06 |	    }
+
+-- any-switch-unused-binding/main.tck --
+package main
+
+func f(a any) int64 {
+    switch v := a.(type) {
+    case int64:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+}
+-- any-switch-unused-binding/expected --
+stage: resolve
+---
+
+any-switch-unused-binding/main.tck:4:12: error: declared and not used: v
+03 |	func f(a any) int64 {
+04 |	    switch v := a.(type) {
+   |	           ^
+05 |	    case int64:
+
+-- any-switch-var-immutable/main.tck --
+package main
+
+func f(a any) int64 {
+    switch v := a.(type) {
+    case int64:
+        v = v + 1
+        return v
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-switch-var-immutable/expected --
+stage: typeck
+---
+
+any-switch-var-immutable/main.tck:6:9: error: cannot assign to immutable variable v
+05 |	    case int64:
+06 |	        v = v + 1
+   |	        ^
+07 |	        return v
+
+-- any-switch-var-mut-local/main.tck --
+package main
+
+func g(a any) {
+}
+
+func f(a any) {
+    switch v := a.(type) {
+    case int8, int16:
+        mut w := v
+        g(w)
+    }
+}
+
+func main() {
+}
+-- any-switch-var-mut-local/expected --
+stage: typeck
+---
+
+any-switch-var-mut-local/main.tck:9:13: error: cannot declare mut w as any; an any variable cannot be reassigned
+08 |	    case int8, int16:
+09 |	        mut w := v
+   |	            ^
+10 |	        g(w)
 
 -- any-to-concrete/main.tck --
 package main
@@ -13642,6 +14079,29 @@ switch-duplicate-string-case/main.tck:6:15: note: previous case
 06 |	    case "a", "b":
    |	              ^~~
 07 |	        exit(1)
+
+-- switch-init-binding/main.tck --
+package main
+
+func f() int64 {
+    return 1
+}
+
+func main() {
+    switch x := f() {
+    case 1:
+        exit(x)
+    }
+}
+-- switch-init-binding/expected --
+stage: parse
+---
+
+switch-init-binding/main.tck:8:12: error: a switch has no init statement; only a type switch binds a name, as in switch v := x.(type)
+07 |	func main() {
+08 |	    switch x := f() {
+   |	           ^~~~~~~~
+09 |	    case 1:
 
 -- switch-missing-default-return/main.tck --
 package main

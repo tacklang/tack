@@ -381,8 +381,10 @@ and std's `<tack/tack.h>` names each:
 | 11 | `TACK_TYPE_UNSAFE_UINTPTR_T` | `unsafe_uintptr_t` | `uintptr_t`     |
 | 12 | `TACK_TYPE_STRING`           | `string`           | `tack_string`   |
 
-0 is no type, so a zeroed `tack_any` is recognisably empty; Tack never
-passes one. 13 to 255 are kept for types to come. Arrays, structs and
+0 is no type, so a zeroed `tack_any` is recognisably empty: it is the
+`any` an index out of range gives, `v, ok := args[i]`, which Tack code
+can pass on, so C may get one, with a null `ptr`, and every helper below
+refuses it. 13 to 255 are kept for types to come. Arrays, structs and
 views cannot be passed as `any` yet. C reads one with these, from std's
 `<tack/tack.h>`:
 

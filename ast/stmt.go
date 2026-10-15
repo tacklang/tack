@@ -1,5 +1,7 @@
 package ast
 
+import "github.com/tacklang/tack/types"
+
 type stmtKey struct{}
 
 var _stmtKey stmtKey
@@ -240,8 +242,19 @@ func (f *ForRange) Spanned() Span { return f.Span }
 // the statement after the switch: there is no fallthrough. A break or
 // continue in a body acts on the loop enclosing the switch, not on the
 // switch.
+//
+// In a type switch, switch v := x.(type) or switch x.(type), Tag is a
+// TypeAssert whose TypeExpr is nil, and each case value is a type as
+// written, which a case matches when the value x refers to has that type
+// exactly; see IsTypeSwitch. Bind is the variable v written in the
+// header, nil when there is none. It is a binding, not an init
+// statement, which a switch never has: each case declares a variable of
+// its own named after it, the CaseClause's Var, and Bind is that name as
+// written, the declaration the resolver reports a problem with the name
+// at, and an unused v at, once for the whole switch.
 type Switch struct {
 	Tag   Expr
+	Bind  *Var
 	Cases []*CaseClause
 	Span  Span // 'switch' keyword through the closing brace
 }
@@ -267,12 +280,29 @@ func (s *Switch) Default() *CaseClause {
 	return nil
 }
 
+// IsTypeSwitch reports whether s is a type switch: its tag is x.(type),
+// and its case values are types.
+func (s *Switch) IsTypeSwitch() bool {
+	ta, ok := s.Tag.(*TypeAssert)
+	return ok && ta.TypeExpr == nil
+}
+
 // CaseClause is one case of a Switch: case Values...: Body, or, when
 // Default is set, default: Body, whose Values is empty. Body is a block of
 // its own, and may be empty. A CaseClause is part of its Switch, not a
-// node of its own; Walk visits its values and body.
+// node of its own; Walk visits its values, its variable and its body.
+//
+// In a type switch with a binding, Var is the variable the case declares
+// for its body, named as the switch's Bind is, and immutable: the type
+// checker gives it the case's one type, or, in a case naming several and
+// in the default, the type of the tag's operand, any. It has no Value; it
+// takes the tag's. Var is nil in every other case. In a type switch,
+// Types holds the type each value names, in order, set by the type
+// checker, since a type as written has no type of its own to record.
 type CaseClause struct {
 	Values  []Expr
+	Types   []types.Type `json:",omitempty"`
+	Var     *Var
 	Body    []Stmt
 	Span    Span // 'case' or 'default' keyword through the colon
 	Default bool

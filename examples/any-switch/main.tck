@@ -1,0 +1,400 @@
+package main
+
+import fmt from "std/fmt"
+
+// Asking an any which type it holds, from Tack: the type assertion
+// v, ok := a.(T), and the type switch, switch v := a.(type). An assertion
+// matches the exact type only, and gives T's zero value and false on a
+// mismatch. In a switch case naming one type, v is a value of that type;
+// in a case naming several, and in the default, v is the any itself. An
+// immutable local may hold an any declared from one: b := a, a range's
+// element, v, ok := args[i] and the switch's binding.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// describe names the type a holds, from a case for each of the twelve,
+// and checks the value in each case is a value of that type: it can be
+// used as one, with that type's operators.
+func describe(a any) string {
+    switch v := a.(type) {
+    case int8:
+        if v + 1 == -127 {
+            return "int8 min"
+        }
+        return "int8"
+    case int16:
+        if v > 32766 {
+            return "int16 max"
+        }
+        return "int16"
+    case int32:
+        return "int32"
+    case int64:
+        if v == -9223372036854775808 {
+            return "int64 min"
+        }
+        return "int64"
+    case uint8:
+        if v == 'x' {
+            return "uint8 x"
+        }
+        return "uint8"
+    case uint16:
+        return "uint16"
+    case uint32:
+        return "uint32"
+    case uint64:
+        if v == 18446744073709551615 {
+            return "uint64 max"
+        }
+        return "uint64"
+    case unsafe_size_t:
+        return "unsafe_size_t"
+    case unsafe_uintptr_t:
+        return "unsafe_uintptr_t"
+    case bool:
+        if !v {
+            return "bool false"
+        }
+        return "bool true"
+    case string:
+        if len(v) > 0 && v[0] == 'h' {
+            return "string h"
+        }
+        return "string"
+    }
+    return "nothing"
+}
+
+// group puts a in a group, 1 for a signed integer, 2 for an unsigned
+// one, 3 for a string and 4 for anything else, and names its type: a case
+// naming several types binds v as the any, which can be passed on, and
+// the default does too.
+func group(a any) (int64, string) {
+    switch v := a.(type) {
+    case int8, int16, int32, int64:
+        return 1, describe(v)
+    case uint8, uint16, uint32, uint64:
+        return 2, describe(v)
+    case string:
+        return 3, describe(v)
+    default:
+        return 4, describe(v)
+    }
+}
+
+// size returns the number of bytes a value of a's type takes, from a
+// switch with no binding.
+func size(a any) int64 {
+    switch a.(type) {
+    case int8, uint8, bool:
+        return 1
+    case int16, uint16:
+        return 2
+    case int32, uint32:
+        return 4
+    case int64, uint64:
+        return 8
+    }
+    return 0
+}
+
+// sumInts adds every int64 among args, skipping the rest, with a range
+// whose element is an any local, a break at a stop string and a continue
+// for a bool, both from inside a switch, acting on the loop.
+func sumInts(args ...any) int64 {
+    mut total int64 = 0
+    for _, a := range args {
+        switch v := a.(type) {
+        case int64:
+            total += v
+        case string:
+            if v == "stop" {
+                break
+            }
+        case bool:
+            continue
+        }
+        total += 1000
+    }
+    return total
+}
+
+// firstInt returns the first int64 among args by index, through the
+// checked form: an index out of range gives an any holding nothing.
+func firstInt(args ...any) (int64, bool) {
+    for mut i int64 = 0; i <= len(args); i++ {
+        a, ok := args[i]
+        if !ok {
+            return -1, false
+        }
+        n, isInt := a.(int64)
+        if isInt {
+            return n, true
+        }
+    }
+    return -2, false
+}
+
+// nested switches on two anys, the inner switch inside a case of the
+// outer one, and returns which case ran.
+func nested(a any, b any) int64 {
+    switch x := a.(type) {
+    case string:
+        switch y := b.(type) {
+        case string:
+            if x == y {
+                return 1
+            }
+            return 2
+        case int64:
+            if y > 0 {
+                return 3
+            }
+            return 4
+        }
+        return 5
+    case bool:
+        switch b.(type) {
+        case bool:
+            if x {
+                return 6
+            }
+            return 7
+        }
+    }
+    return 0
+}
+
+// asInt returns the int64 a holds, or an error when it holds anything
+// else.
+func asInt(a any) (int64, error) {
+    n, ok := a.(int64)
+    if !ok {
+        return 0, error{code: 1, msg: "not an int64"}
+    }
+    return n, noerror
+}
+
+// forward passes v on to printf in each kind of case: a value of the
+// case's type, boxed again, and the any itself. An any passed on matches
+// any verb in a format the compiler checks.
+func forward(a any) {
+    switch v := a.(type) {
+    case int64:
+        fmt.printf("int64 %d %x\n", v, v)
+    case string:
+        fmt.printf("string [%s] %d\n", v, len(v))
+    case bool, uint8:
+        fmt.printf("any %v %d %s %t\n", v, v, v, v)
+    default:
+        fmt.printf("default %v\n", v)
+    }
+}
+
+// many passes its values on through locals, b := a, and whole, with a
+// spread.
+func many(args ...any) {
+    for i, a := range args {
+        b := a
+        fmt.printf("%d=%v ", i, b)
+    }
+    fmt.printf("| %d values\n", count(args...))
+}
+
+// count returns how many values args holds.
+func count(args ...any) int64 {
+    return len(args)
+}
+
+// deferred reads an any local from a defer, which runs after the body.
+func deferred(a any) {
+    b := a
+    defer {
+        switch v := b.(type) {
+        case string:
+            fmt.printf("deferred %s\n", v)
+        default:
+            fmt.printf("deferred other\n")
+        }
+    }
+    fmt.printf("body first\n")
+}
+
+// empty switches on the any an index out of range gives, which holds
+// nothing, so only the default matches, and passes it on to printf, which
+// writes it as a value of no type.
+func empty(args ...any) {
+    e, ok := args[len(args)]
+    switch e.(type) {
+    case int64, string, bool:
+        fmt.printf("held\n")
+    default:
+        fmt.printf("empty %t %v\n", ok, e)
+    }
+}
+
+// orderOf has its default written first, which is still tried last.
+func orderOf(a any) int64 {
+    switch a.(type) {
+    default:
+        return 3
+    case bool:
+        return 1
+    case int64:
+        return 2
+    }
+}
+
+// strings counts the strings among args, switching on an element.
+func strings(args ...any) int64 {
+    mut n int64 = 0
+    for mut i int64 = 0; i < len(args); i++ {
+        switch args[i].(type) {
+        case string:
+            n++
+        }
+    }
+    return n
+}
+
+// zeros asserts every type on an any holding a uint16, and
+// checks every mismatch gives the type's zero value and false.
+func zeros(a any) bool {
+    i8, ok1 := a.(int8)
+    i16, ok2 := a.(int16)
+    i32, ok3 := a.(int32)
+    i64, ok4 := a.(int64)
+    u8, ok5 := a.(uint8)
+    u32, ok6 := a.(uint32)
+    u64, ok7 := a.(uint64)
+    sz, ok8 := a.(unsafe_size_t)
+    up, ok9 := a.(unsafe_uintptr_t)
+    b, ok10 := a.(bool)
+    s, ok11 := a.(string)
+    u16, ok12 := a.(uint16)
+    zero := i8 == 0 && i16 == 0 && i32 == 0 && i64 == 0 && u8 == 0 && u32 == 0 &&
+        u64 == 0 && sz == 0 && up == 0 && !b && s == "" && len(s) == 0
+    none := !ok1 && !ok2 && !ok3 && !ok4 && !ok5 && !ok6 && !ok7 && !ok8 && !ok9 &&
+        !ok10 && !ok11
+    return zero && none && ok12 && u16 == 65535
+}
+
+// assigns asserts into existing variables with =, a narrower type
+// widening into a wider variable, and _ discarding either value.
+func assigns(a any) bool {
+    mut n int64 = 7
+    mut ok bool = false
+    n, ok = a.(int8)
+    first := n == -5 && ok
+    n, ok = a.(int16)
+    second := n == 0 && !ok
+    _, ok = a.(int8)
+    v, _ := a.(int8)
+    _, isBool := a.(bool)
+    return first && second && ok && v == -5 && !isBool
+}
+
+// mixed compares a value of one type from a case with a value of
+// another type, by value, as == and < compare integers.
+func mixed(a any, limit uint64) bool {
+    switch v := a.(type) {
+    case int8:
+        return v < limit
+    case uint64:
+        return v == limit
+    }
+    return false
+}
+
+// copies reads a's value after the caller's variable has been changed
+// through a mut parameter: a was copied when the call began.
+func copies(mut x int64, a any) bool {
+    x = 99
+    n, ok := a.(int64)
+    return ok && n == 7 && x == 99
+}
+
+func main() {
+    var i8 int8 = -128
+    var i16 int16 = 32767
+    var i32 int32 = 5
+    var i64 int64 = -9223372036854775808
+    var u8 uint8 = 'x'
+    var u16 uint16 = 1
+    var u32 uint32 = 2
+    var u64 uint64 = 18446744073709551615
+    var sz unsafe_size_t = 3
+    var up unsafe_uintptr_t = 4
+    check(describe(i8) == "int8 min" && describe(i16) == "int16 max" &&
+        describe(i32) == "int32" && describe(i64) == "int64 min", "signed cases")
+    check(describe(u8) == "uint8 x" && describe(u16) == "uint16" &&
+        describe(u32) == "uint32" && describe(u64) == "uint64 max", "unsigned cases")
+    check(describe(sz) == "unsafe_size_t" && describe(up) == "unsafe_uintptr_t",
+        "target-width cases")
+    check(describe(true) == "bool true" && describe(false) == "bool false" &&
+        describe("hello") == "string h" && describe("") == "string", "bool and string cases")
+    check(describe(5) == "int64" && describe('a') == "uint8", "untyped constant is int64")
+    check(describe(int8(1)) == "int8" && describe(int64(1)) == "int64", "exact types")
+
+    g1, s1 := group(i8)
+    g2, s2 := group(u64)
+    g3, s3 := group("hi")
+    g4, s4 := group(true)
+    g5, s5 := group(sz)
+    check(g1 == 1 && s1 == "int8 min" && g2 == 2 && s2 == "uint64 max" && g3 == 3 &&
+        s3 == "string h" && g4 == 4 && s4 == "bool true" && g5 == 4 && s5 == "unsafe_size_t",
+        "multi-type cases and default")
+    check(size(i8) == 1 && size(true) == 1 && size(i16) == 2 && size(u32) == 4 &&
+        size(i64) == 8 && size("s") == 0 && size(up) == 0, "switch without a binding")
+
+    check(sumInts(1, 2, true, 3) == 3006, "continue in a case")
+    check(sumInts(1, "stop", 2) == 1001, "break in a case leaves the loop")
+    check(sumInts() == 0, "no values")
+
+    n, found := firstInt("a", false, 9, 10)
+    check(found && n == 9, "first int64 by index")
+    m, again := firstInt("a", int8(9))
+    check(!again && m == -1, "out of range gives an empty any")
+    check(strings("a", 1, "b", true) == 2 && strings() == 0, "switch on an element")
+
+    check(nested("a", "a") == 1 && nested("a", "b") == 2 && nested("a", 1) == 3 &&
+        nested("a", 0) == 4 && nested("a", true) == 5 && nested(true, false) == 6 &&
+        nested(false, false) == 7 && nested(false, 1) == 0 && nested(1, 1) == 0,
+        "nested switches")
+
+    k, err := asInt(42)
+    check(err.code == 0 && k == 42, "assertion in a function returning an error")
+    _, bad := asInt("42")
+    check(bad.code == 1 && bad.msg == "not an int64", "mismatch returns an error")
+
+    check(zeros(uint16(65535)), "zero values on a mismatch")
+    check(assigns(int8(-5)), "assignment and blanks")
+    check(mixed(int8(-1), 0) && !mixed(int8(1), 0) && mixed(u64, 18446744073709551615) &&
+        !mixed(true, 1), "mixed comparisons")
+
+    mut x int64 = 7
+    check(copies(mut x, x) && x == 99, "an any is a copy taken at the call")
+
+    check(orderOf(true) == 1 && orderOf(5) == 2 && orderOf("s") == 3, "default tried last")
+
+    forward(int64(255))
+    forward("héllo")
+    forward(true)
+    forward(u8)
+    forward(i16)
+    many(1, "two", false, u8)
+    many()
+    deferred("x")
+    deferred(1)
+    empty(1, "s", true)
+    empty()
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -85,4 +86,26 @@ func (g *generator) stable(arg ast.Expr) bool {
 	default:
 		return false
 	}
+}
+
+// assertValues lowers v, ok := x.(T): x, a tack_any, held in a temporary,
+// read as the T its pointer points at when its type id is T's, and T's
+// zero value otherwise, and whether it was.
+func (g *generator) assertValues(a *ast.TypeAssert) (multiSource, []diag.Diagnostic) {
+	x, diags := g.expr(a.X, types.Invalid)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	typ := a.Type
+	zero := g.zeroValue(typ)
+	return multiSource{
+		temps: []multiTemp{{typ: g.cType(types.Any), init: x}},
+		field: func(tmps []string, i int) string {
+			is := fmt.Sprintf("(%s.type == %s)", tmps[0], anyIDs[typ])
+			if i == 1 {
+				return is
+			}
+			return fmt.Sprintf("(%s ? *(const %s *)%s.ptr : %s)", is, g.cType(typ), tmps[0], zero)
+		},
+	}, nil
 }

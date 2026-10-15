@@ -29,6 +29,12 @@
 // is set, CName holds the C symbol, and like any function written without
 // a body it has NoBody set and an empty Body. A Switch's CaseClauses are likewise part of it: each holds its values
 // and its body, which Walk visits, but is not a node.
+// A type switch is a Switch whose Tag is a TypeAssert with no TypeExpr,
+// x.(type), and whose case values are types; Bind is the v of switch v :=
+// x.(type), and each CaseClause has a Var of its own under that name,
+// which the type checker gives the case's type, recording the types a
+// case names in CaseClause.Types. A type assertion, x.(T), is a
+// TypeAssert too, whose Type the checker sets to T.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A Param written mut p T has Mut set. A call's argument written mut x is

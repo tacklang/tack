@@ -43,6 +43,13 @@ var anyAcceptedCases = []struct{ name, src string }{
 			"    defer {\n        one(a)\n    }\n}\n\nfunc main() {\n    on(1, 2)\n}\n",
 	},
 	{
+		"immutable locals",
+		"package main\n\nfunc one(a any) {\n}\n\nfunc on(a any, xs ...any) {\n    b := a\n    one(b)\n" +
+			"    v, ok := xs[0]\n    if ok {\n        one(v)\n    }\n" +
+			"    for _, x := range xs {\n        one(x)\n    }\n    var c = b\n" +
+			"    defer {\n        one(c)\n    }\n}\n\nfunc main() {\n    on(1, 2)\n}\n",
+	},
+	{
 		"extern funcs",
 		"package main\n\nextern func f(a any, xs ...any) bool\n\nfunc main() {\n" +
 			"    if f(1, \"s\", true) {\n        exit(1)\n    }\n}\n",
@@ -99,19 +106,19 @@ var anyErrorCases = []struct{ name, src, want string }{
 		"a variadic parameter cannot be mut; it is a read-only view",
 	},
 	{
-		"inferred local",
-		"package main\n\nfunc f(a any) {\n    b := a\n    f(b)\n}\n\nfunc main() {\n}\n",
-		"cannot declare b as any; any can only be the type of a parameter",
+		"mut inferred local",
+		"package main\n\nfunc f(a any) {\n    mut b := a\n    f(b)\n}\n\nfunc main() {\n}\n",
+		"cannot declare mut b as any; an any variable cannot be reassigned",
 	},
 	{
-		"checked element",
-		"package main\n\nfunc f(a ...any) {\n    v, ok := a[0]\n    if ok {\n        f(v)\n    }\n}\n\nfunc main() {\n}\n",
-		"cannot declare v as any; any can only be the type of a parameter",
+		"mut checked element",
+		"package main\n\nfunc f(a ...any) {\n    mut v, ok := a[0]\n    if ok {\n        f(v)\n    }\n}\n\nfunc main() {\n}\n",
+		"cannot declare mut v as any; an any variable cannot be reassigned",
 	},
 	{
-		"range element",
-		"package main\n\nfunc f(a ...any) {\n    for _, v := range a {\n        f(v)\n    }\n}\n\nfunc main() {\n}\n",
-		"cannot declare v as any; any can only be the type of a parameter",
+		"explicitly typed local",
+		"package main\n\nfunc f(a any) {\n    var b any = a\n    f(b)\n}\n\nfunc main() {\n}\n",
+		"any can only be the type of a parameter",
 	},
 	{
 		"struct", anyCalling("one(P{d: 1})"),

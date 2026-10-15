@@ -460,8 +460,9 @@ func literalType(expr Expr) (types.Type, bool) {
 }
 
 // recordedType returns the type the type checker recorded on an operator
-// expression, a composite literal, an element, a slice or a field, the type of the
-// place a mut argument names, or Invalid for any other expression.
+// expression, a composite literal, an element, a slice, a field or a type
+// assertion, the type it asserts, the type of the place a mut argument
+// names, or Invalid for any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -478,6 +479,8 @@ func recordedType(expr Expr) types.Type {
 		return e.Type
 	case *MutArg:
 		return TypeOf(e.X)
+	case *TypeAssert:
+		return e.Type
 	default:
 		return types.Invalid
 	}
@@ -525,6 +528,33 @@ func callType(call *Call) types.Type {
 	}
 	return types.Invalid
 }
+
+// TypeAssert asks which type the value of X, an any, holds: X.(T), whose
+// TypeExpr is T as written, or X.(type), whose TypeExpr is nil. X.(T) is
+// only ever bound with ok, v, ok := X.(T), giving the value X holds when
+// its type is exactly T, and T's zero value otherwise, and whether it was
+// T. X.(type) is only ever the Tag of a type switch (see Switch). The
+// parser takes either wherever a field may follow an operand; the type
+// checker reports one anywhere else.
+type TypeAssert struct {
+	X        Expr
+	TypeExpr Expr // the type as written; nil for X.(type)
+	Span     Span // the start of X through the closing parenthesis
+
+	// Type is the type X.(T) asserts, T, set by the type checker; it is
+	// Invalid for X.(type).
+	Type types.Type
+}
+
+var _ Expr = (*TypeAssert)(nil)
+
+func (t *TypeAssert) exprKey() exprKey { return _exprKey }
+
+func (t *TypeAssert) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of X through the
+// closing parenthesis.
+func (t *TypeAssert) Spanned() Span { return t.Span }
 
 // ArrayType is an array type as written: [Len]Elem, or [...]Elem in an
 // array literal, whose length its elements give. It is an expression only so

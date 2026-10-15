@@ -887,38 +887,43 @@ func (p *Parser) badTarget(tk *lexer.Token) []diag.Diagnostic {
 }
 
 // afterTarget returns the token after the name n places ahead and every
-// bracketed index and field selection that follows it, a[i].x[j], so a
-// statement that starts with an element or a field can be told apart by
-// what comes after it. The brackets are matched, so an index may hold
-// brackets of its own. A period not followed by a name ends the target, and
-// is what is returned.
+// bracketed index, field selection and type assertion that follows it,
+// a[i].x[j].(T), so a statement that starts with an element or a field
+// can be told apart by what comes after it. The brackets and parentheses
+// are matched, so an index may hold brackets of its own. A period not
+// followed by a name or an opening parenthesis ends the target, and is
+// what is returned.
 func (p *Parser) afterTarget(n int) *lexer.Token {
 	k := n + 1
 	for {
 		switch p.peekAt(k).Kind() {
 		case lexer.LBrack:
-			k = p.afterBrackets(k)
+			k = p.afterGroup(k, lexer.LBrack, lexer.RBrack)
 		case lexer.Period:
-			if p.peekAt(k+1).Kind() != lexer.Ident {
+			switch p.peekAt(k + 1).Kind() {
+			case lexer.Ident:
+				k += 2
+			case lexer.LParen:
+				k = p.afterGroup(k+1, lexer.LParen, lexer.RParen)
+			default:
 				return p.peekAt(k)
 			}
-			k += 2
 		default:
 			return p.peekAt(k)
 		}
 	}
 }
 
-// afterBrackets returns how many places ahead the token after the bracketed
-// group that opens k places ahead is, matching brackets nested in it, or
-// where EOF is if the group never closes.
-func (p *Parser) afterBrackets(k int) int {
+// afterGroup returns how many places ahead the token after the group that
+// open opens k places ahead is, matching the opens and closes nested in
+// it, or where EOF is if the group never closes.
+func (p *Parser) afterGroup(k int, open, closing lexer.TokenKind) int {
 	depth := 0
 	for {
 		switch p.peekAt(k).Kind() {
-		case lexer.LBrack:
+		case open:
 			depth++
-		case lexer.RBrack:
+		case closing:
 			depth--
 		case lexer.EOF:
 			return k
@@ -1487,20 +1492,29 @@ func (p *Parser) parseElse() (els []ast.Stmt, terminated bool, diags []diag.Diag
 // cases in braces. With no tag, the body's brace comes straight after the
 // keyword. As in an if header, a name followed by a brace in the tag is
 // the tag and then the body, never a struct literal. There is no init
-// statement, as an if has none.
+// statement, as an if has none: a name and := after the keyword bind the
+// value of a type switch's tag, x.(type), and nothing else (see
+// parseBinding).
 func (p *Parser) parseSwitch() (*ast.Switch, []diag.Diagnostic) {
 	tk := p.next() // the switch keyword
 
 	stmt := &ast.Switch{Span: p.span(tk), Cases: make([]*ast.CaseClause, 0)}
 
 	if p.peek().Kind() != lexer.LCurl {
+		bind, diags := p.parseBinding()
+		if diags != nil {
+			return nil, diags
+		}
 		restore := p.allowLits(false)
 		tag, diags := p.parseExpr(1)
 		restore()
 		if tag == nil {
 			return nil, diags
 		}
-		stmt.Tag = tag
+		stmt.Tag, stmt.Bind = tag, bind
+		if diags := p.checkBinding(stmt); diags != nil {
+			return nil, diags
+		}
 		if diags := p.headerLit("a switch"); diags != nil {
 			return nil, diags
 		}
@@ -1517,6 +1531,56 @@ func (p *Parser) parseSwitch() (*ast.Switch, []diag.Diagnostic) {
 	return stmt, nil
 }
 
+// parseBinding parses the name and := of a type switch's binding, switch
+// v := x.(type), when they come next, and returns the variable, or nil
+// when the tag follows the keyword directly. The variable is immutable:
+// a name written with mut is reported, as a range loop's is.
+func (p *Parser) parseBinding() (*ast.Var, []diag.Diagnostic) {
+	start := p.peek()
+	mutable := isKeyword(start, lexer.Mut)
+	k := 0
+	if mutable {
+		k = 1
+	}
+	if p.peekAt(k).Kind() != lexer.Ident || p.peekAt(k+1).Kind() != lexer.Define {
+		return nil, nil
+	}
+	if mutable {
+		p.next()
+	}
+	name, _ := p.parseIdent("variable name")
+	p.next() // the :=
+	span := ast.Span{File: p.fileID, Start: start.OffsetStart(), End: name.Span.End}
+	if mutable {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "cannot use mut on a type switch variable",
+			Span:     span,
+		}}
+	}
+	return &ast.Var{Name: name.Name, NameSpan: name.Span, Span: span}, nil
+}
+
+// checkBinding reports a switch whose header binds a name to a tag that is
+// not x.(type): a switch has no init statement, and only a type switch
+// binds a name.
+func (p *Parser) checkBinding(stmt *ast.Switch) []diag.Diagnostic {
+	if stmt.Bind == nil || stmt.IsTypeSwitch() {
+		return nil
+	}
+	return []diag.Diagnostic{
+		{
+			Severity: diag.Error,
+			Message:  "a switch has no init statement; only a type switch binds a name, as in switch v := x.(type)",
+			Span: ast.Span{
+				File:  p.fileID,
+				Start: stmt.Bind.Span.Start,
+				End:   p.extent(stmt.Tag).End,
+			},
+		},
+	}
+}
+
 // parseCases parses a switch's body into stmt.Cases: an opening brace,
 // any number of case clauses, and the closing brace. A second default is
 // reported, with a note pointing at the first.
@@ -1527,7 +1591,7 @@ func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
 
 	var first *ast.CaseClause
 	for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
-		cl, diags := p.parseCaseClause()
+		cl, diags := p.parseCaseClause(stmt.IsTypeSwitch())
 		if cl == nil {
 			return diags
 		}
@@ -1546,6 +1610,9 @@ func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
 		if cl.Default {
 			first = cl
 		}
+		if b := stmt.Bind; b != nil {
+			cl.Var = &ast.Var{Name: b.Name, NameSpan: b.NameSpan, Span: b.Span}
+		}
 		stmt.Cases = append(stmt.Cases, cl)
 	}
 
@@ -1558,7 +1625,8 @@ func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
 // parseCaseClause parses one clause of a switch: case, one or more values
 // separated by commas, and a colon, or default and a colon; then the
 // statements of its body, up to the next case, default or closing brace.
-func (p *Parser) parseCaseClause() (*ast.CaseClause, []diag.Diagnostic) {
+// In a type switch, typeCases says so, and each value is a type.
+func (p *Parser) parseCaseClause(typeCases bool) (*ast.CaseClause, []diag.Diagnostic) {
 	tk := p.peek()
 	if !isKeyword(tk, lexer.Case) && !isKeyword(tk, lexer.Default) {
 		return nil, []diag.Diagnostic{p.diagInvalidToken("case or default", tk)}
@@ -1571,7 +1639,13 @@ func (p *Parser) parseCaseClause() (*ast.CaseClause, []diag.Diagnostic) {
 		Body:    make([]ast.Stmt, 0),
 	}
 	for !cl.Default {
-		value, diags := p.parseExpr(1)
+		var value ast.Expr
+		var diags []diag.Diagnostic
+		if typeCases {
+			value, diags = p.parseType()
+		} else {
+			value, diags = p.parseExpr(1)
+		}
 		if value == nil {
 			return nil, diags
 		}
@@ -2104,9 +2178,10 @@ func (p *Parser) parseStructLit() (ast.Expr, []diag.Diagnostic) {
 	return lit, nil
 }
 
-// parsePostfix parses any number of indexes, slices and field selections
-// after x, x[i].f[j][k:], each an element, a slice or a field of what
-// comes before it.
+// parsePostfix parses any number of indexes, slices, field selections and
+// type assertions after x, x[i].f[j][k:], each an element, a slice, a field
+// of what comes before it, or a question about which type it holds,
+// x.(T) or x.(type).
 func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	for {
 		var diags []diag.Diagnostic
@@ -2114,7 +2189,11 @@ func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		case lexer.LBrack:
 			x, diags = p.parseIndex(x)
 		case lexer.Period:
-			x, diags = p.parseSelector(x)
+			if p.peekNext().Kind() == lexer.LParen {
+				x, diags = p.parseTypeAssert(x)
+			} else {
+				x, diags = p.parseSelector(x)
+			}
 		default:
 			return x, nil
 		}
@@ -2209,6 +2288,31 @@ func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		NameSpan: name.Span,
 		Span:     ast.Span{File: p.fileID, Start: p.extent(x).Start, End: name.Span.End},
 	}, nil
+}
+
+// parseTypeAssert parses a type assertion after x, from the period: x.(T),
+// with any type T, or x.(type). Which of them is allowed where, and which
+// types, is the type checker's to judge.
+func (p *Parser) parseTypeAssert(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	p.next() // the period
+	p.next() // the opening parenthesis
+	assert := &ast.TypeAssert{X: x}
+	if isKeyword(p.peek(), lexer.Type) {
+		p.next()
+	} else {
+		restore := p.allowLits(true)
+		typ, diags := p.parseType()
+		restore()
+		if typ == nil {
+			return nil, diags
+		}
+		assert.TypeExpr = typ
+	}
+	if ok, diags := p.expect(lexer.RParen); !ok {
+		return nil, diags
+	}
+	assert.Span = ast.Span{File: p.fileID, Start: p.extent(x).Start, End: p.peekPrev().OffsetEnd()}
+	return assert, nil
 }
 
 // parseCompositeLit parses an array literal: an array type, which may use
