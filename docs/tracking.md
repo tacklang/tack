@@ -121,7 +121,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `noerror`                         | yes   | yes    | yes     | yes     | Keyword, the `error` with code 0 and an empty message; a constant expression; a zeroed `tack_error` in C                                                                |
 | `c_allocator`                     | yes   | yes    | yes     | yes     | Keyword, the `Allocator` lowering to `malloc`, `realloc` and `free`; a constant expression; `TACK_C_ALLOCATOR` in C                                                     |
 | `make(list[T], alloc)`            | yes   | yes    | yes     | yes     | An empty list, which allocates nothing; the list type as written; no capacity yet                                                                                       |
-| `append(mut l, v)`                | yes   | yes    | yes     | yes     | Grows `l` through its allocator; an `error`, code 1 "out of memory", the list unchanged, when it cannot; never dropped; std's `TACK_LIST_APPEND` in C                   |
+| `append(mut l, v)`                | yes   | yes    | yes     | yes     | Variadic: any number of values, none included, or a spread view, `append(mut l, v...)`; grows `l` once through its allocator; an `error`, code 1 "out of memory", the list unchanged, all of it, when it cannot; never dropped; std's `TACK_LIST_APPEND` and `TACK_LIST_APPEND_N` in C |
+| `reserve(mut l, n)`               | yes   | yes    | yes     | yes     | Room for `n` more elements, capacity at least `len + n`, growing as append does; a negative constant `n` is a compile error; at run time code 2 "negative count", or code 1 "out of memory", the list unchanged; never dropped; std's `TACK_LIST_RESERVE` in C |
 | Evaluation order                  | n/a   | n/a    | n/a     | yes     | Left to right; the C backend holds operands in temporaries where the order could show, a variable passed as `mut` anywhere in the function counting as changeable       |
 
 ### Types
@@ -153,7 +154,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/print.c`, linked only when called |
 | `len(v)`        | yes     | yes | Arrays, strings, views and lists; known for arrays, string literals and immutable variables holding a known string, never for a view or a list, but for a slice at known bounds |
-| `make`, `append` | yes    | yes | Generic, in the compiler, described in `builtin.tck`; a list's C is `src/std/builtin/list.c`, linked for any program with a list type |
+| `make`, `append`, `reserve` | yes    | yes | Generic, in the compiler, described in `builtin.tck`; a list's C is `src/std/builtin/list.c`, linked for any program with a list type |
 | `exit(int32)`   | yes     | yes | Terminates with that status; narrower integers widen, and an `int64`, `uint32` or `uint64` needs a conversion; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called |
 
 The compiler reads the builtins from `$TACK_HOME/src/std/builtin`

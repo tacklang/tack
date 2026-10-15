@@ -40,6 +40,31 @@ var listsWant = strings.Join([]string{
 	"values evaluated once", "values in order", "order freed",
 }, " ok\n") + " ok\n"
 
+// listBulkWant is what examples/list-bulk prints when every check passes.
+var listBulkWant = strings.Join([]string{
+	"nothing live at the start", "three values", "one buffer for three", "past doubling",
+	"an exact fit when doubling is short", "one more doubles", "constants take the element type",
+	"bytes appended", "narrower values widen", "widened values", "values freed",
+	"spread an array", "spread a slice of an array", "spread a view", "spread a variadic",
+	"spread another list", "spread a slice of a list", "slice appended",
+	"spread a string's bytes", "spread a literal's bytes", "three buffers", "spreads freed",
+	"no values append nothing", "nothing allocated for nothing", "nothing after something",
+	"nothing moves no buffer", "nothing freed", "reserving nothing allocates nothing",
+	"reserve on an empty list", "appends into reserved room", "no reallocation in between",
+	"reserve doubles", "reserve doubles past what it needs",
+	"an exact fit when doubling is short, elements kept", "room already is no growth",
+	"reserve starts at 4", "reserving freed", "reserve then append grows by doubling",
+	"amortized freed", "negative reserve fails", "unchanged by a negative reserve",
+	"the smallest int64 is negative too", "negative freed", "reserve int64 max on an empty list",
+	"len plus n overflows", "len plus n is int64 max", "bytes past what a buffer holds",
+	"unchanged by huge reserves", "huge freed", "values fail together",
+	"nothing written by failed values", "nothing written by a failed spread", "failed reserve",
+	"what fits needs no allocation", "appends again", "failures on an empty list",
+	"failing freed", "values evaluated once, in order", "order freed", "a field appended to",
+	"a field's elements", "a moved struct's list appended to", "fields freed",
+	"appended in a defer", "deferred result", "deferred freed",
+}, " ok\n") + " ok\n"
+
 // externListsWant is what examples/extern-lists prints when every check
 // passes.
 var externListsWant = "appended by C ok\n" +
@@ -51,6 +76,14 @@ var externListsWant = "appended by C ok\n" +
 	"structs appended by C ok\n" +
 	"structs read in Tack ok\n" +
 	"structs freed ok\n" +
+	"reserved by C ok\n" +
+	"bulk appended by C ok\n" +
+	"C's bulk elements read in Tack, in reserved room ok\n" +
+	"negative reserve in C fails ok\n" +
+	"bulk append in C fails whole ok\n" +
+	"reserve in C fails ok\n" +
+	"spread in Tack after C ok\n" +
+	"bulk freed ok\n" +
 	"append in C fails ok\n" +
 	"nothing after a failure ok\n"
 
@@ -60,8 +93,10 @@ var externListsWant = "appended by C ok\n" +
 // live buffers shows every list freed after each check, through moves,
 // borrows, mut parameters, conditional moves, reassignment, structs
 // holding lists, defers, loops, early returns, breaks and continues, and
-// appends made to fail; and examples/extern-lists, whose C grows lists
-// through std's macros.
+// appends made to fail; examples/extern-lists, whose C grows lists
+// through std's macros; and examples/list-bulk, whose appends of several
+// values and reserves, made to fail too, grow a list once, all or
+// nothing, as its C reads the capacity to show.
 func TestBuiltListsPassesEveryCheck(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
@@ -69,6 +104,7 @@ func TestBuiltListsPassesEveryCheck(t *testing.T) {
 	for _, tc := range []struct{ name, target, want string }{
 		{"lists", example("lists"), listsWant},
 		{"extern-lists", example("extern-lists"), externListsWant},
+		{"list-bulk", example("list-bulk"), listBulkWant},
 	} {
 		for _, opt := range codegen.Opts {
 			t.Run(tc.name+"/"+string(opt), func(t *testing.T) {

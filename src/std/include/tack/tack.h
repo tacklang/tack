@@ -300,7 +300,8 @@ typedef struct {
 // null, leaving ptr and *newcap as they were, when need is negative, the
 // size of the buffer would not fit in a size_t or a ptrdiff_t, the
 // alignment is more than the allocator gives, a is no allocator, or the
-// allocator fails. TACK_LIST_APPEND calls it; nothing else should.
+// allocator fails. TACK_LIST_APPEND and TACK_LIST_RESERVE call it, and
+// TACK_LIST_APPEND_N through TACK_LIST_RESERVE; nothing else should.
 void *tack_list_grow_(void *ptr, int64_t cap, int64_t need, size_t elem, size_t align, tack_allocator a,
                       int64_t *newcap);
 
@@ -356,6 +357,55 @@ void tack_c_allocator_fail_after_(int64_t n);
         tack_lp_->ptr[tack_lp_->len++] = tack_v_; \
     } \
     tack_ok_; \
+})
+
+// TACK_LIST_RESERVE(lp, n) makes room in the list lp points to for n
+// more elements, an int64_t, growing its buffer through its allocator
+// when it has less, so that its capacity is at least its length plus n,
+// and is true; or, when n is negative, its length plus n overflows an
+// int64_t, or the buffer cannot grow, false, the list left as it was. Its
+// length and elements never change. The buffer grows as an append's
+// does, to at least double its capacity, so making room for one element
+// before each append keeps appending in amortized constant time. lp and n
+// are each evaluated once, lp first.
+#define TACK_LIST_RESERVE(lp, n) __extension__ ({ \
+    __typeof__(lp) tack_rlp_ = (lp); \
+    int64_t tack_rn_ = (n); \
+    bool tack_rok_ = tack_rn_ >= 0 && tack_rn_ <= INT64_MAX - tack_rlp_->len; \
+    if (tack_rok_ && tack_rlp_->len + tack_rn_ > tack_rlp_->cap) { \
+        int64_t tack_rcap_ = tack_rlp_->cap; \
+        void *tack_rp_ = tack_list_grow_(tack_rlp_->ptr, tack_rlp_->cap, tack_rlp_->len + tack_rn_, \
+            sizeof *tack_rlp_->ptr, _Alignof(__typeof__(*tack_rlp_->ptr)), tack_rlp_->alloc, &tack_rcap_); \
+        if (tack_rp_ == 0) { \
+            tack_rok_ = false; \
+        } else { \
+            tack_rlp_->ptr = tack_rp_; \
+            tack_rlp_->cap = tack_rcap_; \
+        } \
+    } \
+    tack_rok_; \
+})
+
+// TACK_LIST_APPEND_N(lp, src, n) appends the n elements src points to, an
+// int64_t count of a pointer to the list's element type, to the list lp
+// points to, all or none: it makes room for all of them first, as
+// TACK_LIST_RESERVE(lp, n) does, and is true; or, when it cannot, false,
+// the list left as it was, its length, capacity and elements. n of 0
+// appends nothing, allocates nothing and is true, and src may then be
+// null. lp, src and n are each evaluated once, in that order. src must
+// not point into the list's own buffer, which making room may move.
+#define TACK_LIST_APPEND_N(lp, src, n) __extension__ ({ \
+    __typeof__(lp) tack_alp_ = (lp); \
+    const __typeof__(*tack_alp_->ptr) *tack_asrc_ = (src); \
+    int64_t tack_an_ = (n); \
+    bool tack_aok_ = TACK_LIST_RESERVE(tack_alp_, tack_an_); \
+    if (tack_aok_) { \
+        for (int64_t tack_ai_ = 0; tack_ai_ < tack_an_; tack_ai_++) { \
+            tack_alp_->ptr[tack_alp_->len + tack_ai_] = tack_asrc_[tack_ai_]; \
+        } \
+        tack_alp_->len += tack_an_; \
+    } \
+    tack_aok_; \
 })
 
 #endif

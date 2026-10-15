@@ -48,6 +48,54 @@ var listAcceptCases = []struct{ name, src string }{
 		listing("err := append(mut s.items, 1)", "if err.code != 0 {", "    return 1", "}"),
 	},
 	{"append as an error value", listing("if append(mut m, 1) != noerror {", "    return 1", "}")},
+	{
+		"append several values",
+		listing("err := append(mut m, 1, i, int8(2))", "if err.code != 0 {", "    return 1", "}"),
+	},
+	{"append no values", listing("if append(mut m) != noerror {", "    return 1", "}")},
+	{
+		"append values read from the list",
+		listing("x := append(mut m, 1)", "if x.code == 0 && len(m) > 1 {",
+			"    y := append(mut m, len(m), i)", "    use(int64(y.code))", "}"),
+	},
+	{
+		"spread a borrowed list into another",
+		listing("err := append(mut m, l...)", "if err.code != 0 {", "    return 1", "}"),
+	},
+	{
+		"spread a slice of a list into another",
+		listing("if len(l) > 1 {", "    err := append(mut s.items, l[1:]...)",
+			"    if err.code != 0 {", "        return 1", "    }", "}"),
+	},
+	{
+		"spread a field into another list",
+		listing("err := append(mut m, s.items...)", "if err.code != 0 {", "    return 1", "}"),
+	},
+	{
+		"spread an array",
+		listing("a := [2]int64{1, 2}", "err := append(mut m, a[:1]...)",
+			"if err.code != 0 {", "    return 1", "}"),
+	},
+	{
+		"spread an empty view",
+		listing("a := [2]int64{1, 2}", "err := append(mut m, a[2:]...)",
+			"if err.code != 0 {", "    return 1", "}"),
+	},
+	{"reserve", listing("err := reserve(mut m, i)", "if err.code != 0 {", "    return 1", "}")},
+	{
+		"reserve a widened count in a field",
+		listing("err := reserve(mut s.items, int8(3))", "if err.code != 0 {", "    return 1", "}"),
+	},
+	{"reserve nothing", listing("if reserve(mut m, 0) != noerror {", "    return 1", "}")},
+	{
+		"reserve int64's largest",
+		listing(
+			"err := reserve(mut m, 9223372036854775807)",
+			"if err.code != 0 {",
+			"    return 1",
+			"}",
+		),
+	},
 	{"view of a list", listing("return g(l)")},
 	{"view of a slice of a list", listing("if len(l) > 1 {", "    return g(l[1:])", "}")},
 	{"len of a slice", listing("return len(m[:])")},
@@ -191,6 +239,63 @@ var listErrorCases = []struct{ name, src, want string }{
 		listing(
 			"for _, x := range m {",
 			"    err := append(mut m, x)",
+			"    if err.code != 0 {",
+			"        return 1",
+			"    }",
+			"}",
+		),
+		"m is being ranged over, so this loop cannot pass mut m",
+	},
+	{
+		"spread a list into itself",
+		listing("err := append(mut m, m...)", "if err.code != 0 {", "    return 1", "}"),
+		"cannot pass m alongside mut m in this call: a list is not copied for a call, and a mut argument must be the only way to reach m during it",
+	},
+	{
+		"spread a slice of a list into itself",
+		listing("err := append(mut m, m[:0]...)", "if err.code != 0 {", "    return 1", "}"),
+		"cannot pass m alongside mut m in this call: a list is not copied for a call, and a mut argument must be the only way to reach m during it",
+	},
+	{
+		"spread a field's list into itself",
+		listing(
+			"err := append(mut s.items, s.items[0:]...)",
+			"if err.code != 0 {",
+			"    return 1",
+			"}",
+		),
+		"cannot pass s.items alongside mut s.items in this call: a list is not copied for a call, and a mut argument must be the only way to reach s.items during it",
+	},
+	{
+		"spread a temporary list",
+		listing("err := append(mut m, make2()...)", "if err.code != 0 {", "    return 1", "}"),
+		"cannot view a temporary list; store it in a variable first",
+	},
+	{
+		"spread beside values",
+		listing("err := append(mut m, 1, l...)", "if err.code != 0 {", "    return 1", "}"),
+		"cannot use ... in a call with other values for elems",
+	},
+	{
+		"reserve a negative constant",
+		listing("err := reserve(mut m, 1 - 2)", "if err.code != 0 {", "    return 1", "}"),
+		"reserve count must not be negative, got -1",
+	},
+	{
+		"reserve dropped",
+		listing("reserve(mut m, 1)"),
+		"the error reserve returns cannot be dropped; bind it, as in err := reserve(...)",
+	},
+	{
+		"reserve a borrowed list",
+		listing("err := reserve(mut l, 1)", "if err.code != 0 {", "    return 1", "}"),
+		"cannot pass mut l: l is immutable; declare it with mut",
+	},
+	{
+		"range then reserve",
+		listing(
+			"for _, x := range m {",
+			"    err := reserve(mut m, x)",
 			"    if err.code != 0 {",
 			"        return 1",
 			"    }",

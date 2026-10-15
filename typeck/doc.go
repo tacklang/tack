@@ -463,8 +463,10 @@
 //
 // A list, list[T], is an owned, growable list, checked in list.go: make
 // makes an empty one through an Allocator, c_allocator the one there is,
-// append grows one passed as mut and returns an error that cannot be
-// dropped, and a list reads as a view does, len with a string variable's
+// append grows one passed as mut, by any number of values or a spread
+// view as a variadic takes them, reserve makes room in one passed as mut
+// for a count that is not a negative constant, each returning an error
+// that cannot be dropped, and a list reads as a view does, len with a string variable's
 // facts, a proven or checked index, range, slicing to a view and passing
 // whole to a view parameter, and can have its elements written when it is
 // mutable. Its elements are copyable, as an array's, a view's and a

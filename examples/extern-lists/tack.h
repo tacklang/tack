@@ -38,6 +38,10 @@ typedef struct {
 bool count_up(tack_list_int64 * /* l */, int64_t /* n */); // extern func countUp(mut l list[int64], n int64) bool
 void double_all(tack_list_int64 * /* l */); // extern func doubleAll(mut l list[int64])
 bool add_point(tack_list_Point * /* l */, int64_t /* x */, int64_t /* y */); // extern func addPoint(mut l list[Point], x int64, y int64) bool
+bool append_three(tack_list_int64 * /* l */, int64_t /* a */, int64_t /* b */, int64_t /* c */); // extern func appendThree(mut l list[int64], a int64, b int64, c int64) bool
+bool append_view(tack_list_int64 * /* l */, tack_view_int64 /* v */); // extern func appendView(mut l list[int64], v []int64) bool
+bool reserve_room(tack_list_int64 * /* l */, int64_t /* n */); // extern func reserveRoom(mut l list[int64], n int64) bool
+int64_t list_cap(tack_list_int64 * /* l */); // extern func capOf(mut l list[int64]) int64
 int64_t sum_view(tack_view_int64 /* v */); // extern func sumView(v []int64) int64
 int64_t extern_lists_live(void); // extern func live() int64
 void extern_lists_fail_after(int64_t /* n */); // extern func failAfter(n int64)

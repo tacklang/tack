@@ -184,8 +184,9 @@ func mutated(body []ast.Stmt) map[ast.Decl]bool {
 
 // callsFunc reports whether evaluating e calls a Tack function, or
 // append, which grows a list and so changes what reading it gives. Any
-// other builtin in an expression is len or make, which have no effect,
-// and a conversion is not a call.
+// other builtin in an expression is len or make, which have no effect, or
+// reserve, whose effect, a larger or moved buffer, changes nothing a read
+// of the list gives, and a conversion is not a call.
 func callsFunc(e ast.Expr) bool {
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {

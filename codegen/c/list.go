@@ -2,6 +2,7 @@ package c
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
@@ -61,24 +62,50 @@ func listName(typ types.Type) string {
 	return fmt.Sprintf("tack_list_%d", typ)
 }
 
-// outOfMemory is the message of the error append gives when the
-// allocator cannot grow the list.
+// outOfMemory is the message of the error append and reserve give when
+// the allocator cannot grow the list, or the length it would have
+// overflows.
 const outOfMemory = "out of memory"
 
 // outOfMemoryCode is the code of that error.
 const outOfMemoryCode = 1
 
-// usesAppend reports whether the program calls append anywhere, so the
-// message of its error is pooled.
-func (g *generator) usesAppend() bool {
-	found := false
+// negativeCount is the message of the error reserve gives for a negative
+// count.
+const negativeCount = "negative count"
+
+// negativeCountCode is the code of that error.
+const negativeCountCode = 2
+
+// listErrors returns the messages of the errors the program's calls to
+// append and reserve can give, so they are pooled: out of memory for
+// either, and negative count for a reserve whose count is not a constant,
+// which the checker has made sure is not negative.
+func (g *generator) listErrors() []string {
+	grows, negative := false, false
 	g.walk(func(n ast.Node) bool {
-		if call, ok := n.(*ast.Call); ok && isBuiltin(call, "append") {
-			found = true
+		if call, ok := n.(*ast.Call); ok {
+			reserves := isBuiltin(call, "reserve")
+			grows = grows || reserves || isBuiltin(call, "append")
+			negative = negative || reserves && !g.constCount(call)
 		}
-		return !found
+		return !negative
 	})
-	return found
+	switch {
+	case negative:
+		return []string{outOfMemory, negativeCount}
+	case grows:
+		return []string{outOfMemory}
+	default:
+		return nil
+	}
+}
+
+// constCount reports whether the count of call, a call to reserve, is a
+// constant, which the checker has made sure is not negative.
+func (g *generator) constCount(call *ast.Call) bool {
+	_, ok := g.literal(call.Args[1])
+	return ok
 }
 
 // isBuiltin reports whether call calls the generic builtin named name,
@@ -102,11 +129,22 @@ func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
 	return fmt.Sprintf("((%s){.alloc = %s})", listName(call.Type), alloc), nil
 }
 
-// appendValue renders err := append(mut l, v) as std's TACK_LIST_APPEND
-// on the address of l's place, which evaluates the place and then v once
-// each, in that order, and its result as an error: none, or code 1 with
+// listError renders the error code and message, a pooled string, make.
+func (g *generator) listError(code int, msg string) string {
+	label := g.strLabel(msg)
+	return fmt.Sprintf("(tack_error){%d, {%s, TACK_C_STR_LEN(%s)}}", code, label, label)
+}
+
+// appendValue renders err := append(mut l, ...) as one of std's macros on
+// the address of l's place, its result as an error: none, or code 1 with
 // the message "out of memory" when the buffer could not grow, which
-// leaves the list as it was.
+// leaves the list as it was. One value is TACK_LIST_APPEND(lp, v); any
+// other number, none included, is TACK_LIST_APPEND_N(lp, src, n) of a
+// compound literal array of them, (const T[n]){a, b, c}, or a null
+// pointer for none; and a spread view is held in a temporary, so it is
+// evaluated once, and TACK_LIST_APPEND_N given its pointer and length.
+// The place and the values are operands evaluated left to right (see
+// sequenced), the place first.
 func (g *generator) appendValue(call *ast.Call) (string, []diag.Diagnostic) {
 	m, ok := call.Args[0].(*ast.MutArg)
 	if !ok {
@@ -116,24 +154,121 @@ func (g *generator) appendValue(call *ast.Call) (string, []diag.Diagnostic) {
 			Span:     call.Args[0].Spanned(),
 		}}
 	}
-	place, diags := g.mutArg(m)
+	rendered, ctypes, diags := g.appendOperands(call, m)
 	if len(diags) > 0 {
 		return "", diags
 	}
 	elem := g.prog.Types.Elem(ast.TypeOf(m.X))
-	v, diags := g.expr(call.Args[1], elem)
+	build := func(ops []string) string {
+		return g.appendBuild(call, elem, ops)
+	}
+	return fmt.Sprintf("(%s ? %s : %s)",
+		g.sequencedAs(call.Args, rendered, ctypes, build),
+		g.zeroValue(types.Error), g.listError(outOfMemoryCode, outOfMemory)), nil
+}
+
+// appendOperands renders the arguments of call, a call to append whose
+// list m is, and gives the C type of a temporary holding each: the
+// list's address, then each value as the element type, or the view a
+// spread gives (see viewArg).
+func (g *generator) appendOperands(
+	call *ast.Call,
+	m *ast.MutArg,
+) ([]string, []string, []diag.Diagnostic) {
+	place, diags := g.mutArg(m)
+	if len(diags) > 0 {
+		return nil, nil, diags
+	}
+	rendered, ctypes := []string{place}, []string{g.operandType(m)}
+	elem := g.prog.Types.Elem(ast.TypeOf(m.X))
+	for _, arg := range call.Args[1:] {
+		var v, ctype string
+		if call.Spread {
+			view := g.prog.Types.View(elem)
+			v, diags = g.viewArg(arg, view, call)
+			ctype = viewName(view)
+		} else {
+			v, diags = g.expr(arg, elem)
+			ctype = g.operandType(arg)
+		}
+		if len(diags) > 0 {
+			return nil, nil, diags
+		}
+		rendered, ctypes = append(rendered, v), append(ctypes, ctype)
+	}
+	return rendered, ctypes, nil
+}
+
+// appendBuild renders the macro call append lowers to, given its
+// operands, ops, evaluated in order already where that shows: the list's
+// address, then the values or the spread view, of a list of elem.
+func (g *generator) appendBuild(call *ast.Call, elem types.Type, ops []string) string {
+	lp, values := ops[0], ops[1:]
+	switch {
+	case call.Spread:
+		t := g.temp("v")
+		view := g.prog.Types.View(elem)
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", viewName(view), t))
+		return fmt.Sprintf(
+			"(%s = %s, TACK_LIST_APPEND_N(%s, %s.ptr, %s.len))",
+			t,
+			values[0],
+			lp,
+			t,
+			t,
+		)
+	case len(values) == 1:
+		return fmt.Sprintf("TACK_LIST_APPEND(%s, %s)", lp, values[0])
+	case len(values) == 0:
+		return fmt.Sprintf("TACK_LIST_APPEND_N(%s, 0, 0)", lp)
+	default:
+		return fmt.Sprintf("TACK_LIST_APPEND_N(%s, ((const %s[%d]){%s}), %d)",
+			lp, g.cType(elem), len(values), strings.Join(values, ", "), len(values))
+	}
+}
+
+// reserveValue renders err := reserve(mut l, n) as std's
+// TACK_LIST_RESERVE on the address of l's place, after n is found not to
+// be negative, which is the error code 2 with the message "negative
+// count", and the list left as it was. Its result is otherwise an error
+// as append's is: none, or code 1, "out of memory", when the buffer could
+// not grow or len + n overflows, which leaves the list as it was. n is
+// read twice, so it is held in a temporary first unless it is pure; a
+// constant n, which the checker has made sure is not negative, is not
+// tested.
+func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
+	m, ok := call.Args[0].(*ast.MutArg)
+	if !ok {
+		return "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "reserve's list must be passed as mut",
+			Span:     call.Args[0].Spanned(),
+		}}
+	}
+	place, diags := g.mutArg(m)
 	if len(diags) > 0 {
 		return "", diags
 	}
-	label := g.strLabel(outOfMemory)
-	failed := fmt.Sprintf(
-		"(tack_error){%d, {%s, TACK_C_STR_LEN(%s)}}",
-		outOfMemoryCode,
-		label,
-		label,
-	)
-	return fmt.Sprintf("(TACK_LIST_APPEND(%s, %s) ? %s : %s)",
-		place, v, g.zeroValue(types.Error), failed), nil
+	n, diags := g.expr(call.Args[1], types.Int64)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	none, oom := g.zeroValue(types.Error), g.listError(outOfMemoryCode, outOfMemory)
+	build := func(ops []string) string {
+		if g.constCount(call) {
+			return fmt.Sprintf("(TACK_LIST_RESERVE(%s, %s) ? %s : %s)", ops[0], ops[1], none, oom)
+		}
+		count, hold := ops[1], ""
+		if !g.pure(call.Args[1]) {
+			count = g.temp("n")
+			g.frame.temps = append(g.frame.temps, fmt.Sprintf("int64_t %s;", count))
+			hold = fmt.Sprintf("%s = %s, ", count, ops[1])
+		}
+		return fmt.Sprintf("(%s%s < 0 ? %s : TACK_LIST_RESERVE(%s, %s) ? %s : %s)",
+			hold, count, g.listError(negativeCountCode, negativeCount), ops[0], count, none, oom)
+	}
+	return g.sequencedAs(call.Args, []string{place, n},
+		[]string{g.operandType(m), "int64_t"}, build), nil
 }
 
 // moveValue renders a name the type checker marked as moved, whose

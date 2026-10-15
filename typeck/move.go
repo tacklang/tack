@@ -681,12 +681,15 @@ func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 }
 
 // callParams says, for each argument of call, whether it is passed to a
-// view parameter, or spread into a variadic one, where viewArg checks a
-// list that is not a place.
+// view parameter, or spread into a variadic one, append's included, where
+// viewArg checks a list that is not a place.
 func (m *mover) callParams(call *ast.Call) []bool {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil
+	}
+	if isAppend(call) {
+		return appendViews(call)
 	}
 	fn, ok := id.Def.(*ast.Func)
 	if !ok || fn == nil {
@@ -699,6 +702,16 @@ func (m *mover) callParams(call *ast.Call) []bool {
 		}
 		p := fn.Params[i]
 		views[i] = m.c.table.IsView(p.Type) && (!p.Variadic || call.Spread)
+	}
+	return views
+}
+
+// appendViews says, for each argument of call, a call to append, whether
+// it is a view: only a spread, its last argument, is.
+func appendViews(call *ast.Call) []bool {
+	views := make([]bool, len(call.Args))
+	if call.Spread && len(call.Args) > 0 {
+		views[len(call.Args)-1] = true
 	}
 	return views
 }

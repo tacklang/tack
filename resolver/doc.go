@@ -52,8 +52,8 @@
 // one is never read or assigned as a name. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree. The builtins are those of the builtin.Set New
-// is given, which std/builtin declares, and the generic ones, len, make
-// and append.
+// is given, which std/builtin declares, and the generic ones, len, make,
+// append and reserve.
 //
 // Package-level variables and types share one namespace with functions and
 // builtins, and form the outermost scope, enclosing every function, so a

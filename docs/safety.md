@@ -1098,7 +1098,8 @@ into one is proven as one into a string parameter is, against `len(l)`,
 by a guard, a range loop or an early exit, or read with the checked
 form. A fact about `len(l)` holds in a region that never assigns `l`,
 passes it as `mut` or moves it; `append(mut l, v)` passes it as `mut`,
-so it ends the proof:
+so it ends the proof, as `reserve(mut l, n)` does, though it changes no
+length:
 
 <!-- case: list-len-dropped-by-append -->
 ```tack
@@ -1178,7 +1179,14 @@ never copied for a call, so an argument that reads one in place, a list
 or a struct holding one borrowed by a plain parameter, or viewed by a
 view parameter, cannot overlap a place the same call passes as `mut`:
 <!-- error: list-borrow-alongside-mut -->`cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it`,
-a call nested in the arguments included. A range loop walks the list
+a call nested in the arguments included. A list spread into an append
+to itself, or a slice of it, is such a view, through a struct's field
+too:
+<!-- error: list-append-spread-self-field -->`cannot pass s.items alongside mut s.items in this call: a list is not copied for a call, and a mut argument must be the only way to reach s.items during it`.
+An append or a reserve that cannot grow the buffer changes nothing: it
+grows once, to the final length, before writing anything, so its error
+leaves the list's length, capacity and elements as they were, which
+`examples/list-bulk` checks through its C. A range loop walks the list
 itself, so its body cannot grow, assign or move it:
 <!-- error: move-range-append -->`l is being ranged over, so this loop cannot pass mut l`.
 No global holds a list and no reference is ever stored, so a callee

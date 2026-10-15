@@ -6249,11 +6249,30 @@ func main() {
 stage: typeck
 ---
 
-list-append-mut-value/main.tck:6:26: error: append does not take v as mut; pass x
+list-append-mut-value/main.tck:6:26: error: append does not take x as mut; pass x
 05 |	    mut x int64 = 1
 06 |	    err := append(mut l, mut x)
    |	                         ^~~~~
 07 |	    if err.code != 0 {
+
+-- list-append-no-args/main.tck --
+package main
+
+func main() {
+    err := append()
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-no-args/expected --
+stage: typeck
+---
+
+list-append-no-args/main.tck:4:12: error: append expects at least 1 argument(s), got 0
+03 |	func main() {
+04 |	    err := append()
+   |	           ^~~~~~~~
+05 |	    if err.code != 0 {
 
 -- list-append-no-mut/main.tck --
 package main
@@ -6319,6 +6338,331 @@ list-append-param/main.tck:4:19: error: cannot pass mut l: l is immutable; decla
    |	                  ^~~~~
 05 |	}
 
+-- list-append-spread-beside-values/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a := [2]int64{1, 2}
+    err := append(mut l, 1, a...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-beside-values/expected --
+stage: typeck
+---
+
+list-append-spread-beside-values/main.tck:6:26: error: cannot use ... in a call with other values for elems
+05 |	    a := [2]int64{1, 2}
+06 |	    err := append(mut l, 1, a...)
+   |	                         ^~~~~~~
+07 |	    if err.code != 0 {
+
+-- list-append-spread-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a := [2]int64{1, 2}
+    append(mut l, a...)
+}
+-- list-append-spread-dropped/expected --
+stage: typeck
+---
+
+list-append-spread-dropped/main.tck:6:5: error: the error append returns cannot be dropped; bind it, as in err := append(...)
+05 |	    a := [2]int64{1, 2}
+06 |	    append(mut l, a...)
+   |	    ^~~~~~~~~~~~~~~~~~~
+07 |	}
+
+-- list-append-spread-elem-type/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a := [2]int32{1, 2}
+    err := append(mut l, a...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-elem-type/expected --
+stage: typeck
+---
+
+list-append-spread-elem-type/main.tck:6:26: error: cannot use [2]int32 as []int64 in argument to append
+05 |	    a := [2]int32{1, 2}
+06 |	    err := append(mut l, a...)
+   |	                         ^
+07 |	    if err.code != 0 {
+
+-- list-append-spread-moved/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    m := make(list[int64], c_allocator)
+    n := m
+    err := append(mut l, m...)
+    if err.code != 0 {
+        return
+    }
+    if len(n) > 0 {
+        return
+    }
+}
+-- list-append-spread-moved/expected --
+stage: typeck
+---
+
+list-append-spread-moved/main.tck:7:26: error: m is used after it was moved
+06 |	    n := m
+07 |	    err := append(mut l, m...)
+   |	                         ^
+08 |	    if err.code != 0 {
+list-append-spread-moved/main.tck:6:10: note: m is moved here
+05 |	    m := make(list[int64], c_allocator)
+06 |	    n := m
+   |	         ^
+07 |	    err := append(mut l, m...)
+
+-- list-append-spread-mut/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut a := [2]int64{1, 2}
+    err := append(mut l, mut a...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-mut/expected --
+stage: typeck
+---
+
+list-append-spread-mut/main.tck:6:26: error: append does not take a as mut; pass a
+05 |	    mut a := [2]int64{1, 2}
+06 |	    err := append(mut l, mut a...)
+   |	                         ^~~~~
+07 |	    if err.code != 0 {
+
+-- list-append-spread-not-list/main.tck --
+package main
+
+func main() {
+    mut a [3]uint8
+    s := "abc"
+    err := append(mut a, []uint8(s)...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-not-list/expected --
+stage: typeck
+---
+
+list-append-spread-not-list/main.tck:6:23: error: append expects a list, got [3]uint8
+05 |	    s := "abc"
+06 |	    err := append(mut a, []uint8(s)...)
+   |	                      ^
+07 |	    if err.code != 0 {
+
+-- list-append-spread-only/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    err := append(l...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-only/expected --
+stage: typeck
+---
+
+list-append-spread-only/main.tck:5:12: error: append expects 1 argument(s) before l..., got 0
+04 |	    l := make(list[int64], c_allocator)
+05 |	    err := append(l...)
+   |	           ^~~~~~~~~~~~
+06 |	    if err.code != 0 {
+
+-- list-append-spread-self/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, l...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-self/expected --
+stage: typeck
+---
+
+list-append-spread-self/main.tck:5:26: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, l...)
+   |	                         ^
+06 |	    if err.code != 0 {
+list-append-spread-self/main.tck:5:19: note: passed as mut here
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, l...)
+   |	                  ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-append-spread-self-field/main.tck --
+package main
+
+type Stack struct {
+    items list[int64]
+    seed  [2]int64
+}
+
+func grow(mut s Stack) error {
+    return append(mut s.items, s.items...)
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator), seed: [2]int64{1, 2}}
+    err := grow(mut s)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-self-field/expected --
+stage: typeck
+---
+
+list-append-spread-self-field/main.tck:9:32: error: cannot pass s.items alongside mut s.items in this call: a list is not copied for a call, and a mut argument must be the only way to reach s.items during it
+08 |	func grow(mut s Stack) error {
+09 |	    return append(mut s.items, s.items...)
+   |	                               ^~~~~~~
+10 |	}
+list-append-spread-self-field/main.tck:9:19: note: passed as mut here
+08 |	func grow(mut s Stack) error {
+09 |	    return append(mut s.items, s.items...)
+   |	                  ^~~~~~~~~~~
+10 |	}
+
+-- list-append-spread-self-slice/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    e := append(mut l, 1, 2)
+    if e.code != 0 || len(l) < 2 {
+        return
+    }
+    err := append(mut l, l[1:]...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-self-slice/expected --
+stage: typeck
+---
+
+list-append-spread-self-slice/main.tck:9:28: error: slice bound 1 may be out of range; check len(l) >= 1 first
+08 |	    }
+09 |	    err := append(mut l, l[1:]...)
+   |	                           ^~
+10 |	    if err.code != 0 {
+list-append-spread-self-slice/main.tck:6:5: note: this early exit proves len(l) >= 2 after it
+05 |	    e := append(mut l, 1, 2)
+06 |	    if e.code != 0 || len(l) < 2 {
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	        return
+list-append-spread-self-slice/main.tck:9:19: note: but l is passed as mut to append here, so the proof ends
+08 |	    }
+09 |	    err := append(mut l, l[1:]...)
+   |	                  ^~~~~
+10 |	    if err.code != 0 {
+
+list-append-spread-self-slice/main.tck:9:26: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+08 |	    }
+09 |	    err := append(mut l, l[1:]...)
+   |	                         ^~~~~
+10 |	    if err.code != 0 {
+list-append-spread-self-slice/main.tck:9:19: note: passed as mut here
+08 |	    }
+09 |	    err := append(mut l, l[1:]...)
+   |	                  ^~~~~
+10 |	    if err.code != 0 {
+
+-- list-append-spread-string/main.tck --
+package main
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    s := "abc"
+    err := append(mut b, s...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-string/expected --
+stage: typeck
+---
+
+list-append-spread-string/main.tck:6:26: error: cannot use string as []uint8 in argument to append; view its bytes with []uint8(s)
+05 |	    s := "abc"
+06 |	    err := append(mut b, s...)
+   |	                         ^
+07 |	    if err.code != 0 {
+
+-- list-append-spread-temporary-array/main.tck --
+package main
+
+func pair() [2]int64 {
+    return [2]int64{1, 2}
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, pair()...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-temporary-array/expected --
+stage: typeck
+---
+
+list-append-spread-temporary-array/main.tck:9:26: error: cannot view a temporary array; store it in a variable first
+08 |	    mut l := make(list[int64], c_allocator)
+09 |	    err := append(mut l, pair()...)
+   |	                         ^~~~~~
+10 |	    if err.code != 0 {
+
+-- list-append-spread-temporary-list/main.tck --
+package main
+
+func fresh() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, fresh()...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-spread-temporary-list/expected --
+stage: typeck
+---
+
+list-append-spread-temporary-list/main.tck:9:26: error: cannot view a temporary list; store it in a variable first
+08 |	    mut l := make(list[int64], c_allocator)
+09 |	    err := append(mut l, fresh()...)
+   |	                         ^~~~~~~
+10 |	    if err.code != 0 {
+
 -- list-append-two-results/main.tck --
 package main
 
@@ -6338,6 +6682,46 @@ list-append-two-results/main.tck:5:5: error: assignment mismatch: 2 variables bu
 05 |	    a, b := append(mut l, 1)
    |	    ^~~~~~~~~~~~~~~~~~~~~~~~
 06 |	    if a.code != 0 || b.code != 0 {
+
+-- list-append-values-elem-type/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1, "two", 3)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-values-elem-type/expected --
+stage: typeck
+---
+
+list-append-values-elem-type/main.tck:5:29: error: cannot use string as int64 in argument to append
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, 1, "two", 3)
+   |	                            ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-append-values-overflow/main.tck --
+package main
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    err := append(mut b, 1, 256)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-values-overflow/expected --
+stage: typeck
+---
+
+list-append-values-overflow/main.tck:5:29: error: constant 256 overflows uint8
+04 |	    mut b := make(list[uint8], c_allocator)
+05 |	    err := append(mut b, 1, 256)
+   |	                            ^~~
+06 |	    if err.code != 0 {
 
 -- list-array-of-lists/main.tck --
 package main
@@ -6915,6 +7299,385 @@ list-read-before-error-check/main.tck:10:12: error: l cannot be read before err 
 10 |	    if len(l) > 0 {
    |	           ^
 11 |	        print("y")
+
+-- list-reserve-count-overflow/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, 9223372036854775808)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-count-overflow/expected --
+stage: typeck
+---
+
+list-reserve-count-overflow/main.tck:5:27: error: constant 9223372036854775808 overflows int64
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, 9223372036854775808)
+   |	                          ^~~~~~~~~~~~~~~~~~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-count-string/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, "3")
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-count-string/expected --
+stage: typeck
+---
+
+list-reserve-count-string/main.tck:5:27: error: cannot use string as int64 in argument to reserve
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, "3")
+   |	                          ^~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-count-type/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    var n uint64 = 3
+    err := reserve(mut l, n)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-count-type/expected --
+stage: typeck
+---
+
+list-reserve-count-type/main.tck:6:27: error: cannot use uint64 as int64 in argument to reserve
+05 |	    var n uint64 = 3
+06 |	    err := reserve(mut l, n)
+   |	                          ^
+07 |	    if err.code != 0 {
+
+-- list-reserve-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    reserve(mut l, 1)
+}
+-- list-reserve-dropped/expected --
+stage: typeck
+---
+
+list-reserve-dropped/main.tck:5:5: error: the error reserve returns cannot be dropped; bind it, as in err := reserve(...)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    reserve(mut l, 1)
+   |	    ^~~~~~~~~~~~~~~~~
+06 |	}
+
+-- list-reserve-ends-len-fact/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    e := append(mut l, 1)
+    if e.code != 0 || len(l) == 0 {
+        return
+    }
+    err := reserve(mut l, 1)
+    if err.code != 0 {
+        return
+    }
+    if l[0] == 1 {
+        return
+    }
+}
+-- list-reserve-ends-len-fact/expected --
+stage: typeck
+---
+
+list-reserve-ends-len-fact/main.tck:13:10: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+12 |	    }
+13 |	    if l[0] == 1 {
+   |	         ^
+14 |	        return
+list-reserve-ends-len-fact/main.tck:6:5: note: this early exit proves len(l) != 0 after it
+05 |	    e := append(mut l, 1)
+06 |	    if e.code != 0 || len(l) == 0 {
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	        return
+list-reserve-ends-len-fact/main.tck:9:20: note: but l is passed as mut to reserve here, so the proof ends
+08 |	    }
+09 |	    err := reserve(mut l, 1)
+   |	                   ^~~~~
+10 |	    if err.code != 0 {
+
+-- list-reserve-immutable/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    err := reserve(mut l, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-immutable/expected --
+stage: typeck
+---
+
+list-reserve-immutable/main.tck:5:20: error: cannot pass mut l: l is immutable; declare it with mut
+04 |	    l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, 1)
+   |	                   ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-mut-count/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut n int64 = 3
+    err := reserve(mut l, mut n)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-mut-count/expected --
+stage: typeck
+---
+
+list-reserve-mut-count/main.tck:6:27: error: reserve does not take n as mut; pass n
+05 |	    mut n int64 = 3
+06 |	    err := reserve(mut l, mut n)
+   |	                          ^~~~~
+07 |	    if err.code != 0 {
+
+-- list-reserve-negative/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, -1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-negative/expected --
+stage: typeck
+---
+
+list-reserve-negative/main.tck:5:27: error: reserve count must not be negative, got -1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, -1)
+   |	                          ^~
+06 |	    if err.code != 0 {
+
+-- list-reserve-negative-expr/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, 2 - 5)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-negative-expr/expected --
+stage: typeck
+---
+
+list-reserve-negative-expr/main.tck:5:27: error: reserve count must not be negative, got -3
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, 2 - 5)
+   |	                          ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-negative-known/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    n := -4
+    err := reserve(mut l, n)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-negative-known/expected --
+stage: typeck
+---
+
+list-reserve-negative-known/main.tck:6:27: error: reserve count must not be negative, got -4
+05 |	    n := -4
+06 |	    err := reserve(mut l, n)
+   |	                          ^
+07 |	    if err.code != 0 {
+
+-- list-reserve-no-mut/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(l, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-no-mut/expected --
+stage: typeck
+---
+
+list-reserve-no-mut/main.tck:5:20: error: reserve takes l as mut; pass mut l
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(l, 1)
+   |	                   ^
+06 |	    if err.code != 0 {
+
+-- list-reserve-not-list/main.tck --
+package main
+
+func main() {
+    mut a [3]int64
+    err := reserve(mut a, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-not-list/expected --
+stage: typeck
+---
+
+list-reserve-not-list/main.tck:5:24: error: reserve expects a list, got [3]int64
+04 |	    mut a [3]int64
+05 |	    err := reserve(mut a, 1)
+   |	                       ^
+06 |	    if err.code != 0 {
+
+-- list-reserve-one-arg/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-one-arg/expected --
+stage: typeck
+---
+
+list-reserve-one-arg/main.tck:5:12: error: reserve expects 2 argument(s), got 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l)
+   |	           ^~~~~~~~~~~~~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-ranged/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    for _, x := range l {
+        err := reserve(mut l, x)
+        if err.code != 0 {
+            return
+        }
+    }
+}
+-- list-reserve-ranged/expected --
+stage: typeck
+---
+
+list-reserve-ranged/main.tck:6:28: error: l is being ranged over, so this loop cannot pass mut l
+05 |	    for _, x := range l {
+06 |	        err := reserve(mut l, x)
+   |	                           ^
+07 |	        if err.code != 0 {
+
+-- list-reserve-redeclared/main.tck --
+package main
+
+func reserve() {
+}
+
+func main() {
+    reserve()
+}
+-- list-reserve-redeclared/expected --
+stage: resolve
+---
+
+list-reserve-redeclared/main.tck:3:6: error: duplicate declaration of builtin function
+02 |	
+03 |	func reserve() {
+   |	     ^~~~~~~
+04 |	}
+
+-- list-reserve-spread/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a := [1]int64{1}
+    err := reserve(mut l, a...)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-spread/expected --
+stage: typeck
+---
+
+list-reserve-spread/main.tck:6:28: error: cannot use ... in a call to non-variadic reserve
+05 |	    a := [1]int64{1}
+06 |	    err := reserve(mut l, a...)
+   |	                           ^~~
+07 |	    if err.code != 0 {
+
+-- list-reserve-three-args/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, 1, 2)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-reserve-three-args/expected --
+stage: typeck
+---
+
+list-reserve-three-args/main.tck:5:12: error: reserve expects 2 argument(s), got 3
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, 1, 2)
+   |	           ^~~~~~~~~~~~~~~~~~~~
+06 |	    if err.code != 0 {
+
+-- list-reserve-two-results/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a, b := reserve(mut l, 1)
+    if a.code != 0 || b.code != 0 {
+        return
+    }
+}
+-- list-reserve-two-results/expected --
+stage: typeck
+---
+
+list-reserve-two-results/main.tck:5:5: error: assignment mismatch: 2 variables but reserve returns 1 value
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    a, b := reserve(mut l, 1)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	    if a.code != 0 || b.code != 0 {
 
 -- list-reserved-c-name/main.tck --
 package main

@@ -295,6 +295,29 @@ rules already there, rather than decided, and could go another way:
   whose every append fails, would need no rule. It has no `==`. It is a
   constant expression, so an immutable global may hold `c_allocator`.
 - A failed append's error is `error{code: 1, msg: "out of memory"}`.
+- append is a variadic, `append(mut l list[T], elems ...T)`, under the
+  variadic rules exactly; the name `elems`, which a diagnostic about a
+  spread beside values names, is Go's. A mut value is `append does not
+  take x as mut; pass x`, as for any function, where it said `v` before.
+- A failed reserve's errors are `error{code: 1, msg: "out of memory"}`,
+  as append's, when the allocator cannot grow the buffer or `len + n`
+  overflows, and `error{code: 2, msg: "negative count"}` for a negative
+  `n` at run time: a failure of its own, with the next code. The
+  negative case is tested first, so a negative `n` never reaches the
+  allocator. A negative `n` the checker knows, a constant or an
+  immutable local holding one, is `reserve count must not be negative,
+  got -1`, worded as an array length's is.
+- reserve grows as append does, to at least double the capacity, from 4,
+  and to exactly `len + n` when doubling falls short, rather than to
+  exactly `len + n` always: reserving one element before each of many
+  appends, as code building text does, then stays amortized constant
+  time, where an exact reserve would move the buffer at every append.
+  This is Rust's `Vec::reserve` and Go's `slices.Grow`; an exact
+  reserve, Rust's `reserve_exact`, is not there.
+- An append of several values, or of a spread, and a reserve, grow the
+  buffer once, to the final length, and never call the allocator when
+  there is room already, or when nothing is appended or reserved, so an
+  empty list stays unallocated. A spread view's length is read once.
 - A list's capacity grows from 4 by doubling, then to exactly what is
   needed when doubling would not fit, and never past what fits a `size_t`
   and a `ptrdiff_t`; `tack_list_grow_` fails, rather than wraps, beyond.
@@ -334,7 +357,8 @@ rules already there, rather than decided, and could go another way:
   or as a result, a list or anything holding one is an error.
 - A list, or a struct holding one, cannot be a global, mutable or not.
 - `len(l)`'s facts end at an assignment of `l`, a `mut` argument of it,
-  `append` included, or a move; writing an element of a list ends no
+  `append` and `reserve` included, though `reserve` changes no length, or
+  a move; writing an element of a list ends no
   fact about any variable, since no element of a list is a subject.
 - A variable that holds a list is never `const` in C. The C names are
   `tack_list_<id>` in the generated source and `tack_list_<element>` in

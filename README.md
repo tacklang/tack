@@ -235,8 +235,8 @@ extern("tack_builtin_exit") func exit(code int32)
 Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
 types, none `mut` or variadic (`parameter xs of builtin p cannot be
-variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make` or
-`append`, `main` or `_`. Anything
+variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make`,
+`append` or `reserve`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -262,8 +262,8 @@ includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
 that calls neither builtin, and has no list, links neither body and none
 of the C library they call. A target without a C library needs only different bodies.
 
-`len`, `make` and `append` are generic, so no Tack declaration can
-describe them: the compiler implements them itself, and `builtin.tck`
+`len`, `make`, `append` and `reserve` are generic, so no Tack
+declaration can describe them: the compiler implements them itself, and `builtin.tck`
 describes them in comments. A program with lists also links `list.c`,
 the one C file of `std/builtin` that is no builtin's body: it holds the
 functions that grow and free a list's buffer, which the generated C
@@ -637,7 +637,8 @@ makes for itself, which has a letter after `tack_`.
   an array on the caller's stack, built for the call, and the parameter
   the view of it, `tack_view_<T>`, with a null pointer and a length of 0
   for no values. An extern func may take one (see extern C); a builtin
-  may not. An `...any`'s values are `any`s: `for _, v := range args` and
+  may not, but the generic `append` is one, `append(mut l list[T], elems
+  ...T)`, under these rules exactly (see lists). An `...any`'s values are `any`s: `for _, v := range args` and
   `v, ok := args[i]` declare immutable `any` locals, and `switch v :=
   args[i].(type)` asks which type one holds (see any and type switches).
 - `any`. A parameter `a any` takes a value of any basic type, an integer
@@ -828,14 +829,40 @@ makes for itself, which has a letter after `tack_`.
   is. `make(list[T], alloc)` makes an empty one, which allocates nothing
   and cannot fail, and grows through `alloc`, an `Allocator` (see
   allocators). `err := append(mut l, v)` adds `v`, of a type that is or
-  widens to `T`, at the end, growing the buffer when it is full; when the
-  allocator cannot grow it, the error is `error{code: 1, msg: "out of
-  memory"}` and `l` is left as it was. Its error follows the three error
-  rules: `append(mut l, 1)` alone is `the error append returns cannot be
-  dropped; bind it, as in err := append(...)`. The list is passed as
-  `mut`, so it must be a mutable local, a `mut` parameter or a field of
-  one: `append(l, 1)` is `append takes l as mut; pass mut l`, and
-  anything but a list `append expects a list, got [3]int64`. `make`
+  widens to `T`, at the end, growing the buffer when it is full. append
+  is variadic, `append(mut l list[T], elems ...T)`, under the variadic
+  rules exactly (see variadics): it takes any number of values, `err :=
+  append(mut l, a, b, c)`, each used as a `T`, an untyped constant taking
+  `T`, or none, `append(mut l)`, which does nothing; or a view spread
+  whole, `err := append(mut l, v...)`, of what a `[]T` parameter takes, a
+  view, an array place, a slice, another list, or `[]uint8(s)` for a
+  `list[uint8]`, never a string itself, `cannot use string as []uint8 in
+  argument to append; view its bytes with []uint8(s)`, and never beside
+  values, `cannot use ... in a call with other values for elems`. It
+  grows the buffer once, to the final length, before writing anything,
+  so it adds all of them or none: when the allocator cannot grow it, or
+  the length would overflow an `int64`, the error is `error{code: 1,
+  msg: "out of memory"}` and `l` is left as it was, its length, its
+  capacity and its elements. Spreading `l` into its own append, `append(mut
+  l, l...)` or `append(mut l, l[1:]...)`, is the borrow rule below,
+  `cannot pass l alongside mut l in this call: ...`, as it is through a
+  struct's field. `err := reserve(mut l, n)` makes room for `n` more
+  elements, an `int64`, so the capacity is at least `len(l) + n`, without
+  changing the length or the elements, growing as an append does, to at
+  least double the capacity, so reserving one element before each append
+  still appends in amortized constant time; `n` of 0 does nothing. A
+  negative constant `n` is `reserve count must not be negative, got -1`;
+  a negative `n` at run time is the error `error{code: 2, msg: "negative
+  count"}`, and one the allocator cannot make room for, or that
+  overflows the length, `error{code: 1, msg: "out of memory"}`, each
+  leaving `l` as it was. Tack has no way to read the capacity. The
+  errors of both follow the three error rules: `append(mut l, 1)` alone
+  is `the error append returns cannot be dropped; bind it, as in err :=
+  append(...)`, and `reserve(mut l, 1)` the same for reserve. The list is
+  passed as `mut`, so it must be a mutable local, a `mut` parameter or a
+  field of one: `append(l, 1)` is `append takes l as mut; pass mut l`,
+  and anything but a list `append expects a list, got [3]int64`, and the
+  same for reserve. `make`
   takes the list type as written, `make takes a list type, as in
   make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
   argument(s), got 3`; a list type anywhere else a value is wanted is
@@ -844,7 +871,7 @@ makes for itself, which has a letter after `tack_`.
   only arrays and structs can`. A list reads as a view does: `len(l)`, an
   `int64` with the facts a string variable's length has (see indexing a
   string), which hold in a region that never assigns `l`, passes it as
-  `mut`, `append` included, or moves it, though writing an element ends
+  `mut`, `append` and `reserve` included, or moves it, though writing an element ends
   none; `l[i]` with `i` proven in range against `len(l)`, or the checked
   form `v, ok := l[i]`; every range form, `for i, x := range l`, whose
   index is proven for `l`; slicing, `l[i:j]`, to a view, `[]T`; and
@@ -855,7 +882,7 @@ makes for itself, which has a letter after `tack_`.
   element is. A range over a list walks the list itself, not a copy, so
   element writes in the body show in later iterations, and the body
   cannot change the list: assigning it or anything holding it, passing
-  either as `mut`, `append` included, or moving it is `l is being ranged
+  either as `mut`, `append` and `reserve` included, or moving it is `l is being ranged
   over, so this loop cannot pass mut l`. Lists have no `==`, no order and
   no zero value: `mut l list[int64]` is `l needs a value: list[int64] has
   no zero value`. A list's elements are copied when read, so they must be
@@ -1546,8 +1573,9 @@ makes for itself, which has a letter after `tack_`.
   list crosses only as a `mut` parameter, `tack_list_<T> *`, `{T *ptr;
   int64_t len; int64_t cap; tack_allocator alloc;}`, which C reads with
   `TACK_LIST_LEN(l)` and `TACK_LIST_AT(l, i)` and grows with
-  `TACK_LIST_APPEND(lp, v)`, true when it grew, from std's
-  `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
+  `TACK_LIST_APPEND(lp, v)`, true when it grew, `TACK_LIST_APPEND_N(lp,
+  src, n)`, all of `n` elements or none, and `TACK_LIST_RESERVE(lp, n)`,
+  from std's `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
   struct holding one, is `parameter l of extern func f cannot be
   list[int64]: a list crosses to C only as a mut parameter, or as a
   view`, and so is one returned, `extern func f cannot return

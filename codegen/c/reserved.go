@@ -56,6 +56,8 @@ var reservedNames = func() map[string]reservation {
 		"TACK_LIST_LEN":                {what: "a tack.h list helper"},
 		"TACK_LIST_AT":                 {what: "a tack.h list helper"},
 		"TACK_LIST_APPEND":             {what: "a tack.h list helper"},
+		"TACK_LIST_APPEND_N":           {what: "a tack.h list helper"},
+		"TACK_LIST_RESERVE":            {what: "a tack.h list helper"},
 	}
 	for _, id := range anyIDs {
 		names[id] = reservation{what: "a tack.h any type id", objectMacro: true}

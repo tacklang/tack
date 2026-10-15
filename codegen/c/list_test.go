@@ -16,6 +16,12 @@ import (
 // passes.
 const listsWant = 98
 
+// externListsWant is how many checks examples/extern-lists prints.
+const externListsWant = 19
+
+// listBulkWant is how many checks examples/list-bulk prints.
+const listBulkWant = 66
+
 // buildExternWith compiles src, a program with extern funcs, and csrc,
 // the C file defining them, against the program's tack.h, and std's C
 // files, all with clang's warnings on and treated as errors and the extra
@@ -90,6 +96,25 @@ func TestListsExampleIsSanitizerClean(t *testing.T) {
 	runChecks(t, bin, listsWant)
 }
 
+// TestListBulkExampleIsSanitizerClean builds examples/list-bulk, its C
+// file and std's C with the address and undefined behavior sanitizers,
+// every finding fatal, and checks every check it prints passed: no bulk
+// append or reserve writes past a buffer, reads a freed one or leaks one,
+// and none that fails, made to by c_allocator's testing hook or by a
+// count no buffer can hold, asks the allocator for memory it cannot give.
+func TestListBulkExampleIsSanitizerClean(t *testing.T) {
+	src, csrc := exampleFiles(t, "list-bulk", "bulk.c")
+	bin := buildExternWith(
+		t,
+		src,
+		csrc,
+		"-O1",
+		"-fsanitize=address,undefined",
+		"-fno-sanitize-recover=all",
+	)
+	runChecks(t, bin, listBulkWant)
+}
+
 // TestExternListsExampleIsWarningFree builds examples/extern-lists with
 // clang's warnings as errors, its C file against its tack.h, so the list
 // structs, tack_allocator and std's list macros agree between the
@@ -97,9 +122,9 @@ func TestListsExampleIsSanitizerClean(t *testing.T) {
 // every check it prints passed, under the sanitizers too.
 func TestExternListsExampleIsWarningFree(t *testing.T) {
 	src, csrc := exampleFiles(t, "extern-lists", "lists.c")
-	runChecks(t, buildExternWith(t, src, csrc), 11)
+	runChecks(t, buildExternWith(t, src, csrc), externListsWant)
 	runChecks(t, buildExternWith(t, src, csrc, "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all"), 11)
+		"-fno-sanitize-recover=all"), externListsWant)
 }
 
 // listCText is a program whose generated C listCases check.
@@ -348,6 +373,59 @@ int main(void) {
           "a value read from the list before it grows");
     tack_list_free_(l.ptr, l.cap, sizeof *l.ptr, _Alignof(int64_t), l.alloc);
 
+    ints r = {0, 0, 0, TACK_C_ALLOCATOR};
+    check(TACK_LIST_RESERVE(&r, 0) && r.ptr == 0 && r.cap == 0 && tack_c_allocator_live_() == 0,
+          "reserving nothing allocates nothing");
+    check(!TACK_LIST_RESERVE(&r, -1) && r.ptr == 0 && r.cap == 0, "a negative reserve fails");
+    check(!TACK_LIST_RESERVE(&r, INT64_MAX) && r.ptr == 0 && tack_c_allocator_live_() == 0,
+          "a reserve past what fits fails");
+    evals = 0;
+    int64_t more = 3;
+    check(TACK_LIST_RESERVE(once(&r), more++) && evals == 1 && more == 4 && r.cap == 4 && r.len == 0,
+          "reserve evaluates its arguments once, and starts at 4");
+    int64_t *at = r.ptr;
+    tack_c_allocator_fail_after_(0);
+    check(TACK_LIST_APPEND_N(&r, ((const int64_t[3]){1, 2, 3}), 3) && r.ptr == at && r.len == 3,
+          "reserved room needs no allocation");
+    check(!TACK_LIST_APPEND_N(&r, ((const int64_t[2]){4, 5}), 2) && r.len == 3 && r.cap == 4 && r.ptr == at,
+          "a refused bulk append leaves the list");
+    check(!TACK_LIST_RESERVE(&r, 2) && r.len == 3 && r.cap == 4 && r.ptr == at,
+          "a refused reserve leaves the list");
+    check(TACK_LIST_APPEND_N(&r, (const int64_t *)0, 0) && r.len == 3, "nothing appends nothing");
+    tack_c_allocator_fail_after_(-1);
+    check(!TACK_LIST_RESERVE(&r, INT64_MAX - 2) && !TACK_LIST_RESERVE(&r, INT64_MAX) && r.cap == 4,
+          "len plus n past int64 fails");
+    check(!TACK_LIST_APPEND_N(&r, ((const int64_t[1]){9}), INT64_MAX) && r.len == 3 && r.cap == 4,
+          "a count past int64 fails");
+    check(TACK_LIST_AT(r, 0) == 1 && TACK_LIST_AT(r, 1) == 2 && TACK_LIST_AT(r, 2) == 3,
+          "elements kept after failures");
+    check(TACK_LIST_APPEND(&r, 4) && r.len == r.cap, "a full list");
+    check(TACK_LIST_APPEND_N(&r, ((const int64_t[2]){TACK_LIST_AT(r, 3), TACK_LIST_AT(r, 0)}), 2) &&
+              r.len == 6 && r.cap == 8 && TACK_LIST_AT(r, 4) == 4 && TACK_LIST_AT(r, 5) == 1,
+          "values read from the list before it grows");
+    evals = 0;
+    int64_t src[20], *srcp = src, count = 20;
+    for (int64_t i = 0; i < 20; i++) {
+        src[i] = 100 + i;
+    }
+    check(TACK_LIST_APPEND_N(once(&r), srcp++, count++) && evals == 1 && srcp == src + 1 && count == 21 &&
+              r.len == 26 && r.cap == 26 && TACK_LIST_AT(r, 25) == 119,
+          "a bulk append evaluates its arguments once, and fits exactly past doubling");
+    tack_list_free_(r.ptr, r.cap, sizeof *r.ptr, _Alignof(int64_t), r.alloc);
+
+    ints g = {0, 0, 0, TACK_C_ALLOCATOR};
+    int64_t moves = 0, last = 0;
+    ok = 1;
+    for (int64_t i = 0; i < 100000; i++) {
+        ok = ok && TACK_LIST_RESERVE(&g, 1) && TACK_LIST_APPEND(&g, i);
+        if (g.cap != last) {
+            moves++;
+            last = g.cap;
+        }
+    }
+    check(ok && g.len == 100000 && moves <= 18, "reserving one before each append still doubles");
+    tack_list_free_(g.ptr, g.cap, sizeof *g.ptr, _Alignof(int64_t), g.alloc);
+
     empties e = {0, 0, 0, TACK_C_ALLOCATOR};
     empty x = {0};
     check(TACK_LIST_APPEND(&e, x) && TACK_LIST_APPEND(&e, x) && e.len == 2, "structs of one byte");
@@ -364,7 +442,11 @@ int main(void) {
 // it was; zero-size elements grow; room already there is no growth;
 // growth doubles from 4; a refused growth leaves the list; the macros
 // evaluate their list once, keep elements across growth and take a value
-// read from the list before it moves; and every buffer is freed.
+// read from the list before it moves; TACK_LIST_RESERVE and
+// TACK_LIST_APPEND_N evaluate each argument once, allocate nothing for
+// nothing, fail on a negative count and on a length past int64_t's, grow
+// once, all or nothing, and grow by doubling when reserving one before
+// each append; and every buffer is freed.
 func TestListGrowFunction(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
@@ -381,7 +463,7 @@ func TestListGrowFunction(t *testing.T) {
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
 	}
-	runChecks(t, bin, 17)
+	runChecks(t, bin, 32)
 }
 
 // TestListsCompileFor32Bits compiles examples/lists' generated C, and
@@ -422,4 +504,69 @@ func TestListsCompileFor32Bits(t *testing.T) {
 		t.Fatal(err)
 	}
 	compile32(t, filepath.Join(dir, "list.c"), string(data))
+}
+
+// bulkCText is a program whose generated C TestBulkAppendLowering checks:
+// appends of several values, of none and of a spread, and reserves of a
+// constant and of a variable count.
+const bulkCText = `package main
+
+func next(mut n int64) int64 {
+    n++
+    return n
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut n int64 = 0
+    e1 := append(mut l, next(mut n), next(mut n), next(mut n))
+    e2 := append(mut l)
+    a := [2]int64{7, 8}
+    e3 := append(mut l, a[1:]...)
+    e4 := reserve(mut l, 4)
+    e5 := reserve(mut l, n - 4)
+    ok := e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 && e5.code == 2
+    if ok && len(l) == 4 && l[0] == 1 && l[1] == 2 && l[2] == 3 && l[3] == 8 {
+        print("bulk ok\n")
+    } else {
+        print("bulk FAIL\n")
+    }
+}
+`
+
+// TestBulkAppendLowering checks how bulkCText's appends and reserves
+// lower: values whose order shows held in temporaries, in order, then
+// appended through TACK_LIST_APPEND_N from a compound literal array; no
+// values as a null source and a count of 0; a spread view held in a
+// temporary, so it is evaluated once; a constant count reserved with no
+// test for a negative one; and a variable count tested first, giving the
+// negative count error, code 2. The program builds with warnings as
+// errors, and under the sanitizers, and does what it says. A program
+// whose every reserve has a constant count pools no negative count
+// message, which would be an unused array.
+func TestBulkAppendLowering(t *testing.T) {
+	got := generate(t, bulkCText)
+	for _, want := range []string{
+		"TACK_LIST_APPEND_N(&v_l, ((const int64_t[3]){tack_o",
+		"TACK_LIST_APPEND_N(&v_l, 0, 0)",
+		", TACK_LIST_APPEND_N(&v_l, tack_v",
+		".ptr, tack_v",
+		"(TACK_LIST_RESERVE(&v_l, 4) ? (tack_error){0} : (tack_error){1, {tack_str",
+		" < 0 ? (tack_error){2, {tack_str",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated C does not contain\n%s\n\n%s", want, got)
+		}
+	}
+	runChecks(t, buildWith(t, bulkCText), 1)
+	runChecks(t, buildWith(t, bulkCText, "-O1", "-fsanitize=address,undefined",
+		"-fno-sanitize-recover=all"), 1)
+
+	constOnly := strings.Replace(bulkCText, "reserve(mut l, n - 4)", "reserve(mut l, 0)", 1)
+	constOnly = strings.Replace(constOnly, "e5.code == 2", "e5.code == 0", 1)
+	if got := generate(t, constOnly); strings.Contains(got, " < 0 ? (tack_error){2") ||
+		strings.Contains(got, "{110, 101, 103, 97, 116, 105, 118, 101") {
+		t.Errorf("a constant count is tested, or negative count pooled:\n%s", got)
+	}
+	runChecks(t, buildWith(t, constOnly), 1)
 }

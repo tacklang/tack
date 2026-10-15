@@ -19,10 +19,13 @@ import (
 // itself; slicing, l[i:j], to a view; and passing it, whole, to a view
 // parameter of its element type. Unlike a view it can be written: an
 // element, l[i] = v or l[i].f = v, of a list that is mutable, a mut local
-// or a mut parameter, at a proven index; and grown, err := append(mut l,
-// v), whose error says the allocator could not grow the buffer, which is
-// then left as it was. Writing an element never changes the list's
-// length, so it ends no fact about it (see writes).
+// or a mut parameter, at a proven index; grown, err := append(mut l, a,
+// b) or err := append(mut l, v...), as a variadic takes values, whose
+// error says the allocator could not grow the buffer, which is then left
+// as it was, all of it; and given room ahead, err := reserve(mut l, n),
+// for n more elements, a count no constant may make negative. Writing an
+// element never changes the list's length, so it ends no fact about it
+// (see writes); append and reserve pass the list as mut, which does.
 //
 // A list's element type must be copyable, since reading an element
 // copies it: no list, and no array or struct holding one. Neither may an
@@ -120,6 +123,13 @@ func isMake(call *ast.Call) bool { return isBuiltinCall(call, "make") }
 // isAppend reports whether call calls the builtin append.
 func isAppend(call *ast.Call) bool { return isBuiltinCall(call, "append") }
 
+// isReserve reports whether call calls the builtin reserve.
+func isReserve(call *ast.Call) bool { return isBuiltinCall(call, "reserve") }
+
+// returnsListError reports whether call calls append or reserve, the
+// generic builtins that return an error.
+func returnsListError(call *ast.Call) bool { return isAppend(call) || isReserve(call) }
+
 // makeCall checks a call to make, make(list[T], alloc), records the list
 // type it makes on the call and returns it. It takes the list type, as
 // written, and an Allocator to grow it through; a capacity is not taken
@@ -153,44 +163,98 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	return typ
 }
 
-// appendCall checks a call to append, err := append(mut l, v), records
-// its type, error, on the call and returns it. Its first argument is the
-// list to grow, passed as mut, a place of a list type, and its second a
-// value usable as the list's element type, which the call copies onto
-// its end. Anything else is reported, and gives types.Invalid. The call
-// is a call like any other otherwise: its mut argument is a place no
-// other argument may reach (see exclusive.go), and its error cannot be
+// appendCall checks a call to append, err := append(mut l, a, b) or err
+// := append(mut l, v...), records its type, error, on the call and
+// returns it. append is variadic, append(mut l list[T], elems ...T), and
+// is checked as a call to such a function is (see variadic.go): its first
+// argument is the list to grow, passed as mut, a place of a list type;
+// after it come any number of values, none included, each usable as T,
+// or a view of T spread whole, what a []T parameter takes. The call
+// copies them onto the list's end. Anything else is reported, and gives
+// types.Invalid. The call is a call like any other otherwise: its mut
+// argument is a place no other argument may reach (see exclusive.go), a
+// spread list included (see checkListBorrows), and its error cannot be
 // dropped (see errors.go).
 func (c *Checker) appendCall(call *ast.Call) types.Type {
-	if !c.checkArity(call, "append", 2) {
+	if !c.checkVariadicArity(call, "append", []param{{name: "l"}}, param{name: "elems"}) {
 		for _, arg := range call.Args {
 			c.argExpr(arg)
 		}
 		return types.Invalid
 	}
-	elem := c.appendTarget(call.Args[0])
-	value := call.Args[1]
-	if m, isMut := value.(*ast.MutArg); isMut {
-		c.expr(m.X)
-		text := c.text(m.X.Spanned())
-		c.errorf(m.Span, "append does not take v as mut; pass %s", text)
-		return types.Invalid
+	before := len(c.diags)
+	elem := c.listTarget(call.Args[0], "append")
+	if call.Spread {
+		c.appendSpread(call.Args[1], elem)
+	} else {
+		value := param{name: "elems", typ: elem}
+		for _, arg := range call.Args[1:] {
+			c.checkArg(arg, value, "append")
+		}
 	}
-	if !c.use(value, c.expr(value), elem, "in argument to append") {
+	c.checkListBorrows(call)
+	if len(c.diags) > before {
 		return types.Invalid
 	}
 	call.Type = types.Error
 	return types.Error
 }
 
-// appendTarget checks arg, the list an append grows, which must be passed
-// as mut, mut l, and be a place of a list type, and returns the list's
-// element type, types.Invalid when anything was reported.
-func (c *Checker) appendTarget(arg ast.Expr) types.Type {
+// appendSpread checks arg, the view a call to append spreads, v..., into
+// its variadic parameter, elems, of type []T for the list's element type
+// elem, as a spread into any variadic is checked; only a spread adds the
+// view type []T to the table. When elem is unknown, which was reported,
+// arg is checked only for errors of its own.
+func (c *Checker) appendSpread(arg ast.Expr, elem types.Type) {
+	if elem != types.Invalid {
+		c.checkArg(arg, param{name: "elems", typ: c.table.View(elem), variadic: true}, "append")
+		return
+	}
+	if conv, ok := arg.(*ast.Call); ok && isViewConversion(conv) {
+		c.viewConversion(conv)
+		return
+	}
+	c.argExpr(arg)
+}
+
+// reserveCall checks a call to reserve, err := reserve(mut l, n), records
+// its type, error, on the call and returns it. Its first argument is the
+// list to make room in, passed as mut as append's is, and its second the
+// number of elements to make room for, usable as an int64, which must not
+// be negative when it is known: a constant, or a value the checker knows.
+// Anything else is reported, and gives types.Invalid. Like append's, its
+// error cannot be dropped.
+func (c *Checker) reserveCall(call *ast.Call) types.Type {
+	if !c.checkArity(call, "reserve", 2) {
+		for _, arg := range call.Args {
+			c.argExpr(arg)
+		}
+		return types.Invalid
+	}
+	before := len(c.diags)
+	c.listTarget(call.Args[0], "reserve")
+	n := call.Args[1]
+	c.checkArg(n, param{name: "n", typ: types.Int64}, "reserve")
+	if len(c.diags) > before {
+		return types.Invalid
+	}
+	if v, known := c.knownValue(n); known && v.IsNegative() {
+		c.errorf(n.Spanned(), "reserve count must not be negative, got %s", v)
+		return types.Invalid
+	}
+	call.Type = types.Error
+	return types.Error
+}
+
+// listTarget checks arg, the list a call to builtin, append or reserve,
+// grows, which must be passed as mut, mut l, and be a place of a list
+// type, and returns the list's element type, types.Invalid when anything
+// was reported.
+func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	m, isMut := arg.(*ast.MutArg)
 	if !isMut {
 		c.expr(arg)
-		c.missingMut(arg, param{name: "l"}, "append")
+		c.missingMut(arg, param{name: "l"}, builtin)
 		return types.Invalid
 	}
 	got := c.place(m.X, m)
@@ -198,7 +262,7 @@ func (c *Checker) appendTarget(arg ast.Expr) types.Type {
 	case got == types.Invalid:
 		return types.Invalid
 	case !c.table.IsList(got):
-		c.errorf(m.X.Spanned(), "append expects a list, got %s", c.typeName(got))
+		c.errorf(m.X.Spanned(), "%s expects a list, got %s", builtin, c.typeName(got))
 		return types.Invalid
 	default:
 		return c.table.Elem(got)
@@ -206,8 +270,8 @@ func (c *Checker) appendTarget(arg ast.Expr) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make or append, each of which checks its own arguments and gives one
-// value, or nil when call calls none of them.
+// make, append or reserve, each of which checks its own arguments and
+// gives one value, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isLen(call):
@@ -216,6 +280,8 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 		return c.makeCall
 	case isAppend(call):
 		return c.appendCall
+	case isReserve(call):
+		return c.reserveCall
 	default:
 		return nil
 	}

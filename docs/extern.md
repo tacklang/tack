@@ -223,7 +223,8 @@ A name `tack.h` cannot give is an error whatever is built:
   package main cannot be named tack_error in tack.h: that is tack.h's
   error type`. So are `tack_allocator`, `tack.h's allocator type`,
   `TACK_C_ALLOCATOR`, `a tack.h allocator helper`, `TACK_LIST_LEN`,
-  `TACK_LIST_AT` and `TACK_LIST_APPEND`, each `a tack.h list helper`,
+  `TACK_LIST_AT`, `TACK_LIST_APPEND`, `TACK_LIST_APPEND_N` and
+  `TACK_LIST_RESERVE`, each `a tack.h list helper`,
   `tack_list_grow_` and `tack_list_free_`, each `a tack.h list
   function`, and `tack_c_allocator_live_` and
   `tack_c_allocator_fail_after_`, each `a tack.h allocator function`:
@@ -309,7 +310,7 @@ typedef struct {
 } tack_list_int64;
 ```
 
-std's `<tack/tack.h>` gives C three macros for it:
+std's `<tack/tack.h>` gives C five macros for it:
 
 - `TACK_LIST_LEN(l)`, the number of elements of the list `l`, a
   `tack_list_<T>`, not a pointer to one: `TACK_LIST_LEN(*lp)`.
@@ -325,7 +326,27 @@ std's `<tack/tack.h>` gives C three macros for it:
   `v` is the macro's variadic argument, so a compound literal, whose
   commas would otherwise split it, can be one: `TACK_LIST_APPEND(lp,
   (Point){1, 2})`. It is a GNU statement expression, which clang and gcc
-  accept in C11 with no warning.
+  accept in C11 with no warning, as are the two below.
+- `TACK_LIST_RESERVE(lp, n)`, which makes room in the list `lp` points to
+  for `n` more elements, an `int64_t`, so that its capacity is at least
+  its length plus `n`, growing its buffer as an append does, to at least
+  double its capacity, and is `true`; or `false`, the list left as it
+  was, when `n` is negative, the length plus `n` overflows an `int64_t`,
+  or the allocator cannot grow it. It never changes the length or the
+  elements, and `n` of 0 never allocates. It evaluates `lp` once and then
+  `n` once.
+- `TACK_LIST_APPEND_N(lp, src, n)`, which appends the `n` elements `src`
+  points to, a pointer to the element type, all or none: it makes room
+  for all of them first, as `TACK_LIST_RESERVE(lp, n)` does, then copies
+  them, and is `true`; or `false`, the list's length, capacity and
+  elements left as they were. `n` of 0 appends nothing, allocates nothing
+  and is `true`, and `src` may then be null. It evaluates `lp`, `src` and
+  `n` once each, in that order. `src` must not point into the list's own
+  buffer, which making room may move: a view of the list's elements is
+  exactly what Tack never passes alongside the list as `mut`. Several
+  values are appended from an array, `const int64_t v[3] = {a, b, c};
+  TACK_LIST_APPEND_N(lp, v, 3)`, and a view's elements from its pointer
+  and length, `TACK_LIST_APPEND_N(lp, v.ptr, v.len)`.
 
 Growing goes through `tack_list_grow_`, and a list's owner frees it
 through `tack_list_free_`, both std's, in `std/builtin`'s `list.c`, which
@@ -343,19 +364,22 @@ For tests, `tack_c_allocator_live_()` returns how many buffers
 `c_allocator` has given out and not had back, and
 `tack_c_allocator_fail_after_(n)` makes it grant the next `n` requests
 and refuse every one after them, or none again for a negative `n`;
-`examples/lists` and `examples/extern-lists` check every list is freed
-through the first, and an append that fails through the second.
+`examples/lists`, `examples/list-bulk` and `examples/extern-lists` check
+every list is freed through the first, and appends and reserves that
+fail through the second.
 
 C must keep a list's rules, which Tack cannot check in C: it reads,
 writes and appends to the list only during the call; it never keeps the
 pointer, or a pointer into the buffer, past the call, since an append
 may move the buffer and the caller frees it; it never frees the buffer,
 shrinks the list, sets `len` past the elements it holds, or changes
-`ptr`, `cap` or `alloc` itself; and it appends only through
-`TACK_LIST_APPEND`, so the buffer always comes from the list's own
-allocator, which is what frees it. `examples/extern-lists` appends
-integers and structs from C, doubles elements in place, reads a view of
-the list, and makes an append fail.
+`ptr`, `cap` or `alloc` itself; and it grows the list only through
+`TACK_LIST_APPEND`, `TACK_LIST_APPEND_N` and `TACK_LIST_RESERVE`, so the
+buffer always comes from the list's own allocator, which is what frees
+it. It may read `cap`. `examples/extern-lists` appends integers and
+structs from C, one at a time and several at once, reserves room, doubles
+elements in place, reads a view of the list, and makes appends and a
+reserve fail.
 
 ## any
 
@@ -505,7 +529,9 @@ whole program, Tack code included, which no Tack proof can catch.
   any other way during the call.
 - **Lists.** C reads, writes and appends to a list it gets as a `mut`
   parameter only during the call, and through `TACK_LIST_LEN`,
-  `TACK_LIST_AT` and `TACK_LIST_APPEND` or as their definitions do: it
+  `TACK_LIST_AT`, `TACK_LIST_APPEND`, `TACK_LIST_APPEND_N` and
+  `TACK_LIST_RESERVE` or as their definitions do, never appending from
+  its own buffer with `TACK_LIST_APPEND_N`: it
   keeps no pointer to the list or into its buffer past the call, since
   an append may move the buffer and the caller frees it; it never frees
   the buffer, sets `len` past the elements written or above `cap`, or

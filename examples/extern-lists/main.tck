@@ -3,8 +3,9 @@ package main
 // Every extern func below is written in C, in lists.c. A list crosses to
 // C only as a mut parameter, a pointer to the caller's tack_list_ struct,
 // which C may read and grow through std's tack.h macros, TACK_LIST_LEN,
-// TACK_LIST_AT and TACK_LIST_APPEND, during the call; or as a view, whose
-// elements C reads.
+// TACK_LIST_AT, TACK_LIST_APPEND, TACK_LIST_APPEND_N and
+// TACK_LIST_RESERVE, during the call; or as a view, whose elements C
+// reads.
 
 type Point struct {
     x int64
@@ -20,6 +21,18 @@ extern("double_all") func doubleAll(mut l list[int64])
 
 // addPoint appends a point to l, in C.
 extern("add_point") func addPoint(mut l list[Point], x int64, y int64) bool
+
+// appendThree appends a, b and c to l, all or none, in C.
+extern("append_three") func appendThree(mut l list[int64], a int64, b int64, c int64) bool
+
+// appendView appends every element of v to l, all or none, in C.
+extern("append_view") func appendView(mut l list[int64], v []int64) bool
+
+// reserveRoom makes room in l for n more elements, in C.
+extern("reserve_room") func reserveRoom(mut l list[int64], n int64) bool
+
+// capOf returns how many elements l's buffer has room for, in C.
+extern("list_cap") func capOf(mut l list[int64]) int64
 
 // sumView adds the elements of v, in C.
 extern("sum_view") func sumView(v []int64) int64
@@ -70,6 +83,28 @@ func structsFromC() {
     }
 }
 
+// bulkFromC lets C reserve room and append several elements at once.
+func bulkFromC() {
+    mut l := make(list[int64], c_allocator)
+    check(reserveRoom(mut l, 10) && len(l) == 0 && capOf(mut l) == 10, "reserved by C")
+    a := [4]int64{4, 5, 6, 7}
+    check(appendThree(mut l, 1, 2, 3) && appendView(mut l, a) && len(l) == 7, "bulk appended by C")
+    mut good := capOf(mut l) == 10
+    for i, x := range l {
+        if x != i + 1 {
+            good = false
+        }
+    }
+    check(good, "C's bulk elements read in Tack, in reserved room")
+    check(!reserveRoom(mut l, -1) && capOf(mut l) == 10, "negative reserve in C fails")
+    failAfter(0)
+    check(!appendView(mut l, a) && len(l) == 7 && capOf(mut l) == 10, "bulk append in C fails whole")
+    check(!reserveRoom(mut l, 4) && capOf(mut l) == 10, "reserve in C fails")
+    failAfter(-1)
+    err := append(mut l, a...)
+    check(err.code == 0 && len(l) == 11 && capOf(mut l) == 20, "spread in Tack after C")
+}
+
 // failing makes C's append fail.
 func failing() {
     mut l := make(list[int64], c_allocator)
@@ -83,6 +118,8 @@ func main() {
     check(live() == 0, "freed after C grew it")
     structsFromC()
     check(live() == 0, "structs freed")
+    bulkFromC()
+    check(live() == 0, "bulk freed")
     failing()
     check(live() == 0, "nothing after a failure")
 }

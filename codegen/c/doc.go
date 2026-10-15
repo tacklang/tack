@@ -293,10 +293,16 @@
 // A list, list[T], lowers to a C struct per element type, tack_list_ and
 // the type's ID, of its buffer, ptr, its length, len, its capacity, cap,
 // and its allocator, alloc, a tack_allocator from std's tack.h. make is a
-// compound literal holding only the allocator; append is std's
-// TACK_LIST_APPEND on the address of the list's place, which calls std's
-// tack_list_grow_ when the buffer is full, turned into no error, or into
-// code 1 and the pooled message "out of memory". An element, a length, a
+// compound literal holding only the allocator; append of one value is
+// std's TACK_LIST_APPEND on the address of the list's place, which calls
+// std's tack_list_grow_ when the buffer is full, and append of any other
+// number of values, none included, std's TACK_LIST_APPEND_N given a
+// compound literal array of them, or the pointer and length of a spread
+// view held in a temporary, which grows the buffer once, to the final
+// length, before writing anything; either is turned into no error, or
+// into code 1 and the pooled message "out of memory". reserve is std's
+// TACK_LIST_RESERVE, after a count that is not a constant is tested for
+// being negative, code 2 and the pooled message "negative count". An element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in
 // place. A variable of an owned type, a list or a struct holding one, is

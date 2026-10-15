@@ -78,14 +78,16 @@ func (s *Set) Names() []string {
 
 // generic holds the builtins whose parameters no Tack type can describe,
 // so they have no declaration and no Func: len takes any array, view,
-// list or string; make takes a list type; and append takes any list and a
-// value of its element type. They are part of the compiler, not of
-// std/builtin, and the type checker checks each of them itself.
-var generic = []string{"len", "make", "append"}
+// list or string; make takes a list type; append takes any list and any
+// number of values of its element type, or a view of them spread; and
+// reserve takes any list and a count. They are part of the compiler, not
+// of std/builtin, and the type checker checks each of them itself.
+var generic = []string{"len", "make", "append", "reserve"}
 
 // ListSymbols holds the C functions of std/builtin that the generated C of
 // a program with lists calls: the one that grows a list's buffer, through
-// std's TACK_LIST_APPEND, and the one that frees it. No builtin declares
+// std's TACK_LIST_APPEND, TACK_LIST_APPEND_N and TACK_LIST_RESERVE, and
+// the one that frees it. No builtin declares
 // them, so a program that uses lists needs the std objects that define
 // them linked whether or not it calls a builtin.
 var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}

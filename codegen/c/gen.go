@@ -334,8 +334,8 @@ func (g *generator) collectStrings() {
 		return true
 	}
 	g.walk(visit)
-	if g.usesAppend() {
-		g.addStr(outOfMemory)
+	for _, msg := range g.listErrors() {
+		g.addStr(msg)
 	}
 }
 
@@ -2100,13 +2100,8 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 		}}
 	}
 	if fn, isFunc := id.Def.(*ast.Func); isFunc && fn == nil {
-		switch id.Name {
-		case "len":
-			return g.lenValue(call)
-		case "make":
-			return g.makeValue(call)
-		case "append":
-			return g.appendValue(call)
+		if value := g.genericValue(id.Name); value != nil {
+			return value(call)
 		}
 	}
 	if _, isBuiltin := g.builtins.Lookup(id.Name); isBuiltin {
@@ -2117,6 +2112,23 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 		}}
 	}
 	return g.callExpr(id.Name, call)
+}
+
+// genericValue returns what renders a call to the generic builtin named
+// name, len, make, append or reserve, or nil for any other name.
+func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Diagnostic) {
+	switch name {
+	case "len":
+		return g.lenValue
+	case "make":
+		return g.makeValue
+	case "append":
+		return g.appendValue
+	case "reserve":
+		return g.reserveValue
+	default:
+		return nil
+	}
 }
 
 // stringValue is a string literal as a tack_string value.

@@ -43,12 +43,28 @@ extern("tack_builtin_exit") func exit(code int32)
 // it cannot fail. It takes a type, which no Tack declaration can, so the
 // compiler implements it itself.
 
-// append(mut l list[T], v T) error appends v to the end of l, growing its
-// buffer through l's allocator when it is full, and returns no error; or,
-// when the allocator cannot grow it, returns error{code: 1, msg: "out of
-// memory"} and leaves l as it was. Its error cannot be dropped. It takes
-// a list of any element type, which no Tack declaration can say, so the
-// compiler implements it itself.
+// append(mut l list[T], elems ...T) error appends elems to the end of l,
+// in order, growing its buffer through l's allocator when it has no room
+// for them, and returns no error; or, when the allocator cannot grow it,
+// or l's length would overflow an int64, returns error{code: 1, msg:
+// "out of memory"} and leaves l as it was, its length, its capacity and
+// its elements, all or nothing. It takes the values as any variadic
+// does: any number of them, none included, append(mut l, a, b, c), or a
+// view spread whole, append(mut l, v...), what a []T parameter takes, so
+// a string's bytes are []uint8(s)..., and never a view of l itself. Its
+// error cannot be dropped. It takes a list of any element type, which no
+// Tack declaration can say, so the compiler implements it itself.
+
+// reserve(mut l list[T], n int64) error makes room in l for n more
+// elements, so that its capacity is at least its length plus n, growing
+// its buffer through l's allocator as append does, to at least double
+// its capacity, and returns no error; its length and elements never
+// change, and n of 0 does nothing. A constant n must not be negative; a
+// negative n at run time returns error{code: 2, msg: "negative count"},
+// and one the allocator cannot make room for, or that overflows l's
+// length, error{code: 1, msg: "out of memory"}, each leaving l as it
+// was. Its error cannot be dropped. It takes a list of any element type,
+// so the compiler implements it itself.
 
 // c_allocator, a keyword, is the Allocator that lowers to C's malloc,
 // realloc and free, the one Allocator there is. Allocator, a builtin
