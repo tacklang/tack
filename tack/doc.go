@@ -131,7 +131,10 @@
 // or ELF, with debug/macho and debug/elf, so no tool beyond clang is
 // needed, for the external symbols it defines.
 //
-// When the program calls a builtin, every .c file of std/builtin, in name
+// When the program calls a builtin, has a list type, whose generated C
+// grows and frees lists through std/builtin's list.c, or has a C file
+// whose object leaves undefined a symbol starting tack_, which only std
+// can define, every .c file of std/builtin, in name
 // order, is compiled there too, to std-<name>.o, with the backend's
 // CompileStdCmd: CompileCmd's flags and level, with std/include, where
 // <tack/tack.h> is, on the include path in place of the program's tack.h.
@@ -139,10 +142,12 @@
 // path shown absolute unless it is below the current directory. Each std
 // object's symbols, defined and undefined, are read the same way, and the
 // objects linked are chosen as a linker takes an archive's members: those
-// defining a builtin the program calls, and in turn those defining a symbol
+// defining a builtin the program calls, the list functions of a program
+// with lists, and a tack_ symbol a C file of the program leaves undefined,
+// and in turn those defining a symbol
 // an object already chosen leaves undefined; a symbol no std object
 // defines, the C library's, is left to the linker. No ar is run and no
-// archive written. A program that calls no builtin compiles no std file and
+// archive written. A program that needs none of these compiles no std file and
 // links no std object, so it does not link the C library code print and
 // exit call. A builtin the program calls that no std object defines is
 // "tack: builtin print has no C definition: no C file in <dir> defines

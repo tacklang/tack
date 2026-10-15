@@ -584,9 +584,10 @@ func (c *Checker) stringLen(e ast.Expr) (factKey, bool) {
 
 // stringVar returns the string subject e is, a variable or a path below an
 // immutable one, when it can have facts. A view parameter is one too: its
-// length bounds an index as a string's does.
+// length bounds an index as a string's does; and so is a list, whose
+// length only assigning it, passing it as mut or moving it changes.
 func (c *Checker) stringVar(e ast.Expr) (factKey, bool) {
-	if typ := ast.TypeOf(e); typ != types.String && !c.table.IsView(typ) {
+	if typ := ast.TypeOf(e); typ != types.String && !c.table.IsView(typ) && !c.table.IsList(typ) {
 		return factKey{}, false
 	}
 	return c.keyOf(e)
@@ -678,7 +679,7 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Stmt) {
 		}
 		f.guard = g
 		if f.drop == nil {
-			f.drop = assignedIn(region, f)
+			f.drop = c.assignedIn(region, f)
 		}
 		c.active = append(c.active, f)
 	}
@@ -705,15 +706,15 @@ func (c *Checker) release(m mark) {
 // source order, to f's variable, or else to the string whose length bounds
 // it, or the subject a relation bounds it by, a call passing any of them
 // as mut included. It returns nil when region assigns none of them.
-func assignedIn(region []ast.Stmt, f fact) *drop {
-	if d := assignedDrop(region, f.about); d != nil {
+func (c *Checker) assignedIn(region []ast.Stmt, f fact) *drop {
+	if d := c.assignedDrop(region, f.about); d != nil {
 		return d
 	}
 	for _, other := range []factKey{f.lenOf, f.atMostLen, f.atMost} {
 		if other.isZero() {
 			continue
 		}
-		if d := assignedDrop(region, other); d != nil {
+		if d := c.assignedDrop(region, other); d != nil {
 			return d
 		}
 	}
@@ -724,8 +725,8 @@ func assignedIn(region []ast.Stmt, f fact) *drop {
 // variable the subject k starts from, which names the call when it is a
 // mut argument, or nil when there is none. A path's variable is immutable,
 // so nothing assigns it.
-func assignedDrop(region []ast.Stmt, k factKey) *drop {
-	target, call := assignment(region, k.decl)
+func (c *Checker) assignedDrop(region []ast.Stmt, k factKey) *drop {
+	target, call := c.assignment(region, k.decl)
 	switch {
 	case target == nil:
 		return nil
@@ -755,21 +756,21 @@ func calleeName(call *ast.Call) string {
 // decrement's, one of an assignment of several values, or a mut argument,
 // which a call may assign through, with the call. It returns nil when
 // there is none.
-func assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.Call) {
+func (c *Checker) assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.Call) {
 	var found ast.Expr
 	var by *ast.Call
 	visit := func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.Assign:
-			found = writer(found, x.Target, decl)
+			found = c.writer(found, x.Target, decl)
 		case *ast.IncDec:
-			found = writer(found, x.Target, decl)
+			found = c.writer(found, x.Target, decl)
 		case *ast.MultiAssign:
 			for _, target := range x.Targets {
-				found = writer(found, target, decl)
+				found = c.writer(found, target, decl)
 			}
 		case *ast.Call:
-			if m := mutWriter(x, decl); found == nil && m != nil {
+			if m := c.mutWriter(x, decl); found == nil && m != nil {
 				found, by = m, x
 			}
 		}
@@ -785,9 +786,9 @@ func assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.Call) {
 
 // mutWriter returns the first of call's arguments that passes decl, or a
 // part of it, as mut, or nil when none does.
-func mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
+func (c *Checker) mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
 	for _, arg := range call.Args {
-		if m, ok := arg.(*ast.MutArg); ok && writes(m.X, decl) {
+		if m, ok := arg.(*ast.MutArg); ok && c.writes(m.X, decl) {
 			return m
 		}
 	}
@@ -796,8 +797,8 @@ func mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
 
 // writer returns found, the target already found to assign decl, if any,
 // and otherwise target when assigning to it changes decl.
-func writer(found, target ast.Expr, decl ast.Decl) ast.Expr {
-	if found == nil && writes(target, decl) {
+func (c *Checker) writer(found, target ast.Expr, decl ast.Decl) ast.Expr {
+	if found == nil && c.writes(target, decl) {
 		return target
 	}
 	return found
@@ -816,10 +817,31 @@ func declName(decl ast.Decl) string {
 }
 
 // writes reports whether assigning to target changes decl: target is decl
-// itself, or an element of it.
-func writes(target ast.Expr, decl ast.Decl) bool {
+// itself, or an element or a field of it, but not an element of a list,
+// or a part of one, which changes no variable a fact can be about: a
+// list's element is never a subject, and writing one changes no list's
+// length.
+func (c *Checker) writes(target ast.Expr, decl ast.Decl) bool {
 	root := ast.Root(target)
-	return root != nil && root.Def == decl
+	return root != nil && root.Def == decl && !c.throughList(target)
+}
+
+// throughList reports whether target, a place, is an element of a list,
+// or a field or an element of one, at any depth.
+func (c *Checker) throughList(target ast.Expr) bool {
+	for {
+		switch x := target.(type) {
+		case *ast.Index:
+			if c.table.IsList(ast.TypeOf(x.X)) {
+				return true
+			}
+			target = x.X
+		case *ast.Selector:
+			target = x.X
+		default:
+			return false
+		}
+	}
 }
 
 // leaves reports whether a block always leaves the code around it before

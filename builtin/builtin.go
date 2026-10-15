@@ -1,6 +1,9 @@
 package builtin
 
-import "github.com/tacklang/tack/types"
+import (
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/types"
+)
 
 // Func is a builtin declared in std/builtin as an extern func: its name,
 // its signature, and the C name its body is defined under. Builtins return
@@ -73,11 +76,32 @@ func (s *Set) Names() []string {
 	return append(names, generic...)
 }
 
-// generic holds the builtins whose parameter no Tack type can describe, so
-// they have no declaration and no Func: len takes any array, view or
-// string. They are part of the compiler, not of std/builtin, and the type
-// checker checks each of them itself.
-var generic = []string{"len"}
+// generic holds the builtins whose parameters no Tack type can describe,
+// so they have no declaration and no Func: len takes any array, view,
+// list or string; make takes a list type; and append takes any list and a
+// value of its element type. They are part of the compiler, not of
+// std/builtin, and the type checker checks each of them itself.
+var generic = []string{"len", "make", "append"}
+
+// ListSymbols holds the C functions of std/builtin that the generated C of
+// a program with lists calls: the one that grows a list's buffer, through
+// std's TACK_LIST_APPEND, and the one that frees it. No builtin declares
+// them, so a program that uses lists needs the std objects that define
+// them linked whether or not it calls a builtin.
+var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}
+
+// UsesLists reports whether prog, which must have been type-checked, has
+// a list type anywhere, whose values its generated C grows and frees
+// through ListSymbols.
+func UsesLists(prog *ast.Program) bool {
+	table := prog.Types
+	for i := range table.Count() {
+		if table.IsList(types.Added(i)) {
+			return true
+		}
+	}
+	return false
+}
 
 // Generic returns the builtins the type checker checks itself, since their
 // parameter accepts more than one type. They are the same whatever

@@ -163,7 +163,7 @@ var anyErrorCases = []struct{ name, src, want string }{
 	{
 		"len",
 		"package main\n\nfunc f(a any) {\n    f(len(a))\n}\n\nfunc main() {\n}\n",
-		"len expects an array, a string or a view, got any",
+		"len expects an array, a string, a view or a list, got any",
 	},
 }
 

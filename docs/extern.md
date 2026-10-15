@@ -133,7 +133,12 @@ caller puts in an array on its stack for the call, or of the view a
 spread, `f(v...)`, passes on. An `any` is a parameter only too, or the
 element of a variadic or view parameter: C gets a `tack_any`, a type id
 and a pointer to the caller's value, and `args ...any` a `tack_view_any`
-of them.
+of them. A list, `list[T]`, crosses only as a `mut` parameter, a pointer
+to the caller's list, which C may read and grow during the call (see
+[Lists](#lists)), or as a view of its elements; by value, as a
+parameter or a result, it, or a struct or an array holding one, is an
+error, since a list owns its buffer and passing one to C, or getting one
+back, would move it into or out of code no rule follows.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -154,10 +159,12 @@ of them.
 | an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
 | an `a any` parameter         | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, valid only during the call |
 | an `args ...any` parameter   | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is |
+| `Allocator`                  | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle      |
+| a `mut l list[T]` parameter  | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
 signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
-an error or `any`, and defines every type an extern func's signature uses and every type
+an error, `any`, a list or an `Allocator`, and defines every type an extern func's signature uses and every type
 those hold, each before the types that hold it. Its names:
 
 - `tack_string` for `string`, `tack_error` for `error`, and `tack_any`
@@ -183,6 +190,12 @@ those hold, each before the types that hold it. Its names:
   struct named `tack_view_int64` in a program whose extern func takes a
   `[]int64` is `type tack_view_int64 of package main and view type []int64
   are both named tack_view_int64 in tack.h`.
+- A list is `tack_list_` and its element type's name, named as an
+  array's is: `list[int64]` is `tack_list_int64` and `list[Point]`
+  `tack_list_Point`, reserved as a view's name is: `list type list[int64]
+  and type tack_list_int64 of package main are both named tack_list_int64
+  in tack.h`. `Allocator` is `tack_allocator`, which std's `<tack/tack.h>`
+  defines.
 - The results of extern func `f` are `tack_results_f`, after its C name.
 - The prototypes name each parameter in a comment after its type,
   `int64_t /* n */`, not as a C name, which could be a C keyword or clash
@@ -208,8 +221,15 @@ A name `tack.h` cannot give is an error whatever is built:
   type`. So are `tack_error`, `tack.h's error type`, and `TACK_ERROR`
   and `TACK_NO_ERROR`, each `a tack.h error helper`: `type tack_error of
   package main cannot be named tack_error in tack.h: that is tack.h's
-  error type`. Each is reserved whether or not the program uses strings,
-  errors or `any`;
+  error type`. So are `tack_allocator`, `tack.h's allocator type`,
+  `TACK_C_ALLOCATOR`, `a tack.h allocator helper`, `TACK_LIST_LEN`,
+  `TACK_LIST_AT` and `TACK_LIST_APPEND`, each `a tack.h list helper`,
+  `tack_list_grow_` and `tack_list_free_`, each `a tack.h list
+  function`, and `tack_c_allocator_live_` and
+  `tack_c_allocator_fail_after_`, each `a tack.h allocator function`:
+  `type tack_allocator of package main cannot be named tack_allocator in
+  tack.h: that is tack.h's allocator type`. Each is reserved whether or
+  not the program uses strings, errors, `any` or lists;
 - a type or an extern func's C name named like a macro the C standard
   specifies one of the headers `tack.h` includes defines, whether or not
   this `tack.h` includes it: `type NULL of package main cannot be named
@@ -273,6 +293,69 @@ at its edges and unpacks each.
 they would any function's. `examples/extern-errors` returns errors alone
 and last, passes them to C, as a struct's field through a `mut`
 parameter and as `...error`.
+
+## Lists
+
+A list reaches C only as a `mut` parameter, `tack_list_<T> *`, a pointer
+to the caller's list, or as a view of its elements, `tack_view_<T>`. Its
+struct is the generated source's, in the same layout:
+
+```c
+typedef struct {
+    int64_t *ptr;          // the buffer, null while the list is empty
+    int64_t len;           // the number of elements
+    int64_t cap;           // how many the buffer has room for
+    tack_allocator alloc;  // what it grows and is freed through
+} tack_list_int64;
+```
+
+std's `<tack/tack.h>` gives C three macros for it:
+
+- `TACK_LIST_LEN(l)`, the number of elements of the list `l`, a
+  `tack_list_<T>`, not a pointer to one: `TACK_LIST_LEN(*lp)`.
+- `TACK_LIST_AT(l, i)`, element `i`, an lvalue C reads and writes as any
+  other, `TACK_LIST_AT(*lp, i) *= 2`. Nothing checks `i`: C keeps it at
+  least 0 and below the length, as it must every index.
+- `TACK_LIST_APPEND(lp, v)`, which appends `v` to the list `lp` points
+  to, growing its buffer through its own allocator when it is full, and
+  is `true`; or `false` when the allocator cannot grow it, the list left
+  as it was. It evaluates `lp` once and then `v` once, before the buffer
+  can move, so `v` may read an element of the list, and converts `v` to
+  the element type as an assignment would, so clang checks it as one.
+  `v` is the macro's variadic argument, so a compound literal, whose
+  commas would otherwise split it, can be one: `TACK_LIST_APPEND(lp,
+  (Point){1, 2})`. It is a GNU statement expression, which clang and gcc
+  accept in C11 with no warning.
+
+Growing goes through `tack_list_grow_`, and a list's owner frees it
+through `tack_list_free_`, both std's, in `std/builtin`'s `list.c`, which
+the driver links for any program with a list type. `tack_list_grow_`
+fails rather than wraps when the buffer's size would not fit a `size_t`
+or a `ptrdiff_t`, when the alignment is more than the allocator gives,
+or when the handle is no allocator's; C never calls either directly.
+
+An `Allocator` is `tack_allocator`, `{uint32_t index; uint32_t gen;}`,
+an opaque handle: the index of one of the allocators std's C keeps and
+that entry's generation, so a handle to an allocator that has ended can
+be told from one to its successor. `c_allocator` is `TACK_C_ALLOCATOR`,
+index 0, generation 0, which lowers to `malloc`, `realloc` and `free`.
+For tests, `tack_c_allocator_live_()` returns how many buffers
+`c_allocator` has given out and not had back, and
+`tack_c_allocator_fail_after_(n)` makes it grant the next `n` requests
+and refuse every one after them, or none again for a negative `n`;
+`examples/lists` and `examples/extern-lists` check every list is freed
+through the first, and an append that fails through the second.
+
+C must keep a list's rules, which Tack cannot check in C: it reads,
+writes and appends to the list only during the call; it never keeps the
+pointer, or a pointer into the buffer, past the call, since an append
+may move the buffer and the caller frees it; it never frees the buffer,
+shrinks the list, sets `len` past the elements it holds, or changes
+`ptr`, `cap` or `alloc` itself; and it appends only through
+`TACK_LIST_APPEND`, so the buffer always comes from the list's own
+allocator, which is what frees it. `examples/extern-lists` appends
+integers and structs from C, doubles elements in place, reads a view of
+the list, and makes an append fail.
 
 ## any
 
@@ -418,6 +501,17 @@ whole program, Tack code included, which no Tack proof can catch.
   passes two `mut` parameters of one call to places that do not overlap,
   so C may treat them as distinct, but C must not reach the same variable
   any other way during the call.
+- **Lists.** C reads, writes and appends to a list it gets as a `mut`
+  parameter only during the call, and through `TACK_LIST_LEN`,
+  `TACK_LIST_AT` and `TACK_LIST_APPEND` or as their definitions do: it
+  keeps no pointer to the list or into its buffer past the call, since
+  an append may move the buffer and the caller frees it; it never frees
+  the buffer, sets `len` past the elements written or above `cap`, or
+  changes `ptr`, `cap` or `alloc` itself, so the list's own allocator is
+  always the one that frees what it gave. An element it writes must be a
+  value of the element type. Tack never passes a list C gets as `mut`
+  alongside a view or a borrow of it in the same call, so growing it
+  frees nothing another argument reads.
 - **Strings from C.** A string C returns is taken as it is: its bytes must
   stay valid, and unchanged, for as long as Tack might use the string,
   which today means for the rest of the program. Nothing says who owns them
@@ -487,16 +581,22 @@ compiled with `-I $TACK_HOME/src/std/include`, so `tack --emit` output
 needs that flag too to compile on its own.
 
 A build compiles every `.c` file of `std/builtin`, when the program calls
-any builtin, as it compiles a package's: with clang, `-w`, at the build's
-`-O` level, with `-I $TACK_HOME/src/std/include` but without the
-program's `tack.h`. It reads each object's symbols, as it reads a package's,
-and links only the objects that define a builtin the program calls, and,
-in turn, those that define a symbol a linked one leaves undefined, the way
-a linker takes members from an archive; there is no archive, and no tool
-but clang. A program that calls neither builtin links neither object, and
-none of the C library they call. A builtin no std object defines is an
-error, `tack: builtin print has no C definition: no C file in
-<dir> defines tack_builtin_print`. A C file of the program may not define a
+any builtin, has a list type, or has a C file whose object leaves a
+`tack_` symbol undefined, as it compiles a package's: with clang, `-w`,
+at the build's `-O` level, with `-I $TACK_HOME/src/std/include` but
+without the program's `tack.h`. It reads each object's symbols, as it
+reads a package's, and links only the objects that define a builtin the
+program calls, the list functions, `tack_list_grow_` and
+`tack_list_free_`, for a program with lists, and a `tack_` symbol one of
+the program's C files leaves undefined, as a C file using std's list
+macros does, and, in turn, those that define a symbol a linked one
+leaves undefined, the way a linker takes members from an archive; there
+is no archive, and no tool but clang. A program that calls neither
+builtin and has no list links no std object, and none of the C library
+they call. A builtin no std object defines is an error, `tack: builtin
+print has no C definition: no C file in <dir> defines
+tack_builtin_print`, and so are lists without theirs, `tack: lists have
+no C definition: no C file in <dir> defines tack_list_grow_`. A C file of the program may not define a
 builtin's C name the program calls: with std's linked, that is `tack: two C
 files define tack_builtin_print: helpers.c and <dir>/print.c`.
 
@@ -635,6 +735,8 @@ be undefined.
 - Writable views, and slicing a view, across the boundary.
 - Passing a C file flags, or linking a library.
 - An ownership story for strings C returns.
+- Lists passed to C, or returned from it, by value, which would move a
+  list across the boundary; and allocators C defines.
 
 Open questions about how extern C behaves are under "Extern C" in
 [open-decisions.md](open-decisions.md).

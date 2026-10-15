@@ -238,6 +238,75 @@ rather than decided, and could go another way:
   message must be a literal, and `TACK_NO_ERROR` are in std's `tack.h`,
   reserved in a program's `tack.h`; `[]error` is `tack_view_error`.
 
+## Lists
+
+Lists follow the decisions recorded in the README: owned, move-only and
+freed automatically, through `c_allocator`, the one allocator. These
+points were settled by the implementation, for consistency with the
+rules already there, rather than decided, and could go another way:
+
+- `list` is a keyword, as `map` is, so `list[T]` parses wherever a type
+  or a value may be written, `make`'s first argument included; a list
+  type anywhere else a value is wanted is `cannot use list[int64] as a
+  value; it is a type`. `c_allocator` is a keyword, a literal like
+  `noerror`. `Allocator` is a builtin type's name, reserved as `error`
+  is. `make` and `append` are generic builtins, like `len`, so they
+  cannot be declared again.
+- `Allocator` has no zero value, as a list has none, so neither do the
+  structs and arrays holding one, and the checked form cannot read an
+  element of one; the alternative, a zero handle that is no allocator,
+  whose every append fails, would need no rule. It has no `==`. It is a
+  constant expression, so an immutable global may hold `c_allocator`.
+- A failed append's error is `error{code: 1, msg: "out of memory"}`.
+- A list's capacity grows from 4 by doubling, then to exactly what is
+  needed when doubling would not fit, and never past what fits a `size_t`
+  and a `ptrdiff_t`; `tack_list_grow_` fails, rather than wraps, beyond.
+  Nothing shrinks a list.
+- A move empties the variable it takes from, all of it, so its free
+  later does nothing; the checker rejects every read of it, so this is
+  never seen.
+- Moving is from a whole variable only: a field, an element, a
+  parameter, borrowed or `mut`, cannot be moved. `return l` moves `l`; a
+  move inside a range loop over the same list is an error even where
+  the loop then returns.
+- A list, or a struct holding one, that no variable holds, a call's
+  result or `make`'s, is allowed only where something takes it: the value
+  of a declaration, an assignment, a return, a binding of several
+  results or a struct literal's field. Read in place, `len(f())`,
+  `total(f())`, `for x := range f()`, `f()[0]`, it is an error rather
+  than a temporary freed after its statement; a call statement dropping
+  one, and a binding putting `_` where one goes, are errors rather than
+  frees.
+- An argument that reads a list in place, borrowed or viewed, cannot
+  share a call with a `mut` argument that may overlap it, a call nested
+  in the arguments included: an array would be copied there (see views),
+  but copying a list would allocate, at a call, with no error to give.
+  Overlap is by path, two elements always overlapping, and a borrow of a
+  struct holding a list counts whatever its `mut` overlap touches.
+- A range over a list may write the list's elements in its body, which
+  later iterations see, but not assign the list, or anything holding it,
+  pass either as `mut`, or move it.
+- A defer that reads a list moved later in its block is an error even
+  when the list is assigned again before the block ends; deferred code
+  cannot move a list declared outside it; a list moved before a defer
+  cannot be read in it.
+- A conditional move is tracked per path; a variable used after it may
+  have been moved is reported once, at its first use, with a note at
+  every move that reaches it.
+- An extern func may take a list only as `mut` or as a view; by value,
+  or as a result, a list or anything holding one is an error.
+- A list, or a struct holding one, cannot be a global, mutable or not.
+- `len(l)`'s facts end at an assignment of `l`, a `mut` argument of it,
+  `append` included, or a move; writing an element of a list ends no
+  fact about any variable, since no element of a list is a subject.
+- A variable that holds a list is never `const` in C. The C names are
+  `tack_list_<id>` in the generated source and `tack_list_<element>` in
+  `tack.h`, as for views.
+- The driver links `std/builtin`'s `list.c` for a program with any list
+  type, and std's objects defining a `tack_` symbol a program's own C
+  object leaves undefined, so a C file calling std's list macros links
+  what they call.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

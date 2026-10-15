@@ -19,7 +19,8 @@
 // struct no declaration gives, of a code, an Int32, and a message, a
 // String: a Table reports it as a struct with those fields, fixed, in
 // that order, though it never adds it, so it has no entry and no
-// SetFields changes it. IsInteger, IsUnsigned
+// SetFields changes it. Allocator, Allocator, is an opaque handle on an
+// allocator, copyable, with no zero value, no order and no ==. IsInteger, IsUnsigned
 // and Bits describe the integer types, and Widens says which can be used
 // as which without a conversion: every value of the one must be a value of
 // the other.
@@ -44,15 +45,22 @@
 // gets one ID. A view type, []T, a read-only view of elements of type T,
 // is added the first time it is seen too, and found by its element type
 // after that; it has no length, and an array type is never a view type,
-// so []int64 and [3]int64 are two types. A struct type is added once per declaration, so two structs
+// so []int64 and [3]int64 are two types. A list type, list[T], an owned,
+// growable list of elements of type T, is added and found by its element
+// type in the same way. A struct type is added once per declaration, so two structs
 // with the same fields are two types; it is named by its declaration and
 // given its fields, a name and a type each, in order, after it is added,
 // which lets a field name a struct declared after its own. The Table does
 // not check that a struct does not contain itself; the type checker does.
 //
+// Owned says which types own memory they must free: a list, and an array
+// or a struct holding one at any depth. A value of such a type moves
+// rather than copies. HasZero says which types have a zero value: every
+// type but a list, an Allocator, and an array or a struct holding either.
+//
 // The type checker creates one Table per program and records it on the
 // ast.Program and on every ast.File of it. Name maps an ID back to the
-// type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, the declared name for a struct; Type deliberately has no String method, so naming a type
+// type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, list[int64] for a list, the declared name for a struct; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
 // "int64", to its Type.

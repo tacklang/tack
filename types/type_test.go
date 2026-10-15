@@ -487,3 +487,96 @@ func TestSetFieldsLeavesErrorAlone(t *testing.T) {
 		t.Errorf("a Table added %d types for error", table.Count())
 	}
 }
+
+// A list type is interned by its element type, and is no array, view or
+// struct.
+func TestListTypes(t *testing.T) {
+	table := types.NewTable()
+	l := table.List(types.Int64)
+	if m := table.List(types.Int64); m != l {
+		t.Fatalf("list[int64] got two IDs, %d and %d", l, m)
+	}
+	if table.List(types.Int32) == l || table.View(types.Int64) == l {
+		t.Error("list[int32] or []int64 got the same ID as list[int64]")
+	}
+	if !table.IsList(l) || table.IsView(l) || table.IsArray(l) || table.IsStruct(l) {
+		t.Error("list[int64] is not a list, or is taken for a view, an array or a struct")
+	}
+	if table.IsList(table.View(types.Int64)) || table.IsList(types.Int64) {
+		t.Error("IsList holds for a view or an int64")
+	}
+}
+
+// A list type knows its element, names itself list[T], and nothing widens
+// to it.
+func TestListTypeShapes(t *testing.T) {
+	table := types.NewTable()
+	l := table.List(types.Int64)
+	if table.Elem(l) != types.Int64 {
+		t.Errorf("Elem = %s, want int64", table.Name(table.Elem(l)))
+	}
+	if got := table.Name(table.List(table.Array(types.String, 2))); got != "list[[2]string]" {
+		t.Errorf("Name = %q, want list[[2]string]", got)
+	}
+	if types.Widens(table.List(types.Int8), l) {
+		t.Error("list[int8] widens to list[int64]")
+	}
+}
+
+// Owned holds for a list, and an array or struct holding one at any
+// depth, even through a struct that holds itself through an array of none,
+// and for nothing else; HasZero fails for those and for Allocator, and
+// anything holding one, and holds for everything else.
+func TestOwnedAndZeroValues(t *testing.T) {
+	table := types.NewTable()
+	l := table.List(types.Int64)
+	inner := table.Struct("Inner")
+	outer := table.Struct("Outer")
+	plain := table.Struct("Plain")
+	handle := table.Struct("Handle")
+	self := table.Struct("Self")
+	table.SetFields(inner, []types.Field{{Name: "items", Type: l}})
+	table.SetFields(outer, []types.Field{{Name: "n", Type: types.Int64}, {Name: "in", Type: inner}})
+	table.SetFields(plain, []types.Field{{Name: "s", Type: types.String}})
+	table.SetFields(handle, []types.Field{{Name: "a", Type: types.Allocator}})
+	table.SetFields(self, []types.Field{{Name: "me", Type: table.Array(self, 0)}})
+	for _, tt := range []struct {
+		typ         types.Type
+		owned, zero bool
+	}{
+		{l, true, false},
+		{inner, true, false},
+		{outer, true, false},
+		{table.Array(outer, 2), true, false},
+		{plain, false, true},
+		{self, false, true},
+		{types.Allocator, false, false},
+		{handle, false, false},
+		{table.Array(types.Allocator, 3), false, false},
+		{table.View(types.Int64), false, true},
+		{types.Error, false, true},
+		{types.Int64, false, true},
+		{types.Invalid, false, true},
+	} {
+		if got := table.Owned(tt.typ); got != tt.owned {
+			t.Errorf("Owned(%s) = %v, want %v", table.Name(tt.typ), got, tt.owned)
+		}
+		if got := table.HasZero(tt.typ); got != tt.zero {
+			t.Errorf("HasZero(%s) = %v, want %v", table.Name(tt.typ), got, tt.zero)
+		}
+	}
+}
+
+// Allocator is a basic type, named by Lookup, that no value of can be
+// passed as any, and that is no integer.
+func TestAllocatorIsABasicType(t *testing.T) {
+	if typ, ok := types.Lookup("Allocator"); !ok || typ != types.Allocator {
+		t.Errorf("Lookup(Allocator) = %v, %v", typ, ok)
+	}
+	if types.InAny(types.Allocator) || types.IsInteger(types.Allocator) {
+		t.Error("Allocator passes as any, or is an integer")
+	}
+	if got := (*types.Table)(nil).Name(types.Allocator); got != "Allocator" {
+		t.Errorf("Name = %q", got)
+	}
+}

@@ -19,7 +19,10 @@ import (
 // A plain argument that reads a place passed as mut in the same call is
 // not an error: it is evaluated, a copy, before the call begins, left to
 // right with the rest, and the backend passes it by value, so the callee
-// never sees it change.
+// never sees it change. A list is the exception: it is never copied for a
+// call, so an argument that reads one in place, borrowed or viewed, while
+// the same call passes an overlapping place as mut, is an error (see
+// checkListBorrows).
 
 // overlap says how two places relate.
 type overlap int
@@ -210,4 +213,90 @@ func (c *Checker) indexInterval(e ast.Expr) (interval, bool) {
 // single reports whether known allows exactly one value.
 func (known interval) single() bool {
 	return known.hasLo && known.hasHi && known.lo.Cmp(known.hi) == 0
+}
+
+// checkListBorrows reports each argument of call that reads a list in
+// place while the same call, or a call nested in its arguments, passes a
+// place that may overlap it as mut, with a note at that mut argument. An
+// argument reads a list in place when it is an owned place, a list or a
+// struct holding one, passed to a plain parameter, which borrows it, or a
+// list, or a slice of one, passed to a view parameter. A plain argument
+// of any other type is a copy, taken before the call, and an array viewed
+// alongside a mut argument is viewed as a copy (see codegen/c); a list is
+// never copied for a call, since copying one would allocate, and then
+// growing it through the mut argument could free the buffer the borrow
+// reads. Places overlap as codegen/c's mayOverlap says: two different
+// fields never do, and two elements always may.
+func (c *Checker) checkListBorrows(call *ast.Call) {
+	var muts []*ast.MutArg
+	for _, arg := range call.Args {
+		ast.Walk(arg, func(n ast.Node) bool {
+			if m, ok := n.(*ast.MutArg); ok {
+				muts = append(muts, m)
+			}
+			return true
+		})
+	}
+	if len(muts) == 0 {
+		return
+	}
+	for _, arg := range call.Args {
+		place := c.borrowedList(arg)
+		if place == nil {
+			continue
+		}
+		for _, m := range muts {
+			if placesMayOverlap(place, m.X) {
+				borrowed, passed := c.text(place.Spanned()), c.text(m.X.Spanned())
+				c.errorNotes(
+					arg.Spanned(),
+					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
+					"cannot pass %s alongside mut %s in this call: a list is not copied for a call, "+
+						"and a mut argument must be the only way to reach %s during it",
+					borrowed,
+					passed,
+					passed,
+				)
+				break
+			}
+		}
+	}
+}
+
+// borrowedList returns the place arg reads a list from in place, when it
+// does: arg itself, a place of an owned type, or what a slice of a list
+// slices, at any depth of slices. It returns nil for anything else, a mut
+// argument included.
+func (c *Checker) borrowedList(arg ast.Expr) ast.Expr {
+	if _, isMut := arg.(*ast.MutArg); isMut {
+		return nil
+	}
+	for {
+		s, ok := arg.(*ast.Slice)
+		if !ok {
+			break
+		}
+		arg = s.X
+	}
+	if ast.Root(arg) == nil || !c.table.Owned(ast.TypeOf(arg)) {
+		return nil
+	}
+	return arg
+}
+
+// placesMayOverlap reports whether the places a and b may share memory:
+// they start from the same variable or parameter, and no field of one
+// differs from the other's at the same depth. Two elements always may.
+func placesMayOverlap(a, b ast.Expr) bool {
+	rootA, stepsA := path(a)
+	rootB, stepsB := path(b)
+	if rootA == nil || rootA != rootB {
+		return false
+	}
+	for i := range min(len(stepsA), len(stepsB)) {
+		if stepsA[i].index == nil && stepsB[i].index == nil && stepsA[i].field != stepsB[i].field {
+			return false
+		}
+	}
+	return true
 }

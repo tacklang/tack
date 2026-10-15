@@ -10,14 +10,16 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// stringElement checks the index of s[i], where s is a string or a view,
-// and returns elem, the type of what it reads: a string's byte, a uint8,
-// or the view's element. The index must be an integer proven in range,
-// unless s[i] is being bound with ok; a constant index is checked against
-// a string literal's length here, and a negative one is never in range. A
-// view's length is never known, as a string parameter's is not, so its
-// index is proven as one into such a string is.
-func (c *Checker) stringElement(ix *ast.Index, idx, elem types.Type) types.Type {
+// stringElement checks the index of s[i], where s is a string, a view or
+// a list, and returns elem, the type of what it reads: a string's byte, a
+// uint8, or the view's or list's element. The index must be an integer
+// proven in range, unless s[i] is being bound with ok; a constant index is
+// checked against a string literal's length here, and a negative one is
+// never in range. A view's or a list's length is never known, as a string
+// parameter's is not, so its index is proven as one into such a string
+// is. write says s[i] is being assigned, which only a list's element can
+// be, and only matters for what the error suggests.
+func (c *Checker) stringElement(ix *ast.Index, idx, elem types.Type, write bool) types.Type {
 	switch {
 	case !c.indexType(ix, idx):
 	case c.checkedIndex == ix:
@@ -26,7 +28,7 @@ func (c *Checker) stringElement(ix *ast.Index, idx, elem types.Type) types.Type 
 			return types.Invalid
 		}
 	default:
-		c.requireStringInRange(ix)
+		c.requireStringInRange(ix, write)
 	}
 	return elem
 }
@@ -62,8 +64,11 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 		return
 	}
 	what := "a string"
-	if c.table.IsView(ast.TypeOf(ix.X)) {
+	switch typ := ast.TypeOf(ix.X); {
+	case c.table.IsView(typ):
 		what = "a view"
+	case c.table.IsList(typ):
+		what = "a list"
 	}
 	c.errorf(ix.Index.Spanned(), "index %s is out of range for %s", v, what)
 }
@@ -149,8 +154,9 @@ func (c *Checker) belowLen(i, s ast.Expr) bool {
 // requireStringInRange reports an index into a string that is not proven
 // to be in range: a constant that is out of range whatever the string
 // holds, or anything else no fact covers. The message says what check
-// would prove it.
-func (c *Checker) requireStringInRange(ix *ast.Index) {
+// would prove it, and, unless write says the element is being assigned,
+// the checked form.
+func (c *Checker) requireStringInRange(ix *ast.Index, write bool) {
 	if v, ok := c.knownValue(ix.Index); ok && c.constantOutside(ix.X, v) {
 		c.reportOutside(ix, v)
 		return
@@ -158,7 +164,7 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 	if c.stringIndexProven(ix) {
 		return
 	}
-	msg, notes := c.stringIndexError(ix)
+	msg, notes := c.stringIndexError(ix, write)
 	c.errorNotes(ix.Index.Spanned(), notes, "%s", msg)
 }
 
@@ -170,8 +176,10 @@ func (c *Checker) requireStringInRange(ix *ast.Index) {
 // checked form when s is neither, since only a subject's length can be
 // guarded. A mutable global s gets the note at its declaration that no
 // check proves it, and a field of a mutable variable or a mut parameter
-// the note at a guard on its length that the guard proves nothing.
-func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
+// the note at a guard on its length that the guard proves nothing. The
+// checked form is suggested only for a read: an element being assigned,
+// write, has none.
+func (c *Checker) stringIndexError(ix *ast.Index, write bool) (string, []diag.Diagnostic) {
 	bound := c.stringBound(ix.X)
 	proven := func() bool { return c.stringIndexProven(ix) }
 	var msg string
@@ -188,7 +196,7 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 		msg, notes = c.indexError(ix, bound, func(i ast.Expr) []diag.Diagnostic {
 			n, known := c.extentOf(ix.X)
 			unit := "byte"
-			if c.table.IsView(ast.TypeOf(ix.X)) {
+			if typ := ast.TypeOf(ix.X); c.table.IsView(typ) || c.table.IsList(typ) {
 				unit = "element"
 			}
 			e := c.newExtent(ix.X, unit, n, known)
@@ -196,6 +204,9 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 		})
 	}
 	notes = append(notes, c.indexedNotes(ix.X)...)
+	if write {
+		return msg, notes
+	}
 	return msg + orUse(
 		"v, ok := ...["+c.indexName(ix.Index)+"]",
 		strings.HasSuffix(msg, " first"),

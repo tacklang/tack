@@ -11,10 +11,10 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// A slice, x[i:j], is the bytes of a string, or the elements of an array or
-// a view, from i up to, but not including, j. A bound left out is 0 for i
+// A slice, x[i:j], is the bytes of a string, or the elements of an array, a
+// view or a list, from i up to, but not including, j. A bound left out is 0 for i
 // and len(x) for j. A string's slice is a string, a value like any other,
-// storable anywhere. An array's or a view's is a view of its element type,
+// storable anywhere. An array's, a view's or a list's is a view of its element type,
 // which is usable only where a view parameter's value would be one: passed
 // to a view parameter, given to len, or sliced again, the result of which
 // is under the same rule; anywhere else it would need to be stored, and is
@@ -67,8 +67,8 @@ func (c *Checker) allowViewSlice(e ast.Expr) {
 }
 
 // sliceType checks what s slices and its bounds, and returns the slice's
-// type: a string's is a string, and an array's or a view's a view of its
-// elements. An array must be a place. Anything else, a bound that is not
+// type: a string's is a string, and an array's, a view's or a list's a view of its
+// elements. An array or a list must be a place. Anything else, a bound that is not
 // an integer and an array that is a temporary are reported, and give
 // types.Invalid. What s slices may itself be a slice, which s then takes
 // as len would.
@@ -83,6 +83,12 @@ func (c *Checker) sliceType(s *ast.Slice) types.Type {
 		return types.Invalid
 	case base == types.String, c.table.IsView(base):
 		typ = base
+	case c.table.IsList(base):
+		if !c.isPlace(s.X) {
+			c.errorf(s.X.Spanned(), "cannot slice a temporary list; store it in a variable first")
+			return types.Invalid
+		}
+		typ = c.table.View(c.table.Elem(base))
 	case c.table.IsArray(base):
 		if !c.isPlace(s.X) {
 			c.errorf(s.X.Spanned(), "cannot slice a temporary array; store it in a variable first")
@@ -202,8 +208,9 @@ func (c *Checker) constantBoundOutside(s *ast.Slice, b ast.Expr) bool {
 }
 
 // extentName names what x, sliced, is in an error about a bound out of
-// range for it: an array by its type, and a string or a view by what it
-// is, with its length when that, n, is known.
+// range for it: an array by its type, and a string, a view or a list by
+// what it is, with its length when that, n, is known, which a list's
+// never is.
 func (c *Checker) extentName(x ast.Expr, n int64, known bool) string {
 	typ := ast.TypeOf(x)
 	switch {
@@ -213,6 +220,8 @@ func (c *Checker) extentName(x ast.Expr, n int64, known bool) string {
 		return "a string of " + plural64(n, "byte")
 	case typ == types.String:
 		return "a string"
+	case c.table.IsList(typ):
+		return "a list"
 	case known:
 		return "a view of " + plural64(n, "element")
 	default:

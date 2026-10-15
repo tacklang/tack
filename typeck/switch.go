@@ -29,15 +29,15 @@ import (
 // give one, as when the tag is a variable.
 
 // checkSwitch checks a switch in fn: its tag, then each case, its values and
-// its body, in the order they are tried, the default last. A tag that is a
-// view or an any is reported, since a switch compares its tag with ==,
-// which neither has.
+// its body, in the order they are tried, the default last. A tag of a type
+// with no ==, a view, an any, a list, an Allocator, or a struct or array
+// holding one, is reported, since a switch compares its tag with ==.
 func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	tagType := types.Invalid
 	if s.Tag != nil {
 		tagType = c.valueOf(s.Tag, c.expr(s.Tag))
 	}
-	if c.table.IsView(tagType) || tagType == types.Any {
+	if tagType != types.Invalid && !c.comparable(tagType) {
 		c.errorf(s.Tag.Spanned(), "operator == is not defined on %s", c.typeName(tagType))
 		tagType = types.Invalid
 	}

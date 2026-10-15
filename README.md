@@ -40,7 +40,7 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
 Functions have local variables, immutable unless declared with `mut`, and
-loops. `print` takes strings only; `std/fmt`'s `printf` writes integers,
+loops, and lists, owned and growable, which free themselves. `print` takes strings only; `std/fmt`'s `printf` writes integers,
 bools and strings, through `any` parameters (see the language today).
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
@@ -235,7 +235,8 @@ extern("tack_builtin_exit") func exit(code int32)
 Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
 types, none `mut` or variadic (`parameter xs of builtin p cannot be
-variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, `len`, `main` or `_`. Anything
+variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make` or
+`append`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -245,10 +246,11 @@ bodies are the `.c` files beside `builtin.tck`, one per builtin and named
 after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
 `src/std/include` for `tack_string`. That header is the one definition of
 what every program's C shares, `tack_string` and the string helpers,
-`tack_error` and the error helpers, and
-`tack_any`, its type ids and its unpack helpers: the generated C includes
+`tack_error` and the error helpers,
+`tack_any`, its type ids and its unpack helpers, and `tack_allocator`, the
+list functions and the list macros: the generated C includes
 it too, and so does a program's `tack.h` when an extern func uses a string,
-an error or `any`, so every C file is compiled with
+an error, `any`, a list or an `Allocator`, so every C file is compiled with
 `-I $TACK_HOME/src/std/include`, and `--emit` output needs that flag to
 compile on its own. The driver compiles them as it
 compiles a program's C files and links only the objects that define a
@@ -257,11 +259,16 @@ in turn, as a linker takes an archive's members. So the generated C
 includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
 `unsafe_size_t`, which a freestanding C implementation has, and
 `<tack/tack.h>`, which includes only those three, and a program
-that calls neither builtin links neither body and none of the C library
-they call. A target without a C library needs only different bodies.
+that calls neither builtin, and has no list, links neither body and none
+of the C library they call. A target without a C library needs only different bodies.
 
-`len` is generic, so no Tack declaration can describe it: the compiler
-implements it itself, and `builtin.tck` describes it in a comment.
+`len`, `make` and `append` are generic, so no Tack declaration can
+describe them: the compiler implements them itself, and `builtin.tck`
+describes them in comments. A program with lists also links `list.c`,
+the one C file of `std/builtin` that is no builtin's body: it holds the
+functions that grow and free a list's buffer, which the generated C
+calls, and `c_allocator`'s, and the driver links it for a program with a
+list type, or one of whose C files calls a function std defines.
 Declarations that are wanted but not implemented go in
 `src/std/builtin/PLANNED.md`, which the compiler does not read.
 
@@ -562,7 +569,9 @@ makes for itself, which has a letter after `tack_`.
   or a call's result included, and is allowed only as an argument to a
   `[]uint8` parameter, `[]uint8(...) can only be passed to a []uint8
   parameter`; a string without it is `cannot use string as []uint8 in
-  argument to count; view its bytes with []uint8(s)`. A view parameter is
+  argument to count; view its bytes with []uint8(s)`. A list of exactly
+  the element type passes to one as it is, `sum(l)`, and is never copied
+  for it (see lists). A view parameter is
   passed on to another of the same type as it is, `sum(v)`. A view has
   `len(v)`, an `int64` never known, with the facts a string variable's
   length has; `v[i]`, with `i` proven in range against `len(v)` as for a
@@ -748,6 +757,114 @@ makes for itself, which has a letter after `tack_`.
 
   The rules are the compiler's: an error is a plain value at run time,
   in C a `tack_error` passed by value (see extern C).
+- Lists. `list[T]` is an owned, growable list of elements of type `T`,
+  stored by value, freed automatically: `list` is a keyword, as `map`
+  is. `make(list[T], alloc)` makes an empty one, which allocates nothing
+  and cannot fail, and grows through `alloc`, an `Allocator` (see
+  allocators). `err := append(mut l, v)` adds `v`, of a type that is or
+  widens to `T`, at the end, growing the buffer when it is full; when the
+  allocator cannot grow it, the error is `error{code: 1, msg: "out of
+  memory"}` and `l` is left as it was. Its error follows the three error
+  rules: `append(mut l, 1)` alone is `the error append returns cannot be
+  dropped; bind it, as in err := append(...)`. The list is passed as
+  `mut`, so it must be a mutable local, a `mut` parameter or a field of
+  one: `append(l, 1)` is `append takes l as mut; pass mut l`, and
+  anything but a list `append expects a list, got [3]int64`. `make`
+  takes the list type as written, `make takes a list type, as in
+  make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
+  argument(s), got 3`; a list type anywhere else a value is wanted is
+  `cannot use list[int64] as a value; it is a type`, and
+  `list[int64]{1, 2}` is `list[int64] cannot be written as a literal;
+  only arrays and structs can`. A list reads as a view does: `len(l)`, an
+  `int64` with the facts a string variable's length has (see indexing a
+  string), which hold in a region that never assigns `l`, passes it as
+  `mut`, `append` included, or moves it, though writing an element ends
+  none; `l[i]` with `i` proven in range against `len(l)`, or the checked
+  form `v, ok := l[i]`; every range form, `for i, x := range l`, whose
+  index is proven for `l`; slicing, `l[i:j]`, to a view, `[]T`; and
+  passing it whole to a view parameter of its element type, `sum(l)`, or
+  spreading it into a variadic one. Unlike a view it can be written: `l[i]
+  = v`, `l[i].f = v`, `l[i] += v` and `l[i]++`, with `i` proven, in a
+  list that is mutable, a `mut` local or a `mut` parameter, as an array's
+  element is. A range over a list walks the list itself, not a copy, so
+  element writes in the body show in later iterations, and the body
+  cannot change the list: assigning it or anything holding it, passing
+  either as `mut`, `append` included, or moving it is `l is being ranged
+  over, so this loop cannot pass mut l`. Lists have no `==`, no order and
+  no zero value: `mut l list[int64]` is `l needs a value: list[int64] has
+  no zero value`. A list's elements are copied when read, so they must be
+  copyable: no list, and no struct holding one, `a list cannot hold
+  list[int64]: its elements are copied, and a list cannot be`, and the
+  same for an array, a view or a variadic parameter, `an array cannot
+  hold list[int64]: ...`. No package-level variable may hold a list,
+  `package-level variable g cannot hold a list`, since any function could
+  reach one.
+
+  A list has one owner, the variable holding it, which frees it when its
+  block ends, through the allocator it was made with. So a list is never
+  copied: declaring a variable with one, `m := l`, assigning one, `m =
+  l`, returning one or writing one as a struct literal's field moves it,
+  and the variable it came from cannot be used again, `l is used after it
+  was moved`, with a note at the move, until it is assigned a new list. A
+  move on some paths only is allowed, and the variable is then unusable
+  after them, `l is used after it may have been moved`; a move in a
+  loop's body that the next iteration would see again is reported in the
+  same way, unless the body assigns the variable a new list first. A
+  plain parameter of a list type borrows its argument, read-only, and the
+  caller keeps it; a `mut` parameter can grow it, and assign it whole.
+  Neither can be moved, `cannot move l: it is a parameter, which borrows
+  its caller's value`, nor can a field on its own, `cannot move s.items
+  out of s: a field cannot be moved on its own`. A list no variable holds,
+  a call's result or `make`'s, must be given an owner: anywhere but the
+  value of a declaration, an assignment, a return, a binding of several
+  results or a struct literal's field it is `cannot use a temporary
+  list[int64] here; store it in a variable first`, or `cannot view a
+  temporary list; store it in a variable first` for a view, and a call
+  that drops one is `make returns list[int64], which cannot be dropped;
+  bind it to a variable`, or with `instead of _` where a binding puts `_`.
+  Assigning a variable that holds a list frees the old list once the new
+  value is computed, which may read it. A list is freed where its block
+  ends however it is left, by falling off its end, `return`, `break` or
+  `continue`, each list declared in a loop's body at the end of every
+  iteration, a list a three-clause loop's init declares once the loop is
+  done, and a list that was moved, or a conditionally moved one on the
+  paths that moved it, not at all. The frees run as if a defer freeing
+  the list were written right after its declaration: frees and defers
+  run last first, by position, so a defer written after `l` still reads
+  it. A defer that reads a list moved later in its block would read a
+  moved value: `l is moved after this defer, which reads it when its
+  block ends`; deferred code cannot move a list declared outside it, `a
+  defer cannot move l, which is declared outside it`; and `exit` ends the
+  process without freeing anything, as it runs no defer. During a call,
+  an argument that reads a list in place, a list or a struct holding one
+  passed to a plain parameter, or a list or a slice of one passed to a
+  view parameter, cannot overlap a place the same call, or a call nested
+  in its arguments, passes as `mut`, since a list is not copied for a
+  call and growing it could free what the other argument reads: `cannot
+  pass l alongside mut l in this call: a list is not copied for a call,
+  and a mut argument must be the only way to reach l during it`.
+
+  A struct with a field of a list type, directly or through another
+  struct, holds a list, and is owned as a list is: it moves, has no zero
+  value and no `==`, cannot be a package-level variable, and frees its
+  lists, last field first, when its owner's block ends. In C a list is
+  `tack_list_<T>`, `{T *ptr; int64_t len; int64_t cap; tack_allocator
+  alloc;}` (see extern C), and [docs/safety.md](docs/safety.md#lists) has
+  every rule and diagnostic.
+- Allocators. `Allocator` is a builtin type: an opaque handle on an
+  allocator, which a list holds, grows through and is freed through. It
+  is copyable, a local, a parameter, a result, a field, an array's or a
+  list's element or a global, but has no zero value, `a needs a value:
+  Allocator has no zero value`, so a struct or array holding one has none
+  either, and the checked form cannot read an element of one, `the
+  checked form cannot read an element of type Allocator: it has no zero
+  value to give when the index is out of range`; it has no `==` and no
+  order, and cannot be passed as `any`. `c_allocator`, a keyword like
+  `noerror`, is the one `Allocator` there is: it lowers to C's `malloc`,
+  `realloc` and `free`, and is a constant expression, so `var a =
+  c_allocator` is a global. In C an `Allocator` is a `tack_allocator`,
+  the index of an allocator std's C keeps and its generation, and
+  `c_allocator` is `TACK_C_ALLOCATOR`, index 0 and generation 0.
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
@@ -847,7 +964,7 @@ makes for itself, which has a letter after `tack_`.
   so `x = v` and `mut x` are errors; change an element through `a[i]`.
   A view ranges the same way, its index an `int64` and its element of the
   view's element type, without copying its elements, since a view never
-  changes.
+  changes, and so does a list, which the body cannot change (see lists).
   Over an integer, only one name is allowed, and three names are an error
   anywhere. An array's index is proven in range for any array at least as
   long; a string's or a view's for the string or view it ranges over (see
@@ -855,7 +972,9 @@ makes for itself, which has a letter after `tack_`.
 - Local variables. `x := v`, `var x T = v` and `var x = v` declare an
   immutable variable; `mut` in place of `var` (`mut x := v`, `mut x T = v`,
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
-  value: `0`, `""` or `false`. An immutable variable must have a value.
+  value: `0`, `""` or `false`. An immutable variable must have a value,
+  and so must a variable of a type with no zero value, a list, an
+  `Allocator`, or a struct or array holding one.
 - `x = v` assigns to a mutable variable a value its type accepts. Parameters
   are immutable, except a `mut` parameter (see mut parameters).
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
@@ -914,7 +1033,9 @@ makes for itself, which has a letter after `tack_`.
   variable. `mut p Point` with no value starts with every field at its
   zero value, as `mut` does for any type. Two structs of one type compare
   with `==` and `!=`, field by field, a string field by its bytes, and a
-  struct with no fields is always equal to another. Structs are not
+  struct with no fields is always equal to another. A struct holding a
+  list is owned, as a list is: it moves rather than copies, and has no
+  zero value and no `==` (see lists). Structs are not
   ordered: `<` on two structs is an error. Structs may be package-level
   variables, initialized with a constant expression (see package-level
   variables). A field of an immutable global is a known value, so `n /
@@ -947,6 +1068,7 @@ makes for itself, which has a letter after `tack_`.
   - arithmetic, comparisons, `&&`, `||` and `!` on constant expressions,
     strings, arrays and structs comparing as they do at run time.
 
+  A package-level variable cannot hold a list (see lists).
   Anything else is `x must be initialized with a constant expression`: a
   call to a function, or to a builtin other than `len`, and a mutable
   global outside `len` of an array. Overflow and division by zero in a
@@ -1174,7 +1296,7 @@ makes for itself, which has a letter after `tack_`.
   `if u < len(s)` proves `s[u]`, and the same holds for an
   `unsafe_size_t` or `unsafe_uintptr_t` `u`, whatever the target's width.
 - Slicing. `x[i:j]` is the bytes of the string `x`, or the elements of the
-  array or view `x`, from `i` up to, but not including, `j`, as in Go;
+  array, view or list `x`, from `i` up to, but not including, `j`, as in Go;
   `x[:j]` starts at 0, `x[i:]` runs to `len(x)`, and `x[:]` is all of it.
   There is no three-index form: `x[i:j:k]` is `a slice has at most two
   bounds, x[i:j]; there is no three-index form`. A string's slice is a
@@ -1182,7 +1304,7 @@ makes for itself, which has a letter after `tack_`.
   copying them, so it is a value like any other string: stored in a
   variable, a field, an array, a global's initializer when computable, or
   returned. A string slices by bytes, so a slice may cut through a
-  multi-byte UTF-8 character. An array's or a view's slice is a view, `[]T`
+  multi-byte UTF-8 character. An array's, a view's or a list's slice is a view, `[]T`
   of its element type, under the rules for views: it can only be passed
   to a view parameter, `sum(a[1:3])`, an extern func's included, spread
   into a variadic one, `total(a[1:3]...)`, given to `len`, or sliced
@@ -1190,7 +1312,9 @@ makes for itself, which has a letter after `tack_`.
   over or compared, it is `a[1:3] is a view, []int64, which can only be
   passed to a view parameter or to len`. An array must be a place, as for a
   view: `f()[1:]` is `cannot slice a temporary array; store it in a variable
-  first`. A slice of a mutable global array, or of an array the same call
+  first`, and so is a list, `cannot slice a temporary list; store it in a
+  variable first`; a known bound never fits a list whose length is
+  unknown, so `l[-1:]` is `slice bound -1 is out of range for a list`. A slice of a mutable global array, or of an array the same call
   passes as `mut`, is of a copy taken when the argument is evaluated, as a
   view of it would be; a string's slice never copies. Anything else
   sliced is `cannot slice int64`, and a bound must be an integer, `slice
@@ -1219,8 +1343,10 @@ makes for itself, which has a letter after `tack_`.
   [docs/safety.md](docs/safety.md#slicing).
 - `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
-  division), and `len(v)` the number of elements of a view, never known
-  but for a slice at known bounds; each is an `int64`.
+  division), and `len(v)` the number of elements of a view or a list,
+  never known but for a slice at known bounds; each is an `int64`.
+  Anything else is `len expects an array, a string, a view or a list,
+  got int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of
@@ -1348,7 +1474,16 @@ makes for itself, which has a letter after `tack_`.
   tack_string msg;}`, by value, which C builds with `TACK_ERROR(code,
   "literal")`, or `TACK_NO_ERROR` for none, from std's `<tack/tack.h>`;
   an extern func that returns one returns it last, in its results struct
-  when it has several, and its callers check it as any function's. An
+  when it has several, and its callers check it as any function's. A
+  list crosses only as a `mut` parameter, `tack_list_<T> *`, `{T *ptr;
+  int64_t len; int64_t cap; tack_allocator alloc;}`, which C reads with
+  `TACK_LIST_LEN(l)` and `TACK_LIST_AT(l, i)` and grows with
+  `TACK_LIST_APPEND(lp, v)`, true when it grew, from std's
+  `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
+  struct holding one, is `parameter l of extern func f cannot be
+  list[int64]: a list crosses to C only as a mut parameter, or as a
+  view`, and so is one returned, `extern func f cannot return
+  list[int64]: ...`. An `Allocator` is a `tack_allocator`. An
   extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise

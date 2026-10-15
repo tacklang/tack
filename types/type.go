@@ -59,6 +59,12 @@ const (
 	// are fixed, code, an int32, and msg, a string (see errorFields), so
 	// a Table reports it as a struct, though no declaration gives it.
 	Error
+	// Allocator is Allocator, an opaque handle on an allocator that a
+	// list allocates through and is freed through: in C, tack_allocator,
+	// an index into the allocators the runtime knows and a generation,
+	// defined in std's tack.h. It is copyable, has no zero value, no
+	// order and no ==; c_allocator is its one value today.
+	Allocator
 
 	// numBasic is the number of basic types, Invalid included. It is the
 	// first ID a Table would hand out.
@@ -85,6 +91,7 @@ var basicNames = [numBasic]string{
 	UntypedInt:    "untyped int",
 	Any:           "any",
 	Error:         "error",
+	Allocator:     "Allocator",
 }
 
 // Lookup returns the basic type a type name denotes. Invalid and UntypedInt
@@ -100,8 +107,9 @@ func Lookup(name string) (Type, bool) {
 
 // InAny reports whether a value of type t can be passed as any: t is one
 // of the twelve basic types a value can have, every integer type, bool
-// and string. An array, a view, a struct, any itself and an untyped
-// constant cannot; an untyped constant is given int64 first.
+// and string. An array, a view, a list, a struct, error, Allocator, any
+// itself and an untyped constant cannot; an untyped constant is given
+// int64 first.
 func InAny(t Type) bool {
 	return t >= Int64 && t < UntypedInt
 }

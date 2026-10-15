@@ -93,13 +93,14 @@ func (g *generator) operandType(operand ast.Expr) string {
 // orderShows reports whether the order operands are evaluated in could
 // change what a program does: at least two of them are not pure, and one
 // of those calls a function, which can print, exit, or assign a mutable
-// global another one reads.
+// global another one reads, or moves a variable's value, emptying a
+// variable another one reads.
 func (g *generator) orderShows(operands []ast.Expr) bool {
 	impure, calling := 0, false
 	for _, e := range operands {
 		if !g.pure(e) {
 			impure++
-			calling = calling || callsFunc(e)
+			calling = calling || callsFunc(e) || moves(e)
 		}
 	}
 	return impure >= 2 && calling
@@ -114,12 +115,13 @@ func (g *generator) orderShows(operands []ast.Expr) bool {
 // assign a parameter or a local of another function only through a mut
 // argument, and so are len and conversions of pure operands. A mut
 // argument evaluates to the address of its place, which no call changes,
-// so it is pure when its indexes are.
+// so it is pure when its indexes are. A name whose value it moves empties
+// its variable, which is never pure.
 func (g *generator) pure(e ast.Expr) bool {
 	if m, ok := e.(*ast.MutArg); ok {
 		return g.pureIndexes(m.X)
 	}
-	pure := !callsFunc(e)
+	pure := !callsFunc(e) && !moves(e)
 	ast.Walk(e, func(n ast.Node) bool {
 		if id, ok := n.(*ast.Ident); ok && g.changeable(id) {
 			pure = false
@@ -158,14 +160,20 @@ func (g *generator) changeable(id *ast.Ident) bool {
 }
 
 // mutated returns the variables and parameters body passes as mut, at any
-// depth, deferred code included.
+// depth, deferred code included, and the variables whose values it moves,
+// which a move empties.
 func mutated(body []ast.Stmt) map[ast.Decl]bool {
 	found := make(map[ast.Decl]bool)
 	for _, stmt := range body {
 		ast.Walk(stmt, func(n ast.Node) bool {
-			if m, ok := n.(*ast.MutArg); ok {
-				if root := ast.Root(m.X); root != nil {
+			switch x := n.(type) {
+			case *ast.MutArg:
+				if root := ast.Root(x.X); root != nil {
 					found[root.Def] = true
+				}
+			case *ast.Ident:
+				if x.Move {
+					found[x.Def] = true
 				}
 			}
 			return true
@@ -174,15 +182,17 @@ func mutated(body []ast.Stmt) map[ast.Decl]bool {
 	return found
 }
 
-// callsFunc reports whether evaluating e calls a Tack function. A builtin
-// in an expression is len, which has no effect, and a conversion is not a
-// call.
+// callsFunc reports whether evaluating e calls a Tack function, or
+// append, which grows a list and so changes what reading it gives. Any
+// other builtin in an expression is len or make, which have no effect,
+// and a conversion is not a call.
 func callsFunc(e ast.Expr) bool {
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {
 		if call, ok := n.(*ast.Call); ok {
 			if id, isName := call.Fn.(*ast.Ident); isName {
-				if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil {
+				if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil ||
+					isBuiltin(call, "append") {
 					found = true
 				}
 			}

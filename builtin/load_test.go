@@ -55,17 +55,24 @@ func equalTypes(a, b []types.Type) bool {
 
 // One builtin per C file, named after it, is the convention the driver's
 // member selection makes cheap: each builtin's body is in <name>.c, which
-// defines it, not static, and no C file is there for no builtin.
+// defines it, not static, and no C file is there for no builtin but
+// list.c, the C of lists, which defines every one of builtin.ListSymbols,
+// not static.
 func TestRepositoryCFilesAreOnePerBuiltin(t *testing.T) {
 	set := stdtest.Builtins(t)
 	byFile := make(map[string]builtin.Func)
 	for _, fn := range set.Funcs() {
 		byFile[filepath.Join(set.Dir(), fn.Name+".c")] = fn
 	}
-	if len(set.CFiles()) != len(byFile) {
-		t.Errorf("CFiles() = %q, want one per builtin", set.CFiles())
+	lists := filepath.Join(set.Dir(), "list.c")
+	if len(set.CFiles()) != len(byFile)+1 {
+		t.Errorf("CFiles() = %q, want one per builtin and list.c", set.CFiles())
 	}
 	for _, path := range set.CFiles() {
+		if path == lists {
+			checkListC(t, path)
+			continue
+		}
 		fn, ok := byFile[path]
 		if !ok {
 			t.Errorf("%s is the body of no builtin", path)
@@ -88,6 +95,28 @@ func TestRepositoryCFilesAreOnePerBuiltin(t *testing.T) {
 	}
 }
 
+// checkListC checks list.c, at path, defines every symbol lists need, none
+// static, and includes <tack/tack.h>, which declares them.
+func checkListC(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, sym := range builtin.ListSymbols {
+		if !strings.Contains(src, sym+"(") {
+			t.Errorf("%s does not define %s", path, sym)
+		}
+		if strings.Contains(src, "static void "+sym) || strings.Contains(src, "static void *"+sym) {
+			t.Errorf("%s defines %s static, which no other object can link", path, sym)
+		}
+	}
+	if !strings.Contains(src, "#include <tack/tack.h>") {
+		t.Errorf("%s does not include <tack/tack.h>", path)
+	}
+}
+
 // A generic builtin has no declaration in std/builtin, so it must at least
 // be described there, as len(...) in a comment.
 func TestGenericBuiltinsAreDocumented(t *testing.T) {
@@ -106,7 +135,7 @@ func TestGenericBuiltinsAreDocumented(t *testing.T) {
 // resolver can bind a call to it.
 func TestNamesListsEveryBuiltin(t *testing.T) {
 	names := " " + strings.Join(stdtest.Builtins(t).Names(), " ") + " "
-	for _, want := range []string{"print", "exit", "len"} {
+	for _, want := range []string{"print", "exit", "len", "make", "append"} {
 		if !strings.Contains(names, " "+want+" ") {
 			t.Errorf("Names() = %q, missing %s", names, want)
 		}
@@ -114,11 +143,12 @@ func TestNamesListsEveryBuiltin(t *testing.T) {
 }
 
 // Names that are not builtins are not found: near misses, other languages'
-// spellings, Go's builtins Tack does not have, and len, which is generic.
+// spellings, Go's builtins Tack does not have, and len, make and append,
+// which are generic.
 func TestLookupRejectsNamesThatAreNotBuiltins(t *testing.T) {
 	set := stdtest.Builtins(t)
 	for _, name := range []string{
-		"", "Print", "PRINT", "println", "printf", " print", "exit ", "Exit", "len",
+		"", "Print", "PRINT", "println", "printf", " print", "exit ", "Exit", "len", "make", "append",
 		"panic", "main", "tack_builtin_print",
 	} {
 		if got, ok := set.Lookup(name); ok {
@@ -137,8 +167,8 @@ func TestNilSetIsEmpty(t *testing.T) {
 	if _, ok := set.Lookup("print"); ok {
 		t.Error("nil Set looks up print")
 	}
-	if got := strings.Join(set.Names(), " "); got != "len" {
-		t.Errorf("nil Set's Names() = %q, want len", got)
+	if got := strings.Join(set.Names(), " "); got != "len make append" {
+		t.Errorf("nil Set's Names() = %q, want len make append", got)
 	}
 }
 

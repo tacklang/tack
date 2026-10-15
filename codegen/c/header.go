@@ -57,13 +57,13 @@ type header struct {
 	pkgOf   map[types.Type]*ast.Package  // and its package
 
 	externs []*ast.Func  // every extern func, in program order
-	order   []types.Type // the arrays, views and structs to define, each after its parts
+	order   []types.Type // the arrays, views, lists and structs to define, each after its parts
 	seen    map[types.Type]bool
 	names   map[string]owner // what each name tack.h declares belongs to
 
 	diags []diag.Diagnostic
 
-	std   bool // whether tack_string or tack_any is used, which std's tack.h defines
+	std   bool // whether a type std's tack.h defines is used: tack_string, tack_any, tack_error, tack_allocator
 	sizes bool // whether size_t is, which <stddef.h> declares
 }
 
@@ -146,17 +146,19 @@ func (h *header) useSignature(fn *ast.Func) {
 // use records that tack.h needs typ, used at site, and every type it is
 // made of, which are defined before it, and the header that declares a
 // basic type's C type when <stdint.h> does not: <stddef.h> for size_t, and
-// std's tack.h for tack_string, tack_any and tack_error.
+// std's tack.h for tack_string, tack_any, tack_error and tack_allocator,
+// which a list holds too, and whose macros C grows a list with.
 func (h *header) use(typ types.Type, site ast.Span) {
 	table := h.prog.Types
 	switch {
-	case typ == types.String || typ == types.Any || typ == types.Error:
+	case stdTypes[typ]:
 		h.std = true
 		return
 	case typ == types.UnsafeSize:
 		h.sizes = true
 		return
-	case h.seen[typ] || !table.IsArray(typ) && !table.IsStruct(typ) && !table.IsView(typ):
+	case h.seen[typ] ||
+		!table.IsArray(typ) && !table.IsStruct(typ) && !table.IsView(typ) && !table.IsList(typ):
 		return
 	}
 	h.seen[typ] = true
@@ -164,8 +166,16 @@ func (h *header) use(typ types.Type, site ast.Span) {
 	h.order = append(h.order, typ)
 }
 
-// useParts records that tack.h needs the types typ, an array, view or
-// struct type used at site, is made of, and claims typ's name.
+// stdTypes holds the basic types whose C types std's tack.h defines.
+var stdTypes = map[types.Type]bool{
+	types.String:    true,
+	types.Any:       true,
+	types.Error:     true,
+	types.Allocator: true,
+}
+
+// useParts records that tack.h needs the types typ, an array, view, list
+// or struct type used at site, is made of, and claims typ's name.
 func (h *header) useParts(typ types.Type, site ast.Span) {
 	table := h.prog.Types
 	switch {
@@ -175,6 +185,10 @@ func (h *header) useParts(typ types.Type, site ast.Span) {
 	case table.IsView(typ):
 		h.use(table.Elem(typ), site)
 		h.claim(h.cName(typ), owner{what: "view type " + table.Name(typ), span: site})
+	case table.IsList(typ):
+		h.std = true
+		h.use(table.Elem(typ), site)
+		h.claim(h.cName(typ), owner{what: "list type " + table.Name(typ), span: site})
 	default:
 		for _, f := range table.Fields(typ) {
 			h.use(f.Type, site)
@@ -257,9 +271,10 @@ func (h *header) errorf(span ast.Span, format string, args ...any) {
 // Token of package lexer is lexer_Token; an array type tack_array_,
 // its length, an underscore, and its element type's name, the Tack name
 // of a basic type, so [4]int64 is tack_array_4_int64 and [2][3]Point is
-// tack_array_2_tack_array_3_Point; and a view type tack_view_ and its
+// tack_array_2_tack_array_3_Point; a view type tack_view_ and its
 // element type's name, likewise, so []int64 is tack_view_int64 and
-// [][2]Point is tack_view_tack_array_2_Point.
+// [][2]Point is tack_view_tack_array_2_Point; and a list type tack_list_
+// and its element type's name, so list[int64] is tack_list_int64.
 func (h *header) cName(typ types.Type) string {
 	table := h.prog.Types
 	switch {
@@ -269,6 +284,8 @@ func (h *header) cName(typ types.Type) string {
 		return fmt.Sprintf("tack_array_%d_%s", table.Len(typ), h.elemName(table.Elem(typ)))
 	case table.IsView(typ):
 		return "tack_view_" + h.elemName(table.Elem(typ))
+	case table.IsList(typ):
+		return "tack_list_" + h.elemName(table.Elem(typ))
 	case table.IsStruct(typ):
 		td, pkg := h.structs[typ], h.pkgOf[typ]
 		if td == nil || pkg == nil {
@@ -332,11 +349,13 @@ func (h *header) render() []byte {
 	return b.Bytes()
 }
 
-// typeDef is tack.h's definition of typ, an array, view or struct type:
+// typeDef is tack.h's definition of typ, an array, view, list or struct type:
 // the same layout as the generated source's, so a value passes between the
 // two unchanged. An array is a struct holding a C array, e, of at least one
 // element; a view a pointer to its first element, ptr, to const, and its
-// number of elements, len; a struct has a member per field, under the
+// number of elements, len; a list a pointer to its buffer, ptr, its
+// number of elements, len, its capacity, cap, and its allocator, alloc; a
+// struct has a member per field, under the
 // field's Tack name, or one unused char if it has none.
 func (h *header) typeDef(typ types.Type) string {
 	return fmt.Sprintf(
@@ -357,6 +376,13 @@ func (h *header) members(typ types.Type) []string {
 		}
 	case table.IsView(typ):
 		return []string{fmt.Sprintf("const %s *ptr;", h.cName(table.Elem(typ))), "int64_t len;"}
+	case table.IsList(typ):
+		return []string{
+			fmt.Sprintf("%s *ptr;", h.cName(table.Elem(typ))),
+			"int64_t len;",
+			"int64_t cap;",
+			"tack_allocator alloc;",
+		}
 	}
 	fields := table.Fields(typ)
 	if len(fields) == 0 {

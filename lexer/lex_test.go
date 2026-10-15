@@ -1063,3 +1063,28 @@ func TestNoErrorKeyword(t *testing.T) {
 		}
 	}
 }
+
+// TestListKeywords pins list and c_allocator as keywords: list, which
+// starts a list type as map would a map type, does not end a statement at
+// a newline, and c_allocator, the allocator literal, does, as noerror
+// does. A longer word starting with either is an identifier.
+func TestListKeywords(t *testing.T) {
+	out := lex(t, "list\nc_allocator\n")
+	checkInvariants(t, "list\nc_allocator\n", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.List {
+		t.Errorf("list lexed as %s, want keyword %s", out.tokens[0].String(), lexer.List)
+	}
+	if out.tokens[1].Kind() != lexer.Keyword || out.tokens[1].Value() != lexer.CAllocator {
+		t.Errorf("c_allocator lexed as %s, want keyword %s after list and no semicolon",
+			out.tokens[1].String(), lexer.CAllocator)
+	}
+	if out.tokens[2].Kind() != lexer.Semi {
+		t.Errorf("after c_allocator and a newline came %s, want an inserted semicolon",
+			out.tokens[2].String())
+	}
+	for _, src := range []string{"lists", "List", "c_allocators", "c_Allocator", "allocator"} {
+		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}

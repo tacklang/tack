@@ -79,7 +79,7 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	if err != nil {
 		return err
 	}
-	stdObjs, err := b.linkStd(dir)
+	stdObjs, err := b.linkStd(dir, objs)
 	if err != nil {
 		return err
 	}

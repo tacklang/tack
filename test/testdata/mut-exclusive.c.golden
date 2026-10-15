@@ -13,30 +13,30 @@ typedef struct {
 
 typedef struct {
     tack_4_main5_Point e[2];
-} tack_array_18;
-
-typedef struct {
-    int64_t e[2];
 } tack_array_19;
 
 typedef struct {
-    tack_array_19 e[2];
+    int64_t e[2];
 } tack_array_20;
 
 typedef struct {
-    tack_array_18 f_pts;
-    tack_array_20 f_grid;
+    tack_array_20 e[2];
+} tack_array_21;
+
+typedef struct {
+    tack_array_19 f_pts;
+    tack_array_21 f_grid;
 } tack_4_main5_Shape;
 
 typedef struct {
     int64_t e[4];
-} tack_array_21;
+} tack_array_22;
 
-static bool tack_eq_16(tack_4_main5_Point a, tack_4_main5_Point b) {
+static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
     return a.f_x == b.f_x && a.f_y == b.f_y;
 }
 
-static bool tack_eq_21(tack_array_21 a, tack_array_21 b) {
+static bool tack_eq_22(tack_array_22 a, tack_array_22 b) {
     for (int64_t i = 0; i < 4; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -68,7 +68,7 @@ static void tack_4_main10_swapPoints(tack_4_main5_Point * p_a, tack_4_main5_Poin
 static void tack_4_main7_scaleBy(tack_4_main5_Point * p_p, tack_4_main5_Point p_q);
 static void tack_4_main5_addTo(tack_4_main5_Point * p_p, int64_t p_n);
 static int64_t tack_4_main6_double(tack_4_main5_Point * p_p);
-static void tack_4_main8_swapEnds(tack_array_21 * p_a, int64_t p_i, int64_t p_j);
+static void tack_4_main8_swapEnds(tack_array_22 * p_a, int64_t p_i, int64_t p_j);
 static void tack_4_main6_mirror(tack_4_main5_Point * p_p);
 static void tack_4_main4_main(void);
 
@@ -108,7 +108,7 @@ static int64_t tack_4_main6_double(tack_4_main5_Point * p_p) {
     return (*p_p).f_x;
 }
 
-static void tack_4_main8_swapEnds(tack_array_21 * p_a, int64_t p_i, int64_t p_j) {
+static void tack_4_main8_swapEnds(tack_array_22 * p_a, int64_t p_i, int64_t p_j) {
     if ((((0 <= p_i) && (p_i < 2)) && (2 <= p_j)) && (p_j < 4)) {
         tack_4_main4_swap(&(*p_a).e[p_i], &(*p_a).e[p_j]);
     }
@@ -124,18 +124,18 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((v_p.f_x == 2) && (v_p.f_y == 1)), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     tack_4_main6_mirror(&v_p);
     tack_4_main5_check(((v_p.f_x == 1) && (v_p.f_y == 2)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
-    tack_array_21 v_a = (tack_array_21){{1, 2, 3, 4}};
+    tack_array_22 v_a = (tack_array_22){{1, 2, 3, 4}};
     tack_4_main4_swap(&v_a.e[0], &v_a.e[3]);
-    tack_4_main5_check((tack_eq_21(v_a, (tack_array_21){{4, 2, 3, 1}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 2, 3, 1}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_4_main8_swapEnds(&v_a, 1, 2);
-    tack_4_main5_check((tack_eq_21(v_a, (tack_array_21){{4, 3, 2, 1}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 3, 2, 1}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_Shape v_s = (tack_4_main5_Shape){0};
     v_s.f_pts.e[0] = (tack_4_main5_Point){.f_x = 5, .f_y = 6};
     v_s.f_pts.e[1] = (tack_4_main5_Point){.f_x = 7, .f_y = 8};
     tack_4_main4_swap(&v_s.f_pts.e[0].f_x, &v_s.f_pts.e[1].f_y);
     tack_4_main5_check(((v_s.f_pts.e[0].f_x == 8) && (v_s.f_pts.e[1].f_y == 5)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     tack_4_main10_swapPoints(&v_s.f_pts.e[0], &v_s.f_pts.e[1]);
-    tack_4_main5_check(((tack_eq_16(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 7, .f_y = 5})) && (tack_eq_16(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 8, .f_y = 6}))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check(((tack_eq_17(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 7, .f_y = 5})) && (tack_eq_17(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 8, .f_y = 6}))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     v_s.f_grid.e[0].e[1] = 1;
     v_s.f_grid.e[1].e[0] = 2;
     tack_4_main4_swap(&v_s.f_grid.e[0].e[1], &v_s.f_grid.e[1].e[0]);
@@ -147,7 +147,7 @@ static void tack_4_main4_main(void) {
             tack_4_main4_swap(&v_s.f_pts.e[v_i].f_x, &v_s.f_pts.e[1].f_y);
         }
     }
-    tack_4_main5_check(((tack_eq_16(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 6, .f_y = 5})) && (tack_eq_16(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 7, .f_y = 8}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check(((tack_eq_17(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 6, .f_y = 5})) && (tack_eq_17(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 7, .f_y = 8}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_Point v_b = (tack_4_main5_Point){.f_x = 3, .f_y = 4};
     tack_4_main7_scaleBy(&v_b, v_b);
     tack_4_main5_check(((v_b.f_x == 9) && (v_b.f_y == 12)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});

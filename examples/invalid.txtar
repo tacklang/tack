@@ -5644,11 +5644,1058 @@ func main() {
 stage: typeck
 ---
 
-len-of-integer/main.tck:5:14: error: len expects an array, a string or a view, got int64
+len-of-integer/main.tck:5:14: error: len expects an array, a string, a view or a list, got int64
 04 |	    n := 7
 05 |	    exit(len(n))
    |	             ^
 06 |	}
+
+-- list-allocator-checked-index/main.tck --
+package main
+
+func main() {
+    mut l := make(list[Allocator], c_allocator)
+    err := append(mut l, c_allocator)
+    if err.code != 0 {
+        return
+    }
+    a, ok := l[0]
+    if ok {
+        m := make(list[int64], a)
+        print("x")
+        if len(m) > 0 {
+            print("y")
+        }
+    }
+}
+-- list-allocator-checked-index/expected --
+stage: typeck
+---
+
+list-allocator-checked-index/main.tck:9:5: error: the checked form cannot read an element of type Allocator: it has no zero value to give when the index is out of range
+08 |	    }
+09 |	    a, ok := l[0]
+   |	    ^~~~~~~~~~~~~
+10 |	    if ok {
+
+-- list-allocator-compare/main.tck --
+package main
+
+func main() {
+    a := c_allocator
+    b := c_allocator
+    if a == b {
+        print("same")
+    }
+}
+-- list-allocator-compare/expected --
+stage: typeck
+---
+
+list-allocator-compare/main.tck:6:8: error: operator == is not defined on Allocator
+05 |	    b := c_allocator
+06 |	    if a == b {
+   |	       ^~~~~~
+07 |	        print("same")
+
+-- list-allocator-no-zero/main.tck --
+package main
+
+func main() {
+    mut a Allocator
+    a = c_allocator
+    l := make(list[int64], a)
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-allocator-no-zero/expected --
+stage: typeck
+---
+
+list-allocator-no-zero/main.tck:4:9: error: a needs a value: Allocator has no zero value
+03 |	func main() {
+04 |	    mut a Allocator
+   |	        ^
+05 |	    a = c_allocator
+
+-- list-any-arg/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    f(l)
+}
+-- list-any-arg/expected --
+stage: typeck
+---
+
+list-any-arg/main.tck:8:7: error: cannot pass list[int64] as any: only the builtin types can be passed as any for now
+07 |	    l := make(list[int64], c_allocator)
+08 |	    f(l)
+   |	      ^
+09 |	}
+
+-- list-append-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    append(mut l, 1)
+}
+-- list-append-dropped/expected --
+stage: typeck
+---
+
+list-append-dropped/main.tck:5:5: error: the error append returns cannot be dropped; bind it, as in err := append(...)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    append(mut l, 1)
+   |	    ^~~~~~~~~~~~~~~~
+06 |	}
+
+-- list-append-elem-type/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, "one")
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-elem-type/expected --
+stage: typeck
+---
+
+list-append-elem-type/main.tck:5:26: error: cannot use string as int64 in argument to append
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, "one")
+   |	                         ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-append-immutable/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-immutable/expected --
+stage: typeck
+---
+
+list-append-immutable/main.tck:5:19: error: cannot pass mut l: l is immutable; declare it with mut
+04 |	    l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, 1)
+   |	                  ^~~~~
+06 |	    if err.code != 0 {
+
+-- list-append-mut-value/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut x int64 = 1
+    err := append(mut l, mut x)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-mut-value/expected --
+stage: typeck
+---
+
+list-append-mut-value/main.tck:6:26: error: append does not take v as mut; pass x
+05 |	    mut x int64 = 1
+06 |	    err := append(mut l, mut x)
+   |	                         ^~~~~
+07 |	    if err.code != 0 {
+
+-- list-append-no-mut/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(l, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-no-mut/expected --
+stage: typeck
+---
+
+list-append-no-mut/main.tck:5:19: error: append takes l as mut; pass mut l
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(l, 1)
+   |	                  ^
+06 |	    if err.code != 0 {
+
+-- list-append-not-list/main.tck --
+package main
+
+func main() {
+    mut a [3]int64
+    err := append(mut a, 1)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-not-list/expected --
+stage: typeck
+---
+
+list-append-not-list/main.tck:5:23: error: append expects a list, got [3]int64
+04 |	    mut a [3]int64
+05 |	    err := append(mut a, 1)
+   |	                      ^
+06 |	    if err.code != 0 {
+
+-- list-append-param/main.tck --
+package main
+
+func f(l list[int64]) error {
+    return append(mut l, 1)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    err := f(l)
+    if err.code != 0 {
+        return
+    }
+}
+-- list-append-param/expected --
+stage: typeck
+---
+
+list-append-param/main.tck:4:19: error: cannot pass mut l: l is immutable; declare it with mut
+03 |	func f(l list[int64]) error {
+04 |	    return append(mut l, 1)
+   |	                  ^~~~~
+05 |	}
+
+-- list-append-two-results/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a, b := append(mut l, 1)
+    if a.code != 0 || b.code != 0 {
+        return
+    }
+}
+-- list-append-two-results/expected --
+stage: typeck
+---
+
+list-append-two-results/main.tck:5:5: error: assignment mismatch: 2 variables but append returns 1 value
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    a, b := append(mut l, 1)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~
+06 |	    if a.code != 0 || b.code != 0 {
+
+-- list-array-of-lists/main.tck --
+package main
+
+func main() {
+    mut a [2]list[int64]
+    print("x")
+    if len(a) > 0 {
+        print("y")
+    }
+}
+-- list-array-of-lists/expected --
+stage: typeck
+---
+
+list-array-of-lists/main.tck:4:11: error: an array cannot hold list[int64]: its elements are copied, and a list cannot be
+03 |	func main() {
+04 |	    mut a [2]list[int64]
+   |	          ^~~~~~~~~~~~~~
+05 |	    print("x")
+
+-- list-borrow-alongside-mut/main.tck --
+package main
+
+func f(mut a list[int64], b list[int64]) {
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    f(mut l, l)
+}
+-- list-borrow-alongside-mut/expected --
+stage: typeck
+---
+
+list-borrow-alongside-mut/main.tck:8:14: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+07 |	    mut l := make(list[int64], c_allocator)
+08 |	    f(mut l, l)
+   |	             ^
+09 |	}
+list-borrow-alongside-mut/main.tck:8:7: note: passed as mut here
+07 |	    mut l := make(list[int64], c_allocator)
+08 |	    f(mut l, l)
+   |	      ^~~~~
+09 |	}
+
+-- list-borrow-nested-mut/main.tck --
+package main
+
+func sum(v []int64, n int64) int64 {
+    return n
+}
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    n := sum(l, grow(mut l))
+    print("x")
+    if n > 0 {
+        print("y")
+    }
+}
+-- list-borrow-nested-mut/expected --
+stage: typeck
+---
+
+list-borrow-nested-mut/main.tck:17:14: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    n := sum(l, grow(mut l))
+   |	             ^
+18 |	    print("x")
+list-borrow-nested-mut/main.tck:17:22: note: passed as mut here
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    n := sum(l, grow(mut l))
+   |	                     ^~~~~
+18 |	    print("x")
+
+-- list-c-name-clash/main.tck --
+package main
+
+type tack_list_int64 struct {
+    x int64
+}
+
+extern func f(a tack_list_int64, mut l list[int64])
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    f(tack_list_int64{x: 1}, mut l)
+}
+-- list-c-name-clash/expected --
+stage: codegen
+---
+
+list-c-name-clash/main.tck:7:40: error: list type list[int64] and type tack_list_int64 of package main are both named tack_list_int64 in tack.h
+06 |	
+07 |	extern func f(a tack_list_int64, mut l list[int64])
+   |	                                       ^~~~~~~~~~~
+08 |	
+list-c-name-clash/main.tck:3:6: note: type tack_list_int64 of package main is declared here
+02 |	
+03 |	type tack_list_int64 struct {
+   |	     ^~~~~~~~~~~~~~~
+04 |	    x int64
+
+-- list-checked-negative/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    v, ok := l[-1]
+    if ok && v > 0 {
+        print("x")
+    }
+}
+-- list-checked-negative/expected --
+stage: typeck
+---
+
+list-checked-negative/main.tck:5:16: error: index -1 is out of range for a list
+04 |	    l := make(list[int64], c_allocator)
+05 |	    v, ok := l[-1]
+   |	               ^~
+06 |	    if ok && v > 0 {
+
+-- list-compare/main.tck --
+package main
+
+func main() {
+    a := make(list[int64], c_allocator)
+    b := make(list[int64], c_allocator)
+    if a == b {
+        print("same")
+    }
+}
+-- list-compare/expected --
+stage: typeck
+---
+
+list-compare/main.tck:6:8: error: operator == is not defined on list[int64]
+05 |	    b := make(list[int64], c_allocator)
+06 |	    if a == b {
+   |	       ^~~~~~
+07 |	        print("same")
+
+-- list-compare-struct/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    a := S{items: make(list[int64], c_allocator)}
+    b := S{items: make(list[int64], c_allocator)}
+    if a == b {
+        print("same")
+    }
+}
+-- list-compare-struct/expected --
+stage: typeck
+---
+
+list-compare-struct/main.tck:10:8: error: operator == is not defined on S
+09 |	    b := S{items: make(list[int64], c_allocator)}
+10 |	    if a == b {
+   |	       ^~~~~~
+11 |	        print("same")
+
+-- list-element-type-mismatch/main.tck --
+package main
+
+func f(l list[int32]) {
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    f(l)
+}
+-- list-element-type-mismatch/expected --
+stage: typeck
+---
+
+list-element-type-mismatch/main.tck:8:7: error: cannot use list[int64] as list[int32] in argument to f
+07 |	    l := make(list[int64], c_allocator)
+08 |	    f(l)
+   |	      ^
+09 |	}
+
+-- list-extern-by-value/main.tck --
+package main
+
+extern func f(l list[int64])
+
+func main() {
+    l := make(list[int64], c_allocator)
+    f(l)
+}
+-- list-extern-by-value/expected --
+stage: typeck
+---
+
+list-extern-by-value/main.tck:3:17: error: parameter l of extern func f cannot be list[int64]: a list crosses to C only as a mut parameter, or as a view
+02 |	
+03 |	extern func f(l list[int64])
+   |	                ^~~~~~~~~~~
+04 |	
+
+-- list-extern-result/main.tck --
+package main
+
+extern func f() list[int64]
+
+func main() {
+    l := f()
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-extern-result/expected --
+stage: typeck
+---
+
+list-extern-result/main.tck:3:17: error: extern func f cannot return list[int64]: a list crosses to C only as a mut parameter, or as a view
+02 |	
+03 |	extern func f() list[int64]
+   |	                ^~~~~~~~~~~
+04 |	
+
+-- list-extern-struct-by-value/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+extern func f(s S)
+
+func main() {
+    s := S{items: make(list[int64], c_allocator)}
+    f(s)
+}
+-- list-extern-struct-by-value/expected --
+stage: typeck
+---
+
+list-extern-struct-by-value/main.tck:7:17: error: parameter s of extern func f cannot be S, which holds a list: a list crosses to C only as a mut parameter, or as a view
+06 |	
+07 |	extern func f(s S)
+   |	                ^
+08 |	
+
+-- list-global/main.tck --
+package main
+
+mut g list[int64]
+
+func main() {
+    print("x")
+    if len(g) > 0 {
+        print("y")
+    }
+}
+-- list-global/expected --
+stage: typeck
+---
+
+list-global/main.tck:3:5: error: package-level variable g cannot hold a list
+02 |	
+03 |	mut g list[int64]
+   |	    ^
+04 |	
+
+-- list-global-struct/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+mut g S
+
+func main() {
+    print("x")
+    if len(g.items) > 0 {
+        print("y")
+    }
+}
+-- list-global-struct/expected --
+stage: typeck
+---
+
+list-global-struct/main.tck:7:5: error: package-level variable g cannot hold a list
+06 |	
+07 |	mut g S
+   |	    ^
+08 |	
+
+-- list-index-unproven/main.tck --
+package main
+
+func at(l list[int64], i int64) int64 {
+    return l[i]
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    print("x")
+    if at(l, 0) > 0 {
+        print("y")
+    }
+}
+-- list-index-unproven/expected --
+stage: typeck
+---
+
+list-index-unproven/main.tck:4:14: error: index i may be out of range; check 0 <= i && i < len(l) first, or use v, ok := ...[i]
+03 |	func at(l list[int64], i int64) int64 {
+04 |	    return l[i]
+   |	             ^
+05 |	}
+
+-- list-index-write-unproven/main.tck --
+package main
+
+func set(mut l list[int64], i int64) {
+    l[i] = 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    set(mut l, 0)
+}
+-- list-index-write-unproven/expected --
+stage: typeck
+---
+
+list-index-write-unproven/main.tck:4:7: error: index i may be out of range; check 0 <= i && i < len(l) first
+03 |	func set(mut l list[int64], i int64) {
+04 |	    l[i] = 1
+   |	      ^
+05 |	}
+
+-- list-len-dropped-by-append/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        err := append(mut l, 1)
+        if err.code != 0 {
+            return
+        }
+        print("x")
+        if l[0] > 0 {
+            print("y")
+        }
+    }
+}
+-- list-len-dropped-by-append/expected --
+stage: typeck
+---
+
+list-len-dropped-by-append/main.tck:11:14: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+10 |	        print("x")
+11 |	        if l[0] > 0 {
+   |	             ^
+12 |	            print("y")
+list-len-dropped-by-append/main.tck:5:8: note: this guard proves len(l) >= 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 {
+   |	       ^~~~~~~~~~
+06 |	        err := append(mut l, 1)
+list-len-dropped-by-append/main.tck:6:23: note: but l is passed as mut to append here, so the proof ends
+05 |	    if len(l) > 0 {
+06 |	        err := append(mut l, 1)
+   |	                      ^~~~~
+07 |	        if err.code != 0 {
+
+-- list-list-of-lists/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-list-of-lists/expected --
+stage: typeck
+---
+
+list-list-of-lists/main.tck:4:15: error: a list cannot hold list[int64]: its elements are copied, and a list cannot be
+03 |	func main() {
+04 |	    l := make(list[list[int64]], c_allocator)
+   |	              ^~~~~~~~~~~~~~~~~
+05 |	    print("x")
+
+-- list-list-of-structs-holding-lists/main.tck --
+package main
+
+type Node struct {
+    kids list[Node]
+}
+
+func main() {
+    print("x")
+}
+-- list-list-of-structs-holding-lists/expected --
+stage: typeck
+---
+
+list-list-of-structs-holding-lists/main.tck:4:10: error: a list cannot hold Node: its elements are copied, and Node, which holds a list, cannot be
+03 |	type Node struct {
+04 |	    kids list[Node]
+   |	         ^~~~~~~~~~
+05 |	}
+
+-- list-literal/main.tck --
+package main
+
+func main() {
+    l := list[int64]{1, 2}
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-literal/expected --
+stage: typeck
+---
+
+list-literal/main.tck:4:10: error: list[int64] cannot be written as a literal; only arrays and structs can
+03 |	func main() {
+04 |	    l := list[int64]{1, 2}
+   |	         ^~~~~~~~~~~~~~~~~
+05 |	    print("x")
+
+-- list-make-capacity/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator, 8)
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-make-capacity/expected --
+stage: typeck
+---
+
+list-make-capacity/main.tck:4:10: error: make expects 2 argument(s), got 3
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator, 8)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	    print("x")
+
+-- list-make-not-allocator/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], 0)
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-make-not-allocator/expected --
+stage: typeck
+---
+
+list-make-not-allocator/main.tck:4:28: error: cannot use int64 as Allocator in argument to make
+03 |	func main() {
+04 |	    l := make(list[int64], 0)
+   |	                           ^
+05 |	    print("x")
+
+-- list-make-not-type/main.tck --
+package main
+
+func main() {
+    n := 3
+    l := make(n, c_allocator)
+    print(l)
+}
+-- list-make-not-type/expected --
+stage: typeck
+---
+
+list-make-not-type/main.tck:5:15: error: make takes a list type, as in make(list[int64], c_allocator)
+04 |	    n := 3
+05 |	    l := make(n, c_allocator)
+   |	              ^
+06 |	    print(l)
+
+-- list-no-zero-value/main.tck --
+package main
+
+func main() {
+    mut l list[int64]
+    l = make(list[int64], c_allocator)
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- list-no-zero-value/expected --
+stage: typeck
+---
+
+list-no-zero-value/main.tck:4:9: error: l needs a value: list[int64] has no zero value
+03 |	func main() {
+04 |	    mut l list[int64]
+   |	        ^
+05 |	    l = make(list[int64], c_allocator)
+
+-- list-no-zero-value-struct/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    mut s S
+    s = S{items: make(list[int64], c_allocator)}
+    print("x")
+    if len(s.items) > 0 {
+        print("y")
+    }
+}
+-- list-no-zero-value-struct/expected --
+stage: typeck
+---
+
+list-no-zero-value-struct/main.tck:8:9: error: s needs a value: S has no zero value
+07 |	func main() {
+08 |	    mut s S
+   |	        ^
+09 |	    s = S{items: make(list[int64], c_allocator)}
+
+-- list-read-before-error-check/main.tck --
+package main
+
+func build() (list[int64], error) {
+    return make(list[int64], c_allocator), noerror
+}
+
+func main() {
+    l, err := build()
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+    if err.code != 0 {
+        return
+    }
+}
+-- list-read-before-error-check/expected --
+stage: typeck
+---
+
+list-read-before-error-check/main.tck:10:12: error: l cannot be read before err is checked; check err.code == 0 first
+09 |	    print("x")
+10 |	    if len(l) > 0 {
+   |	           ^
+11 |	        print("y")
+
+-- list-reserved-c-name/main.tck --
+package main
+
+type tack_allocator struct {
+    x int64
+}
+
+extern func f(a tack_allocator)
+
+func main() {
+    f(tack_allocator{x: 1})
+}
+-- list-reserved-c-name/expected --
+stage: codegen
+---
+
+list-reserved-c-name/main.tck:3:6: error: type tack_allocator of package main cannot be named tack_allocator in tack.h: that is tack.h's allocator type
+02 |	
+03 |	type tack_allocator struct {
+   |	     ^~~~~~~~~~~~~~
+04 |	    x int64
+
+-- list-slice-bound-negative/main.tck --
+package main
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    n := sum(l[-1:])
+    print("x")
+    if n > 0 {
+        print("y")
+    }
+}
+-- list-slice-bound-negative/expected --
+stage: typeck
+---
+
+list-slice-bound-negative/main.tck:9:16: error: slice bound -1 is out of range for a list
+08 |	    l := make(list[int64], c_allocator)
+09 |	    n := sum(l[-1:])
+   |	               ^~
+10 |	    print("x")
+
+-- list-slice-temporary/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    n := sum(f()[:])
+    print("x")
+    if n > 0 {
+        print("y")
+    }
+}
+-- list-slice-temporary/expected --
+stage: typeck
+---
+
+list-slice-temporary/main.tck:12:14: error: cannot slice a temporary list; store it in a variable first
+11 |	func main() {
+12 |	    n := sum(f()[:])
+   |	             ^~~
+13 |	    print("x")
+
+-- list-switch/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    switch l {
+    }
+}
+-- list-switch/expected --
+stage: typeck
+---
+
+list-switch/main.tck:5:12: error: operator == is not defined on list[int64]
+04 |	    l := make(list[int64], c_allocator)
+05 |	    switch l {
+   |	           ^
+06 |	    }
+
+-- list-type-as-value/main.tck --
+package main
+
+func main() {
+    x := list[int64]
+    print(x)
+}
+-- list-type-as-value/expected --
+stage: typeck
+---
+
+list-type-as-value/main.tck:4:10: error: cannot use list[int64] as a value; it is a type
+03 |	func main() {
+04 |	    x := list[int64]
+   |	         ^~~~~~~~~~~
+05 |	    print(x)
+
+-- list-variadic-of-lists/main.tck --
+package main
+
+func f(ls ...list[int64]) {
+}
+
+func main() {
+    f()
+}
+-- list-variadic-of-lists/expected --
+stage: typeck
+---
+
+list-variadic-of-lists/main.tck:3:14: error: a variadic parameter cannot hold list[int64]: its elements are copied, and a list cannot be
+02 |	
+03 |	func f(ls ...list[int64]) {
+   |	             ^~~~~~~~~~~
+04 |	}
+
+-- list-view-of-lists/main.tck --
+package main
+
+func f(v []list[int64]) {
+}
+
+func main() {
+    print("x")
+}
+-- list-view-of-lists/expected --
+stage: typeck
+---
+
+list-view-of-lists/main.tck:3:10: error: a view cannot hold list[int64]: its elements are copied, and a list cannot be
+02 |	
+03 |	func f(v []list[int64]) {
+   |	         ^~~~~~~~~~~~~
+04 |	}
+
+-- list-view-temporary/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    n := sum(f())
+    print("x")
+    if n > 0 {
+        print("y")
+    }
+}
+-- list-view-temporary/expected --
+stage: typeck
+---
+
+list-view-temporary/main.tck:12:14: error: cannot view a temporary list; store it in a variable first
+11 |	func main() {
+12 |	    n := sum(f())
+   |	             ^~~
+13 |	    print("x")
+
+-- list-write-borrowed/main.tck --
+package main
+
+func f(l list[int64]) {
+    if len(l) > 0 {
+        l[0] = 1
+    }
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    f(l)
+}
+-- list-write-borrowed/expected --
+stage: typeck
+---
+
+list-write-borrowed/main.tck:5:9: error: cannot assign to element of parameter l
+04 |	    if len(l) > 0 {
+05 |	        l[0] = 1
+   |	        ^
+06 |	    }
+
+-- list-write-immutable/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        l[0] = 1
+    }
+}
+-- list-write-immutable/expected --
+stage: typeck
+---
+
+list-write-immutable/main.tck:6:9: error: cannot assign to element of immutable variable l
+05 |	    if len(l) > 0 {
+06 |	        l[0] = 1
+   |	        ^
+07 |	    }
 
 -- literal-of-basic-type/main.tck --
 package main
@@ -5974,6 +7021,625 @@ mixed-switch-constant-out-of-range/main.tck:5:10: error: constant -1 overflows u
 05 |	    case -1:
    |	         ^~
 06 |	        return 1
+
+-- move-assign-then-use/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    mut m := make(list[int64], c_allocator)
+    m = l
+    print("x")
+    if len(l) > 0 && len(m) > 0 {
+        print("y")
+    }
+}
+-- move-assign-then-use/expected --
+stage: typeck
+---
+
+move-assign-then-use/main.tck:8:12: error: l is used after it was moved
+07 |	    print("x")
+08 |	    if len(l) > 0 && len(m) > 0 {
+   |	           ^
+09 |	        print("y")
+move-assign-then-use/main.tck:6:9: note: l is moved here
+05 |	    mut m := make(list[int64], c_allocator)
+06 |	    m = l
+   |	        ^
+07 |	    print("x")
+
+-- move-borrowed-param/main.tck --
+package main
+
+func f(l list[int64]) list[int64] {
+    return l
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    m := f(l)
+    print("x")
+    if len(m) > 0 {
+        print("y")
+    }
+}
+-- move-borrowed-param/expected --
+stage: typeck
+---
+
+move-borrowed-param/main.tck:4:12: error: cannot move l: it is a parameter, which borrows its caller's value
+03 |	func f(l list[int64]) list[int64] {
+04 |	    return l
+   |	           ^
+05 |	}
+
+-- move-conditional-then-use/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    mut n int64 = 0
+    if n == 0 {
+        m := l
+        n = len(m)
+    }
+    print("x")
+    if len(l) > n {
+        print("y")
+    }
+}
+-- move-conditional-then-use/expected --
+stage: typeck
+---
+
+move-conditional-then-use/main.tck:11:12: error: l is used after it may have been moved
+10 |	    print("x")
+11 |	    if len(l) > n {
+   |	           ^
+12 |	        print("y")
+move-conditional-then-use/main.tck:7:14: note: l is moved here
+06 |	    if n == 0 {
+07 |	        m := l
+   |	             ^
+08 |	        n = len(m)
+
+-- move-declare-then-use/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    m := l
+    print("x")
+    if len(l) > 0 && len(m) > 0 {
+        print("y")
+    }
+}
+-- move-declare-then-use/expected --
+stage: typeck
+---
+
+move-declare-then-use/main.tck:7:12: error: l is used after it was moved
+06 |	    print("x")
+07 |	    if len(l) > 0 && len(m) > 0 {
+   |	           ^
+08 |	        print("y")
+move-declare-then-use/main.tck:5:10: note: l is moved here
+04 |	    l := make(list[int64], c_allocator)
+05 |	    m := l
+   |	         ^
+06 |	    print("x")
+
+-- move-defer-moves-outer/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    defer {
+        m := l
+        print("x")
+        if len(m) > 0 {
+            print("y")
+        }
+    }
+}
+-- move-defer-moves-outer/expected --
+stage: typeck
+---
+
+move-defer-moves-outer/main.tck:6:14: error: a defer cannot move l, which is declared outside it
+05 |	    defer {
+06 |	        m := l
+   |	             ^
+07 |	        print("x")
+
+-- move-defer-reads-later-moved/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    defer {
+        print("x")
+        if len(l) > 0 {
+            print("y")
+        }
+    }
+    m := l
+    print("z")
+    if len(m) > 0 {
+        print("w")
+    }
+}
+-- move-defer-reads-later-moved/expected --
+stage: typeck
+---
+
+move-defer-reads-later-moved/main.tck:7:16: error: l is moved after this defer, which reads it when its block ends
+06 |	        print("x")
+07 |	        if len(l) > 0 {
+   |	               ^
+08 |	            print("y")
+move-defer-reads-later-moved/main.tck:11:10: note: l is moved here
+10 |	    }
+11 |	    m := l
+   |	         ^
+12 |	    print("z")
+
+-- move-dropped-blank/main.tck --
+package main
+
+func f() (list[int64], int64) {
+    return make(list[int64], c_allocator), 1
+}
+
+func main() {
+    _, n := f()
+    print("x")
+    if n > 0 {
+        print("y")
+    }
+}
+-- move-dropped-blank/expected --
+stage: typeck
+---
+
+move-dropped-blank/main.tck:8:5: error: f returns list[int64], which cannot be dropped; bind it to a variable instead of _
+07 |	func main() {
+08 |	    _, n := f()
+   |	    ^
+09 |	    print("x")
+
+-- move-dropped-call/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    f()
+}
+-- move-dropped-call/expected --
+stage: typeck
+---
+
+move-dropped-call/main.tck:8:5: error: f returns list[int64], which cannot be dropped; bind it to a variable
+07 |	func main() {
+08 |	    f()
+   |	    ^~~
+09 |	}
+
+-- move-dropped-make/main.tck --
+package main
+
+func main() {
+    make(list[int64], c_allocator)
+}
+-- move-dropped-make/expected --
+stage: typeck
+---
+
+move-dropped-make/main.tck:4:5: error: make returns list[int64], which cannot be dropped; bind it to a variable
+03 |	func main() {
+04 |	    make(list[int64], c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- move-dropped-several/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func f() (S, int64) {
+    return S{items: make(list[int64], c_allocator)}, 1
+}
+
+func main() {
+    f()
+}
+-- move-dropped-several/expected --
+stage: typeck
+---
+
+move-dropped-several/main.tck:12:5: error: f returns S, which holds a list and cannot be dropped; bind it to a variable
+11 |	func main() {
+12 |	    f()
+   |	    ^~~
+13 |	}
+
+-- move-field/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    s := S{items: make(list[int64], c_allocator)}
+    l := s.items
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- move-field/expected --
+stage: typeck
+---
+
+move-field/main.tck:9:10: error: cannot move s.items out of s: a field cannot be moved on its own
+08 |	    s := S{items: make(list[int64], c_allocator)}
+09 |	    l := s.items
+   |	         ^~~~~~~
+10 |	    print("x")
+
+-- move-field-write-after/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+    n     int64
+}
+
+func main() {
+    mut s := S{items: make(list[int64], c_allocator), n: 0}
+    t := s
+    s.n = 1
+    print("x")
+    if len(t.items) > 0 {
+        print("y")
+    }
+}
+-- move-field-write-after/expected --
+stage: typeck
+---
+
+move-field-write-after/main.tck:11:5: error: s is used after it was moved
+10 |	    t := s
+11 |	    s.n = 1
+   |	    ^
+12 |	    print("x")
+move-field-write-after/main.tck:10:10: note: s is moved here
+09 |	    mut s := S{items: make(list[int64], c_allocator), n: 0}
+10 |	    t := s
+   |	         ^
+11 |	    s.n = 1
+
+-- move-in-loop/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    for i := range 3 {
+        m := l
+        print("x")
+        if len(m) > i {
+            print("y")
+        }
+    }
+}
+-- move-in-loop/expected --
+stage: typeck
+---
+
+move-in-loop/main.tck:6:14: error: l is used after it may have been moved
+05 |	    for i := range 3 {
+06 |	        m := l
+   |	             ^
+07 |	        print("x")
+move-in-loop/main.tck:6:14: note: l is moved here, in an earlier iteration of the loop
+05 |	    for i := range 3 {
+06 |	        m := l
+   |	             ^
+07 |	        print("x")
+
+-- move-mut-param/main.tck --
+package main
+
+func f(mut l list[int64]) list[int64] {
+    return l
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    m := f(mut l)
+    print("x")
+    if len(m) > 0 {
+        print("y")
+    }
+}
+-- move-mut-param/expected --
+stage: typeck
+---
+
+move-mut-param/main.tck:4:12: error: cannot move l: it is a mut parameter, whose value stays its caller's
+03 |	func f(mut l list[int64]) list[int64] {
+04 |	    return l
+   |	           ^
+05 |	}
+
+-- move-range-append/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    for _, x := range l {
+        err := append(mut l, x)
+        if err.code != 0 {
+            return
+        }
+    }
+}
+-- move-range-append/expected --
+stage: typeck
+---
+
+move-range-append/main.tck:6:27: error: l is being ranged over, so this loop cannot pass mut l
+05 |	    for _, x := range l {
+06 |	        err := append(mut l, x)
+   |	                          ^
+07 |	        if err.code != 0 {
+
+-- move-range-assign/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    for _, x := range l {
+        if x > 0 {
+            l = make(list[int64], c_allocator)
+        }
+    }
+}
+-- move-range-assign/expected --
+stage: typeck
+---
+
+move-range-assign/main.tck:7:13: error: l is being ranged over, so this loop cannot assign l
+06 |	        if x > 0 {
+07 |	            l = make(list[int64], c_allocator)
+   |	            ^
+08 |	        }
+
+-- move-range-holder/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+    n     int64
+}
+
+func main() {
+    mut s := S{items: make(list[int64], c_allocator), n: 0}
+    for _, x := range s.items {
+        s.n += x
+        if x > 0 {
+            s = S{items: make(list[int64], c_allocator), n: 0}
+        }
+    }
+}
+-- move-range-holder/expected --
+stage: typeck
+---
+
+move-range-holder/main.tck:13:13: error: s.items is being ranged over, so this loop cannot assign s
+12 |	        if x > 0 {
+13 |	            s = S{items: make(list[int64], c_allocator), n: 0}
+   |	            ^
+14 |	        }
+
+-- move-range-move/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    for _, x := range l {
+        if x > 0 {
+            m := l
+            print("x")
+            if len(m) > 0 {
+                print("y")
+            }
+        }
+    }
+}
+-- move-range-move/expected --
+stage: typeck
+---
+
+move-range-move/main.tck:7:18: error: l is being ranged over, so this loop cannot move l
+06 |	        if x > 0 {
+07 |	            m := l
+   |	                 ^
+08 |	            print("x")
+
+-- move-return-moved/main.tck --
+package main
+
+func f() list[int64] {
+    l := make(list[int64], c_allocator)
+    m := l
+    print("x")
+    if len(m) > 0 {
+        print("y")
+    }
+    return l
+}
+
+func main() {
+    l := f()
+    print("x")
+    if len(l) > 0 {
+        print("y")
+    }
+}
+-- move-return-moved/expected --
+stage: typeck
+---
+
+move-return-moved/main.tck:10:12: error: l is used after it was moved
+09 |	    }
+10 |	    return l
+   |	           ^
+11 |	}
+move-return-moved/main.tck:5:10: note: l is moved here
+04 |	    l := make(list[int64], c_allocator)
+05 |	    m := l
+   |	         ^
+06 |	    print("x")
+
+-- move-struct-field-then-use/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    s := S{items: l}
+    print("x")
+    if len(l) > 0 && len(s.items) > 0 {
+        print("y")
+    }
+}
+-- move-struct-field-then-use/expected --
+stage: typeck
+---
+
+move-struct-field-then-use/main.tck:11:12: error: l is used after it was moved
+10 |	    print("x")
+11 |	    if len(l) > 0 && len(s.items) > 0 {
+   |	           ^
+12 |	        print("y")
+move-struct-field-then-use/main.tck:9:19: note: l is moved here
+08 |	    l := make(list[int64], c_allocator)
+09 |	    s := S{items: l}
+   |	                  ^
+10 |	    print("x")
+
+-- move-temporary-borrow/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func n(l list[int64]) int64 {
+    return len(l)
+}
+
+func main() {
+    if n(f()) > 0 {
+        print("y")
+    }
+}
+-- move-temporary-borrow/expected --
+stage: typeck
+---
+
+move-temporary-borrow/main.tck:12:10: error: cannot use a temporary list[int64] here; store it in a variable first
+11 |	func main() {
+12 |	    if n(f()) > 0 {
+   |	         ^~~
+13 |	        print("y")
+
+-- move-temporary-len/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    if len(f()) > 0 {
+        print("y")
+    }
+}
+-- move-temporary-len/expected --
+stage: typeck
+---
+
+move-temporary-len/main.tck:8:12: error: cannot use a temporary list[int64] here; store it in a variable first
+07 |	func main() {
+08 |	    if len(f()) > 0 {
+   |	           ^~~
+09 |	        print("y")
+
+-- move-temporary-range/main.tck --
+package main
+
+func f() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    for _, x := range f() {
+        if x > 0 {
+            print("y")
+        }
+    }
+}
+-- move-temporary-range/expected --
+stage: typeck
+---
+
+move-temporary-range/main.tck:8:23: error: cannot use a temporary list[int64] here; store it in a variable first
+07 |	func main() {
+08 |	    for _, x := range f() {
+   |	                      ^~~
+09 |	        if x > 0 {
+
+-- move-used-by-mut/main.tck --
+package main
+
+func f(mut l list[int64]) {
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    m := l
+    f(mut l)
+    print("x")
+    if len(m) > 0 {
+        print("y")
+    }
+}
+-- move-used-by-mut/expected --
+stage: typeck
+---
+
+move-used-by-mut/main.tck:9:11: error: l is used after it was moved
+08 |	    m := l
+09 |	    f(mut l)
+   |	          ^
+10 |	    print("x")
+move-used-by-mut/main.tck:8:10: note: l is moved here
+07 |	    mut l := make(list[int64], c_allocator)
+08 |	    m := l
+   |	         ^
+09 |	    f(mut l)
 
 -- multi-assign-mut/main.tck --
 package main
@@ -14269,7 +15935,7 @@ view-switch/main.tck:4:12: error: operator == is not defined on []int64
 -- view-temporary-call/main.tck --
 package main
 
-func make() [3]int64 {
+func build() [3]int64 {
     return [3]int64{1, 2, 3}
 }
 
@@ -14277,7 +15943,7 @@ func sum(v []int64) {
 }
 
 func main() {
-    sum(make())
+    sum(build())
 }
 -- view-temporary-call/expected --
 stage: typeck
@@ -14285,8 +15951,8 @@ stage: typeck
 
 view-temporary-call/main.tck:11:9: error: cannot view a temporary array; store it in a variable first
 10 |	func main() {
-11 |	    sum(make())
-   |	        ^~~~~~
+11 |	    sum(build())
+   |	        ^~~~~~~
 12 |	}
 
 -- view-temporary-field/main.tck --
@@ -14296,7 +15962,7 @@ type T struct {
     items [2]int64
 }
 
-func make() T {
+func build() T {
     return T{items: [2]int64{1, 2}}
 }
 
@@ -14304,7 +15970,7 @@ func sum(v []int64) {
 }
 
 func main() {
-    sum(make().items)
+    sum(build().items)
 }
 -- view-temporary-field/expected --
 stage: typeck
@@ -14312,8 +15978,8 @@ stage: typeck
 
 view-temporary-field/main.tck:15:9: error: cannot view a temporary array; store it in a variable first
 14 |	func main() {
-15 |	    sum(make().items)
-   |	        ^~~~~~~~~~~~
+15 |	    sum(build().items)
+   |	        ^~~~~~~~~~~~~
 16 |	}
 
 -- view-temporary-literal/main.tck --

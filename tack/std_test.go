@@ -202,8 +202,9 @@ func linkedNames(t *testing.T, out string) []string {
 }
 
 // A std object is linked only when it defines a builtin the program calls,
-// wherever the call is, so a program that calls neither print nor exit
-// links no std object at all, and so none of the C library they call.
+// wherever the call is, or, for a program with a list, the list functions,
+// so a program that calls neither print nor exit and has no list links no
+// std object at all, and so none of the C library they call.
 func TestStdObjectsLinkedOnlyWhenUsed(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
@@ -223,6 +224,16 @@ func TestStdObjectsLinkedOnlyWhenUsed(t *testing.T) {
 			[]string{"std-print.o"},
 		},
 		{"len only", "    if len(\"abc\") == 3 {\n    }\n", nil},
+		{
+			"a list",
+			"    l := make(list[int64], c_allocator)\n    if len(l) == 0 {\n    }\n",
+			[]string{"std-list.o"},
+		},
+		{
+			"a list and print",
+			"    l := make(list[int64], c_allocator)\n    if len(l) == 0 {\n        print(\"hi\")\n    }\n",
+			[]string{"std-list.o", "std-print.o"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

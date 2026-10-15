@@ -934,18 +934,20 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveCall(x, sc)
 	case *ast.Binary:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
-	case *ast.Unary, *ast.MutArg:
+	case *ast.Unary, *ast.MutArg, *ast.Selector:
 		return r.resolveExpr(operand(x), sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
 	case *ast.Index, *ast.Slice:
 		return r.resolveElement(x, sc)
-	case *ast.Selector:
-		return r.resolveExpr(x.X, sc)
 	case *ast.CompositeLit:
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
 		return r.resolveKeyValue(x, sc)
+	case *ast.ListType:
+		// make's first argument, a type; anywhere else the type checker
+		// reports it.
+		return r.resolveType(x, sc)
 	default:
 		return nil
 	}
@@ -967,12 +969,17 @@ func (r *pkgResolver) resolveElement(e ast.Expr, sc *scope) []diag.Diagnostic {
 	return diags
 }
 
-// operand returns the operand of e, a prefix operator or a mut argument.
+// operand returns the operand of e, a prefix operator, a mut argument, or
+// a field selection, whose struct is its one operand.
 func operand(e ast.Expr) ast.Expr {
-	if m, ok := e.(*ast.MutArg); ok {
-		return m.X
+	switch x := e.(type) {
+	case *ast.MutArg:
+		return x.X
+	case *ast.Selector:
+		return x.X
+	default:
+		return e.(*ast.Unary).X
 	}
-	return e.(*ast.Unary).X
 }
 
 // resolveKeyValue resolves an element of a struct literal, key: value. A
@@ -1016,6 +1023,8 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 		}
 		return append(diags, r.resolveType(t.Elem, sc)...)
 	case *ast.ViewType:
+		return r.resolveType(t.Elem, sc)
+	case *ast.ListType:
 		return r.resolveType(t.Elem, sc)
 	default:
 		return nil

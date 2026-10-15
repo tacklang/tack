@@ -28,10 +28,10 @@ func viewName(typ types.Type) string {
 	return fmt.Sprintf("tack_view_%d", typ)
 }
 
-// hasLen reports whether typ is a string or a view, which lower to a
-// pointer and a length, read as x.ptr[i] and x.len.
+// hasLen reports whether typ is a string, a view or a list, which lower to
+// a pointer and a length, read as x.ptr[i] and x.len.
 func (g *generator) hasLen(typ types.Type) bool {
-	return typ == types.String || g.prog.Types.IsView(typ)
+	return typ == types.String || g.prog.Types.IsView(typ) || g.prog.Types.IsList(typ)
 }
 
 // argTypes returns the C type of each of call's arguments as callExpr
@@ -71,7 +71,7 @@ func (g *generator) viewParamAt(call *ast.Call, params []*ast.Param, i int) *ast
 // viewArg renders arg, passed to a parameter of the view type view in
 // call: a view passed on, as it is; a string's bytes, []uint8(s), as the
 // string's pointer and length; a slice by sliceExpr, which copies an
-// array as this does; or an array, which the checker has made
+// array as this does; a list as its buffer and length (see listView); or an array, which the checker has made
 // sure is a place, as a pointer to its first element and its length. The
 // array is copied into a temporary first, and the view points at the
 // copy, when the callee could otherwise see it change during the call
@@ -89,6 +89,9 @@ func (g *generator) viewArg(
 		return g.sliceExpr(s, call)
 	}
 	typ := ast.TypeOf(arg)
+	if g.prog.Types.IsList(typ) {
+		return g.listView(arg, view)
+	}
 	if !g.prog.Types.IsArray(typ) {
 		return g.expr(arg, types.Invalid)
 	}
@@ -103,6 +106,20 @@ func (g *generator) viewArg(
 	t := g.temp("c")
 	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", arrayName(typ), t))
 	return fmt.Sprintf("(%s = %s, (%s){%s.e, %d})", t, place, viewName(view), t, n), nil
+}
+
+// listView renders l, a list the checker has made sure is a place, as a
+// view of type view of its elements: its buffer and its length. No copy
+// is ever taken: the checker rejects a call that could change the list
+// while it is viewed (see typeck's checkListBorrows). The place is read
+// twice, which, having no call in it that could run twice, is the same
+// list both times.
+func (g *generator) listView(l ast.Expr, view types.Type) (string, []diag.Diagnostic) {
+	place, diags := g.expr(l, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return fmt.Sprintf("(%s){%s.ptr, %s.len}", viewName(view), place, place), nil
 }
 
 // bytesView renders []uint8(s), conv, as a view of type view of the

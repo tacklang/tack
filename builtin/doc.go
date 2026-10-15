@@ -55,9 +55,12 @@
 // Each builtin is a Func: a name, the types of its parameters, and its C
 // name. No builtin returns a value, so a Func has no result.
 //
-// len is a builtin too, but generic: it takes any array, view or string,
-// which no Tack declaration can describe, so it is not in std/builtin but
-// part of the compiler, listed apart, and the type checker checks it
-// itself. Names lists every builtin's name, generic ones included; Generic
+// len, make and append are builtins too, but generic: len takes any
+// array, view, list or string, make a list type, and append any list and
+// a value of its element type, which no Tack declaration can describe, so
+// they are not in std/builtin but part of the compiler, listed apart, and
+// the type checker checks each itself. A list's C, the grow and free
+// functions and c_allocator's, is std/builtin's all the same, in list.c,
+// which the driver links for a program that uses a list. Names lists every builtin's name, generic ones included; Generic
 // lists the generic ones, the same whatever std/builtin declares.
 package builtin

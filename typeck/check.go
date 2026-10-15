@@ -81,6 +81,11 @@ type Checker struct {
 	// outermost first, so an initialization cycle can be named in full.
 	initStack []*ast.Var
 
+	// pendingElems holds the element types of lists, arrays and views
+	// written in struct fields, whose copyability is judged once every
+	// struct's fields are known; see requireCopyable.
+	pendingElems []pendingElem
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
 
@@ -207,7 +212,11 @@ func (c *Checker) Check() []diag.Diagnostic {
 		if fn.Extern {
 			c.checkExtern(fn)
 		} else {
+			before := len(c.diags)
 			c.checkBody(fn)
+			if len(c.diags) == before {
+				c.checkMoves(fn)
+			}
 		}
 		restore()
 	}
@@ -225,6 +234,7 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 		}
 	}
 	c.checkStructs()
+	c.checkPendingElems()
 	for _, decl := range decls {
 		if v, ok := decl.(*ast.Var); ok {
 			c.ensureGlobal(v, v.NameSpan)
@@ -539,13 +549,14 @@ func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
 }
 
 // callResults checks a call bound to want names: its callee must declare
-// exactly that many results. The builtin len gives one value; every other
-// builtin gives none. A len call whose arguments are wrong was reported by
-// lenCall, and is not reported again.
+// exactly that many results. The builtins len, make and append give one
+// value each; every other builtin gives none. A call to one of those three
+// whose arguments are wrong was reported where it was checked, and is not
+// reported again.
 func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
 	var results []types.Type
-	if isLen(call) {
-		typ := c.lenCall(call)
+	if generic := c.genericCall(call); generic != nil {
+		typ := generic(call)
 		if typ == types.Invalid {
 			return nil, false
 		}
@@ -602,8 +613,8 @@ func (c *Checker) conversionResults(call *ast.Call, want int, span ast.Span) ([]
 // or a value checked only for what is inside it. A call may return
 // nothing, or several values, here.
 func (c *Checker) discard(e ast.Expr) {
-	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid && !isLen(call) &&
-		!isViewConversion(call) {
+	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid &&
+		c.genericCall(call) == nil && !isViewConversion(call) {
 		c.checkCall(call)
 		return
 	}
@@ -661,7 +672,7 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 
 // checkForRange checks a range loop. It ranges over an integer, of any
 // type, an untyped constant count being an int64, which gives the loop
-// variable the count's type; or over an array, a view or a string, which
+// variable the count's type; or over an array, a view, a list or a string, which
 // gives the index an int64 and the element the array's or view's element
 // type, or a string's byte, a uint8. An integer gives only one value, so an element variable
 // over one is reported.
@@ -702,7 +713,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 			)
 		}
 		return got, types.Invalid
-	case c.table.IsArray(got), c.table.IsView(got):
+	case c.table.IsArray(got), c.table.IsView(got), c.table.IsList(got):
 		return types.Int64, c.table.Elem(got)
 	case got == types.String:
 		return types.Int64, types.Uint8
@@ -721,7 +732,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // string variable s, the index is below len(s) instead, which assume keeps
 // only while the body never assigns s; s then still holds the string the
 // loop copied. Over a view, whose length is never known, the index is
-// below len(v), which holds for the whole call.
+// below len(v), which holds for the whole call, and over a list below
+// len(l), which the body can never change (see move.go).
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	if loop.Var == nil || loop.Var.Name == ast.Blank {
 		return nil
@@ -741,7 +753,7 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 			f.hi, f.hasHi = constant.FromInt64(n).Sub(one)
 		}
 		f.lenOf, _ = c.stringVar(loop.X)
-	case c.table.IsView(got):
+	case c.table.IsView(got), c.table.IsList(got):
 		f.lenOf, _ = c.stringVar(loop.X)
 	}
 	return []fact{f}
@@ -802,7 +814,8 @@ func (c *Checker) checkInLoop(span ast.Span, keyword string) {
 // view, which only a parameter may be. A value must be
 // usable as the declared type, and only a mutable variable may leave out its
 // value and start from its zero value, since an immutable one could never
-// hold anything else.
+// hold anything else, and only one whose type has a zero value: not a
+// list, an Allocator, or an array or struct holding one.
 func (c *Checker) checkVar(v *ast.Var) {
 	declared := types.Invalid
 	if v.TypeExpr != nil {
@@ -810,8 +823,14 @@ func (c *Checker) checkVar(v *ast.Var) {
 	}
 
 	if v.Value == nil {
-		if !v.Mutable {
+		switch {
+		case !v.Mutable:
 			c.errorf(v.NameSpan, "immutable variable %s needs a value", v.Name)
+		case c.globals[v] && c.table.Owned(declared):
+			// checkGlobal reports a global that holds a list, which is
+			// why it has no value.
+		case c.noZeroValue(v, declared):
+			declared = types.Invalid
 		}
 		v.Type = declared
 		return
@@ -840,7 +859,9 @@ func (c *Checker) checkVar(v *ast.Var) {
 
 // checkGlobal checks a package-level variable like a local, and also
 // requires its initializer to be a constant expression, one the compiler
-// can compute, which it evaluates into v.Const. An initializer that calls
+// can compute, which it evaluates into v.Const, and its type to hold no
+// list, which any function could otherwise reach and change while a
+// view of it, or a mut argument of it, is live. An initializer that calls
 // anything but len or a conversion, or names a mutable global, is
 // reported before it is checked, since the functions it could call have
 // no signatures yet. A global without a value takes its type's zero
@@ -857,6 +878,10 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 	before := len(c.diags)
 	c.checkVar(v)
 	if len(c.diags) > before {
+		return
+	}
+	if c.table.Owned(v.Type) {
+		c.errorf(v.NameSpan, "package-level variable %s cannot hold a list", v.Name)
 		return
 	}
 
@@ -907,7 +932,8 @@ func (c *Checker) notConstant(v *ast.Var) {
 // expression's value can be computed is found once it is checked, by fold.
 func (c *Checker) isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
+		*ast.CAllocatorLit:
 		return true
 	case *ast.Ident:
 		return c.constantGlobal(x) != nil
@@ -996,7 +1022,8 @@ func zeroConst(typ types.Type) any {
 }
 
 // fold returns the value of a checked constant expression: a constant.Int,
-// computed exactly as it was checked, a string, a bool, or an array's
+// computed exactly as it was checked, a string, a bool, the
+// *ast.CAllocatorLit of c_allocator, or an array's
 // elements, or a struct's fields in declaration order, as a []any of
 // those. A field or an element is computed from the struct or array it is
 // part of (foldPart). A bool expression
@@ -1011,7 +1038,7 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return v, ok
 	}
 	switch x := e.(type) {
-	case *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit, *ast.Ident:
+	case *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit, *ast.CAllocatorLit, *ast.Ident:
 		return c.foldLeaf(x)
 	case *ast.CompositeLit:
 		if c.table.IsStruct(x.Type) {
@@ -1079,7 +1106,8 @@ func (c *Checker) foldElement(x ast.Expr, i int64) (any, bool) {
 }
 
 // foldLeaf computes e, a string or bool literal, noerror, an error's
-// fields as a struct's are, a code of 0 and an empty message, or the name
+// fields as a struct's are, a code of 0 and an empty message, c_allocator,
+// which is its own literal, since an Allocator has no other constant form, or the name
 // of an immutable global, which, checked before the initializer naming it,
 // holds its computed value; a mutable one is never folded.
 func (c *Checker) foldLeaf(e ast.Expr) (any, bool) {
@@ -1090,6 +1118,8 @@ func (c *Checker) foldLeaf(e ast.Expr) (any, bool) {
 		return x.Value, true
 	case *ast.NoErrorLit:
 		return []any{constant.Int{}, ""}, true
+	case *ast.CAllocatorLit:
+		return x, true
 	case *ast.Ident:
 		if v := c.constantGlobal(x); v != nil && v.Const != nil {
 			return v.Const, true
@@ -1411,7 +1441,8 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it. A name denotes a basic
-// type, or the struct type the resolver bound it to. A view type and any
+// type, or the struct type the resolver bound it to, and list[T] a list
+// type. A view type and any
 // are reported, since only a parameter may have one; paramType gives a
 // parameter's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
@@ -1420,6 +1451,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return c.arrayType(t)
 	case *ast.ViewType:
 		return c.viewElsewhere(t)
+	case *ast.ListType:
+		return c.listType(t)
 	}
 	id, ok := expr.(*ast.Ident)
 	if !ok {

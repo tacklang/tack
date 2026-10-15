@@ -24,6 +24,10 @@ do not reach: what it does, and what it returns, is a promise its
 declaration makes and nothing checks, as
 [extern.md](extern.md) says.
 
+Lists are memory a program owns, and their rules, moves and frees, keep
+every buffer freed exactly once and never read after it is (see
+[Lists](#lists)).
+
 Every example here is tested: each failing one is a case in
 [`examples/invalid.txtar`](../examples/invalid.txtar) whose expected output
 holds the diagnostic quoted here, the guarded and checked ones run in
@@ -43,7 +47,9 @@ and diagnostic to check that the two still agree.
 | `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
 | `v[i]`, reading a view's element   | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                  | `x, ok := v[i]`       |
 | `v[i] = x`                         | always an error                  | never: views are read-only                      | none                  |
-| `x[i:j]`, a slice of a string, an array or a view | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven | `t, ok := s[i:j]`, a string's only |
+| `l[i]`, reading a list's element   | `i < 0` or `i >= len(l)`         | `i` is proven in `[0, len(l))`                  | `x, ok := l[i]`       |
+| `l[i] = x`, writing one            | as above                         | as above, and `l` is mutable                    | none                  |
+| `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven | `t, ok := s[i:j]`, a string's only |
 | `x[i:j] = v`                       | always an error                  | never: a slice is not a place                   | none                  |
 | `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
 
@@ -1077,6 +1083,107 @@ and `_` in its
 place <!-- error: error-dropped-blank -->`the error parse returns cannot be dropped; bind it to a variable instead of _`.
 A function's error is its last
 result: <!-- error: error-not-last -->`error must be the last result of f`.
+
+## Lists
+
+A list, `list[T]`, is the one value that owns memory: its buffer, which
+its allocator gives it as `append` grows it, and takes back when the list
+is freed. Three properties make that safe, and the compiler checks each.
+
+**Indexes stay in range.** A list's length is never known, so an index
+into one is proven as one into a string parameter is, against `len(l)`,
+by a guard, a range loop or an early exit, or read with the checked
+form. A fact about `len(l)` holds in a region that never assigns `l`,
+passes it as `mut` or moves it; `append(mut l, v)` passes it as `mut`,
+so it ends the proof:
+
+<!-- case: list-len-dropped-by-append -->
+```tack
+if len(l) > 0 {
+    err := append(mut l, 1)
+```
+
+reports the read of `l[0]` after it with <!-- note: list-len-dropped-by-append -->`but l is passed as mut to append here, so the proof ends`.
+Writing an element, `l[i] = v`, changes no list's length, so it ends no
+fact, and a write needs its index proven as a read does, with no checked
+form: <!-- error: list-index-write-unproven -->`index i may be out of range; check 0 <= i && i < len(l) first`.
+A known index or slice bound is never in range when negative:
+<!-- error: list-checked-negative -->`index -1 is out of range for a list`,
+<!-- error: list-slice-bound-negative -->`slice bound -1 is out of range for a list`.
+
+**One owner, one free.** The variable holding a list owns it and frees
+it when its block ends, so a list is never copied: declaring a variable
+with one, assigning one, returning one or writing one as a struct
+literal's field moves it, and the variable it came from cannot be used
+again until it is assigned. Every use of a moved list is an error,
+
+<!-- case: move-declare-then-use -->
+```tack
+m := l
+print("x")
+if len(l) > 0 && len(m) > 0 {
+```
+
+reports <!-- error: move-declare-then-use -->`l is used after it was moved`,
+with <!-- note: move-declare-then-use -->`l is moved here`, and a list
+moved on some paths only is unusable after them,
+<!-- error: move-conditional-then-use -->`l is used after it may have been moved`.
+A move in a loop's body is seen by the next iteration, unless the body
+assigns the variable first: <!-- note: move-in-loop -->`l is moved here, in an earlier iteration of the loop`.
+A parameter borrows its list, and a `mut` parameter refers to its
+caller's, so neither is moved, <!-- error: move-borrowed-param -->`cannot move l: it is a parameter, which borrows its caller's value`,
+and a field is never moved on its own,
+<!-- error: move-field -->`cannot move s.items out of s: a field cannot be moved on its own`.
+A list that no variable holds, a call's result or `make`'s, must be given
+one, or it would never be freed:
+<!-- error: move-temporary-len -->`cannot use a temporary list[int64] here; store it in a variable first`,
+<!-- error: move-dropped-make -->`make returns list[int64], which cannot be dropped; bind it to a variable`.
+No package-level variable may hold a list, <!-- error: list-global -->`package-level variable g cannot hold a list`.
+
+The frees are where the compiler puts them, at the end of the owner's
+block, by every way out of it, as if a defer freeing the list were
+written after its declaration, and they are tested, not assumed:
+`examples/lists` counts the buffers its allocator has given out and not
+had back, and checks the count is back to zero after every check,
+returns, breaks, continues, conditional moves and reassignments
+included.
+
+<!-- example: lists -->
+```tack
+func conditional(move bool) {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 2)
+    check(err.code == 0, "fill for conditional")
+    if move {
+        m := l
+        check(len(m) == 2, "moved on one path")
+    }
+}
+```
+
+A move empties its variable, so the free at the end of `conditional`
+frees the list on the path that kept it and nothing on the one that
+moved it. A defer runs when its block ends, so one that reads a list
+moved later in its block is an error,
+<!-- error: move-defer-reads-later-moved -->`l is moved after this defer, which reads it when its block ends`,
+and so is deferred code moving a list declared outside it,
+<!-- error: move-defer-moves-outer -->`a defer cannot move l, which is declared outside it`.
+
+**No buffer read after it moves.** Growing a list may move its buffer
+and free the old one, so nothing may read the old one then. A list is
+never copied for a call, so an argument that reads one in place, a list
+or a struct holding one borrowed by a plain parameter, or viewed by a
+view parameter, cannot overlap a place the same call passes as `mut`:
+<!-- error: list-borrow-alongside-mut -->`cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it`,
+a call nested in the arguments included. A range loop walks the list
+itself, so its body cannot grow, assign or move it:
+<!-- error: move-range-append -->`l is being ranged over, so this loop cannot pass mut l`.
+No global holds a list and no reference is ever stored, so a callee
+reaches a caller's list only through its arguments, and these two
+rules cover every way a buffer could move while something reads it.
+
+A list's elements are copied when read, so they must be copyable:
+<!-- error: list-list-of-lists -->`a list cannot hold list[int64]: its elements are copied, and a list cannot be`.
 
 ## Compile-time errors
 

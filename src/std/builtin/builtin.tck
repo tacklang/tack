@@ -30,9 +30,27 @@ extern("tack_builtin_print") func print(s string)
 // 112.
 extern("tack_builtin_exit") func exit(code int32)
 
-// len(v) returns the number of elements of the array or view v, or the
-// number of bytes of the string v, as an int64. Its parameter takes any
-// array, view or string, which no Tack declaration can say, so the
-// compiler implements it itself and it is described here rather than
+// len(v) returns the number of elements of the array, view or list v, or
+// the number of bytes of the string v, as an int64. Its parameter takes
+// any array, view, list or string, which no Tack declaration can say, so
+// the compiler implements it itself and it is described here rather than
 // declared. The length of an array, and of a string literal, is a
-// constant; a view's is never known.
+// constant; a view's or a list's is never known.
+
+// make(list[T], alloc Allocator) list[T] returns an empty list of
+// elements of type T, which grows through the allocator alloc and is
+// freed through it when its owner's block ends. It allocates nothing, so
+// it cannot fail. It takes a type, which no Tack declaration can, so the
+// compiler implements it itself.
+
+// append(mut l list[T], v T) error appends v to the end of l, growing its
+// buffer through l's allocator when it is full, and returns no error; or,
+// when the allocator cannot grow it, returns error{code: 1, msg: "out of
+// memory"} and leaves l as it was. Its error cannot be dropped. It takes
+// a list of any element type, which no Tack declaration can say, so the
+// compiler implements it itself.
+
+// c_allocator, a keyword, is the Allocator that lowers to C's malloc,
+// realloc and free, the one Allocator there is. Allocator, a builtin
+// type, is an opaque handle on an allocator, which a list holds; it is
+// copyable, and has no zero value and no ==.

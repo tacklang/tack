@@ -151,7 +151,8 @@ func (g *generator) sliceOperands(
 }
 
 // sliceBase renders what s slices as the string or view the helper takes:
-// a string or a view as it is, a slice of one through sliceExpr, and an
+// a string or a view as it is, a slice of one through sliceExpr, a list
+// as a view of its elements (see listView), and an
 // array, which the checker has made sure is a place, as a view of all of
 // it, its first element and its length. When s is an argument of call,
 // the array is copied into a temporary first, and the view is of the
@@ -162,6 +163,9 @@ func (g *generator) sliceBase(s *ast.Slice, call *ast.Call) (string, []diag.Diag
 		return g.sliceExpr(inner, call)
 	}
 	typ := ast.TypeOf(s.X)
+	if g.prog.Types.IsList(typ) {
+		return g.listView(s.X, s.Type)
+	}
 	if !g.prog.Types.IsArray(typ) {
 		return g.expr(s.X, types.Invalid)
 	}

@@ -66,6 +66,13 @@ const (
 
 	// NoError is the literal noerror, the error value that is no error.
 	NoError
+
+	// List starts a list type, list[T], as map would start a map type.
+	List
+
+	// CAllocator is the literal c_allocator, the allocator that lowers to
+	// C's malloc, realloc and free.
+	CAllocator
 )
 
 var keywordNames = map[KeywordType]string{
@@ -110,6 +117,10 @@ var keywordNames = map[KeywordType]string{
 	False: "false",
 
 	NoError: "noerror",
+
+	List: "list",
+
+	CAllocator: "c_allocator",
 }
 
 // String returns the keyword as written in source.

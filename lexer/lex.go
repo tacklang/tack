@@ -692,15 +692,16 @@ func (l *Lexer) addSemi(pos int) {
 }
 
 // endsStatement reports whether a semicolon belongs after tk when a line ends
-// there: identifiers, literals (true, false and noerror among them), ++ and
-// --, closing brackets, and the keywords break, continue and return.
+// there: identifiers, literals (true, false, noerror and c_allocator among
+// them), ++ and --, closing brackets, and the keywords break, continue and
+// return.
 func endsStatement(tk *Token) bool {
 	switch tk.kind {
 	case Ident, Str, Int, Float, Char, Inc, Dec, RParen, RBrack, RCurl:
 		return true
 	case Keyword:
 		switch tk.val {
-		case Break, Continue, Return, True, False, NoError:
+		case Break, Continue, Return, True, False, NoError, CAllocator:
 			return true
 		}
 		return false

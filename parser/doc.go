@@ -49,13 +49,18 @@
 // their own, but an expression whose first or last operand is written in
 // them spans them: (a) == (b) covers both pairs, while (a) alone is the
 // Ident a, spanning only the name. The keywords true and false are bool literals, and
-// noerror is a NoErrorLit, the error that is no error, so none of the three
-// can start a statement or be declared as a name.
+// noerror is a NoErrorLit, the error that is no error, and c_allocator a
+// CAllocatorLit, the Allocator that is C's malloc, so none of the four can
+// start a statement or be declared as a name.
 //
-// A type is a name, an array type, [n]T, or a view type, []T, nested to
+// A type is a name, an array type, [n]T, a view type, []T, or a list
+// type, list[T], list being a keyword, nested to
 // any depth; in an array literal, [...]T leaves the length to the
 // elements. Where a type is allowed is the type checker's to judge, so a
-// view type is parsed wherever a type is. In an expression, a view type
+// view type is parsed wherever a type is. A list type is parsed where an
+// operand is too, as a ListType, which make's first argument is, and one
+// followed by braces is a literal, which the type checker reports, as it
+// does a list type anywhere else a value is wanted. In an expression, a view type
 // followed by parentheses is a conversion, []uint8(s), a Call whose Fn is
 // the ViewType, and one followed by braces is a literal, which the type
 // checker reports. A type declaration, at package level only, is

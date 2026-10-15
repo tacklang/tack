@@ -13,7 +13,9 @@ import (
 // arrayType returns the array type a written [n]T denotes, adding it to the
 // table. The length must be a constant: a constant expression, an immutable
 // variable holding one, or len of an array or a string literal, and must
-// not be negative. A problem is reported and gives types.Invalid.
+// not be negative. Its elements must be copyable, so no list, and no
+// struct holding one (see requireCopyable). A problem is reported and
+// gives types.Invalid.
 func (c *Checker) arrayType(a *ast.ArrayType) types.Type {
 	elem := c.declaredType(a.Elem)
 	if a.Len == nil {
@@ -22,6 +24,9 @@ func (c *Checker) arrayType(a *ast.ArrayType) types.Type {
 	}
 	n, ok := c.arrayLength(a.Len)
 	if !ok || elem == types.Invalid {
+		return types.Invalid
+	}
+	if !c.requireCopyable("an array", elem, a.Span) {
 		return types.Invalid
 	}
 	return c.table.Array(elem, n)
@@ -166,7 +171,7 @@ func (c *Checker) index(ix *ast.Index) types.Type {
 }
 
 // element checks the index of x[i], where x has type base, and returns the
-// element's type. base must be an array, a string or a view, and the index an
+// element's type. base must be an array, a string, a view or a list, and the index an
 // integer that is in range: a constant is checked against the array's
 // length here. write says x[i] is being assigned, which only matters for
 // what the error suggests; a string's byte is never assigned, which
@@ -176,11 +181,8 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 	if base == types.Invalid {
 		return types.Invalid
 	}
-	if base == types.String {
-		return c.stringElement(ix, idx, types.Uint8)
-	}
-	if c.table.IsView(base) {
-		return c.stringElement(ix, idx, c.table.Elem(base))
+	if elem, ok := c.lengthElem(base); ok {
+		return c.stringElement(ix, idx, elem, write)
 	}
 	if !c.table.IsArray(base) {
 		c.errorf(ix.X.Spanned(), "cannot index %s", c.typeName(base))
@@ -201,6 +203,21 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		c.requireInRange(ix, base, n, write)
 	}
 	return elem
+}
+
+// lengthElem returns what an element of a value of type base is, when
+// base is a string, a view or a list, whose length is known only at run
+// time, if at all: a string's byte, a uint8, or the view's or list's
+// element type; and whether it is one.
+func (c *Checker) lengthElem(base types.Type) (types.Type, bool) {
+	switch {
+	case base == types.String:
+		return types.Uint8, true
+	case c.table.IsView(base), c.table.IsList(base):
+		return c.table.Elem(base), true
+	default:
+		return types.Invalid, false
+	}
 }
 
 // indexType reports whether idx, the type of the index of ix, an element
@@ -230,12 +247,19 @@ func (c *Checker) constantInRange(v constant.Int, n int64) bool {
 // the element, or its type's zero value when the index is out of range, and
 // whether it was in range. The form needs no proof, and is allowed where
 // one exists, when ok is always true; a constant index out of range, which
-// always fails, is reported by element.
+// always fails, is reported by element. An element of a type with no zero
+// value, an Allocator or an array or struct holding one, has nothing to
+// give when out of range, and is reported.
 func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedIndex = ix
 	elem := c.expr(ix)
 	c.checkedIndex = nil
 	if elem == types.Invalid {
+		return nil, false
+	}
+	if !c.table.HasZero(elem) {
+		c.errorf(span, "the checked form cannot read an element of type %s: "+
+			"it has no zero value to give when the index is out of range", c.typeName(elem))
 		return nil, false
 	}
 
@@ -315,10 +339,10 @@ func inBounds(i ast.Expr, name, bound string) string {
 	return "0 <= " + name + " && " + name + " < " + bound
 }
 
-// lenCall checks a call to the builtin len, which takes one array, string
-// or view, a slice of an array or a view included, and gives an int64. The length of an array, and of a string
+// lenCall checks a call to the builtin len, which takes one array, string,
+// view or list, a slice of an array, a view or a list included, and gives an int64. The length of an array, and of a string
 // literal, is a constant, recorded on the call, unless working it out runs
-// a call, which it must then still make; a view's is never known, as a
+// a call, which it must then still make; a view's or a list's is never known, as a
 // string parameter's is not. A call whose arguments are wrong, or whose
 // argument has no type, gives types.Invalid, so a length it was to give
 // is not reported as unknown too.
@@ -340,13 +364,13 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		if !hasCall(arg) {
 			call.Const = constant.FromInt64(c.table.Len(got))
 		}
-	case got == types.String, c.table.IsView(got):
+	case got == types.String, c.table.IsView(got), c.table.IsList(got):
 		if lit, ok := arg.(*ast.StrLit); ok {
 			call.Const = constant.FromInt64(int64(len(lit.Value)))
 		}
 	default:
 		if got = c.valueOf(arg, got); got != types.Invalid {
-			c.errorf(arg.Spanned(), "len expects an array, a string or a view, got %s",
+			c.errorf(arg.Spanned(), "len expects an array, a string, a view or a list, got %s",
 				c.typeName(got))
 		}
 		return types.Invalid

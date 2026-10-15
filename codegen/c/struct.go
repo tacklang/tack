@@ -48,11 +48,11 @@ func (g *generator) isComposite(typ types.Type) bool {
 	return g.prog.Types.IsArray(typ) || g.prog.Types.IsStruct(typ)
 }
 
-// parts returns the types a value of type typ is made of: an array's or a
-// view's element type, or a struct's field types, in order.
+// parts returns the types a value of type typ is made of: an array's, a
+// view's or a list's element type, or a struct's field types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
-	if table.IsArray(typ) || table.IsView(typ) {
+	if table.IsArray(typ) || table.IsView(typ) || table.IsList(typ) {
 		return []types.Type{table.Elem(typ)}
 	}
 	fields := table.Fields(typ)
@@ -63,21 +63,27 @@ func (g *generator) parts(typ types.Type) []types.Type {
 	return out
 }
 
-// emitTypeDef defines the C struct for typ, an array, a view or a struct,
+// emitTypeDef defines the C struct for typ, an array, a view, a list or a struct,
 // after those of the types it is made of, unless defined says it has been already. typ is marked before
 // its parts are visited, so even a type that held itself could not loop.
 // error's struct, tack_error, is std's tack.h's, so it is never defined
 // here.
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
-	if defined[typ] || typ == types.Error || !g.isComposite(typ) && !g.prog.Types.IsView(typ) {
+	table := g.prog.Types
+	if defined[typ] || typ == types.Error ||
+		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) {
 		return
 	}
 	defined[typ] = true
 	for _, part := range g.parts(typ) {
 		g.emitTypeDef(part, defined)
 	}
-	if g.prog.Types.IsView(typ) {
+	if table.IsView(typ) {
 		g.emitViewDef(typ)
+		return
+	}
+	if table.IsList(typ) {
+		g.emitListDef(typ)
 		return
 	}
 	if g.prog.Types.IsArray(typ) {
@@ -273,11 +279,17 @@ func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) 
 // expression, usable to initialize a static variable: an array's or a
 // struct's as a brace-enclosed initializer, which a static variable needs
 // instead of a compound literal, built from its elements or fields in
-// order. No elements or fields is a zeroed initializer, which also fills
+// order. c_allocator, folded to its literal, is tack_allocator's index 0
+// and generation 0, as TACK_C_ALLOCATOR is. No elements or fields is a zeroed initializer, which also fills
 // the one member an empty array or struct holds, and so is an error with
 // code 0 and an empty message, noerror, whose message has no string in
 // the pool to point at.
 func (g *generator) constOf(typ types.Type, c any) (string, bool) {
+	if _, isAlloc := c.(*ast.CAllocatorLit); isAlloc {
+		// TACK_C_ALLOCATOR's value, written as an initializer, which a
+		// static variable needs instead of std's compound literal.
+		return "{0, 0}", true
+	}
 	values, isList := c.([]any)
 	if !isList || !g.isComposite(typ) {
 		return g.constValue(c)

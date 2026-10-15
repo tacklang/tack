@@ -13,29 +13,29 @@ typedef struct {
 
 typedef struct {
     int64_t e[4];
-} tack_array_20;
+} tack_array_21;
 
 typedef struct {
     tack_4_main5_Point f_lo;
     tack_4_main5_Point f_hi;
-    tack_array_20 f_cells;
+    tack_array_21 f_cells;
     tack_string f_name;
 } tack_4_main3_Box;
 
 typedef struct {
     tack_4_main5_Point e[2];
-} tack_array_22;
+} tack_array_23;
 
 typedef struct {
-    tack_array_22 f_pts;
+    tack_array_23 f_pts;
 } tack_4_main3_Row;
 
 typedef struct {
     tack_4_main3_Row e[2];
-} tack_array_21;
+} tack_array_22;
 
 typedef struct {
-    tack_array_21 f_rows;
+    tack_array_22 f_rows;
 } tack_4_main4_Wide;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
@@ -48,11 +48,11 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_16(tack_4_main5_Point a, tack_4_main5_Point b) {
+static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
     return a.f_x == b.f_x && a.f_y == b.f_y;
 }
 
-static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
+static bool tack_eq_21(tack_array_21 a, tack_array_21 b) {
     for (int64_t i = 0; i < 4; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -101,7 +101,7 @@ static void tack_4_main6_relay4(int64_t * p_n);
 static void tack_4_main6_relay5(int64_t * p_n);
 static int64_t tack_4_main4_next(int64_t * p_n);
 static int64_t tack_4_main5_three(int64_t p_a, int64_t p_b, int64_t p_c);
-static int64_t tack_4_main4_cell(tack_array_20 * p_a, int64_t p_v);
+static int64_t tack_4_main4_cell(tack_array_21 * p_a, int64_t p_v);
 static int64_t tack_4_main4_read(tack_4_main5_Point p_p);
 static void tack_4_main4_flip(bool * p_b);
 static void tack_4_main4_deep(tack_4_main4_Wide * p_w);
@@ -210,7 +210,7 @@ static int64_t tack_4_main5_three(int64_t p_a, int64_t p_b, int64_t p_c) {
     return ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)p_a * (uint64_t)100)) + (uint64_t)((int64_t)((uint64_t)p_b * (uint64_t)10)))) + (uint64_t)p_c));
 }
 
-static int64_t tack_4_main4_cell(tack_array_20 * p_a, int64_t p_v) {
+static int64_t tack_4_main4_cell(tack_array_21 * p_a, int64_t p_v) {
     (*p_a).e[0] = p_v;
     return (*p_a).e[0];
 }
@@ -237,15 +237,15 @@ static void tack_4_main4_main(void) {
     tack_4_main5_scale(&v_p, 10);
     tack_4_main5_check(((v_p.f_x == 30) && (v_p.f_y == 40)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     tack_4_main5_reset(&v_p);
-    tack_4_main5_check((tack_eq_16(v_p, (tack_4_main5_Point){.f_x = (-1), .f_y = (-2)})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    tack_4_main5_check((tack_eq_17(v_p, (tack_4_main5_Point){.f_x = (-1), .f_y = (-2)})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     int64_t v_a = 1;
     int64_t v_b = 2;
     tack_4_main4_swap(&v_a, &v_b);
     tack_4_main5_check(((v_a == 2) && (v_b == 1)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    tack_4_main3_Box v_box = (tack_4_main3_Box){.f_lo = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_hi = (tack_4_main5_Point){.f_x = 5, .f_y = 6}, .f_cells = (tack_array_20){{1, 2, 3, 4}}, .f_name = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}};
+    tack_4_main3_Box v_box = (tack_4_main3_Box){.f_lo = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_hi = (tack_4_main5_Point){.f_x = 5, .f_y = 6}, .f_cells = (tack_array_21){{1, 2, 3, 4}}, .f_name = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}};
     tack_4_main4_grow(&v_box);
-    tack_4_main5_check((((tack_eq_16(v_box.f_lo, (tack_4_main5_Point){.f_x = 2, .f_y = 4})) && (v_box.f_hi.f_x == 6)) && (v_box.f_hi.f_y == 6)), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
-    tack_4_main5_check(((tack_eq_20(v_box.f_cells, (tack_array_20){{2, 3, 4, 5}})) && (tack_compare_strings(v_box.f_name, (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}) == 0)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
+    tack_4_main5_check((((tack_eq_17(v_box.f_lo, (tack_4_main5_Point){.f_x = 2, .f_y = 4})) && (v_box.f_hi.f_x == 6)) && (v_box.f_hi.f_y == 6)), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check(((tack_eq_21(v_box.f_cells, (tack_array_21){{2, 3, 4, 5}})) && (tack_compare_strings(v_box.f_name, (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}) == 0)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     int64_t v_n = 1;
     const int64_t v_r = tack_4_main5_later(&v_n);
     tack_4_main5_check(((v_r == 2) && (v_n == 20)), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
@@ -257,11 +257,11 @@ static void tack_4_main4_main(void) {
     int64_t v_far = 1;
     tack_4_main5_relay(&v_far);
     tack_4_main5_check((v_far == 101), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
-    tack_array_20 v_cells = (tack_array_20){0};
+    tack_array_21 v_cells = (tack_array_21){0};
     const int64_t v_i = 2;
     tack_4_main4_bump(&v_cells.e[v_i]);
     tack_4_main4_bump(&v_cells.e[3]);
-    tack_4_main5_check((tack_eq_20(v_cells, (tack_array_20){{0, 0, 1, 1}})), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
+    tack_4_main5_check((tack_eq_21(v_cells, (tack_array_21){{0, 0, 1, 1}})), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     {
         (void)v_cells;
         for (int64_t tack_k4 = 0; tack_k4 < 4; tack_k4++) {
@@ -269,13 +269,13 @@ static void tack_4_main4_main(void) {
             tack_4_main4_bump(&v_cells.e[v_j]);
         }
     }
-    tack_4_main5_check((tack_eq_20(v_cells, (tack_array_20){{1, 1, 2, 2}})), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
+    tack_4_main5_check((tack_eq_21(v_cells, (tack_array_21){{1, 1, 2, 2}})), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
     int64_t v_k = 1;
     tack_4_main5_check((((tack_o5 = tack_4_main4_next(&v_k), tack_o6 = v_k, tack_o7 = tack_4_main4_next(&v_k), tack_4_main5_three(tack_o5, tack_o6, tack_o7)) == 122) && (v_k == 3)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
     tack_4_main5_Point v_q = (tack_4_main5_Point){.f_x = 7, .f_y = 0};
     tack_4_main5_check((((tack_o8 = v_q.f_x, tack_o9 = tack_4_main5_cell2(&v_q), ((int64_t)((uint64_t)tack_o8 + (uint64_t)tack_o9))) == 15) && (v_q.f_x == 8)), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
-    tack_array_20 v_arr = (tack_array_20){{9, 9, 9, 9}};
-    const tack_array_20 tack_r10 = v_arr;
+    tack_array_21 v_arr = (tack_array_21){{9, 9, 9, 9}};
+    const tack_array_21 tack_r10 = v_arr;
     const int64_t tack_r11 = tack_4_main4_cell(&v_arr, 1);
     const int64_t v_v = ((tack_r11 >= 0 && tack_r11 <= 3) ? tack_r10.e[tack_r11] : 0);
     const bool v_ok = (tack_r11 >= 0 && tack_r11 <= 3);

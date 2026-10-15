@@ -41,6 +41,11 @@
 // the parser accepts it only after the last argument, and the type
 // checker only in a call to a variadic function, whose variadic parameter
 // v is then passed to whole.
+// A list type written list[T] is a ListType, wherever a type is written,
+// and as an operand, as make's first argument; the type checker records
+// the type of a call to make or append on Call.Type, and marks a name
+// whose use moves its variable's value with Ident.Move. c_allocator is a
+// CAllocatorLit.
 // A view type written []T is a ViewType, wherever a type is written; the
 // type checker accepts it only as a parameter's type. A conversion to one,
 // []uint8(s), is a Call whose Fn is the ViewType, and whose Conv the type

@@ -8,6 +8,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/cname"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
 )
 
 // stdPath is the import path of the standard library, whose packages, and
@@ -19,9 +20,11 @@ const stdPath = "std"
 // define, an identifier that is not a keyword; not main, which the
 // generated C defines; and, outside the standard library, not start
 // tack_, which the generated C's own names do. Every type can cross to C,
-// and a mut parameter crosses as a pointer, so its signature needs no
-// check of its own.
+// and a mut parameter crosses as a pointer, except a list, or a struct or
+// an array holding one, which crosses only by mut or as a view (see
+// checkExternLists).
 func (c *Checker) checkExtern(fn *ast.Func) {
+	c.checkExternLists(fn)
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan
@@ -47,6 +50,41 @@ func (c *Checker) checkExtern(fn *ast.Func) {
 			name,
 		)
 	}
+}
+
+// listCrossing is what an error about a list crossing to C by value says
+// it may cross as instead.
+const listCrossing = "a list crosses to C only as a mut parameter, or as a view"
+
+// checkExternLists reports each plain parameter and each result of fn, an
+// extern func, of an owned type, a list or a struct or array holding one.
+// A list crosses to C as a mut parameter, through which C may grow it
+// with std's macros, or as a view of its elements. Passing one by value
+// would move it into C, and returning one would move one out, and who
+// then frees it, and through which allocator, is not settled.
+func (c *Checker) checkExternLists(fn *ast.Func) {
+	for _, p := range fn.Params {
+		if !p.Mut && c.table.Owned(p.Type) {
+			c.errorf(p.TypeExpr.Spanned(), "parameter %s of extern func %s cannot be %s: %s",
+				p.Name, fn.Name, c.ownedTypeName(p.Type), listCrossing)
+		}
+	}
+	for i, typ := range fn.ResultTypes {
+		if c.table.Owned(typ) {
+			c.errorf(fn.Results[i].Spanned(), "extern func %s cannot return %s: %s",
+				fn.Name, c.ownedTypeName(typ), listCrossing)
+		}
+	}
+}
+
+// ownedTypeName names typ, an owned type, as an error about it does: a
+// list by its type, and anything holding one by its type and what it
+// holds, "Stack, which holds a list".
+func (c *Checker) ownedTypeName(typ types.Type) string {
+	if c.table.IsList(typ) {
+		return c.typeName(typ)
+	}
+	return c.typeName(typ) + ", which holds a list"
 }
 
 // inStd reports whether fn is declared in a package of the standard

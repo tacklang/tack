@@ -14,18 +14,18 @@ typedef struct {
 
 typedef struct {
     int64_t e[4];
-} tack_array_17;
+} tack_array_18;
 
 typedef struct {
     const int64_t *ptr;
     int64_t len;
-} tack_view_18;
+} tack_view_19;
 
 typedef struct {
     size_t e[3];
-} tack_array_19;
+} tack_array_20;
 
-static bool tack_eq_19(tack_array_19 a, tack_array_19 b) {
+static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
     for (int64_t i = 0; i < 3; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -89,10 +89,10 @@ static bool tack_4_main7_divides(size_t p_n, size_t p_d);
 static void tack_4_main4_grow(size_t * p_size, uint32_t p_n);
 static tack_results_4_main5_sizes tack_4_main5_sizes(size_t p_s, uintptr_t p_p);
 static int64_t tack_4_main8_classify(size_t p_s);
-static bool tack_4_main12_indexByGuard(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v, size_t p_s, uintptr_t p_p);
-static bool tack_4_main11_indexByLoop(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v);
-static bool tack_4_main12_indexByKnown(tack_array_17 p_a, tack_string p_str);
-static bool tack_4_main12_indexChecked(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v, size_t p_zero, size_t p_four, uintptr_t p_wide, uint64_t p_big);
+static bool tack_4_main12_indexByGuard(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v, size_t p_s, uintptr_t p_p);
+static bool tack_4_main11_indexByLoop(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v);
+static bool tack_4_main12_indexByKnown(tack_array_18 p_a, tack_string p_str);
+static bool tack_4_main12_indexChecked(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v, size_t p_zero, size_t p_four, uintptr_t p_wide, uint64_t p_big);
 static void tack_4_main4_main(void);
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name) {
@@ -205,14 +205,14 @@ static int64_t tack_4_main8_classify(size_t p_s) {
     }
 }
 
-static bool tack_4_main12_indexByGuard(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v, size_t p_s, uintptr_t p_p) {
+static bool tack_4_main12_indexByGuard(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v, size_t p_s, uintptr_t p_p) {
     if ((((((void)p_a, (int64_t)4) >= 0 && (uint64_t)((void)p_a, (int64_t)4) > (uint64_t)p_s) && ((p_str).len >= 0 && (uint64_t)(p_str).len > (uint64_t)p_p)) && ((p_v).len >= 0 && (uint64_t)(p_v).len > (uint64_t)p_s)) && ((p_v).len >= 0 && (uint64_t)(p_v).len > (uint64_t)p_p)) {
         return ((((p_a.e[p_s] == 30) && (p_str.ptr[p_p] == 99)) && (p_v.ptr[p_s] == 300)) && (p_v.ptr[p_p] == 300));
     }
     return false;
 }
 
-static bool tack_4_main11_indexByLoop(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v) {
+static bool tack_4_main11_indexByLoop(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v) {
     int64_t v_bytes = 0;
     {
         size_t v_i = 0;
@@ -237,13 +237,13 @@ static bool tack_4_main11_indexByLoop(tack_array_17 p_a, tack_string p_str, tack
     return (((v_bytes == 294) && (v_elems == 1000)) && (v_backwards == 4320));
 }
 
-static bool tack_4_main12_indexByKnown(tack_array_17 p_a, tack_string p_str) {
+static bool tack_4_main12_indexByKnown(tack_array_18 p_a, tack_string p_str) {
     const size_t v_s = ((size_t)3);
     const uintptr_t v_p = ((uintptr_t)0);
     return (((((((p_a.e[((size_t)1)] == 20) && (p_a.e[v_s] == 40)) && (p_a.e[v_p] == 10)) && (((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}).ptr[v_s] == 107)) && (((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}).ptr[v_p] == 116)) && ((p_str).len == 3)) && (p_str.ptr[((uintptr_t)2)] == 99));
 }
 
-static bool tack_4_main12_indexChecked(tack_array_17 p_a, tack_string p_str, tack_view_18 p_v, size_t p_zero, size_t p_four, uintptr_t p_wide, uint64_t p_big) {
+static bool tack_4_main12_indexChecked(tack_array_18 p_a, tack_string p_str, tack_view_19 p_v, size_t p_zero, size_t p_four, uintptr_t p_wide, uint64_t p_big) {
     const size_t v_top = ((size_t)((uint64_t)p_zero - (uint64_t)1));
     const uint64_t tack_r11 = p_big;
     const size_t v_past = (((uint64_t)tack_r11 <= SIZE_MAX) ? (size_t)tack_r11 : 0);
@@ -297,16 +297,16 @@ static void tack_4_main4_main(void) {
     const uint64_t v_total = v_b.f_size;
     const uint64_t v_added = tack_4_main5_grown;
     tack_4_main5_check((((v_total == 4294967303) && (v_b.f_addr == 4)) && (v_added == 4294967300)), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    const tack_array_19 v_a = (tack_array_19){{1, 2, 3}};
+    const tack_array_20 v_a = (tack_array_20){{1, 2, 3}};
     size_t v_sum = 0;
     {
-        const tack_array_19 *const tack_r25 = &v_a;
+        const tack_array_20 *const tack_r25 = &v_a;
         for (int64_t tack_k26 = 0; tack_k26 < 3; tack_k26++) {
             const size_t v_x = (*tack_r25).e[tack_k26];
             v_sum = ((size_t)((uint64_t)v_sum + (uint64_t)v_x));
         }
     }
-    tack_4_main5_check(((v_sum == 6) && (tack_eq_19(v_a, (tack_array_19){{1, 2, 3}}))), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check(((v_sum == 6) && (tack_eq_20(v_a, (tack_array_20){{1, 2, 3}}))), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
     uintptr_t v_count = 0;
     {
         const uintptr_t tack_n27 = tack_4_main9_fromSmall;
@@ -321,13 +321,13 @@ static void tack_4_main4_main(void) {
     const uintptr_t v_p = tack_r29.r1;
     tack_4_main5_check(((v_s == 2) && (v_p == 3)), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
     tack_4_main5_check((((tack_4_main8_classify(0) == 1) && (tack_4_main8_classify(tack_4_main5_limit) == 2)) && (tack_4_main8_classify(7) == 3)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
-    const tack_array_17 v_nums = (tack_array_17){{10, 20, 30, 40}};
-    const tack_array_17 v_hundreds = (tack_array_17){{100, 200, 300, 400}};
-    tack_4_main5_check(tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_18){v_hundreds.e, 4}, 2, 2), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
-    tack_4_main5_check((!tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_18){v_hundreds.e, 4}, 4, 0) && !tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_18){v_hundreds.e, 4}, 0, 3)), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
-    tack_4_main5_check(tack_4_main11_indexByLoop(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_18){v_hundreds.e, 4}), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
+    const tack_array_18 v_nums = (tack_array_18){{10, 20, 30, 40}};
+    const tack_array_18 v_hundreds = (tack_array_18){{100, 200, 300, 400}};
+    tack_4_main5_check(tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}, 2, 2), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
+    tack_4_main5_check((!tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}, 4, 0) && !tack_4_main12_indexByGuard(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}, 0, 3)), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
+    tack_4_main5_check(tack_4_main11_indexByLoop(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     tack_4_main5_check(tack_4_main12_indexByKnown(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
-    tack_4_main5_check(tack_4_main12_indexChecked(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_18){v_hundreds.e, 4}, 0, 4, 4294967295, 5000000000), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
+    tack_4_main5_check(tack_4_main12_indexChecked(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}, 0, 4, 4294967295, 5000000000), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
 }
 
 int main(void) {

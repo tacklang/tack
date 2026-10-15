@@ -10,7 +10,7 @@ stage: ok
 typedef struct {
     const tack_any *ptr;
     int64_t len;
-} tack_view_16;
+} tack_view_17;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -40,15 +40,15 @@ static int64_t tack_4_main5_order = 0;
 
 extern uint32_t tack_4_main4_kind(tack_any p_a) TACK_C_NAME("kind");
 extern bool tack_4_main10_holdsInt64(tack_any p_a) TACK_C_NAME("holds_int64");
-extern bool tack_4_main5_edges(tack_view_16 p_args) TACK_C_NAME("edges");
+extern bool tack_4_main5_edges(tack_view_17 p_args) TACK_C_NAME("edges");
 extern bool tack_4_main10_mismatches(tack_any p_a) TACK_C_NAME("mismatches");
-extern int64_t tack_4_main9_sumSigned(tack_view_16 p_args) TACK_C_NAME("sum_signed");
-extern uint64_t tack_4_main11_sumUnsigned(tack_view_16 p_args) TACK_C_NAME("sum_unsigned");
-extern int64_t tack_4_main5_count(tack_view_16 p_args) TACK_C_NAME("count");
+extern int64_t tack_4_main9_sumSigned(tack_view_17 p_args) TACK_C_NAME("sum_signed");
+extern uint64_t tack_4_main11_sumUnsigned(tack_view_17 p_args) TACK_C_NAME("sum_unsigned");
+extern int64_t tack_4_main5_count(tack_view_17 p_args) TACK_C_NAME("count");
 extern int64_t tack_4_main11_setThenRead(int64_t * p_x, tack_any p_a) TACK_C_NAME("set_then_read");
 static int64_t tack_4_main4_step(int64_t p_d);
 static uint32_t tack_4_main7_viaTack(tack_any p_a);
-static int64_t tack_4_main6_allVia(tack_view_16 p_args);
+static int64_t tack_4_main6_allVia(tack_view_17 p_args);
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static void tack_4_main4_main(void);
 
@@ -61,7 +61,7 @@ static uint32_t tack_4_main7_viaTack(tack_any p_a) {
     return tack_4_main4_kind(p_a);
 }
 
-static int64_t tack_4_main6_allVia(tack_view_16 p_args) {
+static int64_t tack_4_main6_allVia(tack_view_17 p_args) {
     return tack_4_main9_sumSigned(p_args);
 }
 
@@ -112,17 +112,17 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((((tack_4_main4_kind((tack_any){TACK_TYPE_UINT64, &v_u64}) == 9) && (tack_4_main4_kind((tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}) == 10)) && (tack_4_main4_kind((tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}) == 11)) && (tack_4_main4_kind((tack_any){TACK_TYPE_STRING, &v_s}) == 12)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_check(((((tack_4_main4_kind((tack_a1 = 5, (tack_any){TACK_TYPE_INT64, &tack_a1})) == 5) && (tack_4_main4_kind((tack_a2 = 97, (tack_any){TACK_TYPE_UINT8, &tack_a2})) == 6)) && (tack_4_main4_kind((tack_a3 = true, (tack_any){TACK_TYPE_BOOL, &tack_a3})) == 1)) && (tack_4_main4_kind((tack_a4 = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_any){TACK_TYPE_STRING, &tack_a4})) == 12)), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     tack_4_main5_check((tack_4_main10_holdsInt64((tack_a5 = 9223372036854775807, (tack_any){TACK_TYPE_INT64, &tack_a5})) && !tack_4_main10_holdsInt64((tack_any){TACK_TYPE_INT32, &v_i32})), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
-    tack_4_main5_check(tack_4_main5_edges((tack_view_16){(const tack_any[13]){(tack_a6 = false, (tack_any){TACK_TYPE_BOOL, &tack_a6}), (tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_a7 = (-9223372036854775807 - 1), (tack_any){TACK_TYPE_INT64, &tack_a7}), (tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}, (tack_any){TACK_TYPE_STRING, &v_s}, (tack_a8 = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_any){TACK_TYPE_STRING, &tack_a8})}, 13}), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check(tack_4_main5_edges((tack_view_17){(const tack_any[13]){(tack_a6 = false, (tack_any){TACK_TYPE_BOOL, &tack_a6}), (tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_any){TACK_TYPE_INT32, &v_i32}, (tack_a7 = (-9223372036854775807 - 1), (tack_any){TACK_TYPE_INT64, &tack_a7}), (tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT16, &v_u16}, (tack_any){TACK_TYPE_UINT32, &v_u32}, (tack_any){TACK_TYPE_UINT64, &v_u64}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}, (tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr}, (tack_any){TACK_TYPE_STRING, &v_s}, (tack_a8 = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_any){TACK_TYPE_STRING, &tack_a8})}, 13}), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_check((((tack_4_main10_mismatches((tack_any){TACK_TYPE_BOOL, &v_b}) && tack_4_main10_mismatches((tack_any){TACK_TYPE_INT8, &v_i8})) && tack_4_main10_mismatches((tack_any){TACK_TYPE_UNSAFE_UINTPTR_T, &v_addr})) && tack_4_main10_mismatches((tack_any){TACK_TYPE_STRING, &v_s})), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
-    tack_4_main5_check(((tack_4_main9_sumSigned((tack_view_16){(const tack_any[5]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_a9 = 1, (tack_any){TACK_TYPE_INT64, &tack_a9}), (tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_STRING, &v_s}}, 5}) == (-32895)) && (tack_4_main11_sumUnsigned((tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT64, &v_u64}, (tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}}, 4}) == 4294967549)), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    tack_4_main5_check((((tack_4_main5_count((tack_view_16){0, 0}) == 0) && (tack_4_main5_count((tack_view_16){(const tack_any[1]){(tack_a10 = 1, (tack_any){TACK_TYPE_INT64, &tack_a10})}, 1}) == 1)) && (tack_4_main5_count((tack_view_16){(const tack_any[3]){(tack_any){TACK_TYPE_BOOL, &v_b}, (tack_any){TACK_TYPE_STRING, &v_s}, (tack_any){TACK_TYPE_UINT8, &v_u8}}, 3}) == 3)), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
-    tack_4_main5_check((((tack_4_main7_viaTack((tack_any){TACK_TYPE_UINT16, &v_u16}) == 7) && (tack_4_main6_allVia((tack_view_16){(const tack_any[3]){(tack_a11 = 1, (tack_any){TACK_TYPE_INT64, &tack_a11}), (tack_a12 = 2, (tack_any){TACK_TYPE_INT64, &tack_a12}), (tack_any){TACK_TYPE_INT8, &v_i8}}, 3}) == (-125))) && (tack_4_main6_allVia((tack_view_16){0, 0}) == 0)), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
+    tack_4_main5_check(((tack_4_main9_sumSigned((tack_view_17){(const tack_any[5]){(tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_INT16, &v_i16}, (tack_a9 = 1, (tack_any){TACK_TYPE_INT64, &tack_a9}), (tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_STRING, &v_s}}, 5}) == (-32895)) && (tack_4_main11_sumUnsigned((tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_UINT8, &v_u8}, (tack_any){TACK_TYPE_UINT64, &v_u64}, (tack_any){TACK_TYPE_INT8, &v_i8}, (tack_any){TACK_TYPE_UNSAFE_SIZE_T, &v_size}}, 4}) == 4294967549)), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+    tack_4_main5_check((((tack_4_main5_count((tack_view_17){0, 0}) == 0) && (tack_4_main5_count((tack_view_17){(const tack_any[1]){(tack_a10 = 1, (tack_any){TACK_TYPE_INT64, &tack_a10})}, 1}) == 1)) && (tack_4_main5_count((tack_view_17){(const tack_any[3]){(tack_any){TACK_TYPE_BOOL, &v_b}, (tack_any){TACK_TYPE_STRING, &v_s}, (tack_any){TACK_TYPE_UINT8, &v_u8}}, 3}) == 3)), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check((((tack_4_main7_viaTack((tack_any){TACK_TYPE_UINT16, &v_u16}) == 7) && (tack_4_main6_allVia((tack_view_17){(const tack_any[3]){(tack_a11 = 1, (tack_any){TACK_TYPE_INT64, &tack_a11}), (tack_a12 = 2, (tack_any){TACK_TYPE_INT64, &tack_a12}), (tack_any){TACK_TYPE_INT8, &v_i8}}, 3}) == (-125))) && (tack_4_main6_allVia((tack_view_17){0, 0}) == 0)), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     int64_t v_x = 7;
     tack_4_main5_check(((tack_4_main11_setThenRead(&v_x, (tack_a13 = v_x, (tack_any){TACK_TYPE_INT64, &tack_a13})) == 7) && (v_x == 99)), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
     tack_4_main5_order = 0;
-    tack_4_main5_check((((tack_o14 = tack_4_main4_step(1), tack_o15 = tack_4_main5_order, tack_o16 = tack_4_main4_step(2), tack_o17 = tack_4_main5_order, tack_4_main9_sumSigned((tack_view_16){(const tack_any[4]){(tack_any){TACK_TYPE_INT64, &tack_o14}, (tack_any){TACK_TYPE_INT64, &tack_o15}, (tack_any){TACK_TYPE_INT64, &tack_o16}, (tack_any){TACK_TYPE_INT64, &tack_o17}}, 4})) == 16) && (tack_4_main5_order == 12)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
+    tack_4_main5_check((((tack_o14 = tack_4_main4_step(1), tack_o15 = tack_4_main5_order, tack_o16 = tack_4_main4_step(2), tack_o17 = tack_4_main5_order, tack_4_main9_sumSigned((tack_view_17){(const tack_any[4]){(tack_any){TACK_TYPE_INT64, &tack_o14}, (tack_any){TACK_TYPE_INT64, &tack_o15}, (tack_any){TACK_TYPE_INT64, &tack_o16}, (tack_any){TACK_TYPE_INT64, &tack_o17}}, 4})) == 16) && (tack_4_main5_order == 12)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
     int64_t v_i = 0;
-    while (tack_4_main10_holdsInt64((tack_a18 = ((int64_t)((uint64_t)v_i + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a18})) && (tack_4_main9_sumSigned((tack_view_16){(const tack_any[2]){(tack_a19 = ((int64_t)((uint64_t)v_i * (uint64_t)2)), (tack_any){TACK_TYPE_INT64, &tack_a19}), (tack_a20 = tack_4_main4_step(3), (tack_any){TACK_TYPE_INT64, &tack_a20})}, 2}) < 10)) {
+    while (tack_4_main10_holdsInt64((tack_a18 = ((int64_t)((uint64_t)v_i + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a18})) && (tack_4_main9_sumSigned((tack_view_17){(const tack_any[2]){(tack_a19 = ((int64_t)((uint64_t)v_i * (uint64_t)2)), (tack_any){TACK_TYPE_INT64, &tack_a19}), (tack_a20 = tack_4_main4_step(3), (tack_any){TACK_TYPE_INT64, &tack_a20})}, 2}) < 10)) {
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     tack_4_main5_check((v_i == 4), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});

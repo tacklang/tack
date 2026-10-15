@@ -1,0 +1,88 @@
+package main
+
+// Every extern func below is written in C, in lists.c. A list crosses to
+// C only as a mut parameter, a pointer to the caller's tack_list_ struct,
+// which C may read and grow through std's tack.h macros, TACK_LIST_LEN,
+// TACK_LIST_AT and TACK_LIST_APPEND, during the call; or as a view, whose
+// elements C reads.
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// countUp appends 1 through n to l, in C, and returns false if an append
+// failed.
+extern("count_up") func countUp(mut l list[int64], n int64) bool
+
+// doubleAll doubles every element of l in place, in C.
+extern("double_all") func doubleAll(mut l list[int64])
+
+// addPoint appends a point to l, in C.
+extern("add_point") func addPoint(mut l list[Point], x int64, y int64) bool
+
+// sumView adds the elements of v, in C.
+extern("sum_view") func sumView(v []int64) int64
+
+// live returns how many buffers c_allocator holds, in C.
+extern("extern_lists_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("extern_lists_fail_after") func failAfter(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// fromC lets C grow a list, then reads it back in Tack.
+func fromC() {
+    mut l := make(list[int64], c_allocator)
+    check(countUp(mut l, 100) && len(l) == 100, "appended by C")
+    mut good := true
+    for i, x := range l {
+        if x != i + 1 {
+            good = false
+        }
+    }
+    check(good, "C's elements read in Tack")
+    doubleAll(mut l)
+    check(sumView(l) == 2 * 5050, "doubled in C, viewed by C")
+    if len(l) > 10 {
+        check(sumView(l[:10]) == 2 * 55, "slice viewed by C")
+    }
+    err := append(mut l, 7)
+    check(err.code == 0 && len(l) == 101, "appended in Tack after C")
+}
+
+// structsFromC lets C append structs.
+func structsFromC() {
+    mut pts := make(list[Point], c_allocator)
+    check(addPoint(mut pts, 1, 2) && addPoint(mut pts, 3, 4), "structs appended by C")
+    if len(pts) == 2 {
+        check(pts[0].x == 1 && pts[1].y == 4, "structs read in Tack")
+    }
+}
+
+// failing makes C's append fail.
+func failing() {
+    mut l := make(list[int64], c_allocator)
+    failAfter(0)
+    check(!countUp(mut l, 1) && len(l) == 0, "append in C fails")
+    failAfter(-1)
+}
+
+func main() {
+    fromC()
+    check(live() == 0, "freed after C grew it")
+    structsFromC()
+    check(live() == 0, "structs freed")
+    failing()
+    check(live() == 0, "nothing after a failure")
+}

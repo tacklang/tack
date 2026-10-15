@@ -10,9 +10,6 @@ read.
 ```tack
 package builtin
 
-// append appends the given arguments to the given array.
-func append(arr []any, args ...any) []any
-
 func write(fd int, adr int, ln int) int
 
 // print concatenates the arguments into a single string and writes
@@ -29,10 +26,16 @@ What each one needs before it could be declared for real:
 
 | Declaration               | Blocked on                                                        |
 |---------------------------|-------------------------------------------------------------------|
-| `append`, and any `[]any` | growable lists, since `[]T` is only a read-only view parameter |
 | `...any`                  | a builtin taking variadic or `any` parameters: `any` and `args ...any` exist, but a builtin may have neither, since a call to one passes each argument as itself |
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`                 | the above, plus string concatenation                              |
+
+`append` is no longer planned here: it is a generic builtin, `err :=
+append(mut l, v)`, on a `list[T]`, described in `builtin.tck`. Still
+planned for lists: `make(list[T], alloc, n)`, which reserves room for
+`n` elements and can fail, `clone(l, alloc)`, a bulk append of a `[]T`,
+`truncate(mut l, n)`, and allocators other than `c_allocator`, an arena
+and a testing one among them.
 
 `printf` is no longer planned here: it is `std/fmt`'s
 `printf(format string, args ...any)`, which writes to standard output, as

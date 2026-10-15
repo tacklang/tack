@@ -301,7 +301,8 @@ func holdsSlice(e ast.Expr) bool {
 // may be no literal's. The
 // variables of a MultiVar, and of a range loop, have no value of their own
 // but never start from zero, so only the call, or the ranged expression and
-// the body, are visited.
+// the body, are visited. A program that calls append pools the message of
+// the error a failed append gives.
 func (g *generator) collectStrings() {
 	var visit ast.Visitor
 	visit = func(n ast.Node) bool {
@@ -326,6 +327,9 @@ func (g *generator) collectStrings() {
 		return true
 	}
 	g.walk(visit)
+	if g.usesAppend() {
+		g.addStr(outOfMemory)
+	}
 }
 
 // emitConstantPool writes the pooled strings as byte arrays, and then the
@@ -730,7 +734,8 @@ func (g *generator) generateLoopBody(body []ast.Stmt, fn *ast.Func) ([]string, [
 
 // block lowers a block of fn, in a deferScope of its own, loop being
 // whether it is a loop's body. It ends in the cleanup chain of the defers
-// it reaches, which falling off its end runs and its exits jump into.
+// it reaches and the owned locals it declares, which falling off its end
+// runs and its exits jump into.
 func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, []diag.Diagnostic) {
 	sc := &deferScope{loop: loop}
 	g.scopes = append(g.scopes, sc)
@@ -744,7 +749,7 @@ func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, [
 		}
 		lines = append(lines, got...)
 	}
-	if len(sc.defers) == 0 {
+	if len(sc.entries) == 0 {
 		return lines, nil
 	}
 	end, diags := g.chain(sc, body, fn)
@@ -911,17 +916,44 @@ func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.D
 //	    }
 //	}
 //
-// The block scopes a variable the init declares to the loop, as Tack does.
+// The block scopes a variable the init declares to the loop, as Tack does,
+// and ends in the chain that frees one that owns a list.
 // Keeping the post in the for, rather than at the end of the body, is what
 // makes continue run it. The post's lines are joined with the comma
 // operator, so the post stays one C expression even if its Tack statement
 // lowers to more than one C statement.
 func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	// The block holding the loop is a scope of its own, whose chain frees
+	// a list the init statement declares once the loop is done.
+	sc := &deferScope{}
+	g.scopes = append(g.scopes, sc)
+	defer func() { g.scopes = g.scopes[:len(g.scopes)-1] }()
+
+	init, inner, diags := g.clauseFor(loop, fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	if len(sc.entries) > 0 {
+		end, endDiags := g.chain(sc, []ast.Stmt{loop}, fn)
+		if len(endDiags) > 0 {
+			return nil, endDiags
+		}
+		inner = append(inner, end...)
+	}
+	lines := append([]string{"{"}, indent(append(init, inner...))...)
+	return append(lines, "}"), nil
+}
+
+// clauseFor lowers the parts of a three-clause loop for
+// generateClauseFor: the init statement's lines, with the temporaries an
+// assignment of several values as the post statement needs, and the C for
+// around the body.
+func (g *generator) clauseFor(loop *ast.For, fn *ast.Func) ([]string, []string, []diag.Diagnostic) {
 	var init []string
 	if loop.Init != nil {
 		lines, diags := g.generateSimpleStmt(loop.Init)
 		if len(diags) > 0 {
-			return nil, diags
+			return nil, nil, diags
 		}
 		init = lines
 	}
@@ -930,7 +962,7 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 	if loop.Cond != nil {
 		c, diags := g.expr(loop.Cond, types.Bool)
 		if len(diags) > 0 {
-			return nil, diags
+			return nil, nil, diags
 		}
 		cond = stripParens(loop.Cond, c)
 	}
@@ -939,27 +971,25 @@ func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []
 	if m, ok := loop.Post.(*ast.MultiAssign); ok {
 		decls, p, diags := g.multiAssignPost(m)
 		if len(diags) > 0 {
-			return nil, diags
+			return nil, nil, diags
 		}
 		init = append(init, decls...)
 		post = p
 	} else if loop.Post != nil {
 		p, diags := g.postExpr(loop.Post)
 		if len(diags) > 0 {
-			return nil, diags
+			return nil, nil, diags
 		}
 		post = p
 	}
 
 	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
-		return nil, diags
+		return nil, nil, diags
 	}
 
 	inner := append([]string{fmt.Sprintf("for (; %s; %s) {", cond, post)}, indent(body)...)
-	inner = append(inner, "}")
-	lines := append([]string{"{"}, indent(append(init, inner...))...)
-	return append(lines, "}"), nil
+	return init, append(inner, "}"), nil
 }
 
 // generateForRange lowers a range loop to a C block that evaluates the
@@ -1205,7 +1235,8 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 	return append(lines, "}"), nil
 }
 
-// generateAssign sets a local to a new value.
+// generateAssign sets a local to a new value. A place of an owned type
+// frees its old value once the new one is computed (see ownedAssign).
 func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) {
 	value, diags := g.expr(a.Value, ast.TypeOf(a.Value))
 	if len(diags) > 0 {
@@ -1214,6 +1245,9 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 	name, diags := g.targetRef(a.Target)
 	if len(diags) > 0 {
 		return nil, diags
+	}
+	if typ := ast.TypeOf(a.Target); a.Op == ast.InvalidOp && g.owned(typ) {
+		return g.ownedAssign(typ, name, value), nil
 	}
 	if a.Op != ast.InvalidOp {
 		// x op= v is x = x op v, spelled out the way Tack defines it, x
@@ -1228,7 +1262,7 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 
 // targetRef renders an assignment target, or the place a mut argument
 // names, as a C lvalue: a variable or a mut parameter, (*p_x), or an
-// element of one, x.e[i], or a field of one, x.f_name. The checker has
+// element of one, x.e[i], or of a list, x.ptr[i], or a field of one, x.f_name. The checker has
 // proven every index in range.
 func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 	switch t := target.(type) {
@@ -1242,15 +1276,7 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 			}
 		}
 	case *ast.Index:
-		base, diags := g.targetRef(t.X)
-		if len(diags) > 0 {
-			return "", diags
-		}
-		index, diags := g.expr(t.Index, types.Invalid)
-		if len(diags) > 0 {
-			return "", diags
-		}
-		return fmt.Sprintf("%s.e[%s]", base, index), nil
+		return g.elementRef(t)
 	case *ast.Selector:
 		base, diags := g.targetRef(t.X)
 		if len(diags) > 0 {
@@ -1263,6 +1289,23 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 		Message:  "cannot assign to this expression",
 		Span:     target.Spanned(),
 	}}
+}
+
+// elementRef renders an element being assigned, or passed as mut, ix, as
+// a C lvalue: x.e[i] for an array, x.ptr[i] for a list.
+func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
+	base, diags := g.targetRef(ix.X)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	index, diags := g.expr(ix.Index, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	if g.prog.Types.IsList(ast.TypeOf(ix.X)) {
+		return fmt.Sprintf("%s.ptr[%s]", base, index), nil
+	}
+	return fmt.Sprintf("%s.e[%s]", base, index), nil
 }
 
 // generateIncDec lowers x++ to x = (x + 1) and x-- to x = (x - 1), the way
@@ -1304,8 +1347,10 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 }
 
 // generateVar declares a local. An immutable variable becomes a const C
-// local, so the C compiler holds it to the same rule. A variable without a
-// value starts from its type's zero value.
+// local, so the C compiler holds it to the same rule, unless it owns a
+// list, which a move empties and its block's end frees. A variable without a
+// value starts from its type's zero value. One that owns a list adds its
+// free to its block's cleanup chain (see list.go).
 func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 	value := g.zeroValue(v.Type)
 	if v.Value != nil {
@@ -1317,16 +1362,18 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 	}
 
 	decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), value)
-	if !v.Mutable {
+	if !v.Mutable && !g.owned(v.Type) {
 		decl = "const " + decl
 	}
+	g.addFrees(v)
 	return []string{decl}, nil
 }
 
 // generateMultiVar declares the variables of a MultiVar. Its source is
 // evaluated once into const temporaries, and each variable is then declared
-// from the value in its position: const unless the variable is mutable, as
-// generateVar does. A _ gets no variable.
+// from the value in its position: const unless the variable is mutable or
+// owns a list, as generateVar does, which adds its free to the block's
+// cleanup chain. A _ gets no variable.
 func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnostic) {
 	src, diags := g.multiValues(m.Value)
 	if len(diags) > 0 {
@@ -1339,11 +1386,12 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 			continue
 		}
 		decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), src.field(names, i))
-		if !v.Mutable {
+		if !v.Mutable && !g.owned(v.Type) {
 			decl = "const " + decl
 		}
 		lines = append(lines, decl)
 	}
+	g.addFrees(m.Vars...)
 	return lines, nil
 }
 
@@ -1407,7 +1455,8 @@ func (g *generator) multiAssignPost(
 
 // fieldAssigns renders, for each target of m other than _, the C assignment
 // of the value in its position, read from src's temporaries, named tmps,
-// without a semicolon.
+// without a semicolon, after the frees of what a target of an owned type
+// held.
 func (g *generator) fieldAssigns(
 	m *ast.MultiAssign,
 	src multiSource,
@@ -1421,6 +1470,11 @@ func (g *generator) fieldAssigns(
 		ref, diags := g.targetRef(target)
 		if len(diags) > 0 {
 			return nil, diags
+		}
+		// The results are held in temporaries already, so the old value
+		// of an owned target is freed just before it is replaced.
+		for _, free := range g.frees(ast.TypeOf(target), ref) {
+			assigns = append(assigns, strings.TrimSuffix(free, ";"))
 		}
 		assigns = append(assigns, fmt.Sprintf("%s = %s", ref, src.field(tmps, i)))
 	}
@@ -1658,13 +1712,15 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 		)
 }
 
-// zeroValue is the C expression for a type's zero value. The empty string
+// zeroValue is the C expression for a type's zero value, or, for a list or
+// an Allocator, which have none in Tack, the zeroed value the ret variable
+// of a function returning one starts as, which it never returns. The empty string
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer. An array or a struct is zeroed in full, so a string
 // in it starts with a null pointer and a length of 0, which print's C body
 // never passes on.
 func (g *generator) zeroValue(typ types.Type) string {
-	if g.isComposite(typ) {
+	if g.isComposite(typ) || g.prog.Types.IsList(typ) || typ == types.Allocator {
 		return fmt.Sprintf("(%s){0}", g.cType(typ))
 	}
 	switch typ {
@@ -1821,8 +1877,8 @@ func (g *generator) literal(e ast.Expr) (string, bool) {
 	}
 }
 
-// plainLiteral renders an int, character, string or bool literal, or
-// noerror, a zeroed tack_error, as C, and reports whether e was one. A negative int is parenthesised, so a minus
+// plainLiteral renders an int, character, string or bool literal,
+// noerror, a zeroed tack_error, or c_allocator, std's TACK_C_ALLOCATOR, as C, and reports whether e was one. A negative int is parenthesised, so a minus
 // sign before it can never make C's decrement operator, and the smallest int
 // is written as an expression, since C has no literal for it.
 func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
@@ -1840,18 +1896,24 @@ func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
 		return strconv.FormatBool(x.Value), true
 	case *ast.NoErrorLit:
 		return g.zeroValue(types.Error), true
+	case *ast.CAllocatorLit:
+		return "TACK_C_ALLOCATOR", true
 	default:
 		return "", false
 	}
 }
 
 // identExpr renders a reference to a parameter or variable as the C name it
-// was declared under, read through the pointer for a mut parameter.
+// was declared under, read through the pointer for a mut parameter, or, for
+// a variable whose value the name moves, as the move (see moveValue).
 func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	switch def := id.Def.(type) {
 	case *ast.Param:
 		return g.paramRef(def), nil
 	case *ast.Var:
+		if id.Move {
+			return g.moveValue(def.Type, g.varRef(def)), nil
+		}
 		return g.varRef(def), nil
 	default:
 		return "", []diag.Diagnostic{{
@@ -1964,8 +2026,15 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 			Span:     call.Spanned(),
 		}}
 	}
-	if fn, isFunc := id.Def.(*ast.Func); isFunc && fn == nil && id.Name == "len" {
-		return g.lenValue(call)
+	if fn, isFunc := id.Def.(*ast.Func); isFunc && fn == nil {
+		switch id.Name {
+		case "len":
+			return g.lenValue(call)
+		case "make":
+			return g.makeValue(call)
+		case "append":
+			return g.appendValue(call)
+		}
 	}
 	if _, isBuiltin := g.builtins.Lookup(id.Name); isBuiltin {
 		return "", []diag.Diagnostic{{
@@ -1990,13 +2059,16 @@ func (g *generator) strParts(s string) string {
 }
 
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
-// an array, a view or a struct the C struct emitTypes defines for it.
+// an array, a view, a list or a struct the C struct emitTypes defines for it.
 func (g *generator) cType(typ types.Type) string {
 	if g.prog.Types.IsArray(typ) {
 		return arrayName(typ)
 	}
 	if g.prog.Types.IsView(typ) {
 		return viewName(typ)
+	}
+	if g.prog.Types.IsList(typ) {
+		return listName(typ)
 	}
 	if g.prog.Types.IsStruct(typ) {
 		return g.structName(typ)
@@ -2033,6 +2105,8 @@ var cTypes = map[types.Type]string{
 	types.Bool:   "bool",
 	types.Any:    "tack_any",
 	types.Error:  "tack_error",
+
+	types.Allocator: "tack_allocator",
 
 	types.UnsafeSize:    "size_t",
 	types.UnsafeUintptr: "uintptr_t",

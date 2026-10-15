@@ -18,15 +18,15 @@ typedef struct {
 
 typedef struct {
     int64_t e[4];
-} tack_array_18;
-
-typedef struct {
-    tack_string e[3];
 } tack_array_19;
 
 typedef struct {
-    int64_t e[2];
+    tack_string e[3];
 } tack_array_20;
+
+typedef struct {
+    int64_t e[2];
+} tack_array_21;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -38,11 +38,11 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_16(tack_4_main5_Point a, tack_4_main5_Point b) {
+static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
     return a.f_x == b.f_x && a.f_y == b.f_y;
 }
 
-static bool tack_eq_19(tack_array_19 a, tack_array_19 b) {
+static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
     for (int64_t i = 0; i < 3; i++) {
         if (!(tack_compare_strings(a.e[i], b.e[i]) == 0)) {
             return false;
@@ -64,8 +64,8 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
 
 static const tack_4_main5_Point tack_4_main6_origin = {3, 4};
 static const tack_4_main7_Segment tack_4_main3_seg = {{3, 4}, {6, 8}};
-static const tack_array_18 tack_4_main5_table = {{10, 20, 30, 40}};
-static const tack_array_19 tack_4_main5_names = {{{tack_str0, TACK_C_STR_LEN(tack_str0)}, {tack_str1, TACK_C_STR_LEN(tack_str1)}, {tack_str2, TACK_C_STR_LEN(tack_str2)}}};
+static const tack_array_19 tack_4_main5_table = {{10, 20, 30, 40}};
+static const tack_array_20 tack_4_main5_names = {{{tack_str0, TACK_C_STR_LEN(tack_str0)}, {tack_str1, TACK_C_STR_LEN(tack_str1)}, {tack_str2, TACK_C_STR_LEN(tack_str2)}}};
 static const tack_string tack_4_main4_word = {tack_str3, TACK_C_STR_LEN(tack_str3)};
 static const int8_t tack_4_main5_small = (-7);
 static const int64_t tack_4_main2_ox = 3;
@@ -88,7 +88,7 @@ static const bool tack_4_main11_arraysEqual = true;
 static const int64_t tack_4_main6_picked = 8;
 static const tack_4_main7_Segment tack_4_main6_copied = {{3, 4}, {6, 8}};
 static const int64_t tack_4_main4_deep = 42;
-static tack_array_18 tack_4_main7_offsets = {0};
+static tack_array_19 tack_4_main7_offsets = {0};
 static const int64_t tack_4_main5_slots = 4;
 
 static void tack_4_main5_check(bool p_ok, int32_t p_status);

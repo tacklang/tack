@@ -602,21 +602,21 @@ func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
-// bracket, or struct, which parseType reports, since a struct type can only
-// be declared.
+// bracket, list, or struct, which parseType reports, since a struct type
+// can only be declared.
 func (p *Parser) startsType(tk *lexer.Token) bool {
 	switch tk.Kind() {
 	case lexer.Ident, lexer.LBrack:
 		return true
 	case lexer.Keyword:
-		return tk.Value() == lexer.Struct
+		return tk.Value() == lexer.Struct || tk.Value() == lexer.List
 	default:
 		return false
 	}
 }
 
-// parseType parses a type: a name, qualified or not, an array type or a
-// view type. parseParam takes the ... of a variadic parameter before its
+// parseType parses a type: a name, qualified or not, an array type, a
+// view type or a list type. parseParam takes the ... of a variadic parameter before its
 // type, so a ... here is one written anywhere else, a result's type, a
 // variable's, a field's or an element's, and is reported rather than
 // skipped, which would make it mean the type after it.
@@ -627,6 +627,9 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 
 	if p.peek().Kind() == lexer.LBrack {
 		return p.parseArrayType(false)
+	}
+	if isKeyword(p.peek(), lexer.List) {
+		return p.parseListType()
 	}
 	if tk := p.peek(); tk.Kind() == lexer.Keyword && tk.Value() == lexer.Struct {
 		return nil, []diag.Diagnostic{{
@@ -2023,7 +2026,8 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 // parseOperand parses an expression with no infix operator at its root: a
 // literal, a name, a call, a parenthesised expression, a prefix operator
 // and its operand, or mut and an operand, which is only meaningful as a
-// call's argument; the type checker reports it anywhere else.
+// call's argument; the type checker reports it anywhere else; or a list
+// type, which only make's first argument may be (see parseListOperand).
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	switch tk := p.peek(); {
 	case tk.Kind() == lexer.LogicalNot:
@@ -2032,6 +2036,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseUnary(ast.Neg)
 	case isKeyword(tk, lexer.Mut):
 		return p.parseMutArg()
+	case isKeyword(tk, lexer.List):
+		return p.parseListOperand()
 	}
 
 	x, diags := p.parsePrimary()
@@ -2354,6 +2360,44 @@ func (p *Parser) parseViewType(open *lexer.Token) (ast.Expr, []diag.Diagnostic) 
 	}, nil
 }
 
+// parseListType parses a list type, list[T], whose keyword is next.
+func (p *Parser) parseListType() (ast.Expr, []diag.Diagnostic) {
+	kw := p.next()
+	if ok, diags := p.expect(lexer.LBrack); !ok {
+		return nil, diags
+	}
+	elem, diags := p.parseType()
+	if elem == nil {
+		return nil, diags
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, diags
+	}
+	return &ast.ListType{
+		Elem: elem,
+		Span: ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.peekPrev().OffsetEnd()},
+	}, nil
+}
+
+// parseListOperand parses a list type written where an operand is, which
+// make's first argument is, make(list[int64], c_allocator), or a literal
+// of one, list[int64]{...}, which the type checker reports, as it does a
+// list type anywhere else a value is wanted.
+func (p *Parser) parseListOperand() (ast.Expr, []diag.Diagnostic) {
+	typ, diags := p.parseListType()
+	if typ == nil {
+		return nil, diags
+	}
+	if p.peek().Kind() != lexer.LCurl || p.noLit {
+		return typ, nil
+	}
+	lit, diags := p.parseLitBody(typ, typ.Spanned().Start)
+	if lit == nil {
+		return nil, diags
+	}
+	return lit, nil
+}
+
 // parseUnary parses a prefix operator, ! or -, and the operand after it. The
 // operand is parsed as an operand, not a full expression, so a prefix
 // operator binds tighter than any infix one: !a == b is (!a) == b. A - right
@@ -2434,7 +2478,8 @@ func (p *Parser) extent(x ast.Expr) ast.Span {
 }
 
 // parseLiteral parses a single-token operand: a string, integer, character
-// or bool literal, noerror, or a reference to a parameter or variable.
+// or bool literal, noerror, c_allocator, or a reference to a parameter or
+// variable.
 func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 	tk := p.next()
 	switch tk.Kind() {
@@ -2449,17 +2494,29 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 		// The lexer gives a char literal only when it holds exactly one byte.
 		return &ast.CharLit{Value: lexer.ValueChecked[string](tk)[0], Span: p.span(tk)}, nil
 	case lexer.Keyword:
-		switch tk.Value() {
-		case lexer.True:
-			return &ast.BoolLit{Value: true, Span: p.span(tk)}, nil
-		case lexer.False:
-			return &ast.BoolLit{Value: false, Span: p.span(tk)}, nil
-		case lexer.NoError:
-			return &ast.NoErrorLit{Span: p.span(tk)}, nil
+		if lit := p.keywordLiteral(tk); lit != nil {
+			return lit, nil
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
 	default:
 		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
+	}
+}
+
+// keywordLiteral returns the literal the keyword tk is, true, false,
+// noerror or c_allocator, or nil for any other keyword.
+func (p *Parser) keywordLiteral(tk *lexer.Token) ast.Expr {
+	switch tk.Value() {
+	case lexer.True:
+		return &ast.BoolLit{Value: true, Span: p.span(tk)}
+	case lexer.False:
+		return &ast.BoolLit{Value: false, Span: p.span(tk)}
+	case lexer.NoError:
+		return &ast.NoErrorLit{Span: p.span(tk)}
+	case lexer.CAllocator:
+		return &ast.CAllocatorLit{Span: p.span(tk)}
+	default:
+		return nil
 	}
 }
 

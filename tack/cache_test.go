@@ -169,7 +169,7 @@ func buildCounted(t *testing.T, env environment, tmp, src string, extra ...strin
 
 // allStd is every std file, by base name, sorted: what a build with an
 // empty cache compiles.
-var allStd = []string{"exit.c", "print.c"}
+var allStd = []string{"exit.c", "list.c", "print.c"}
 
 // A second build of a program finds std's objects in the cache and runs
 // no compiler on std's C, and its binary behaves as the first's. The

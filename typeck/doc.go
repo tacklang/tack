@@ -26,7 +26,9 @@
 // func, whose body is in C, its declaration: its C name must be a C
 // identifier, not a C keyword, not main, and, outside the standard
 // library, whose packages' paths are std or start std/, not start tack_.
-// Every type can cross to C. Before the bodies, every extern func of the
+// Every type can cross to C but a list, or a struct or array holding one,
+// which crosses only as a mut parameter or a view. A body that checked
+// without an error has its moves checked next (move.go). Before the bodies, every extern func of the
 // program whose C name an earlier one has is reported, with a note there. Resolving every signature first is what lets
 // a call check against a callee declared later in the file, or in a file
 // after it. A call is checked against the function its callee is bound to,
@@ -428,8 +430,8 @@
 //     integer value, the same bool constant value, or two equal string
 //     literals, are a duplicate, reported with a note at the first;
 //   - a range loop ranges over an integer, whose one variable takes its type,
-//     or over an array, a view or a string, whose index is an int64 and
-//     whose element is the array's or view's element type, or a string's
+//     or over an array, a view, a list or a string, whose index is an int64 and
+//     whose element is the array's, view's or list's element type, or a string's
 //     byte, a uint8;
 //     both variables are immutable, and two over an integer are an error;
 //   - break and continue are inside a loop, and in deferred code inside a
@@ -443,6 +445,25 @@
 //     and no break that leaves it (a break in a nested loop leaves only that
 //     one, and one in a switch leaves the loop around it). The rule is syntactic, as in Go, so a call
 //     that never comes back, like exit, does not satisfy it.
+//
+// A list, list[T], is an owned, growable list, checked in list.go: make
+// makes an empty one through an Allocator, c_allocator the one there is,
+// append grows one passed as mut and returns an error that cannot be
+// dropped, and a list reads as a view does, len with a string variable's
+// facts, a proven or checked index, range, slicing to a view and passing
+// whole to a view parameter, and can have its elements written when it is
+// mutable. Its elements are copyable, as an array's, a view's and a
+// variadic's must be: no list, and no struct holding one, a check put off
+// for a struct's field until every struct's fields are known. A list, an
+// Allocator, and anything holding either, has no zero value; a list has
+// no ==, and no global holds one. A list owns its buffer, so it moves
+// rather than copies, which move.go checks after a body: a moved variable
+// is not used again until it is assigned, a parameter and a field are
+// never moved, a list no variable holds is given an owner where it is
+// made, a defer reads no list moved later in its block and moves none
+// declared outside it, and a range over a list cannot change it. A list
+// read in place by one argument cannot share a call with a mut argument
+// that may overlap it (exclusive.go).
 //
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names

@@ -45,6 +45,12 @@ type Call struct {
 	// Fn names a basic type, and by the type checker when Fn is a view
 	// type, and Invalid for a call to a function or builtin.
 	Conv types.Type
+
+	// Type is the type of the value of a call to make or append, the
+	// generic builtins with a value other than len, set by the type
+	// checker: make's list type, and append's error. It is Invalid for
+	// any other call, whose type its callee gives.
+	Type types.Type `json:",omitempty"`
 }
 
 var _ Expr = (*Call)(nil)
@@ -68,6 +74,13 @@ type Ident struct {
 	Name    string
 	PkgSpan Span
 	Span    Span
+
+	// Move is set by the type checker on a name whose use moves the value
+	// of the variable it names, a list or a struct holding one, out of it:
+	// the whole value of a declaration, an assignment, a return or a
+	// struct literal's field. The variable cannot be used again until it
+	// is assigned (see typeck), and code generation empties it.
+	Move bool `json:",omitempty"`
 }
 
 // Qualified returns the name as written: pkg.name for a qualified one, the
@@ -244,6 +257,21 @@ func (n *NoErrorLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the keyword.
 func (n *NoErrorLit) Spanned() Span { return n.Span }
 
+// CAllocatorLit is the literal c_allocator: the allocator, of type
+// Allocator, that lowers to C's malloc, realloc and free.
+type CAllocatorLit struct {
+	Span Span
+}
+
+var _ Expr = (*CAllocatorLit)(nil)
+
+func (c *CAllocatorLit) exprKey() exprKey { return _exprKey }
+
+func (c *CAllocatorLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the keyword.
+func (c *CAllocatorLit) Spanned() Span { return c.Span }
+
 // BinaryOp is an infix operator.
 type BinaryOp int
 
@@ -393,26 +421,41 @@ func (u *Unary) Spanned() Span { return u.Span }
 // gave it, and an identifier its declaration's. An integer literal
 // the checker has not reached is types.UntypedInt.
 func TypeOf(expr Expr) types.Type {
+	if typ, ok := literalType(expr); ok {
+		return typ
+	}
 	switch e := expr.(type) {
-	case *StrLit:
-		return types.String
-	case *IntLit:
-		if e.Type == types.Invalid {
-			return types.UntypedInt
-		}
-		return e.Type
-	case *CharLit:
-		return types.Uint8
-	case *BoolLit:
-		return types.Bool
-	case *NoErrorLit:
-		return types.Error
 	case *Ident:
 		return identType(e)
 	case *Call:
 		return callType(e)
 	default:
 		return recordedType(expr)
+	}
+}
+
+// literalType returns the type of expr when it is a literal, and whether
+// it is one: an integer literal's recorded type, or untyped before the
+// checker reaches it, and every other literal's fixed type.
+func literalType(expr Expr) (types.Type, bool) {
+	switch e := expr.(type) {
+	case *StrLit:
+		return types.String, true
+	case *IntLit:
+		if e.Type == types.Invalid {
+			return types.UntypedInt, true
+		}
+		return e.Type, true
+	case *CharLit:
+		return types.Uint8, true
+	case *BoolLit:
+		return types.Bool, true
+	case *NoErrorLit:
+		return types.Error, true
+	case *CAllocatorLit:
+		return types.Allocator, true
+	default:
+		return types.Invalid, false
 	}
 }
 
@@ -455,15 +498,18 @@ func identType(id *Ident) types.Type {
 }
 
 // callType returns the type a call yields: the type a conversion converts
-// to, or its callee's result, when it
+// to, the type the checker recorded for a call to make or append, or its
+// callee's result, when it
 // declares exactly one. A call to a function with several results yields
 // them only to a MultiVar, never as one value, so its type here is Invalid,
 // as is that of a call to a function or builtin that returns nothing. A
 // builtin's Def is a nil *Func, which still satisfies the
 // type assertion, so it is checked for explicitly and lands on Invalid.
 func callType(call *Call) types.Type {
-	if call.Conv != types.Invalid {
-		return call.Conv
+	if typ := max(call.Conv, call.Type); typ != types.Invalid {
+		// A conversion records Conv, and make or append Type; no call
+		// records both.
+		return typ
 	}
 	if id, ok := call.Fn.(*Ident); ok && id.Name == "len" {
 		// The builtin len, the one builtin with a value, since no function
@@ -518,6 +564,26 @@ func (v *ViewType) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the opening bracket through the
 // end of the element type.
 func (v *ViewType) Spanned() Span { return v.Span }
+
+// ListType is a list type as written, list[Elem]: an owned, growable list
+// of elements of type Elem. Like ArrayType it is an expression only so it
+// can stand where a type is written, and as make's first argument,
+// make(list[int64], c_allocator), which takes a type; it never has a
+// value of its own.
+type ListType struct {
+	Elem Expr // the element type as written
+	Span Span // the keyword list through the closing bracket
+}
+
+var _ Expr = (*ListType)(nil)
+
+func (l *ListType) exprKey() exprKey { return _exprKey }
+
+func (l *ListType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the keyword list through the
+// closing bracket.
+func (l *ListType) Spanned() Span { return l.Span }
 
 // CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
 // element for each of the array's, or a struct literal, Point{x: 1, y: 2},

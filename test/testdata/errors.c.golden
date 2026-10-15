@@ -13,11 +13,11 @@ typedef struct {
 
 typedef struct {
     tack_string e[5];
-} tack_array_17;
+} tack_array_18;
 
 typedef struct {
     tack_error e[2];
-} tack_array_18;
+} tack_array_19;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -151,7 +151,7 @@ static tack_results_4_main6_divide tack_4_main6_divide(int64_t p_a, int64_t p_b)
 static tack_results_4_main4_find tack_4_main4_find(tack_string p_key);
 static tack_results_4_main4_soft tack_4_main4_soft(void);
 static tack_string tack_4_main8_describe(tack_string p_s);
-static tack_results_4_main6_sumAll tack_4_main6_sumAll(tack_array_17 p_words);
+static tack_results_4_main6_sumAll tack_4_main6_sumAll(tack_array_18 p_words);
 static int64_t tack_4_main9_rebinding(void);
 static void tack_4_main8_deferred(int64_t * p_out);
 static int32_t tack_4_main6_record(tack_error p_err);
@@ -257,11 +257,11 @@ static tack_string tack_4_main8_describe(tack_string p_s) {
     }
 }
 
-static tack_results_4_main6_sumAll tack_4_main6_sumAll(tack_array_17 p_words) {
+static tack_results_4_main6_sumAll tack_4_main6_sumAll(tack_array_18 p_words) {
     int64_t v_total = 0;
     int64_t v_bad = 0;
     {
-        const tack_array_17 *const tack_r8 = &p_words;
+        const tack_array_18 *const tack_r8 = &p_words;
         for (int64_t tack_k9 = 0; tack_k9 < 5; tack_k9++) {
             const tack_string v_w = (*tack_r8).e[tack_k9];
             const tack_results_4_main5_parse tack_r7 = tack_4_main5_parse(v_w);
@@ -376,7 +376,7 @@ static void tack_4_main4_main(void) {
     if (v_errDiv.code == 0) {
         tack_4_main5_check((((v_quo == 3) && (v_rem == 1)) && (v_errZero.code == 5)), (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
     }
-    const tack_results_4_main6_sumAll tack_r25 = tack_4_main6_sumAll((tack_array_17){{(tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}, (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}}});
+    const tack_results_4_main6_sumAll tack_r25 = tack_4_main6_sumAll((tack_array_18){{(tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}, (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}}});
     const int64_t v_total = tack_r25.r0;
     const int64_t v_skipped = tack_r25.r1;
     tack_4_main5_check(((v_total == 321) && (v_skipped == 2)), (tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)});
@@ -397,7 +397,7 @@ static void tack_4_main4_main(void) {
     }
     tack_4_main5_check(((tack_4_main6_record(v_missing) == 2) && (tack_eq_15(tack_4_main7_lastErr, tack_4_main8_notFound))), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
     const tack_4_main5_Entry v_entry = (tack_4_main5_Entry){.f_key = (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)}, .f_err = tack_4_main8_notFound};
-    const tack_array_18 v_errs = (tack_array_18){{(tack_error){0}, tack_4_main8_notFound}};
+    const tack_array_19 v_errs = (tack_array_19){{(tack_error){0}, tack_4_main8_notFound}};
     tack_4_main5_check((((tack_eq_15(v_errs.e[1], v_entry.f_err)) && (v_errs.e[0].code == 0)) && (tack_compare_strings(v_entry.f_err.msg, (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}) == 0)), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
     tack_error v_built = (tack_error){0};
     tack_4_main5_check(((tack_eq_15(v_built, (tack_error){0})) && (tack_eq_15(v_built, tack_4_main4_none))), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});

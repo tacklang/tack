@@ -52,7 +52,8 @@
 // one is never read or assigned as a name. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree. The builtins are those of the builtin.Set New
-// is given, which std/builtin declares, and the generic ones, such as len.
+// is given, which std/builtin declares, and the generic ones, len, make
+// and append.
 //
 // Package-level variables and types share one namespace with functions and
 // builtins, and form the outermost scope, enclosing every function, so a
@@ -91,7 +92,7 @@
 // a, b = f() are bound after f() is resolved, without counting as reads.
 //
 // The names in a type as written, an array length that names a constant,
-// are bound too: a local's in its own scope, a global's and a signature's at
+// a list type's element type, make's first argument included, are bound too: a local's in its own scope, a global's and a signature's at
 // package level. The target of an assignment to an element or a field,
 // a[i].x, binds its variable without counting as a read of it, and its
 // index like any value. A mut argument, mut x, binds x as a value, so it

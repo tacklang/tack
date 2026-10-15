@@ -1,6 +1,7 @@
 // The C every Tack program shares: the string type and the macros that
-// build strings, the error type and the macros that build errors, and
-// any, its type ids and the helpers that read one,
+// build strings, the error type and the macros that build errors,
+// any, its type ids and the helpers that read one, and the allocator
+// handle and the macros that read and grow a list,
 // defined here once for the generated source, the C files of the standard
 // library and a program's own C files alike. Each
 // includes it as <tack/tack.h>, and the driver compiles each with this
@@ -10,8 +11,8 @@
 // It holds only what is the same for every program. The tack.h a build
 // generates for a program's own C files is another file: it declares that
 // program's extern funcs and the types their signatures use, and includes
-// this one when a signature uses a string, an error or any. The generated source
-// always includes it.
+// this one when a signature uses a string, an error, any, a list or an
+// Allocator. The generated source always includes it.
 //
 // Every name it defines, its include guard among them, is reserved: no
 // extern func or type a program's tack.h declares may take one.
@@ -261,5 +262,100 @@ static inline bool tack_any_unsigned(tack_any a, uint64_t *v) {
         return false;
     }
 }
+
+// A Tack Allocator, passed by value: an opaque handle on one of the
+// allocators std's C keeps, the index of its entry and the generation of
+// that entry, so a handle to an allocator that has ended can be told from
+// one to its successor. c_allocator, the one there is today, is index 0,
+// generation 0, and lowers to C's malloc, realloc and free. A list holds
+// the handle of the allocator it grows and is freed through. C never
+// makes one, changes one or reads its fields.
+typedef struct {
+    uint32_t index;
+    uint32_t gen;
+} tack_allocator;
+
+// TACK_C_ALLOCATOR is c_allocator.
+#define TACK_C_ALLOCATOR ((tack_allocator){0, 0})
+
+// A Tack list, list[T], is a struct of its own per element type, which
+// the program's tack.h defines, tack_list_int64 for list[int64]:
+//
+//     typedef struct {
+//         T *ptr;               // the buffer, null while it is empty
+//         int64_t len;          // the number of elements
+//         int64_t cap;          // how many the buffer has room for
+//         tack_allocator alloc; // what it grows and is freed through
+//     } tack_list_T;
+//
+// The list belongs to Tack: C gets one only as a mut parameter, a pointer
+// to the caller's list, which it may read, write elements of and append
+// to during the call through the macros below, and never keeps, frees,
+// shrinks, or gives another buffer or allocator.
+
+// tack_list_grow_ returns a buffer with room for at least need elements of
+// size elem and alignment align, holding the cap elements of ptr's, from
+// the allocator a, and stores its capacity in *newcap; ptr may be null when
+// cap is 0. ptr itself is returned when it has room already. It returns
+// null, leaving ptr and *newcap as they were, when need is negative, the
+// size of the buffer would not fit in a size_t or a ptrdiff_t, the
+// alignment is more than the allocator gives, a is no allocator, or the
+// allocator fails. TACK_LIST_APPEND calls it; nothing else should.
+void *tack_list_grow_(void *ptr, int64_t cap, int64_t need, size_t elem, size_t align, tack_allocator a,
+                      int64_t *newcap);
+
+// tack_list_free_ gives a list's buffer, ptr, of cap elements of size elem
+// and alignment align, back to the allocator a it came from. A null ptr,
+// an empty list's, is nothing to free. The generated source calls it when
+// a list's owner's block ends; C must not.
+void tack_list_free_(void *ptr, int64_t cap, size_t elem, size_t align, tack_allocator a);
+
+// tack_c_allocator_live_ returns how many buffers c_allocator has given
+// out and not had back, for tests that check every list is freed.
+int64_t tack_c_allocator_live_(void);
+
+// tack_c_allocator_fail_after_ makes c_allocator grant the next n requests
+// for memory and refuse every one after them, or refuse none again when
+// n is negative, for tests of what a failed allocation does.
+void tack_c_allocator_fail_after_(int64_t n);
+
+// TACK_LIST_LEN(l) is the number of elements of the list l, a
+// tack_list_ struct, not a pointer to one.
+#define TACK_LIST_LEN(l) ((l).len)
+
+// TACK_LIST_AT(l, i) is element i of the list l, an lvalue, which C reads
+// and writes as any other. Nothing checks i: C must keep it at least 0
+// and below TACK_LIST_LEN(l), as it must every index it uses.
+#define TACK_LIST_AT(l, i) ((l).ptr[i])
+
+// TACK_LIST_APPEND(lp, v) appends v to the list lp points to, growing its
+// buffer through its allocator when it is full, and is true; or, when the
+// buffer cannot grow, false, the list left as it was. lp and v are each
+// evaluated once, lp first, and v is converted to the element type as an
+// assignment would, so clang checks it as one, and before the buffer can
+// move, so v may read an element of the list. v is the macro's variadic
+// argument, so a compound literal, whose braces hold commas, can be one:
+// TACK_LIST_APPEND(l, (Point){1, 2}).
+#define TACK_LIST_APPEND(lp, ...) __extension__ ({ \
+    __typeof__(lp) tack_lp_ = (lp); \
+    __typeof__(*tack_lp_->ptr) tack_v_ = (__VA_ARGS__); \
+    bool tack_ok_ = true; \
+    if (tack_lp_->len == tack_lp_->cap) { \
+        int64_t tack_cap_ = tack_lp_->cap; \
+        int64_t tack_need_ = tack_lp_->len < INT64_MAX ? tack_lp_->len + 1 : -1; \
+        void *tack_p_ = tack_list_grow_(tack_lp_->ptr, tack_lp_->cap, tack_need_, \
+            sizeof *tack_lp_->ptr, _Alignof(__typeof__(*tack_lp_->ptr)), tack_lp_->alloc, &tack_cap_); \
+        if (tack_p_ == 0) { \
+            tack_ok_ = false; \
+        } else { \
+            tack_lp_->ptr = tack_p_; \
+            tack_lp_->cap = tack_cap_; \
+        } \
+    } \
+    if (tack_ok_) { \
+        tack_lp_->ptr[tack_lp_->len++] = tack_v_; \
+    } \
+    tack_ok_; \
+})
 
 #endif

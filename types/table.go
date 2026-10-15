@@ -15,20 +15,24 @@ import "strconv"
 // two types even when their fields are alike; its fields are set afterwards,
 // by SetFields, so a struct can have a field of a type declared after it. A
 // view type, []T, is added the first time it is seen, like an array, and
-// found again by its element type. Error is a struct the Table never adds:
-// IsStruct and Fields know it without an entry.
+// found again by its element type, and so is a list type, list[T]. Error
+// is a struct the Table never adds: IsStruct and Fields know it without
+// an entry.
 type Table struct {
 	ids     map[array]Type // each array type's ID, by its shape
 	views   map[Type]Type  // each view type's ID, by its element type
+	lists   map[Type]Type  // each list type's ID, by its element type
 	entries []entry        // the type with ID numBasic + i, at i
 }
 
-// entry is one type a Table added: an array, with its shape, a view, with
-// its element type in arr.elem, or a struct, with its name and fields.
+// entry is one type a Table added: an array, with its shape, a view or a
+// list, with its element type in arr.elem, or a struct, with its name and
+// fields.
 type entry struct {
-	strct *structType // nil for an array or a view
+	strct *structType // nil for an array, a view or a list
 	arr   array
 	view  bool
+	list  bool
 }
 
 // array is the shape of an array type: its element type and its length.
@@ -52,7 +56,11 @@ type Field struct {
 
 // NewTable returns a Table that knows the basic types.
 func NewTable() *Table {
-	return &Table{ids: make(map[array]Type), views: make(map[Type]Type)}
+	return &Table{
+		ids:   make(map[array]Type),
+		views: make(map[Type]Type),
+		lists: make(map[Type]Type),
+	}
 }
 
 // Array returns the type of arrays of n elements of type elem, adding it if
@@ -75,6 +83,17 @@ func (t *Table) View(elem Type) Type {
 	}
 	id := t.add(entry{arr: array{elem: elem}, view: true})
 	t.views[elem] = id
+	return id
+}
+
+// List returns the type of owned, growable lists of elements of type elem,
+// list[elem], adding it if the Table does not have it yet.
+func (t *Table) List(elem Type) Type {
+	if id, ok := t.lists[elem]; ok {
+		return id
+	}
+	id := t.add(entry{arr: array{elem: elem}, list: true})
+	t.lists[elem] = id
 	return id
 }
 
@@ -113,7 +132,13 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil && !e.view
+	return ok && e.strct == nil && !e.view && !e.list
+}
+
+// IsList reports whether typ is a list type, list[T].
+func (t *Table) IsList(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.list
 }
 
 // IsView reports whether typ is a view type, []T.
@@ -137,10 +162,10 @@ func (t *Table) IsStruct(typ Type) bool {
 // them in C: code, which is 0 when there is no error, and msg.
 var errorFields = []Field{{Name: "code", Type: Int32}, {Name: "msg", Type: String}}
 
-// Elem returns the element type of the array or view type typ, or Invalid
-// if typ is neither.
+// Elem returns the element type of the array, view or list type typ, or
+// Invalid if typ is none of them.
 func (t *Table) Elem(typ Type) Type {
-	if !t.IsArray(typ) && !t.IsView(typ) {
+	if !t.IsArray(typ) && !t.IsView(typ) && !t.IsList(typ) {
 		return Invalid
 	}
 	e, _ := t.entry(typ)
@@ -181,9 +206,53 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 	return Field{}, 0, false
 }
 
+// Owned reports whether a value of type typ owns memory it must free: a
+// list, which owns its buffer, or an array or a struct holding one,
+// directly or through other arrays and structs. A value of an owned type
+// moves rather than copies, and is freed when its owner's block ends.
+func (t *Table) Owned(typ Type) bool {
+	return t.holds(typ, t.IsList, make(map[Type]bool))
+}
+
+// HasZero reports whether type typ has a zero value, which a variable
+// declared without a value starts from: every type but a list, an
+// Allocator, and an array or a struct holding either. An empty list
+// still needs an allocator to grow through, and no Allocator stands for
+// none.
+func (t *Table) HasZero(typ Type) bool {
+	noZero := func(typ Type) bool { return typ == Allocator || t.IsList(typ) }
+	return !t.holds(typ, noZero, make(map[Type]bool))
+}
+
+// holds reports whether typ is one of the types is reports true for, or
+// an array or a struct holding one, at any depth. seen holds the structs already
+// being looked at further up, so that a struct holding itself, which the
+// type checker reports elsewhere, cannot loop.
+func (t *Table) holds(typ Type, is func(Type) bool, seen map[Type]bool) bool {
+	switch {
+	case is(typ):
+		return true
+	case t.IsArray(typ):
+		return t.holds(t.Elem(typ), is, seen)
+	case t.IsStruct(typ):
+		if seen[typ] {
+			return false
+		}
+		seen[typ] = true
+		for _, f := range t.Fields(typ) {
+			if t.holds(f.Type, is, seen) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // Count returns how many types the Table has added, so a caller can visit
 // each: their IDs are numBasic through numBasic + Count() - 1, in the order
-// they were added. An array or view type comes after its element type, but a struct
+// they were added. An array, view or list type comes after its element type, but a struct
 // type may come before the types of its fields, so a caller that needs
 // every type a type is made of first has to order them itself.
 func (t *Table) Count() int {
@@ -197,8 +266,8 @@ func (t *Table) Count() int {
 func Added(i int) Type { return numBasic + Type(i) }
 
 // Name returns a type's name as a program writes it, for diagnostics: a
-// basic type's own name, [n]elem for an array, []elem for a view, or a
-// struct type's declared name. A type the Table does not know, including one from another Table,
+// basic type's own name, [n]elem for an array, []elem for a view,
+// list[elem] for a list, or a struct type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
@@ -223,6 +292,8 @@ func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) s
 		return e.strct.name
 	case e.view:
 		return "[]" + t.NameWith(e.arr.elem, qualify)
+	case e.list:
+		return "list[" + t.NameWith(e.arr.elem, qualify) + "]"
 	default:
 		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.NameWith(e.arr.elem, qualify)
 	}

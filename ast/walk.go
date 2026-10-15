@@ -133,7 +133,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
-	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit, *NoErrorLit:
+	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit, *NoErrorLit, *CAllocatorLit:
 		// leaves
 	case *StructType:
 		for _, f := range e.Fields {
@@ -161,8 +161,8 @@ func walkOperand(e Expr, v Visitor) {
 	}
 }
 
-// walkArrayExpr walks the children of an array type, a view type, a
-// composite literal, an element or a slice. A part that is left out is
+// walkArrayExpr walks the children of an array type, a view type, a list
+// type, a composite literal, an element or a slice. A part that is left out is
 // nil, and skipped.
 func walkArrayExpr(e Expr, v Visitor) {
 	switch e := e.(type) {
@@ -172,6 +172,8 @@ func walkArrayExpr(e Expr, v Visitor) {
 		}
 		Walk(e.Elem, v)
 	case *ViewType:
+		Walk(e.Elem, v)
+	case *ListType:
 		Walk(e.Elem, v)
 	case *CompositeLit:
 		if e.TypeExpr != nil {

@@ -73,15 +73,24 @@ import (
 // a defer has passed it, and so them.
 
 // deferScope is what the generator knows about one block while lowering
-// it: the defers reached so far in it, in order, whether it is a loop's
-// body, which a break or continue leaves, and what its cleanup chain needs.
+// it: the cleanups reached so far in it, in order, defers and the frees of
+// owned locals alike, whether it is a loop's body, which a break or
+// continue leaves, and what its cleanup chain needs.
 type deferScope struct {
-	entries map[int]bool // the labels jumped to, by how many defers they run
+	jumped  map[int]bool // the labels jumped to, by how many cleanups they run
 	routed  map[int]bool // the route numbers it already tests
 	label   string       // the prefix of its labels, named when first needed
-	defers  []*ast.Defer
+	entries []cleanup
 	routes  []string // the tests at the end of its chain
 	loop    bool
+}
+
+// cleanup is one entry of a block's cleanup chain: a defer, d, or the free
+// of an owned local, free, which is lowered as if a defer freeing it were
+// written right after its declaration (see list.go).
+type cleanup struct {
+	d    *ast.Defer
+	free *freeEntry
 }
 
 // deferFrame is what the generator knows about the function body being
@@ -113,10 +122,10 @@ func (g *generator) enter(sc *deferScope, entry int) string {
 	if sc.label == "" {
 		sc.label = fmt.Sprintf("tack_defer%d", g.labels)
 		g.labels++
-		sc.entries = make(map[int]bool)
+		sc.jumped = make(map[int]bool)
 		sc.routed = make(map[int]bool)
 	}
-	sc.entries[entry] = true
+	sc.jumped[entry] = true
 	return fmt.Sprintf("%s_%d", sc.label, entry)
 }
 
@@ -143,7 +152,7 @@ func (f *deferFrame) route(first *deferScope, labels []string, final string) int
 func (g *generator) stops(n int) []stop {
 	var route []stop
 	for i := len(g.scopes) - 1; i >= len(g.scopes)-n; i-- {
-		if k := len(g.scopes[i].defers); k > 0 {
+		if k := len(g.scopes[i].entries); k > 0 {
 			route = append(route, stop{g.scopes[i], k})
 		}
 	}
@@ -241,11 +250,16 @@ func (g *generator) chain(
 	if len(sc.routes) > 0 && !endsInJump(body) {
 		lines = append(lines, g.frame.next+" = 0;")
 	}
-	for j := len(sc.defers); j >= 1; j-- {
-		if sc.entries[j] {
+	for j := len(sc.entries); j >= 1; j-- {
+		if sc.jumped[j] {
 			lines = append(lines, fmt.Sprintf("%s_%d: ;", sc.label, j))
 		}
-		got, diags := g.deferred(sc.defers[j-1], fn)
+		entry := sc.entries[j-1]
+		if entry.free != nil {
+			lines = append(lines, entry.free.lower(g)...)
+			continue
+		}
+		got, diags := g.deferred(entry.d, fn)
 		if len(diags) > 0 {
 			return nil, diags
 		}
@@ -267,19 +281,26 @@ func (g *generator) addDefer(d *ast.Defer) []diag.Diagnostic {
 		}}
 	}
 	sc := g.scopes[len(g.scopes)-1]
-	sc.defers = append(sc.defers, d)
+	sc.entries = append(sc.entries, cleanup{d: d})
 	return nil
 }
 
 // deferred lowers what d defers, once, as a C block, which scopes the
 // variables it declares. It is generated with no enclosing blocks, since
 // nothing in it leaves it, so a break or continue in it finds the loop it
-// is in.
+// is in. A list declared in it is freed by a chain of its own, whose
+// exits, a break or continue leaving a block of the deferred body, store
+// their routes in a next variable of the deferred body's own, so the
+// number an exit running the deferred body stored in the frame's is still
+// there when the body is done.
 func (g *generator) deferred(d *ast.Defer, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	outer := g.scopes
-	g.scopes, g.deferring = nil, true
+	outer, outerNext := g.scopes, g.frame.next
+	g.scopes, g.deferring, g.frame.next = nil, true, ""
 	body, diags := g.generateBlock(d.Body, fn)
-	g.scopes, g.deferring = outer, false
+	if g.frame.next != "" {
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("int %s = 0;", g.frame.next))
+	}
+	g.scopes, g.deferring, g.frame.next = outer, false, outerNext
 	if len(diags) > 0 {
 		return nil, diags
 	}

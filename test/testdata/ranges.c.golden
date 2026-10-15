@@ -8,29 +8,29 @@ stage: ok
 
 typedef struct {
     int64_t e[4];
-} tack_array_16;
-
-typedef struct {
-    int64_t e[5];
 } tack_array_17;
 
 typedef struct {
-    int64_t e[3];
+    int64_t e[5];
 } tack_array_18;
 
 typedef struct {
-    int64_t e[1];
+    int64_t e[3];
 } tack_array_19;
 
 typedef struct {
-    int64_t e[2];
+    int64_t e[1];
 } tack_array_20;
 
 typedef struct {
-    tack_array_20 e[3];
+    int64_t e[2];
 } tack_array_21;
 
-static bool tack_eq_17(tack_array_17 a, tack_array_17 b) {
+typedef struct {
+    tack_array_21 e[3];
+} tack_array_22;
+
+static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
     for (int64_t i = 0; i < 5; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -39,7 +39,7 @@ static bool tack_eq_17(tack_array_17 a, tack_array_17 b) {
     return true;
 }
 
-static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
+static bool tack_eq_19(tack_array_19 a, tack_array_19 b) {
     for (int64_t i = 0; i < 3; i++) {
         if (a.e[i] != b.e[i]) {
             return false;
@@ -63,15 +63,15 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
 
 static int64_t tack_4_main5_calls = 0;
 
-static tack_array_16 tack_4_main7_numbers(void);
+static tack_array_17 tack_4_main7_numbers(void);
 static tack_string tack_4_main4_word(void);
 static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c);
-static int64_t tack_4_main9_firstOver(tack_array_17 p_a, int64_t p_limit);
+static int64_t tack_4_main9_firstOver(tack_array_18 p_a, int64_t p_limit);
 static void tack_4_main4_main(void);
 
-static tack_array_16 tack_4_main7_numbers(void) {
+static tack_array_17 tack_4_main7_numbers(void) {
     tack_4_main5_calls = ((int64_t)((uint64_t)tack_4_main5_calls + (uint64_t)1));
-    return (tack_array_16){{3, 1, 4, 1}};
+    return (tack_array_17){{3, 1, 4, 1}};
 }
 
 static tack_string tack_4_main4_word(void) {
@@ -93,9 +93,9 @@ static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
     return v_n;
 }
 
-static int64_t tack_4_main9_firstOver(tack_array_17 p_a, int64_t p_limit) {
+static int64_t tack_4_main9_firstOver(tack_array_18 p_a, int64_t p_limit) {
     {
-        const tack_array_17 *const tack_r2 = &p_a;
+        const tack_array_18 *const tack_r2 = &p_a;
         for (int64_t tack_k3 = 0; tack_k3 < 5; tack_k3++) {
             const int64_t v_i = tack_k3;
             const int64_t v_x = (*tack_r2).e[tack_k3];
@@ -110,10 +110,10 @@ static int64_t tack_4_main9_firstOver(tack_array_17 p_a, int64_t p_limit) {
 static void tack_4_main4_main(void) {
     int64_t tack_o31;
     int64_t tack_o32;
-    const tack_array_17 v_a = (tack_array_17){{2, 7, 1, 8, 2}};
+    const tack_array_18 v_a = (tack_array_18){{2, 7, 1, 8, 2}};
     int64_t v_sum = 0;
     {
-        const tack_array_17 *const tack_r4 = &v_a;
+        const tack_array_18 *const tack_r4 = &v_a;
         for (int64_t tack_k5 = 0; tack_k5 < 5; tack_k5++) {
             const int64_t v_x = (*tack_r4).e[tack_k5];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)v_x));
@@ -122,7 +122,7 @@ static void tack_4_main4_main(void) {
     if (v_sum != 20) {
         tack_builtin_exit(1);
     }
-    tack_array_17 v_doubled = (tack_array_17){0};
+    tack_array_18 v_doubled = (tack_array_18){0};
     {
         (void)v_a;
         for (int64_t tack_k7 = 0; tack_k7 < 5; tack_k7++) {
@@ -130,28 +130,28 @@ static void tack_4_main4_main(void) {
             v_doubled.e[v_i] = ((int64_t)((uint64_t)v_a.e[v_i] * (uint64_t)2));
         }
     }
-    if (!tack_eq_17(v_doubled, (tack_array_17){{4, 14, 2, 16, 4}})) {
+    if (!tack_eq_18(v_doubled, (tack_array_18){{4, 14, 2, 16, 4}})) {
         tack_builtin_exit(2);
     }
-    tack_array_18 v_m = (tack_array_18){{1, 2, 3}};
+    tack_array_19 v_m = (tack_array_19){{1, 2, 3}};
     int64_t v_seen = 0;
     {
-        const tack_array_18 tack_r8 = v_m;
+        const tack_array_19 tack_r8 = v_m;
         for (int64_t tack_k9 = 0; tack_k9 < 3; tack_k9++) {
             const int64_t v_i = tack_k9;
             const int64_t v_x = tack_r8.e[tack_k9];
             v_m.e[2] = 100;
-            v_m = (tack_array_18){{50, 60, 70}};
+            v_m = (tack_array_19){{50, 60, 70}};
             v_m.e[v_i] = (-1);
             v_seen = ((int64_t)((uint64_t)((int64_t)((uint64_t)v_seen * (uint64_t)10)) + (uint64_t)v_x));
         }
     }
-    if ((v_seen != 123) || (!tack_eq_18(v_m, (tack_array_18){{50, 60, (-1)}}))) {
+    if ((v_seen != 123) || (!tack_eq_19(v_m, (tack_array_19){{50, 60, (-1)}}))) {
         tack_builtin_exit(3);
     }
     int64_t v_total = 0;
     {
-        const tack_array_16 tack_r10 = tack_4_main7_numbers();
+        const tack_array_17 tack_r10 = tack_4_main7_numbers();
         for (int64_t tack_k11 = 0; tack_k11 < 4; tack_k11++) {
             const int64_t v_x = tack_r10.e[tack_k11];
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_x));
@@ -188,7 +188,7 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(6);
     }
     {
-        (void)(tack_array_19){0};
+        (void)(tack_array_20){0};
         for (int64_t tack_k17 = 0; tack_k17 < 0; tack_k17++) {
             tack_builtin_exit(7);
         }
@@ -206,18 +206,18 @@ static void tack_4_main4_main(void) {
             tack_builtin_exit(v_code);
         }
     }
-    const tack_array_21 v_grid = (tack_array_21){{(tack_array_20){{1, 2}}, (tack_array_20){{3, 4}}, (tack_array_20){{5, 6}}}};
+    const tack_array_22 v_grid = (tack_array_22){{(tack_array_21){{1, 2}}, (tack_array_21){{3, 4}}, (tack_array_21){{5, 6}}}};
     int64_t v_cells = 0;
     {
-        const tack_array_21 *const tack_r23 = &v_grid;
+        const tack_array_22 *const tack_r23 = &v_grid;
         for (int64_t tack_k24 = 0; tack_k24 < 3; tack_k24++) {
             const int64_t v_r = tack_k24;
-            const tack_array_20 v_row = (*tack_r23).e[tack_k24];
+            const tack_array_21 v_row = (*tack_r23).e[tack_k24];
             if (v_r == 1) {
                 continue;
             }
             {
-                const tack_array_20 *const tack_r21 = &v_row;
+                const tack_array_21 *const tack_r21 = &v_row;
                 for (int64_t tack_k22 = 0; tack_k22 < 2; tack_k22++) {
                     const int64_t v_v = (*tack_r21).e[tack_k22];
                     if (v_v == 6) {
@@ -240,7 +240,7 @@ static void tack_4_main4_main(void) {
     }
     int64_t v_quotient = 0;
     {
-        const tack_array_17 *const tack_r27 = &v_a;
+        const tack_array_18 *const tack_r27 = &v_a;
         for (int64_t tack_k28 = 0; tack_k28 < 5; tack_k28++) {
             const int64_t v_x = (*tack_r27).e[tack_k28];
             if (v_x != 0) {

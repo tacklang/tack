@@ -103,10 +103,19 @@ func (c *Checker) checkErrorLast(fn *ast.Func) {
 
 // droppedError reports e, a call statement, when its callee returns an
 // error, which a call statement drops, with the binding that would keep
-// it: err := f(...), with a _ for each result before the error.
+// it: err := f(...), with a _ for each result before the error. append
+// returns an error alone, which its call checks: one whose arguments were
+// wrong has no type, and is not reported again.
 func (c *Checker) droppedError(e ast.Expr) {
 	call, ok := e.(*ast.Call)
 	if !ok {
+		return
+	}
+	if isAppend(call) {
+		if call.Type == types.Error {
+			c.errorf(call.Spanned(),
+				"the error append returns cannot be dropped; bind it, as in err := append(...)")
+		}
 		return
 	}
 	fn, ok := returnsError(call)

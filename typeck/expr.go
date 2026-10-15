@@ -18,7 +18,8 @@ import (
 // so a caller never reports anything more about it.
 func (c *Checker) expr(e ast.Expr) types.Type {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit:
+	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
+		*ast.CAllocatorLit:
 		return literalType(x)
 	case *ast.Ident:
 		return c.ident(x)
@@ -56,7 +57,7 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 
 // compositeExpr checks a literal of an array or a struct, an element, a
 // slice or a field, and returns its type, or reports a mut argument written where no
-// mut parameter takes it.
+// mut parameter takes it, or a list type written where a value is.
 func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.CompositeLit:
@@ -69,6 +70,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.selector(x)
 	case *ast.MutArg:
 		return c.mutElsewhere(x)
+	case *ast.ListType:
+		return c.listTypeValue(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid
@@ -76,8 +79,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 }
 
 // literalType returns the type of a literal: a string's or a bool's, a
-// character's, which is a uint8, noerror's, an error, or an integer's,
-// which is untyped until settled.
+// character's, which is a uint8, noerror's, an error, c_allocator's, an
+// Allocator, or an integer's, which is untyped until settled.
 func literalType(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.IntLit:
@@ -89,6 +92,8 @@ func literalType(e ast.Expr) types.Type {
 		return types.String
 	case *ast.NoErrorLit:
 		return types.Error
+	case *ast.CAllocatorLit:
+		return types.Allocator
 	default:
 		return types.Bool
 	}
@@ -96,7 +101,8 @@ func literalType(e ast.Expr) types.Type {
 
 // callValue checks a call whose single value is used. A conversion gives
 // the type it converts to, but for one to a view, []uint8(s), which only a
-// view parameter may take (see viewArg). A call to a function that returns nothing, or
+// view parameter may take (see viewArg). len, make and append give their
+// values (see genericCall). A call to a function that returns nothing, or
 // several values, has no one value to give and is reported. A function
 // whose one result type is unknown was reported where it is declared.
 func (c *Checker) callValue(call *ast.Call) types.Type {
@@ -106,8 +112,8 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 	if call.Conv != types.Invalid {
 		return c.conversion(call)
 	}
-	if isLen(call) {
-		return c.lenCall(call)
+	if generic := c.genericCall(call); generic != nil {
+		return generic(call)
 	}
 	c.checkCall(call)
 
@@ -146,7 +152,8 @@ func notOneValue(id *ast.Ident) string {
 // checkCall checks a call to a function or builtin: its argument count,
 // that each argument can be passed to the parameter in its position (see
 // checkArg), or to a variadic one (see checkVariadicCall), that no two of
-// its mut arguments overlap (see checkExclusive), and, for std/fmt's
+// its mut arguments overlap (see checkExclusive), that none reads a list
+// another one passes as mut (see checkListBorrows), and, for std/fmt's
 // printf, a known format against the values (see checkPrintf). Its
 // result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
@@ -159,6 +166,7 @@ func (c *Checker) checkCall(call *ast.Call) {
 	params := c.calleeParams(id)
 	if isVariadic(params) {
 		c.checkExclusive(c.checkVariadicCall(call, id.Qualified(), params))
+		c.checkListBorrows(call)
 		if fn, ok := id.Def.(*ast.Func); ok {
 			c.checkPrintf(call, fn)
 		}
@@ -177,6 +185,7 @@ func (c *Checker) checkCall(call *ast.Call) {
 		}
 	}
 	c.checkExclusive(muts)
+	c.checkListBorrows(call)
 }
 
 // checkArity reports a call to name, or a conversion to it, that is not

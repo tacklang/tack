@@ -50,8 +50,10 @@ func (c *Checker) paramType(param *ast.Param) types.Type {
 
 // viewType returns the view type a written []T denotes, adding it to the
 // table. Its element type may be any type but a view, any included, since
-// a view is a parameter's type too: a view element is reported, and gives
-// types.Invalid, as does an element type that was reported.
+// a view is a parameter's type too, or an owned type, a list or a struct
+// holding one, whose elements reading the view would copy: either is
+// reported, and gives types.Invalid, as does an element type that was
+// reported.
 func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	if _, ok := vt.Elem.(*ast.ViewType); ok {
 		c.errorf(vt.Span, "the element type of a view cannot be a view")
@@ -59,6 +61,9 @@ func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	}
 	elem := c.paramElemType(vt.Elem)
 	if elem == types.Invalid {
+		return types.Invalid
+	}
+	if !c.requireCopyable("a view", elem, vt.Span) {
 		return types.Invalid
 	}
 	return c.table.View(elem)
@@ -80,8 +85,8 @@ func isViewConversion(call *ast.Call) bool {
 
 // viewArg checks arg, passed to a plain parameter of the view type want in
 // a call to callee: a conversion []uint8(s) of a string, a view of the
-// same type, passed on, a slice of one or of an array, or an array of
-// exactly its element type that is a place. A string needs the conversion, which a []uint8 parameter's error
+// same type, passed on, a slice of one, of an array or of a list, or an
+// array or a list of exactly its element type that is a place. A string needs the conversion, which a []uint8 parameter's error
 // says, and any other value is used as want under the usual rules, which
 // report it.
 func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
@@ -102,13 +107,29 @@ func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
 			callee,
 			text,
 		)
-	case c.table.IsArray(got) && c.table.Elem(got) == c.table.Elem(want):
+	case c.viewable(got) && c.table.Elem(got) == c.table.Elem(want):
 		if !c.isPlace(arg) {
-			c.errorf(arg.Spanned(), "cannot view a temporary array; store it in a variable first")
+			c.errorf(arg.Spanned(), "cannot view a temporary %s; store it in a variable first",
+				c.containerWord(got))
 		}
 	default:
 		c.use(arg, got, want, "in argument to "+callee)
 	}
+}
+
+// viewable reports whether a value of type typ passes to a view parameter
+// of its element type as it is, when it is a place: an array or a list.
+func (c *Checker) viewable(typ types.Type) bool {
+	return c.table.IsArray(typ) || c.table.IsList(typ)
+}
+
+// containerWord names what typ, an array or a list, is, for an error
+// about one.
+func (c *Checker) containerWord(typ types.Type) string {
+	if c.table.IsList(typ) {
+		return "list"
+	}
+	return "array"
 }
 
 // isPlace reports whether e is a place a view can point into: a variable

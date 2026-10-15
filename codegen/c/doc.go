@@ -35,7 +35,7 @@
 //     a freestanding C implementation has, and std's <tack/tack.h>, for
 //     tack_string, TACK_C_STR_LEN, tack_error, tack_any and its type ids,
 //     which includes only those three;
-//   - a C struct for every array, view and struct type, then
+//   - a C struct for every array, view, list and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
 //     and struct type == compares;
@@ -273,13 +273,35 @@
 // statement. Gotos only jump forward to the end of an enclosing block, and
 // deferred code reads no variable a goto can skip the initialization of.
 // Each deferred block is lowered as a C block. The backend relies on the
-// checker having rejected a defer inside deferred code, so a deferred block
-// has no chains of its own and never disturbs the int of the exit running
-// it; one handed to it anyway is reported. defer.go has the details.
+// checker having rejected a defer inside deferred code, so a deferred
+// block's only chains free its own lists, whose exits route through an int
+// of the deferred block's own, never disturbing the one of the exit
+// running it; a defer inside deferred code handed to it anyway is
+// reported. defer.go has the details.
+//
+// A list, list[T], lowers to a C struct per element type, tack_list_ and
+// the type's ID, of its buffer, ptr, its length, len, its capacity, cap,
+// and its allocator, alloc, a tack_allocator from std's tack.h. make is a
+// compound literal holding only the allocator; append is std's
+// TACK_LIST_APPEND on the address of the list's place, which calls std's
+// tack_list_grow_ when the buffer is full, turned into no error, or into
+// code 1 and the pooled message "out of memory". An element, a length, a
+// checked element, a range and a view of a list are lowered as a view's
+// are, but a list is written too, x.ptr[i] = v, and is ranged over in
+// place. A variable of an owned type, a list or a struct holding one, is
+// never const; its declaration adds a free to its block's cleanup chain,
+// lowered like a defer, so frees and defers interleave by position and
+// run at every exit; a free is a call to std's tack_list_free_ per list,
+// a struct's last field first. Assigning one computes the new value into a
+// temporary, frees the old one, then stores the new one. A name the
+// checker marked as moving its variable's value empties the variable
+// through a temporary, so a later free of it does nothing, which is what
+// makes a conditional move free right on every path. list.go has the
+// details.
 //
 // A local variable becomes a C local declared where the Tack one is, inside
 // the same block. An immutable variable is a const C local, so the C compiler
-// holds it to the same rule. A mutable one declared without a value starts at
+// holds it to the same rule, unless it owns a list (see above). A mutable one declared without a value starts at
 // its zero value: 0, false, or an empty string that points at the pooled
 // empty array rather than NULL.
 //

@@ -14,51 +14,51 @@ typedef struct {
 typedef struct {
     const int64_t *ptr;
     int64_t len;
-} tack_view_17;
+} tack_view_18;
 
 typedef struct {
     const uint8_t *ptr;
     int64_t len;
-} tack_view_18;
+} tack_view_19;
 
 typedef struct {
     const tack_4_main5_Point *ptr;
     int64_t len;
-} tack_view_19;
+} tack_view_20;
 
 typedef struct {
     int64_t e[2];
-} tack_array_20;
+} tack_array_21;
 
 typedef struct {
-    const tack_array_20 *ptr;
-    int64_t len;
-} tack_view_21;
-
-typedef struct {
-    const tack_string *ptr;
+    const tack_array_21 *ptr;
     int64_t len;
 } tack_view_22;
 
 typedef struct {
-    int64_t e[4];
-} tack_array_23;
+    const tack_string *ptr;
+    int64_t len;
+} tack_view_23;
 
 typedef struct {
-    int64_t e[1];
+    int64_t e[4];
 } tack_array_24;
 
 typedef struct {
-    tack_4_main5_Point e[3];
+    int64_t e[1];
 } tack_array_25;
 
 typedef struct {
-    tack_array_20 e[2];
+    tack_4_main5_Point e[3];
 } tack_array_26;
 
 typedef struct {
-    tack_string e[3];
+    tack_array_21 e[2];
 } tack_array_27;
+
+typedef struct {
+    tack_string e[3];
+} tack_array_28;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -80,16 +80,16 @@ void tack_builtin_print(tack_string);
 #define TACK_C_XSTR(x) TACK_C_STR(x)
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
-extern int64_t tack_4_main5_total(tack_view_17 p_v) TACK_C_NAME("total");
-extern int64_t tack_4_main9_countByte(tack_view_18 p_b, uint8_t p_c) TACK_C_NAME("countByte");
-extern int64_t tack_4_main5_sumYs(tack_view_19 p_v) TACK_C_NAME("sumYs");
-extern int64_t tack_4_main5_cells(tack_view_21 p_v) TACK_C_NAME("sum_cells");
-extern int64_t tack_4_main7_lengths(tack_view_22 p_v) TACK_C_NAME("lengths");
-static int64_t tack_4_main7_viaTack(tack_view_17 p_v);
+extern int64_t tack_4_main5_total(tack_view_18 p_v) TACK_C_NAME("total");
+extern int64_t tack_4_main9_countByte(tack_view_19 p_b, uint8_t p_c) TACK_C_NAME("countByte");
+extern int64_t tack_4_main5_sumYs(tack_view_20 p_v) TACK_C_NAME("sumYs");
+extern int64_t tack_4_main5_cells(tack_view_22 p_v) TACK_C_NAME("sum_cells");
+extern int64_t tack_4_main7_lengths(tack_view_23 p_v) TACK_C_NAME("lengths");
+static int64_t tack_4_main7_viaTack(tack_view_18 p_v);
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static void tack_4_main4_main(void);
 
-static int64_t tack_4_main7_viaTack(tack_view_17 p_v) {
+static int64_t tack_4_main7_viaTack(tack_view_18 p_v) {
     return tack_4_main5_total(p_v);
 }
 
@@ -103,19 +103,19 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 }
 
 static void tack_4_main4_main(void) {
-    const tack_array_23 v_a = (tack_array_23){{1, 2, 3, (-4)}};
-    tack_4_main5_check((tack_4_main5_total((tack_view_17){v_a.e, 4}) == 2), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    const tack_array_24 v_none = (tack_array_24){0};
-    tack_4_main5_check((tack_4_main5_total((tack_view_17){v_none.e, 0}) == 0), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
+    const tack_array_24 v_a = (tack_array_24){{1, 2, 3, (-4)}};
+    tack_4_main5_check((tack_4_main5_total((tack_view_18){v_a.e, 4}) == 2), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    const tack_array_25 v_none = (tack_array_25){0};
+    tack_4_main5_check((tack_4_main5_total((tack_view_18){v_none.e, 0}) == 0), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     const tack_string v_s = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)};
-    tack_4_main5_check(((tack_4_main9_countByte((tack_view_18){v_s.ptr, v_s.len}, 115) == 4) && (tack_4_main9_countByte((tack_view_18){tack_str5, TACK_C_STR_LEN(tack_str5)}, 115) == 0)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
-    const tack_array_25 v_pts = (tack_array_25){{(tack_4_main5_Point){.f_x = 1, .f_y = 10}, (tack_4_main5_Point){.f_x = 2, .f_y = 20}, (tack_4_main5_Point){.f_x = 3, .f_y = 30}}};
-    tack_4_main5_check((tack_4_main5_sumYs((tack_view_19){v_pts.e, 3}) == 60), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
-    const tack_array_26 v_grid = (tack_array_26){{(tack_array_20){{1, 2}}, (tack_array_20){{3, 4}}}};
-    tack_4_main5_check((tack_4_main5_cells((tack_view_21){v_grid.e, 2}) == 10), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
-    const tack_array_27 v_words = (tack_array_27){{(tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}}};
-    tack_4_main5_check((tack_4_main7_lengths((tack_view_22){v_words.e, 3}) == 3), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    tack_4_main5_check((tack_4_main7_viaTack((tack_view_17){v_a.e, 4}) == 2), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check(((tack_4_main9_countByte((tack_view_19){v_s.ptr, v_s.len}, 115) == 4) && (tack_4_main9_countByte((tack_view_19){tack_str5, TACK_C_STR_LEN(tack_str5)}, 115) == 0)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    const tack_array_26 v_pts = (tack_array_26){{(tack_4_main5_Point){.f_x = 1, .f_y = 10}, (tack_4_main5_Point){.f_x = 2, .f_y = 20}, (tack_4_main5_Point){.f_x = 3, .f_y = 30}}};
+    tack_4_main5_check((tack_4_main5_sumYs((tack_view_20){v_pts.e, 3}) == 60), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    const tack_array_27 v_grid = (tack_array_27){{(tack_array_21){{1, 2}}, (tack_array_21){{3, 4}}}};
+    tack_4_main5_check((tack_4_main5_cells((tack_view_22){v_grid.e, 2}) == 10), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
+    const tack_array_28 v_words = (tack_array_28){{(tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}}};
+    tack_4_main5_check((tack_4_main7_lengths((tack_view_23){v_words.e, 3}) == 3), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+    tack_4_main5_check((tack_4_main7_viaTack((tack_view_18){v_a.e, 4}) == 2), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
 }
 
 int main(void) {

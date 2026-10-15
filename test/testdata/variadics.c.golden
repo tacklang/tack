@@ -13,54 +13,54 @@ typedef struct {
 
 typedef struct {
     int64_t e[3];
-} tack_array_17;
+} tack_array_18;
 
 typedef struct {
     const int64_t *ptr;
     int64_t len;
-} tack_view_18;
+} tack_view_19;
 
 typedef struct {
     const tack_string *ptr;
     int64_t len;
-} tack_view_19;
+} tack_view_20;
 
 typedef struct {
     const tack_4_main5_Point *ptr;
     int64_t len;
-} tack_view_20;
+} tack_view_21;
 
 typedef struct {
     int64_t e[2];
-} tack_array_21;
+} tack_array_22;
 
 typedef struct {
-    const tack_array_21 *ptr;
-    int64_t len;
-} tack_view_22;
-
-typedef struct {
-    const bool *ptr;
+    const tack_array_22 *ptr;
     int64_t len;
 } tack_view_23;
 
 typedef struct {
-    const uint8_t *ptr;
+    const bool *ptr;
     int64_t len;
 } tack_view_24;
 
 typedef struct {
-    const uint64_t *ptr;
+    const uint8_t *ptr;
     int64_t len;
 } tack_view_25;
 
 typedef struct {
+    const uint64_t *ptr;
+    int64_t len;
+} tack_view_26;
+
+typedef struct {
     int64_t e[4];
-} tack_array_26;
+} tack_array_27;
 
 typedef struct {
     int64_t e[1];
-} tack_array_27;
+} tack_array_28;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -118,16 +118,16 @@ static const unsigned char tack_str52[20] = {105, 110, 32, 97, 32, 108, 111, 111
 
 void tack_builtin_print(tack_string);
 
-static tack_view_18 tack_slice_18(tack_view_18 s, int64_t lo, int64_t hi) {
-    return (tack_view_18){lo == 0 ? s.ptr : s.ptr + lo, hi - lo};
+static tack_view_19 tack_slice_19(tack_view_19 s, int64_t lo, int64_t hi) {
+    return (tack_view_19){lo == 0 ? s.ptr : s.ptr + lo, hi - lo};
 }
 
-static tack_view_18 tack_slice_from_18(tack_view_18 s, int64_t lo) {
-    return (tack_view_18){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
+static tack_view_19 tack_slice_from_19(tack_view_19 s, int64_t lo) {
+    return (tack_view_19){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
 }
 
 static int64_t tack_4_main5_trace = 0;
-static tack_array_17 tack_4_main5_table = {0};
+static tack_array_18 tack_4_main5_table = {0};
 
 typedef struct {
     int64_t r0;
@@ -135,28 +135,28 @@ typedef struct {
 } tack_results_4_main6_minMax;
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
-static int64_t tack_4_main3_sum(tack_string p_label, tack_view_18 p_nums);
-static int64_t tack_4_main5_count(tack_view_18 p_nums);
-static int64_t tack_4_main5_total(tack_view_18 p_v);
-static int64_t tack_4_main6_passOn(tack_view_18 p_nums);
-static int64_t tack_4_main4_rest(tack_view_18 p_nums);
-static int64_t tack_4_main6_sumRec(tack_view_18 p_nums);
-static int64_t tack_4_main2_at(int64_t p_i, tack_view_18 p_nums);
-static int64_t tack_4_main8_firstTwo(tack_view_18 p_nums);
-static int64_t tack_4_main8_weighted(tack_view_18 p_nums);
-static int64_t tack_4_main7_lengths(tack_view_19 p_words);
-static int64_t tack_4_main9_sumPoints(tack_view_20 p_pts);
-static int64_t tack_4_main5_cells(tack_view_22 p_rows);
-static int64_t tack_4_main5_trues(tack_view_23 p_flags);
-static int64_t tack_4_main9_countByte(uint8_t p_c, tack_view_24 p_b);
-static uint64_t tack_4_main8_unsigned(tack_view_25 p_nums);
-static tack_results_4_main6_minMax tack_4_main6_minMax(int64_t p_first, tack_view_18 p_rest);
+static int64_t tack_4_main3_sum(tack_string p_label, tack_view_19 p_nums);
+static int64_t tack_4_main5_count(tack_view_19 p_nums);
+static int64_t tack_4_main5_total(tack_view_19 p_v);
+static int64_t tack_4_main6_passOn(tack_view_19 p_nums);
+static int64_t tack_4_main4_rest(tack_view_19 p_nums);
+static int64_t tack_4_main6_sumRec(tack_view_19 p_nums);
+static int64_t tack_4_main2_at(int64_t p_i, tack_view_19 p_nums);
+static int64_t tack_4_main8_firstTwo(tack_view_19 p_nums);
+static int64_t tack_4_main8_weighted(tack_view_19 p_nums);
+static int64_t tack_4_main7_lengths(tack_view_20 p_words);
+static int64_t tack_4_main9_sumPoints(tack_view_21 p_pts);
+static int64_t tack_4_main5_cells(tack_view_23 p_rows);
+static int64_t tack_4_main5_trues(tack_view_24 p_flags);
+static int64_t tack_4_main9_countByte(uint8_t p_c, tack_view_25 p_b);
+static uint64_t tack_4_main8_unsigned(tack_view_26 p_nums);
+static tack_results_4_main6_minMax tack_4_main6_minMax(int64_t p_first, tack_view_19 p_rest);
 static int64_t tack_4_main4_step(int64_t p_d);
-static int64_t tack_4_main6_digits(int64_t p_a, tack_view_18 p_rest);
-static int64_t tack_4_main12_bumpThenRead(int64_t * p_n, tack_view_18 p_vals);
-static int64_t tack_4_main13_writeThenRead(tack_array_17 * p_a, tack_view_18 p_v);
-static int64_t tack_4_main11_changeTable(tack_view_18 p_v);
-static int64_t tack_4_main6_viaMut(tack_array_17 * p_a);
+static int64_t tack_4_main6_digits(int64_t p_a, tack_view_19 p_rest);
+static int64_t tack_4_main12_bumpThenRead(int64_t * p_n, tack_view_19 p_vals);
+static int64_t tack_4_main13_writeThenRead(tack_array_18 * p_a, tack_view_19 p_v);
+static int64_t tack_4_main11_changeTable(tack_view_19 p_v);
+static int64_t tack_4_main6_viaMut(tack_array_18 * p_a);
 static void tack_4_main8_deferred(void);
 static void tack_4_main4_main(void);
 
@@ -169,13 +169,13 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
     }
 }
 
-static int64_t tack_4_main3_sum(tack_string p_label, tack_view_18 p_nums) {
+static int64_t tack_4_main3_sum(tack_string p_label, tack_view_19 p_nums) {
     if ((p_label).len == 0) {
         return (-1);
     }
     int64_t v_total = 0;
     {
-        const tack_view_18 tack_r0 = p_nums;
+        const tack_view_19 tack_r0 = p_nums;
         for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
             const int64_t v_x = tack_r0.ptr[tack_k1];
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_x));
@@ -184,11 +184,11 @@ static int64_t tack_4_main3_sum(tack_string p_label, tack_view_18 p_nums) {
     return v_total;
 }
 
-static int64_t tack_4_main5_count(tack_view_18 p_nums) {
+static int64_t tack_4_main5_count(tack_view_19 p_nums) {
     return (p_nums).len;
 }
 
-static int64_t tack_4_main5_total(tack_view_18 p_v) {
+static int64_t tack_4_main5_total(tack_view_19 p_v) {
     int64_t v_n = 0;
     {
         int64_t v_i = 0;
@@ -199,27 +199,27 @@ static int64_t tack_4_main5_total(tack_view_18 p_v) {
     return v_n;
 }
 
-static int64_t tack_4_main6_passOn(tack_view_18 p_nums) {
+static int64_t tack_4_main6_passOn(tack_view_19 p_nums) {
     int64_t tack_o2;
     int64_t tack_o3;
     return (tack_o2 = tack_4_main3_sum((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, p_nums), tack_o3 = tack_4_main5_total(p_nums), ((int64_t)((uint64_t)tack_o2 + (uint64_t)tack_o3)));
 }
 
-static int64_t tack_4_main4_rest(tack_view_18 p_nums) {
+static int64_t tack_4_main4_rest(tack_view_19 p_nums) {
     if ((p_nums).len < 1) {
         return (-1);
     }
-    return tack_4_main3_sum((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, tack_slice_from_18(p_nums, (int64_t)1));
+    return tack_4_main3_sum((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, tack_slice_from_19(p_nums, (int64_t)1));
 }
 
-static int64_t tack_4_main6_sumRec(tack_view_18 p_nums) {
+static int64_t tack_4_main6_sumRec(tack_view_19 p_nums) {
     if ((p_nums).len < 1) {
         return 0;
     }
-    return ((int64_t)((uint64_t)p_nums.ptr[0] + (uint64_t)tack_4_main6_sumRec(tack_slice_from_18(p_nums, (int64_t)1))));
+    return ((int64_t)((uint64_t)p_nums.ptr[0] + (uint64_t)tack_4_main6_sumRec(tack_slice_from_19(p_nums, (int64_t)1))));
 }
 
-static int64_t tack_4_main2_at(int64_t p_i, tack_view_18 p_nums) {
+static int64_t tack_4_main2_at(int64_t p_i, tack_view_19 p_nums) {
     const int64_t tack_r4 = p_i;
     const int64_t v_x = ((tack_r4 >= 0 && tack_r4 < p_nums.len) ? p_nums.ptr[tack_r4] : 0);
     const bool v_ok = (tack_r4 >= 0 && tack_r4 < p_nums.len);
@@ -229,17 +229,17 @@ static int64_t tack_4_main2_at(int64_t p_i, tack_view_18 p_nums) {
     return v_x;
 }
 
-static int64_t tack_4_main8_firstTwo(tack_view_18 p_nums) {
+static int64_t tack_4_main8_firstTwo(tack_view_19 p_nums) {
     if ((p_nums).len < 2) {
         return (-1);
     }
     return ((int64_t)((uint64_t)p_nums.ptr[0] + (uint64_t)p_nums.ptr[1]));
 }
 
-static int64_t tack_4_main8_weighted(tack_view_18 p_nums) {
+static int64_t tack_4_main8_weighted(tack_view_19 p_nums) {
     int64_t v_n = 0;
     {
-        const tack_view_18 tack_r5 = p_nums;
+        const tack_view_19 tack_r5 = p_nums;
         for (int64_t tack_k6 = 0; tack_k6 < tack_r5.len; tack_k6++) {
             const int64_t v_i = tack_k6;
             const int64_t v_x = tack_r5.ptr[tack_k6];
@@ -249,10 +249,10 @@ static int64_t tack_4_main8_weighted(tack_view_18 p_nums) {
     return v_n;
 }
 
-static int64_t tack_4_main7_lengths(tack_view_19 p_words) {
+static int64_t tack_4_main7_lengths(tack_view_20 p_words) {
     int64_t v_n = 0;
     {
-        const tack_view_19 tack_r7 = p_words;
+        const tack_view_20 tack_r7 = p_words;
         for (int64_t tack_k8 = 0; tack_k8 < tack_r7.len; tack_k8++) {
             const tack_string v_w = tack_r7.ptr[tack_k8];
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)(v_w).len));
@@ -261,10 +261,10 @@ static int64_t tack_4_main7_lengths(tack_view_19 p_words) {
     return v_n;
 }
 
-static int64_t tack_4_main9_sumPoints(tack_view_20 p_pts) {
+static int64_t tack_4_main9_sumPoints(tack_view_21 p_pts) {
     int64_t v_n = 0;
     {
-        const tack_view_20 tack_r9 = p_pts;
+        const tack_view_21 tack_r9 = p_pts;
         for (int64_t tack_k10 = 0; tack_k10 < tack_r9.len; tack_k10++) {
             const tack_4_main5_Point v_p = tack_r9.ptr[tack_k10];
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)((int64_t)((uint64_t)v_p.f_x + (uint64_t)v_p.f_y))));
@@ -273,22 +273,22 @@ static int64_t tack_4_main9_sumPoints(tack_view_20 p_pts) {
     return v_n;
 }
 
-static int64_t tack_4_main5_cells(tack_view_22 p_rows) {
+static int64_t tack_4_main5_cells(tack_view_23 p_rows) {
     int64_t v_n = 0;
     {
-        const tack_view_22 tack_r11 = p_rows;
+        const tack_view_23 tack_r11 = p_rows;
         for (int64_t tack_k12 = 0; tack_k12 < tack_r11.len; tack_k12++) {
-            const tack_array_21 v_row = tack_r11.ptr[tack_k12];
+            const tack_array_22 v_row = tack_r11.ptr[tack_k12];
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)((int64_t)((uint64_t)v_row.e[0] + (uint64_t)v_row.e[1]))));
         }
     }
     return v_n;
 }
 
-static int64_t tack_4_main5_trues(tack_view_23 p_flags) {
+static int64_t tack_4_main5_trues(tack_view_24 p_flags) {
     int64_t v_n = 0;
     {
-        const tack_view_23 tack_r13 = p_flags;
+        const tack_view_24 tack_r13 = p_flags;
         for (int64_t tack_k14 = 0; tack_k14 < tack_r13.len; tack_k14++) {
             const bool v_f = tack_r13.ptr[tack_k14];
             if (v_f) {
@@ -299,10 +299,10 @@ static int64_t tack_4_main5_trues(tack_view_23 p_flags) {
     return v_n;
 }
 
-static int64_t tack_4_main9_countByte(uint8_t p_c, tack_view_24 p_b) {
+static int64_t tack_4_main9_countByte(uint8_t p_c, tack_view_25 p_b) {
     int64_t v_n = 0;
     {
-        const tack_view_24 tack_r15 = p_b;
+        const tack_view_25 tack_r15 = p_b;
         for (int64_t tack_k16 = 0; tack_k16 < tack_r15.len; tack_k16++) {
             const uint8_t v_x = tack_r15.ptr[tack_k16];
             if (v_x == p_c) {
@@ -313,10 +313,10 @@ static int64_t tack_4_main9_countByte(uint8_t p_c, tack_view_24 p_b) {
     return v_n;
 }
 
-static uint64_t tack_4_main8_unsigned(tack_view_25 p_nums) {
+static uint64_t tack_4_main8_unsigned(tack_view_26 p_nums) {
     uint64_t v_n = 0;
     {
-        const tack_view_25 tack_r17 = p_nums;
+        const tack_view_26 tack_r17 = p_nums;
         for (int64_t tack_k18 = 0; tack_k18 < tack_r17.len; tack_k18++) {
             const uint64_t v_x = tack_r17.ptr[tack_k18];
             v_n = ((uint64_t)((uint64_t)v_n + (uint64_t)v_x));
@@ -325,11 +325,11 @@ static uint64_t tack_4_main8_unsigned(tack_view_25 p_nums) {
     return v_n;
 }
 
-static tack_results_4_main6_minMax tack_4_main6_minMax(int64_t p_first, tack_view_18 p_rest) {
+static tack_results_4_main6_minMax tack_4_main6_minMax(int64_t p_first, tack_view_19 p_rest) {
     int64_t v_lo = p_first;
     int64_t v_hi = p_first;
     {
-        const tack_view_18 tack_r19 = p_rest;
+        const tack_view_19 tack_r19 = p_rest;
         for (int64_t tack_k20 = 0; tack_k20 < tack_r19.len; tack_k20++) {
             const int64_t v_x = tack_r19.ptr[tack_k20];
             if (v_x < v_lo) {
@@ -348,10 +348,10 @@ static int64_t tack_4_main4_step(int64_t p_d) {
     return p_d;
 }
 
-static int64_t tack_4_main6_digits(int64_t p_a, tack_view_18 p_rest) {
+static int64_t tack_4_main6_digits(int64_t p_a, tack_view_19 p_rest) {
     int64_t v_n = p_a;
     {
-        const tack_view_18 tack_r21 = p_rest;
+        const tack_view_19 tack_r21 = p_rest;
         for (int64_t tack_k22 = 0; tack_k22 < tack_r21.len; tack_k22++) {
             const int64_t v_x = tack_r21.ptr[tack_k22];
             v_n = ((int64_t)((uint64_t)((int64_t)((uint64_t)v_n * (uint64_t)10)) + (uint64_t)v_x));
@@ -360,33 +360,33 @@ static int64_t tack_4_main6_digits(int64_t p_a, tack_view_18 p_rest) {
     return v_n;
 }
 
-static int64_t tack_4_main12_bumpThenRead(int64_t * p_n, tack_view_18 p_vals) {
+static int64_t tack_4_main12_bumpThenRead(int64_t * p_n, tack_view_19 p_vals) {
     (*p_n) = ((int64_t)((uint64_t)(*p_n) + (uint64_t)1));
     return tack_4_main5_total(p_vals);
 }
 
-static int64_t tack_4_main13_writeThenRead(tack_array_17 * p_a, tack_view_18 p_v) {
+static int64_t tack_4_main13_writeThenRead(tack_array_18 * p_a, tack_view_19 p_v) {
     (*p_a).e[0] = 100;
     const int64_t tack_r23 = 0;
     const int64_t v_x = ((tack_r23 >= 0 && tack_r23 < p_v.len) ? p_v.ptr[tack_r23] : 0);
     return v_x;
 }
 
-static int64_t tack_4_main11_changeTable(tack_view_18 p_v) {
+static int64_t tack_4_main11_changeTable(tack_view_19 p_v) {
     tack_4_main5_table.e[0] = 50;
     const int64_t tack_r24 = 0;
     const int64_t v_x = ((tack_r24 >= 0 && tack_r24 < p_v.len) ? p_v.ptr[tack_r24] : 0);
     return v_x;
 }
 
-static int64_t tack_4_main6_viaMut(tack_array_17 * p_a) {
+static int64_t tack_4_main6_viaMut(tack_array_18 * p_a) {
     (*p_a).e[1] = 7;
-    return tack_4_main3_sum((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, (tack_view_18){(*p_a).e, 3});
+    return tack_4_main3_sum((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, (tack_view_19){(*p_a).e, 3});
 }
 
 static void tack_4_main8_deferred(void) {
     {
-        tack_4_main5_trace = tack_4_main3_sum((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_view_18){(const int64_t[2]){1, 2}, 2});
+        tack_4_main5_trace = tack_4_main3_sum((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_view_19){(const int64_t[2]){1, 2}, 2});
     }
 }
 
@@ -401,68 +401,68 @@ static void tack_4_main4_main(void) {
     int64_t tack_o34;
     int64_t tack_o35;
     int64_t tack_o36;
-    tack_array_17 tack_c37;
-    tack_array_17 tack_c38;
-    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_view_18){0, 0}) == 0) && (tack_4_main5_count((tack_view_18){0, 0}) == 0)), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
-    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, (tack_view_18){(const int64_t[1]){5}, 1}) == 5) && (tack_4_main5_count((tack_view_18){(const int64_t[1]){5}, 1}) == 1)), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
-    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_view_18){(const int64_t[3]){1, 2, 3}, 3}) == 6) && (tack_4_main5_count((tack_view_18){(const int64_t[3]){1, 2, 3}, 3}) == 3)), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    tack_4_main5_check((tack_4_main5_count((tack_view_18){(const int64_t[20]){1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}, 20}) == 20), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_array_18 tack_c37;
+    tack_array_18 tack_c38;
+    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_view_19){0, 0}) == 0) && (tack_4_main5_count((tack_view_19){0, 0}) == 0)), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, (tack_view_19){(const int64_t[1]){5}, 1}) == 5) && (tack_4_main5_count((tack_view_19){(const int64_t[1]){5}, 1}) == 1)), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_view_19){(const int64_t[3]){1, 2, 3}, 3}) == 6) && (tack_4_main5_count((tack_view_19){(const int64_t[3]){1, 2, 3}, 3}) == 3)), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+    tack_4_main5_check((tack_4_main5_count((tack_view_19){(const int64_t[20]){1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}, 20}) == 20), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
     const int8_t v_small = (-3);
     const int32_t v_mid = 70000;
     const uint32_t v_u = 4000000000;
     const uint8_t v_b = 255;
-    tack_4_main5_check((tack_4_main3_sum((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, (tack_view_18){(const int64_t[4]){v_small, v_mid, v_u, v_b}, 4}) == 4000070252), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
-    tack_4_main5_check((tack_4_main3_sum((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_view_18){(const int64_t[2]){9223372036854775807, (-9223372036854775807 - 1)}, 2}) == (-1)), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
-    tack_4_main5_check(((tack_4_main8_unsigned((tack_view_25){(const uint64_t[2]){18446744073709551615u, 1}, 2}) == 0) && (tack_4_main8_unsigned((tack_view_25){(const uint64_t[2]){v_b, v_u}, 2}) == 4000000255)), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
-    const tack_array_26 v_a = (tack_array_26){{1, 2, 3, 4}};
-    const tack_array_27 v_none = (tack_array_27){0};
-    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_view_18){v_a.e, 4}) == 10) && (tack_4_main5_count((tack_view_18){v_none.e, 0}) == 0)), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
-    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, tack_slice_18((tack_view_18){v_a.e, 4}, (int64_t)1, (int64_t)3)) == 5) && (tack_4_main5_count(tack_slice_18((tack_view_18){v_a.e, 4}, (int64_t)2, (int64_t)2)) == 0)), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main5_check(((tack_4_main6_passOn((tack_view_18){(const int64_t[3]){1, 2, 3}, 3}) == 12) && (tack_4_main6_passOn((tack_view_18){0, 0}) == 0)), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
-    tack_4_main5_check((tack_4_main6_passOn((tack_view_18){v_a.e, 4}) == 20), (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
-    tack_4_main5_check((((tack_4_main4_rest((tack_view_18){(const int64_t[3]){1, 2, 3}, 3}) == 5) && (tack_4_main4_rest((tack_view_18){(const int64_t[1]){1}, 1}) == 0)) && (tack_4_main4_rest((tack_view_18){0, 0}) == (-1))), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
-    tack_4_main5_check(((tack_4_main6_sumRec((tack_view_18){(const int64_t[4]){1, 2, 3, 4}, 4}) == 10) && (tack_4_main6_sumRec((tack_view_18){0, 0}) == 0)), (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
-    tack_4_main5_check(((((tack_4_main2_at(0, (tack_view_18){(const int64_t[2]){7, 8}, 2}) == 7) && (tack_4_main2_at(1, (tack_view_18){(const int64_t[2]){7, 8}, 2}) == 8)) && (tack_4_main2_at(2, (tack_view_18){(const int64_t[2]){7, 8}, 2}) == (-1))) && (tack_4_main2_at(0, (tack_view_18){0, 0}) == (-1))), (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
-    tack_4_main5_check((tack_4_main2_at((-1), (tack_view_18){(const int64_t[1]){7}, 1}) == (-1)), (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)});
-    tack_4_main5_check(((tack_4_main8_firstTwo((tack_view_18){(const int64_t[3]){3, 4, 5}, 3}) == 7) && (tack_4_main8_firstTwo((tack_view_18){(const int64_t[1]){3}, 1}) == (-1))), (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)});
-    tack_4_main5_check((tack_4_main8_weighted((tack_view_18){(const int64_t[3]){5, 6, 7}, 3}) == 20), (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)});
-    tack_4_main5_check(((tack_4_main7_lengths((tack_view_19){0, 0}) == 0) && (tack_4_main7_lengths((tack_view_19){(const tack_string[3]){(tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}, (tack_string){tack_str31, TACK_C_STR_LEN(tack_str31)}, (tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)}}, 3}) == 3)), (tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)});
+    tack_4_main5_check((tack_4_main3_sum((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, (tack_view_19){(const int64_t[4]){v_small, v_mid, v_u, v_b}, 4}) == 4000070252), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
+    tack_4_main5_check((tack_4_main3_sum((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_view_19){(const int64_t[2]){9223372036854775807, (-9223372036854775807 - 1)}, 2}) == (-1)), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
+    tack_4_main5_check(((tack_4_main8_unsigned((tack_view_26){(const uint64_t[2]){18446744073709551615u, 1}, 2}) == 0) && (tack_4_main8_unsigned((tack_view_26){(const uint64_t[2]){v_b, v_u}, 2}) == 4000000255)), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
+    const tack_array_27 v_a = (tack_array_27){{1, 2, 3, 4}};
+    const tack_array_28 v_none = (tack_array_28){0};
+    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_view_19){v_a.e, 4}) == 10) && (tack_4_main5_count((tack_view_19){v_none.e, 0}) == 0)), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
+    tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, tack_slice_19((tack_view_19){v_a.e, 4}, (int64_t)1, (int64_t)3)) == 5) && (tack_4_main5_count(tack_slice_19((tack_view_19){v_a.e, 4}, (int64_t)2, (int64_t)2)) == 0)), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
+    tack_4_main5_check(((tack_4_main6_passOn((tack_view_19){(const int64_t[3]){1, 2, 3}, 3}) == 12) && (tack_4_main6_passOn((tack_view_19){0, 0}) == 0)), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main5_check((tack_4_main6_passOn((tack_view_19){v_a.e, 4}) == 20), (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
+    tack_4_main5_check((((tack_4_main4_rest((tack_view_19){(const int64_t[3]){1, 2, 3}, 3}) == 5) && (tack_4_main4_rest((tack_view_19){(const int64_t[1]){1}, 1}) == 0)) && (tack_4_main4_rest((tack_view_19){0, 0}) == (-1))), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
+    tack_4_main5_check(((tack_4_main6_sumRec((tack_view_19){(const int64_t[4]){1, 2, 3, 4}, 4}) == 10) && (tack_4_main6_sumRec((tack_view_19){0, 0}) == 0)), (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
+    tack_4_main5_check(((((tack_4_main2_at(0, (tack_view_19){(const int64_t[2]){7, 8}, 2}) == 7) && (tack_4_main2_at(1, (tack_view_19){(const int64_t[2]){7, 8}, 2}) == 8)) && (tack_4_main2_at(2, (tack_view_19){(const int64_t[2]){7, 8}, 2}) == (-1))) && (tack_4_main2_at(0, (tack_view_19){0, 0}) == (-1))), (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
+    tack_4_main5_check((tack_4_main2_at((-1), (tack_view_19){(const int64_t[1]){7}, 1}) == (-1)), (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)});
+    tack_4_main5_check(((tack_4_main8_firstTwo((tack_view_19){(const int64_t[3]){3, 4, 5}, 3}) == 7) && (tack_4_main8_firstTwo((tack_view_19){(const int64_t[1]){3}, 1}) == (-1))), (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)});
+    tack_4_main5_check((tack_4_main8_weighted((tack_view_19){(const int64_t[3]){5, 6, 7}, 3}) == 20), (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)});
+    tack_4_main5_check(((tack_4_main7_lengths((tack_view_20){0, 0}) == 0) && (tack_4_main7_lengths((tack_view_20){(const tack_string[3]){(tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}, (tack_string){tack_str31, TACK_C_STR_LEN(tack_str31)}, (tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)}}, 3}) == 3)), (tack_string){tack_str33, TACK_C_STR_LEN(tack_str33)});
     const tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 1, .f_y = 2};
-    tack_4_main5_check(((tack_4_main9_sumPoints((tack_view_20){(const tack_4_main5_Point[2]){v_p, (tack_4_main5_Point){.f_x = 3, .f_y = 4}}, 2}) == 10) && (tack_4_main9_sumPoints((tack_view_20){0, 0}) == 0)), (tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)});
-    const tack_array_21 v_row = (tack_array_21){{5, 6}};
-    tack_4_main5_check((tack_4_main5_cells((tack_view_22){(const tack_array_21[2]){v_row, (tack_array_21){{1, 2}}}, 2}) == 14), (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)});
-    tack_4_main5_check((tack_4_main5_trues((tack_view_23){(const bool[3]){true, false, true}, 3}) == 2), (tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)});
+    tack_4_main5_check(((tack_4_main9_sumPoints((tack_view_21){(const tack_4_main5_Point[2]){v_p, (tack_4_main5_Point){.f_x = 3, .f_y = 4}}, 2}) == 10) && (tack_4_main9_sumPoints((tack_view_21){0, 0}) == 0)), (tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)});
+    const tack_array_22 v_row = (tack_array_22){{5, 6}};
+    tack_4_main5_check((tack_4_main5_cells((tack_view_23){(const tack_array_22[2]){v_row, (tack_array_22){{1, 2}}}, 2}) == 14), (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)});
+    tack_4_main5_check((tack_4_main5_trues((tack_view_24){(const bool[3]){true, false, true}, 3}) == 2), (tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)});
     const tack_string v_word = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)};
-    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_24){(const uint8_t[3]){97, 98, 97}, 3}) == 2), (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)});
-    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_24){v_word.ptr, v_word.len}) == 3), (tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)});
-    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_24){tack_str32, TACK_C_STR_LEN(tack_str32)}) == 0), (tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)});
-    const tack_results_4_main6_minMax tack_r25 = tack_4_main6_minMax(5, (tack_view_18){(const int64_t[3]){9, (-2), 7}, 3});
+    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_25){(const uint8_t[3]){97, 98, 97}, 3}) == 2), (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)});
+    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_25){v_word.ptr, v_word.len}) == 3), (tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)});
+    tack_4_main5_check((tack_4_main9_countByte(97, (tack_view_25){tack_str32, TACK_C_STR_LEN(tack_str32)}) == 0), (tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)});
+    const tack_results_4_main6_minMax tack_r25 = tack_4_main6_minMax(5, (tack_view_19){(const int64_t[3]){9, (-2), 7}, 3});
     const int64_t v_lo = tack_r25.r0;
     const int64_t v_hi = tack_r25.r1;
     tack_4_main5_check(((v_lo == (-2)) && (v_hi == 9)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
-    const tack_results_4_main6_minMax tack_r26 = tack_4_main6_minMax(4, (tack_view_18){0, 0});
+    const tack_results_4_main6_minMax tack_r26 = tack_4_main6_minMax(4, (tack_view_19){0, 0});
     const int64_t v_lo2 = tack_r26.r0;
     const int64_t v_hi2 = tack_r26.r1;
     tack_4_main5_check(((v_lo2 == 4) && (v_hi2 == 4)), (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
     tack_4_main5_trace = 0;
-    tack_4_main5_check((((tack_o27 = tack_4_main4_step(1), tack_o28 = tack_4_main4_step(2), tack_o29 = tack_4_main4_step(3), tack_4_main6_digits(tack_o27, (tack_view_18){(const int64_t[2]){tack_o28, tack_o29}, 2})) == 123) && (tack_4_main5_trace == 123)), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
+    tack_4_main5_check((((tack_o27 = tack_4_main4_step(1), tack_o28 = tack_4_main4_step(2), tack_o29 = tack_4_main4_step(3), tack_4_main6_digits(tack_o27, (tack_view_19){(const int64_t[2]){tack_o28, tack_o29}, 2})) == 123) && (tack_4_main5_trace == 123)), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
     tack_4_main5_trace = 5;
-    tack_4_main5_check((((tack_o30 = tack_4_main5_trace, tack_o31 = tack_4_main4_step(4), tack_o32 = tack_4_main5_trace, tack_4_main6_digits(tack_o30, (tack_view_18){(const int64_t[2]){tack_o31, tack_o32}, 2})) == 594) && (tack_4_main5_trace == 54)), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
+    tack_4_main5_check((((tack_o30 = tack_4_main5_trace, tack_o31 = tack_4_main4_step(4), tack_o32 = tack_4_main5_trace, tack_4_main6_digits(tack_o30, (tack_view_19){(const int64_t[2]){tack_o31, tack_o32}, 2})) == 594) && (tack_4_main5_trace == 54)), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
     tack_4_main5_trace = 0;
-    tack_4_main5_check((((tack_o35 = (tack_o33 = tack_4_main4_step(1), tack_o34 = tack_4_main4_step(2), tack_4_main5_count((tack_view_18){(const int64_t[2]){tack_o33, tack_o34}, 2})), tack_o36 = tack_4_main4_step(3), tack_4_main3_sum((tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)}, (tack_view_18){(const int64_t[2]){tack_o35, tack_o36}, 2})) == 5) && (tack_4_main5_trace == 123)), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
+    tack_4_main5_check((((tack_o35 = (tack_o33 = tack_4_main4_step(1), tack_o34 = tack_4_main4_step(2), tack_4_main5_count((tack_view_19){(const int64_t[2]){tack_o33, tack_o34}, 2})), tack_o36 = tack_4_main4_step(3), tack_4_main3_sum((tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)}, (tack_view_19){(const int64_t[2]){tack_o35, tack_o36}, 2})) == 5) && (tack_4_main5_trace == 123)), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
     int64_t v_n = 10;
-    tack_4_main5_check(((tack_4_main12_bumpThenRead(&v_n, (tack_view_18){(const int64_t[2]){v_n, v_n}, 2}) == 20) && (v_n == 11)), (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
-    tack_array_17 v_arr = (tack_array_17){{1, 2, 3}};
-    tack_4_main5_check(((tack_4_main13_writeThenRead(&v_arr, (tack_c37 = v_arr, (tack_view_18){tack_c37.e, 3})) == 1) && (v_arr.e[0] == 100)), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
-    tack_4_main5_table = (tack_array_17){{5, 6, 7}};
-    tack_4_main5_check(((tack_4_main11_changeTable((tack_c38 = tack_4_main5_table, (tack_view_18){tack_c38.e, 3})) == 5) && (tack_4_main5_table.e[0] == 50)), (tack_string){tack_str49, TACK_C_STR_LEN(tack_str49)});
-    tack_array_17 v_m = (tack_array_17){{1, 2, 3}};
+    tack_4_main5_check(((tack_4_main12_bumpThenRead(&v_n, (tack_view_19){(const int64_t[2]){v_n, v_n}, 2}) == 20) && (v_n == 11)), (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
+    tack_array_18 v_arr = (tack_array_18){{1, 2, 3}};
+    tack_4_main5_check(((tack_4_main13_writeThenRead(&v_arr, (tack_c37 = v_arr, (tack_view_19){tack_c37.e, 3})) == 1) && (v_arr.e[0] == 100)), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
+    tack_4_main5_table = (tack_array_18){{5, 6, 7}};
+    tack_4_main5_check(((tack_4_main11_changeTable((tack_c38 = tack_4_main5_table, (tack_view_19){tack_c38.e, 3})) == 5) && (tack_4_main5_table.e[0] == 50)), (tack_string){tack_str49, TACK_C_STR_LEN(tack_str49)});
+    tack_array_18 v_m = (tack_array_18){{1, 2, 3}};
     tack_4_main5_check(((tack_4_main6_viaMut(&v_m) == 11) && (v_m.e[1] == 7)), (tack_string){tack_str50, TACK_C_STR_LEN(tack_str50)});
     tack_4_main5_trace = 0;
     tack_4_main8_deferred();
     tack_4_main5_check((tack_4_main5_trace == 3), (tack_string){tack_str51, TACK_C_STR_LEN(tack_str51)});
     int64_t v_i = 0;
-    while ((tack_4_main5_count((tack_view_18){(const int64_t[2]){v_i, v_i}, 2}) == 2) && (v_i < 3)) {
+    while ((tack_4_main5_count((tack_view_19){(const int64_t[2]){v_i, v_i}, 2}) == 2) && (v_i < 3)) {
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     tack_4_main5_check((v_i == 3), (tack_string){tack_str52, TACK_C_STR_LEN(tack_str52)});
