@@ -35,9 +35,12 @@ func runFrontEnd(files fstest.MapFS) (out frontEnd, err error) {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	res, err := (&loader.Loader{FS: loader.FromFS(files), Builtins: stdtest.MustBuiltins()}).Dir(
-		"p",
-	)
+	l := &loader.Loader{
+		FS:       loader.FromFS(files),
+		Builtins: stdtest.MustBuiltins(),
+		Std:      stdtest.Std(),
+	}
+	res, err := l.Dir("p")
 	if err != nil {
 		return frontEnd{stage: "error: " + err.Error()}, nil
 	}

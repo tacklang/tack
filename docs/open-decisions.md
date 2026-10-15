@@ -160,7 +160,8 @@ go another way:
   not report one.
 - One `tack.h` serves the whole program, its extern funcs package by
   package. `--emit-header` writes it into the target's directory and into
-  every package directory with C files or extern funcs.
+  every package directory of its module with C files or extern funcs; a
+  std package with C gets none.
 - C files are compiled with `-w`, as the generated C is, so clang's
   warnings about the user's own C are not shown; its errors are. There is
   no way yet to pass a C file other flags, or to link a library.
@@ -186,3 +187,23 @@ go another way:
   objects a program needs. Their C names are `tack_builtin_print` and
   `tack_builtin_exit`. `exit`'s body is not declared `_Noreturn`, as
   nothing depends on it.
+
+## Standard library packages
+
+`import fmt from "std/fmt"` reads `$TACK_HOME/src/std/fmt`, and std
+packages follow the rules of any package. Some of what that implies was
+decided by consistency and is open:
+
+- A std package's C files are compiled as a program package's are, with
+  the program's `tack.h` included first, not as `std/builtin`'s are, with
+  `src/std/include` on the include path. So a std C file sees the
+  program's `tack.h`, and std has two ways of writing C.
+- std's own `tack.mod` is never read: the loader takes the name `std` for
+  the directory `$TACK_HOME/src/std` whatever the file says, and only a
+  directory at or below that path is in the module `std`. A path that
+  reaches std through a symlink is another module, and its `module std`
+  is the reserved-name error.
+- `fmt.println`'s two `print` calls are two writes; nothing makes the
+  line atomic, and neither reports an error.
+- The wording for `lib` used from a single file is `x is lib in module
+  std and cannot be used from a single file, which has no module`.

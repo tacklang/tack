@@ -1,0 +1,18 @@
+package fmt
+
+// Package fmt writes text to standard output. A program imports it as
+//
+//     import fmt from "std/fmt"
+//
+// and the compiler reads it from $TACK_HOME/src/std/fmt, or
+// ~/.tack/src/std/fmt, as it reads the builtins from std/builtin. It is
+// written in Tack on top of the print builtin, and has no C of its own.
+// Formatted printing, printf, is to come.
+
+// println writes s to standard output exactly as given, then a newline,
+// "\n". println("") writes the newline alone. Like print, it reports no
+// error: what standard output does with the bytes is not checked.
+pub func println(s string) {
+    print(s)
+    print("\n")
+}

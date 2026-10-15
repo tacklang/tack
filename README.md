@@ -4,8 +4,8 @@ Tack is a small compiled programming language. This repository holds `tack`, its
 compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
-rather than to be used for anything. There is no runtime, no standard library,
-and no intermediate representation.
+rather than to be used for anything. There is no runtime, a standard library
+of one package, `std/fmt`, and no intermediate representation.
 
 Code generation is pluggable. The front end hands a resolved syntax tree to a
 *backend*, and the backend decides what comes out and how it is built. One ships
@@ -102,7 +102,8 @@ asks for another; `-Ofast` is not offered, since it gives up C semantics
 the generated code relies on.
 `--emit-header` is not a dump but stops where one does: it writes the
 program's `tack.h` (see "Extern C" below) into the target's directory and
-into every other package directory with C files or extern funcs, replacing
+into every other package directory of its module with C files or extern
+funcs, never a standard library package's, replacing
 any `tack.h` there, for an editor such as clangd to find; it prints
 nothing, takes no `--out`, and cannot be combined with a dump. Builds never
 read that copy, so it can be left out of version control.
@@ -382,11 +383,36 @@ makes for itself, which has a letter after `tack_`.
   cycle: calc/a imports calc/b imports calc/a`, a main package cannot be
   imported, `cannot import calc/cmd/calc: it is a main package`, and a
   package other than main may declare nothing named `main`, `func main is
-  allowed only in package main`. `std` is the standard library's module,
-  which has no packages yet; `std/builtin` documents the builtins and
-  cannot be imported. A file compiled on its own can import only the
-  standard library. Every import is checked, so one run reports each bad
+  allowed only in package main`. An import path starting with `std` names
+  the standard library (below), and a file compiled on its own can import
+  only that, `cannot import calc/lexer: a single file can import only the
+  standard library`. Every import is checked, so one run reports each bad
   one.
+- The standard library is the module `std`: the directory the builtins
+  come from, `$TACK_HOME/src/std`, or `~/.tack/src/std`, whose source is
+  [`src/std`](src/std). An import path whose first part is `std` always
+  names one of its packages, from any module and from a file compiled on
+  its own: `import fmt from "std/fmt"` reads `$TACK_HOME/src/std/fmt`.
+  Without std installed, such a program fails as every program does,
+  `tack: cannot find std at <path>; set TACK_HOME or run make install`.
+  Its one package today is [`fmt`](src/std/fmt/fmt.tck), whose `pub func
+  println(s string)` writes `s` and then a newline, `fmt.println("hi")`.
+  A std package follows every rule a package of the program's module
+  does. Its `pub` names are usable from every package, its private names
+  only from itself, `hidden is not pub in package std/util`, and its `lib`
+  names only from std's own packages: `secret is lib in module std and
+  cannot be used from module calc`, or `from a single file, which has no
+  module`. Its `mut` globals and extern funcs are never `pub` or `lib`; its
+  C files are compiled and linked as the program's are, and an extern func
+  none of them defines is `extern func add has no C definition in package
+  util`. A std package may import other std packages, and nothing else,
+  `cannot import calc/lexer: a package of std can import only std
+  packages`. A std path naming no directory is `cannot find package
+  std/nosuch: no directory std/nosuch in module std`, and `std/builtin`,
+  which declares the builtins, is not a package programs use: `std/builtin
+  documents the builtins and cannot be imported`. No other module may be
+  named `std` or start with `std/` (above); a directory inside std itself
+  is in the module std.
 - A package-level variable's initializer may name any immutable global, of
   its own package or an imported one, declared before or after it, and
   select its fields and index it: `var KindPlus = KindNumber + 1`, `var

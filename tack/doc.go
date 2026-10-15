@@ -93,6 +93,15 @@
 // reported as diagnostics in that file, exit 1, and a std/builtin that
 // cannot be read or holds no .tck file as a "tack:" error.
 //
+// The same directory is the module std, whose packages a program imports:
+// the driver hands it to the loader as loader.Std, so import fmt from
+// "std/fmt" reads $TACK_HOME/src/std/fmt, from a module or from a single
+// file. A std package's files are named in diagnostics as the program's
+// are, relative to the current directory when below it and absolute
+// otherwise, and its C files are compiled with CompileCmd and checked and
+// linked exactly as a program package's are (Building), not as
+// std/builtin's are.
+//
 // # Building
 //
 // Before compiling, the driver checks that --out can be written: its parent
@@ -108,7 +117,8 @@
 // option, -fplugin=x.c, is read as one.
 //
 // The generated source is written there as program.c. A program with C
-// files, the .c files the loader found in each package's directory, gets
+// files, the .c files the loader found in each package's directory, a std
+// package's included, gets
 // the backend's header written there as tack.h, and each C file, in
 // package order and then name order, is compiled to an object there with
 // the backend's CompileCmd, which includes tack.h first: the file is named
@@ -154,8 +164,9 @@
 //
 // --emit-header runs the pipeline as --emit does, then writes the
 // backend's header, tack.h, into the main package's directory and that of
-// every other package with C files or extern funcs, replacing any there,
-// and prints nothing. A build never reads those copies: CompileCmd's
+// every other package of its module with C files or extern funcs,
+// replacing any there, and prints nothing. A package of another module, a
+// std package, is not written into: it is not the program's. A build never reads those copies: CompileCmd's
 // -include of the fresh one makes a stale one's include guard skip it.
 //
 // # Structure

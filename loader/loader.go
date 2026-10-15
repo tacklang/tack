@@ -57,10 +57,30 @@ type Loader struct {
 	// the generic ones, such as len.
 	Builtins *builtin.Set
 
+	// Std is where the standard library is, the module std, which an
+	// import path starting with std names. Nil means there is none, and
+	// importing from it is an error.
+	Std *Std
+
 	// Stop, if StageLex or StageParse, stops after that stage, having
 	// read only the target's own files, for a dump of the tokens or the
 	// syntax trees.
 	Stop Stage
+}
+
+// Std is where a Loader finds the standard library: the directory Dir, the
+// root of the module std, read through FS.
+type Std struct {
+	// FS is what std's files are read through. Nil means the Loader's
+	// own FS, which is also what lets a directory to build be in std: std
+	// is recognized as the module of a directory only when it is read
+	// through the same FS.
+	FS FS
+
+	// Dir is the slash-separated path of std's root directory in FS,
+	// $TACK_HOME/src/std for the driver. A package's import path below
+	// std is its directory's path below Dir: std/fmt is Dir/fmt.
+	Dir string
 }
 
 // Result is a loaded program, or the diagnostics that stopped it loading.
@@ -176,7 +196,7 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 	if msg != "" {
 		return nil, fmt.Errorf("%s", msg)
 	}
-	if _, err := l.FS.ReadDir(dir); err != nil {
+	if _, err := mod.fsys.ReadDir(dir); err != nil {
 		return nil, fmt.Errorf("cannot find package %s: no directory %s in module %s",
 			show(importPath), show(importPath), mod.name)
 	}
@@ -187,7 +207,7 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 // mod, as the main package of a program, into res, with every package it
 // imports.
 func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Result, error) {
-	files, cFiles, err := l.readPackageFiles(res, dir)
+	files, cFiles, err := l.readPackageFiles(res, mod.fsys, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -213,11 +233,15 @@ func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Re
 }
 
 // readPackageFiles reads every Tack file directly in dir, in the byte order
-// of their names, and adds each to res. A name starting with a dot is left
-// out, as an editor's or a tool's, and so is a directory. It also returns
-// the path of every C file in dir, which it does not read.
-func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, []string, error) {
-	entries, err := l.FS.ReadDir(dir)
+// of their names, through fsys, and adds each to res. A name starting with
+// a dot is left out, as an editor's or a tool's, and so is a directory. It
+// also returns the path of every C file in dir, which it does not read.
+func (l *Loader) readPackageFiles(
+	res *Result,
+	fsys FS,
+	dir string,
+) ([]*source.File, []string, error) {
+	entries, err := fsys.ReadDir(dir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
 	}
@@ -237,7 +261,7 @@ func (l *Loader) readPackageFiles(res *Result, dir string) ([]*source.File, []st
 	files := make([]*source.File, 0, len(names))
 	for _, name := range names {
 		full := path.Join(dir, name)
-		data, err := l.FS.ReadFile(full)
+		data, err := fsys.ReadFile(full)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to open file: %w", err)
 		}

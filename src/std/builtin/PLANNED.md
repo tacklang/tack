@@ -38,5 +38,5 @@ What each one needs before it could be declared for real:
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`, `printf`       | the above, plus string concatenation and formatting               |
 
-`printf` also depends on `std/fmt`, a standard library package; imports and
-packages exist, but the standard library has no packages yet.
+`printf` would belong in `std/fmt`, the standard library package that has
+`println` today, rather than among the builtins.

@@ -1425,6 +1425,8 @@ package main
 
 import os from "std/os"
 import s from "std"
+import f from "std//fmt"
+import t from "std/fmt/../fmt"
 
 func main() {
 }
@@ -1432,17 +1434,29 @@ func main() {
 stage: load
 ---
 
-import-std/main.tck:3:16: error: cannot find package std/os: the standard library has no packages yet
+import-std/main.tck:3:16: error: cannot find package std/os: no directory std/os in module std
 02 |	
 03 |	import os from "std/os"
    |	               ^~~~~~~~
 04 |	import s from "std"
 
-import-std/main.tck:4:15: error: cannot find package std: the standard library has no packages yet
+import-std/main.tck:4:15: error: cannot find package std: no .tck files in src/std
 03 |	import os from "std/os"
 04 |	import s from "std"
    |	              ^~~~~
-05 |	
+05 |	import f from "std//fmt"
+
+import-std/main.tck:5:15: error: invalid import path std//fmt: a part between slashes is empty
+04 |	import s from "std"
+05 |	import f from "std//fmt"
+   |	              ^~~~~~~~~~
+06 |	import t from "std/fmt/../fmt"
+
+import-std/main.tck:6:15: error: invalid import path std/fmt/../fmt: a part cannot be . or ..
+05 |	import f from "std//fmt"
+06 |	import t from "std/fmt/../fmt"
+   |	              ^~~~~~~~~~~~~~~~
+07 |	
 
 -- import-std-builtin/tack.mod --
 module calc
@@ -2550,6 +2564,413 @@ root-package-invalid-name/tools.tck:1:9: error: my-tools is not a valid package 
 01 |	package tools
    |	        ^~~~~
 02 |	
+
+-- std-cycle/tack.mod --
+module calc
+-- std-cycle/.std/a/a.tck --
+package a
+
+import b from "std/b"
+
+pub func A() {
+    b.B()
+}
+-- std-cycle/.std/b/b.tck --
+package b
+
+import a from "std/a"
+
+pub func B() {
+    a.A()
+}
+-- std-cycle/main.tck --
+package main
+
+import a from "std/a"
+
+func main() {
+    a.A()
+}
+-- std-cycle/expected --
+stage: load
+---
+
+std-cycle/.std/b/b.tck:3:15: error: import cycle: std/a imports std/b imports std/a
+02 |	
+03 |	import a from "std/a"
+   |	              ^~~~~~~
+04 |	
+
+-- std-imports-user-module/tack.mod --
+module calc
+-- std-imports-user-module/lexer/lexer.tck --
+package lexer
+
+pub func First() int64 {
+    return 1
+}
+-- std-imports-user-module/.std/util/util.tck --
+package util
+
+import lexer from "calc/lexer"
+import local from "./lexer"
+
+pub func Twice(x int64) int64 {
+    return lexer.First() + x + x
+}
+-- std-imports-user-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1))
+}
+-- std-imports-user-module/expected --
+stage: load
+---
+
+std-imports-user-module/.std/util/util.tck:3:19: error: cannot import calc/lexer: a package of std can import only std packages
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	                  ^~~~~~~~~~~~
+04 |	import local from "./lexer"
+
+std-imports-user-module/.std/util/util.tck:4:19: error: cannot import ./lexer: a package of std can import only std packages
+03 |	import lexer from "calc/lexer"
+04 |	import local from "./lexer"
+   |	                  ^~~~~~~~~
+05 |	
+
+-- std-lib-field-from-file/.target --
+main.tck
+-- std-lib-field-from-file/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) + secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-field-from-file/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Make()
+    q := util.Pair{a: 1, b: 2, c: 3}
+    exit(p.a + p.b + p.c + q.a)
+}
+-- std-lib-field-from-file/expected --
+stage: typeck
+---
+
+std-lib-field-from-file/main.tck:7:10: error: cannot write a util.Pair literal outside package util: fields b, c are not pub
+06 |	    p := util.Make()
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+   |	         ^~~~~~~~~
+08 |	    exit(p.a + p.b + p.c + q.a)
+
+std-lib-field-from-file/main.tck:8:18: error: b is lib in module std and cannot be used from a single file, which has no module
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                 ^
+09 |	}
+
+std-lib-field-from-file/main.tck:8:24: error: c is not pub in util.Pair
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                       ^
+09 |	}
+
+-- std-lib-field-from-module/tack.mod --
+module calc
+-- std-lib-field-from-module/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) + secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-field-from-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Make()
+    q := util.Pair{a: 1, b: 2, c: 3}
+    exit(p.a + p.b + p.c + q.a)
+}
+-- std-lib-field-from-module/expected --
+stage: typeck
+---
+
+std-lib-field-from-module/main.tck:7:10: error: cannot write a util.Pair literal outside package util: fields b, c are not pub
+06 |	    p := util.Make()
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+   |	         ^~~~~~~~~
+08 |	    exit(p.a + p.b + p.c + q.a)
+
+std-lib-field-from-module/main.tck:8:18: error: b is lib in module std and cannot be used from module calc
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                 ^
+09 |	}
+
+std-lib-field-from-module/main.tck:8:24: error: c is not pub in util.Pair
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                       ^
+09 |	}
+
+-- std-lib-from-file/.target --
+main.tck
+-- std-lib-from-file/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) + secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-from-file/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+}
+-- std-lib-from-file/expected --
+stage: resolve
+---
+
+std-lib-from-file/main.tck:6:26: error: secret is lib in module std and cannot be used from a single file, which has no module
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                         ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-file/main.tck:6:43: error: hidden is not pub in package std/util
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                          ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-file/main.tck:6:59: error: Limit is lib in module std and cannot be used from a single file, which has no module
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                                          ^~~~~~~~~~
+07 |	}
+
+-- std-lib-from-module/tack.mod --
+module calc
+-- std-lib-from-module/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) + secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-from-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+}
+-- std-lib-from-module/expected --
+stage: resolve
+---
+
+std-lib-from-module/main.tck:6:26: error: secret is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                         ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-module/main.tck:6:43: error: hidden is not pub in package std/util
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                          ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-module/main.tck:6:59: error: Limit is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                                          ^~~~~~~~~~
+07 |	}
+
+-- std-main-package/tack.mod --
+module calc
+-- std-main-package/.std/tool/main.tck --
+package main
+
+func main() {
+}
+-- std-main-package/main.tck --
+package main
+
+import tool from "std/tool"
+
+func main() {
+}
+-- std-main-package/expected --
+stage: load
+---
+
+std-main-package/main.tck:3:18: error: cannot import std/tool: it is a main package
+02 |	
+03 |	import tool from "std/tool"
+   |	                 ^~~~~~~~~~
+04 |	
+
+-- std-package-rules/tack.mod --
+module calc
+-- std-package-rules/.std/util/util.tck --
+package util
+
+pub mut Count int64 = 0
+lib mut Total int64 = 0
+
+pub extern("std_util_add") func add(a int64, b int64) int64
+lib extern("std_util_sub") func sub(a int64, b int64) int64
+-- std-package-rules/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Count)
+}
+-- std-package-rules/expected --
+stage: resolve
+---
+
+std-package-rules/.std/util/util.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
+02 |	
+03 |	pub mut Count int64 = 0
+   |	^~~
+04 |	lib mut Total int64 = 0
+
+std-package-rules/.std/util/util.tck:4:1: error: a mut variable cannot be lib; export a function that reads or changes it
+03 |	pub mut Count int64 = 0
+04 |	lib mut Total int64 = 0
+   |	^~~
+05 |	
+
+std-package-rules/.std/util/util.tck:6:1: error: an extern func cannot be pub; export a Tack function that calls it
+05 |	
+06 |	pub extern("std_util_add") func add(a int64, b int64) int64
+   |	^~~
+07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
+
+std-package-rules/.std/util/util.tck:7:1: error: an extern func cannot be lib; export a Tack function that calls it
+06 |	pub extern("std_util_add") func add(a int64, b int64) int64
+07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
+   |	^~~
+08 |	
 
 -- tck-directory-is-skipped/tack.mod --
 module tck-directory-is-skipped

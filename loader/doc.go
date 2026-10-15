@@ -72,14 +72,30 @@
 // set to the package it names, and the program lists every package after
 // those it imports, the main package last. An import of the main package,
 // or of any package main, is an error, as is one of std/builtin, which
-// documents the builtins; the standard library has no packages yet, so
-// any other path under std cannot be found. A program built from a single
-// file has no module, so it can import only the standard library. An
+// documents the builtins. A program built from a single file has no
+// module, so it can import only the standard library. An
 // import whose path is malformed, is in another module, names no
 // directory, or names one holding no Tack files or a package whose clauses
 // are wrong, is reported at the import's path, and loading goes on with
 // the next, so one run reports every such import. A package that fails to
 // lex or parse stops loading there, with its diagnostics.
+//
+// # The standard library
+//
+// The standard library is the module std, whose root is the directory
+// Loader.Std names, read through its own FS or the Loader's. An import
+// path whose first part is std always names a package of std, whichever
+// package imports it: std/fmt is the directory fmt below the root, loaded
+// as any package is, with Module std, its Dir and CFiles paths in std's
+// FS, and its files added to the Result like the program's, named by
+// Display. A package of std may import only std packages, and an import
+// of std with no Loader.Std is an error. std is never read as a module of
+// the program: its tack.mod is not read, and its name, std, is one modfile
+// gives no other module. A directory to build that is at or below std's
+// root, read through the Loader's own FS, is in the module std; one
+// anywhere else whose tack.mod says module std is an error at that name.
+// What std's packages may use of each other, lib included, is the
+// resolver's to check, by Module, as for any two packages.
 //
 // # Stages
 //

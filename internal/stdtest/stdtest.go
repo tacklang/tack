@@ -1,12 +1,14 @@
 package stdtest
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/tacklang/tack/builtin"
+	"github.com/tacklang/tack/loader"
 )
 
 // Home returns the root of the repository, which holds the standard
@@ -29,6 +31,19 @@ func BuiltinDir() string { return filepath.Join(Dir(), "builtin") }
 // IncludeDir returns the directory std's C files are compiled with on the
 // include path, Dir()/include.
 func IncludeDir() string { return filepath.Join(Dir(), "include") }
+
+// StdPath is where Std puts the standard library, relative to Home: the
+// path the names of std's files start with in a loader's diagnostics.
+const StdPath = "src/std"
+
+// Std returns the repository's standard library as a loader takes it, for
+// a loader whose own files are elsewhere, such as in memory: Home()/src/std,
+// read from the host's file system rooted at Home(), so std's files are
+// named src/std/... wherever the repository is, and goldens that show
+// them stay portable.
+func Std() *loader.Std {
+	return &loader.Std{FS: loader.FromFS(os.DirFS(Home())), Dir: StdPath}
+}
 
 // loaded is the result of loading the repository's builtins, once.
 var loaded = sync.OnceValues(func() (*builtin.Set, error) {

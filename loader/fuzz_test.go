@@ -52,7 +52,8 @@ func compileLoaded(res *loader.Result) {
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports
-// and cycles of them, and tack.mod files anywhere, and checks the loader
+// and cycles of them, tack.mod files anywhere, and a standard library in
+// the tree's directory std, which a target may be in, and checks the loader
 // never panics, and either fails with an error or gives a program exactly
 // when it gives no diagnostic, with every diagnostic's span in a file it
 // read. A program it gives is compiled on, through code generation, which
@@ -73,14 +74,24 @@ func FuzzLoad(f *testing.F) {
 		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
 			"func main() { x := t.T{a: 1}\nexit(x.a) }\n\x00t/t.tck\npackage t\ntype T struct { a int64 }\n",
 		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport m from \"m\"\nfunc main() {}\n",
+		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.P() }\n" +
+			"\x00std/fmt/fmt.tck\npackage fmt\nimport t from \"std/t\"\npub func P() { t.Q() }\n" +
+			"\x00std/t/t.tck\npackage t\nlib func Q() {}\n\x00std/t/t.c\nint q;\n",
+		"std/tool/main.tck\npackage main\nimport f from \"std/fmt\"\nimport m from \"m/x\"\nfunc main() {}\n" +
+			"\x00std/tack.mod\nmodule std\n\x00std/fmt/fmt.tck\npackage fmt\nimport f from \"std/fmt\"\n",
+		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.p() }\n" +
+			"\x00std/fmt/fmt.tck\npackage fmt\nimport b from \"std/builtin\"\nimport m from \"m\"\nfunc p() {}\n",
 	} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		fsys, target := treeFromBytes(data)
-		res, err := (&loader.Loader{FS: loader.FromFS(fsys), Builtins: stdtest.MustBuiltins()}).Dir(
-			target,
-		)
+		l := &loader.Loader{
+			FS:       loader.FromFS(fsys),
+			Builtins: stdtest.MustBuiltins(),
+			Std:      &loader.Std{Dir: "std"},
+		}
+		res, err := l.Dir(target)
 		if err != nil {
 			return
 		}

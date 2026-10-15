@@ -107,8 +107,7 @@ func (r *pkgResolver) access(member ast.Decl, owner *ast.Package, id *ast.Ident)
 	}
 	msg := fmt.Sprintf("%s is not pub in package %s", id.Name, owner.Path)
 	if vis == ast.Lib {
-		msg = fmt.Sprintf("%s is lib in module %s and cannot be used from module %s",
-			id.Name, owner.Module, r.pkg.Module)
+		msg = ast.LibMessage(id.Name, owner, r.pkg)
 	}
 	return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: id.Span}}
 }

@@ -11,8 +11,8 @@ import (
 )
 
 // stdPrefix starts the import path of every package of the standard
-// library, which is the module std.
-const stdPrefix = "std/"
+// library, the module std, below its root.
+const stdPrefix = stdName + "/"
 
 // builtinPath is the path of the package that documents the builtins.
 const builtinPath = "std/builtin"
@@ -34,7 +34,8 @@ const (
 type graph struct {
 	l    *Loader
 	res  *Result
-	mod  *module // nil for a program built from a single file
+	mod  *module // the main package's; nil for a program built from a single file
+	std  *module // the standard library; nil when the Loader has none
 	main *ast.Package
 
 	state    map[string]progress     // each package looked at, by import path
@@ -52,6 +53,7 @@ func newGraph(l *Loader, res *Result, mod *module, main *ast.Package) *graph {
 		l:        l,
 		res:      res,
 		mod:      mod,
+		std:      l.stdModule(),
 		main:     main,
 		state:    make(map[string]progress),
 		packages: make(map[string]*ast.Package),
@@ -82,16 +84,18 @@ func (g *graph) loadImports(pkg *ast.Package) {
 			if g.stopped {
 				return
 			}
-			imp.Package = g.load(imp)
+			imp.Package = g.load(pkg, imp)
 		}
 	}
 }
 
-// load returns the package imp names, loading it and what it imports the
-// first time, or nil, with the problem recorded, if it cannot be imported.
-func (g *graph) load(imp *ast.Import) *ast.Package {
+// load returns the package imp, an import of the package from, names,
+// loading it and what it imports the first time, or nil, with the problem
+// recorded, if it cannot be imported.
+func (g *graph) load(from *ast.Package, imp *ast.Import) *ast.Package {
 	p := imp.Path
-	if msg := g.checkPath(p); msg != "" {
+	mod, msg := g.moduleOf(from, p)
+	if msg != "" {
 		g.errorAt(imp, msg)
 		return nil
 	}
@@ -107,19 +111,19 @@ func (g *graph) load(imp *ast.Import) *ast.Package {
 		return nil
 	}
 	g.state[p] = loading
-	pkg := g.loadPackage(imp)
+	pkg := g.loadPackage(imp, mod)
 	g.state[p] = loaded
 	return pkg
 }
 
-// loadPackage loads the package imp names, which has not been looked at,
-// and everything it imports.
-func (g *graph) loadPackage(imp *ast.Import) *ast.Package {
+// loadPackage loads the package imp names in mod, which has not been
+// looked at, and everything it imports.
+func (g *graph) loadPackage(imp *ast.Import, mod *module) *ast.Package {
 	p := imp.Path
-	dir, _ := g.mod.dirOf(p)
-	files, cFiles, err := g.l.readPackageFiles(g.res, dir)
+	dir, _ := mod.dirOf(p)
+	files, cFiles, err := g.l.readPackageFiles(g.res, mod.fsys, dir)
 	if err != nil {
-		g.errorAt(imp, g.missing(p, err))
+		g.errorAt(imp, missing(p, mod, err))
 		return nil
 	}
 	pkg, ok := g.l.parsePackage(g.res, files)
@@ -135,7 +139,7 @@ func (g *graph) loadPackage(imp *ast.Import) *ast.Package {
 		g.errorAt(imp, fmt.Sprintf("cannot import %s: it is a main package", show(p)))
 		return nil
 	}
-	pkg.Path, pkg.Module, pkg.Dir, pkg.CFiles = p, g.mod.name, dir, cFiles
+	pkg.Path, pkg.Module, pkg.Dir, pkg.CFiles = p, mod.name, dir, cFiles
 	g.stack = append(g.stack, p)
 	g.loadImports(pkg)
 	g.stack = g.stack[:len(g.stack)-1]
@@ -144,31 +148,45 @@ func (g *graph) loadPackage(imp *ast.Import) *ast.Package {
 	return pkg
 }
 
-// checkPath returns why p cannot be imported before looking for it, or "".
-func (g *graph) checkPath(p string) string {
+// moduleOf returns the module whose package p, imported by the package
+// from, names, or why p cannot be imported, before looking for it. A path
+// whose first part is std is in the standard library; any other is in the
+// main package's module, which a package of std, or a program built from a
+// single file, has none of.
+func (g *graph) moduleOf(from *ast.Package, p string) (*module, string) {
 	switch {
 	case p == builtinPath:
-		return builtinPath + " documents the builtins and cannot be imported"
-	case p == "std" || strings.HasPrefix(p, stdPrefix):
-		return fmt.Sprintf("cannot find package %s: the standard library has no packages yet",
+		return nil, builtinPath + " documents the builtins and cannot be imported"
+	case p == stdName || strings.HasPrefix(p, stdPrefix):
+		if g.std == nil {
+			return nil, fmt.Sprintf("cannot import %s: there is no standard library", show(p))
+		}
+		if msg := checkImportPath(p, stdName); msg != "" {
+			return nil, msg
+		}
+		return g.std, ""
+	case from.Module == stdName:
+		return nil, fmt.Sprintf("cannot import %s: a package of std can import only std packages",
 			show(p))
 	case g.mod == nil:
-		return fmt.Sprintf("cannot import %s: a single file can import only the standard library",
-			show(p))
+		return nil, fmt.Sprintf(
+			"cannot import %s: a single file can import only the standard library", show(p))
 	}
 	if msg := checkImportPath(p, g.mod.name); msg != "" {
-		return msg
+		return nil, msg
 	}
-	_, msg := g.mod.dirOf(p)
-	return msg
+	if _, msg := g.mod.dirOf(p); msg != "" {
+		return nil, msg
+	}
+	return g.mod, ""
 }
 
-// missing returns the message for p, whose directory could not be read as
-// a package because of err.
-func (g *graph) missing(p string, err error) string {
+// missing returns the message for p, a package of mod whose directory
+// could not be read as a package because of err.
+func missing(p string, mod *module, err error) string {
 	if errors.Is(err, fs.ErrNotExist) {
 		return fmt.Sprintf("cannot find package %s: no directory %s in module %s",
-			show(p), show(p), g.mod.name)
+			show(p), show(p), mod.name)
 	}
 	return fmt.Sprintf("cannot find package %s: %v", show(p), err)
 }

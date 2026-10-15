@@ -57,8 +57,15 @@
 //
 // The case is built from the directory n, or from the directory that an
 // optional file n/.target names, relative to n; its name starts with a dot,
-// so the loader never reads it as source. Diagnostics name each file
-// n/<path>. A file may not repeat in a case, and every file must end with a
+// so the loader never reads it as source. A .target naming a Tack file
+// builds that file alone, as a single-file program. Diagnostics name each
+// file n/<path>.
+//
+// A case is built with the repository's standard library, src/std, unless
+// it has one of its own: its files under n/.std, which then stands in for
+// all of std, so a case can give std the packages a diagnostic needs,
+// such as one with lib declarations, without adding them to the real one.
+// StdDir names that directory. A file may not repeat in a case, and every file must end with a
 // newline, since this format has no no-final-newline marker; a program
 // whose last line has none belongs in invalid.txtar. ParseTree is as strict
 // as Parse, and FormatTree as Format: for every list of tree cases

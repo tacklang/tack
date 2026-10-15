@@ -1,5 +1,7 @@
 package ast
 
+import "fmt"
+
 // Visibility says which packages may use a package-level declaration or a
 // struct field by name: its own package only, every package of its module,
 // or every package. The levels are ordered, Private below Lib below Pub, so
@@ -54,4 +56,17 @@ func Visible(vis Visibility, owner, user *Package) bool {
 	default:
 		return false
 	}
+}
+
+// LibMessage returns the message for name, a lib name of package owner,
+// used in package user of another module: which module it is lib in, and
+// which one it is used from, or that it is used from a single file, which
+// has no module.
+func LibMessage(name string, owner, user *Package) string {
+	if user.Module == "" {
+		return fmt.Sprintf("%s is lib in module %s and cannot be used from a single file, "+
+			"which has no module", name, owner.Module)
+	}
+	return fmt.Sprintf("%s is lib in module %s and cannot be used from module %s",
+		name, owner.Module, user.Module)
 }

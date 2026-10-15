@@ -359,7 +359,8 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	builtins := stdtest.Builtins(t)
-	res, single, err := load(path, dumpNone, builtins)
+	lib := &std{builtins: builtins, dir: stdtest.Dir()}
+	res, single, err := load(path, dumpNone, lib)
 	if err != nil {
 		t.Fatal(err)
 	}

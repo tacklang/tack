@@ -56,6 +56,24 @@ func (c TreeCase) Target() string {
 	return c.Name
 }
 
+// stdDir is the directory, within a tree case, that holds the case's own
+// standard library, if it has one. Its name starts with a dot, so that no
+// import path of the case's module can name it by accident.
+const stdDir = ".std"
+
+// StdDir returns the directory of the case's own standard library,
+// relative to the archive's root, or "" when the case has none and is
+// built with the repository's: it has one when any of its files is under
+// its .std directory.
+func (c TreeCase) StdDir() string {
+	for _, f := range c.Files {
+		if strings.HasPrefix(f.Path, stdDir+"/") {
+			return path.Join(c.Name, stdDir)
+		}
+	}
+	return ""
+}
+
 // LoadTree reads the archive of tree cases at path and parses it. It fails
 // if the archive holds no cases, as Load does.
 func LoadTree(path string) ([]TreeCase, error) {

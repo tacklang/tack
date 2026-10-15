@@ -1,0 +1,10 @@
+package greet
+
+import fmt from "std/fmt"
+
+// Greet prints a greeting for name on a line of its own, through fmt, the
+// same std package the main package imports.
+pub func Greet(name string) {
+    print("hello, ")
+    fmt.println(name)
+}

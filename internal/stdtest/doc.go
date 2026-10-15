@@ -11,8 +11,9 @@
 //
 // Home is the repository's root, laid out as an installation is, with the
 // standard library at Home()/src/std; tests of the driver pass it as
-// TACK_HOME. Builtins is what builtin.Load makes of Home()/src/std/builtin,
-// loaded once per test binary and shared, since a builtin.Set never
-// changes. The root is found from this package's own source file, so it
+// TACK_HOME, and tests of the loader and of the pipeline give Std to a
+// loader, for its imports of std packages. Builtins is what builtin.Load
+// makes of Home()/src/std/builtin, loaded once per test binary and shared,
+// since a builtin.Set never changes. The root is found from this package's own source file, so it
 // does not depend on the working directory of the test.
 package stdtest

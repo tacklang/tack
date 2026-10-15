@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/tacklang/tack/builtin"
+	"github.com/tacklang/tack/loader"
 )
 
 // std is the standard library a run uses: where it is, and the builtins
@@ -24,6 +25,15 @@ func (s *std) builtinSet() *builtin.Set {
 		return nil
 	}
 	return s.builtins
+}
+
+// loaderStd returns where the loader finds the packages of s, read from
+// the host's file system as the program's are, nil when s is nil.
+func (s *std) loaderStd() *loader.Std {
+	if s == nil {
+		return nil
+	}
+	return &loader.Std{Dir: filepath.ToSlash(s.dir)}
 }
 
 // includeDir returns the directory std's C files are compiled with on the

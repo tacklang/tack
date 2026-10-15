@@ -240,12 +240,15 @@ func checkSymbol(sym, shown string, first map[string]string) error {
 }
 
 // writeHeaders writes header, prog's tack.h, into the directory of prog's
-// main package and of every other package of prog with C files or extern
-// funcs, for an editor to find beside the C files that include it. A
-// tack.h already there is replaced.
+// main package and of every other package of its module with C files or
+// extern funcs, for an editor to find beside the C files that include it.
+// A tack.h already there is replaced. A package of another module, such
+// as one of std, is not the program's to write into.
 func writeHeaders(prog *ast.Program, header []byte) error {
+	main := prog.Main()
 	for _, pkg := range prog.Packages {
-		if pkg != prog.Main() && len(pkg.CFiles) == 0 && !hasExterns(pkg) {
+		if pkg != main &&
+			(pkg.Module != main.Module || len(pkg.CFiles) == 0 && !hasExterns(pkg)) {
 			continue
 		}
 		name := filepath.Join(filepath.FromSlash(pkg.Dir), headerName)

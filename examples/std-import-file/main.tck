@@ -1,0 +1,9 @@
+package main
+
+import fmt from "std/fmt"
+
+// A single file has no module of its own, and can still import the
+// standard library.
+func main() {
+    fmt.println("single file ok")
+}

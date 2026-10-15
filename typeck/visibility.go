@@ -29,8 +29,7 @@ func (c *Checker) hiddenField(typ types.Type, i int, name string) string {
 		return ""
 	}
 	if vis == ast.Lib {
-		return fmt.Sprintf("%s is lib in module %s and cannot be used from module %s",
-			name, owner.Module, c.pkg.Module)
+		return ast.LibMessage(name, owner, c.pkg)
 	}
 	return fmt.Sprintf("%s is not pub in %s", name, c.typeName(typ))
 }

@@ -404,7 +404,7 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 		return err
 	}
 
-	res, single, err := load(opts.file, opts.dump, lib.builtinSet())
+	res, single, err := load(opts.file, opts.dump, lib)
 	if err != nil {
 		return err
 	}
@@ -433,10 +433,11 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 // the current directory if it names nothing on disk and looks like one,
 // and otherwise the one file it names. A dump of the tokens or the syntax
 // trees stops loading there, having read only the target's own files. No
-// package may be named after one of builtins. It also reports whether the
-// target is a single file.
-func load(target string, d dump, builtins *builtin.Set) (*loader.Result, bool, error) {
-	l := &loader.Loader{FS: loader.OS{}, Builtins: builtins}
+// package may be named after one of lib's builtins, and an import of a
+// std package is read from lib, which is nil only for such a dump. It also
+// reports whether the target is a single file.
+func load(target string, d dump, lib *std) (*loader.Result, bool, error) {
+	l := &loader.Loader{FS: loader.OS{}, Builtins: lib.builtinSet(), Std: lib.loaderStd()}
 	switch d {
 	case dumpLex:
 		l.Stop = loader.StageLex

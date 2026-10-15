@@ -155,8 +155,8 @@ list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |-----------------------------|--------|--------------------------------------------------------|
 | Runtime                     | no     | Generated C calls libc directly                        |
 | Memory model and allocation | no     | Nothing allocates; strings are static                  |
-| Standard library            | partial | `src/std`, installed to `$TACK_HOME/src/std`: `std/builtin` only, the builtins and their C bodies; no importable packages |
-| Packages beyond `main`      | partial | Modules, imports, qualified names and `pub`/`lib` visibility; no standard library packages |
+| Standard library            | partial | `src/std`, installed to `$TACK_HOME/src/std`, the module `std`: `std/builtin`, the builtins and their C bodies, and `std/fmt`, importable, with `println` only |
+| Packages beyond `main`      | partial | Modules, imports, qualified names and `pub`/`lib` visibility; std packages imported from any module or a single file, `lib` hiding std's internals |
 | Concurrency                 | no     |                                                        |
 
 ### Toolchain

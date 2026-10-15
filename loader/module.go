@@ -10,20 +10,50 @@ import (
 	"github.com/tacklang/tack/modfile"
 )
 
-// module is a module found on disk: the directory holding its tack.mod and
-// the name the tack.mod gives it.
+// stdName is the name of the standard library's module, the first part of
+// the import path of each of its packages.
+const stdName = "std"
+
+// module is a module found on disk: the directory holding its tack.mod,
+// the name the tack.mod gives it, and what its files are read through.
 type module struct {
+	fsys FS
 	root string
 	name string
+}
+
+// stdModule returns the module std, the standard library at l.Std, or nil
+// when l has none. Its name is std whatever its tack.mod says; the loader
+// does not read that tack.mod.
+func (l *Loader) stdModule() *module {
+	if l.Std == nil {
+		return nil
+	}
+	fsys := l.Std.FS
+	if fsys == nil {
+		fsys = l.FS
+	}
+	return &module{root: path.Clean(l.Std.Dir), name: stdName, fsys: fsys}
+}
+
+// isStdRoot reports whether the directory d, read through l.FS, is the
+// root of std: l.Std is read through l.FS too, and d is its directory.
+func (l *Loader) isStdRoot(d string) bool {
+	return l.Std != nil && l.Std.FS == nil && path.Clean(d) == path.Clean(l.Std.Dir)
 }
 
 // findModule finds the module dir belongs to: the nearest directory at or
 // above dir holding a tack.mod, which it reads into res and parses. It
 // returns an error when there is none, or one cannot be read, and a nil
 // module with the tack.mod's diagnostics recorded in res when it is
-// malformed.
+// malformed. The root of std, l.Std's directory, is the module std,
+// whose tack.mod is not read: its name, std, is one no other module may
+// take.
 func (l *Loader) findModule(res *Result, dir string) (*module, error) {
 	for d := dir; ; {
+		if l.isStdRoot(d) {
+			return l.stdModule(), nil
+		}
 		name := path.Join(d, modfile.Name)
 		data, err := l.FS.ReadFile(name)
 		switch {
@@ -51,7 +81,7 @@ func (l *Loader) parseModule(res *Result, root, name string, data []byte) *modul
 		res.Stage, res.Diags = StageLoad, diags
 		return nil
 	}
-	return &module{root: root, name: mf.Module}
+	return &module{root: root, name: mf.Module, fsys: l.FS}
 }
 
 // pathOf returns the import path of dir, a directory at or below the

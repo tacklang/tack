@@ -57,9 +57,21 @@ func (r result) String() string {
 // Those paths are also the names diagnostics show, so keep them
 // repo-relative to keep goldens portable.
 type program struct {
+	std    *loader.Std // the standard library; nil is the repository's
 	files  fstest.MapFS
 	target string // a file, or a directory, in files
 	single bool   // target is a file, compiled alone
+}
+
+// loader returns the loader that reads p: its files, with the builtins
+// and, unless p has a std of its own, the standard library of the
+// repository.
+func (p program) loader() *loader.Loader {
+	lib := p.std
+	if lib == nil {
+		lib = stdtest.Std()
+	}
+	return &loader.Loader{FS: loader.FromFS(p.files), Builtins: stdtest.MustBuiltins(), Std: lib}
 }
 
 // singleFile returns the program the one file name, holding src, makes.
@@ -77,7 +89,7 @@ func runPipeline(backendName string, p program) result {
 		return result{"codegen", fmt.Sprintf("no backend registered under %q", backendName)}
 	}
 
-	l := &loader.Loader{FS: loader.FromFS(p.files), Builtins: stdtest.MustBuiltins()}
+	l := p.loader()
 	var res *loader.Result
 	var err error
 	if p.single {
@@ -394,13 +406,20 @@ func writeInvalid(t *testing.T, path string, old, comment []byte, cases []invali
 }
 
 // treeProgram returns the program the files of c make, built from its
-// target.
+// target: the file alone when the target is a Tack file, and otherwise
+// the package of its directory. When c has a std of its own, the
+// program's std is that, read from the case's files, instead of the
+// repository's.
 func treeProgram(c invalid.TreeCase) program {
 	files := make(fstest.MapFS, len(c.Files))
 	for _, f := range c.Files {
 		files[c.Name+"/"+f.Path] = &fstest.MapFile{Data: f.Data}
 	}
-	return program{files: files, target: c.Target()}
+	p := program{files: files, target: c.Target(), single: path.Ext(c.Target()) == ".tck"}
+	if dir := c.StdDir(); dir != "" {
+		p.std = &loader.Std{FS: loader.FromFS(files), Dir: dir}
+	}
+	return p
 }
 
 // TestInvalidPackages is TestInvalid for the cases of several files, in
@@ -598,7 +617,8 @@ func TestCRLFMatchesLF(t *testing.T) {
 }
 
 // withCRLF returns p with every \n of every file turned into \r\n, and
-// false if any file already holds a carriage return.
+// false if any file already holds a carriage return. A std of p's own,
+// which is in its files, is read from the new files too.
 func withCRLF(p program) (program, bool) {
 	files := make(fstest.MapFS, len(p.files))
 	for name, f := range p.files {
@@ -608,6 +628,9 @@ func withCRLF(p program) (program, bool) {
 		files[name] = &fstest.MapFile{Data: bytes.ReplaceAll(f.Data, []byte("\n"), []byte("\r\n"))}
 	}
 	p.files = files
+	if p.std != nil {
+		p.std = &loader.Std{FS: loader.FromFS(files), Dir: p.std.Dir}
+	}
 	return p, true
 }
 

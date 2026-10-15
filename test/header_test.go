@@ -53,7 +53,7 @@ func TestHeaders(t *testing.T) {
 func checkedProgram(t *testing.T, p program) *ast.Program {
 	t.Helper()
 
-	l := &loader.Loader{FS: loader.FromFS(p.files), Builtins: stdtest.MustBuiltins()}
+	l := p.loader()
 	var res *loader.Result
 	var err error
 	if p.single {
@@ -72,7 +72,7 @@ func checkedProgram(t *testing.T, p program) *ast.Program {
 // headerDirs returns the packages of prog that get a tack.h in their
 // directory: none if prog has no C files, and otherwise those tack
 // --emit-header writes to (writeHeaders in package main), the main package
-// and each other package with C files or extern funcs.
+// and each other package of its module with C files or extern funcs.
 func headerDirs(prog *ast.Program) map[*ast.Package]bool {
 	dirs := make(map[*ast.Package]bool)
 	hasC := false
@@ -83,7 +83,8 @@ func headerDirs(prog *ast.Program) map[*ast.Package]bool {
 		return dirs
 	}
 	for _, pkg := range prog.Packages {
-		if pkg == prog.Main() || len(pkg.CFiles) > 0 || hasExterns(pkg) {
+		if pkg == prog.Main() ||
+			pkg.Module == prog.Main().Module && (len(pkg.CFiles) > 0 || hasExterns(pkg)) {
 			dirs[pkg] = true
 		}
 	}

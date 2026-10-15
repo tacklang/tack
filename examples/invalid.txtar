@@ -6908,7 +6908,7 @@ single-file-import/main.tck:3:19: error: cannot import calc/lexer: a single file
    |	                  ^~~~~~~~~~~~
 04 |	import os from "std/os"
 
-single-file-import/main.tck:4:16: error: cannot find package std/os: the standard library has no packages yet
+single-file-import/main.tck:4:16: error: cannot find package std/os: no directory std/os in module std
 03 |	import lexer from "calc/lexer"
 04 |	import os from "std/os"
    |	               ^~~~~~~~

@@ -99,8 +99,8 @@ with `divmod`.
   not; a definition that does not match is clang's `conflicting types`.
 - A file may still `#include "tack.h"`, and needs to for an editor to know
   the types. `tack --emit-header <target>` writes `tack.h` into the
-  target's directory and into every package directory with C files or
-  extern funcs, and stops; add it to `.gitignore`. The programs under
+  target's directory and into every package directory of its module with
+  C files or extern funcs, never a standard library package's, and stops; add it to `.gitignore`. The programs under
   `examples/` keep theirs, for reading beside the C files, and a test
   checks each matches what the compiler generates. A stale copy beside a C
   file is skipped by the include guard of the one the build includes first.
