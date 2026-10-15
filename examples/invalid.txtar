@@ -3499,6 +3499,124 @@ missing-return/main.tck:3:6: error: f must end in a return
    |	     ^
 04 |	}
 
+-- mixed-compare-arithmetic/main.tck --
+package main
+
+func f(a int64, b uint64) int64 {
+    if a < b {
+        return a + b
+    }
+    return 0
+}
+
+func main() {
+    exit(f(1, 2))
+}
+-- mixed-compare-arithmetic/expected --
+stage: typeck
+---
+
+mixed-compare-arithmetic/main.tck:5:16: error: mismatched types int64 and uint64 in +
+04 |	    if a < b {
+05 |	        return a + b
+   |	               ^~~~~
+06 |	    }
+
+-- mixed-compare-array-elements/main.tck --
+package main
+
+func main() {
+    a := [2]int8{1, 2}
+    b := [2]uint8{1, 2}
+    if a == b {
+        exit(1)
+    }
+}
+-- mixed-compare-array-elements/expected --
+stage: typeck
+---
+
+mixed-compare-array-elements/main.tck:6:8: error: mismatched types [2]int8 and [2]uint8 in ==
+05 |	    b := [2]uint8{1, 2}
+06 |	    if a == b {
+   |	       ^~~~~~
+07 |	        exit(1)
+
+-- mixed-compare-constant-out-of-range/main.tck --
+package main
+
+func f(u uint64) bool {
+    return u < -1
+}
+
+func main() {
+    if f(0) {
+        exit(1)
+    }
+}
+-- mixed-compare-constant-out-of-range/expected --
+stage: typeck
+---
+
+mixed-compare-constant-out-of-range/main.tck:4:16: error: constant -1 overflows uint64
+03 |	func f(u uint64) bool {
+04 |	    return u < -1
+   |	               ^~
+05 |	}
+
+-- mixed-compare-no-lower-bound/main.tck --
+package main
+
+func f(a [3]int64, i int64) int64 {
+    limit := uint64(3)
+    if i < limit {
+        return a[i]
+    }
+    return 0
+}
+
+func main() {
+    exit(f([3]int64{1, 2, 3}, 1))
+}
+-- mixed-compare-no-lower-bound/expected --
+stage: typeck
+---
+
+mixed-compare-no-lower-bound/main.tck:6:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+05 |	    if i < limit {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+mixed-compare-no-lower-bound/main.tck:5:8: note: this guard bounds i only above; i may be negative
+04 |	    limit := uint64(3)
+05 |	    if i < limit {
+   |	       ^~~~~~~~~
+06 |	        return a[i]
+
+-- mixed-switch-constant-out-of-range/main.tck --
+package main
+
+func f(b uint8) int64 {
+    switch b {
+    case -1:
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    exit(f(255))
+}
+-- mixed-switch-constant-out-of-range/expected --
+stage: typeck
+---
+
+mixed-switch-constant-out-of-range/main.tck:5:10: error: constant -1 overflows uint8
+04 |	    switch b {
+05 |	    case -1:
+   |	         ^~
+06 |	        return 1
+
 -- multi-assign-mut/main.tck --
 package main
 
@@ -6641,34 +6759,6 @@ safety-no-proof-unknown-bound/main.tck:5:18: error: index i may be out of range;
    |	                 ^
 06 |	    }
 
--- safety-no-proof-unsigned-len/main.tck --
-package main
-
-func f(s string, u uint64) uint8 {
-    if u < len(s) {
-        return s[u]
-    }
-    return 0
-}
-
-func main() {
-    exit(f("tack", 1))
-}
--- safety-no-proof-unsigned-len/expected --
-stage: typeck
----
-
-safety-no-proof-unsigned-len/main.tck:4:8: error: mismatched types uint64 and int64 in <
-03 |	func f(s string, u uint64) uint8 {
-04 |	    if u < len(s) {
-   |	       ^~~~~~~~~~
-05 |	        return s[u]
-safety-no-proof-unsigned-len/main.tck:4:8: note: len gives an int64; convert u first with i, ok := int64(u)
-03 |	func f(s string, u uint64) uint8 {
-04 |	    if u < len(s) {
-   |	       ^
-05 |	        return s[u]
-
 -- safety-no-proof-variable-comparison/main.tck --
 package main
 
@@ -6977,7 +7067,7 @@ func main() {
 stage: typeck
 ---
 
-string-index-uint64/main.tck:4:14: error: index u may be out of range; convert u first with i, ok := int64(u), or use v, ok := ...[u]
+string-index-uint64/main.tck:4:14: error: index u may be out of range; check u < len(s) first, or use v, ok := ...[u]
 03 |	func at(s string, u uint64) uint8 {
 04 |	    return s[u]
    |	             ^
@@ -8149,12 +8239,12 @@ unsafe-checked-conversion-negative/main.tck:5:28: error: constant -1 overflows u
    |	                           ^
 06 |	    if ok && v == 0 {
 
--- unsafe-compare-len/main.tck --
+-- unsafe-compare-len-index/main.tck --
 package main
 
 func at(a [4]int64, s unsafe_size_t) int64 {
     if s < len(a) {
-        return 1
+        return a[s]
     }
     return 0
 }
@@ -8162,20 +8252,15 @@ func at(a [4]int64, s unsafe_size_t) int64 {
 func main() {
     exit(at([4]int64{1, 2, 3, 4}, 2))
 }
--- unsafe-compare-len/expected --
+-- unsafe-compare-len-index/expected --
 stage: typeck
 ---
 
-unsafe-compare-len/main.tck:4:8: error: mismatched types unsafe_size_t and int64 in <
-03 |	func at(a [4]int64, s unsafe_size_t) int64 {
+unsafe-compare-len-index/main.tck:5:18: error: index cannot be unsafe_size_t; convert it first with i, ok := int64(s)
 04 |	    if s < len(a) {
-   |	       ^~~~~~~~~~
-05 |	        return 1
-unsafe-compare-len/main.tck:4:8: note: len gives an int64; convert s first with i, ok := int64(s)
-03 |	func at(a [4]int64, s unsafe_size_t) int64 {
-04 |	    if s < len(a) {
-   |	       ^
-05 |	        return 1
+05 |	        return a[s]
+   |	                 ^
+06 |	    }
 
 -- unsafe-const-negative/main.tck --
 package main

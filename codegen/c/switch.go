@@ -140,8 +140,8 @@ func (g *generator) caseTest(
 
 // valueTest renders, without parentheses around the whole, the C test of
 // one case value v: the condition itself in a tagless switch, and whether
-// the tag, held in tagRef, equals v in an expression switch, compared in
-// the type one widens to, as == compares them.
+// the tag, held in tagRef, equals v in an expression switch, as == compares
+// them: two integers by value (see intTest).
 func (g *generator) valueTest(
 	s *ast.Switch,
 	tagRef string,
@@ -163,9 +163,31 @@ func (g *generator) valueTest(
 		return fmt.Sprintf("%s(%s, %s)", equalityName(typ), tagRef, value), nil
 	case typ == types.String:
 		return fmt.Sprintf("%s(%s, %s) == 0", stringCompareName, tagRef, value), nil
+	case types.IsInteger(typ):
+		return g.intTest(typ, tagRef, v, value), nil
 	default:
 		return fmt.Sprintf("%s == %s", tagRef, value), nil
 	}
+}
+
+// intTest renders, without parentheses around the whole, whether the
+// integer tag of type typ, held in tagRef, equals the case value v,
+// rendered as value, by value, as intComparison compares them. When that
+// reads v more than once, or may skip it, a v that is not pure is held in
+// a temporary first; the tag's temporary is pure.
+func (g *generator) intTest(typ types.Type, tagRef string, v ast.Expr, value string) string {
+	vt := ast.TypeOf(v)
+	test := func(ops []string) string {
+		return intComparison(ast.Eq, typ, vt, tagRef, ops[0])
+	}
+	var rendered string
+	if needsOnce(typ, vt) {
+		operands := []ast.Expr{v}
+		rendered = g.hoist(operands, []string{value}, g.operandTypes(operands), test)
+	} else {
+		rendered = test([]string{value})
+	}
+	return rendered[1 : len(rendered)-1]
 }
 
 // switchCompares returns the type of the tag when n is an expression

@@ -79,6 +79,10 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 			"}",
 		),
 	},
+	{
+		"compared with signed types and each other",
+		targetWidth("if s < i64 && p >= i32 && s != p && i64 == p && s > u64 {", "}"),
+	},
 	{"guarded division", targetWidth("if s != 0 {", "    if u32 / s == 0 {", "    }", "}")},
 	{
 		"compound with a narrower value",
@@ -142,8 +146,8 @@ var rejectedTargetWidthCases = []struct {
 		spanned{"cannot use uint64 as unsafe_size_t in declaration of a", "s + u64"},
 	},
 	{
-		"size and int64", targetWidth("if s < i64 {", "}"),
-		spanned{"mismatched types unsafe_size_t and int64 in <", "s < i64"},
+		"size and int64 in arithmetic", targetWidth("if s + i64 == 0 {", "}"),
+		spanned{"mismatched types unsafe_size_t and int64 in +", "s + i64"},
 	},
 	{
 		"size and uintptr", targetWidth("if s * p == 0 {", "}"),

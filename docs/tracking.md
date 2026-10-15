@@ -84,7 +84,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Three-clause `for`         | yes   | yes    | yes     | yes | Go's rules; parts optional; init variable scoped to the loop; a counter is declared with `mut`; a counting loop proves its variable in the body |
 | `range` over an integer    | yes   | yes    | yes     | yes | `for i := range n`, `for range n`; `n` evaluated once; `i` a fresh immutable variable of `n`'s type           |
 | `range` over array/string/view | yes | yes  | yes     | yes | `for i, x := range a`, `_` index; evaluated once into a copy; `int64` index; string bytes `uint8`; a view's elements read in place |
-| `switch`                   | yes   | yes    | yes     | yes | Tagged and tagless; no fallthrough; `break`/`continue` act on the loop; no init statement; lowered to C ifs   |
+| `switch`                   | yes   | yes    | yes     | yes | Tagged and tagless; no fallthrough; `break`/`continue` act on the loop; no init statement; integer case values of any type, by value; lowered to C ifs   |
 | `break` / `continue`       | yes   | yes    | yes     | yes | Innermost loop only; no labels                                                                                |
 | Standalone blocks          | yes   | no     | no      | no  |                                                                                                               |
 | `defer`                    | yes   | yes    | yes     | yes | `defer { ... }` only, not in a defer; block-scoped, as in Zig; runs at block exit, last first; `exit` skips   |
@@ -101,7 +101,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `mut` arguments `mut x`           | yes   | yes    | yes     | yes     | Only to a `mut` parameter, of exactly its type; a place the caller may change; `&place` in C; ends the facts about the variable for its region                          |
 | Parentheses                       | yes   | yes    | yes     | yes     |                                                                                                                                                                         |
 | `+ - * / %`                       | yes   | yes    | yes     | yes     | Integer operands, widened to a common type; on known values, overflow is an error; otherwise it wraps at the type's width; divisor proven non-zero, or `q, ok := a / b` |
-| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | One type after widening: integers and strings all six, `bool`, arrays and structs `==` `!=` only; strings by unsigned bytes, folded only in a global's initializer       |
+| `== != < <= > >=`                 | yes   | yes    | yes     | yes     | Two integers of any types, all six, by value (`int64(-1) < uint64(0)`); otherwise one type after widening: strings all six, `bool`, arrays and structs `==` `!=` only; strings by unsigned bytes, folded only in a global's initializer |
 | `!`                               | yes   | yes    | yes     | yes     | `bool` operand only                                                                                                                                                     |
 | Unary `-`                         | yes   | yes    | yes     | yes     | Signed integer operands only; the smallest known value is an overflow error; `-` before digits is a negative literal                                                    |
 | Array literals `[n]T{...}`        | yes   | yes    | yes     | yes     | Exactly one element each; `[...]` from the elements; inner types may be left out                                                                                        |
@@ -123,8 +123,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 |------------------------------------|---------|-----|-------------------------------------------------------------------|
 | `int8` `int16` `int32` `int64`     | yes     | yes | Signed, `int8_t` to `int64_t`                                     |
 | `uint8` `uint16` `uint32` `uint64` | yes     | yes | Unsigned, `uint8_t` to `uint64_t`; no `byte`                      |
-| `unsafe_size_t` `unsafe_uintptr_t` | yes     | yes | Unsigned, the target's width (32 to 64 bits), `size_t` and `uintptr_t`; `uint8` to `uint32` widen in, they widen to `uint64`, not to each other; constants at most 4294967295; never an index |
-| Lossless widening                  | yes     | yes | Implicit wherever a value is used, when it holds on every target; no `int` |
+| `unsafe_size_t` `unsafe_uintptr_t` | yes     | yes | Unsigned, the target's width (32 to 64 bits), `size_t` and `uintptr_t`; `uint8` to `uint32` widen in, they widen to `uint64`, not to each other; constants at most 4294967295; compared with any integer by value; never an index |
+| Lossless widening                  | yes     | yes | Implicit wherever a value is used, when it holds on every target; not needed to compare two integers; no `int` |
 | `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes; all six comparisons, by unsigned bytes |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
 | Float types                        | no      | no  |                                                                   |

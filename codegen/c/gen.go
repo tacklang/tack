@@ -1786,9 +1786,15 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 		return fmt.Sprintf("(%s %s %s)", left, bin.Op, right), nil
 	}
 	operands := []ast.Expr{bin.X, bin.Y}
-	return g.sequenced(operands, []string{left, right}, func(ops []string) string {
+	build := func(ops []string) string {
 		return g.binaryOf(bin, ops[0], ops[1])
-	}), nil
+	}
+	if isIntComparison(bin) && needsOnce(ast.TypeOf(bin.X), ast.TypeOf(bin.Y)) {
+		// The comparison reads one operand twice and may skip the other,
+		// so each that is not pure is evaluated first, once, in order.
+		return g.hoist(operands, []string{left, right}, g.operandTypes(operands), build), nil
+	}
+	return g.sequenced(operands, []string{left, right}, build), nil
 }
 
 // binaryOf renders bin, other than && and ||, applied to its operands
@@ -1802,6 +1808,9 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 	}
 	if ast.TypeOf(bin.X) == types.String {
 		return stringComparison(bin.Op, left, right)
+	}
+	if isIntComparison(bin) {
+		return intComparison(bin.Op, ast.TypeOf(bin.X), ast.TypeOf(bin.Y), left, right)
 	}
 	// Parenthesised so that Tack's grouping survives regardless of how C
 	// would have parsed the same operators.

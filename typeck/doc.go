@@ -108,7 +108,9 @@
 // It is a known value wherever a constant is.
 // Typed integers combine through lossless widening (types.Widens): a value of
 // one type can be used where a type it widens to is expected, and an
-// operator on two integer types works in the one the other widens to.
+// arithmetic operator on two integer types works in the one the other
+// widens to. A comparison needs no common type: two integers of any types
+// compare by their values.
 //
 // The target-width types, unsafe_size_t and unsafe_uintptr_t, are as wide
 // as the target makes them, from 32 to 64 bits, and every rule about them
@@ -132,8 +134,9 @@
 // A divisor must be proven not zero where it is used, from facts: that a
 // variable is not zero within some region, learned from a condition just
 // tested. facts.go holds the rules, which are syntactic: a fact comes from
-// && || ! and comparisons with a known value (one side or the other of an
-// || that is true, or an && that is false, giving the union of what each
+// && || ! and comparisons with a known value, of the variable's type or
+// any other integer type, which bound the variable by value (one side or
+// the other of an || that is true, or an && that is false, giving the union of what each
 // side says about a variable both constrain), holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
@@ -168,8 +171,7 @@
 // comparing a field of a mutable variable, or bounding a variable used in a larger operand; the
 // element whose outer index alone v, ok := covers; the declaration of a
 // mutable global, whose error suggests only the checked form, since no
-// check proves it; and the operand to convert when a uint64 is compared
-// with len. Notes quote source text, so New takes the program's
+// check proves it. Notes quote source text, so New takes the program's
 // source.Files.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
 // always being true; only a divisor known to be zero is reported. A fact is
@@ -288,10 +290,16 @@
 //     Invalid, so nothing around it is reported again. Arithmetic on a
 //     value not known, a mutable variable's or a parameter's, wraps at run
 //     time and is not checked;
-//   - both operands of a comparison have one type, after widening, which
-//     supports the operator: an integer or a string supports all six, a
-//     bool, an array or a struct only == and !=. A mismatch, or an
-//     unsupported operator, is one error covering the whole comparison;
+//   - two integer operands of a comparison, of any types, compare by their
+//     values with all six operators, once an untyped constant has settled
+//     to the other operand's type, which it must fit, so int8(-1) < uint64(0)
+//     holds and u < -1, for a uint64 u, is an error. The facts such a
+//     comparison gives are about those values too. Any other operands have
+//     one type, after widening, which supports the operator: a string all
+//     six, a bool, an array or a struct only == and !=, an array or struct
+//     of integers included, whose element or field types must match. A
+//     mismatch, or an unsupported operator, is one error covering the whole
+//     comparison;
 //   - a divisor is proven not zero, or the division is bound with ok, and
 //     the quotient of two untyped constants bound with ok settles to the
 //     type of the variable it is assigned, or int64 where there is none;
@@ -326,7 +334,8 @@
 //     statements are checked like any other statement;
 //   - a switch's tag, an untyped constant being an int64, compares with each
 //     case value under the rules of ==, the value settling to the tag's
-//     type if it is an untyped constant, and in a tagless switch each case
+//     type if it is an untyped constant, and an integer value of any type
+//     comparing with an integer tag by value, and in a tagless switch each case
 //     value is a bool condition; two case values with the same known
 //     integer value, the same bool constant value, or two equal string
 //     literals, are a duplicate, reported with a note at the first;

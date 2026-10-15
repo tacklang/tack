@@ -134,9 +134,10 @@ const i386 = "i386-unknown-linux-gnu"
 // lowers them, and calls no builtin, so the C generated for it needs no C
 // library header, which a 32-bit target's may not be installed on the
 // host: checked conversions to and from every other integer type,
-// arithmetic, comparisons with wider and narrower types, widening, a
-// struct, an array, a switch, a range count, globals and a mut
-// parameter.
+// arithmetic, comparisons with wider and narrower types, and with signed
+// types and each other, by value, constants of other types included,
+// widening, a struct, an array, a switch, one with case values of other
+// integer types, a range count, globals and a mut parameter.
 const width32Program = `package main
 
 type B struct {
@@ -172,8 +173,23 @@ func compare(s unsafe_size_t, u uint64, u32 uint32, u8 uint8) bool {
     return s < u && s > u32 && s != u8 && w == u && s == 4294967295 && s / 2 == 1 && s % 3 == 0
 }
 
+func mixed(s unsafe_size_t, p unsafe_uintptr_t, i int64, i8 int8, u64 uint64) bool {
+    mut hits := 0
+    switch s {
+    case int64(-1), i8:
+        hits++
+    case p, i:
+        hits--
+    }
+    return s > i && s >= i8 && p != i && p < int64(9223372036854775807) && s != p &&
+        s <= u64 && i < s && i8 == p && s > int8(-1) && p == uint8(255) && hits == 0
+}
+
 func main() {
     mut b := B{n: 1, p: 2}
+    if mixed(b.n, b.p, -1, 3, 4) {
+        b.n = 0
+    }
     grow(mut b.n, 4294967295)
     a := [2]unsafe_uintptr_t{b.p, 3}
     count += a[1] * b.p - 1

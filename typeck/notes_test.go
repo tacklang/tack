@@ -947,30 +947,52 @@ var otherCauseCases = []noteCase{
 	},
 }
 
-// TestUint64ComparedWithLen checks the note on comparing a uint64 with
-// len, an int64, which says how to convert it.
-func TestUint64ComparedWithLen(t *testing.T) {
-	for _, tt := range []struct {
-		name, cond string
-		col        int
-	}{
-		{"on the left", "u < len(s)", 8},
-		{"on the right", "len(s) > u", 17},
+// TestMixedComparisonsProve checks that a comparison of integers of
+// different types gives the facts the same comparison of values would:
+// a uint64 below len(s), an int64, is a proven index into s, whichever
+// side it is written on, and a variable compared with a known value of
+// another type is bounded by that value, an unsigned one from below by
+// its type.
+func TestMixedComparisonsProve(t *testing.T) {
+	for _, src := range []string{
+		inF8("s string, u uint64", "if u < len(s) {", "    return s[u]", "}"),
+		inF8("s string, u uint64", "if len(s) > u {", "    return s[u]", "}"),
+		inF8("s string, u uint32", "if u >= len(s) {", "    return 0", "}", "return s[u]"),
+		inF2("a [3]int64, i int64", "if 0 <= i && i < uint64(3) {", "    return a[i]", "}"),
+		inF2("a [3]int64, i int8", "if uint8(0) <= i && i <= uint64(2) {", "    return a[i]", "}"),
+		inF2("a [3]int64, u uint64", "if u < int8(3) {", "    return a[u]", "}"),
+		inF2("n uint64, u uint64", "if u != int8(0) && n / u == 0 {", "    return 1", "}"),
+		inF2("n int64, i int16", "if i > uint8(0) {", "    return n / i", "}"),
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			expectNotes(
-				t,
-				inF8("s string, u uint64", "if "+tt.cond+" {", "    return 1", "}"),
-				"mismatched types "+map[bool]string{true: "uint64 and int64", false: "int64 and uint64"}[tt.col == 8]+
-					" in "+strings.Fields(tt.cond)[1],
-				wantNote{
-					"len gives an int64; convert u first with i, ok := int64(u)",
-					"u",
-					4,
-					tt.col,
-				},
-			)
-		})
+		if _, diags := checkTree(t, src); len(diags) > 0 {
+			t.Errorf("%s\ngot %v, want no diagnostics", src, diags)
+		}
+	}
+}
+
+// TestMixedComparisonsProveOnlyWhatTheyBound checks that the facts a
+// comparison of integers of different types gives are the values' facts
+// and no more: a signed variable below a uint64 may still be negative,
+// and u <= len(s) allows len(s) itself.
+func TestMixedComparisonsProveOnlyWhatTheyBound(t *testing.T) {
+	for _, tt := range []struct{ src, msg string }{
+		{
+			inF2("a [3]int64, i int64", "if i < uint64(3) {", "    return a[i]", "}"),
+			"index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]",
+		},
+		{
+			inF8("s string, u uint64", "if u <= len(s) {", "    return s[u]", "}"),
+			"index u may be out of range; check u < len(s) first, or use v, ok := ...[u]",
+		},
+		{
+			inF2("n int64, i int64", "if i >= uint64(0) {", "    return n / i", "}"),
+			"divisor i may be zero; check i != 0 first, or use q, ok := ... / i",
+		},
+	} {
+		_, diags := checkTree(t, tt.src)
+		if len(diags) == 0 || diags[0].Message != tt.msg {
+			t.Errorf("%s\ngot %v, want first %q", tt.src, diags, tt.msg)
+		}
 	}
 }
 

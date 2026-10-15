@@ -1,0 +1,431 @@
+package main
+
+// Each of the six comparisons sets its own bit in what six returns, so one
+// number says which of them held.
+var eq = 1
+
+var ne = 2
+
+var lt = 4
+
+var le = 8
+
+var gt = 16
+
+var ge = 32
+
+// trace records, one digit per call, the order operands were evaluated in.
+mut trace int64
+
+// minusOneIsLess is folded at compile time, by value.
+var minusOneIsLess = int64(-1) < uint64(0)
+
+// sameBits compares two values with the same bits but different values.
+var sameBits = int8(-1) == uint8(255)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// signed records d in trace and returns v.
+func signed(d int64, v int64) int64 {
+    trace = trace * 10 + d
+    return v
+}
+
+// unsigned records d in trace and returns v.
+func unsigned(d int64, v uint64) uint64 {
+    trace = trace * 10 + d
+    return v
+}
+
+// i64u64 returns which comparisons of a int64 with b uint64 held.
+func i64u64(a int64, b uint64) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// u64i64 is i64u64 with the unsigned operand on the left.
+func u64i64(a uint64, b int64) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// i8u8 returns which comparisons of a int8 with b uint8 held.
+func i8u8(a int8, b uint8) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// u32i32 returns which comparisons of a uint32 with b int32 held.
+func u32i32(a uint32, b int32) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// i16u64 returns which comparisons of a int16 with b uint64 held.
+func i16u64(a int16, b uint64) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// u8i32 returns which comparisons of a uint8 with b int32 held, a pair
+// that already had a common type, int32.
+func u8i32(a uint8, b int32) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// sizeI64 returns which comparisons of a unsafe_size_t with b int64 held.
+func sizeI64(a unsafe_size_t, b int64) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// i8ptr returns which comparisons of a int8 with b unsafe_uintptr_t held.
+func i8ptr(a int8, b unsafe_uintptr_t) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// sizePtr returns which comparisons of a unsafe_size_t with b
+// unsafe_uintptr_t held.
+func sizePtr(a unsafe_size_t, b unsafe_uintptr_t) int64 {
+    mut r := 0
+    if a == b {
+        r += eq
+    }
+    if a != b {
+        r += ne
+    }
+    if a < b {
+        r += lt
+    }
+    if a <= b {
+        r += le
+    }
+    if a > b {
+        r += gt
+    }
+    if a >= b {
+        r += ge
+    }
+    return r
+}
+
+// int64AndUint64 compares across the edges of int64 and uint64.
+func int64AndUint64() bool {
+    less := ne + lt + le
+    more := ne + gt + ge
+    same := eq + le + ge
+    return i64u64(-1, 0) == less && i64u64(-9223372036854775808, 18446744073709551615) == less &&
+        i64u64(9223372036854775807, 18446744073709551615) == less &&
+        i64u64(9223372036854775807, 9223372036854775807) == same &&
+        i64u64(9223372036854775807, 9223372036854775808) == less &&
+        i64u64(0, 0) == same && i64u64(1, 0) == more && i64u64(-1, 18446744073709551615) == less &&
+        u64i64(0, -1) == more && u64i64(18446744073709551615, 9223372036854775807) == more &&
+        u64i64(18446744073709551615, -1) == more && u64i64(5, 5) == same && u64i64(4, 5) == less
+}
+
+// narrowPairs compares int8 with uint8 and uint32 with int32, which share
+// a width, and int16 with uint64 and uint8 with int32, which do not.
+func narrowPairs() bool {
+    less := ne + lt + le
+    more := ne + gt + ge
+    same := eq + le + ge
+    return i8u8(-1, 255) == less && i8u8(-128, 255) == less && i8u8(-128, 0) == less &&
+        i8u8(127, 127) == same && i8u8(127, 128) == less && i8u8(0, 0) == same &&
+        u32i32(4294967295, -1) == more && u32i32(2147483648, 2147483647) == more &&
+        u32i32(0, -2147483648) == more && u32i32(7, 7) == same &&
+        i16u64(-32768, 0) == less && i16u64(32767, 32767) == same &&
+        i16u64(-1, 18446744073709551615) == less && u8i32(255, -1) == more && u8i32(3, 3) == same
+}
+
+// targetWidths compares the target-width types with signed types and with
+// each other, using the largest unsafe_size_t, whatever the target's
+// width.
+func targetWidths() bool {
+    less := ne + lt + le
+    more := ne + gt + ge
+    same := eq + le + ge
+    mut m unsafe_size_t = 0
+    m -= 1
+    return sizeI64(0, -1) == more && sizeI64(m, -1) == more &&
+        sizeI64(m, -9223372036854775808) == more && sizeI64(4294967295, 4294967295) == same &&
+        sizeI64(0, 9223372036854775807) == less && i8ptr(-128, 0) == less && i8ptr(5, 5) == same &&
+        i8ptr(127, 4294967295) == less && sizePtr(5, 5) == same && sizePtr(0, 1) == less &&
+        sizePtr(m, 0) == more
+}
+
+// knownValues compares conversions and immutable variables holding known
+// values, and globals folded at compile time.
+func knownValues() bool {
+    x := int8(-1)
+    y := uint8(255)
+    big := uint64(18446744073709551615)
+    small := int64(-9223372036854775808)
+    return minusOneIsLess && !sameBits && x != y && x < y && big > small && !(big == small) &&
+        int64(-1) < uint64(0) && uint64(18446744073709551615) > int64(9223372036854775807)
+}
+
+// evaluationOrder checks both operands of a mixed comparison are evaluated
+// exactly once, left to right, even when the signed one is negative and
+// decides the result alone.
+func evaluationOrder() bool {
+    trace = 0
+    a := signed(1, -1) < unsigned(2, 0)
+    first := trace
+    trace = 0
+    b := unsigned(1, 0) == signed(2, -1)
+    second := trace
+    trace = 0
+    c := unsigned(1, 18446744073709551615) >= signed(2, 9223372036854775807)
+    third := trace
+    trace = 0
+    d := signed(1, -5) > unsigned(2, 3) || signed(3, 2) <= unsigned(4, 2)
+    fourth := trace
+    return a && first == 12 && !b && second == 12 && c && third == 12 && d && fourth == 1234
+}
+
+// at returns the byte of s at u, which the comparison of a uint64 with
+// len(s) proves in range, or 0.
+func at(s string, u uint64) uint8 {
+    if u < len(s) {
+        return s[u]
+    }
+    return 0
+}
+
+// guardOnLen indexes a string by a uint64 checked against its length.
+func guardOnLen() bool {
+    return at("tack", 1) == 'a' && at("tack", 3) == 'k' && at("tack", 4) == 0 &&
+        at("tack", 18446744073709551615) == 0 && at("", 0) == 0
+}
+
+// table is indexed below by a value bounded by a uint64 it is compared
+// with.
+var table = [3]int64{10, 20, 30}
+
+// bounded reads table[i] when 0 <= i and i is below the known uint64
+// limit, which bounds it by value.
+func bounded(i int64) int64 {
+    limit := uint64(3)
+    if 0 <= i && i < limit {
+        return table[i]
+    }
+    return -1
+}
+
+// facts checks a mixed comparison with a known value bounds a variable by
+// value.
+func facts() bool {
+    return bounded(0) == 10 && bounded(2) == 30 && bounded(3) == -1 && bounded(-1) == -1 &&
+        bounded(-9223372036854775808) == -1
+}
+
+// kind says which case a switch on an int64 tag with uint64 values takes.
+func kind(n int64, u uint64) int64 {
+    switch n {
+    case uint64(18446744073709551615):
+        return 1
+    case u:
+        return 2
+    case uint8(255):
+        return 3
+    default:
+        return 4
+    }
+}
+
+// byteKind says which case a switch on a uint8 tag with signed values
+// takes.
+func byteKind(b uint8) int64 {
+    switch b {
+    case int8(-1):
+        return 1
+    case int16(255):
+        return 2
+    case int64(-2), int32(0):
+        return 3
+    default:
+        return 4
+    }
+}
+
+// switches checks a switch compares its tag with values of other integer
+// types by value, and evaluates the values left to right, once each, up to
+// the first match.
+func switches() bool {
+    trace = 0
+    mut order int64 = 0
+    switch unsigned(1, 3) {
+    case signed(2, -3):
+        order = 1
+    case signed(3, 3), signed(4, 3):
+        order = 2
+    }
+    return kind(-1, 18446744073709551615) == 4 && kind(5, 5) == 2 && kind(255, 0) == 3 &&
+        byteKind(255) == 2 && byteKind(0) == 3 && byteKind(7) == 4 && order == 2 && trace == 123
+}
+
+// main runs every check.
+func main() {
+    check(int64AndUint64(), "int64 and uint64")
+    check(narrowPairs(), "narrow pairs")
+    check(targetWidths(), "target widths")
+    check(knownValues(), "known values")
+    check(evaluationOrder(), "evaluation order")
+    check(guardOnLen(), "guard on len")
+    check(facts(), "facts")
+    check(switches(), "switches")
+}

@@ -53,6 +53,19 @@
 // as its operators; one too large for an int64 gets a u suffix. A character
 // literal is written as its byte's value, a plain C int literal; arithmetic
 // on it is uint8 arithmetic, lowered like any other.
+//
+// Two integers of any types compare by their values (compare.go), where
+// C's usual arithmetic conversions would make -1 < 0u false. Two operands
+// of one type compare as they are; two of different types are each cast,
+// to uint64_t when both are unsigned and to int64_t when both are signed
+// or the unsigned one has at most 32 bits, so that every value of both
+// survives and clang cannot tell a comparison with a constant is always
+// true or false. A signed s and a uint64 or target-width u test the sign
+// first, s < u being (s < 0 || (uint64_t)s < (uint64_t)u), which reads s
+// twice and may skip u, so each operand that is not pure is held in a
+// temporary first, in order, whether or not the order could otherwise
+// show (see the evaluation order below). A switch compares its tag with a
+// case value of another integer type the same way.
 // A string is a tack_string, a struct holding a pointer and a length and
 // passed by value, so a string is one value that can be passed and returned
 // like any other.
@@ -306,7 +319,8 @@
 // leave the switch where Tack's leaves the loop around it, and which cannot
 // take a string, an array or a struct. An expression switch holds its tag in
 // a const temporary, in a C block of its own, and a case tests it against
-// each value with ==, or the type's equality helper, joined with ||, so the
+// each value with ==, or the type's equality helper, or by value for an
+// integer of another type, joined with ||, so the
 // values are evaluated left to right and no further than the first match;
 // the default is the final else. A tag that no case tests is evaluated,
 // cast to void. A switch on a string, an array or a struct counts as
@@ -329,7 +343,10 @@
 // not pure is assigned, left to right, to a temporary of its own type
 // with C's comma operator, and the operation reads the temporaries:
 // f(g(), h()) becomes (tack_o0 = g(), tack_o1 = h(), f(tack_o0, tack_o1)).
-// Otherwise nothing is held, since no order could be seen. The
+// Otherwise nothing is held, since no order could be seen, except in a
+// comparison of a signed integer with a uint64 or target-width one, which
+// holds every operand that is not pure, since it reads one twice and may
+// skip the other. The
 // temporaries are declared, uninitialized, at the top of the function, so
 // they work inside any expression, a loop's condition and the right side
 // of && included, and no goto can skip their declaration. A switch, a

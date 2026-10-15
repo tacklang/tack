@@ -168,6 +168,29 @@ var acceptedSwitches = []struct {
 		"same call twice",
 		inF("switch n {", "case f(1, 2, 3, s, a), f(1, 2, 3, s, a):", "}", "return 0"),
 	},
+	{
+		"integer values of a type with no common type",
+		inF("var u uint64 = 1", "switch n {", "case u, uint8(2), int8(-1):", "}", "return 0"),
+	},
+	{
+		"signed and unsigned of one width",
+		inF("var b int8 = 1", "var c uint8 = 1", "switch b {", "case c:", "}", "return 0"),
+	},
+	{
+		"target-width values on a signed tag",
+		inF(
+			"var z unsafe_size_t = 1",
+			"var p unsafe_uintptr_t = 2",
+			"switch n {",
+			"case z, p:",
+			"}",
+			"return 0",
+		),
+	},
+	{
+		"same value of two types",
+		inF("switch n {", "case uint8(255):", "case int16(-255):", "}", "return 0"),
+	},
 }
 
 // TestAcceptsSwitches checks well-formed switches, and what their cases
@@ -218,16 +241,6 @@ var rejectedSwitches = []struct {
 		[]switchError{
 			{"mismatched types [4]int64 and [3]int64 in switch case", "[3]int64{1, 2, 3}"},
 		},
-	},
-	{
-		"no common integer type",
-		inF("var u uint64 = 1", "switch n {", "case u:", "}", "return 0"),
-		[]switchError{{"mismatched types int64 and uint64 in switch case", "u"}},
-	},
-	{
-		"signed and unsigned of one width",
-		inF("var b int8 = 1", "var c uint8 = 1", "switch b {", "case c:", "}", "return 0"),
-		[]switchError{{"mismatched types int8 and uint8 in switch case", "c"}},
 	},
 	{
 		"constant overflows the tag",

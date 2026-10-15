@@ -30,14 +30,18 @@ import (
 //   - a condition gives facts through && (when true), || (when false), !,
 //     and comparisons of a variable with a known value: b != 0, i >= 0,
 //     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
-//     one is never negative. || when true and && when false give what
+//     one is never negative. Integers of any two types compare by their
+//     values, so the known value, whatever its type, bounds the variable's
+//     value, which no comparison wraps: after i < uint64(3), an int64 i
+//     is at most 2 and may still be negative. || when true and && when false give what
 //     both sides agree on, the union of their facts, for each variable
 //     both sides constrain;
 //   - the length of a string parameter or mutable variable has no known
 //     value (an immutable one holding a known string has; see
 //     knownString), so two more comparisons give facts: len(s) with a known value bounds the length,
 //     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
-//     over len(s), or over s itself, does its index. A fact that names s
+//     over len(s), or over s itself, does its index, whatever i's integer
+//     type, a uint64 included. A fact that names s
 //     holds only in a region that assigns neither variable; s may be
 //     mutable, since the region then never changes it.
 

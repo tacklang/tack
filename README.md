@@ -498,10 +498,12 @@ makes for itself, which has a letter after `tack_`.
   `break` leaves. The rule is syntactic, so a call that never comes back
   does not satisfy it.
 - Switches. `switch x { case 1, 2: ... case y: ... default: ... }` compares
-  the tag `x` with each case's values using `==`, under its rules: the
-  values have a common type with the tag, one widening to the other, an
-  untyped constant takes the tag's type, and strings, bools, arrays and
-  structs compare as `==` compares them. A tag that is an untyped constant
+  the tag `x` with each case's values using `==`, under its rules: an
+  untyped constant takes the tag's type, which it must fit, an integer
+  value of any type compares with an integer tag by value, so
+  `case int8(-1)` never matches a `uint8` tag of 255, other values have a
+  common type with the tag, one widening to the other, and strings, bools,
+  arrays and structs compare as `==` compares them. A tag that is an untyped constant
   is an `int64`. `switch { case c1, c2: ... }`, with no tag, takes each
   value as a `bool` condition, and a case matches when any of its
   conditions holds. The tag is evaluated once, before any case. Cases are
@@ -731,10 +733,23 @@ makes for itself, which has a letter after `tack_`.
   `var m int8 = 127`, `m + 1` is an error, while after `mut m int8 = 127`
   the same `m + 1` is `-128`, since a mutable variable's value is never
   known.
-  A comparison takes two
-  operands of one type, after the same widening: two integers or two
-  strings with any of the six, or two `bool`s, arrays or structs with `==`
-  and `!=`. Strings compare byte by byte, each byte unsigned, as in Go: a
+  A comparison of two integers takes any two integer types, the
+  target-width ones included, with any of the six operators, and compares
+  their values, with no common type needed: `int64(-1) < uint64(0)` and
+  `uint64(18446744073709551615) > int64(9223372036854775807)` hold, and
+  `int8(-1) == uint8(255)` does not. C differs: there, `-1 < 0u` is
+  false, since the signed operand is converted to the unsigned type
+  first. An untyped constant still
+  takes the other operand's type and must fit it, so `u < -1`, for a
+  `uint64` `u`, is `constant -1 overflows uint64`, as `var u uint64 = -1`
+  is. Only comparisons compare across types: arithmetic, assignments and
+  arguments still need the widening rule, so `a + b` after `a < b`, for an
+  `int64` `a` and a `uint64` `b`, is still
+  `mismatched types int64 and uint64 in +`. Any other comparison takes two
+  operands of one type, after the same widening: two strings with any of
+  the six, or two `bool`s, arrays or structs with `==` and `!=`, an array
+  or a struct of integers needing the same element or field types, so
+  `[2]int8` and `[2]uint8` do not compare. Strings compare byte by byte, each byte unsigned, as in Go: a
   proper prefix is less, so the empty string is least, a zero byte is a
   byte like any other, and a byte from 0x80 up sorts after every ASCII
   byte, so `"é" > "z"`. Nothing is allocated. Inside a function, a
@@ -828,6 +843,8 @@ makes for itself, which has a letter after `tack_`.
   valid on a 32-bit one. `uint8`, `uint16` and `uint32` widen into either
   of them, and either widens into `uint64`; nothing else widens into or
   out of them, no signed type, not `int64`, and not one into the other.
+  They still compare with every integer type, each other included, by
+  value, as every integer does.
   A constant of one, a literal or any step of a constant expression made
   of literals, conversions and operators, or a package-level variable's
   initializer, must lie between 0 and 4294967295, the most every target
@@ -893,10 +910,9 @@ makes for itself, which has a letter after `tack_`.
   `len(s) >= 1` and `len(s) != 0`. These hold only where neither the index
   nor the string is assigned; the string may be `mut`. A mutable
   package-level string never gets a proof. An unsigned index needs only
-  the upper bound. A `uint64` index cannot be compared with `len(s)` or
-  `len(a)`, an `int64`, since `uint64` and `int64` have no common type; this
-  is intended, not a gap. Convert it first, `i, ok := int64(u)`, and prove
-  `i`, or use the two-value form.
+  the upper bound. Any integer index compares with `len(s)` or `len(a)`,
+  an `int64`, by value (see comparisons), so for a `uint64` `u`,
+  `if u < len(s)` proves `s[u]`.
 - `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
   division), and `len(v)` the number of elements of a view, never known;
@@ -907,7 +923,9 @@ makes for itself, which has a letter after `tack_`.
   either kind. For a target-width type that must hold at every width it
   can have: `uint8`, `uint16` and `uint32` in either, and either in
   `uint64`, but neither in the other. That holds for assignments, arguments, results and the
-  operands of an operator alike. Any other change of type is a conversion.
+  operands of an arithmetic operator alike. A comparison needs no such
+  type: two integers of any types compare by their values (see
+  comparisons). Any other change of type is a conversion.
 - Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
   allowed only where it cannot fail: `x` is a constant, or a known value (see
   division), that is a value of `T`, as `uint8(x)` after `x := 5` or

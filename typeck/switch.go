@@ -114,9 +114,11 @@ func (c *Checker) checkCaseValues(
 
 // checkCaseValue checks a value of an expression switch whose tag has type
 // tagType, under the rules of ==: an untyped constant takes the tag's type
-// if it is an integer type, and the two types must then have a common
-// type, one widening to the other, that == is defined on. It reports
-// whether the value can be compared with the tag.
+// if it is an integer type, which it must fit; an integer value of any
+// type then compares with an integer tag by value, and any other value
+// must have a common type with the tag, one widening to the other, that ==
+// is defined on. It reports whether the value can be compared with the
+// tag.
 func (c *Checker) checkCaseValue(tagType types.Type, v ast.Expr) bool {
 	got := c.expr(v)
 	if tagType == types.Invalid || got == types.Invalid {
@@ -125,6 +127,9 @@ func (c *Checker) checkCaseValue(tagType types.Type, v ast.Expr) bool {
 	got = c.untypedAs(v, got, tagType)
 	if got == types.Invalid {
 		return false
+	}
+	if types.IsInteger(tagType) && types.IsInteger(got) {
+		return true
 	}
 	common, ok := commonType(tagType, got)
 	if !ok {

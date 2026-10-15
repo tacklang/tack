@@ -455,7 +455,7 @@ static void tack_4_main4_main(void) {
     const int8_t v_small = (-128);
     {
         const int64_t tack_s21 = (-128);
-        if (tack_s21 == v_small) {
+        if ((int64_t)tack_s21 == (int64_t)v_small) {
             v_hit = ((int64_t)((uint64_t)v_hit + (uint64_t)1));
         }
     }

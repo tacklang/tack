@@ -714,23 +714,6 @@ func (c *Checker) outerIndexNote(ix *ast.Index) []diag.Diagnostic {
 		" is checked; "+c.text(ix.Span)+" needs its own proof")}
 }
 
-// lenNote returns the note on cmp, a comparison of operands of types x and
-// y that have no common type, when one side is len, an int64, and the
-// other's type is unsigned: it says how to convert that side.
-func (c *Checker) lenNote(cmp *ast.Binary, x, y types.Type) []diag.Diagnostic {
-	operand := cmp.X
-	switch {
-	case isLenCall(cmp.Y) && types.IsUnsigned(x):
-	case isLenCall(cmp.X) && types.IsUnsigned(y):
-		operand = cmp.Y
-	default:
-		return nil
-	}
-	text := c.text(operand.Spanned())
-	return []diag.Diagnostic{note(operand.Spanned(),
-		"len gives an int64; convert "+text+" first with i, ok := int64("+text+")")}
-}
-
 // isLenCall reports whether e is a call to the builtin len.
 func isLenCall(e ast.Expr) bool {
 	call, ok := e.(*ast.Call)

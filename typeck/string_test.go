@@ -253,7 +253,7 @@ var unprovenStringIndexCases = []struct {
 		"uint64 index",
 		stringing("return s[w]"),
 		spanned{
-			"index w may be out of range; convert w first with i, ok := int64(w), or use v, ok := ...[w]",
+			"index w may be out of range; check w < len(s) first, or use v, ok := ...[w]",
 			"w",
 		},
 	},

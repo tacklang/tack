@@ -23,11 +23,17 @@ func (g *generator) sequenced(
 	rendered []string,
 	build func([]string) string,
 ) string {
+	return g.sequencedAs(operands, rendered, g.operandTypes(operands), build)
+}
+
+// operandTypes returns the C type of a temporary holding each of
+// operands, as operandType gives it.
+func (g *generator) operandTypes(operands []ast.Expr) []string {
 	ctypes := make([]string, len(operands))
 	for i, e := range operands {
 		ctypes[i] = g.operandType(e)
 	}
-	return g.sequencedAs(operands, rendered, ctypes, build)
+	return ctypes
 }
 
 // sequencedAs is sequenced for operands whose rendered values have the C
@@ -42,6 +48,21 @@ func (g *generator) sequencedAs(
 	if !g.orderShows(operands) {
 		return build(rendered)
 	}
+	return g.hoist(operands, rendered, ctypes, build)
+}
+
+// hoist returns the C expression build makes of operands, already
+// rendered as rendered, with every operand that is not pure assigned to a
+// temporary of the C type in ctypes first, in order, with C's comma
+// operator, and given to build in its place, whether or not the order
+// could show. A pure operand is passed as rendered, since reading it
+// again, or not at all, changes nothing. With no operand to hold, it is
+// build's expression alone.
+func (g *generator) hoist(
+	operands []ast.Expr,
+	rendered, ctypes []string,
+	build func([]string) string,
+) string {
 	args := slices.Clone(rendered)
 	steps := make([]string, 0, len(operands)+1)
 	for i, e := range operands {
@@ -52,6 +73,9 @@ func (g *generator) sequencedAs(
 		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", ctypes[i], t))
 		steps = append(steps, fmt.Sprintf("%s = %s", t, rendered[i]))
 		args[i] = t
+	}
+	if len(steps) == 0 {
+		return build(args)
 	}
 	return "(" + strings.Join(append(steps, build(args)), ", ") + ")"
 }

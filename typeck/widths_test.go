@@ -133,6 +133,20 @@ var integerWidthCases = []struct{ name, src string }{
 		"checked conversion to the same type",
 		withSized("a, ok := int8(i8)", "if ok {", "    exit(a)", "}"),
 	},
+	{
+		"comparisons of every signed and unsigned pair",
+		withSized(
+			"if u32 == i32 || i8 < u8 || u64 >= i64 || i16 != u16 || u8 > i8 || i64 <= u64 {",
+			"}",
+		),
+	},
+	{
+		"comparisons with known values of other types",
+		withSized(
+			"if u64 > int64(-1) && i8 < uint64(18446744073709551615) && u8 != int8(-1) {",
+			"}",
+		),
+	},
 }
 
 // TestAcceptsIntegerWidths checks each of integerWidthCases has no
@@ -198,11 +212,6 @@ var widthErrorCases = []struct {
 		"uint64 with int64",
 		withSized("exit(u64 + i64)"),
 		[]spanned{{"mismatched types uint64 and int64 in +", "u64 + i64"}},
-	},
-	{
-		"mismatched comparison",
-		withSized("if u32 == i32 {", "}"),
-		[]spanned{{"mismatched types uint32 and int32 in ==", "u32 == i32"}},
 	},
 	{
 		"narrowing declaration",

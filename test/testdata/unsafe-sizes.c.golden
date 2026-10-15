@@ -114,7 +114,7 @@ static bool tack_4_main8_widenOut(size_t p_s, uintptr_t p_p) {
 static bool tack_4_main11_commonTypes(uint32_t p_c, size_t p_s, uint64_t p_w) {
     const size_t v_sum = ((size_t)((uint64_t)p_c + (uint64_t)p_s));
     const uint64_t v_wide = ((uint64_t)((uint64_t)p_s + (uint64_t)p_w));
-    return (((((v_sum == 3) && (v_wide == 12)) && (p_c < p_s)) && (p_s < p_w)) && (p_w > p_c));
+    return (((((v_sum == 3) && (v_wide == 12)) && ((uint64_t)p_c < (uint64_t)p_s)) && ((uint64_t)p_s < (uint64_t)p_w)) && ((uint64_t)p_w > (uint64_t)p_c));
 }
 
 static bool tack_4_main9_convertOk(uint64_t p_big, size_t p_s) {

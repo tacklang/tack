@@ -1341,6 +1341,47 @@ func TestBuiltViewsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// mixedCompareWant is what examples/mixed-compare prints when every check
+// passes.
+var mixedCompareWant = "int64 and uint64 ok\n" +
+	"narrow pairs ok\n" +
+	"target widths ok\n" +
+	"known values ok\n" +
+	"evaluation order ok\n" +
+	"guard on len ok\n" +
+	"facts ok\n" +
+	"switches ok\n"
+
+// TestBuiltMixedComparePassesEveryCheck builds examples/mixed-compare at
+// every optimization level and checks each binary passes every check:
+// comparisons between integers of different types, signed and unsigned,
+// of the same width and of different ones, the target-width types
+// included, give what the operands' values say, at the edges of each
+// type, -1 against the largest uint64 and int8 -1 against uint8 255
+// among them; known values and globals folded at compile time agree;
+// both operands are evaluated exactly once, left to right; a uint64
+// checked against len(s) indexes s; a mixed comparison with a known
+// value bounds a variable by value; and a switch compares its tag with
+// values of other integer types the same way. Each check prints its name
+// and "ok", or "FAIL".
+func TestBuiltMixedComparePassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "mixed-compare")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("mixed-compare"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != mixedCompareWant || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, mixedCompareWant)
+			}
+		})
+	}
+}
+
 // The strcmp example compares strings with all six operators: by content,
 // a proper prefix less, the empty string least, embedded zero bytes and
 // bytes from 0x80 up compared as unsigned bytes, strings returned by calls,

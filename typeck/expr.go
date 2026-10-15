@@ -636,35 +636,41 @@ func (c *Checker) foldArithmetic(bin *ast.Binary) types.Type {
 	return types.UntypedInt
 }
 
-// comparison checks a comparison of operands of types x and y. They must
-// have one type, after an untyped constant takes the other's or two integer
-// types widen to the wider, and that type must support the operator: an
-// integer or a string supports all six, a bool, an array or a struct only
-// == and !=. A mismatch, or an unsupported operator, is one error covering
-// the whole comparison. Two untyped constants are compared exactly, and the
-// result recorded on bin; two string literals are not folded, and are
-// compared at run time.
+// comparison checks a comparison of operands of types x and y. Two
+// integers, of any types, compare by their values, with all six operators,
+// once an untyped constant has taken the other operand's type, which it
+// must fit: int8(-1) < uint64(0) holds. Any other operands must have one
+// type, and that type must support the operator: a string supports all
+// six, a bool, an array or a struct only == and !=. A mismatch, or an
+// unsupported operator, is one error covering the whole comparison. Two
+// untyped constants are compared exactly, and the result recorded on bin;
+// two string literals are not folded, and are compared at run time.
 func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 	if x == types.Invalid || y == types.Invalid {
 		return
 	}
 	if x == types.UntypedInt && y == types.UntypedInt {
-		a, _ := constValue(bin.X)
-		b, _ := constValue(bin.Y)
-		bin.Const = compare(bin.Op, a.Cmp(b))
+		foldComparison(bin)
 		return
 	}
 
 	x, y = c.untypedAs(bin.X, x, y), c.untypedAs(bin.Y, y, x)
-	if x == types.Invalid || y == types.Invalid {
+	if x == types.Invalid || y == types.Invalid || types.IsInteger(x) && types.IsInteger(y) {
 		return
 	}
+	c.comparisonOfOneType(bin, x, y)
+}
+
+// comparisonOfOneType checks a comparison of operands of types x and y,
+// not both integers, which must have one type, after widening, that
+// supports the operator, and reports a mismatch or an unsupported operator
+// as one error covering the whole comparison.
+func (c *Checker) comparisonOfOneType(bin *ast.Binary, x, y types.Type) {
 	common, ok := commonType(x, y)
 	switch {
 	case !ok:
-		c.errorNotes(
+		c.errorf(
 			bin.Span,
-			c.lenNote(bin, x, y),
 			"mismatched types %s and %s in %s",
 			c.typeName(x),
 			c.typeName(y),
@@ -673,6 +679,14 @@ func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 	case !c.supports(common, bin.Op):
 		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.typeName(common))
 	}
+}
+
+// foldComparison compares bin's two untyped constant operands exactly, and
+// records the result on bin.
+func foldComparison(bin *ast.Binary) {
+	a, _ := constValue(bin.X)
+	b, _ := constValue(bin.Y)
+	bin.Const = compare(bin.Op, a.Cmp(b))
 }
 
 // untypedAs settles operand, of type got, to the type other of the operand

@@ -303,13 +303,9 @@ func (c *Checker) indexError(
 }
 
 // boundsAdvice returns what to do first to prove i, a subject called name,
-// below bound: check it, unless i is a uint64 and bound is len of a
-// string, an int64 a uint64 cannot be compared with, when i must be
-// converted first.
+// below bound: check it. Any integer compares with bound by value, so the
+// check is the same whatever i's type.
 func boundsAdvice(i ast.Expr, name, bound string) string {
-	if ast.TypeOf(i) == types.Uint64 && strings.HasPrefix(bound, "len(") {
-		return "convert " + name + " first with i, ok := int64(" + name + ")"
-	}
 	return "check " + inBounds(i, name, bound) + " first"
 }
 

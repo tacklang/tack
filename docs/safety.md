@@ -225,10 +225,14 @@ The conditions that give facts are:
 
 - a comparison of the variable with a known value, either way round:
   `b != 0`, `b > 0`, `b <= -1`, `b == 4`, `0 <= i`, `i < len(a)`,
-  `i <= len(a) - 1` (for an array, whose length is known);
+  `i <= len(a) - 1` (for an array, whose length is known). The known
+  value may be of any integer type, since two integers compare by their
+  values: `i < uint64(3)` bounds an `int64` `i` at 2, and says nothing of
+  its lower bound, so it may still be negative;
 - for a string variable `s`: `len(s)` compared with a known value, which
   bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
-  `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it;
+  `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it,
+  whatever `i`'s integer type, a `uint64` included;
   the same for a view `v`, `len(v) > 0` and `i < len(v)`;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
   gives the facts of both sides being false; `!c` swaps true and false;
@@ -410,9 +414,9 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable | an element in a path is proven only at a known index or an immutable name's |
 | <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | the same                                                                |
+| <!-- case: mixed-compare-no-lower-bound -->`if i < limit { a[i] }` with `limit := uint64(3)` and `i` an `int64` | a comparison bounds `i` by value, here only above; `i` may be negative |
 | <!-- case: safety-no-proof-string-len-minus-one -->`if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
 | <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
-| <!-- case: safety-no-proof-unsigned-len -->`if u < len(s)` with `u` a `uint64`          | `uint64` and `int64` have no common type, so the comparison is an error; convert first with `i, ok := int64(u)`. The index under it is not reported as well: an error that follows from one already reported never is |
 | <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
 | <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
 | <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |
@@ -448,13 +452,13 @@ the block had it been a `return`; at a counting loop's step that could
 wrap; at a guard on a field of a mutable variable, or on the length of
 one, <!-- note: note-field-len-guard -->`this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
 or on a variable used inside a larger divisor or index; and, in `v, ok := m[i][j]`, at the element whose outer index
-alone the checked form covers. Two do not need a guard: the declaration of
-a mutable global, and, on comparing a `uint64` with `len`, the operand to
-convert: <!-- note: safety-no-proof-unsigned-len -->`len gives an int64; convert u first with i, ok := int64(u)`.
-An unproven `uint64` index into a string gets the same advice in its
-error: <!-- error: string-index-uint64 -->`index u may be out of range; convert u first with i, ok := int64(u), or use v, ok := ...[u]`.
-A target-width index is an error whatever proves it, in either form, with
-the same advice: <!-- error: unsafe-index-array -->`index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
+alone the checked form covers. One does not need a guard: the declaration of
+a mutable global. An unproven unsigned index into a string is told to
+check only the upper bound, whatever its width, since any integer
+compares with `len(s)` by
+value: <!-- error: string-index-uint64 -->`index u may be out of range; check u < len(s) first, or use v, ok := ...[u]`.
+A target-width index is an error whatever proves it, in either form,
+even after `s < len(a)`, which compiles: <!-- error: unsafe-index-array -->`index cannot be unsafe_size_t; convert it first with i, ok := int64(s)`.
 
 ## Per operation
 
@@ -638,6 +642,19 @@ func at(s string, i int64) uint8 {
 func first(s string) uint8 {
     if len(s) > 0 {
         return s[0]
+    }
+    return 0
+}
+```
+
+An unsigned index needs only the upper bound, and a `uint64` one compares
+with `len(s)` by value like any other:
+
+<!-- example: mixed-compare -->
+```tack
+func at(s string, u uint64) uint8 {
+    if u < len(s) {
+        return s[u]
     }
     return 0
 }
