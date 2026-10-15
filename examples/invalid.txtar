@@ -543,6 +543,63 @@ builtin-as-value/main.tck:4:10: error: print returns no value
    |	         ^~~~~~~~~~
 05 |	}
 
+-- builtin-len-assign-two-values/main.tck --
+package main
+
+func main() {
+    mut n int64 = 0
+    mut ok bool = false
+    n, ok = len("ab")
+    if ok {
+        exit(n)
+    }
+}
+-- builtin-len-assign-two-values/expected --
+stage: typeck
+---
+
+builtin-len-assign-two-values/main.tck:6:5: error: assignment mismatch: 2 variables but len returns 1 value
+05 |	    mut ok bool = false
+06 |	    n, ok = len("ab")
+   |	    ^~~~~~~~~~~~~~~~~
+07 |	    if ok {
+
+-- builtin-len-two-values/main.tck --
+package main
+
+func main() {
+    n, ok := len("ab")
+    if ok {
+        exit(n)
+    }
+}
+-- builtin-len-two-values/expected --
+stage: typeck
+---
+
+builtin-len-two-values/main.tck:4:5: error: assignment mismatch: 2 variables but len returns 1 value
+03 |	func main() {
+04 |	    n, ok := len("ab")
+   |	    ^~~~~~~~~~~~~~~~~~
+05 |	    if ok {
+
+-- builtin-no-value-two-values/main.tck --
+package main
+
+func main() {
+    a, b := print("x")
+    exit(a + b)
+}
+-- builtin-no-value-two-values/expected --
+stage: typeck
+---
+
+builtin-no-value-two-values/main.tck:4:5: error: assignment mismatch: 2 variables but print returns no value
+03 |	func main() {
+04 |	    a, b := print("x")
+   |	    ^~~~~~~~~~~~~~~~~~
+05 |	    exit(a + b)
+
 -- builtin-override/main.tck --
 package main
 

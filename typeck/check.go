@@ -503,16 +503,26 @@ func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
 }
 
 // callResults checks a call bound to want names: its callee must declare
-// exactly that many results.
+// exactly that many results. The builtin len gives one value; every other
+// builtin gives none. A len call whose arguments are wrong was reported by
+// lenCall, and is not reported again.
 func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
-	c.checkCall(call)
+	var results []types.Type
+	if isLen(call) {
+		typ := c.lenCall(call)
+		if typ == types.Invalid {
+			return nil, false
+		}
+		results = []types.Type{typ}
+	} else {
+		c.checkCall(call)
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil, false
 	}
 
-	// A builtin's Def is a nil *Func, and a builtin returns nothing.
-	var results []types.Type
+	// Any other builtin's Def is a nil *Func, and it returns nothing.
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
 		results = fn.ResultTypes
 	}
