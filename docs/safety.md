@@ -447,6 +447,13 @@ under the `i` of `i++`,
 and <!-- note: safety-no-proof-loop-assigns -->`this guard would bound i only above; i may be negative`.
 An operation no guard mentions keeps its error alone.
 
+An unsigned index is never negative, so no note explains a lower bound on
+it: not that a guard bounds it only above, and not that a lower bound it
+was given does not hold. For
+<!-- case: unsafe-index-loop-unbounded -->`for mut i unsafe_size_t = 2; i <= n; i++ { total += a[i] }`
+the error stands alone, though the loop's step could wrap `i` on a 32-bit
+target, because what is missing is a bound below `len(a)`.
+
 Other notes point at a branch that ends in `exit`, which would have left
 the block had it been a `return`; at a counting loop's step that could
 wrap; at a guard on a field of a mutable variable, or on the length of

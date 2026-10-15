@@ -154,20 +154,24 @@ func note(span ast.Span, msg string) diag.Diagnostic {
 
 // proof is a missing proof to explain: about, the subject the facts that
 // could prove it are about; proven, which runs the proof again; claim,
-// which says what some facts about the variable prove; and weak, which
+// which says what some facts about the variable prove; weak, which
 // explains why facts that do not prove it fall short, phrased as what they
-// would do when would is set.
+// would do when would is set; and, when set, relevant, which picks out
+// the facts that could take part in the proof, so that no note explains
+// a dropped fact that could not.
 type proof struct {
-	proven func() bool
-	claim  func(facts []fact) string
-	weak   func(facts []fact, would bool) []diag.Diagnostic
-	about  factKey
+	proven   func() bool
+	claim    func(facts []fact) string
+	weak     func(facts []fact, would bool) []diag.Diagnostic
+	relevant func(f fact) bool
+	about    factKey
 }
 
 // explain returns the notes for the missing proof p: for each fact about
 // its variable that was dropped, the guard that gave it and what dropped
 // it, and then, if those facts would not have been enough, or none was
-// dropped, why the facts fall short.
+// dropped, why the facts fall short. A guard's facts that one reason
+// dropped are explained only when one of them is relevant to p.
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
 	for _, f := range c.active {
@@ -179,6 +183,7 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 			dropped = append(dropped, f)
 		}
 	}
+	dropped = relevantDrops(dropped, p.relevant)
 	if len(dropped) == 0 {
 		return p.weak(facts, false)
 	}
@@ -187,6 +192,25 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 		notes = append(notes, p.weak(facts, true)...)
 	}
 	return notes
+}
+
+// relevantDrops returns the dropped facts that came from a guard, and were
+// dropped for a reason, that dropped at least one fact relevant reports
+// true for, all of them when relevant is nil, so a note about a guard
+// still says all that it proves.
+func relevantDrops(dropped []fact, relevant func(f fact) bool) []fact {
+	if relevant == nil {
+		return dropped
+	}
+	var kept []fact
+	for _, f := range dropped {
+		if slices.ContainsFunc(dropped, func(o fact) bool {
+			return o.guard == f.guard && o.drop.same(f.drop) && relevant(o)
+		}) {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 // supposing runs proven with every fact in force counted, dropped ones
@@ -378,14 +402,22 @@ func (c *Checker) newExtent(of ast.Expr, unit string, n int64, known bool) exten
 }
 
 // indexProof returns the proof that the index i, a subject, is in range
-// for e, which proven checks.
+// for e, which proven checks. An unsigned i is never below 0, so only an
+// upper bound, by a value or by a length, can be missing, and a fact that
+// gives none, such as the lower bound a counting loop counts from, is not
+// relevant to it.
 func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 	about, _ := c.subjectKey(i)
 	name := c.nameOf(i)
+	var relevant func(f fact) bool
+	if types.IsUnsigned(ast.TypeOf(i)) {
+		relevant = func(f fact) bool { return f.hasHi || !f.lenOf.isZero() }
+	}
 	return proof{
-		about:  about,
-		proven: proven,
-		claim:  func(facts []fact) string { return describe(name, facts) },
+		about:    about,
+		proven:   proven,
+		relevant: relevant,
+		claim:    func(facts []fact) string { return describe(name, facts) },
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
 			known := typeInterval(i)
 			for _, f := range facts {

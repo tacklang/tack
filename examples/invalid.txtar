@@ -8495,35 +8495,6 @@ unsafe-index-const/main.tck:5:12: error: index 4 is out of range for [4]int64
    |	           ^~~~~~~~~~~~~~~~
 06 |	}
 
--- unsafe-index-counting-wraps/main.tck --
-package main
-
-func sum(a [4]int64, n unsafe_size_t) int64 {
-    mut total int64 = 0
-    for mut i unsafe_size_t = 2; i <= n; i++ {
-        total += a[i]
-    }
-    return total
-}
-
-func main() {
-    exit(sum([4]int64{1, 2, 3, 4}, 3))
-}
--- unsafe-index-counting-wraps/expected --
-stage: typeck
----
-
-unsafe-index-counting-wraps/main.tck:6:20: error: index i may be out of range; check i < 4 first, or use v, ok := ...[i]
-05 |	    for mut i unsafe_size_t = 2; i <= n; i++ {
-06 |	        total += a[i]
-   |	                   ^
-07 |	    }
-unsafe-index-counting-wraps/main.tck:5:42: note: on a 32-bit target, this step could wrap i past 4294967295, so the loop does not keep i at or above 2
-04 |	    mut total int64 = 0
-05 |	    for mut i unsafe_size_t = 2; i <= n; i++ {
-   |	                                         ^~~
-06 |	        total += a[i]
-
 -- unsafe-index-guard-allows-len/main.tck --
 package main
 
@@ -8551,6 +8522,30 @@ unsafe-index-guard-allows-len/main.tck:4:8: note: this guard allows s == 4, and 
 04 |	    if s <= len(a) {
    |	       ^~~~~~~~~~~
 05 |	        return a[s]
+
+-- unsafe-index-loop-unbounded/main.tck --
+package main
+
+func sum(a [4]int64, n unsafe_size_t) int64 {
+    mut total int64 = 0
+    for mut i unsafe_size_t = 2; i <= n; i++ {
+        total += a[i]
+    }
+    return total
+}
+
+func main() {
+    exit(sum([4]int64{1, 2, 3, 4}, 3))
+}
+-- unsafe-index-loop-unbounded/expected --
+stage: typeck
+---
+
+unsafe-index-loop-unbounded/main.tck:6:20: error: index i may be out of range; check i < 4 first, or use v, ok := ...[i]
+05 |	    for mut i unsafe_size_t = 2; i <= n; i++ {
+06 |	        total += a[i]
+   |	                   ^
+07 |	    }
 
 -- unsafe-index-string/main.tck --
 package main

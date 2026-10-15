@@ -160,8 +160,10 @@
 // something about the operand (explain.go): the guard whose fact a region
 // dropped, with the assignment that dropped it, and what the facts would
 // still have lacked, or the guard whose fact holds but falls short, an
-// index bounded only above or allowed past the end. Every note's span is
-// the code it is about, so its text names no position. A fact a region
+// index bounded only above or allowed past the end. An unsigned index is
+// never negative, so a note never explains a lower bound on one, whether
+// missing or dropped. Every note's span is the code it is about, so its
+// text names no position. A fact a region
 // drops is kept in force for this, marked with the assignment, and every
 // query that proves something skips it; whether it would have been enough
 // is found by running the proof again with every fact counted. Each fact

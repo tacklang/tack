@@ -1026,3 +1026,136 @@ func TestPhantomFactsProveNothing(t *testing.T) {
 		}
 	}
 }
+
+// TestUnsignedIndexLowerBoundNotes checks that an unsigned index, which
+// its type keeps at or above 0, gets no note explaining a missing or lost
+// lower bound: not the step of a counting loop that could wrap, not a
+// guard bounding it only above, and not a lower bound a region assigns
+// away. Notes about its upper bound stay.
+func TestUnsignedIndexLowerBoundNotes(t *testing.T) {
+	runNoteCases(t, unsignedIndexCases)
+}
+
+// unsignedIndexI is the error for an unsigned index i into an array of 4.
+const unsignedIndexI = "index i may be out of range; check i < 4 first, or use v, ok := ...[i]"
+
+// unsignedIndexCases are programs whose unsigned index is not proven
+// below the length, and whose lower bound needs no explaining.
+var unsignedIndexCases = []noteCase{
+	{
+		"an unsafe_size_t counting loop that could wrap",
+		inF2("a [4]int64, n unsafe_size_t",
+			"mut sum int64 = 0",
+			"for mut i unsafe_size_t = 2; i <= n; i++ {",
+			"    sum += a[i]",
+			"}",
+			"return sum",
+		),
+		unsignedIndexI,
+		nil,
+	},
+	{
+		"a uint64 counting loop that could wrap",
+		inF2("a [4]int64, n uint64",
+			"mut sum int64 = 0",
+			"for mut i uint64 = 2; i <= n; i++ {",
+			"    sum += a[i]",
+			"}",
+			"return sum",
+		),
+		unsignedIndexI,
+		nil,
+	},
+	{
+		"a uint8 counting loop that could wrap past its bound",
+		inF2("a [4]int64",
+			"mut sum int64 = 0",
+			"for mut i uint8 = 2; i <= 4; i += 252 {",
+			"    sum += a[i]",
+			"}",
+			"return sum",
+		),
+		unsignedIndexI,
+		[]wantNote{{"this guard allows i == 4, and a has 4 elements", "i <= 4", 5, 26}},
+	},
+	{
+		"a uint64 guard bounding only above",
+		inF2("a [4]int64, i uint64", "if i < 5 {", "    return a[i]", "}"),
+		unsignedIndexI,
+		[]wantNote{{"this guard allows i == 4, and a has 4 elements", "i < 5", 4, 8}},
+	},
+	{
+		"an unsafe_size_t early exit bounding only above",
+		inF2("a [4]int64, i unsafe_size_t", "if i > 4 {", "    return 0", "}", "return a[i]"),
+		unsignedIndexI,
+		[]wantNote{{"this early exit allows i == 4, and a has 4 elements", "i > 4", 4, 8}},
+	},
+	{
+		"a uint64 lower bound assigned away",
+		inF2("a [4]int64, x uint64, y uint64",
+			"mut i := x",
+			"if i >= 1 {",
+			"    i = y",
+			"    return a[i]",
+			"}",
+		),
+		unsignedIndexI,
+		nil,
+	},
+	{
+		"a uint64 upper bound assigned away",
+		inF2("a [4]int64, x uint64, y uint64",
+			"mut i := x",
+			"if i >= 1 && i < 4 {",
+			"    i = y",
+			"    return a[i]",
+			"}",
+		),
+		unsignedIndexI,
+		[]wantNote{
+			{"this guard proves 1 <= i && i < 4", "i >= 1 && i < 4", 5, 8},
+			assignedHere("i", 6, 9),
+		},
+	},
+}
+
+// TestSignedIndexLowerBoundNotes checks that a signed index, which needs
+// its lower bound proven, still gets the notes that explain a lost one.
+func TestSignedIndexLowerBoundNotes(t *testing.T) {
+	runNoteCases(t, []noteCase{
+		{
+			"an int64 counting loop that could wrap",
+			inF2("a [3]int64, n int64",
+				"mut sum int64 = 0",
+				"for mut i int64 = 2; i <= n; i++ {",
+				"    sum += a[i]",
+				"}",
+				"return sum",
+			),
+			noteIndexI,
+			[]wantNote{
+				{
+					"this step could wrap i past 9223372036854775807, so the loop does not keep i at or above 2",
+					"i++",
+					5,
+					34,
+				},
+			},
+		},
+		{
+			"an int64 lower bound assigned away",
+			inF2("a [3]int64, x int64, y int64",
+				"mut i := x",
+				"if i >= 1 {",
+				"    i = y",
+				"    return a[i]",
+				"}",
+			),
+			noteIndexI,
+			[]wantNote{
+				{"this guard proves i >= 1", "i >= 1", 5, 8},
+				assignedHere("i", 6, 9),
+			},
+		},
+	})
+}
