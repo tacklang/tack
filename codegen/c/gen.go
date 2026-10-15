@@ -685,8 +685,20 @@ func (g *generator) emitCNameMacro() {
 
 func (g *generator) emitFunc(fn *ast.Func, body []string) {
 	g.buf.WriteString(g.signature(fn) + " {\n")
-	if len(body) > 0 {
-		fmt.Fprintf(&g.buf, "    %s\n", strings.Join(body, "\n    "))
+	depth := 1
+	for _, line := range body {
+		switch line {
+		case indentIn:
+			depth++
+		case indentOut:
+			depth--
+		default:
+			for range depth {
+				g.buf.WriteString("    ")
+			}
+			g.buf.WriteString(line)
+			g.buf.WriteByte('\n')
+		}
 	}
 	g.buf.WriteString("}\n\n")
 }
@@ -1762,14 +1774,26 @@ func (g *generator) zeroValue(typ types.Type) string {
 	}
 }
 
+// indentIn and indentOut are the marker lines indent puts around a block.
+// No line of C holds a NUL byte, so neither can be mistaken for code.
+const (
+	indentIn  = "\x00indent"
+	indentOut = "\x00dedent"
+)
+
 // indent shifts a nested block one level right. Function bodies are emitted at
-// one level already, so this is what keeps branches readable.
+// one level already, so this is what keeps branches readable. It only marks
+// the block: emitFunc turns the markers into spaces once, as it writes each
+// line. Prefixing every line here instead rebuilt each line once per level
+// around it, so deep nesting cost the cube of its depth.
 func indent(lines []string) []string {
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		out[i] = "    " + line
+	if len(lines) == 0 {
+		return lines
 	}
-	return out
+	out := make([]string, 0, len(lines)+2)
+	out = append(out, indentIn)
+	out = append(out, lines...)
+	return append(out, indentOut)
 }
 
 // generateCall lowers a call statement: to a builtin, as a call to its C
