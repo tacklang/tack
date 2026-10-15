@@ -129,8 +129,11 @@ func runTackEnv(t *testing.T, ctx context.Context, env environment, args ...stri
 
 // testEnv is the environment every test runs the driver in unless it
 // says otherwise: TACK_HOME is the repository's root, so std is the
-// repository's own, whatever is installed, and the home directory is never
-// looked up, which fails the test if anything tries.
+// repository's own, whatever is installed; TACK_CACHE is a fresh
+// directory, so no test reads or writes the user's cache or another
+// test's; the toolchain is identified as the driver does it; and neither
+// the home directory nor the user's cache directory is ever looked up,
+// which fails the test if anything tries.
 func testEnv(t testing.TB) environment {
 	return environment{
 		tackHome: stdtest.Home(),
@@ -138,6 +141,12 @@ func testEnv(t testing.TB) environment {
 			t.Error("the driver looked up the home directory though TACK_HOME is set")
 			return "", errors.New("no home directory in tests")
 		},
+		tackCache: t.TempDir(),
+		userCacheDir: func() (string, error) {
+			t.Error("the driver looked up the user cache directory though TACK_CACHE is set")
+			return "", errors.New("no user cache directory in tests")
+		},
+		toolVersion: toolchainVersion,
 	}
 }
 

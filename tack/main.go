@@ -91,9 +91,20 @@ type environment struct {
 	// homeDir returns the user's home directory, as os.UserHomeDir does.
 	// It is called only when tackHome is empty, to find ~/.tack.
 	homeDir func() (string, error)
+	// userCacheDir returns the user's cache directory, as os.UserCacheDir
+	// does. It is called only when tackCache is empty and a build needs
+	// the cache, to find <user cache>/tack.
+	userCacheDir func() (string, error)
+	// toolVersion runs argv, a backend's VersionCmd, and returns its
+	// standard output, which identifies the toolchain std's C is compiled
+	// with. It is called once per build that links std objects.
+	toolVersion func(ctx context.Context, argv []string) ([]byte, error)
 	// tackHome is $TACK_HOME, the Tack installation, empty when it is
 	// unset or empty.
 	tackHome string
+	// tackCache is $TACK_CACHE, the build cache, empty when it is unset or
+	// empty.
+	tackCache string
 }
 
 // main runs the compiler with the process's arguments, environment and
@@ -102,7 +113,13 @@ type environment struct {
 // interrupt kills the process.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	env := environment{tackHome: os.Getenv("TACK_HOME"), homeDir: os.UserHomeDir}
+	env := environment{
+		tackHome:     os.Getenv("TACK_HOME"),
+		homeDir:      os.UserHomeDir,
+		tackCache:    os.Getenv("TACK_CACHE"),
+		userCacheDir: os.UserCacheDir,
+		toolVersion:  toolchainVersion,
+	}
 	code := run(ctx, os.Args[1:], env, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
@@ -423,7 +440,7 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 	}
 	b := &builder{
 		ctx: ctx, backend: backend, res: res, std: lib, maxDiags: opts.maxDiags, opt: opts.opt,
-		stdout: stdout, stderr: stderr,
+		env: env, stdout: stdout, stderr: stderr,
 	}
 	return b.build(out, opts.outBin)
 }

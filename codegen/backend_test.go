@@ -37,6 +37,8 @@ func (f fakeBackend) BuildCmd(src, _ string, _ []string, out string, _ codegen.O
 	return []string{"true", src, out}
 }
 
+func (f fakeBackend) VersionCmd() []string { return []string{"true"} }
+
 func TestGetReturnsRegisteredBackend(t *testing.T) {
 	codegen.Register(fakeBackend{"registry-test"})
 

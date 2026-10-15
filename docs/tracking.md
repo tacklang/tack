@@ -167,6 +167,7 @@ list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 | Other backends                     | no      | The registry allows them; arm64 was dropped                                |
 | `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2; a file, a directory or an import path |
 | Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported |
+| Build cache                        | partial | std/builtin's objects, keyed on their inputs and the toolchain, in `$TACK_CACHE` or the user cache directory; the program's C, and std packages' C, are compiled every build; nothing trims it |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/`, every case in `examples/invalid.txtar` and `examples/invalid-packages.txtar` |
 | Fuzzing                            | partial | Lexer alone, the parser with a comment at any token boundary, the whole pipeline through the driver, a package's file order, `tack.mod`, the loader on random file trees, C name mangling, and constant arithmetic |

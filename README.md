@@ -77,6 +77,37 @@ without it. The repository is laid out as an installation is, so
 `TACK_HOME=$PWD` runs a freshly built compiler against the `src/std` beside
 it; the tests do the same, and never read `~/.tack`.
 
+The objects compiled from std's C, the bodies of the builtins, are kept
+in a build cache, so only the first build after a change compiles them.
+The cache is `$TACK_CACHE`, or `tack` in the user's cache directory when
+`TACK_CACHE` is unset or empty: `~/Library/Caches/tack` on macOS, and
+`$XDG_CACHE_HOME/tack` or `~/.cache/tack` on Linux. A relative
+`TACK_CACHE` is taken from the current directory. An entry is keyed on
+everything that decides the object: the C file's bytes, every file in
+std's include directory and every `.h` file beside the C file, the whole
+compile command (the optimization level and the absolute paths of the
+file and of std's include directory among it), and the output of
+`clang --version`; a change to any of them is a new entry, never a stale
+one. An entry that does not hash to what its key says is compiled again.
+Nothing removes old entries; deleting the directory clears the cache, and
+is safe whenever no build is running:
+
+```sh
+rm -rf "${TACK_CACHE:-$HOME/Library/Caches/tack}"   # macOS
+rm -rf "${TACK_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/tack}"   # Linux
+```
+
+A build that needs the cache and cannot find or create it fails, naming
+it, rather than building without it:
+
+```
+tack: cannot find the build cache: TACK_CACHE is not set and the user cache directory is unknown: ...
+```
+
+Only std's own C is cached. A program's C files, and those of std
+packages it imports, which are compiled against the program's own
+`tack.h`, are compiled on every build.
+
 ## Usage
 
 ```sh
@@ -244,6 +275,7 @@ type Backend interface {
     CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-O3", "-c", ..., src}
     CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for std's C
     BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-O3", "-I", include, "-o", out, src, objs...}
+    VersionCmd() []string                            // {"clang", "--version"}
 }
 ```
 
@@ -254,7 +286,9 @@ knowing anything about the target: it writes the bytes to a file with that
 extension in a temporary directory, writes `Header`'s output beside it as
 `tack.h`, compiles each C file of the program with `CompileCmd` and std's
 with `CompileStdCmd`, and links them with `BuildCmd`, each given std's
-include directory, `include`, where `<tack/tack.h>` is.
+include directory, `include`, where `<tack/tack.h>` is. `VersionCmd`'s
+output identifies the toolchain, so an object compiled from std's C is
+reused from the build cache only by the same one.
 
 Backends register themselves from `init`, so adding one means writing a package
 under `codegen/` and importing it for its side effect in `tack/main.go` and

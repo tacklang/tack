@@ -21,8 +21,9 @@ const headerName = "tack.h"
 
 // builder turns a compiled program into a binary: it compiles the C files
 // of the program's packages, checks they define the program's extern funcs,
-// compiles std's C files and picks the ones the program needs, and links
-// them with the generated source.
+// compiles std's C files, or takes their objects from the build cache, and
+// picks the ones the program needs, and links them with the generated
+// source.
 type builder struct {
 	ctx      context.Context
 	backend  codegen.Backend
@@ -30,6 +31,7 @@ type builder struct {
 	stderr   io.Writer      // likewise
 	res      *loader.Result // the program, and the files its diagnostics render against
 	std      *std           // the standard library the program was compiled with
+	env      environment    // where the build cache is, and how to identify the toolchain
 	opt      codegen.Opt    // the optimization level every C file is compiled at
 	maxDiags int
 }
@@ -43,7 +45,8 @@ type cObject struct {
 }
 
 // build writes the generated source, out, to a fresh temporary directory,
-// compiles the program's C files and std's there, checks they define every
+// compiles the program's C files and std's there, std's only when the
+// build cache does not hold their objects already, checks they define every
 // extern func and every builtin the program calls, and links the
 // program's objects and the std objects it needs into outBin. The toolchain's own output is
 // passed through to stdout and stderr. The directory is removed on every
@@ -276,7 +279,8 @@ func hasExterns(pkg *ast.Package) bool {
 
 // writeFile writes data to the file at name, creating it.
 func writeFile(name string, data []byte) error {
-	if err := os.WriteFile(name, data, 0o600); err != nil {
+	// name is always in the build's own temporary directory.
+	if err := os.WriteFile(name, data, 0o600); err != nil { //nolint:gosec // see above
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 	return nil

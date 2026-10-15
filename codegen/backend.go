@@ -55,6 +55,13 @@ type Backend interface {
 	// generated output finds what it includes from there. The first
 	// element is the program, the rest its arguments.
 	BuildCmd(src, include string, objs []string, out string, opt Opt) []string
+
+	// VersionCmd is the command whose standard output identifies the
+	// toolchain CompileStdCmd runs: its version, and its default target
+	// when it has one. The driver keys the objects it caches across builds
+	// on that output, so a different toolchain never reuses them. The
+	// first element is the program, the rest its arguments.
+	VersionCmd() []string
 }
 
 // Opt is an optimization level a build runs at, as clang's -O flags name

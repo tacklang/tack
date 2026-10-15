@@ -19,6 +19,10 @@
 // -Wall -Wextra -Werror, so the backend is still held to warning-free C for
 // what it controls.
 //
+// VersionCmd is clang --version, whose output names clang's version, its
+// default target and the directory it is installed in; the driver reuses a
+// cached std object only for the same output.
+//
 // The translation is direct, with no intermediate representation. Every
 // function body is generated before anything is written, so a construct the
 // backend cannot lower produces a diagnostic instead of a half-written file.

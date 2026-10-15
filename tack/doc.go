@@ -148,6 +148,48 @@
 // "tack: builtin print has no C definition: no C file in <dir> defines
 // tack_builtin_print".
 //
+// # The build cache
+//
+// A std object is compiled only when the build cache does not already
+// hold it; the selection above runs on its symbols either way. The cache
+// is $TACK_CACHE, or tack in os.UserCacheDir (~/Library/Caches/tack on
+// macOS, $XDG_CACHE_HOME/tack or ~/.cache/tack on Linux) when TACK_CACHE is
+// unset or empty, as Go's GOCACHE is found; a relative TACK_CACHE is taken
+// from the current directory. std's entries are in its std directory,
+// created when missing: std/keys/<key> holds the hex SHA-256 of an
+// object, which is std/objects/<that hash>.o. A key is the SHA-256 of
+// everything that decides the object: the cache's format, the backend's
+// name, the whole CompileStdCmd with the object's path left out (the C
+// file's and std/include's absolute paths and the optimization level are
+// in it), the standard output of the backend's VersionCmd, clang --version,
+// run once per build, the path and bytes of every file in std/include, the
+// C file's bytes, and the name and bytes of every .h file beside it.
+// Symbolic links are followed, as clang follows them. The C library's
+// headers are not hashed; the toolchain's identity stands for them. A
+// change to any input is a new key, never a stale hit. On a hit the object
+// is copied into the temporary directory as std-<name>.o, as a compiled
+// one would be there, so the link never reads the cache. An entry is not
+// trusted when its key does not hold a hash, its object is missing or does
+// not hash to it, or the object's symbols cannot be read: the file is
+// compiled again and the entry replaced. Every cache file is written to a
+// temporary file beside it and renamed into place, the object before the
+// key naming it, so builds running at once never read half an entry; two
+// that miss together both compile, and either's rename wins.
+//
+// The cache is needed only by a build that links a std object: a dump, or a
+// program that calls no builtin, never looks for it. A build that needs it
+// and cannot find it, because TACK_CACHE is unset and os.UserCacheDir
+// fails, ends with "tack: cannot find the build cache: TACK_CACHE is not
+// set and the user cache directory is unknown: ..."; one that cannot
+// create its directories with "tack: cannot use the build cache <dir>:
+// ..."; one that cannot write an entry with "tack: cannot write to the
+// build cache <dir>: ..."; and one whose toolchain's VersionCmd cannot be
+// run or fails with "tack: cannot identify the toolchain: clang --version
+// failed: ...". None of them builds without the cache instead. Nothing
+// trims the cache: deleting its directory clears it. The C files of the
+// program and of std packages are compiled against the program's own
+// tack.h, and are compiled on every build, never cached.
+//
 // A C file, the program's or a chosen std object's, that defines main,
 // which the generated source does, or two that define one symbol, a C file
 // of the program defining a builtin the program calls included, are
@@ -178,10 +220,12 @@
 // # Structure
 //
 // main only wires the process to run, which takes the arguments, the
-// environment (TACK_HOME and a way to find the home directory) and the two
-// output streams and returns the exit code. Nothing below main exits the
+// environment (TACK_HOME and a way to find the home directory, TACK_CACHE
+// and a way to find the user's cache directory, and a way to run the
+// toolchain's VersionCmd) and the two output streams and returns the exit
+// code. Nothing below main exits the
 // process, reads the environment or touches package-level state, so tests
-// drive run in process, each with the std it names.
+// drive run in process, each with the std and the cache it names.
 // Errors flow back to run, which turns them into output and an exit code in
 // one place (report): a *usageError for exit 2, a *diagnosticsError whose
 // rendered text is printed as is, and any other error as a "tack:" line.

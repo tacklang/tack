@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -144,6 +145,15 @@ func TestCompileStdCmdSearchesStdHeaders(t *testing.T) {
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("CompileStdCmd = %q, want %q", got, want)
+	}
+}
+
+// TestVersionCmdIdentifiesClang pins the command whose output identifies
+// the toolchain CompileStdCmd runs, which the driver keys its cache of
+// std objects on.
+func TestVersionCmdIdentifiesClang(t *testing.T) {
+	if got, want := c.New().VersionCmd(), []string{"clang", "--version"}; !slices.Equal(got, want) {
+		t.Fatalf("VersionCmd = %q, want %q", got, want)
 	}
 }
 

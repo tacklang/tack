@@ -69,6 +69,11 @@ func (backend) CompileStdCmd(src, include, obj string, opt codegen.Opt) []string
 	return compileCmd(src, obj, opt, "-I", include)
 }
 
+// VersionCmd runs clang --version, whose output names clang's version, its
+// default target and the directory it is installed in, which the driver
+// keys the std objects it caches on.
+func (backend) VersionCmd() []string { return []string{"clang", "--version"} }
+
 // compileCmd is the clang command that compiles src to the object obj at
 // opt, with its warnings off, as BuildCmd builds, and the flags extra
 // before the output.
