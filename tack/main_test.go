@@ -1502,6 +1502,35 @@ func TestBuiltVariadicsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltPrintfWritesItsOutput builds examples/printf, which imports
+// std/fmt, whose C the driver compiles against the program's tack.h, at
+// every optimization level and checks each binary writes exactly
+// examples/printf/output: every verb and every basic type at its edges,
+// arguments from variables, constants, calls and globals, each a copy
+// taken at the call, any parameters passed on, and the markers a format
+// the compiler does not know gets for each kind of mistake.
+func TestBuiltPrintfWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "printf", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "printf")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("printf"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // slicesWant is what examples/slices prints when every check passes.
 var slicesWant = "string slices ok\n" +
 	"omitted and empty bounds ok\n" +

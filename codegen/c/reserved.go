@@ -1,6 +1,10 @@
 package c
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/tacklang/tack/types"
+)
 
 // reservation is a name tack.h cannot give a type of package main or an
 // extern func, because tack.h, std's tack.h or a standard header tack.h
@@ -17,9 +21,9 @@ type reservation struct {
 
 // reservedNames holds every name reserved in tack.h: tack.h's include
 // guard; what std's tack.h defines, its include guard, tack_string and
-// the string helpers; and the macros the C standard specifies that
-// <stdbool.h>, <stdint.h> and <stddef.h> define, C23's and Annex K's
-// among them. Each is reserved whether or not tack.h includes the header
+// the string helpers, tack_any, its type ids and its helpers; and the
+// macros the C standard specifies that <stdbool.h>, <stdint.h> and
+// <stddef.h> define, C23's and Annex K's among them. Each is reserved whether or not tack.h includes the header
 // that defines it, so whether a name is allowed does not depend on what
 // some extern signature uses.
 //
@@ -35,7 +39,18 @@ var reservedNames = func() map[string]reservation {
 		"TACK_C_STR_LEN": {what: "a tack.h string helper"},
 		"TACK_STR":       {what: "a tack.h string helper"},
 		"TACK_STR_N":     {what: "a tack.h string helper"},
+		"tack_any":       {what: "tack.h's any type"},
+		"TACK_ANY_IS":    {what: "a tack.h any helper"},
 	}
+	for _, id := range anyIDs {
+		names[id] = reservation{what: "a tack.h any type id", objectMacro: true}
+	}
+	names["TACK_TYPE_INVALID"] = reservation{what: "a tack.h any type id", objectMacro: true}
+	for typ := range anyIDs {
+		names["tack_any_"+(*types.Table)(nil).Name(typ)] = reservation{what: "a tack.h any helper"}
+	}
+	names["tack_any_signed"] = reservation{what: "a tack.h any helper"}
+	names["tack_any_unsigned"] = reservation{what: "a tack.h any helper"}
 	add := func(header string, object bool, list ...string) {
 		for _, name := range list {
 			names[name] = reservation{what: "a macro of <" + header + ">", objectMacro: object}

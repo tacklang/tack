@@ -12,7 +12,8 @@ import (
 
 // freestanding is a program that uses every construct the C backend lowers
 // without a builtin: strings, arrays, structs, several results, defers,
-// division, string comparison and indexing, loops, switches and globals.
+// division, string comparison and indexing, loops, switches, globals, and
+// values passed as any, to an extern func, through a Tack one.
 const freestanding = `package main
 
 type Pair struct {
@@ -24,6 +25,12 @@ var g = 3
 
 func two(x int64) (int64, bool) {
     return x / 2, x % 2 == 0
+}
+
+extern func take(a any, rest ...any)
+
+func pass(a any, rest ...any) {
+    take(a, rest...)
 }
 
 func main() {
@@ -48,6 +55,7 @@ func main() {
     if ok && b == 'e' {
         p.a--
     }
+    pass(g, s, p.a, q + 1, true)
 }
 `
 

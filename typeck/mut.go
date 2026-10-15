@@ -61,9 +61,9 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 // checkArg checks arg, passed to p in a call to callee: a mut argument to
 // a mut parameter must name a place of exactly its type, and any other
 // argument must be usable as its plain parameter's type, or be what
-// viewArg allows a view parameter to take. A mut argument to
-// a plain parameter, or a plain one to a mut parameter, is reported, and
-// what it holds is still checked for errors of its own. It returns the mut
+// viewArg allows a view parameter, or anyArg an any parameter, to take. A
+// mut argument to a plain parameter, or a plain one to a mut parameter, is
+// reported, and what it holds is still checked for errors of its own. It returns the mut
 // argument when arg is one passed to a mut parameter with nothing
 // reported, for the exclusivity check, and nil otherwise.
 func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
@@ -80,6 +80,8 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 		c.errorf(m.Span, "%s does not take %s as mut; pass %s", callee, text, text)
 	case c.table.IsView(p.typ):
 		c.viewArg(arg, p.typ, callee)
+	case p.typ == types.Any:
+		c.anyArg(arg)
 	default:
 		c.use(arg, c.expr(arg), p.typ, "in argument to "+callee)
 	}

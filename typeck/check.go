@@ -312,6 +312,7 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 	}
 	for i, v := range m.Vars {
 		v.Type = c.settleResult(m.Value, results[i], types.Invalid)
+		c.anyLocal(v)
 	}
 }
 
@@ -643,6 +644,7 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	}
 	if loop.Elem != nil {
 		loop.Elem.Type = elem
+		c.anyLocal(loop.Elem)
 	}
 	header := ast.Span{File: loop.Span.File, Start: loop.Span.Start, End: loop.X.Spanned().End}
 	c.loops++
@@ -789,6 +791,9 @@ func (c *Checker) checkVar(v *ast.Var) {
 	got := c.expr(v.Value)
 	if v.TypeExpr == nil {
 		v.Type = c.valueOf(v.Value, got)
+		if c.anyLocal(v) {
+			return
+		}
 		if c.table.IsView(v.Type) {
 			c.errorf(
 				v.NameSpan,
@@ -1371,8 +1376,8 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it. A name denotes a basic
-// type, or the struct type the resolver bound it to. A view type is
-// reported, since only a parameter may have one; paramType gives a
+// type, or the struct type the resolver bound it to. A view type and any
+// are reported, since only a parameter may have one; paramType gives a
 // parameter's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
 	switch t := expr.(type) {
@@ -1393,6 +1398,10 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 	typ, known := types.Lookup(id.Name)
 	if !known || id.Pkg != "" {
 		c.errorf(id.Span, "unknown type: %s", id.Qualified())
+		return types.Invalid
+	}
+	if typ == types.Any {
+		c.errorf(id.Span, "%s", anyMessage)
 		return types.Invalid
 	}
 	return typ

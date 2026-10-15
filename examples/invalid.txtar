@@ -7,6 +7,654 @@ pair means the program's last line has no newline. internal/invalid
 documents the format; go test ./test -run TestInvalid checks every case, and
 -update rewrites the expected sections.
 
+-- any-arithmetic/main.tck --
+package main
+
+func f(a any) int64 {
+    return a + 1
+}
+
+func main() {
+}
+-- any-arithmetic/expected --
+stage: typeck
+---
+
+any-arithmetic/main.tck:4:12: error: operator + is not defined on any
+03 |	func f(a any) int64 {
+04 |	    return a + 1
+   |	           ^
+05 |	}
+
+-- any-array-arg/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    xs := [2]int64{1, 2}
+    f(xs)
+}
+-- any-array-arg/expected --
+stage: typeck
+---
+
+any-array-arg/main.tck:8:7: error: cannot pass [2]int64 as any: only the builtin types can be passed as any for now
+07 |	    xs := [2]int64{1, 2}
+08 |	    f(xs)
+   |	      ^~
+09 |	}
+
+-- any-array-elem/main.tck --
+package main
+
+func f(xs [2]any) {
+}
+
+func main() {
+}
+-- any-array-elem/expected --
+stage: typeck
+---
+
+any-array-elem/main.tck:3:14: error: any can only be the type of a parameter
+02 |	
+03 |	func f(xs [2]any) {
+   |	             ^~~
+04 |	}
+
+-- any-as-name/main.tck --
+package main
+
+func main() {
+    any := 1
+    exit(int32(any))
+}
+-- any-as-name/expected --
+stage: resolve
+---
+
+any-as-name/main.tck:4:5: error: cannot use any as a name; it is a type
+03 |	func main() {
+04 |	    any := 1
+   |	    ^~~
+05 |	    exit(int32(any))
+
+-- any-assert/main.tck --
+package main
+
+func f(a any) int64 {
+    v, ok := a.(int64)
+    if ok {
+        return v
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert/expected --
+stage: parse
+---
+
+any-assert/main.tck:4:16: error: expected 'field name' found '('
+03 |	func f(a any) int64 {
+04 |	    v, ok := a.(int64)
+   |	               ^
+05 |	    if ok {
+
+-- any-assign-param/main.tck --
+package main
+
+func f(a any, b any) {
+    a = b
+}
+
+func main() {
+}
+-- any-assign-param/expected --
+stage: typeck
+---
+
+any-assign-param/main.tck:4:5: error: cannot assign to parameter a
+03 |	func f(a any, b any) {
+04 |	    a = b
+   |	    ^
+05 |	}
+
+-- any-checked-element/main.tck --
+package main
+
+func f(args ...any) {
+    v, ok := args[0]
+    if ok {
+        f(v)
+    }
+}
+
+func main() {
+}
+-- any-checked-element/expected --
+stage: typeck
+---
+
+any-checked-element/main.tck:4:5: error: cannot declare v as any; any can only be the type of a parameter
+03 |	func f(args ...any) {
+04 |	    v, ok := args[0]
+   |	    ^
+05 |	    if ok {
+
+-- any-compare/main.tck --
+package main
+
+func f(a any, b any) bool {
+    return a == b
+}
+
+func main() {
+}
+-- any-compare/expected --
+stage: typeck
+---
+
+any-compare/main.tck:4:12: error: operator == is not defined on any
+03 |	func f(a any, b any) bool {
+04 |	    return a == b
+   |	           ^~~~~~
+05 |	}
+
+-- any-convert-from/main.tck --
+package main
+
+func f(a any) int64 {
+    return int64(a)
+}
+
+func main() {
+}
+-- any-convert-from/expected --
+stage: typeck
+---
+
+any-convert-from/main.tck:4:12: error: cannot convert any to int64
+03 |	func f(a any) int64 {
+04 |	    return int64(a)
+   |	           ^~~~~~~~
+05 |	}
+
+-- any-convert-to/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    f(any(5))
+}
+-- any-convert-to/expected --
+stage: typeck
+---
+
+any-convert-to/main.tck:7:7: error: cannot convert int64 to any
+06 |	func main() {
+07 |	    f(any(5))
+   |	      ^~~~~~
+08 |	}
+
+-- any-field/main.tck --
+package main
+
+type Holder struct {
+    a any
+}
+
+func main() {
+}
+-- any-field/expected --
+stage: typeck
+---
+
+any-field/main.tck:4:7: error: any can only be the type of a parameter
+03 |	type Holder struct {
+04 |	    a any
+   |	      ^~~
+05 |	}
+
+-- any-global/main.tck --
+package main
+
+mut g any
+
+func f(a any) {
+}
+
+func main() {
+    f(g)
+}
+-- any-global/expected --
+stage: typeck
+---
+
+any-global/main.tck:3:7: error: any can only be the type of a parameter
+02 |	
+03 |	mut g any
+   |	      ^~~
+04 |	
+
+-- any-index/main.tck --
+package main
+
+func f(a any) {
+    f(a[0])
+}
+
+func main() {
+}
+-- any-index/expected --
+stage: typeck
+---
+
+any-index/main.tck:4:7: error: cannot index any
+03 |	func f(a any) {
+04 |	    f(a[0])
+   |	      ^
+05 |	}
+
+-- any-local/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    var a any = 5
+    f(a)
+}
+-- any-local/expected --
+stage: typeck
+---
+
+any-local/main.tck:7:11: error: any can only be the type of a parameter
+06 |	func main() {
+07 |	    var a any = 5
+   |	          ^~~
+08 |	    f(a)
+
+-- any-local-inferred/main.tck --
+package main
+
+func f(a any) {
+    b := a
+    f(b)
+}
+
+func main() {
+}
+-- any-local-inferred/expected --
+stage: typeck
+---
+
+any-local-inferred/main.tck:4:5: error: cannot declare b as any; any can only be the type of a parameter
+03 |	func f(a any) {
+04 |	    b := a
+   |	    ^
+05 |	    f(b)
+
+-- any-mut/main.tck --
+package main
+
+func f(mut a any) {
+}
+
+func main() {
+}
+-- any-mut/expected --
+stage: typeck
+---
+
+any-mut/main.tck:3:8: error: mut has no effect on an any parameter; take mut p T to change the caller's value
+02 |	
+03 |	func f(mut a any) {
+   |	       ^~~~~~~~~
+04 |	}
+
+-- any-mut-arg/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    mut x int64 = 1
+    f(mut x)
+}
+-- any-mut-arg/expected --
+stage: typeck
+---
+
+any-mut-arg/main.tck:8:7: error: f does not take x as mut; pass x
+07 |	    mut x int64 = 1
+08 |	    f(mut x)
+   |	      ^~~~~
+09 |	}
+
+-- any-print/main.tck --
+package main
+
+func f(a any) {
+    print(a)
+}
+
+func main() {
+}
+-- any-print/expected --
+stage: typeck
+---
+
+any-print/main.tck:4:11: error: cannot use any as string in argument to print
+03 |	func f(a any) {
+04 |	    print(a)
+   |	          ^
+05 |	}
+
+-- any-range/main.tck --
+package main
+
+func f(a any) {
+    for x := range a {
+        f(x)
+    }
+}
+
+func main() {
+}
+-- any-range/expected --
+stage: typeck
+---
+
+any-range/main.tck:4:20: error: cannot range over any
+03 |	func f(a any) {
+04 |	    for x := range a {
+   |	                   ^
+05 |	        f(x)
+
+-- any-range-element/main.tck --
+package main
+
+func f(args ...any) {
+    for _, a := range args {
+        f(a)
+    }
+}
+
+func main() {
+}
+-- any-range-element/expected --
+stage: typeck
+---
+
+any-range-element/main.tck:4:12: error: cannot declare a as any; any can only be the type of a parameter
+03 |	func f(args ...any) {
+04 |	    for _, a := range args {
+   |	           ^
+05 |	        f(a)
+
+-- any-reserved-helper/main.tck --
+package main
+
+type tack_any_int64 struct {
+    x int64
+}
+
+extern func f(p tack_any_int64)
+
+func main() {
+}
+-- any-reserved-helper/expected --
+stage: codegen
+---
+
+any-reserved-helper/main.tck:3:6: error: type tack_any_int64 of package main cannot be named tack_any_int64 in tack.h: that is a tack.h any helper
+02 |	
+03 |	type tack_any_int64 struct {
+   |	     ^~~~~~~~~~~~~~
+04 |	    x int64
+
+-- any-reserved-id-field/main.tck --
+package main
+
+type P struct {
+    TACK_TYPE_STRING int64
+}
+
+extern func f(p P)
+
+func main() {
+}
+-- any-reserved-id-field/expected --
+stage: codegen
+---
+
+any-reserved-id-field/main.tck:4:5: error: field TACK_TYPE_STRING of type P cannot be named TACK_TYPE_STRING in tack.h: that is a tack.h any type id
+03 |	type P struct {
+04 |	    TACK_TYPE_STRING int64
+   |	    ^~~~~~~~~~~~~~~~
+05 |	}
+
+-- any-reserved-is/main.tck --
+package main
+
+type TACK_ANY_IS struct {
+    x int64
+}
+
+extern func f(p TACK_ANY_IS)
+
+func main() {
+}
+-- any-reserved-is/expected --
+stage: codegen
+---
+
+any-reserved-is/main.tck:3:6: error: type TACK_ANY_IS of package main cannot be named TACK_ANY_IS in tack.h: that is a tack.h any helper
+02 |	
+03 |	type TACK_ANY_IS struct {
+   |	     ^~~~~~~~~~~
+04 |	    x int64
+
+-- any-reserved-type/main.tck --
+package main
+
+type tack_any struct {
+    x int64
+}
+
+extern func f(p tack_any)
+
+func main() {
+}
+-- any-reserved-type/expected --
+stage: codegen
+---
+
+any-reserved-type/main.tck:3:6: error: type tack_any of package main cannot be named tack_any in tack.h: that is tack.h's any type
+02 |	
+03 |	type tack_any struct {
+   |	     ^~~~~~~~
+04 |	    x int64
+
+-- any-result/main.tck --
+package main
+
+func f(a any) any {
+    return a
+}
+
+func main() {
+}
+-- any-result/expected --
+stage: typeck
+---
+
+any-result/main.tck:3:15: error: any can only be the type of a parameter
+02 |	
+03 |	func f(a any) any {
+   |	              ^~~
+04 |	    return a
+
+-- any-return/main.tck --
+package main
+
+func f(a any) int64 {
+    return a
+}
+
+func main() {
+}
+-- any-return/expected --
+stage: typeck
+---
+
+any-return/main.tck:4:12: error: cannot use any as int64 in return from f
+03 |	func f(a any) int64 {
+04 |	    return a
+   |	           ^
+05 |	}
+
+-- any-struct-arg/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f(a any) {
+}
+
+func main() {
+    f(Point{x: 1})
+}
+-- any-struct-arg/expected --
+stage: typeck
+---
+
+any-struct-arg/main.tck:11:7: error: cannot pass Point as any: only the builtin types can be passed as any for now
+10 |	func main() {
+11 |	    f(Point{x: 1})
+   |	      ^~~~~~~~~~~
+12 |	}
+
+-- any-switch/main.tck --
+package main
+
+func f(a any) {
+    switch a {
+    case 1:
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- any-switch/expected --
+stage: typeck
+---
+
+any-switch/main.tck:4:12: error: operator == is not defined on any
+03 |	func f(a any) {
+04 |	    switch a {
+   |	           ^
+05 |	    case 1:
+
+-- any-to-concrete/main.tck --
+package main
+
+func g(x int64) {
+}
+
+func f(a any) {
+    g(a)
+}
+
+func main() {
+}
+-- any-to-concrete/expected --
+stage: typeck
+---
+
+any-to-concrete/main.tck:7:7: error: cannot use any as int64 in argument to g
+06 |	func f(a any) {
+07 |	    g(a)
+   |	      ^
+08 |	}
+
+-- any-variadic-spread-array/main.tck --
+package main
+
+func f(args ...any) {
+}
+
+func main() {
+    xs := [2]int64{1, 2}
+    f(xs...)
+}
+-- any-variadic-spread-array/expected --
+stage: typeck
+---
+
+any-variadic-spread-array/main.tck:8:7: error: cannot use [2]int64 as []any in argument to f
+07 |	    xs := [2]int64{1, 2}
+08 |	    f(xs...)
+   |	      ^~
+09 |	}
+
+-- any-variadic-struct/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f(args ...any) {
+}
+
+func main() {
+    p := Point{x: 1}
+    f(1, p)
+}
+-- any-variadic-struct/expected --
+stage: typeck
+---
+
+any-variadic-struct/main.tck:12:10: error: cannot pass Point as any: only the builtin types can be passed as any for now
+11 |	    p := Point{x: 1}
+12 |	    f(1, p)
+   |	         ^
+13 |	}
+
+-- any-view-arg/main.tck --
+package main
+
+func f(a any) {
+}
+
+func g(v []int64) {
+    f(v)
+}
+
+func main() {
+}
+-- any-view-arg/expected --
+stage: typeck
+---
+
+any-view-arg/main.tck:7:7: error: cannot pass []int64 as any: only the builtin types can be passed as any for now
+06 |	func g(v []int64) {
+07 |	    f(v)
+   |	      ^
+08 |	}
+
 -- arg-count/main.tck --
 package main
 
@@ -5818,6 +6466,281 @@ param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument 
 07 |	    f("hi")
    |	      ^~~~
 08 |	}
+
+-- printf-c-int64/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%c\n", 65)
+}
+-- printf-c-int64/expected --
+stage: typeck
+---
+
+printf-c-int64/main.tck:6:24: error: printf verb %c does not take int64
+05 |	func main() {
+06 |	    fmt.printf("%c\n", 65)
+   |	                       ^~
+07 |	}
+
+-- printf-d-bool/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%d\n", true)
+}
+-- printf-d-bool/expected --
+stage: typeck
+---
+
+printf-d-bool/main.tck:6:24: error: printf verb %d does not take bool
+05 |	func main() {
+06 |	    fmt.printf("%d\n", true)
+   |	                       ^~~~
+07 |	}
+
+-- printf-d-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%d\n", "five")
+}
+-- printf-d-string/expected --
+stage: typeck
+---
+
+printf-d-string/main.tck:6:24: error: printf verb %d does not take string
+05 |	func main() {
+06 |	    fmt.printf("%d\n", "five")
+   |	                       ^~~~~~
+07 |	}
+
+-- printf-extra/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%d\n", 1, 2, 3)
+}
+-- printf-extra/expected --
+stage: typeck
+---
+
+printf-extra/main.tck:6:27: error: printf format has 1 verb but 3 arguments
+05 |	func main() {
+06 |	    fmt.printf("%d\n", 1, 2, 3)
+   |	                          ^~~~
+07 |	}
+
+-- printf-known-variable/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    format := "%s\n"
+    fmt.printf(format, 1)
+}
+-- printf-known-variable/expected --
+stage: typeck
+---
+
+printf-known-variable/main.tck:7:24: error: printf verb %s does not take int64
+06 |	    format := "%s\n"
+07 |	    fmt.printf(format, 1)
+   |	                       ^
+08 |	}
+
+-- printf-lone-percent/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("100%")
+}
+-- printf-lone-percent/expected --
+stage: typeck
+---
+
+printf-lone-percent/main.tck:6:16: error: printf format ends in a lone %
+05 |	func main() {
+06 |	    fmt.printf("100%")
+   |	               ^~~~~~
+07 |	}
+
+-- printf-missing/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%d and %d\n", 1)
+}
+-- printf-missing/expected --
+stage: typeck
+---
+
+printf-missing/main.tck:6:16: error: printf format has 2 verbs but 1 argument
+05 |	func main() {
+06 |	    fmt.printf("%d and %d\n", 1)
+   |	               ^~~~~~~~~~~~~
+07 |	}
+
+-- printf-no-verbs/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("done\n", 1)
+}
+-- printf-no-verbs/expected --
+stage: typeck
+---
+
+printf-no-verbs/main.tck:6:26: error: printf format has 0 verbs but 1 argument
+05 |	func main() {
+06 |	    fmt.printf("done\n", 1)
+   |	                         ^
+07 |	}
+
+-- printf-s-int/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    var n uint16 = 7
+    fmt.printf("%s\n", n)
+}
+-- printf-s-int/expected --
+stage: typeck
+---
+
+printf-s-int/main.tck:7:24: error: printf verb %s does not take uint16
+06 |	    var n uint16 = 7
+07 |	    fmt.printf("%s\n", n)
+   |	                       ^
+08 |	}
+
+-- printf-spread-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func f(args ...any) {
+    fmt.printf("%y\n", args...)
+}
+
+func main() {
+}
+-- printf-spread-unknown-verb/expected --
+stage: typeck
+---
+
+printf-spread-unknown-verb/main.tck:6:16: error: unknown printf verb %y
+05 |	func f(args ...any) {
+06 |	    fmt.printf("%y\n", args...)
+   |	               ^~~~~~
+07 |	}
+
+-- printf-t-int/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%t\n", 1)
+}
+-- printf-t-int/expected --
+stage: typeck
+---
+
+printf-t-int/main.tck:6:24: error: printf verb %t does not take int64
+05 |	func main() {
+06 |	    fmt.printf("%t\n", 1)
+   |	                       ^
+07 |	}
+
+-- printf-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%q\n", "x")
+}
+-- printf-unknown-verb/expected --
+stage: typeck
+---
+
+printf-unknown-verb/main.tck:6:16: error: unknown printf verb %q
+05 |	func main() {
+06 |	    fmt.printf("%q\n", "x")
+   |	               ^~~~~~
+07 |	}
+
+-- printf-unknown-verb-unprintable/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("50%\n", 1)
+}
+-- printf-unknown-verb-unprintable/expected --
+stage: typeck
+---
+
+printf-unknown-verb-unprintable/main.tck:6:16: error: unknown printf verb "%\n"
+05 |	func main() {
+06 |	    fmt.printf("50%\n", 1)
+   |	               ^~~~~~~
+07 |	}
+
+-- printf-unknown-verb-utf8/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%é\n", 1)
+}
+-- printf-unknown-verb-utf8/expected --
+stage: typeck
+---
+
+printf-unknown-verb-utf8/main.tck:6:16: error: unknown printf verb %é
+05 |	func main() {
+06 |	    fmt.printf("%é\n", 1)
+   |	               ^~~~~~~
+07 |	}
+
+-- printf-x-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.printf("%x %x\n", 255, "ff")
+}
+-- printf-x-string/expected --
+stage: typeck
+---
+
+printf-x-string/main.tck:6:32: error: printf verb %x does not take string
+05 |	func main() {
+06 |	    fmt.printf("%x %x\n", 255, "ff")
+   |	                               ^~~~
+07 |	}
 
 -- quote-at-eof/main.tck --
 package main

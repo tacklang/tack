@@ -109,9 +109,10 @@ with `divmod`.
   One `tack.h` serves the whole program, its extern funcs package by
   package.
 - `tack.h` holds only what is the program's own. What every program
-  shares, `tack_string` and the string helpers below, is defined once, in
+  shares, `tack_string` and the string helpers below, and `tack_any`, its
+  type ids and its unpack helpers, is defined once, in
   std's [`tack/tack.h`](../src/std/include/tack/tack.h), which `tack.h`
-  includes as `<tack/tack.h>` when a signature uses a string, and which the
+  includes as `<tack/tack.h>` when a signature uses a string or `any`, and which the
   generated C and std's own C files include too. An editor that reads such
   a `tack.h` needs std's include directory on its include path, as the
   build has it: `-I $TACK_HOME/src/std/include`, or `~/.tack/src/std/include`
@@ -128,7 +129,10 @@ extern func cannot return one, since no function can. A variadic
 parameter, `args ...T`, is a view inside a Tack function, and crosses as
 one: C gets a `tack_view_<T>` of the values the call passed, which the
 caller puts in an array on its stack for the call, or of the view a
-spread, `f(v...)`, passes on.
+spread, `f(v...)`, passes on. An `any` is a parameter only too, or the
+element of a variadic or view parameter: C gets a `tack_any`, a type id
+and a pointer to the caller's value, and `args ...any` a `tack_view_any`
+of them.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -146,13 +150,16 @@ spread, `f(v...)`, passes on.
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 | a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
 | an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
+| an `a any` parameter         | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, valid only during the call |
+| an `args ...any` parameter   | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
-signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
-and defines every type an extern func's signature uses and every type
+signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string
+or `any`, and defines every type an extern func's signature uses and every type
 those hold, each before the types that hold it. Its names:
 
-- `tack_string` for `string`, which std's `<tack/tack.h>` defines.
+- `tack_string` for `string`, and `tack_any` for `any`, which std's
+  `<tack/tack.h>` defines. `[]any`, and so `...any`, is `tack_view_any`.
 - A struct of package `main` keeps its Tack name: `Point`. One of any other
   package is its package's name, `_`, and its name: `Token` of
   `calc/lexer` is `lexer_Token`.
@@ -188,7 +195,13 @@ A name `tack.h` cannot give is an error whatever is built:
   and `TACK_C_STR_LEN`, `TACK_STR` and `TACK_STR_N`, the string helpers,
   for a type or an extern func's C name: `extern func wrap of package main
   cannot be named TACK_STR_N in tack.h: that is a tack.h string helper`.
-  Each is reserved whether or not the program uses strings;
+  So are `tack_any`, `tack.h's any type`, `TACK_TYPE_INVALID` through
+  `TACK_TYPE_STRING`, each `a tack.h any type id`, and `TACK_ANY_IS`, the
+  twelve `tack_any_<type>` unpack helpers, `tack_any_signed` and
+  `tack_any_unsigned`, each `a tack.h any helper`: `type tack_any of
+  package main cannot be named tack_any in tack.h: that is tack.h's any
+  type`. Each is reserved whether or not the program uses strings or
+  `any`;
 - a type or an extern func's C name named like a macro the C standard
   specifies one of the headers `tack.h` includes defines, whether or not
   this `tack.h` includes it: `type NULL of package main cannot be named
@@ -214,10 +227,12 @@ A name `tack.h` cannot give is an error whatever is built:
   layout, or one C cannot parse. `field TACK_H of type Shape cannot be
   named TACK_H in tack.h: that is tack.h's include guard`, `field NULL of
   type Limits cannot be named NULL in tack.h: that is a macro of
-  <stddef.h>`. A field may be named like a function-like macro, such as
-  `TACK_STR`, `offsetof` or `INT64_C`, which C expands only before a `(`,
-  or `tack_string`, a type's name, which a member's name does not clash
-  with.
+  <stddef.h>`, `field TACK_TYPE_STRING of type P cannot be named
+  TACK_TYPE_STRING in tack.h: that is a tack.h any type id`. A field may
+  be named like a function-like macro, such as `TACK_STR`, `TACK_ANY_IS`,
+  `offsetof` or `INT64_C`, which C expands only before a `(`, or like
+  `tack_string`, `tack_any` or an unpack helper, whose names a member's
+  name does not clash with.
 
 A type no extern func uses is not in `tack.h`, whatever its names. C never
 declares a type for Tack: every type is declared in Tack, and C structs a
@@ -236,14 +251,66 @@ the Tack declaration, `...` and all, in the comment beside it, so
 `sum(1, 2, 3)` gives C a view of the two values 2 and 3, `sum(1)` one of
 none, and `sum(1, a...)` the view of `a`; `examples/extern-variadics`
 passes integers, strings, none and spreads.
+`extern func kind(a any) uint32` is `uint32_t kind(tack_any /* a */);`,
+and `extern func sum(args ...any) int64` is
+`int64_t sum(tack_view_any /* args */);`, whose C reads `args.ptr[i]`
+for `i` below `args.len`; `examples/extern-any` passes every basic type
+at its edges and unpacks each.
+
+## any
+
+A value passed as `any` reaches C as a `tack_any`, by value: `type`, the
+id of the value's type, and `ptr`, a pointer to a copy of the value made
+for the call, or to the caller's variable when nothing in the call can
+change it. The ids are fixed for good, since C is written against them,
+and std's `<tack/tack.h>` names each:
+
+| id | macro                        | Tack               | `ptr` points at |
+|----|------------------------------|--------------------|-----------------|
+| 0  | `TACK_TYPE_INVALID`          | none               | nothing         |
+| 1  | `TACK_TYPE_BOOL`             | `bool`             | `bool`          |
+| 2  | `TACK_TYPE_INT8`             | `int8`             | `int8_t`        |
+| 3  | `TACK_TYPE_INT16`            | `int16`            | `int16_t`       |
+| 4  | `TACK_TYPE_INT32`            | `int32`            | `int32_t`       |
+| 5  | `TACK_TYPE_INT64`            | `int64`            | `int64_t`       |
+| 6  | `TACK_TYPE_UINT8`            | `uint8`            | `uint8_t`       |
+| 7  | `TACK_TYPE_UINT16`           | `uint16`           | `uint16_t`      |
+| 8  | `TACK_TYPE_UINT32`           | `uint32`           | `uint32_t`      |
+| 9  | `TACK_TYPE_UINT64`           | `uint64`           | `uint64_t`      |
+| 10 | `TACK_TYPE_UNSAFE_SIZE_T`    | `unsafe_size_t`    | `size_t`        |
+| 11 | `TACK_TYPE_UNSAFE_UINTPTR_T` | `unsafe_uintptr_t` | `uintptr_t`     |
+| 12 | `TACK_TYPE_STRING`           | `string`           | `tack_string`   |
+
+0 is no type, so a zeroed `tack_any` is recognisably empty; Tack never
+passes one. 13 to 255 are kept for types to come. Arrays, structs and
+views cannot be passed as `any` yet. C reads one with these, from std's
+`<tack/tack.h>`:
+
+- `TACK_ANY_IS(a, T)` reports whether `a` holds a `T`, where `T` is the
+  end of an id's macro: `TACK_ANY_IS(a, STRING)`. Any other `T` does not
+  compile.
+- `tack_any_<type>(a, &v)`, one for each type, named after it,
+  `tack_any_int64`, `tack_any_unsafe_size_t`, `tack_any_string`, and so
+  on, stores the value in `v` and returns `true` when `a` holds that type,
+  and returns `false`, leaving `v` alone, otherwise. It is a function, not
+  a macro, so clang checks `v`'s type.
+- `tack_any_signed(a, &v)` stores any signed integer, widened to
+  `int64_t`, and `tack_any_unsigned(a, &v)` any unsigned one,
+  `unsafe_size_t` and `unsafe_uintptr_t` included, widened to `uint64_t`,
+  each returning whether `a` held one.
+
+None of them returns `ptr`; reading through it any other way is C's own
+risk, under the trust boundary below. `std/fmt`'s `printf` is written in
+C against these, in [`printf.c`](../src/std/fmt/printf.c).
 
 ## Helpers for C
 
 Std's `<tack/tack.h>` also defines helpers that make the C side shorter
-and harder to get wrong, beside `tack_string`. A program's `tack.h`
-includes it only when the program uses what they help with, because some
-extern signature uses a string, and then three macros for building one
-come with it:
+and harder to get wrong, beside `tack_string`, and beside `tack_any` the
+ones under any above. A program's `tack.h` includes it only when the
+program uses what they help with, because some extern signature uses a
+string or `any`, and then three macros for building a string come with
+it:
 
 - `TACK_STR(lit)` is a string literal as a `tack_string`:
   `return TACK_STR("hello");`. Its length is the literal's size less the
@@ -304,6 +371,14 @@ whole program, Tack code included, which no Tack proof can catch.
   caller made for the call, or the array of a variadic's values, which
   lives only for the call. The elements do not change during the call
   unless C changes them, so C may read them more than once.
+- **`any`.** C checks a `tack_any`'s `type` before it reads through
+  `ptr`, and reads it as that type only, with `TACK_ANY_IS` or an unpack
+  helper. `ptr` is valid only during the call: C must not keep it, return
+  it, or use it after returning, as for a `mut` parameter's pointer, since
+  it may point at a copy the caller made for the call. C never writes
+  through it: it is `const`, the value may be a constant in read-only
+  memory, and writing it would change a value Tack passed as a copy. A
+  `tack_view_any` is a view, under the rule above.
 - **`mut` parameters.** C may read and write the caller's variable through
   a `mut` parameter's pointer, but only during the call: it must not store
   the pointer, return it, or use it after returning, since in Tack a
@@ -372,7 +447,7 @@ declares each builtin the program calls with a prototype,
 `void tack_builtin_print(tack_string);`, and includes no hosted header for
 it, so it includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` for
 `size_t`, which every freestanding C implementation has, and
-`<tack/tack.h>`, which includes only `<stdint.h>`. The generated C is
+`<tack/tack.h>`, which includes only those three. The generated C is
 compiled with `-I $TACK_HOME/src/std/include`, so `tack --emit` output
 needs that flag too to compile on its own.
 

@@ -26,7 +26,8 @@
 //     extern func may not take, so no C file of a program can mean to
 //     define it by declaring an extern func;
 //   - not pub or lib, returning nothing, and with every parameter of a
-//     basic type, such as int64 or string, none mut or variadic;
+//     basic type, such as int64 or string, but any, which a call to a
+//     builtin could not pass, none mut or variadic;
 //   - not named after a basic type, a generic builtin, main or _, and
 //     declared once, under a C name no other builtin has.
 //

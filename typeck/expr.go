@@ -141,9 +141,10 @@ func notOneValue(id *ast.Ident) string {
 
 // checkCall checks a call to a function or builtin: its argument count,
 // that each argument can be passed to the parameter in its position (see
-// checkArg), or to a variadic one (see checkVariadicCall), and that no
-// two of its mut arguments overlap (see checkExclusive). Its result, if
-// any, is the caller's to use or discard.
+// checkArg), or to a variadic one (see checkVariadicCall), that no two of
+// its mut arguments overlap (see checkExclusive), and, for std/fmt's
+// printf, a known format against the values (see checkPrintf). Its
+// result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -154,6 +155,9 @@ func (c *Checker) checkCall(call *ast.Call) {
 	params := c.calleeParams(id)
 	if isVariadic(params) {
 		c.checkExclusive(c.checkVariadicCall(call, id.Qualified(), params))
+		if fn, ok := id.Def.(*ast.Func); ok {
+			c.checkPrintf(call, fn)
+		}
 		return
 	}
 	if !c.checkArity(call, id.Qualified(), len(params)) {

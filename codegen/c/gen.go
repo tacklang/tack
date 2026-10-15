@@ -1705,10 +1705,11 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 }
 
 // callExpr renders a call to a declared function as a C expression, an
-// argument to a view parameter as a view (see viewArg), and the values
-// for a variadic parameter as one view of them (see packed). Every
-// argument, each value for a variadic among them, is an operand evaluated
-// left to right (see sequenced) before the values are packed.
+// argument to a view parameter as a view (see viewArg), a value passed as
+// any as a tack_any of it (see boxed), and the values for a variadic
+// parameter as one view of them (see packed). Every argument, each value
+// for a variadic among them, is an operand evaluated left to right (see
+// sequenced) before it is made an any and the values are packed.
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
 	callee := g.mangle(nil, name)
 	var fn *ast.Func
@@ -1722,12 +1723,24 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 		return "", diags
 	}
 	params := paramsOf(fn)
+	// box makes an any of each argument passed as one, once the order of
+	// evaluation has held the arguments it needs to (see boxed).
+	box := func(ops []string) []string {
+		out := slices.Clone(ops)
+		for i, a := range call.Args {
+			if g.boxesAt(call, params, i) {
+				out[i] = g.boxed(a, ops[i], ops[i] != args[i])
+			}
+		}
+		return out
+	}
 	build := func(ops []string) string {
-		return fmt.Sprintf("%s(%s)", callee, strings.Join(ops, ", "))
+		return fmt.Sprintf("%s(%s)", callee, strings.Join(box(ops), ", "))
 	}
 	if packs(call, params) {
 		fixed, view := len(params)-1, params[len(params)-1].Type
 		build = func(ops []string) string {
+			ops = box(ops)
 			all := append(slices.Clone(ops[:fixed]), g.packed(view, ops[fixed:]))
 			return fmt.Sprintf("%s(%s)", callee, strings.Join(all, ", "))
 		}
@@ -2016,6 +2029,7 @@ var cTypes = map[types.Type]string{
 	types.Uint64: "uint64_t",
 	types.String: "tack_string",
 	types.Bool:   "bool",
+	types.Any:    "tack_any",
 
 	types.UnsafeSize:    "size_t",
 	types.UnsafeUintptr: "uintptr_t",

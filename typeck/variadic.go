@@ -29,9 +29,9 @@ import (
 // (see codegen/c).
 
 // variadicParam returns the type of param, a variadic parameter, args
-// ...T: the view type []T. A mut variadic, and one whose element type is
-// a view, are reported, and give types.Invalid, as does an element type
-// that was reported.
+// ...T: the view type []T, T any included. A mut variadic, and one whose
+// element type is a view, are reported, and give types.Invalid, as does
+// an element type that was reported.
 func (c *Checker) variadicParam(param *ast.Param) types.Type {
 	if _, ok := param.TypeExpr.(*ast.ViewType); ok {
 		c.errorf(
@@ -40,7 +40,7 @@ func (c *Checker) variadicParam(param *ast.Param) types.Type {
 		)
 		return types.Invalid
 	}
-	elem := c.declaredType(param.TypeExpr)
+	elem := c.paramElemType(param.TypeExpr)
 	if elem == types.Invalid {
 		return types.Invalid
 	}

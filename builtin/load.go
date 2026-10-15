@@ -177,8 +177,8 @@ func (d *declarer) file(f *ast.File) {
 // fn checks fn, a function declared in std/builtin, and adds it as a
 // builtin if it is one: an extern func with a C name of its own, starting
 // tack_, named nothing a builtin cannot be named, neither pub nor lib, and
-// returning nothing, whose parameters are each of a basic type and none is
-// mut or variadic.
+// returning nothing, whose parameters are each of a basic type but any and
+// none is mut or variadic.
 func (d *declarer) fn(fn *ast.Func) {
 	before := len(d.diags)
 	switch {
@@ -280,8 +280,8 @@ func (d *declarer) checkCName(fn *ast.Func) {
 }
 
 // param returns the type of p, a parameter of the builtin fn, reporting a
-// mut parameter, a variadic one, and one whose type is not a basic type's
-// name.
+// mut parameter, a variadic one, one whose type is not a basic type's
+// name, and an any one.
 func (d *declarer) param(fn *ast.Func, p *ast.Param) types.Type {
 	if p.Mut {
 		d.errorf(p.MutSpan, "parameter %s of builtin %s cannot be mut", p.Name, fn.Name)
@@ -301,10 +301,16 @@ func (d *declarer) param(fn *ast.Func, p *ast.Param) types.Type {
 		return types.Invalid
 	}
 	typ, known := types.Lookup(id.Name)
-	if !known {
+	switch {
+	case !known:
 		d.errorf(id.Span,
 			"parameter %s of builtin %s must be of a basic type, such as int64 or string, not %s",
 			p.Name, fn.Name, id.Name)
+	case typ == types.Any:
+		// A call to a builtin passes each argument as itself, and an any
+		// argument needs its type id and address made at the call.
+		d.errorf(id.Span, "parameter %s of builtin %s cannot be any", p.Name, fn.Name)
+		return types.Invalid
 	}
 	return typ
 }

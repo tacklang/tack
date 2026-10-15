@@ -143,6 +143,43 @@ way:
   it, as an array is, which moves the IDs, and so the C names, of the
   types after it; only programs that use views see this.
 
+## any and printf
+
+`any` and `std/fmt`'s `printf` follow the decisions recorded in the
+README. These points were settled by the implementation rather than
+decided, and could go another way:
+
+- A Tack function may declare `any` and `...any` parameters, not only an
+  extern func, because `printf` must be a `pub` Tack function wrapping a
+  private extern one, extern funcs never being `pub`. Inside it an `any`
+  can only be passed on; every Tack-side operation is an error until the
+  type assertion and type switch are designed.
+- A view parameter may be `[]any`, as a variadic `...any` is inside its
+  function; `[N]any` is an error, as is `any` anywhere but a parameter.
+- `any` is a type's name, so it is reserved as one: a variable, function,
+  field or package named `any` is an error.
+- The fixed type ids follow the proposal's table: `bool` 1, `int8` to
+  `int64` 2 to 5, `uint8` to `uint64` 6 to 9, `unsafe_size_t` 10,
+  `unsafe_uintptr_t` 11, `string` 12.
+- An `any` points at the caller's variable when nothing in the call can
+  change it, a plain parameter, an immutable local or global, or a mutable
+  local the function never passes as `mut` anywhere, and at a temporary
+  copy otherwise, so a mutable local passed as `mut` in another call of
+  the same function is copied though nothing in this call changes it.
+- `printf`'s format is checked only for `std/fmt`'s `printf`, found by
+  its package path and name, not by any marker a declaration could carry.
+- A verb is the `%` and the UTF-8 sequence its next byte starts, so an
+  unknown verb `%é` is shown and written whole; an unknown verb that is
+  not graphic text is quoted in the diagnostic, `unknown printf verb
+  "%\n"`.
+- A count mismatch is reported at the values left over when there are
+  more values than verbs, and at the format when there are fewer.
+- A `tack_any` whose id is no type's, which only C can pass, is written as
+  `invalid` in a marker, with no value: `%!d(invalid)`.
+- `printf` writes with C's `fwrite` to `stdout`, the stream `print`
+  writes to, in its own C file of `std/fmt`, rather than through
+  `print`'s object, which is linked only when the program calls `print`.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

@@ -9,7 +9,7 @@ stage: ok
 
 typedef struct {
     int64_t e[3];
-} tack_array_14;
+} tack_array_15;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -35,7 +35,7 @@ static const int64_t tack_4_main2_ge = 32;
 static int64_t tack_4_main5_trace = 0;
 static const bool tack_4_main14_minusOneIsLess = true;
 static const bool tack_4_main8_sameBits = false;
-static const tack_array_14 tack_4_main5_table = {{10, 20, 30}};
+static const tack_array_15 tack_4_main5_table = {{10, 20, 30}};
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static int64_t tack_4_main6_signed(int64_t p_d, int64_t p_v);

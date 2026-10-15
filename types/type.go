@@ -47,6 +47,13 @@ const (
 	// type: the type it is assigned, passed or compared to, or Int64 where
 	// nothing does. No program can write it.
 	UntypedInt
+	// Any is any, a reference to a value of some other type, which one
+	// known only at run time: in C, a type id and a pointer to the value.
+	// It can only be the type of a parameter, or the element type of a
+	// variadic one or of a view parameter; a value of it can only be
+	// passed on to another any parameter. Only a value of a basic type,
+	// one InAny accepts, can be passed as one.
+	Any
 
 	// numBasic is the number of basic types, Invalid included. It is the
 	// first ID a Table would hand out.
@@ -71,17 +78,26 @@ var basicNames = [numBasic]string{
 	UnsafeSize:    "unsafe_size_t",
 	UnsafeUintptr: "unsafe_uintptr_t",
 	UntypedInt:    "untyped int",
+	Any:           "any",
 }
 
 // Lookup returns the basic type a type name denotes. Invalid and UntypedInt
 // have no name a program can write, so neither is ever returned as a match.
 func Lookup(name string) (Type, bool) {
-	for t := Int64; t < UntypedInt; t++ {
-		if basicNames[t] == name {
+	for t := Int64; t < numBasic; t++ {
+		if t != UntypedInt && basicNames[t] == name {
 			return t, true
 		}
 	}
 	return Invalid, false
+}
+
+// InAny reports whether a value of type t can be passed as any: t is one
+// of the twelve basic types a value can have, every integer type, bool
+// and string. An array, a view, a struct, any itself and an untyped
+// constant cannot; an untyped constant is given int64 first.
+func InAny(t Type) bool {
+	return t >= Int64 && t < UntypedInt
 }
 
 // IsInteger reports whether t is one of the integer types, UntypedInt

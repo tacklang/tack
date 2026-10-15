@@ -32,7 +32,7 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_16(tack_6_shapes5_Point a, tack_6_shapes5_Point b) {
+static bool tack_eq_17(tack_6_shapes5_Point a, tack_6_shapes5_Point b) {
     return a.f_x == b.f_x && a.f_y == b.f_y && (tack_compare_strings(a.f_label, b.f_label) == 0);
 }
 
@@ -58,7 +58,7 @@ static int64_t tack_6_shapes3_geo4_Area(tack_6_shapes3_geo4_Rect p_r) {
 static void tack_6_shapes4_main(void) {
     const tack_6_shapes3_geo4_Rect v_r = (tack_6_shapes3_geo4_Rect){.f_min = (tack_6_shapes3_geo5_Point){.f_x = 1, .f_y = 2}, .f_max = (tack_6_shapes3_geo5_Point){.f_x = 4, .f_y = 6}};
     const tack_6_shapes5_Point v_p = tack_6_shapes4_lift(v_r.f_max, (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
-    if ((tack_6_shapes3_geo4_Area(v_r) == 12) && (tack_eq_16(v_p, (tack_6_shapes5_Point){.f_x = 4, .f_y = 6, .f_label = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}}))) {
+    if ((tack_6_shapes3_geo4_Area(v_r) == 12) && (tack_eq_17(v_p, (tack_6_shapes5_Point){.f_x = 4, .f_y = 6, .f_label = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}}))) {
         tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
         tack_builtin_exit(42);
     }

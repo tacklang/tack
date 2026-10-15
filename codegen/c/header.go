@@ -20,15 +20,16 @@ const HeaderName = "tack.h"
 const guardName = "TACK_H"
 
 // stdGuardName is the macro the include guard of std's tack.h defines.
-// std's header defines tack_string and the string helpers, and the
-// generated source and a program's tack.h include it, so these names are
-// reserved in tack.h as if it defined them itself.
+// std's header defines tack_string and the string helpers, and tack_any,
+// its type ids and its helpers, and the generated source and a program's
+// tack.h include it, so these names are reserved in tack.h as if it
+// defined them itself.
 const stdGuardName = "TACK_STD_TACK_H"
 
 // stdHeader is the line that includes std's tack.h, which the generated
 // source always writes and a program's tack.h writes when a signature uses
-// a string. clang finds it on the include path, at the standard library's
-// include directory, which CompileCmd and BuildCmd are given.
+// a string or any. clang finds it on the include path, at the standard
+// library's include directory, which CompileCmd and BuildCmd are given.
 const stdHeader = "#include <tack/tack.h>\n"
 
 // Header returns tack.h for prog, which must have been generated without
@@ -62,8 +63,8 @@ type header struct {
 
 	diags []diag.Diagnostic
 
-	strings bool // whether tack_string is used, which std's tack.h defines
-	sizes   bool // whether size_t is, which <stddef.h> declares
+	std   bool // whether tack_string or tack_any is used, which std's tack.h defines
+	sizes bool // whether size_t is, which <stddef.h> declares
 }
 
 // owner is what a name in tack.h belongs to, as a diagnostic describes it,
@@ -144,12 +145,13 @@ func (h *header) useSignature(fn *ast.Func) {
 
 // use records that tack.h needs typ, used at site, and every type it is
 // made of, which are defined before it, and the header that declares a
-// basic type's C type when <stdint.h> does not: <stddef.h> for size_t.
+// basic type's C type when <stdint.h> does not: <stddef.h> for size_t, and
+// std's tack.h for tack_string and tack_any.
 func (h *header) use(typ types.Type, site ast.Span) {
 	table := h.prog.Types
 	switch {
-	case typ == types.String:
-		h.strings = true
+	case typ == types.String || typ == types.Any:
+		h.std = true
 		return
 	case typ == types.UnsafeSize:
 		h.sizes = true
@@ -307,7 +309,7 @@ func (h *header) render() []byte {
 	if h.sizes {
 		b.WriteString("#include <stddef.h>\n")
 	}
-	if h.strings {
+	if h.std {
 		b.WriteString(stdHeader)
 	}
 	for _, typ := range h.order {

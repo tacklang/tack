@@ -70,14 +70,16 @@ func checkedProgram(t *testing.T, p program) *ast.Program {
 }
 
 // headerDirs returns the packages of prog that get a tack.h in their
-// directory: none if prog has no C files, and otherwise those tack
-// --emit-header writes to (writeHeaders in package main), the main package
-// and each other package of its module with C files or extern funcs.
+// directory: none if prog's own module has no C files, since the C files
+// of std, such as std/fmt's, are not the example's to read beside a
+// header, and otherwise those tack --emit-header writes to (writeHeaders
+// in package main), the main package and each other package of its module
+// with C files or extern funcs.
 func headerDirs(prog *ast.Program) map[*ast.Package]bool {
 	dirs := make(map[*ast.Package]bool)
 	hasC := false
 	for _, pkg := range prog.Packages {
-		hasC = hasC || len(pkg.CFiles) > 0
+		hasC = hasC || pkg.Module == prog.Main().Module && len(pkg.CFiles) > 0
 	}
 	if !hasC {
 		return dirs

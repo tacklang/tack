@@ -13,20 +13,20 @@ typedef struct {
 
 typedef struct {
     tack_string e[2];
-} tack_array_16;
+} tack_array_17;
 
 typedef struct {
-    tack_array_16 f_names;
+    tack_array_17 f_names;
     tack_4_main6_Person f_lead;
 } tack_4_main4_Team;
 
 typedef struct {
     tack_string e[3];
-} tack_array_17;
+} tack_array_18;
 
 typedef struct {
     tack_string e[5];
-} tack_array_18;
+} tack_array_19;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -38,11 +38,11 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_14(tack_4_main6_Person a, tack_4_main6_Person b) {
+static bool tack_eq_15(tack_4_main6_Person a, tack_4_main6_Person b) {
     return (tack_compare_strings(a.f_name, b.f_name) == 0) && a.f_age == b.f_age;
 }
 
-static bool tack_eq_16(tack_array_16 a, tack_array_16 b) {
+static bool tack_eq_17(tack_array_17 a, tack_array_17 b) {
     for (int64_t i = 0; i < 2; i++) {
         if (!(tack_compare_strings(a.e[i], b.e[i]) == 0)) {
             return false;
@@ -51,11 +51,11 @@ static bool tack_eq_16(tack_array_16 a, tack_array_16 b) {
     return true;
 }
 
-static bool tack_eq_15(tack_4_main4_Team a, tack_4_main4_Team b) {
-    return tack_eq_16(a.f_names, b.f_names) && tack_eq_14(a.f_lead, b.f_lead);
+static bool tack_eq_16(tack_4_main4_Team a, tack_4_main4_Team b) {
+    return tack_eq_17(a.f_names, b.f_names) && tack_eq_15(a.f_lead, b.f_lead);
 }
 
-static bool tack_eq_17(tack_array_17 a, tack_array_17 b) {
+static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
     for (int64_t i = 0; i < 3; i++) {
         if (!(tack_compare_strings(a.e[i], b.e[i]) == 0)) {
             return false;
@@ -158,33 +158,33 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(10);
     }
     const tack_4_main6_Person v_p = (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30};
-    if ((!tack_eq_14(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30})) || (tack_eq_14(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, .f_age = 30}))) {
+    if ((!tack_eq_15(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30})) || (tack_eq_15(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, .f_age = 30}))) {
         tack_builtin_exit(11);
     }
     tack_4_main6_Person v_z = (tack_4_main6_Person){0};
-    if ((!tack_eq_14(v_z, (tack_4_main6_Person){.f_name = (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, .f_age = 0})) || !(tack_compare_strings(v_z.f_name, v_p.f_name) < 0)) {
+    if ((!tack_eq_15(v_z, (tack_4_main6_Person){.f_name = (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, .f_age = 0})) || !(tack_compare_strings(v_z.f_name, v_p.f_name) < 0)) {
         tack_builtin_exit(12);
     }
-    const tack_array_17 v_words = (tack_array_17){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}}};
-    if ((!tack_eq_17(v_words, (tack_array_17){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}}})) || (tack_eq_17(v_words, (tack_array_17){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}}}))) {
+    const tack_array_18 v_words = (tack_array_18){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}}};
+    if ((!tack_eq_18(v_words, (tack_array_18){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}}})) || (tack_eq_18(v_words, (tack_array_18){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}}}))) {
         tack_builtin_exit(13);
     }
-    tack_array_16 v_blank = (tack_array_16){0};
-    if ((!tack_eq_16(v_blank, (tack_array_16){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}}})) || (tack_eq_16(v_blank, (tack_array_16){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}}}))) {
+    tack_array_17 v_blank = (tack_array_17){0};
+    if ((!tack_eq_17(v_blank, (tack_array_17){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}}})) || (tack_eq_17(v_blank, (tack_array_17){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}}}))) {
         tack_builtin_exit(14);
     }
-    const tack_4_main4_Team v_t = (tack_4_main4_Team){.f_names = (tack_array_16){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}}}, .f_lead = v_p};
-    if (!tack_eq_15(v_t, (tack_4_main4_Team){.f_names = (tack_array_16){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}}}, .f_lead = (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30}})) {
+    const tack_4_main4_Team v_t = (tack_4_main4_Team){.f_names = (tack_array_17){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}}}, .f_lead = v_p};
+    if (!tack_eq_16(v_t, (tack_4_main4_Team){.f_names = (tack_array_17){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}}}, .f_lead = (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30}})) {
         tack_builtin_exit(15);
     }
-    if ((tack_eq_15(v_t, (tack_4_main4_Team){.f_names = (tack_array_16){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}}}, .f_lead = v_p})) || (tack_eq_15(v_t, (tack_4_main4_Team){.f_names = v_t.f_names, .f_lead = v_z}))) {
+    if ((tack_eq_16(v_t, (tack_4_main4_Team){.f_names = (tack_array_17){{(tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}}}, .f_lead = v_p})) || (tack_eq_16(v_t, (tack_4_main4_Team){.f_names = v_t.f_names, .f_lead = v_z}))) {
         tack_builtin_exit(16);
     }
-    const tack_array_18 v_sorted = (tack_array_18){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
+    const tack_array_19 v_sorted = (tack_array_19){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
     tack_string v_prev = (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)};
     int64_t v_rising = 0;
     {
-        const tack_array_18 *const tack_r4 = &v_sorted;
+        const tack_array_19 *const tack_r4 = &v_sorted;
         for (int64_t tack_k5 = 0; tack_k5 < 5; tack_k5++) {
             const tack_string v_w = (*tack_r4).e[tack_k5];
             if (tack_compare_strings(v_w, v_prev) > 0) {

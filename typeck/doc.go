@@ -246,6 +246,28 @@
 // overlapping a mut argument is a copy, and nothing about how many there
 // are is known inside the callee, which is checked once for every call.
 //
+// any, checked in any.go, is a reference to a value whose type is known
+// only at run time, and second-class like a view: only a parameter's type,
+// a f(a any), and the element type of a variadic or a view parameter,
+// ...any and []any, may be it; anywhere else, a local, a field, a global,
+// a result or an array element, it is reported, and so is a variable that
+// would take it from its value, x := a, v, ok := args[i] or a range's
+// element. A mut any is reported. An argument to an any parameter, or a
+// value of an ...any, is a value of a basic type, an untyped constant
+// settled to int64, or an any passed on; an array, a struct or a view is
+// reported. Nothing widens to any or from it, and it supports no operator
+// and no conversion, so every other use of an any, ==, a switch on it,
+// arithmetic, len, an index, a range, a conversion, printing, a return,
+// is reported by the rule that would report a value of any other wrong
+// type. A value passed as any is a plain argument for exclusivity, a copy.
+//
+// A call to std/fmt's printf, checked in printf.go, has its format read
+// when it is a known string (knownString): every verb against the value
+// it takes, an unknown verb, a % ending the format, and the number of
+// values against the number of verbs, each mistake an error at the value
+// or the format. A value of type any matches every verb, and a spread is
+// checked for its verbs only. Any other format is printf's C's to handle.
+//
 // A slice, x[i:j], checked in slice.go, is a string for a string, any
 // string, and a view of the elements for an array that is a place or a
 // view; anything else, and a bound that is not an integer, of any type, is
@@ -314,7 +336,9 @@
 //     builtin, or, for a variadic callee, at least one per fixed parameter
 //     and then values of the element type or one spread (variadic.go); a
 //     mut parameter takes mut x, where x is a place of exactly its type,
-//     and only a mut parameter does (mut.go);
+//     and only a mut parameter does (mut.go); an any parameter takes a
+//     value of a basic type or an any (any.go); and std/fmt's printf a
+//     known format its values match (printf.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value;
 //   - every operand of an arithmetic operator is an integer, the two having

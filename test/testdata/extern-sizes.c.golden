@@ -14,7 +14,7 @@ typedef struct {
 
 typedef struct {
     size_t e[2];
-} tack_array_15;
+} tack_array_16;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -40,7 +40,7 @@ extern size_t tack_4_main10_sizeOfSpan(void) TACK_C_NAME("sizeOfSpan");
 extern uintptr_t tack_4_main6_marker(void) TACK_C_NAME("marker");
 extern bool tack_4_main8_isMarker(uintptr_t p_p) TACK_C_NAME("isMarker");
 extern tack_4_main4_Span tack_4_main4_span(size_t p_n) TACK_C_NAME("span");
-extern tack_results_4_main7_lengths tack_4_main7_lengths(tack_array_15 p_a) TACK_C_NAME("lengths");
+extern tack_results_4_main7_lengths tack_4_main7_lengths(tack_array_16 p_a) TACK_C_NAME("lengths");
 extern void tack_4_main5_halve(size_t * p_n) TACK_C_NAME("halve");
 extern size_t tack_4_main7_largest(void) TACK_C_NAME("largest");
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
@@ -62,7 +62,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_4_main8_isMarker(v_p) && !tack_4_main8_isMarker(((uintptr_t)((uint64_t)v_p + (uint64_t)1)))), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     const tack_4_main4_Span v_s = tack_4_main4_span(24);
     tack_4_main5_check(((v_s.f_len == 24) && (v_s.f_addr == v_p)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
-    const tack_results_4_main7_lengths tack_r0 = tack_4_main7_lengths((tack_array_15){{40, 2}});
+    const tack_results_4_main7_lengths tack_r0 = tack_4_main7_lengths((tack_array_16){{40, 2}});
     const size_t v_total = tack_r0.r0;
     const size_t v_count = tack_r0.r1;
     tack_4_main5_check(((v_total == 42) && (v_count == 2)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});

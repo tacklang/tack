@@ -6,7 +6,8 @@
 // The unit, and the tack.h of a program's C files, include std's
 // <tack/tack.h>, src/std/include/tack/tack.h, which defines what every
 // program's C shares: tack_string and the string helpers TACK_C_STR_LEN,
-// TACK_STR and TACK_STR_N. Nothing the backend generates defines them, so
+// TACK_STR and TACK_STR_N, and tack_any, its type ids TACK_TYPE_INVALID
+// through TACK_TYPE_STRING, TACK_ANY_IS and the unpack helpers. Nothing the backend generates defines them, so
 // there is one definition, which std's own C files include as well, and
 // CompileCmd and BuildCmd put std's include directory on the include path
 // for it. --emit output therefore compiles only with that directory on
@@ -31,7 +32,8 @@
 //   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
 //     program uses unsafe_size_t or calls a builtin that takes one, which
 //     a freestanding C implementation has, and std's <tack/tack.h>, for
-//     tack_string and TACK_C_STR_LEN, which includes only <stdint.h>;
+//     tack_string, TACK_C_STR_LEN, tack_any and its type ids, which
+//     includes only those three;
 //   - a C struct for every array, view and struct type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array or struct, then an equality helper for every array
@@ -161,6 +163,23 @@
 // C has no array of no elements, and a null pointer with a length of 0 is
 // never read, nor moved by a slice, as for the zero string's bytes.
 //
+// An any is a tack_any, {uint32_t type; const void *ptr;}, by value, and
+// []any, so ...any, a view of them, tack_view_N like any view. A value
+// passed as any, to an any parameter or as a value of an ...any, becomes
+// (tack_any){TACK_TYPE_INT64, &x} at the call, its type's id from std's
+// tack.h and the address of its value as it was when the argument was
+// evaluated (any.go): the argument itself when it is a name no call can
+// change while the function runs, a plain parameter, an immutable local
+// or global, or a mutable local the function never passes as mut; the
+// temporary the order of evaluation already holds it in, when it does;
+// and otherwise a copy, assigned in the argument to a temporary declared
+// at the top of the function, (tack_a0 = x, (tack_any){..., &tack_a0}),
+// which lives for the whole call. So a mutable global, or a variable the
+// same call passes as mut, is copied, and the callee sees the value as
+// at the call, as a plain argument's copy shows it. An any passed on is
+// passed as it is. The values of an ...any are made anys before they are
+// packed.
+//
 // A slice, x[i:j], is a call to a helper for its type, tack_slice_string
 // or tack_slice_N for the view type N, or tack_slice_from_ either when j is
 // left out and the helper reads the length itself; each is emitted only
@@ -202,8 +221,8 @@
 //
 // Header returns tack.h, which the C files are compiled against: an
 // include guard, TACK_H, stdbool.h and stdint.h, stddef.h if a signature
-// uses size_t, std's <tack/tack.h> if a signature uses a string, for
-// tack_string and the string helpers, a definition of every array and struct type an
+// uses size_t, std's <tack/tack.h> if a signature uses a string or any,
+// for tack_string, tack_any and their helpers, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
 // a prototype for every extern func under its C name, package by package,
@@ -215,24 +234,26 @@
 // struct of package main is its Tack name, one of another package
 // <package name>_<name>, an array tack_array_<length>_<element>, the
 // element's Tack name if basic, a view tack_view_<element>, named the same
-// way, with members ptr and len, and a results struct tack_results_<C
+// way, with members ptr and len, so []any is tack_view_any, an any being
+// std's tack_any, and a results struct tack_results_<C
 // name>, with members r0, r1 and on; a struct's members are its fields'
 // Tack names. The generated source declares each extern func with its own
 // types, so a value passes between the two unchanged. Generate reports,
 // before generating anything, a name tack.h would give two things (two
 // types, a type and a results struct or extern func, or one of tack.h's own
-// names, TACK_H, or of std's tack.h, tack_string, its string helpers and its
-// guard TACK_STD_TACK_H, whether or not tack.h includes it, or a macro the C
+// names, TACK_H, or of std's tack.h, tack_string, its string helpers,
+// tack_any, its type ids and its helpers, and its guard TACK_STD_TACK_H,
+// whether or not tack.h includes it, or a macro the C
 // standard specifies <stdbool.h>, <stdint.h> or <stddef.h> defines, such as
 // NULL, INT64_MAX or INT64_C, whether or not tack.h includes that header),
 // a type of package main or a field named with a C keyword, and a field
-// named like an object-like macro among those, TACK_H, TACK_STD_TACK_H or
-// a standard header's, which would replace the member's name, among the
-// types tack.h defines, whether or not the program has C files: the
-// diagnostic is at the second of two, with a note at the first. A field may
-// be named like a function-like macro, TACK_STR or offsetof, which expands
-// only before a (, or like tack_string, a typedef name, which a member's
-// name does not clash with. The generated source is unaffected by any of
+// named like an object-like macro among those, TACK_H, TACK_STD_TACK_H, a
+// TACK_TYPE_ id or a standard header's, which would replace the member's
+// name, among the types tack.h defines, whether or not the program has C
+// files: the diagnostic is at the second of two, with a note at the first.
+// A field may be named like a function-like macro, TACK_STR, TACK_ANY_IS or
+// offsetof, which expands only before a (, or like tack_string, tack_any or
+// an unpack helper, whose names a member's name does not clash with. The generated source is unaffected by any of
 // these names: its fields are f_<name> and its types and extern funcs
 // mangled. reservedNames lists them all.
 //

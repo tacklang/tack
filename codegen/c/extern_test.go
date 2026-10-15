@@ -361,6 +361,8 @@ func TestHeaderRejectsFieldsNamedLikeObjectMacros(t *testing.T) {
 		{"INT64_MAX", "a macro of <stdint.h>"},
 		{"UINT_FAST8_WIDTH", "a macro of <stdint.h>"},
 		{"__bool_true_false_are_defined", "a macro of <stdbool.h>"},
+		{"TACK_TYPE_INVALID", "a tack.h any type id"},
+		{"TACK_TYPE_UNSAFE_UINTPTR_T", "a tack.h any type id"},
 	} {
 		t.Run(tt.field, func(t *testing.T) {
 			src := "package main\n\ntype Shape struct {\n    a int64\n    " + tt.field +
@@ -378,20 +380,23 @@ func TestHeaderRejectsFieldsNamedLikeObjectMacros(t *testing.T) {
 
 // TestExternFieldsNamedLikeFunctionMacros passes a struct whose fields are
 // named like function-like macros tack.h and the headers it includes
-// define, and like tack.h's string type, to C and reads each back: a
+// define, like tack.h's string and any types, and like an any helper, to
+// C and reads each back: a
 // function-like macro expands only where its name is followed by (, which
 // neither a member's declaration nor p.name is, and a member's name is in
 // a namespace of its own, apart from typedef names.
 func TestExternFieldsNamedLikeFunctionMacros(t *testing.T) {
 	src := "package main\n\n" +
 		"type F struct {\n    TACK_STR int64\n    offsetof int64\n    INT64_C int64\n" +
-		"    tack_string int64\n}\n\n" +
+		"    tack_string int64\n    TACK_ANY_IS int64\n    tack_any int64\n    tack_any_int64 int64\n}\n\n" +
 		"extern func sum(f F, s string) int64\n\n" +
-		"func main() {\n    code, _ := int32(sum(F{TACK_STR: 1, offsetof: 2, INT64_C: 4, tack_string: 8}, \"abc\"))\n    exit(code)\n}\n"
+		"func main() {\n    code, _ := int32(sum(F{TACK_STR: 1, offsetof: 2, INT64_C: 4, tack_string: 8, " +
+		"TACK_ANY_IS: 16, tack_any: 32, tack_any_int64: 64}, \"abc\"))\n    exit(code)\n}\n"
 	csrc := "#include <stddef.h>\n\n" +
 		"int64_t sum(F f, tack_string s) {\n" +
-		"    return f.TACK_STR + f.offsetof + f.INT64_C + f.tack_string + s.len * 10;\n}\n"
-	if got := exitStatus(t, buildExtern(t, src, csrc)); got != 45 {
-		t.Errorf("exit status = %d, want 45", got)
+		"    return f.TACK_STR + f.offsetof + f.INT64_C + f.tack_string + f.TACK_ANY_IS + f.tack_any +\n" +
+		"        f.tack_any_int64 + s.len * 10;\n}\n"
+	if got := exitStatus(t, buildExtern(t, src, csrc)); got != 157 {
+		t.Errorf("exit status = %d, want 157", got)
 	}
 }

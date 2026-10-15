@@ -23,18 +23,17 @@ func print(args ...any)
 // it to stderr with a terminating newline.
 func println(args ...any)
 
-// printf formats the given arguments C-style and writes to stderr.
-func printf(format string, args ...any)
 ```
 
 What each one needs before it could be declared for real:
 
 | Declaration               | Blocked on                                                        |
 |---------------------------|-------------------------------------------------------------------|
-| `append`, and any `[]any` | growable lists, since `[]T` is only a read-only view parameter, and an `any` type |
-| `...any`                  | an `any` type; variadics exist, `args ...T` for any other `T`, but a builtin cannot have one yet |
+| `append`, and any `[]any` | growable lists, since `[]T` is only a read-only view parameter |
+| `...any`                  | a builtin taking variadic or `any` parameters: `any` and `args ...any` exist, but a builtin may have neither, since a call to one passes each argument as itself |
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
-| `println`, `printf`       | the above, plus string concatenation and formatting               |
+| `println`                 | the above, plus string concatenation                              |
 
-`printf` would belong in `std/fmt`, the standard library package that has
-`println` today, rather than among the builtins.
+`printf` is no longer planned here: it is `std/fmt`'s
+`printf(format string, args ...any)`, which writes to standard output, as
+`print` does, rather than to standard error.

@@ -40,8 +40,8 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
 Functions have local variables, immutable unless declared with `mut`, and
-loops. The process exit status is still the only way to observe an integer,
-since `print` takes strings only.
+loops. `print` takes strings only; `std/fmt`'s `printf` writes integers,
+bools and strings, through `any` parameters (see the language today).
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. The language has packages now, but the standard
@@ -235,7 +235,7 @@ extern("tack_builtin_exit") func exit(code int32)
 Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
 types, none `mut` or variadic (`parameter xs of builtin p cannot be
-variadic`), and not named after a basic type, `len`, `main` or `_`. Anything
+variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, `len`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -244,9 +244,10 @@ calls with a prototype, `void tack_builtin_print(tack_string);`. Their
 bodies are the `.c` files beside `builtin.tck`, one per builtin and named
 after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
 `src/std/include` for `tack_string`. That header is the one definition of
-what every program's C shares, `tack_string` and the string helpers: the
-generated C includes it too, and so does a program's `tack.h` when an
-extern func uses a string, so every C file is compiled with
+what every program's C shares, `tack_string` and the string helpers, and
+`tack_any`, its type ids and its unpack helpers: the generated C includes
+it too, and so does a program's `tack.h` when an extern func uses a string
+or `any`, so every C file is compiled with
 `-I $TACK_HOME/src/std/include`, and `--emit` output needs that flag to
 compile on its own. The driver compiles them as it
 compiles a program's C files and links only the objects that define a
@@ -254,7 +255,7 @@ builtin the program calls, and those that define what those objects need
 in turn, as a linker takes an archive's members. So the generated C
 includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
 `unsafe_size_t`, which a freestanding C implementation has, and
-`<tack/tack.h>`, which includes only `<stdint.h>`, and a program
+`<tack/tack.h>`, which includes only those three, and a program
 that calls neither builtin links neither body and none of the C library
 they call. A target without a C library needs only different bodies.
 
@@ -442,7 +443,9 @@ makes for itself, which has a letter after `tack_`.
   Without std installed, such a program fails as every program does,
   `tack: cannot find std at <path>; set TACK_HOME or run make install`.
   Its one package today is [`fmt`](src/std/fmt/fmt.tck), whose `pub func
-  println(s string)` writes `s` and then a newline, `fmt.println("hi")`.
+  println(s string)` writes `s` and then a newline, `fmt.println("hi")`,
+  and whose `pub func printf(format string, args ...any)` writes formatted
+  text (see printf).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -625,6 +628,63 @@ makes for itself, which has a letter after `tack_`.
   the view of it, `tack_view_<T>`, with a null pointer and a length of 0
   for no values. An extern func may take one (see extern C); a builtin
   may not.
+- `any`. A parameter `a any` takes a value of any basic type, an integer
+  of any type, a `bool` or a `string`, which the function sees as a
+  reference to the caller's value with its type known only at run time:
+  in C, a type id and a pointer, `tack_any`. A value passes to it as it is,
+  with nothing written, `show(5)`, `show("s")`; an untyped constant is an
+  `int64` there, a character literal a `uint8`, and a constant no `int64`
+  holds is `constant 18446744073709551615 overflows int64`. `any(x)` is no
+  conversion, `cannot convert int64 to any`. An array, a struct or a view
+  cannot be passed as one yet, `cannot pass Point as any: only the builtin
+  types can be passed as any for now`, nor can a `mut` argument, `f does
+  not take x as mut; pass x`. The value is a copy taken at the call, as a
+  plain argument's is: `f(mut x, x)` gives the `any` `x` as it was before
+  the call, and a mutable global is copied too. `args ...any` is a
+  variadic of them, a read-only `[]any` under every view rule (see
+  variadics), and a view parameter may be `[]any`. `any` is second-class,
+  as a view is: anywhere but a parameter's type or a variadic's or view
+  parameter's element type, a local, a field, a global, a result or an
+  array's element, it is `any can only be the type of a parameter`, and a
+  variable declared from one, `b := a`, `v, ok := args[0]` or `for _, v :=
+  range args`, is `cannot declare b as any; any can only be the type of a
+  parameter`. `mut a any` is `mut has no effect on an any parameter; take
+  mut p T to change the caller's value`. Inside its function an `any` can
+  only be passed on, to another `any` parameter, `g(a)`, or as a value of
+  an `...any`, `many(a, args[0])`, and an `[]any` spread, `many(args...)`,
+  `many(args[1:]...)`, or passed to an `[]any` parameter: it supports no
+  operator, `operator == is not defined on any` (a `switch` on one too),
+  no conversion, `cannot convert any to int64`, and no use as another type,
+  `cannot use any as string in argument to print`. Asking which type an
+  `any` holds, and reading its value, is for C only in this version (see
+  extern C). `any` is a type's name, so it cannot name anything else,
+  `cannot use any as a name; it is a type`.
+- printf. `fmt.printf(format, args...)`, from `std/fmt`, writes `format`
+  to standard output with each verb replaced by its argument: `%d` an
+  integer of any type in decimal, `%x` one in lowercase hexadecimal, with
+  a `-` before a negative value as Go writes it, `%s` a string's bytes,
+  `%t` a bool, `%c` a `uint8` as its byte, `%v` any of them as its own
+  verb would, and `%%` a `%`. There are no widths or flags. A verb is the
+  `%` and the UTF-8 character after it. When the compiler knows the
+  format, a literal or an immutable variable holding one, every verb is
+  checked against its argument, and each mistake is an error: `printf
+  verb %d does not take string`, `unknown printf verb %q` (a verb that is
+  not graphic, such as a newline, is quoted, `unknown printf verb
+  "%\n"`), `printf format ends in a lone %`, and `printf format has 2
+  verbs but 1 argument` at the format, or at the arguments left over when
+  there are more than verbs. An `any` passed on matches any verb, since
+  its type is known only at run time, and a spread, `printf(f,
+  args...)`, has its verbs checked but not its count. A format the
+  compiler does not know is accepted, and each mistake is written into the
+  output as Go's `fmt` writes it, never undefined: `%!d(string=hi)` for a
+  verb given an argument it does not take, or an unknown verb,
+  `%!d(MISSING)` for a verb with none left, `%!(EXTRA int64=5, bool=true)`
+  after the output for arguments no verb took, and `%!(NOVERB)` for a `%`
+  ending the format. printf writes through the same C `stdout` as
+  `print`, so the two interleave in call order, formats integers itself,
+  never calling C's `printf`, and reports no error. Only `std/fmt`'s
+  `printf` has its format checked: a function of any other package named
+  `printf` is an ordinary function.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -974,8 +1034,8 @@ makes for itself, which has a letter after `tack_`.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
   `unsafe_size_t` and `unsafe_uintptr_t`, `string` and `bool`, arrays,
-  views, which only a parameter may have, and the structs a program
-  declares. There is no
+  views and `any`, which only a parameter may have, and the structs a
+  program declares. There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
 - Target-width integers. `unsafe_size_t` and `unsafe_uintptr_t` are C's
@@ -1224,7 +1284,12 @@ makes for itself, which has a letter after `tack_`.
   parameter, which C gets as `tack_view_<T>`, a pointer to `const`
   elements and a length, to read only during the call, as it gets a
   variadic one, `args ...T`, whose values the caller puts in an array for
-  the call. An extern func is never `pub` or `lib`, and one no C
+  the call. An `any` parameter is a `tack_any`, `{uint32_t type; const
+  void *ptr;}`, by value, and `args ...any` a `tack_view_any` of them: C
+  checks the type id with `TACK_ANY_IS(a, INT64)` or reads the value with
+  a checked unpack helper, `tack_any_int64(a, &v)`, from std's
+  `<tack/tack.h>`, during the call only, and never writes through the
+  pointer or keeps it. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its

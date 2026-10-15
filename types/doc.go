@@ -12,9 +12,13 @@
 // unsigned Uint8 to Uint64, the unsigned target-width integers UnsafeSize
 // and UnsafeUintptr, String, a sequence of bytes, and Bool. UntypedInt is
 // the type of an integer constant expression until it is given one where it
-// is used; no program can name it. IsInteger, IsUnsigned and Bits describe
-// the integer types, and Widens says which can be used as which without a
-// conversion: every value of the one must be a value of the other.
+// is used; no program can name it. Any, any, is a reference to a value of
+// some other type known only at run time; it widens to and from nothing
+// but itself, and InAny says which types a value of can be passed as one:
+// the twelve above, the integers, String and Bool. IsInteger, IsUnsigned
+// and Bits describe the integer types, and Widens says which can be used
+// as which without a conversion: every value of the one must be a value of
+// the other.
 //
 // A target-width type (TargetWidth), unsafe_size_t or unsafe_uintptr_t, is
 // C's size_t or uintptr_t, as wide as the target makes it, from 32 to 64
@@ -27,7 +31,8 @@
 //
 // Adding a basic type moves the first ID a Table hands out, so the IDs of
 // arrays and structs, which the C backend names its types after, all
-// move with it.
+// move with it. The IDs are the compiler's own: the type ids C sees in an
+// any are a separate table, fixed for good, in std's tack.h.
 //
 // Composite types get their IDs from the Table of the compilation that uses
 // them. An array type is added the first time it is seen, and found by its

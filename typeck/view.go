@@ -26,14 +26,18 @@ import (
 
 // paramType returns the type param is declared with: a view, when its
 // type is written []T, which only a parameter may have, and never a mut
-// one, or when it is variadic, args ...T (see variadicParam); any other
-// type as declaredType gives it.
+// one, or when it is variadic, args ...T (see variadicParam); any, which
+// only a parameter may have too, and never a mut one (see anyParam); any
+// other type as declaredType gives it.
 func (c *Checker) paramType(param *ast.Param) types.Type {
 	if param.Variadic {
 		return c.variadicParam(param)
 	}
 	vt, ok := param.TypeExpr.(*ast.ViewType)
 	if !ok {
+		if isAnyName(param.TypeExpr) {
+			return c.anyParam(param)
+		}
 		return c.declaredType(param.TypeExpr)
 	}
 	typ := c.viewType(vt)
@@ -45,14 +49,15 @@ func (c *Checker) paramType(param *ast.Param) types.Type {
 }
 
 // viewType returns the view type a written []T denotes, adding it to the
-// table. Its element type may be any type but a view: one is reported, and
-// gives types.Invalid, as does an element type that was reported.
+// table. Its element type may be any type but a view, any included, since
+// a view is a parameter's type too: a view element is reported, and gives
+// types.Invalid, as does an element type that was reported.
 func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	if _, ok := vt.Elem.(*ast.ViewType); ok {
 		c.errorf(vt.Span, "the element type of a view cannot be a view")
 		return types.Invalid
 	}
-	elem := c.declaredType(vt.Elem)
+	elem := c.paramElemType(vt.Elem)
 	if elem == types.Invalid {
 		return types.Invalid
 	}

@@ -448,6 +448,45 @@ func TestBuiltExternVariadicsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternAnyPassesEveryCheck builds examples/extern-any, whose
+// extern funcs take any and ...any, and checks what C read through each
+// at every optimization level: the type id of every basic type, of
+// constants and of a character, TACK_ANY_IS, every type at its edges
+// through its unpack helper, every other helper refusing a value, the
+// widening helpers, counts, values passed on from Tack, a copy alongside
+// a mut argument of the same variable, the order values are evaluated in,
+// and anys made in a loop's condition.
+func TestBuiltExternAnyPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want := "ids of bool and signed ok\n" +
+		"ids of int64 and unsigned ok\n" +
+		"ids of the rest ok\n" +
+		"ids of constants ok\n" +
+		"TACK_ANY_IS ok\n" +
+		"every type at its edges ok\n" +
+		"mismatches refused ok\n" +
+		"widened by the helpers ok\n" +
+		"counts ok\n" +
+		"passed on from Tack ok\n" +
+		"copy alongside mut ok\n" +
+		"evaluation order ok\n" +
+		"in a loop condition ok\n"
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "extern-any")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("extern-any"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != want || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAtEveryOptLevel builds examples/extern-strings, generated
 // source and a C file both, at every optimization level, and checks each
 // binary passes every check: a level must not change what a program does.
