@@ -1263,10 +1263,30 @@ func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Dia
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	if chained(stmt, els) {
+		// The inner if's own closing brace ends the whole chain.
+		lines = append(lines, "} else "+els[0])
+		return append(lines, els[1:]...), nil
+	}
 
 	lines = append(lines, "} else {")
 	lines = append(lines, indent(els)...)
 	return append(lines, "}"), nil
+}
+
+// chained reports whether stmt's else branch, lowered to els, can be written
+// as C's else if: the branch is a single if, as "else if" parses, and els is
+// that if alone. The else block declares nothing and defers nothing, so it
+// has no cleanup of its own, and nesting each branch inside the last made a
+// chain of n branches n blocks deep.
+func chained(stmt *ast.If, els []string) bool {
+	if len(stmt.Else) != 1 || len(els) == 0 {
+		return false
+	}
+	if _, ok := stmt.Else[0].(*ast.If); !ok {
+		return false
+	}
+	return strings.HasPrefix(els[0], "if ") && els[len(els)-1] == "}"
 }
 
 // generateAssign sets a local to a new value. A place of an owned type

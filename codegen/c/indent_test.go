@@ -96,3 +96,69 @@ func allocated(t *testing.T, n int) uint64 {
 	runtime.ReadMemStats(&after)
 	return after.TotalAlloc - before.TotalAlloc
 }
+
+// elseIfChain is a func pick that returns i for x == i, chaining n branches
+// with else if, and n when none matches.
+func elseIfChain(n int) string {
+	var b strings.Builder
+	b.WriteString("func pick(x int64) int64 {\n    if x == 0 {\n        return 0\n")
+	for i := 1; i < n; i++ {
+		fmt.Fprintf(&b, "    } else if x == %d {\n        return %d\n", i, i)
+	}
+	fmt.Fprintf(&b, "    } else {\n        return %d\n    }\n}\n", n)
+	return b.String()
+}
+
+// TestElseIfChainsStayFlat lowers a chain of a thousand else ifs and checks
+// it stays at the function's own level in C, as a switch does, rather than
+// nesting each branch inside the last.
+func TestElseIfChainsStayFlat(t *testing.T) {
+	out := generate(t, inMainProgram(elseIfChain(1000), "print(\"\")"))
+	for i, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, strings.Repeat(" ", 12)) {
+			t.Fatalf("line %d is nested three levels deep: %q", i+1, line)
+		}
+	}
+	if !strings.Contains(out, "\n    } else if (p_x == 999) {\n") {
+		t.Errorf("the last branch is not an else if at the function's level:\n%s", out)
+	}
+}
+
+// TestElseIfChainsRun runs else if chains, with defers in their branches and
+// an else block that holds an if and more, which stays nested, and checks
+// each takes the branch it should.
+func TestElseIfChainsRun(t *testing.T) {
+	decls := elseIfChain(200) + `
+func branches(x int64) int64 {
+    mut n := 0
+    if x == 1 {
+        defer {
+            print("one\n")
+        }
+        n = 10
+    } else if x == 2 {
+        defer {
+            print("two\n")
+        }
+        n = 20
+    } else {
+        if x == 3 {
+            n = 30
+        }
+        n = n + 1
+    }
+    return n
+}
+`
+	stdout, status := run(t, inMainProgram(decls,
+		"if pick(0) != 0 || pick(137) != 137 || pick(199) != 199 || pick(-1) != 200 {",
+		"    exit(1)",
+		"}",
+		"if branches(1) != 10 || branches(2) != 20 || branches(3) != 31 || branches(4) != 1 {",
+		"    exit(2)",
+		"}",
+	))
+	if status != 0 || stdout != "one\ntwo\n" {
+		t.Errorf("got status %d and %q, want 0 and %q", status, stdout, "one\ntwo\n")
+	}
+}

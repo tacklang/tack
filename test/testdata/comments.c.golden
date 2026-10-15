@@ -65,12 +65,10 @@ static void tack_4_main4_main(void) {
         for (; v_i < tack_4_main5_limit; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
             if (v_i == 1) {
                 continue;
+            } else if (v_i == 4) {
+                break;
             } else {
-                if (v_i == 4) {
-                    break;
-                } else {
-                    v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
-                }
+                v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
             }
         }
     }
