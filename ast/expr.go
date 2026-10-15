@@ -393,7 +393,7 @@ func TypeOf(expr Expr) types.Type {
 }
 
 // recordedType returns the type the type checker recorded on an operator
-// expression, a composite literal, an element or a field, the type of the
+// expression, a composite literal, an element, a slice or a field, the type of the
 // place a mut argument names, or Invalid for any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
@@ -404,6 +404,8 @@ func recordedType(expr Expr) types.Type {
 	case *CompositeLit:
 		return e.Type
 	case *Index:
+		return e.Type
+	case *Slice:
 		return e.Type
 	case *Selector:
 		return e.Type
@@ -540,6 +542,49 @@ func (i *Index) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the start of X through the closing
 // bracket.
 func (i *Index) Spanned() Span { return i.Span }
+
+// Slice is a slice of a string, an array or a view, X[Lo:Hi]: the bytes or
+// elements of X from Lo up to, but not including, Hi. Lo is nil when it is
+// left out, X[:Hi], and means 0, and Hi is nil when it is left out, X[Lo:],
+// and means len(X). A slice is a value, never a place, so it is never an
+// assignment's target or a mut argument; the parser takes it wherever an
+// index may be written, and the type checker reports it anywhere else.
+type Slice struct {
+	X         Expr
+	Lo        Expr // nil for X[:Hi]
+	Hi        Expr // nil for X[Lo:]
+	ColonSpan Span // the colon between the bounds
+	Span      Span // the start of X through the closing bracket
+
+	// Type is the slice's type, set by the type checker: a string for a
+	// string's slice, and a view of the elements for an array's or a
+	// view's.
+	Type types.Type
+}
+
+var _ Expr = (*Slice)(nil)
+
+func (s *Slice) exprKey() exprKey { return _exprKey }
+
+func (s *Slice) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of X through the closing
+// bracket.
+func (s *Slice) Spanned() Span { return s.Span }
+
+// Bounds returns the source range of the slice's bounds as written: from
+// the start of Lo, or the colon when Lo is left out, through the end of
+// Hi, or the colon when Hi is left out.
+func (s *Slice) Bounds() Span {
+	span := s.ColonSpan
+	if s.Lo != nil {
+		span.Start = s.Lo.Spanned().Start
+	}
+	if s.Hi != nil {
+		span.End = s.Hi.Spanned().End
+	}
+	return span
+}
 
 // Root returns the name a chain of indexes and field selections starts
 // from: the variable that an assignment to target writes, whether target is

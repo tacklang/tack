@@ -2063,8 +2063,9 @@ func (p *Parser) parseStructLit() (ast.Expr, []diag.Diagnostic) {
 	return lit, nil
 }
 
-// parsePostfix parses any number of indexes and field selections after x,
-// x[i].f[j], each an element or a field of what comes before it.
+// parsePostfix parses any number of indexes, slices and field selections
+// after x, x[i].f[j][k:], each an element, a slice or a field of what
+// comes before it.
 func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	for {
 		var diags []diag.Diagnostic
@@ -2082,14 +2083,21 @@ func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	}
 }
 
-// parseIndex parses one index after x, x[i].
+// parseIndex parses one index after x, x[i], or one slice, x[i:j], whose
+// bounds may each be left out, x[:j], x[i:] or x[:]; see parseSlice.
 func (p *Parser) parseIndex(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	p.next() // the opening bracket
 	restore := p.allowLits(true)
-	index, diags := p.parseExpr(1)
-	restore()
-	if index == nil {
-		return nil, diags
+	defer restore()
+	var index ast.Expr
+	if p.peek().Kind() != lexer.Colon {
+		var diags []diag.Diagnostic
+		if index, diags = p.parseExpr(1); index == nil {
+			return nil, diags
+		}
+	}
+	if p.peek().Kind() == lexer.Colon {
+		return p.parseSlice(x, index)
 	}
 	if ok, diags := p.expect(lexer.RBrack); !ok {
 		return nil, diags
@@ -2097,6 +2105,42 @@ func (p *Parser) parseIndex(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	return &ast.Index{
 		X:     x,
 		Index: index,
+		Span: ast.Span{
+			File:  p.fileID,
+			Start: p.extent(x).Start,
+			End:   p.peekPrev().OffsetEnd(),
+		},
+	}, nil
+}
+
+// parseSlice parses the rest of a slice after x, x[lo:hi], from the colon
+// that follows lo, nil when it is left out. hi may be left out too. A
+// second colon would start Go's three-index form, x[i:j:k], which Tack
+// does not have, and is reported there.
+func (p *Parser) parseSlice(x, lo ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	colon := p.span(p.next())
+	var hi ast.Expr
+	if k := p.peek().Kind(); k != lexer.RBrack && k != lexer.Colon {
+		var diags []diag.Diagnostic
+		if hi, diags = p.parseExpr(1); hi == nil {
+			return nil, diags
+		}
+	}
+	if tk := p.peek(); tk.Kind() == lexer.Colon {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a slice has at most two bounds, x[i:j]; there is no three-index form",
+			Span:     p.span(tk),
+		}}
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, diags
+	}
+	return &ast.Slice{
+		X:         x,
+		Lo:        lo,
+		Hi:        hi,
+		ColonSpan: colon,
 		Span: ast.Span{
 			File:  p.fileID,
 			Start: p.extent(x).Start,

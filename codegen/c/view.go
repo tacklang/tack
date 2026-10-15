@@ -50,7 +50,8 @@ func (g *generator) argTypes(call *ast.Call, params []*ast.Param) []string {
 
 // viewArg renders arg, passed to a parameter of the view type view in
 // call: a view passed on, as it is; a string's bytes, []uint8(s), as the
-// string's pointer and length; or an array, which the checker has made
+// string's pointer and length; a slice by sliceExpr, which copies an
+// array as this does; or an array, which the checker has made
 // sure is a place, as a pointer to its first element and its length. The
 // array is copied into a temporary first, and the view points at the
 // copy, when the callee could otherwise see it change during the call
@@ -63,6 +64,9 @@ func (g *generator) viewArg(
 ) (string, []diag.Diagnostic) {
 	if conv, ok := arg.(*ast.Call); ok && conv.Conv != types.Invalid {
 		return g.bytesView(conv, view)
+	}
+	if s, ok := arg.(*ast.Slice); ok {
+		return g.sliceExpr(s, call)
 	}
 	typ := ast.TypeOf(arg)
 	if !g.prog.Types.IsArray(typ) {

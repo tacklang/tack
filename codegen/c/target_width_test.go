@@ -137,9 +137,10 @@ const i386 = "i386-unknown-linux-gnu"
 // arithmetic, comparisons with wider and narrower types, and with signed
 // types and each other, by value, constants of other types included,
 // widening, a struct, an array, a switch, one with case values of other
-// integer types, a range count, globals, a mut parameter, and indexes of
+// integer types, a range count, globals, a mut parameter, indexes of
 // an array, a string and a view, proven by a guard, a counting loop or a
-// known value, and checked.
+// known value, and checked, and slices of each with target-width bounds,
+// proven by a guard and checked.
 const width32Program = `package main
 
 type B struct {
@@ -201,6 +202,17 @@ func index(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_uintptr_
     return sum + a[unsafe_size_t(3)]
 }
 
+func slices(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_uintptr_t, i int64) int64 {
+    t, okT := str[s:p]
+    w, okW := str[i:s]
+    x, okX := str[p:]
+    mut n int64 = len(t) + len(w) + len(x)
+    if okT && okW && okX && s <= p && p <= len(v) && s <= len(a) {
+        n += len(v[s:p]) + len(a[s:]) + len(str[:0]) + index(a, str, v[:p], s, p)
+    }
+    return n
+}
+
 func main() {
     mut b := B{n: 1, p: 2}
     if mixed(b.n, b.p, -1, 3, 4) {
@@ -227,6 +239,9 @@ func main() {
     }
     if index(a4, "abc", a4, b.n, b.p) == 0 {
         count = 3
+    }
+    if slices(a4, "abc", a4, b.n, b.p, 1) == 0 {
+        count = 4
     }
 }
 `

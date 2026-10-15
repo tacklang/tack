@@ -43,11 +43,20 @@ import (
 //     over len(s), or over s itself, does its index, whatever i's integer
 //     type, a uint64 or a target-width one included. A fact that names s
 //     holds only in a region that assigns neither variable; s may be
-//     mutable, since the region then never changes it.
+//     mutable, since the region then never changes it;
+//   - for a slice's bounds, which may reach a length but not pass it, and
+//     must be in order, two relations give facts too: j <= len(s) bounds
+//     j by the length itself, and i <= j, or i < j, puts i at or below j,
+//     for integer variables i and j of any types. These relations are
+//     only ever asked about by a slice's proof, and are left out of what
+//     explains an index's or a divisor's missing proof, and of what || and
+//     && unite, as a bound by a length is.
 
 // fact is something known about a subject's value in a region, about: that
 // it is not zero, or that it lies at or above lo, or at or below hi, or
-// below the length of the string subject lenOf. A subject is a variable or
+// below the length of the string subject lenOf, or at or below the length
+// of the string subject atMostLen, or at or below the integer subject
+// atMost. The last two are relations (see relational). A subject is a variable or
 // a path below an immutable one (see subject.go). For a string subject,
 // the fact can be about its length instead, which about then names.
 //
@@ -65,6 +74,8 @@ type fact struct {
 	drop         *drop
 	about        factKey
 	lenOf        factKey
+	atMostLen    factKey
+	atMost       factKey
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
@@ -77,9 +88,17 @@ func (f fact) inForce() bool {
 }
 
 // empty reports whether f says nothing about its variable: no bound, not
-// nonzero, and no length bounding it.
+// nonzero, no length bounding it, and no relation.
 func (f fact) empty() bool {
-	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf.isZero()
+	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf.isZero() && !f.relational()
+}
+
+// relational reports whether f is a relation a slice's bounds need: its
+// subject at or below a string's or a view's length, or at or below
+// another subject. Such a fact gives no bound of its own, and only a
+// slice's proof asks about it.
+func (f fact) relational() bool {
+	return !f.atMostLen.isZero() || !f.atMost.isZero()
 }
 
 // interval is what all the facts in force say about a variable's value: at
@@ -250,9 +269,10 @@ func (c *Checker) knownConversion(call *ast.Call) (constant.Int, bool) {
 }
 
 // knownStringLen returns the length of the string call takes the len of,
-// when call is len(s) and s is a known string. len of a literal is already
-// a constant, recorded on the call; this adds an immutable variable
-// holding one.
+// when call is len(s) and s is a known string, or of the slice it takes
+// the len of, when its bounds are known and it calls nothing (see
+// sliceExtent). len of a literal is already a constant, recorded on the
+// call; this adds an immutable variable holding one.
 func (c *Checker) knownStringLen(call *ast.Call) (constant.Int, bool) {
 	if !isLen(call) || len(call.Args) != 1 {
 		return constant.Int{}, false
@@ -260,13 +280,19 @@ func (c *Checker) knownStringLen(call *ast.Call) (constant.Int, bool) {
 	if n, ok := c.knownLen(call.Args[0]); ok {
 		return constant.FromInt64(n), true
 	}
+	if s, ok := call.Args[0].(*ast.Slice); ok && !hasCall(s) {
+		if n, ok := c.sliceExtent(s); ok {
+			return constant.FromInt64(n), true
+		}
+	}
 	return constant.Int{}, false
 }
 
 // knownString returns the value of e when it is a string the checker
 // knows: a literal, an immutable variable, local or package-level,
-// initialized with a known string, or a field or an element of a known
-// struct or array (see foldPart). Such a variable always holds that
+// initialized with a known string, a field or an element of a known
+// struct or array (see foldPart), or a slice of a known string at known
+// bounds (see knownSlice). Such a variable always holds that
 // string, since nothing can assign it. A mutable variable, a parameter and
 // a call are never known.
 func (c *Checker) knownString(e ast.Expr) (string, bool) {
@@ -277,6 +303,8 @@ func (c *Checker) knownString(e ast.Expr) (string, bool) {
 		v, ok := c.foldPart(x)
 		s, isString := v.(string)
 		return s, ok && isString
+	case *ast.Slice:
+		return c.knownSlice(x)
 	case *ast.Ident:
 		return c.knownStringVar(x)
 	default:
@@ -405,7 +433,7 @@ func union(a, b []fact) []fact {
 	var out []fact
 	seen := make(map[factKey]bool)
 	for _, f := range a {
-		if seen[f.about] {
+		if seen[f.about] || f.relational() {
 			continue
 		}
 		seen[f.about] = true
@@ -425,7 +453,7 @@ func sideInterval(facts []fact, k factKey) (interval, bool) {
 	var known interval
 	found := false
 	for _, f := range facts {
-		if f.about == k {
+		if f.about == k && !f.relational() {
 			known, found = known.narrow(f), true
 		}
 	}
@@ -491,8 +519,9 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 }
 
 // orientedFact returns the fact that left op right gives about left: a
-// subject, or len of a string subject, compared with a known value, or a
-// subject less than len of a string subject.
+// subject, or len of a string subject, compared with a known value, a
+// subject less than len of a string subject, or one of the relations a
+// slice needs (relation).
 func (c *Checker) orientedFact(left ast.Expr, op ast.BinaryOp, right ast.Expr) (fact, bool) {
 	about, ok := c.subject(left)
 	if !ok {
@@ -503,6 +532,28 @@ func (c *Checker) orientedFact(left ast.Expr, op ast.BinaryOp, right ast.Expr) (
 	}
 	if s, ok := c.stringLen(right); ok && !isLenCall(left) && op == ast.Lt {
 		return fact{about: about, lenOf: s}, true
+	}
+	return c.relation(left, about, op, right)
+}
+
+// relation returns the relation left op right gives about left, an
+// integer subject whose key is about, other than a length: at or below
+// len(s), for left <= len(s), or at or below right, an integer subject,
+// for left <= right or left < right.
+func (c *Checker) relation(
+	left ast.Expr,
+	about factKey,
+	op ast.BinaryOp,
+	right ast.Expr,
+) (fact, bool) {
+	if (op != ast.Le && op != ast.Lt) || isLenCall(left) || !types.IsInteger(ast.TypeOf(left)) {
+		return fact{}, false
+	}
+	if s, ok := c.stringLen(right); ok {
+		return fact{about: about, atMostLen: s}, op == ast.Le
+	}
+	if other, ok := c.keyOf(right); ok && types.IsInteger(ast.TypeOf(right)) {
+		return fact{about: about, atMost: other}, true
 	}
 	return fact{}, false
 }
@@ -648,16 +699,21 @@ func (c *Checker) release(m mark) {
 
 // assignedIn returns why region drops f: the first assignment in it, in
 // source order, to f's variable, or else to the string whose length bounds
-// it, a call passing either as mut included. It returns nil when region
-// assigns neither.
+// it, or the subject a relation bounds it by, a call passing any of them
+// as mut included. It returns nil when region assigns none of them.
 func assignedIn(region []ast.Stmt, f fact) *drop {
 	if d := assignedDrop(region, f.about); d != nil {
 		return d
 	}
-	if f.lenOf.isZero() {
-		return nil
+	for _, other := range []factKey{f.lenOf, f.atMostLen, f.atMost} {
+		if other.isZero() {
+			continue
+		}
+		if d := assignedDrop(region, other); d != nil {
+			return d
+		}
 	}
-	return assignedDrop(region, f.lenOf)
+	return nil
 }
 
 // assignedDrop returns the drop for the first assignment in region to the

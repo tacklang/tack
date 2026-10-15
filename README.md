@@ -461,8 +461,9 @@ makes for itself, which has a letter after `tack_`.
   passed on to another of the same type as it is, `sum(v)`. A view has
   `len(v)`, an `int64` never known, with the facts a string variable's
   length has; `v[i]`, with `i` proven in range against `len(v)` as for a
-  string, or the checked form `x, ok := v[i]`; and every range form, `for
-  i, x := range v`, whose index is proven for `v`. Nothing else: no `==`,
+  string, or the checked form `x, ok := v[i]`; every range form, `for
+  i, x := range v`, whose index is proven for `v`; and slicing, `v[i:j]`,
+  passed on (see slicing). Nothing else: no `==`,
   `operator == is not defined on []int64`, no conversion, no printing. A
   view is the type of a parameter only: anywhere else, a local, a field, a
   result, a global or an array's element, it is `a view can only be the
@@ -702,7 +703,7 @@ makes for itself, which has a letter after `tack_`.
   an error. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, calls, a call's
   `mut` arguments, parentheses,
-  array and struct literals, indexes, field selections, the infix
+  array and struct literals, indexes, slices, field selections, the infix
   operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
   prefix `!` and `-`, with Go's precedence: the prefix operators bind
   tightest, then arithmetic, then comparisons, then `&&`, then `||`.
@@ -808,7 +809,8 @@ makes for itself, which has a letter after `tack_`.
 - Evaluation order is left to right wherever Tack evaluates several
   operands: the two sides of an operator, a call's arguments, a return's
   values, an array literal's elements, a struct literal's values in the
-  order they are written, an indexed array before its index, and a
+  order they are written, an indexed array before its index, a sliced
+  value before its bounds and the low bound before the high, and a
   switch's tag before its case values, which run one by one up to the
   first match. In an assignment the target's indexes come before the
   value, and `x op= v` reads `x` before it evaluates `v`. The order shows
@@ -914,10 +916,53 @@ makes for itself, which has a letter after `tack_`.
   an `int64`, by value (see comparisons), so for a `uint64` `u`,
   `if u < len(s)` proves `s[u]`, and the same holds for an
   `unsafe_size_t` or `unsafe_uintptr_t` `u`, whatever the target's width.
+- Slicing. `x[i:j]` is the bytes of the string `x`, or the elements of the
+  array or view `x`, from `i` up to, but not including, `j`, as in Go;
+  `x[:j]` starts at 0, `x[i:]` runs to `len(x)`, and `x[:]` is all of it.
+  There is no three-index form: `x[i:j:k]` is `a slice has at most two
+  bounds, x[i:j]; there is no three-index form`. A string's slice is a
+  `string`, `{ptr + i, j - i}`, sharing the bytes it was cut from and never
+  copying them, so it is a value like any other string: stored in a
+  variable, a field, an array, a global's initializer when computable, or
+  returned. A string slices by bytes, so a slice may cut through a
+  multi-byte UTF-8 character. An array's or a view's slice is a view, `[]T`
+  of its element type, under the rules for views: it can only be passed
+  to a view parameter, `sum(a[1:3])`, an extern func's included, given to
+  `len`, or sliced again; anywhere else, stored, returned, indexed, ranged
+  over or compared, it is `a[1:3] is a view, []int64, which can only be
+  passed to a view parameter or to len`. An array must be a place, as for a
+  view: `f()[1:]` is `cannot slice a temporary array; store it in a variable
+  first`. A slice of a mutable global array, or of an array the same call
+  passes as `mut`, is of a copy taken when the argument is evaluated, as a
+  view of it would be; a string's slice never copies. Anything else
+  sliced is `cannot slice int64`, and a bound must be an integer, `slice
+  bound must be an integer, got bool`, of any integer type, a target-width
+  one included. The bounds must be proven, as an index is: `0 <= i`, `i <=
+  j` and `j <= len(x)`, from known values, a variable's type, guards and
+  loops, with two more relations a slice's guard may give, `j <= len(x)`
+  and `i <= j`; a bound left out needs nothing of its own, so `x[:j]` needs
+  `0 <= j <= len(x)` and `x[i:]` `0 <= i <= len(x)`. Unproven, the error
+  names what is missing, `slice bounds i:j may be out of range; check i <=
+  j first, or use v, ok := ...[i:j]`. A string's slice may instead be
+  bound with ok, `t, ok := s[i:j]` (or `=`), which gives the slice and
+  `true`, or `""` and `false` when the bounds are out of range, comparing
+  their values whatever their types; an array's or a view's cannot, `a[1:]
+  is a view, []int64, which cannot be bound with ok; prove its bounds
+  instead`. A known bound that no length makes valid is an error in either
+  form: negative, past a known length, `slice bound 4 is out of range for
+  [3]int64` or `for a string of 3 bytes`, or past the other known bound,
+  `slice bounds 3:1 are out of order`. A slice is never a place: `s[0:1] =
+  t`, `a[1:][0] = 3`, `a[:]++` and `mut a[1:]` are `cannot assign to
+  s[0:1]: a slice is not a place` or `cannot pass mut a[1:]: a slice is
+  not a place`. The slice of a known string at known bounds is a known
+  string, so `k := "abcdef"[1:4]` makes `len(k)` 3 and `k[2]` `'d'`, and
+  `len(x[i:j])` is known to be `j - i` wherever `i` and `j` are known. `x`
+  is evaluated first, then `i`, then `j`, each once. See
+  [docs/safety.md](docs/safety.md#slicing).
 - `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
-  division), and `len(v)` the number of elements of a view, never known;
-  each is an `int64`.
+  division), and `len(v)` the number of elements of a view, never known
+  but for a slice at known bounds; each is an `int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of
@@ -996,8 +1041,8 @@ makes for itself, which has a letter after `tack_`.
   the value of one spanning lines does not depend on the line endings it
   was saved with. A raw string with no closing backquote is an error.
 - A string is a sequence of bytes, everywhere: `s[i]` is a `uint8`,
-  `len(s)` counts bytes, a character literal is one byte, and `range` over
-  a string gives bytes. Decoding UTF-8 into runes will
+  `len(s)` counts bytes, a character literal is one byte, `range` over
+  a string gives bytes, and `s[i:j]` slices bytes. Decoding UTF-8 into runes will
   be a facility of the standard library, not language syntax.
 - Character literals. `'a'` is a constant of type `uint8`, the value of
   its one byte, with the escapes a string has (`'\n'`, `'\\'`, `'\xff'`) and `'\''`

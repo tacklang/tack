@@ -1348,6 +1348,70 @@ func TestBuiltViewsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// slicesWant is what examples/slices prints when every check passes.
+var slicesWant = "string slices ok\n" +
+	"omitted and empty bounds ok\n" +
+	"slices of slices ok\n" +
+	"stored in a field, an array and a variable ok\n" +
+	"results ok\n" +
+	"bytes through a multi-byte character ok\n" +
+	"zero strings ok\n" +
+	"zero string field checked ok\n" +
+	"known slice of a known string ok\n" +
+	"globals ok\n" +
+	"bytes of a slice ok\n" +
+	"guard on the high bound ok\n" +
+	"guard on both bounds ok\n" +
+	"checked in range ok\n" +
+	"checked out of range ok\n" +
+	"checked uint64 bounds ok\n" +
+	"checked omitted bounds ok\n" +
+	"array slices ok\n" +
+	"array slice ends ok\n" +
+	"slices proven by loops ok\n" +
+	"slice of a view passed on ok\n" +
+	"unsafe_size_t bound ok\n" +
+	"len of a view slice ok\n" +
+	"field and element arrays ok\n" +
+	"mut parameter's array ok\n" +
+	"slice alongside mut of the same array ok\n" +
+	"mutable global array ok\n" +
+	"evaluation order ok\n"
+
+// TestBuiltSlicesPassesEveryCheck builds examples/slices at every
+// optimization level and checks each binary passes every check: string
+// slices with every form of bounds, empty ones and slices of slices,
+// stored in a field, an array, a variable and a result; bytes cut
+// through a multi-byte character; slices of the zero string, a field of
+// a zeroed struct included, whose pointer is null; a slice of a known
+// string, itself known, as an array length and in a global; guards on
+// one bound and on both; the checked form in and out of range, i > j, j
+// past the end, a negative bound, uint64 bounds past every length and
+// omitted bounds; array and view slices passed to view parameters,
+// proven by constants, loops and guards, with an unsafe_size_t bound and
+// under len; slices of a field's and an element's array and of a mut
+// parameter's; a slice alongside a mut argument of the same array and
+// one of a mutable global array, which see copies; and evaluation left
+// to right, each part once. Each check prints its name and "ok", or
+// "FAIL".
+func TestBuiltSlicesPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "slices")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("slices"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != slicesWant || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, slicesWant)
+			}
+		})
+	}
+}
+
 // mixedCompareWant is what examples/mixed-compare prints when every check
 // passes.
 var mixedCompareWant = "int64 and uint64 ok\n" +

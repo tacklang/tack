@@ -52,8 +52,8 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	return ast.TypeOf(id)
 }
 
-// compositeExpr checks a literal of an array or a struct, an element, or a
-// field, and returns its type, or reports a mut argument written where no
+// compositeExpr checks a literal of an array or a struct, an element, a
+// slice or a field, and returns its type, or reports a mut argument written where no
 // mut parameter takes it.
 func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 	switch x := e.(type) {
@@ -61,6 +61,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.compositeLit(x)
 	case *ast.Index:
 		return c.index(x)
+	case *ast.Slice:
+		return c.slice(x)
 	case *ast.Selector:
 		return c.selector(x)
 	case *ast.MutArg:

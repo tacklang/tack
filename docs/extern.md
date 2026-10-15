@@ -242,7 +242,10 @@ whole program, Tack code included, which no Tack proof can catch.
   call: Tack promises nothing about how long the bytes it passes live.
 - **Views.** A view's `ptr` points at `len` elements C may read during the
   call, and only below `len`: a view of an empty array has a `len` of 0
-  and a `ptr` that must not be read. C does not write through `ptr`, which
+  and a `ptr` that must not be read, and so does an empty slice, `a[2:2]`,
+  whose `ptr` may be one past the last element, or null for the bytes of
+  the zero string. A slice, `a[1:3]`, passes as any view does, its `ptr`
+  at its first element. C does not write through `ptr`, which
   is `const`, since Tack proves facts about a view's elements, its length
   included, for the whole call; and it does not keep `ptr` after
   returning, since the array may be a local that is gone, or a copy the

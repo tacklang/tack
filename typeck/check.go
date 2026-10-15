@@ -29,6 +29,15 @@ type Checker struct {
 	// needs no proof that its index is in range.
 	checkedIndex *ast.Index
 
+	// checkedSlice is the slice whose value is being bound with ok, whose
+	// bounds need no proof.
+	checkedSlice *ast.Slice
+
+	// viewSlice is the slice about to be checked where a view may be: an
+	// argument to a view parameter, len's argument, or what another slice
+	// slices. A slice of an array or a view anywhere else is reported.
+	viewSlice *ast.Slice
+
 	globals map[*ast.Var]bool // the package-level variables
 
 	// globalState says how far each package-level variable's check has
@@ -356,11 +365,11 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 // multiResults checks the value of a MultiVar or MultiAssign, which binds
 // want names as b says, and returns the type of each value it gives, in
 // order, and whether it gives exactly want of them. It must be a call to a
-// function with that many results, or a division, an index or a
+// function with that many results, or a division, an index, a slice or a
 // conversion, which gives two.
 // Any other value is reported as one error covering span, the whole
-// statement, unless it binds two names and holds a division, a remainder
-// or an index, when it is the checked form misused; see notWhole.
+// statement, unless it binds two names and holds a division, a remainder,
+// an index or a slice, when it is the checked form misused; see notWhole.
 func (c *Checker) multiResults(
 	value ast.Expr,
 	want int,
@@ -370,8 +379,8 @@ func (c *Checker) multiResults(
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
 	}
-	if ix, ok := value.(*ast.Index); ok {
-		return c.indexResults(ix, want, span)
+	if results, ok, isElement := c.elementResults(value, want, span); isElement {
+		return results, ok
 	}
 	call, isCall := value.(*ast.Call)
 	if !isCall {
@@ -394,14 +403,33 @@ func (c *Checker) multiResults(
 	return c.callResults(call, want, span)
 }
 
+// elementResults checks value, bound to want names, when it is an index or
+// a slice, either of which gives two, and reports whether it was one.
+func (c *Checker) elementResults(
+	value ast.Expr,
+	want int,
+	span ast.Span,
+) (results []types.Type, ok, isElement bool) {
+	switch x := value.(type) {
+	case *ast.Index:
+		results, ok = c.indexResults(x, want, span)
+		return results, ok, true
+	case *ast.Slice:
+		results, ok = c.sliceResults(x, want, span)
+		return results, ok, true
+	default:
+		return nil, false, false
+	}
+}
+
 // binding is how a MultiVar or MultiAssign binds its value: op, := or =,
 // and, when it binds two names, the first and second as written.
 type binding struct {
 	first, second, op string
 }
 
-// fallible returns the first division, remainder or index in value, in
-// source order, outside any call, or nil when there is none.
+// fallible returns the first division, remainder, index or slice in
+// value, in source order, outside any call, or nil when there is none.
 func fallible(value ast.Expr) ast.Expr {
 	var found ast.Expr
 	ast.Walk(value, func(n ast.Node) bool {
@@ -417,6 +445,8 @@ func fallible(value ast.Expr) ast.Expr {
 			}
 		case *ast.Index:
 			found = x
+		case *ast.Slice:
+			found = x
 		}
 		return found == nil
 	})
@@ -424,7 +454,7 @@ func fallible(value ast.Expr) ast.Expr {
 }
 
 // notWhole reports value, bound to two names as b says, which holds op, a
-// division, a remainder or an index, but is more than it: the checked form
+// division, a remainder, an index or a slice, but is more than it: the checked form
 // must be the whole value. The error names the form with op alone, and
 // what to compute from its first value, the value with op replaced by the
 // first name, or, when that is _, only says to use it. value is then
@@ -447,9 +477,11 @@ func (c *Checker) notWhole(value, op ast.Expr, b binding) {
 		}
 	case *ast.Index:
 		c.checkedIndex = x
+	case *ast.Slice:
+		c.checkedSlice = x
 	}
 	c.expr(value)
-	c.checkedDivision, c.checkedIndex = nil, nil
+	c.checkedDivision, c.checkedIndex, c.checkedSlice = nil, nil, nil
 }
 
 // settleResult returns the type of the value in one position of a MultiVar
@@ -658,7 +690,7 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	case c.table.IsArray(got):
 		f.hi, f.hasHi = constant.FromInt64(c.table.Len(got)).Sub(one)
 	case got == types.String:
-		if n, ok := c.knownLen(loop.X); ok {
+		if n, ok := c.extentOf(loop.X); ok {
 			f.hi, f.hasHi = constant.FromInt64(n).Sub(one)
 		}
 		f.lenOf, _ = c.stringVar(loop.X)
@@ -840,8 +872,8 @@ func (c *Checker) isConstant(e ast.Expr) bool {
 }
 
 // subExprs returns the operands of e when it is an operator, a literal of
-// an array or a struct, one of its keyed elements, a field or an element,
-// and false for anything else.
+// an array or a struct, one of its keyed elements, a field, an element or
+// a slice, what it slices and its bounds, and false for anything else.
 func subExprs(e ast.Expr) ([]ast.Expr, bool) {
 	switch x := e.(type) {
 	case *ast.KeyValue:
@@ -857,8 +889,24 @@ func subExprs(e ast.Expr) ([]ast.Expr, bool) {
 	case *ast.Index:
 		return []ast.Expr{x.X, x.Index}, true
 	default:
+		return sliceParts(e)
+	}
+}
+
+// sliceParts returns what e slices and the bounds written, when it is a
+// slice, and false for anything else.
+func sliceParts(e ast.Expr) ([]ast.Expr, bool) {
+	s, ok := e.(*ast.Slice)
+	if !ok {
 		return nil, false
 	}
+	parts := []ast.Expr{s.X}
+	for _, b := range []ast.Expr{s.Lo, s.Hi} {
+		if b != nil {
+			parts = append(parts, b)
+		}
+	}
+	return parts, true
 }
 
 // allConstant reports whether every one of elems is constant, as
@@ -929,6 +977,8 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.foldNot(x)
 	case *ast.Selector, *ast.Index:
 		return c.foldPart(x)
+	case *ast.Slice:
+		return c.knownSlice(x)
 	}
 	return nil, false
 }
@@ -1141,7 +1191,7 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 // assignable checks that target can be assigned: a mutable variable or a
 // mut parameter, not a plain parameter, or an element of one, whose index
 // must be in range, or a field of one. A view, or any part of one, is
-// read-only. It returns the type target holds and whether it can be
+// read-only, and a slice is not a place. It returns the type target holds and whether it can be
 // assigned.
 func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 	if root, isView := c.viewRoot(target); isView {
@@ -1169,15 +1219,26 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 	case *ast.Selector:
 		return c.fieldTarget(t)
 	default:
-		c.errorf(target.Spanned(), "cannot assign to this expression")
+		c.notAssignable(target)
 		return types.Invalid, false
 	}
+}
+
+// notAssignable reports target, which is not a variable, an element or a
+// field: a slice, which is not a place, or anything else.
+func (c *Checker) notAssignable(target ast.Expr) {
+	if _, ok := target.(*ast.Slice); ok {
+		c.notPlace(target.Spanned(), "assign to "+c.text(target.Spanned()))
+		return
+	}
+	c.errorf(target.Spanned(), "cannot assign to this expression")
 }
 
 // elementTarget checks an element being assigned, x[i]: x must be a
 // mutable variable, or an element or field of one, since an array follows
 // its variable, and the index must be in range. A string's bytes are never
-// assigned. It returns the element's type.
+// assigned, and neither is an element of a slice, which is not a place. It
+// returns the element's type.
 func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 	switch x := ix.X.(type) {
 	case *ast.Ident:
@@ -1185,6 +1246,9 @@ func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 			return c.stringTarget(ix)
 		}
 	case *ast.Index, *ast.Selector:
+	case *ast.Slice:
+		c.notPlace(ix.Span, "assign to "+c.text(ix.Span))
+		return types.Invalid, false
 	default:
 		c.errorf(ix.X.Spanned(), "cannot assign to this expression")
 		return types.Invalid, false

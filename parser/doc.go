@@ -73,9 +73,12 @@
 // key, key: value, which is how a struct literal names its fields, and an
 // element or value that is only braces is a literal whose type comes from
 // the enclosing one. Which literal may have keys, and which needs them, is
-// the type checker's to judge. Indexes, x[i], and field selections, x.f,
-// follow any operand and bind tighter than every operator; a call right
-// after a field selection would call a method and is reported. An element
+// the type checker's to judge. Indexes, x[i], slices, x[i:j], and field
+// selections, x.f, follow any operand and bind tighter than every
+// operator; a call right after a field selection would call a method and
+// is reported. Either bound of a slice may be left out, x[:j], x[i:] or
+// x[:], and a second colon, Go's three-index form x[i:j:k], is reported
+// at that colon. An element
 // or a field of a variable, a[i].f, can be assigned like a name, in every
 // form of assignment; a statement that starts with one is told apart by
 // what follows its brackets and fields.

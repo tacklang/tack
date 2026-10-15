@@ -233,6 +233,25 @@
 // a view argument alongside a mut argument of an overlapping place is
 // allowed, as a plain argument is.
 //
+// A slice, x[i:j], checked in slice.go, is a string for a string, any
+// string, and a view of the elements for an array that is a place or a
+// view; anything else, and a bound that is not an integer, of any type, is
+// reported. A view slice is allowed only where viewSlice marks it, as the
+// argument of a view parameter, of len, or of another slice, and is
+// reported anywhere else, a checked form's value included. Its bounds must
+// be proven, 0 <= i, i <= j and j <= len(x), a bound left out being 0 or
+// len(x), by known values, types and facts, and by two relations only a
+// slice's proof reads (see facts.go): j <= len(x), and i <= j between two
+// integer subjects. An error names exactly the comparisons missing, and
+// notes explain a bound that is a subject as an index's are. A known bound
+// negative, past a known length (extentOf: an array's, a known string's,
+// or a slice's at known bounds), or past the other is always reported. A
+// string's slice may be bound with ok instead, t, ok := s[i:j], needing no
+// proof. A slice of a known string at known bounds is a known string
+// (knownSlice), and len of a slice at known bounds, calling nothing, is a
+// known value. A slice is never a place, so assigning one, an element of
+// one, or passing either as mut is reported.
+//
 // A struct type is a type of its own for each declaration, whatever its
 // fields; struct.go checks its uses. A literal names each field exactly
 // once, with a value usable as the field's type, in any order; an element
@@ -324,8 +343,8 @@
 //     type; ++ and -- need a mutable integer variable;
 //   - a return carries one value for each result the function declares, each
 //     usable as its result's type, and a wrong count is one error;
-//   - two names bound to a value that holds a division, a remainder or an
-//     index outside any call, but is more than it, as in q, ok := a / b + 1,
+//   - two names bound to a value that holds a division, a remainder, an
+//     index or a slice outside any call, but is more than it, as in q, ok := a / b + 1,
 //     are one error saying the checked form must be the whole value, which
 //     names the first such operation and what to compute from its result;
 //     that operation is then checked as bound with ok;

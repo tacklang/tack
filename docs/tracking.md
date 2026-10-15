@@ -109,6 +109,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Field selection `x.f`             | yes   | yes    | yes     | yes     | On any struct value; written through a `mut` variable, mixed with indexes to any depth; facts for proofs below an immutable variable only                                  |
 | Indexing `a[i]`                   | yes   | yes    | yes     | yes     | Proven in range, from constants, range loops (over a count or an array), guards and types, or `v, ok := a[i]`                                                           |
 | Indexing a string `s[i]`          | yes   | yes    | yes     | yes     | A `uint8`; proven from a known string's length, `len(s)` guards and range loops over `len(s)` or `s`, or `v, ok := s[i]`; never assigned                               |
+| Slicing `x[i:j]`                  | yes   | yes    | yes     | yes     | Strings, arrays and views; `0 <= i <= j <= len(x)` proven, with `j <= len(x)` and `i <= j` relations, or `t, ok := s[i:j]` for a string; constant mistakes are errors; never a place; a helper per type in C that never moves a null pointer |
 | Conversions `T(x)`                | yes   | yes    | yes     | yes     | Integer to integer; `T(x)` only where it cannot fail (a constant or known value that fits, or a widening type), otherwise `v, ok := T(x)`                                |
 | Integer constants                 | yes   | yes    | yes     | yes     | Untyped, exact, between the smallest `int64` and the largest `uint64`; take their type from use, else `int64`                                                           |
 | Unary `+` `^`                     | yes   | no     | no      | no      | Decided: no unary `+` for now                                                                                                                                           |
@@ -131,7 +132,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
 | Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
 | Views `[]T`                        | yes     | yes | Parameters only, read-only; a pointer to const elements and a length by value; no `==` |
-| Slices, maps                       | no      | no  | No slicing, `a[i:j]`, and no growable lists                       |
+| Slices                             | yes     | yes | `x[i:j]`, either bound left out; a string's slice is a string sharing its bytes; an array's or a view's a view, passed to a view parameter or `len` only; no three-index form |
+| Maps, growable lists               | no      | no  |                                                                   |
 | Pointers                           | no      | no  | None; a `mut` parameter is a reference that cannot be stored      |
 | Interfaces, generics               | no      | no  |                                                                   |
 
@@ -140,7 +142,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Builtin         | Checker | C   | Notes                                                                                   |
 |-----------------|---------|-----|-----------------------------------------------------------------------------------------|
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, body in `codegen/c/builtin/print.c`, emitted with `<stdio.h>` only when called |
-| `len(v)`        | yes     | yes | Arrays, strings and views; known for arrays, string literals and immutable variables holding a known string, never for a view |
+| `len(v)`        | yes     | yes | Arrays, strings and views; known for arrays, string literals and immutable variables holding a known string, never for a view, but for a slice at known bounds |
 | `exit(int64)`   | yes     | yes | Terminates with that status; narrower integers widen; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, body in `codegen/c/builtin/exit.c`, emitted with `<stdlib.h>` only when called |
 
 Wanted builtins are listed in `src/std/builtin/PLANNED.md`.

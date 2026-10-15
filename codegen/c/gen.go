@@ -120,17 +120,18 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	// The pool is filled first: generating a body needs the label of every
-	// string it mentions.
-	g.collectStrings()
-
-	// Globals are known before any body is generated, since a body names a
-	// global differently from a local.
+	// Globals are known before anything is generated, since a body names a
+	// global differently from a local, and a global's computed value may
+	// hold strings to pool.
 	for _, decl := range g.decls {
 		if v, ok := decl.(*ast.Var); ok {
 			g.globals[v] = true
 		}
 	}
+
+	// The pool is filled first: generating a body needs the label of every
+	// string it mentions.
+	g.collectStrings()
 
 	// Everything is generated before anything is written, so a construct the
 	// backend cannot lower produces a diagnostic instead of a half-written
@@ -232,15 +233,56 @@ func hasType(n ast.Node, typ types.Type) bool {
 }
 
 // poolCheckedZero pools the empty string when value is v, ok := a[i] on an
-// array of strings, which gives one when the index is out of range.
+// array of strings, or t, ok := s[i:j], either of which gives one when out
+// of range.
 func (g *generator) poolCheckedZero(value ast.Expr) {
 	if ix, ok := value.(*ast.Index); ok && ix.Type == types.String {
 		g.addStr("")
 	}
+	if s, ok := value.(*ast.Slice); ok && s.Type == types.String {
+		g.addStr("")
+	}
+}
+
+// poolVar pools what the variable v needs: the empty string when it is a
+// string starting from its zero value, and, for a global whose initializer
+// slices a string, every string in its computed value.
+func (g *generator) poolVar(v *ast.Var) {
+	if v.Value == nil && v.Type == types.String {
+		g.addStr("")
+	}
+	if g.globals[v] && v.Value != nil && holdsSlice(v.Value) {
+		g.poolConst(v.Const)
+	}
+}
+
+// poolConst pools every string in c, the computed value of a global: a
+// string, or one inside an array's elements or a struct's fields.
+func (g *generator) poolConst(c any) {
+	switch v := c.(type) {
+	case string:
+		g.addStr(v)
+	case []any:
+		for _, x := range v {
+			g.poolConst(x)
+		}
+	}
+}
+
+// holdsSlice reports whether e holds a slice, at any depth.
+func holdsSlice(e ast.Expr) bool {
+	found := false
+	ast.Walk(e, func(n ast.Node) bool {
+		_, found = n.(*ast.Slice)
+		return !found
+	})
+	return found
 }
 
 // collectStrings pools every string literal in the file, deduplicated, and
-// the empty string if a string variable starts from its zero value. The
+// the empty string if a string variable starts from its zero value, and
+// the computed value of a global whose initializer slices a string, which
+// may be no literal's. The
 // variables of a MultiVar, and of a range loop, have no value of their own
 // but never start from zero, so only the call, or the ranged expression and
 // the body, are visited.
@@ -251,9 +293,7 @@ func (g *generator) collectStrings() {
 		case *ast.StrLit:
 			g.addStr(x.Value)
 		case *ast.Var:
-			if x.Value == nil && x.Type == types.String {
-				g.addStr("")
-			}
+			g.poolVar(x)
 		case *ast.MultiVar:
 			g.poolCheckedZero(x.Value)
 			ast.Walk(x.Value, visit)
@@ -274,7 +314,7 @@ func (g *generator) collectStrings() {
 
 // emitConstantPool writes the pooled strings as byte arrays, and then the
 // helpers the program's code calls: builtins, the C bodies of the builtin
-// extern funcs it calls, and the division helpers. Bytes rather than C
+// extern funcs it calls, the division helpers and the slice helpers. Bytes rather than C
 // string literals so that any byte survives without an escaping scheme,
 // and a trailing zero so an empty literal is still a legal array; the zero
 // is never written out, since every write is length-bounded.
@@ -299,6 +339,12 @@ func (g *generator) emitConstantPool(builtins []cBody) {
 	// when the program uses its operator.
 	for _, use := range g.divisions() {
 		g.emitDivision(use.op, use.typ)
+	}
+
+	// Each slice helper is emitted only when the program slices its type,
+	// with or without a high bound.
+	for _, h := range g.sliceHelpers() {
+		g.emitSliceHelper(h)
 	}
 }
 
@@ -1403,6 +1449,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	if ix, ok := value.(*ast.Index); ok {
 		return g.indexValues(ix)
 	}
+	if s, ok := value.(*ast.Slice); ok {
+		return g.sliceValues(s)
+	}
 	c, ok := value.(*ast.Call)
 	if !ok {
 		return multiSource{}, []diag.Diagnostic{{
@@ -1694,8 +1743,8 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 		return g.callValue(x)
 	case *ast.CompositeLit:
 		return g.compositeLit(x)
-	case *ast.Index:
-		return g.indexExpr(x)
+	case *ast.Index, *ast.Slice:
+		return g.elementExpr(x)
 	case *ast.Selector:
 		return g.selectorExpr(x)
 	case *ast.MutArg:

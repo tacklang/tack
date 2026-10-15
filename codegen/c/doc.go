@@ -27,7 +27,7 @@
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named tack_str0, tack_str1, and so on;
 //   - the C body of each builtin extern func the program calls, only if
-//     it calls it, then the division helpers;
+//     it calls it, then the division helpers, then the slice helpers;
 //   - every package-level variable, as a static C variable;
 //   - a results struct for each function with more than one result;
 //   - TACK_C_NAME, if the program has an extern func;
@@ -135,6 +135,23 @@
 // struct's one unused element, with a length of 0. A temporary holding a
 // call's argument to a view parameter, for the order of evaluation, is a
 // view, whatever the argument's own type.
+//
+// A slice, x[i:j], is a call to a helper for its type, tack_slice_string
+// or tack_slice_N for the view type N, or tack_slice_from_ either when j is
+// left out and the helper reads the length itself; each is emitted only
+// when the program uses it. The helper moves the pointer by i only when i
+// is not 0, so the null pointer of a zero string in a zeroed struct, or of
+// its bytes' view, is never moved, which C leaves undefined even by 0; any
+// i past 0 is at most a length that is not 0, so the pointer is not null.
+// An array is viewed whole first, (tack_view_N){place.e, n}, and copied
+// first under the rule for a view argument when the slice is one. What is
+// sliced and the bounds are the helper's arguments, sequenced left to
+// right, and the proven bounds are cast to int64_t, which keeps their
+// values. t, ok := s[i:j] holds the string and each bound in temporaries,
+// in order, tests 0 <= i for a signed i, i <= j or the omitted bound's
+// test, and j <= len(s), each by value as intComparison compares, and
+// calls the helper only when they hold, giving the pooled "" otherwise. A
+// global whose initializer slices a string has its computed value pooled.
 //
 // A package-level variable x becomes a static C variable named like a
 // function, tack_4_main1_x, since the two share a namespace. It is const unless

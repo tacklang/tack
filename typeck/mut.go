@@ -128,7 +128,7 @@ func (c *Checker) argExpr(arg ast.Expr) {
 // place checks e, the place the mut argument m names, or part of it, and
 // returns its type: a mutable local or a mut parameter, a field of a
 // place, or an element of a place whose index is proven in range. Anything
-// else is reported, and gives types.Invalid.
+// else, a slice included, is reported, and gives types.Invalid.
 func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
 	switch x := e.(type) {
 	case *ast.Ident:
@@ -153,6 +153,9 @@ func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
 		}
 		x.Type = c.element(x, base, true)
 		return x.Type
+	case *ast.Slice:
+		c.notPlace(m.Span, "pass "+c.text(m.Span))
+		return types.Invalid
 	default:
 		// Something already reported has no type, and is not reported
 		// again as not being a place.

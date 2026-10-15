@@ -33,7 +33,7 @@ func (c *Checker) stringElement(ix *ast.Index, idx, elem types.Type) types.Type 
 
 // literalLen returns the length of s when it is a string literal. Advice
 // names a literal's length, and a variable's as len(s) whether or not it is
-// known; proofs use knownLen.
+// known; proofs use extentOf.
 func literalLen(s ast.Expr) (int64, bool) {
 	lit, ok := s.(*ast.StrLit)
 	if !ok {
@@ -44,9 +44,10 @@ func literalLen(s ast.Expr) (int64, bool) {
 
 // constantOutside reports whether the constant index v is out of range for
 // the string s whatever s holds: it is negative, or s is a known string,
-// a literal or an immutable variable holding one, it is not shorter than.
+// a literal or an immutable variable holding one, or a slice at known
+// bounds, it is not shorter than.
 func (c *Checker) constantOutside(s ast.Expr, v constant.Int) bool {
-	if n, ok := c.knownLen(s); ok {
+	if n, ok := c.extentOf(s); ok {
 		return !c.constantInRange(v, n)
 	}
 	return v.IsNegative()
@@ -55,7 +56,7 @@ func (c *Checker) constantOutside(s ast.Expr, v constant.Int) bool {
 // reportOutside reports the constant index v of ix as out of range, naming
 // the string's length when it is known.
 func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
-	if n, ok := c.knownLen(ix.X); ok {
+	if n, ok := c.extentOf(ix.X); ok {
 		c.errorf(ix.Index.Spanned(), "index %s is out of range for a string of %d %s",
 			v, n, plural(int(n), "byte"))
 		return
@@ -75,7 +76,7 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 // len(s) itself by a fact.
 func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 	if v, ok := c.knownValue(ix.Index); ok {
-		if n, isKnown := c.knownLen(ix.X); isKnown {
+		if n, isKnown := c.extentOf(ix.X); isKnown {
 			return c.constantInRange(v, n)
 		}
 		return !v.IsNegative() && v.Cmp(c.minLen(ix.X)) < 0
@@ -94,7 +95,7 @@ func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 // facts say, is below the length of the string s: a known string's
 // constant length, the least length the facts give s, or len(s) itself.
 func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
-	if n, isKnown := c.knownLen(s); isKnown {
+	if n, isKnown := c.extentOf(s); isKnown {
 		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0
 	}
 	if known.hasHi && known.hi.Cmp(c.minLen(s)) < 0 {
@@ -185,7 +186,7 @@ func (c *Checker) stringIndexError(ix *ast.Index) (string, []diag.Diagnostic) {
 		}
 	} else {
 		msg, notes = c.indexError(ix, bound, func(i ast.Expr) []diag.Diagnostic {
-			n, known := c.knownLen(ix.X)
+			n, known := c.extentOf(ix.X)
 			unit := "byte"
 			if c.table.IsView(ast.TypeOf(ix.X)) {
 				unit = "element"

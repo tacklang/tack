@@ -676,7 +676,9 @@ func (r *pkgResolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic 
 
 // resolveTarget binds the target of an assignment, increment or decrement:
 // a variable, or an element of one, a[i], whose index is resolved like any
-// value, or a field of one, p.x, whose name the type checker looks up.
+// value, or a field of one, p.x, whose name the type checker looks up. A
+// slice is resolved as a value, which the type checker reports as not a
+// place.
 // Writing to a variable, or to an element or field of it, does not count as
 // reading it.
 func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnostic {
@@ -688,6 +690,10 @@ func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnosti
 		return append(diags, r.resolveExpr(t.Index, sc)...)
 	case *ast.Selector:
 		return r.resolveTarget(t.X, sc)
+	case *ast.Slice:
+		// A slice is never a place; the type checker says so, once
+		// everything in it is bound.
+		return r.resolveExpr(t, sc)
 	default:
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -905,8 +911,8 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveExpr(operand(x), sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
-	case *ast.Index:
-		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Index, sc)...)
+	case *ast.Index, *ast.Slice:
+		return r.resolveElement(x, sc)
 	case *ast.Selector:
 		return r.resolveExpr(x.X, sc)
 	case *ast.CompositeLit:
@@ -916,6 +922,22 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	default:
 		return nil
 	}
+}
+
+// resolveElement resolves an element, x[i], or a slice, x[lo:hi]: what
+// it indexes or slices, then the index or each bound that is written.
+func (r *pkgResolver) resolveElement(e ast.Expr, sc *scope) []diag.Diagnostic {
+	if ix, ok := e.(*ast.Index); ok {
+		return append(r.resolveExpr(ix.X, sc), r.resolveExpr(ix.Index, sc)...)
+	}
+	s, _ := e.(*ast.Slice)
+	diags := r.resolveExpr(s.X, sc)
+	for _, bound := range []ast.Expr{s.Lo, s.Hi} {
+		if bound != nil {
+			diags = append(diags, r.resolveExpr(bound, sc)...)
+		}
+	}
+	return diags
 }
 
 // operand returns the operand of e, a prefix operator or a mut argument.

@@ -6863,6 +6863,876 @@ single-file-import/main.tck:5:17: error: cannot import ../lexer: a single file c
    |	                ^~~~~~~~~~
 06 |	
 
+-- slice-assign/main.tck --
+package main
+
+func main() {
+    mut s := "abc"
+    s[0:1] = "x"
+    print(s)
+}
+-- slice-assign/expected --
+stage: typeck
+---
+
+slice-assign/main.tck:5:5: error: cannot assign to s[0:1]: a slice is not a place
+04 |	    mut s := "abc"
+05 |	    s[0:1] = "x"
+   |	    ^~~~~~
+06 |	    print(s)
+
+-- slice-assign-element/main.tck --
+package main
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    a[1:][0] = 5
+    exit(a[0])
+}
+-- slice-assign-element/expected --
+stage: typeck
+---
+
+slice-assign-element/main.tck:5:5: error: cannot assign to a[1:][0]: a slice is not a place
+04 |	    mut a := [3]int64{1, 2, 3}
+05 |	    a[1:][0] = 5
+   |	    ^~~~~~~~
+06 |	    exit(a[0])
+
+-- slice-bound-negative/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(len(a[-1:]))
+}
+-- slice-bound-negative/expected --
+stage: typeck
+---
+
+slice-bound-negative/main.tck:5:16: error: slice bound -1 is out of range for [3]int64
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    exit(len(a[-1:]))
+   |	               ^~
+06 |	}
+
+-- slice-bound-negative-view/main.tck --
+package main
+
+func f(v []int64) int64 {
+    return len(v[:-1])
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(f(a))
+}
+-- slice-bound-negative-view/expected --
+stage: typeck
+---
+
+slice-bound-negative-view/main.tck:4:19: error: slice bound -1 is out of range for a view
+03 |	func f(v []int64) int64 {
+04 |	    return len(v[:-1])
+   |	                  ^~
+05 |	}
+
+-- slice-bound-not-integer/main.tck --
+package main
+
+func main() {
+    s := "abc"
+    print(s[true:])
+}
+-- slice-bound-not-integer/expected --
+stage: typeck
+---
+
+slice-bound-not-integer/main.tck:5:13: error: slice bound must be an integer, got bool
+04 |	    s := "abc"
+05 |	    print(s[true:])
+   |	            ^~~~
+06 |	}
+
+-- slice-bound-past-array/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(len(a[1:4]))
+}
+-- slice-bound-past-array/expected --
+stage: typeck
+---
+
+slice-bound-past-array/main.tck:5:18: error: slice bound 4 is out of range for [3]int64
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    exit(len(a[1:4]))
+   |	                 ^
+06 |	}
+
+-- slice-bound-past-known-slice/main.tck --
+package main
+
+func main() {
+    s := "abcdef"
+    t := s[1:3]
+    print(t[:3])
+}
+-- slice-bound-past-known-slice/expected --
+stage: typeck
+---
+
+slice-bound-past-known-slice/main.tck:6:14: error: slice bound 3 is out of range for a string of 2 bytes
+05 |	    t := s[1:3]
+06 |	    print(t[:3])
+   |	             ^
+07 |	}
+
+-- slice-bound-past-string/main.tck --
+package main
+
+func main() {
+    print("abc"[4:])
+}
+-- slice-bound-past-string/expected --
+stage: typeck
+---
+
+slice-bound-past-string/main.tck:4:17: error: slice bound 4 is out of range for a string of 3 bytes
+03 |	func main() {
+04 |	    print("abc"[4:])
+   |	                ^
+05 |	}
+
+-- slice-bounds-out-of-order/main.tck --
+package main
+
+func main() {
+    s := "abcdef"
+    print(s[3:1])
+}
+-- slice-bounds-out-of-order/expected --
+stage: typeck
+---
+
+slice-bounds-out-of-order/main.tck:5:13: error: slice bounds 3:1 are out of order
+04 |	    s := "abcdef"
+05 |	    print(s[3:1])
+   |	            ^~~
+06 |	}
+
+-- slice-checked-bound-past-string/main.tck --
+package main
+
+func main() {
+    s := "abc"
+    t, ok := s[1:5]
+    if ok {
+        print(t)
+    }
+}
+-- slice-checked-bound-past-string/expected --
+stage: typeck
+---
+
+slice-checked-bound-past-string/main.tck:5:18: error: slice bound 5 is out of range for a string of 3 bytes
+04 |	    s := "abc"
+05 |	    t, ok := s[1:5]
+   |	                 ^
+06 |	    if ok {
+
+-- slice-checked-mismatch/main.tck --
+package main
+
+func main() {
+    s := "abc"
+    a, _, _ := s[1:2]
+    print(a)
+}
+-- slice-checked-mismatch/expected --
+stage: typeck
+---
+
+slice-checked-mismatch/main.tck:5:5: error: assignment mismatch: 3 variables but a slice gives 2 values
+04 |	    s := "abc"
+05 |	    a, _, _ := s[1:2]
+   |	    ^~~~~~~~~~~~~~~~~
+06 |	    print(a)
+
+-- slice-checked-not-whole/main.tck --
+package main
+
+func f(s string, i int64) bool {
+    same, ok := s[i:] == "bc"
+    return same && ok
+}
+
+func main() {
+    if f("abc", 1) {
+        exit(1)
+    }
+}
+-- slice-checked-not-whole/expected --
+stage: typeck
+---
+
+slice-checked-not-whole/main.tck:4:17: error: the checked form must be the whole value: same, ok := s[i:], then compute same == "bc"
+03 |	func f(s string, i int64) bool {
+04 |	    same, ok := s[i:] == "bc"
+   |	                ^~~~~~~~~~~~~
+05 |	    return same && ok
+
+-- slice-incdec/main.tck --
+package main
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    a[:]++
+    exit(a[0])
+}
+-- slice-incdec/expected --
+stage: typeck
+---
+
+slice-incdec/main.tck:5:5: error: cannot assign to a[:]: a slice is not a place
+04 |	    mut a := [3]int64{1, 2, 3}
+05 |	    a[:]++
+   |	    ^~~~
+06 |	    exit(a[0])
+
+-- slice-mut-arg/main.tck --
+package main
+
+func zero(mut a [2]int64) {
+    a[0] = 0
+}
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    zero(mut a[1:])
+    exit(a[0])
+}
+-- slice-mut-arg/expected --
+stage: typeck
+---
+
+slice-mut-arg/main.tck:9:10: error: cannot pass mut a[1:]: a slice is not a place
+08 |	    mut a := [3]int64{1, 2, 3}
+09 |	    zero(mut a[1:])
+   |	         ^~~~~~~~~
+10 |	    exit(a[0])
+
+-- slice-not-sliceable-bool/main.tck --
+package main
+
+func main() {
+    b := true
+    exit(len(b[0:0]))
+}
+-- slice-not-sliceable-bool/expected --
+stage: typeck
+---
+
+slice-not-sliceable-bool/main.tck:5:14: error: cannot slice bool
+04 |	    b := true
+05 |	    exit(len(b[0:0]))
+   |	             ^
+06 |	}
+
+-- slice-not-sliceable-int/main.tck --
+package main
+
+func main() {
+    n := 5
+    exit(len(n[1:]))
+}
+-- slice-not-sliceable-int/expected --
+stage: typeck
+---
+
+slice-not-sliceable-int/main.tck:5:14: error: cannot slice int64
+04 |	    n := 5
+05 |	    exit(len(n[1:]))
+   |	             ^
+06 |	}
+
+-- slice-not-sliceable-struct/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func main() {
+    p := P{x: 1}
+    exit(len(p[:]))
+}
+-- slice-not-sliceable-struct/expected --
+stage: typeck
+---
+
+slice-not-sliceable-struct/main.tck:9:14: error: cannot slice P
+08 |	    p := P{x: 1}
+09 |	    exit(len(p[:]))
+   |	             ^
+10 |	}
+
+-- slice-of-bytes-view/main.tck --
+package main
+
+func count(b []uint8) int64 {
+    return len(b)
+}
+
+func main() {
+    s := "abc"
+    exit(count([]uint8(s)[1:]))
+}
+-- slice-of-bytes-view/expected --
+stage: typeck
+---
+
+slice-of-bytes-view/main.tck:9:16: error: []uint8(...) can only be passed to a []uint8 parameter
+08 |	    s := "abc"
+09 |	    exit(count([]uint8(s)[1:]))
+   |	               ^~~~~~~~~~
+10 |	}
+
+-- slice-temporary-array-call/main.tck --
+package main
+
+func three() [3]int64 {
+    return [3]int64{1, 2, 3}
+}
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    exit(sum(three()[1:]))
+}
+-- slice-temporary-array-call/expected --
+stage: typeck
+---
+
+slice-temporary-array-call/main.tck:12:14: error: cannot slice a temporary array; store it in a variable first
+11 |	func main() {
+12 |	    exit(sum(three()[1:]))
+   |	             ^~~~~~~
+13 |	}
+
+-- slice-temporary-array-literal/main.tck --
+package main
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    exit(sum([3]int64{1, 2, 3}[:2]))
+}
+-- slice-temporary-array-literal/expected --
+stage: typeck
+---
+
+slice-temporary-array-literal/main.tck:8:14: error: cannot slice a temporary array; store it in a variable first
+07 |	func main() {
+08 |	    exit(sum([3]int64{1, 2, 3}[:2]))
+   |	             ^~~~~~~~~~~~~~~~~
+09 |	}
+
+-- slice-three-index/main.tck --
+package main
+
+func main() {
+    s := "abc"
+    t := s[0:1:2]
+    print(t)
+}
+-- slice-three-index/expected --
+stage: parse
+---
+
+slice-three-index/main.tck:5:15: error: a slice has at most two bounds, x[i:j]; there is no three-index form
+04 |	    s := "abc"
+05 |	    t := s[0:1:2]
+   |	              ^
+06 |	    print(t)
+
+-- slice-unproven-all/main.tck --
+package main
+
+func cut(s string, i int64, j int64) string {
+    return s[i:j]
+}
+
+func main() {
+    print(cut("abc", 1, 2))
+}
+-- slice-unproven-all/expected --
+stage: typeck
+---
+
+slice-unproven-all/main.tck:4:14: error: slice bounds i:j may be out of range; check 0 <= i && i <= j && j <= len(s) first, or use v, ok := ...[i:j]
+03 |	func cut(s string, i int64, j int64) string {
+04 |	    return s[i:j]
+   |	             ^~~
+05 |	}
+
+-- slice-unproven-guard-assigned/main.tck --
+package main
+
+func suffix(s string, n int64) string {
+    mut i := n
+    if 0 <= i && i <= len(s) {
+        i++
+        return s[i:]
+    }
+    return ""
+}
+
+func main() {
+    print(suffix("abc", 1))
+}
+-- slice-unproven-guard-assigned/expected --
+stage: typeck
+---
+
+slice-unproven-guard-assigned/main.tck:7:18: error: slice bound i may be out of range; check 0 <= i && i <= len(s) first, or use v, ok := ...[i:]
+06 |	        i++
+07 |	        return s[i:]
+   |	                 ^~
+08 |	    }
+slice-unproven-guard-assigned/main.tck:5:8: note: this guard proves 0 <= i && i <= len(s)
+04 |	    mut i := n
+05 |	    if 0 <= i && i <= len(s) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~
+06 |	        i++
+slice-unproven-guard-assigned/main.tck:6:9: note: but i is assigned here, so the proof ends
+05 |	    if 0 <= i && i <= len(s) {
+06 |	        i++
+   |	        ^
+07 |	        return s[i:]
+
+-- slice-unproven-high-past-array/main.tck --
+package main
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func part(a [3]int64, j int64) int64 {
+    if 0 <= j && j <= 4 {
+        return sum(a[:j])
+    }
+    return 0
+}
+
+func main() {
+    exit(part([3]int64{1, 2, 3}, 2))
+}
+-- slice-unproven-high-past-array/expected --
+stage: typeck
+---
+
+slice-unproven-high-past-array/main.tck:9:22: error: slice bound j may be out of range; check j <= 3 first
+08 |	    if 0 <= j && j <= 4 {
+09 |	        return sum(a[:j])
+   |	                     ^~
+10 |	    }
+slice-unproven-high-past-array/main.tck:8:18: note: this guard allows j == 4, and a has 3 elements
+07 |	func part(a [3]int64, j int64) int64 {
+08 |	    if 0 <= j && j <= 4 {
+   |	                 ^~~~~~
+09 |	        return sum(a[:j])
+
+-- slice-unproven-known-bound/main.tck --
+package main
+
+func tail(s string) string {
+    return s[1:]
+}
+
+func main() {
+    print(tail("abc"))
+}
+-- slice-unproven-known-bound/expected --
+stage: typeck
+---
+
+slice-unproven-known-bound/main.tck:4:14: error: slice bound 1 may be out of range; check len(s) >= 1 first, or use v, ok := ...[1:]
+03 |	func tail(s string) string {
+04 |	    return s[1:]
+   |	             ^~
+05 |	}
+
+-- slice-unproven-lower/main.tck --
+package main
+
+func suffix(s string, i int64) string {
+    if i <= len(s) {
+        return s[i:]
+    }
+    return ""
+}
+
+func main() {
+    print(suffix("abc", 1))
+}
+-- slice-unproven-lower/expected --
+stage: typeck
+---
+
+slice-unproven-lower/main.tck:5:18: error: slice bound i may be out of range; check 0 <= i first, or use v, ok := ...[i:]
+04 |	    if i <= len(s) {
+05 |	        return s[i:]
+   |	                 ^~
+06 |	    }
+slice-unproven-lower/main.tck:4:8: note: this guard bounds i only above; i may be negative
+03 |	func suffix(s string, i int64) string {
+04 |	    if i <= len(s) {
+   |	       ^~~~~~~~~~~
+05 |	        return s[i:]
+
+-- slice-unproven-mutable-global/main.tck --
+package main
+
+mut word string
+
+func main() {
+    word = "abc"
+    print(word[1:])
+}
+-- slice-unproven-mutable-global/expected --
+stage: typeck
+---
+
+slice-unproven-mutable-global/main.tck:7:16: error: slice bound 1 may be out of range; use v, ok := ...[1:]
+06 |	    word = "abc"
+07 |	    print(word[1:])
+   |	               ^~
+08 |	}
+slice-unproven-mutable-global/main.tck:3:5: note: word is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut word string
+   |	    ^~~~
+04 |	
+
+-- slice-unproven-not-a-name/main.tck --
+package main
+
+func after(s string, i int64) string {
+    if 0 <= i && i < len(s) {
+        return s[i + 1:]
+    }
+    return ""
+}
+
+func main() {
+    print(after("abc", 1))
+}
+-- slice-unproven-not-a-name/expected --
+stage: typeck
+---
+
+slice-unproven-not-a-name/main.tck:5:18: error: slice bound ... may be out of range; use v, ok := ...[...:]
+04 |	    if 0 <= i && i < len(s) {
+05 |	        return s[i + 1:]
+   |	                 ^~~~~~
+06 |	    }
+slice-unproven-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
+03 |	func after(s string, i int64) string {
+04 |	    if 0 <= i && i < len(s) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+05 |	        return s[i + 1:]
+
+-- slice-unproven-order/main.tck --
+package main
+
+func cut(s string, i int64, j int64) string {
+    if 0 <= i && j <= len(s) {
+        return s[i:j]
+    }
+    return ""
+}
+
+func main() {
+    print(cut("abc", 1, 2))
+}
+-- slice-unproven-order/expected --
+stage: typeck
+---
+
+slice-unproven-order/main.tck:5:18: error: slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]
+04 |	    if 0 <= i && j <= len(s) {
+05 |	        return s[i:j]
+   |	                 ^~~
+06 |	    }
+
+-- slice-unproven-other-length/main.tck --
+package main
+
+func cut(s string, t string, j int64) string {
+    if 0 <= j && j <= len(t) {
+        return s[:j]
+    }
+    return ""
+}
+
+func main() {
+    print(cut("abc", "ab", 1))
+}
+-- slice-unproven-other-length/expected --
+stage: typeck
+---
+
+slice-unproven-other-length/main.tck:5:18: error: slice bound j may be out of range; check j <= len(s) first, or use v, ok := ...[:j]
+04 |	    if 0 <= j && j <= len(t) {
+05 |	        return s[:j]
+   |	                 ^~
+06 |	    }
+slice-unproven-other-length/main.tck:4:18: note: this guard bounds j by the length of t, not s
+03 |	func cut(s string, t string, j int64) string {
+04 |	    if 0 <= j && j <= len(t) {
+   |	                 ^~~~~~~~~~~
+05 |	        return s[:j]
+
+-- slice-unproven-upper/main.tck --
+package main
+
+func cut(s string, i int64, j int64) string {
+    if 0 <= i && i <= j {
+        return s[i:j]
+    }
+    return ""
+}
+
+func main() {
+    print(cut("abc", 1, 2))
+}
+-- slice-unproven-upper/expected --
+stage: typeck
+---
+
+slice-unproven-upper/main.tck:5:18: error: slice bounds i:j may be out of range; check j <= len(s) first, or use v, ok := ...[i:j]
+04 |	    if 0 <= i && i <= j {
+05 |	        return s[i:j]
+   |	                 ^~~
+06 |	    }
+
+-- slice-unproven-upper-unsigned/main.tck --
+package main
+
+func to(s string, j uint64) string {
+    return s[:j]
+}
+
+func main() {
+    print(to("abc", 1))
+}
+-- slice-unproven-upper-unsigned/expected --
+stage: typeck
+---
+
+slice-unproven-upper-unsigned/main.tck:4:14: error: slice bound j may be out of range; check j <= len(s) first, or use v, ok := ...[:j]
+03 |	func to(s string, j uint64) string {
+04 |	    return s[:j]
+   |	             ^~
+05 |	}
+
+-- slice-unproven-view/main.tck --
+package main
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func rest(v []int64, i int64) int64 {
+    return sum(v[i:])
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(rest(a, 1))
+}
+-- slice-unproven-view/expected --
+stage: typeck
+---
+
+slice-unproven-view/main.tck:8:18: error: slice bound i may be out of range; check 0 <= i && i <= len(v) first
+07 |	func rest(v []int64, i int64) int64 {
+08 |	    return sum(v[i:])
+   |	                 ^~
+09 |	}
+
+-- slice-view-checked/main.tck --
+package main
+
+func sum(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    v, ok := a[1:]
+    if ok {
+        exit(sum(v))
+    }
+}
+-- slice-view-checked/expected --
+stage: typeck
+---
+
+slice-view-checked/main.tck:9:14: error: a[1:] is a view, []int64, which cannot be bound with ok; prove its bounds instead
+08 |	    a := [3]int64{1, 2, 3}
+09 |	    v, ok := a[1:]
+   |	             ^~~~~
+10 |	    if ok {
+
+-- slice-view-indexed/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(a[1:][0])
+}
+-- slice-view-indexed/expected --
+stage: typeck
+---
+
+slice-view-indexed/main.tck:5:10: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    exit(a[1:][0])
+   |	         ^~~~~
+06 |	}
+
+-- slice-view-param-indexed/main.tck --
+package main
+
+func f(v []int64) int64 {
+    if len(v) > 2 {
+        x, _ := v[1:][0]
+        return x
+    }
+    return 0
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(f(a))
+}
+-- slice-view-param-indexed/expected --
+stage: typeck
+---
+
+slice-view-param-indexed/main.tck:5:17: error: v[1:] is a view, []int64, which can only be passed to a view parameter or to len
+04 |	    if len(v) > 2 {
+05 |	        x, _ := v[1:][0]
+   |	                ^~~~~
+06 |	        return x
+
+-- slice-view-ranged/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for _, x := range a[1:] {
+        exit(x)
+    }
+}
+-- slice-view-ranged/expected --
+stage: typeck
+---
+
+slice-view-ranged/main.tck:5:23: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    for _, x := range a[1:] {
+   |	                      ^~~~~
+06 |	        exit(x)
+
+-- slice-view-returned/main.tck --
+package main
+
+func tail(a [3]int64) [2]int64 {
+    return a[1:]
+}
+
+func main() {
+    exit(tail([3]int64{1, 2, 3})[0])
+}
+-- slice-view-returned/expected --
+stage: typeck
+---
+
+slice-view-returned/main.tck:4:12: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+03 |	func tail(a [3]int64) [2]int64 {
+04 |	    return a[1:]
+   |	           ^~~~~
+05 |	}
+
+-- slice-view-stored-in-field/main.tck --
+package main
+
+type Box struct {
+    items [2]int64
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    b := Box{items: a[1:]}
+    exit(b.items[0])
+}
+-- slice-view-stored-in-field/expected --
+stage: typeck
+---
+
+slice-view-stored-in-field/main.tck:9:21: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+08 |	    a := [3]int64{1, 2, 3}
+09 |	    b := Box{items: a[1:]}
+   |	                    ^~~~~
+10 |	    exit(b.items[0])
+
+-- slice-view-stored-in-variable/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    v := a[1:]
+    exit(len(v))
+}
+-- slice-view-stored-in-variable/expected --
+stage: typeck
+---
+
+slice-view-stored-in-variable/main.tck:5:10: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    v := a[1:]
+   |	         ^~~~~
+06 |	    exit(len(v))
+
+-- slice-view-wrong-element/main.tck --
+package main
+
+func sum(v []int32) int64 {
+    return len(v)
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    exit(sum(a[1:]))
+}
+-- slice-view-wrong-element/expected --
+stage: typeck
+---
+
+slice-view-wrong-element/main.tck:9:14: error: cannot use []int64 as []int32 in argument to sum
+08 |	    a := [3]int64{1, 2, 3}
+09 |	    exit(sum(a[1:]))
+   |	             ^~~~~
+10 |	}
+
 -- string-arithmetic/main.tck --
 package main
 

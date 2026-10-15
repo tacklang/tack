@@ -41,6 +41,8 @@ and diagnostic to check that the two still agree.
 | `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
 | `v[i]`, reading a view's element   | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                  | `x, ok := v[i]`       |
 | `v[i] = x`                         | always an error                  | never: views are read-only                      | none                  |
+| `x[i:j]`, a slice of a string, an array or a view | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven | `t, ok := s[i:j]`, a string's only |
+| `x[i:j] = v`                       | always an error                  | never: a slice is not a place                   | none                  |
 | `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
 
 A write to an element covers every way of writing one: `a[i] = v`,
@@ -62,13 +64,14 @@ q, ok := a / b      // or a % b
 v, ok := a[i]       // an array element
 v, ok := s[i]       // a string's byte
 x, ok := v[i]       // a view's element
+t, ok := s[i:j]     // a string's slice, s[i:] or s[:j] too
 v, ok := uint8(x)   // a conversion that can fail
 ```
 
 The first value is the result when the operation succeeds, and the zero
 value of its type when it fails: `0` for a division, a conversion or a
 string's byte; the element type's zero value for an array or a view, so `0`, `""`,
-`false`, or a struct with every field zero. The second is a `bool`, `true`
+`false`, or a struct with every field zero; `""` for a string's slice. The second is a `bool`, `true`
 when the operation succeeded. For a division `ok` says only that the
 divisor was not zero: `m / d` with `m` an `int8` holding `-128` and `d`
 holding `-1` gives `-128` and `true`, since that division wraps rather than
@@ -86,7 +89,8 @@ The details:
   error: <!-- error: safety-checked-three-names-division -->`assignment mismatch: 3 variables but a division gives 2 values`,
   and
   likewise <!-- error: safety-checked-three-names-index -->`assignment mismatch: 3 variables but an index gives 2 values`
-  and <!-- error: safety-checked-three-names-conversion -->`assignment mismatch: 3 variables but a conversion gives 2 values`.
+  and <!-- error: safety-checked-three-names-conversion -->`assignment mismatch: 3 variables but a conversion gives 2 values`,
+  and <!-- error: slice-checked-mismatch -->`assignment mismatch: 3 variables but a slice gives 2 values`.
 - **The operation must be the whole value.** Parentheses around it are fine,
   `q, ok := (a / b)`,
   but <!-- case: safety-checked-not-whole -->`q, ok := a / b + 1` is not a
@@ -134,6 +138,8 @@ e, widens := int64(small)   // e == 7, widens == true
   reports <!-- error: safety-checked-string-literal-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`,
   `v, ok := s[-1]`
   reports <!-- error: safety-checked-string-index-negative -->`index -1 is out of range for a string`,
+  `t, ok := s[1:5]` after `s := "abc"`
+  reports <!-- error: slice-checked-bound-past-string -->`slice bound 5 is out of range for a string of 3 bytes`,
   and `v, ok := uint8(256)`
   reports <!-- error: safety-checked-conversion-overflow -->`constant 256 overflows uint8`.
 - **No checked form for writes.** `x /= b`, `x %= b` and a write to an
@@ -149,6 +155,7 @@ e, widens := int64(small)   // e == 7, widens == true
 | `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                       |
 | `a[i]` on `[n]T` | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                           |
 | `s[i]`           | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
+| `x[i:j]`         | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)` |
 
 A proof is about a **name**, the divisor or index written as a variable or
 parameter, or a **field or element of an immutable variable or
@@ -234,6 +241,10 @@ The conditions that give facts are:
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it,
   whatever `i`'s integer type, a `uint64` or a target-width type included;
   the same for a view `v`, `len(v) > 0` and `i < len(v)`;
+- for a slice's bounds only, two relations: `j <= len(s)`, for a string
+  or a view, bounds `j` by the length itself, and `i <= j`, or `i < j`,
+  puts `i` at or below `j`, for integer variables of any types. An index
+  or a divisor never uses them;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
   gives the facts of both sides being false; `!c` swaps true and false;
 - `c1 || c2` when true, and `c1 && c2` when false, give only what every
@@ -779,6 +790,82 @@ func at(v []int64, i int64) int64 {
 A view is read-only: writing an element, in any form,
 is <!-- error: view-assign-element -->`cannot assign to v[0]: v is a read-only view`.
 
+### Slicing
+
+A slice, `x[i:j]`, needs three things proven: `0 <= i`, `i <= j` and
+`j <= len(x)`. A bound left out stands for 0 or `len(x)`, so `x[:j]` needs
+`0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)`; `x[:]` needs
+nothing. Each of the three is proven as an index's bounds are, by known
+values, a variable's type, and the facts in force, with the two relations
+only a slice uses, `j <= len(x)` and `i <= j`. Unproven, the error names
+what is missing, and only that:
+
+<!-- case: slice-unproven-all -->
+```tack
+func cut(s string, i int64, j int64) string {
+    return s[i:j]
+}
+```
+
+<!-- error: slice-unproven-all -->
+`slice bounds i:j may be out of range; check 0 <= i && i <= j && j <= len(s) first, or use v, ok := ...[i:j]`
+
+With `0 <= i && j <= len(s)` checked, what is left
+is <!-- error: slice-unproven-order -->`slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]`;
+with `i <= len(s)` alone, before `s[i:]`, it
+is <!-- error: slice-unproven-lower -->`slice bound i may be out of range; check 0 <= i first, or use v, ok := ...[i:]`,
+with the note <!-- note: slice-unproven-lower -->`this guard bounds i only above; i may be negative`.
+A known bound needs the length checked, as a known index
+does, <!-- error: slice-unproven-known-bound -->`slice bound 1 may be out of range; check len(s) >= 1 first, or use v, ok := ...[1:]`.
+An array's length is known, so the check names it, here for a `[3]int64`
+after `if 0 <= j && j <= 4`, <!-- error: slice-unproven-high-past-array -->`slice bound j may be out of range; check j <= 3 first`,
+with <!-- note: slice-unproven-high-past-array -->`this guard allows j == 4, and a has 3 elements`.
+A view's slice, and an array's, have no checked form, so their error
+suggests only the check, <!-- error: slice-unproven-view -->`slice bound i may be out of range; check 0 <= i && i <= len(v) first`.
+
+Guarded, by a check, a counting loop or a range loop:
+
+<!-- example: slices -->
+```tack
+func between(s string, i int64, j int64) string {
+    if 0 <= i && i <= j && j <= len(s) {
+        return s[i:j]
+    }
+    return "?"
+}
+```
+
+<!-- example: slices -->
+```tack
+for mut i := 0; i < len(v); i++ {
+    total += sum(v[:i])
+}
+```
+
+<!-- example: slices -->
+```tack
+for i := range v {
+    total += sum(v[i:])
+}
+```
+
+Checked, for a string's slice only, which gives `""` and `false` when the
+bounds are out of range, whatever their types:
+
+<!-- example: slices -->
+```tack
+func checked(s string, i int64, j int64) (string, bool) {
+    t, ok := s[i:j]
+    return t, ok
+}
+```
+
+An array's or a view's slice is a view, which only a parameter may hold,
+so it cannot be bound with ok:
+<!-- error: slice-view-checked -->`a[1:] is a view, []int64, which cannot be bound with ok; prove its bounds instead`.
+A slice is never a place:
+assigning one is <!-- error: slice-assign -->`cannot assign to s[0:1]: a slice is not a place`.
+
 ### Conversions
 
 <!-- case: safety-conversion-unchecked -->
@@ -859,6 +946,9 @@ failure it can see from known values:
 | known index out of range, array           | `a[3]` on `[3]int64`                  | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64` |
 | known index out of range, known string   | `"tack"[4]`, `s[5]` after `s := "abc"` | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
 | negative known index, any string          | `s[-1]`                               | <!-- error: string-index-negative -->`index -1 is out of range for a string` |
+| known slice bound past a known length     | `a[1:4]` on `[3]int64`, `"abc"[4:]`  | <!-- error: slice-bound-past-array -->`slice bound 4 is out of range for [3]int64` |
+| negative known slice bound                | `a[-1:]`                              | <!-- error: slice-bound-negative -->`slice bound -1 is out of range for [3]int64` |
+| known slice bounds out of order           | `s[3:1]`                              | <!-- error: slice-bounds-out-of-order -->`slice bounds 3:1 are out of order` |
 | constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300` | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
 | arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
 

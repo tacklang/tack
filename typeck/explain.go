@@ -158,13 +158,15 @@ func note(span ast.Span, msg string) diag.Diagnostic {
 // explains why facts that do not prove it fall short, phrased as what they
 // would do when would is set; and, when set, relevant, which picks out
 // the facts that could take part in the proof, so that no note explains
-// a dropped fact that could not.
+// a dropped fact that could not. relations is set for a slice bound's
+// proof, the only one a relation (see fact.relational) can take part in.
 type proof struct {
-	proven   func() bool
-	claim    func(facts []fact) string
-	weak     func(facts []fact, would bool) []diag.Diagnostic
-	relevant func(f fact) bool
-	about    factKey
+	proven    func() bool
+	claim     func(facts []fact) string
+	weak      func(facts []fact, would bool) []diag.Diagnostic
+	relevant  func(f fact) bool
+	about     factKey
+	relations bool
 }
 
 // explain returns the notes for the missing proof p: for each fact about
@@ -175,7 +177,7 @@ type proof struct {
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
 	for _, f := range c.active {
-		if f.about != p.about {
+		if f.about != p.about || f.relational() && !p.relations {
 			continue
 		}
 		facts = append(facts, f)
@@ -290,9 +292,9 @@ func verb(present, base string, would bool) string {
 }
 
 // describe says what facts, all about the subject called name, prove
-// together: its bounds, a bound by a string's length, and that it is not
-// zero, when its bounds do not already say so. An upper bound is written
-// with <, as checks usually are.
+// together: its bounds, a bound by a string's length, a relation, and that
+// it is not zero, when its bounds do not already say so. An upper bound is
+// written with <, as checks usually are.
 func describe(name string, facts []fact) string {
 	var known interval
 	var lenOf factKey
@@ -302,16 +304,34 @@ func describe(name string, facts []fact) string {
 			lenOf = f.lenOf
 		}
 	}
-	parts := bounds(name, known, !lenOf.isZero())
+	relations := relationParts(name, facts)
+	parts := bounds(name, known, !lenOf.isZero() || len(relations) > 0)
 	if !lenOf.isZero() {
 		parts = append(parts, name+" < len("+lenOf.name()+")")
 	}
+	parts = append(parts, relations...)
 	bounded := known
 	bounded.nonzero = false
 	if known.nonzero && !bounded.excludesZero() {
 		parts = append(parts, name+" != 0")
 	}
 	return strings.Join(parts, " && ")
+}
+
+// relationParts writes the relations facts give the subject called name,
+// in order: at most a length, name <= len(s), or at most another subject,
+// name <= j.
+func relationParts(name string, facts []fact) []string {
+	var parts []string
+	for _, f := range facts {
+		switch {
+		case !f.atMostLen.isZero():
+			parts = append(parts, name+" <= len("+f.atMostLen.name()+")")
+		case !f.atMost.isZero():
+			parts = append(parts, name+" <= "+f.atMost.name())
+		}
+	}
+	return parts
 }
 
 // bounds writes the bounds known gives the variable called name: one value,
@@ -378,13 +398,15 @@ func (c *Checker) divisorProof(e ast.Expr) proof {
 
 // extent is what an index must stay below: the length n of an array or a
 // string, when known, and the array or string itself, of, whose items are
-// called unit, and which notes call label.
+// called unit, and which notes call label. A slice's bound may also equal
+// the length, which atEnd says.
 type extent struct {
 	of    ast.Expr
 	label string
 	unit  string
 	n     int64
 	known bool
+	atEnd bool
 }
 
 // newExtent returns the extent of of, an array or a string whose items are
@@ -466,7 +488,9 @@ func lowerNote(name string, facts []fact, known interval, would bool) (diag.Diag
 		) + " " + name + " == " + known.lo.String()
 		return note(f.span(), msg), true
 	}
-	if f, ok := setting(facts, func(f fact) bool { return f.hasHi || !f.lenOf.isZero() }); ok {
+	if f, ok := setting(facts, func(f fact) bool {
+		return f.hasHi || !f.lenOf.isZero() || f.relational()
+	}); ok {
 		msg := f.guard.subject() + " " + verb("bounds", "bound", would) + " " + name +
 			" only above; " + name + " may be negative"
 		return note(f.span(), msg), true
@@ -489,7 +513,11 @@ func (c *Checker) upperNote(
 	if !e.known {
 		return c.otherLenNote(name, facts, e, would)
 	}
-	if known.hasHi && known.hi.Cmp(constant.FromInt64(e.n-1)) <= 0 {
+	last := e.n - 1
+	if e.atEnd {
+		last = e.n
+	}
+	if known.hasHi && known.hi.Cmp(constant.FromInt64(last)) <= 0 {
 		return diag.Diagnostic{}, false
 	}
 	f, ok := setting(facts, func(f fact) bool { return f.hasHi && f.hi.Cmp(known.hi) == 0 })
@@ -523,14 +551,20 @@ func (c *Checker) otherLenNote(
 	if !isSubject {
 		return diag.Diagnostic{}, false
 	}
-	if slices.ContainsFunc(facts, func(f fact) bool { return f.lenOf == s }) {
+	if slices.ContainsFunc(facts, func(f fact) bool {
+		return f.lenOf == s || e.atEnd && f.atMostLen == s
+	}) {
 		return diag.Diagnostic{}, false
 	}
-	f, ok := setting(facts, func(f fact) bool { return !f.lenOf.isZero() })
+	f, ok := setting(facts, func(f fact) bool { return !f.lenOf.isZero() || !f.atMostLen.isZero() })
 	if !ok {
 		return diag.Diagnostic{}, false
 	}
-	return lengthNote(f, name, f.lenOf.name(), e, would), true
+	other := f.lenOf
+	if other.isZero() {
+		other = f.atMostLen
+	}
+	return lengthNote(f, name, other.name(), e, would), true
 }
 
 // lengthNote returns the note that f bounds the index called name by the
@@ -655,7 +689,9 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 		seen = append(seen, id.Def)
 		f, bounded := setting(
 			c.active,
-			func(f fact) bool { return f.about == declKey(id.Def) && f.inForce() },
+			func(f fact) bool {
+				return f.about == declKey(id.Def) && f.inForce() && !f.relational()
+			},
 		)
 		if bounded {
 			expr := c.text(operand.Spanned())

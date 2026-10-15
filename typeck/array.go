@@ -316,7 +316,7 @@ func inBounds(i ast.Expr, name, bound string) string {
 }
 
 // lenCall checks a call to the builtin len, which takes one array, string
-// or view and gives an int64. The length of an array, and of a string
+// or view, a slice of an array or a view included, and gives an int64. The length of an array, and of a string
 // literal, is a constant, recorded on the call, unless working it out runs
 // a call, which it must then still make; a view's is never known, as a
 // string parameter's is not. A call whose arguments are wrong, or whose
@@ -331,6 +331,7 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 	}
 
 	arg := call.Args[0]
+	c.allowViewSlice(arg)
 	got := c.expr(arg)
 	switch {
 	case got == types.Invalid:

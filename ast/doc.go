@@ -39,6 +39,11 @@
 // type checker accepts it only as a parameter's type. A conversion to one,
 // []uint8(s), is a Call whose Fn is the ViewType, and whose Conv the type
 // checker sets, since the resolver sets Conv only for a basic type's name.
+// A slice, x[i:j], is a Slice, its Lo or Hi nil where a bound is left out,
+// x[:j] or x[i:]; the type checker sets Slice.Type, a string for a
+// string's slice and a view for an array's or a view's. A slice is never
+// a place: the parser takes one wherever an index may be written, and the
+// type checker reports one assigned or passed as mut.
 // A struct literal is a CompositeLit whose elements are KeyValues, a field's
 // name and a value, and a field read or written is a Selector; neither the
 // key nor the selected name is an Ident the resolver binds, since a field is

@@ -162,7 +162,8 @@ func walkOperand(e Expr, v Visitor) {
 }
 
 // walkArrayExpr walks the children of an array type, a view type, a
-// composite literal or an element. A part that is left out is nil, and skipped.
+// composite literal, an element or a slice. A part that is left out is
+// nil, and skipped.
 func walkArrayExpr(e Expr, v Visitor) {
 	switch e := e.(type) {
 	case *ArrayType:
@@ -180,8 +181,22 @@ func walkArrayExpr(e Expr, v Visitor) {
 	case *Index:
 		Walk(e.X, v)
 		Walk(e.Index, v)
+	case *Slice:
+		walkSlice(e, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled expression type %T", e))
+	}
+}
+
+// walkSlice walks a slice's children: what it slices, then each bound
+// that is written.
+func walkSlice(s *Slice, v Visitor) {
+	Walk(s.X, v)
+	if s.Lo != nil {
+		Walk(s.Lo, v)
+	}
+	if s.Hi != nil {
+		Walk(s.Hi, v)
 	}
 }
 

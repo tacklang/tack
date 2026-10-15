@@ -71,8 +71,8 @@ func isViewConversion(call *ast.Call) bool {
 
 // viewArg checks arg, passed to a plain parameter of the view type want in
 // a call to callee: a conversion []uint8(s) of a string, a view of the
-// same type, passed on, or an array of exactly its element type that is a
-// place. A string needs the conversion, which a []uint8 parameter's error
+// same type, passed on, a slice of one or of an array, or an array of
+// exactly its element type that is a place. A string needs the conversion, which a []uint8 parameter's error
 // says, and any other value is used as want under the usual rules, which
 // report it.
 func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
@@ -80,6 +80,7 @@ func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
 		c.use(arg, c.viewConversion(call), want, "in argument to "+callee)
 		return
 	}
+	c.allowViewSlice(arg)
 	got := c.valueOf(arg, c.expr(arg))
 	switch {
 	case got == types.Invalid:
