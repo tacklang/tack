@@ -655,6 +655,38 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 	}
 }
 
+// TestHostileVariadicSourceNeverPanics runs every dump and --emit on
+// malformed and extreme uses of ..., truncated, repeated, with thousands
+// of values and nested five hundred calls deep, and checks each result is
+// coherent, never a panic.
+func TestHostileVariadicSourceNeverPanics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"truncated variadic", "package main\nfunc f(a ..."},
+		{"truncated spread", "package main\nfunc f(a ...int64) {}\nfunc main() {\n    f(a..."},
+		{"ellipses alone", "package main\nfunc f(" + strings.Repeat("...", 300) + ")"},
+		{
+			"many variadic values",
+			"package main\nfunc f(a ...int64) {}\nfunc main() {\n    f(" +
+				strings.Repeat("1, ", 5000) + "1)\n}\n",
+		},
+		{
+			"deep variadic nesting",
+			"package main\nfunc f(a ...int64) int64 {\n    return 0\n}\nfunc main() {\n    x := " +
+				strings.Repeat("f(1, ", 500) + "1" + strings.Repeat(")", 500) + "\n    exit(int32(x))\n}\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeSource(t, []byte(tc.src))
+			for _, flag := range []string{"--lex", "--ast", "--res", "--emit"} {
+				checkCoherent(t, runTack(t, flag, path))
+			}
+		})
+	}
+}
+
 func TestEmptyFileIsRejectedWithDiagnostics(t *testing.T) {
 	assertDiagnostics(t, runTack(t, "--emit", writeSource(t, nil)))
 }
@@ -1397,6 +1429,74 @@ func TestBuiltViewsPassesEveryCheck(t *testing.T) {
 			}
 			if out, code := runBuilt(t, bin); out != viewsWant || code != 0 {
 				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, viewsWant)
+			}
+		})
+	}
+}
+
+// variadicsWant is what examples/variadics prints when every check
+// passes.
+var variadicsWant = "no values ok\n" +
+	"one value ok\n" +
+	"several values ok\n" +
+	"many values ok\n" +
+	"widened values ok\n" +
+	"untyped constants ok\n" +
+	"uint64 values ok\n" +
+	"spread of an array ok\n" +
+	"spread of a slice ok\n" +
+	"spread of a variadic ok\n" +
+	"spread passed on ok\n" +
+	"spread of a variadic's slice ok\n" +
+	"recursion ok\n" +
+	"checked index ok\n" +
+	"checked negative index ok\n" +
+	"guard on len ok\n" +
+	"range with index ok\n" +
+	"strings ok\n" +
+	"structs ok\n" +
+	"arrays ok\n" +
+	"bools ok\n" +
+	"bytes ok\n" +
+	"spread of a string's bytes ok\n" +
+	"spread of the empty string's bytes ok\n" +
+	"results ok\n" +
+	"results with no values ok\n" +
+	"evaluation order ok\n" +
+	"reads between calls ok\n" +
+	"nested calls ok\n" +
+	"values alongside mut ok\n" +
+	"spread alongside mut ok\n" +
+	"spread of a mutable global ok\n" +
+	"spread of a mut parameter's array ok\n" +
+	"in a defer ok\n" +
+	"in a loop condition ok\n"
+
+// TestBuiltVariadicsPassesEveryCheck builds examples/variadics at every
+// optimization level and checks each binary passes every check: zero,
+// one, several and twenty values; values widened to the element type and
+// untyped constants at int64's and uint64's edges; a spread of an array,
+// an empty one, a slice, an empty slice, a variadic, a variadic's slice,
+// recursively, and a string's bytes; len, the checked form, a guard,
+// range and slicing inside; variadics of strings, structs, arrays, bools
+// and bytes; several results; fixed and variadic arguments evaluated left
+// to right, each once, with a mutable global read between calls; values
+// and a spread alongside a mut argument of the same variable, and a
+// spread of a mutable global, each a copy taken at the call; and calls in
+// a defer and a loop's condition.
+func TestBuiltVariadicsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "variadics")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("variadics"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != variadicsWant || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, variadicsWant)
 			}
 		})
 	}

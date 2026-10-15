@@ -141,8 +141,9 @@ func notOneValue(id *ast.Ident) string {
 
 // checkCall checks a call to a function or builtin: its argument count,
 // that each argument can be passed to the parameter in its position (see
-// checkArg), and that no two of its mut arguments overlap (see
-// checkExclusive). Its result, if any, is the caller's to use or discard.
+// checkArg), or to a variadic one (see checkVariadicCall), and that no
+// two of its mut arguments overlap (see checkExclusive). Its result, if
+// any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -151,6 +152,10 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 
 	params := c.calleeParams(id)
+	if isVariadic(params) {
+		c.checkExclusive(c.checkVariadicCall(call, id.Qualified(), params))
+		return
+	}
 	if !c.checkArity(call, id.Qualified(), len(params)) {
 		for _, arg := range call.Args {
 			c.argExpr(arg)
@@ -166,9 +171,13 @@ func (c *Checker) checkCall(call *ast.Call) {
 	c.checkExclusive(muts)
 }
 
-// checkArity reports a call passing the wrong number of arguments, and returns
-// whether the count was right.
+// checkArity reports a call to name, or a conversion to it, that is not
+// variadic, passing the wrong number of arguments or a spread, and
+// returns whether the count was right and there was none.
 func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
+	if c.spreadElsewhere(call, name) {
+		return false
+	}
 	if len(call.Args) == want {
 		return true
 	}

@@ -233,6 +233,19 @@
 // a view argument alongside a mut argument of an overlapping place is
 // allowed, as a plain argument is.
 //
+// A variadic parameter, args ...T, the last of its function's, is a view,
+// []T, checked in variadic.go: its type is the view of its element type,
+// so inside its function it follows every rule above, and it may not be
+// mut or have a view as its element. A call to a variadic function passes
+// one argument per fixed parameter, then any number of values, each
+// checked as a plain argument to a T parameter is, or a spread, f(a,
+// v...), alone, checked as an argument to a []T parameter is. Fewer
+// arguments than fixed parameters, values beside a spread, and a spread
+// to anything not variadic, a function, a builtin, len or a conversion,
+// are reported. The values are plain arguments for exclusivity, so one
+// overlapping a mut argument is a copy, and nothing about how many there
+// are is known inside the callee, which is checked once for every call.
+//
 // A slice, x[i:j], checked in slice.go, is a string for a string, any
 // string, and a view of the elements for an array that is a place or a
 // view; anything else, and a bound that is not an integer, of any type, is
@@ -298,8 +311,10 @@
 //
 //   - a call passes the number of arguments its callee declares, each usable
 //     as the declared type, whether the callee is a Tack function or a
-//     builtin; a mut parameter takes mut x, where x is a place of exactly
-//     its type, and only a mut parameter does (mut.go);
+//     builtin, or, for a variadic callee, at least one per fixed parameter
+//     and then values of the element type or one spread (variadic.go); a
+//     mut parameter takes mut x, where x is a place of exactly its type,
+//     and only a mut parameter does (mut.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value;
 //   - every operand of an arithmetic operator is an integer, the two having

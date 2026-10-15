@@ -144,8 +144,9 @@ const i386 = "i386-unknown-linux-gnu"
 // widening, a struct, an array, a switch, one with case values of other
 // integer types, a range count, globals, a mut parameter, indexes of
 // an array, a string and a view, proven by a guard, a counting loop or a
-// known value, and checked, and slices of each with target-width bounds,
-// proven by a guard and checked.
+// known value, and checked, slices of each with target-width bounds,
+// proven by a guard and checked, and a variadic of them, given values,
+// a constant and a narrower integer among them, a spread and none.
 const width32Program = `package main
 
 type B struct {
@@ -218,6 +219,14 @@ func slices(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_uintptr
     return n
 }
 
+func sizes(ns ...unsafe_size_t) unsafe_size_t {
+    mut t unsafe_size_t = 0
+    for _, n := range ns {
+        t += n
+    }
+    return t
+}
+
 func main() {
     mut b := B{n: 1, p: 2}
     if mixed(b.n, b.p, -1, 3, 4) {
@@ -247,6 +256,10 @@ func main() {
     }
     if slices(a4, "abc", a4, b.n, b.p, 1) == 0 {
         count = 4
+    }
+    ns := [2]unsafe_size_t{1, 4294967295}
+    if sizes(b.n, 4294967295, uint8(3)) == sizes(ns...) + sizes() {
+        count = 5
     }
 }
 `

@@ -66,7 +66,7 @@ func TestRejectsMalformedResultLists(t *testing.T) {
 		{"func f() int64, int64 {", "missing function body"},
 		{"func f() (int64, 1) {", "expected 'type name' found '1'"},
 		{"func f() ((int64, int64)) {", "expected 'type name' found '('"},
-		{"func f() (...int64) {", "variadic parameters are not supported"},
+		{"func f() (...int64) {", "can only use ... with the final parameter"},
 	}
 
 	for _, tt := range tests {

@@ -429,6 +429,25 @@ func TestBuiltExternViewsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternVariadicsPassesEveryCheck builds
+// examples/extern-variadics, whose extern funcs take variadic parameters,
+// as tack_view_ structs in C, and checks what C read through each:
+// widened integers, no values, a spread of an array and of a slice,
+// strings after a fixed parameter under a C name of their own, a spread
+// of strings, and a Tack variadic passed on to C.
+func TestBuiltExternVariadicsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "extern-variadics")
+	want := "integers ok\n" +
+		"no values ok\n" +
+		"spread of an array and a slice ok\n" +
+		"strings, C name ok\n" +
+		"spread of strings ok\n" +
+		"passed on to C ok\n"
+	if out, code := runBuilt(t, bin); out != want || code != 0 {
+		t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+	}
+}
+
 // TestBuiltAtEveryOptLevel builds examples/extern-strings, generated
 // source and a C file both, at every optimization level, and checks each
 // binary passes every check: a level must not change what a program does.

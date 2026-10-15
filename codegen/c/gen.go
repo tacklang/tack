@@ -1705,7 +1705,10 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 }
 
 // callExpr renders a call to a declared function as a C expression, an
-// argument to a view parameter as a view (see viewArg).
+// argument to a view parameter as a view (see viewArg), and the values
+// for a variadic parameter as one view of them (see packed). Every
+// argument, each value for a variadic among them, is an operand evaluated
+// left to right (see sequenced) before the values are packed.
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
 	callee := g.mangle(nil, name)
 	var fn *ast.Func
@@ -1718,13 +1721,18 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 	if len(diags) > 0 {
 		return "", diags
 	}
-	var params []*ast.Param
-	if fn != nil {
-		params = fn.Params
-	}
-	return g.sequencedAs(call.Args, args, g.argTypes(call, params), func(ops []string) string {
+	params := paramsOf(fn)
+	build := func(ops []string) string {
 		return fmt.Sprintf("%s(%s)", callee, strings.Join(ops, ", "))
-	}), nil
+	}
+	if packs(call, params) {
+		fixed, view := len(params)-1, params[len(params)-1].Type
+		build = func(ops []string) string {
+			all := append(slices.Clone(ops[:fixed]), g.packed(view, ops[fixed:]))
+			return fmt.Sprintf("%s(%s)", callee, strings.Join(all, ", "))
+		}
+	}
+	return g.sequencedAs(call.Args, args, g.argTypes(call, params), build), nil
 }
 
 // expr renders an expression as C. want is the type the context requires;

@@ -1,0 +1,302 @@
+package main
+
+// Variadic parameters, args ...T. A function's last parameter may take
+// zero or more values, which the function sees as a read-only view, []T,
+// under every view rule. A call passes the values one by one, each
+// converted to T as a plain argument is, or passes a view on with a
+// spread, f(v...).
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// trace records the order step was called in, one digit per call.
+mut trace int64
+
+// table is a mutable global array, which a callee could change during a
+// call that spreads it, so the view is of a copy.
+mut table [3]int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// sum adds every value of nums, after a fixed parameter, a label, which
+// is never empty.
+func sum(label string, nums ...int64) int64 {
+    if len(label) == 0 {
+        return -1
+    }
+    mut total int64 = 0
+    for _, x := range nums {
+        total += x
+    }
+    return total
+}
+
+// count returns how many values were passed.
+func count(nums ...int64) int64 {
+    return len(nums)
+}
+
+// total adds every element of a plain view parameter, which a variadic
+// is passed on to as it is.
+func total(v []int64) int64 {
+    mut n int64 = 0
+    for mut i int64 = 0; i < len(v); i++ {
+        n += v[i]
+    }
+    return n
+}
+
+// passOn passes its variadic on, with a spread, and to a view parameter.
+func passOn(nums ...int64) int64 {
+    return sum("on", nums...) + total(nums)
+}
+
+// rest passes on every value of nums but the first.
+func rest(nums ...int64) int64 {
+    if len(nums) < 1 {
+        return -1
+    }
+    return sum("rest", nums[1:]...)
+}
+
+// sumRec adds nums recursively, spreading a slice of its own variadic.
+func sumRec(nums ...int64) int64 {
+    if len(nums) < 1 {
+        return 0
+    }
+    return nums[0] + sumRec(nums[1:]...)
+}
+
+// at returns nums[i], or -1 when i is out of range, through the checked
+// form.
+func at(i int64, nums ...int64) int64 {
+    x, ok := nums[i]
+    if !ok {
+        return -1
+    }
+    return x
+}
+
+// firstTwo returns nums[0] + nums[1], proven by the guard on len.
+func firstTwo(nums ...int64) int64 {
+    if len(nums) < 2 {
+        return -1
+    }
+    return nums[0] + nums[1]
+}
+
+// weighted adds each value times its index, with both range variables.
+func weighted(nums ...int64) int64 {
+    mut n int64 = 0
+    for i, x := range nums {
+        n += i * x
+    }
+    return n
+}
+
+// lengths returns the total length of strings.
+func lengths(words ...string) int64 {
+    mut n int64 = 0
+    for _, w := range words {
+        n += len(w)
+    }
+    return n
+}
+
+// sumPoints adds the x and y of every point.
+func sumPoints(pts ...Point) int64 {
+    mut n int64 = 0
+    for _, p := range pts {
+        n += p.x + p.y
+    }
+    return n
+}
+
+// cells adds every element of every row.
+func cells(rows ...[2]int64) int64 {
+    mut n int64 = 0
+    for _, row := range rows {
+        n += row[0] + row[1]
+    }
+    return n
+}
+
+// trues counts the true values.
+func trues(flags ...bool) int64 {
+    mut n int64 = 0
+    for _, f := range flags {
+        if f {
+            n++
+        }
+    }
+    return n
+}
+
+// countByte counts the bytes of b equal to c.
+func countByte(c uint8, b ...uint8) int64 {
+    mut n int64 = 0
+    for _, x := range b {
+        if x == c {
+            n++
+        }
+    }
+    return n
+}
+
+// unsigned adds uint64 values, wrapping.
+func unsigned(nums ...uint64) uint64 {
+    mut n uint64 = 0
+    for _, x := range nums {
+        n += x
+    }
+    return n
+}
+
+// minMax returns the smallest and largest of first and rest.
+func minMax(first int64, rest ...int64) (int64, int64) {
+    mut lo := first
+    mut hi := first
+    for _, x := range rest {
+        if x < lo {
+            lo = x
+        }
+        if x > hi {
+            hi = x
+        }
+    }
+    return lo, hi
+}
+
+// step appends d to trace, so the order of calls shows, and returns d.
+func step(d int64) int64 {
+    trace = trace * 10 + d
+    return d
+}
+
+// digits joins a, then every value of rest, as decimal digits.
+func digits(a int64, rest ...int64) int64 {
+    mut n := a
+    for _, x := range rest {
+        n = n * 10 + x
+    }
+    return n
+}
+
+// bumpThenRead adds one to n, then returns the sum of vals, which the
+// caller passed n's value to: each value is a copy taken at the call.
+func bumpThenRead(mut n int64, vals ...int64) int64 {
+    n++
+    return total(vals)
+}
+
+// writeThenRead writes the caller's array through a, then reads v, which
+// the caller spread the same array into: v is a copy taken at the call.
+func writeThenRead(mut a [3]int64, v ...int64) int64 {
+    a[0] = 100
+    x, _ := v[0]
+    return x
+}
+
+// changeTable changes the global table, then reads v, which the caller
+// spread table into: v is a copy taken at the call.
+func changeTable(v ...int64) int64 {
+    table[0] = 50
+    x, _ := v[0]
+    return x
+}
+
+// viaMut spreads the caller's array through a mut parameter after
+// changing it.
+func viaMut(mut a [3]int64) int64 {
+    a[1] = 7
+    return sum("mut", a...)
+}
+
+// deferred sets trace from a variadic call in a defer.
+func deferred() {
+    defer {
+        trace = sum("defer", 1, 2)
+    }
+}
+
+func main() {
+    check(sum("none") == 0 && count() == 0, "no values")
+    check(sum("one", 5) == 5 && count(5) == 1, "one value")
+    check(sum("three", 1, 2, 3) == 6 && count(1, 2, 3) == 3, "several values")
+    check(count(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20) == 20,
+        "many values")
+
+    var small int8 = -3
+    var mid int32 = 70000
+    var u uint32 = 4000000000
+    var b uint8 = 255
+    check(sum("widen", small, mid, u, b) == 4000069997 + 255, "widened values")
+    check(sum("edges", 9223372036854775807, -9223372036854775808) == -1, "untyped constants")
+    check(unsigned(18446744073709551615, 1) == 0 && unsigned(b, u) == 4000000255, "uint64 values")
+
+    a := [4]int64{1, 2, 3, 4}
+    none := [0]int64{}
+    check(sum("array", a...) == 10 && count(none...) == 0, "spread of an array")
+    check(sum("slice", a[1:3]...) == 5 && count(a[2:2]...) == 0, "spread of a slice")
+    check(passOn(1, 2, 3) == 12 && passOn() == 0, "spread of a variadic")
+    check(passOn(a...) == 20, "spread passed on")
+    check(rest(1, 2, 3) == 5 && rest(1) == 0 && rest() == -1, "spread of a variadic's slice")
+    check(sumRec(1, 2, 3, 4) == 10 && sumRec() == 0, "recursion")
+
+    check(at(0, 7, 8) == 7 && at(1, 7, 8) == 8 && at(2, 7, 8) == -1 && at(0) == -1, "checked index")
+    check(at(-1, 7) == -1, "checked negative index")
+    check(firstTwo(3, 4, 5) == 7 && firstTwo(3) == -1, "guard on len")
+    check(weighted(5, 6, 7) == 20, "range with index")
+
+    check(lengths() == 0 && lengths("a", "bc", "") == 3, "strings")
+    p := Point{x: 1, y: 2}
+    check(sumPoints(p, Point{x: 3, y: 4}) == 10 && sumPoints() == 0, "structs")
+    row := [2]int64{5, 6}
+    check(cells(row, [2]int64{1, 2}) == 14, "arrays")
+    check(trues(true, false, true) == 2, "bools")
+    word := "banana"
+    check(countByte('a', 'a', 'b', 'a') == 2, "bytes")
+    check(countByte('a', []uint8(word)...) == 3, "spread of a string's bytes")
+    check(countByte('a', []uint8("")...) == 0, "spread of the empty string's bytes")
+
+    lo, hi := minMax(5, 9, -2, 7)
+    check(lo == -2 && hi == 9, "results")
+    lo2, hi2 := minMax(4)
+    check(lo2 == 4 && hi2 == 4, "results with no values")
+
+    trace = 0
+    check(digits(step(1), step(2), step(3)) == 123 && trace == 123, "evaluation order")
+    trace = 5
+    check(digits(trace, step(4), trace) == 594 && trace == 54,
+        "reads between calls")
+    trace = 0
+    check(sum("nested", count(step(1), step(2)), step(3)) == 5 && trace == 123, "nested calls")
+
+    mut n int64 = 10
+    check(bumpThenRead(mut n, n, n) == 20 && n == 11, "values alongside mut")
+    mut arr := [3]int64{1, 2, 3}
+    check(writeThenRead(mut arr, arr...) == 1 && arr[0] == 100, "spread alongside mut")
+    table = [3]int64{5, 6, 7}
+    check(changeTable(table...) == 5 && table[0] == 50, "spread of a mutable global")
+    mut m := [3]int64{1, 2, 3}
+    check(viaMut(mut m) == 11 && m[1] == 7, "spread of a mut parameter's array")
+
+    trace = 0
+    deferred()
+    check(trace == 3, "in a defer")
+    mut i int64 = 0
+    for count(i, i) == 2 && i < 3 {
+        i++
+    }
+    check(i == 3, "in a loop condition")
+}

@@ -426,6 +426,17 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	return fn, nil
 }
 
+// notFinal is the error for a ... at span that does not mark a function's
+// final parameter: one before another parameter, or one in a type
+// anywhere else.
+func notFinal(span ast.Span) diag.Diagnostic {
+	return diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  "can only use ... with the final parameter",
+		Span:     span,
+	}
+}
+
 // atReceiver reports whether the tokens after func are a method's
 // receiver: a parenthesized list followed by a name, as in
 // func (p Point) norm(). A list with no name after it is left to be
@@ -459,6 +470,11 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 
 	var params []*ast.Param
 	for p.peek().Kind() != lexer.RParen {
+		// A variadic parameter takes every value left in a call, so
+		// nothing can follow it, another variadic included.
+		if n := len(params); n > 0 && params[n-1].Variadic {
+			return nil, []diag.Diagnostic{notFinal(params[n-1].EllipsisSpan)}
+		}
 		param, paramDiags := p.parseParam()
 		if param == nil {
 			return nil, paramDiags
@@ -478,7 +494,9 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 // parenthesized, comma-separated list of them. A brace or semicolon instead
 // means the function returns nothing, and the result is empty.
 func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
-	if p.startsType(p.peek()) {
+	// A ... goes to parseType, which reports it, rather than being taken
+	// for a missing body.
+	if tk := p.peek(); p.startsType(tk) || tk.Kind() == lexer.Ellipsis {
 		typ, diags := p.parseType()
 		if typ == nil {
 			return nil, diags
@@ -553,7 +571,8 @@ func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
 }
 
 // parseParam parses one parameter: a name and its type, with mut before
-// the name for a mut parameter, mut p T.
+// the name for a mut parameter, mut p T, and ... before the type for a
+// variadic one, args ...T, whose type is then its element type.
 func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 	param := &ast.Param{}
 	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
@@ -563,6 +582,10 @@ func (p *Parser) parseParam() (*ast.Param, []diag.Diagnostic) {
 	name, nameDiags := p.parseIdent("parameter name")
 	if name == nil {
 		return nil, nameDiags
+	}
+	if tk := p.peek(); tk.Kind() == lexer.Ellipsis {
+		p.next()
+		param.Variadic, param.EllipsisSpan = true, p.span(tk)
 	}
 
 	typ, typDiags := p.parseType()
@@ -592,16 +615,14 @@ func (p *Parser) startsType(tk *lexer.Token) bool {
 	}
 }
 
+// parseType parses a type: a name, qualified or not, an array type or a
+// view type. parseParam takes the ... of a variadic parameter before its
+// type, so a ... here is one written anywhere else, a result's type, a
+// variable's, a field's or an element's, and is reported rather than
+// skipped, which would make it mean the type after it.
 func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
-	// Consuming the ellipsis and carrying on would make f(x ...int) and
-	// f(x int) the same tree, so nothing downstream could tell that variadics
-	// had been asked for and quietly not delivered.
 	if tk := p.peek(); tk.Kind() == lexer.Ellipsis {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "variadic parameters are not supported",
-			Span:     p.span(tk),
-		}}
+		return nil, []diag.Diagnostic{notFinal(p.span(tk))}
 	}
 
 	if p.peek().Kind() == lexer.LBrack {
@@ -1350,6 +1371,20 @@ func (p *Parser) parseArgs(fn ast.Expr, span ast.Span) (*ast.Call, []diag.Diagno
 			return nil, valDiags
 		}
 		call.Args = append(call.Args, val)
+
+		// A spread, v..., passes v as the whole of a variadic parameter,
+		// the last, so it can only follow the last argument.
+		if tk := p.peek(); tk.Kind() == lexer.Ellipsis {
+			p.next()
+			if p.peek().Kind() != lexer.RParen {
+				return nil, []diag.Diagnostic{{
+					Severity: diag.Error,
+					Message:  "can only use ... with the final argument",
+					Span:     p.span(tk),
+				}}
+			}
+			call.Spread, call.EllipsisSpan = true, p.span(tk)
+		}
 	}
 
 	if ok, rparenDiags := p.expect(lexer.RParen); !ok {

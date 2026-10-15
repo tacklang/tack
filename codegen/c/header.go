@@ -410,7 +410,8 @@ func (h *header) prototype(fn *ast.Func) string {
 }
 
 // tackSignature is fn's declaration as Tack writes it, a type of another
-// package qualified by that package's name, which tack.h shows beside its
+// package qualified by that package's name and a variadic parameter as
+// args ...T, though C gets it as a view, which tack.h shows beside its
 // prototype, so a clang error that quotes the prototype also shows what it
 // declares.
 func (h *header) tackSignature(fn *ast.Func) string {
@@ -426,7 +427,10 @@ func (h *header) tackSignature(fn *ast.Func) string {
 	params := make([]string, len(fn.Params))
 	for i, p := range fn.Params {
 		params[i] = p.Name + " " + name(p.Type)
-		if p.Mut {
+		switch {
+		case p.Variadic:
+			params[i] = p.Name + " ..." + name(h.prog.Types.Elem(p.Type))
+		case p.Mut:
 			params[i] = "mut " + params[i]
 		}
 	}

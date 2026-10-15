@@ -1,7 +1,6 @@
 package parser_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/tacklang/tack/ast"
@@ -530,31 +529,6 @@ func TestParsesReturnInsideAnIf(t *testing.T) {
 	}
 	if _, ok := ifs.Then[0].(*ast.Return); !ok {
 		t.Errorf("then block holds %T, want *ast.Return", ifs.Then[0])
-	}
-}
-
-// A variadic marker used to be consumed and discarded, so f(x ...int) and
-// f(x int) produced identical trees and nothing downstream could tell that
-// something had been asked for and silently not delivered.
-func TestRejectsVariadicParameter(t *testing.T) {
-	_, diags := parse(t, "package main\n\nfunc f(x ...int64) {\n}\n\nfunc main() {\n}\n")
-
-	if len(diags) == 0 {
-		t.Fatal("a variadic parameter parsed without a diagnostic")
-	}
-	if !strings.Contains(diags[0].Message, "variadic") {
-		t.Errorf("message = %q, want it to name the unsupported feature", diags[0].Message)
-	}
-}
-
-func TestRejectsVariadicResultType(t *testing.T) {
-	_, diags := parse(
-		t,
-		"package main\n\nfunc f() ...int64 {\n    return 1\n}\n\nfunc main() {\n}\n",
-	)
-
-	if len(diags) == 0 {
-		t.Fatal("a variadic result type parsed without a diagnostic")
 	}
 }
 

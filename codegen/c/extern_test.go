@@ -299,6 +299,31 @@ func TestExternViewsExampleIsWarningFree(t *testing.T) {
 	}
 }
 
+// TestExternVariadicsExampleIsWarningFree builds
+// examples/extern-variadics with clang's warnings as errors, its C file
+// against its tack.h, so the tack_view_ structs a variadic parameter
+// becomes, and the arrays its caller builds, agree between the generated
+// source, the header and the C file, and checks every check it prints
+// passed.
+func TestExternVariadicsExampleIsWarningFree(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "extern-variadics")
+	src, err := os.ReadFile(filepath.Join(dir, "main.tck"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrc, err := os.ReadFile(filepath.Join(dir, "variadics.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(buildExtern(t, string(src), string(csrc))).Output()
+	if err != nil {
+		t.Fatalf("extern-variadics failed: %v", err)
+	}
+	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 6 {
+		t.Errorf("extern-variadics printed\n%s", out)
+	}
+}
+
 // TestExternSizesExampleIsWarningFree builds examples/extern-sizes with
 // clang's warnings as errors, its C file against its tack.h, so size_t and
 // uintptr_t agree between the generated source, the header and the C

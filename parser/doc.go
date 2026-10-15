@@ -96,7 +96,16 @@
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.
 // A parameter is a name and a type, with mut before the name for a mut
-// parameter, mut p T, whose span then starts at mut. mut before an operand
+// parameter, mut p T, whose span then starts at mut, and ... before the
+// type for a variadic one, args ...T, whose TypeExpr is then the element
+// type T. A variadic parameter followed by another, a second variadic
+// included, is reported at its ..., and so is a ... wherever else a type
+// is parsed, a result's, a variable's, a field's or an element's: only a
+// parameter's type may follow one. A call's last argument may be
+// followed by ..., a spread, f(a, v...), which marks the Call rather than
+// wrapping the argument in a node; one after any other argument is
+// reported at the .... Whether the callee can take a spread, and the
+// count of arguments around it, are the type checker's to judge. mut before an operand
 // makes a MutArg of it, mut x, binding as a prefix operator does, so
 // mut a + 1 is (mut a) + 1. It is parsed wherever an operand may be, so
 // that the type checker can report one anywhere but as a call's argument,

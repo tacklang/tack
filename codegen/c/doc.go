@@ -148,6 +148,19 @@
 // call's argument to a view parameter, for the order of evaluation, is a
 // view, whatever the argument's own type.
 //
+// A variadic parameter, args ...T, is a view parameter in C, and a spread,
+// f(a, v...), is a view argument to it, lowered as any is, copies
+// included. Values passed one by one, f(a, x, y), are packed by the
+// call: (tack_view_N){(const T[2]){x, y}, 2}, a compound literal array on
+// the caller's stack, which lives to the end of the block holding the
+// call, and so for the whole call, viewed with the number of values. The
+// values are operands of the call like its other arguments, each
+// evaluated once, left to right, into a temporary when the order shows,
+// before they are packed, and C converts each to T as it initializes the
+// array, a widening the checker allowed. No values is (tack_view_N){0, 0}:
+// C has no array of no elements, and a null pointer with a length of 0 is
+// never read, nor moved by a slice, as for the zero string's bytes.
+//
 // A slice, x[i:j], is a call to a helper for its type, tack_slice_string
 // or tack_slice_N for the view type N, or tack_slice_from_ either when j is
 // left out and the helper reads the length itself; each is emitted only

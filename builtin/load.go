@@ -178,7 +178,7 @@ func (d *declarer) file(f *ast.File) {
 // builtin if it is one: an extern func with a C name of its own, starting
 // tack_, named nothing a builtin cannot be named, neither pub nor lib, and
 // returning nothing, whose parameters are each of a basic type and none is
-// mut.
+// mut or variadic.
 func (d *declarer) fn(fn *ast.Func) {
 	before := len(d.diags)
 	switch {
@@ -280,10 +280,14 @@ func (d *declarer) checkCName(fn *ast.Func) {
 }
 
 // param returns the type of p, a parameter of the builtin fn, reporting a
-// mut parameter and one whose type is not a basic type's name.
+// mut parameter, a variadic one, and one whose type is not a basic type's
+// name.
 func (d *declarer) param(fn *ast.Func, p *ast.Param) types.Type {
 	if p.Mut {
 		d.errorf(p.MutSpan, "parameter %s of builtin %s cannot be mut", p.Name, fn.Name)
+	}
+	if p.Variadic {
+		d.errorf(p.EllipsisSpan, "parameter %s of builtin %s cannot be variadic", p.Name, fn.Name)
 	}
 	id, ok := p.TypeExpr.(*ast.Ident)
 	if !ok {

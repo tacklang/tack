@@ -349,6 +349,10 @@ var rejected = []struct {
 		[]string{"parameter x of builtin p cannot be mut"},
 	},
 	{
+		"variadic param", "package builtin\n\nextern(\"tack_p\") func p(s string, xs ...int64)\n",
+		[]string{"parameter xs of builtin p cannot be variadic"},
+	},
+	{
 		"view param", "package builtin\n\nextern(\"tack_p\") func p(v []int64)\n",
 		[]string{"parameter v of builtin p must be of a basic type, such as int64 or string"},
 	},

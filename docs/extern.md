@@ -124,7 +124,11 @@ the layout the generated C gives it, which is what `tack.h` defines. A
 `mut` parameter is the one exception: it crosses as a pointer to the
 caller's variable. A view, `[]T`, is a parameter only, so it crosses only
 into C, as a struct of a pointer to its first element and its length; an
-extern func cannot return one, since no function can.
+extern func cannot return one, since no function can. A variadic
+parameter, `args ...T`, is a view inside a Tack function, and crosses as
+one: C gets a `tack_view_<T>` of the values the call passed, which the
+caller puts in an array on its stack for the call, or of the view a
+spread, `f(v...)`, passes on.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -141,6 +145,7 @@ extern func cannot return one, since no function can.
 | several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on       |
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 | a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
+| an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
 signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
@@ -225,6 +230,12 @@ in `tack.h`, and the C side reads and writes the caller's point through
 `int64_t total(tack_view_int64 /* v */);`, and the C side reads
 `v.ptr[0]` through `v.ptr[v.len - 1]`; `examples/extern-views` passes
 views of integers, a string's bytes, structs, arrays and strings.
+`extern func sum(base int64, nums ...int64) int64` is
+`int64_t sum(int64_t /* base */, tack_view_int64 /* nums */);`, with
+the Tack declaration, `...` and all, in the comment beside it, so
+`sum(1, 2, 3)` gives C a view of the two values 2 and 3, `sum(1)` one of
+none, and `sum(1, a...)` the view of `a`; `examples/extern-variadics`
+passes integers, strings, none and spreads.
 
 ## Helpers for C
 
@@ -284,12 +295,14 @@ whole program, Tack code included, which no Tack proof can catch.
   call, and only below `len`: a view of an empty array has a `len` of 0
   and a `ptr` that must not be read, and so does an empty slice, `a[2:2]`,
   whose `ptr` may be one past the last element, or null for the bytes of
-  the zero string. A slice, `a[1:3]`, passes as any view does, its `ptr`
+  the zero string, and so does a variadic given no values, whose `ptr` is
+  null. A slice, `a[1:3]`, passes as any view does, its `ptr`
   at its first element. C does not write through `ptr`, which
   is `const`, since Tack proves facts about a view's elements, its length
   included, for the whole call; and it does not keep `ptr` after
-  returning, since the array may be a local that is gone, or a copy the
-  caller made for the call. The elements do not change during the call
+  returning, since the array may be a local that is gone, a copy the
+  caller made for the call, or the array of a variadic's values, which
+  lives only for the call. The elements do not change during the call
   unless C changes them, so C may read them more than once.
 - **`mut` parameters.** C may read and write the caller's variable through
   a `mut` parameter's pointer, but only during the call: it must not store

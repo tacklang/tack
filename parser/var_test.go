@@ -182,7 +182,7 @@ func TestRejectsMalformedDeclarations(t *testing.T) {
 		{"x == 1", "expected 'statement' found 'x'"},
 		{"x", "expected 'statement' found 'x'"},
 		{"1 = 2", "expected 'statement' found '1'"},
-		{"var x ...int64 = 1", "variadic parameters are not supported"},
+		{"var x ...int64 = 1", "can only use ... with the final parameter"},
 	}
 
 	for _, tt := range tests {

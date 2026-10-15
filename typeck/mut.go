@@ -24,11 +24,13 @@ import (
 // mut p to another call is how a reference reaches further.
 
 // param is what checking an argument needs to know about the parameter
-// it is passed to: its name, its type, and whether it is mut.
+// it is passed to: its name, its type, and whether it is mut, or
+// variadic, the last parameter, args ...T, whose type is the view []T.
 type param struct {
-	name string
-	typ  types.Type
-	mut  bool
+	name     string
+	typ      types.Type
+	mut      bool
+	variadic bool
 }
 
 // calleeParams returns the parameters of the function or builtin id
@@ -37,7 +39,14 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
 		params := make([]param, len(fn.Params))
 		for i, p := range fn.Params {
-			params[i] = param{name: p.Name, typ: p.Type, mut: p.Mut}
+			// A mut variadic was reported where it is declared; its
+			// values are not asked to be mut too.
+			params[i] = param{
+				name:     p.Name,
+				typ:      p.Type,
+				mut:      p.Mut && !p.Variadic,
+				variadic: p.Variadic,
+			}
 		}
 		return params
 	}

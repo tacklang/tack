@@ -1,0 +1,44 @@
+package main
+
+// Every extern func below is written in C, in variadics.c, and takes a
+// variadic parameter, which C gets as the tack_view_ struct a view
+// parameter is: a pointer to the first value, to read only during the
+// call, and the number of values.
+
+// total adds every value of nums, in C.
+extern func total(nums ...int64) int64
+
+// lengths adds the length of every string of words, after a fixed
+// parameter it adds too, in C.
+extern("sum_lengths") func lengths(base int64, words ...string) int64
+
+// isEmpty reports whether nums holds no values, in C, which must not read
+// nums.ptr then.
+extern("is_empty") func isEmpty(nums ...int64) bool
+
+// viaTack passes its own variadic on to C.
+func viaTack(nums ...int64) int64 {
+    return total(nums...)
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    var small int8 = -4
+    check(total(1, 2, 3, small) == 2, "integers")
+    check(total() == 0 && isEmpty() && !isEmpty(0), "no values")
+    a := [3]int64{10, 20, 30}
+    check(total(a...) == 60 && total(a[1:]...) == 50, "spread of an array and a slice")
+    check(lengths(1, "a", "bc", "") == 4 && lengths(7) == 7, "strings, C name")
+    words := [2]string{"abc", "de"}
+    check(lengths(0, words...) == 5, "spread of strings")
+    check(viaTack(4, 5) == 9 && viaTack() == 0, "passed on to C")
+}

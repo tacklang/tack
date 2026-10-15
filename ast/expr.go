@@ -22,7 +22,8 @@ type Expr interface {
 
 // Call is a function call, Fn(Args...), or a conversion, when Fn names a
 // type: int8(x) converts x to int8, and []uint8(s) views the bytes of the
-// string s.
+// string s. A call written f(a, v...) spreads its last argument, v, into
+// f's variadic parameter.
 type Call struct {
 	Fn Expr // the callee: an *Ident, or a *ViewType for a view conversion
 
@@ -33,6 +34,12 @@ type Call struct {
 
 	Args []Expr
 	Span Span // start of Fn through the closing RParen
+
+	// EllipsisSpan is the ... after the last argument, f(v...), a spread,
+	// which passes the view v on as the whole of a variadic parameter;
+	// Spread is set when it is written.
+	EllipsisSpan Span `json:"-"`
+	Spread       bool `json:",omitempty"`
 
 	// Conv is the type a conversion converts to, set by the resolver when
 	// Fn names a basic type, and by the type checker when Fn is a view

@@ -35,6 +35,12 @@
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one
 // anywhere but as a call's argument.
+// A Param written args ...T, the last of a function's, has Variadic set
+// and T as its TypeExpr; the type checker gives it the view type []T. A
+// call whose last argument is followed by ..., f(v...), has Spread set;
+// the parser accepts it only after the last argument, and the type
+// checker only in a call to a variadic function, whose variadic parameter
+// v is then passed to whole.
 // A view type written []T is a ViewType, wherever a type is written; the
 // type checker accepts it only as a parameter's type. A conversion to one,
 // []uint8(s), is a Call whose Fn is the ViewType, and whose Conv the type

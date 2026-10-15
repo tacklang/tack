@@ -8138,6 +8138,405 @@ slice-view-wrong-element/main.tck:9:26: error: cannot use []int64 as []int32 in 
    |	                         ^~~~~
 10 |	    exit(code)
 
+-- spread-alone/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    f(...)
+}
+-- spread-alone/expected --
+stage: parse
+---
+
+spread-alone/main.tck:7:7: error: expected 'value' found '...'
+06 |	func main() {
+07 |	    f(...)
+   |	      ^
+08 |	}
+
+-- spread-builtin/main.tck --
+package main
+
+func main() {
+    s := "hi"
+    print(s...)
+}
+-- spread-builtin/expected --
+stage: typeck
+---
+
+spread-builtin/main.tck:5:12: error: cannot use ... in a call to non-variadic print
+04 |	    s := "hi"
+05 |	    print(s...)
+   |	           ^~~
+06 |	}
+
+-- spread-checked-conversion/main.tck --
+package main
+
+func main() {
+    var x int64 = 1
+    y, ok := int8(x...)
+    if ok {
+        exit(y)
+    }
+}
+-- spread-checked-conversion/expected --
+stage: typeck
+---
+
+spread-checked-conversion/main.tck:5:20: error: cannot use ... in a conversion to int8
+04 |	    var x int64 = 1
+05 |	    y, ok := int8(x...)
+   |	                   ^~~
+06 |	    if ok {
+
+-- spread-constant/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    f((3)...)
+}
+-- spread-constant/expected --
+stage: typeck
+---
+
+spread-constant/main.tck:7:8: error: cannot use int64 as []int64 in argument to f
+06 |	func main() {
+07 |	    f((3)...)
+   |	       ^
+08 |	}
+
+-- spread-conversion/main.tck --
+package main
+
+func main() {
+    var x int8 = 1
+    y := int64(x...)
+    exit(int32(y))
+}
+-- spread-conversion/expected --
+stage: typeck
+---
+
+spread-conversion/main.tck:5:17: error: cannot use ... in a conversion to int64
+04 |	    var x int8 = 1
+05 |	    y := int64(x...)
+   |	                ^~~
+06 |	    exit(int32(y))
+
+-- spread-element-type/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    a := [2]int32{1, 2}
+    f(a...)
+}
+-- spread-element-type/expected --
+stage: typeck
+---
+
+spread-element-type/main.tck:8:7: error: cannot use [2]int32 as []int64 in argument to f
+07 |	    a := [2]int32{1, 2}
+08 |	    f(a...)
+   |	      ^
+09 |	}
+
+-- spread-len/main.tck --
+package main
+
+func main() {
+    a := [2]int64{1, 2}
+    exit(int32(len(a...)))
+}
+-- spread-len/expected --
+stage: typeck
+---
+
+spread-len/main.tck:5:21: error: cannot use ... in a call to non-variadic len
+04 |	    a := [2]int64{1, 2}
+05 |	    exit(int32(len(a...)))
+   |	                    ^~~
+06 |	}
+
+-- spread-literal/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    f([2]int64{1, 2}...)
+}
+-- spread-literal/expected --
+stage: typeck
+---
+
+spread-literal/main.tck:7:7: error: cannot view a temporary array; store it in a variable first
+06 |	func main() {
+07 |	    f([2]int64{1, 2}...)
+   |	      ^~~~~~~~~~~~~~
+08 |	}
+
+-- spread-mut/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    mut a := [2]int64{1, 2}
+    f(mut a...)
+}
+-- spread-mut/expected --
+stage: typeck
+---
+
+spread-mut/main.tck:8:7: error: f does not take a as mut; pass a
+07 |	    mut a := [2]int64{1, 2}
+08 |	    f(mut a...)
+   |	      ^~~~~
+09 |	}
+
+-- spread-non-variadic/main.tck --
+package main
+
+func f(v []int64) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    f(a...)
+}
+-- spread-non-variadic/expected --
+stage: typeck
+---
+
+spread-non-variadic/main.tck:8:8: error: cannot use ... in a call to non-variadic f
+07 |	    a := [2]int64{1, 2}
+08 |	    f(a...)
+   |	       ^~~
+09 |	}
+
+-- spread-not-last/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    f(a..., 3)
+}
+-- spread-not-last/expected --
+stage: parse
+---
+
+spread-not-last/main.tck:8:8: error: can only use ... with the final argument
+07 |	    a := [2]int64{1, 2}
+08 |	    f(a..., 3)
+   |	       ^~~
+09 |	}
+
+-- spread-scalar/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    x := 1
+    f(x...)
+}
+-- spread-scalar/expected --
+stage: typeck
+---
+
+spread-scalar/main.tck:8:7: error: cannot use int64 as []int64 in argument to f
+07 |	    x := 1
+08 |	    f(x...)
+   |	      ^
+09 |	}
+
+-- spread-slice-unproven/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func g(i int64, nums ...int64) {
+    f(nums[i:]...)
+}
+
+func main() {
+    g(0)
+}
+-- spread-slice-unproven/expected --
+stage: typeck
+---
+
+spread-slice-unproven/main.tck:7:12: error: slice bound i may be out of range; check 0 <= i && i <= len(nums) first
+06 |	func g(i int64, nums ...int64) {
+07 |	    f(nums[i:]...)
+   |	           ^~
+08 |	}
+
+-- spread-string/main.tck --
+package main
+
+func f(b ...uint8) {
+}
+
+func main() {
+    s := "ab"
+    f(s...)
+}
+-- spread-string/expected --
+stage: typeck
+---
+
+spread-string/main.tck:8:7: error: cannot use string as []uint8 in argument to f; view its bytes with []uint8(s)
+07 |	    s := "ab"
+08 |	    f(s...)
+   |	      ^
+09 |	}
+
+-- spread-temporary/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func mk() [2]int64 {
+    return [2]int64{1, 2}
+}
+
+func main() {
+    f(mk()...)
+}
+-- spread-temporary/expected --
+stage: typeck
+---
+
+spread-temporary/main.tck:11:7: error: cannot view a temporary array; store it in a variable first
+10 |	func main() {
+11 |	    f(mk()...)
+   |	      ^~~~
+12 |	}
+
+-- spread-too-few/main.tck --
+package main
+
+func f(label string, n int64, nums ...int64) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    f("x", a...)
+}
+-- spread-too-few/expected --
+stage: typeck
+---
+
+spread-too-few/main.tck:8:5: error: f expects 2 argument(s) before a..., got 1
+07 |	    a := [2]int64{1, 2}
+08 |	    f("x", a...)
+   |	    ^~~~~~~~~~~~
+09 |	}
+
+-- spread-twice/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    f(a..., a...)
+}
+-- spread-twice/expected --
+stage: parse
+---
+
+spread-twice/main.tck:8:8: error: can only use ... with the final argument
+07 |	    a := [2]int64{1, 2}
+08 |	    f(a..., a...)
+   |	       ^~~
+09 |	}
+
+-- spread-view-conversion/main.tck --
+package main
+
+func f(b ...uint8) {
+}
+
+func main() {
+    f([]uint8("ab")...)
+    f([]uint8("ab"...)...)
+}
+-- spread-view-conversion/expected --
+stage: typeck
+---
+
+spread-view-conversion/main.tck:8:19: error: cannot use ... in a conversion to []uint8
+07 |	    f([]uint8("ab")...)
+08 |	    f([]uint8("ab"...)...)
+   |	                  ^~~
+09 |	}
+
+-- spread-view-element-type/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func g(v []int32) {
+    f(v...)
+}
+
+func main() {
+    a := [1]int32{1}
+    g(a)
+}
+-- spread-view-element-type/expected --
+stage: typeck
+---
+
+spread-view-element-type/main.tck:7:7: error: cannot use []int32 as []int64 in argument to f
+06 |	func g(v []int32) {
+07 |	    f(v...)
+   |	      ^
+08 |	}
+
+-- spread-with-values/main.tck --
+package main
+
+func f(label string, nums ...int64) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    f("x", 1, 2, a...)
+}
+-- spread-with-values/expected --
+stage: typeck
+---
+
+spread-with-values/main.tck:8:12: error: cannot use ... in a call with other values for nums
+07 |	    a := [2]int64{1, 2}
+08 |	    f("x", 1, 2, a...)
+   |	           ^~~~~~~~~~
+09 |	}
+
 -- string-arithmetic/main.tck --
 package main
 
@@ -10449,22 +10848,523 @@ var-use-before-decl/main.tck:4:10: error: undefined: x
    |	         ^
 05 |	    x := 1
 
--- variadic-param/main.tck --
+-- variadic-array-elem/main.tck --
 package main
 
-func f(x ...int64) {
+func f(a [2]...int64) {
 }
 
 func main() {
 }
--- variadic-param/expected --
+-- variadic-array-elem/expected --
 stage: parse
 ---
 
-variadic-param/main.tck:3:10: error: variadic parameters are not supported
+variadic-array-elem/main.tck:3:13: error: can only use ... with the final parameter
 02 |	
-03 |	func f(x ...int64) {
+03 |	func f(a [2]...int64) {
+   |	            ^~~
+04 |	}
+
+-- variadic-assign/main.tck --
+package main
+
+func f(nums ...int64) {
+    nums[0] = 1
+}
+
+func main() {
+    f(1)
+}
+-- variadic-assign/expected --
+stage: typeck
+---
+
+variadic-assign/main.tck:4:5: error: cannot assign to nums[0]: nums is a read-only view
+03 |	func f(nums ...int64) {
+04 |	    nums[0] = 1
+   |	    ^~~~~~~
+05 |	}
+
+-- variadic-assign-whole/main.tck --
+package main
+
+func g(nums ...int64) {
+    nums = nums
+}
+
+func main() {
+    g(1)
+}
+-- variadic-assign-whole/expected --
+stage: typeck
+---
+
+variadic-assign-whole/main.tck:4:5: error: cannot assign to nums: nums is a read-only view
+03 |	func g(nums ...int64) {
+04 |	    nums = nums
+   |	    ^~~~
+05 |	}
+
+-- variadic-compare/main.tck --
+package main
+
+func f(a ...int64) bool {
+    return a == a
+}
+
+func main() {
+    f()
+}
+-- variadic-compare/expected --
+stage: typeck
+---
+
+variadic-compare/main.tck:4:12: error: operator == is not defined on []int64
+03 |	func f(a ...int64) bool {
+04 |	    return a == a
+   |	           ^~~~~~
+05 |	}
+
+-- variadic-field/main.tck --
+package main
+
+type T struct {
+    nums ...int64
+}
+
+func main() {
+}
+-- variadic-field/expected --
+stage: parse
+---
+
+variadic-field/main.tck:4:10: error: can only use ... with the final parameter
+03 |	type T struct {
+04 |	    nums ...int64
    |	         ^~~
+05 |	}
+
+-- variadic-index-unproven/main.tck --
+package main
+
+func f(nums ...int64) int64 {
+    return nums[0]
+}
+
+func main() {
+    f(1)
+}
+-- variadic-index-unproven/expected --
+stage: typeck
+---
+
+variadic-index-unproven/main.tck:4:17: error: index 0 may be out of range; check len(nums) > 0 first, or use v, ok := ...[0]
+03 |	func f(nums ...int64) int64 {
+04 |	    return nums[0]
+   |	                ^
+05 |	}
+
+-- variadic-main/main.tck --
+package main
+
+func main(args ...string) {
+}
+-- variadic-main/expected --
+stage: resolve
+---
+
+variadic-main/main.tck:3:11: error: main function must not declare parameters
+02 |	
+03 |	func main(args ...string) {
+   |	          ^~~~~~~~~~~~~~
+04 |	}
+
+-- variadic-mut/main.tck --
+package main
+
+func f(mut nums ...int64) {
+}
+
+func main() {
+}
+-- variadic-mut/expected --
+stage: typeck
+---
+
+variadic-mut/main.tck:3:8: error: a variadic parameter cannot be mut; it is a read-only view
+02 |	
+03 |	func f(mut nums ...int64) {
+   |	       ^~~~~~~~~~~~~~~~~
+04 |	}
+
+-- variadic-no-name/main.tck --
+package main
+
+func f(...int64) {
+}
+
+func main() {
+}
+-- variadic-no-name/expected --
+stage: parse
+---
+
+variadic-no-name/main.tck:3:8: error: expected 'parameter name' found '...'
+02 |	
+03 |	func f(...int64) {
+   |	       ^
+04 |	}
+
+-- variadic-no-type/main.tck --
+package main
+
+func f(nums ...) {
+}
+
+func main() {
+}
+-- variadic-no-type/expected --
+stage: parse
+---
+
+variadic-no-type/main.tck:3:16: error: expected 'type name' found ')'
+02 |	
+03 |	func f(nums ...) {
+   |	               ^
+04 |	}
+
+-- variadic-not-last/main.tck --
+package main
+
+func f(nums ...int64, n int64) {
+}
+
+func main() {
+}
+-- variadic-not-last/expected --
+stage: parse
+---
+
+variadic-not-last/main.tck:3:13: error: can only use ... with the final parameter
+02 |	
+03 |	func f(nums ...int64, n int64) {
+   |	            ^~~
+04 |	}
+
+-- variadic-pass-mut/main.tck --
+package main
+
+func bump(mut n int64) {
+    n++
+}
+
+func f(nums ...int64) {
+    if len(nums) > 0 {
+        bump(mut nums[0])
+    }
+}
+
+func main() {
+    f(1)
+}
+-- variadic-pass-mut/expected --
+stage: typeck
+---
+
+variadic-pass-mut/main.tck:9:14: error: cannot pass mut nums[0]: nums is a read-only view
+08 |	    if len(nums) > 0 {
+09 |	        bump(mut nums[0])
+   |	             ^~~~~~~~~~~
+10 |	    }
+
+-- variadic-result/main.tck --
+package main
+
+func f() ...int64 {
+}
+
+func main() {
+}
+-- variadic-result/expected --
+stage: parse
+---
+
+variadic-result/main.tck:3:10: error: can only use ... with the final parameter
+02 |	
+03 |	func f() ...int64 {
+   |	         ^~~
+04 |	}
+
+-- variadic-result-list/main.tck --
+package main
+
+func f() (int64, ...int64) {
+}
+
+func main() {
+}
+-- variadic-result-list/expected --
+stage: parse
+---
+
+variadic-result-list/main.tck:3:18: error: can only use ... with the final parameter
+02 |	
+03 |	func f() (int64, ...int64) {
+   |	                 ^~~
+04 |	}
+
+-- variadic-return/main.tck --
+package main
+
+func f(nums ...int64) int64 {
+    return nums
+}
+
+func main() {
+    f(1)
+}
+-- variadic-return/expected --
+stage: typeck
+---
+
+variadic-return/main.tck:4:12: error: cannot use []int64 as int64 in return from f
+03 |	func f(nums ...int64) int64 {
+04 |	    return nums
+   |	           ^~~~
+05 |	}
+
+-- variadic-store/main.tck --
+package main
+
+func f(nums ...int64) {
+    x := nums
+    f(x...)
+}
+
+func main() {
+    f(1)
+}
+-- variadic-store/expected --
+stage: typeck
+---
+
+variadic-store/main.tck:4:5: error: cannot declare x as []int64; a view can only be the type of a parameter
+03 |	func f(nums ...int64) {
+04 |	    x := nums
+   |	    ^
+05 |	    f(x...)
+
+-- variadic-too-few/main.tck --
+package main
+
+func f(label string, nums ...int64) {
+}
+
+func main() {
+    f()
+}
+-- variadic-too-few/expected --
+stage: typeck
+---
+
+variadic-too-few/main.tck:7:5: error: f expects at least 1 argument(s), got 0
+06 |	func main() {
+07 |	    f()
+   |	    ^~~
+08 |	}
+
+-- variadic-twice/main.tck --
+package main
+
+func f(a ...int64, b ...string) {
+}
+
+func main() {
+}
+-- variadic-twice/expected --
+stage: parse
+---
+
+variadic-twice/main.tck:3:10: error: can only use ... with the final parameter
+02 |	
+03 |	func f(a ...int64, b ...string) {
+   |	         ^~~
+04 |	}
+
+-- variadic-value-bytes/main.tck --
+package main
+
+func f(b ...uint8) {
+}
+
+func main() {
+    f([]uint8("ab"))
+}
+-- variadic-value-bytes/expected --
+stage: typeck
+---
+
+variadic-value-bytes/main.tck:7:7: error: []uint8(...) can only be passed to a []uint8 parameter
+06 |	func main() {
+07 |	    f([]uint8("ab"))
+   |	      ^~~~~~~~~~~~~
+08 |	}
+
+-- variadic-value-mut/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    mut x int64 = 1
+    f(mut x)
+}
+-- variadic-value-mut/expected --
+stage: typeck
+---
+
+variadic-value-mut/main.tck:8:7: error: f does not take x as mut; pass x
+07 |	    mut x int64 = 1
+08 |	    f(mut x)
+   |	      ^~~~~
+09 |	}
+
+-- variadic-value-narrowing/main.tck --
+package main
+
+func f(nums ...int8) {
+}
+
+func main() {
+    x := int64(5)
+    f(1, x)
+}
+-- variadic-value-narrowing/expected --
+stage: typeck
+---
+
+variadic-value-narrowing/main.tck:8:10: error: cannot use int64 as int8 in argument to f
+07 |	    x := int64(5)
+08 |	    f(1, x)
+   |	         ^
+09 |	}
+
+-- variadic-value-overflow/main.tck --
+package main
+
+func f(nums ...uint8) {
+}
+
+func main() {
+    f(1, 256)
+}
+-- variadic-value-overflow/expected --
+stage: typeck
+---
+
+variadic-value-overflow/main.tck:7:10: error: constant 256 overflows uint8
+06 |	func main() {
+07 |	    f(1, 256)
+   |	         ^~~
+08 |	}
+
+-- variadic-value-slice/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    f(a[1:])
+}
+-- variadic-value-slice/expected --
+stage: typeck
+---
+
+variadic-value-slice/main.tck:8:7: error: a[1:] is a view, []int64, which can only be passed to a view parameter or to len
+07 |	    a := [3]int64{1, 2, 3}
+08 |	    f(a[1:])
+   |	      ^~~~~
+09 |	}
+
+-- variadic-value-type/main.tck --
+package main
+
+func sum(nums ...int64) {
+}
+
+func main() {
+    sum(1, "two", 3)
+}
+-- variadic-value-type/expected --
+stage: typeck
+---
+
+variadic-value-type/main.tck:7:12: error: cannot use string as int64 in argument to sum
+06 |	func main() {
+07 |	    sum(1, "two", 3)
+   |	           ^~~~~
+08 |	}
+
+-- variadic-value-view/main.tck --
+package main
+
+func f(nums ...int64) {
+}
+
+func g(v []int64) {
+    f(v)
+}
+
+func main() {
+    a := [1]int64{1}
+    g(a)
+}
+-- variadic-value-view/expected --
+stage: typeck
+---
+
+variadic-value-view/main.tck:7:7: error: cannot use []int64 as int64 in argument to f
+06 |	func g(v []int64) {
+07 |	    f(v)
+   |	      ^
+08 |	}
+
+-- variadic-var/main.tck --
+package main
+
+func main() {
+    var x ...int64 = 1
+}
+-- variadic-var/expected --
+stage: parse
+---
+
+variadic-var/main.tck:4:11: error: can only use ... with the final parameter
+03 |	func main() {
+04 |	    var x ...int64 = 1
+   |	          ^~~
+05 |	}
+
+-- variadic-view-elem/main.tck --
+package main
+
+func f(rows ...[]int64) {
+}
+
+func main() {
+}
+-- variadic-view-elem/expected --
+stage: typeck
+---
+
+variadic-view-elem/main.tck:3:16: error: the element type of a variadic parameter cannot be a view
+02 |	
+03 |	func f(rows ...[]int64) {
+   |	               ^~~~~~~
 04 |	}
 
 -- view-array-element/main.tck --

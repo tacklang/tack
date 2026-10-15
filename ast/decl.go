@@ -69,16 +69,22 @@ func (f *Func) Spanned() Span { return f.Span }
 
 // Param is one parameter in a function's parameter list. A parameter
 // written mut p T is a mutable reference to the caller's variable for the
-// duration of a call: Mut is set, and MutSpan is the mut keyword. Any
-// other parameter is an immutable copy of its argument.
+// duration of a call: Mut is set, and MutSpan is the mut keyword. A
+// parameter written args ...T, which only the last parameter may be, is
+// variadic: Variadic is set, EllipsisSpan is the ..., TypeExpr is T, the
+// element type, and the type checker gives it the type of a view of T,
+// []T, which a call fills with the values it passes for it. Any other
+// parameter is an immutable copy of its argument.
 type Param struct {
-	TypeExpr Expr // the type as written, e.g. *Ident{"int64"}
-	Name     string
-	NameSpan Span
-	MutSpan  Span       `json:"-"`
-	Span     Span       // mut, if written, or the name, through the end of the type
-	Type     types.Type // filled in by the type checker, Invalid before
-	Mut      bool       `json:",omitempty"`
+	TypeExpr     Expr // the type as written, e.g. *Ident{"int64"}; a variadic's element type
+	Name         string
+	NameSpan     Span
+	MutSpan      Span       `json:"-"`
+	EllipsisSpan Span       `json:"-"`
+	Span         Span       // mut, if written, or the name, through the end of the type
+	Type         types.Type // filled in by the type checker, Invalid before
+	Mut          bool       `json:",omitempty"`
+	Variadic     bool       `json:",omitempty"`
 }
 
 // A parameter is a declaration so that an Ident referring to one can point at

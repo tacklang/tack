@@ -26,8 +26,12 @@ import (
 
 // paramType returns the type param is declared with: a view, when its
 // type is written []T, which only a parameter may have, and never a mut
-// one; any other type as declaredType gives it.
+// one, or when it is variadic, args ...T (see variadicParam); any other
+// type as declaredType gives it.
 func (c *Checker) paramType(param *ast.Param) types.Type {
+	if param.Variadic {
+		return c.variadicParam(param)
+	}
 	vt, ok := param.TypeExpr.(*ast.ViewType)
 	if !ok {
 		return c.declaredType(param.TypeExpr)

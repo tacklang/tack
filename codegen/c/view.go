@@ -3,6 +3,7 @@ package c
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
@@ -35,17 +36,36 @@ func (g *generator) hasLen(typ types.Type) bool {
 
 // argTypes returns the C type of each of call's arguments as callExpr
 // renders them: an argument's own type, a pointer to it for a mut
-// argument, or, for one passed to a view parameter, the view's.
+// argument, or, for one passed to a view parameter, a spread among them,
+// the view's. A value for a variadic parameter is its own type, before it
+// is packed into the variadic's view (see packed).
 func (g *generator) argTypes(call *ast.Call, params []*ast.Param) []string {
 	out := make([]string, len(call.Args))
 	for i, a := range call.Args {
-		if i < len(params) && g.prog.Types.IsView(params[i].Type) {
-			out[i] = g.cType(params[i].Type)
+		if p := g.viewParamAt(call, params, i); p != nil {
+			out[i] = g.cType(p.Type)
 			continue
 		}
 		out[i] = g.operandType(a)
 	}
 	return out
+}
+
+// viewParamAt returns the parameter of params, a call's callee's, that
+// the call's argument i is passed to as a view, or nil when it is passed
+// as itself: a view parameter in its position, or a variadic one that the
+// call spreads a view into. A value for a variadic parameter, one of the
+// call's arguments after the fixed ones when it does not spread, is not a
+// view.
+func (g *generator) viewParamAt(call *ast.Call, params []*ast.Param, i int) *ast.Param {
+	if i >= len(params) {
+		return nil
+	}
+	p := params[i]
+	if p.Variadic && !call.Spread || !g.prog.Types.IsView(p.Type) {
+		return nil
+	}
+	return p
 }
 
 // viewArg renders arg, passed to a parameter of the view type view in
@@ -172,21 +192,19 @@ func placePath(place ast.Expr) (ast.Decl, []string) {
 }
 
 // callArgs renders call's arguments for a call to fn, whose parameters
-// they are passed to: a view parameter's by viewArg, and any other as
+// they are passed to: one passed as a view, a spread included, by
+// viewArg, and any other, a value for a variadic parameter included, as
 // itself.
 func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	var params []*ast.Param
-	if fn != nil {
-		params = fn.Params
-	}
+	params := paramsOf(fn)
 	args := make([]string, len(call.Args))
 	for i, a := range call.Args {
 		var (
 			expr  string
 			diags []diag.Diagnostic
 		)
-		if i < len(params) && g.prog.Types.IsView(params[i].Type) {
-			expr, diags = g.viewArg(a, params[i].Type, call)
+		if p := g.viewParamAt(call, params, i); p != nil {
+			expr, diags = g.viewArg(a, p.Type, call)
 		} else {
 			expr, diags = g.expr(a, ast.TypeOf(a))
 		}
@@ -196,4 +214,42 @@ func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Dia
 		args[i] = expr
 	}
 	return args, nil
+}
+
+// paramsOf returns fn's parameters, none for a nil fn, a builtin.
+func paramsOf(fn *ast.Func) []*ast.Param {
+	if fn == nil {
+		return nil
+	}
+	return fn.Params
+}
+
+// packs reports whether a call to a function with parameters params
+// passes values to a variadic parameter one by one, which the call then
+// packs into a view (see packed), rather than spreading a view into it.
+func packs(call *ast.Call, params []*ast.Param) bool {
+	return len(params) > 0 && params[len(params)-1].Variadic && !call.Spread
+}
+
+// packed renders the view of type view that a call passes to a variadic
+// parameter, of the values it gives it, already rendered and evaluated in
+// order as values: a compound literal array of them, on the caller's
+// stack, (const T[n]){a, b, c}, which lives to the end of the block
+// holding the call, so for the whole call, and the view of it, with n as
+// its length. With no values, the view is {0, 0}: a null pointer, which
+// nothing reads, since its length is 0, and which a slice of it never
+// moves (see slice.go), as for the bytes of a zero string; C has no array
+// of no elements.
+func (g *generator) packed(view types.Type, values []string) string {
+	if len(values) == 0 {
+		return fmt.Sprintf("(%s){0, 0}", viewName(view))
+	}
+	return fmt.Sprintf(
+		"(%s){(const %s[%d]){%s}, %d}",
+		viewName(view),
+		g.cType(g.prog.Types.Elem(view)),
+		len(values),
+		strings.Join(values, ", "),
+		len(values),
+	)
 }

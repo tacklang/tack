@@ -790,6 +790,23 @@ func at(v []int64, i int64) int64 {
 A view is read-only: writing an element, in any form,
 is <!-- error: view-assign-element -->`cannot assign to v[0]: v is a read-only view`.
 
+A variadic parameter, `nums ...int64`, is a view, `[]int64`, inside its
+function, so its index is proven or checked the same way, whatever values a
+call passes, since the body is checked once for every caller. Unproven,
+`nums[0]`
+is <!-- error: variadic-index-unproven -->`index 0 may be out of range; check len(nums) > 0 first, or use v, ok := ...[0]`;
+guarded:
+
+<!-- example: variadics -->
+```tack
+func firstTwo(nums ...int64) int64 {
+    if len(nums) < 2 {
+        return -1
+    }
+    return nums[0] + nums[1]
+}
+```
+
 ### Slicing
 
 A slice, `x[i:j]`, needs three things proven: `0 <= i`, `i <= j` and

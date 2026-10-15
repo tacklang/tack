@@ -234,7 +234,8 @@ extern("tack_builtin_exit") func exit(code int32)
 
 Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
-types, and not named after a basic type, `len`, `main` or `_`. Anything
+types, none `mut` or variadic (`parameter xs of builtin p cannot be
+variadic`), and not named after a basic type, `len`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -580,7 +581,50 @@ makes for itself, which has a letter after `tack_`.
   or the array is part of a mutable global, which the callee could change,
   the view is of a copy taken then. So facts about `len(v)` and the
   elements hold for the whole function. An extern func may take a view,
-  which C gets as a pointer and a length (see extern C).
+  which C gets as a pointer and a length (see extern C). A variadic
+  parameter is a view too, and a view is passed on to one with a spread,
+  `f(v...)` (see variadics).
+- Variadics. A function's last parameter may be written `args ...T`, as
+  in `func sum(label string, nums ...int64) int64`, and then takes zero or
+  more values. Inside the function it is a read-only view, `[]T`, under
+  every rule a view parameter follows (see views): `len(nums)`, with the
+  facts a view's length has, a proven or checked index, range, slicing,
+  and passing it on, to a `[]T` parameter, `total(nums)`, or to another
+  variadic with a spread; it is never assigned, `mut` or stored. A call
+  passes it any number of values after one for each other parameter,
+  `sum("x")`, `sum("x", 5)`, `sum("x", 1, 2, 3)`, each used as a `T` as a
+  plain argument to a `T` parameter is: an untyped constant takes `T` and
+  must fit it, a narrower integer widens to it, and anything else is an
+  error, `cannot use string as int64 in argument to sum`, a `mut` argument,
+  an array or a view included. Too few values for the other parameters is
+  `sum expects at least 1 argument(s), got 0`. A call may instead pass a
+  view on whole, with a spread after its last argument, `sum("x", v...)`:
+  what follows a view parameter, a variadic one included, an array that
+  is a place, a slice, `sum("x", a[1:]...)`, or `[]uint8(s)` for a
+  `...uint8`, exactly as a view argument may be, with the same errors,
+  `cannot view a temporary array; store it in a variable first`, and the
+  same copies. A spread is the whole variadic: `sum("x", 1, v...)` is
+  `cannot use ... in a call with other values for nums`, `sum(v...)` is
+  `sum expects 1 argument(s) before v..., got 0`, and a spread in a call
+  to a function or builtin that is not variadic, or in a conversion, is
+  `cannot use ... in a call to non-variadic f` or `cannot use ... in a
+  conversion to int64`. The values are plain arguments: evaluated left to
+  right with the call's other arguments, each once, and copied, so one
+  that reads a place the same call passes as `mut`, `bump(mut n, n)`,
+  keeps the value it had when it was evaluated. Nothing is known inside
+  the function about how many values a call passed: its body is checked
+  once, for every caller. `...` anywhere but before the last parameter's
+  type, before another parameter or on a result's, a variable's, a
+  field's or an element's type, is `can only use ... with the final
+  parameter`, and after any argument but the last `can only use ... with
+  the final argument`; `mut args ...T` is `a variadic parameter cannot be
+  mut; it is a read-only view`, and `args ...[]T` is `the element type of
+  a variadic parameter cannot be a view`. A function is only ever called,
+  so a variadic is filled at a call and nowhere else. In C the values are
+  an array on the caller's stack, built for the call, and the parameter
+  the view of it, `tack_view_<T>`, with a null pointer and a length of 0
+  for no values. An extern func may take one (see extern C); a builtin
+  may not.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -1027,8 +1071,9 @@ makes for itself, which has a letter after `tack_`.
   returned. A string slices by bytes, so a slice may cut through a
   multi-byte UTF-8 character. An array's or a view's slice is a view, `[]T`
   of its element type, under the rules for views: it can only be passed
-  to a view parameter, `sum(a[1:3])`, an extern func's included, given to
-  `len`, or sliced again; anywhere else, stored, returned, indexed, ranged
+  to a view parameter, `sum(a[1:3])`, an extern func's included, spread
+  into a variadic one, `total(a[1:3]...)`, given to `len`, or sliced
+  again; anywhere else, stored, returned, indexed, ranged
   over or compared, it is `a[1:3] is a view, []int64, which can only be
   passed to a view parameter or to len`. An array must be a place, as for a
   view: `f()[1:]` is `cannot slice a temporary array; store it in a variable
@@ -1116,7 +1161,9 @@ makes for itself, which has a letter after `tack_`.
   hex, octal or binary literals yet, so `0x10` is `0` followed by the name
   `x10`.
 - Passing the wrong number or type of arguments is a type error, so a call
-  cannot silently discard what it was given.
+  cannot silently discard what it was given: `f expects 2 argument(s), got
+  3`, or for a variadic function, which takes any number past its other
+  parameters, `f expects at least 1 argument(s), got 0` (see variadics).
 - Identifiers are ASCII letters, digits, and underscores, and may not start with
   a digit. The type names, `int8` through `uint64`, `unsafe_size_t`,
   `unsafe_uintptr_t`, `string` and `bool`, are
@@ -1175,7 +1222,9 @@ makes for itself, which has a letter after `tack_`.
   crosses by value, except a `mut` parameter, which C gets as a pointer to
   the caller's variable, `T *`, to use only during the call, and a view
   parameter, which C gets as `tack_view_<T>`, a pointer to `const`
-  elements and a length, to read only during the call. An extern func is never `pub` or `lib`, and one no C
+  elements and a length, to read only during the call, as it gets a
+  variadic one, `args ...T`, whose values the caller puts in an array for
+  the call. An extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise
   about what its C body does, which the compiler cannot check beyond its

@@ -32,7 +32,7 @@ What each one needs before it could be declared for real:
 | Declaration               | Blocked on                                                        |
 |---------------------------|-------------------------------------------------------------------|
 | `append`, and any `[]any` | growable lists, since `[]T` is only a read-only view parameter, and an `any` type |
-| `...any`                  | variadics, which the parser currently rejects, and an `any` type  |
+| `...any`                  | an `any` type; variadics exist, `args ...T` for any other `T`, but a builtin cannot have one yet |
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`, `printf`       | the above, plus string concatenation and formatting               |
 
