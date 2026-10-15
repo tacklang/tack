@@ -14,7 +14,9 @@
 // asm and typeof, which clang reserves in its default GNU modes. A name
 // that is not a keyword but that a C header declares, such as int64_t or
 // printf, is not rejected here: it clashes only with what a C file
-// declares, which clang reports when it compiles that file.
+// declares, which clang reports when it compiles that file. The C backend
+// rejects the macros of the headers tack.h includes itself, since tack.h
+// would not compile, or would silently change, with one of them.
 //
 // The package is a leaf: it imports nothing of the compiler's.
 package cname

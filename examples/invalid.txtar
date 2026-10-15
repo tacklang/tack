@@ -1913,6 +1913,86 @@ extern-header-clash/main.tck:13:6: note: type tack_results_pair of package main 
    |	     ^~~~~~~~~~~~~~~~~
 14 |	}
 
+-- extern-header-field-guard/main.tck --
+package main
+
+type Shape struct {
+    a int64
+    TACK_H int64
+    TACK_STD_TACK_H bool
+    TACK_STR int64
+    tack_string int64
+}
+
+type Unused struct {
+    TACK_H int64
+}
+
+extern func area(s Shape) int64
+
+func main() {
+}
+-- extern-header-field-guard/expected --
+stage: codegen
+---
+
+extern-header-field-guard/main.tck:5:5: error: field TACK_H of type Shape cannot be named TACK_H in tack.h: that is tack.h's include guard
+04 |	    a int64
+05 |	    TACK_H int64
+   |	    ^~~~~~
+06 |	    TACK_STD_TACK_H bool
+
+extern-header-field-guard/main.tck:6:5: error: field TACK_STD_TACK_H of type Shape cannot be named TACK_STD_TACK_H in tack.h: that is the include guard of std's tack.h
+05 |	    TACK_H int64
+06 |	    TACK_STD_TACK_H bool
+   |	    ^~~~~~~~~~~~~~~
+07 |	    TACK_STR int64
+
+-- extern-header-field-std-macro/main.tck --
+package main
+
+type Limits struct {
+    NULL int64
+    INT64_MAX int64
+    SIZE_WIDTH uint8
+    __bool_true_false_are_defined bool
+    offsetof int64
+    INT64_C int64
+    int64_t int64
+}
+
+extern func check(l Limits) bool
+
+func main() {
+}
+-- extern-header-field-std-macro/expected --
+stage: codegen
+---
+
+extern-header-field-std-macro/main.tck:4:5: error: field NULL of type Limits cannot be named NULL in tack.h: that is a macro of <stddef.h>
+03 |	type Limits struct {
+04 |	    NULL int64
+   |	    ^~~~
+05 |	    INT64_MAX int64
+
+extern-header-field-std-macro/main.tck:5:5: error: field INT64_MAX of type Limits cannot be named INT64_MAX in tack.h: that is a macro of <stdint.h>
+04 |	    NULL int64
+05 |	    INT64_MAX int64
+   |	    ^~~~~~~~~
+06 |	    SIZE_WIDTH uint8
+
+extern-header-field-std-macro/main.tck:6:5: error: field SIZE_WIDTH of type Limits cannot be named SIZE_WIDTH in tack.h: that is a macro of <stdint.h>
+05 |	    INT64_MAX int64
+06 |	    SIZE_WIDTH uint8
+   |	    ^~~~~~~~~~
+07 |	    __bool_true_false_are_defined bool
+
+extern-header-field-std-macro/main.tck:7:5: error: field __bool_true_false_are_defined of type Limits cannot be named __bool_true_false_are_defined in tack.h: that is a macro of <stdbool.h>
+06 |	    SIZE_WIDTH uint8
+07 |	    __bool_true_false_are_defined bool
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	    offsetof int64
+
 -- extern-header-helper-clash/main.tck --
 package main
 
@@ -1977,6 +2057,68 @@ extern-header-std-guard-clash/main.tck:8:32: error: extern func give of package 
 08 |	extern("TACK_STD_TACK_H") func give() string
    |	                               ^~~~
 09 |	
+
+-- extern-header-std-macro-clash/main.tck --
+package main
+
+type NULL struct {
+}
+
+type INT8_MAX struct {
+}
+
+type offsetof struct {
+}
+
+extern func take(a NULL, b INT8_MAX, c offsetof)
+
+extern func SIZE_MAX() int64
+
+extern("unreachable") func stop()
+
+extern("INT64_C") func widen(x int32) int64
+
+func main() {
+}
+-- extern-header-std-macro-clash/expected --
+stage: codegen
+---
+
+extern-header-std-macro-clash/main.tck:3:6: error: type NULL of package main cannot be named NULL in tack.h: that is a macro of <stddef.h>
+02 |	
+03 |	type NULL struct {
+   |	     ^~~~
+04 |	}
+
+extern-header-std-macro-clash/main.tck:6:6: error: type INT8_MAX of package main cannot be named INT8_MAX in tack.h: that is a macro of <stdint.h>
+05 |	
+06 |	type INT8_MAX struct {
+   |	     ^~~~~~~~
+07 |	}
+
+extern-header-std-macro-clash/main.tck:9:6: error: type offsetof of package main cannot be named offsetof in tack.h: that is a macro of <stddef.h>
+08 |	
+09 |	type offsetof struct {
+   |	     ^~~~~~~~
+10 |	}
+
+extern-header-std-macro-clash/main.tck:14:13: error: extern func SIZE_MAX of package main cannot be named SIZE_MAX in tack.h: that is a macro of <stdint.h>
+13 |	
+14 |	extern func SIZE_MAX() int64
+   |	            ^~~~~~~~
+15 |	
+
+extern-header-std-macro-clash/main.tck:16:28: error: extern func stop of package main cannot be named unreachable in tack.h: that is a macro of <stddef.h>
+15 |	
+16 |	extern("unreachable") func stop()
+   |	                           ^~~~
+17 |	
+
+extern-header-std-macro-clash/main.tck:18:24: error: extern func widen of package main cannot be named INT64_C in tack.h: that is a macro of <stdint.h>
+17 |	
+18 |	extern("INT64_C") func widen(x int32) int64
+   |	                       ^~~~~
+19 |	
 
 -- extern-in-initializer/main.tck --
 package main

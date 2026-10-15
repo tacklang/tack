@@ -16,7 +16,7 @@ import (
 const HeaderName = "tack.h"
 
 // guardName is the macro tack.h's include guard defines, which no name in
-// it may be.
+// it may be: see reservedNames.
 const guardName = "TACK_H"
 
 // stdGuardName is the macro the include guard of std's tack.h defines.
@@ -83,14 +83,10 @@ func newHeader(prog *ast.Program) *header {
 		structs: make(map[types.Type]*ast.TypeDecl),
 		pkgOf:   make(map[types.Type]*ast.Package),
 		seen:    make(map[types.Type]bool),
-		names: map[string]owner{
-			"tack_string":    {what: "tack.h's string type"},
-			"TACK_C_STR_LEN": {what: "a tack.h string helper"},
-			"TACK_STR":       {what: "a tack.h string helper"},
-			"TACK_STR_N":     {what: "a tack.h string helper"},
-			guardName:        {what: "tack.h's include guard"},
-			stdGuardName:     {what: "the include guard of std's tack.h"},
-		},
+		names:   make(map[string]owner, len(reservedNames)),
+	}
+	for name, r := range reservedNames {
+		h.names[name] = owner{what: r.what}
 	}
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
@@ -186,7 +182,10 @@ func (h *header) useParts(typ types.Type, site ast.Span) {
 }
 
 // claimStruct claims the name of the struct type typ, and checks its name
-// and its fields' names are ones C can declare.
+// and its fields' names are ones C can declare: no field is a C keyword or
+// an object-like macro tack.h defines or includes, which would replace the
+// member's name, leaving a member C cannot parse or one with no name at
+// all, which changes the struct's layout.
 func (h *header) claimStruct(typ types.Type) {
 	td, pkg := h.structs[typ], h.pkgOf[typ]
 	if td == nil {
@@ -209,6 +208,9 @@ func (h *header) claimStruct(typ types.Type) {
 		if cname.IsKeyword(f.Name) {
 			h.errorf(f.NameSpan, "field %s of type %s cannot be named %s in C: it is a C keyword",
 				f.Name, td.Name, f.Name)
+		} else if r := reservedNames[f.Name]; r.objectMacro {
+			h.errorf(f.NameSpan, "field %s of type %s cannot be named %s in tack.h: that is %s",
+				f.Name, td.Name, f.Name, r.what)
 		}
 	}
 }

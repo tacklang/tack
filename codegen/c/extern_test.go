@@ -321,3 +321,52 @@ func TestExternSizesExampleIsWarningFree(t *testing.T) {
 		t.Errorf("extern-sizes printed\n%s", out)
 	}
 }
+
+// TestHeaderRejectsFieldsNamedLikeObjectMacros checks that a field of a
+// struct tack.h defines cannot be named like an object-like macro tack.h
+// defines or includes: the macro would replace the member's name, leaving
+// a member with no name, which changes the struct's layout, or one C
+// cannot parse. The program is rejected when it is generated, before the
+// driver writes tack.h.
+func TestHeaderRejectsFieldsNamedLikeObjectMacros(t *testing.T) {
+	for _, tt := range []struct{ field, want string }{
+		{"TACK_H", "tack.h's include guard"},
+		{"TACK_STD_TACK_H", "the include guard of std's tack.h"},
+		{"NULL", "a macro of <stddef.h>"},
+		{"INT64_MAX", "a macro of <stdint.h>"},
+		{"UINT_FAST8_WIDTH", "a macro of <stdint.h>"},
+		{"__bool_true_false_are_defined", "a macro of <stdbool.h>"},
+	} {
+		t.Run(tt.field, func(t *testing.T) {
+			src := "package main\n\ntype Shape struct {\n    a int64\n    " + tt.field +
+				" int64\n}\n\nextern func area(s Shape) int64\n\nfunc main() {\n}\n"
+			out, diags := c.New().Generate(ast.SingleFile(compile(t, src)), stdtest.MustBuiltins())
+			want := "field " + tt.field + " of type Shape cannot be named " + tt.field +
+				" in tack.h: that is " + tt.want
+			if out != nil || len(diags) != 1 || diags[0].Message != want {
+				t.Errorf("Generate = %d bytes, %+v; want no output and one error %q",
+					len(out), diags, want)
+			}
+		})
+	}
+}
+
+// TestExternFieldsNamedLikeFunctionMacros passes a struct whose fields are
+// named like function-like macros tack.h and the headers it includes
+// define, and like tack.h's string type, to C and reads each back: a
+// function-like macro expands only where its name is followed by (, which
+// neither a member's declaration nor p.name is, and a member's name is in
+// a namespace of its own, apart from typedef names.
+func TestExternFieldsNamedLikeFunctionMacros(t *testing.T) {
+	src := "package main\n\n" +
+		"type F struct {\n    TACK_STR int64\n    offsetof int64\n    INT64_C int64\n" +
+		"    tack_string int64\n}\n\n" +
+		"extern func sum(f F, s string) int64\n\n" +
+		"func main() {\n    exit(sum(F{TACK_STR: 1, offsetof: 2, INT64_C: 4, tack_string: 8}, \"abc\"))\n}\n"
+	csrc := "#include <stddef.h>\n\n" +
+		"int64_t sum(F f, tack_string s) {\n" +
+		"    return f.TACK_STR + f.offsetof + f.INT64_C + f.tack_string + s.len * 10;\n}\n"
+	if got := exitStatus(t, buildExtern(t, src, csrc)); got != 45 {
+		t.Errorf("exit status = %d, want 45", got)
+	}
+}

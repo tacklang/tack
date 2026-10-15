@@ -205,11 +205,19 @@
 // before generating anything, a name tack.h would give two things (two
 // types, a type and a results struct or extern func, or one of tack.h's own
 // names, TACK_H, or of std's tack.h, tack_string, its string helpers and its
-// guard TACK_STD_TACK_H, whether or not tack.h includes it), and a type of
-// package main or a field
-// named with a C keyword, among the types tack.h defines, whether or not
-// the program has C files: the diagnostic is at the second of two, with a
-// note at the first.
+// guard TACK_STD_TACK_H, whether or not tack.h includes it, or a macro the C
+// standard specifies <stdbool.h>, <stdint.h> or <stddef.h> defines, such as
+// NULL, INT64_MAX or INT64_C, whether or not tack.h includes that header),
+// a type of package main or a field named with a C keyword, and a field
+// named like an object-like macro among those, TACK_H, TACK_STD_TACK_H or
+// a standard header's, which would replace the member's name, among the
+// types tack.h defines, whether or not the program has C files: the
+// diagnostic is at the second of two, with a note at the first. A field may
+// be named like a function-like macro, TACK_STR or offsetof, which expands
+// only before a (, or like tack_string, a typedef name, which a member's
+// name does not clash with. The generated source is unaffected by any of
+// these names: its fields are f_<name> and its types and extern funcs
+// mangled. reservedNames lists them all.
 //
 // A defer emits nothing where it is written. Each block with defers ends in
 // a cleanup chain that lowers each of its defers once, last first, so the C

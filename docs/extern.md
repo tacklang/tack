@@ -56,7 +56,8 @@ Two extern funcs of one program, in any packages, with one C name are an
 error at the second, with a note at the first: `extern funcs add and
 util.plus both have the C name add`. A name a C header declares, such as
 `printf` or `int64_t`, is not checked; it clashes only with what a C file
-declares.
+declares. A macro of the headers `tack.h` includes is the exception, since
+`tack.h` itself would break: see the names `tack.h` cannot give, below.
 
 The generated C declares each extern func under its own mangled name and
 binds that to the C name with an assembler label, so a C name never clashes
@@ -183,9 +184,35 @@ A name `tack.h` cannot give is an error whatever is built:
   for a type or an extern func's C name: `extern func wrap of package main
   cannot be named TACK_STR_N in tack.h: that is a tack.h string helper`.
   Each is reserved whether or not the program uses strings;
+- a type or an extern func's C name named like a macro the C standard
+  specifies one of the headers `tack.h` includes defines, whether or not
+  this `tack.h` includes it: `type NULL of package main cannot be named
+  NULL in tack.h: that is a macro of <stddef.h>`. The macros are
+  `__bool_true_false_are_defined` of `<stdbool.h>` (`bool`, `true` and
+  `false` are C keywords); `NULL`, `offsetof` and `unreachable` of
+  `<stddef.h>`; and of `<stdint.h>`, for N of 8, 16, 32 and 64,
+  `INTN_MIN`, `INTN_MAX`, `INTN_WIDTH`, `UINTN_MAX`, `UINTN_WIDTH`, the
+  same with `INT_LEASTN` and `UINT_LEASTN`, and with `INT_FASTN` and
+  `UINT_FASTN`, `INTN_C` and `UINTN_C`, then `INTPTR_MIN`, `INTPTR_MAX`,
+  `INTPTR_WIDTH`, `UINTPTR_MAX`, `UINTPTR_WIDTH`, `INTMAX_MIN`,
+  `INTMAX_MAX`, `INTMAX_WIDTH`, `UINTMAX_MAX`, `UINTMAX_WIDTH`,
+  `INTMAX_C`, `UINTMAX_C`, `PTRDIFF_MIN`, `PTRDIFF_MAX`, `PTRDIFF_WIDTH`,
+  `SIG_ATOMIC_MIN`, `SIG_ATOMIC_MAX`, `SIG_ATOMIC_WIDTH`, `SIZE_MAX`,
+  `SIZE_WIDTH`, `RSIZE_MAX`, `WCHAR_MIN`, `WCHAR_MAX`, `WCHAR_WIDTH`,
+  `WINT_MIN`, `WINT_MAX` and `WINT_WIDTH`;
 - a type or field named with a C keyword, once an extern signature uses
   it: `type int cannot be named int in C: it is a C keyword`, `field while
-  of type Shape cannot be named while in C: it is a C keyword`.
+  of type Shape cannot be named while in C: it is a C keyword`;
+- a field named like an object-like macro of the two lists above, once an
+  extern signature uses its type: the macro would replace the member's
+  name in C, leaving a member with no name, which changes the struct's
+  layout, or one C cannot parse. `field TACK_H of type Shape cannot be
+  named TACK_H in tack.h: that is tack.h's include guard`, `field NULL of
+  type Limits cannot be named NULL in tack.h: that is a macro of
+  <stddef.h>`. A field may be named like a function-like macro, such as
+  `TACK_STR`, `offsetof` or `INT64_C`, which C expands only before a `(`,
+  or `tack_string`, a type's name, which a member's name does not clash
+  with.
 
 A type no extern func uses is not in `tack.h`, whatever its names. C never
 declares a type for Tack: every type is declared in Tack, and C structs a

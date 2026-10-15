@@ -194,6 +194,17 @@ var structCases = []struct {
 		6,
 	},
 	{
+		"field names that are macros tack.h defines or includes",
+		structProgram(
+			"type M struct {\n    TACK_H int64\n    TACK_STD_TACK_H int64\n    NULL int64\n    INT64_MAX int64\n}",
+			"mut m := M{TACK_H: 1, TACK_STD_TACK_H: 2, NULL: 3, INT64_MAX: 0}",
+			"m.INT64_MAX = m.TACK_H + m.TACK_STD_TACK_H + m.NULL",
+			"exit(m.INT64_MAX)",
+		),
+		"",
+		6,
+	},
+	{
 		"several results",
 		structProgram(
 			structDecls+"\n\nfunc ends(l Line) (Point, Point) {\n    return l.a, l.b\n}",
