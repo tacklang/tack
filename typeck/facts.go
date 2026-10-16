@@ -348,13 +348,41 @@ type knownResult struct {
 	ok    bool
 }
 
+// knownBinary is what knownArithmetic found out about a binary, and the
+// binary's type when it did.
+type knownBinary struct {
+	result knownResult
+	typ    types.Type
+}
+
 // knownArithmetic computes arithmetic on two known values, exactly, and
 // keeps the result only if it is a value of the expression's type, so that
 // it is what the program computes too.
+//
+// The answer for a binary that has its type is remembered, for as long as
+// it keeps that type: an operator asks about its operands as it is
+// checked, so each operator of a chain would otherwise compute the whole
+// chain below it again, in time growing with the square of its length.
+// Nothing else it depends on changes once its operands are checked. A
+// body checked twice (see checkBody) forgets every answer between the two.
 func (c *Checker) knownArithmetic(bin *ast.Binary) (constant.Int, bool) {
 	if !bin.Op.IsArithmetic() {
 		return constant.Int{}, false
 	}
+	typed := bin.Type != types.Invalid && bin.Type != types.UntypedInt
+	if known, seen := c.knownBinaries[bin]; typed && seen && known.typ == bin.Type {
+		return known.result.value, known.result.ok
+	}
+	value, ok := c.computeArithmetic(bin)
+	if typed {
+		c.knownBinaries[bin] = knownBinary{knownResult{value, ok}, bin.Type}
+	}
+	return value, ok
+}
+
+// computeArithmetic is knownArithmetic, with no answer remembered: the
+// known values of bin's operands, and the operation on them.
+func (c *Checker) computeArithmetic(bin *ast.Binary) (constant.Int, bool) {
 	a, okA := c.knownValue(bin.X)
 	b, okB := c.knownValue(bin.Y)
 	if !okA || !okB {

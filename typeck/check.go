@@ -106,6 +106,11 @@ type Checker struct {
 	// about, what it found.
 	knownVars map[*ast.Var]knownResult
 
+	// knownBinaries remembers, for each arithmetic binary
+	// knownArithmetic has been asked about once checked, what it found,
+	// and the binary's type then (see knownArithmetic).
+	knownBinaries map[*ast.Binary]knownBinary
+
 	// active holds the facts in force where checking has reached, innermost
 	// last, and guards the guards they came from, with any guard in scope
 	// that gave none; see facts.go and explain.go.
@@ -195,7 +200,8 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		rangeBindings: make(map[*ast.Var]ast.Expr),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
 
-		knownVars: make(map[*ast.Var]knownResult),
+		knownVars:     make(map[*ast.Var]knownResult),
+		knownBinaries: make(map[*ast.Binary]knownBinary),
 
 		declPkg:   declPackages(prog),
 		structPkg: make(map[types.Type]*ast.Package),
@@ -343,6 +349,7 @@ func (c *Checker) checkBody(fn *ast.Func) {
 		c.collectHolds(fn)
 		c.checkBlock(fn.Body, fn)
 		c.diags = c.diags[:before]
+		clear(c.knownBinaries)
 	}
 	c.collectHolds(fn)
 	c.checkBlock(fn.Body, fn)

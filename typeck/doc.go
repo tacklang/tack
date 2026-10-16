@@ -101,6 +101,9 @@
 // of one that is an array is. A global's known value is its Const, never
 // its initializer followed again, so a cycle cannot be followed forever,
 // and the known value of its field or element is taken from that Const.
+// A local's known value, and an arithmetic operator's once it has its
+// type, are remembered (knownVar, knownArithmetic), so a chain of
+// operators, each asking about the one below, is computed once.
 //
 // Visibility. A field of a struct of another package is used by name, read,
 // written or named in a literal, only if it is visible from the package

@@ -2,6 +2,7 @@ package typeck_test
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -249,6 +250,35 @@ func TestKnownValuesOfALongChainAreFast(t *testing.T) {
 	start := time.Now()
 	if _, diags := checkTree(t, mainLines(lines...)); len(diags) > 0 {
 		t.Fatalf("got %v, want no diagnostics", diags)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("checking took %s", elapsed)
+	}
+}
+
+// TestKnownValuesOfLongExpressionsAreFast checks expressions of ten
+// thousand terms, each of whose operators asks for the known value of
+// the chain below it, are checked in time linear in their length: a
+// chain of a parameter, whose value is not known, nested left and right,
+// and a chain of an immutable local whose value is, in every sized
+// integer type.
+func TestKnownValuesOfLongExpressionsAreFast(t *testing.T) {
+	const n = 10000
+	var b strings.Builder
+	b.WriteString("package main\n\n")
+	for _, typ := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
+		left := strings.Repeat("x + ", n-1) + "x"
+		right := strings.Repeat("x * (", n-1) + "x" + strings.Repeat(")", n-1)
+		known := strings.Repeat("k + ", n-1) + "k"
+		b.WriteString("func f_" + typ + "(x " + typ + ") " + typ + " {\n" +
+			"    k := " + typ + "(0)\n" +
+			"    return " + left + " + (" + right + ") + (" + known + ")\n}\n\n")
+	}
+	b.WriteString("func main() {\n}\n")
+
+	start := time.Now()
+	if _, diags := checkTree(t, b.String()); len(diags) > 0 {
+		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("checking took %s", elapsed)
