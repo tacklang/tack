@@ -144,6 +144,10 @@ type Checker struct {
 	pendingSizes []sizeSite
 	sizeChecked  map[types.Type]bool
 
+	// exitCalls keeps the call to exit that ends a branch of each
+	// statement asked about, or nil (see exitCall).
+	exitCalls map[ast.Stmt]*ast.Call
+
 	// typeParams maps each type parameter's type to its declaration, and
 	// standIns holds the stand-in for each interface method called on a
 	// type parameter's values (see typeParamMethod). inference is what
@@ -210,6 +214,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		standIns:   make(map[standInKey]*ast.Func),
 
 		sizeChecked: make(map[types.Type]bool),
+		exitCalls:   make(map[ast.Stmt]*ast.Call),
 	}
 }
 

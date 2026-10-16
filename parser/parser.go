@@ -1872,6 +1872,45 @@ func (p *Parser) parseBlock() ([]ast.Stmt, []diag.Diagnostic) {
 }
 
 func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
+	first, diags := p.parseIfBranch()
+	if first == nil {
+		return nil, diags
+	}
+	// An else if is the else branch of the if before it, holding a nested
+	// if, but the chain is parsed in a loop, not by recursion, so its
+	// length, a chain of a thousand branches flat in the source, costs no
+	// stack.
+	chain := []*ast.If{first}
+	for last := first; ; {
+		els, next, diags := p.parseElse()
+		if diags != nil {
+			return nil, diags
+		}
+		if next == nil {
+			last.Else = els
+			break
+		}
+		last.Else = []ast.Stmt{next}
+		chain = append(chain, next)
+		last = next
+	}
+
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+
+	// Each if of the chain spans to the end of the chain, as the else
+	// branch nested in it does.
+	end := p.lastEnd()
+	for _, stmt := range chain {
+		stmt.Span.End = end
+	}
+	return first, nil
+}
+
+// parseIfBranch parses the if keyword, the condition and the block of
+// one if, of a chain or alone, leaving its else branch to parseIf.
+func (p *Parser) parseIfBranch() (*ast.If, []diag.Diagnostic) {
 	tk := p.next() // the if keyword
 
 	stmt := &ast.If{Span: p.span(tk)}
@@ -1892,46 +1931,31 @@ func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
 		return nil, thenDiags
 	}
 	stmt.Then = then
-
-	els, terminated, elseDiags := p.parseElse()
-	if elseDiags != nil {
-		return nil, elseDiags
-	}
-	stmt.Else = els
-
-	if !terminated {
-		if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
-			return nil, semiDiags
-		}
-	}
-
-	stmt.Span.End = p.lastEnd()
-
 	return stmt, nil
 }
 
 // parseElse parses an optional else branch, returning nil statements when
-// there is none. A chained "else if" is parsed as a nested if, which consumes
-// the statement terminator for the whole chain; terminated reports that case.
-func (p *Parser) parseElse() (els []ast.Stmt, terminated bool, diags []diag.Diagnostic) {
+// there is none. An else if is parsed only as far as its own if, next,
+// whose else branch parseIf goes on to parse.
+func (p *Parser) parseElse() (els []ast.Stmt, next *ast.If, diags []diag.Diagnostic) {
 	if p.peek().Kind() != lexer.Keyword || p.peek().Value() != lexer.Else {
-		return nil, false, nil
+		return nil, nil, nil
 	}
 	p.next()
 
 	if p.peek().Kind() == lexer.Keyword && p.peek().Value() == lexer.If {
-		nested, nestedDiags := p.parseIf()
+		nested, nestedDiags := p.parseIfBranch()
 		if nested == nil {
-			return nil, false, nestedDiags
+			return nil, nil, nestedDiags
 		}
-		return []ast.Stmt{nested}, true, nil
+		return nil, nested, nil
 	}
 
 	block, blockDiags := p.parseBlock()
 	if block == nil {
-		return nil, false, blockDiags
+		return nil, nil, blockDiags
 	}
-	return block, false, nil
+	return block, nil, nil
 }
 
 // parseSwitch parses a switch: the keyword, an optional tag, and the

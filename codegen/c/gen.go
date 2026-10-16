@@ -1340,51 +1340,126 @@ func (g *generator) postExpr(post ast.Stmt) (string, []diag.Diagnostic) {
 	return strings.Join(exprs, ", "), nil
 }
 
+// generateIf lowers stmt, an if and the chain of else ifs after it, each
+// branch's condition and block in source order, in a loop, so a chain of
+// any length costs no stack. An else branch that is a single if, as an
+// else if is, declares nothing and defers nothing, so it has no cleanup
+// and no scope of its own (see block). A chain of up to maxChain branches
+// is C's if, else if and else; a longer one is flatChain's.
 func (g *generator) generateIf(stmt *ast.If, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	cond, diags := g.expr(stmt.Cond, types.Bool)
+	branches, stmt, diags := g.ifBranches(stmt, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
-
-	then, diags := g.generateBlock(stmt.Then, fn)
-	if len(diags) > 0 {
-		return nil, diags
+	var els []string
+	if stmt.Else != nil {
+		var diags []diag.Diagnostic
+		if els, diags = g.generateBlock(stmt.Else, fn); len(diags) > 0 {
+			return nil, diags
+		}
 	}
-
-	lines := append([]string{condHeader("if", stmt.Cond, cond)}, indent(then)...)
-
-	if stmt.Else == nil {
-		return append(lines, "}"), nil
+	if len(branches) > maxChain {
+		return g.flatChain(branches, stmt.Else != nil, els), nil
 	}
-
-	els, diags := g.generateBlock(stmt.Else, fn)
-	if len(diags) > 0 {
-		return nil, diags
+	var lines []string
+	for i, b := range branches {
+		header := condHeader("if", b.e, b.cond)
+		if i > 0 {
+			header = "} else " + header
+		}
+		lines = append(append(lines, header), indent(b.then)...)
 	}
-	if chained(stmt, els) {
-		// The inner if's own closing brace ends the whole chain.
-		lines = append(lines, "} else "+els[0])
-		return append(lines, els[1:]...), nil
+	if stmt.Else != nil {
+		lines = append(append(lines, "} else {"), indent(els)...)
 	}
-
-	lines = append(lines, "} else {")
-	lines = append(lines, indent(els)...)
 	return append(lines, "}"), nil
 }
 
-// chained reports whether stmt's else branch, lowered to els, can be written
-// as C's else if: the branch is a single if, as "else if" parses, and els is
-// that if alone. The else block declares nothing and defers nothing, so it
-// has no cleanup of its own, and nesting each branch inside the last made a
-// chain of n branches n blocks deep.
-func chained(stmt *ast.If, els []string) bool {
-	if len(stmt.Else) != 1 || len(els) == 0 {
-		return false
+// ifBranches lowers the condition and block of stmt and of each else if
+// after it, in order, and returns them and the chain's last if, whose
+// else branch, if any, is not an if.
+func (g *generator) ifBranches(
+	stmt *ast.If,
+	fn *ast.Func,
+) ([]ifBranch, *ast.If, []diag.Diagnostic) {
+	var branches []ifBranch
+	for {
+		cond, diags := g.expr(stmt.Cond, types.Bool)
+		if len(diags) > 0 {
+			return nil, nil, diags
+		}
+		then, diags := g.generateBlock(stmt.Then, fn)
+		if len(diags) > 0 {
+			return nil, nil, diags
+		}
+		branches = append(branches, ifBranch{e: stmt.Cond, cond: cond, then: then})
+		next, ok := elseIf(stmt)
+		if !ok {
+			return branches, stmt, nil
+		}
+		stmt = next
 	}
-	if _, ok := stmt.Else[0].(*ast.If); !ok {
-		return false
+}
+
+// ifBranch is one branch of a chain of ifs, lowered: its condition, the
+// expression and its C, and its block.
+type ifBranch struct {
+	e    ast.Expr
+	cond string
+	then []string
+}
+
+// maxChain is how many branches a chain of else ifs may have before it is
+// lowered flat (see flatChain). clang parses else if as an if nested in
+// the else, and runs out of stack at a few thousand of them; no ordinary
+// program has a chain anywhere near this long, so none of their C
+// changes.
+const maxChain = 64
+
+// flatChain lowers a long chain of ifs, branches, with an else block els
+// when hasElse, as a run of ifs one after another, none nested, each
+// branch's block ending in a jump past the rest of the chain, and the
+// else block after them all:
+//
+//	if (a) {
+//	    ...
+//	    goto tack_c0;
+//	}
+//	if (b) {
+//	    ...
+//	    goto tack_c0;
+//	}
+//	{
+//	    ...
+//	}
+//	tack_c0:;
+//
+// So the conditions run in order, each only until one holds, exactly one
+// branch runs, as in the chain, and a return, break or continue in a
+// branch leaves before its jump. C sees every path a chain whose every
+// branch returns can take, as it does an else if. The jump is forward,
+// out of the branch's block, after the block's own cleanup.
+func (g *generator) flatChain(branches []ifBranch, hasElse bool, els []string) []string {
+	end := g.temp("c")
+	var lines []string
+	for _, b := range branches {
+		lines = append(lines, condHeader("if", b.e, b.cond), indentIn)
+		lines = append(append(lines, b.then...), "goto "+end+";", indentOut, "}")
 	}
-	return strings.HasPrefix(els[0], "if ") && els[len(els)-1] == "}"
+	if hasElse {
+		lines = append(append(append(lines, "{"), indent(els)...), "}")
+	}
+	return append(lines, end+":;")
+}
+
+// elseIf returns the if that is s's else branch, when that branch is a
+// single if, as an else if is.
+func elseIf(s *ast.If) (*ast.If, bool) {
+	if len(s.Else) != 1 {
+		return nil, false
+	}
+	next, ok := s.Else[0].(*ast.If)
+	return next, ok
 }
 
 // generateAssign sets a local to a new value. A place of an owned type

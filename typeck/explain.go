@@ -793,7 +793,7 @@ func isLenCall(e ast.Expr) bool {
 // with the guard they come from, each marked as dropped by that call. It
 // returns none when the statement gives the same facts either way.
 func (c *Checker) exitAfterFacts(stmt ast.Stmt) (*guard, []fact) {
-	call := exitCall(stmt)
+	call := c.exitCall(stmt)
 	if call == nil {
 		return nil, nil
 	}
@@ -816,34 +816,41 @@ func (c *Checker) exitAfterFacts(stmt ast.Stmt) (*guard, []fact) {
 }
 
 // exitCall returns the call to exit that ends a branch of stmt, an if or a
-// switch, at any depth, or nil when there is none.
-func exitCall(stmt ast.Stmt) *ast.Call {
+// switch, at any depth, or nil when there is none. Each statement's is
+// found once and kept: every block of a chain of else ifs asks it of the
+// if that block holds, whose answer takes in the rest of the chain, which
+// would make a long chain cost the square of its length.
+func (c *Checker) exitCall(stmt ast.Stmt) *ast.Call {
+	if call, ok := c.exitCalls[stmt]; ok {
+		return call
+	}
+	var call *ast.Call
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
-		if call, ok := s.X.(*ast.Call); ok && isExit(call) {
-			return call
+		if x, ok := s.X.(*ast.Call); ok && isExit(x) {
+			call = x
 		}
 	case *ast.If:
-		if call := lastExit(s.Then); call != nil {
-			return call
+		if call = c.lastExit(s.Then); call == nil {
+			call = c.lastExit(s.Else)
 		}
-		return lastExit(s.Else)
 	case *ast.Switch:
 		for _, cl := range s.Cases {
-			if call := lastExit(cl.Body); call != nil {
-				return call
+			if call = c.lastExit(cl.Body); call != nil {
+				break
 			}
 		}
 	}
-	return nil
+	c.exitCalls[stmt] = call
+	return call
 }
 
 // lastExit returns the call to exit that ends body, at any depth, or nil.
-func lastExit(body []ast.Stmt) *ast.Call {
+func (c *Checker) lastExit(body []ast.Stmt) *ast.Call {
 	if len(body) == 0 {
 		return nil
 	}
-	return exitCall(body[len(body)-1])
+	return c.exitCall(body[len(body)-1])
 }
 
 // isExit reports whether call calls the builtin exit, which has a nil

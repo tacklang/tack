@@ -612,6 +612,16 @@
 // their order, only for depth, so a deep literal keeps one copy of its
 // inner values in the frame every few levels, not one for each.
 //
+// clang parses else if as an if nested in the else before it, and runs
+// out of stack at a few thousand, though the chain is flat in the source.
+// A chain of up to maxChain branches is written as C's else if; a longer
+// one as ifs one after another, each branch ending in a goto past the
+// rest of the chain and the else block after them all, so its conditions
+// still run in order, each only until one holds, exactly one branch runs,
+// and C still sees that a chain whose branches all return returns
+// (flatChain). The chain is lowered in a loop, so its length costs no
+// stack here either.
+//
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
 // languages. A - and a negative literal are parenthesised, so that two minus

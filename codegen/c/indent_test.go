@@ -111,7 +111,9 @@ func elseIfChain(n int) string {
 
 // TestElseIfChainsStayFlat lowers a chain of a thousand else ifs and checks
 // it stays at the function's own level in C, as a switch does, rather than
-// nesting each branch inside the last.
+// nesting each branch inside the last: past maxChain branches each is an
+// if of its own, which clang does not nest as it does else if, and a
+// chain of 64 is still C's else if.
 func TestElseIfChainsStayFlat(t *testing.T) {
 	out := generate(t, inMainProgram(elseIfChain(1000), "print(\"\")"))
 	for i, line := range strings.Split(out, "\n") {
@@ -119,8 +121,12 @@ func TestElseIfChainsStayFlat(t *testing.T) {
 			t.Fatalf("line %d is nested three levels deep: %q", i+1, line)
 		}
 	}
-	if !strings.Contains(out, "\n    } else if (p_x == 999) {\n") {
-		t.Errorf("the last branch is not an else if at the function's level:\n%s", out)
+	if !strings.Contains(out, "\n    if (p_x == 999) {\n") || strings.Contains(out, "else if") {
+		t.Errorf("the last branch is not an if of its own at the function's level:\n%s", out)
+	}
+	short := generate(t, inMainProgram(elseIfChain(64), "print(\"\")"))
+	if !strings.Contains(short, "\n    } else if (p_x == 63) {\n") {
+		t.Errorf("a chain of 64 is not C's else if:\n%s", short)
 	}
 }
 

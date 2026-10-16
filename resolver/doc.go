@@ -196,4 +196,9 @@
 // the type checker and code generator rely on; a name written as a type is
 // bound unless it is a basic type's, or names nothing, which the type
 // checker reports.
+//
+// An else branch that is a single if, as an else if is, opens no scope,
+// since it declares nothing: a chain of else ifs is resolved in a loop,
+// every if of it in the scope the first one is in, so its length costs
+// neither stack nor longer lookups.
 package resolver

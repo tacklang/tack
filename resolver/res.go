@@ -587,6 +587,34 @@ func (r *pkgResolver) resolveBlock(body []ast.Stmt, parent *scope) []diag.Diagno
 	return append(diags, r.unused(block)...)
 }
 
+// resolveIf resolves an if and the chain of else ifs after it, in a loop:
+// an else branch that is a single if, as an else if is, opens no scope of
+// its own, since it declares nothing, so every if of the chain is
+// resolved in sc, and a chain of any length costs no stack and keeps
+// every name's lookup as short as in its first branch.
+func (r *pkgResolver) resolveIf(s *ast.If, sc *scope) []diag.Diagnostic {
+	diags := r.resolveExpr(s.Cond, sc)
+	for {
+		diags = append(diags, r.resolveBlock(s.Then, sc)...)
+		next, ok := elseIf(s)
+		if !ok {
+			return append(diags, r.resolveBlock(s.Else, sc)...)
+		}
+		s = next
+		diags = append(diags, r.resolveExpr(s.Cond, sc)...)
+	}
+}
+
+// elseIf returns the if that is s's else branch, when that branch is a
+// single if, as an else if is.
+func elseIf(s *ast.If) (*ast.If, bool) {
+	if len(s.Else) != 1 {
+		return nil, false
+	}
+	next, ok := s.Else[0].(*ast.If)
+	return next, ok
+}
+
 // unused reports every variable a scope declared and never read, unless it
 // is excused.
 func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
@@ -832,15 +860,13 @@ func nameSpan(decl ast.Decl) ast.Span {
 func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
-		var diags []diag.Diagnostic
+		diags := make([]diag.Diagnostic, 0, len(s.Values))
 		for _, v := range s.Values {
 			diags = append(diags, r.resolveExpr(v, sc)...)
 		}
 		return diags
 	case *ast.If:
-		diags := r.resolveExpr(s.Cond, sc)
-		diags = append(diags, r.resolveBlock(s.Then, sc)...)
-		return append(diags, r.resolveBlock(s.Else, sc)...)
+		return r.resolveIf(s, sc)
 	case *ast.For:
 		return r.resolveFor(s, sc)
 	case *ast.ForRange:

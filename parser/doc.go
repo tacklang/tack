@@ -217,4 +217,9 @@
 // token that is not a semicolon and never takes in the spaces, comment or
 // semicolon after it. The file's own span is the exception: it runs to the
 // end of the input.
+//
+// An else if is the else branch of the if before it, holding that if
+// alone, as in the source's meaning, but a chain of them is parsed in a
+// loop, not by recursion, so a chain flat in the source costs no stack
+// however long it is; every if of the chain spans to the chain's end.
 package parser
