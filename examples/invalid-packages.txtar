@@ -595,15 +595,15 @@ func main() {
 stage: typeck
 ---
 
-generic-foreign-private-method/main.tck:15:16: error: sink.Tally does not satisfy Counted: sink.Tally.count is not pub, and Counted is an interface of another package
+generic-foreign-private-method/main.tck:15:16: error: sink.Tally does not satisfy Counted here: count is not pub in sink.Tally
 14 |	    t := sink.NewTally()
 15 |	    if countOf(t) > 0 {
    |	               ^
 16 |	        exit(1)
 
--- generic-main-type-foreign-interface/tack.mod --
+-- generic-interface-package-private-method/tack.mod --
 module calc
--- generic-main-type-foreign-interface/sink/sink.tck --
+-- generic-interface-package-private-method/sink/sink.tck --
 package sink
 
 pub type Sink interface {
@@ -631,38 +631,150 @@ func (mut t Tally) put(word string) error {
 func (t Tally) count() int64 {
     return t.n
 }
--- generic-main-type-foreign-interface/main.tck --
+-- generic-interface-package-private-method/main.tck --
 package main
 
 import sink from "calc/sink"
 
-type Doc struct {
-    words int64
-}
-
-func (mut d Doc) put(word string) error {
-    d.words++
-    return noerror
-}
-
-func (d Doc) count() int64 {
-    return d.words
-}
-
 func main() {
-    mut d := Doc{words: 0}
-    err := sink.Feed(mut d, "x")
+    mut t := sink.NewTally()
+    err := sink.Feed(mut t, "x")
     exit(err.code)
 }
--- generic-main-type-foreign-interface/expected --
+-- generic-interface-package-private-method/expected --
 stage: typeck
 ---
 
-generic-main-type-foreign-interface/main.tck:20:26: error: Doc does not satisfy sink.Sink: Doc.put is not pub, and sink.Sink is an interface of another package
-19 |	    mut d := Doc{words: 0}
-20 |	    err := sink.Feed(mut d, "x")
+generic-interface-package-private-method/main.tck:7:26: error: sink.Tally does not satisfy sink.Sink here: put is not pub in sink.Tally
+06 |	    mut t := sink.NewTally()
+07 |	    err := sink.Feed(mut t, "x")
    |	                         ^
-21 |	    exit(err.code)
+08 |	    exit(err.code)
+
+-- generic-lib-method-other-module/tack.mod --
+module calc
+-- generic-lib-method-other-module/.std/util/util.tck --
+package util
+
+pub type Counted interface {
+    count() int64
+}
+
+pub func CountOf[C Counted](c C) int64 {
+    return c.count()
+}
+
+pub type Pair struct {
+    pub a int64
+}
+
+// count is lib: only std's packages may call it, so only they may pass a
+// Pair as a Counted.
+lib func (p Pair) count() int64 {
+    return p.a
+}
+
+// Counts is in Pair's module, so it may.
+pub func Counts(p Pair) int64 {
+    return CountOf(p)
+}
+-- generic-lib-method-other-module/words/words.tck --
+package words
+
+pub type Bag struct {
+    n int64
+}
+
+pub func New() Bag {
+    return Bag{n: 2}
+}
+
+// count is lib, so main, in this module, may pass a Bag to util.CountOf.
+lib func (b Bag) count() int64 {
+    return b.n
+}
+-- generic-lib-method-other-module/main.tck --
+package main
+
+import util from "std/util"
+import words from "calc/words"
+
+func main() {
+    p := util.Pair{a: 1}
+    n := util.Counts(p) + util.CountOf(words.New())
+    if n + util.CountOf(p) > 0 {
+        exit(1)
+    }
+}
+-- generic-lib-method-other-module/expected --
+stage: typeck
+---
+
+generic-lib-method-other-module/main.tck:9:25: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
+08 |	    n := util.Counts(p) + util.CountOf(words.New())
+09 |	    if n + util.CountOf(p) > 0 {
+   |	                        ^
+10 |	        exit(1)
+
+-- generic-private-method-passed-on/tack.mod --
+module calc
+-- generic-private-method-passed-on/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n++
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+
+// Twice passes s on to Feed, twice: no visibility is checked here, only
+// where Twice is called with a struct type.
+pub func Twice[S Sink](mut s S, word string) error {
+    err := Feed(mut s, word)
+    if err.code != 0 {
+        return err
+    }
+    return Feed(mut s, word)
+}
+-- generic-private-method-passed-on/main.tck --
+package main
+
+import sink from "calc/sink"
+
+func main() {
+    mut t := sink.NewTally()
+    err := sink.Twice(mut t, "x")
+    exit(err.code)
+}
+-- generic-private-method-passed-on/expected --
+stage: typeck
+---
+
+generic-private-method-passed-on/main.tck:7:27: error: sink.Tally does not satisfy sink.Sink here: put is not pub in sink.Tally
+06 |	    mut t := sink.NewTally()
+07 |	    err := sink.Twice(mut t, "x")
+   |	                          ^
+08 |	    exit(err.code)
 
 -- generic-pub-private-constraint/tack.mod --
 module calc
@@ -706,6 +818,77 @@ generic-pub-private-constraint/geo/geo.tck:14:16: error: lib function Lib expose
 14 |	lib func Lib[S hidden](s S) int64 {
    |	               ^~~~~~
 15 |	    return s.size()
+
+-- generic-third-package-private-method/tack.mod --
+module calc
+-- generic-third-package-private-method/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n++
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-third-package-private-method/words/words.tck --
+package words
+
+pub type Bag struct {
+    n int64
+}
+
+pub func New() Bag {
+    return Bag{n: 0}
+}
+
+// put is private to words.
+func (mut b Bag) put(word string) error {
+    b.n++
+    return noerror
+}
+
+pub func (b Bag) count() int64 {
+    return b.n
+}
+-- generic-third-package-private-method/main.tck --
+package main
+
+import sink from "calc/sink"
+import words from "calc/words"
+
+func main() {
+    mut b := words.New()
+    err := sink.Feed(mut b, "x")
+    exit(err.code)
+}
+-- generic-third-package-private-method/expected --
+stage: typeck
+---
+
+generic-third-package-private-method/main.tck:8:26: error: words.Bag does not satisfy sink.Sink here: put is not pub in words.Bag
+07 |	    mut b := words.New()
+08 |	    err := sink.Feed(mut b, "x")
+   |	                         ^
+09 |	    exit(err.code)
 
 -- hidden-only/tack.mod --
 module hidden-only

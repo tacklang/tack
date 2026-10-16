@@ -524,14 +524,19 @@
 // to it as written. A call to a generic function infers each type
 // parameter from the arguments passed to parameters of that type, which
 // must be struct types, or the caller's own type parameters, satisfying
-// the constraint, one type per type parameter, and records them in
-// Call.TypeArgs; the call's results are the callee's with them in place
-// (ast.CallResults). Once every body checks, the instances of generic
-// functions the program needs are found (instance.go): from the bodies
-// of the functions that are not generic, then from each instance found,
-// its type parameters standing for its type arguments, each recorded once
-// in Program.Instances and every file's File.Instances, up to
-// MaxInstances, past which the call needing another is reported.
+// the constraint, one type per type parameter. A struct type satisfies it
+// only with methods visible from the package holding the call, as if that
+// code called them, whatever package the interface is in; a type
+// parameter passed on is checked for no visibility, since its constraint
+// asks for no method the outermost call binding a struct type did not
+// check. The call records the type arguments in Call.TypeArgs; its
+// results are the callee's with them in place (ast.CallResults). Once
+// every body checks, the instances of generic functions the program
+// needs are found (instance.go): from the bodies of the functions that
+// are not generic, then from each instance found, its type parameters
+// standing for its type arguments, each recorded once in
+// Program.Instances and every file's File.Instances, up to MaxInstances,
+// past which the call needing another is reported.
 //
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names

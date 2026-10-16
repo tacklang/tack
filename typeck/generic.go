@@ -34,11 +34,18 @@ import (
 // A struct type satisfies an interface when, for each of the interface's
 // methods, it has a method of that name taking its receiver as mut
 // exactly when the interface's does, with the same parameters, each of the
-// same type, mut or variadic as the interface's, and the same results. A
-// method of a package other than the interface's must be visible from the
-// interface's package, which means pub, or lib within one module. A type
+// same type, mut or variadic as the interface's, and the same results.
+// Where a call binds a type parameter to a struct type, each of those
+// methods must also be visible from the package holding the call, as if
+// that code called it itself: private within its package, lib within its
+// module, pub anywhere. The interface's package plays no part. A type
 // parameter satisfies an interface when its own constraint has every
-// method the interface asks for, alike in the same way.
+// method the interface asks for, alike in the same way, and is checked
+// for no visibility: the call that bound the outermost type argument to a
+// struct type checked every method of its constraint, and a constraint a
+// type parameter passes on to can ask only for methods of that one, so
+// whatever generic function the type argument reaches through a chain of
+// calls, it can call no method that call did not check.
 //
 // Once every body is checked, the instances of generic functions the
 // program needs are found (see instantiate in instance.go).
@@ -285,15 +292,29 @@ func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) b
 		)
 		return false
 	}
-	if param.Iface != nil {
-		if why := c.unsatisfied(got, param.Iface); why != "" {
-			c.errorf(at.Spanned(), "%s does not satisfy %s: %s",
-				c.typeName(got), c.ifaceName(param.Iface), why)
-			return false
-		}
+	if param.Iface != nil && !c.satisfies(at, got, param.Iface) {
+		return false
 	}
 	c.inference.args[tp] = got
 	return true
+}
+
+// satisfies reports whether got, a type argument passed as at, satisfies
+// iface, and reports at at why it does not: with "here" when the reason
+// is a method the package being checked cannot see, which another package
+// might.
+func (c *Checker) satisfies(at ast.Expr, got types.Type, iface *ast.TypeDecl) bool {
+	why, here := c.unsatisfied(got, iface)
+	if why == "" {
+		return true
+	}
+	where := ""
+	if here {
+		where = " here"
+	}
+	c.errorf(at.Spanned(), "%s does not satisfy %s%s: %s",
+		c.typeName(got), c.ifaceName(iface), where, why)
+	return false
 }
 
 // checkGenericCall checks call, a call to fn, a generic function named
@@ -339,88 +360,71 @@ type methodSig struct {
 
 // unsatisfied returns why typ, a struct type or a type parameter, does not
 // satisfy iface, an interface, or "" when it does: a method iface asks for
-// that typ lacks, takes its receiver as mut where iface's does not or the
-// other way round, has another signature, or, for a struct type of a
-// package other than iface's, cannot be seen from iface's package. Only
-// the first such method, in iface's order, is named.
-func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) string {
+// that typ lacks, cannot be seen from the package being checked, which
+// holds the call binding typ, takes its receiver as mut where iface's does
+// not or the other way round, or has another signature. Only the first
+// such method, in iface's order, is named. here reports that the method
+// cannot be seen, which another package might.
+func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, here bool) {
 	tp := c.typeParams[typ]
 	if tp != nil && tp.Iface == nil {
 		// Its constraint was reported; nothing is known of its methods.
-		return ""
+		return "", false
 	}
 	for _, want := range iface.Interface().Methods {
-		have, owner, why := c.methodFor(typ, tp, want.Name, iface)
+		have, owner, why, here := c.methodFor(typ, tp, want.Name)
 		if why != "" {
-			return why
+			return why, here
 		}
 		wanted := c.ifaceName(iface) + "'s " + want.Name
 		switch {
 		case have.mut && !want.Mut:
-			return fmt.Sprintf("%s takes its receiver as mut, and %s does not", owner, wanted)
+			return fmt.Sprintf("%s takes its receiver as mut, and %s does not",
+				owner, wanted), false
 		case !have.mut && want.Mut:
-			return fmt.Sprintf("%s does not take its receiver as mut, and %s does", owner, wanted)
+			return fmt.Sprintf("%s does not take its receiver as mut, and %s does",
+				owner, wanted), false
 		}
 		wantSig := methodSig{params: want.Params, results: want.ResultTypes, mut: want.Mut}
 		if !sameSig(have, wantSig) {
 			return fmt.Sprintf("%s is %s, and %s is %s",
-				owner, c.sigText(have), wanted, c.sigText(wantSig))
+				owner, c.sigText(have), wanted, c.sigText(wantSig)), false
 		}
 	}
-	return ""
+	return "", false
 }
 
 // methodFor returns the method named name that typ, a struct type or, tp
-// being its declaration, a type parameter, has to satisfy a method of
-// iface with, as a signature, and how a diagnostic names it: the struct
-// type's method, T.name, or the one of tp's constraint, J's name. When
-// typ has none iface's package can see, it returns why instead.
+// being its declaration, a type parameter, has to satisfy an interface's
+// method with, as a signature, and how a diagnostic names it: the struct
+// type's method, T.name, or the one of tp's constraint, J's name. When typ
+// has none, it returns why instead; when the struct type's method is not
+// visible from the package being checked, as hiddenMethod finds, it
+// returns why with here true. A type parameter's methods are its
+// constraint's, which every package that can name it sees.
 func (c *Checker) methodFor(
 	typ types.Type,
 	tp *ast.TypeParam,
 	name string,
-	iface *ast.TypeDecl,
-) (methodSig, string, string) {
+) (have methodSig, owner, why string, here bool) {
 	if tp != nil {
 		m := tp.Iface.Interface().Method(name)
 		if m == nil {
 			return methodSig{}, "", fmt.Sprintf("its constraint %s has no method %s",
-				c.ifaceName(tp.Iface), name)
+				c.ifaceName(tp.Iface), name), false
 		}
 		return methodSig{params: m.Params, results: m.ResultTypes, mut: m.Mut},
-			c.ifaceName(tp.Iface) + "'s " + name, ""
+			c.ifaceName(tp.Iface) + "'s " + name, "", false
 	}
 	fn := c.structs[typ].Method(name)
 	if fn == nil {
-		return methodSig{}, "", fmt.Sprintf("%s has no method %s", c.typeName(typ), name)
+		return methodSig{}, "", fmt.Sprintf("%s has no method %s", c.typeName(typ), name), false
 	}
-	owner := c.typeName(typ) + "." + name
-	if why := c.hiddenFrom(fn, iface, owner); why != "" {
-		return methodSig{}, "", why
+	if why := c.hiddenMethod(fn); why != "" {
+		return methodSig{}, "", why, true
 	}
-	return methodSig{params: fn.Params[1:], results: fn.ResultTypes, mut: fn.Recv().Mut}, owner, ""
-}
-
-// hiddenFrom returns why fn, a struct type's method named owner in a
-// diagnostic, cannot satisfy a method of iface, an interface: it is
-// declared in another package than iface and is not visible from iface's
-// package, its visibility capped by its type's. It returns "" when it is
-// visible there.
-func (c *Checker) hiddenFrom(fn *ast.Func, iface *ast.TypeDecl, owner string) string {
-	from, ifacePkg := c.declPkg[fn], c.declPkg[iface]
-	if from == nil || ifacePkg == nil || fn.RecvType == nil {
-		return ""
-	}
-	vis := fn.Vis.Capped(fn.RecvType.Vis)
-	if ast.Visible(vis, from, ifacePkg) {
-		return ""
-	}
-	if vis == ast.Lib {
-		return fmt.Sprintf("%s is lib, and %s is an interface of module %s",
-			owner, c.ifaceName(iface), ifacePkg.Module)
-	}
-	return fmt.Sprintf("%s is not pub, and %s is an interface of another package",
-		owner, c.ifaceName(iface))
+	return methodSig{params: fn.Params[1:], results: fn.ResultTypes, mut: fn.Recv().Mut},
+		c.typeName(typ) + "." + name, "", false
 }
 
 // sameSig reports whether a and b have the same parameters, each of one

@@ -427,9 +427,31 @@ Interfaces and generic functions follow the decisions recorded in the
 README: interfaces only constrain type parameters, generic functions are
 monomorphized, bodies are checked once against the constraints, type
 arguments are inferred from the arguments and must be struct types, and
-satisfaction is implicit. These points were settled by the
-implementation, for consistency with the rules already there, rather
-than decided, and could go another way:
+satisfaction is implicit.
+
+Ahmed decided where a method's visibility is checked for satisfaction:
+where the type argument is chosen. At a call that binds a type parameter
+to a struct type, each method the constraint asks for must be visible
+from the package holding the call, under the usual rules (private within
+its package, `lib` within its module, `pub` anywhere), as if that code
+called the method itself; the interface's package plays no part, and the
+interface need only be nameable where it is written. So `main` passes
+its own types, private methods and all, to a library's generic
+functions, and a package cannot pass another's type whose method it
+could not call. Where the type argument is the enclosing generic
+function's own type parameter, passed on, nothing is checked for
+visibility: its constraint must hold every method the callee's asks
+for, so the outermost call binding a struct type checked them all,
+through any chain of generic functions. This replaces the rule first
+implemented, visibility from the interface's package, under which a type
+of `main` satisfied only `main`'s interfaces. The wording follows the
+method-call diagnostics, with `here` marking that the method might be
+visible from another package: `X does not satisfy I here: m is not pub
+in pkg.X`, `X does not satisfy I here: m is lib in module M and cannot
+be used from module N`.
+
+These points were settled by the implementation, for consistency with
+the rules already there, rather than decided, and could go another way:
 
 - An interface's methods are separated as a struct's fields are, by a
   newline or `;`, and `interface {}` is allowed: it asks for nothing, so
@@ -442,21 +464,16 @@ than decided, and could go another way:
   parameters must be named, as a function's, no two alike and none `_`
   or a type's name, but may share a name with anything else, since no
   body can see them.
-- Satisfaction across packages asks that the method be visible from the
-  interface's package, which admits a `lib` method within one module as
-  well as a `pub` one. Since nothing in package `main` can be `pub`, a
-  type of `main` satisfies only `main`'s interfaces. A method satisfies
-  an interface's only with the same parameters alike in being `mut` and
-  variadic too, so `write(b ...uint8)` does not satisfy `write(b
-  []uint8)`, though the parameter has one type, a view, in both. A type
-  that does not satisfy an interface is reported for the first method,
-  in the interface's order, it fails: `X has no method m`, `X.m takes its
-  receiver as mut, and I's m does not` (or the other way round), `X.m is
-  func(int32), and I's m is func(int64)`, `X.m is not pub, and I is an
-  interface of another package`, or `X.m is lib, and I is an interface of
-  module m`; a type parameter passed on is reported as `its constraint J
-  has no method m`, or with the two interfaces' methods named, `J's m is
-  ...`.
+- A method satisfies an interface's only with the same parameters alike
+  in being `mut` and variadic too, so `write(b ...uint8)` does not
+  satisfy `write(b []uint8)`, though the parameter has one type, a view,
+  in both. A type that does not satisfy an interface is reported for the
+  first method, in the interface's order, it fails: `X has no method m`,
+  `X.m takes its receiver as mut, and I's m does not` (or the other way
+  round), `X.m is func(int32), and I's m is func(int64)`, or one of the
+  visibility messages above; a type parameter passed on is reported as
+  `its constraint J has no method m`, or with the two interfaces' methods
+  named, `J's m is ...`.
 - A type parameter's name follows a parameter's rules: not reserved, not
   a package-level name or an import's, `duplicate type parameter name`
   for two, and no parameter or local may reuse it. Like a parameter, it

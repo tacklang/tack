@@ -1250,12 +1250,18 @@ makes for itself, which has a letter after `tack_`.
   of the interface's methods it has a method of that name that takes its
   receiver as `mut` exactly when the interface's does, with the same
   parameters, each of the same type and alike in being `mut` or
-  variadic, and the same results. A method of a package other than the
-  interface's must be one that package can see, `pub`, or `lib` in the
-  same module: a private method satisfies only an interface of its own
-  package. Since `pub` means nothing in package `main`, a type declared
-  there satisfies only `main`'s interfaces. Interfaces exist only at
-  compile time: nothing of them is in the C.
+  variadic, and the same results. Each of those methods must also be
+  visible where the type is chosen, from the package holding the call
+  that binds a type parameter to the struct type, as if that code called
+  the method itself: a private method within its own package, a `lib`
+  one within its module, a `pub` one anywhere. The interface's package
+  plays no part, so `main` passes a type of its own, with private
+  methods, to another package's generic function, while a third package
+  cannot pass a type whose method it cannot call, `words.Bag does not
+  satisfy sink.Sink here: put is not pub in words.Bag`, `util.Pair does
+  not satisfy util.Counted here: count is lib in module std and cannot
+  be used from module calc`. Interfaces exist only at compile time:
+  nothing of them is in the C.
 - Generic functions. `func render[W Writer](mut w W, s string) error`
   declares type parameters, in brackets after the name, each a name and
   its constraint, an interface, plain or qualified, `[A Writer, B
@@ -1316,11 +1322,15 @@ makes for itself, which has a letter after `tack_`.
   does not satisfy Writer: Sized has no method write`, `P does not
   satisfy Sizer: P.size takes its receiver as mut, and Sizer's size does
   not`, `P does not satisfy Sizer: P.size is func() int32, and Sizer's
-  size is func() int64`, `Doc does not satisfy sink.Sink: Doc.put is not
-  pub, and sink.Sink is an interface of another package`. A type
-  parameter passed on satisfies an interface when its own constraint has
-  each method the interface asks for, alike in the same way, `S does not
-  satisfy Writer: its constraint Sizer has no method write`. Arguments
+  size is func() int64`, and each method must be visible from the
+  calling package (see interfaces), `sink.Tally does not satisfy
+  sink.Sink here: put is not pub in sink.Tally`. A type parameter passed
+  on satisfies an interface when its own constraint has each method the
+  interface asks for, alike in the same way, `S does not satisfy Writer:
+  its constraint Sizer has no method write`, and is checked for no
+  visibility: the call that bound a struct type checked every method of
+  its constraint, and no generic function it is passed on to can ask for
+  another. Arguments
   are otherwise checked as for any function: a `mut` parameter of a type
   parameter takes a `mut` place, `render takes w as mut; pass mut c`. A
   generic function may call itself and other generic functions, with its

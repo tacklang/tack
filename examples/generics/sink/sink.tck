@@ -3,7 +3,7 @@ package sink
 // Package sink declares an interface and generic functions for other
 // packages to use. Sink is satisfied by any struct type with methods put
 // and count of the right signatures, wherever it is declared, as long as
-// those methods are pub, or, for a type of this package, at all.
+// the package passing it to Feed or Total can call those methods itself.
 
 // Sink takes words and counts them.
 pub type Sink interface {
@@ -30,8 +30,8 @@ pub func Total[A Sink, B Sink](a A, b B) int64 {
 }
 
 // Tally counts the words put into it, and keeps none. Its methods are
-// private, which is enough to satisfy Sink, an interface of its own
-// package, though no other package can call them.
+// private, so only this package can pass a Tally as a Sink, as Tallied
+// does.
 pub type Tally struct {
     n int64
 }

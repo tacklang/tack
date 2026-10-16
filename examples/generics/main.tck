@@ -119,6 +119,26 @@ func (l Limited) size() int64 {
     return l.n
 }
 
+// Words counts the words put into it, and keeps the last: its methods
+// are private to this package, which is where it is passed to sink's
+// generic functions, so they satisfy sink.Sink there.
+type Words struct {
+    n    int64
+    last string
+}
+
+// put counts word and keeps it as the last.
+func (mut w Words) put(word string) error {
+    w.n++
+    w.last = word
+    return noerror
+}
+
+// count returns how many words w has counted.
+func (w Words) count() int64 {
+    return w.n
+}
+
 // Box holds a Counter, which a generic function changes through the
 // field.
 type Box struct {
@@ -323,13 +343,18 @@ func twoOfOne() {
 }
 
 // packages uses an interface and generic functions of sink with a type of
-// logs, which satisfies them through its pub methods.
+// logs, which satisfies them through methods this package can see, one
+// pub and one lib, and with Words, whose methods are private to this
+// package.
 func packages() {
     mut l := logs.New()
     err := sink.Feed(mut l, "a", "b", "c")
     check(err.code == 0 && countOf(l) == 3 && l.Last() == "c", "a generic function and an interface of another package")
-    t := sink.NewTally()
-    check(sink.Total(l, t) == 3, "a type whose private methods satisfy its own package's interface")
+    mut w := Words{n: 0, last: ""}
+    err1 := sink.Feed(mut w, "p", "q")
+    check(err1.code == 0 && w.n == 2 && w.last == "q" && sink.Total(l, w) == 5, "a type whose private methods satisfy another package's interface here")
+    err3 := feedTwice(mut w)
+    check(err3.code == 0 && w.n == 4 && w.last == "y", "a private type passed on through generic functions of two packages")
     err2 := feedTwice(mut l)
     check(err2.code == 0 && countOf(l) == 5 && l.Last() == "y", "a constraint of another package")
     check(sink.Tallied("x", "y") == 2, "a generic call inside another package")

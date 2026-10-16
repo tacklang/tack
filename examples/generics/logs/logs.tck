@@ -3,9 +3,9 @@ package logs
 // Package logs declares Log, whose methods satisfy sink.Sink, and the
 // count-only interface of the main package, though logs imports neither:
 // a type satisfies an interface by having its methods, nothing more. A
-// method satisfies an interface of another package when that package can
-// see it: put is pub, and count lib, which every package of the module
-// sees.
+// method satisfies an interface where the package passing the type can
+// call it: put is pub, and count lib, which every package of the module
+// sees, main included.
 
 // Log keeps every word put into it, in a list it owns.
 pub type Log struct {
