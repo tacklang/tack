@@ -570,6 +570,27 @@
 // allows no call and no mutable global in a target's indexes, so that
 // order needs nothing written.
 //
+// C's parser recurses once per level of nesting, and clang runs out of
+// stack at about a thousand: each Tack operator adds several levels, so a
+// chain of a few hundred terms used to stop the build. So no
+// subexpression's C nests deeper than maxDepth, 32 levels of parentheses,
+// brackets and braces (order.go): a deeper one is held in a temporary,
+// declared at the top of the function like the order's, and assigned by
+// a step, and an expression a context renders on its own, a statement's
+// value, a condition, an index, runs its steps first with the comma
+// operator: x + x + ... + x becomes ((tack_d0 = ..., tack_d1 = ..., x)),
+// whatever the chain's length or which side it nests on, as are nested
+// calls and minuses. A run of many steps is grouped in halves, since C
+// nests a run of commas too. A step runs before everything left in the
+// expression, so a part is held only when nothing evaluated before it
+// that is not pure is left in place; otherwise the expression is rendered
+// again with every part that is not pure held, in order, so each runs
+// where Tack runs it. The right side of && and || runs only when the
+// left side does not decide, so it keeps its steps inside it, and a chain
+// nested on the right of && or || still nests a level per operator in C.
+// The expression a context renders on its own is never held itself, so a
+// range, a union switch and a checked index still take its address.
+//
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both
 // languages. A - and a negative literal are parenthesised, so that two minus

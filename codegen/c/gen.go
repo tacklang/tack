@@ -140,6 +140,11 @@ type generator struct {
 	// frame is the function body being lowered; see defer.go.
 	frame *deferFrame
 
+	// spill is the expression being rendered, which keeps every
+	// subexpression's C shallow, or nil between expressions; see
+	// order.go.
+	spill *spillScope
+
 	buf    bytes.Buffer
 	temps  int // how many temporaries have been named, for unique names
 	labels int // how many blocks' labels have been named, likewise
@@ -1106,10 +1111,11 @@ func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
-	x, diags := g.expr(loop.X, types.Invalid)
+	steps, place, diags := g.exprSteps(loop.X, false)
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	x, addr := withSteps(steps, place), withSteps(steps, "&"+place)
 	if g.bindsInPlace(loop) {
 		g.inPlace[loop.Elem] = true
 	}
@@ -1119,7 +1125,7 @@ func (g *generator) generateForRange(
 	}
 	xType := ast.TypeOf(loop.X)
 	if !types.IsInteger(xType) {
-		return g.collectionRange(loop, x, body), nil
+		return g.collectionRange(loop, x, addr, body), nil
 	}
 
 	typ := g.cType(xType)
@@ -1134,7 +1140,7 @@ func (g *generator) generateForRange(
 }
 
 // collectionRange lowers a range loop over an array or a string, whose
-// lowered value is x and lowered body body. The value is copied into a
+// lowered value is x, its address addr, and lowered body body. The value is copied into a
 // const temporary, which every iteration reads, so the body assigning the
 // array, or the variable holding it, changes nothing the loop sees:
 //
@@ -1157,7 +1163,7 @@ func (g *generator) generateForRange(
 // without making one. Over an array with
 // no element variable nothing reads the copy, so the value is only
 // evaluated, cast to void. A _ index gets no C variable.
-func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string) []string {
+func (g *generator) collectionRange(loop *ast.ForRange, x, addr string, body []string) []string {
 	xType := ast.TypeOf(loop.X)
 	r, k := g.temp("r"), g.temp("k")
 	n, field := r+".len", "ptr"
@@ -1167,7 +1173,7 @@ func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string)
 	eval := fmt.Sprintf("const %s %s = %s;", g.cType(xType), r, x)
 	read := r
 	if g.rangesInPlace(loop) {
-		eval = fmt.Sprintf("const %s *const %s = &%s;", g.cType(xType), r, x)
+		eval = fmt.Sprintf("const %s *const %s = %s;", g.cType(xType), r, addr)
 		read = "(*" + r + ")"
 	}
 
@@ -1989,6 +1995,9 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 
 // expr renders an expression as C. want is the type the context requires;
 // passing types.Invalid means any type the expression happens to have.
+// An expression a context renders on its own keeps its C shallow by
+// holding deep parts in temporaries, assigned first (see exprSteps); one
+// rendered as part of another leaves that to the outer one (see spilled).
 func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic) {
 	if got := ast.TypeOf(e); !types.Widens(got, want) && want != types.Invalid {
 		return "", []diag.Diagnostic{
@@ -2007,7 +2016,11 @@ func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic
 	if lit, ok := g.literal(e); ok {
 		return lit, nil
 	}
-	return g.exprNode(e)
+	if g.spill != nil {
+		return g.spilled(e)
+	}
+	steps, x, diags := g.exprSteps(e, false)
+	return withSteps(steps, x), diags
 }
 
 // exprNode lowers an expression that is not a literal, by its kind.
@@ -2117,7 +2130,14 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
-	right, diags := g.expr(bin.Y, types.Invalid)
+	// The right side of && and || runs only when the left does not
+	// decide, so what holds its deep parts stays inside it.
+	var right string
+	if bin.Op.IsLogical() {
+		right, diags = g.otherScope(bin.Y)
+	} else {
+		right, diags = g.expr(bin.Y, types.Invalid)
+	}
 	if len(diags) > 0 {
 		return "", diags
 	}

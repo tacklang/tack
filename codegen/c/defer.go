@@ -106,6 +106,9 @@ type deferFrame struct {
 	// function that their bodies read; see caseBody.
 	read map[*ast.Var]bool
 
+	// traits holds what each expression asked about can do; see traitsOf.
+	traits map[ast.Expr]traits
+
 	next  string   // the next variable, named when first needed
 	ret   string   // the function's ret variable, likewise
 	temps []string // declarations of the temporaries sequenced holds operands in

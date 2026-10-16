@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
 )
 
 // sequenced returns the C expression build makes of operands, already
@@ -100,7 +102,8 @@ func (g *generator) orderShows(operands []ast.Expr) bool {
 	for _, e := range operands {
 		if !g.pure(e) {
 			impure++
-			calling = calling || callsFunc(e) || moves(e)
+			t := g.traitsOf(e)
+			calling = calling || t.calls || t.moves
 		}
 	}
 	return impure >= 2 && calling
@@ -121,14 +124,64 @@ func (g *generator) pure(e ast.Expr) bool {
 	if m, ok := e.(*ast.MutArg); ok {
 		return g.pureIndexes(m.X)
 	}
-	pure := !callsFunc(e) && !moves(e)
-	ast.Walk(e, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && g.changeable(id) {
-			pure = false
+	t := g.traitsOf(e)
+	return !t.calls && !t.moves && !t.changeable
+}
+
+// traits is what evaluating an expression can do that its order shows:
+// call a function (see callsFunc), move a variable's value (see moves),
+// or read a variable a call can change (see changeable).
+type traits struct {
+	calls, moves, changeable bool
+}
+
+// or returns what either t or u can do.
+func (t traits) or(u traits) traits {
+	return traits{t.calls || u.calls, t.moves || u.moves, t.changeable || u.changeable}
+}
+
+// traitsOf returns what evaluating e can do, anywhere in it. Within a
+// function they are kept for each expression asked about, and a part
+// already asked about is not walked again, so asking about every part of
+// a chain, innermost first, as rendering it does, takes time in
+// proportion to the chain, not to its square.
+func (g *generator) traitsOf(e ast.Expr) traits {
+	if g.frame != nil {
+		if t, ok := g.frame.traits[e]; ok {
+			return t
 		}
-		return pure
+	}
+	var t traits
+	ast.Walk(e, func(n ast.Node) bool {
+		if x, isExpr := n.(ast.Expr); isExpr && x != e && g.frame != nil {
+			if known, ok := g.frame.traits[x]; ok {
+				t = t.or(known)
+				return false
+			}
+		}
+		t = t.or(g.ownTraits(n))
+		return true
 	})
-	return pure
+	if g.frame != nil {
+		if g.frame.traits == nil {
+			g.frame.traits = make(map[ast.Expr]traits)
+		}
+		g.frame.traits[e] = t
+	}
+	return t
+}
+
+// ownTraits returns what n does itself, not counting its parts: a call
+// calls, and a name may move its variable or read one a call can change.
+func (g *generator) ownTraits(n ast.Node) traits {
+	switch x := n.(type) {
+	case *ast.Call:
+		return traits{calls: callsItself(x)}
+	case *ast.Ident:
+		return traits{moves: x.Move, changeable: g.changeable(x)}
+	default:
+		return traits{}
+	}
 }
 
 // pureIndexes reports whether every index in place, a chain of fields and
@@ -197,17 +250,228 @@ func changesList(call *ast.Call) bool {
 func callsFunc(e ast.Expr) bool {
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {
-		if call, ok := n.(*ast.Call); ok {
-			if call.Receiver() != nil {
-				found = true
-			}
-			if id, isName := call.Fn.(*ast.Ident); isName {
-				if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil || changesList(call) {
-					found = true
-				}
-			}
+		if call, ok := n.(*ast.Call); ok && callsItself(call) {
+			found = true
 		}
 		return !found
 	})
 	return found
+}
+
+// callsItself reports whether call, not counting its operands, calls a
+// Tack function, a method or a builtin that changes a list, as callsFunc
+// counts them.
+func callsItself(call *ast.Call) bool {
+	if call.Receiver() != nil {
+		return true
+	}
+	id, isName := call.Fn.(*ast.Ident)
+	if !isName {
+		return false
+	}
+	fn, isFunc := id.Def.(*ast.Func)
+	return isFunc && fn != nil || changesList(call)
+}
+
+// maxDepth is how deeply the C of one subexpression may nest its
+// parentheses, brackets and braces before its value is held in a
+// temporary instead (see spilled). C11 (5.2.4.1) promises 63 levels of
+// parenthesized expressions in a full expression; a held value's step and
+// the expression around it add a few levels of their own, so 32 keeps
+// every expression this bounds within that, and far below where clang's
+// parser runs out of stack, past about a thousand. No ordinary program
+// nests nearly as deep: none of the examples does, so none of their C
+// changes.
+const maxDepth = 32
+
+// spillScope is an expression being rendered on its own, in a function
+// (see exprSteps): the steps that hold its deep parts, in the order they
+// run, and what keeps that order Tack's.
+type spillScope struct {
+	// steps assign the temporaries, each a C assignment, in order.
+	steps []string
+
+	// inline counts the subexpressions rendered so far, outside every
+	// step, that are not pure: a step holding a later subexpression runs
+	// before them, which would change the order unless each is pure.
+	inline int
+
+	// deep says every subexpression that is not pure is held in a
+	// temporary of its own, as it is rendered, so that every one of them
+	// runs in order, as a step, and none is left in the expression for a
+	// later step to run before.
+	deep bool
+
+	// retry is set when a deep subexpression could not be held because
+	// one of inline came before it: the expression is rendered again,
+	// deep.
+	retry bool
+}
+
+// exprSteps renders e on its own, as expr does, and returns the steps
+// that hold its deep parts, C assignments to run first, in order, and the
+// expression that then gives its value. It needs a function to declare
+// the temporaries in, and without one renders e as it is. An expression
+// that holds a part after a subexpression that is not pure, and would run
+// it first, is rendered again with every such subexpression held, in
+// order (see spillScope.deep). deep starts it so, as the right side of an
+// && or an || does when the expression around it is rendered so.
+//
+// e itself is never held, though it may be deep: its value is the
+// expression's, read right after the steps, so a place stays a place, and
+// a context may take its address.
+func (g *generator) exprSteps(e ast.Expr, deep bool) ([]string, string, []diag.Diagnostic) {
+	if lit, ok := g.literal(e); ok {
+		return nil, lit, nil
+	}
+	if g.frame == nil {
+		x, diags := g.exprNode(e)
+		return nil, x, diags
+	}
+	outer, temps := g.spill, len(g.frame.temps)
+	defer func() { g.spill = outer }()
+	for {
+		sc := &spillScope{deep: deep}
+		g.spill = sc
+		x, diags := g.exprNode(e)
+		if !sc.retry {
+			return sc.steps, x, diags
+		}
+		g.frame.temps, deep = g.frame.temps[:temps], true
+	}
+}
+
+// errRetry is what spilled returns, as a diagnostic, once its scope is
+// to be rendered again: every caller returns on a diagnostic, so the
+// rest of the expression, which would be thrown away, is not rendered.
+// exprSteps never lets it out.
+var errRetry = []diag.Diagnostic{
+	{Severity: diag.Error, Message: "expression to be rendered again, deep"},
+}
+
+// spilled renders e, a subexpression of the expression g.spill is
+// rendering, and holds its value in a temporary, assigned by a step, when
+// its C nests deeper than maxDepth, or, in a deep scope, when it is not
+// pure. A step runs before everything left in the expression, so a
+// subexpression is held only when no subexpression that is not pure was
+// rendered before it and left in place; otherwise the scope is marked to
+// be rendered again, deep, and rendering it stops (see errRetry).
+func (g *generator) spilled(e ast.Expr) (string, []diag.Diagnostic) {
+	sc := g.spill
+	before := sc.inline
+	x, diags := g.exprNode(e)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	pure := g.pure(e)
+	hold := sc.deep && !pure
+	if !hold && cDepth(x) > maxDepth {
+		if before > 0 && !sc.deep {
+			sc.retry = true
+			return "", errRetry
+		}
+		hold = true
+	}
+	if !hold || !g.holdable(e) {
+		if !pure {
+			sc.inline++
+		}
+		return x, nil
+	}
+	t := g.temp("d")
+	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.operandType(e), t))
+	sc.steps = append(sc.steps, t+" = "+x)
+	sc.inline = before
+	return t, nil
+}
+
+// holdable reports whether e's value can be held in a temporary: it has
+// a type with values, which a C variable can hold.
+func (g *generator) holdable(e ast.Expr) bool {
+	typ := ast.TypeOf(e)
+	return typ != types.Invalid && typ != types.UntypedInt && g.cType(typ) != "void"
+}
+
+// otherScope renders e, the right side of an && or an ||, which runs only
+// when the left side does not decide, on its own: its steps stay inside
+// it, so they run only when it does. It is rendered deep when the
+// expression around it is.
+func (g *generator) otherScope(e ast.Expr) (string, []diag.Diagnostic) {
+	if g.spill == nil {
+		return g.expr(e, types.Invalid)
+	}
+	if lit, ok := g.literal(e); ok {
+		return lit, nil
+	}
+	sc := g.spill
+	g.spill = nil
+	steps, x, diags := g.exprSteps(e, sc.deep)
+	g.spill = sc
+	if len(diags) > 0 {
+		return "", diags
+	}
+	if !g.pure(e) {
+		sc.inline++
+	}
+	return withSteps(steps, x), nil
+}
+
+// withSteps returns the C expression that runs steps, in order, then
+// gives x, or x alone when there are none. It is parenthesized twice, so
+// that one pair taken off, as a condition's are (see stripParens), still
+// leaves the steps and x together.
+func withSteps(steps []string, x string) string {
+	if len(steps) == 0 {
+		return x
+	}
+	return "((" + commaList(steps) + ", " + x + "))"
+}
+
+// flatCommas is how many expressions commaList joins with commas in one
+// run before grouping them.
+const flatCommas = 8
+
+// commaList joins exprs, C expressions, with the comma operator, so they
+// run in order. C parses a run of commas as a chain nested one level per
+// comma, which runs clang out of stack at a few thousand, so a long run
+// is grouped in halves, each parenthesized, to any depth: the order is
+// the same, and the nesting grows with the logarithm of the length.
+func commaList(exprs []string) string {
+	if len(exprs) <= flatCommas {
+		return strings.Join(exprs, ", ")
+	}
+	half := len(exprs) / 2
+	return "(" + commaList(exprs[:half]) + "), (" + commaList(exprs[half:]) + ")"
+}
+
+// cDepth returns how deeply x, rendered C, nests its parentheses,
+// brackets and braces, outside its character and string literals.
+func cDepth(x string) int {
+	depth, deepest := 0, 0
+	for i := 0; i < len(x); i++ {
+		switch x[i] {
+		case '"', '\'':
+			i = literalEnd(x, i)
+		case '(', '[', '{':
+			depth++
+			deepest = max(deepest, depth)
+		case ')', ']', '}':
+			depth--
+		}
+	}
+	return deepest
+}
+
+// literalEnd returns the index of the quote that closes the character or
+// string literal of C that opens at x[start], or the end of x.
+func literalEnd(x string, start int) int {
+	for i := start + 1; i < len(x); i++ {
+		switch x[i] {
+		case '\\':
+			i++
+		case x[start]:
+			return i
+		}
+	}
+	return len(x)
 }

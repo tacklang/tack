@@ -144,10 +144,11 @@ func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string 
 // runtime, giving 0 otherwise. What is indexed is evaluated before the
 // index, as written; see heldIndexed for whether, and how, it is held.
 func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
-	base, diags := g.expr(ix.X, types.Invalid)
+	steps, place, diags := g.exprSteps(ix.X, false)
 	if len(diags) > 0 {
 		return multiSource{}, diags
 	}
+	base, addr := withSteps(steps, place), withSteps(steps, "&"+place)
 	index, diags := g.expr(ix.Index, types.Invalid)
 	if len(diags) > 0 {
 		return multiSource{}, diags
@@ -155,7 +156,7 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 
 	arrayType, indexType := ast.TypeOf(ix.X), ast.TypeOf(ix.Index)
 	var src multiSource
-	held := g.heldIndexed(ix, base)
+	held := g.heldIndexed(ix, base, addr)
 	if held != nil {
 		src.temps = append(src.temps, *held)
 	}
@@ -180,7 +181,7 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 }
 
 // heldIndexed returns the temporary that holds what ix indexes, base as
-// lowered, for indexValues, or nil when it is read where it is, after the
+// lowered and addr its address, for indexValues, or nil when it is read where it is, after the
 // index. It needs no temporary when it calls no function and the order of
 // it and the index cannot show (see orderShows), unless it is a string
 // other than a name, which is read twice, for its length and its byte, and
@@ -200,7 +201,7 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 // A string's copy is sound only while no string owns heap memory, which
 // none does today: once one can, an index that can free a string's bytes
 // needs the same rule (see docs/open-decisions.md).
-func (g *generator) heldIndexed(ix *ast.Index, base string) *multiTemp {
+func (g *generator) heldIndexed(ix *ast.Index, base, addr string) *multiTemp {
 	typ := ast.TypeOf(ix.X)
 	_, isName := ix.X.(*ast.Ident)
 	readAfter := !callsFunc(ix.X) && !g.orderShows([]ast.Expr{ix.X, ix.Index})
@@ -210,7 +211,7 @@ func (g *generator) heldIndexed(ix *ast.Index, base string) *multiTemp {
 	if g.hasLen(typ) || ast.Root(ix.X) == nil || g.indexChanges(ix) {
 		return &multiTemp{typ: g.cType(typ), init: base}
 	}
-	return &multiTemp{typ: g.cType(typ), init: "&" + base, ref: true}
+	return &multiTemp{typ: g.cType(typ), init: addr, ref: true}
 }
 
 // indexChanges reports whether evaluating the index of ix can change the

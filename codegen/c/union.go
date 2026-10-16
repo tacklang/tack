@@ -236,10 +236,11 @@ func (g *generator) isUnionSwitch(s *ast.Switch) bool {
 // run.
 func (g *generator) generateUnionSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	typ := ast.TypeOf(s.Tag)
-	tag, diags := g.expr(s.Tag, types.Invalid)
+	steps, place, diags := g.exprSteps(s.Tag, false)
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	tag, addr := withSteps(steps, place), withSteps(steps, "&"+place)
 	ref := g.temp("s")
 	lines, used, diags := g.unionChain(s, typ, ref, fn)
 	if len(diags) > 0 {
@@ -247,7 +248,7 @@ func (g *generator) generateUnionSwitch(s *ast.Switch, fn *ast.Func) ([]string, 
 	}
 	eval := []string{fmt.Sprintf("(void)(%s);", tag)}
 	if used {
-		eval = g.holdUnion(s.Tag, tag, ref)
+		eval = g.holdUnion(s.Tag, tag, addr, ref)
 	}
 	out := append([]string{"{"}, indent(append(eval, lines...))...)
 	return append(out, "}"), nil
@@ -300,12 +301,13 @@ func closeChain(lines []string, s *ast.Switch) []string {
 }
 
 // holdUnion returns the declarations that hold the union tag, rendered as
-// rendered, through the pointer ref: a pointer to the place itself when it
-// can be matched in place (see matchesInPlace), and otherwise to a copy.
-func (g *generator) holdUnion(tag ast.Expr, rendered, ref string) []string {
+// rendered, with its address addr, through the pointer ref: a pointer to
+// the place itself when it can be matched in place (see matchesInPlace),
+// and otherwise to a copy.
+func (g *generator) holdUnion(tag ast.Expr, rendered, addr, ref string) []string {
 	ctype := g.cType(ast.TypeOf(tag))
 	if g.matchesInPlace(tag) {
-		return []string{fmt.Sprintf("const %s *const %s = &%s;", ctype, ref, rendered)}
+		return []string{fmt.Sprintf("const %s *const %s = %s;", ctype, ref, addr)}
 	}
 	value := g.temp("u")
 	return []string{
