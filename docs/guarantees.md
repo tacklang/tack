@@ -40,10 +40,17 @@ These are open bugs against the guarantees, found by an audit on
 2026-10-16. Each is being fixed before any new feature.
 
 - **Panic (4).** Unbounded recursion is accepted and can run out of stack.
-  The fix: every function in a recursion cycle must return `error`, and a
-  check on entry turns a stack about to run out into that error; call
-  chains without a cycle are bounded when compiled.
+  The fix, decided: recursion is rejected, direct or through other
+  functions, and the stack a program needs is computed when it is
+  compiled.
 - **Panic (4).** A large local array, or a large value passed or copied by
   value, can overflow the stack with no recursion at all: a function with
   a 16 MB local array crashes. The same compile-time bound on call chains
   is the fix.
+- **Panic (4).** Comparing values whose type nests deeply runs out of
+  stack. The generated equality helper of each type calls the one of the
+  type inside it, passing both values by value, so a chain of 1000 union
+  types, each holding the one before, needs a frame per level that grows
+  with the level: `a == a` on such a value crashes. Freeing such a value
+  works the same way. The fix: pass the helpers pointers, so each frame
+  stays small, and count the helpers in the compile-time stack bound.
