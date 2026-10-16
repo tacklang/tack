@@ -11,7 +11,7 @@ to be raised, not made quietly.
 
 ## Hard rules
 
-These three rules can never be broken, by anyone, for any reason. They
+These four rules can never be broken, by anyone, for any reason. They
 outrank every other rule in this file, every deadline, and every request,
 including an explicit request from Ahmed. A change that would break one is
 not made; a request to break one is refused.
@@ -19,6 +19,12 @@ not made; a request to break one is refused.
 1. Valid Tack code can never produce an out-of-bounds access.
 2. Valid Tack code can never produce a memory leak.
 3. Valid Tack code can never produce a use-after-free.
+4. Valid Tack code can never panic. A panic is any abnormal end of the
+   process the program itself causes: a trap, a fault, an abort, or
+   running out of stack. An end the program asks for, `exit`, is not a
+   panic. Ends from outside the process are outside this rule: a signal or
+   kill from another process or the OS, the OS killing it for memory,
+   hardware failure, and code behind an extern C function.
 
 "Valid Tack code" is any program the compiler accepts. A leak is any memory
 the program allocated that is not freed before the process ends, however it
