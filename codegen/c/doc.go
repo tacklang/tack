@@ -365,7 +365,9 @@
 // read as (*v_x). A variable of an owned type, a list or a struct holding one, is
 // never const; its declaration adds a free to its block's cleanup chain,
 // lowered like a defer, so frees and defers interleave by position and
-// run at every exit; a free is a call to std's tack_list_free_ per list,
+// run at every exit from the block. A call to the builtin exit leaves no
+// block, so neither runs; std's exit has every allocator free each
+// buffer it still holds instead. A free is a call to std's tack_list_free_ per list,
 // a struct's last field first, or, for a list whose elements are owned,
 // to its tack_free_, which frees each element, last first, then the
 // buffer. Assigning one, an element of a list included, computes the new value into a

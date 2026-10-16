@@ -29,7 +29,8 @@ declaration makes and nothing checks, as
 
 Lists are memory a program owns, and their rules, moves and frees, keep
 every buffer freed exactly once and never read after it is (see
-[Lists](#lists)).
+[Lists](#lists)). `exit` ends the process before any owner frees its
+list, so every allocator frees each buffer it still holds first.
 
 Every example here is tested: each failing one is a case in
 [`examples/invalid.txtar`](../examples/invalid.txtar) whose expected output

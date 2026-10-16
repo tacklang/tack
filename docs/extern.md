@@ -237,8 +237,9 @@ A name `tack.h` cannot give is an error whatever is built:
   `TACK_LIST_RESERVE`, `TACK_LIST_POP` and `TACK_LIST_REMOVE`, each `a
   tack.h list helper`,
   `tack_list_grow_` and `tack_list_free_`, each `a tack.h list
-  function`, and `tack_c_allocator_live_` and
-  `tack_c_allocator_fail_after_`, each `a tack.h allocator function`:
+  function`, and `tack_c_allocator_live_`,
+  `tack_c_allocator_fail_after_` and `tack_allocators_release_all_`, each
+  `a tack.h allocator function`:
   `type tack_allocator of package main cannot be named tack_allocator in
   tack.h: that is tack.h's allocator type`. Each is reserved whether or
   not the program uses strings, errors, `any` or lists;
@@ -385,7 +386,13 @@ For tests, `tack_c_allocator_live_()` returns how many buffers
 and refuse every one after them, or none again for a negative `n`;
 `examples/lists`, `examples/list-bulk` and `examples/extern-lists` check
 every list is freed through the first, and appends and reserves that
-fail through the second.
+fail through the second. Every allocator keeps track of each buffer it
+has given out and not had back, `c_allocator` in a header in front of the
+buffer, sized so the buffer keeps `max_align_t`'s alignment, and
+`tack_allocators_release_all_()` has each free all of them: Tack's
+`exit` calls it before it ends the process, and C must not, since every
+list still holding one of those buffers is left pointing at freed
+memory.
 
 C must keep a list's rules, which Tack cannot check in C: it reads,
 writes and appends to the list only during the call; it never keeps the
@@ -570,7 +577,8 @@ whole program, Tack code included, which no Tack proof can catch.
   check that C sets a code other than 0 when it fails: an extern func
   that fails with code 0 returns its results as if it succeeded.
 - **Control.** C can end the process, with `exit` or `abort`, or never
-  return, and either way no Tack defer runs. There is no way for C to call
+  return, and either way no Tack defer runs, and no list still live is
+  freed: only Tack's `exit` has the allocators free what they hold. There is no way for C to call
   back into Tack: every Tack function is static in the generated C.
 - **Symbols.** C may define any symbol, including one the C library uses;
   only the clashes below are caught.
@@ -637,7 +645,9 @@ program calls, the list functions, `tack_list_grow_` and
 `tack_list_free_`, for a program with lists, and a `tack_` symbol one of
 the program's C files leaves undefined, as a C file using std's list
 macros does, and, in turn, those that define a symbol a linked one
-leaves undefined, the way a linker takes members from an archive; there
+leaves undefined, the way a linker takes members from an archive
+(`exit.c`'s object leaves `tack_allocators_release_all_` undefined, so a
+program calling `exit` links `list.c` too); there
 is no archive, and no tool but clang. A program that calls neither
 builtin and has no list links no std object, and none of the C library
 they call. A builtin no std object defines is an error, `tack: builtin

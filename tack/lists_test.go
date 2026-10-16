@@ -122,6 +122,37 @@ func TestBuiltListsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExitFreesWritesItsOutput builds examples/exit-frees at every
+// optimization level and checks each binary writes exactly
+// examples/exit-frees/output and exits with status 3: exit, called deep
+// in a chain of calls with lists of every owned kind live in every frame,
+// frees every buffer c_allocator holds before the process ends, which the
+// example's C checks in a destructor that runs after exit.
+func TestBuiltExitFreesWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "exit-frees", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/exit-frees/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "exit-frees")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("exit-frees"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 3 {
+				t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 3", out, code, want)
+			}
+		})
+	}
+}
+
 // A C file of the program that calls a function std defines, a tack_ name
 // only std may give, links the std object defining it, even in a program
 // with no list and no builtin call; one that calls none links no std

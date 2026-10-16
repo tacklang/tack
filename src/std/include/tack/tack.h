@@ -311,6 +311,13 @@ void *tack_list_grow_(void *ptr, int64_t cap, int64_t need, size_t elem, size_t 
 // a list's owner's block ends; C must not.
 void tack_list_free_(void *ptr, int64_t cap, size_t elem, size_t align, tack_allocator a);
 
+// tack_allocators_release_all_ makes every allocator free every buffer it
+// has given out and not had back, allocating nothing. exit calls it just
+// before it ends the process, so no buffer outlives the program even
+// though exit runs no defers; nothing else may, since every list still
+// holding one of those buffers is left pointing at freed memory.
+void tack_allocators_release_all_(void);
+
 // tack_c_allocator_live_ returns how many buffers c_allocator has given
 // out and not had back, for tests that check every list is freed.
 int64_t tack_c_allocator_live_(void);

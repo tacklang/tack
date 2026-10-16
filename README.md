@@ -278,7 +278,8 @@ itself, and `builtin.tck` describes them in comments. A program with lists also 
 the one C file of `std/builtin` that is no builtin's body: it holds the
 functions that grow and free a list's buffer, which the generated C
 calls, and `c_allocator`'s, and the driver links it for a program with a
-list type, or one of whose C files calls a function std defines.
+list type, one that calls `exit`, which has every allocator free what it
+still holds, or one of whose C files calls a function std defines.
 Declarations that are wanted but not implemented go in
 `src/std/builtin/PLANNED.md`, which the compiler does not read.
 
@@ -1133,8 +1134,10 @@ makes for itself, which has a letter after `tack_`.
   it. A defer that reads a list moved later in its block would read a
   moved value: `l is moved after this defer, which reads it when its
   block ends`; deferred code cannot move a list declared outside it, `a
-  defer cannot move l, which is declared outside it`; and `exit` ends the
-  process without freeing anything, as it runs no defer. During a call,
+  defer cannot move l, which is declared outside it`; and `exit` runs no
+  defer and frees no list itself, but before the process ends every
+  allocator frees every buffer it still holds, so nothing outlives the
+  program. During a call,
   an argument that reads a list in place, a list or a struct holding one
   passed to a plain parameter, or a list or a slice of one passed to a
   view parameter, cannot overlap a place the same call, or a call nested
@@ -2078,7 +2081,10 @@ makes for itself, which has a letter after `tack_`.
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes an `int32`, or an integer that widens to one
   (`int8`, `int16`, `uint8`, `uint16`), and terminates the process with that
-  status, without running any pending defer. An `int64`, `uint32` or
+  status, without running any pending defer. Before the process ends,
+  every allocator frees every buffer it still holds, so every list still
+  live in any frame is freed, though no code of the program runs to do
+  it. An `int64`, `uint32` or
   `uint64` status is converted first: `exit(int32(x))` where `x` is a
   constant or known value that fits, and otherwise the checked form,
   `v, ok := int32(x)`. A constant outside `int32` is an error, as

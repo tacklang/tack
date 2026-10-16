@@ -163,7 +163,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `print(string)` | yes     | yes | Any string expression; writes exactly it to stdout, no newline; extern C, `tack_builtin_print`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/print.c`, linked only when called |
 | `len(v)`        | yes     | yes | Arrays, strings, views and lists; known for arrays, string literals and immutable variables holding a known string, never for a view or a list, but for a slice at known bounds |
 | `make`, `append`, `reserve`, `pop`, `remove` | yes    | yes | Generic, in the compiler, described in `builtin.tck`; a list's C is `src/std/builtin/list.c`, linked for any program with a list type |
-| `exit(int32)`   | yes     | yes | Terminates with that status; narrower integers widen, and an `int64`, `uint32` or `uint64` needs a conversion; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called |
+| `exit(int32)`   | yes     | yes | Terminates with that status, running no defer, after every allocator frees every buffer it still holds; narrower integers widen, and an `int64`, `uint32` or `uint64` needs a conversion; a stand-in for a future `os.Exit`; extern C, `tack_builtin_exit`, declared in `src/std/builtin/builtin.tck`, body in `src/std/builtin/exit.c`, linked only when called, with `list.c`, which holds the allocators |
 
 The compiler reads the builtins from `$TACK_HOME/src/std/builtin`
 (`~/.tack` without `TACK_HOME`), installed by `make install`; it holds no

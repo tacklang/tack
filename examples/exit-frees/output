@@ -1,0 +1,9 @@
+nothing live at the start ok
+a cube of lists ok
+unions holding lists ok
+a list moved by realloc ok
+a list left part way ok
+an append refused ok
+a growth refused ok
+every list live at exit ok
+nothing live at process end ok

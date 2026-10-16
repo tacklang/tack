@@ -12165,6 +12165,28 @@ list-reserved-c-name/main.tck:3:6: error: type tack_allocator of package main ca
    |	     ^~~~~~~~~~~~~~
 04 |	    x int64
 
+-- list-reserved-release-all/main.tck --
+package main
+
+type tack_allocators_release_all_ struct {
+    x int64
+}
+
+extern func f(p tack_allocators_release_all_)
+
+func main() {
+    f(tack_allocators_release_all_{x: 1})
+}
+-- list-reserved-release-all/expected --
+stage: codegen
+---
+
+list-reserved-release-all/main.tck:3:6: error: type tack_allocators_release_all_ of package main cannot be named tack_allocators_release_all_ in tack.h: that is a tack.h allocator function
+02 |	
+03 |	type tack_allocators_release_all_ struct {
+   |	     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+04 |	    x int64
+
 -- list-slice-bound-negative/main.tck --
 package main
 

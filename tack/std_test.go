@@ -204,7 +204,9 @@ func linkedNames(t *testing.T, out string) []string {
 // A std object is linked only when it defines a builtin the program calls,
 // wherever the call is, or, for a program with a list, the list functions,
 // so a program that calls neither print nor exit and has no list links no
-// std object at all, and so none of the C library they call.
+// std object at all, and so none of the C library they call. exit links
+// the list object too, list or not, since it calls the allocators' release
+// of every buffer they hold, which list.c defines beside them.
 func TestStdObjectsLinkedOnlyWhenUsed(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
@@ -216,8 +218,12 @@ func TestStdObjectsLinkedOnlyWhenUsed(t *testing.T) {
 	}{
 		{"neither", "    if true {\n    }\n", nil},
 		{"print", "    print(\"hi\")\n", []string{"std-print.o"}},
-		{"exit", "    exit(3)\n", []string{"std-exit.o"}},
-		{"both", "    print(\"hi\")\n    exit(3)\n", []string{"std-exit.o", "std-print.o"}},
+		{"exit", "    exit(3)\n", []string{"std-exit.o", "std-list.o"}},
+		{
+			"both",
+			"    print(\"hi\")\n    exit(3)\n",
+			[]string{"std-exit.o", "std-list.o", "std-print.o"},
+		},
 		{
 			"print twice, in a defer",
 			"    defer {\n        print(\"a\")\n    }\n    print(\"b\")\n",

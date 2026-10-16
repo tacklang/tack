@@ -39,10 +39,11 @@ feature work until it is fixed.
 These are open bugs against the guarantees, found by an audit on
 2026-10-16. Each is being fixed before any new feature.
 
-- **Leak (2).** `exit` ends the process without freeing what is still
-  allocated. The fix: every allocator frees every buffer it still holds
-  before the process ends, while `exit` keeps not running defers.
 - **Panic (4).** Unbounded recursion is accepted and can run out of stack.
   The fix: every function in a recursion cycle must return `error`, and a
   check on entry turns a stack about to run out into that error; call
   chains without a cycle are bounded when compiled.
+- **Panic (4).** A large local array, or a large value passed or copied by
+  value, can overflow the stack with no recursion at all: a function with
+  a 16 MB local array crashes. The same compile-time bound on call chains
+  is the fix.

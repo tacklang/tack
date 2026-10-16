@@ -26,7 +26,9 @@ package builtin
 extern("tack_builtin_print") func print(s string)
 
 // exit ends the process immediately with the given status. Pending defers
-// do not run, in the calling function or any other. The status is an
+// do not run, in the calling function or any other, but before the
+// process ends every allocator frees every buffer it still holds, so no
+// list outlives the program. The status is an
 // int32, which C's exit takes as its int; an int64 status needs a
 // conversion first. Only the low bits of the status reach the operating
 // system, the low 8 on Linux and macOS, so exit(70000) ends with status

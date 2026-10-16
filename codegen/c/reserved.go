@@ -53,6 +53,7 @@ var reservedNames = func() map[string]reservation {
 		"tack_list_free_":              {what: "a tack.h list function"},
 		"tack_c_allocator_live_":       {what: "a tack.h allocator function"},
 		"tack_c_allocator_fail_after_": {what: "a tack.h allocator function"},
+		"tack_allocators_release_all_": {what: "a tack.h allocator function"},
 		"TACK_LIST_LEN":                {what: "a tack.h list helper"},
 		"TACK_LIST_AT":                 {what: "a tack.h list helper"},
 		"TACK_LIST_APPEND":             {what: "a tack.h list helper"},
