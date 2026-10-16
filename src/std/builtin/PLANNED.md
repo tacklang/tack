@@ -41,3 +41,8 @@ among them.
 `printf` is no longer planned here: it is `std/fmt`'s
 `printf(format string, args ...any)`, which writes to standard output, as
 `print` does, rather than to standard error.
+
+Writing bytes to standard output no longer waits on `write`: it is
+`std/fmt`'s `write(b []uint8)`, which writes a view's bytes exactly, as
+`print` writes a string's. The `write` above, taking a file descriptor,
+is still planned.

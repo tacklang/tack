@@ -1,14 +1,17 @@
 package fmt
 
-// Package fmt writes text to standard output. A program imports it as
+// Package fmt writes text and bytes to standard output. A program imports
+// it as
 //
 //     import fmt from "std/fmt"
 //
 // and the compiler reads it from $TACK_HOME/src/std/fmt, or
 // ~/.tack/src/std/fmt, as it reads the builtins from std/builtin. println
 // is written in Tack on top of the print builtin; printf's formatting is
-// C, in printf.c, which the driver compiles and links with every program
-// that imports fmt, as it does any package's C files.
+// C, in printf.c, and write's output is C, in write.c, which the driver
+// compiles and links with every program that imports fmt, as it does any
+// package's C files. All three write through C's stdout, as print does,
+// so their output interleaves in the order of the calls.
 
 // println writes s to standard output exactly as given, then a newline,
 // "\n". println("") writes the newline alone. Like print, it reports no
@@ -55,3 +58,17 @@ pub func printf(format string, args ...any) {
 
 // cprintf is printf's body, in C: tack_fmt_printf in printf.c.
 extern("tack_fmt_printf") func cprintf(format string, args ...any)
+
+// write writes the bytes of b to standard output exactly, each as it is,
+// 0 and 0xff included, and nothing else: no newline, no formatting. A
+// view of no bytes writes nothing. b is a view, so a list[uint8], an
+// array or a slice of uint8, or a string's bytes, []uint8(s), can be
+// passed. Like print and printf, it writes through C's stdout, so the
+// output of the three interleaves in the order of the calls, and it
+// reports no error.
+pub func write(b []uint8) {
+    cwrite(b)
+}
+
+// cwrite is write's body, in C: tack_fmt_write in write.c.
+extern("tack_fmt_write") func cwrite(b []uint8)

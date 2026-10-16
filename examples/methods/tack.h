@@ -15,8 +15,14 @@ typedef struct {
     int64_t len;
 } tack_view_any;
 
+typedef struct {
+    const uint8_t *ptr;
+    int64_t len;
+} tack_view_uint8;
+
 // package std/fmt
 void tack_fmt_printf(tack_string /* format */, tack_view_any /* args */); // extern func cprintf(format string, args ...any)
+void tack_fmt_write(tack_view_uint8 /* b */); // extern func cwrite(b []uint8)
 
 // package methods
 int64_t methods_live(void); // extern func live() int64

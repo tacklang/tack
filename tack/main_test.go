@@ -655,6 +655,36 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 	}
 }
 
+// TestHostileFmtWriteSourceNeverPanics runs every dump and --emit on a
+// truncated call to std/fmt's write, two thousand calls, and one call
+// with the bytes of a 200 KB string, and checks each result is coherent,
+// never a panic.
+func TestHostileFmtWriteSourceNeverPanics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"truncated fmt.write", "package main\nimport fmt from \"std/fmt\"\nfunc main() {\n    fmt.write([]uint8("},
+		{
+			"many fmt.writes",
+			"package main\nimport fmt from \"std/fmt\"\nfunc main() {\n" +
+				strings.Repeat("    fmt.write([]uint8(\"x\\x00\\xff\"))\n", 2000) + "}\n",
+		},
+		{
+			"fmt.write of a huge string's bytes",
+			"package main\nimport fmt from \"std/fmt\"\nfunc main() {\n    fmt.write([]uint8(\"" +
+				strings.Repeat("ab", 100000) + "\"))\n}\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeSource(t, []byte(tc.src))
+			for _, flag := range []string{"--lex", "--ast", "--res", "--emit"} {
+				checkCoherent(t, runTack(t, flag, path))
+			}
+		})
+	}
+}
+
 // TestHostileVariadicSourceNeverPanics runs every dump and --emit on
 // malformed and extreme uses of ..., truncated, repeated, with thousands
 // of values and nested five hundred calls deep, and checks each result is
@@ -1596,6 +1626,58 @@ func TestBuiltPrintfWritesItsOutput(t *testing.T) {
 			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
 				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
 			}
+		})
+	}
+}
+
+// fmtWriteBig is the number of bytes examples/fmt-write writes last, from
+// one list[uint8]: 1 MiB, byte i being i % 251.
+const fmtWriteBig = 1 << 20
+
+// checkFmtWriteOutput reports whether out is exactly what examples/fmt-write
+// writes: want, its output file, then fmtWriteBig bytes, byte i being
+// i % 251. It reports the first difference rather than dumping a mebibyte.
+func checkFmtWriteOutput(t *testing.T, out, want string) {
+	t.Helper()
+	if len(out) != len(want)+fmtWriteBig {
+		t.Fatalf("wrote %d bytes, want %d", len(out), len(want)+fmtWriteBig)
+	}
+	if out[:len(want)] != want {
+		t.Errorf("wrote\n%q\nwant\n%q", out[:len(want)], want)
+	}
+	for i := range fmtWriteBig {
+		if got := out[len(want)+i]; got != byte(i%251) {
+			t.Fatalf("byte %d of the large write is %#x, want %#x", i, got, byte(i%251))
+		}
+	}
+}
+
+// TestBuiltFmtWriteWritesItsOutput builds examples/fmt-write, which writes
+// bytes with std/fmt's write, at every optimization level and checks each
+// binary writes exactly examples/fmt-write/output, then the 1 MiB list:
+// lists, arrays, slices and a string's bytes, empty views writing
+// nothing, bytes 0x00 and 0xff as they are, views passed on, and writes
+// interleaved with print and printf in call order.
+func TestBuiltFmtWriteWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "fmt-write", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "fmt-write")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("fmt-write"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			out, code := runBuilt(t, bin)
+			if code != 0 {
+				t.Fatalf("exited %d, want 0", code)
+			}
+			checkFmtWriteOutput(t, out, string(want))
 		})
 	}
 }

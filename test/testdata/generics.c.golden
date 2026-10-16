@@ -158,6 +158,8 @@ typedef struct {
 static void tack_3_std3_fmt7_println(tack_string p_s);
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_27 p_args) TACK_C_NAME("tack_fmt_printf");
+static void tack_3_std3_fmt5_write(tack_view_26 p_b);
+extern void tack_3_std3_fmt6_cwrite(tack_view_26 p_b) TACK_C_NAME("tack_fmt_write");
 static tack_8_generics4_logs3_Log tack_8_generics4_logs3_New(void);
 static tack_error tack_8_generics4_logs9_Log_2eput(tack_8_generics4_logs3_Log * p_l, tack_string p_word);
 static int64_t tack_8_generics4_logs11_Log_2ecount(tack_8_generics4_logs3_Log p_l);
@@ -224,6 +226,10 @@ static void tack_3_std3_fmt7_println(tack_string p_s) {
 
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args) {
     tack_3_std3_fmt7_cprintf(p_format, p_args);
+}
+
+static void tack_3_std3_fmt5_write(tack_view_26 p_b) {
+    tack_3_std3_fmt6_cwrite(p_b);
 }
 
 static tack_8_generics4_logs3_Log tack_8_generics4_logs3_New(void) {

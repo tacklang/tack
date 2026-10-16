@@ -120,6 +120,34 @@ func TestPrintfExampleIsSanitizerClean(t *testing.T) {
 	}
 }
 
+// TestFmtWriteExampleIsSanitizerClean builds examples/fmt-write with
+// clang's warnings as errors and the address and undefined behavior
+// sanitizers on, std/fmt's C included, so an empty view's null pointer
+// handed to fwrite, or a read past a view, fails the run, and checks it
+// writes its output, then the 1 MiB list, byte i being i % 251.
+func TestFmtWriteExampleIsSanitizerClean(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "fmt-write")
+	src := readFile(t, filepath.Join(dir, "main.tck"))
+	want := readFile(t, filepath.Join(dir, "output"))
+	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
+	out, err := exec.Command(bin).Output()
+	if err != nil {
+		t.Fatalf("fmt-write failed: %v", err)
+	}
+	const big = 1 << 20
+	if len(out) != len(want)+big {
+		t.Fatalf("fmt-write wrote %d bytes, want %d", len(out), len(want)+big)
+	}
+	if string(out[:len(want)]) != want {
+		t.Errorf("fmt-write wrote\n%q\nwant\n%q", out[:len(want)], want)
+	}
+	for i := range big {
+		if got := out[len(want)+i]; got != byte(i%251) {
+			t.Fatalf("byte %d of the large write is %#x, want %#x", i, got, byte(i%251))
+		}
+	}
+}
+
 // intCase is one integer printf is given: its Tack type, the Tack
 // expression of it, and the Go value of it, which Go's fmt formats for the
 // expected output.

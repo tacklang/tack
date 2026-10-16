@@ -41,7 +41,8 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 
 Functions have local variables, immutable unless declared with `mut`, and
 loops, and lists, owned and growable, which free themselves. `print` takes strings only; `std/fmt`'s `printf` writes integers,
-bools and strings, through `any` parameters (see the language today).
+bools and strings, through `any` parameters, and its `write` writes bytes,
+a view of `uint8` (see the language today).
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. The language has packages now, but the standard
@@ -460,8 +461,9 @@ makes for itself, which has a letter after `tack_`.
   `tack: cannot find std at <path>; set TACK_HOME or run make install`.
   Its one package today is [`fmt`](src/std/fmt/fmt.tck), whose `pub func
   println(s string)` writes `s` and then a newline, `fmt.println("hi")`,
-  and whose `pub func printf(format string, args ...any)` writes formatted
-  text (see printf).
+  whose `pub func printf(format string, args ...any)` writes formatted
+  text (see printf), and whose `pub func write(b []uint8)` writes bytes
+  (see write).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -774,6 +776,16 @@ makes for itself, which has a letter after `tack_`.
   never calling C's `printf`, and reports no error. Only `std/fmt`'s
   `printf` has its format checked: a function of any other package named
   `printf` is an ordinary function.
+- write. `fmt.write(b)`, from `std/fmt`, writes exactly the bytes of `b`
+  to standard output, each as it is, `0` and `0xff` included, and nothing
+  else: no newline and no formatting. Its parameter is a view, `b []uint8`,
+  so a `list[uint8]`, an array of `uint8`, a slice of either, or a
+  string's bytes, `fmt.write([]uint8(s))`, can be passed, and a view of no
+  bytes writes nothing. A string itself is not a view: `cannot use string
+  as []uint8 in argument to fmt.write; view its bytes with []uint8(s)`.
+  write goes through the same C `stdout` as `print` and `printf`, with one
+  `fwrite`, so the three interleave in call order, and like them it
+  reports no error.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

@@ -11,6 +11,11 @@ typedef struct {
     int64_t len;
 } tack_view_17;
 
+typedef struct {
+    const uint8_t *ptr;
+    int64_t len;
+} tack_view_18;
+
 static const unsigned char tack_str0[2] = {10, 0};
 static const unsigned char tack_str1[15] = {115, 105, 110, 103, 108, 101, 32, 102, 105, 108, 101, 32, 111, 107, 0};
 
@@ -23,6 +28,8 @@ void tack_builtin_print(tack_string);
 static void tack_3_std3_fmt7_println(tack_string p_s);
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_17 p_args) TACK_C_NAME("tack_fmt_printf");
+static void tack_3_std3_fmt5_write(tack_view_18 p_b);
+extern void tack_3_std3_fmt6_cwrite(tack_view_18 p_b) TACK_C_NAME("tack_fmt_write");
 static void tack_4_main4_main(void);
 
 static void tack_3_std3_fmt7_println(tack_string p_s) {
@@ -32,6 +39,10 @@ static void tack_3_std3_fmt7_println(tack_string p_s) {
 
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args) {
     tack_3_std3_fmt7_cprintf(p_format, p_args);
+}
+
+static void tack_3_std3_fmt5_write(tack_view_18 p_b) {
+    tack_3_std3_fmt6_cwrite(p_b);
 }
 
 static void tack_4_main4_main(void) {

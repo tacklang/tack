@@ -60,17 +60,22 @@ typedef struct {
 } tack_view_27;
 
 typedef struct {
-    const tack_string *ptr;
+    const uint8_t *ptr;
     int64_t len;
 } tack_view_28;
 
 typedef struct {
+    const tack_string *ptr;
+    int64_t len;
+} tack_view_29;
+
+typedef struct {
     tack_string e[2];
-} tack_array_29;
+} tack_array_30;
 
 typedef struct {
     tack_7_methods5_Point e[3];
-} tack_array_30;
+} tack_array_31;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -154,8 +159,8 @@ static const unsigned char tack_str64[14] = {111, 117, 116, 32, 111, 102, 32, 10
 
 void tack_builtin_print(tack_string);
 
-static tack_view_28 tack_slice_from_28(tack_view_28 s, int64_t lo) {
-    return (tack_view_28){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
+static tack_view_29 tack_slice_from_29(tack_view_29 s, int64_t lo) {
+    return (tack_view_29){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
 }
 
 typedef struct {
@@ -180,6 +185,8 @@ typedef struct {
 static void tack_3_std3_fmt7_println(tack_string p_s);
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_27 p_args) TACK_C_NAME("tack_fmt_printf");
+static void tack_3_std3_fmt5_write(tack_view_28 p_b);
+extern void tack_3_std3_fmt6_cwrite(tack_view_28 p_b) TACK_C_NAME("tack_fmt_write");
 static tack_7_methods4_strs7_Counter tack_7_methods4_strs3_New(int64_t p_n);
 static void tack_7_methods4_strs13_Counter_2eAdd(tack_7_methods4_strs7_Counter * p_c, int64_t p_k);
 static int64_t tack_7_methods4_strs15_Counter_2eValue(tack_7_methods4_strs7_Counter p_c);
@@ -198,7 +205,7 @@ static tack_7_methods7_Builder tack_7_methods10_newBuilder(void);
 static int64_t tack_7_methods13_Builder_2elen(tack_7_methods7_Builder p_b);
 static tack_error tack_7_methods16_Builder_2eappend(tack_7_methods7_Builder * p_b, uint8_t p_c);
 static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b, tack_string p_s);
-static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_28 p_parts);
+static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_29 p_parts);
 static tack_error tack_7_methods14_Builder_2eline(tack_7_methods7_Builder * p_b, tack_string p_s);
 static tack_results_7_methods12_Builder_2eat tack_7_methods12_Builder_2eat(tack_7_methods7_Builder p_b, int64_t p_i);
 static tack_results_7_methods14_Builder_2elast tack_7_methods14_Builder_2elast(tack_7_methods7_Builder p_b);
@@ -237,6 +244,10 @@ static void tack_3_std3_fmt7_println(tack_string p_s) {
 
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args) {
     tack_3_std3_fmt7_cprintf(p_format, p_args);
+}
+
+static void tack_3_std3_fmt5_write(tack_view_28 p_b) {
+    tack_3_std3_fmt6_cwrite(p_b);
 }
 
 static tack_7_methods4_strs7_Counter tack_7_methods4_strs3_New(int64_t p_n) {
@@ -327,9 +338,9 @@ static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b
     return (tack_error){0};
 }
 
-static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_28 p_parts) {
+static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_29 p_parts) {
     {
-        const tack_view_28 tack_r4 = p_parts;
+        const tack_view_29 tack_r4 = p_parts;
         for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
             const tack_string v_p = tack_r4.ptr[tack_k5];
             const tack_error v_err = tack_7_methods15_Builder_2ewrite(p_b, v_p);
@@ -497,16 +508,16 @@ static void tack_7_methods6_builds(void) {
         tack_7_methods5_check((v_l == 33), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     }
     tack_7_methods5_check(((tack_7_methods15_Builder_2ecount(v_b, 108, 0) == 2) && (tack_7_methods5_count((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, 108) == 2)), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
-    const tack_error v_errAll = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_28){(const tack_string[3]){(tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}}, 3});
+    const tack_error v_errAll = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_29){(const tack_string[3]){(tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}}, 3});
     if (v_errAll.code == 0) {
         tack_7_methods5_check(tack_7_methods16_Builder_2eequals(v_b, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     }
-    const tack_error v_errNone = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_28){0, 0});
+    const tack_error v_errNone = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_29){0, 0});
     if (v_errNone.code == 0) {
         tack_7_methods5_check((tack_7_methods13_Builder_2elen(v_b) == 12), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
     }
-    const tack_array_29 v_parts = (tack_array_29){{(tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
-    const tack_error v_errSpread = tack_7_methods18_Builder_2ewriteAll(&v_b, tack_slice_from_28((tack_view_28){v_parts.e, 2}, 0));
+    const tack_array_30 v_parts = (tack_array_30){{(tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
+    const tack_error v_errSpread = tack_7_methods18_Builder_2ewriteAll(&v_b, tack_slice_from_29((tack_view_29){v_parts.e, 2}, 0));
     if (v_errSpread.code == 0) {
         tack_7_methods5_check(tack_7_methods16_Builder_2eequals(v_b, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
     }
@@ -615,7 +626,7 @@ static void tack_7_methods6_points(void) {
     int64_t tack_o43;
     tack_7_methods5_check((tack_7_methods12_Point_2enorm(tack_7_methods9_makePoint((-3), 4)) == 7), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
     tack_7_methods5_check((tack_7_methods12_Point_2enorm((tack_7_methods5_Point){.f_x = 1, .f_y = 1}) == 2), (tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)});
-    tack_array_30 v_ps = (tack_o32 = tack_7_methods9_makePoint(1, 2), tack_o33 = tack_7_methods9_makePoint(3, 4), tack_o34 = tack_7_methods9_makePoint(5, 6), (tack_array_30){{tack_o32, tack_o33, tack_o34}});
+    tack_array_31 v_ps = (tack_o32 = tack_7_methods9_makePoint(1, 2), tack_o33 = tack_7_methods9_makePoint(3, 4), tack_o34 = tack_7_methods9_makePoint(5, 6), (tack_array_31){{tack_o32, tack_o33, tack_o34}});
     {
         (void)v_ps;
         for (int64_t tack_k36 = 0; tack_k36 < 3; tack_k36++) {

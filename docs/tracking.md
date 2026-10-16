@@ -170,7 +170,7 @@ list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |-----------------------------|--------|--------------------------------------------------------|
 | Runtime                     | no     | Generated C calls libc directly                        |
 | Memory model and allocation | partial | Lists own heap memory, through `c_allocator`, the one allocator, and free it automatically; strings are static; no other allocators yet |
-| Standard library            | partial | `src/std`, installed to `$TACK_HOME/src/std`, the module `std`: `std/builtin`, the builtins and their C bodies, and `std/fmt`, importable, with `println` and `printf`, whose verbs `%d %x %s %t %c %v %%` are checked against a known format at compile time and written as Go-style markers otherwise; no `sprintf` or `appendf` |
+| Standard library            | partial | `src/std`, installed to `$TACK_HOME/src/std`, the module `std`: `std/builtin`, the builtins and their C bodies, and `std/fmt`, importable, with `println`, `write`, which writes a `[]uint8` view's bytes exactly, and `printf`, whose verbs `%d %x %s %t %c %v %%` are checked against a known format at compile time and written as Go-style markers otherwise; no `sprintf` or `appendf` |
 | Packages beyond `main`      | partial | Modules, imports, qualified names and `pub`/`lib` visibility; std packages imported from any module or a single file, `lib` hiding std's internals |
 | Concurrency                 | no     |                                                        |
 

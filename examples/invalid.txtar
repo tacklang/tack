@@ -5081,6 +5081,251 @@ field-fact-weak-guard/main.tck:8:8: note: this guard bounds p.i only above; p.i 
    |	       ^~~~~~~
 09 |	        return a[p.i]
 
+-- fmt-cwrite-not-pub/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.cwrite([]uint8("a"))
+}
+-- fmt-cwrite-not-pub/expected --
+stage: resolve
+---
+
+fmt-cwrite-not-pub/main.tck:6:5: error: cwrite is not pub in package std/fmt
+05 |	func main() {
+06 |	    fmt.cwrite([]uint8("a"))
+   |	    ^~~~~~~~~~
+07 |	}
+
+-- fmt-write-any/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func f(a any) {
+    fmt.write(a)
+}
+
+func main() {
+}
+-- fmt-write-any/expected --
+stage: typeck
+---
+
+fmt-write-any/main.tck:6:15: error: cannot use any as []uint8 in argument to fmt.write
+05 |	func f(a any) {
+06 |	    fmt.write(a)
+   |	              ^
+07 |	}
+
+-- fmt-write-as-value/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    x := fmt.write([]uint8("hi"))
+    print(x)
+}
+-- fmt-write-as-value/expected --
+stage: typeck
+---
+
+fmt-write-as-value/main.tck:6:10: error: fmt.write returns no value
+05 |	func main() {
+06 |	    x := fmt.write([]uint8("hi"))
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~
+07 |	    print(x)
+
+-- fmt-write-byte/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.write(uint8(97))
+}
+-- fmt-write-byte/expected --
+stage: typeck
+---
+
+fmt-write-byte/main.tck:6:15: error: cannot use uint8 as []uint8 in argument to fmt.write
+05 |	func main() {
+06 |	    fmt.write(uint8(97))
+   |	              ^~~~~~~~~
+07 |	}
+
+-- fmt-write-int64-array/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    a := [2]int64{1, 2}
+    fmt.write(a)
+}
+-- fmt-write-int64-array/expected --
+stage: typeck
+---
+
+fmt-write-int64-array/main.tck:7:15: error: cannot use [2]int64 as []uint8 in argument to fmt.write
+06 |	    a := [2]int64{1, 2}
+07 |	    fmt.write(a)
+   |	              ^
+08 |	}
+
+-- fmt-write-int64-list/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    l := make(list[int64], c_allocator)
+    fmt.write(l)
+}
+-- fmt-write-int64-list/expected --
+stage: typeck
+---
+
+fmt-write-int64-list/main.tck:7:15: error: cannot use list[int64] as []uint8 in argument to fmt.write
+06 |	    l := make(list[int64], c_allocator)
+07 |	    fmt.write(l)
+   |	              ^
+08 |	}
+
+-- fmt-write-int8-array/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    a := [2]int8{1, 2}
+    fmt.write(a)
+}
+-- fmt-write-int8-array/expected --
+stage: typeck
+---
+
+fmt-write-int8-array/main.tck:7:15: error: cannot use [2]int8 as []uint8 in argument to fmt.write
+06 |	    a := [2]int8{1, 2}
+07 |	    fmt.write(a)
+   |	              ^
+08 |	}
+
+-- fmt-write-mut/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut l := make(list[uint8], c_allocator)
+    fmt.write(mut l)
+}
+-- fmt-write-mut/expected --
+stage: typeck
+---
+
+fmt-write-mut/main.tck:7:15: error: fmt.write does not take l as mut; pass l
+06 |	    mut l := make(list[uint8], c_allocator)
+07 |	    fmt.write(mut l)
+   |	              ^~~~~
+08 |	}
+
+-- fmt-write-no-args/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.write()
+}
+-- fmt-write-no-args/expected --
+stage: typeck
+---
+
+fmt-write-no-args/main.tck:6:5: error: fmt.write expects 1 argument(s), got 0
+05 |	func main() {
+06 |	    fmt.write()
+   |	    ^~~~~~~~~~~
+07 |	}
+
+-- fmt-write-spread/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    a := [1]uint8{97}
+    fmt.write(a...)
+}
+-- fmt-write-spread/expected --
+stage: typeck
+---
+
+fmt-write-spread/main.tck:7:16: error: cannot use ... in a call to non-variadic fmt.write
+06 |	    a := [1]uint8{97}
+07 |	    fmt.write(a...)
+   |	               ^~~
+08 |	}
+
+-- fmt-write-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.write("hi")
+}
+-- fmt-write-string/expected --
+stage: typeck
+---
+
+fmt-write-string/main.tck:6:15: error: cannot use string as []uint8 in argument to fmt.write; view its bytes with []uint8("hi")
+05 |	func main() {
+06 |	    fmt.write("hi")
+   |	              ^~~~
+07 |	}
+
+-- fmt-write-string-variable/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    s := "hi"
+    fmt.write(s)
+}
+-- fmt-write-string-variable/expected --
+stage: typeck
+---
+
+fmt-write-string-variable/main.tck:7:15: error: cannot use string as []uint8 in argument to fmt.write; view its bytes with []uint8(s)
+06 |	    s := "hi"
+07 |	    fmt.write(s)
+   |	              ^
+08 |	}
+
+-- fmt-write-two-args/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    a := [1]uint8{97}
+    fmt.write(a, a)
+}
+-- fmt-write-two-args/expected --
+stage: typeck
+---
+
+fmt-write-two-args/main.tck:7:5: error: fmt.write expects 1 argument(s), got 2
+06 |	    a := [1]uint8{97}
+07 |	    fmt.write(a, a)
+   |	    ^~~~~~~~~~~~~~~
+08 |	}
+
 -- for-post-declaration/main.tck --
 package main
 
