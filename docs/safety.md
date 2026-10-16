@@ -1148,6 +1148,8 @@ A variable bound beside two errors, at two bindings, needs both checked.
 An error cannot be dropped either. A call statement whose callee returns
 one
 is <!-- error: error-dropped-call -->`the error parse returns cannot be dropped; bind it, as in _, err := parse(...)`,
+naming a result that cannot be dropped either, as a list cannot, in place of its `_`,
+<!-- error: bytes-repeat-dropped -->`the error bytes.repeat returns cannot be dropped; bind it, as in x, err := bytes.repeat(...)`,
 and `_` in its
 place <!-- error: error-dropped-blank -->`the error parse returns cannot be dropped; bind it to a variable instead of _`.
 A function's error is its last

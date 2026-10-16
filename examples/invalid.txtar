@@ -1937,7 +1937,7 @@ func main() {
 stage: typeck
 ---
 
-bytes-repeat-dropped/main.tck:6:5: error: the error bytes.repeat returns cannot be dropped; bind it, as in _, err := bytes.repeat(...)
+bytes-repeat-dropped/main.tck:6:5: error: the error bytes.repeat returns cannot be dropped; bind it, as in x, err := bytes.repeat(...)
 05 |	func main() {
 06 |	    bytes.repeat([]uint8("ab"), 2, c_allocator)
    |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -4464,6 +4464,50 @@ error-dropped-in-defer/main.tck:12:9: error: the error parse returns cannot be d
 12 |	        parse("1")
    |	        ^~~~~~~~~~
 13 |	    }
+
+-- error-dropped-many-owned/main.tck --
+package main
+
+func four() (list[int64], list[int64], int64, list[int64], list[int64], error) {
+    return make(list[int64], c_allocator), make(list[int64], c_allocator), 0, make(list[int64], c_allocator), make(list[int64], c_allocator), noerror
+}
+
+func main() {
+    four()
+}
+-- error-dropped-many-owned/expected --
+stage: typeck
+---
+
+error-dropped-many-owned/main.tck:8:5: error: the error four returns cannot be dropped; bind it, as in x, y, _, z, x4, err := four(...)
+07 |	func main() {
+08 |	    four()
+   |	    ^~~~~~
+09 |	}
+
+-- error-dropped-owned-results/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+}
+
+func parts() (list[int64], int64, Bag, string, list[uint8], error) {
+    return make(list[int64], c_allocator), 1, Bag{items: make(list[int64], c_allocator)}, "s", make(list[uint8], c_allocator), noerror
+}
+
+func main() {
+    parts()
+}
+-- error-dropped-owned-results/expected --
+stage: typeck
+---
+
+error-dropped-owned-results/main.tck:12:5: error: the error parts returns cannot be dropped; bind it, as in x, _, y, _, z, err := parts(...)
+11 |	func main() {
+12 |	    parts()
+   |	    ^~~~~~~
+13 |	}
 
 -- error-literal-code-int64/main.tck --
 package main

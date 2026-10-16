@@ -23,6 +23,20 @@ func errorProgram(lines ...string) string {
 		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
 
+// ownedErrorProgram is errorProgram with two more functions returning an
+// error beside owned results, which a binding cannot drop with _: owned,
+// a list and a copyable struct, and several, lists and a struct holding
+// one around an int64.
+func ownedErrorProgram(lines ...string) string {
+	return errorProgram(lines...) + "\ntype Copied struct {\n    n int64\n}\n\n" +
+		"type Holder struct {\n    l list[int64]\n}\n\n" +
+		"func owned() (list[int64], Copied, error) {\n" +
+		"    return make(list[int64], c_allocator), Copied{n: 1}, noerror\n}\n\n" +
+		"func several() (list[int64], int64, Holder, list[uint8], list[int64], error) {\n" +
+		"    return make(list[int64], c_allocator), 1, Holder{l: make(list[int64], c_allocator)}, " +
+		"make(list[uint8], c_allocator), make(list[int64], c_allocator), noerror\n}\n"
+}
+
 // errorAcceptedCases are uses of errors the checker accepts, each check
 // one of the conditions that proves err.code == 0 where v is read.
 var errorAcceptedCases = []struct{ name, src string }{
@@ -214,6 +228,16 @@ var errorRejectedCases = []struct{ name, src, want string }{
 	{
 		"call statement of three results", errorProgram("divide(1, 2)"),
 		"the error divide returns cannot be dropped; bind it, as in _, _, err := divide(...)",
+	},
+	{
+		"call statement with an owned result",
+		ownedErrorProgram("owned()"),
+		"the error owned returns cannot be dropped; bind it, as in x, _, err := owned(...)",
+	},
+	{
+		"call statement with owned results around a copyable one",
+		ownedErrorProgram("several()"),
+		"the error several returns cannot be dropped; bind it, as in x, _, y, z, x4, err := several(...)",
 	},
 	{
 		"call statement of an error alone", errorProgram("ready()"),

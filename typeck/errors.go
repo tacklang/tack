@@ -1,6 +1,7 @@
 package typeck
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
@@ -153,9 +154,11 @@ func (c *Checker) checkErrorLast(fn *ast.Func) {
 
 // droppedError reports e, a call statement, when its callee returns an
 // error, which a call statement drops, with the binding that would keep
-// it: err := f(...), with a _ for each result before the error. append
-// and reserve return an error alone, which their calls check: one whose
-// arguments were wrong has no type, and is not reported again.
+// it: err := f(...), with a name for each result before the error that
+// cannot be dropped either, x, y, z, then x4, x5 and so on, in order, and
+// a _ for each other (see bindingNames). append and reserve return an
+// error alone, which their calls check: one whose arguments were wrong
+// has no type, and is not reported again.
 func (c *Checker) droppedError(e ast.Expr) {
 	call, ok := e.(*ast.Call)
 	if !ok {
@@ -175,9 +178,34 @@ func (c *Checker) droppedError(e ast.Expr) {
 		return
 	}
 	name, _ := c.calleeName(call)
-	names := strings.Repeat("_, ", len(fn.ResultTypes)-1) + "err"
+	results := ast.CallResults(call)
+	if len(results) != len(fn.ResultTypes) {
+		results = fn.ResultTypes
+	}
 	c.errorf(call.Spanned(), "the error %s returns cannot be dropped; bind it, as in %s := %s(...)",
-		name, names, c.callText(call))
+		name, c.bindingNames(results), c.callText(call))
+}
+
+// bindingNames returns the targets of a binding that keeps every result
+// of a call returning results, whose last is an error: err for the error,
+// a name for each result before it that is owned, which _ cannot take,
+// x, y and z, then x4, x5 and so on, in order, and _ for each other.
+func (c *Checker) bindingNames(results []types.Type) string {
+	names := make([]string, 0, len(results))
+	owned := 0
+	for _, typ := range results[:len(results)-1] {
+		if !c.table.Owned(typ) {
+			names = append(names, "_")
+			continue
+		}
+		owned++
+		if owned <= 3 {
+			names = append(names, string(rune('x'+owned-1)))
+		} else {
+			names = append(names, fmt.Sprintf("x%d", owned))
+		}
+	}
+	return strings.Join(append(names, "err"), ", ")
 }
 
 // checkErrorBinding reports a binding of value, whose results checked as

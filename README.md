@@ -925,7 +925,10 @@ makes for itself, which has a letter after `tack_`.
   order, no conversion, and cannot be passed as `any`. Three rules hold
   for a call to a function that returns an error:
   - Its error cannot be dropped. A call statement is `the error f returns
-    cannot be dropped; bind it, as in _, err := f(...)`, and `_` where the
+    cannot be dropped; bind it, as in _, err := f(...)`, where a result
+    that cannot be dropped either, a list or a value holding one, is named
+    rather than `_`, `x`, `y` and `z` in order, then `x4` and on: `bind it,
+    as in x, err := bytes.repeat(...)`. `_` where the
     error goes, a binding of nothing but `_` included, is `the error f
     returns cannot be dropped; bind it to a variable instead of _`. A call
     returning an error alone is a value like any other, so it may be
