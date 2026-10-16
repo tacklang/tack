@@ -40,9 +40,7 @@ These are open bugs against the guarantees, found by an audit on
 2026-10-16. Each is being fixed before any new feature.
 
 - **Panic (4).** Unbounded recursion is accepted and can run out of stack.
-  The fix, decided: recursion is rejected, direct or through other
-  functions, and the stack a program needs is computed when it is
-  compiled.
+  The fix is not decided yet.
 - **Panic (4).** A large local array, or a large value passed or copied by
   value, can overflow the stack with no recursion at all: a function with
   a 16 MB local array crashes. The same compile-time bound on call chains
