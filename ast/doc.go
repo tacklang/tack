@@ -49,6 +49,20 @@
 // returns it and Operands every value the call passes, the receiver
 // first. The type checker records the method it calls in Call.Method, and
 // Callee gives a call's function either way.
+// A generic function, func f[W Writer](w W), has its type parameters in
+// Func.TypeParams, each a TypeParam, a declaration a name written as a
+// type binds to, whose Constraint is an interface's name; the type
+// checker sets TypeParam.Type and TypeParam.Iface. A TypeDecl whose
+// TypeExpr is an InterfaceType declares an interface, whose methods are
+// IfaceMethods, each with its parameters, results and whether its
+// receiver is mut. A method call on a value of a type parameter has as
+// Call.Method a stand-in the type checker makes, with Func.Interface set
+// to the interface's method. A call to a generic function records the
+// type arguments the checker inferred in Call.TypeArgs, and CallResults
+// gives its results with them in place. The checker records every
+// instance of a generic function the program needs, a function and its
+// type arguments, in Program.Instances, and on every file, as it records
+// Types.
 // A Param written args ...T, the last of a function's, has Variadic set
 // and T as its TypeExpr; the type checker gives it the view type []T. A
 // call whose last argument is followed by ..., f(v...), has Spread set;

@@ -17,19 +17,31 @@ import "strconv"
 // view type, []T, is added the first time it is seen, like an array, and
 // found again by its element type, and so is a list type, list[T]. Error
 // is a struct the Table never adds: IsStruct and Fields know it without
-// an entry.
+// an entry. A type parameter is added once for each one a generic
+// function declares, by TypeParam.
+//
+// While code is generated for one instance of a generic function, Bind
+// makes each of its type parameters stand for a struct type: every
+// question about a bound type parameter is then answered about its type,
+// so code that asks the Table what a type is lowers the instance as it
+// would a function written with that type. Unbind ends it.
 type Table struct {
-	ids     map[array]Type // each array type's ID, by its shape
-	views   map[Type]Type  // each view type's ID, by its element type
-	lists   map[Type]Type  // each list type's ID, by its element type
-	entries []entry        // the type with ID numBasic + i, at i
+	ids   map[array]Type // each array type's ID, by its shape
+	views map[Type]Type  // each view type's ID, by its element type
+	lists map[Type]Type  // each list type's ID, by its element type
+	// bound maps each type parameter Bind bound to the type it stands
+	// for; it is nil when nothing is bound.
+	bound map[Type]Type
+
+	entries []entry // the type with ID numBasic + i, at i
 }
 
 // entry is one type a Table added: an array, with its shape, a view or a
-// list, with its element type in arr.elem, or a struct, with its name and
-// fields.
+// list, with its element type in arr.elem, a struct, with its name and
+// fields, or a type parameter, with its name.
 type entry struct {
-	strct *structType // nil for an array, a view or a list
+	strct *structType // nil for an array, a view, a list or a type parameter
+	param string      // a type parameter's name, "" for any other type
 	arr   array
 	view  bool
 	list  bool
@@ -105,6 +117,48 @@ func (t *Table) Struct(name string) Type {
 	return t.add(entry{strct: &structType{name: name}})
 }
 
+// TypeParam adds a type parameter named name, one of a generic
+// function's, and returns its ID: a type of its own, which is no other
+// type, has no fields and holds nothing, but is owned and has no zero
+// value, since it may stand for any struct type, one holding a list
+// among them (see Owned and HasZero).
+func (t *Table) TypeParam(name string) Type {
+	return t.add(entry{param: name})
+}
+
+// IsTypeParam reports whether typ is a type parameter that Bind has not
+// bound.
+func (t *Table) IsTypeParam(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.param != ""
+}
+
+// Bind makes each type parameter in args, a map from type parameter to
+// type, stand for that type until Unbind is called: every question asked
+// about it is answered about its type instead, and Bound returns that
+// type. It replaces any earlier binding.
+func (t *Table) Bind(args map[Type]Type) {
+	t.bound = args
+}
+
+// Unbind ends the binding Bind made, so every type parameter stands for
+// itself again.
+func (t *Table) Unbind() {
+	t.bound = nil
+}
+
+// Bound returns the type typ stands for: the type Bind bound it to, for a
+// bound type parameter, and typ itself for any other type.
+func (t *Table) Bound(typ Type) Type {
+	if t == nil {
+		return typ
+	}
+	if to, ok := t.bound[typ]; ok {
+		return to
+	}
+	return typ
+}
+
 // add gives e the next free ID and returns it.
 func (t *Table) add(e entry) Type {
 	id := numBasic + Type(len(t.entries))
@@ -123,6 +177,7 @@ func (t *Table) SetFields(typ Type, fields []Field) {
 // entry returns the type with ID typ, and whether typ is one this Table
 // gave out. A nil Table gave out none.
 func (t *Table) entry(typ Type) (entry, bool) {
+	typ = t.Bound(typ)
 	if t == nil || typ < numBasic || int(typ-numBasic) >= len(t.entries) {
 		return entry{}, false
 	}
@@ -132,7 +187,7 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil && !e.view && !e.list
+	return ok && e.strct == nil && e.param == "" && !e.view && !e.list
 }
 
 // IsList reports whether typ is a list type, list[T].
@@ -211,7 +266,8 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 // directly or through other arrays and structs. A value of an owned type
 // moves rather than copies, and is freed when its owner's block ends.
 func (t *Table) Owned(typ Type) bool {
-	return t.holds(typ, t.IsList, make(map[Type]bool))
+	owns := func(typ Type) bool { return t.IsList(typ) || t.IsTypeParam(typ) }
+	return t.holds(typ, owns, make(map[Type]bool))
 }
 
 // HasZero reports whether type typ has a zero value, which a variable
@@ -220,7 +276,9 @@ func (t *Table) Owned(typ Type) bool {
 // still needs an allocator to grow through, and no Allocator stands for
 // none.
 func (t *Table) HasZero(typ Type) bool {
-	noZero := func(typ Type) bool { return typ == Allocator || t.IsList(typ) }
+	noZero := func(typ Type) bool {
+		return typ == Allocator || t.IsList(typ) || t.IsTypeParam(typ)
+	}
 	return !t.holds(typ, noZero, make(map[Type]bool))
 }
 
@@ -279,6 +337,7 @@ func (t *Table) Name(typ Type) string {
 // struct type and its declared name. A nil qualify writes the declared
 // name, as Name does.
 func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) string {
+	typ = t.Bound(typ)
 	if typ >= 0 && typ < numBasic {
 		return basicNames[typ]
 	}
@@ -290,6 +349,17 @@ func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) s
 		return qualify(typ, e.strct.name)
 	case e.strct != nil:
 		return e.strct.name
+	case e.param != "":
+		return e.param
+	default:
+		return t.compositeName(e, qualify)
+	}
+}
+
+// compositeName returns the name of e, an array's, a view's or a list's
+// entry, as NameWith writes it.
+func (t *Table) compositeName(e entry, qualify func(typ Type, name string) string) string {
+	switch {
 	case e.view:
 		return "[]" + t.NameWith(e.arr.elem, qualify)
 	case e.list:

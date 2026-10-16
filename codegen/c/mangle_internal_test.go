@@ -222,3 +222,90 @@ func FuzzMethodCNamesAreDistinct(f *testing.F) {
 		}
 	})
 }
+
+// TestInstanceNamesDoNotCollide checks an instance's C name against the
+// names most like it: its generic function's own name, a method of its
+// type argument's name, a function named as the instance is written
+// without brackets, and instances of other type arguments, one or two,
+// whose names run together differently.
+func TestInstanceNamesDoNotCollide(t *testing.T) {
+	inst := "tack_" + mangledParts("calc", instanceName("render", []string{"main.File"}))
+	for _, other := range []struct{ path, name string }{
+		{"calc", "render"},
+		{"calc", "renderFile"},
+		{"calc", methodCName("File", "render")},
+		{"calc", methodCName("render", "File")},
+		{"calc", instanceName("render", []string{"main.Fil"})},
+		{"calc", instanceName("render", []string{"mai.nFile"})},
+		{"calc", instanceName("render", []string{"main.File", "main.File"})},
+		{"calc", instanceName("rende", []string{"rmain.File"})},
+		{"calc/x", instanceName("render", []string{"main.File"})},
+	} {
+		if got := "tack_" + mangledParts(other.path, other.name); got == inst {
+			t.Errorf("%s.%s mangles to %s, as render[main.File] in calc does",
+				other.path, other.name, got)
+		}
+	}
+	parts, ok := decodeMangled(inst)
+	if !ok || strings.Join(parts, "/") != "calc/render[main.File]" {
+		t.Errorf("%s decodes to %q, want calc and render[main.File]", inst, parts)
+	}
+}
+
+// instanceParts reports whether names could be the names of functions
+// and types, which are not empty and hold no period, comma or bracket,
+// and paths import paths, which hold no comma or bracket.
+func instanceParts(names, paths []string) bool {
+	for _, name := range names {
+		if name == "" || strings.ContainsAny(name, ".,[]") {
+			return false
+		}
+	}
+	for _, path := range paths {
+		if strings.ContainsAny(path, ",[]") {
+			return false
+		}
+	}
+	return true
+}
+
+// FuzzInstanceCNamesAreDistinct checks that two instances' C names differ
+// whenever their functions' packages, their functions or their type
+// arguments do, and that an instance's is never a function's, a type's, a
+// global's or a method's. A function's or a type's name is an
+// identifier, holding no period, comma or bracket, and an import path
+// holds no comma or bracket, so inputs that do are skipped.
+func FuzzInstanceCNamesAreDistinct(f *testing.F) {
+	f.Add("calc", "f", "main", "A", "main", "B", "calc", "f", "main", "A", "main", "B")
+	f.Add("m", "f", "a", "B", "c", "D", "m", "f", "a", "B,c", "", "D")
+	f.Add("m", "f", "a.b", "C", "d", "E", "m", "f", "a", "b.C", "d", "E")
+	f.Fuzz(func(t *testing.T, path1, fn1, p1, n1, q1, m1, path2, fn2, p2, n2, q2, m2 string) {
+		if !instanceParts([]string{fn1, n1, m1, fn2, n2, m2}, []string{p1, q1, p2, q2}) {
+			return
+		}
+		args1 := []string{p1 + "." + n1, q1 + "." + m1}
+		args2 := []string{p2 + "." + n2, q2 + "." + m2}
+		x := "tack_" + mangledParts(path1, instanceName(fn1, args1))
+		y := "tack_" + mangledParts(path2, instanceName(fn2, args2))
+		same := strings.Join(append([]string{path1, fn1}, args1...), "\x00") ==
+			strings.Join(append([]string{path2, fn2}, args2...), "\x00")
+		if !same && x == y {
+			t.Fatalf(
+				"%s.%s%q and %s.%s%q both mangle to %s",
+				path1,
+				fn1,
+				args1,
+				path2,
+				fn2,
+				args2,
+				x,
+			)
+		}
+		if fn := "tack_" + mangledParts(path2, fn2); fn == x {
+			t.Fatalf("instance %s and function %s.%s both mangle to %s", x, path2, fn2, fn)
+		}
+		if m := "tack_" + mangledParts(path2, methodCName(fn2, n2)); m == x {
+			t.Fatalf("instance %s and method %s.%s.%s both mangle to %s", x, path2, fn2, n2, m)
+		}
+	})
+}

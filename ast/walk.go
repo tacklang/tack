@@ -32,6 +32,7 @@ func Walk(n Node, v Visitor) {
 func walkDecl(d Decl, v Visitor) {
 	switch d := d.(type) {
 	case *Func:
+		walkAll(d.TypeParams, v)
 		walkAll(d.Params, v)
 		walkAll(d.Results, v)
 		walkAll(d.Body, v)
@@ -47,6 +48,21 @@ func walkDecl(d Decl, v Visitor) {
 	case *TypeDecl:
 		Walk(d.TypeExpr, v)
 	case *Import:
+	default:
+		walkGenericDecl(d, v)
+	}
+}
+
+// walkGenericDecl walks the children of a declaration of a generic
+// function's or an interface's: a type parameter's constraint, or an
+// interface method's parameters and then its results.
+func walkGenericDecl(d Decl, v Visitor) {
+	switch d := d.(type) {
+	case *TypeParam:
+		Walk(d.Constraint, v)
+	case *IfaceMethod:
+		walkAll(d.Params, v)
+		walkAll(d.Results, v)
 	default:
 		panic(fmt.Sprintf("ast.Walk: unhandled declaration type %T", d))
 	}
@@ -152,6 +168,8 @@ func walkExpr(e Expr, v Visitor) {
 		for _, f := range e.Fields {
 			Walk(f.TypeExpr, v)
 		}
+	case *InterfaceType:
+		walkAll(e.Methods, v)
 	case *KeyValue:
 		Walk(e.Key, v)
 		Walk(e.Value, v)

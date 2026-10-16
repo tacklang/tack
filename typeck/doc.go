@@ -509,6 +509,30 @@
 // read in place by one argument cannot share a call with a mut argument
 // that may overlap it (exclusive.go).
 //
+// Interfaces and generic functions (generic.go). An interface's methods
+// have their parameter and result types resolved after the globals, as a
+// function's are, and an interface written as any type but a type
+// parameter's constraint is reported. A generic function's type
+// parameters are each given a type of their own (types.Table.TypeParam)
+// before its parameters' types are resolved, which may name them; each
+// constraint must name an interface, and each type parameter be the type
+// of some parameter. The body is checked once, against the constraints,
+// never for a call: a value of a type parameter has its constraint's
+// methods, a call of one checked against a stand-in method (see
+// ast.Func.Interface), and nothing else, and is owned as a list is, since
+// its type argument may hold one, so every ownership rule above applies
+// to it as written. A call to a generic function infers each type
+// parameter from the arguments passed to parameters of that type, which
+// must be struct types, or the caller's own type parameters, satisfying
+// the constraint, one type per type parameter, and records them in
+// Call.TypeArgs; the call's results are the callee's with them in place
+// (ast.CallResults). Once every body checks, the instances of generic
+// functions the program needs are found (instance.go): from the bodies
+// of the functions that are not generic, then from each instance found,
+// its type parameters standing for its type arguments, each recorded once
+// in Program.Instances and every file's File.Instances, up to
+// MaxInstances, past which the call needing another is reported.
+//
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names
 // a type through it, so a type is always named by the compilation that gave

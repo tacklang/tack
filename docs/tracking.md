@@ -64,6 +64,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Other named types        | yes   | no     | no      | no  | `type C int64`, aliases and anonymous structs are rejected with a diagnostic                |
 | Package-level variables  | yes   | yes    | yes     | yes | `var`/`mut` only; initializers are constant expressions computed at compile time: immutable globals of the package or an import, their fields and elements, `len`, conversions, operators and comparisons; no calls; usable from any function; never a list, or a struct holding one |
 | Methods                  | yes   | yes    | yes     | yes | `func (b T) m()` and `func (mut b T) m()`, `pub`/`lib` capped by `T`'s visibility, on a struct type `T` of the same package, in any file and order; the receiver is the first parameter, under every parameter rule; called `x.m(args)`, on any value of `T`, a temporary included, or `mut x.m(args)` on a place, as a statement or a value, `mut` covering what comes before the last `.m(`; the receiver is a mut argument for exclusivity and list borrows; named in `T`'s namespace, not a field's or another method's name, a builtin's allowed; no method values or expressions, no extern methods; a C function `tack_<path><T.m>` taking the receiver first, a pointer for `mut`, evaluated first |
+| Interface declarations   | yes   | yes    | yes     | n/a | `type I interface { mut m(p T) R; n() }`, package level only; methods only, no fields, embedding, bodies or per-method visibility; satisfied implicitly by a struct type with each method, same signature and receiver `mut`, visible from the interface's package; used only as a constraint |
+| Generic functions        | yes   | yes    | yes     | yes | `func f[W I, V J](...)`, functions only, not methods or extern funcs; every type parameter constrained by an interface and the type of some parameter; body checked once against the constraints; type arguments inferred from the arguments, struct types or the caller's type parameters, never written; monomorphized, one C function per instance, `f[pkg.T]` mangled, each emitted once; at most 10000 instances |
 
 ### Statements
 
@@ -146,7 +148,8 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `Allocator`                        | yes     | yes | An opaque handle, copyable, with no zero value or `==`; `c_allocator` only; `tack_allocator`, `{uint32_t index; uint32_t gen;}`, in C |
 | Maps                               | no      | no  |                                                                   |
 | Pointers                           | no      | no  | None; a `mut` parameter is a reference that cannot be stored      |
-| Interfaces, generics               | no      | no  |                                                                   |
+| Interfaces                         | yes     | n/a | Constraints of type parameters only, never a value's type; nothing of them in C |
+| Type parameters                    | yes     | yes | Within a generic function; owned as a list is, no `==`, zero value, field, element or `any`; the constraint's methods only; bound to its type argument in each instance |
 
 ### Builtins
 

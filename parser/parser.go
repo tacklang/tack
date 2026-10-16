@@ -413,6 +413,10 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 		Method:   recv != nil,
 	}
 
+	if diags := p.parseTypeParams(fn, extern); diags != nil {
+		return nil, diags
+	}
+
 	params, paramsDiags := p.parseParams()
 	if paramsDiags != nil {
 		return nil, paramsDiags
@@ -435,6 +439,110 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	fn.Span.End = p.lastEnd()
 
 	return fn, nil
+}
+
+// parseTypeParams parses the type parameters of fn, a generic function,
+// in the brackets that come next, if any, into fn.TypeParams: each a name and its
+// constraint, as a parameter is a name and a type, with commas between
+// them optional, as between parameters. An empty list, a name with no
+// constraint after it, and type parameters on a method or, extern says,
+// an extern func are reported; whether a constraint names an interface is
+// the type checker's to judge.
+func (p *Parser) parseTypeParams(fn *ast.Func, extern bool) []diag.Diagnostic {
+	if p.peek().Kind() != lexer.LBrack {
+		return nil
+	}
+	open := p.next() // the opening bracket
+	for p.peek().Kind() != lexer.RBrack {
+		name, diags := p.parseIdent("type parameter name")
+		if name == nil {
+			return diags
+		}
+		if k := p.peek().Kind(); k == lexer.Comma || k == lexer.RBrack {
+			return []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message: fmt.Sprintf("type parameter %s has no constraint; "+
+					"write the interface it must satisfy after it, as in [%s Writer]",
+					name.Name, name.Name),
+				Span: name.Span,
+			}}
+		}
+		constraint, diags := p.parseType()
+		if constraint == nil {
+			return diags
+		}
+		fn.TypeParams = append(fn.TypeParams, &ast.TypeParam{
+			Constraint: constraint,
+			Name:       name.Name,
+			NameSpan:   name.Span,
+			Span: ast.Span{
+				File:  p.fileID,
+				Start: name.Span.Start,
+				End:   constraint.Spanned().End,
+			},
+		})
+		p.optional(lexer.Comma)
+	}
+	closing := p.next()
+	fn.TypeParamsSpan = ast.Span{
+		File:  p.fileID,
+		Start: open.OffsetStart(),
+		End:   closing.OffsetEnd(),
+	}
+	if msg := typeParamsProblem(fn, extern); msg != "" {
+		return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: fn.TypeParamsSpan}}
+	}
+	return nil
+}
+
+// typeParamsProblem returns what is wrong with fn's type parameters,
+// parsed, as a whole, extern saying whether fn is an extern func, or ""
+// when nothing is: there are none, or fn is a method or an extern func,
+// neither of which can be generic.
+func typeParamsProblem(fn *ast.Func, extern bool) string {
+	switch {
+	case len(fn.TypeParams) == 0:
+		return "empty type parameter list"
+	case fn.Method:
+		return "a method cannot have type parameters; only a function can be generic"
+	case extern:
+		return fmt.Sprintf(
+			"extern func %s cannot have type parameters; its body is written in C",
+			fn.Name,
+		)
+	default:
+		return ""
+	}
+}
+
+// atTypeArgs reports whether the name that starts the next tokens, ending
+// n places ahead, is followed by brackets and then an opening
+// parenthesis, f[T](x): a call written with type arguments, which a call
+// never has, since they are inferred from its arguments. Nothing else
+// takes that shape, since a call's callee is a name.
+func (p *Parser) atTypeArgs(n int) bool {
+	if p.peek().Kind() != lexer.Ident || p.peekAt(n+1).Kind() != lexer.LBrack {
+		return false
+	}
+	return p.peekAt(p.afterGroup(n+1, lexer.LBrack, lexer.RBrack)).Kind() == lexer.LParen
+}
+
+// typeArgsError reports the call that starts the next tokens, whose name
+// ends n places ahead, written with type arguments (see atTypeArgs).
+func (p *Parser) typeArgsError(n int) []diag.Diagnostic {
+	first, last := p.peek(), p.peekAt(p.afterGroup(n+1, lexer.LBrack, lexer.RBrack)-1)
+	name := lexer.ValueChecked[string](first)
+	if n > 0 {
+		name += "." + lexer.ValueChecked[string](p.peekAt(n))
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message: fmt.Sprintf(
+			"cannot write type arguments; they are inferred from the arguments, as in %s(...)",
+			name,
+		),
+		Span: ast.Span{File: p.fileID, Start: first.OffsetStart(), End: last.OffsetEnd()},
+	}}
 }
 
 // notFinal is the error for a ... at span that does not mark a function's
@@ -876,6 +984,9 @@ func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	// A qualified name can be assigned or called but not declared.
 	n := p.nameEnd()
+	if p.atTypeArgs(n) {
+		return nil, p.typeArgsError(n)
+	}
 	postfixed := p.peekAt(n+1).Kind() == lexer.LBrack || p.peekAt(n+1).Kind() == lexer.Period
 	switch after := p.afterTarget(n); after.Kind() {
 	case lexer.Define:
@@ -1282,30 +1393,136 @@ func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	tk := p.peek()
-	switch {
-	case tk.Kind() == lexer.Keyword && tk.Value() == lexer.Struct:
+	var typ ast.Expr
+	switch tk := p.peek(); {
+	case isKeyword(tk, lexer.Struct):
+		st, diags := p.parseStructType()
+		if st == nil {
+			return nil, diags
+		}
+		typ = st
+	case isKeyword(tk, lexer.Interface):
+		it, diags := p.parseInterfaceType()
+		if it == nil {
+			return nil, diags
+		}
+		typ = it
 	case tk.Kind() == lexer.Ident || tk.Kind() == lexer.LBrack:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  "only struct types can be declared",
+			Message:  "only struct and interface types can be declared",
 			Span:     p.span(tk),
 		}}
 	default:
-		return nil, []diag.Diagnostic{p.diagInvalidToken("struct", tk)}
+		return nil, []diag.Diagnostic{p.diagInvalidToken("struct or interface", tk)}
 	}
 
-	typ, diags := p.parseStructType()
-	if typ == nil {
-		return nil, diags
-	}
 	d := &ast.TypeDecl{
 		TypeExpr: typ,
 		Name:     name.Name,
 		NameSpan: name.Span,
-		Span:     ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: typ.Span.End},
+		Span:     ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: typ.Spanned().End},
 	}
 	return d, p.endStmt(&d.Span)
+}
+
+// parseInterfaceType parses interface { ... }: its methods, each ended by
+// a semicolon, written or inserted at a line end, which may be left out
+// before the closing brace, as a struct's fields are.
+func (p *Parser) parseInterfaceType() (*ast.InterfaceType, []diag.Diagnostic) {
+	kw := p.next() // the interface keyword
+	if ok, diags := p.expect(lexer.LCurl); !ok {
+		return nil, diags
+	}
+
+	typ := &ast.InterfaceType{Methods: make([]*ast.IfaceMethod, 0)}
+	for p.peek().Kind() != lexer.RCurl {
+		m, diags := p.parseIfaceMethod()
+		if m == nil {
+			return nil, diags
+		}
+		typ.Methods = append(typ.Methods, m)
+
+		if p.peek().Kind() == lexer.RCurl {
+			break
+		}
+		if ok, diags := p.expect(lexer.Semi); !ok {
+			return nil, diags
+		}
+	}
+
+	end := p.next() // the closing brace
+	typ.Span = ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: end.OffsetEnd()}
+	return typ, nil
+}
+
+// notMethod reports name, the name an interface's member starts with,
+// when what follows it is no method's parameters: nothing, or a period
+// and a name, which would embed an interface, or a type, which would make
+// it a field. It returns nil when parameters follow.
+func (p *Parser) notMethod(name *ast.Ident) []diag.Diagnostic {
+	msg := "an interface cannot have fields; it holds only methods"
+	switch p.peek().Kind() {
+	case lexer.LParen:
+		return nil
+	case lexer.Semi, lexer.RCurl, lexer.Period:
+		msg = "embedded interfaces are not supported"
+	}
+	return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: name.Span}}
+}
+
+// parseIfaceMethod parses one method of an interface type: mut, if its
+// receiver is taken as mut, its name, its parameters and its results, as
+// a function's signature is written, with no receiver and no body.
+// Visibility written on it, a name alone, which would embed an interface,
+// a field and a body are reported.
+func (p *Parser) parseIfaceMethod() (*ast.IfaceMethod, []diag.Diagnostic) {
+	m := &ast.IfaceMethod{}
+	tk := p.peek()
+	if _, visible := visibilityOf(tk); visible {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: fmt.Sprintf(
+				"an interface's method cannot be %s; it is as visible as its interface",
+				tk.Value()),
+			Span: p.span(tk),
+		}}
+	}
+	if isKeyword(tk, lexer.Mut) {
+		p.next()
+		m.Mut, m.MutSpan = true, p.span(tk)
+	}
+	name, diags := p.parseIdent("method name")
+	if name == nil {
+		return nil, diags
+	}
+	m.Name, m.NameSpan = name.Name, name.Span
+	if bad := p.notMethod(name); bad != nil {
+		return nil, bad
+	}
+
+	params, diags := p.parseParams()
+	if diags != nil {
+		return nil, diags
+	}
+	m.Params = params
+	results, diags := p.parseResults()
+	if diags != nil {
+		return nil, diags
+	}
+	m.Results = results
+	if tk := p.peek(); tk.Kind() == lexer.LCurl {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("interface method %s cannot have a body", m.Name),
+			Span:     p.span(tk),
+		}}
+	}
+	m.Span = ast.Span{File: p.fileID, Start: name.Span.Start, End: p.lastEnd()}
+	if m.Mut {
+		m.Span.Start = m.MutSpan.Start
+	}
+	return m, nil
 }
 
 // parseStructType parses struct { ... }: its fields, each ended by a
@@ -2296,21 +2513,29 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LCurl && !p.noLit {
 		return p.parseStructLit()
 	}
+	if p.atTypeArgs(n) {
+		return nil, p.typeArgsError(n)
+	}
 
 	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LParen {
-		// A nil *ast.Call would be a non-nil ast.Expr, so an error is
-		// returned as an untyped nil.
-		call, callDiags := p.parseCall()
-		if call == nil {
-			return nil, callDiags
-		}
-		return call, nil
+		return p.parseCallOperand()
 	}
 
 	if n > 0 {
 		return p.parseQualified(), nil
 	}
 	return p.parseLiteral()
+}
+
+// parseCallOperand parses a call, which the caller has seen is next, as
+// an operand. A nil *ast.Call would be a non-nil ast.Expr, so an error is
+// returned as an untyped nil.
+func (p *Parser) parseCallOperand() (ast.Expr, []diag.Diagnostic) {
+	call, diags := p.parseCall()
+	if call == nil {
+		return nil, diags
+	}
+	return call, nil
 }
 
 // parseStructLit parses a struct literal: its type's name, qualified or

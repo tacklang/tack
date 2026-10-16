@@ -382,10 +382,11 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 	}
 	fn := ast.Callee(call)
 	name, named := m.c.calleeName(call)
-	if fn == nil || !named || len(fn.ResultTypes) != len(blank) {
+	results := ast.CallResults(call)
+	if fn == nil || !named || len(results) != len(blank) {
 		return
 	}
-	for i, typ := range fn.ResultTypes {
+	for i, typ := range results {
 		if blank[i] && m.c.table.Owned(typ) {
 			m.errorNotes(spans[i], nil, "%s returns %s; bind it to a variable instead of _",
 				name, m.droppedName(typ))
@@ -399,6 +400,9 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 func (m *mover) droppedName(typ types.Type) string {
 	if m.c.table.IsList(typ) {
 		return m.c.typeName(typ) + ", which cannot be dropped"
+	}
+	if m.c.table.IsTypeParam(typ) {
+		return m.c.typeName(typ) + ", which may hold a list and cannot be dropped"
 	}
 	return m.c.typeName(typ) + ", which holds a list and cannot be dropped"
 }
@@ -418,7 +422,7 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 	if callee, ok := m.c.calleeName(call); ok {
 		name = callee
 		if fn := ast.Callee(call); fn != nil {
-			results = fn.ResultTypes
+			results = ast.CallResults(call)
 		}
 	}
 	for _, typ := range results {

@@ -1,0 +1,350 @@
+package main
+
+// Interfaces and generic functions. An interface lists methods; a generic
+// function takes type parameters, each constrained by an interface, and is
+// type-checked once, against its constraints. It is compiled once for each
+// set of struct types it is called with, and in each its calls of the
+// interface's methods call those types' own methods.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero, so a list a type argument holds is freed exactly once, however
+// generic functions passed it around. The count is read through live,
+// whose C, in live.c, reads std's hook.
+
+import fmt from "std/fmt"
+import logs from "generics/logs"
+import sink from "generics/sink"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("generics_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Writer is what bytes can be written to, and knows how many it holds.
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+// Sizer knows its size: an interface narrower than Writer, which a Writer
+// can be passed on as.
+type Sizer interface {
+    size() int64
+}
+
+// Empty asks for no method, so every struct type satisfies it.
+type Empty interface {
+}
+
+// Counted counts something, as sink.Sink's count does: logs.Log satisfies
+// it through its pub method.
+type Counted interface {
+    count() int64
+}
+
+// Counter counts the bytes written to it, and keeps none.
+type Counter struct {
+    n int64
+}
+
+// write counts b's bytes.
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+// size returns how many bytes were written to c.
+func (c Counter) size() int64 {
+    return c.n
+}
+
+// Buffer keeps the bytes written to it, in a list it owns.
+type Buffer struct {
+    bytes list[uint8]
+}
+
+// newBuffer returns an empty Buffer.
+func newBuffer() Buffer {
+    return Buffer{bytes: make(list[uint8], c_allocator)}
+}
+
+// write keeps bs.
+func (mut b Buffer) write(bs []uint8) error {
+    return append(mut b.bytes, bs...)
+}
+
+// size returns how many bytes b keeps.
+func (b Buffer) size() int64 {
+    return len(b.bytes)
+}
+
+// at returns the byte b keeps at i, or 0 past its end.
+func (b Buffer) at(i int64) uint8 {
+    v, _ := b.bytes[i]
+    return v
+}
+
+// Limited counts the bytes written to it, and fails a write that would
+// take it past max.
+type Limited struct {
+    n   int64
+    max int64
+}
+
+// write counts b's bytes, or fails, counting none, when there is no room.
+func (mut l Limited) write(b []uint8) error {
+    if l.n + len(b) > l.max {
+        return error{code: 7, msg: "full"}
+    }
+    l.n += len(b)
+    return noerror
+}
+
+// size returns how many bytes were written to l.
+func (l Limited) size() int64 {
+    return l.n
+}
+
+// Box holds a Counter, which a generic function changes through the
+// field.
+type Box struct {
+    inner Counter
+}
+
+// render writes s to w, through w's mut method, then returns w's size,
+// passing w on to measure, whose constraint asks for less.
+func render[W Writer](mut w W, s string) (int64, error) {
+    err := mut w.write([]uint8(s))
+    if err.code != 0 {
+        return 0, err
+    }
+    return measure(w), noerror
+}
+
+// measure returns s's size, through its plain method.
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+// repeat writes s to w n times, by recursion.
+func repeat[W Writer](mut w W, s string, n int64) error {
+    if n <= 0 {
+        return noerror
+    }
+    err := mut w.write([]uint8(s))
+    if err.code != 0 {
+        return err
+    }
+    return repeat(mut w, s, n - 1)
+}
+
+// framed writes "[", then s, then, from a defer, "]".
+func framed[W Writer](mut w W, s string) error {
+    err := mut w.write([]uint8("["))
+    if err.code != 0 {
+        return err
+    }
+    defer {
+        closing := mut w.write([]uint8("]"))
+        if closing.code != 0 {
+            print("closing failed\n")
+        }
+    }
+    return mut w.write([]uint8(s))
+}
+
+// bigger reports whether a is bigger than b: two type parameters, which
+// may be two types or one.
+func bigger[A Sizer, B Sizer](a A, b B) bool {
+    return a.size() > b.size()
+}
+
+// both writes s to a, then to b: two parameters of one type parameter,
+// which a call must give one type.
+func both[W Writer](mut a W, mut b W, s string) error {
+    err := mut a.write([]uint8(s))
+    if err.code != 0 {
+        return err
+    }
+    return mut b.write([]uint8(s))
+}
+
+// alternate counts n down, swapping a and b each time, and then returns
+// the size of the one first, less the other's: it is instantiated with its
+// two type arguments in both orders.
+func alternate[A Sizer, B Sizer](a A, b B, n int64) int64 {
+    if n <= 0 {
+        return a.size() - b.size()
+    }
+    return alternate(b, a, n - 1)
+}
+
+// one returns 1 for any struct value at all.
+func one[E Empty](e E) int64 {
+    return 1
+}
+
+// countOf returns what c counts.
+func countOf[C Counted](c C) int64 {
+    return c.count()
+}
+
+// feedTwice puts "x" and then "y" into s: a type parameter constrained by
+// an interface of another package, passed on to a generic function of
+// that package.
+func feedTwice[S sink.Sink](mut s S) error {
+    err := sink.Feed(mut s, "x")
+    if err.code != 0 {
+        return err
+    }
+    return sink.Feed(mut s, "y")
+}
+
+// report prints s's size through printf, from a generic function.
+func report[S Sizer](s S, name string) {
+    fmt.printf("%s holds %d\n", name, s.size())
+}
+
+// stuck never returns. A parameter borrows its argument and cannot be
+// moved out of, so a function can produce a value of its type parameter
+// only from another call that does; this one, which never returns, is
+// where such values start.
+func stuck[S Sizer](s S) S {
+    for {
+    }
+}
+
+// relay returns what stuck gives it: a local of a type parameter, moved
+// by the return.
+func relay[S Sizer](s S) S {
+    x := stuck(s)
+    return x
+}
+
+// pair returns what stuck gives it and that value's size: a type
+// parameter among several results.
+func pair[S Sizer](s S) (S, int64) {
+    x := stuck(s)
+    n := x.size()
+    return x, n
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    counters()
+    buffers()
+    freed("buffers freed")
+    limits()
+    recursion()
+    freed("recursion freed")
+    defers()
+    freed("defers freed")
+    twoOfOne()
+    packages()
+    freed("packages freed")
+    never()
+    freed("never freed")
+    report(Counter{n: 5}, "a counter")
+}
+
+// counters runs generic functions on a type holding no list.
+func counters() {
+    mut c := Counter{n: 0}
+    n, err := render(mut c, "hello")
+    check(err.code == 0 && n == 5 && c.n == 5, "a mut method and a plain one through a generic function")
+    check(measure(c) == 5, "the same instance from a second call")
+    mut box := Box{inner: Counter{n: 1}}
+    n2, err2 := render(mut box.inner, "ab")
+    check(err2.code == 0 && n2 == 3 && box.inner.n == 3, "a field passed as mut")
+    check(one(c) + one(box) == 2, "a constraint with no methods")
+}
+
+// buffers runs generic functions on a type holding a list, which is
+// borrowed, changed and moved, and freed once at the end.
+func buffers() {
+    mut b := newBuffer()
+    n, err := render(mut b, "hey")
+    check(err.code == 0 && n == 3 && b.size() == 3 && b.at(0) == 'h', "a type argument holding a list")
+    c := Counter{n: 1}
+    check(bigger(b, c) && !bigger(c, b), "two type parameters of two types")
+    moved := b
+    check(measure(moved) == 3, "a moved type argument")
+}
+
+// limits passes an error from a method out through a generic function.
+func limits() {
+    mut l := Limited{n: 0, max: 4}
+    n, err := render(mut l, "abc")
+    check(err.code == 0 && n == 3, "a write with room")
+    _, err2 := render(mut l, "de")
+    check(err2.code == 7 && l.n == 3, "an error from a method through a generic function")
+}
+
+// recursion runs a recursive generic function with two types, and one
+// that swaps its type arguments as it recurses.
+func recursion() {
+    mut b := newBuffer()
+    err := repeat(mut b, "ab", 3)
+    check(err.code == 0 && b.size() == 6, "recursion")
+    mut c := Counter{n: 0}
+    err2 := repeat(mut c, "xyz", 4)
+    check(err2.code == 0 && c.n == 12, "recursion with another type")
+    check(alternate(b, c, 3) == 6, "recursion swapping its type arguments")
+}
+
+// defers runs a generic function whose defer calls a mut method.
+func defers() {
+    mut b := newBuffer()
+    err := framed(mut b, "mid")
+    check(err.code == 0 && b.size() == 5 && b.at(0) == '[' && b.at(4) == ']', "a defer in a generic function")
+}
+
+// twoOfOne passes two values of one type to two parameters of one type
+// parameter.
+func twoOfOne() {
+    mut x := Counter{n: 0}
+    mut y := Counter{n: 1}
+    err := both(mut x, mut y, "four")
+    check(err.code == 0 && x.n == 4 && y.n == 5, "two parameters of one type parameter")
+}
+
+// packages uses an interface and generic functions of sink with a type of
+// logs, which satisfies them through its pub methods.
+func packages() {
+    mut l := logs.New()
+    err := sink.Feed(mut l, "a", "b", "c")
+    check(err.code == 0 && countOf(l) == 3 && l.Last() == "c", "a generic function and an interface of another package")
+    t := sink.NewTally()
+    check(sink.Total(l, t) == 3, "a type whose private methods satisfy its own package's interface")
+    err2 := feedTwice(mut l)
+    check(err2.code == 0 && countOf(l) == 5 && l.Last() == "y", "a constraint of another package")
+    check(sink.Tallied("x", "y") == 2, "a generic call inside another package")
+}
+
+// never calls the functions that produce values of a type parameter on a
+// path that never runs: their instances, and what they move, still
+// compile.
+func never() {
+    c := Counter{n: 2}
+    if live() < 0 {
+        x := relay(c)
+        b := newBuffer()
+        y, n := pair(b)
+        check(x.size() + y.size() + n > 0, "never printed")
+    }
+    check(true, "results of a type parameter")
+}

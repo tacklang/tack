@@ -96,6 +96,23 @@
 // receiver's type, so a binding of nothing but _ of a method call's
 // results is left to the type checker to report too.
 //
+// An interface, type Writer interface { ... }, is declared as a struct
+// type is, in the package's namespace, and is a TypeDecl a name written
+// as a type binds to; where it may be written is the type checker's to
+// judge. Its methods' parameter and result types are resolved in its
+// file's scope; a method's name is in its interface's namespace, follows
+// a field's naming rule and is declared once, and its parameters are
+// named once each, none reserved, but may share names with anything
+// else, since a method of an interface has no body that could see them.
+// A generic function's type parameters form a scope of their own,
+// enclosing its parameters and nested in its file's: they are declared
+// first, under a parameter's naming rules, so none is reserved, a
+// package-level name, an import's or another type parameter's, then
+// their constraints are resolved in that scope, then the function's
+// signature, which may name them, and its body, in which a parameter or
+// local cannot reuse one's name. A type parameter is a type: a name bound
+// to one is reported as a value, called or assigned, as a type's name is.
+//
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is
 // nested in the block holding the statement; a switch's tag and case

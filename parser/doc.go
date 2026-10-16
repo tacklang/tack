@@ -38,7 +38,16 @@
 // Params[0], with Func.Method set. No receiver before a name, func () m(),
 // several, and a variadic one are reported; func () with no name after
 // it is a function's name left out. Which types may have methods, and
-// whether one may be extern, is the resolver's to judge.
+// whether one may be extern, is the resolver's to judge. Brackets right
+// after a function's name hold its type parameters, func f[W Writer, V
+// sink.Sink](...): each a name and a constraint, parsed as a type, with
+// commas between them optional as between parameters, recorded in
+// Func.TypeParams, the brackets' span in TypeParamsSpan. An empty list, a
+// name with no constraint after it, and type parameters on a method or
+// an extern func are reported; whether a constraint is an interface is
+// the type checker's to judge. A call is never written with type
+// arguments: a name followed by brackets and then a parenthesis, f[T](x),
+// is reported, since nothing else takes that shape.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment
@@ -72,9 +81,14 @@
 // the ViewType, and one followed by braces is a literal, which the type
 // checker reports. A type declaration, at package level only, is
 // type Name struct { ... }, its fields a name and a type each, separated by
-// semicolons, written or inserted at line ends; struct {} has none. Other
-// named types, anonymous struct types and embedded fields are each
-// reported here, as is a type declared inside a function. A field may
+// semicolons, written or inserted at line ends; struct {} has none. Or it
+// is type Name interface { ... }, an InterfaceType, its methods separated
+// the same way, each an IfaceMethod: mut, if its receiver is mut, a name,
+// parameters and results, as a function's signature is written after its
+// name; interface {} has none. Visibility on a method, a name alone,
+// which would embed an interface, a field and a method's body are
+// reported. Other named types, anonymous struct types and embedded fields
+// are each reported here, as is a type declared inside a function. A field may
 // start with pub or lib, and so may a package-level function, variable
 // (var or mut) or type declaration, whose span then starts at the keyword;
 // the parser records the visibility and the keyword's span, and anything

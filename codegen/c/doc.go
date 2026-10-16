@@ -118,7 +118,14 @@
 // package is tack_4_main13_Builder_2ewrite: no other name holds a period,
 // so a method's C name is never a function's, a type's, a global's or
 // another method's, even a function's of a package whose path ends in the
-// type's name (see funcCName).
+// type's name (see funcCName). An instance of a generic function is named
+// as if its function's name and its type arguments, each its package's
+// path, a period and its name, separated by commas and in brackets, were
+// one name, so render with File of the main package of a program of one
+// file is tack_4_main23_render_5bmain_2eFile_5d: no other name holds a
+// bracket, and a path holds no comma or bracket, so an instance's C name
+// is never another declaration's or another instance's (see
+// instanceCName).
 // A parameter x becomes p_x and a local variable x becomes v_x, since a Tack
 // name may be a C keyword or a name C declares, and either may legally be
 // called int or exit.
@@ -141,6 +148,20 @@
 // evaluated first, a mut one as the address of its place, then the
 // arguments, under every rule of a call's order and of the copies and
 // views an argument may need.
+//
+// A generic function is never emitted itself: each of its instances the
+// type checker recorded in Program.Instances is, once, as a function of
+// its own, with its prototype and its results struct, after the
+// functions that are not generic (generic.go). Its body is generated
+// with the type table binding each type parameter to the instance's type
+// argument (types.Table.Bind), so every C type it writes and every
+// question it asks of a type, whether it is owned, how it is freed, is
+// its type argument's; a call of an interface method on a value of a
+// type parameter calls the type argument's method of that name directly,
+// and a call of a generic function calls its instance for the call's
+// type arguments, as bound. The checker moves a value of a type
+// parameter, which may hold a list; where its type argument holds none,
+// the move is a plain copy and the variable is left as it is.
 //
 // A view, []T, lowers to a C struct of a pointer to const elements and a
 // length, tack_view_ and the type's ID, defined after its element type,

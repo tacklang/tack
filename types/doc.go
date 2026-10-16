@@ -57,6 +57,15 @@
 // or a struct holding one at any depth. A value of such a type moves
 // rather than copies. HasZero says which types have a zero value: every
 // type but a list, an Allocator, and an array or a struct holding either.
+// A type parameter, one of a generic function's, is a type of its own,
+// added once for each declared, named by its name, which is no array,
+// struct, view or list; it may stand for a struct holding a list, so it
+// is owned and has no zero value. While code is generated for one instance
+// of a generic function, Bind binds each of its type parameters to its
+// type argument, and every question the Table answers about a bound type
+// parameter, Owned, Fields, Name and the rest, is answered about its type
+// argument, until Unbind; Bound gives the type a type parameter stands
+// for. The checker never binds one.
 //
 // The type checker creates one Table per program and records it on the
 // ast.Program and on every ast.File of it. Name maps an ID back to the

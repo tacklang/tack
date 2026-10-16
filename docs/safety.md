@@ -1198,6 +1198,27 @@ rules cover every way a buffer could move while something reads it.
 A list's elements are copied when read, so they must be copyable:
 <!-- error: list-list-of-lists -->`a list cannot hold list[int64]: its elements are copied, and a list cannot be`.
 
+**Type parameters.** A generic function's body is checked once, for
+every type a call may pass, and a struct holding a list is one, so a
+value of a type parameter is owned as a list is, under every rule
+above. It moves rather than copies, and a parameter of one borrows its
+argument, <!-- error: generic-copy-param -->`cannot move s: it is a parameter, which borrows its caller's value`;
+a moved one cannot be used, <!-- error: generic-use-after-move -->`x is used after it was moved`;
+one no variable holds must be given one,
+<!-- error: generic-temporary -->`cannot use a temporary S here; store it in a variable first`,
+<!-- error: generic-dropped-result -->`stuck returns S, which may hold a list and cannot be dropped; bind it to a variable`;
+it has no zero value, <!-- error: generic-zero-value -->`z needs a value: S has no zero value`;
+it is never borrowed alongside a `mut` argument of itself,
+<!-- error: generic-arg-borrow-alongside-mut -->`cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it`;
+and it is no element,
+<!-- error: generic-array -->`an array cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be`.
+Each instance of the function is compiled with its type arguments, so
+its moves and frees are those of a struct holding a list where the type
+argument holds one, and plain copies, with nothing to free, where it
+does not. `examples/generics` passes a struct holding a list through
+generic functions that borrow it, change it and move it, and checks the
+count of live buffers is back to zero after each check.
+
 ## Compile-time errors
 
 The compiler reports, rather than proves or checks, an operation whose

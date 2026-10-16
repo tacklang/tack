@@ -192,6 +192,7 @@ func (g *generator) equalExpr(typ types.Type, l, r string) string {
 // never another declaration's. error's is tack_error, which std's tack.h
 // defines.
 func (g *generator) structName(typ types.Type) string {
+	typ = g.prog.Types.Bound(typ)
 	if typ == types.Error {
 		return basicCType(typ)
 	}

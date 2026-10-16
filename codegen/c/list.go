@@ -273,8 +273,16 @@ func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
 
 // moveValue renders a name the type checker marked as moved, whose
 // variable or field place is ref, as its value taken through a temporary,
-// with the variable emptied: (tack_o3 = ref, ref = (T){0}, tack_o3).
+// with the variable emptied: (tack_o3 = ref, ref = (T){0}, tack_o3). In
+// an instance of a generic function, a value of a type parameter is
+// moved, since the type checker cannot know whether it owns a list; when
+// its type argument owns none, nothing frees it, so the move is a copy,
+// ref itself, and the variable, which nothing reads again, is left as it
+// is.
 func (g *generator) moveValue(typ types.Type, ref string) string {
+	if !g.owned(typ) {
+		return ref
+	}
 	t := g.temp("o")
 	ctype := g.cType(typ)
 	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", ctype, t))

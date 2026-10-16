@@ -542,6 +542,171 @@ extern-visible/util/util.tck:5:1: error: an extern func cannot be lib; export a 
    |	^~~
 06 |	
 
+-- generic-foreign-private-method/tack.mod --
+module calc
+-- generic-foreign-private-method/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n++
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-foreign-private-method/main.tck --
+package main
+
+import sink from "calc/sink"
+
+type Counted interface {
+    count() int64
+}
+
+func countOf[C Counted](c C) int64 {
+    return c.count()
+}
+
+func main() {
+    t := sink.NewTally()
+    if countOf(t) > 0 {
+        exit(1)
+    }
+}
+-- generic-foreign-private-method/expected --
+stage: typeck
+---
+
+generic-foreign-private-method/main.tck:15:16: error: sink.Tally does not satisfy Counted: sink.Tally.count is not pub, and Counted is an interface of another package
+14 |	    t := sink.NewTally()
+15 |	    if countOf(t) > 0 {
+   |	               ^
+16 |	        exit(1)
+
+-- generic-main-type-foreign-interface/tack.mod --
+module calc
+-- generic-main-type-foreign-interface/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n++
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-main-type-foreign-interface/main.tck --
+package main
+
+import sink from "calc/sink"
+
+type Doc struct {
+    words int64
+}
+
+func (mut d Doc) put(word string) error {
+    d.words++
+    return noerror
+}
+
+func (d Doc) count() int64 {
+    return d.words
+}
+
+func main() {
+    mut d := Doc{words: 0}
+    err := sink.Feed(mut d, "x")
+    exit(err.code)
+}
+-- generic-main-type-foreign-interface/expected --
+stage: typeck
+---
+
+generic-main-type-foreign-interface/main.tck:20:26: error: Doc does not satisfy sink.Sink: Doc.put is not pub, and sink.Sink is an interface of another package
+19 |	    mut d := Doc{words: 0}
+20 |	    err := sink.Feed(mut d, "x")
+   |	                         ^
+21 |	    exit(err.code)
+
+-- generic-pub-private-constraint/tack.mod --
+module calc
+-- generic-pub-private-constraint/geo/geo.tck --
+package geo
+
+pub func Nothing() {
+}
+
+type hidden interface {
+    size() int64
+}
+
+pub func Size[S hidden](s S) int64 {
+    return s.size()
+}
+
+lib func Lib[S hidden](s S) int64 {
+    return s.size()
+}
+-- generic-pub-private-constraint/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- generic-pub-private-constraint/expected --
+stage: typeck
+---
+
+generic-pub-private-constraint/geo/geo.tck:10:17: error: pub function Size exposes hidden, which is not pub
+09 |	
+10 |	pub func Size[S hidden](s S) int64 {
+   |	                ^~~~~~
+11 |	    return s.size()
+
+generic-pub-private-constraint/geo/geo.tck:14:16: error: lib function Lib exposes hidden, which is not lib or pub
+13 |	
+14 |	lib func Lib[S hidden](s S) int64 {
+   |	               ^~~~~~
+15 |	    return s.size()
+
 -- hidden-only/tack.mod --
 module hidden-only
 -- hidden-only/.main.tck --
@@ -1815,6 +1980,149 @@ init-selects-hidden-field/main.tck:5:21: error: end is not pub in lexer.Token
 05 |	var end = lexer.Eof.end
    |	                    ^~~
 06 |	
+
+-- interface-foreign-as-type/tack.mod --
+module calc
+-- interface-foreign-as-type/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n++
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- interface-foreign-as-type/main.tck --
+package main
+
+import sink from "calc/sink"
+
+func use(s sink.Sink) {
+}
+
+func main() {
+}
+-- interface-foreign-as-type/expected --
+stage: typeck
+---
+
+interface-foreign-as-type/main.tck:5:12: error: sink.Sink is an interface; it can only constrain a type parameter
+04 |	
+05 |	func use(s sink.Sink) {
+   |	           ^~~~~~~~~
+06 |	}
+
+-- interface-foreign-hidden-constraint/tack.mod --
+module calc
+-- interface-foreign-hidden-constraint/geo/geo.tck --
+package geo
+
+type hidden interface {
+    size() int64
+}
+
+pub func Nothing() {
+}
+-- interface-foreign-hidden-constraint/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func f[S geo.hidden](s S) {
+}
+
+func main() {
+    geo.Nothing()
+}
+-- interface-foreign-hidden-constraint/expected --
+stage: resolve
+---
+
+interface-foreign-hidden-constraint/main.tck:5:10: error: hidden is not pub in package calc/geo
+04 |	
+05 |	func f[S geo.hidden](s S) {
+   |	         ^~~~~~~~~~
+06 |	}
+
+-- interface-main-pub/tack.mod --
+module calc
+-- interface-main-pub/main.tck --
+package main
+
+pub type Sizer interface {
+    size() int64
+}
+
+func main() {
+}
+-- interface-main-pub/expected --
+stage: resolve
+---
+
+interface-main-pub/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub type Sizer interface {
+   |	^~~
+04 |	    size() int64
+
+-- interface-pub-exposes/tack.mod --
+module calc
+-- interface-pub-exposes/geo/geo.tck --
+package geo
+
+pub func Nothing() {
+}
+
+type secret struct {
+    n int64
+}
+
+pub type Maker interface {
+    make() secret
+    take(s secret)
+}
+-- interface-pub-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- interface-pub-exposes/expected --
+stage: typeck
+---
+
+interface-pub-exposes/geo/geo.tck:11:12: error: pub interface Maker exposes secret, which is not pub
+10 |	pub type Maker interface {
+11 |	    make() secret
+   |	           ^~~~~~
+12 |	    take(s secret)
+
+interface-pub-exposes/geo/geo.tck:12:12: error: pub interface Maker exposes secret, which is not pub
+11 |	    make() secret
+12 |	    take(s secret)
+   |	           ^~~~~~
+13 |	}
 
 -- lex-errors-in-two-files/tack.mod --
 module lex-errors-in-two-files

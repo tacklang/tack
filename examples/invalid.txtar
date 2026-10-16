@@ -5267,6 +5267,2066 @@ garbage/main.tck:4:7: error: invalid character $
    |	      ^
 05 |	}
 
+-- generic-any/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func show(a any) {
+}
+
+func f[S Sizer](s S) {
+    show(s)
+}
+
+func main() {
+}
+-- generic-any/expected --
+stage: typeck
+---
+
+generic-any/main.tck:11:10: error: cannot pass S as any: only the builtin types can be passed as any for now
+10 |	func f[S Sizer](s S) {
+11 |	    show(s)
+   |	         ^
+12 |	}
+
+-- generic-arg-array/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    if measure(a) > 0 {
+        exit(1)
+    }
+}
+-- generic-arg-array/expected --
+stage: typeck
+---
+
+generic-arg-array/main.tck:13:16: error: cannot use [2]int64 as S in argument to measure: a type argument must be a struct type a package declares
+12 |	    a := [2]int64{1, 2}
+13 |	    if measure(a) > 0 {
+   |	               ^
+14 |	        exit(1)
+
+-- generic-arg-borrow-alongside-mut/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func pair[W Writer](mut a W, b W) {
+}
+
+func f[W Writer](mut w W) {
+    pair(mut w, w)
+}
+
+func main() {
+}
+-- generic-arg-borrow-alongside-mut/expected --
+stage: typeck
+---
+
+generic-arg-borrow-alongside-mut/main.tck:12:17: error: cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it
+11 |	func f[W Writer](mut w W) {
+12 |	    pair(mut w, w)
+   |	                ^
+13 |	}
+generic-arg-borrow-alongside-mut/main.tck:12:10: note: passed as mut here
+11 |	func f[W Writer](mut w W) {
+12 |	    pair(mut w, w)
+   |	         ^~~~~
+13 |	}
+
+-- generic-arg-count/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    c := Counter{n: 1}
+    if measure(c, c) > 0 {
+        exit(1)
+    }
+}
+-- generic-arg-count/expected --
+stage: typeck
+---
+
+generic-arg-count/main.tck:26:8: error: measure expects 1 argument(s), got 2
+25 |	    c := Counter{n: 1}
+26 |	    if measure(c, c) > 0 {
+   |	       ^~~~~~~~~~~~~
+27 |	        exit(1)
+
+-- generic-arg-error/main.tck --
+package main
+
+type Empty interface {
+}
+
+func f[E Empty](e E) {
+}
+
+func main() {
+    f(noerror)
+}
+-- generic-arg-error/expected --
+stage: typeck
+---
+
+generic-arg-error/main.tck:10:7: error: cannot use error as E in argument to f: a type argument must be a struct type a package declares
+09 |	func main() {
+10 |	    f(noerror)
+   |	      ^~~~~~~
+11 |	}
+
+-- generic-arg-extra-mut/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    mut c := Counter{n: 0}
+    if measure(mut c) > 0 {
+        exit(1)
+    }
+}
+-- generic-arg-extra-mut/expected --
+stage: typeck
+---
+
+generic-arg-extra-mut/main.tck:26:16: error: measure does not take c as mut; pass c
+25 |	    mut c := Counter{n: 0}
+26 |	    if measure(mut c) > 0 {
+   |	               ^~~~~
+27 |	        exit(1)
+
+-- generic-arg-missing-mut/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    mut c := Counter{n: 0}
+    err := render(c, "x")
+    exit(err.code)
+}
+-- generic-arg-missing-mut/expected --
+stage: typeck
+---
+
+generic-arg-missing-mut/main.tck:27:19: error: render takes w as mut; pass mut c
+26 |	    mut c := Counter{n: 0}
+27 |	    err := render(c, "x")
+   |	                  ^
+28 |	    exit(err.code)
+
+-- generic-arg-mut-immutable/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    c := Counter{n: 0}
+    err := render(mut c, "x")
+    exit(err.code)
+}
+-- generic-arg-mut-immutable/expected --
+stage: typeck
+---
+
+generic-arg-mut-immutable/main.tck:27:19: error: cannot pass mut c: c is immutable; declare it with mut
+26 |	    c := Counter{n: 0}
+27 |	    err := render(mut c, "x")
+   |	                  ^~~~~
+28 |	    exit(err.code)
+
+-- generic-arg-mut-twice/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func both[W Writer](mut a W, mut b W) {
+}
+
+func main() {
+    mut c := Counter{n: 0}
+    both(mut c, mut c)
+}
+-- generic-arg-mut-twice/expected --
+stage: typeck
+---
+
+generic-arg-mut-twice/main.tck:26:17: error: c is passed as mut twice in this call; a mut argument must be the only way to reach c during the call
+25 |	    mut c := Counter{n: 0}
+26 |	    both(mut c, mut c)
+   |	                ^~~~~
+27 |	}
+generic-arg-mut-twice/main.tck:26:10: note: first passed as mut here
+25 |	    mut c := Counter{n: 0}
+26 |	    both(mut c, mut c)
+   |	         ^~~~~
+27 |	}
+
+-- generic-arg-not-struct/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    if measure(5) > 0 {
+        exit(1)
+    }
+}
+-- generic-arg-not-struct/expected --
+stage: typeck
+---
+
+generic-arg-not-struct/main.tck:12:16: error: cannot use int64 as S in argument to measure: a type argument must be a struct type a package declares
+11 |	func main() {
+12 |	    if measure(5) > 0 {
+   |	               ^
+13 |	        exit(1)
+
+-- generic-arg-string/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    if measure("s") > 0 {
+        exit(1)
+    }
+}
+-- generic-arg-string/expected --
+stage: typeck
+---
+
+generic-arg-string/main.tck:12:16: error: cannot use string as S in argument to measure: a type argument must be a struct type a package declares
+11 |	func main() {
+12 |	    if measure("s") > 0 {
+   |	               ^~~
+13 |	        exit(1)
+
+-- generic-arg-two-type-params/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func same[S Sizer](a S, b S) bool {
+    return a.size() == b.size()
+}
+
+func f[A Sizer, B Sizer](a A, b B) bool {
+    return same(a, b)
+}
+
+func main() {
+}
+-- generic-arg-two-type-params/expected --
+stage: typeck
+---
+
+generic-arg-two-type-params/main.tck:12:20: error: cannot use B as S in argument to same: S is A in this call, from an earlier argument
+11 |	func f[A Sizer, B Sizer](a A, b B) bool {
+12 |	    return same(a, b)
+   |	                   ^
+13 |	}
+
+-- generic-arg-two-types/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+type Other struct {
+}
+
+func (o Other) size() int64 {
+    return 0
+}
+
+func same[S Sizer](a S, b S) bool {
+    return a.size() == b.size()
+}
+
+func main() {
+    c := Counter{n: 1}
+    o := Other{}
+    if same(c, o) {
+        exit(1)
+    }
+}
+-- generic-arg-two-types/expected --
+stage: typeck
+---
+
+generic-arg-two-types/main.tck:34:16: error: cannot use Other as S in argument to same: S is Counter in this call, from an earlier argument
+33 |	    o := Other{}
+34 |	    if same(c, o) {
+   |	               ^
+35 |	        exit(1)
+
+-- generic-array/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S, a [2]S) {
+}
+
+func main() {
+}
+-- generic-array/expected --
+stage: typeck
+---
+
+generic-array/main.tck:7:24: error: an array cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+06 |	
+07 |	func f[S Sizer](s S, a [2]S) {
+   |	                       ^~~~
+08 |	}
+
+-- generic-assert/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S, a any) {
+    v, ok := a.(S)
+    if ok && v.size() > 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- generic-assert/expected --
+stage: typeck
+---
+
+generic-assert/main.tck:8:17: error: an any never holds S: only the builtin types can be passed as any for now
+07 |	func f[S Sizer](s S, a any) {
+08 |	    v, ok := a.(S)
+   |	                ^
+09 |	    if ok && v.size() > 0 {
+
+-- generic-concrete-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func take(c Counter) {
+}
+
+func f[S Sizer](s S) {
+    take(s)
+}
+
+func main() {
+}
+-- generic-concrete-param/expected --
+stage: typeck
+---
+
+generic-concrete-param/main.tck:24:10: error: cannot use S as Counter in argument to take
+23 |	func f[S Sizer](s S) {
+24 |	    take(s)
+   |	         ^
+25 |	}
+
+-- generic-constraint-any/main.tck --
+package main
+
+func f[W any](w W) {
+}
+
+func main() {
+}
+-- generic-constraint-any/expected --
+stage: typeck
+---
+
+generic-constraint-any/main.tck:3:10: error: any is not an interface; the constraint of type parameter W must be one
+02 |	
+03 |	func f[W any](w W) {
+   |	         ^~~
+04 |	}
+
+-- generic-constraint-basic/main.tck --
+package main
+
+func f[W int64](w W) {
+}
+
+func main() {
+}
+-- generic-constraint-basic/expected --
+stage: typeck
+---
+
+generic-constraint-basic/main.tck:3:10: error: int64 is not an interface; the constraint of type parameter W must be one
+02 |	
+03 |	func f[W int64](w W) {
+   |	         ^~~~~
+04 |	}
+
+-- generic-constraint-mut-differs/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type MutSizer interface {
+    mut size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func f[S MutSizer](s S) int64 {
+    return measure(s)
+}
+
+func main() {
+}
+-- generic-constraint-mut-differs/expected --
+stage: typeck
+---
+
+generic-constraint-mut-differs/main.tck:16:20: error: S does not satisfy Sizer: MutSizer's size takes its receiver as mut, and Sizer's size does not
+15 |	func f[S MutSizer](s S) int64 {
+16 |	    return measure(s)
+   |	                   ^
+17 |	}
+
+-- generic-constraint-narrower/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func f[S Sizer](mut s S) error {
+    return render(mut s, "x")
+}
+
+func main() {
+}
+-- generic-constraint-narrower/expected --
+stage: typeck
+---
+
+generic-constraint-narrower/main.tck:17:23: error: S does not satisfy Writer: its constraint Sizer has no method write
+16 |	func f[S Sizer](mut s S) error {
+17 |	    return render(mut s, "x")
+   |	                      ^
+18 |	}
+
+-- generic-constraint-sig-differs/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type SmallSizer interface {
+    size() int32
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func f[S SmallSizer](s S) int64 {
+    return measure(s)
+}
+
+func main() {
+}
+-- generic-constraint-sig-differs/expected --
+stage: typeck
+---
+
+generic-constraint-sig-differs/main.tck:16:20: error: S does not satisfy Sizer: SmallSizer's size is func() int32, and Sizer's size is func() int64
+15 |	func f[S SmallSizer](s S) int64 {
+16 |	    return measure(s)
+   |	                   ^
+17 |	}
+
+-- generic-constraint-struct/main.tck --
+package main
+
+type P struct {
+}
+
+func f[W P](w W) {
+}
+
+func main() {
+}
+-- generic-constraint-struct/expected --
+stage: typeck
+---
+
+generic-constraint-struct/main.tck:6:10: error: P is not an interface; the constraint of type parameter W must be one
+05 |	
+06 |	func f[W P](w W) {
+   |	         ^
+07 |	}
+
+-- generic-constraint-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[A Sizer, B A](a A, b B) {
+}
+
+func main() {
+}
+-- generic-constraint-type-param/expected --
+stage: typeck
+---
+
+generic-constraint-type-param/main.tck:7:19: error: A is not an interface; the constraint of type parameter B must be one
+06 |	
+07 |	func f[A Sizer, B A](a A, b B) {
+   |	                  ^
+08 |	}
+
+-- generic-constraint-unknown/main.tck --
+package main
+
+func f[W Nope](w W) {
+}
+
+func main() {
+}
+-- generic-constraint-unknown/expected --
+stage: typeck
+---
+
+generic-constraint-unknown/main.tck:3:10: error: unknown type: Nope
+02 |	
+03 |	func f[W Nope](w W) {
+   |	         ^~~~
+04 |	}
+
+-- generic-constraint-view/main.tck --
+package main
+
+func f[W []int64](w W) {
+}
+
+func main() {
+}
+-- generic-constraint-view/expected --
+stage: typeck
+---
+
+generic-constraint-view/main.tck:3:10: error: []int64 is not an interface; the constraint of type parameter W must be one
+02 |	
+03 |	func f[W []int64](w W) {
+   |	         ^~~~~~~
+04 |	}
+
+-- generic-copy-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) int64 {
+    t := s
+    return t.size()
+}
+
+func main() {
+}
+-- generic-copy-param/expected --
+stage: typeck
+---
+
+generic-copy-param/main.tck:8:10: error: cannot move s: it is a parameter, which borrows its caller's value
+07 |	func f[S Sizer](s S) int64 {
+08 |	    t := s
+   |	         ^
+09 |	    return t.size()
+
+-- generic-dropped-result/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func stuck[S Sizer](s S) S {
+    for {
+    }
+}
+
+func f[S Sizer](s S) {
+    stuck(s)
+}
+
+func main() {
+}
+-- generic-dropped-result/expected --
+stage: typeck
+---
+
+generic-dropped-result/main.tck:13:5: error: stuck returns S, which may hold a list and cannot be dropped; bind it to a variable
+12 |	func f[S Sizer](s S) {
+13 |	    stuck(s)
+   |	    ^~~~~~~~
+14 |	}
+
+-- generic-duplicate-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer, S Sizer](s S) {
+}
+
+func main() {
+}
+-- generic-duplicate-type-param/expected --
+stage: resolve
+---
+
+generic-duplicate-type-param/main.tck:7:17: error: duplicate type parameter name
+06 |	
+07 |	func f[S Sizer, S Sizer](s S) {
+   |	                ^
+08 |	}
+generic-duplicate-type-param/main.tck:7:8: note: previous declaration of S
+06 |	
+07 |	func f[S Sizer, S Sizer](s S) {
+   |	       ^
+08 |	}
+
+-- generic-empty-type-params/main.tck --
+package main
+
+func f[](x int64) {
+}
+
+func main() {
+}
+-- generic-empty-type-params/expected --
+stage: parse
+---
+
+generic-empty-type-params/main.tck:3:7: error: empty type parameter list
+02 |	
+03 |	func f[](x int64) {
+   |	      ^~
+04 |	}
+
+-- generic-equal/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](a S, b S) bool {
+    return a == b
+}
+
+func main() {
+}
+-- generic-equal/expected --
+stage: typeck
+---
+
+generic-equal/main.tck:8:12: error: operator == is not defined on S
+07 |	func f[S Sizer](a S, b S) bool {
+08 |	    return a == b
+   |	           ^~~~~~
+09 |	}
+
+-- generic-explicit-type-args/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    c := Counter{n: 1}
+    n := measure[Counter](c)
+    exit(int32(n))
+}
+-- generic-explicit-type-args/expected --
+stage: parse
+---
+
+generic-explicit-type-args/main.tck:26:10: error: cannot write type arguments; they are inferred from the arguments, as in measure(...)
+25 |	    c := Counter{n: 1}
+26 |	    n := measure[Counter](c)
+   |	         ^~~~~~~~~~~~~~~~
+27 |	    exit(int32(n))
+
+-- generic-explicit-type-args-stmt/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func show[S Sizer](s S) {
+}
+
+func main() {
+    c := Counter{n: 1}
+    show[Counter, Counter](c)
+}
+-- generic-explicit-type-args-stmt/expected --
+stage: parse
+---
+
+generic-explicit-type-args-stmt/main.tck:25:5: error: cannot write type arguments; they are inferred from the arguments, as in show(...)
+24 |	    c := Counter{n: 1}
+25 |	    show[Counter, Counter](c)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+26 |	}
+
+-- generic-extern-type-params/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+extern func f[S Sizer](s S)
+
+func main() {
+}
+-- generic-extern-type-params/expected --
+stage: parse
+---
+
+generic-extern-type-params/main.tck:7:14: error: extern func f cannot have type parameters; its body is written in C
+06 |	
+07 |	extern func f[S Sizer](s S)
+   |	             ^~~~~~~~~
+08 |	
+
+-- generic-field/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) int64 {
+    return s.n
+}
+
+func main() {
+}
+-- generic-field/expected --
+stage: typeck
+---
+
+generic-field/main.tck:8:14: error: S has no field n: a type parameter has only its constraint's methods
+07 |	func f[S Sizer](s S) int64 {
+08 |	    return s.n
+   |	             ^
+09 |	}
+
+-- generic-func-value/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    f := measure
+}
+-- generic-func-value/expected --
+stage: resolve
+---
+
+generic-func-value/main.tck:12:10: error: undefined: measure
+11 |	func main() {
+12 |	    f := measure
+   |	         ^~~~~~~
+13 |	}
+
+-- generic-len/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) int64 {
+    return len(s)
+}
+
+func main() {
+}
+-- generic-len/expected --
+stage: typeck
+---
+
+generic-len/main.tck:8:16: error: len expects an array, a string, a view or a list, got S
+07 |	func f[S Sizer](s S) int64 {
+08 |	    return len(s)
+   |	               ^
+09 |	}
+
+-- generic-list/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    l := make(list[S], c_allocator)
+    if len(l) > 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- generic-list/expected --
+stage: typeck
+---
+
+generic-list/main.tck:8:15: error: a list cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+07 |	func f[S Sizer](s S) {
+08 |	    l := make(list[S], c_allocator)
+   |	              ^~~~~~~
+09 |	    if len(l) > 0 {
+
+-- generic-literal/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    t := S{}
+    if t.size() > 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- generic-literal/expected --
+stage: typeck
+---
+
+generic-literal/main.tck:8:10: error: S cannot be written as a literal; only arrays and structs can
+07 |	func f[S Sizer](s S) {
+08 |	    t := S{}
+   |	         ^~~
+09 |	    if t.size() > 0 {
+
+-- generic-local-reuses-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    S := 1
+    exit(int32(S))
+}
+
+func main() {
+}
+-- generic-local-reuses-type-param/expected --
+stage: resolve
+---
+
+generic-local-reuses-type-param/main.tck:8:5: error: S is already declared
+07 |	func f[S Sizer](s S) {
+08 |	    S := 1
+   |	    ^
+09 |	    exit(int32(S))
+generic-local-reuses-type-param/main.tck:7:8: note: previous declaration of S
+06 |	
+07 |	func f[S Sizer](s S) {
+   |	       ^
+08 |	    S := 1
+
+-- generic-main/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func main[S Sizer]() {
+}
+-- generic-main/expected --
+stage: typeck
+---
+
+generic-main/main.tck:7:11: error: S appears in no parameter of main, so no call can infer it
+06 |	
+07 |	func main[S Sizer]() {
+   |	          ^
+08 |	}
+
+-- generic-method-arg-count/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func f[W Writer](mut w W, b []uint8) error {
+    return mut w.write(b, 1)
+}
+
+func main() {
+}
+-- generic-method-arg-count/expected --
+stage: typeck
+---
+
+generic-method-arg-count/main.tck:9:12: error: W.write expects 1 argument(s), got 2
+08 |	func f[W Writer](mut w W, b []uint8) error {
+09 |	    return mut w.write(b, 1)
+   |	           ^~~~~~~~~~~~~~~~~
+10 |	}
+
+-- generic-method-error-dropped/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func f[W Writer](mut w W) {
+    mut w.write([]uint8("x"))
+}
+
+func main() {
+}
+-- generic-method-error-dropped/expected --
+stage: typeck
+---
+
+generic-method-error-dropped/main.tck:9:5: error: the error W.write returns cannot be dropped; bind it, as in err := mut w.write(...)
+08 |	func f[W Writer](mut w W) {
+09 |	    mut w.write([]uint8("x"))
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	}
+
+-- generic-method-is-field/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Sized struct {
+    size int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    s := Sized{size: 1}
+    if measure(s) > 0 {
+        exit(1)
+    }
+}
+-- generic-method-is-field/expected --
+stage: typeck
+---
+
+generic-method-is-field/main.tck:17:16: error: Sized does not satisfy Sizer: Sized has no method size
+16 |	    s := Sized{size: 1}
+17 |	    if measure(s) > 0 {
+   |	               ^
+18 |	        exit(1)
+
+-- generic-method-mut-param/main.tck --
+package main
+
+type Bumper interface {
+    bump(mut n int64)
+}
+
+type P struct {
+}
+
+func (p P) bump(n int64) {
+}
+
+func f[B Bumper](b B) {
+}
+
+func main() {
+    f(P{})
+}
+-- generic-method-mut-param/expected --
+stage: typeck
+---
+
+generic-method-mut-param/main.tck:17:7: error: P does not satisfy Bumper: P.bump is func(int64), and Bumper's bump is func(mut int64)
+16 |	func main() {
+17 |	    f(P{})
+   |	      ^~~
+18 |	}
+
+-- generic-method-mut-receiver/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type P struct {
+    n int64
+}
+
+func (mut p P) size() int64 {
+    return p.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    p := P{n: 1}
+    if measure(p) > 0 {
+        exit(1)
+    }
+}
+-- generic-method-mut-receiver/expected --
+stage: typeck
+---
+
+generic-method-mut-receiver/main.tck:21:16: error: P does not satisfy Sizer: P.size takes its receiver as mut, and Sizer's size does not
+20 |	    p := P{n: 1}
+21 |	    if measure(p) > 0 {
+   |	               ^
+22 |	        exit(1)
+
+-- generic-method-param-type/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type P struct {
+    n int64
+}
+
+func (mut p P) write(b string) error {
+    return noerror
+}
+
+func (p P) size() int64 {
+    return p.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    mut p := P{n: 1}
+    err := render(mut p, "x")
+    exit(err.code)
+}
+-- generic-method-param-type/expected --
+stage: typeck
+---
+
+generic-method-param-type/main.tck:26:23: error: P does not satisfy Writer: P.write is func(string) error, and Writer's write is func([]uint8) error
+25 |	    mut p := P{n: 1}
+26 |	    err := render(mut p, "x")
+   |	                      ^
+27 |	    exit(err.code)
+
+-- generic-method-plain-receiver/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type P struct {
+    n int64
+}
+
+func (p P) write(b []uint8) error {
+    return noerror
+}
+
+func (p P) size() int64 {
+    return p.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    mut p := P{n: 1}
+    err := render(mut p, "x")
+    exit(err.code)
+}
+-- generic-method-plain-receiver/expected --
+stage: typeck
+---
+
+generic-method-plain-receiver/main.tck:26:23: error: P does not satisfy Writer: P.write does not take its receiver as mut, and Writer's write does
+25 |	    mut p := P{n: 1}
+26 |	    err := render(mut p, "x")
+   |	                      ^
+27 |	    exit(err.code)
+
+-- generic-method-result-type/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type P struct {
+    n int32
+}
+
+func (p P) size() int32 {
+    return p.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    p := P{n: 1}
+    if measure(p) > 0 {
+        exit(1)
+    }
+}
+-- generic-method-result-type/expected --
+stage: typeck
+---
+
+generic-method-result-type/main.tck:21:16: error: P does not satisfy Sizer: P.size is func() int32, and Sizer's size is func() int64
+20 |	    p := P{n: 1}
+21 |	    if measure(p) > 0 {
+   |	               ^
+22 |	        exit(1)
+
+-- generic-method-type-params/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type P struct {
+}
+
+func (p P) f[S Sizer](s S) {
+}
+
+func main() {
+}
+-- generic-method-type-params/expected --
+stage: parse
+---
+
+generic-method-type-params/main.tck:10:13: error: a method cannot have type parameters; only a function can be generic
+09 |	
+10 |	func (p P) f[S Sizer](s S) {
+   |	            ^~~~~~~~~
+11 |	}
+
+-- generic-method-value/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    m := s.size
+    print(m)
+}
+
+func main() {
+}
+-- generic-method-value/expected --
+stage: typeck
+---
+
+generic-method-value/main.tck:8:12: error: size is a method of S, not a field; a method can only be called
+07 |	func f[S Sizer](s S) {
+08 |	    m := s.size
+   |	           ^~~~
+09 |	    print(m)
+
+-- generic-method-variadic/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type P struct {
+    n int64
+}
+
+func (mut p P) write(b ...uint8) error {
+    return noerror
+}
+
+func (p P) size() int64 {
+    return p.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    mut p := P{n: 1}
+    err := render(mut p, "x")
+    exit(err.code)
+}
+-- generic-method-variadic/expected --
+stage: typeck
+---
+
+generic-method-variadic/main.tck:26:23: error: P does not satisfy Writer: P.write is func(...uint8) error, and Writer's write is func([]uint8) error
+25 |	    mut p := P{n: 1}
+26 |	    err := render(mut p, "x")
+   |	                      ^
+27 |	    exit(err.code)
+
+-- generic-missing-method/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+type Sized struct {
+    n int64
+}
+
+func (s Sized) size() int64 {
+    return s.n
+}
+
+func render[W Writer](mut w W, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+func main() {
+    mut s := Sized{n: 0}
+    err := render(mut s, "x")
+    exit(err.code)
+}
+-- generic-missing-method/expected --
+stage: typeck
+---
+
+generic-missing-method/main.tck:22:23: error: Sized does not satisfy Writer: Sized has no method write
+21 |	    mut s := Sized{n: 0}
+22 |	    err := render(mut s, "x")
+   |	                      ^
+23 |	    exit(err.code)
+
+-- generic-mut-method-immutable/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func f[W Writer](w W) error {
+    return mut w.write([]uint8("x"))
+}
+
+func main() {
+}
+-- generic-mut-method-immutable/expected --
+stage: typeck
+---
+
+generic-mut-method-immutable/main.tck:9:12: error: cannot pass mut w: w is immutable; declare it with mut
+08 |	func f[W Writer](w W) error {
+09 |	    return mut w.write([]uint8("x"))
+   |	           ^~~~~
+10 |	}
+
+-- generic-mut-method-without-mut/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func f[W Writer](mut w W) error {
+    return w.write([]uint8("x"))
+}
+
+func main() {
+}
+-- generic-mut-method-without-mut/expected --
+stage: typeck
+---
+
+generic-mut-method-without-mut/main.tck:9:12: error: W.write takes its receiver as mut; call mut w.write([]uint8("x"))
+08 |	func f[W Writer](mut w W) error {
+09 |	    return w.write([]uint8("x"))
+   |	           ^
+10 |	}
+
+-- generic-mut-on-plain-method/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+func f[W Writer](mut w W) int64 {
+    return mut w.size()
+}
+
+func main() {
+}
+-- generic-mut-on-plain-method/expected --
+stage: typeck
+---
+
+generic-mut-on-plain-method/main.tck:9:12: error: W.size does not take its receiver as mut; call w.size()
+08 |	func f[W Writer](mut w W) int64 {
+09 |	    return mut w.size()
+   |	           ^~~~~
+10 |	}
+
+-- generic-no-constraint/main.tck --
+package main
+
+func f[W](w W) {
+}
+
+func main() {
+}
+-- generic-no-constraint/expected --
+stage: parse
+---
+
+generic-no-constraint/main.tck:3:8: error: type parameter W has no constraint; write the interface it must satisfy after it, as in [W Writer]
+02 |	
+03 |	func f[W](w W) {
+   |	       ^
+04 |	}
+
+-- generic-param-reuses-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](S S) {
+}
+
+func main() {
+}
+-- generic-param-reuses-type-param/expected --
+stage: resolve
+---
+
+generic-param-reuses-type-param/main.tck:7:17: error: S is already declared
+06 |	
+07 |	func f[S Sizer](S S) {
+   |	                ^
+08 |	}
+generic-param-reuses-type-param/main.tck:7:8: note: previous declaration of S
+06 |	
+07 |	func f[S Sizer](S S) {
+   |	       ^
+08 |	}
+
+-- generic-print/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    print(s)
+}
+
+func main() {
+}
+-- generic-print/expected --
+stage: typeck
+---
+
+generic-print/main.tck:8:11: error: cannot use S as string in argument to print
+07 |	func f[S Sizer](s S) {
+08 |	    print(s)
+   |	          ^
+09 |	}
+
+-- generic-range/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    for x := range s {
+        print(x)
+    }
+}
+
+func main() {
+}
+-- generic-range/expected --
+stage: typeck
+---
+
+generic-range/main.tck:8:20: error: cannot range over S
+07 |	func f[S Sizer](s S) {
+08 |	    for x := range s {
+   |	                   ^
+09 |	        print(x)
+
+-- generic-return-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) S {
+    return s
+}
+
+func main() {
+}
+-- generic-return-param/expected --
+stage: typeck
+---
+
+generic-return-param/main.tck:8:12: error: cannot move s: it is a parameter, which borrows its caller's value
+07 |	func f[S Sizer](s S) S {
+08 |	    return s
+   |	           ^
+09 |	}
+
+-- generic-temporary/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func stuck[S Sizer](s S) S {
+    for {
+    }
+}
+
+func f[S Sizer](s S) int64 {
+    return stuck(s).size()
+}
+
+func main() {
+}
+-- generic-temporary/expected --
+stage: typeck
+---
+
+generic-temporary/main.tck:13:12: error: cannot use a temporary S here; store it in a variable first
+12 |	func f[S Sizer](s S) int64 {
+13 |	    return stuck(s).size()
+   |	           ^~~~~~~~
+14 |	}
+
+-- generic-too-many-instances/main.tck --
+package main
+
+// Every permutation of eight types is an instance of g, 40320 of them.
+
+type Empty interface {
+}
+
+type T1 struct {
+}
+
+type T2 struct {
+}
+
+type T3 struct {
+}
+
+type T4 struct {
+}
+
+type T5 struct {
+}
+
+type T6 struct {
+}
+
+type T7 struct {
+}
+
+type T8 struct {
+}
+
+func g[A Empty, B Empty, C Empty, D Empty, F Empty, G Empty, H Empty, J Empty](p1 A, p2 B, p3 C, p4 D, p5 F, p6 G, p7 H, p8 J) {
+    g(p2, p3, p4, p5, p6, p7, p8, p1)
+    g(p2, p1, p3, p4, p5, p6, p7, p8)
+}
+
+func main() {
+    g(T1{}, T2{}, T3{}, T4{}, T5{}, T6{}, T7{}, T8{})
+}
+-- generic-too-many-instances/expected --
+stage: typeck
+---
+
+generic-too-many-instances/main.tck:34:5: error: instantiating g with T6, T1, T7, T4, T2, T3, T8, T5 makes more than 10000 instances of generic functions, the most a program may have
+33 |	    g(p2, p3, p4, p5, p6, p7, p8, p1)
+34 |	    g(p2, p1, p3, p4, p5, p6, p7, p8)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+35 |	}
+
+-- generic-type-param-assign/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    S = 1
+}
+
+func main() {
+}
+-- generic-type-param-assign/expected --
+stage: resolve
+---
+
+generic-type-param-assign/main.tck:8:5: error: cannot assign to S; it is a type
+07 |	func f[S Sizer](s S) {
+08 |	    S = 1
+   |	    ^
+09 |	}
+
+-- generic-type-param-basic-name/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[int64 Sizer](s int64) {
+}
+
+func main() {
+}
+-- generic-type-param-basic-name/expected --
+stage: resolve
+---
+
+generic-type-param-basic-name/main.tck:7:8: error: cannot use int64 as a name; it is a type
+06 |	
+07 |	func f[int64 Sizer](s int64) {
+   |	       ^~~~~
+08 |	}
+
+-- generic-type-param-call/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    S(s)
+}
+
+func main() {
+}
+-- generic-type-param-call/expected --
+stage: resolve
+---
+
+generic-type-param-call/main.tck:8:5: error: cannot call S; it is a type
+07 |	func f[S Sizer](s S) {
+08 |	    S(s)
+   |	    ^
+09 |	}
+
+-- generic-type-param-global-name/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type P struct {
+}
+
+func f[P Sizer](p P) {
+}
+
+func main() {
+}
+-- generic-type-param-global-name/expected --
+stage: resolve
+---
+
+generic-type-param-global-name/main.tck:10:8: error: P is already declared
+09 |	
+10 |	func f[P Sizer](p P) {
+   |	       ^
+11 |	}
+generic-type-param-global-name/main.tck:7:6: note: previous declaration of P
+06 |	
+07 |	type P struct {
+   |	     ^
+08 |	}
+
+-- generic-type-param-result-only/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer]() S {
+    for {
+    }
+}
+
+func main() {
+}
+-- generic-type-param-result-only/expected --
+stage: typeck
+---
+
+generic-type-param-result-only/main.tck:7:8: error: S appears in no parameter of f, so no call can infer it
+06 |	
+07 |	func f[S Sizer]() S {
+   |	       ^
+08 |	    for {
+
+-- generic-type-param-unused/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[A Sizer, B Sizer](a A) {
+}
+
+func main() {
+}
+-- generic-type-param-unused/expected --
+stage: typeck
+---
+
+generic-type-param-unused/main.tck:7:17: error: B appears in no parameter of f, so no call can infer it
+06 |	
+07 |	func f[A Sizer, B Sizer](a A) {
+   |	                ^
+08 |	}
+
+-- generic-type-param-value/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    x := S
+}
+
+func main() {
+}
+-- generic-type-param-value/expected --
+stage: resolve
+---
+
+generic-type-param-value/main.tck:8:10: error: cannot use S as a value; it is a type
+07 |	func f[S Sizer](s S) {
+08 |	    x := S
+   |	         ^
+09 |	}
+
+-- generic-unknown-method/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) int64 {
+    return s.len()
+}
+
+func main() {
+}
+-- generic-unknown-method/expected --
+stage: typeck
+---
+
+generic-unknown-method/main.tck:8:14: error: S has no method len
+07 |	func f[S Sizer](s S) int64 {
+08 |	    return s.len()
+   |	             ^~~
+09 |	}
+
+-- generic-use-after-move/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func stuck[S Sizer](s S) S {
+    for {
+    }
+}
+
+func f[S Sizer](s S) int64 {
+    x := stuck(s)
+    y := x
+    return x.size() + y.size()
+}
+
+func main() {
+}
+-- generic-use-after-move/expected --
+stage: typeck
+---
+
+generic-use-after-move/main.tck:15:12: error: x is used after it was moved
+14 |	    y := x
+15 |	    return x.size() + y.size()
+   |	           ^
+16 |	}
+generic-use-after-move/main.tck:14:10: note: x is moved here
+13 |	    x := stuck(s)
+14 |	    y := x
+   |	         ^
+15 |	    return x.size() + y.size()
+
+-- generic-variadic/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](ss ...S) {
+}
+
+func main() {
+}
+-- generic-variadic/expected --
+stage: typeck
+---
+
+generic-variadic/main.tck:7:23: error: a variadic parameter cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+06 |	
+07 |	func f[S Sizer](ss ...S) {
+   |	                      ^
+08 |	}
+
+-- generic-view/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S, ss []S) {
+}
+
+func main() {
+}
+-- generic-view/expected --
+stage: typeck
+---
+
+generic-view/main.tck:7:25: error: a view cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+06 |	
+07 |	func f[S Sizer](s S, ss []S) {
+   |	                        ^~~
+08 |	}
+
+-- generic-zero-value/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S) {
+    mut z S
+    if z.size() > 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- generic-zero-value/expected --
+stage: typeck
+---
+
+generic-zero-value/main.tck:8:9: error: z needs a value: S has no zero value
+07 |	func f[S Sizer](s S) {
+08 |	    mut z S
+   |	        ^
+09 |	    if z.size() > 0 {
+
 -- global-assign-immutable/main.tck --
 package main
 
@@ -6040,6 +8100,393 @@ int-overflow/main.tck:4:10: error: constant 9223372036854775808 overflows int64
 04 |	    x := 9223372036854775808
    |	         ^~~~~~~~~~~~~~~~~~~
 05 |	    exit(int32(x))
+
+-- interface-alias/main.tck --
+package main
+
+type Sizer = interface {
+}
+
+func main() {
+}
+-- interface-alias/expected --
+stage: parse
+---
+
+interface-alias/main.tck:3:12: error: expected 'struct or interface' found '='
+02 |	
+03 |	type Sizer = interface {
+   |	           ^
+04 |	}
+
+-- interface-blank-method/main.tck --
+package main
+
+type Sizer interface {
+    _() int64
+}
+
+func main() {
+}
+-- interface-blank-method/expected --
+stage: resolve
+---
+
+interface-blank-method/main.tck:4:5: error: cannot use _ as a name
+03 |	type Sizer interface {
+04 |	    _() int64
+   |	    ^
+05 |	}
+
+-- interface-call/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func main() {
+    x := Sizer(1)
+    exit(int32(x))
+}
+-- interface-call/expected --
+stage: resolve
+---
+
+interface-call/main.tck:8:10: error: cannot call Sizer; it is a type
+07 |	func main() {
+08 |	    x := Sizer(1)
+   |	         ^~~~~
+09 |	    exit(int32(x))
+
+-- interface-duplicate-method/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+    mut size() int64
+}
+
+func main() {
+}
+-- interface-duplicate-method/expected --
+stage: resolve
+---
+
+interface-duplicate-method/main.tck:5:9: error: Sizer.size is already declared
+04 |	    size() int64
+05 |	    mut size() int64
+   |	        ^~~~
+06 |	}
+interface-duplicate-method/main.tck:4:5: note: previous declaration of Sizer.size
+03 |	type Sizer interface {
+04 |	    size() int64
+   |	    ^~~~
+05 |	    mut size() int64
+
+-- interface-duplicate-param/main.tck --
+package main
+
+type Writer interface {
+    write(b []uint8, b int64)
+}
+
+func main() {
+}
+-- interface-duplicate-param/expected --
+stage: resolve
+---
+
+interface-duplicate-param/main.tck:4:22: error: duplicate parameter name
+03 |	type Writer interface {
+04 |	    write(b []uint8, b int64)
+   |	                     ^
+05 |	}
+interface-duplicate-param/main.tck:4:11: note: previous declaration of b
+03 |	type Writer interface {
+04 |	    write(b []uint8, b int64)
+   |	          ^
+05 |	}
+
+-- interface-embedded/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Writer interface {
+    Sizer
+    mut write(b []uint8) error
+}
+
+func main() {
+}
+-- interface-embedded/expected --
+stage: parse
+---
+
+interface-embedded/main.tck:8:5: error: embedded interfaces are not supported
+07 |	type Writer interface {
+08 |	    Sizer
+   |	    ^~~~~
+09 |	    mut write(b []uint8) error
+
+-- interface-error-not-last/main.tck --
+package main
+
+type Parser interface {
+    parse(s string) (error, int64)
+}
+
+func main() {
+}
+-- interface-error-not-last/expected --
+stage: typeck
+---
+
+interface-error-not-last/main.tck:4:22: error: error must be the last result of Parser.parse
+03 |	type Parser interface {
+04 |	    parse(s string) (error, int64)
+   |	                     ^~~~~
+05 |	}
+
+-- interface-field/main.tck --
+package main
+
+type Sizer interface {
+    n int64
+}
+
+func main() {
+}
+-- interface-field/expected --
+stage: parse
+---
+
+interface-field/main.tck:4:5: error: an interface cannot have fields; it holds only methods
+03 |	type Sizer interface {
+04 |	    n int64
+   |	    ^
+05 |	}
+
+-- interface-field-type/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type P struct {
+    s Sizer
+}
+
+func main() {
+}
+-- interface-field-type/expected --
+stage: typeck
+---
+
+interface-field-type/main.tck:8:7: error: Sizer is an interface; it can only constrain a type parameter
+07 |	type P struct {
+08 |	    s Sizer
+   |	      ^~~~~
+09 |	}
+
+-- interface-global/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+mut g [2]Sizer
+
+func main() {
+    print(g)
+}
+-- interface-global/expected --
+stage: typeck
+---
+
+interface-global/main.tck:7:10: error: Sizer is an interface; it can only constrain a type parameter
+06 |	
+07 |	mut g [2]Sizer
+   |	         ^~~~~
+08 |	
+
+-- interface-list-elem/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f(mut l list[Sizer]) {
+}
+
+func main() {
+}
+-- interface-list-elem/expected --
+stage: typeck
+---
+
+interface-list-elem/main.tck:7:19: error: Sizer is an interface; it can only constrain a type parameter
+06 |	
+07 |	func f(mut l list[Sizer]) {
+   |	                  ^~~~~
+08 |	}
+
+-- interface-literal/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func main() {
+    s := Sizer{}
+    print(s)
+}
+-- interface-literal/expected --
+stage: typeck
+---
+
+interface-literal/main.tck:8:10: error: Sizer is an interface; it can only constrain a type parameter
+07 |	func main() {
+08 |	    s := Sizer{}
+   |	         ^~~~~
+09 |	    print(s)
+
+-- interface-local/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func main() {
+    mut s Sizer
+    print(s)
+}
+-- interface-local/expected --
+stage: typeck
+---
+
+interface-local/main.tck:8:11: error: Sizer is an interface; it can only constrain a type parameter
+07 |	func main() {
+08 |	    mut s Sizer
+   |	          ^~~~~
+09 |	    print(s)
+
+-- interface-method-body/main.tck --
+package main
+
+type Sizer interface {
+    size() int64 {
+        return 0
+    }
+}
+
+func main() {
+}
+-- interface-method-body/expected --
+stage: parse
+---
+
+interface-method-body/main.tck:4:18: error: interface method size cannot have a body
+03 |	type Sizer interface {
+04 |	    size() int64 {
+   |	                 ^
+05 |	        return 0
+
+-- interface-method-declared/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func (s Sizer) size() int64 {
+    return 0
+}
+
+func main() {
+}
+-- interface-method-declared/expected --
+stage: resolve
+---
+
+interface-method-declared/main.tck:7:9: error: cannot declare a method on Sizer: only a struct type declared in this package can have methods
+06 |	
+07 |	func (s Sizer) size() int64 {
+   |	        ^~~~~
+08 |	    return 0
+
+-- interface-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f(s Sizer) {
+}
+
+func main() {
+}
+-- interface-param/expected --
+stage: typeck
+---
+
+interface-param/main.tck:7:10: error: Sizer is an interface; it can only constrain a type parameter
+06 |	
+07 |	func f(s Sizer) {
+   |	         ^~~~~
+08 |	}
+
+-- interface-pub-method/main.tck --
+package main
+
+type Sizer interface {
+    pub size() int64
+}
+
+func main() {
+}
+-- interface-pub-method/expected --
+stage: parse
+---
+
+interface-pub-method/main.tck:4:5: error: an interface's method cannot be pub; it is as visible as its interface
+03 |	type Sizer interface {
+04 |	    pub size() int64
+   |	    ^~~
+05 |	}
+
+-- interface-result/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f() Sizer {
+    for {
+    }
+}
+
+func main() {
+}
+-- interface-result/expected --
+stage: typeck
+---
+
+interface-result/main.tck:7:10: error: Sizer is an interface; it can only constrain a type parameter
+06 |	
+07 |	func f() Sizer {
+   |	         ^~~~~
+08 |	    for {
 
 -- invalid-func-syntax-0/main.tck --
 package main
@@ -16144,7 +18591,7 @@ func main() {
 stage: parse
 ---
 
-struct-named-non-struct/main.tck:3:14: error: only struct types can be declared
+struct-named-non-struct/main.tck:3:14: error: only struct and interface types can be declared
 02 |	
 03 |	type Celsius int64
    |	             ^~~~~

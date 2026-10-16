@@ -26,7 +26,7 @@ const (
 // any struct whatever the order of declarations.
 func (c *Checker) declareStructs() {
 	for _, decl := range c.prog.Decls() {
-		if td, ok := decl.(*ast.TypeDecl); ok {
+		if td, ok := decl.(*ast.TypeDecl); ok && td.Interface() == nil {
 			td.Type = c.table.Struct(td.Name)
 			c.structPkg[td.Type] = c.declPkg[td]
 			c.structs[td.Type] = td
@@ -181,6 +181,10 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 		}
 	}
 	f, i, ok := c.table.Field(base, sel.Name)
+	if !ok && c.table.IsTypeParam(base) {
+		c.typeParamField(sel, base)
+		return types.Invalid
+	}
 	if !ok {
 		if td := c.structs[base]; td != nil && td.Method(sel.Name) != nil {
 			c.errorf(sel.NameSpan, "%s is a method of %s, not a field; a method can only be called",

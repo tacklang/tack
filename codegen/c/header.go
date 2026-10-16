@@ -93,7 +93,9 @@ func newHeader(prog *ast.Program) *header {
 		for _, decl := range pkg.Decls() {
 			switch d := decl.(type) {
 			case *ast.TypeDecl:
-				h.structs[d.Type], h.pkgOf[d.Type] = d, pkg
+				if d.Interface() == nil {
+					h.structs[d.Type], h.pkgOf[d.Type] = d, pkg
+				}
 			case *ast.Func:
 				if d.Extern {
 					h.externs = append(h.externs, d)

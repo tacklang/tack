@@ -46,6 +46,14 @@ type Call struct {
 	Const any
 
 	Args []Expr
+
+	// TypeArgs holds the type arguments of a call to a generic function,
+	// one for each of its type parameters, in order, as the type checker
+	// inferred them from the arguments: struct types, or, in the body of
+	// another generic function, that function's type parameters. It is
+	// nil for any other call, and for one whose inference was reported.
+	TypeArgs []types.Type `json:",omitempty"`
+
 	Span Span // start of Fn through the closing RParen
 
 	// EllipsisSpan is the ... after the last argument, f(v...), a spread,
@@ -156,7 +164,7 @@ func (i *Ident) Spanned() Span { return i.Span }
 // without copying it. Following Def instead would never end for a recursive
 // function, whose body names the function itself.
 type DeclRef struct {
-	Kind     string // "Func", "Param", "Var", "Type", or "Import"
+	Kind     string // "Func", "Param", "Var", "Type", "TypeParam", or "Import"
 	Name     string
 	NameSpan Span
 }
@@ -199,6 +207,10 @@ func declRef(d Decl) *DeclRef {
 	case *Var:
 		if d != nil {
 			return &DeclRef{Kind: "Var", Name: d.Name, NameSpan: d.NameSpan}
+		}
+	case *TypeParam:
+		if d != nil {
+			return &DeclRef{Kind: "TypeParam", Name: d.Name, NameSpan: d.NameSpan}
 		}
 	default:
 		return packageDeclRef(d)
@@ -553,7 +565,8 @@ func identType(id *Ident) types.Type {
 // callType returns the type a call yields: the type a conversion converts
 // to, the type the checker recorded for a call to make or append, or its
 // callee's result, a function's or the method the checker found, when it
-// declares exactly one. A call to a function with several results yields
+// declares exactly one, a generic callee's type parameter replaced by the
+// call's type argument (see CallResults). A call to a function with several results yields
 // them only to a MultiVar, never as one value, so its type here is Invalid,
 // as is that of a call to a function or builtin that returns nothing. A
 // builtin's Def is a nil *Func, which still satisfies the
@@ -571,8 +584,8 @@ func callType(call *Call) types.Type {
 			return types.Int64
 		}
 	}
-	if fn := Callee(call); fn != nil && len(fn.ResultTypes) == 1 {
-		return fn.ResultTypes[0]
+	if results := CallResults(call); len(results) == 1 {
+		return results[0]
 	}
 	return types.Invalid
 }

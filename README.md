@@ -1109,11 +1109,12 @@ makes for itself, which has a letter after `tack_`.
   field's type may be any type, another struct or an array of one
   included, except one that holds the struct itself, directly, through
   other structs or through an array of any length, which would be
-  infinitely large and is an error. Named types other than structs
-  (`type Celsius int64`), anonymous struct types and embedded fields are
-  not supported, and each is an error. A field may be `pub` or `lib`, as
+  infinitely large and is an error. Named types other than structs and
+  interfaces (`type Celsius int64`), `only struct and interface types can
+  be declared`, anonymous struct types and embedded fields are not
+  supported, and each is an error. A field may be `pub` or `lib`, as
   described under visibility. A struct type may have methods (see
-  methods).
+  methods), and satisfy interfaces with them (see interfaces).
 - Struct literals name every field exactly once, in any order:
   `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
   field listed twice, a field the struct does not have, a field name in
@@ -1217,8 +1218,128 @@ makes for itself, which has a letter after `tack_`.
   stay functions: there is no `l.len()`. In C a method is a function of
   its own, named from its package's path, its type's name and its own,
   taking the receiver first, a `mut` one as a pointer, as a `mut`
-  parameter is. There are no interfaces, method sets, embedding or
-  generic methods.
+  parameter is. A struct type's methods satisfy interfaces (see
+  interfaces); there are no method sets, embedding or generic methods.
+- Interfaces. `type Writer interface { mut write(b []uint8) error; size()
+  int64 }`, at package level, written as a struct is with one method per
+  line or separated by `;`, declares an interface: the methods a type must
+  have, each written as a function's signature without `func`, a receiver
+  or a body, `mut` first for one that takes its receiver as `mut`. Its
+  parameters and results follow a function's rules, a `mut`, a view, a
+  variadic or an `any` parameter included, and an error result is last,
+  `error must be the last result of Parser.parse`. `interface {}` asks for
+  nothing, and every struct type satisfies it. A method's name is in its
+  interface's namespace, follows a field's naming rule, and is declared
+  once, `Writer.write is already declared`; its parameters are named, no
+  two alike. An interface holds methods only: `an interface cannot have
+  fields; it holds only methods`, `embedded interfaces are not
+  supported`, `interface method write cannot have a body`, and `an
+  interface's method cannot be pub; it is as visible as its interface`.
+  The interface is `pub` or `lib` as a struct is, and exposes the types
+  its methods name as a function does, `pub interface Maker exposes
+  secret, which is not pub`. An interface is no type a value can have,
+  since there are no interface values: it only constrains a type
+  parameter (see generic functions), and written as any other type, a
+  local's, a parameter's, a result's, a field's, a global's, an element's,
+  or in a literal, it is `Writer is an interface; it can only constrain a
+  type parameter`, `sink.Sink is an interface; ...` from another package.
+  It cannot have methods declared on it, `cannot declare a method on
+  Writer: only a struct type declared in this package can have methods`,
+  nor be called, `cannot call Writer; it is a type`. A struct type
+  satisfies an interface, with nothing written to say so, when for each
+  of the interface's methods it has a method of that name that takes its
+  receiver as `mut` exactly when the interface's does, with the same
+  parameters, each of the same type and alike in being `mut` or
+  variadic, and the same results. A method of a package other than the
+  interface's must be one that package can see, `pub`, or `lib` in the
+  same module: a private method satisfies only an interface of its own
+  package. Since `pub` means nothing in package `main`, a type declared
+  there satisfies only `main`'s interfaces. Interfaces exist only at
+  compile time: nothing of them is in the C.
+- Generic functions. `func render[W Writer](mut w W, s string) error`
+  declares type parameters, in brackets after the name, each a name and
+  its constraint, an interface, plain or qualified, `[A Writer, B
+  sink.Sink]`, with commas between them optional as between parameters.
+  Each is a type within its function, its signature and its body, which
+  stands for whichever struct type a call passes. Every type parameter
+  needs an interface for its constraint: `type parameter W has no
+  constraint; write the interface it must satisfy after it, as in [W
+  Writer]`, and anything else, a struct, a basic type, `any` among them,
+  a view or another type parameter, is `Point is not an interface; the
+  constraint of type parameter W must be one`. A type parameter must be
+  the type of some parameter, as a call infers it from the arguments,
+  `W appears in no parameter of f, so no call can infer it`, and may be a
+  result's type too. `[]` is `empty type parameter list`. A type
+  parameter's name follows a parameter's rules: `duplicate type parameter
+  name`, `Point is already declared` for a package-level name, and no
+  parameter or local may reuse it. It is a type, never a value: `cannot
+  use W as a value; it is a type`, `cannot call W; it is a type`, `cannot
+  assign to W; it is a type`. Only a function is generic: `a method cannot
+  have type parameters; only a function can be generic`, and `extern func
+  f cannot have type parameters; its body is written in C`; there are no
+  generic types. The body is checked once, against the constraints,
+  never for each call, so what is reported never depends on which types a
+  call passes. A value of a type parameter has its constraint's methods,
+  called as a struct's are, `w.size()` and `mut w.write(b)`, under every
+  rule of a method call, `W.write takes its receiver as mut; call mut
+  w.write(b)`, `W has no method nope`, and nothing else: `W has no field
+  n: a type parameter has only its constraint's methods`, `operator == is
+  not defined on W`, `cannot pass W as any: only the builtin types can be
+  passed as any for now`, `W cannot be written as a literal; only arrays
+  and structs can`, and no conversion, `len` or range. Since a struct
+  holding a list may be passed for it, a type parameter is owned as a
+  list is (see lists): a value of one moves rather than copies, so a
+  parameter of one, which borrows its argument, cannot be moved, `cannot
+  move w: it is a parameter, which borrows its caller's value`, a moved
+  local cannot be used, a temporary must be stored, `cannot use a
+  temporary S here; store it in a variable first`, a result cannot be
+  dropped, `stuck returns S, which may hold a list and cannot be dropped;
+  bind it to a variable`, it has no zero value, `z needs a value: S has
+  no zero value`, it is never borrowed alongside a `mut` argument of
+  itself, and it cannot be an element of an array, a list, a view or a
+  variadic, `a variadic parameter cannot hold S: its elements are copied,
+  and S, a type parameter, which may hold a list, cannot be`. A local is
+  a type parameter's only from a call returning one, and a parameter is
+  never moved, so a value of a type parameter comes only from an
+  argument: a function returning one can return only what a call that
+  never returns gave it. A call is written as any call, `render(mut f,
+  "x")`; type arguments are never written, `cannot write type arguments;
+  they are inferred from the arguments, as in render(...)`. Each type
+  parameter is given the type of the arguments passed to the parameters
+  of that type, which must be a struct type a package declares, `cannot
+  use int64 as S in argument to measure: a type argument must be a struct
+  type a package declares`, `error` and every other builtin type
+  included, or, in another generic function, one of its type parameters;
+  two arguments for one type parameter must be of one type, `cannot use
+  Buffer as W in argument to both: W is Counter in this call, from an
+  earlier argument`, and the type must satisfy the constraint: `Sized
+  does not satisfy Writer: Sized has no method write`, `P does not
+  satisfy Sizer: P.size takes its receiver as mut, and Sizer's size does
+  not`, `P does not satisfy Sizer: P.size is func() int32, and Sizer's
+  size is func() int64`, `Doc does not satisfy sink.Sink: Doc.put is not
+  pub, and sink.Sink is an interface of another package`. A type
+  parameter passed on satisfies an interface when its own constraint has
+  each method the interface asks for, alike in the same way, `S does not
+  satisfy Writer: its constraint Sizer has no method write`. Arguments
+  are otherwise checked as for any function: a `mut` parameter of a type
+  parameter takes a `mut` place, `render takes w as mut; pass mut c`. A
+  generic function may call itself and other generic functions, with its
+  type parameters as type arguments; it is never a value, `undefined:
+  measure`. A `pub` or `lib` one exposes its constraints, `pub function
+  Size exposes hidden, which is not pub`. In C each generic function is
+  compiled once for every set of type arguments the program's calls need
+  it with, an instance, found from the functions that are not generic
+  and then from each instance, and emitted once however many calls need
+  it; an uncalled one is not emitted. An instance is a function of its
+  own, named from its function's name and its type arguments,
+  `render[main.File]` mangled, and its method calls on a type parameter
+  call the type argument's method directly. Instances are finite, since
+  no type is generic, but a program needing more than 10000 is an error,
+  `instantiating g with ... makes more than 10000 instances of generic
+  functions, the most a program may have`, so the compiler never runs
+  away. A type parameter's value is passed and moved as its type
+  argument's would be, so in an instance whose type argument holds no
+  list a move is a copy, and nothing is freed.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:
@@ -1380,8 +1501,9 @@ makes for itself, which has a letter after `tack_`.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
   `unsafe_size_t` and `unsafe_uintptr_t`, `string`, `bool` and `error`, arrays,
-  views and `any`, which only a parameter may have, and the structs a
-  program declares. There is no
+  views and `any`, which only a parameter may have, the structs a
+  program declares, and, within a generic function, its type parameters.
+  There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
 - Target-width integers. `unsafe_size_t` and `unsafe_uintptr_t` are C's

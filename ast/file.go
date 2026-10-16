@@ -14,6 +14,11 @@ type File struct {
 	// dump, which is taken before checking.
 	Types *types.Table `json:"-"`
 
+	// Instances are the program's instances of generic functions, which
+	// the type checker records on every file as it records Types, so a
+	// Program made from a checked file (see SingleFile) has them too.
+	Instances []*Instance `json:"-"`
+
 	Package  string
 	Imports  []*Import
 	Decls    []Decl

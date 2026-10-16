@@ -103,6 +103,9 @@ func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsList(typ) {
 		return "a list"
 	}
+	if c.table.IsTypeParam(typ) {
+		return c.typeName(typ) + ", a type parameter, which may hold a list,"
+	}
 	return c.typeName(typ) + ", which holds a list,"
 }
 

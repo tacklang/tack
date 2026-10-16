@@ -125,8 +125,8 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	fn := ast.Callee(call)
-	if fn != nil && len(fn.ResultTypes) == 1 {
-		return fn.ResultTypes[0]
+	if results := ast.CallResults(call); fn != nil && len(results) == 1 {
+		return results[0]
 	}
 	c.errorf(call.Spanned(), "%s", notOneValue(fn, name))
 	return types.Invalid
@@ -173,7 +173,15 @@ func (c *Checker) checkCall(call *ast.Call) {
 	}
 
 	params := c.calleeParams(id)
-	muts, counted := c.checkArgs(call, id.Qualified(), params)
+	var (
+		muts    []*ast.MutArg
+		counted bool
+	)
+	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && fn.Generic() {
+		muts, counted = c.checkGenericCall(call, fn, id.Qualified())
+	} else {
+		muts, counted = c.checkArgs(call, id.Qualified(), params)
+	}
 	if !counted {
 		return
 	}

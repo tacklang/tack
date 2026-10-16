@@ -51,6 +51,50 @@ func compileLoaded(res *loader.Result) {
 	_, _ = c.New().Generate(res.Program, stdtest.MustBuiltins())
 }
 
+// loadSeeds are the file trees FuzzLoad starts from, in treeFromBytes's
+// form.
+var loadSeeds = []string{
+	"tack.mod\nmodule calc\n\x00main.tck\npackage main\nfunc main() {}\n",
+	"a/b/c/main.tck\npackage main\nfunc main() {}\n\x00tack.mod\nmodule m\n",
+	"lexer/a.tck\npackage lexer\n\x00tack.mod\nmodule calc\n",
+	"x/a.tck\npackage main\n\x00x/b.tck\npackage other\n\x00x/tack.mod\nmodule std\n",
+	"my-tools/a.tck\npackage mytools\n\x00tack.mod\nmodule calc\n",
+	"a\xff/b.tck\npackage main\n\x00tack.mod\nmodule\n",
+	"p/.h.tck\npackage main\n\x00p/tack.mod\nmodule p\nmodule q\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\nfunc main() { exit(a.N) }\n" +
+		"\x00a/a.tck\npackage a\nimport b from \"m/b\"\nvar N = b.N + 1\n\x00b/b.tck\npackage b\nvar N int64 = 2\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\nfunc main() {}\n" +
+		"\x00a/a.tck\npackage a\nimport b from \"m/b\"\n\x00b/b.tck\npackage b\nimport a from \"m/a\"\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
+		"func main() { x := t.T{a: 1}\nexit(x.a) }\n\x00t/t.tck\npackage t\ntype T struct { a int64 }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport m from \"m\"\nfunc main() {}\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.P() }\n" +
+		"\x00std/fmt/fmt.tck\npackage fmt\nimport t from \"std/t\"\npub func P() { t.Q() }\n" +
+		"\x00std/t/t.tck\npackage t\nlib func Q() {}\n\x00std/t/t.c\nint q;\n",
+	"std/tool/main.tck\npackage main\nimport f from \"std/fmt\"\nimport m from \"m/x\"\nfunc main() {}\n" +
+		"\x00std/tack.mod\nmodule std\n\x00std/fmt/fmt.tck\npackage fmt\nimport f from \"std/fmt\"\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.p() }\n" +
+		"\x00std/fmt/fmt.tck\npackage fmt\nimport b from \"std/builtin\"\nimport m from \"m\"\nfunc p() {}\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
+		"func (c C) f() int64 { return c.n }\ntype C struct { n int64 }\n" +
+		"func main() { mut x := t.New()\nmut x.Add(1)\nexit(int32(x.Get() - x.Get()))\n" +
+		"c := C{n: 1}\nexit(int32(c.f())) }\n" +
+		"\x00t/t.tck\npackage t\npub type T struct { n int64 }\npub func New() T { return T{n: 0} }\n" +
+		"pub func (mut t T) Add(k int64) { t.n += k }\nlib func (t T) Get() int64 { return t.n }\n" +
+		"func (t T) hidden() {}\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport s from \"m/s\"\n" +
+		"type C struct { n int64 }\nfunc (mut c C) put(w string) error { c.n++\nreturn noerror }\n" +
+		"func (c C) count() int64 { return c.n }\ntype K interface { count() int64 }\n" +
+		"func k[A K, B K](a A, b B) int64 { return a.count() + k(b, a) }\n" +
+		"func main() { mut t := s.New()\nerr := s.Feed(mut t, \"a\")\nexit(err.code)\n" +
+		"c := C{n: 1}\nif k(c, t) > 0 { exit(1) } }\n" +
+		"\x00s/s.tck\npackage s\npub type Sink interface { mut put(w string) error\ncount() int64 }\n" +
+		"pub func Feed[S Sink](mut s S, ws ...string) error { for _, w := range ws { e := mut s.put(w)\n" +
+		"if e.code != 0 { return e } }\nreturn noerror }\npub type T struct { n int64 }\n" +
+		"pub func New() T { return T{n: 0} }\npub func (mut t T) put(w string) error { t.n++\nreturn noerror }\n" +
+		"lib func (t T) count() int64 { return t.n }\n",
+}
+
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports
 // and cycles of them, tack.mod files anywhere, and a standard library in
 // the tree's directory std, which a target may be in, and checks the loader
@@ -59,36 +103,7 @@ func compileLoaded(res *loader.Result) {
 // read. A program it gives is compiled on, through code generation, which
 // must not panic either.
 func FuzzLoad(f *testing.F) {
-	for _, seed := range []string{
-		"tack.mod\nmodule calc\n\x00main.tck\npackage main\nfunc main() {}\n",
-		"a/b/c/main.tck\npackage main\nfunc main() {}\n\x00tack.mod\nmodule m\n",
-		"lexer/a.tck\npackage lexer\n\x00tack.mod\nmodule calc\n",
-		"x/a.tck\npackage main\n\x00x/b.tck\npackage other\n\x00x/tack.mod\nmodule std\n",
-		"my-tools/a.tck\npackage mytools\n\x00tack.mod\nmodule calc\n",
-		"a\xff/b.tck\npackage main\n\x00tack.mod\nmodule\n",
-		"p/.h.tck\npackage main\n\x00p/tack.mod\nmodule p\nmodule q\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\nfunc main() { exit(a.N) }\n" +
-			"\x00a/a.tck\npackage a\nimport b from \"m/b\"\nvar N = b.N + 1\n\x00b/b.tck\npackage b\nvar N int64 = 2\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\nfunc main() {}\n" +
-			"\x00a/a.tck\npackage a\nimport b from \"m/b\"\n\x00b/b.tck\npackage b\nimport a from \"m/a\"\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
-			"func main() { x := t.T{a: 1}\nexit(x.a) }\n\x00t/t.tck\npackage t\ntype T struct { a int64 }\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport m from \"m\"\nfunc main() {}\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.P() }\n" +
-			"\x00std/fmt/fmt.tck\npackage fmt\nimport t from \"std/t\"\npub func P() { t.Q() }\n" +
-			"\x00std/t/t.tck\npackage t\nlib func Q() {}\n\x00std/t/t.c\nint q;\n",
-		"std/tool/main.tck\npackage main\nimport f from \"std/fmt\"\nimport m from \"m/x\"\nfunc main() {}\n" +
-			"\x00std/tack.mod\nmodule std\n\x00std/fmt/fmt.tck\npackage fmt\nimport f from \"std/fmt\"\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport f from \"std/fmt\"\nfunc main() { f.p() }\n" +
-			"\x00std/fmt/fmt.tck\npackage fmt\nimport b from \"std/builtin\"\nimport m from \"m\"\nfunc p() {}\n",
-		"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
-			"func (c C) f() int64 { return c.n }\ntype C struct { n int64 }\n" +
-			"func main() { mut x := t.New()\nmut x.Add(1)\nexit(int32(x.Get() - x.Get()))\n" +
-			"c := C{n: 1}\nexit(int32(c.f())) }\n" +
-			"\x00t/t.tck\npackage t\npub type T struct { n int64 }\npub func New() T { return T{n: 0} }\n" +
-			"pub func (mut t T) Add(k int64) { t.n += k }\nlib func (t T) Get() int64 { return t.n }\n" +
-			"func (t T) hidden() {}\n",
-	} {
+	for _, seed := range loadSeeds {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {

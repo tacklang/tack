@@ -421,6 +421,114 @@ there, rather than decided, and could go another way:
   own`, since which method is called is known only from the receiver's
   type.
 
+## Interfaces and generic functions
+
+Interfaces and generic functions follow the decisions recorded in the
+README: interfaces only constrain type parameters, generic functions are
+monomorphized, bodies are checked once against the constraints, type
+arguments are inferred from the arguments and must be struct types, and
+satisfaction is implicit. These points were settled by the
+implementation, for consistency with the rules already there, rather
+than decided, and could go another way:
+
+- An interface's methods are separated as a struct's fields are, by a
+  newline or `;`, and `interface {}` is allowed: it asks for nothing, so
+  every struct type satisfies it as a constraint. Type parameters are
+  separated as parameters are, the commas optional and a trailing one
+  allowed, `[A I B J]` included.
+- A method of an interface has no visibility of its own: it is as visible
+  as its interface, and `pub` or `lib` written on one is `an interface's
+  method cannot be pub; it is as visible as its interface`. Its
+  parameters must be named, as a function's, no two alike and none `_`
+  or a type's name, but may share a name with anything else, since no
+  body can see them.
+- Satisfaction across packages asks that the method be visible from the
+  interface's package, which admits a `lib` method within one module as
+  well as a `pub` one. Since nothing in package `main` can be `pub`, a
+  type of `main` satisfies only `main`'s interfaces. A method satisfies
+  an interface's only with the same parameters alike in being `mut` and
+  variadic too, so `write(b ...uint8)` does not satisfy `write(b
+  []uint8)`, though the parameter has one type, a view, in both. A type
+  that does not satisfy an interface is reported for the first method,
+  in the interface's order, it fails: `X has no method m`, `X.m takes its
+  receiver as mut, and I's m does not` (or the other way round), `X.m is
+  func(int32), and I's m is func(int64)`, `X.m is not pub, and I is an
+  interface of another package`, or `X.m is lib, and I is an interface of
+  module m`; a type parameter passed on is reported as `its constraint J
+  has no method m`, or with the two interfaces' methods named, `J's m is
+  ...`.
+- A type parameter's name follows a parameter's rules: not reserved, not
+  a package-level name or an import's, `duplicate type parameter name`
+  for two, and no parameter or local may reuse it. Like a parameter, it
+  may share a name with a function, in which case a call names the
+  function and a type names the type parameter. A constraint is resolved
+  where the type parameters are visible, so `[A I, B A]` reports `A is not
+  an interface; the constraint of type parameter B must be one`, as `any`,
+  a struct, a basic type or a view there does; a name of nothing is
+  `unknown type: X`.
+- `[W]` is `type parameter W has no constraint; write the interface it
+  must satisfy after it, as in [W Writer]`, and `[]` is `empty type
+  parameter list`, both parse errors. A method or an extern func with
+  type parameters is a parse error too.
+- A type parameter used as no parameter's type is an error at its
+  declaration, `W appears in no parameter of f, so no call can infer it`,
+  `main` included, which has no message of its own. A variadic `ws ...W`
+  counts as a use, but is rejected by the view rules, `a variadic
+  parameter cannot hold W: its elements are copied, and W, a type
+  parameter, which may hold a list, cannot be`, since a type parameter is
+  owned; the same holds for an array, a list or a view of one.
+- Since a type parameter is owned, its parameters borrow and cannot be
+  moved, and a local of one comes only from a call returning one; so a
+  function can return a value of a type parameter only by passing on one
+  a call gave it, and the only source is a call that never returns. A
+  result of a type parameter is accepted, as decided, but no program can
+  yet produce one usefully: something that makes values, or a consuming
+  parameter, would.
+- Only a struct type a package declares is a type argument: `error`, a
+  builtin struct with no methods, is rejected even for an interface with
+  none, `cannot use error as E in argument to f: a type argument must be
+  a struct type a package declares`, and an untyped constant is an
+  `int64` there. Two arguments for one type parameter that differ are
+  reported at the later one, `cannot use B as W in argument to f: W is A
+  in this call, from an earlier argument`, even when, in the body of
+  another generic function, A and B might be one type at run time.
+- A field of a value of a type parameter is `W has no field n: a type
+  parameter has only its constraint's methods`, and a constraint's method
+  named without a call `size is a method of W, not a field; a method can
+  only be called`. A method call on one is named in a diagnostic by the
+  type parameter and the method, `W.write expects 1 argument(s), got 2`.
+- A call written with type arguments, `f[T](x)` or `p.f[A, B](x)`, is a
+  parse error, `cannot write type arguments; they are inferred from the
+  arguments, as in f(...)`, for any name followed by brackets and a
+  parenthesis, which before was `expected ';' found '('`. A generic
+  function used as a value is `undefined: f`, as any function is.
+- `only struct types can be declared` now reads `only struct and
+  interface types can be declared`, and a type declaration's missing
+  kind `expected 'struct or interface'`.
+- The instances are found from the bodies of every function that is not
+  generic, methods and uncalled functions included, as every such
+  function is emitted, then from each instance's body; a generic
+  function no call reaches is checked but never emitted. Nothing is
+  instantiated in a program with errors. Past 10000 instances the call
+  that would add another is reported, `instantiating g with T6, T1, ...
+  makes more than 10000 instances of generic functions, the most a
+  program may have`, and the search stops: eight struct types passed to
+  one function of eight type parameters that permutes them reaches it.
+  The limit is a guess at what no hand-written program needs.
+- An instance is emitted after every function that is not generic, its
+  prototype after theirs, in the order the instances were found, under
+  the C name of its function's name and type arguments, `f[pkg/path.T,
+  main.U]`, mangled as one name in its function's package. A type
+  parameter in the table takes an ID, which moves the IDs, and so the C
+  names, of the array, view and list types after it, in programs with
+  generic functions only.
+- A value of a type parameter is moved where the checker sees a move;
+  in an instance whose type argument holds no list the move is a copy
+  and the variable is not emptied, which no program can observe, since
+  the variable is not read again until it is assigned.
+- The instances are recorded on the Program and on every file, as the
+  type table is, so a program rebuilt from one checked file has them.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

@@ -77,7 +77,7 @@ func (r *Resolver) newPkgResolver(pkg *ast.Package) *pkgResolver {
 // encloses it. A function's parameters are its outermost scope.
 type scope struct {
 	parent   *scope
-	names    map[string]ast.Decl // *ast.Param, *ast.Var, or *ast.TypeDecl
+	names    map[string]ast.Decl // *ast.Param, *ast.Var, *ast.TypeDecl or *ast.TypeParam
 	rejected map[string]bool     // names whose declaration here was reported
 	vars     []*ast.Var          // this block's variables, in declaration order
 }
@@ -199,6 +199,7 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 	diags = append(diags, r.declareImports()...)
 	diags = append(diags, r.resolveGlobals(globals)...)
 	diags = append(diags, r.resolveStructs()...)
+	diags = append(diags, r.resolveInterfaces()...)
 	diags = append(diags, r.checkVisibility()...)
 	if r.pkg.Name == mainPackage {
 		diags = append(diags, r.checkMain()...)
@@ -517,20 +518,24 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 }
 
 // paramScope returns the outermost scope of a function, holding its
-// parameters, and reports any parameter name declared twice.
+// parameters, and reports any parameter name declared twice. A generic
+// function's parameters are nested in the scope of its type parameters
+// (see typeParamScope), so a parameter or local cannot reuse a type
+// parameter's name, and a type written anywhere in the function may name
+// one.
 func (r *pkgResolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 	file := r.fileScope(fn.Span.File)
-	params := newScope(file)
+	sig, diags := r.typeParamScope(fn, file)
+	params := newScope(sig)
 
-	// The types in a signature can name only package-level constants, and
-	// what the file imports, so they are resolved where no parameter is
-	// visible.
-	var diags []diag.Diagnostic
+	// The types in a signature can name only package-level constants, what
+	// the file imports and the function's type parameters, so they are
+	// resolved where no parameter is visible.
 	for _, param := range fn.Params {
-		diags = append(diags, r.resolveType(param.TypeExpr, file)...)
+		diags = append(diags, r.resolveType(param.TypeExpr, sig)...)
 	}
 	for _, result := range fn.Results {
-		diags = append(diags, r.resolveType(result, file)...)
+		diags = append(diags, r.resolveType(result, sig)...)
 	}
 	for _, param := range fn.Params {
 		if clash := r.paramClash(param, params); clash != nil {
@@ -787,7 +792,7 @@ func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagno
 		}}
 	}
 	switch decl.(type) {
-	case *ast.TypeDecl:
+	case *ast.TypeDecl, *ast.TypeParam:
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot assign to %s; it is a type", target.Name),
@@ -810,6 +815,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 	case *ast.Var:
 		return d.NameSpan
 	case *ast.TypeDecl:
+		return d.NameSpan
+	case *ast.TypeParam:
 		return d.NameSpan
 	case *ast.Import:
 		return d.NameSpan
@@ -1153,7 +1160,7 @@ func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnosti
 	if _, isImport := decl.(*ast.Import); isImport {
 		return []diag.Diagnostic{notA(id, "type")}
 	}
-	if _, isType := decl.(*ast.TypeDecl); !isType {
+	if !isTypeName(decl) {
 		if v, isVar := decl.(*ast.Var); isVar {
 			r.excuse(v)
 		}
@@ -1214,7 +1221,7 @@ func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []
 	if decl, ok := sc.lookup(ident.Name); ok && isImport(decl) {
 		return []diag.Diagnostic{notA(ident, "function")}
 	}
-	if decl, ok := r.globals.lookup(ident.Name); ok && isTypeDecl(decl) {
+	if decl, ok := sc.lookup(ident.Name); ok && isTypeName(decl) {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),
@@ -1260,7 +1267,7 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 			Span:     id.Span,
 		}}
 	}
-	if isTypeDecl(decl) {
+	if isTypeName(decl) {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot use %s as a value; it is a type", id.Name),
@@ -1289,10 +1296,4 @@ func (r *pkgResolver) builtinSeen(ref string) (*ast.Func, bool) {
 
 func (r *pkgResolver) refLabel(pkg, ref string) string {
 	return fmt.Sprintf("_%s.%s", pkg, ref)
-}
-
-// isTypeDecl reports whether decl declares a type.
-func isTypeDecl(decl ast.Decl) bool {
-	_, ok := decl.(*ast.TypeDecl)
-	return ok
 }

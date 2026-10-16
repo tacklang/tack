@@ -97,7 +97,7 @@ func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []dia
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
 			g.pkgOf[decl] = pkg
-			if td, ok := decl.(*ast.TypeDecl); ok {
+			if td, ok := decl.(*ast.TypeDecl); ok && td.Interface() == nil {
 				g.structs[td.Type] = td
 			}
 		}
@@ -165,10 +165,15 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	// Everything is generated before anything is written, so a construct the
 	// backend cannot lower produces a diagnostic instead of a half-written
 	// file.
-	globals, funcs, bodies, diags := g.generateDecls()
+	globals, sigs, bodies, diags := g.generateDecls()
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	instSigs, instBodies, diags := g.generateInstances()
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	sigs, bodies = append(sigs, instSigs...), append(bodies, instBodies...)
 	builtins := g.builtins.Used(g.prog)
 
 	var includes []string
@@ -183,8 +188,8 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	g.emitCNameMacro()
 	g.emitPrototypes()
 
-	for i, fn := range funcs {
-		g.emitFunc(fn, bodies[i])
+	for i, sig := range sigs {
+		g.emitFunc(sig, bodies[i])
 	}
 
 	g.emitEntryPoint()
@@ -470,11 +475,13 @@ func divisionName(op ast.BinaryOp, typ types.Type) string {
 }
 
 // generateDecls generates every top-level declaration: each global as one
-// line of C, and each function's body, returned alongside the functions in
-// source order.
+// line of C, and each function's body, returned alongside the functions'
+// signatures in source order. An extern func's body is in C, and its
+// prototype declares it; a generic function is never generated itself,
+// but once for each of its instances (see generateInstances).
 func (g *generator) generateDecls() (
 	globals []string,
-	funcs []*ast.Func,
+	sigs []string,
 	bodies [][]string,
 	diags []diag.Diagnostic,
 ) {
@@ -488,15 +495,14 @@ func (g *generator) generateDecls() (
 			globals = append(globals, global)
 
 		case *ast.Func:
-			if d.Extern {
-				// Its body is in C; its prototype declares it.
+			if !hasBody(d) {
 				continue
 			}
 			body, diags := g.generateFuncBody(d)
 			if len(diags) > 0 {
 				return nil, nil, nil, diags
 			}
-			funcs = append(funcs, d)
+			sigs = append(sigs, g.signature(d))
 			bodies = append(bodies, body)
 
 		case *ast.TypeDecl:
@@ -510,7 +516,13 @@ func (g *generator) generateDecls() (
 			}}
 		}
 	}
-	return globals, funcs, bodies, nil
+	return globals, sigs, bodies, nil
+}
+
+// hasBody reports whether fn's body is generated as it is declared: it
+// is neither an extern func nor a generic function.
+func hasBody(fn *ast.Func) bool {
+	return !fn.Extern && !fn.Generic()
 }
 
 // emitGlobals writes the package-level variable declarations.
@@ -610,19 +622,32 @@ func (g *generator) constValue(c any) (string, bool) {
 // C struct it returns them in: one field for each result, named r0, r1, and
 // so on, in order. C returns one value, and a struct is one value that holds
 // all of them.
+//
+// An instance of a generic function has a results struct of its own, its
+// members of its type arguments' types, and the generic function none.
 func (g *generator) emitResultStructs() {
 	for _, decl := range g.decls {
 		fn, ok := decl.(*ast.Func)
-		if !ok || len(fn.ResultTypes) < 2 {
-			continue
+		if ok && !fn.Generic() {
+			g.emitResultStruct(fn)
 		}
-
-		g.buf.WriteString("typedef struct {\n")
-		for i, typ := range fn.ResultTypes {
-			fmt.Fprintf(&g.buf, "    %s r%d;\n", g.cType(typ), i)
-		}
-		fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn))
 	}
+	for _, inst := range g.prog.Instances {
+		g.withInstance(inst, func() { g.emitResultStruct(inst.Func) })
+	}
+}
+
+// emitResultStruct defines fn's results struct, if it has more than one
+// result (see emitResultStructs).
+func (g *generator) emitResultStruct(fn *ast.Func) {
+	if len(fn.ResultTypes) < 2 {
+		return
+	}
+	g.buf.WriteString("typedef struct {\n")
+	for i, typ := range fn.ResultTypes {
+		fmt.Fprintf(&g.buf, "    %s r%d;\n", g.cType(typ), i)
+	}
+	fmt.Fprintf(&g.buf, "} %s;\n\n", g.resultsName(fn))
 }
 
 // resultsName is the name of the struct fn, a function with several
@@ -631,7 +656,13 @@ func (g *generator) emitResultStructs() {
 // name starts with tack_ and a digit, so it collides with none, and two are
 // told apart as mangled names are.
 func (g *generator) resultsName(fn *ast.Func) string {
-	return "tack_results_" + strings.TrimPrefix(g.funcCName(fn), "tack_")
+	return resultsOf(g.funcCName(fn))
+}
+
+// resultsOf returns the name of the results struct of the function whose
+// C name is cname (see resultsName).
+func resultsOf(cname string) string {
+	return "tack_results_" + strings.TrimPrefix(cname, "tack_")
 }
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
@@ -644,13 +675,16 @@ func (g *generator) emitPrototypes() {
 	for _, decl := range g.decls {
 		fn, ok := decl.(*ast.Func)
 		switch {
-		case !ok:
+		case !ok || fn.Generic():
 		case fn.Extern:
 			fmt.Fprintf(&g.buf, "extern %s TACK_C_NAME(%q);\n",
 				strings.TrimPrefix(g.signature(fn), "static "), fn.CName)
 		default:
 			g.buf.WriteString(g.signature(fn) + ";\n")
 		}
+	}
+	for _, inst := range g.prog.Instances {
+		g.withInstance(inst, func() { g.buf.WriteString(g.signature(inst.Func) + ";\n") })
 	}
 
 	g.buf.WriteString("\n")
@@ -683,8 +717,10 @@ func (g *generator) emitCNameMacro() {
 	)
 }
 
-func (g *generator) emitFunc(fn *ast.Func, body []string) {
-	g.buf.WriteString(g.signature(fn) + " {\n")
+// emitFunc writes a function whose signature is sig, and whose body,
+// already lowered, is body, turning its indentation markers into spaces.
+func (g *generator) emitFunc(sig string, body []string) {
+	g.buf.WriteString(sig + " {\n")
 	depth := 1
 	for _, line := range body {
 		switch line {
@@ -1629,8 +1665,9 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 		}}
 	}
 	call, diags := g.callExpr(fn.Name, c)
+	_, cname := g.target(fn, c.TypeArgs)
 	return multiSource{
-		temps: []multiTemp{{typ: g.resultsName(fn), init: call}},
+		temps: []multiTemp{{typ: resultsOf(cname), init: call}},
 		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
 	}, diags
 }
@@ -1853,11 +1890,12 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 			Span:     call.Spanned(),
 		}}
 	}
+	typeArgs := call.TypeArgs
 	call = lowered(call)
 	callee := g.mangle(nil, name)
 	var fn *ast.Func
 	if f := ast.Callee(call); f != nil {
-		fn, callee = f, g.funcCName(f)
+		fn, callee = g.target(f, typeArgs)
 	}
 	args, diags := g.callArgs(call, fn)
 	if len(diags) > 0 {
@@ -2162,6 +2200,7 @@ func (g *generator) strParts(s string) string {
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
 // an array, a view, a list or a struct the C struct emitTypes defines for it.
 func (g *generator) cType(typ types.Type) string {
+	typ = g.prog.Types.Bound(typ)
 	if g.prog.Types.IsArray(typ) {
 		return arrayName(typ)
 	}
@@ -2268,6 +2307,13 @@ func varName(name string) string { return "v_" + name }
 // function's, a type's, a global's or another method's, even one of a
 // package whose path ends with the type's name, calc/Builder's write.
 func (g *generator) funcCName(fn *ast.Func) string {
+	if fn.Generic() {
+		args := make([]types.Type, len(fn.TypeParams))
+		for i, tp := range fn.TypeParams {
+			args[i] = tp.Type
+		}
+		return g.instanceCName(fn, args)
+	}
 	if fn.Method && fn.RecvType != nil {
 		return g.mangle(fn, methodCName(fn.RecvType.Name, fn.Name))
 	}

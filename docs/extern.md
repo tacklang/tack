@@ -29,6 +29,8 @@ call, not in a package-level initializer, which is a constant.
   'var'`, and `extern(add)` is `expected 'C name in quotes' found 'add'`.
 - An extern func has no body in Tack: `extern func f cannot have a body; its
   body is written in C`.
+- An extern func is never generic: `extern func f cannot have type
+  parameters; its body is written in C`.
 - A function without a body that is not extern is an error: `function f has
   no body; only an extern func is declared without one`.
 - `main` cannot be extern: `main function must not be extern`.

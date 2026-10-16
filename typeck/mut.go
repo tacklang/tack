@@ -56,6 +56,9 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 // argument when arg is one passed to a mut parameter with nothing
 // reported, for the exclusivity check, and nil otherwise.
 func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
+	if c.inference.infers(p.typ) {
+		return c.typeArg(arg, p, callee)
+	}
 	m, isMut := arg.(*ast.MutArg)
 	switch {
 	case p.mut && isMut:

@@ -51,6 +51,11 @@ type Program struct {
 	// Packages are the program's packages. The package being built, the
 	// main package, is the last.
 	Packages []*Package
+
+	// Instances are the instances of generic functions the program's code
+	// calls, each once, recorded by the type checker in the order it
+	// found them; nil before then, and left out of the JSON dump.
+	Instances []*Instance `json:"-"`
 }
 
 // Main returns the package being built: the last one. It returns nil for a
@@ -88,7 +93,8 @@ func (p *Program) Files() []*File {
 // has been checked.
 func SingleFile(file *File) *Program {
 	return &Program{
-		Types:    file.Types,
-		Packages: []*Package{{Name: file.Package, Path: "main", Files: []*File{file}}},
+		Types:     file.Types,
+		Instances: file.Instances,
+		Packages:  []*Package{{Name: file.Package, Path: "main", Files: []*File{file}}},
 	}
 }

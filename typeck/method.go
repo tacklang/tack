@@ -143,6 +143,9 @@ func (c *Checker) placeType(e ast.Expr) types.Type {
 // a type with no such method, a field named instead, and a method the
 // package being checked cannot see.
 func (c *Checker) methodOf(typ types.Type, sel *ast.Selector) *ast.Func {
+	if c.table.IsTypeParam(typ) {
+		return c.typeParamMethod(typ, sel)
+	}
 	var fn *ast.Func
 	if td := c.structs[typ]; td != nil && c.table.IsStruct(typ) {
 		fn = td.Method(sel.Name)

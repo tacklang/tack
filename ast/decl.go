@@ -24,11 +24,18 @@ type Decl interface {
 // inside its body it is a parameter like any other, and a call passes it
 // first. Name is the method's name alone, which lives in its type's
 // namespace rather than the package's.
+//
+// A generic function, func render[W Writer](mut w W, s string), has its
+// type parameters in TypeParams, in order, and TypeParamsSpan is the
+// brackets around them. It is type-checked once, against its type
+// parameters' constraints, and compiled once for each Instance the type
+// checker records on the Program.
 type Func struct {
-	Name    string
-	Params  []*Param // a method's receiver first
-	Results []Expr   // declared result types as written, empty if none
-	Body    []Stmt
+	Name       string
+	TypeParams []*TypeParam `json:",omitempty"`
+	Params     []*Param     // a method's receiver first
+	Results    []Expr       // declared result types as written, empty if none
+	Body       []Stmt
 
 	// ResultTypes holds what each of Results denotes, in order. The type
 	// checker fills it in; before then it is nil, and an entry it could not
@@ -41,8 +48,18 @@ type Func struct {
 	// whose receiver type was reported.
 	RecvType *TypeDecl `json:"-"`
 
-	NameSpan Span // just the identifier
-	Span     Span // pub or lib, or extern, if written, or the 'func' keyword, through closing brace
+	// Interface is set only on the stand-in the type checker makes for
+	// calling an interface method on a value of a type parameter, w.size()
+	// for a w of type W: a method with no body, never declared, whose
+	// receiver has type W and whose other parameters and results are the
+	// interface method's, which a call is checked against. Code generation
+	// calls, in each instance, the method of that name of the struct type
+	// W stands for.
+	Interface *IfaceMethod `json:"-"`
+
+	NameSpan       Span // just the identifier
+	TypeParamsSpan Span `json:"-"` // the brackets around the type parameters, if any
+	Span           Span // pub or lib, or extern, if written, or the 'func' keyword, through closing brace
 
 	// Vis is who may call the function by name; VisSpan is the keyword
 	// that gave it, the zero Span for Private.
@@ -196,11 +213,13 @@ func (i *Import) astNode() nodeKey { return _nodeKey }
 // path.
 func (i *Import) Spanned() Span { return i.Span }
 
-// TypeDecl is a type declaration at package level, type Name struct { ... },
-// which declares a struct type. Other named types are not supported yet, so
-// TypeExpr is always a *StructType.
+// TypeDecl is a type declaration at package level: type Name struct { ...
+// }, which declares a struct type, or type Name interface { ... }, which
+// declares an interface. Other named types are not supported yet, so
+// TypeExpr is always a *StructType or an *InterfaceType (see Interface).
+// An interface is no type of the table, so its Type stays Invalid.
 type TypeDecl struct {
-	TypeExpr Expr // the type as written, a *StructType
+	TypeExpr Expr // the type as written, a *StructType or an *InterfaceType
 
 	// Methods are the methods declared on the type, in program order, as
 	// the resolver records them: each one it accepted, whose receiver has

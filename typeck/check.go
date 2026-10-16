@@ -90,6 +90,15 @@ type Checker struct {
 	// struct's fields are known; see requireCopyable.
 	pendingElems []pendingElem
 
+	// typeParams maps each type parameter's type to its declaration, and
+	// standIns holds the stand-in for each interface method called on a
+	// type parameter's values (see typeParamMethod). inference is what
+	// the call to a generic function whose arguments are being checked
+	// has inferred, nil outside one (see checkGenericCall).
+	typeParams map[types.Type]*ast.TypeParam
+	standIns   map[standInKey]*ast.Func
+	inference  *inference
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
 
@@ -129,6 +138,9 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		declPkg:   declPackages(prog),
 		structPkg: make(map[types.Type]*ast.Package),
+
+		typeParams: make(map[types.Type]*ast.TypeParam),
+		standIns:   make(map[standInKey]*ast.Func),
 	}
 }
 
@@ -192,14 +204,19 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// global's initializer is a constant, so it never needs a function.
 	c.declareStructs()
 	c.checkGlobals(decls)
+	c.resolveInterfaces(decls)
 
 	// Signatures are resolved for every function before any body is checked,
-	// so a call does not depend on its callee appearing first.
+	// so a call does not depend on its callee appearing first. A generic
+	// function's type parameters come first, since its parameters' types
+	// may name them.
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			restore := c.enter(fn)
+			c.resolveTypeParams(fn)
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
+			c.checkTypeParamsUsed(fn)
 			restore()
 		}
 	}
@@ -225,6 +242,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 		restore()
 	}
 
+	c.instantiate()
 	return c.diags
 }
 
@@ -599,7 +617,7 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 
 	// Any other builtin's Def is a nil *Func, and it returns nothing.
 	if fn := ast.Callee(call); fn != nil {
-		results = fn.ResultTypes
+		results = ast.CallResults(call)
 	}
 	switch got := len(results); {
 	case got == 0:
@@ -1488,8 +1506,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return types.Invalid
 	}
 
-	if td, ok := id.Def.(*ast.TypeDecl); ok {
-		return td.Type
+	if typ, declared := c.namedType(id); declared {
+		return typ
 	}
 	typ, known := types.Lookup(id.Name)
 	if !known || id.Pkg != "" {

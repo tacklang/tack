@@ -83,7 +83,11 @@ func (c *Checker) checkExposure(decls []ast.Decl) {
 				c.exposure(d.Vis, "variable "+d.Name, d.Type, at)
 			}
 		case *ast.TypeDecl:
-			c.fieldExposure(d)
+			if d.Interface() != nil {
+				c.ifaceExposure(d)
+			} else {
+				c.fieldExposure(d)
+			}
 		}
 		restore()
 	}
@@ -105,6 +109,7 @@ func (c *Checker) funcExposure(fn *ast.Func) {
 	if vis == ast.Private {
 		return
 	}
+	c.constraintExposure(vis, what, fn)
 	for _, p := range fn.Params {
 		c.exposure(vis, what, p.Type, p.TypeExpr.Spanned())
 	}
