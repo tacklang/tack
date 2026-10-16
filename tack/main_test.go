@@ -1682,6 +1682,38 @@ func TestBuiltFmtWriteWritesItsOutput(t *testing.T) {
 	}
 }
 
+// TestBuiltBytesPassesEveryCheck builds examples/bytes, which imports
+// std/bytes, a std package written in Tack alone, at every optimization
+// level and checks each binary writes exactly examples/bytes/output, every
+// check ok: each function of std/bytes at its edges, empty views, overlaps,
+// bytes 0x00 and 0xff, int64's and uint64's extremes, repeat's negative
+// and overflowing counts, and appends and repeats made to fail, which
+// leave the list as it was and allocate nothing.
+func TestBuiltBytesPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "bytes", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/bytes/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "bytes")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("bytes"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

@@ -1,0 +1,253 @@
+package bytes
+
+// Package bytes reads and builds byte sequences. A program imports it as
+//
+//     import bytes from "std/bytes"
+//
+// and the compiler reads it from $TACK_HOME/src/std/bytes, or
+// ~/.tack/src/std/bytes, as it reads std/fmt. It is written in Tack
+// alone, with no C.
+//
+// Its functions take views in and give lists out. The read functions,
+// equal, index, index_byte, has_prefix, has_suffix and count, take
+// []uint8 views, so a list[uint8], an array or a slice of either, or a
+// string's bytes, []uint8(s), can be passed, and return an index, a count
+// or a bool: a view cannot be returned or stored, so none returns part of
+// its input. They allocate nothing and cannot fail.
+//
+// The append functions, append_int, append_uint and append_hex, format
+// an integer into the end of the caller's list, passed as mut b, and
+// return an error, all or nothing as the builtin append is: the digits
+// are formatted into a local array first and added with one append, so
+// when the list cannot grow, the error is error{code: 1, msg: "out of
+// memory"} and b is left exactly as it was, its length, its capacity and
+// its bytes.
+//
+// repeat makes a new list, through the Allocator it is given, and returns
+// it beside an error. No other function takes an allocator: the append
+// functions grow b through the allocator b was made with.
+//
+// Bytes are bytes: nothing here knows UTF-8, so every byte, 0x00 and
+// 0xff included, is compared and counted as it is, and an index is a
+// byte's.
+
+// max_int64 is the largest int64, 9223372036854775807.
+var max_int64 int64 = 9223372036854775807
+
+// hex_digits holds the lowercase hexadecimal digits, digit d at index d.
+var hex_digits = "0123456789abcdef"
+
+// equal reports whether a and b hold the same bytes, in the same order:
+// the same length and each byte equal. Two empty views are equal.
+pub func equal(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    // The range proves i for a, not for b: equal lengths give no fact
+    // about b's, so b[i] is read in the checked form, whose ok is always
+    // true here.
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// match_at reports whether sub occurs in s starting at byte i: every byte
+// of sub equals the byte of s at its offset from i. It is false when sub
+// would run past the end of s, or i is outside s, and true for an empty
+// sub at any i from 0 to len(s).
+func match_at(s []uint8, sub []uint8, i int64) bool {
+    if i < 0 || i > len(s) || len(sub) > len(s) - i {
+        return false
+    }
+    // Only a name is proven as an index, and i + j is not one, so it is
+    // read in the checked form; the guard above keeps it in range.
+    for j, x := range sub {
+        y, ok := s[i + j]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// index returns the index in s of the first byte of the first occurrence
+// of sub, or -1 when sub does not occur in s. An empty sub occurs
+// everywhere, so index returns 0 for it, an empty s included, as Go's
+// bytes.Index does. A sub longer than s never occurs.
+pub func index(s []uint8, sub []uint8) int64 {
+    if len(sub) > len(s) {
+        return -1
+    }
+    for i := range len(s) - len(sub) + 1 {
+        if match_at(s, sub, i) {
+            return i
+        }
+    }
+    return -1
+}
+
+// index_byte returns the index in s of the first byte equal to c, or -1
+// when there is none, an empty s included.
+pub func index_byte(s []uint8, c uint8) int64 {
+    for i, x := range s {
+        if x == c {
+            return i
+        }
+    }
+    return -1
+}
+
+// has_prefix reports whether s begins with prefix. Every s begins with an
+// empty prefix, an empty s included, and no s begins with a prefix
+// longer than itself.
+pub func has_prefix(s []uint8, prefix []uint8) bool {
+    return match_at(s, prefix, 0)
+}
+
+// has_suffix reports whether s ends with suffix. Every s ends with an
+// empty suffix, an empty s included, and no s ends with a suffix longer
+// than itself.
+pub func has_suffix(s []uint8, suffix []uint8) bool {
+    return match_at(s, suffix, len(s) - len(suffix))
+}
+
+// count returns the number of non-overlapping occurrences of sub in s,
+// found from the start: after a match the search goes on past its end,
+// so "aa" occurs twice in "aaaa" and twice in "aaaaa". An empty sub
+// occurs before each byte and after the last, so count returns len(s) +
+// 1 for it. Go's bytes.Count returns the number of UTF-8 characters plus
+// one there instead; Tack's bytes are bytes, so this counts bytes. A sub
+// longer than s occurs 0 times.
+pub func count(s []uint8, sub []uint8) int64 {
+    if len(sub) == 0 {
+        return len(s) + 1
+    }
+    mut n int64 = 0
+    mut i int64 = 0
+    for i <= len(s) - len(sub) {
+        if match_at(s, sub, i) {
+            n++
+            i += len(sub)
+        } else {
+            i++
+        }
+    }
+    return n
+}
+
+// append_digits appends v to b in base, 10 or 16, as lowercase digits
+// with no leading zeros, 0 being the one digit 0, and a - before them
+// when neg. The digits and the sign are written into a local array from
+// its end, the least significant digit first, and added to b with one
+// append, so b gains all of them or, when it cannot grow, none, and the
+// error is the builtin append's. Twenty-one places hold the most there
+// can be: the twenty decimal digits of the largest uint64,
+// 18446744073709551615, or a sign and the nineteen of the smallest
+// int64's magnitude, 9223372036854775808.
+//
+// The divisions are written in the checked form, which needs no proof
+// that base is not zero; the callers pass only 10 and 16.
+func append_digits(mut b list[uint8], v uint64, base uint64, neg bool) error {
+    mut digits [21]uint8
+    mut x := v
+    mut sign := false
+    // at counts down from the last place, so it is proven in range for
+    // digits, and for digits[at:], in the body.
+    for mut at := 20; at >= 0; at-- {
+        if sign {
+            digits[at] = '-'
+            return append(mut b, digits[at:]...)
+        }
+        d, _ := x % base
+        c, _ := hex_digits[d]
+        digits[at] = c
+        x, _ = x / base
+        if x == 0 {
+            if !neg {
+                return append(mut b, digits[at:]...)
+            }
+            sign = true
+        }
+    }
+    // Not reached: every value's digits, and its sign, fit in the 21
+    // places, so the loop returns before it runs out of them. A function
+    // with a result must end in a return, and Tack has no way to say a
+    // place is unreachable, so this one appends every place, which is
+    // what the loop's next step would have done.
+    return append(mut b, digits...)
+}
+
+// append_uint appends v to b in decimal, with no sign and no leading
+// zeros: 0 is "0", and the largest uint64 is "18446744073709551615". It
+// returns no error, or, when b cannot grow to hold the digits,
+// error{code: 1, msg: "out of memory"}, the builtin append's, and leaves
+// b exactly as it was.
+pub func append_uint(mut b list[uint8], v uint64) error {
+    return append_digits(mut b, v, 10, false)
+}
+
+// append_int appends v to b in decimal, with a - before a negative v and
+// no leading zeros: 0 is "0", -1 is "-1", and the smallest int64 is
+// "-9223372036854775808", whose magnitude no int64 holds. It returns no
+// error, or, when b cannot grow to hold the digits and the sign,
+// error{code: 1, msg: "out of memory"}, the builtin append's, and leaves
+// b exactly as it was.
+pub func append_int(mut b list[uint8], v int64) error {
+    if v >= 0 {
+        u, _ := uint64(v)
+        return append_digits(mut b, u, 10, false)
+    }
+    // -(v + 1) is an int64 for every negative v, the smallest included,
+    // and one less than v's magnitude.
+    m, _ := uint64(-(v + 1))
+    return append_digits(mut b, m + 1, 10, true)
+}
+
+// append_hex appends v to b in lowercase hexadecimal, with no 0x prefix
+// and no leading zeros, as printf's %x writes a uint64: 0 is "0", 255 is
+// "ff", and the largest uint64 is "ffffffffffffffff". It returns no
+// error, or, when b cannot grow to hold the digits, error{code: 1, msg:
+// "out of memory"}, the builtin append's, and leaves b exactly as it was.
+pub func append_hex(mut b list[uint8], v uint64) error {
+    return append_digits(mut b, v, 16, false)
+}
+
+// repeat returns a new list, made through alloc, holding n copies of s,
+// one after another, and no error. Its length is len(s) * n, reserved
+// once before anything is appended. n of 0, or an empty s, gives an empty
+// list, which allocates nothing, whatever n is, as long as it is not
+// negative.
+//
+// Where Go's bytes.Repeat panics, repeat returns an error with an empty
+// list, having allocated nothing, as the builtin reserve does: a negative
+// n is error{code: 2, msg: "negative count"}, and a length that
+// overflows an int64, or that alloc cannot give, error{code: 1, msg:
+// "out of memory"}.
+pub func repeat(s []uint8, n int64, alloc Allocator) (list[uint8], error) {
+    mut out := make(list[uint8], alloc)
+    if n < 0 {
+        return out, error{code: 2, msg: "negative count"}
+    }
+    size := len(s)
+    if size == 0 || n == 0 {
+        return out, noerror
+    }
+    if n > max_int64 / size {
+        return out, error{code: 1, msg: "out of memory"}
+    }
+    err := reserve(mut out, size * n)
+    if err.code != 0 {
+        return out, err
+    }
+    for range n {
+        e := append(mut out, s...)
+        if e.code != 0 {
+            return out, e
+        }
+    }
+    return out, noerror
+}

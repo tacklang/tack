@@ -610,3 +610,35 @@ decided by consistency and is open:
   line atomic, and neither reports an error.
 - The wording for `lib` used from a single file is `x is lib in module
   std and cannot be used from a single file, which has no module`.
+
+## std/bytes
+
+`std/bytes`'s shape, its set of functions and the naming convention were
+decided. These points of its edges were settled by consistency, with Go's
+`bytes` package where it applies and with the builtins where Go panics,
+and could go another way:
+
+- `index` of an empty sub is 0, an empty s included, and `has_prefix`
+  and `has_suffix` of an empty one are true, as in Go.
+- `count` of an empty sub is `len(s) + 1`. Go's `bytes.Count` returns the
+  number of UTF-8 characters plus one; Tack's bytes are bytes, so the
+  consistent count is of bytes.
+- `count` counts non-overlapping occurrences, found from the start, as
+  Go's does: `"aa"` occurs twice in `"aaaa"` and twice in `"aaaaa"`.
+- `append_hex` writes lowercase digits with no `0x` prefix, as printf's
+  `%x` does, and takes a `uint64`; there is no signed hex form.
+- A failed append function returns the builtin append's error,
+  `error{code: 1, msg: "out of memory"}`, and leaves the list as it was.
+- `repeat` with `n` of 0, or an empty `s`, returns an empty list and no
+  error, allocating nothing; an empty `s` with any non-negative `n`,
+  `int64`'s largest included, returns at once.
+- Where Go's `bytes.Repeat` panics, `repeat` returns the builtin
+  reserve's errors with an empty list, having allocated nothing: a
+  negative `n` is `error{code: 2, msg: "negative count"}`, checked before
+  anything else, so an empty `s` with a negative `n` is an error too, and
+  a length `len(s) * n` that overflows an `int64`, or that the allocator
+  cannot give, is `error{code: 1, msg: "out of memory"}`.
+- The list `repeat` returns beside an error is the empty list `make`
+  gives, not the absence of one, since a list has no zero value; the
+  caller must still bind it, and cannot read it before checking the
+  error.

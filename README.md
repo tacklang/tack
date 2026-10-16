@@ -5,7 +5,8 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of one package, `std/fmt`, and no intermediate representation.
+of two packages, `std/fmt` and `std/bytes`, and no intermediate
+representation.
 
 Code generation is pluggable. The front end hands a resolved syntax tree to a
 *backend*, and the backend decides what comes out and how it is built. One ships
@@ -42,7 +43,9 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 Functions have local variables, immutable unless declared with `mut`, and
 loops, and lists, owned and growable, which free themselves. `print` takes strings only; `std/fmt`'s `printf` writes integers,
 bools and strings, through `any` parameters, and its `write` writes bytes,
-a view of `uint8` (see the language today).
+a view of `uint8` (see the language today). `std/bytes`, the first std
+package written in Tack alone, searches byte views and formats integers
+and repeats bytes into lists.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. The language has packages now, but the standard
@@ -459,11 +462,12 @@ makes for itself, which has a letter after `tack_`.
   its own: `import fmt from "std/fmt"` reads `$TACK_HOME/src/std/fmt`.
   Without std installed, such a program fails as every program does,
   `tack: cannot find std at <path>; set TACK_HOME or run make install`.
-  Its one package today is [`fmt`](src/std/fmt/fmt.tck), whose `pub func
+  Its packages today are [`fmt`](src/std/fmt/fmt.tck), whose `pub func
   println(s string)` writes `s` and then a newline, `fmt.println("hi")`,
   whose `pub func printf(format string, args ...any)` writes formatted
   text (see printf), and whose `pub func write(b []uint8)` writes bytes
-  (see write).
+  (see write), and [`bytes`](src/std/bytes/bytes.tck), which reads byte
+  views and builds byte lists (see bytes).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -786,6 +790,38 @@ makes for itself, which has a letter after `tack_`.
   write goes through the same C `stdout` as `print` and `printf`, with one
   `fwrite`, so the three interleave in call order, and like them it
   reports no error.
+- bytes. `std/bytes` is written in Tack alone, with no C: its views go
+  in and its lists come out. Its read functions take `[]uint8` views, so
+  a `list[uint8]`, an array or a slice of either, or a string's bytes,
+  `[]uint8(s)`, never a string itself, and return an index, a count or a
+  bool, allocating nothing: `equal(a, b)`, the same bytes in the same
+  order; `index(s, sub)`, the first index of `sub` in `s`, or -1, and 0
+  for an empty `sub`; `index_byte(s, c)`, the first index of the byte
+  `c`, or -1; `has_prefix(s, prefix)` and `has_suffix(s, suffix)`, true
+  for an empty one; and `count(s, sub)`, the non-overlapping occurrences
+  of `sub` found from the start, so `"aa"` occurs twice in `"aaaa"`, and
+  `len(s) + 1` for an empty `sub`. Its append functions format an integer
+  into the end of the caller's list, `err := bytes.append_int(mut b, v)`
+  for an `int64` in decimal, `-` before a negative one, the smallest
+  `int64` included, `append_uint` for a `uint64` in decimal, and
+  `append_hex` for a `uint64` in lowercase hexadecimal with no `0x`, as
+  printf's `%x` writes it. Each adds all its bytes with one append or
+  none: when `b` cannot grow, the error is the builtin append's,
+  `error{code: 1, msg: "out of memory"}`, and `b` is left exactly as it
+  was. `r, err := bytes.repeat(s, n, alloc)` makes a new list through
+  `alloc` holding `n` copies of `s`, reserved once at its final length;
+  `n` of 0, or an empty `s`, gives an empty list, which allocates
+  nothing. Where Go's `bytes.Repeat` panics, it returns an error and
+  allocates nothing, as reserve does: a negative `n` is `error{code: 2,
+  msg: "negative count"}`, and a length that overflows an `int64`, or
+  that `alloc` cannot give, `error{code: 1, msg: "out of memory"}`. Only
+  a function that makes a new list takes an `Allocator`. The errors and
+  the list follow the rules every call does: `bytes.append_int(mut b, 1)`
+  alone is `the error bytes.append_int returns cannot be dropped; bind
+  it, as in err := bytes.append_int(...)`, `_, err := bytes.repeat(...)`
+  is `bytes.repeat returns list[uint8], which cannot be dropped; bind it
+  to a variable instead of _`, and the list cannot be read before the
+  error is checked. Bytes are bytes: nothing in it knows UTF-8.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -1808,6 +1844,17 @@ makes for itself, which has a letter after `tack_`.
   the ABI and `tack.h`'s names and helpers, the rules for C names, what the C side
   must promise, the missing-definition check, every diagnostic, and a
   worked example.
+
+## Naming
+
+Tack names functions, methods, variables, fields and packages in
+snake_case, `index_byte`, `append_int`, and types and interfaces in
+PascalCase, `Allocator`, `Writer`. The standard library follows this
+convention; it is a convention, documented here, and the compiler does
+not enforce it. Most of the examples predate it and use camelCase for
+functions and variables; they are not a guide to it. The existing names
+of std and the builtins, `println`, `printf` and `c_allocator` among
+them, stay as they are.
 
 ## Tests
 

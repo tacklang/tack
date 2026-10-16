@@ -54,6 +54,14 @@ func compileWithStd(t *testing.T, src string) *ast.Program {
 // binary's path.
 func buildWithStd(t *testing.T, src string, flags ...string) string {
 	t.Helper()
+	return buildWithStdAndC(t, src, "", flags...)
+}
+
+// buildWithStdAndC builds src as buildWithStd does, and with it csrc, the
+// C file of the program's extern funcs, compiled against the program's
+// tack.h as the driver compiles it; an empty csrc is no C file.
+func buildWithStdAndC(t *testing.T, src, csrc string, flags ...string) string {
+	t.Helper()
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
 	}
@@ -75,6 +83,17 @@ func buildWithStd(t *testing.T, src string, flags ...string) string {
 		flags...)
 	strict = append(strict, "-I", stdtest.IncludeDir())
 	objs := []string{}
+	if csrc != "" {
+		cfile := filepath.Join(dir, "program_c.c")
+		writeFile(t, cfile, csrc)
+		obj := filepath.Join(dir, "program_c.o")
+		args := append(append([]string{}, strict...),
+			"-c", "-I", dir, "-include", header, "-o", obj, cfile)
+		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
+			t.Fatalf("clang %s: %v\n%s", strings.Join(args, " "), err, msg)
+		}
+		objs = append(objs, obj)
+	}
 	for _, pkg := range prog.Packages {
 		for i, f := range pkg.CFiles {
 			obj := filepath.Join(dir, fmt.Sprintf("%s%d.o", pkg.Name, i))
@@ -145,6 +164,45 @@ func TestFmtWriteExampleIsSanitizerClean(t *testing.T) {
 		if got := out[len(want)+i]; got != byte(i%251) {
 			t.Fatalf("byte %d of the large write is %#x, want %#x", i, got, byte(i%251))
 		}
+	}
+}
+
+// TestBytesExampleIsSanitizerClean builds examples/bytes, its C file and
+// std's C with clang's warnings as errors and the address and undefined
+// behavior sanitizers on, every finding fatal, and checks it writes
+// exactly its output, every check ok: std/bytes, written in Tack, reads no
+// view past its end, writes no array past its end, and leaks no list,
+// which the example's own count of live buffers checks, through its
+// failed appends and repeats too. Two of its repeats ask c_allocator for
+// close to 2^63 bytes, which malloc refuses with a null pointer; the
+// address sanitizer's malloc aborts instead unless told to return null as
+// the real one does, so the run sets allocator_may_return_null.
+func TestBytesExampleIsSanitizerClean(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "bytes")
+	src := readFile(t, filepath.Join(dir, "main.tck"))
+	csrc := readFile(t, filepath.Join(dir, "live.c"))
+	want := readFile(t, filepath.Join(dir, "output"))
+	if strings.Contains(want, "FAIL") {
+		t.Fatal("examples/bytes/output expects a check to fail")
+	}
+	bin := buildWithStdAndC(
+		t,
+		src,
+		csrc,
+		"-O1",
+		"-fsanitize=address,undefined",
+		"-fno-sanitize-recover=all",
+	)
+	var stderr strings.Builder
+	cmd := exec.Command(bin)
+	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=allocator_may_return_null=1")
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("bytes failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
+	}
+	if string(out) != want {
+		t.Errorf("bytes wrote\n%q\nwant\n%q", out, want)
 	}
 }
 
