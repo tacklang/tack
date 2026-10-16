@@ -106,9 +106,9 @@ func main() {
 func TestOwnedListLowering(t *testing.T) {
 	got := generate(t, ownedCText)
 	for _, want := range []string{
-		"    for (int64_t i = v.len; i > 0; i--) {\n" +
-			"        tack_list_free_(v.ptr[i - 1].ptr, v.ptr[i - 1].cap, sizeof (int64_t), _Alignof (int64_t), v.ptr[i - 1].alloc);\n" +
-			"    }\n    tack_list_free_(v.ptr, v.cap, sizeof (tack_list_",
+		"    for (int64_t i = v->len; i > 0; i--) {\n" +
+			"        tack_list_free_(v->ptr[i - 1].ptr, v->ptr[i - 1].cap, sizeof (int64_t), _Alignof (int64_t), v->ptr[i - 1].alloc);\n" +
+			"    }\n    tack_list_free_(v->ptr, v->cap, sizeof (tack_list_",
 		"tack_list_free_(v_l.ptr[0].ptr, v_l.ptr[0].cap, sizeof (int64_t), _Alignof (int64_t), v_l.ptr[0].alloc);\n" +
 			"        v_l.ptr[0] = tack_o",
 		"const tack_list_",

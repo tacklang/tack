@@ -26,8 +26,8 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_15(tack_error a, tack_error b) {
-    return a.code == b.code && (tack_compare_strings(a.msg, b.msg) == 0);
+static bool tack_eq_15(const tack_error *a, const tack_error *b) {
+    return a->code == b->code && (tack_compare_strings(a->msg, b->msg) == 0);
 }
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
@@ -72,23 +72,25 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 }
 
 static void tack_4_main4_main(void) {
-    tack_4_main5_check((tack_eq_15(tack_4_main4_fail(0), (tack_error){})), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    tack_4_main5_check((tack_eq_15(tack_4_main4_fail(7), (tack_error){.code = 7, .msg = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
-    const tack_results_4_main4_half tack_r0 = tack_4_main4_half(10);
-    const int64_t v_h = tack_r0.r0;
-    const tack_error v_err = tack_r0.r1;
+    tack_error tack_q0;
+    tack_error tack_q1;
+    tack_4_main5_check((tack_eq_15((tack_q0 = tack_4_main4_fail(0), &tack_q0), &(tack_error){})), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    tack_4_main5_check((tack_eq_15((tack_q1 = tack_4_main4_fail(7), &tack_q1), &(tack_error){.code = 7, .msg = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    const tack_results_4_main4_half tack_r2 = tack_4_main4_half(10);
+    const int64_t v_h = tack_r2.r0;
+    const tack_error v_err = tack_r2.r1;
     if (v_err.code != 0) {
         tack_4_main5_check(false, (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
         return;
     }
-    const tack_results_4_main4_half tack_r1 = tack_4_main4_half(3);
-    const tack_error v_odd = tack_r1.r1;
+    const tack_results_4_main4_half tack_r3 = tack_4_main4_half(3);
+    const tack_error v_odd = tack_r3.r1;
     tack_4_main5_check((((v_h == 5) && (v_odd.code == 9)) && (tack_compare_strings(v_odd.msg, (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}) == 0)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     const tack_error v_e = (tack_error){.code = (-3), .msg = (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}};
     tack_4_main5_check((((tack_4_main6_codeOf(v_e) == (-3)) && (tack_4_main6_msgLen(v_e) == 4)) && (tack_4_main6_msgLen((tack_error){}) == 0)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 5, .f_err = v_e};
     tack_4_main5_clear(&v_p);
-    tack_4_main5_check(((v_p.f_x == 0) && (tack_eq_15(v_p.f_err, (tack_error){}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check(((v_p.f_x == 0) && (tack_eq_15(&v_p.f_err, &(tack_error){}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_check(((tack_4_main5_codes((tack_view_18){(const tack_error[3]){v_e, tack_4_main4_fail(2), (tack_error){}}, 3}) == (-1)) && (tack_4_main5_codes((tack_view_18){0, 0}) == 0)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
 }
 

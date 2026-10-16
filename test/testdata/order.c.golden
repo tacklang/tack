@@ -25,8 +25,8 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_17(tack_4_main4_Pair a, tack_4_main4_Pair b) {
-    return a.f_a == b.f_a && a.f_b == b.f_b;
+static bool tack_eq_17(const tack_4_main4_Pair *a, const tack_4_main4_Pair *b) {
+    return a->f_a == b->f_a && a->f_b == b->f_b;
 }
 
 static const unsigned char tack_str0[3] = {97, 32, 0};
@@ -170,7 +170,7 @@ static void tack_4_main4_main(void) {
     tack_builtin_print((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_check((tack_o10 = tack_4_main4_word((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), tack_o11 = tack_4_main4_word((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}), (tack_compare_strings(tack_o10, tack_o11) < 0)));
     tack_builtin_print((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
-    tack_4_main5_check((tack_o12 = tack_4_main4_pair((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1, 2), tack_o13 = tack_4_main4_pair((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 1, 2), (tack_eq_17(tack_o12, tack_o13))));
+    tack_4_main5_check((tack_o12 = tack_4_main4_pair((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1, 2), tack_o13 = tack_4_main4_pair((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 1, 2), (tack_eq_17(&tack_o12, &tack_o13))));
     tack_builtin_print((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
     tack_4_main5_check(((tack_o14 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 1), tack_o15 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 2), tack_o16 = tack_4_main3_say((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, 3), tack_4_main5_three(tack_o14, tack_o15, tack_o16)) == 123));
     tack_builtin_print((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});

@@ -37,11 +37,11 @@ typedef struct {
     tack_4_main5_Point e[2];
 } tack_array_23;
 
-static bool tack_eq_18(tack_4_main5_Point a, tack_4_main5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_18(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
-static bool tack_eq_21(tack_4_main5_Empty a, tack_4_main5_Empty b) {
+static bool tack_eq_21(const tack_4_main5_Empty *a, const tack_4_main5_Empty *b) {
     (void)a;
     (void)b;
     return true;
@@ -80,6 +80,7 @@ static int64_t tack_4_main4_bump(tack_4_main5_Point p_p) {
 }
 
 static void tack_4_main4_main(void) {
+    tack_4_main5_Point tack_q1;
     tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 1, .f_y = 2};
     const tack_4_main5_Point v_q = v_p;
     v_p.f_x = 10;
@@ -93,7 +94,7 @@ static void tack_4_main4_main(void) {
     const tack_results_4_main5_split tack_r0 = tack_4_main5_split(v_l);
     const tack_4_main5_Point v_a = tack_r0.r0;
     const tack_4_main5_Point v_b = tack_r0.r1;
-    if ((!tack_eq_18(tack_4_main3_add(v_a, v_b), (tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_18(v_a, v_b))) {
+    if ((!tack_eq_18((tack_q1 = tack_4_main3_add(v_a, v_b), &tack_q1), &(tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_18(&v_a, &v_b))) {
         tack_builtin_exit(3);
     }
     tack_4_main4_Line v_ml = v_l;
@@ -106,16 +107,16 @@ static void tack_4_main4_main(void) {
     v_pts.e[1].f_y = 20;
     {
         (void)v_pts;
-        for (int64_t tack_k2 = 0; tack_k2 < 2; tack_k2++) {
-            const int64_t v_i = tack_k2;
+        for (int64_t tack_k3 = 0; tack_k3 < 2; tack_k3++) {
+            const int64_t v_i = tack_k3;
             v_pts.e[v_i].f_x = ((int64_t)((uint64_t)v_pts.e[v_i].f_x * (uint64_t)3));
         }
     }
     int64_t v_sum = 0;
     {
-        const tack_array_23 *const tack_r3 = &v_pts;
-        for (int64_t tack_k4 = 0; tack_k4 < 2; tack_k4++) {
-            const tack_4_main5_Point v_pt = (*tack_r3).e[tack_k4];
+        const tack_array_23 *const tack_r4 = &v_pts;
+        for (int64_t tack_k5 = 0; tack_k5 < 2; tack_k5++) {
+            const tack_4_main5_Point v_pt = (*tack_r4).e[tack_k5];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)((int64_t)((uint64_t)v_pt.f_x + (uint64_t)v_pt.f_y))));
         }
     }
@@ -127,8 +128,8 @@ static void tack_4_main4_main(void) {
     v_g.f_name = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
     {
         (void)v_g.f_cells;
-        for (int64_t tack_k6 = 0; tack_k6 < 3; tack_k6++) {
-            const int64_t v_i = tack_k6;
+        for (int64_t tack_k7 = 0; tack_k7 < 3; tack_k7++) {
+            const int64_t v_i = tack_k7;
             v_g.f_cells.e[v_i] = ((int64_t)((uint64_t)v_g.f_cells.e[v_i] + (uint64_t)1));
         }
     }
@@ -136,7 +137,7 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(6);
     }
     tack_4_main5_Point v_z = (tack_4_main5_Point){};
-    if ((!tack_eq_18(v_z, tack_4_main6_origin)) || (!tack_eq_18(tack_4_main7_counter, v_z))) {
+    if ((!tack_eq_18(&v_z, &tack_4_main6_origin)) || (!tack_eq_18(&tack_4_main7_counter, &v_z))) {
         tack_builtin_exit(7);
     }
     tack_4_main7_counter.f_y = ((int64_t)((uint64_t)tack_4_main7_counter.f_y - (uint64_t)1));
@@ -147,12 +148,12 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(8);
     }
     const tack_4_main5_Empty v_e = (tack_4_main5_Empty){};
-    if (!tack_eq_21(v_e, (tack_4_main5_Empty){})) {
+    if (!tack_eq_21(&v_e, &(tack_4_main5_Empty){})) {
         tack_builtin_exit(9);
     }
-    const int64_t tack_r7 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100));
-    const int32_t v_code = ((tack_r7 >= (-2147483648) && tack_r7 <= 2147483647) ? (int32_t)tack_r7 : 0);
-    const bool v_ok = (tack_r7 >= (-2147483648) && tack_r7 <= 2147483647);
+    const int64_t tack_r8 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100));
+    const int32_t v_code = ((tack_r8 >= (-2147483648) && tack_r8 <= 2147483647) ? (int32_t)tack_r8 : 0);
+    const bool v_ok = (tack_r8 >= (-2147483648) && tack_r8 <= 2147483647);
     if (!v_ok) {
         tack_builtin_exit(10);
     }

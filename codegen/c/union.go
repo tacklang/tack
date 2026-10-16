@@ -106,17 +106,23 @@ func (g *generator) payloads(typ types.Type) []types.Type {
 
 // emitUnionEquality writes tack_eq_ for a union type: two unions are
 // equal when they hold the same case and, for a case with a payload,
-// equal payloads.
+// equal payloads. It reads them through pointers (see equalityName).
 func (g *generator) emitUnionEquality(typ types.Type) {
 	name := g.structName(typ)
-	fmt.Fprintf(&g.buf, "static bool %s(%s a, %s b) {\n", equalityName(typ), name, name)
-	g.buf.WriteString("    if (a.tag != b.tag) {\n        return false;\n    }\n")
-	g.buf.WriteString("    switch (a.tag) {\n")
+	fmt.Fprintf(
+		&g.buf,
+		"static bool %s(const %s *a, const %s *b) {\n",
+		equalityName(typ),
+		name,
+		name,
+	)
+	g.buf.WriteString("    if (a->tag != b->tag) {\n        return false;\n    }\n")
+	g.buf.WriteString("    switch (a->tag) {\n")
 	for i, uc := range g.prog.Types.Cases(typ) {
 		if !uc.Payload {
 			continue
 		}
-		member := ".u." + caseMember(uc.Name)
+		member := "->u." + caseMember(uc.Name)
 		fmt.Fprintf(&g.buf, "    case %d:\n        return %s;\n", i,
 			g.equalExpr(uc.Type, "a"+member, "b"+member))
 	}
@@ -125,7 +131,9 @@ func (g *generator) emitUnionEquality(typ types.Type) {
 
 // freeName is the name of the helper that frees what a union of type typ,
 // which holds a list, holds, or a list of type typ, whose elements are
-// owned, and its elements.
+// owned, and its elements. It takes a const pointer to the value, as an
+// equality helper does (see equalityName), so a chain of types nested
+// one in another frees in frames of one small size.
 func freeName(typ types.Type) string {
 	return fmt.Sprintf("tack_free_%d", typ)
 }
@@ -164,7 +172,7 @@ func (g *generator) emitFrees() {
 func (g *generator) emitUnionFree(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
-		"static void %s(%s v) {\n    switch (v.tag) {\n",
+		"static void %s(const %s *v) {\n    switch (v->tag) {\n",
 		freeName(typ),
 		g.structName(typ),
 	)
@@ -173,7 +181,7 @@ func (g *generator) emitUnionFree(typ types.Type) {
 			continue
 		}
 		fmt.Fprintf(&g.buf, "    case %d:\n", i)
-		for _, line := range g.frees(uc.Type, "v.u."+caseMember(uc.Name)) {
+		for _, line := range g.frees(uc.Type, "v->u."+caseMember(uc.Name)) {
 			fmt.Fprintf(&g.buf, "        %s\n", line)
 		}
 		g.buf.WriteString("        break;\n")

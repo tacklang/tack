@@ -38,13 +38,13 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_17(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
-static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
+static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
     for (int64_t i = 0; i < 3; i++) {
-        if (!(tack_compare_strings(a.e[i], b.e[i]) == 0)) {
+        if (!(tack_compare_strings(a->e[i], b->e[i]) == 0)) {
             return false;
         }
     }

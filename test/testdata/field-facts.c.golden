@@ -31,9 +31,9 @@ typedef struct {
     int64_t e[4];
 } tack_array_21;
 
-static bool tack_eq_21(tack_array_21 a, tack_array_21 b) {
+static bool tack_eq_21(const tack_array_21 *a, const tack_array_21 *b) {
     for (int64_t i = 0; i < 4; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -214,7 +214,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((v_out == (-1)), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
     tack_array_21 v_halves = (tack_array_21){{1, 2, 3, 4}};
     tack_4_main10_swapHalves(&v_halves, (tack_4_main4_Pair){.f_i = 0, .f_j = 3});
-    tack_4_main5_check((tack_eq_21(v_halves, (tack_array_21){{4, 2, 3, 1}})), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
+    tack_4_main5_check((tack_eq_21(&v_halves, &(tack_array_21){{4, 2, 3, 1}})), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
 }
 
 int main(void) {

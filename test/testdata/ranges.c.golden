@@ -30,18 +30,18 @@ typedef struct {
     tack_array_21 e[3];
 } tack_array_22;
 
-static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
+static bool tack_eq_18(const tack_array_18 *a, const tack_array_18 *b) {
     for (int64_t i = 0; i < 5; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
     return true;
 }
 
-static bool tack_eq_19(tack_array_19 a, tack_array_19 b) {
+static bool tack_eq_19(const tack_array_19 *a, const tack_array_19 *b) {
     for (int64_t i = 0; i < 3; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -130,7 +130,7 @@ static void tack_4_main4_main(void) {
             v_doubled.e[v_i] = ((int64_t)((uint64_t)v_a.e[v_i] * (uint64_t)2));
         }
     }
-    if (!tack_eq_18(v_doubled, (tack_array_18){{4, 14, 2, 16, 4}})) {
+    if (!tack_eq_18(&v_doubled, &(tack_array_18){{4, 14, 2, 16, 4}})) {
         tack_builtin_exit(2);
     }
     tack_array_19 v_m = (tack_array_19){{1, 2, 3}};
@@ -146,7 +146,7 @@ static void tack_4_main4_main(void) {
             v_seen = ((int64_t)((uint64_t)((int64_t)((uint64_t)v_seen * (uint64_t)10)) + (uint64_t)v_x));
         }
     }
-    if ((v_seen != 123) || (!tack_eq_19(v_m, (tack_array_19){{50, 60, (-1)}}))) {
+    if ((v_seen != 123) || (!tack_eq_19(&v_m, &(tack_array_19){{50, 60, (-1)}}))) {
         tack_builtin_exit(3);
     }
     int64_t v_total = 0;

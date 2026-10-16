@@ -106,82 +106,82 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_17(tack_6_unions3_tok5_Token a, tack_6_unions3_tok5_Token b) {
-    if (a.tag != b.tag) {
+static bool tack_eq_17(const tack_6_unions3_tok5_Token *a, const tack_6_unions3_tok5_Token *b) {
+    if (a->tag != b->tag) {
         return false;
     }
-    switch (a.tag) {
+    switch (a->tag) {
     case 0:
-        return a.u.c_num == b.u.c_num;
+        return a->u.c_num == b->u.c_num;
     case 1:
-        return (tack_compare_strings(a.u.c_word, b.u.c_word) == 0);
+        return (tack_compare_strings(a->u.c_word, b->u.c_word) == 0);
     default:
         return true;
     }
 }
 
-static bool tack_eq_18(tack_6_unions6_Binary a, tack_6_unions6_Binary b) {
-    return a.f_op == b.f_op && a.f_lhs == b.f_lhs && a.f_rhs == b.f_rhs;
+static bool tack_eq_18(const tack_6_unions6_Binary *a, const tack_6_unions6_Binary *b) {
+    return a->f_op == b->f_op && a->f_lhs == b->f_lhs && a->f_rhs == b->f_rhs;
 }
 
-static bool tack_eq_19(tack_6_unions4_Expr a, tack_6_unions4_Expr b) {
-    if (a.tag != b.tag) {
+static bool tack_eq_19(const tack_6_unions4_Expr *a, const tack_6_unions4_Expr *b) {
+    if (a->tag != b->tag) {
         return false;
     }
-    switch (a.tag) {
+    switch (a->tag) {
     case 0:
-        return a.u.c_int == b.u.c_int;
+        return a->u.c_int == b->u.c_int;
     case 1:
-        return (tack_compare_strings(a.u.c_name, b.u.c_name) == 0);
+        return (tack_compare_strings(a->u.c_name, b->u.c_name) == 0);
     case 2:
-        return a.u.c_neg == b.u.c_neg;
+        return a->u.c_neg == b->u.c_neg;
     case 3:
-        return tack_eq_18(a.u.c_binary, b.u.c_binary);
+        return tack_eq_18(&a->u.c_binary, &b->u.c_binary);
     default:
         return true;
     }
 }
 
-static bool tack_eq_20(tack_6_unions5_Token a, tack_6_unions5_Token b) {
-    if (a.tag != b.tag) {
+static bool tack_eq_20(const tack_6_unions5_Token *a, const tack_6_unions5_Token *b) {
+    if (a->tag != b->tag) {
         return false;
     }
-    switch (a.tag) {
+    switch (a->tag) {
     case 0:
-        return a.u.c_num == b.u.c_num;
+        return a->u.c_num == b->u.c_num;
     case 1:
-        return (tack_compare_strings(a.u.c_word, b.u.c_word) == 0);
+        return (tack_compare_strings(a->u.c_word, b->u.c_word) == 0);
     default:
         return true;
     }
 }
 
-static bool tack_eq_29(tack_array_29 a, tack_array_29 b) {
+static bool tack_eq_29(const tack_array_29 *a, const tack_array_29 *b) {
     for (int64_t i = 0; i < 4; i++) {
-        if (!tack_eq_20(a.e[i], b.e[i])) {
+        if (!tack_eq_20(&a->e[i], &b->e[i])) {
             return false;
         }
     }
     return true;
 }
 
-static void tack_free_22(tack_6_unions5_Value v) {
-    switch (v.tag) {
+static void tack_free_22(const tack_6_unions5_Value *v) {
+    switch (v->tag) {
     case 1:
-        tack_list_free_(v.u.c_items.ptr, v.u.c_items.cap, sizeof (int64_t), _Alignof (int64_t), v.u.c_items.alloc);
+        tack_list_free_(v->u.c_items.ptr, v->u.c_items.cap, sizeof (int64_t), _Alignof (int64_t), v->u.c_items.alloc);
         break;
     case 2:
-        tack_list_free_(v.u.c_bag.f_items.ptr, v.u.c_bag.f_items.cap, sizeof (int64_t), _Alignof (int64_t), v.u.c_bag.f_items.alloc);
+        tack_list_free_(v->u.c_bag.f_items.ptr, v->u.c_bag.f_items.cap, sizeof (int64_t), _Alignof (int64_t), v->u.c_bag.f_items.alloc);
         break;
     default:
         break;
     }
 }
 
-static void tack_free_24(tack_6_unions5_Shape v) {
-    switch (v.tag) {
+static void tack_free_24(const tack_6_unions5_Shape *v) {
+    switch (v->tag) {
     case 0:
-        tack_free_22(v.u.c_value);
+        tack_free_22(&v->u.c_value);
         break;
     default:
         break;
@@ -420,37 +420,37 @@ static void tack_6_unions8_testTree(void) {
     if ((v_nodes).len > 0) {
         const tack_6_unions4_Expr v_first = v_nodes.ptr[0];
         v_nodes.ptr[0] = ((tack_6_unions4_Expr){.tag = 4});
-        tack_6_unions5_check(((tack_eq_19(v_first, ((tack_6_unions4_Expr){.tag = 0, .u.c_int = 2}))) && (tack_eq_19(v_nodes.ptr[0], ((tack_6_unions4_Expr){.tag = 4})))), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+        tack_6_unions5_check(((tack_eq_19(&v_first, &((tack_6_unions4_Expr){.tag = 0, .u.c_int = 2}))) && (tack_eq_19(&v_nodes.ptr[0], &((tack_6_unions4_Expr){.tag = 4})))), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
     }
     tack_list_free_(v_nodes.ptr, v_nodes.cap, sizeof (tack_6_unions4_Expr), _Alignof (tack_6_unions4_Expr), v_nodes.alloc);
 }
 
 static void tack_6_unions10_testTokens(void) {
     const tack_array_29 v_toks = (tack_array_29){{((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}), ((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}), ((tack_6_unions5_Token){.tag = 2}), ((tack_6_unions5_Token){.tag = 3})}};
-    tack_6_unions5_check((tack_eq_20(v_toks.e[3], ((tack_6_unions5_Token){.tag = 3}))), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
-    tack_6_unions5_check((tack_eq_20(v_toks.e[0], ((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}))), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
-    tack_6_unions5_check((!tack_eq_20(v_toks.e[0], ((tack_6_unions5_Token){.tag = 0, .u.c_num = 8}))), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
-    tack_6_unions5_check(((!tack_eq_20(v_toks.e[1], ((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}))) && (!tack_eq_20(v_toks.e[2], ((tack_6_unions5_Token){.tag = 3})))), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
-    tack_6_unions5_check((tack_eq_20(((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}), v_toks.e[1])), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
-    tack_6_unions5_check((!tack_eq_20(((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}}), ((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}))), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
+    tack_6_unions5_check((tack_eq_20(&v_toks.e[3], &((tack_6_unions5_Token){.tag = 3}))), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
+    tack_6_unions5_check((tack_eq_20(&v_toks.e[0], &((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}))), (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
+    tack_6_unions5_check((!tack_eq_20(&v_toks.e[0], &((tack_6_unions5_Token){.tag = 0, .u.c_num = 8}))), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
+    tack_6_unions5_check(((!tack_eq_20(&v_toks.e[1], &((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}))) && (!tack_eq_20(&v_toks.e[2], &((tack_6_unions5_Token){.tag = 3})))), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
+    tack_6_unions5_check((tack_eq_20(&((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}), &v_toks.e[1])), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
+    tack_6_unions5_check((!tack_eq_20(&((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}}), &((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}))), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
     int64_t v_words = 0;
     {
         const tack_array_29 *const tack_r4 = &v_toks;
         for (int64_t tack_k5 = 0; tack_k5 < 4; tack_k5++) {
             const tack_6_unions5_Token v_t = (*tack_r4).e[tack_k5];
-            if (!tack_eq_20(v_t, ((tack_6_unions5_Token){.tag = 3}))) {
+            if (!tack_eq_20(&v_t, &((tack_6_unions5_Token){.tag = 3}))) {
                 v_words = ((int64_t)((uint64_t)v_words + (uint64_t)1));
             }
         }
     }
     tack_6_unions5_check((v_words == 3), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_6_unions5_check(((tack_eq_20(tack_6_unions5_start, ((tack_6_unions5_Token){.tag = 2}))) && (tack_eq_20(tack_6_unions8_keywords.e[0], ((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}})))), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
-    tack_6_unions5_check((tack_eq_20(tack_6_unions8_keywords.e[1], ((tack_6_unions5_Token){.tag = 0, .u.c_num = (-9223372036854775807 - 1)}))), (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
-    tack_6_unions5_check(((tack_eq_20(tack_6_unions8_keywords.e[2], ((tack_6_unions5_Token){.tag = 3}))) && (tack_eq_29(v_toks, (tack_array_29){{((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}), ((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}), ((tack_6_unions5_Token){.tag = 2}), ((tack_6_unions5_Token){.tag = 3})}}))), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
+    tack_6_unions5_check(((tack_eq_20(&tack_6_unions5_start, &((tack_6_unions5_Token){.tag = 2}))) && (tack_eq_20(&tack_6_unions8_keywords.e[0], &((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}})))), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_6_unions5_check((tack_eq_20(&tack_6_unions8_keywords.e[1], &((tack_6_unions5_Token){.tag = 0, .u.c_num = (-9223372036854775807 - 1)}))), (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
+    tack_6_unions5_check(((tack_eq_20(&tack_6_unions8_keywords.e[2], &((tack_6_unions5_Token){.tag = 3}))) && (tack_eq_29(&v_toks, &(tack_array_29){{((tack_6_unions5_Token){.tag = 0, .u.c_num = 7}), ((tack_6_unions5_Token){.tag = 1, .u.c_word = (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}}), ((tack_6_unions5_Token){.tag = 2}), ((tack_6_unions5_Token){.tag = 3})}}))), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
     tack_6_unions5_Token v_t = ((tack_6_unions5_Token){.tag = 0, .u.c_num = 1});
-    tack_6_unions5_check((!tack_eq_20(v_t, ((tack_6_unions5_Token){.tag = 0, .u.c_num = 2}))), (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
+    tack_6_unions5_check((!tack_eq_20(&v_t, &((tack_6_unions5_Token){.tag = 0, .u.c_num = 2}))), (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
     v_t = ((tack_6_unions5_Token){.tag = 0, .u.c_num = 2});
-    tack_6_unions5_check((tack_eq_20(v_t, ((tack_6_unions5_Token){.tag = 0, .u.c_num = 2}))), (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
+    tack_6_unions5_check((tack_eq_20(&v_t, &((tack_6_unions5_Token){.tag = 0, .u.c_num = 2}))), (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
 }
 
 static tack_string tack_6_unions8_classify(tack_6_unions5_Token p_t) {
@@ -618,15 +618,15 @@ static void tack_6_unions9_testOwned(void) {
     tack_6_unions5_Value v_w = ((tack_6_unions5_Value){.tag = 2, .u.c_bag = (tack_6_unions3_Bag){.f_items = tack_6_unions6_listOf(3), .f_tag = 10}});
     tack_6_unions5_check((tack_6_unions5_total(v_w) == 13), (tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)});
     tack_o26 = ((tack_6_unions5_Value){.tag = 0, .u.c_num = 5});
-    tack_free_22(v_w);
+    tack_free_22(&v_w);
     v_w = tack_o26;
     tack_6_unions5_check(((tack_6_unions5_total(v_w) == 5) && (tack_6_unions4_live() == 1)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
     tack_o27 = ((tack_6_unions5_Value){.tag = 1, .u.c_items = tack_6_unions6_listOf(2)});
-    tack_free_22(v_w);
+    tack_free_22(&v_w);
     v_w = tack_o27;
     tack_6_unions5_check(((tack_6_unions5_total(v_w) == 1) && (tack_6_unions4_live() == 2)), (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
     tack_o28 = ((tack_6_unions5_Value){.tag = 3});
-    tack_free_22(v_w);
+    tack_free_22(&v_w);
     v_w = tack_o28;
     tack_6_unions5_check(((tack_6_unions5_total(v_w) == 0) && (tack_6_unions4_live() == 1)), (tack_string){tack_str32, TACK_C_STR_LEN(tack_str32)});
     tack_6_unions5_Value v_m = tack_6_unions9_makeItems(5);
@@ -634,11 +634,11 @@ static void tack_6_unions9_testOwned(void) {
     tack_list_25 v_l = tack_6_unions6_listOf(3);
     tack_6_unions5_Value v_moved = ((tack_6_unions5_Value){.tag = 1, .u.c_items = (tack_o29 = v_l, v_l = (tack_list_25){}, tack_o29)});
     tack_6_unions5_check((tack_6_unions5_total(v_moved) == 3), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
-    tack_free_22(v_moved);
+    tack_free_22(&v_moved);
     tack_list_free_(v_l.ptr, v_l.cap, sizeof (int64_t), _Alignof (int64_t), v_l.alloc);
-    tack_free_22(v_m);
-    tack_free_22(v_w);
-    tack_free_22(v_v);
+    tack_free_22(&v_m);
+    tack_free_22(&v_w);
+    tack_free_22(&v_v);
 }
 
 static void tack_6_unions9_testLoops(void) {
@@ -650,7 +650,7 @@ static void tack_6_unions9_testLoops(void) {
         for (int64_t tack_k32 = 0; tack_k32 < tack_n31; tack_k32++) {
             const int64_t v_i = tack_k32;
             tack_o30 = ((tack_6_unions5_Value){.tag = 1, .u.c_items = tack_6_unions6_listOf(v_i)});
-            tack_free_22(v_v);
+            tack_free_22(&v_v);
             v_v = tack_o30;
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)tack_6_unions5_total(v_v)));
         }
@@ -666,11 +666,11 @@ static void tack_6_unions9_testLoops(void) {
                 goto tack_defer1_1;
             }
             tack_defer1_1: ;
-            tack_free_22(v_inner);
+            tack_free_22(&v_inner);
         }
     }
     tack_6_unions5_check(((v_sum == 130) && (tack_6_unions4_live() == 1)), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
-    tack_free_22(v_v);
+    tack_free_22(&v_v);
 }
 
 static int64_t tack_6_unions15_conditionalMove(bool p_move) {
@@ -684,13 +684,13 @@ static int64_t tack_6_unions15_conditionalMove(bool p_move) {
         tack_next37 = 1;
         goto tack_defer2_1;
         tack_defer2_1: ;
-        tack_free_22(v_h.f_v);
+        tack_free_22(&v_h.f_v);
         if (tack_next37 == 1) goto tack_defer3_1;
     }
     tack_ret36 = 0;
     goto tack_defer3_1;
     tack_defer3_1: ;
-    tack_free_22(v_v);
+    tack_free_22(&v_v);
     return tack_ret36;
 }
 
@@ -699,7 +699,7 @@ static void tack_6_unions9_deferRead(int64_t * p_out) {
     {
         (*p_out) = tack_6_unions5_total(v_v);
     }
-    tack_free_22(v_v);
+    tack_free_22(&v_v);
 }
 
 static void tack_6_unions9_testMoves(void) {
@@ -726,7 +726,7 @@ static int64_t tack_6_unions10_shapeTotal(tack_6_unions5_Shape p_s) {
             }
         } else if (tack_s38->tag == 1) {
             const tack_6_unions5_Token *const v_t = &tack_s38->u.c_token;
-            if (tack_eq_20((*v_t), ((tack_6_unions5_Token){.tag = 2}))) {
+            if (tack_eq_20(&(*v_t), &((tack_6_unions5_Token){.tag = 2}))) {
                 return (-1);
             }
             return (-2);
@@ -744,18 +744,20 @@ static void tack_6_unions10_testNested(void) {
     tack_6_unions5_Shape v_t = ((tack_6_unions5_Shape){.tag = 1, .u.c_token = ((tack_6_unions5_Token){.tag = 2})});
     tack_6_unions5_check((tack_6_unions10_shapeTotal(v_t) == (-1)), (tack_string){tack_str51, TACK_C_STR_LEN(tack_str51)});
     tack_o40 = ((tack_6_unions5_Shape){.tag = 0, .u.c_value = ((tack_6_unions5_Value){.tag = 2, .u.c_bag = (tack_6_unions3_Bag){.f_items = tack_6_unions6_listOf(2), .f_tag = 5}})});
-    tack_free_24(v_t);
+    tack_free_24(&v_t);
     v_t = tack_o40;
     tack_6_unions5_check((tack_6_unions10_shapeTotal(v_t) == 7), (tack_string){tack_str52, TACK_C_STR_LEN(tack_str52)});
     tack_o41 = ((tack_6_unions5_Shape){.tag = 2});
-    tack_free_24(v_t);
+    tack_free_24(&v_t);
     v_t = tack_o41;
     tack_6_unions5_check(((tack_6_unions10_shapeTotal(v_t) == 0) && (tack_6_unions4_live() == 1)), (tack_string){tack_str53, TACK_C_STR_LEN(tack_str53)});
-    tack_free_24(v_t);
-    tack_free_24(v_s);
+    tack_free_24(&v_t);
+    tack_free_24(&v_s);
 }
 
 static void tack_6_unions12_testPackages(void) {
+    tack_6_unions3_tok5_Token tack_q44;
+    tack_6_unions3_tok5_Token tack_q45;
     const tack_6_unions3_tok5_Token v_t = ((tack_6_unions3_tok5_Token){.tag = 0, .u.c_num = 4});
     tack_6_unions5_check((tack_compare_strings(tack_6_unions3_tok8_describe(v_t), (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}) == 0), (tack_string){tack_str54, TACK_C_STR_LEN(tack_str54)});
     {
@@ -768,8 +770,8 @@ static void tack_6_unions12_testPackages(void) {
             tack_6_unions5_check(false, (tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)});
         }
     }
-    tack_6_unions5_check((tack_eq_17(tack_6_unions3_tok5_first((tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}), ((tack_6_unions3_tok5_Token){.tag = 2}))), (tack_string){tack_str57, TACK_C_STR_LEN(tack_str57)});
-    tack_6_unions5_check((tack_eq_17(tack_6_unions3_tok5_first((tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)}), ((tack_6_unions3_tok5_Token){.tag = 1, .u.c_word = (tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)}}))), (tack_string){tack_str59, TACK_C_STR_LEN(tack_str59)});
+    tack_6_unions5_check((tack_eq_17((tack_q44 = tack_6_unions3_tok5_first((tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}), &tack_q44), &((tack_6_unions3_tok5_Token){.tag = 2}))), (tack_string){tack_str57, TACK_C_STR_LEN(tack_str57)});
+    tack_6_unions5_check((tack_eq_17((tack_q45 = tack_6_unions3_tok5_first((tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)}), &tack_q45), &((tack_6_unions3_tok5_Token){.tag = 1, .u.c_word = (tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)}}))), (tack_string){tack_str59, TACK_C_STR_LEN(tack_str59)});
     tack_6_unions5_check((tack_compare_strings(tack_6_unions3_tok8_describe(((tack_6_unions3_tok5_Token){.tag = 0, .u.c_num = 0})), (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}) == 0), (tack_string){tack_str60, TACK_C_STR_LEN(tack_str60)});
 }
 

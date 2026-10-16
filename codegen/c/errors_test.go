@@ -43,8 +43,8 @@ func TestGeneratesErrors(t *testing.T) {
 		"return (tack_error){.code = 1, .msg = (tack_string){",
 		"return (tack_error){};\n",
 		"if (v_err.code != 0) {\n",
-		"static bool tack_eq_15(tack_error a, tack_error b) {\n" +
-			"    return a.code == b.code && (tack_compare_strings(a.msg, b.msg) == 0);\n}\n",
+		"static bool tack_eq_15(const tack_error *a, const tack_error *b) {\n" +
+			"    return a->code == b->code && (tack_compare_strings(a->msg, b->msg) == 0);\n}\n",
 		"(v_p.f_err.msg).len == 9",
 	} {
 		if !strings.Contains(got, want) {

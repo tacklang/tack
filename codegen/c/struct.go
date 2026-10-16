@@ -3,6 +3,7 @@ package c
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
@@ -173,11 +174,18 @@ func (g *generator) emitEqualityOf(typ types.Type, emitted map[types.Type]bool) 
 }
 
 // emitStructEquality writes tack_eq_ for a struct type, which compares two
-// structs field by field, in order. A struct with no fields has nothing to
-// compare, and its two of them are always equal.
+// structs field by field, in order, through pointers to them (see
+// equalityName). A struct with no fields has nothing to compare, and its
+// two of them are always equal.
 func (g *generator) emitStructEquality(typ types.Type) {
 	name := g.structName(typ)
-	fmt.Fprintf(&g.buf, "static bool %s(%s a, %s b) {\n", equalityName(typ), name, name)
+	fmt.Fprintf(
+		&g.buf,
+		"static bool %s(const %s *a, const %s *b) {\n",
+		equalityName(typ),
+		name,
+		name,
+	)
 	fields := g.prog.Types.Fields(typ)
 	if len(fields) == 0 {
 		g.buf.WriteString("    (void)a;\n    (void)b;\n    return true;\n}\n\n")
@@ -185,18 +193,20 @@ func (g *generator) emitStructEquality(typ types.Type) {
 	}
 	tests := make([]string, len(fields))
 	for i, f := range fields {
-		member := "." + memberName(typ, f.Name)
-		tests[i] = g.equalExpr(f.Type, "a"+member, "b"+member)
+		member := memberName(typ, f.Name)
+		tests[i] = g.equalExpr(f.Type, "a->"+member, "b->"+member)
 	}
 	fmt.Fprintf(&g.buf, "    return %s;\n}\n\n", strings.Join(tests, " && "))
 }
 
 // equalExpr renders a C test of whether l and r, two values of type typ,
-// are equal: the type's equality helper for an array or a struct, the
-// string comparison helper giving zero for a string, and C's == otherwise.
+// each a place an equality helper reads through its pointers, are equal:
+// the type's equality helper, given their addresses, for an array, a
+// struct or a union, the string comparison helper giving zero for a
+// string, and C's == otherwise.
 func (g *generator) equalExpr(typ types.Type, l, r string) string {
 	if g.isComposite(typ) {
-		return fmt.Sprintf("%s(%s, %s)", equalityName(typ), l, r)
+		return fmt.Sprintf("%s(&%s, &%s)", equalityName(typ), l, r)
 	}
 	if typ == types.String {
 		return stringComparison(ast.Eq, l, r)
@@ -372,4 +382,56 @@ func isNoError(values []any) bool {
 	code, isInt := values[0].(constant.Int)
 	msg, isString := values[1].(string)
 	return isInt && code.IsZero() && isString && msg == ""
+}
+
+// addressOf renders the address of the value of e, of the type typ,
+// rendered as rendered, for an equality helper to read through: rendered
+// itself, when it is a place C can take the address of, a variable, a
+// temporary, a field or an element of one, or a compound literal, and
+// otherwise a temporary of typ assigned rendered, which the comparison's
+// own order already evaluates where e is evaluated.
+func (g *generator) addressOf(e ast.Expr, typ types.Type, rendered string) string {
+	if isCName(rendered) || addressable(e) {
+		return "&" + rendered
+	}
+	t := g.temp("q")
+	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.cType(typ), t))
+	return fmt.Sprintf("(%s = %s, &%s)", t, rendered, t)
+}
+
+// addressable reports whether the C rendered from e is a place C can take
+// the address of: a variable or parameter, a field or an element of one,
+// at any depth, an element of a list or a view, which is always one, or
+// a struct or array literal, noerror or a union's construction, which are
+// compound literals.
+func addressable(e ast.Expr) bool {
+	if _, _, _, built := ast.Construction(e); built {
+		return true
+	}
+	switch x := e.(type) {
+	case *ast.CompositeLit, *ast.NoErrorLit:
+		return true
+	case *ast.Ident:
+		return true
+	case *ast.Selector:
+		return addressable(x.X)
+	case *ast.Index:
+		return addressable(x.X)
+	default:
+		return false
+	}
+}
+
+// isCName reports whether s is a C identifier, such as the name of a
+// temporary an operand is held in.
+func isCName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, c := range s {
+		if c != '_' && !unicode.IsLetter(c) && (i == 0 || !unicode.IsDigit(c)) {
+			return false
+		}
+	}
+	return true
 }

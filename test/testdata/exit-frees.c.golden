@@ -48,38 +48,38 @@ typedef struct {
     tack_allocator alloc;
 } tack_list_22;
 
-static void tack_free_18(tack_4_main3_Val v) {
-    switch (v.tag) {
+static void tack_free_18(const tack_4_main3_Val *v) {
+    switch (v->tag) {
     case 1:
-        tack_list_free_(v.u.c_items.ptr, v.u.c_items.cap, sizeof (int64_t), _Alignof (int64_t), v.u.c_items.alloc);
+        tack_list_free_(v->u.c_items.ptr, v->u.c_items.cap, sizeof (int64_t), _Alignof (int64_t), v->u.c_items.alloc);
         break;
     case 2:
-        tack_list_free_(v.u.c_bag.f_items.ptr, v.u.c_bag.f_items.cap, sizeof (int64_t), _Alignof (int64_t), v.u.c_bag.f_items.alloc);
+        tack_list_free_(v->u.c_bag.f_items.ptr, v->u.c_bag.f_items.cap, sizeof (int64_t), _Alignof (int64_t), v->u.c_bag.f_items.alloc);
         break;
     default:
         break;
     }
 }
 
-static void tack_free_20(tack_list_20 v) {
-    for (int64_t i = v.len; i > 0; i--) {
-        tack_list_free_(v.ptr[i - 1].ptr, v.ptr[i - 1].cap, sizeof (int64_t), _Alignof (int64_t), v.ptr[i - 1].alloc);
+static void tack_free_20(const tack_list_20 *v) {
+    for (int64_t i = v->len; i > 0; i--) {
+        tack_list_free_(v->ptr[i - 1].ptr, v->ptr[i - 1].cap, sizeof (int64_t), _Alignof (int64_t), v->ptr[i - 1].alloc);
     }
-    tack_list_free_(v.ptr, v.cap, sizeof (tack_list_19), _Alignof (tack_list_19), v.alloc);
+    tack_list_free_(v->ptr, v->cap, sizeof (tack_list_19), _Alignof (tack_list_19), v->alloc);
 }
 
-static void tack_free_21(tack_list_21 v) {
-    for (int64_t i = v.len; i > 0; i--) {
-        tack_free_20(v.ptr[i - 1]);
+static void tack_free_21(const tack_list_21 *v) {
+    for (int64_t i = v->len; i > 0; i--) {
+        tack_free_20(&v->ptr[i - 1]);
     }
-    tack_list_free_(v.ptr, v.cap, sizeof (tack_list_20), _Alignof (tack_list_20), v.alloc);
+    tack_list_free_(v->ptr, v->cap, sizeof (tack_list_20), _Alignof (tack_list_20), v->alloc);
 }
 
-static void tack_free_22(tack_list_22 v) {
-    for (int64_t i = v.len; i > 0; i--) {
-        tack_free_18(v.ptr[i - 1]);
+static void tack_free_22(const tack_list_22 *v) {
+    for (int64_t i = v->len; i > 0; i--) {
+        tack_free_18(&v->ptr[i - 1]);
     }
-    tack_list_free_(v.ptr, v.cap, sizeof (tack_4_main3_Val), _Alignof (tack_4_main3_Val), v.alloc);
+    tack_list_free_(v->ptr, v->cap, sizeof (tack_4_main3_Val), _Alignof (tack_4_main3_Val), v->alloc);
 }
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
@@ -229,14 +229,14 @@ static void tack_4_main4_main(void) {
                     if (tack_next9 == 1) goto tack_defer3_1;
                 }
             }
-            if ((tack_o15 = (tack_o14 = v_plane, v_plane = (tack_list_20){}, tack_o14), (TACK_LIST_APPEND(&v_cube, tack_o15) ? (tack_error){} : (tack_free_20(tack_o15), (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}}))).code != 0) {
+            if ((tack_o15 = (tack_o14 = v_plane, v_plane = (tack_list_20){}, tack_o14), (TACK_LIST_APPEND(&v_cube, tack_o15) ? (tack_error){} : (tack_free_20(&tack_o15), (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}}))).code != 0) {
                 tack_4_main5_check(false, (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
                 tack_next9 = 2;
                 goto tack_defer3_1;
             }
             tack_next9 = 0;
             tack_defer3_1: ;
-            tack_free_20(v_plane);
+            tack_free_20(&v_plane);
             if (tack_next9 == 1) goto tack_defer4_1;
             if (tack_next9 == 2) goto tack_defer4_1;
         }
@@ -253,7 +253,7 @@ static void tack_4_main4_main(void) {
         tack_4_main5_check(false, (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
         goto tack_defer4_4;
     }
-    const tack_error v_e3 = (tack_o22 = ((tack_4_main3_Val){.tag = 0, .u.c_num = 1}), tack_o23 = ((tack_4_main3_Val){.tag = 1, .u.c_items = (tack_o20 = v_items, v_items = (tack_list_19){}, tack_o20)}), tack_o24 = ((tack_4_main3_Val){.tag = 2, .u.c_bag = (tack_4_main3_Bag){.f_name = (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, .f_items = (tack_o21 = v_bag_items, v_bag_items = (tack_list_19){}, tack_o21)}}), tack_o25 = ((tack_4_main3_Val){.tag = 3}), (TACK_LIST_APPEND_N(&v_vals, ((const tack_4_main3_Val[4]){tack_o22, tack_o23, tack_o24, tack_o25}), 4) ? (tack_error){} : (tack_free_18(tack_o25), tack_free_18(tack_o24), tack_free_18(tack_o23), tack_free_18(tack_o22), (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}})));
+    const tack_error v_e3 = (tack_o22 = ((tack_4_main3_Val){.tag = 0, .u.c_num = 1}), tack_o23 = ((tack_4_main3_Val){.tag = 1, .u.c_items = (tack_o20 = v_items, v_items = (tack_list_19){}, tack_o20)}), tack_o24 = ((tack_4_main3_Val){.tag = 2, .u.c_bag = (tack_4_main3_Bag){.f_name = (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, .f_items = (tack_o21 = v_bag_items, v_bag_items = (tack_list_19){}, tack_o21)}}), tack_o25 = ((tack_4_main3_Val){.tag = 3}), (TACK_LIST_APPEND_N(&v_vals, ((const tack_4_main3_Val[4]){tack_o22, tack_o23, tack_o24, tack_o25}), 4) ? (tack_error){} : (tack_free_18(&tack_o25), tack_free_18(&tack_o24), tack_free_18(&tack_o23), tack_free_18(&tack_o22), (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}})));
     tack_4_main5_check(((v_e3.code == 0) && (tack_4_main4_live() == 12)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
     const tack_results_4_main7_numbers tack_r26 = tack_4_main7_numbers(128);
     tack_list_19 v_big = tack_r26.r0;
@@ -287,9 +287,9 @@ static void tack_4_main4_main(void) {
     tack_defer4_4: ;
     tack_list_free_(v_bag_items.ptr, v_bag_items.cap, sizeof (int64_t), _Alignof (int64_t), v_bag_items.alloc);
     tack_list_free_(v_items.ptr, v_items.cap, sizeof (int64_t), _Alignof (int64_t), v_items.alloc);
-    tack_free_22(v_vals);
+    tack_free_22(&v_vals);
     tack_defer4_1: ;
-    tack_free_21(v_cube);
+    tack_free_21(&v_cube);
 }
 
 int main(void) {

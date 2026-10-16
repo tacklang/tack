@@ -87,8 +87,8 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_23(tack_7_methods5_Point a, tack_7_methods5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_23(const tack_7_methods5_Point *a, const tack_7_methods5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
 static const unsigned char tack_str0[2] = {10, 0};
@@ -565,7 +565,7 @@ static void tack_7_methods6_chains(void) {
         tack_7_methods5_check(((v_d.f_w.f_out.f_lines == 1) && tack_7_methods16_Builder_2eequals(v_d.f_w.f_out, (tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)})), (tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)});
     }
     tack_7_methods13_Point_2escale(&v_d.f_pages.e[1], 10);
-    tack_7_methods5_check(((tack_o30 = v_d.f_pages.e[1], tack_o31 = tack_7_methods9_makePoint(30, 40), (tack_eq_23(tack_o30, tack_o31))) && (tack_7_methods12_Point_2enorm(v_d.f_pages.e[0]) == 3)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
+    tack_7_methods5_check(((tack_o30 = v_d.f_pages.e[1], tack_o31 = tack_7_methods9_makePoint(30, 40), (tack_eq_23(&tack_o30, &tack_o31))) && (tack_7_methods12_Point_2enorm(v_d.f_pages.e[0]) == 3)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
     const tack_error v_errF = tack_7_methods4_fill(&v_d.f_w.f_out, (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
     if (v_errF.code == 0) {
         tack_7_methods5_check((tack_7_methods4_size(&v_d.f_w.f_out) == 6), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
@@ -635,7 +635,7 @@ static void tack_7_methods6_points(void) {
         }
     }
     tack_7_methods12_Point_2eflip(&v_ps.e[2]);
-    tack_7_methods5_check(((tack_o37 = v_ps.e[0], tack_o38 = tack_7_methods9_makePoint(2, 4), (tack_eq_23(tack_o37, tack_o38))) && (tack_o39 = v_ps.e[2], tack_o40 = tack_7_methods9_makePoint(12, 10), (tack_eq_23(tack_o39, tack_o40)))), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
+    tack_7_methods5_check(((tack_o37 = v_ps.e[0], tack_o38 = tack_7_methods9_makePoint(2, 4), (tack_eq_23(&tack_o37, &tack_o38))) && (tack_o39 = v_ps.e[2], tack_o40 = tack_7_methods9_makePoint(12, 10), (tack_eq_23(&tack_o39, &tack_o40)))), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
     tack_7_methods5_check((tack_7_methods12_Point_2enorm(v_ps.e[1]) == 14), (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
     int64_t v_k = 1;
     tack_7_methods5_check((((tack_o41 = tack_7_methods7_pointAt(v_k), tack_o42 = tack_7_methods4_next(&v_k), tack_o43 = tack_7_methods4_next(&v_k), tack_7_methods14_Point_2edigits(tack_o41, tack_o42, tack_o43)) == 112) && (v_k == 3)), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});

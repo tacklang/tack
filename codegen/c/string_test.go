@@ -208,7 +208,7 @@ func TestStringCompareHelperOnlyWhenUsed(t *testing.T) {
 		"    exit(1)",
 		"}",
 	))
-	if !strings.Contains(got, "(tack_compare_strings(a.f_s, b.f_s) == 0)") {
+	if !strings.Contains(got, "(tack_compare_strings(a->f_s, b->f_s) == 0)") {
 		t.Errorf("struct equality does not compare its string field by content:\n%s", got)
 	}
 }

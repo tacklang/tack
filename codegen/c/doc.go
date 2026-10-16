@@ -441,7 +441,13 @@
 // way. == calls tack_eq_ and its ID, which compares the tags, then the
 // payloads of the case both hold. A union holding a list is freed by
 // tack_free_ and its ID, which frees what its case's payload holds, and a
-// struct holding one frees it through that helper. A switch on a union is
+// struct holding one frees it through that helper. Every tack_eq_ and
+// tack_free_ takes const pointers to the values it reads, so a helper
+// calling the helper of a type nested in its own uses one small frame
+// whatever the size of the values, and a thousand types nested one in
+// another compare and free within the stack. An operand of == that is not
+// a place C can take the address of, such as a call's result, is held in
+// a temporary first, where the comparison evaluates it. A switch on a union is
 // a chain of ifs on its tag, through a pointer to the switched place, or
 // to a copy of a value that is no place or of a mutable global; the last
 // clause of one covering every case is the final else, and one with no

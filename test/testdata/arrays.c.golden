@@ -26,27 +26,27 @@ typedef struct {
     tack_array_20 e[2];
 } tack_array_21;
 
-static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
+static bool tack_eq_18(const tack_array_18 *a, const tack_array_18 *b) {
     for (int64_t i = 0; i < 3; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
     return true;
 }
 
-static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
+static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
     for (int64_t i = 0; i < 2; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
     return true;
 }
 
-static bool tack_eq_21(tack_array_21 a, tack_array_21 b) {
+static bool tack_eq_21(const tack_array_21 *a, const tack_array_21 *b) {
     for (int64_t i = 0; i < 2; i++) {
-        if (!tack_eq_20(a.e[i], b.e[i])) {
+        if (!tack_eq_20(&a->e[i], &b->e[i])) {
             return false;
         }
     }
@@ -76,12 +76,12 @@ static void tack_4_main4_main(void) {
     tack_array_18 v_a = (tack_array_18){{1, 2, 3}};
     const tack_array_18 v_b = v_a;
     v_a.e[0] = 10;
-    if ((v_b.e[0] != 1) || (!tack_eq_18(v_a, (tack_array_18){{10, 2, 3}}))) {
+    if ((v_b.e[0] != 1) || (!tack_eq_18(&v_a, &(tack_array_18){{10, 2, 3}}))) {
         tack_builtin_exit(1);
     }
     tack_array_21 v_grid = (tack_array_21){};
     v_grid.e[1].e[1] = true;
-    if (!tack_eq_21(v_grid, (tack_array_21){{(tack_array_20){{false, false}}, (tack_array_20){{false, true}}}})) {
+    if (!tack_eq_21(&v_grid, &(tack_array_21){{(tack_array_20){{false, false}}, (tack_array_20){{false, true}}}})) {
         tack_builtin_exit(2);
     }
     const tack_array_19 v_o = tack_4_main6_origin();

@@ -73,38 +73,38 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_17(tack_15_union_2dmethods6_shapes4_Tile a, tack_15_union_2dmethods6_shapes4_Tile b) {
-    if (a.tag != b.tag) {
+static bool tack_eq_17(const tack_15_union_2dmethods6_shapes4_Tile *a, const tack_15_union_2dmethods6_shapes4_Tile *b) {
+    if (a->tag != b->tag) {
         return false;
     }
-    switch (a.tag) {
+    switch (a->tag) {
     case 0:
-        return a.u.c_wide == b.u.c_wide;
+        return a->u.c_wide == b->u.c_wide;
     case 1:
-        return a.u.c_tall == b.u.c_tall;
+        return a->u.c_tall == b->u.c_tall;
     default:
         return true;
     }
 }
 
-static bool tack_eq_18(tack_15_union_2dmethods5_Shape a, tack_15_union_2dmethods5_Shape b) {
-    if (a.tag != b.tag) {
+static bool tack_eq_18(const tack_15_union_2dmethods5_Shape *a, const tack_15_union_2dmethods5_Shape *b) {
+    if (a->tag != b->tag) {
         return false;
     }
-    switch (a.tag) {
+    switch (a->tag) {
     case 0:
-        return a.u.c_circle == b.u.c_circle;
+        return a->u.c_circle == b->u.c_circle;
     case 1:
-        return a.u.c_square == b.u.c_square;
+        return a->u.c_square == b->u.c_square;
     default:
         return true;
     }
 }
 
-static void tack_free_19(tack_15_union_2dmethods5_Value v) {
-    switch (v.tag) {
+static void tack_free_19(const tack_15_union_2dmethods5_Value *v) {
+    switch (v->tag) {
     case 2:
-        tack_list_free_(v.u.c_words.ptr, v.u.c_words.cap, sizeof (tack_string), _Alignof (tack_string), v.u.c_words.alloc);
+        tack_list_free_(v->u.c_words.ptr, v->u.c_words.cap, sizeof (tack_string), _Alignof (tack_string), v->u.c_words.alloc);
         break;
     default:
         break;
@@ -245,7 +245,7 @@ static int64_t tack_15_union_2dmethods6_shapes11_Tile_2eside(tack_15_union_2dmet
 }
 
 static int64_t tack_15_union_2dmethods6_shapes10_Tile_2elen(tack_15_union_2dmethods6_shapes4_Tile p_t) {
-    if (tack_eq_17(p_t, ((tack_15_union_2dmethods6_shapes4_Tile){.tag = 2}))) {
+    if (tack_eq_17(&p_t, &((tack_15_union_2dmethods6_shapes4_Tile){.tag = 2}))) {
         return 0;
     }
     return ((int64_t)((uint64_t)((int64_t)((uint64_t)2 * (uint64_t)tack_15_union_2dmethods6_shapes11_Tile_2eside(p_t))) + (uint64_t)2));
@@ -338,7 +338,7 @@ static tack_string tack_15_union_2dmethods16_Shape_2edescribe(tack_15_union_2dme
 }
 
 static bool tack_15_union_2dmethods13_Shape_2eisDot(tack_15_union_2dmethods5_Shape p_s) {
-    return ((tack_eq_18(p_s, ((tack_15_union_2dmethods5_Shape){.tag = 2}))) && (tack_15_union_2dmethods11_Shape_2elen(p_s) == 0));
+    return ((tack_eq_18(&p_s, &((tack_15_union_2dmethods5_Shape){.tag = 2}))) && (tack_15_union_2dmethods11_Shape_2elen(p_s) == 0));
 }
 
 static void tack_15_union_2dmethods13_Shape_2ereset(tack_15_union_2dmethods5_Shape * p_s) {
@@ -412,14 +412,14 @@ static tack_string tack_15_union_2dmethods12_Value_2eword(tack_15_union_2dmethod
 static void tack_15_union_2dmethods11_Value_2eset(tack_15_union_2dmethods5_Value * p_v, tack_string p_s) {
     tack_15_union_2dmethods5_Value tack_o11;
     tack_o11 = ((tack_15_union_2dmethods5_Value){.tag = 1, .u.c_text = p_s});
-    tack_free_19((*p_v));
+    tack_free_19(&(*p_v));
     (*p_v) = tack_o11;
 }
 
 static void tack_15_union_2dmethods13_Value_2ereset(tack_15_union_2dmethods5_Value * p_v) {
     tack_15_union_2dmethods5_Value tack_o12;
     tack_o12 = ((tack_15_union_2dmethods5_Value){.tag = 3});
-    tack_free_19((*p_v));
+    tack_free_19(&(*p_v));
     (*p_v) = tack_o12;
 }
 
@@ -454,7 +454,7 @@ static tack_error tack_15_union_2dmethods14_Value_2eappend(tack_15_union_2dmetho
         goto tack_defer0_1;
     }
     tack_o17 = ((tack_15_union_2dmethods5_Value){.tag = 2, .u.c_words = (tack_o16 = v_next, v_next = (tack_list_22){}, tack_o16)});
-    tack_free_19((*p_v));
+    tack_free_19(&(*p_v));
     (*p_v) = tack_o17;
     tack_ret15 = (tack_error){};
     goto tack_defer0_1;
@@ -486,19 +486,19 @@ static void tack_15_union_2dmethods10_testShapes(void) {
     tack_15_union_2dmethods5_check(!tack_15_union_2dmethods13_Shape_2eisDot(v_c), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
     tack_15_union_2dmethods5_Shape v_s = ((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 1});
     tack_15_union_2dmethods12_Shape_2egrow(&v_s, 2);
-    tack_15_union_2dmethods5_check((tack_eq_18(v_s, ((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 3}))), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
+    tack_15_union_2dmethods5_check((tack_eq_18(&v_s, &((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 3}))), (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
     tack_15_union_2dmethods13_Shape_2ereset(&v_s);
-    tack_15_union_2dmethods5_check((tack_eq_18(v_s, ((tack_15_union_2dmethods5_Shape){.tag = 2}))), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
+    tack_15_union_2dmethods5_check((tack_eq_18(&v_s, &((tack_15_union_2dmethods5_Shape){.tag = 2}))), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     tack_15_union_2dmethods12_Shape_2egrow(&v_s, 5);
-    tack_15_union_2dmethods5_check((tack_eq_18(v_s, ((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 5}))), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
+    tack_15_union_2dmethods5_check((tack_eq_18(&v_s, &((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 5}))), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
     tack_array_33 v_all = (tack_array_33){{((tack_15_union_2dmethods5_Shape){.tag = 2}), ((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 1}), ((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 2})}};
     tack_15_union_2dmethods5_check(((tack_15_union_2dmethods11_Shape_2elen(v_all.e[1]) == 6) && (tack_15_union_2dmethods11_Shape_2elen(v_all.e[2]) == 8)), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
     tack_15_union_2dmethods12_Shape_2egrow(&v_all.e[0], 4);
-    tack_15_union_2dmethods5_check((tack_eq_18(v_all.e[0], ((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 4}))), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_15_union_2dmethods5_check((tack_eq_18(&v_all.e[0], &((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 4}))), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
     tack_15_union_2dmethods6_Holder v_h = (tack_15_union_2dmethods6_Holder){.f_shape = ((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 3}), .f_value = ((tack_15_union_2dmethods5_Value){.tag = 0, .u.c_num = 1})};
     tack_15_union_2dmethods13_Shape_2ereset(&v_h.f_shape);
     tack_15_union_2dmethods5_check((tack_15_union_2dmethods13_Shape_2eisDot(v_h.f_shape) && (tack_15_union_2dmethods11_Value_2elen(v_h.f_value) == 1)), (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
-    tack_free_19(v_h.f_value);
+    tack_free_19(&v_h.f_value);
 }
 
 static void tack_15_union_2dmethods10_testValues(void) {
@@ -517,8 +517,8 @@ static void tack_15_union_2dmethods10_testValues(void) {
     tack_15_union_2dmethods6_Holder v_h = (tack_15_union_2dmethods6_Holder){.f_shape = ((tack_15_union_2dmethods5_Shape){.tag = 2}), .f_value = ((tack_15_union_2dmethods5_Value){.tag = 3})};
     const tack_error v_err4 = tack_15_union_2dmethods14_Value_2eappend(&v_h.f_value, (tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)});
     tack_15_union_2dmethods5_check(((v_err4.code == 0) && (tack_15_union_2dmethods11_Value_2elen(v_h.f_value) == 1)), (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)});
-    tack_free_19(v_h.f_value);
-    tack_free_19(v_v);
+    tack_free_19(&v_h.f_value);
+    tack_free_19(&v_v);
 }
 
 static void tack_15_union_2dmethods12_testGenerics(void) {
@@ -533,14 +533,14 @@ static void tack_15_union_2dmethods12_testGenerics(void) {
     tack_15_union_2dmethods5_Value v_three = ((tack_15_union_2dmethods5_Value){.tag = 0, .u.c_num = 3});
     tack_15_union_2dmethods5_check(((tack_15_union_2dmethods35_longer_5bunion_2dmethods_2eShape_5d(v_c, ((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 2})) == 8) && (tack_15_union_2dmethods35_longer_5bunion_2dmethods_2eValue_5d(v_v, v_three) == 4)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
     tack_15_union_2dmethods5_Shape v_s = ((tack_15_union_2dmethods5_Shape){.tag = 1, .u.c_square = 5});
-    tack_15_union_2dmethods5_check(((tack_15_union_2dmethods33_wipe_5bunion_2dmethods_2eShape_5d(&v_s) == 20) && (tack_eq_18(v_s, ((tack_15_union_2dmethods5_Shape){.tag = 2})))), (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
+    tack_15_union_2dmethods5_check(((tack_15_union_2dmethods33_wipe_5bunion_2dmethods_2eShape_5d(&v_s) == 20) && (tack_eq_18(&v_s, &((tack_15_union_2dmethods5_Shape){.tag = 2})))), (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
     tack_15_union_2dmethods5_check(((tack_15_union_2dmethods33_wipe_5bunion_2dmethods_2eValue_5d(&v_v) == 4) && (tack_compare_strings(tack_15_union_2dmethods16_Value_2edescribe(v_v), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}) == 0)), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
     const tack_error v_err2 = tack_15_union_2dmethods14_Value_2eappend(&v_v, (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
     tack_15_union_2dmethods5_check(((v_err2.code == 0) && (tack_15_union_2dmethods33_wipe_5bunion_2dmethods_2eValue_5d(&v_v) == 1)), (tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)});
     tack_15_union_2dmethods5_check(((tack_15_union_2dmethods31_wipe_5bunion_2dmethods_2eBag_5d(&v_b) == 3) && (tack_15_union_2dmethods9_Bag_2elen(v_b) == 0)), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
-    tack_free_19(v_three);
+    tack_free_19(&v_three);
     tack_list_free_(v_b.f_items.ptr, v_b.f_items.cap, sizeof (int64_t), _Alignof (int64_t), v_b.f_items.alloc);
-    tack_free_19(v_v);
+    tack_free_19(&v_v);
 }
 
 static void tack_15_union_2dmethods12_testPackages(void) {
@@ -548,7 +548,7 @@ static void tack_15_union_2dmethods12_testPackages(void) {
     tack_15_union_2dmethods5_check((tack_15_union_2dmethods6_shapes10_Tile_2elen(v_t) == 10), (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
     tack_15_union_2dmethods6_shapes4_Tile v_u = ((tack_15_union_2dmethods6_shapes4_Tile){.tag = 1, .u.c_tall = 2});
     tack_15_union_2dmethods6_shapes11_Tile_2eturn(&v_u);
-    tack_15_union_2dmethods5_check((!tack_15_union_2dmethods6_shapes6_IsTall(v_u) && (tack_eq_17(v_u, ((tack_15_union_2dmethods6_shapes4_Tile){.tag = 0, .u.c_wide = 2})))), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
+    tack_15_union_2dmethods5_check((!tack_15_union_2dmethods6_shapes6_IsTall(v_u) && (tack_eq_17(&v_u, &((tack_15_union_2dmethods6_shapes4_Tile){.tag = 0, .u.c_wide = 2})))), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
     tack_15_union_2dmethods5_check((tack_15_union_2dmethods6_shapes77_Larger_5bunion_2dmethods_2fshapes_2eTile_2cunion_2dmethods_2fshapes_2eTile_5d(v_t, v_u) == 10), (tack_string){tack_str49, TACK_C_STR_LEN(tack_str49)});
     tack_15_union_2dmethods5_check((tack_15_union_2dmethods6_shapes69_Larger_5bunion_2dmethods_2eShape_2cunion_2dmethods_2fshapes_2eTile_5d(((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 3}), v_t) == 18), (tack_string){tack_str50, TACK_C_STR_LEN(tack_str50)});
     tack_15_union_2dmethods5_Value v_v = ((tack_15_union_2dmethods5_Value){.tag = 1, .u.c_text = (tack_string){tack_str51, TACK_C_STR_LEN(tack_str51)}});
@@ -557,7 +557,7 @@ static void tack_15_union_2dmethods12_testPackages(void) {
     tack_15_union_2dmethods5_check((tack_15_union_2dmethods6_shapes10_LargerTile(v_t, ((tack_15_union_2dmethods6_shapes4_Tile){.tag = 1, .u.c_tall = 9})) == 20), (tack_string){tack_str54, TACK_C_STR_LEN(tack_str54)});
     const tack_error v_err = tack_15_union_2dmethods14_Value_2eappend(&v_v, (tack_string){tack_str55, TACK_C_STR_LEN(tack_str55)});
     tack_15_union_2dmethods5_check(((v_err.code == 0) && (tack_15_union_2dmethods6_shapes69_Larger_5bunion_2dmethods_2eValue_2cunion_2dmethods_2fshapes_2eTile_5d(v_v, v_u) == 6)), (tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)});
-    tack_free_19(v_v);
+    tack_free_19(&v_v);
 }
 
 static void tack_15_union_2dmethods4_main(void) {

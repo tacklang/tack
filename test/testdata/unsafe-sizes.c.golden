@@ -25,9 +25,9 @@ typedef struct {
     size_t e[3];
 } tack_array_20;
 
-static bool tack_eq_20(tack_array_20 a, tack_array_20 b) {
+static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
     for (int64_t i = 0; i < 3; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -306,7 +306,7 @@ static void tack_4_main4_main(void) {
             v_sum = ((size_t)((uint64_t)v_sum + (uint64_t)v_x));
         }
     }
-    tack_4_main5_check(((v_sum == 6) && (tack_eq_20(v_a, (tack_array_20){{1, 2, 3}}))), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check(((v_sum == 6) && (tack_eq_20(&v_a, &(tack_array_20){{1, 2, 3}}))), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
     uintptr_t v_count = 0;
     {
         const uintptr_t tack_n27 = tack_4_main9_fromSmall;

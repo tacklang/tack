@@ -241,7 +241,12 @@ func (g *generator) valueTest(
 	}
 	switch typ := ast.TypeOf(s.Tag); {
 	case g.isComposite(typ):
-		return fmt.Sprintf("%s(%s, %s)", equalityName(typ), tagRef, value), nil
+		return fmt.Sprintf(
+			"%s(&%s, %s)",
+			equalityName(typ),
+			tagRef,
+			g.addressOf(v, typ, value),
+		), nil
 	case typ == types.String:
 		return fmt.Sprintf("%s(%s, %s) == 0", stringCompareName, tagRef, value), nil
 	case types.IsInteger(typ):

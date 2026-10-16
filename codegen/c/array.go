@@ -31,22 +31,31 @@ func (g *generator) emitArrayDef(typ types.Type) {
 }
 
 // emitArrayEquality writes tack_eq_ for an array type, which compares two
-// arrays element by element.
+// arrays element by element, through pointers to them (see equalityName).
 func (g *generator) emitArrayEquality(typ types.Type) {
 	table := g.prog.Types
 	name := arrayName(typ)
-	differ := "a.e[i] != b.e[i]"
+	differ := "a->e[i] != b->e[i]"
 	if elem := table.Elem(typ); g.isComposite(elem) || elem == types.String {
-		differ = "!" + g.equalExpr(elem, "a.e[i]", "b.e[i]")
+		differ = "!" + g.equalExpr(elem, "a->e[i]", "b->e[i]")
 	}
-	fmt.Fprintf(&g.buf, "static bool %s(%s a, %s b) {\n", equalityName(typ), name, name)
+	fmt.Fprintf(
+		&g.buf,
+		"static bool %s(const %s *a, const %s *b) {\n",
+		equalityName(typ),
+		name,
+		name,
+	)
 	fmt.Fprintf(&g.buf, "    for (int64_t i = 0; i < %d; i++) {\n", table.Len(typ))
 	fmt.Fprintf(&g.buf, "        if (%s) {\n            return false;\n        }\n    }\n", differ)
 	g.buf.WriteString("    return true;\n}\n\n")
 }
 
-// equalityName is the name of the helper that compares two arrays, or two
-// structs, of type typ.
+// equalityName is the name of the helper that compares two arrays, two
+// structs or two unions of type typ. It takes a const pointer to each, so
+// that each call, however deeply one type nests another, uses a frame of
+// the same small size, where values passed by copy would grow with every
+// level a type nests, and a chain of them would run out of stack.
 func equalityName(typ types.Type) string {
 	return fmt.Sprintf("tack_eq_%d", typ)
 }
@@ -127,10 +136,13 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 	return fmt.Sprintf("(%s).len", v), nil
 }
 
-// arrayComparison renders == or != on two arrays, or two structs, as a call
-// to the type's equality helper, parenthesized as every comparison is.
+// arrayComparison renders == or != on two arrays, two structs or two
+// unions, as a call to the type's equality helper on their addresses (see
+// addressOf), parenthesized as every comparison is.
 func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string {
-	eq := fmt.Sprintf("%s(%s, %s)", equalityName(ast.TypeOf(bin.X)), left, right)
+	typ := ast.TypeOf(bin.X)
+	eq := fmt.Sprintf("%s(%s, %s)", equalityName(typ),
+		g.addressOf(bin.X, typ, left), g.addressOf(bin.Y, typ, right))
 	if bin.Op == ast.Ne {
 		return "(!" + eq + ")"
 	}

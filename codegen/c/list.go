@@ -436,7 +436,7 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
 	if table.IsUnion(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
-		return []string{fmt.Sprintf("%s(%s);", freeName(typ), ref)}
+		return []string{fmt.Sprintf("%s(&%s);", freeName(typ), ref)}
 	}
 	if table.IsList(typ) {
 		elem := g.cType(table.Elem(typ))
@@ -462,24 +462,24 @@ func (g *generator) frees(typ types.Type, ref string) []string {
 // freed here; a moved list is zeroed, its length 0 and its buffer null,
 // so freeing it does nothing.
 //
-//	static void tack_free_9(tack_list_9 v) {
-//	    for (int64_t i = v.len; i > 0; i--) {
-//	        tack_list_free_(v.ptr[i - 1].ptr, ...);
+//	static void tack_free_9(const tack_list_9 *v) {
+//	    for (int64_t i = v->len; i > 0; i--) {
+//	        tack_list_free_(v->ptr[i - 1].ptr, ...);
 //	    }
-//	    tack_list_free_(v.ptr, v.cap, sizeof (tack_list_8), _Alignof (tack_list_8), v.alloc);
+//	    tack_list_free_(v->ptr, v->cap, sizeof (tack_list_8), _Alignof (tack_list_8), v->alloc);
 //	}
 func (g *generator) emitListFree(typ types.Type) {
 	table := g.prog.Types
 	elem := table.Elem(typ)
-	fmt.Fprintf(&g.buf, "static void %s(%s v) {\n", freeName(typ), listName(typ))
-	g.buf.WriteString("    for (int64_t i = v.len; i > 0; i--) {\n")
-	for _, line := range g.frees(elem, "v.ptr[i - 1]") {
+	fmt.Fprintf(&g.buf, "static void %s(const %s *v) {\n", freeName(typ), listName(typ))
+	g.buf.WriteString("    for (int64_t i = v->len; i > 0; i--) {\n")
+	for _, line := range g.frees(elem, "v->ptr[i - 1]") {
 		fmt.Fprintf(&g.buf, "        %s\n", line)
 	}
 	ctype := g.cType(elem)
 	fmt.Fprintf(
 		&g.buf,
-		"    }\n    tack_list_free_(v.ptr, v.cap, sizeof (%s), _Alignof (%s), v.alloc);\n}\n\n",
+		"    }\n    tack_list_free_(v->ptr, v->cap, sizeof (%s), _Alignof (%s), v->alloc);\n}\n\n",
 		ctype,
 		ctype,
 	)

@@ -15,13 +15,13 @@ typedef struct {
     int64_t e[4];
 } tack_array_18;
 
-static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_17(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
-static bool tack_eq_18(tack_array_18 a, tack_array_18 b) {
+static bool tack_eq_18(const tack_array_18 *a, const tack_array_18 *b) {
     for (int64_t i = 0; i < 4; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -74,14 +74,14 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((v_n == 42), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 2, .f_y = (-3)};
     tack_4_main4_grow(&v_p, 5);
-    tack_4_main5_check((tack_eq_17(v_p, (tack_4_main5_Point){.f_x = 10, .f_y = (-15)})), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
+    tack_4_main5_check((tack_eq_17(&v_p, &(tack_4_main5_Point){.f_x = 10, .f_y = (-15)})), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     tack_4_main4_fill(&v_p.f_y, 7);
     tack_4_main5_check(((v_p.f_y == 7) && (v_p.f_x == 10)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_array_18 v_a = (tack_array_18){{1, 2, 3, 4}};
     tack_4_main4_fill(&v_a.e[2], 9);
-    tack_4_main5_check((tack_eq_18(v_a, (tack_array_18){{1, 2, 9, 4}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_4_main5_check((tack_eq_18(&v_a, &(tack_array_18){{1, 2, 9, 4}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_clear(&v_a);
-    tack_4_main5_check((tack_eq_18(v_a, (tack_array_18){{0, 0, 0, 0}})), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    tack_4_main5_check((tack_eq_18(&v_a, &(tack_array_18){{0, 0, 0, 0}})), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     bool v_on = true;
     const bool v_was = tack_4_main6_toggle(&v_on);
     tack_4_main5_check((v_was && !v_on), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});

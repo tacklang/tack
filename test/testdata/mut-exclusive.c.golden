@@ -32,13 +32,13 @@ typedef struct {
     int64_t e[4];
 } tack_array_22;
 
-static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_17(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
-static bool tack_eq_22(tack_array_22 a, tack_array_22 b) {
+static bool tack_eq_22(const tack_array_22 *a, const tack_array_22 *b) {
     for (int64_t i = 0; i < 4; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -126,16 +126,16 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((v_p.f_x == 1) && (v_p.f_y == 2)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     tack_array_22 v_a = (tack_array_22){{1, 2, 3, 4}};
     tack_4_main4_swap(&v_a.e[0], &v_a.e[3]);
-    tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 2, 3, 1}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    tack_4_main5_check((tack_eq_22(&v_a, &(tack_array_22){{4, 2, 3, 1}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_4_main8_swapEnds(&v_a, 1, 2);
-    tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 3, 2, 1}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_4_main5_check((tack_eq_22(&v_a, &(tack_array_22){{4, 3, 2, 1}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_Shape v_s = (tack_4_main5_Shape){};
     v_s.f_pts.e[0] = (tack_4_main5_Point){.f_x = 5, .f_y = 6};
     v_s.f_pts.e[1] = (tack_4_main5_Point){.f_x = 7, .f_y = 8};
     tack_4_main4_swap(&v_s.f_pts.e[0].f_x, &v_s.f_pts.e[1].f_y);
     tack_4_main5_check(((v_s.f_pts.e[0].f_x == 8) && (v_s.f_pts.e[1].f_y == 5)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     tack_4_main10_swapPoints(&v_s.f_pts.e[0], &v_s.f_pts.e[1]);
-    tack_4_main5_check(((tack_eq_17(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 7, .f_y = 5})) && (tack_eq_17(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 8, .f_y = 6}))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check(((tack_eq_17(&v_s.f_pts.e[0], &(tack_4_main5_Point){.f_x = 7, .f_y = 5})) && (tack_eq_17(&v_s.f_pts.e[1], &(tack_4_main5_Point){.f_x = 8, .f_y = 6}))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     v_s.f_grid.e[0].e[1] = 1;
     v_s.f_grid.e[1].e[0] = 2;
     tack_4_main4_swap(&v_s.f_grid.e[0].e[1], &v_s.f_grid.e[1].e[0]);
@@ -147,7 +147,7 @@ static void tack_4_main4_main(void) {
             tack_4_main4_swap(&v_s.f_pts.e[v_i].f_x, &v_s.f_pts.e[1].f_y);
         }
     }
-    tack_4_main5_check(((tack_eq_17(v_s.f_pts.e[0], (tack_4_main5_Point){.f_x = 6, .f_y = 5})) && (tack_eq_17(v_s.f_pts.e[1], (tack_4_main5_Point){.f_x = 7, .f_y = 8}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    tack_4_main5_check(((tack_eq_17(&v_s.f_pts.e[0], &(tack_4_main5_Point){.f_x = 6, .f_y = 5})) && (tack_eq_17(&v_s.f_pts.e[1], &(tack_4_main5_Point){.f_x = 7, .f_y = 8}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_Point v_b = (tack_4_main5_Point){.f_x = 3, .f_y = 4};
     tack_4_main7_scaleBy(&v_b, v_b);
     tack_4_main5_check(((v_b.f_x == 9) && (v_b.f_y == 12)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});

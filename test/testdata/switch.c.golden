@@ -37,13 +37,13 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_17(tack_4_main5_Point a, tack_4_main5_Point b) {
-    return a.f_x == b.f_x && a.f_y == b.f_y;
+static bool tack_eq_17(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
+    return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
-static bool tack_eq_21(tack_array_21 a, tack_array_21 b) {
+static bool tack_eq_21(const tack_array_21 *a, const tack_array_21 *b) {
     for (int64_t i = 0; i < 2; i++) {
-        if (a.e[i] != b.e[i]) {
+        if (a->e[i] != b->e[i]) {
             return false;
         }
     }
@@ -136,9 +136,9 @@ static int64_t tack_4_main4_word(tack_string p_s) {
 static int64_t tack_4_main5_where(tack_4_main5_Point p_p) {
     {
         const tack_4_main5_Point tack_s2 = p_p;
-        if (tack_eq_17(tack_s2, (tack_4_main5_Point){.f_x = 0, .f_y = 0})) {
+        if (tack_eq_17(&tack_s2, &(tack_4_main5_Point){.f_x = 0, .f_y = 0})) {
             return 0;
-        } else if ((tack_eq_17(tack_s2, (tack_4_main5_Point){.f_x = 1, .f_y = 0})) || (tack_eq_17(tack_s2, (tack_4_main5_Point){.f_x = 0, .f_y = 1}))) {
+        } else if ((tack_eq_17(&tack_s2, &(tack_4_main5_Point){.f_x = 1, .f_y = 0})) || (tack_eq_17(&tack_s2, &(tack_4_main5_Point){.f_x = 0, .f_y = 1}))) {
             return 1;
         }
     }
@@ -417,9 +417,9 @@ static void tack_4_main4_main(void) {
     const tack_array_21 v_arr = (tack_array_21){{1, 2}};
     {
         const tack_array_21 tack_s19 = v_arr;
-        if (tack_eq_21(tack_s19, (tack_array_21){{2, 1}})) {
+        if (tack_eq_21(&tack_s19, &(tack_array_21){{2, 1}})) {
             tack_builtin_exit(26);
-        } else if (tack_eq_21(tack_s19, (tack_array_21){{1, 2}})) {
+        } else if (tack_eq_21(&tack_s19, &(tack_array_21){{1, 2}})) {
             v_hit = ((int64_t)((uint64_t)v_hit + (uint64_t)1));
         }
     }
