@@ -164,6 +164,19 @@ var listAcceptCases = []struct{ name, src string }{
 		"package main\n\nfunc use(n int64) {\n}\n\nfunc main() {\n    l := make(list[[2]Allocator], c_allocator)\n    use(len(l))\n}\n",
 	},
 	{
+		"index alongside mut of another list",
+		listing("x, ok := l[k(mut m, l)]", "if ok {", "    use(x)", "}") + listingHelpers,
+	},
+	{
+		"assign an element alongside mut of another place",
+		listing(
+			"if len(m) > 0 {",
+			"    m[0] = j(mut s, l)",
+			"    m[0] += k(mut s.items, l)",
+			"}",
+		) + listingHelpers,
+	},
+	{
 		"two results with a list",
 		"package main\n\nfunc f() (list[int64], int64) {\n    return make(list[int64], c_allocator), 1\n}\n\nfunc use(n int64) {\n}\n\nfunc main() {\n    l, n := f()\n    use((len(l) + n))\n}\n",
 	},
@@ -233,6 +246,41 @@ var listErrorCases = []struct{ name, src, want string }{
 		"view of a field alongside mut of its struct",
 		listing("return j(mut s, s.items)"),
 		"cannot pass s.items alongside mut s in this call: a list is not copied for a call, and a mut argument must be the only way to reach s during it",
+	},
+	{
+		"index alongside mut of its list",
+		listing("x, ok := m[k(mut m, l)]", "if ok {", "    use(x)", "}"),
+		"cannot index m alongside mut m in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"unchecked index alongside mut of its list",
+		listing("use(m[k(mut m, l)])"),
+		"cannot index m alongside mut m in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"index of a field alongside mut of its struct",
+		listing("x, ok := s.items[j(mut s, l)]", "if ok {", "    use(x)", "}"),
+		"cannot index s.items alongside mut s in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach s during its call",
+	},
+	{
+		"slice alongside mut of its list",
+		listing("use(g(m[k(mut m, l):]))"),
+		"cannot slice m alongside mut m in its bounds: a list is not copied to be sliced, and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"assign an element alongside mut of its list",
+		listing("if len(m) > 0 {", "    m[0] = k(mut m, l)", "}"),
+		"cannot assign to m[0] alongside mut m in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"add to an element alongside mut of its list",
+		listing("if len(m) > 0 {", "    m[0] += k(mut m, l)", "}"),
+		"cannot assign to m[0] alongside mut m in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"assign a field's element alongside mut of its struct",
+		listing("s.items[0] = j(mut s, l)"),
+		"cannot assign to s.items[0] alongside mut s in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach s during its call",
 	},
 	{
 		"range then append",

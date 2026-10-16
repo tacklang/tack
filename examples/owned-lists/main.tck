@@ -492,6 +492,81 @@ func test_failures() {
     check(e5.code == 0 && len(words) == 4 && live() == 6, "appends again after failures")
 }
 
+// Pair holds two lists, which are separate places: changing one leaves
+// the other where it is.
+type Pair struct {
+    left  list[int64]
+    right list[int64]
+}
+
+// grown appends enough numbers to l to move its buffer, and returns 1, or
+// 0 when an append fails.
+func grown(mut l list[int64]) int64 {
+    for i := range 64 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return 0
+        }
+    }
+    return 1
+}
+
+// last_index returns the index of l's last element, reading l in place.
+func last_index(l list[int64]) int64 {
+    return len(l) - 1
+}
+
+// view_of returns a view of all of l.
+func view_of(l list[int64]) []int64 {
+    return l
+}
+
+// fresh returns a new list holding n, or an empty one when the append
+// fails.
+func fresh(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, n)
+    if err.code != 0 {
+        return l
+    }
+    return l
+}
+
+// test_index_borrows indexes and assigns lists while the index or the
+// value changes another list, which is allowed: a list is read in place
+// while its index is evaluated, so only a change to that list, or to what
+// holds it, is reported. Each change moves a buffer, so a read of the old
+// one would be caught.
+func test_index_borrows() {
+    a, e1 := numbers(3)
+    if e1.code != 0 {
+        check(false, "numbers for index borrows")
+        return
+    }
+    mut p := Pair{left: a, right: fresh(9)}
+    x, ok := p.left[grown(mut p.right)]
+    check(ok && x == 2 && len(p.right) == 65, "an index changes another field")
+    y, ok2 := p.left[last_index(p.left)]
+    check(ok2 && y == 3, "an index reads the list it indexes")
+    z, ok3 := view_of(p.left)[grown(mut p.right) + 1]
+    check(ok3 && z == 3 && len(p.right) == 129, "a view's index changes another list")
+    mut l := fresh(1)
+    mut other := fresh(0)
+    if len(l) > 0 {
+        l[0] = grown(mut other) + 40
+        l[0] += grown(mut other)
+    }
+    check(len(l) > 0 && l[0] == 42 && len(other) == 129, "an element assigned while another list grows")
+    mut ll := make(list[list[int64]], c_allocator)
+    e2 := append(mut ll, fresh(5))
+    check(e2.code == 0, "a list of lists")
+    if len(ll) > 0 {
+        ll[0] = fresh(grown(mut ll[0]) + 6)
+        w, ok4 := ll[0][0]
+        check(ok4 && w == 7 && len(ll[0]) == 1, "an element replaced by a value that grew it")
+    }
+}
+
 func main() {
     freed("nothing live at the start")
     test_words()
@@ -516,4 +591,6 @@ func main() {
     freed("not moved freed")
     test_failures()
     freed("failures freed")
+    test_index_borrows()
+    freed("index borrows freed")
 }

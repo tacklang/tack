@@ -673,7 +673,10 @@ makes for itself, which has a letter after `tack_`.
   passing it alongside, at any depth, a `mut` argument that may overlap
   one of them is `cannot pass t.bytes() alongside mut t in this call: the
   view it returns may point into t, and a mut argument must be the only
-  way to reach t during the call`, and a range over it cannot change any
+  way to reach t during the call`, as is an index or a slice of it whose
+  own index or bounds pass one, `cannot index t.bytes() alongside mut t
+  in its index: the view it returns may point into t, ...`, and a range
+  over it cannot change any
   of them while it runs, `t.bytes() is being ranged over, and the view it
   returns may point into t, so this loop cannot pass mut t`, nor assign,
   move or pass as `mut` anything inside them or holding them, a defer in
@@ -1142,7 +1145,21 @@ makes for itself, which has a letter after `tack_`.
   and a mut argument must be the only way to reach l during it`. Places
   compare as they do for two `mut` arguments, but two elements of one
   list always may be one, so `f(l[0], mut l[1])` is `cannot pass l[0]
-  alongside mut l[1] in this call: ...`, whatever the indexes.
+  alongside mut l[1] in this call: ...`, whatever the indexes. An index
+  reads its list in place in the same way, after the index is
+  evaluated, so an index, checked or not, whose own expression passes as
+  `mut`, at any depth, a place that may overlap the list it reads is
+  `cannot index l alongside mut l in its index: a list is not copied to
+  be indexed, and a mut argument must be the only way to reach l during
+  its call`, `l[set(mut l[0])]` included, where an array's index reads
+  the array as it was before; a slice's bounds the same, `cannot slice
+  l alongside mut l in its bounds: a list is not copied to be sliced,
+  ...`. An element of a list is assigned in place, so a value assigned
+  to one cannot pass the list, or anything holding it, as `mut`: `l[0] =
+  grow(mut l)` is `cannot assign to l[0] alongside mut l in its value: an
+  element is assigned in place in its list, and a mut argument must be
+  the only way to reach l during its call`, while `ll[0] = f(grow(mut
+  ll[0]))`, a `mut` argument inside the list, is allowed.
 
   A struct with a field of a list type, directly or through another
   struct or a union, holds a list, and is owned as a list is: it moves, has no zero

@@ -67,3 +67,10 @@ a failed append of two frees both ok
 pop after failures ok
 appends again after failures ok
 failures freed ok
+an index changes another field ok
+an index reads the list it indexes ok
+a view's index changes another list ok
+an element assigned while another list grows ok
+a list of lists ok
+an element replaced by a value that grew it ok
+index borrows freed ok

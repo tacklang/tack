@@ -61,6 +61,11 @@ type Checker struct {
 	// reported (see viewresult.go).
 	viewCall *ast.Call
 
+	// assigning is the assignment whose target is being checked, nil
+	// otherwise: an element of a list it assigns is checked against the
+	// mut arguments of its value (see checkAssignBorrows).
+	assigning *pendingAssign
+
 	globals map[*ast.Var]bool // the package-level variables
 
 	// globalState says how far each package-level variable's check has
@@ -480,7 +485,9 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 		seen[name.Def] = true
 	}
 
+	c.assigning = &pendingAssign{target: target, value: value}
 	typ, assignable := c.assignable(target)
+	c.assigning = nil
 	got = c.settleResult(value, got, typ)
 	if !assignable || typ == types.Invalid || got == types.Invalid || types.Widens(got, typ) {
 		return
@@ -1446,12 +1453,17 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 	got := c.expr(a.Value)
 	if a.Op != ast.InvalidOp {
 		c.readHeld(a.Target)
+		c.assigning = &pendingAssign{target: a.Target, value: a.Value}
 		c.checkCompound(a, got)
+		c.assigning = nil
 		c.checkErrorAssign(a, a.Target)
 		return
 	}
 
-	if typ, ok := c.assignable(a.Target); ok {
+	c.assigning = &pendingAssign{target: a.Target, value: a.Value}
+	typ, ok := c.assignable(a.Target)
+	c.assigning = nil
+	if ok {
 		c.use(a.Value, got, typ, "in assignment to "+targetName(a.Target))
 	}
 	c.checkErrorAssign(a, a.Target)

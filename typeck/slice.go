@@ -41,7 +41,8 @@ import (
 // for an array's or a view's, which only a view parameter's argument, len
 // and another slice may take, as viewSlice says. Its bounds are checked
 // by sliceInRange, unless it is a view where one cannot be, which is
-// reported instead and gives types.Invalid.
+// reported instead and gives types.Invalid, or a bound can change the
+// list or the view it slices, which checkSliceBorrows reports instead.
 func (c *Checker) slice(s *ast.Slice) types.Type {
 	viewOK := c.viewSlice == s
 	c.viewSlice = nil
@@ -52,6 +53,7 @@ func (c *Checker) slice(s *ast.Slice) types.Type {
 		c.errorf(s.Span, "%s is a view, %s, which can only be passed to a view parameter or to len",
 			c.text(s.Span), c.typeName(s.Type))
 		s.Type = types.Invalid
+	case c.checkSliceBorrows(s):
 	default:
 		c.sliceInRange(s)
 	}

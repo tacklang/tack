@@ -34,6 +34,10 @@ var viewResultAcceptCases = []struct{ name, src string }{
 		returning("", "n := use(t.bytes()) + use(whole(v))", "if n == 0 {", "}"),
 	},
 	{"len", returning("", "if len(t.bytes()) == len(whole(a)) {", "}")},
+	{
+		"index while another place changes",
+		returning("", "c, ok := t.bytes()[touch(mut m)]", "if ok && c == 0 {", "}"),
+	},
 	{"checked index", returning("", "c, ok := t.bytes()[0]", "if ok && c == 0 {", "}")},
 	{"whole slice", returning("", "if use(t.bytes()[:]) + use(whole(v)[0:0]) == 0 {", "}")},
 	{
@@ -204,6 +208,27 @@ var viewResultRejectCases = []struct{ name, src, want string }{
 		"array overlap",
 		returning("func g(v []uint8, mut a [3]uint8) {\n}", "g(whole(a), mut a)"),
 		"cannot pass whole(a) alongside mut a in this call",
+	},
+	{
+		"index overlap",
+		returning("", "c, ok := m.bytes()[touch(mut m)]", "if ok && c == 0 {", "}"),
+		"cannot index m.bytes() alongside mut m in its index: the view it returns may point into m, " +
+			"and a mut argument must be the only way to reach m during its call",
+	},
+	{
+		"slice overlap",
+		returning("", "if use(m.bytes()[touch(mut m):]) == 0 {", "}"),
+		"cannot slice m.bytes() alongside mut m in its bounds: the view it returns may point into m",
+	},
+	{
+		"array index overlap",
+		returning(
+			"func cell(mut a [3]uint8) int64 {\n    return 0\n}",
+			"c, ok := whole(a)[cell(mut a)]",
+			"if ok && c == 0 {",
+			"}",
+		),
+		"cannot index whole(a) alongside mut a in its index: the view it returns may point into a",
 	},
 	{
 		"range then push",

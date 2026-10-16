@@ -39,9 +39,6 @@ feature work until it is fixed.
 These are open bugs against the guarantees, found by an audit on
 2026-10-16. Each is being fixed before any new feature.
 
-- **Use-after-free (3).** An index whose own expression changes the list it
-  indexes, as in `c, ok := l[grow(mut l)]`, is accepted and reads the list's
-  freed buffer.
 - **Leak (2).** `exit` ends the process without freeing what is still
   allocated. The fix: every allocator frees every buffer it still holds
   before the process ends, while `exit` keeps not running defers.

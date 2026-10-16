@@ -1275,6 +1275,180 @@ asm-unterminated/main.tck:4:5: error: unterminated asm block
    |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	        mov
 
+-- assign-borrow-compound/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        l[0] += grow(mut l)
+    }
+}
+-- assign-borrow-compound/expected --
+stage: typeck
+---
+
+assign-borrow-compound/main.tck:14:9: error: cannot assign to l[0] alongside mut l in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach l during its call
+13 |	    if len(l) > 0 {
+14 |	        l[0] += grow(mut l)
+   |	        ^~~~
+15 |	    }
+assign-borrow-compound/main.tck:14:22: note: passed as mut here
+13 |	    if len(l) > 0 {
+14 |	        l[0] += grow(mut l)
+   |	                     ^~~~~
+15 |	    }
+
+-- assign-borrow-element/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        l[0] = grow(mut l)
+    }
+}
+-- assign-borrow-element/expected --
+stage: typeck
+---
+
+assign-borrow-element/main.tck:14:9: error: cannot assign to l[0] alongside mut l in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach l during its call
+13 |	    if len(l) > 0 {
+14 |	        l[0] = grow(mut l)
+   |	        ^~~~
+15 |	    }
+assign-borrow-element/main.tck:14:21: note: passed as mut here
+13 |	    if len(l) > 0 {
+14 |	        l[0] = grow(mut l)
+   |	                    ^~~~~
+15 |	    }
+
+-- assign-borrow-multi/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func two(mut l list[int64]) (int64, int64) {
+    return grow(mut l), 2
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut y int64 = 0
+    if len(l) > 0 {
+        l[0], y = two(mut l)
+    }
+    if y > 5 {
+        exit(1)
+    }
+}
+-- assign-borrow-multi/expected --
+stage: typeck
+---
+
+assign-borrow-multi/main.tck:19:9: error: cannot assign to l[0] alongside mut l in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach l during its call
+18 |	    if len(l) > 0 {
+19 |	        l[0], y = two(mut l)
+   |	        ^~~~
+20 |	    }
+assign-borrow-multi/main.tck:19:23: note: passed as mut here
+18 |	    if len(l) > 0 {
+19 |	        l[0], y = two(mut l)
+   |	                      ^~~~~
+20 |	    }
+
+-- assign-borrow-nested/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut ll := make(list[list[int64]], c_allocator)
+    if len(ll) > 0 {
+        ll[0][0] = grow(mut ll[0])
+    }
+}
+-- assign-borrow-nested/expected --
+stage: typeck
+---
+
+assign-borrow-nested/main.tck:14:9: error: cannot assign to ll[0][0] alongside mut ll[0] in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach ll[0] during its call
+13 |	    if len(ll) > 0 {
+14 |	        ll[0][0] = grow(mut ll[0])
+   |	        ^~~~~~~~
+15 |	    }
+assign-borrow-nested/main.tck:14:25: note: passed as mut here
+13 |	    if len(ll) > 0 {
+14 |	        ll[0][0] = grow(mut ll[0])
+   |	                        ^~~~~~~~~
+15 |	    }
+
+-- assign-borrow-owner/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func push(mut s Stack) int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator)}
+    s.items[0] = push(mut s)
+}
+-- assign-borrow-owner/expected --
+stage: typeck
+---
+
+assign-borrow-owner/main.tck:21:5: error: cannot assign to s.items[0] alongside mut s in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach s during its call
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    s.items[0] = push(mut s)
+   |	    ^~~~~~~~~~
+22 |	}
+assign-borrow-owner/main.tck:21:23: note: passed as mut here
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    s.items[0] = push(mut s)
+   |	                      ^~~~~
+22 |	}
+
 -- assignment-mismatch-count/main.tck --
 package main
 
@@ -9249,6 +9423,575 @@ incdec-non-int/main.tck:5:5: error: operator ++ is not defined on bool
 05 |	    done++
    |	    ^~~~
 06 |	    if done {
+
+-- index-borrow-element/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut ll := make(list[list[int64]], c_allocator)
+    err := append(mut ll, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    if len(ll) > 0 {
+        c, ok := ll[0][grow(mut ll[0])]
+        if ok {
+            if c > 5 {
+                exit(1)
+            }
+        }
+    }
+}
+-- index-borrow-element/expected --
+stage: typeck
+---
+
+index-borrow-element/main.tck:18:18: error: cannot index ll[0] alongside mut ll[0] in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach ll[0] during its call
+17 |	    if len(ll) > 0 {
+18 |	        c, ok := ll[0][grow(mut ll[0])]
+   |	                 ^~~~~
+19 |	        if ok {
+index-borrow-element/main.tck:18:29: note: passed as mut here
+17 |	    if len(ll) > 0 {
+18 |	        c, ok := ll[0][grow(mut ll[0])]
+   |	                            ^~~~~~~~~
+19 |	        if ok {
+
+-- index-borrow-element-method/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func (mut s Stack) push() int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut ss := make(list[Stack], c_allocator)
+    err := append(mut ss, Stack{items: make(list[int64], c_allocator)})
+    if err.code != 0 {
+        return
+    }
+    if len(ss) > 0 {
+        c, ok := ss[0].items[mut ss[0].push()]
+        if ok {
+            if c > 5 {
+                exit(1)
+            }
+        }
+    }
+}
+-- index-borrow-element-method/expected --
+stage: typeck
+---
+
+index-borrow-element-method/main.tck:26:18: error: cannot index ss[0].items alongside mut ss[0] in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach ss[0] during its call
+25 |	    if len(ss) > 0 {
+26 |	        c, ok := ss[0].items[mut ss[0].push()]
+   |	                 ^~~~~~~~~~~
+27 |	        if ok {
+index-borrow-element-method/main.tck:26:30: note: passed as mut here
+25 |	    if len(ss) > 0 {
+26 |	        c, ok := ss[0].items[mut ss[0].push()]
+   |	                             ^~~~~~~~~
+27 |	        if ok {
+
+-- index-borrow-field/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator)}
+    c, ok := s.items[grow(mut s.items)]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-field/expected --
+stage: typeck
+---
+
+index-borrow-field/main.tck:17:14: error: cannot index s.items alongside mut s.items in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach s.items during its call
+16 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+17 |	    c, ok := s.items[grow(mut s.items)]
+   |	             ^~~~~~~
+18 |	    if ok {
+index-borrow-field/main.tck:17:27: note: passed as mut here
+16 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+17 |	    c, ok := s.items[grow(mut s.items)]
+   |	                          ^~~~~~~~~~~
+18 |	    if ok {
+
+-- index-borrow-list/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    c, ok := l[grow(mut l)]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-list/expected --
+stage: typeck
+---
+
+index-borrow-list/main.tck:13:14: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    c, ok := l[grow(mut l)]
+   |	             ^
+14 |	    if ok {
+index-borrow-list/main.tck:13:21: note: passed as mut here
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    c, ok := l[grow(mut l)]
+   |	                    ^~~~~
+14 |	    if ok {
+
+-- index-borrow-method/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func (mut s Stack) push() int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator)}
+    c, ok := s.items[mut s.push()]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-method/expected --
+stage: typeck
+---
+
+index-borrow-method/main.tck:21:14: error: cannot index s.items alongside mut s in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach s during its call
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    c, ok := s.items[mut s.push()]
+   |	             ^~~~~~~
+22 |	    if ok {
+index-borrow-method/main.tck:21:22: note: passed as mut here
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    c, ok := s.items[mut s.push()]
+   |	                     ^~~~~
+22 |	    if ok {
+
+-- index-borrow-nested-call/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func id(n int64) int64 {
+    return n
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    c, ok := l[id(id(grow(mut l)) - 1)]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-nested-call/expected --
+stage: typeck
+---
+
+index-borrow-nested-call/main.tck:17:14: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    c, ok := l[id(id(grow(mut l)) - 1)]
+   |	             ^
+18 |	    if ok {
+index-borrow-nested-call/main.tck:17:27: note: passed as mut here
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    c, ok := l[id(id(grow(mut l)) - 1)]
+   |	                          ^~~~~
+18 |	    if ok {
+
+-- index-borrow-own-element/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func set(mut x int64) int64 {
+    x = 7
+    return 0
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if grow(mut l) == 0 {
+        return
+    }
+    if len(l) > 0 {
+        c, ok := l[set(mut l[0])]
+        if ok {
+            if c > 5 {
+                exit(1)
+            }
+        }
+    }
+}
+-- index-borrow-own-element/expected --
+stage: typeck
+---
+
+index-borrow-own-element/main.tck:22:18: error: cannot index l alongside mut l[0] in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l[0] during its call
+21 |	    if len(l) > 0 {
+22 |	        c, ok := l[set(mut l[0])]
+   |	                 ^
+23 |	        if ok {
+index-borrow-own-element/main.tck:22:24: note: passed as mut here
+21 |	    if len(l) > 0 {
+22 |	        c, ok := l[set(mut l[0])]
+   |	                       ^~~~~~~~
+23 |	        if ok {
+
+-- index-borrow-owner/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func push(mut s Stack) int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator)}
+    c, ok := s.items[push(mut s)]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-owner/expected --
+stage: typeck
+---
+
+index-borrow-owner/main.tck:21:14: error: cannot index s.items alongside mut s in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach s during its call
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    c, ok := s.items[push(mut s)]
+   |	             ^~~~~~~
+22 |	    if ok {
+index-borrow-owner/main.tck:21:27: note: passed as mut here
+20 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+21 |	    c, ok := s.items[push(mut s)]
+   |	                          ^~~~~
+22 |	    if ok {
+
+-- index-borrow-param/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func at(mut l list[int64]) int64 {
+    c, ok := l[grow(mut l)]
+    if ok {
+        return c
+    }
+    return 0
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if at(mut l) > 5 {
+        exit(1)
+    }
+}
+-- index-borrow-param/expected --
+stage: typeck
+---
+
+index-borrow-param/main.tck:12:14: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
+11 |	func at(mut l list[int64]) int64 {
+12 |	    c, ok := l[grow(mut l)]
+   |	             ^
+13 |	    if ok {
+index-borrow-param/main.tck:12:21: note: passed as mut here
+11 |	func at(mut l list[int64]) int64 {
+12 |	    c, ok := l[grow(mut l)]
+   |	                    ^~~~~
+13 |	    if ok {
+
+-- index-borrow-target/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    l[grow(mut l)] = 5
+}
+-- index-borrow-target/expected --
+stage: typeck
+---
+
+index-borrow-target/main.tck:13:5: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    l[grow(mut l)] = 5
+   |	    ^
+14 |	}
+index-borrow-target/main.tck:13:12: note: passed as mut here
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    l[grow(mut l)] = 5
+   |	           ^~~~~
+14 |	}
+
+-- index-borrow-unchecked/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 2 {
+        if l[0 * grow(mut l)] > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-unchecked/expected --
+stage: typeck
+---
+
+index-borrow-unchecked/main.tck:14:12: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
+13 |	    if len(l) > 2 {
+14 |	        if l[0 * grow(mut l)] > 5 {
+   |	           ^
+15 |	            exit(1)
+index-borrow-unchecked/main.tck:14:23: note: passed as mut here
+13 |	    if len(l) > 2 {
+14 |	        if l[0 * grow(mut l)] > 5 {
+   |	                      ^~~~~
+15 |	            exit(1)
+
+-- index-borrow-view/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func first(l list[int64]) []int64 {
+    return l
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    c, ok := first(l)[grow(mut l)]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-view/expected --
+stage: typeck
+---
+
+index-borrow-view/main.tck:17:14: error: cannot index first(l) alongside mut l in its index: the view it returns may point into l, and a mut argument must be the only way to reach l during its call
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    c, ok := first(l)[grow(mut l)]
+   |	             ^~~~~~~~
+18 |	    if ok {
+index-borrow-view/main.tck:17:28: note: passed as mut here
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    c, ok := first(l)[grow(mut l)]
+   |	                           ^~~~~
+18 |	    if ok {
+
+-- index-borrow-view-element/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func first(l list[int64]) []int64 {
+    return l
+}
+
+func main() {
+    mut ll := make(list[list[int64]], c_allocator)
+    err := append(mut ll, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    if len(ll) > 0 {
+        c, ok := first(ll[0])[grow(mut ll[0])]
+        if ok {
+            if c > 5 {
+                exit(1)
+            }
+        }
+    }
+}
+-- index-borrow-view-element/expected --
+stage: typeck
+---
+
+index-borrow-view-element/main.tck:22:18: error: cannot index first(ll[0]) alongside mut ll[0] in its index: the view it returns may point into ll[0], and a mut argument must be the only way to reach ll[0] during its call
+21 |	    if len(ll) > 0 {
+22 |	        c, ok := first(ll[0])[grow(mut ll[0])]
+   |	                 ^~~~~~~~~~~~
+23 |	        if ok {
+index-borrow-view-element/main.tck:22:36: note: passed as mut here
+21 |	    if len(ll) > 0 {
+22 |	        c, ok := first(ll[0])[grow(mut ll[0])]
+   |	                                   ^~~~~~~~~
+23 |	        if ok {
+
+-- index-borrow-view-method/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func (s Stack) all() []int64 {
+    return s.items
+}
+
+func (mut s Stack) push() int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut s := Stack{items: make(list[int64], c_allocator)}
+    c, ok := s.all()[mut s.push()]
+    if ok {
+        if c > 5 {
+            exit(1)
+        }
+    }
+}
+-- index-borrow-view-method/expected --
+stage: typeck
+---
+
+index-borrow-view-method/main.tck:25:14: error: cannot index s.all() alongside mut s in its index: the view it returns may point into s, and a mut argument must be the only way to reach s during its call
+24 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+25 |	    c, ok := s.all()[mut s.push()]
+   |	             ^~~~~~~
+26 |	    if ok {
+index-borrow-view-method/main.tck:25:22: note: passed as mut here
+24 |	    mut s := Stack{items: make(list[int64], c_allocator)}
+25 |	    c, ok := s.all()[mut s.push()]
+   |	                     ^~~~~
+26 |	    if ok {
 
 -- index-may-be-out-of-range/main.tck --
 package main
@@ -19250,6 +19993,114 @@ slice-assign-element/main.tck:5:5: error: cannot assign to a[1:][0]: a slice is 
 05 |	    a[1:][0] = 5
    |	    ^~~~~~~~
 06 |	    code, _ := int32(a[0])
+
+-- slice-borrow-bound/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func sum(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t += x
+    }
+    return t
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if sum(l[:grow(mut l)]) > 5 {
+        exit(1)
+    }
+}
+-- slice-borrow-bound/expected --
+stage: typeck
+---
+
+slice-borrow-bound/main.tck:21:12: error: cannot slice l alongside mut l in its bounds: a list is not copied to be sliced, and a mut argument must be the only way to reach l during its call
+20 |	    mut l := make(list[int64], c_allocator)
+21 |	    if sum(l[:grow(mut l)]) > 5 {
+   |	           ^
+22 |	        exit(1)
+slice-borrow-bound/main.tck:21:20: note: passed as mut here
+20 |	    mut l := make(list[int64], c_allocator)
+21 |	    if sum(l[:grow(mut l)]) > 5 {
+   |	                   ^~~~~
+22 |	        exit(1)
+
+-- slice-borrow-len/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l[grow(mut l):]) > 5 {
+        exit(1)
+    }
+}
+-- slice-borrow-len/expected --
+stage: typeck
+---
+
+slice-borrow-len/main.tck:13:12: error: cannot slice l alongside mut l in its bounds: a list is not copied to be sliced, and a mut argument must be the only way to reach l during its call
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    if len(l[grow(mut l):]) > 5 {
+   |	           ^
+14 |	        exit(1)
+slice-borrow-len/main.tck:13:19: note: passed as mut here
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    if len(l[grow(mut l):]) > 5 {
+   |	                  ^~~~~
+14 |	        exit(1)
+
+-- slice-borrow-view/main.tck --
+package main
+
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func first(l list[int64]) []int64 {
+    return l
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(first(l)[grow(mut l):]) > 5 {
+        exit(1)
+    }
+}
+-- slice-borrow-view/expected --
+stage: typeck
+---
+
+slice-borrow-view/main.tck:17:12: error: cannot slice first(l) alongside mut l in its bounds: the view it returns may point into l, and a mut argument must be the only way to reach l during its call
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    if len(first(l)[grow(mut l):]) > 5 {
+   |	           ^~~~~~~~
+18 |	        exit(1)
+slice-borrow-view/main.tck:17:26: note: passed as mut here
+16 |	    mut l := make(list[int64], c_allocator)
+17 |	    if len(first(l)[grow(mut l):]) > 5 {
+   |	                         ^~~~~
+18 |	        exit(1)
 
 -- slice-bound-negative/main.tck --
 package main

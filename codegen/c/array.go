@@ -188,9 +188,18 @@ func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) 
 // is a place, a variable or a field or element of one, is held by its
 // address, which reads its element without copying it, unless evaluating
 // the index can change the array, which must then be read as it was
-// before: it is copied then, as a string or a view always is, being two
-// words, and
+// before: it is copied then, as a string, a view or a list always is,
+// being a few words, and
 // as anything else is, such as a call's result.
+//
+// Copying a list or a view copies only the words that point at its
+// elements, not the elements, so the copy reads what is there when the
+// element is read. That is sound only because the checker rejects an
+// index that can change the list it reads (see typeck's
+// checkIndexBorrows): nothing the index does can move or free the buffer.
+// A string's copy is sound only while no string owns heap memory, which
+// none does today: once one can, an index that can free a string's bytes
+// needs the same rule (see docs/open-decisions.md).
 func (g *generator) heldIndexed(ix *ast.Index, base string) *multiTemp {
 	typ := ast.TypeOf(ix.X)
 	_, isName := ix.X.(*ast.Ident)

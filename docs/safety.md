@@ -1261,9 +1261,23 @@ argument that may overlap one,
 <!-- error: view-result-overlap-after -->`cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call`,
 and changed, anything inside it included, by a range over the view,
 <!-- error: view-result-range-mut -->`t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot pass mut t`.
+An index reads its list in place too, after its index is evaluated, so
+an index whose own expression may change that list, through a `mut`
+argument at any depth, is an error, the checked form and an element
+being assigned included,
+<!-- error: index-borrow-list -->`cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call`,
+and the same for a view a call returns,
+<!-- error: index-borrow-view -->`cannot index first(l) alongside mut l in its index: the view it returns may point into l, and a mut argument must be the only way to reach l during its call`,
+and for a slice's bounds,
+<!-- error: slice-borrow-bound -->`cannot slice l alongside mut l in its bounds: a list is not copied to be sliced, and a mut argument must be the only way to reach l during its call`.
+An element is assigned in place as well, so the value assigned to an
+element of a list cannot change that list, or anything holding it,
+<!-- error: assign-borrow-element -->`cannot assign to l[0] alongside mut l in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach l during its call`;
+a `mut` argument inside the list, one of its elements, may be passed,
+since it cannot move the list's own buffer.
 No global holds a list and no reference is ever stored, so a callee
-reaches a caller's list only through its arguments, and these two
-rules cover every way a buffer could move while something reads it. An
+reaches a caller's list only through its arguments, and these rules
+cover every way a buffer could move while something reads it. An
 element of a list is part of it for both: two elements of one list may
 always be one, so
 <!-- error: owned-element-borrowed-alongside-mut-element -->`cannot pass l[0] alongside mut l[1] in this call: a list is not copied for a call, and a mut argument must be the only way to reach l[1] during it`.

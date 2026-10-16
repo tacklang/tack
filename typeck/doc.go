@@ -292,7 +292,8 @@
 // fact is about a call. It may point into every argument of its call
 // that is not mut and holds data, which it borrows: a call passing it
 // alongside a mut argument that may overlap one is reported
-// (exclusive.go), and a range over it cannot change one (move.go).
+// (exclusive.go), and so is an index or a slice of it whose own index or
+// bounds pass one, and a range over it cannot change one (move.go).
 //
 // A variadic parameter, args ...T, the last of its function's, is a view,
 // []T, checked in variadic.go: its type is the view of its element type,
@@ -557,7 +558,12 @@
 // made, a defer reads no list moved later in its block and moves none
 // declared outside it, and a range over a list cannot change it. A list
 // read in place by one argument cannot share a call with a mut argument
-// that may overlap it (exclusive.go).
+// that may overlap it (exclusive.go). An index or a slice reads its list
+// in place too, so its own index or bounds cannot pass as mut a place
+// that may overlap the list, and the value assigned to an element of a
+// list cannot pass as mut that list or a place holding it
+// (checkIndexBorrows, checkSliceBorrows and checkAssignBorrows): each is
+// reported instead of any proof the index needs.
 //
 // Unions (union.go). A union type is a type of its own per declaration,
 // whose cases, each a name and a payload's type or none, are resolved

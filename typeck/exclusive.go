@@ -3,6 +3,7 @@ package typeck
 import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
+	"github.com/tacklang/tack/types"
 )
 
 // Exclusivity. During a call, a place passed as mut is reachable only
@@ -24,7 +25,12 @@ import (
 // the same call passes an overlapping place as mut, is an error (see
 // checkListBorrows), and so is a view a call returns, read in place,
 // alongside a mut argument that may overlap what it may point into (see
-// checkViewBorrows).
+// checkViewBorrows). An index and a slice read their list, or the view a
+// call returns, in place as well, after the index or the bounds are
+// evaluated, so a mut argument in those that may overlap what they read
+// is an error (checkIndexBorrows, checkSliceBorrows), and an element of a
+// list is assigned in place, so the value assigned cannot pass the list,
+// or anything holding it, as mut (checkAssignBorrows).
 
 // overlap says how two places relate.
 type overlap int
@@ -218,8 +224,11 @@ func (known interval) single() bool {
 }
 
 // checkListBorrows reports each argument of call, a method call's
-// receiver among them, that reads a list in place while the same call, or a call nested in its arguments, passes a
-// place that may overlap it as mut, with a note at that mut argument. An
+// receiver among them, that reads a list in place while another operand
+// of the same call, or a call nested in one, passes a place that may
+// overlap it as mut, with a note at that mut argument. A mut argument
+// inside the argument itself is in one of its indexes or slice bounds,
+// which checkIndexBorrows and checkSliceBorrows report. An
 // argument reads a list in place when it is an owned place, a list or a
 // struct holding one, passed to a plain parameter, which borrows it, or a
 // list, or a slice of one, passed to a view parameter. A plain argument
@@ -234,19 +243,8 @@ func (known interval) single() bool {
 // checkViewBorrows, first.
 func (c *Checker) checkListBorrows(call *ast.Call) {
 	c.checkViewBorrows(call)
-	var muts []*ast.MutArg
-	for _, arg := range call.Operands() {
-		ast.Walk(arg, func(n ast.Node) bool {
-			if m, ok := n.(*ast.MutArg); ok {
-				muts = append(muts, m)
-			}
-			return true
-		})
-	}
-	if len(muts) == 0 {
-		return
-	}
-	for i, arg := range call.Operands() {
+	operands := call.Operands()
+	for i, arg := range operands {
 		if appendedValue(call, i) {
 			continue
 		}
@@ -254,7 +252,7 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 		if place == nil {
 			continue
 		}
-		for _, m := range muts {
+		for _, m := range mutArgsOutside(operands, i) {
 			if placesMayOverlap(place, m.X) {
 				borrowed, passed := c.text(place.Spanned()), c.text(m.X.Spanned())
 				c.errorNotes(
@@ -316,4 +314,145 @@ func placesMayOverlap(a, b ast.Expr) bool {
 		}
 	}
 	return true
+}
+
+// pendingAssign is an assignment whose target is being checked: the
+// target, a variable, an element or a field, and the value it is given,
+// which has been checked already.
+type pendingAssign struct {
+	target ast.Expr
+	value  ast.Expr
+}
+
+// checkIndexBorrows reports ix, an element read or assigned, when what it
+// indexes is read in place, a list or a part of one (borrowedList) or a
+// view a call returns (viewBorrows), while its index passes as mut, at any
+// depth, a place that may overlap it, with a note at that mut argument,
+// and reports whether it did. The list is not copied to be indexed, so a
+// call in the index that grows it could free the buffer the element is
+// then read from; an array is copied instead (see codegen/c), and a
+// string's bytes never change.
+func (c *Checker) checkIndexBorrows(ix *ast.Index) bool {
+	return c.checkReadBorrows(ix.X, []ast.Expr{ix.Index}, "index", "in its index", "indexed")
+}
+
+// checkSliceBorrows reports s, a slice, when what it slices is read in
+// place, as checkIndexBorrows says, while a bound passes as mut a place
+// that may overlap it, and reports whether it did.
+func (c *Checker) checkSliceBorrows(s *ast.Slice) bool {
+	return c.checkReadBorrows(s.X, []ast.Expr{s.Lo, s.Hi}, "slice", "in its bounds", "sliced")
+}
+
+// checkReadBorrows reports x, what an index or a slice reads, when it is
+// read in place and a mut argument in operands, at any depth, may overlap
+// it or what the view it is may point into, with a note at that mut
+// argument, and reports whether it did. verb, where and done word the
+// message: "index", "in its index" and "indexed" for an index. An operand
+// may be nil, a bound left out.
+func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where, done string) bool {
+	muts := mutArgsIn(operands)
+	if len(muts) == 0 {
+		return false
+	}
+	if place := c.borrowedList(x); place != nil {
+		for _, m := range muts {
+			if placesMayOverlap(place, m.X) {
+				passed := c.text(m.X.Spanned())
+				c.errorNotes(
+					x.Spanned(),
+					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
+					"cannot %s %s alongside mut %s %s: a list is not copied to be %s, "+
+						"and a mut argument must be the only way to reach %s during its call",
+					verb,
+					c.text(x.Spanned()),
+					passed,
+					where,
+					done,
+					passed,
+				)
+				return true
+			}
+		}
+		return false
+	}
+	call := c.viewCallOf(x)
+	if call == nil {
+		return false
+	}
+	for _, place := range c.viewBorrows(call) {
+		for _, m := range muts {
+			if placesMayOverlap(place, m.X) {
+				passed := c.text(m.X.Spanned())
+				c.errorNotes(
+					x.Spanned(),
+					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
+					"cannot %s %s alongside mut %s %s: the view it returns may point into %s, "+
+						"and a mut argument must be the only way to reach %s during its call",
+					verb,
+					c.text(x.Spanned()),
+					passed,
+					where,
+					c.text(place.Spanned()),
+					passed,
+				)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkAssignBorrows reports the target of the assignment being checked
+// when ix, an element of a list of type base on the target's path, is
+// assigned while the value passes as mut, at any depth, that list or a
+// place holding it, with a note at that mut argument, and reports whether
+// it did. The element is assigned in place, in the list's buffer, which
+// such a call could move or free. A mut argument inside the list, an
+// element or a field of one, may be passed: it cannot move the list's own
+// buffer. It reports nothing outside an assignment's target.
+func (c *Checker) checkAssignBorrows(ix *ast.Index, base types.Type) bool {
+	a := c.assigning
+	if a == nil || !c.table.IsList(base) {
+		return false
+	}
+	root, steps := path(ix.X)
+	if root == nil {
+		return false
+	}
+	for _, m := range mutArgsIn([]ast.Expr{a.value}) {
+		_, inside := path(m.X)
+		if !placesMayOverlap(ix.X, m.X) || len(inside) > len(steps) {
+			continue
+		}
+		passed := c.text(m.X.Spanned())
+		c.errorNotes(
+			a.target.Spanned(),
+			[]diag.Diagnostic{note(m.Span, "passed as mut here")},
+			"cannot assign to %s alongside mut %s in its value: an element is assigned in place in its list, "+
+				"and a mut argument must be the only way to reach %s during its call",
+			c.text(a.target.Spanned()),
+			passed,
+			passed,
+		)
+		return true
+	}
+	return false
+}
+
+// mutArgsIn returns the mut arguments in operands, at any depth, in order.
+// An operand may be nil.
+func mutArgsIn(operands []ast.Expr) []*ast.MutArg {
+	var muts []*ast.MutArg
+	for _, e := range operands {
+		if e == nil {
+			continue
+		}
+		ast.Walk(e, func(n ast.Node) bool {
+			if m, ok := n.(*ast.MutArg); ok {
+				muts = append(muts, m)
+			}
+			return true
+		})
+	}
+	return muts
 }

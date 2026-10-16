@@ -181,14 +181,22 @@ func (c *Checker) index(ix *ast.Index) types.Type {
 // integer that is in range: a constant is checked against the array's
 // length here. write says x[i] is being assigned, which only matters for
 // what the error suggests; a string's byte is never assigned, which
-// elementTarget reports first.
+// elementTarget reports first. An element of a list or a view read in
+// place while its index, or the value it is being assigned, can change
+// what it is read from is reported instead of any proof the index needs
+// (see checkIndexBorrows and checkAssignBorrows).
 func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type {
+	// The index is no part of the target being assigned, even when x[i]
+	// is: a mut argument in it is the index's own (see checkIndexBorrows).
+	assigning := c.assigning
+	c.assigning = nil
 	idx := c.valueOf(ix.Index, c.expr(ix.Index))
+	c.assigning = assigning
 	if base == types.Invalid {
 		return types.Invalid
 	}
 	if elem, ok := c.lengthElem(base); ok {
-		return c.stringElement(ix, idx, elem, write)
+		return c.lengthElement(ix, base, idx, elem, write)
 	}
 	if !c.table.IsArray(base) {
 		c.errorf(ix.X.Spanned(), "cannot index %s", c.typeName(base))
@@ -209,6 +217,19 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		c.requireInRange(ix, base, n, write)
 	}
 	return elem
+}
+
+// lengthElement checks the index idx of ix, an element of type elem of a
+// string, a view or a list of type base, as element does, and returns
+// elem. An index that can change the list or the view it reads, or an
+// element assigned a value that can change its list, is reported instead
+// of any proof the index needs, and ends the assignment's check.
+func (c *Checker) lengthElement(ix *ast.Index, base, idx, elem types.Type, write bool) types.Type {
+	if c.checkIndexBorrows(ix) || c.checkAssignBorrows(ix, base) {
+		c.assigning = nil
+		return elem
+	}
+	return c.stringElement(ix, idx, elem, write)
 }
 
 // lengthElem returns what an element of a value of type base is, when

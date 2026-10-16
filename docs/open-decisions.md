@@ -118,6 +118,11 @@ way:
   owned by its value, so no temporary is needed for any of them; a string
   that owns its bytes, if the memory model brings one, would reopen this
   for a call's result.
+- An index or a slice of a string holds the string by value, two words,
+  while its index or bounds are evaluated. That is sound only while no
+  string owns heap memory: once one can, an index or a bound that can
+  free the bytes a string holds, by assigning it through a `mut`
+  argument, needs the rule lists have (see Lists).
 - `[]uint8(s)` of a mutable global string, or of a variable the same call
   passes as `mut`, views the bytes the string held when the argument was
   evaluated: assigning the string later changes which bytes it holds, not
@@ -417,6 +422,28 @@ rules already there, rather than decided, and could go another way:
 - A variable that holds a list is never `const` in C. The C names are
   `tack_list_<id>` in the generated source and `tack_list_<element>` in
   `tack.h`, as for views.
+- A list is read in place while its index is evaluated, so an index, or
+  a slice bound, that passes as `mut` the list it reads, a place holding
+  it, or a part of it, at any depth, is an error, as an argument read
+  alongside an overlapping `mut` argument is: `cannot index l alongside
+  mut l in its index: a list is not copied to be indexed, and a mut
+  argument must be the only way to reach l during its call`, `cannot
+  slice l alongside mut l in its bounds: ...`, and, for a view a call
+  returns, `cannot index first(l) alongside mut l in its index: the
+  view it returns may point into l, ...`. A part counts, `l[set(mut
+  l[0])]` included, though writing an element moves no buffer: an
+  array's index reads the array as it was before the index, and a list
+  cannot be copied to do the same. An array is unaffected. The unchecked
+  index, an element being assigned, and a slice bound are covered as
+  well as the checked index, each reported once, instead of any proof
+  the index needs.
+- An element of a list being assigned, `l[i] = v` or `l[i] += v`, at any
+  depth of the target, is an error when `v` passes as `mut` the list
+  indexed or a place holding it, `cannot assign to l[0] alongside mut l
+  in its value: an element is assigned in place in its list, and a mut
+  argument must be the only way to reach l during its call`. A `mut`
+  argument inside that list, `ll[0] = make_list(grow(mut ll[0]))`, is
+  allowed: it cannot move the list's own buffer.
 - The driver links `std/builtin`'s `list.c` for a program with any list
   type, and std's objects defining a `tack_` symbol a program's own C
   object leaves undefined, so a C file calling std's list macros links
