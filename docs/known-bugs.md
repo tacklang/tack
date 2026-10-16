@@ -48,3 +48,54 @@ ok := remove(mut l, i)`, compile. The same rule rejects `if d != 0 { d = n
 / d }` and `if len(l) > 0 && pop(mut l) > 0`. The fix is a change to the
 proof rules, where a fact holds through the call or assignment that
 consumes it and ends after it.
+
+## A proof about a variable ends at any later write in the same loop
+
+A fact proved inside a loop body ends when the variable is written
+anywhere later in that body, even after the use the fact guards. In
+
+    for {
+        if at < 0 || at >= len(nodes) { break }
+        switch nodes[at] { case neg(c): at = c ... }
+    }
+
+`nodes[at]` is `index at may be out of range`, because `at = c` comes
+later in the body. In the same way, `top := len(frames) - 1` with a bounds
+check does not allow `frames[top].right = true` when `pop(mut frames)`
+comes later in the loop, since passing `frames` as `mut` ends every fact
+about it. The workarounds are copying the variable into an immutable
+local first (`i := at`), or moving the access into a small function that
+checks the bounds itself. Both hide no unsafety, but they push code into
+helpers. This is the same proof-rule gap as the plain `pop` entry, and
+belongs to the same change: a fact should hold up to the first write that
+can reach the use.
+
+## A successful append does not prove the list is not empty
+
+After `err := append(mut l, 1)` and `if err.code != 0 { return }`, the
+checker still does not know `len(l) >= 1`, so `10 % len(l)` is `divisor
+may be zero` and `l[0]` needs a check. A successful append, or `reserve`,
+could record what it proves about the length.
+
+## pop's results cannot be thrown away
+
+`_, _ = pop(mut l)` is `every name is _, so nothing is bound; make the
+call on its own`, and the call on its own, `pop(mut l)`, is then the
+plain form that never compiles after a length check (see above). So a
+program that only wants to drop the last element has to bind it and use
+it. Either `pop` alone, as a statement, could be allowed with a checked
+meaning (drop the last element if there is one), or `_, _ =` could be
+accepted for it.
+
+## A field cannot be taken out of a struct and put back
+
+`mut frames := e.frames`, with `e` a `mut` receiver, is `cannot move
+e.frames out of e: a field cannot be moved on its own`, and nothing lets a
+function take a list out of a struct for a while and put it back. So a
+list kept in a struct to be reused across calls is always reached through
+the struct's pointer. In the expression-evaluator benchmark this cost
+about 10%: through a pointer, clang must assume a store into the list's
+buffer may change its length, so it reloads the length, pointer and
+capacity on every push and pop instead of keeping them in registers.
+Fixing it is a language decision, for example a swap or take-and-restore
+operation on a `mut` field.
