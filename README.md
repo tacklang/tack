@@ -1759,7 +1759,8 @@ makes for itself, which has a letter after `tack_`.
   constant expression are compile errors, as for any known value (see
   arithmetic). A global can be used from any function, whatever the
   order of declarations, and shares one namespace with functions and
-  builtins.
+  builtins. All of a program's globals together hold at most 2^30 bytes
+  (see size limits).
 - A variable is in scope from its declaration to the end of its block. No
   variable or parameter may reuse the name of another variable or parameter
   in scope, package-level ones included, and a variable that is never read is
@@ -1956,7 +1957,44 @@ makes for itself, which has a letter after `tack_`.
   with `==` and `!=`, element by element, strings included; `<` on two
   arrays is an error. Arrays may be package-level variables, initialized
   with a constant expression (see package-level variables). An array
-  passes to a view parameter, `[]T`, without a copy (see views).
+  passes to a view parameter, `[]T`, without a copy (see views). An
+  array, like any value, holds at most 2^31 bytes (see size limits).
+- Size limits. No value holds more than 2^31 bytes, whatever its type and
+  wherever it is: a global, a local, a parameter, a result, a field, an
+  element of an array or a list, a union's payload or a type argument.
+  The size is that of the C object the backend makes of the value,
+  nested arrays and structs included, with C's padding, and with its
+  lowering: `[0]T` holds one element and an empty struct one byte. Sizes
+  are those of the 64-bit targets the backend builds for, arm64 and
+  x86-64, where a pointer, an `int64` and an `unsafe_size_t` are 8 bytes,
+  aligned to 8; a 32-bit target would change them. `mut a
+  [2147483648]uint8` is at the limit; `[2147483649]uint8` is `array type
+  [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the
+  2^31 a value may hold`, and a struct or union made too large by its
+  fields or payloads together, each within the limit, is `type S is too
+  large: it holds 2147483656 bytes, more than the 2^31 a value may hold`.
+  A size too large to count, as `[9223372036854775807][2147483648]uint8`'s
+  is, holds `more than 18446744073709551615` bytes. A type is reported
+  once, where it is made too large, and not at its uses, nor at a type
+  holding it. All of a program's globals together, those of every package
+  and of the standard library's Tack included, hold at most 2^30 bytes:
+  the global that takes them past it is reported, `global c makes this
+  program's globals hold 1610612736 bytes, more than the 2^30 a
+  program's globals may hold`. Globals are counted package by package,
+  every package after the ones it imports and the main package last,
+  each package's files in the byte order of their names, and in source
+  order within a file; only Tack globals count, not the C statics of
+  std's C files. The limits keep a program within what clang's default
+  code models link, and clang's own ceiling on an object is 2^60 bytes.
+  On x86-64 code reaches static data RIP-relative, within 2 GiB: exactly
+  2^31 bytes of statics fail to link there, `32-bit RIP-relative
+  reference out of range`, so a program's globals get 2^30, half that,
+  leaving room for the code and the C library's statics. arm64 reaches 4
+  GiB, and a 4 GiB global beside any other static fails to link there at
+  `-O0`. More data goes in a list. The C objects the backend
+  makes of several values at once, the results of a function with
+  several and the arguments a variadic call gathers, are not values and
+  are not counted; they live on the stack.
 - Indexing. `a[i]` is an element of the array `a`, and `i` an integer of any
   type, a target-width one included. An index is never out of range at runtime. `a[i]`, and an
   assignment to it, compile only where the compiler proves `i` in range: a

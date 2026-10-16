@@ -34,6 +34,9 @@ type Table struct {
 	// bound maps each type parameter Bind bound to the type it stands
 	// for; it is nil when nothing is bound.
 	bound map[Type]Type
+	// sizes keeps each size Size has computed; SetFields and SetCases
+	// forget them all.
+	sizes map[Type]Size
 
 	entries []entry // the type with ID numBasic + i, at i
 }
@@ -149,6 +152,7 @@ func (t *Table) Union(name string) Type {
 func (t *Table) SetCases(typ Type, cases []Case) {
 	if e, ok := t.entry(typ); ok && e.union != nil {
 		e.union.cases = cases
+		t.sizes = nil
 	}
 }
 
@@ -233,6 +237,7 @@ func (t *Table) add(e entry) Type {
 func (t *Table) SetFields(typ Type, fields []Field) {
 	if e, ok := t.entry(typ); ok && e.strct != nil {
 		e.strct.fields = fields
+		t.sizes = nil
 	}
 }
 

@@ -3368,6 +3368,51 @@ root-package-invalid-name/tools.tck:1:9: error: my-tools is not a valid package 
    |	        ^~~~~
 02 |	
 
+-- size-globals-across-packages/tack.mod --
+module calc
+-- size-globals-across-packages/table/b.tck --
+package table
+
+mut second [536870912]uint8
+
+pub func Second() uint8 {
+    second[0] = 2
+    return second[0]
+}
+-- size-globals-across-packages/table/a.tck --
+package table
+
+mut first [536870911]uint8
+
+pub func First() uint8 {
+    first[0] = 1
+    return first[0]
+}
+-- size-globals-across-packages/main.tck --
+package main
+
+import table from "calc/table"
+
+mut last uint8
+mut over uint8
+
+func main() {
+    last = table.First() + table.Second()
+    over = last
+    if over == 3 {
+        print("three\n")
+    }
+}
+-- size-globals-across-packages/expected --
+stage: typeck
+---
+
+size-globals-across-packages/main.tck:6:5: error: global over makes this program's globals hold 1073741825 bytes, more than the 2^30 a program's globals may hold
+05 |	mut last uint8
+06 |	mut over uint8
+   |	    ^~~~
+07 |	
+
 -- std-cycle/tack.mod --
 module calc
 -- std-cycle/.std/a/a.tck --

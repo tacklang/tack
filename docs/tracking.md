@@ -142,7 +142,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes; all six comparisons, by unsigned bytes |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
 | Float types                        | no      | no  |                                                                   |
-| Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length |
+| Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length; at most 2^31 bytes, as is any value; a program's globals together at most 2^30 |
 | Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
 | Views `[]T`                        | yes     | yes | Parameters and a function's only result, read-only; a pointer to const elements and a length by value; no `==` |
 | `any`                              | yes     | yes | Parameters, `...any` and `[]any` only, and immutable locals declared from one; takes a value of a basic type, an untyped constant as `int64`, a copy taken at the call; no arrays, structs or views in it yet; never `mut`; in Tack passed on, or asked with `v, ok := a.(T)` and `switch v := a.(type)`, no `==`, expression switch or conversion; `tack_any`, `{uint32_t type; const void *ptr;}` by value, with fixed type ids 1 to 12, in C |

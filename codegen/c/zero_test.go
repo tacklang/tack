@@ -8,109 +8,113 @@ import (
 	"github.com/tacklang/tack/internal/stdtest"
 )
 
-// hugeGlobals are programs that each zero one global array whose element
-// count is a multiple of 2^32, the counts for which clang rejects a {0}
-// initializer as one for an aggregate with no elements: an array of
-// int64, a struct holding an array of empty structs, and an array of
-// zero-length arrays. Each lies in static storage, which the OS gives out
-// a page at a time, and its program touches only a few pages of it.
-var hugeGlobals = []struct{ name, decl, use string }{
+// Zero values at the size limit. clang rejects a {0} initializer for an
+// array whose element count is a multiple of 2^32, which is why the
+// backend writes every zero value as {}. No program the checker accepts
+// has such an array any more: a value holds at most 2^31 bytes, and every
+// element holds at least one, since even a [0]T or an empty struct lowers
+// to something of a byte or more, so an array has fewer than 2^32
+// elements. These tests zero the largest values the checker accepts
+// instead, so the zero value written for every kind of variable is one
+// clang takes at the limit: globals of exactly 2^30 bytes, all a
+// program's globals may hold, and locals of exactly 2^31, the most a
+// value may.
+
+// limitGlobals are programs that each zero one global of exactly 2^30
+// bytes, all a program's globals may hold: an array of bytes, an array of
+// arrays, and a struct, padded to the limit. Each lies
+// in static storage, which the OS gives out a page at a time, and its
+// program touches only its first and last pages.
+var limitGlobals = []struct{ name, decl, use string }{
 	{
-		"an array of int64",
-		"mut g [4294967296]int64\n",
-		"    g[5] = 1\n    last, ok := g[4294967295]\n" +
-			"    check(ok && last == 0 && g[5] == 1 && len(g) == 4294967296)\n",
+		"an array of bytes",
+		"mut g [1073741824]uint8\n",
+		"    g[1073741823] = 1\n    check(g[0] == 0 && g[1073741823] == 1 && len(g) == 1073741824)\n",
 	},
 	{
-		"a struct holding one",
-		"type E struct {\n}\n\ntype S struct {\n    n    int64\n    none [4294967296]E\n}\n\nmut s S\n",
-		"    s.n = 3\n    check(s.n == 3 && len(s.none) == 4294967296)\n",
+		"an array of arrays",
+		"mut g [2][536870912]uint8\n",
+		"    g[1][536870911] = 1\n    check(g[0][0] == 0 && g[1][536870911] == 1)\n",
 	},
 	{
-		"an array of empty arrays",
-		"mut z [8589934592][0]int64\n",
-		"    check(len(z) == 8589934592)\n",
+		"a struct",
+		"type S struct {\n    n    int8\n    rest [134217727]int64\n}\n\nmut g S\n",
+		"    g.rest[134217726] = 1\n    check(g.n == 0 && g.rest[134217726] == 1)\n",
 	},
 }
 
-// TestHugeGlobalArraysZeroed builds each of hugeGlobals with clang's
-// warnings as errors, at -O2, and checks it prints ok: a global array of
-// any element count is zeroed with an initializer clang takes. It is not
-// built at -O0, where on arm64 a static variable placed more than 4 GiB
-// past the code that reads it, as one after the huge array is, cannot be
-// linked: a separate bug, of linking rather than of the initializer.
-func TestHugeGlobalArraysZeroed(t *testing.T) {
+// TestLimitGlobalsZeroed builds each of limitGlobals with clang's warnings
+// as errors, at no optimization and at -O2, and checks it prints ok: a
+// global as large as a program's globals may be is zeroed with an
+// initializer clang takes, and links at either level.
+func TestLimitGlobalsZeroed(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
 	}
-	for _, tc := range hugeGlobals {
+	for _, tc := range limitGlobals {
 		src := "package main\n\n" + tc.decl + "\nfunc check(cond bool) {\n" +
 			"    if cond {\n        print(\"ok\\n\")\n    } else {\n        print(\"FAIL\\n\")\n    }\n}\n\n" +
 			"func main() {\n" + tc.use + "}\n"
-		t.Run(tc.name, func(t *testing.T) {
-			out, err := exec.Command(buildWithStd(t, src, "-O2")).Output()
-			if err != nil || string(out) != "ok\n" {
-				t.Errorf("printed %q, err %v; want ok", out, err)
-			}
-		})
+		for _, opt := range []string{"-O0", "-O2"} {
+			t.Run(tc.name+"/"+opt, func(t *testing.T) {
+				out, err := exec.Command(buildWithStd(t, src, opt)).Output()
+				if err != nil || string(out) != "ok\n" {
+					t.Errorf("printed %q, err %v; want ok", out, err)
+				}
+			})
+		}
 	}
 }
 
-// hugeLocals zeroes arrays whose element counts are multiples of 2^32, a
-// global and, in each place the backend writes a zero value for a local, a
-// variable with no value, a struct holding one, a single result and
-// several results, whose variables start zeroed. Even a [0]int64 or an
-// empty struct takes a byte or more in C, so these frames are gigabytes
-// and the program cannot run: it is only compiled.
-const hugeLocals = `package main
-
-type E struct {
-}
+// limitLocals zeroes values of exactly 2^31 bytes in each place the
+// backend writes a zero value for a local: a variable with no value, a
+// struct holding an array, a single result and several results, whose
+// variables start zeroed. Its frames are gigabytes, so it cannot run: it
+// is only compiled.
+const limitLocals = `package main
 
 type S struct {
-    n    int64
-    none [4294967296][0]int64
+    n    int8
+    rest [268435455]int64
 }
-
-mut g [4294967296]int64
 
 func zero_s() S {
     mut s S
     return s
 }
 
-func one() [4294967296]E {
-    mut r [4294967296]E
+func one() [2147483648]uint8 {
+    mut r [2147483648]uint8
     return r
 }
 
-func two() ([4294967296][0]int64, int64) {
-    mut r [4294967296][0]int64
+func two() ([2][1073741824]uint8, int64) {
+    mut r [2][1073741824]uint8
     return r, 7
 }
 
 func main() {
-    mut l [8589934592][0]int64
+    mut l [2147483648]uint8
     s := zero_s()
     r := one()
     p, n := two()
-    if len(g) + len(l) + len(s.none) + len(r) + len(p) + n == 0 {
+    if len(l) + int64(s.n) + len(r) + len(p) + n == 0 {
         print("never\n")
     }
 }
 `
 
-// TestHugeLocalArraysZeroed checks the C of hugeLocals passes clang's
-// syntax and semantic checks with its warnings as errors: each zero value
-// it writes, for a global or a local, is an initializer clang takes for an
-// array of any element count. Only the frame size, which clang checks when it
-// generates code, is not looked at.
-func TestHugeLocalArraysZeroed(t *testing.T) {
+// TestLimitLocalsZeroed checks the C of limitLocals passes clang's syntax
+// and semantic checks with its warnings as errors: each zero value it
+// writes for a local is an initializer clang takes at the limit. Only
+// the frame size, which clang checks when it generates code, is not
+// looked at.
+func TestLimitLocalsZeroed(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
 	}
 	src := filepath.Join(t.TempDir(), "program.c")
-	writeFile(t, src, generate(t, hugeLocals))
+	writeFile(t, src, generate(t, limitLocals))
 	args := []string{
 		"-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
 		"-I", stdtest.IncludeDir(), src,

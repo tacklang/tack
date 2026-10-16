@@ -74,6 +74,17 @@
 // argument, until Unbind; Bound gives the type a type parameter stands
 // for. The checker never binds one.
 //
+// Size gives the size and alignment of a type as the C backend lays it
+// out, for the 64-bit targets it builds for, arm64 and x86-64: a
+// pointer, an int64 and a target-width integer are 8 bytes, aligned to 8,
+// C pads every struct, and the backend's lowering counts, an array of no
+// elements holding one, a struct of no fields one char, and a union a tag
+// before a C union of its payloads. Its arithmetic saturates, so a size
+// that does not fit a uint64 is reported as overflowing rather than
+// wrapping; MaxValueSize and MaxGlobalsSize are the limits the checker
+// holds values and a program's globals to. Sizes are kept once computed,
+// and forgotten when a struct's fields or a union's cases are set.
+//
 // The type checker creates one Table per program and records it on the
 // ast.Program and on every ast.File of it. Name maps an ID back to the
 // type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, list[int64] for a list, the declared name for a struct or a union; Type deliberately has no String method, so naming a type

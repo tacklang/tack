@@ -19,7 +19,9 @@
 // itself by value, directly, through another struct or union or through
 // an array of any length, since it would be infinitely large: once per
 // cycle, at the type it is found from, with a note for each field or case
-// on the way round.
+// on the way round. Every type's size can be known from then on, so the
+// second pass also checks the size of every array type met so far and of
+// every struct and union type (see size limits below).
 // The third checks the package-level variables, the fourth resolves every
 // function's signature, recording the type each declared parameter and
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
@@ -39,6 +41,28 @@
 // does not know is reported, and the declaration keeps types.Invalid.
 // Anything that has no type only because of an error already reported,
 // such as a use of that parameter, is not reported again.
+//
+// Size limits. No value may hold more than 2^31 bytes as the C backend
+// lays it out, padding and lowering included (types.Table.Size, for the
+// 64-bit targets the backend builds for), and all of a program's globals
+// together no more than 2^30, so code and static data stay within what
+// clang's default code models link, x86-64's 2 GiB reach included. A type too large is reported
+// once, where it is made too large: at the first array type expression
+// [n]T that denotes it, or at a struct's or union's name, and only when
+// none of its parts is too large itself, since that part was reported
+// where it was made; no use of it, and no type holding it, is reported
+// again. The size of an array type met before every struct's fields are
+// resolved is checked once they are; any met later, at once. Once every
+// global is checked, the globals are added up in program order, package
+// by package as the loader lists them, each after the packages it
+// imports and the main package last, each package's files in the byte
+// order of their names, source order within a file; the first global
+// that takes the total past the limit is reported, once, and a global
+// whose type is too large is not counted. Only Tack globals count: the
+// standard library's are, its C files' statics are not. The C objects the
+// backend makes of several values at once, a function's results and a
+// variadic call's arguments, are not values and are not checked. See
+// size.go.
 //
 // A field's array length must name no variable, not even an immutable
 // global holding a constant: it is a constant expression of literals,

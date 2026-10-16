@@ -153,6 +153,37 @@ func TestBuiltExitFreesWritesItsOutput(t *testing.T) {
 	}
 }
 
+// TestBuiltSizeLimitsWritesItsOutput builds examples/size-limits at every
+// optimization level and checks each binary writes exactly
+// examples/size-limits/output: a global of exactly 2^30 bytes, all a
+// program's globals may hold, links, starts zeroed and can be written at
+// its last element, at every level, and a list of values of exactly
+// 2^31 bytes, the most a value may hold, is made.
+func TestBuiltSizeLimitsWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "size-limits", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/size-limits/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "size-limits")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("size-limits"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // A C file of the program that calls a function std defines, a tack_ name
 // only std may give, links the std object defining it, even in a program
 // with no list and no builtin call; one that calls none links no std

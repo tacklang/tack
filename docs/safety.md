@@ -1463,6 +1463,8 @@ failure it can see from known values:
 | known slice bounds out of order           | `s[3:1]`                              | <!-- error: slice-bounds-out-of-order -->`slice bounds 3:1 are out of order` |
 | constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300` | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
 | arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
+| a value of more than 2^31 bytes           | `[2147483649]uint8`, a struct whose fields add up past it | <!-- error: size-array-boundary -->`array type [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the 2^31 a value may hold`, or <!-- error: size-struct -->`type Halves is too large: it holds 2147483656 bytes, more than the 2^31 a value may hold` |
+| globals of more than 2^30 bytes together  | three `[536870912]uint8` globals      | <!-- error: size-globals-cap -->`global c makes this program's globals hold 1610612736 bytes, more than the 2^30 a program's globals may hold` |
 
 Arithmetic on values the compiler does not know wraps at runtime instead:
 for a `mut` `int8` `m` holding `-128`, `m / -1` is `-128` and `m % -1` is

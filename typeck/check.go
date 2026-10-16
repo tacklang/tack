@@ -133,6 +133,12 @@ type Checker struct {
 	// struct's fields are known; see requireCopyable.
 	pendingElems []pendingElem
 
+	// pendingSizes holds the array types met before every struct's and
+	// union's size can be known, and sizeChecked the types whose sizes
+	// have been checked (see size.go).
+	pendingSizes []sizeSite
+	sizeChecked  map[types.Type]bool
+
 	// typeParams maps each type parameter's type to its declaration, and
 	// standIns holds the stand-in for each interface method called on a
 	// type parameter's values (see typeParamMethod). inference is what
@@ -162,6 +168,10 @@ type Checker struct {
 	// variable; inUnion says it is a union's.
 	inFields bool
 	inUnion  bool
+
+	// sizesKnown is whether every struct's and union's size can be
+	// known; see pendingSizes.
+	sizesKnown bool
 }
 
 // New returns a Checker for prog, which must already have been resolved,
@@ -192,6 +202,8 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		typeParams: make(map[types.Type]*ast.TypeParam),
 		standIns:   make(map[standInKey]*ast.Func),
+
+		sizeChecked: make(map[types.Type]bool),
 	}
 }
 
@@ -308,11 +320,13 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 	}
 	c.checkStructs()
 	c.checkPendingElems()
+	c.checkTypeSizes()
 	for _, decl := range decls {
 		if v, ok := decl.(*ast.Var); ok {
 			c.ensureGlobal(v, v.NameSpan)
 		}
 	}
+	c.checkGlobalsSize(decls)
 }
 
 // checkBody checks the body of fn, and that it ends in a return if fn

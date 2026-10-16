@@ -29,7 +29,9 @@ func (c *Checker) arrayType(a *ast.ArrayType) types.Type {
 	if !c.requireCopyable("an array", elem, a.Span) {
 		return types.Invalid
 	}
-	return c.table.Array(elem, n)
+	typ := c.table.Array(elem, n)
+	c.noteArraySize(typ, a.Span)
+	return typ
 }
 
 // arrayLength checks the length of an array type and returns it. In a
