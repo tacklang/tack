@@ -28,6 +28,24 @@ func (g *generator) sequenced(
 	return g.sequencedAs(operands, rendered, g.operandTypes(operands), build)
 }
 
+// sequencedLit is sequenced for the values of an array or struct literal,
+// which, in a deep scope, need no temporaries of their own: there, every
+// value that is not pure, and every part of one, was held in a step as it
+// was rendered, in order (see spilled), so what is left of each reads
+// only those steps' temporaries and pure parts. Holding them again would
+// copy every inner literal's value into the frame, one copy for each
+// level of a deep literal.
+func (g *generator) sequencedLit(
+	operands []ast.Expr,
+	rendered []string,
+	build func([]string) string,
+) string {
+	if g.spill != nil && g.spill.deep {
+		return build(rendered)
+	}
+	return g.sequenced(operands, rendered, build)
+}
+
 // operandTypes returns the C type of a temporary holding each of
 // operands, as operandType gives it.
 func (g *generator) operandTypes(operands []ast.Expr) []string {
@@ -364,7 +382,7 @@ func (g *generator) spilled(e ast.Expr) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	pure := g.pure(e)
-	hold := sc.deep && !pure
+	hold := heldForOrder(sc, e, pure)
 	if !hold && cDepth(x) > maxDepth {
 		if before > 0 && !sc.deep {
 			sc.retry = true
@@ -383,6 +401,29 @@ func (g *generator) spilled(e ast.Expr) (string, []diag.Diagnostic) {
 	sc.steps = append(sc.steps, t+" = "+x)
 	sc.inline = before
 	return t, nil
+}
+
+// heldForOrder reports whether e, rendered in the scope sc, is held for
+// its order alone: sc is deep, and e is not pure and does more than
+// build a value of its parts (see builds).
+func heldForOrder(sc *spillScope, e ast.Expr, pure bool) bool {
+	return sc.deep && !pure && !builds(e)
+}
+
+// builds reports whether e only builds a value of its parts, an array or
+// struct literal or a union's construction, and so does nothing of its
+// own that has an order: in a deep scope, each of its parts that is not
+// pure is held in a step as it is rendered, in order, so what is left of
+// e reads only those steps' temporaries and pure parts, and need not be
+// held itself unless it nests too deep. Holding each level of a deep
+// literal would keep a copy of every inner value in the frame, a frame
+// that grows with the square of the depth when the values do.
+func builds(e ast.Expr) bool {
+	if _, ok := e.(*ast.CompositeLit); ok {
+		return true
+	}
+	_, _, _, built := ast.Construction(e)
+	return built
 }
 
 // holdable reports whether e's value can be held in a temporary: it has

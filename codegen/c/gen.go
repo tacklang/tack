@@ -129,6 +129,10 @@ type generator struct {
 	strPool  []str
 	globals  map[*ast.Var]bool // the package-level variables
 
+	// globalInits are the statements C's main runs first, which give each
+	// global too deep for a C initializer its value (see deepGlobal).
+	globalInits []string
+
 	// inPlace holds the variables declared as a pointer to the value they
 	// refer to, read through it: the payloads a switch on a union binds
 	// (see union.go).
@@ -556,6 +560,14 @@ func (g *generator) emitGlobals(globals []string) {
 // out overflow and division by zero, so the value is exactly what Tack means.
 func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	value, ok := g.constOf(v.Type, v.Const)
+	qualifier := "static const"
+	if ok && cDepth(value) > maxDepth {
+		// Too deep for clang to take as an initializer: the variable
+		// starts zeroed, and C's main assigns its value before Tack's main
+		// runs (see deepGlobal).
+		ok = g.deepGlobal(v)
+		value, qualifier = "{}", "static"
+	}
 	if v.Const == nil && v.Value == nil && g.isComposite(v.Type) {
 		// An array or a struct with no value starts with every element or
 		// field zero.
@@ -569,7 +581,6 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 		}}
 	}
 
-	qualifier := "static const"
 	if v.Mutable {
 		qualifier = "static"
 	}
@@ -753,9 +764,14 @@ func (g *generator) emitFunc(sig string, body []string) {
 	g.buf.WriteString("}\n\n")
 }
 
-// emitEntryPoint writes C's main, which exists only to call Tack's.
+// emitEntryPoint writes C's main, which exists only to call Tack's, once
+// it has given each global too deep for a C initializer its value (see
+// deepGlobal).
 func (g *generator) emitEntryPoint() {
 	g.buf.WriteString("int main(void) {\n")
+	for _, init := range g.globalInits {
+		g.buf.WriteString("    " + init + "\n")
+	}
 	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle(nil, "main"))
 	g.buf.WriteString("    return 0;\n")
 	g.buf.WriteString("}\n")

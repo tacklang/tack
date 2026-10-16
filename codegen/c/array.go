@@ -72,21 +72,13 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 	}
 	elems := make([]string, len(lit.Elems))
 	for i, e := range lit.Elems {
-		var (
-			v     string
-			diags []diag.Diagnostic
-		)
-		if inner, ok := e.(*ast.CompositeLit); ok {
-			v, diags = g.compositeLit(inner)
-		} else {
-			v, diags = g.expr(e, types.Invalid)
-		}
+		v, diags := g.expr(e, types.Invalid)
 		if len(diags) > 0 {
 			return "", diags
 		}
 		elems[i] = v
 	}
-	return g.sequenced(lit.Elems, elems, func(ops []string) string {
+	return g.sequencedLit(lit.Elems, elems, func(ops []string) string {
 		return fmt.Sprintf("(%s){{%s}}", arrayName(lit.Type), strings.Join(ops, ", "))
 	}), nil
 }

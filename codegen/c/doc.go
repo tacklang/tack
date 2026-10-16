@@ -264,7 +264,16 @@
 // mutable, and initialized with the value the type checker computed, never
 // its source expression, so C never evaluates anything Tack has not already
 // checked. The smallest int64 is written as an expression, since C has no
-// literal for it.
+// literal for it. A value whose initializer would nest deeper than
+// maxDepth, an array, struct or union literal a few hundred levels deep,
+// is too deep for clang, which checks an initializer one level of
+// subobject at a time, recursively, whatever its syntax, and no function
+// holds a static variable's parts in temporaries. Such a variable starts
+// zeroed, not const, and C's main gives it its value before Tack's main
+// runs, in a block that builds it bottom up, each part nested past half of
+// maxDepth held in a local temporary first (deepGlobal). No other
+// global's initializer reads it, since the checker computed them all,
+// and Tack code runs only after.
 //
 // An extern func's body is C, compiled from the C files of its package and
 // linked with this translation unit. Its prototype is declared extern,
@@ -596,6 +605,12 @@
 // nested on the right of && or || still nests a level per operator in C.
 // The expression a context renders on its own is never held itself, so a
 // range, a union switch and a checked index still take its address.
+// Array and struct literals and union constructions nest the same way,
+// three levels of C each, and are held the same way. Where every part that
+// is not pure is held, in order, a literal that only builds a value of its
+// parts is not held for that, nor are its values held again to keep
+// their order, only for depth, so a deep literal keeps one copy of its
+// inner values in the frame every few levels, not one for each.
 //
 // && and || lower to C's own, which short-circuit as Tack's do. ! lowers to
 // C's ! with no parentheses of its own, since it binds tightest in both

@@ -269,7 +269,7 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 		}
 		values[i], fields[i], inits[i] = kv.Value, memberName(lit.Type, key.Name), v
 	}
-	return g.sequenced(values, inits, func(ops []string) string {
+	return g.sequencedLit(values, inits, func(ops []string) string {
 		for i, v := range ops {
 			ops[i] = fmt.Sprintf(".%s = %s", fields[i], v)
 		}
@@ -348,6 +348,111 @@ func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 		out[i] = rendered
 	}
 	return fmt.Sprintf(layout, strings.Join(out, ", ")), true
+}
+
+// deepGlobal adds to g.globalInits the C statements that give v, a
+// global whose initializer would nest deeper than maxDepth, its computed
+// value, and reports whether it has one. clang checks an initializer one
+// level of subobject at a time, recursively, and runs out of stack past a
+// few hundred, even when the initializer names each scalar by its whole
+// path rather than nesting braces; and a static variable has no function
+// to hold its parts in temporaries, as an expression's are (see
+// exprSteps). So v starts zeroed, and C's main gives it its value before
+// Tack's main runs, in a block of its own that builds the value as
+// constOf writes it, but with each part nested deeper than maxDepth held
+// in a local temporary first (see heldConst), so no statement nests
+// deep and the C grows only as the value does. Every other global's
+// initializer was computed by the checker, so none reads v before then,
+// and Tack code cannot.
+func (g *generator) deepGlobal(v *ast.Var) bool {
+	var steps []string
+	value, ok := g.heldConst(v.Type, v.Const, &steps)
+	if !ok {
+		return false
+	}
+	g.globalInits = append(g.globalInits, "{")
+	for _, step := range steps {
+		g.globalInits = append(g.globalInits, "    "+step)
+	}
+	g.globalInits = append(g.globalInits,
+		fmt.Sprintf("    %s = %s;", g.mangle(v, v.Name), compound(g.cType(v.Type), value)), "}")
+	return true
+}
+
+// heldConst renders c, the computed value of type typ, as constOf does,
+// but appends to steps a declaration of a local temporary initialized
+// with each part whose C nests deeper than half of maxDepth, in the
+// order the parts are found, inner ones first, and writes the temporary
+// in the part's place. Each temporary is declared before the one that
+// reads it, so the steps run in order.
+func (g *generator) heldConst(typ types.Type, c any, steps *[]string) (string, bool) {
+	rendered, ok := g.heldParts(typ, c, steps)
+	if !ok || cDepth(rendered) <= maxDepth/2 {
+		return rendered, ok
+	}
+	t := g.temp("g")
+	*steps = append(*steps, fmt.Sprintf("%s %s = %s;", g.cType(typ), t, rendered))
+	return t, true
+}
+
+// heldParts renders c, of type typ, as constOf does, its parts each
+// rendered by heldConst, so a deep one is a temporary.
+func (g *generator) heldParts(typ types.Type, c any, steps *[]string) (string, bool) {
+	if u, isUnion := c.(ast.UnionConst); isUnion {
+		return g.heldUnion(typ, u, steps)
+	}
+	values, isList := c.([]any)
+	if !isList || !g.isComposite(typ) || zeroed(typ, values) {
+		return g.constOf(typ, c)
+	}
+	parts, layout := g.parts(typ), "{%s}"
+	if g.prog.Types.IsArray(typ) {
+		layout = "{{%s}}"
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		part := parts[0]
+		if !g.prog.Types.IsArray(typ) {
+			if i >= len(parts) {
+				return "", false
+			}
+			part = parts[i]
+		}
+		rendered, ok := g.heldConst(part, v, steps)
+		if !ok {
+			return "", false
+		}
+		out[i] = rendered
+	}
+	return fmt.Sprintf(layout, strings.Join(out, ", ")), true
+}
+
+// heldUnion renders u, a union's computed value of type typ, as
+// unionConst does, its payload rendered by heldConst.
+func (g *generator) heldUnion(typ types.Type, u ast.UnionConst, steps *[]string) (string, bool) {
+	cases := g.prog.Types.Cases(typ)
+	if u.Case < 0 || u.Case >= len(cases) {
+		return "", false
+	}
+	uc := cases[u.Case]
+	if !uc.Payload || u.Payload == nil {
+		return fmt.Sprintf("{.tag = %d}", u.Case), true
+	}
+	payload, ok := g.heldConst(uc.Type, u.Payload, steps)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("{.tag = %d, .u.%s = %s}", u.Case, caseMember(uc.Name), payload), true
+}
+
+// compound returns value, an initializer of the C type ctype or an
+// expression of it, as an expression of it: a compound literal for an
+// initializer, which starts with a brace, and value itself otherwise.
+func compound(ctype, value string) string {
+	if strings.HasPrefix(value, "{") {
+		return "(" + ctype + ")" + value
+	}
+	return value
 }
 
 // specialConst renders c, the computed value of a static variable of type
