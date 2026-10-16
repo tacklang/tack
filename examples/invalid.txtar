@@ -2172,6 +2172,952 @@ compound-non-int/main.tck:5:5: error: operator += is not defined on string
    |	    ^
 06 |	    print(s)
 
+-- cond-write-and-chain/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 0 && shrink(mut l) && l[0] == 0 {
+        print("x")
+    }
+}
+-- cond-write-and-chain/expected --
+stage: typeck
+---
+
+cond-write-and-chain/main.tck:21:41: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+20 |	    mut l := six()
+21 |	    if len(l) > 0 && shrink(mut l) && l[0] == 0 {
+   |	                                        ^
+22 |	        print("x")
+cond-write-and-chain/main.tck:21:8: note: this guard proves len(l) >= 1
+20 |	    mut l := six()
+21 |	    if len(l) > 0 && shrink(mut l) && l[0] == 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+22 |	        print("x")
+cond-write-and-chain/main.tck:21:29: note: but l is passed as mut to shrink here, so the proof ends
+20 |	    mut l := six()
+21 |	    if len(l) > 0 && shrink(mut l) && l[0] == 0 {
+   |	                            ^~~~~
+22 |	        print("x")
+
+-- cond-write-and-ends-fact/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 5 && shrink(mut l) {
+        use(l[5])
+    }
+}
+-- cond-write-and-ends-fact/expected --
+stage: typeck
+---
+
+cond-write-and-ends-fact/main.tck:25:15: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+24 |	    if len(l) > 5 && shrink(mut l) {
+25 |	        use(l[5])
+   |	              ^
+26 |	    }
+cond-write-and-ends-fact/main.tck:24:8: note: this guard proves len(l) >= 6
+23 |	    mut l := six()
+24 |	    if len(l) > 5 && shrink(mut l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	        use(l[5])
+cond-write-and-ends-fact/main.tck:24:29: note: but l is passed as mut to shrink here, so the proof ends
+23 |	    mut l := six()
+24 |	    if len(l) > 5 && shrink(mut l) {
+   |	                            ^~~~~
+25 |	        use(l[5])
+
+-- cond-write-and-parenthesized/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 5 && (shrink(mut l) && l[5] == 5) {
+        print("x")
+    }
+}
+-- cond-write-and-parenthesized/expected --
+stage: typeck
+---
+
+cond-write-and-parenthesized/main.tck:21:42: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+20 |	    mut l := six()
+21 |	    if len(l) > 5 && (shrink(mut l) && l[5] == 5) {
+   |	                                         ^
+22 |	        print("x")
+cond-write-and-parenthesized/main.tck:21:8: note: this guard proves len(l) >= 6
+20 |	    mut l := six()
+21 |	    if len(l) > 5 && (shrink(mut l) && l[5] == 5) {
+   |	       ^~~~~~~~~~
+22 |	        print("x")
+cond-write-and-parenthesized/main.tck:21:30: note: but l is passed as mut to shrink here, so the proof ends
+20 |	    mut l := six()
+21 |	    if len(l) > 5 && (shrink(mut l) && l[5] == 5) {
+   |	                             ^~~~~
+22 |	        print("x")
+
+-- cond-write-case-later-value/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    switch {
+    case len(l) <= 5:
+        return
+    case shrink(mut l):
+        use(l[5])
+    }
+}
+-- cond-write-case-later-value/expected --
+stage: typeck
+---
+
+cond-write-case-later-value/main.tck:28:15: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+27 |	    case shrink(mut l):
+28 |	        use(l[5])
+   |	              ^
+29 |	    }
+cond-write-case-later-value/main.tck:25:5: note: this case proves len(l) >= 6 in the cases after it
+24 |	    switch {
+25 |	    case len(l) <= 5:
+   |	    ^~~~~~~~~~~~~~~~
+26 |	        return
+cond-write-case-later-value/main.tck:27:17: note: but l is passed as mut to shrink here, so the proof ends
+26 |	        return
+27 |	    case shrink(mut l):
+   |	                ^~~~~
+28 |	        use(l[5])
+
+-- cond-write-case-past-switch/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    switch {
+    case len(l) <= 5:
+        return
+    case shrink(mut l):
+        print("x")
+    }
+    use(l[5])
+}
+-- cond-write-case-past-switch/expected --
+stage: typeck
+---
+
+cond-write-case-past-switch/main.tck:30:11: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+29 |	    }
+30 |	    use(l[5])
+   |	          ^
+31 |	}
+cond-write-case-past-switch/main.tck:25:5: note: this early exit proves len(l) >= 6 after it
+24 |	    switch {
+25 |	    case len(l) <= 5:
+   |	    ^~~~~~~~~~~~~~~~
+26 |	        return
+cond-write-case-past-switch/main.tck:27:17: note: but l is passed as mut to shrink here, so the proof ends
+26 |	        return
+27 |	    case shrink(mut l):
+   |	                ^~~~~
+28 |	        print("x")
+
+-- cond-write-case-same-value/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func main() {
+    mut l := six()
+    switch {
+    case len(l) <= 5, shrink(mut l) && l[5] == 5:
+        return
+    }
+}
+-- cond-write-case-same-value/expected --
+stage: typeck
+---
+
+cond-write-case-same-value/main.tck:22:42: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+21 |	    switch {
+22 |	    case len(l) <= 5, shrink(mut l) && l[5] == 5:
+   |	                                         ^
+23 |	        return
+cond-write-case-same-value/main.tck:22:10: note: this case proves len(l) >= 6
+21 |	    switch {
+22 |	    case len(l) <= 5, shrink(mut l) && l[5] == 5:
+   |	         ^~~~~~~~~~~
+23 |	        return
+cond-write-case-same-value/main.tck:22:30: note: but l is passed as mut to shrink here, so the proof ends
+21 |	    switch {
+22 |	    case len(l) <= 5, shrink(mut l) && l[5] == 5:
+   |	                             ^~~~~
+23 |	        return
+
+-- cond-write-counting-loop/main.tck --
+package main
+
+func neg(mut i int64) bool {
+    i = -5
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    for mut i := 0; neg(mut i) && i < 3; i++ {
+        use(a[i])
+    }
+}
+-- cond-write-counting-loop/expected --
+stage: typeck
+---
+
+cond-write-counting-loop/main.tck:14:15: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+13 |	    for mut i := 0; neg(mut i) && i < 3; i++ {
+14 |	        use(a[i])
+   |	              ^
+15 |	    }
+cond-write-counting-loop/main.tck:13:9: note: counting from this start proves i >= 0
+12 |	    a := [3]int64{1, 2, 3}
+13 |	    for mut i := 0; neg(mut i) && i < 3; i++ {
+   |	        ^~~~~~~~~~
+14 |	        use(a[i])
+cond-write-counting-loop/main.tck:13:25: note: but i is passed as mut to neg here, so the proof ends
+12 |	    a := [3]int64{1, 2, 3}
+13 |	    for mut i := 0; neg(mut i) && i < 3; i++ {
+   |	                        ^~~~~
+14 |	        use(a[i])
+
+-- cond-write-default-past-switch/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    switch {
+    case len(l) <= 5:
+        return
+    default:
+        shrink(mut l)
+    }
+    use(l[5])
+}
+-- cond-write-default-past-switch/expected --
+stage: typeck
+---
+
+cond-write-default-past-switch/main.tck:30:11: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+29 |	    }
+30 |	    use(l[5])
+   |	          ^
+31 |	}
+cond-write-default-past-switch/main.tck:25:5: note: this early exit proves len(l) >= 6 after it
+24 |	    switch {
+25 |	    case len(l) <= 5:
+   |	    ^~~~~~~~~~~~~~~~
+26 |	        return
+cond-write-default-past-switch/main.tck:28:16: note: but l is passed as mut to shrink here, so the proof ends
+27 |	    default:
+28 |	        shrink(mut l)
+   |	               ^~~~~
+29 |	    }
+
+-- cond-write-defer/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 5 && shrink(mut l) {
+        defer {
+            use(l[5])
+        }
+    }
+}
+-- cond-write-defer/expected --
+stage: typeck
+---
+
+cond-write-defer/main.tck:26:19: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+25 |	        defer {
+26 |	            use(l[5])
+   |	                  ^
+27 |	        }
+cond-write-defer/main.tck:24:8: note: this guard proves len(l) >= 6
+23 |	    mut l := six()
+24 |	    if len(l) > 5 && shrink(mut l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	        defer {
+cond-write-defer/main.tck:24:29: note: but l is passed as mut to shrink here, so the proof ends
+23 |	    mut l := six()
+24 |	    if len(l) > 5 && shrink(mut l) {
+   |	                            ^~~~~
+25 |	        defer {
+
+-- cond-write-divisor/main.tck --
+package main
+
+func zero(mut d int64) bool {
+    d = 0
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut d int64 = 2
+    if d != 0 && zero(mut d) {
+        use(10 / d)
+    }
+}
+-- cond-write-divisor/expected --
+stage: typeck
+---
+
+cond-write-divisor/main.tck:14:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+13 |	    if d != 0 && zero(mut d) {
+14 |	        use(10 / d)
+   |	                 ^
+15 |	    }
+cond-write-divisor/main.tck:13:8: note: this guard proves d != 0
+12 |	    mut d int64 = 2
+13 |	    if d != 0 && zero(mut d) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~
+14 |	        use(10 / d)
+cond-write-divisor/main.tck:13:23: note: but d is passed as mut to zero here, so the proof ends
+12 |	    mut d int64 = 2
+13 |	    if d != 0 && zero(mut d) {
+   |	                      ^~~~~
+14 |	        use(10 / d)
+
+-- cond-write-else-falls-through/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) <= 5 {
+        return
+    } else {
+        shrink(mut l)
+    }
+    use(l[5])
+}
+-- cond-write-else-falls-through/expected --
+stage: typeck
+---
+
+cond-write-else-falls-through/main.tck:29:11: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+28 |	    }
+29 |	    use(l[5])
+   |	          ^
+30 |	}
+cond-write-else-falls-through/main.tck:24:5: note: this early exit proves len(l) >= 6 after it
+23 |	    mut l := six()
+24 |	    if len(l) <= 5 {
+   |	    ^~~~~~~~~~~~~~
+25 |	        return
+cond-write-else-falls-through/main.tck:27:16: note: but l is passed as mut to shrink here, so the proof ends
+26 |	    } else {
+27 |	        shrink(mut l)
+   |	               ^~~~~
+28 |	    }
+
+-- cond-write-else-if/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) <= 5 {
+        return
+    } else if shrink(mut l) {
+        use(l[5])
+    }
+}
+-- cond-write-else-if/expected --
+stage: typeck
+---
+
+cond-write-else-if/main.tck:27:15: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+26 |	    } else if shrink(mut l) {
+27 |	        use(l[5])
+   |	              ^
+28 |	    }
+cond-write-else-if/main.tck:24:8: note: this guard proves len(l) >= 6 in its else branch
+23 |	    mut l := six()
+24 |	    if len(l) <= 5 {
+   |	       ^~~~~~~~~~~
+25 |	        return
+cond-write-else-if/main.tck:26:22: note: but l is passed as mut to shrink here, so the proof ends
+25 |	        return
+26 |	    } else if shrink(mut l) {
+   |	                     ^~~~~
+27 |	        use(l[5])
+
+-- cond-write-loop/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    for len(l) > 5 && shrink(mut l) {
+        use(l[5])
+    }
+}
+-- cond-write-loop/expected --
+stage: typeck
+---
+
+cond-write-loop/main.tck:25:15: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+24 |	    for len(l) > 5 && shrink(mut l) {
+25 |	        use(l[5])
+   |	              ^
+26 |	    }
+cond-write-loop/main.tck:24:9: note: this guard proves len(l) >= 6
+23 |	    mut l := six()
+24 |	    for len(l) > 5 && shrink(mut l) {
+   |	        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	        use(l[5])
+cond-write-loop/main.tck:24:30: note: but l is passed as mut to shrink here, so the proof ends
+23 |	    mut l := six()
+24 |	    for len(l) > 5 && shrink(mut l) {
+   |	                             ^~~~~
+25 |	        use(l[5])
+
+-- cond-write-nested-argument/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func keep(b bool) bool {
+    return b
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 5 && keep(shrink(mut l)) {
+        use(l[5])
+    }
+}
+-- cond-write-nested-argument/expected --
+stage: typeck
+---
+
+cond-write-nested-argument/main.tck:29:15: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+28 |	    if len(l) > 5 && keep(shrink(mut l)) {
+29 |	        use(l[5])
+   |	              ^
+30 |	    }
+cond-write-nested-argument/main.tck:28:8: note: this guard proves len(l) >= 6
+27 |	    mut l := six()
+28 |	    if len(l) > 5 && keep(shrink(mut l)) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+29 |	        use(l[5])
+cond-write-nested-argument/main.tck:28:34: note: but l is passed as mut to shrink here, so the proof ends
+27 |	    mut l := six()
+28 |	    if len(l) > 5 && keep(shrink(mut l)) {
+   |	                                 ^~~~~
+29 |	        use(l[5])
+
+-- cond-write-or-early-exit/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) <= 5 || shrink(mut l) {
+        return
+    }
+    use(l[5])
+}
+-- cond-write-or-early-exit/expected --
+stage: typeck
+---
+
+cond-write-or-early-exit/main.tck:27:11: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+26 |	    }
+27 |	    use(l[5])
+   |	          ^
+28 |	}
+cond-write-or-early-exit/main.tck:24:5: note: this early exit proves len(l) >= 6 after it
+23 |	    mut l := six()
+24 |	    if len(l) <= 5 || shrink(mut l) {
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	        return
+cond-write-or-early-exit/main.tck:24:30: note: but l is passed as mut to shrink here, so the proof ends
+23 |	    mut l := six()
+24 |	    if len(l) <= 5 || shrink(mut l) {
+   |	                             ^~~~~
+25 |	        return
+
+-- cond-write-pop-twice/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+        print("x")
+    }
+}
+-- cond-write-pop-twice/expected --
+stage: typeck
+---
+
+cond-write-pop-twice/main.tck:5:22: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	                     ^~~~~~~~~~
+06 |	        print("x")
+cond-write-pop-twice/main.tck:5:8: note: this guard proves len(l) >= 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	       ^~~~~~~~~~
+06 |	        print("x")
+cond-write-pop-twice/main.tck:5:26: note: but l is passed as mut to pop here, so the proof ends
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	                         ^~~~~
+06 |	        print("x")
+
+cond-write-pop-twice/main.tck:5:40: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	                                       ^~~~~~~~~~
+06 |	        print("x")
+cond-write-pop-twice/main.tck:5:8: note: this guard proves len(l) >= 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        print("x")
+cond-write-pop-twice/main.tck:5:26: note: but l is passed as mut to pop here, so the proof ends
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0 {
+   |	                         ^~~~~
+06 |	        print("x")
+
+-- cond-write-string/main.tck --
+package main
+
+func short(mut s string) bool {
+    s = "a"
+    return true
+}
+
+func main() {
+    mut s := "long enough"
+    if len(s) > 5 && short(mut s) {
+        print(s[2:5])
+        if s[5] == 'g' {
+            print("g")
+        }
+    }
+}
+-- cond-write-string/expected --
+stage: typeck
+---
+
+cond-write-string/main.tck:11:17: error: slice bounds 2:5 may be out of range; check len(s) >= 5 first, or use v, ok := ...[2:5]
+10 |	    if len(s) > 5 && short(mut s) {
+11 |	        print(s[2:5])
+   |	                ^~~
+12 |	        if s[5] == 'g' {
+cond-write-string/main.tck:10:8: note: this guard proves len(s) >= 6
+09 |	    mut s := "long enough"
+10 |	    if len(s) > 5 && short(mut s) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	        print(s[2:5])
+cond-write-string/main.tck:10:28: note: but s is passed as mut to short here, so the proof ends
+09 |	    mut s := "long enough"
+10 |	    if len(s) > 5 && short(mut s) {
+   |	                           ^~~~~
+11 |	        print(s[2:5])
+
+cond-write-string/main.tck:12:14: error: index 5 may be out of range; check len(s) > 5 first, or use v, ok := ...[5]
+11 |	        print(s[2:5])
+12 |	        if s[5] == 'g' {
+   |	             ^
+13 |	            print("g")
+cond-write-string/main.tck:10:8: note: this guard proves len(s) >= 6
+09 |	    mut s := "long enough"
+10 |	    if len(s) > 5 && short(mut s) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	        print(s[2:5])
+cond-write-string/main.tck:10:28: note: but s is passed as mut to short here, so the proof ends
+09 |	    mut s := "long enough"
+10 |	    if len(s) > 5 && short(mut s) {
+   |	                           ^~~~~
+11 |	        print(s[2:5])
+
+-- cond-write-tag-switch/main.tck --
+package main
+
+func five(mut d int64) int64 {
+    d = 0
+    return 5
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut d int64 = 2
+    switch d {
+    case 0:
+        return
+    case five(mut d):
+        print("x")
+    default:
+        use(10 / d)
+    }
+}
+-- cond-write-tag-switch/expected --
+stage: typeck
+---
+
+cond-write-tag-switch/main.tck:19:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+18 |	    default:
+19 |	        use(10 / d)
+   |	                 ^
+20 |	    }
+cond-write-tag-switch/main.tck:14:5: note: this case proves d != 0 in the cases after it
+13 |	    switch d {
+14 |	    case 0:
+   |	    ^~~~~~
+15 |	        return
+cond-write-tag-switch/main.tck:16:15: note: but d is passed as mut to five here, so the proof ends
+15 |	        return
+16 |	    case five(mut d):
+   |	              ^~~~~
+17 |	        print("x")
+
+-- cond-write-tag-switch-earlier-value/main.tck --
+package main
+
+func five(mut d int64) int64 {
+    d = 0
+    return 5
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut d int64 = 2
+    switch d {
+    case five(mut d):
+        print("five\n")
+    case 0:
+        return
+    default:
+        use(100 / d)
+    }
+}
+-- cond-write-tag-switch-earlier-value/expected --
+stage: typeck
+---
+
+cond-write-tag-switch-earlier-value/main.tck:19:19: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+18 |	    default:
+19 |	        use(100 / d)
+   |	                  ^
+20 |	    }
+cond-write-tag-switch-earlier-value/main.tck:16:5: note: this case proves d != 0 in the cases after it
+15 |	        print("five\n")
+16 |	    case 0:
+   |	    ^~~~~~
+17 |	        return
+cond-write-tag-switch-earlier-value/main.tck:14:15: note: but d is passed as mut to five here, so the proof ends
+13 |	    switch d {
+14 |	    case five(mut d):
+   |	              ^~~~~
+15 |	        print("five\n")
+
+-- cond-write-then-falls-through/main.tck --
+package main
+
+func six() list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range 6 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func shrink(mut l list[int64]) bool {
+    l = make(list[int64], c_allocator)
+    return true
+}
+
+func use(v int64) {
+}
+
+func main() {
+    mut l := six()
+    if len(l) > 5 {
+        shrink(mut l)
+    } else {
+        return
+    }
+    use(l[5])
+}
+-- cond-write-then-falls-through/expected --
+stage: typeck
+---
+
+cond-write-then-falls-through/main.tck:29:11: error: index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]
+28 |	    }
+29 |	    use(l[5])
+   |	          ^
+30 |	}
+cond-write-then-falls-through/main.tck:24:5: note: this early exit proves len(l) >= 6 after it
+23 |	    mut l := six()
+24 |	    if len(l) > 5 {
+   |	    ^~~~~~~~~~~~~
+25 |	        shrink(mut l)
+cond-write-then-falls-through/main.tck:25:16: note: but l is passed as mut to shrink here, so the proof ends
+24 |	    if len(l) > 5 {
+25 |	        shrink(mut l)
+   |	               ^~~~~
+26 |	    } else {
+
 -- const-overflow-add/main.tck --
 package main
 

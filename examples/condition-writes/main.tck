@@ -1,0 +1,112 @@
+package main
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// count returns a list holding 0 through n-1.
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// grow replaces l with a list of six elements, 0 through 5.
+func grow(mut l list[int64]) bool {
+    l = count(6)
+    return true
+}
+
+// shrink replaces l with a list of one element, 0, and reports false.
+func shrink(mut l list[int64]) bool {
+    l = count(1)
+    return false
+}
+
+// halve halves d and reports whether it is still not zero.
+func halve(mut d int64) bool {
+    d = d / 2
+    return d != 0
+}
+
+// beforeAnd writes l on the left of &&, before the right side proves its
+// length, so the proof holds for the rest of the condition and the body.
+func beforeAnd() int64 {
+    mut l := count(1)
+    if grow(mut l) && len(l) > 5 && l[5] == 5 {
+        return l[5]
+    }
+    return -1
+}
+
+// beforeOr writes l on the left of ||, before the right side, which exits
+// unless l is long enough, so the proof holds after the if.
+func beforeOr() int64 {
+    mut l := count(1)
+    if !grow(mut l) || len(l) <= 5 {
+        return -1
+    }
+    return l[5]
+}
+
+// afterUse writes l in the condition only after the index the length
+// proves, so the proof holds where the index is.
+func afterUse() bool {
+    mut l := count(6)
+    return len(l) > 5 && l[5] == 5 && !shrink(mut l) && len(l) == 1
+}
+
+// inLeavingBranch writes l only in the branch that returns, so the length
+// the if proves holds after it.
+func inLeavingBranch(n int64) int64 {
+    mut l := count(n)
+    if len(l) <= 5 {
+        shrink(mut l)
+        return len(l)
+    }
+    return l[5]
+}
+
+// inLeavingCase writes l only in the case that returns.
+func inLeavingCase(n int64) int64 {
+    mut l := count(n)
+    switch {
+    case len(l) <= 5:
+        shrink(mut l)
+        return len(l)
+    }
+    return l[5]
+}
+
+// loopDivisor halves d in the loop's condition before testing it, so the
+// body divides by a d the condition has just proven not zero.
+func loopDivisor() int64 {
+    mut d int64 = 8
+    mut sum int64 = 0
+    for halve(mut d) && d != 0 {
+        sum += 64 / d
+    }
+    return sum
+}
+
+func main() {
+    check(beforeAnd() == 5, "written before && proves")
+    check(beforeOr() == 5, "written before || proves")
+    check(afterUse(), "written after the use")
+    check(inLeavingBranch(6) == 5, "branch that leaves not taken")
+    check(inLeavingBranch(2) == 1, "branch that leaves taken")
+    check(inLeavingCase(6) == 5, "case that leaves not taken")
+    check(inLeavingCase(3) == 1, "case that leaves taken")
+    check(loopDivisor() == 16 + 32 + 64, "loop condition writes then proves")
+}

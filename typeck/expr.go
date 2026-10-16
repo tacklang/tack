@@ -367,10 +367,12 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 	var y types.Type
 	if bin.Op.IsLogical() {
 		// The right side runs only when the left did not decide the
-		// result: after a true left side for &&, a false one for ||.
+		// result: after a true left side for &&, a false one for ||. What
+		// the left side says holds in the right side only while nothing
+		// in the right side assigns it.
 		m := c.mark()
 		left := &guard{cond: bin.X, span: bin.X.Spanned(), kind: guardCond}
-		c.assume(left, c.factsFrom(bin.X, bin.Op == ast.And), nil)
+		c.assume(left, c.factsFrom(bin.X, bin.Op == ast.And), []ast.Node{bin.Y})
 		y = c.expr(bin.Y)
 		c.release(m)
 	} else {

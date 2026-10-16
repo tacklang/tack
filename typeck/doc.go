@@ -147,7 +147,15 @@
 // side says about a variable both constrain), holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
 // an if whose branch leaves it, and only for a region that never assigns the
-// variable, which must be a parameter, a local, or an immutable global. A
+// variable, which must be a parameter, a local, or an immutable global. The
+// region is everything that can run between the comparison that gave the
+// fact and the use: the rest of its condition (factsFrom drops a left
+// side's fact that the right side assigns, and the right side of && and
+// || is the region of the left side's facts), the branch that falls
+// through past an early exit, a later value of a case and every later
+// case's values, every value tried since a switch's tag was evaluated, for
+// a fact about the tag, and, for a counting loop's start, the loop's
+// condition, which runs again before every pass. A
 // call passing the variable, or a part of it, as mut counts as assigning
 // it, and its note names the call; a mut parameter is a variable like any
 // other, which only its own function can assign while it runs. A

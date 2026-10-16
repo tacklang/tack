@@ -53,13 +53,16 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	}
 
 	order := tryOrder(s)
-	// Every body after a case, in the order tried, is the region its
-	// condition being false holds in; rest[i] is where that region starts
-	// for the case at order[i].
-	var later []ast.Stmt
+	// Every case after a case, in the order tried, its values and its
+	// body, is the region its condition being false holds in; rest[i] is
+	// where that region starts for the case at order[i].
+	var later []ast.Node
 	rest := make([]int, len(order))
 	for i, cl := range order {
-		later = append(later, cl.Body...)
+		for _, v := range cl.Values {
+			later = append(later, v)
+		}
+		later = append(later, stmtNodes(cl.Body)...)
 		rest[i] = len(later)
 	}
 
@@ -94,7 +97,8 @@ func tryOrder(s *ast.Switch) []*ast.CaseClause {
 }
 
 // checkCaseValues checks each value of a case, left to right, each with the
-// facts of those before it being false in force, as on the right of ||. In
+// facts of those before it being false in force, as on the right of ||,
+// each dropped when a value after it assigns its variable. In
 // a tagless switch each value must be a bool; in an expression switch each
 // must compare with the tag, and must not repeat a constant value seen
 // earlier in the switch, which seen records. A value the resolver bound
@@ -107,7 +111,7 @@ func (c *Checker) checkCaseValues(
 	seen map[caseKey]ast.Expr,
 ) {
 	m := c.mark()
-	for _, v := range cl.Values {
+	for i, v := range cl.Values {
 		switch {
 		case s.Tag == nil:
 			c.checkCond(v)
@@ -118,8 +122,8 @@ func (c *Checker) checkCaseValues(
 		cond := caseCond(s, v)
 		c.assume(
 			&guard{cond: cond, span: v.Spanned(), kind: guardCase},
-			c.factsFrom(cond, false),
-			nil,
+			c.tagFacts(s, cl, c.factsFrom(cond, false)),
+			valueNodes(cl.Values[i+1:]),
 		)
 	}
 	c.release(m)
@@ -233,7 +237,8 @@ func caseCond(s *ast.Switch, v ast.Expr) ast.Expr {
 // caseFacts returns the facts a case of switch s gives where its condition,
 // the || of its values' conditions, evaluated to holds: as for ||, what
 // every value's facts of being true agree on when true (see union), and
-// every value's facts of being false when false. The default has no
+// every value's facts of being false when false, each dropped when a value
+// tried after it assigns its variable. The default has no
 // condition, and gives nothing, and neither does a type switch's case,
 // whose values are types, nor a union switch's, whose values are
 // patterns.
@@ -247,13 +252,96 @@ func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fac
 		for _, v := range cl.Values[1:] {
 			facts = union(facts, c.factsFrom(caseCond(s, v), true))
 		}
-		return facts
+		return c.tagFacts(s, cl, facts)
 	}
 	var facts []fact
-	for _, v := range cl.Values {
-		facts = append(facts, c.factsFrom(caseCond(s, v), false)...)
+	for i, v := range cl.Values {
+		own := c.factsFrom(caseCond(s, v), false)
+		facts = append(facts, c.dropAssigned(own, valueNodes(cl.Values[i+1:]))...)
 	}
-	return facts
+	return c.tagFacts(s, cl, facts)
+}
+
+// tagFacts returns facts, which comparing the tag of switch s with values
+// of the case cl gives, with every one that a value tried up to and
+// including cl's assigns the variable of marked dropped. The tag is
+// evaluated once, before any value, and every value is compared with
+// what it was then, so a fact about the tag's variable holds for the
+// variable only if no value tried since has assigned it. A tagless
+// switch has no tag, and its facts are returned as they are.
+//
+// Most switches pass nothing as mut in their values, and a switch with
+// thousands of cases asks about every one, so where a value first may
+// assign anything is found once per switch (see tagWriteOf), and a case
+// tried before that point keeps its facts without a search.
+func (c *Checker) tagFacts(s *ast.Switch, cl *ast.CaseClause, facts []fact) []fact {
+	if s.Tag == nil {
+		return facts
+	}
+	if w := c.tagWriteOf(s); w.pos[cl] < w.first {
+		return facts
+	}
+	var tried []ast.Node
+	for _, other := range tryOrder(s) {
+		tried = append(tried, valueNodes(other.Values)...)
+		if other == cl {
+			break
+		}
+	}
+	return c.dropAssigned(facts, tried)
+}
+
+// tagWrite is where, in the order a switch's cases are tried, its values
+// first may assign a variable: first is the position of the first case
+// with a value that passes anything as mut, the only way a value can
+// assign, or the number of cases when none does, and pos gives each
+// case's position.
+type tagWrite struct {
+	pos   map[*ast.CaseClause]int
+	first int
+}
+
+// tagWriteOf returns where the values of switch s first may assign a
+// variable, working it out the first time it is asked.
+func (c *Checker) tagWriteOf(s *ast.Switch) tagWrite {
+	if w, ok := c.tagWrites[s]; ok {
+		return w
+	}
+	order := tryOrder(s)
+	w := tagWrite{first: len(order), pos: make(map[*ast.CaseClause]int, len(order))}
+	for i, cl := range order {
+		w.pos[cl] = i
+		if w.first == len(order) && passesMut(cl.Values) {
+			w.first = i
+		}
+	}
+	c.tagWrites[s] = w
+	return w
+}
+
+// passesMut reports whether any of values, at any depth, passes something
+// as mut.
+func passesMut(values []ast.Expr) bool {
+	found := false
+	for _, v := range values {
+		ast.Walk(v, func(n ast.Node) bool {
+			if _, ok := n.(*ast.MutArg); ok {
+				found = true
+			}
+			return !found
+		})
+	}
+	return found
+}
+
+// valueNodes returns a case's values as a region assume and dropAssigned
+// search: the values tried after one that did not match.
+func valueNodes(values []ast.Expr) []ast.Node {
+	nodes := make([]ast.Node, len(values))
+	for i, v := range values {
+		nodes[i] = v
+	}
+	return nodes
 }
 
 // switchAfterFactsBy returns the facts a switch gives the statements after

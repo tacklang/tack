@@ -8,6 +8,11 @@ rather than to be used for anything. There is no runtime, a standard library
 of two packages, `std/fmt` and `std/bytes`, and no intermediate
 representation.
 
+Every program the compiler accepts is held to four guarantees: no
+out-of-bounds access, no memory leak, no use-after-free and no panic. They
+are the project's hard rules; [docs/guarantees.md](docs/guarantees.md)
+defines them and lists the violations still open.
+
 Code generation is pluggable. The front end hands a resolved syntax tree to a
 *backend*, and the backend decides what comes out and how it is built. One ships
 today: `c`, which emits a self-contained C translation unit that `clang` turns
@@ -1834,7 +1839,21 @@ makes for itself, which has a letter after `tack_`.
   parameter, a local, or an immutable global, or a field or element of an
   immutable variable or parameter (see structs), and the region must not assign
   it anywhere, a call passing it, or a part of it, as `mut` included, so a loop that counts its divisor up needs the check beside the
-  division: `if d != 0 && n % d == 0`. A call to `exit` does not count as
+  division: `if d != 0 && n % d == 0`. The region is everything that can
+  run after the comparison and before the use, the rest of the condition
+  included: in `if d != 0 && reset(mut d)` the body knows nothing about
+  `d`, nor does the code after `if d == 0 || reset(mut d) { return }`,
+  while `reset(mut d) && d != 0` proves `d != 0`, since the call runs
+  first. After an early exit the region also takes in the branch that
+  does not leave, and after a `switch` case that leaves, every later
+  case's values and every later body that does not leave; a case's
+  values tried after one count as well. A tag is evaluated once, before
+  any value, so in `switch d` what a case proves about `d` also needs
+  every value tried up to that case to leave `d` unassigned. A counting
+  loop's start
+  holds only while its condition, which runs again before every pass,
+  assigns nothing either. A write in a branch that leaves never matters.
+  A call to `exit` does not count as
   leaving. When a guard says something about a divisor or index it did not
   prove, the error comes with notes pointing at the guard and what it
   proves, at the assignment or `mut` argument that ended that proof, or at what the guard

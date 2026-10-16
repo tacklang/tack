@@ -39,9 +39,6 @@ feature work until it is fixed.
 These are open bugs against the guarantees, found by an audit on
 2026-10-16. Each is being fixed before any new feature.
 
-- **Out of bounds (1).** A `mut` argument later in the same condition does
-  not end a fact the condition proved, so `if len(l) > 5 && shrink(mut l) {
-  l[5] }` is accepted and reads past the end of `l`.
 - **Use-after-free (3).** An index whose own expression changes the list it
   indexes, as in `c, ok := l[grow(mut l)]`, is accepted and reads the list's
   freed buffer.

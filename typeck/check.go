@@ -87,6 +87,10 @@ type Checker struct {
 	// over: they refer to the element in place (see move.go).
 	rangeBindings map[*ast.Var]ast.Expr
 
+	// tagWrites remembers, for each switch with a tag that tagFacts has
+	// been asked about, where its values first may assign a variable.
+	tagWrites map[*ast.Switch]tagWrite
+
 	// knownVars remembers, for each local variable knownVar has been asked
 	// about, what it found.
 	knownVars map[*ast.Var]knownResult
@@ -168,6 +172,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		unionState:    make(map[types.Type]progress),
 		unionBindings: make(map[*ast.Var]bool),
 		rangeBindings: make(map[*ast.Var]ast.Expr),
+		tagWrites:     make(map[*ast.Switch]tagWrite),
 
 		knownVars: make(map[*ast.Var]knownResult),
 
@@ -788,7 +793,8 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 // missing proof.
 func (c *Checker) assumeLoop(loop *ast.For) {
 	facts := c.factsFrom(loop.Cond, true)
-	c.assume(&guard{cond: loop.Cond, span: loop.Cond.Spanned(), kind: guardCond}, facts, loop.Body)
+	cond := &guard{cond: loop.Cond, span: loop.Cond.Spanned(), kind: guardCond}
+	c.assume(cond, facts, stmtNodes(loop.Body))
 	f, how := c.countingFact(loop, facts)
 	if how == notCounting {
 		return
@@ -796,7 +802,10 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 	if how == wraps {
 		f.drop = wrapDrop(loop, f)
 	}
-	c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, loop.Body)
+	// The condition runs again before every later pass, after the bound
+	// was last true, so it is in the region as well as the body.
+	region := append([]ast.Node{loop.Cond}, stmtNodes(loop.Body)...)
+	c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, region)
 }
 
 // checkForRange checks a range loop. It ranges over an integer, of any
@@ -909,7 +918,7 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 			}
 		}
 		if g != nil {
-			c.assume(g, facts, body[i+1:])
+			c.assume(g, facts, append(fallsThrough(stmt), stmtNodes(body[i+1:])...))
 		}
 	}
 	c.release(m)
@@ -919,7 +928,7 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 // hold, assuming those the block cannot undo.
 func (c *Checker) checkGuarded(body []ast.Stmt, g *guard, facts []fact, fn *ast.Func) {
 	m := c.mark()
-	c.assume(g, facts, body)
+	c.assume(g, facts, stmtNodes(body))
 	c.checkBlock(body, fn)
 	c.release(m)
 }

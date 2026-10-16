@@ -26,7 +26,13 @@ import (
 //     subject.go); a mutable global can be changed by any call, so it never
 //     has one, and a field of a mutable variable never has one either;
 //   - a fact holds in a region only if the region never assigns the
-//     variable, anywhere, so nothing in it can make the fact false;
+//     variable, anywhere, so nothing in it can make the fact false. The
+//     region is everything that can run after the comparison and before
+//     the use: the rest of the condition the comparison is part of, the
+//     branch that falls through past an early exit, later case values,
+//     every value tried since a switch's tag was evaluated, for a fact
+//     about the tag, and a counting loop's condition for the start it
+//     counts from;
 //   - a condition gives facts through && (when true), || (when false), !,
 //     and comparisons of a variable with a known value: b != 0, i >= 0,
 //     i < len(a), i == 3; a variable's type bounds it too, so an unsigned
@@ -395,6 +401,13 @@ func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) 
 // false when false. When one side or the other holds, && false or || true,
 // only what both sides agree on holds: see union. ! swaps; a comparison
 // of a variable with a known value gives one fact.
+//
+// The right side runs after the left, so a fact the left side gives is
+// dropped when the right side assigns its variable, a call passing it as
+// mut included: the right side may undo it before the condition's value
+// is known. A left side that decides the value on its own, && false or
+// || true, runs nothing after it, and the right side's own facts come
+// after every part of the condition that runs.
 func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	switch x := cond.(type) {
 	case *ast.Ident:
@@ -406,7 +419,8 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	case *ast.Binary:
 		switch {
 		case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
-			return append(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)...)
+			left := c.dropAssigned(c.factsFrom(x.X, holds), []ast.Node{x.Y})
+			return append(left, c.factsFrom(x.Y, holds)...)
 		case x.Op == ast.And, x.Op == ast.Or:
 			return from(union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)), x)
 		case x.Op.IsComparison():
@@ -444,9 +458,10 @@ func from(facts []fact, src ast.Expr) []fact {
 }
 
 // union returns the facts that hold when the facts a hold or the facts b
-// do, not knowing which: for each variable both say something about, the
-// smallest interval holding what each side allows, and not zero when
-// neither side allows zero. So b < 0 || b > 0 gives b != 0, and
+// do, not knowing which, leaving out any fact either side has dropped:
+// for each variable both say something about, the smallest interval
+// holding what each side allows, and not zero when neither side allows
+// zero. So b < 0 || b > 0 gives b != 0, and
 // i == 0 || i == 1 gives 0 <= i <= 1. A variable only one side constrains
 // gets nothing, since the other side may be the one that holds. A bound by
 // a string's length, i < len(s), is not carried over.
@@ -454,7 +469,7 @@ func union(a, b []fact) []fact {
 	var out []fact
 	seen := make(map[factKey]bool)
 	for _, f := range a {
-		if seen[f.about] || f.relational() {
+		if seen[f.about] || f.relational() || !f.inForce() {
 			continue
 		}
 		seen[f.about] = true
@@ -468,13 +483,13 @@ func union(a, b []fact) []fact {
 	return out
 }
 
-// sideInterval returns what the facts of one side say about the subject
-// k, and whether any of them is about it.
+// sideInterval returns what the facts in force of one side say about the
+// subject k, and whether any of them is about it.
 func sideInterval(facts []fact, k factKey) (interval, bool) {
 	var known interval
 	found := false
 	for _, f := range facts {
-		if f.about == k && !f.relational() {
+		if f.about == k && !f.relational() && f.inForce() {
 			known, found = known.narrow(f), true
 		}
 	}
@@ -692,7 +707,13 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 // is searched, which a long chain of cases or ifs would otherwise do once
 // per link. g itself is put in scope too. Everything assume puts in force
 // stays until a release to a mark taken before it.
-func (c *Checker) assume(g *guard, facts []fact, region []ast.Stmt) {
+//
+// region is everything that can run after facts became true and before,
+// or while, the code they guard runs: statements, and the parts of a
+// condition or of a switch's cases still to run. A fact that already
+// carries a drop, such as one a later part of its own condition ends (see
+// factsFrom), keeps it.
+func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 	c.guards = append(c.guards, g)
 	for _, f := range facts {
 		if f.empty() {
@@ -716,6 +737,28 @@ func (c *Checker) mark() mark {
 	return mark{len(c.active), len(c.guards)}
 }
 
+// dropAssigned returns facts with every one that region assigns the
+// variable of, as assignedIn says, marked dropped by that assignment. A
+// fact already dropped keeps its drop.
+func (c *Checker) dropAssigned(facts []fact, region []ast.Node) []fact {
+	for i := range facts {
+		if facts[i].drop == nil && !facts[i].empty() {
+			facts[i].drop = c.assignedIn(region, facts[i])
+		}
+	}
+	return facts
+}
+
+// stmtNodes returns the statements of body as a region assume and
+// assignedIn search.
+func stmtNodes(body []ast.Stmt) []ast.Node {
+	nodes := make([]ast.Node, len(body))
+	for i, stmt := range body {
+		nodes[i] = stmt
+	}
+	return nodes
+}
+
 // release takes out of force every fact and guard assumed since m was
 // taken.
 func (c *Checker) release(m mark) {
@@ -727,7 +770,7 @@ func (c *Checker) release(m mark) {
 // source order, to f's variable, or else to the string whose length bounds
 // it, or the subject a relation bounds it by, a call passing any of them
 // as mut included. It returns nil when region assigns none of them.
-func (c *Checker) assignedIn(region []ast.Stmt, f fact) *drop {
+func (c *Checker) assignedIn(region []ast.Node, f fact) *drop {
 	if d := c.assignedDrop(region, f.about); d != nil {
 		return d
 	}
@@ -746,7 +789,7 @@ func (c *Checker) assignedIn(region []ast.Stmt, f fact) *drop {
 // variable the subject k starts from, which names the call when it is a
 // mut argument, or nil when there is none. A path's variable is immutable,
 // so nothing assigns it.
-func (c *Checker) assignedDrop(region []ast.Stmt, k factKey) *drop {
+func (c *Checker) assignedDrop(region []ast.Node, k factKey) *drop {
 	target, call := c.assignment(region, k.decl)
 	switch {
 	case target == nil:
@@ -773,12 +816,12 @@ func (c *Checker) factCallee(call *ast.Call) string {
 }
 
 // assignment returns the first target, in source order, through which any
-// statement in region, however deeply nested, assigns to decl: an
-// assignment's target, a compound assignment's, an increment's or
-// decrement's, one of an assignment of several values, or a mut argument,
-// which a call may assign through, with the call. It returns nil when
-// there is none.
-func (c *Checker) assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.Call) {
+// statement or expression in region, however deeply nested, assigns to
+// decl: an assignment's target, a compound assignment's, an increment's
+// or decrement's, one of an assignment of several values, or a mut
+// argument, which a call may assign through, with the call. It returns
+// nil when there is none.
+func (c *Checker) assignment(region []ast.Node, decl ast.Decl) (ast.Expr, *ast.Call) {
 	var found ast.Expr
 	var by *ast.Call
 	visit := func(n ast.Node) bool {
@@ -798,8 +841,8 @@ func (c *Checker) assignment(region []ast.Stmt, decl ast.Decl) (ast.Expr, *ast.C
 		}
 		return found == nil
 	}
-	for _, stmt := range region {
-		if ast.Walk(stmt, visit); found != nil {
+	for _, n := range region {
+		if ast.Walk(n, visit); found != nil {
 			return found, by
 		}
 	}
@@ -914,6 +957,44 @@ func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 		return c.switchAfterFactsBy(s, false)
 	default:
 		return nil, nil
+	}
+}
+
+// fallsThrough returns what of stmt, an if or a switch that gives the
+// statements after it facts as an early exit (see afterFacts), runs after
+// its condition is known and before those statements: the branch of an if
+// that does not leave; and of a switch whose first case leaves, every
+// later case's values, tried in turn, and every later body that does not
+// leave, or, when the rest of the chain leaves, the first case's body.
+// The region the facts hold in starts with it. A branch that leaves never
+// reaches the statements after, so what it assigns does not matter there.
+func fallsThrough(stmt ast.Stmt) []ast.Node {
+	switch s := stmt.(type) {
+	case *ast.If:
+		if leaves(s.Then) {
+			return stmtNodes(s.Else)
+		}
+		return stmtNodes(s.Then)
+	case *ast.Switch:
+		order := tryOrder(s)
+		if len(order) == 0 {
+			return nil
+		}
+		if !leaves(order[0].Body) {
+			return stmtNodes(order[0].Body)
+		}
+		var nodes []ast.Node
+		for _, cl := range order[1:] {
+			for _, v := range cl.Values {
+				nodes = append(nodes, v)
+			}
+			if !leaves(cl.Body) {
+				nodes = append(nodes, stmtNodes(cl.Body)...)
+			}
+		}
+		return nodes
+	default:
+		return nil
 	}
 }
 

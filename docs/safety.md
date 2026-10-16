@@ -1,5 +1,8 @@
 # Safety rules
 
+These rules serve Tack's four guarantees, set out in
+[guarantees.md](guarantees.md).
+
 Some operations can fail: a division by zero, an index out of range, a
 conversion to a type that cannot hold the value. Tack has no runtime error
 for any of them. The compiler accepts such an operation only in one of two
@@ -302,7 +305,8 @@ starts from. A loop counts when
   when counting up (`i < n`, `i <= n`, `n > i`, `i < len(s)`), below when
   counting down (`i >= 0`), and the step from that bound cannot wrap past
   the end of the variable's type;
-- its body never assigns the variable, as for any fact.
+- its body never assigns the variable, as for any fact, and neither does
+  its condition, which runs again before every pass.
 
 The body then knows that `i` is at least `c` counting up, or at most `c`
 counting down, along with what the condition says:
@@ -327,7 +331,8 @@ func reversed(a [3]int64) int64 {
 ```
 
 The fact holds in the body only: not in the condition, the post, or after
-the loop. A body that assigns the variable gets no fact about it, so
+the loop. A body or a condition that assigns the variable gets no fact
+about it, so
 in <!-- case: safety-counting-loop-assigns -->`for mut i := 0; i < 3; i++ { sum += a[i]; i++ }`
 `a[i]` needs a proof. Nor does a step that could wrap: an `int8` at 2
 plus 126 is -128, which is below 3 again,
@@ -397,7 +402,44 @@ about it holds in a region that never assigns it.
 
 The region is the branch for an `if`, the body for a loop (a three-clause
 loop's post statement is not part of it), and the rest of the block for an
-early exit. A fact that names a string through `len(s)` also needs the
+early exit. It also takes in whatever of the condition still runs after
+the comparison that gave the fact, so a call later in the same condition
+ends it:
+
+<!-- case: cond-write-and-ends-fact -->
+```tack
+mut l := six()
+if len(l) > 5 && shrink(mut l) {
+    use(l[5])
+}
+```
+
+reports <!-- error: cond-write-and-ends-fact -->`index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]`,
+with <!-- note: cond-write-and-ends-fact -->`but l is passed as mut to shrink here, so the proof ends`.
+The same holds on the right of `&&` or `||` inside the condition, as
+in <!-- case: cond-write-and-chain -->`len(l) > 0 && shrink(mut l) && l[0] == 0`,
+and after an early exit whose condition writes on the
+right: <!-- case: cond-write-or-early-exit -->`if len(l) <= 5 || shrink(mut l) { return }`
+proves nothing about `l` after it. A call on the left runs before the
+comparison, so `shrink(mut l) && len(l) > 5` still proves `len(l) > 5`.
+After an early exit the region starts with the branch that does not
+leave: <!-- case: cond-write-else-falls-through -->`if len(l) <= 5 { return } else { shrink(mut l) }`
+proves nothing after it, while a write in the branch that leaves never
+matters. A `switch` is the chain of ifs it stands for: a case's values are
+tried in turn, so a later value, and a later case's values, are in the
+region of what an earlier one not matching
+proves: <!-- case: cond-write-case-later-value -->`case len(l) <= 5: return` then
+`case shrink(mut l): use(l[5])` reports the index. A switch's tag is
+evaluated once, before any value, and compared as it was then, so what a
+case proves about the tag's variable also needs every value tried up to
+that case to leave it
+unassigned: <!-- case: cond-write-tag-switch-earlier-value -->`switch d { case five(mut d): ... case 0: return; default: use(100 / d) }`
+reports the division. A counting loop's
+start holds only while its condition assigns nothing
+either: <!-- case: cond-write-counting-loop -->`for mut i := 0; neg(mut i) && i < 3; i++ { use(a[i]) }`
+proves only `i < 3`.
+
+A fact that names a string through `len(s)` also needs the
 region to leave `s` unassigned; `s` may be `mut` as long as the region does
 not change it. Assigning a whole array does not affect proofs about its
 indexes, since its length cannot change.

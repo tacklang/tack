@@ -1336,6 +1336,30 @@ func TestBuiltStructsExits133(t *testing.T) {
 	}
 }
 
+// The condition-writes example writes a variable in a condition, or in a
+// branch beside an early exit, where the proof the condition gives still
+// holds: before the comparison that proves it, after the use it guards,
+// or in a branch or case that leaves. Each check prints its name and
+// "ok", or "FAIL".
+func TestBuiltConditionWritesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "condition-writes")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("condition-writes exited with %v, want status 0", err)
+	}
+	want := "written before && proves ok\n" +
+		"written before || proves ok\n" +
+		"written after the use ok\n" +
+		"branch that leaves not taken ok\n" +
+		"branch that leaves taken ok\n" +
+		"case that leaves not taken ok\n" +
+		"case that leaves taken ok\n" +
+		"loop condition writes then proves ok\n"
+	if string(out) != want {
+		t.Errorf("condition-writes printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The field-facts example guards fields of immutable variables and
 // parameters and uses them as proven divisors and indexes: a field, an
 // index after an early exit, a field of a field, elements of an array
