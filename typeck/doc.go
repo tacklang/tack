@@ -29,7 +29,8 @@
 // identifier, not a C keyword, not main, and, outside the standard
 // library, whose packages' paths are std or start std/, not start tack_.
 // Every type can cross to C but a list, or a struct or array holding one,
-// which crosses only as a mut parameter or a view. A body that checked
+// which crosses only as a mut parameter or a view, and not even so when
+// its elements hold lists. A body that checked
 // without an error has its moves checked next (move.go). Before the bodies, every extern func of the
 // program whose C name an earlier one has is reported, with a note there. Resolving every signature first is what lets
 // a call check against a callee declared later in the file, or in a file
@@ -503,12 +504,22 @@
 // append grows one passed as mut, by any number of values or a spread
 // view as a variadic takes them, reserve makes room in one passed as mut
 // for a count that is not a negative constant, each returning an error
-// that cannot be dropped, and a list reads as a view does, len with a string variable's
+// that cannot be dropped, pop and remove take an element out of one
+// passed as mut, the plain form with a proof that it is there, the
+// checked form, x, ok := pop(mut l), with none, its x held by its ok when
+// the element type has no zero value, as a result is by the error beside
+// it (errors.go), and a list reads as a view does, len with a string variable's
 // facts, a proven or checked index, range, slicing to a view and passing
 // whole to a view parameter, and can have its elements written when it is
-// mutable. Its elements are copyable, as an array's, a view's and a
-// variadic's must be: no list, and no struct holding one, a check put off
-// for a struct's field until every struct's fields are known. A list, an
+// mutable. Its elements may be owned, as a view's may, and are then read
+// in place and never copied out: the checked form of an index, which
+// copies, is reported, and move.go reports a move of one out of its list,
+// a spread of them, and a change to the list, or any element of it, while
+// a range binds one in place (rangeBindings). An array's and a
+// variadic's elements are copyable: no list, and no struct holding one,
+// a check put off for a struct's field until every struct's fields are
+// known. No type holds itself through a list, which the cycle check
+// reports with the cycles by value. A list, an
 // Allocator, and anything holding either, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable

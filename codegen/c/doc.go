@@ -39,7 +39,8 @@
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array, a struct or a union, then an equality helper for
 //     every array, struct and union type == compares, then a free helper
-//     for every union type that holds a list;
+//     for every union type that holds a list and every list type whose
+//     elements are owned;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named tack_str0, tack_str1, and so on;
 //   - a prototype for each builtin extern func the program calls, only if
@@ -337,14 +338,23 @@
 // length, before writing anything; either is turned into no error, or
 // into code 1 and the pooled message "out of memory". reserve is std's
 // TACK_LIST_RESERVE, after a count that is not a constant is tested for
-// being negative, code 2 and the pooled message "negative count". An element, a length, a
+// being negative, code 2 and the pooled message "negative count". An append
+// of owned values holds each in a temporary first, and frees them, last
+// first, when the buffer cannot grow. pop is std's TACK_LIST_POP and
+// remove its TACK_LIST_REMOVE, each on the address of the list's place;
+// their checked forms hold that address, remove's index and whether the
+// list has the element in temporaries, and take the element only when it
+// does, giving the element type's zero value otherwise. An element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in
-// place. A variable of an owned type, a list or a struct holding one, is
+// place; a range's variable bound to an owned element is a pointer to it,
+// read as (*v_x). A variable of an owned type, a list or a struct holding one, is
 // never const; its declaration adds a free to its block's cleanup chain,
 // lowered like a defer, so frees and defers interleave by position and
 // run at every exit; a free is a call to std's tack_list_free_ per list,
-// a struct's last field first. Assigning one computes the new value into a
+// a struct's last field first, or, for a list whose elements are owned,
+// to its tack_free_, which frees each element, last first, then the
+// buffer. Assigning one, an element of a list included, computes the new value into a
 // temporary, frees the old one, then stores the new one. A name the
 // checker marked as moving its variable's value empties the variable
 // through a temporary, so a later free of it does nothing, which is what

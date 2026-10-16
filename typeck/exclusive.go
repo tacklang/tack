@@ -226,7 +226,8 @@ func (known interval) single() bool {
 // never copied for a call, since copying one would allocate, and then
 // growing it through the mut argument could free the buffer the borrow
 // reads. Places overlap as codegen/c's mayOverlap says: two different
-// fields never do, and two elements always may.
+// fields never do, and two elements always may. A value append adds is
+// no borrow: it is copied, or moved, out of the place it is read from.
 func (c *Checker) checkListBorrows(call *ast.Call) {
 	var muts []*ast.MutArg
 	for _, arg := range call.Operands() {
@@ -240,7 +241,10 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 	if len(muts) == 0 {
 		return
 	}
-	for _, arg := range call.Operands() {
+	for i, arg := range call.Operands() {
+		if appendedValue(call, i) {
+			continue
+		}
 		place := c.borrowedList(arg)
 		if place == nil {
 			continue
@@ -261,6 +265,14 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 			}
 		}
 	}
+}
+
+// appendedValue reports whether the operand at i of call is a value a call
+// to append adds, not a spread, which is copied, or moved when it is
+// owned, and so no borrow: a move out of a list's element is reported as
+// one (see move.go).
+func appendedValue(call *ast.Call, i int) bool {
+	return isAppend(call) && !call.Spread && i > 0
 }
 
 // borrowedList returns the place arg reads a list from in place, when it

@@ -135,7 +135,7 @@ func TestGenericBuiltinsAreDocumented(t *testing.T) {
 // resolver can bind a call to it.
 func TestNamesListsEveryBuiltin(t *testing.T) {
 	names := " " + strings.Join(stdtest.Builtins(t).Names(), " ") + " "
-	for _, want := range []string{"print", "exit", "len", "make", "append", "reserve"} {
+	for _, want := range []string{"print", "exit", "len", "make", "append", "reserve", "pop", "remove"} {
 		if !strings.Contains(names, " "+want+" ") {
 			t.Errorf("Names() = %q, missing %s", names, want)
 		}
@@ -143,13 +143,13 @@ func TestNamesListsEveryBuiltin(t *testing.T) {
 }
 
 // Names that are not builtins are not found: near misses, other languages'
-// spellings, Go's builtins Tack does not have, and len, make, append and
-// reserve, which are generic.
+// spellings, Go's builtins Tack does not have, and len, make, append,
+// reserve, pop and remove, which are generic.
 func TestLookupRejectsNamesThatAreNotBuiltins(t *testing.T) {
 	set := stdtest.Builtins(t)
 	for _, name := range []string{
 		"", "Print", "PRINT", "println", "printf", " print", "exit ", "Exit", "len", "make", "append",
-		"reserve", "panic", "main", "tack_builtin_print",
+		"reserve", "pop", "remove", "panic", "main", "tack_builtin_print",
 	} {
 		if got, ok := set.Lookup(name); ok {
 			t.Errorf("Lookup(%q) = %+v, true, want not found", name, got)
@@ -167,8 +167,8 @@ func TestNilSetIsEmpty(t *testing.T) {
 	if _, ok := set.Lookup("print"); ok {
 		t.Error("nil Set looks up print")
 	}
-	if got := strings.Join(set.Names(), " "); got != "len make append reserve" {
-		t.Errorf("nil Set's Names() = %q, want len make append reserve", got)
+	if got := strings.Join(set.Names(), " "); got != "len make append reserve pop remove" {
+		t.Errorf("nil Set's Names() = %q, want len make append reserve pop remove", got)
 	}
 }
 
@@ -361,6 +361,14 @@ var rejected = []struct {
 	{
 		"reserve", "package builtin\n\nextern(\"tack_reserve\") func reserve(n int64)\n",
 		[]string{"builtin reserve cannot be declared: the compiler implements reserve itself"},
+	},
+	{
+		"pop", "package builtin\n\nextern(\"tack_pop\") func pop(n int64)\n",
+		[]string{"builtin pop cannot be declared: the compiler implements pop itself"},
+	},
+	{
+		"remove", "package builtin\n\nextern(\"tack_remove\") func remove(n int64)\n",
+		[]string{"builtin remove cannot be declared: the compiler implements remove itself"},
 	},
 	{
 		"main", "package builtin\n\nextern(\"tack_main\") func main()\n",

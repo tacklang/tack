@@ -182,11 +182,18 @@ func mutated(body []ast.Stmt) map[ast.Decl]bool {
 	return found
 }
 
+// changesList reports whether call calls append, pop or remove, the
+// builtins that change a list's length.
+func changesList(call *ast.Call) bool {
+	return isBuiltin(call, "append") || isBuiltin(call, "pop") || isBuiltin(call, "remove")
+}
+
 // callsFunc reports whether evaluating e calls a Tack function, a method
-// included, or append, which grows a list and so changes what reading it gives. Any
-// other builtin in an expression is len or make, which have no effect, or
-// reserve, whose effect, a larger or moved buffer, changes nothing a read
-// of the list gives, and a conversion is not a call.
+// included, or append, pop or remove, which grow or shrink a list and so
+// change what reading it gives. Any other builtin in an expression is len
+// or make, which have no effect, or reserve, whose effect, a larger or
+// moved buffer, changes nothing a read of the list gives, and a
+// conversion is not a call.
 func callsFunc(e ast.Expr) bool {
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {
@@ -195,8 +202,7 @@ func callsFunc(e ast.Expr) bool {
 				found = true
 			}
 			if id, isName := call.Fn.(*ast.Ident); isName {
-				if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil ||
-					isBuiltin(call, "append") {
+				if fn, isFunc := id.Def.(*ast.Func); isFunc && fn != nil || changesList(call) {
 					found = true
 				}
 			}

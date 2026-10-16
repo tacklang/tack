@@ -56,10 +56,11 @@
 // Each builtin is a Func: a name, the types of its parameters, and its C
 // name. No builtin returns a value, so a Func has no result.
 //
-// len, make, append and reserve are builtins too, but generic: len takes
-// any array, view, list or string, make a list type, append any list and
-// any number of values of its element type, or a view of them spread, and
-// reserve any list and a count, which no Tack declaration can describe, so
+// len, make, append, reserve, pop and remove are builtins too, but
+// generic: len takes any array, view, list or string, make a list type,
+// append any list and any number of values of its element type, or a
+// view of them spread, reserve any list and a count, pop any list, and
+// remove any list and an index, which no Tack declaration can describe, so
 // they are not in std/builtin but part of the compiler, listed apart, and
 // the type checker checks each itself. A list's C, the grow and free
 // functions and c_allocator's, is std/builtin's all the same, in list.c,

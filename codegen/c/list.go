@@ -31,7 +31,10 @@ import (
 // A list is freed by tack_list_free_, std's, given its buffer, capacity,
 // element size and alignment and allocator; it does nothing for a null
 // buffer. A struct holding lists frees each, last field first, at any
-// depth. A local of an owned type is freed when its block ends, by an
+// depth, and a list whose elements are owned frees each element it holds,
+// last first, through a tack_free_ of its own (see emitListFree), before
+// its buffer. pop and remove take an element out, so the list no longer
+// frees it, through std's TACK_LIST_POP and TACK_LIST_REMOVE. A local of an owned type is freed when its block ends, by an
 // entry its declaration adds to the block's cleanup chain, beside its
 // defers (see defer.go): so frees and defers run last first, by position,
 // at every exit from the block, and at the end of every iteration of a
@@ -159,12 +162,59 @@ func (g *generator) appendValue(call *ast.Call) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	elem := g.prog.Types.Elem(ast.TypeOf(m.X))
+	if g.owned(elem) && len(call.Args) > 1 {
+		return g.appendOwned(call, elem, rendered), nil
+	}
 	build := func(ops []string) string {
 		return g.appendBuild(call, elem, ops)
 	}
 	return fmt.Sprintf("(%s ? %s : %s)",
 		g.sequencedAs(call.Args, rendered, ctypes, build),
 		g.zeroValue(types.Error), g.listError(outOfMemoryCode, outOfMemory)), nil
+}
+
+// appendOwned renders err := append(mut l, a, b) onto a list of the owned
+// type elem, whose operands are rendered as rendered: the list's address,
+// then each value, each moved, which a spread never is. Each value is
+// held in a temporary of its own, in order after the list's address, so
+// that when the buffer cannot grow, the values, which no variable holds
+// any longer, are freed, last first, as a list's elements are, before the
+// error is given:
+//
+//	(tack_o1 = &v_l, tack_o2 = <a>, TACK_LIST_APPEND(tack_o1, tack_o2)
+//	    ? noerror : (tack_free_9(tack_o2), <out of memory>))
+func (g *generator) appendOwned(call *ast.Call, elem types.Type, rendered []string) string {
+	ctype := g.cType(elem)
+	lp := rendered[0]
+	steps := make([]string, 0, len(rendered))
+	if !g.pure(call.Args[0]) {
+		t := g.temp("o")
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.operandType(call.Args[0]), t))
+		steps = append(steps, fmt.Sprintf("%s = %s", t, lp))
+		lp = t
+	}
+	values := make([]string, 0, len(rendered)-1)
+	for _, v := range rendered[1:] {
+		t := g.temp("o")
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", ctype, t))
+		steps = append(steps, fmt.Sprintf("%s = %s", t, v))
+		values = append(values, t)
+	}
+	grow := fmt.Sprintf("TACK_LIST_APPEND(%s, %s)", lp, values[0])
+	if len(values) > 1 {
+		grow = fmt.Sprintf("TACK_LIST_APPEND_N(%s, ((const %s[%d]){%s}), %d)",
+			lp, ctype, len(values), strings.Join(values, ", "), len(values))
+	}
+	var frees []string
+	for i := len(values) - 1; i >= 0; i-- {
+		for _, line := range g.frees(elem, values[i]) {
+			frees = append(frees, strings.TrimSuffix(line, ";"))
+		}
+	}
+	frees = append(frees, g.listError(outOfMemoryCode, outOfMemory))
+	steps = append(steps,
+		fmt.Sprintf("(%s ? %s : (%s))", grow, g.zeroValue(types.Error), strings.Join(frees, ", ")))
+	return "(" + strings.Join(steps, ", ") + ")"
 }
 
 // appendOperands renders the arguments of call, a call to append whose
@@ -271,6 +321,93 @@ func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
 		[]string{g.operandType(m), "int64_t"}, build), nil
 }
 
+// popValue renders x := pop(mut l), the plain form, as std's
+// TACK_LIST_POP on the address of l's place: the last element, which it
+// takes out of the list. The checker has proven the list holds one.
+func (g *generator) popValue(call *ast.Call) (string, []diag.Diagnostic) {
+	lp, diags := g.takeList(call)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return fmt.Sprintf("TACK_LIST_POP(%s)", lp), nil
+}
+
+// removeValue renders x := remove(mut l, i), the plain form, as std's
+// TACK_LIST_REMOVE on the address of l's place and i, an int64: element
+// i, which it takes out of the list, moving the rest down. The checker
+// has proven i in range. The macro evaluates the place first, then i.
+func (g *generator) removeValue(call *ast.Call) (string, []diag.Diagnostic) {
+	lp, diags := g.takeList(call)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	i, diags := g.expr(call.Args[1], types.Int64)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return fmt.Sprintf("TACK_LIST_REMOVE(%s, %s)", lp, i), nil
+}
+
+// takeList renders the address of the list call, a call to pop or
+// remove, takes an element of, its first argument, a mut argument.
+func (g *generator) takeList(call *ast.Call) (string, []diag.Diagnostic) {
+	m, ok := call.Args[0].(*ast.MutArg)
+	if !ok {
+		id, _ := call.Fn.(*ast.Ident)
+		return "", []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  id.Name + "'s list must be passed as mut",
+			Span:     call.Args[0].Spanned(),
+		}}
+	}
+	return g.mutArg(m)
+}
+
+// takeValues lowers x, ok := pop(mut l) or x, ok := remove(mut l, i), the
+// checked form: the list's address is held in a temporary, then remove's
+// index, as an int64, then whether the list holds what is taken, which
+// is read before anything changes, then the element, taken only when it
+// does, and the element type's zero value otherwise, which, for a type
+// with none, holds nothing to free and is never read:
+//
+//	tack_list_9 *const tack_r0 = &v_l;
+//	const bool tack_r1 = tack_r0->len > 0;
+//	const int64_t tack_r2 = tack_r1 ? TACK_LIST_POP(tack_r0) : 0;
+func (g *generator) takeValues(call *ast.Call) (multiSource, []diag.Diagnostic) {
+	lp, diags := g.takeList(call)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	m, _ := call.Args[0].(*ast.MutArg)
+	elem, zero := g.cType(call.Type), g.zeroValue(call.Type)
+	src := multiSource{temps: []multiTemp{{typ: g.cType(ast.TypeOf(m.X)), init: lp, mut: true}}}
+	if isBuiltin(call, "pop") {
+		src.temps = append(src.temps,
+			multiTemp{typ: "bool", initFrom: func(r []string) string {
+				return r[0] + "->len > 0"
+			}},
+			multiTemp{typ: elem, initFrom: func(r []string) string {
+				return fmt.Sprintf("%s ? TACK_LIST_POP(%s) : %s", r[1], r[0], zero)
+			}})
+		src.field = func(tmps []string, i int) string { return tmps[2-i] }
+		return src, nil
+	}
+	i, diags := g.expr(call.Args[1], types.Int64)
+	if len(diags) > 0 {
+		return multiSource{}, diags
+	}
+	src.temps = append(src.temps,
+		multiTemp{typ: "int64_t", init: i},
+		multiTemp{typ: "bool", initFrom: func(r []string) string {
+			return fmt.Sprintf("%s >= 0 && %s < %s->len", r[1], r[1], r[0])
+		}},
+		multiTemp{typ: elem, initFrom: func(r []string) string {
+			return fmt.Sprintf("%s ? TACK_LIST_REMOVE(%s, %s) : %s", r[2], r[0], r[1], zero)
+		}})
+	src.field = func(tmps []string, i int) string { return tmps[3-i] }
+	return src, nil
+}
+
 // moveValue renders a name the type checker marked as moved, whose
 // variable or field place is ref, as its value taken through a temporary,
 // with the variable emptied: (tack_o3 = ref, ref = (T){0}, tack_o3). In
@@ -291,13 +428,14 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 
 // frees returns the C statements, each ending in a semicolon, that free
 // the value of the owned type typ held at the place ref: a list's buffer,
-// through its allocator, each list a struct holds, last field first, at
-// any depth, or what the case a union holds holds, through its tack_free_
-// (see union.go). Each is a call, an expression, so they can be joined into
-// a loop's post statement.
+// through its allocator, after each element it holds when they are owned,
+// through the list's tack_free_ (see emitListFree), each list a struct
+// holds, last field first, at any depth, or what the case a union holds
+// holds, through its tack_free_ (see union.go). Each is a call, an
+// expression, so they can be joined into a loop's post statement.
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
-	if table.IsUnion(typ) {
+	if table.IsUnion(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
 		return []string{fmt.Sprintf("%s(%s);", freeName(typ), ref)}
 	}
 	if table.IsList(typ) {
@@ -315,6 +453,36 @@ func (g *generator) frees(typ types.Type, ref string) []string {
 		}
 	}
 	return lines
+}
+
+// emitListFree writes tack_free_ for the list type typ, whose elements are
+// owned: it frees each element the list holds, last first, as a struct's
+// fields are freed last first, then the buffer. An element popped or
+// removed is past the list's length, or moved down over, so it is never
+// freed here; a moved list is zeroed, its length 0 and its buffer null,
+// so freeing it does nothing.
+//
+//	static void tack_free_9(tack_list_9 v) {
+//	    for (int64_t i = v.len; i > 0; i--) {
+//	        tack_list_free_(v.ptr[i - 1].ptr, ...);
+//	    }
+//	    tack_list_free_(v.ptr, v.cap, sizeof (tack_list_8), _Alignof (tack_list_8), v.alloc);
+//	}
+func (g *generator) emitListFree(typ types.Type) {
+	table := g.prog.Types
+	elem := table.Elem(typ)
+	fmt.Fprintf(&g.buf, "static void %s(%s v) {\n", freeName(typ), listName(typ))
+	g.buf.WriteString("    for (int64_t i = v.len; i > 0; i--) {\n")
+	for _, line := range g.frees(elem, "v.ptr[i - 1]") {
+		fmt.Fprintf(&g.buf, "        %s\n", line)
+	}
+	ctype := g.cType(elem)
+	fmt.Fprintf(
+		&g.buf,
+		"    }\n    tack_list_free_(v.ptr, v.cap, sizeof (%s), _Alignof (%s), v.alloc);\n}\n\n",
+		ctype,
+		ctype,
+	)
 }
 
 // ownedAssign renders an assignment of value, already rendered, to target,

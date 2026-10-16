@@ -408,4 +408,33 @@ void tack_c_allocator_fail_after_(int64_t n);
     tack_aok_; \
 })
 
+// TACK_LIST_POP(lp) is the last element of the list lp points to, which
+// it takes out of the list, leaving it one element shorter. The list
+// must not be empty: C must check TACK_LIST_LEN first, as Tack proves it
+// or checks it. lp is evaluated once. Nothing is copied, allocated or
+// freed: an element that holds a list is its taker's from then on, and
+// no longer the list's to free.
+#define TACK_LIST_POP(lp) __extension__ ({ \
+    __typeof__(lp) tack_plp_ = (lp); \
+    tack_plp_->ptr[--tack_plp_->len]; \
+})
+
+// TACK_LIST_REMOVE(lp, i) is element i of the list lp points to, an
+// int64_t, which it takes out of the list, moving every element after it
+// down one place, so the rest keep their order and the list is one
+// element shorter. i must be at least 0 and below the list's length: C
+// must check it first, as Tack proves it or checks it. lp and i are each
+// evaluated once, lp first. Like TACK_LIST_POP, it allocates and frees
+// nothing, and the element taken is its taker's from then on.
+#define TACK_LIST_REMOVE(lp, i) __extension__ ({ \
+    __typeof__(lp) tack_xlp_ = (lp); \
+    int64_t tack_xi_ = (i); \
+    __typeof__(*tack_xlp_->ptr) tack_xv_ = tack_xlp_->ptr[tack_xi_]; \
+    for (int64_t tack_xj_ = tack_xi_ + 1; tack_xj_ < tack_xlp_->len; tack_xj_++) { \
+        tack_xlp_->ptr[tack_xj_ - 1] = tack_xlp_->ptr[tack_xj_]; \
+    } \
+    tack_xlp_->len--; \
+    tack_xv_; \
+})
+
 #endif

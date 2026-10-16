@@ -46,11 +46,15 @@ import (
 // holding is what one function's bindings of errors tie together: for
 // each variable bound beside an error, the error variables that hold it,
 // and for each error variable, the variables it holds, each in source
-// order, and for each pair, the first binding that tied them.
+// order, and for each pair, the first binding that tied them. The ok of
+// a checked pop or remove holds the element bound beside it in the same
+// way, when its type has no zero value (see okHeld): oks holds each such
+// ok variable, for the name of the builtin that bound it.
 type holding struct {
 	heldBy map[ast.Decl][]ast.Decl
 	holds  map[ast.Decl][]ast.Decl
 	first  map[tie]ast.Span
+	oks    map[ast.Decl]string
 }
 
 // tie is an error variable, err, and a variable it holds, v.
@@ -85,6 +89,52 @@ func (c *Checker) errorCall(value ast.Expr, want int) (string, bool) {
 		return "", false
 	}
 	return c.calleeName(call)
+}
+
+// holderCall returns the name, as calleeName gives it, of what value
+// calls, when a binding of want names to it ties its last name to the
+// others: a call to a function or a method whose last result is an error,
+// and which returns want results, or a checked pop or remove, two names,
+// whose ok holds the element (see okHeld), which isOk says.
+func (c *Checker) holderCall(value ast.Expr, want int) (name string, isOk, ok bool) {
+	if name, ok := c.errorCall(value, want); ok {
+		return name, false, true
+	}
+	call, isCall := value.(*ast.Call)
+	if !isCall || want != 2 || !isTake(call) {
+		return "", false, false
+	}
+	id, _ := call.Fn.(*ast.Ident)
+	return id.Name, true, true
+}
+
+// okHeld reports whether v, a variable bound beside the ok of a checked
+// pop or remove, is held by it: v's type has no zero value, so when ok is
+// false v holds nothing it could be read as, and v cannot be read until
+// ok is checked true. One of a type with a zero value holds it then, and
+// is read freely.
+func (c *Checker) okHeld(v ast.Decl) bool {
+	switch d := v.(type) {
+	case *ast.Var:
+		return d.Type != types.Invalid && !c.table.HasZero(d.Type)
+	default:
+		return false
+	}
+}
+
+// heldVars returns the variables of held that holder holds now: all of
+// them for an error, and for an ok, those okHeld says it holds.
+func (c *Checker) heldVars(holder ast.Decl, held []ast.Decl) []ast.Decl {
+	if c.holding.oks[holder] == "" {
+		return held
+	}
+	var out []ast.Decl
+	for _, v := range held {
+		if c.okHeld(v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // checkErrorLast reports every result of fn before its last that is an
@@ -135,12 +185,42 @@ func (c *Checker) droppedError(e ast.Expr) {
 // last of the binding's targets, blank saying which are _ and spans where
 // each is written, is _.
 func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Span) {
-	name, ok := c.errorCall(value, len(blank))
-	if !ok || !blank[len(blank)-1] {
-		return
+	name, isOk, ok := c.holderCall(value, len(blank))
+	switch {
+	case !ok:
+	case isOk:
+		c.checkOkBinding(value.(*ast.Call), name, blank, spans)
+	case blank[len(blank)-1]:
+		c.errorf(spans[len(spans)-1],
+			"the error %s returns cannot be dropped; bind it to a variable instead of _", name)
 	}
-	c.errorf(spans[len(spans)-1],
-		"the error %s returns cannot be dropped; bind it to a variable instead of _", name)
+}
+
+// checkOkBinding reports a checked pop or remove, call, calling name,
+// whose binding, blank saying which names are _ and spans where each is
+// written, drops what it should not: an owned element, bound to _, which
+// nothing would free; or an ok that holds the element bound beside it
+// (see okHeld), which, bound to _, would leave the element never to be
+// read.
+func (c *Checker) checkOkBinding(call *ast.Call, name string, blank []bool, spans []ast.Span) {
+	elem := ast.TypeOf(call)
+	switch {
+	case blank[0] && c.table.Owned(elem):
+		c.errorf(
+			spans[0],
+			"%s returns %s; bind it to a variable instead of _",
+			name,
+			c.droppedName(elem),
+		)
+	case !blank[0] && blank[1] && !c.table.HasZero(elem):
+		c.errorf(
+			spans[1],
+			"the ok %s returns cannot be dropped: %s cannot be read until it is checked; "+
+				"bind it to a variable instead of _",
+			name,
+			c.text(spans[0]),
+		)
+	}
 }
 
 // checkErrorTargets checks the targets of m, an assignment of several
@@ -149,17 +229,16 @@ func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Sp
 // local variables, so the error's check can be tracked, and only after it
 // the others read.
 func (c *Checker) checkErrorTargets(m *ast.MultiAssign) {
-	name, ok := c.errorCall(m.Value, len(m.Targets))
+	name, isOk, ok := c.holderCall(m.Value, len(m.Targets))
 	if !ok {
 		return
 	}
-	last := len(m.Targets) - 1
-	var beside []string
-	for _, target := range m.Targets[:last] {
-		if !ast.IsBlank(target) {
-			beside = append(beside, c.text(target.Spanned()))
-		}
+	if isOk {
+		c.checkOkTargets(m, name)
+		return
 	}
+	last := len(m.Targets) - 1
+	beside := c.besideNames(m.Targets[:last])
 	if len(beside) == 0 {
 		return
 	}
@@ -172,6 +251,41 @@ func (c *Checker) checkErrorTargets(m *ast.MultiAssign) {
 	if errTarget := m.Targets[last]; !ast.IsBlank(errTarget) && !c.isLocal(errTarget) {
 		c.errorf(errTarget.Spanned(), "%s cannot take the error of %s beside %s; "+
 			"bind it to a local variable", c.text(errTarget.Spanned()), name, strings.Join(beside, ", "))
+	}
+}
+
+// besideNames returns how each of targets that is not _ is written.
+func (c *Checker) besideNames(targets []ast.Expr) []string {
+	var names []string
+	for _, target := range targets {
+		if !ast.IsBlank(target) {
+			names = append(names, c.text(target.Spanned()))
+		}
+	}
+	return names
+}
+
+// checkOkTargets checks the targets of m, an assignment of a checked pop
+// or remove, calling name, whose element has no zero value: the element
+// and the ok must go to local variables, so the ok's check can be
+// tracked, and only after it the element read, as an error's must.
+func (c *Checker) checkOkTargets(m *ast.MultiAssign, name string) {
+	elem, okTarget := m.Targets[0], m.Targets[1]
+	if ast.IsBlank(elem) || c.table.HasZero(ast.TypeOf(m.Value)) {
+		return
+	}
+	if !c.isLocal(elem) {
+		c.errorf(elem.Spanned(), "%s cannot take the element %s gives beside its ok; "+
+			"bind it to a local variable", c.text(elem.Spanned()), name)
+	}
+	if !ast.IsBlank(okTarget) && !c.isLocal(okTarget) {
+		c.errorf(
+			okTarget.Spanned(),
+			"%s cannot take the ok of %s beside %s; bind it to a local variable",
+			c.text(okTarget.Spanned()),
+			name,
+			c.text(elem.Spanned()),
+		)
 	}
 }
 
@@ -205,6 +319,7 @@ func (c *Checker) collectHolds(fn *ast.Func) {
 		heldBy: make(map[ast.Decl][]ast.Decl),
 		holds:  make(map[ast.Decl][]ast.Decl),
 		first:  make(map[tie]ast.Span),
+		oks:    make(map[ast.Decl]string),
 	}
 	for _, stmt := range fn.Body {
 		ast.Walk(stmt, func(n ast.Node) bool {
@@ -231,14 +346,21 @@ func (c *Checker) collectHolds(fn *ast.Func) {
 
 // hold records what a binding at span of value to targets, the local
 // variable each result goes to or nil, ties together, when value is a
-// call that returns an error: the error's variable holds every other one.
+// call that returns an error: the error's variable holds every other one;
+// or a checked pop or remove: its ok's variable holds the element's,
+// which is enforced only once the element's type is known to have no zero
+// value (see okHeld).
 func (c *Checker) hold(value ast.Expr, targets []ast.Decl, span ast.Span) {
-	if _, ok := c.errorCall(value, len(targets)); !ok {
+	name, isOk, ok := c.holderCall(value, len(targets))
+	if !ok {
 		return
 	}
 	errDecl := targets[len(targets)-1]
 	if errDecl == nil {
 		return
+	}
+	if isOk {
+		c.holding.oks[errDecl] = name
 	}
 	for _, v := range targets[:len(targets)-1] {
 		if v == nil {
@@ -317,6 +439,21 @@ func (c *Checker) requireChecked(id *ast.Ident) {
 		return
 	}
 	for _, errDecl := range c.holding.heldBy[id.Def] {
+		if c.holding.oks[errDecl] != "" {
+			if !c.okHeld(id.Def) || c.okTrue(errDecl) {
+				continue
+			}
+			name := declName(errDecl)
+			c.errorNotes(
+				id.Span,
+				c.explain(c.okProof(errDecl)),
+				"%s cannot be read before %s is checked; check that %s is true first",
+				id.Name,
+				name,
+				name,
+			)
+			return
+		}
 		if c.noError(errDecl) {
 			continue
 		}
@@ -362,6 +499,55 @@ func (c *Checker) errorProof(errDecl ast.Decl) proof {
 	}
 }
 
+// okTrue reports whether the facts in force prove the bool variable
+// okDecl true: they bound it to 1, as if ok, or !ok leaving, puts it.
+func (c *Checker) okTrue(okDecl ast.Decl) bool {
+	var known interval
+	k := declKey(okDecl)
+	for _, f := range c.active {
+		if f.about == k && f.inForce() {
+			known = known.narrow(f)
+		}
+	}
+	return known.hasLo && known.lo.Cmp(constant.FromInt64(1)) >= 0
+}
+
+// okProof returns the proof that the bool variable okDecl is true, which
+// explain turns into notes: a check whose fact was dropped, with what
+// dropped it, or a guard in force that leaves it false.
+func (c *Checker) okProof(okDecl ast.Decl) proof {
+	name := declName(okDecl)
+	isTrue := func(facts []fact) bool {
+		var known interval
+		for _, f := range facts {
+			known = known.narrow(f)
+		}
+		return known.hasLo && known.lo.Cmp(constant.FromInt64(1)) >= 0
+	}
+	return proof{
+		about:  declKey(okDecl),
+		proven: func() bool { return c.okTrue(okDecl) },
+		claim: func(facts []fact) string {
+			if isTrue(facts) {
+				return name + " is true"
+			}
+			return name + " is false"
+		},
+		weak: func(facts []fact, would bool) []diag.Diagnostic {
+			if len(facts) == 0 {
+				return nil
+			}
+			f := facts[len(facts)-1]
+			msg := f.guard.subject() + " " + verb(
+				"allows",
+				"allow",
+				would,
+			) + " " + name + " to be false"
+			return []diag.Diagnostic{note(f.span(), msg)}
+		},
+	}
+}
+
 // errorWitness returns a code other than 0 that known allows, preferring 1
 // and then -1, or 0 when it allows no other.
 func errorWitness(known interval) constant.Int {
@@ -387,7 +573,7 @@ func (c *Checker) checkErrorAssign(stmt ast.Stmt, target ast.Expr) {
 	if root == nil {
 		return
 	}
-	held := c.holding.holds[root.Def]
+	held := c.heldVars(root.Def, c.holding.holds[root.Def])
 	if len(held) == 0 {
 		return
 	}
@@ -406,7 +592,7 @@ func (c *Checker) checkErrorAssign(stmt ast.Stmt, target ast.Expr) {
 // target is an error variable, does not assign, all of them when its
 // value is not a call that returns an error.
 func (c *Checker) unassigned(m *ast.MultiAssign, held []ast.Decl) []ast.Decl {
-	if _, ok := c.errorCall(m.Value, len(m.Targets)); !ok {
+	if _, _, ok := c.holderCall(m.Value, len(m.Targets)); !ok {
 		return held
 	}
 	var missing []ast.Decl
@@ -429,10 +615,14 @@ func (c *Checker) unassigned(m *ast.MultiAssign, held []ast.Decl) []ast.Decl {
 // without them.
 func (c *Checker) checkErrorMut(m *ast.MutArg) {
 	root := ast.Root(m.X)
-	if root == nil || len(c.holding.holds[root.Def]) == 0 {
+	if root == nil {
 		return
 	}
-	c.heldAssigned(m.Span, root.Def, c.holding.holds[root.Def], "cannot pass "+c.text(m.Span)+": ")
+	held := c.heldVars(root.Def, c.holding.holds[root.Def])
+	if len(held) == 0 {
+		return
+	}
+	c.heldAssigned(m.Span, root.Def, held, "cannot pass "+c.text(m.Span)+": ")
 }
 
 // heldAssigned reports an assignment at span to errDecl, an error variable
@@ -443,12 +633,17 @@ func (c *Checker) heldAssigned(span ast.Span, errDecl ast.Decl, missing []ast.De
 	list := joinAnd(heldNames(missing))
 	notes := []diag.Diagnostic{note(c.holding.first[tie{errDecl, missing[0]}],
 		declName(errDecl)+" is bound beside "+declName(missing[0])+" here")}
+	what := "holds the error that came with"
+	if name := c.holding.oks[errDecl]; name != "" {
+		what = "says whether " + name + " gave"
+	}
 	c.errorNotes(
 		span,
 		notes,
-		"%s%s holds the error that came with %s, so only a binding that also assigns %s can assign it",
+		"%s%s %s %s, so only a binding that also assigns %s can assign it",
 		prefix,
 		declName(errDecl),
+		what,
 		list,
 		list,
 	)

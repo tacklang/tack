@@ -140,7 +140,13 @@ to the caller's list, which C may read and grow during the call (see
 [Lists](#lists)), or as a view of its elements; by value, as a
 parameter or a result, it, or a struct or an array holding one, is an
 error, since a list owns its buffer and passing one to C, or getting one
-back, would move it into or out of code no rule follows.
+back, would move it into or out of code no rule follows. A list or a
+view whose elements hold lists does not cross at all yet, as a `mut`
+parameter, a view, or inside a struct: `parameter l of extern func f
+cannot be list[list[uint8]]: a list or a view whose elements hold lists
+cannot cross to C yet`, or `parameter s of extern func f cannot be S,
+which holds one: ...`, since how C would free or take its elements is
+not settled.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -225,8 +231,9 @@ A name `tack.h` cannot give is an error whatever is built:
   package main cannot be named tack_error in tack.h: that is tack.h's
   error type`. So are `tack_allocator`, `tack.h's allocator type`,
   `TACK_C_ALLOCATOR`, `a tack.h allocator helper`, `TACK_LIST_LEN`,
-  `TACK_LIST_AT`, `TACK_LIST_APPEND`, `TACK_LIST_APPEND_N` and
-  `TACK_LIST_RESERVE`, each `a tack.h list helper`,
+  `TACK_LIST_AT`, `TACK_LIST_APPEND`, `TACK_LIST_APPEND_N`,
+  `TACK_LIST_RESERVE`, `TACK_LIST_POP` and `TACK_LIST_REMOVE`, each `a
+  tack.h list helper`,
   `tack_list_grow_` and `tack_list_free_`, each `a tack.h list
   function`, and `tack_c_allocator_live_` and
   `tack_c_allocator_fail_after_`, each `a tack.h allocator function`:
@@ -349,6 +356,14 @@ std's `<tack/tack.h>` gives C five macros for it:
   values are appended from an array, `const int64_t v[3] = {a, b, c};
   TACK_LIST_APPEND_N(lp, v, 3)`, and a view's elements from its pointer
   and length, `TACK_LIST_APPEND_N(lp, v.ptr, v.len)`.
+- `TACK_LIST_POP(lp)`, the last element of the list `lp` points to,
+  which it takes out, leaving the list one element shorter, and
+  `TACK_LIST_REMOVE(lp, i)`, element `i`, an `int64_t`, which it takes
+  out, moving every element after it down one place, in order. Neither
+  checks anything: C checks `TACK_LIST_LEN(*lp) > 0`, or `0 <= i && i <
+  TACK_LIST_LEN(*lp)`, first. Neither allocates or frees, so the buffer
+  keeps its capacity. Each evaluates `lp` once, and `TACK_LIST_REMOVE`
+  then `i` once, as Tack's `pop` and `remove` do, which lower to them.
 
 Growing goes through `tack_list_grow_`, and a list's owner frees it
 through `tack_list_free_`, both std's, in `std/builtin`'s `list.c`, which

@@ -69,6 +69,29 @@ extern("tack_builtin_exit") func exit(code int32)
 // was. Its error cannot be dropped. It takes a list of any element type,
 // so the compiler implements it itself.
 
+// pop(mut l list[T]) T moves the last element of l out of it and returns
+// it, leaving l one element shorter. Nothing is copied, allocated or
+// freed: the element is moved, so an element holding a list is now its
+// new owner's, never l's. Its plain form, x := pop(mut l), needs len(l) >
+// 0 proven where it is written, as an index's range is proven. Its
+// checked form, x, ok := pop(mut l), may be written anywhere: ok is false
+// for an empty list, which is left as it was, and x is then T's zero
+// value, or, for a T with none, a list, a union, an Allocator or
+// anything holding one, cannot be read until ok is checked true, and
+// holds nothing to free. A result of a T holding a list cannot be dropped, as no such
+// value can. It takes a list of any element type, which no Tack
+// declaration can say, so the compiler implements it itself.
+
+// remove(mut l list[T], i int64) T moves element i of l out of it and
+// returns it, moving every element after it down one place, so the rest
+// keep their order, in time proportional to how many follow it. Like
+// pop it copies, allocates and frees nothing. Its plain form, x :=
+// remove(mut l, i), needs i proven in range for l, as an index does;
+// its checked form, x, ok := remove(mut l, i), may be written anywhere,
+// ok being false for an i out of range, l then left as it was and x as
+// pop's is. It takes a list of any element type, so the compiler
+// implements it itself.
+
 // c_allocator, a keyword, is the Allocator that lowers to C's malloc,
 // realloc and free, the one Allocator there is. Allocator, a builtin
 // type, is an opaque handle on an allocator, which a list holds; it is

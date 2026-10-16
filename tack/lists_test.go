@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -172,4 +173,36 @@ func TestListsWithoutADefinition(t *testing.T) {
 		program(t, "    l := make(list[int64], c_allocator)\n    if len(l) == 0 {\n    }\n"))
 	assertFailure(t, r,
 		"lists have no C definition: no C file in "+dir+" defines tack_list_grow_")
+}
+
+// TestBuiltOwnedListsWritesItsOutput builds examples/owned-lists at every
+// optimization level and checks each binary writes exactly
+// examples/owned-lists/output, every check ok: lists of lists, of structs
+// holding lists and of unions holding lists, nested three deep, read,
+// grown, matched and passed in place, elements replaced, popped and
+// removed at every edge, and appends made to fail part way, with
+// c_allocator's count of live buffers back to zero after each group.
+func TestBuiltOwnedListsWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "owned-lists", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/owned-lists/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "owned-lists")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("owned-lists"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+			}
+		})
+	}
 }

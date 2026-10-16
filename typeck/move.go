@@ -154,7 +154,7 @@ type mover struct {
 
 	loops   []*loopFlow  // the loops enclosing the point, innermost last
 	blocks  []*blockFlow // the blocks enclosing it, innermost last
-	ranging []ast.Expr   // the lists being ranged over around it, innermost last
+	ranging []ranged     // the lists being ranged over around it, innermost last
 
 	// matching holds the places switched on around the point whose
 	// clause binds a payload of them in place, innermost last.
@@ -166,6 +166,14 @@ type mover struct {
 
 	// deferring says whether deferred code is being followed.
 	deferring bool
+}
+
+// ranged is a list a range loop around the point walks, place, and the
+// loop's element variable when it refers to the element in place, an
+// element of an owned type, or nil.
+type ranged struct {
+	place ast.Expr
+	bind  *ast.Var
 }
 
 // matched is a place a switch on a union matches, whose clause being
@@ -298,6 +306,7 @@ func (m *mover) simpleStmt(stmt ast.Stmt, cur *flow) {
 	case *ast.MultiAssign:
 		m.multiAssign(s, cur)
 	case *ast.IncDec:
+		m.rangeChange(s.Target, "assign")
 		m.expr(s.Target, readCtx, cur)
 	case *ast.ExprStmt:
 		m.exprStmt(s.X, cur)
@@ -321,6 +330,7 @@ func (m *mover) multiVar(s *ast.MultiVar, cur *flow) {
 // assignTarget), moving it when it is owned.
 func (m *mover) assign(s *ast.Assign, cur *flow) {
 	if s.Op != ast.InvalidOp {
+		m.rangeChange(s.Target, "assign")
 		m.expr(s.Target, readCtx, cur)
 		m.expr(s.Value, readCtx, cur)
 		return
@@ -404,7 +414,7 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 	for i, typ := range results {
 		if blank[i] && m.c.table.Owned(typ) {
 			m.errorNotes(spans[i], nil, "%s returns %s; bind it to a variable instead of _",
-				name, m.droppedName(typ))
+				name, m.c.droppedName(typ))
 		}
 	}
 }
@@ -412,14 +422,14 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 // droppedName names typ, an owned type, in an error about dropping one,
 // and says it cannot be: a list by its type, and anything holding one by
 // its type and what it holds.
-func (m *mover) droppedName(typ types.Type) string {
-	if m.c.table.IsList(typ) {
-		return m.c.typeName(typ) + ", which cannot be dropped"
+func (c *Checker) droppedName(typ types.Type) string {
+	if c.table.IsList(typ) {
+		return c.typeName(typ) + ", which cannot be dropped"
 	}
-	if m.c.table.IsTypeParam(typ) {
-		return m.c.typeName(typ) + ", which may hold a list and cannot be dropped"
+	if c.table.IsTypeParam(typ) {
+		return c.typeName(typ) + ", which may hold a list and cannot be dropped"
 	}
-	return m.c.typeName(typ) + ", which holds a list and cannot be dropped"
+	return c.typeName(typ) + ", which holds a list and cannot be dropped"
 }
 
 // exprStmt follows e, an expression statement, which drops its value, or
@@ -443,7 +453,7 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 	for _, typ := range results {
 		if m.c.table.Owned(typ) {
 			m.errorNotes(call.Spanned(), nil, "%s returns %s; bind it to a variable",
-				name, m.droppedName(typ))
+				name, m.c.droppedName(typ))
 			return
 		}
 	}
@@ -490,8 +500,8 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 	switch x := e.(type) {
 	case *ast.Ident:
 		m.ident(x, ctx, cur)
-	case *ast.Selector:
-		m.selector(x, ctx, cur)
+	case *ast.Selector, *ast.Index:
+		m.part(x, ctx, cur)
 	case *ast.Call:
 		m.call(x, ctx, cur)
 	case *ast.CompositeLit:
@@ -508,6 +518,16 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 	}
 }
 
+// part follows e, a field or an element read in ctx (see selector and
+// element).
+func (m *mover) part(e ast.Expr, ctx useCtx, cur *flow) {
+	if x, ok := e.(*ast.Selector); ok {
+		m.selector(x, ctx, cur)
+		return
+	}
+	m.element(e.(*ast.Index), ctx, cur)
+}
+
 // selector follows a field read in ctx: moving one on its own is an
 // error, and what it is selected from is read.
 func (m *mover) selector(x *ast.Selector, ctx useCtx, cur *flow) {
@@ -521,6 +541,22 @@ func (m *mover) selector(x *ast.Selector, ctx useCtx, cur *flow) {
 		)
 	}
 	m.expr(x.X, readCtx, cur)
+}
+
+// element follows an element read in ctx: moving one of an owned type
+// out of its list or view is an error, since the list owns it, and what
+// is indexed and the index are read.
+func (m *mover) element(x *ast.Index, ctx useCtx, cur *flow) {
+	if ctx == moveCtx && m.c.table.Owned(x.Type) {
+		holder := "a list; take it out with pop or remove"
+		if m.c.table.IsView(ast.TypeOf(x.X)) {
+			holder = "a view, which only borrows it"
+		}
+		m.errorNotes(x.Span, nil, "cannot move %s out of %s: an element cannot be moved out of %s",
+			m.c.text(x.Span), m.c.text(x.X.Spanned()), holder)
+	}
+	m.expr(x.X, readCtx, cur)
+	m.expr(x.Index, readCtx, cur)
 }
 
 // readParts returns the operands e reads, in the order they are
@@ -584,10 +620,29 @@ func (m *mover) ident(id *ast.Ident, ctx useCtx, cur *flow) {
 
 // movesBinding reports id, a name whose value is moved, when it names a
 // union pattern's binding of an owned type, which refers to its payload in
-// place and so cannot be moved, and returns whether it did.
+// place, or a range loop's element variable that refers to an element in
+// place, and so cannot be moved, and returns whether it did.
 func (m *mover) movesBinding(id *ast.Ident) bool {
 	v, ok := id.Def.(*ast.Var)
-	if !ok || !m.c.unionBindings[v] || !m.c.table.Owned(v.Type) {
+	if !ok || !m.c.table.Owned(v.Type) {
+		return false
+	}
+	if x, inPlace := m.c.rangeBindings[v]; inPlace {
+		holder := "a list"
+		if m.c.table.IsView(ast.TypeOf(x)) {
+			holder = "a view"
+		}
+		m.errorNotes(
+			id.Span,
+			nil,
+			"cannot move %s: it refers to an element of %s in place, and an element cannot be moved out of %s",
+			id.Name,
+			m.c.text(x.Spanned()),
+			holder,
+		)
+		return true
+	}
+	if !m.c.unionBindings[v] {
 		return false
 	}
 	m.errorNotes(
@@ -672,17 +727,25 @@ func (m *mover) deferReadsOf(v *ast.Var, at ast.Span) {
 
 // rangeChange reports place, which the statement being followed changes
 // as what says, "assign", "pass mut" or "move", when a range loop around
-// it walks a list it is, or holds: a place it is a prefix of; or when a
-// clause of a switch on a union around it binds a payload of a place it
-// is, or holds, in place. It returns whether it did.
+// it walks a list it is, or holds: a place it is a prefix of; or one it
+// is inside of, an element or a part of one, when the loop's element
+// variable refers to the element in place, since any element may be the
+// one it refers to; or when a clause of a switch on a union around it
+// binds a payload of a place it is, or holds, in place. It returns
+// whether it did.
 func (m *mover) rangeChange(place ast.Expr, what string) bool {
-	for _, ranged := range m.ranging {
-		if !prefixOf(place, ranged) {
-			continue
+	for _, r := range m.ranging {
+		switch {
+		case prefixOf(place, r.place):
+			m.errorNotes(place.Spanned(), nil, "%s is being ranged over, so this loop cannot %s %s",
+				m.c.text(r.place.Spanned()), what, m.c.text(place.Spanned()))
+			return true
+		case r.bind != nil && prefixOf(r.place, place):
+			m.errorNotes(place.Spanned(), nil,
+				"%s is being ranged over, and %s refers into it, so this loop cannot %s %s",
+				m.c.text(r.place.Spanned()), r.bind.Name, what, m.c.text(place.Spanned()))
+			return true
 		}
-		m.errorNotes(place.Spanned(), nil, "%s is being ranged over, so this loop cannot %s %s",
-			m.c.text(ranged.Spanned()), what, m.c.text(place.Spanned()))
-		return true
 	}
 	for _, mt := range m.matching {
 		if !prefixOf(place, mt.place) {
@@ -717,20 +780,39 @@ func prefixOf(a, b ast.Expr) bool {
 // call follows a call used in ctx: its arguments, a method call's
 // receiver first, then, for one of an owned type, that its result has an
 // owner. A plain receiver is read as a plain argument is, borrowed, so a
-// temporary of an owned type is one no variable owns.
+// temporary of an owned type is one no variable owns; a value appended to
+// a list of an owned type is moved into it.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
+	moved := m.appendsOwned(call)
 	for i, arg := range call.Operands() {
 		if _, isType := arg.(*ast.ListType); isType {
 			continue
 		}
 		argCtx := readCtx
-		if i < len(params) && params[i] {
+		switch {
+		case i < len(params) && params[i]:
 			argCtx = viewCtx
+		case moved && i > 0:
+			argCtx = moveCtx
 		}
 		m.expr(arg, argCtx, cur)
 	}
 	m.temporary(call, ctx)
+}
+
+// appendsOwned reports whether call is a call to append of values, not a
+// spread, onto a list of an owned type, which moves each value in.
+func (m *mover) appendsOwned(call *ast.Call) bool {
+	if !isAppend(call) || call.Spread || len(call.Args) == 0 {
+		return false
+	}
+	mut, ok := call.Args[0].(*ast.MutArg)
+	if !ok {
+		return false
+	}
+	list := ast.TypeOf(mut.X)
+	return m.c.table.IsList(list) && m.c.table.Owned(m.c.table.Elem(list))
 }
 
 // callParams says, for each operand of call, a method call's receiver
@@ -871,7 +953,11 @@ func (m *mover) forStmt(loop *ast.For, cur flow) flow {
 func (m *mover) rangeStmt(loop *ast.ForRange, cur flow) flow {
 	m.expr(loop.X, readCtx, &cur)
 	if m.c.table.IsList(ast.TypeOf(loop.X)) && ast.Root(loop.X) != nil {
-		m.ranging = append(m.ranging, loop.X)
+		r := ranged{place: loop.X}
+		if _, inPlace := m.c.rangeBindings[loop.Elem]; inPlace && loop.Elem.Name != ast.Blank {
+			r.bind = loop.Elem
+		}
+		m.ranging = append(m.ranging, r)
 		defer func() { m.ranging = m.ranging[:len(m.ranging)-1] }()
 	}
 	return m.loopTwice(cur, true, func(in flow) flow { return in }, loop.Body, nil)

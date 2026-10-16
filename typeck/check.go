@@ -41,6 +41,14 @@ type Checker struct {
 	// ok, the one place an assertion may be.
 	checkedAssert *ast.TypeAssert
 
+	// checkedTake is the call to pop or remove whose value is being bound
+	// with ok, which needs no proof that the list holds what it takes.
+	checkedTake *ast.Call
+
+	// droppedCall is the call written as a statement being checked, whose
+	// value, if any, is dropped.
+	droppedCall *ast.Call
+
 	// viewSlice is the slice about to be checked where a view may be: an
 	// argument to a view parameter, len's argument, or what another slice
 	// slices. A slice of an array or a view anywhere else is reported.
@@ -66,6 +74,11 @@ type Checker struct {
 	unions        map[types.Type]*ast.TypeDecl
 	unionState    map[types.Type]progress
 	unionBindings map[*ast.Var]bool
+
+	// rangeBindings holds the element variables of range loops over a
+	// list or a view of an owned type, each with what its loop ranges
+	// over: they refer to the element in place (see move.go).
+	rangeBindings map[*ast.Var]ast.Expr
 
 	// knownVars remembers, for each local variable knownVar has been asked
 	// about, what it found.
@@ -147,6 +160,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		unions:        make(map[types.Type]*ast.TypeDecl),
 		unionState:    make(map[types.Type]progress),
 		unionBindings: make(map[*ast.Var]bool),
+		rangeBindings: make(map[*ast.Var]ast.Expr),
 
 		knownVars: make(map[*ast.Var]knownResult),
 
@@ -348,7 +362,9 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 			c.unusedValue(s.X)
 			return
 		}
+		c.droppedCall, _ = s.X.(*ast.Call)
 		c.discard(s.X)
+		c.droppedCall = nil
 		c.droppedError(s.X)
 	case *ast.Var:
 		c.checkVar(s)
@@ -504,8 +520,8 @@ func (c *Checker) multiResults(
 }
 
 // checkedResults checks value, bound to want names, when it is an index,
-// a slice or a type assertion, each of which gives two, and reports
-// whether it was one.
+// a slice, a type assertion or a call to pop or remove, each of which
+// gives two, and reports whether it was one.
 func (c *Checker) checkedResults(
 	value ast.Expr,
 	want int,
@@ -518,6 +534,11 @@ func (c *Checker) checkedResults(
 		results, ok = c.sliceResults(x, want, span)
 	case *ast.TypeAssert:
 		results, ok = c.assertResults(x, want, span)
+	case *ast.Call:
+		if !isTake(x) {
+			return nil, false, false
+		}
+		results, ok = c.takeResults(x, want, span)
 	default:
 		return nil, false, false
 	}
@@ -613,8 +634,10 @@ func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
 }
 
 // callResults checks a call bound to want names: its callee, a function
-// or a method, must declare exactly that many results. The builtins len, make and append give one
-// value each; every other builtin gives none. A call to one of those three
+// or a method, must declare exactly that many results. The generic
+// builtins len, make, append and reserve give one value each, and pop and
+// remove, bound to several names, are the checked form (see
+// takeResults); every other builtin gives none. A call to a generic one
 // whose arguments are wrong was reported where it was checked, and is not
 // reported again.
 func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
@@ -695,8 +718,8 @@ func (c *Checker) discard(e ast.Expr) {
 // len. Dropping that value leaves the statement nothing to do, so it is
 // reported (see unusedValue), even when an argument is a call that does
 // something, as Go reports it. A call of a function or a method, and of
-// the builtins print, exit, make, append and reserve, is a call statement
-// instead, with rules of its own.
+// the builtins print, exit, make, append, reserve, pop and remove, is a
+// call statement instead, with rules of its own.
 func onlyValue(e ast.Expr) bool {
 	if _, _, _, built := ast.Construction(e); built {
 		return true
@@ -780,6 +803,9 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	if loop.Elem != nil {
 		loop.Elem.Type = elem
 		c.anyLocal(loop.Elem)
+		if c.table.Owned(elem) {
+			c.rangeBindings[loop.Elem] = loop.X
+		}
 	}
 	header := ast.Span{File: loop.Span.File, Start: loop.Span.Start, End: loop.X.Spanned().End}
 	c.loops++

@@ -397,6 +397,8 @@ func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) 
 // of a variable with a known value gives one fact.
 func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	switch x := cond.(type) {
+	case *ast.Ident:
+		return c.boolFact(x, holds)
 	case *ast.Unary:
 		if x.Op == ast.Not {
 			return c.factsFrom(x.X, !holds)
@@ -412,6 +414,25 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 		}
 	}
 	return nil
+}
+
+// boolFact returns the fact a bool variable, id, tested on its own as a
+// condition gives, when its value is holds: that it is true, held as 1,
+// or false, held as 0, when it can have facts. Only the ok of a checked
+// pop or remove is asked about one (see okTrue).
+func (c *Checker) boolFact(id *ast.Ident, holds bool) []fact {
+	if ast.TypeOf(id) != types.Bool {
+		return nil
+	}
+	about, ok := c.keyOf(id)
+	if !ok {
+		return nil
+	}
+	v := constant.FromInt64(0)
+	if holds {
+		v = constant.FromInt64(1)
+	}
+	return from([]fact{bound(about, ast.Eq, v)}, id)
 }
 
 // from records src as where each of facts came from, and returns them.

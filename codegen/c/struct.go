@@ -14,7 +14,7 @@ import (
 // program uses, then the string comparison helper if the program compares
 // strings, directly or inside those types, then the equality helper of
 // every one == compares, then the free helper of every union holding a
-// list. A type is
+// list and of every list of owned elements. A type is
 // defined after every type it holds, since C needs a member's type complete
 // before the struct that holds it; the checker has rejected a struct that
 // holds itself, so this order exists. Each type is then emitted in the
@@ -41,7 +41,7 @@ func (g *generator) emitTypes() {
 			g.emitEqualityOf(typ, emitted)
 		}
 	}
-	g.emitUnionFrees()
+	g.emitFrees()
 }
 
 // isComposite reports whether typ is an array, a struct or a union type,

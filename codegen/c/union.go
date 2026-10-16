@@ -124,14 +124,17 @@ func (g *generator) emitUnionEquality(typ types.Type) {
 }
 
 // freeName is the name of the helper that frees what a union of type typ,
-// which holds a list, holds.
+// which holds a list, holds, or a list of type typ, whose elements are
+// owned, and its elements.
 func freeName(typ types.Type) string {
 	return fmt.Sprintf("tack_free_%d", typ)
 }
 
-// emitUnionFrees writes tack_free_ for every union type that holds a
-// list, each after those of the unions its payloads hold, which it calls.
-func (g *generator) emitUnionFrees() {
+// emitFrees writes tack_free_ for every union type that holds a list, and
+// every list type whose elements are owned, each after those of the
+// types its payloads or elements, and the fields of those, hold, which
+// it calls.
+func (g *generator) emitFrees() {
 	table := g.prog.Types
 	emitted := make(map[types.Type]bool)
 	var emit func(typ types.Type)
@@ -143,8 +146,11 @@ func (g *generator) emitUnionFrees() {
 		for _, part := range g.parts(typ) {
 			emit(part)
 		}
-		if table.IsUnion(typ) {
+		switch {
+		case table.IsUnion(typ):
 			g.emitUnionFree(typ)
+		case table.IsList(typ) && g.owned(table.Elem(typ)):
+			g.emitListFree(typ)
 		}
 	}
 	for i := range table.Count() {

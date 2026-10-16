@@ -111,6 +111,16 @@ var loadSeeds = []string{
 		"pub type T union { num int64\neof }\n" +
 		"pub func (t T) len() int64 { switch t {\ncase num(n):\nreturn n\ndefault:\nreturn 0 } }\n" +
 		"func (mut t T) clear() { t = T.eof }\n",
+	"main.tck\npackage main\ntype V union { items list[int64]\nnone }\n" +
+		"type S struct { vs list[V]\nn int64 }\n" +
+		"func total(ls []list[int64]) int64 { mut t := 0\nfor _, l := range ls { t += len(l) }\nreturn t }\n" +
+		"func main() { mut ls := make(list[list[int64]], c_allocator)\nmut l := make(list[int64], c_allocator)\n" +
+		"e := append(mut l, 1, 2)\ne2 := append(mut ls, l, make(list[int64], c_allocator))\n" +
+		"if len(ls) > 1 { e3 := append(mut ls[1], 3)\nls[0] = make(list[int64], c_allocator)\nif e3.code != 0 { exit(3) } }\n" +
+		"x, ok := pop(mut ls)\nif ok && len(x) != 1 { exit(4) }\ny, ok2 := remove(mut ls, 0)\nif !ok2 { return }\n" +
+		"mut s := S{vs: make(list[V], c_allocator), n: len(y)}\ne4 := append(mut s.vs, V.items(y), V.none)\n" +
+		"for _, v := range s.vs { switch v {\ncase items(is):\ns.n += len(is)\ncase none:\n} }\n" +
+		"if e.code != 0 || e2.code != 0 || e4.code != 0 || total(ls) != 0 { exit(1) } }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

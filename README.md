@@ -41,8 +41,8 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
 Functions have local variables, immutable unless declared with `mut`, and
-loops, and lists, owned and growable, which free themselves, and tagged
-unions, whose cases a switch matches. `print` takes strings only; `std/fmt`'s `printf` writes integers,
+loops, and lists, owned and growable, which free themselves and may hold
+lists of their own, and tagged unions, whose cases a switch matches. `print` takes strings only; `std/fmt`'s `printf` writes integers,
 bools and strings, through `any` parameters, and its `write` writes bytes,
 a view of `uint8` (see the language today). `std/bytes`, the first std
 package written in Tack alone, searches byte views and formats integers
@@ -241,7 +241,7 @@ Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
 types, none `mut` or variadic (`parameter xs of builtin p cannot be
 variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make`,
-`append` or `reserve`, `main` or `_`. Anything
+`append`, `reserve`, `pop` or `remove`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -267,9 +267,9 @@ includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
 that calls neither builtin, and has no list, links neither body and none
 of the C library they call. A target without a C library needs only different bodies.
 
-`len`, `make`, `append` and `reserve` are generic, so no Tack
-declaration can describe them: the compiler implements them itself, and `builtin.tck`
-describes them in comments. A program with lists also links `list.c`,
+`len`, `make`, `append`, `reserve`, `pop` and `remove` are generic, so
+no Tack declaration can describe them: the compiler implements them
+itself, and `builtin.tck` describes them in comments. A program with lists also links `list.c`,
 the one C file of `std/builtin` that is no builtin's body: it holds the
 functions that grow and free a list's buffer, which the generated C
 calls, and `c_allocator`'s, and the driver links it for a program with a
@@ -603,7 +603,11 @@ makes for itself, which has a letter after `tack_`.
   result, a global or an array's element, it is `a view can only be the
   type of a parameter`, a variable declared from one, `x := v`, is `cannot
   declare x as []int64; a view can only be the type of a parameter`, and
-  a view of views is `the element type of a view cannot be a view`. A view
+  a view of views is `the element type of a view cannot be a view`. Its
+  element type may be owned, `[]list[uint8]`, whose elements it reads in
+  place as a list does its own (see lists), though not a type
+  parameter, `a view cannot hold S: a view's element cannot be a type
+  parameter`. A view
   is read-only: `mut v []T` is `a view cannot be a mut parameter; views are
   read-only`, and assigning `v`, an element or a field of one, or passing
   either as `mut`, is `cannot assign to v[0]: v is a read-only view` or
@@ -935,7 +939,7 @@ makes for itself, which has a letter after `tack_`.
   only arrays and structs can`. A list reads as a view does: `len(l)`, an
   `int64` with the facts a string variable's length has (see indexing a
   string), which hold in a region that never assigns `l`, passes it as
-  `mut`, `append` and `reserve` included, or moves it, though writing an element ends
+  `mut`, `append`, `reserve`, `pop` and `remove` included, or moves it, though writing an element ends
   none; `l[i]` with `i` proven in range against `len(l)`, or the checked
   form `v, ok := l[i]`; every range form, `for i, x := range l`, whose
   index is proven for `l`; slicing, `l[i:j]`, to a view, `[]T`; and
@@ -946,16 +950,91 @@ makes for itself, which has a letter after `tack_`.
   element is. A range over a list walks the list itself, not a copy, so
   element writes in the body show in later iterations, and the body
   cannot change the list: assigning it or anything holding it, passing
-  either as `mut`, `append` and `reserve` included, or moving it is `l is being ranged
+  either as `mut`, `append`, `reserve`, `pop` and `remove` included, or moving it is `l is being ranged
   over, so this loop cannot pass mut l`. Lists have no `==`, no order and
   no zero value: `mut l list[int64]` is `l needs a value: list[int64] has
-  no zero value`. A list's elements are copied when read, so they must be
-  copyable: no list, and no struct holding one, `a list cannot hold
-  list[int64]: its elements are copied, and a list cannot be`, and the
-  same for an array, a view or a variadic parameter, `an array cannot
-  hold list[int64]: ...`. No package-level variable may hold a list,
+  no zero value`. No package-level variable may hold a list,
   `package-level variable g cannot hold a list`, since any function could
   reach one.
+
+  `x, ok := pop(mut l)` takes the last element out of `l` and gives it,
+  and `x, ok := remove(mut l, i)` takes element `i`, an `int64`, moving
+  every element after it down one place, so the rest keep their order,
+  in time proportional to how many follow. Neither allocates, copies or
+  frees anything, so neither returns an error: the element moves out, and
+  `ok` says whether there was one, `false` for an empty list or an `i` out
+  of range, which leaves `l` as it was. `x` is then the element type's
+  zero value, `0` from a `list[int64]`; an element type with none, a
+  list, a union, an `Allocator` or anything holding one, has nothing to
+  give, so
+  `x` holds nothing to free and cannot be read until `ok` is checked
+  true, as a result bound beside an error cannot be read before the
+  error is checked: `x cannot be read before ok is checked; check that ok
+  is true first` wherever the facts in force do not prove `ok`. `if ok`
+  proves it in its branch, `if !ok { return }` for the rest of the block,
+  and `ok &&` on its right, a fact like any other, which holds only in a
+  region that never assigns `ok`. So that a check is about the `ok` that
+  came with `x`, both are local variables, `s.x cannot take the element
+  pop gives beside its ok; bind it to a local variable`, `ok` is assigned
+  only by a binding that assigns `x` too, `ok says whether pop gave x, so
+  only a binding that also assigns x can assign it`, `mut ok` included,
+  and it is never `_`, `the ok pop returns cannot be dropped: x cannot be
+  read until it is checked; bind it to a variable instead of _`. An owned
+  element bound to `_` would never be freed, `pop returns list[int64],
+  which cannot be dropped; bind it to a variable instead of _`, as a call
+  statement would drop it, `... bind it to a variable`; a copyable one
+  may be dropped. The plain forms, `x := pop(mut l)` and `x := remove(mut
+  l, i)`, are allowed only where `len(l) > 0`, or `i` in range for `l`,
+  is proven, as an index is: `pop may find l empty; check len(l) > 0
+  first, or use x, ok := pop(mut l)`, `index i may be out of range; check
+  0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)`. The
+  call passes `l` as `mut`, which ends every fact about `len(l)` in the
+  region holding it, the call's own included, so no guard can prove one
+  today, and only the checked forms are used. A negative constant `i` is
+  `index -1 is out of range for a list`, checked form or not; three
+  names are `assignment mismatch: 3 variables but pop gives 2 values`.
+
+  A list may hold owned elements: lists, `list[list[uint8]]`, structs
+  or unions holding lists, nested to any depth. An element of an owned
+  type is never copied out of its list: it is a place inside the list,
+  as a struct's list field is. `f(l[i])` borrows it, `f(mut l[i])` passes
+  it, `append(mut l[i], x)` and `append(mut l[i].items, x)` grow it, and
+  `l[i].m()` and `mut l[i].m()` call methods on it, all in place; `len(l[i])`,
+  `l[i][j]`, `l[i].f`, `for _, b := range l[i]`, `switch l[i] { ... }`
+  and passing it to a view parameter, `fmt.write(l[i])` for a
+  `list[list[uint8]]`, read it where it is. It never leaves the list but
+  through `pop` or `remove`: declaring a variable with it, assigning it,
+  returning it, writing it as a struct literal's field, a union's payload
+  or an appended value is `cannot move l[i] out of l: an element cannot
+  be moved out of a list; take it out with pop or remove`, and the
+  checked form, which would copy it, is `the checked form cannot read an
+  element of type list[int64]: it would copy it out of l; check 0 <= i &&
+  i < len(l) first and use l[i] in place`. `l[i] = v` moves `v` in once
+  it is computed, then frees the element it replaces; `append` moves each
+  value it is given into the list, `append(mut l, t)` leaving `t`
+  unusable as `m := t` would, and when the buffer cannot grow it frees
+  them, so nothing is lost; spreading a list or a view of owned elements
+  into one, `append(mut l, other...)`, would copy them, `cannot spread
+  other into append: its elements would be copied, and a list cannot
+  be`. A range binding of an owned element, `for _, x := range l`,
+  refers to it in place, as a union's binding does: `x` is read-only, is
+  never moved, `cannot move x: it refers to an element of l in place, and
+  an element cannot be moved out of a list`, and while it is bound the
+  body changes no element of `l` either, since any may be the one it
+  refers to, `l is being ranged over, and x refers into it, so this loop
+  cannot assign l[i]`. Those are the only names that refer into a list.
+  A view, `[]list[int64]`, holds owned elements under the same rules, and
+  takes such a list, or a slice of one; an array's or a variadic's
+  elements are copied, and stay copyable: `an array cannot hold
+  list[int64]: its elements are copied, and a list cannot be`, and the
+  same for a variadic parameter. Freeing a list frees each element it
+  holds first, last first, as a struct's fields are, then its buffer, so
+  reassigning a list frees every old element, and an element popped or
+  removed is its new owner's to free. A type cannot hold itself through
+  a list, `invalid recursive type Tree: a type cannot hold itself, even
+  through a list`, so a tree is still a list of nodes naming each other
+  by index. A list or a view whose elements hold lists cannot cross to C
+  yet (see extern C).
 
   A list has one owner, the variable holding it, which frees it when its
   block ends, through the allocator it was made with. So a list is never
@@ -996,10 +1075,14 @@ makes for itself, which has a letter after `tack_`.
   an argument that reads a list in place, a list or a struct holding one
   passed to a plain parameter, or a list or a slice of one passed to a
   view parameter, cannot overlap a place the same call, or a call nested
-  in its arguments, passes as `mut`, since a list is not copied for a
+  in its arguments, passes as `mut`, an element of a list as much as the
+  list itself, since a list is not copied for a
   call and growing it could free what the other argument reads: `cannot
   pass l alongside mut l in this call: a list is not copied for a call,
-  and a mut argument must be the only way to reach l during it`.
+  and a mut argument must be the only way to reach l during it`. Places
+  compare as they do for two `mut` arguments, but two elements of one
+  list always may be one, so `f(l[0], mut l[1])` is `cannot pass l[0]
+  alongside mut l[1] in this call: ...`, whatever the indexes.
 
   A struct with a field of a list type, directly or through another
   struct or a union, holds a list, and is owned as a list is: it moves, has no zero
@@ -1008,8 +1091,13 @@ makes for itself, which has a letter after `tack_`.
   with a case whose payload holds a list, which frees what the case it
   holds holds (see unions). In C a list is
   `tack_list_<T>`, `{T *ptr; int64_t len; int64_t cap; tack_allocator
-  alloc;}` (see extern C), and [docs/safety.md](docs/safety.md#lists) has
-  every rule and diagnostic.
+  alloc;}` (see extern C); one whose elements are owned is freed by a
+  `tack_free_` function of its own, which frees each element it holds,
+  last first, then its buffer; `pop` and `remove` are std's
+  `TACK_LIST_POP` and `TACK_LIST_REMOVE`, the checked forms testing the
+  length first; and a range binding of an owned element is a pointer to
+  it. [docs/safety.md](docs/safety.md#lists) has every rule and
+  diagnostic.
 - Allocators. `Allocator` is a builtin type: an opaque handle on an
   allocator, which a list holds, grows through and is freed through. It
   is copyable, a local, a parameter, a result, a field, an array's or a
@@ -1017,7 +1105,9 @@ makes for itself, which has a letter after `tack_`.
   Allocator has no zero value`, so a struct or array holding one has none
   either, and the checked form cannot read an element of one, `the
   checked form cannot read an element of type Allocator: it has no zero
-  value to give when the index is out of range`; it has no `==` and no
+  value to give when the index is out of range`, while the one popped or
+  removed by a checked `pop` or `remove` cannot be read until its `ok`
+  is checked (see lists); it has no `==` and no
   order, and cannot be passed as `any`. `c_allocator`, a keyword like
   `noerror`, is the one `Allocator` there is: it lowers to C's `malloc`,
   `realloc` and `free`, and is a constant expression, so `var a =
@@ -1237,10 +1327,10 @@ makes for itself, which has a letter after `tack_`.
   switch on one needs no clause. A union containing itself, directly or
   through a struct, an array or another union, would be infinitely large,
   `invalid recursive type Expr`, with a note for each step round, `Expr
-  refers to Binary`; through a list it is a list holding an owned type,
-  `a list cannot hold Expr: its elements are copied, and Expr, which holds
-  a list, cannot be`, so a tree is a list of nodes naming each other by
-  index, as `examples/unions` builds one. A case has no visibility of its
+  refers to Binary`, and through a list too, `invalid recursive type
+  Expr: a type cannot hold itself, even through a list`, so a tree is a
+  list of nodes naming each other by index, as `examples/unions` builds
+  one. A case has no visibility of its
   own, `a union's case cannot be pub; it is as visible as its union`, and
   no value of its own, `a union's case cannot have a tag value; it is a
   name and a payload's type, if any`; `anonymous unions are not
@@ -1332,7 +1422,8 @@ makes for itself, which has a letter after `tack_`.
   directly or through a struct, an array or another union, holds a list,
   and is owned as a struct holding one is (see lists): it moves, cannot be
   a package-level variable, `package-level variable g cannot hold a
-  list`, nor a list's or an array's element, and frees the lists the case
+  list`, nor an array's element, though a list's element it may be,
+  matched in place (see lists), and frees the lists the case
   it holds holds when its owner's block ends, or when it is assigned,
   once the new value is computed. A union cannot be passed as `any`,
   `cannot pass Expr as any: only the builtin types can be passed as any
@@ -1508,9 +1599,11 @@ makes for itself, which has a letter after `tack_`.
   dropped, `stuck returns S, which may hold a list and cannot be dropped;
   bind it to a variable`, it has no zero value, `z needs a value: S has
   no zero value`, it is never borrowed alongside a `mut` argument of
-  itself, and it cannot be an element of an array, a list, a view or a
-  variadic, `a variadic parameter cannot hold S: its elements are copied,
-  and S, a type parameter, which may hold a list, cannot be`. A local is
+  itself, and it cannot be an element of an array or a variadic, `a
+  variadic parameter cannot hold S: its elements are copied, and S, a
+  type parameter, which may hold a list, cannot be`, nor, though a list
+  or a view may hold owned elements, of a list or a view, `a list cannot
+  hold S: a list's element cannot be a type parameter`. A local is
   a type parameter's only from a call returning one, and a parameter is
   never moved, so a value of a type parameter comes only from an
   argument: a function returning one can return only what a call that
@@ -1990,11 +2083,17 @@ makes for itself, which has a letter after `tack_`.
   `TACK_LIST_LEN(l)` and `TACK_LIST_AT(l, i)` and grows with
   `TACK_LIST_APPEND(lp, v)`, true when it grew, `TACK_LIST_APPEND_N(lp,
   src, n)`, all of `n` elements or none, and `TACK_LIST_RESERVE(lp, n)`,
-  from std's `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
+  and shrinks with `TACK_LIST_POP(lp)` and `TACK_LIST_REMOVE(lp, i)`,
+  each giving the element it takes out, at a length or an index C has
+  checked, from std's `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
   struct holding one, is `parameter l of extern func f cannot be
   list[int64]: a list crosses to C only as a mut parameter, or as a
   view`, and so is one returned, `extern func f cannot return
-  list[int64]: ...`. An `Allocator` is a `tack_allocator`. A union does
+  list[int64]: ...`. A list or a view whose elements hold lists does
+  not cross yet, directly or in a struct, as a `mut` parameter or a
+  view, `parameter l of extern func f cannot be list[list[uint8]]: a
+  list or a view whose elements hold lists cannot cross to C yet`, or
+  `cannot be S, which holds one: ...`. An `Allocator` is a `tack_allocator`. A union does
   not cross to C yet: a parameter or a result of an extern func that is
   one, or holds one through a struct, an array, a view or a list, is
   `parameter e of extern func f cannot be Expr: a union cannot cross to C

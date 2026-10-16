@@ -6675,7 +6675,7 @@ func main() {
 stage: typeck
 ---
 
-generic-list/main.tck:8:15: error: a list cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+generic-list/main.tck:8:15: error: a list cannot hold S: a list's element cannot be a type parameter
 07 |	func f[S Sizer](s S) {
 08 |	    l := make(list[S], c_allocator)
    |	              ^~~~~~~
@@ -7663,7 +7663,7 @@ func main() {
 stage: typeck
 ---
 
-generic-view/main.tck:7:25: error: a view cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be
+generic-view/main.tck:7:25: error: a view cannot hold S: a view's element cannot be a type parameter
 06 |	
 07 |	func f[S Sizer](s S, ss []S) {
    |	                        ^~~
@@ -9924,46 +9924,6 @@ list-len-dropped-by-append/main.tck:6:23: note: but l is passed as mut to append
    |	                      ^~~~~
 07 |	        if err.code != 0 {
 
--- list-list-of-lists/main.tck --
-package main
-
-func main() {
-    l := make(list[list[int64]], c_allocator)
-    print("x")
-    if len(l) > 0 {
-        print("y")
-    }
-}
--- list-list-of-lists/expected --
-stage: typeck
----
-
-list-list-of-lists/main.tck:4:15: error: a list cannot hold list[int64]: its elements are copied, and a list cannot be
-03 |	func main() {
-04 |	    l := make(list[list[int64]], c_allocator)
-   |	              ^~~~~~~~~~~~~~~~~
-05 |	    print("x")
-
--- list-list-of-structs-holding-lists/main.tck --
-package main
-
-type Node struct {
-    kids list[Node]
-}
-
-func main() {
-    print("x")
-}
--- list-list-of-structs-holding-lists/expected --
-stage: typeck
----
-
-list-list-of-structs-holding-lists/main.tck:4:10: error: a list cannot hold Node: its elements are copied, and Node, which holds a list, cannot be
-03 |	type Node struct {
-04 |	    kids list[Node]
-   |	         ^~~~~~~~~~
-05 |	}
-
 -- list-literal/main.tck --
 package main
 
@@ -10621,25 +10581,6 @@ list-variadic-of-lists/main.tck:3:14: error: a variadic parameter cannot hold li
 02 |	
 03 |	func f(ls ...list[int64]) {
    |	             ^~~~~~~~~~~
-04 |	}
-
--- list-view-of-lists/main.tck --
-package main
-
-func f(v []list[int64]) {
-}
-
-func main() {
-    print("x")
-}
--- list-view-of-lists/expected --
-stage: typeck
----
-
-list-view-of-lists/main.tck:3:10: error: a view cannot hold list[int64]: its elements are copied, and a list cannot be
-02 |	
-03 |	func f(v []list[int64]) {
-   |	         ^~~~~~~~~~~~~
 04 |	}
 
 -- list-view-temporary/main.tck --
@@ -15209,6 +15150,723 @@ operator-on-two-wrong-operands/main.tck:5:15: error: operator - is not defined o
    |	              ^~~
 06 |	    }
 
+-- owned-element-appended/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    mut other := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        err := append(mut other, l[0])
+        if err.code != 0 {
+            print("y")
+        }
+    }
+}
+-- owned-element-appended/expected --
+stage: typeck
+---
+
+owned-element-appended/main.tck:7:34: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+06 |	    if len(l) > 0 {
+07 |	        err := append(mut other, l[0])
+   |	                                 ^~~~
+08 |	        if err.code != 0 {
+
+-- owned-element-appended-to-its-list/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        err := append(mut l, l[0])
+        if err.code != 0 {
+            print("y")
+        }
+    }
+}
+-- owned-element-appended-to-its-list/expected --
+stage: typeck
+---
+
+owned-element-appended-to-its-list/main.tck:6:32: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+05 |	    if len(l) > 0 {
+06 |	        err := append(mut l, l[0])
+   |	                               ^
+07 |	        if err.code != 0 {
+owned-element-appended-to-its-list/main.tck:5:8: note: this guard proves len(l) >= 1
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    if len(l) > 0 {
+   |	       ^~~~~~~~~~
+06 |	        err := append(mut l, l[0])
+owned-element-appended-to-its-list/main.tck:6:23: note: but l is passed as mut to append here, so the proof ends
+05 |	    if len(l) > 0 {
+06 |	        err := append(mut l, l[0])
+   |	                      ^~~~~
+07 |	        if err.code != 0 {
+
+-- owned-element-appended-twice/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    t := make(list[int64], c_allocator)
+    err := append(mut l, t, t)
+    if err.code != 0 {
+        print("y")
+    }
+}
+-- owned-element-appended-twice/expected --
+stage: typeck
+---
+
+owned-element-appended-twice/main.tck:6:29: error: t is used after it was moved
+05 |	    t := make(list[int64], c_allocator)
+06 |	    err := append(mut l, t, t)
+   |	                            ^
+07 |	    if err.code != 0 {
+owned-element-appended-twice/main.tck:6:26: note: t is moved here
+05 |	    t := make(list[int64], c_allocator)
+06 |	    err := append(mut l, t, t)
+   |	                         ^
+07 |	    if err.code != 0 {
+
+-- owned-element-borrowed-alongside-mut-element/main.tck --
+package main
+
+func f(x list[int64], mut y list[int64]) {
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    if len(l) > 1 {
+        f(l[0], mut l[1])
+    }
+}
+-- owned-element-borrowed-alongside-mut-element/expected --
+stage: typeck
+---
+
+owned-element-borrowed-alongside-mut-element/main.tck:9:11: error: cannot pass l[0] alongside mut l[1] in this call: a list is not copied for a call, and a mut argument must be the only way to reach l[1] during it
+08 |	    if len(l) > 1 {
+09 |	        f(l[0], mut l[1])
+   |	          ^~~~
+10 |	    }
+owned-element-borrowed-alongside-mut-element/main.tck:9:17: note: passed as mut here
+08 |	    if len(l) > 1 {
+09 |	        f(l[0], mut l[1])
+   |	                ^~~~~~~~
+10 |	    }
+
+-- owned-element-borrowed-alongside-mut-list/main.tck --
+package main
+
+func f(x list[int64], mut l list[list[int64]]) {
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        f(l[0], mut l)
+    }
+}
+-- owned-element-borrowed-alongside-mut-list/expected --
+stage: typeck
+---
+
+owned-element-borrowed-alongside-mut-list/main.tck:9:13: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+08 |	    if len(l) > 0 {
+09 |	        f(l[0], mut l)
+   |	            ^
+10 |	    }
+owned-element-borrowed-alongside-mut-list/main.tck:8:8: note: this guard proves len(l) >= 1
+07 |	    mut l := make(list[list[int64]], c_allocator)
+08 |	    if len(l) > 0 {
+   |	       ^~~~~~~~~~
+09 |	        f(l[0], mut l)
+owned-element-borrowed-alongside-mut-list/main.tck:9:17: note: but l is passed as mut to f here, so the proof ends
+08 |	    if len(l) > 0 {
+09 |	        f(l[0], mut l)
+   |	                ^~~~~
+10 |	    }
+
+owned-element-borrowed-alongside-mut-list/main.tck:9:11: error: cannot pass l[0] alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+08 |	    if len(l) > 0 {
+09 |	        f(l[0], mut l)
+   |	          ^~~~
+10 |	    }
+owned-element-borrowed-alongside-mut-list/main.tck:9:17: note: passed as mut here
+08 |	    if len(l) > 0 {
+09 |	        f(l[0], mut l)
+   |	                ^~~~~
+10 |	    }
+
+-- owned-element-checked-index/main.tck --
+package main
+
+func f(l list[list[int64]], i int64) int64 {
+    x, ok := l[i]
+    if ok {
+        return len(x)
+    }
+    return 0
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    if f(l, 0) > 0 {
+        print("y")
+    }
+}
+-- owned-element-checked-index/expected --
+stage: typeck
+---
+
+owned-element-checked-index/main.tck:4:5: error: the checked form cannot read an element of type list[int64]: it would copy it out of l; check 0 <= i && i < len(l) first and use l[i] in place
+03 |	func f(l list[list[int64]], i int64) int64 {
+04 |	    x, ok := l[i]
+   |	    ^~~~~~~~~~~~~
+05 |	    if ok {
+
+-- owned-element-checked-index-constant/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    x, ok := l[0]
+    if ok && len(x) > 0 {
+        print("y")
+    }
+}
+-- owned-element-checked-index-constant/expected --
+stage: typeck
+---
+
+owned-element-checked-index-constant/main.tck:5:5: error: the checked form cannot read an element of type list[int64]: it would copy it out of l; check len(l) > 0 first and use l[0] in place
+04 |	    l := make(list[list[int64]], c_allocator)
+05 |	    x, ok := l[0]
+   |	    ^~~~~~~~~~~~~
+06 |	    if ok && len(x) > 0 {
+
+-- owned-element-field-moved/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+    n     int64
+}
+
+func main() {
+    l := make(list[S], c_allocator)
+    if len(l) > 0 {
+        x := l[0].items
+        if len(x) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-element-field-moved/expected --
+stage: typeck
+---
+
+owned-element-field-moved/main.tck:11:14: error: cannot move l[0].items out of l[0]: a field cannot be moved on its own
+10 |	    if len(l) > 0 {
+11 |	        x := l[0].items
+   |	             ^~~~~~~~~~
+12 |	        if len(x) > 0 {
+
+-- owned-element-moved-by-assignment/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    mut x := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        x = l[0]
+    }
+    if len(x) > 0 {
+        print("y")
+    }
+}
+-- owned-element-moved-by-assignment/expected --
+stage: typeck
+---
+
+owned-element-moved-by-assignment/main.tck:7:13: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+06 |	    if len(l) > 0 {
+07 |	        x = l[0]
+   |	            ^~~~
+08 |	    }
+
+-- owned-element-moved-by-declaration/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        x := l[0]
+        print("x")
+        if len(x) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-element-moved-by-declaration/expected --
+stage: typeck
+---
+
+owned-element-moved-by-declaration/main.tck:6:14: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+05 |	    if len(l) > 0 {
+06 |	        x := l[0]
+   |	             ^~~~
+07 |	        print("x")
+
+-- owned-element-of-view-moved/main.tck --
+package main
+
+func f(v []list[int64]) int64 {
+    if len(v) == 0 {
+        return 0
+    }
+    x := v[0]
+    return len(x)
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    if f(l) > 0 {
+        print("y")
+    }
+}
+-- owned-element-of-view-moved/expected --
+stage: typeck
+---
+
+owned-element-of-view-moved/main.tck:7:10: error: cannot move v[0] out of v: an element cannot be moved out of a view, which only borrows it
+06 |	    }
+07 |	    x := v[0]
+   |	         ^~~~
+08 |	    return len(x)
+
+-- owned-element-returned/main.tck --
+package main
+
+func first(l list[list[int64]]) list[int64] {
+    if len(l) == 0 {
+        return make(list[int64], c_allocator)
+    }
+    return l[0]
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    f := first(l)
+    if len(f) > 0 {
+        print("y")
+    }
+}
+-- owned-element-returned/expected --
+stage: typeck
+---
+
+owned-element-returned/main.tck:7:12: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+06 |	    }
+07 |	    return l[0]
+   |	           ^~~~
+08 |	}
+
+-- owned-element-spread-into-append/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    other := make(list[list[int64]], c_allocator)
+    err := append(mut l, other...)
+    if err.code != 0 {
+        print("y")
+    }
+}
+-- owned-element-spread-into-append/expected --
+stage: typeck
+---
+
+owned-element-spread-into-append/main.tck:6:26: error: cannot spread other into append: its elements would be copied, and a list cannot be
+05 |	    other := make(list[list[int64]], c_allocator)
+06 |	    err := append(mut l, other...)
+   |	                         ^~~~~
+07 |	    if err.code != 0 {
+
+-- owned-element-struct-field/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        s := S{items: l[0]}
+        if len(s.items) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-element-struct-field/expected --
+stage: typeck
+---
+
+owned-element-struct-field/main.tck:10:23: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+09 |	    if len(l) > 0 {
+10 |	        s := S{items: l[0]}
+   |	                      ^~~~
+11 |	        if len(s.items) > 0 {
+
+-- owned-element-union-payload/main.tck --
+package main
+
+type U union {
+    items list[int64]
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        u := U.items(l[0])
+        switch u {
+        case items(xs):
+            if len(xs) > 0 {
+                print("y")
+            }
+        }
+    }
+}
+-- owned-element-union-payload/expected --
+stage: typeck
+---
+
+owned-element-union-payload/main.tck:10:22: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+09 |	    if len(l) > 0 {
+10 |	        u := U.items(l[0])
+   |	                     ^~~~
+11 |	        switch u {
+
+-- owned-element-used-after-append/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    t := make(list[int64], c_allocator)
+    err := append(mut l, t)
+    if err.code != 0 || len(t) > 0 {
+        print("y")
+    }
+}
+-- owned-element-used-after-append/expected --
+stage: typeck
+---
+
+owned-element-used-after-append/main.tck:7:29: error: t is used after it was moved
+06 |	    err := append(mut l, t)
+07 |	    if err.code != 0 || len(t) > 0 {
+   |	                            ^
+08 |	        print("y")
+owned-element-used-after-append/main.tck:6:26: note: t is moved here
+05 |	    t := make(list[int64], c_allocator)
+06 |	    err := append(mut l, t)
+   |	                         ^
+07 |	    if err.code != 0 || len(t) > 0 {
+
+-- owned-extern-list-of-lists/main.tck --
+package main
+
+type S struct {
+    words list[list[uint8]]
+}
+
+extern func grow(mut l list[list[uint8]])
+
+extern func read(v []list[uint8])
+
+extern func wrapped(mut s S)
+
+extern func ok(mut l list[uint8], v []uint8)
+
+func main() {
+}
+-- owned-extern-list-of-lists/expected --
+stage: typeck
+---
+
+owned-extern-list-of-lists/main.tck:7:24: error: parameter l of extern func grow cannot be list[list[uint8]]: a list or a view whose elements hold lists cannot cross to C yet
+06 |	
+07 |	extern func grow(mut l list[list[uint8]])
+   |	                       ^~~~~~~~~~~~~~~~~
+08 |	
+
+owned-extern-list-of-lists/main.tck:9:20: error: parameter v of extern func read cannot be []list[uint8]: a list or a view whose elements hold lists cannot cross to C yet
+08 |	
+09 |	extern func read(v []list[uint8])
+   |	                   ^~~~~~~~~~~~~
+10 |	
+
+owned-extern-list-of-lists/main.tck:11:27: error: parameter s of extern func wrapped cannot be S, which holds one: a list or a view whose elements hold lists cannot cross to C yet
+10 |	
+11 |	extern func wrapped(mut s S)
+   |	                          ^
+12 |	
+
+-- owned-generic-list/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[S Sizer](s S, v []S) int64 {
+    return s.size()
+}
+
+func main() {
+}
+-- owned-generic-list/expected --
+stage: typeck
+---
+
+owned-generic-list/main.tck:7:24: error: a view cannot hold S: a view's element cannot be a type parameter
+06 |	
+07 |	func f[S Sizer](s S, v []S) int64 {
+   |	                       ^~~
+08 |	    return s.size()
+
+-- owned-range-binding-moved/main.tck --
+package main
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    for _, x := range l {
+        y := x
+        if len(y) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-range-binding-moved/expected --
+stage: typeck
+---
+
+owned-range-binding-moved/main.tck:6:14: error: cannot move x: it refers to an element of l in place, and an element cannot be moved out of a list
+05 |	    for _, x := range l {
+06 |	        y := x
+   |	             ^
+07 |	        if len(y) > 0 {
+
+-- owned-range-element-appended/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    for i, x := range l {
+        err := append(mut l[i], 1)
+        if err.code != 0 || len(x) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-range-element-appended/expected --
+stage: typeck
+---
+
+owned-range-element-appended/main.tck:6:27: error: l is being ranged over, and x refers into it, so this loop cannot pass mut l[i]
+05 |	    for i, x := range l {
+06 |	        err := append(mut l[i], 1)
+   |	                          ^~~~
+07 |	        if err.code != 0 || len(x) > 0 {
+
+-- owned-range-element-assigned/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    for i, x := range l {
+        l[i] = make(list[int64], c_allocator)
+        if len(x) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-range-element-assigned/expected --
+stage: typeck
+---
+
+owned-range-element-assigned/main.tck:6:9: error: l is being ranged over, and x refers into it, so this loop cannot assign l[i]
+05 |	    for i, x := range l {
+06 |	        l[i] = make(list[int64], c_allocator)
+   |	        ^~~~
+07 |	        if len(x) > 0 {
+
+-- owned-range-element-field-incremented/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+    n     int64
+}
+
+func main() {
+    mut l := make(list[S], c_allocator)
+    for i, x := range l {
+        l[i].n++
+        l[i].n += 2
+        if len(x.items) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-range-element-field-incremented/expected --
+stage: typeck
+---
+
+owned-range-element-field-incremented/main.tck:11:9: error: l is being ranged over, and x refers into it, so this loop cannot assign l[i].n
+10 |	    for i, x := range l {
+11 |	        l[i].n++
+   |	        ^~~~~~
+12 |	        l[i].n += 2
+
+owned-range-element-field-incremented/main.tck:12:9: error: l is being ranged over, and x refers into it, so this loop cannot assign l[i].n
+11 |	        l[i].n++
+12 |	        l[i].n += 2
+   |	        ^~~~~~
+13 |	        if len(x.items) > 0 {
+
+-- owned-range-popped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    for _, x := range l {
+        y, ok := pop(mut l)
+        if ok && len(x) + len(y) > 0 {
+            print("y")
+        }
+    }
+}
+-- owned-range-popped/expected --
+stage: typeck
+---
+
+owned-range-popped/main.tck:6:26: error: l is being ranged over, so this loop cannot pass mut l
+05 |	    for _, x := range l {
+06 |	        y, ok := pop(mut l)
+   |	                         ^
+07 |	        if ok && len(x) + len(y) > 0 {
+
+-- owned-range-view-binding-moved/main.tck --
+package main
+
+func f(v []list[int64]) {
+    for _, x := range v {
+        y := x
+        if len(y) > 0 {
+            print("y")
+        }
+    }
+}
+
+func main() {
+    l := make(list[list[int64]], c_allocator)
+    f(l)
+}
+-- owned-range-view-binding-moved/expected --
+stage: typeck
+---
+
+owned-range-view-binding-moved/main.tck:5:14: error: cannot move x: it refers to an element of v in place, and an element cannot be moved out of a view
+04 |	    for _, x := range v {
+05 |	        y := x
+   |	             ^
+06 |	        if len(y) > 0 {
+
+-- owned-recursive-through-list/main.tck --
+package main
+
+type Tree struct {
+    kids list[Tree]
+}
+
+type A union {
+    bs list[B]
+    none
+}
+
+type B struct {
+    as list[A]
+}
+
+func main() {
+}
+-- owned-recursive-through-list/expected --
+stage: typeck
+---
+
+owned-recursive-through-list/main.tck:3:6: error: invalid recursive type Tree: a type cannot hold itself, even through a list
+02 |	
+03 |	type Tree struct {
+   |	     ^~~~
+04 |	    kids list[Tree]
+owned-recursive-through-list/main.tck:4:5: note: Tree refers to Tree
+03 |	type Tree struct {
+04 |	    kids list[Tree]
+   |	    ^~~~~~~~~~~~~~~
+05 |	}
+
+owned-recursive-through-list/main.tck:7:6: error: invalid recursive type A: a type cannot hold itself, even through a list
+06 |	
+07 |	type A union {
+   |	     ^
+08 |	    bs list[B]
+owned-recursive-through-list/main.tck:8:5: note: A refers to B
+07 |	type A union {
+08 |	    bs list[B]
+   |	    ^~~~~~~~~~
+09 |	    none
+owned-recursive-through-list/main.tck:13:5: note: B refers to A
+12 |	type B struct {
+13 |	    as list[A]
+   |	    ^~~~~~~~~~
+14 |	}
+
+-- owned-switch-element-matched/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func main() {
+    mut l := make(list[U], c_allocator)
+    if len(l) > 1 {
+        switch l[0] {
+        case items(xs):
+            l[1] = U.none
+            if len(xs) > 0 {
+                print("y")
+            }
+        default:
+        }
+    }
+}
+-- owned-switch-element-matched/expected --
+stage: typeck
+---
+
+owned-switch-element-matched/main.tck:13:13: error: l[0] is being matched, and xs refers into it, so this case cannot assign l[1]
+12 |	        case items(xs):
+13 |	            l[1] = U.none
+   |	            ^~~~
+14 |	            if len(xs) > 0 {
+
 -- param-type-mismatch/main.tck --
 package main
 
@@ -15227,6 +15885,495 @@ param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument 
 07 |	    f("hi")
    |	      ^~~~
 08 |	}
+
+-- pop-all-blank/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    _, _ := pop(mut l)
+}
+-- pop-all-blank/expected --
+stage: resolve
+---
+
+pop-all-blank/main.tck:5:5: error: every name is _, so nothing is bound; make the call on its own
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    _, _ := pop(mut l)
+   |	    ^~~~~~~~~~~~~~~~~~
+06 |	}
+
+-- pop-allocator-read-before-ok/main.tck --
+package main
+
+func main() {
+    mut l := make(list[Allocator], c_allocator)
+    a, ok := pop(mut l)
+    m := make(list[int64], a)
+    if ok && len(m) > 0 {
+        print("y")
+    }
+}
+-- pop-allocator-read-before-ok/expected --
+stage: typeck
+---
+
+pop-allocator-read-before-ok/main.tck:6:28: error: a cannot be read before ok is checked; check that ok is true first
+05 |	    a, ok := pop(mut l)
+06 |	    m := make(list[int64], a)
+   |	                           ^
+07 |	    if ok && len(m) > 0 {
+
+-- pop-guard-ends-at-pop/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 0 {
+        x := pop(mut l)
+        if x > 0 {
+            print("y")
+        }
+    }
+}
+-- pop-guard-ends-at-pop/expected --
+stage: typeck
+---
+
+pop-guard-ends-at-pop/main.tck:6:14: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+05 |	    if len(l) > 0 {
+06 |	        x := pop(mut l)
+   |	             ^~~~~~~~~~
+07 |	        if x > 0 {
+pop-guard-ends-at-pop/main.tck:5:8: note: this guard proves len(l) >= 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    if len(l) > 0 {
+   |	       ^~~~~~~~~~
+06 |	        x := pop(mut l)
+pop-guard-ends-at-pop/main.tck:6:18: note: but l is passed as mut to pop here, so the proof ends
+05 |	    if len(l) > 0 {
+06 |	        x := pop(mut l)
+   |	                 ^~~~~
+07 |	        if x > 0 {
+
+-- pop-immutable/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    x, ok := pop(mut l)
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- pop-immutable/expected --
+stage: typeck
+---
+
+pop-immutable/main.tck:5:18: error: cannot pass mut l: l is immutable; declare it with mut
+04 |	    l := make(list[int64], c_allocator)
+05 |	    x, ok := pop(mut l)
+   |	                 ^~~~~
+06 |	    if ok && x > 0 {
+
+-- pop-no-args/main.tck --
+package main
+
+func main() {
+    x, ok := pop()
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- pop-no-args/expected --
+stage: typeck
+---
+
+pop-no-args/main.tck:4:14: error: pop expects 1 argument(s), got 0
+03 |	func main() {
+04 |	    x, ok := pop()
+   |	             ^~~~~
+05 |	    if ok && x > 0 {
+
+-- pop-not-a-list/main.tck --
+package main
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    x, ok := pop(mut a)
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- pop-not-a-list/expected --
+stage: typeck
+---
+
+pop-not-a-list/main.tck:5:22: error: pop expects a list, got [3]int64
+04 |	    mut a := [3]int64{1, 2, 3}
+05 |	    x, ok := pop(mut a)
+   |	                     ^
+06 |	    if ok && x > 0 {
+
+-- pop-not-mut/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    x, ok := pop(l)
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- pop-not-mut/expected --
+stage: typeck
+---
+
+pop-not-mut/main.tck:5:18: error: pop takes l as mut; pass mut l
+04 |	    l := make(list[int64], c_allocator)
+05 |	    x, ok := pop(l)
+   |	                 ^
+06 |	    if ok && x > 0 {
+
+-- pop-ok-assigned/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    x, mut ok := pop(mut l)
+    ok = true
+    if ok && len(x) > 0 {
+        print("y")
+    }
+}
+-- pop-ok-assigned/expected --
+stage: typeck
+---
+
+pop-ok-assigned/main.tck:6:5: error: ok says whether pop gave x, so only a binding that also assigns x can assign it
+05 |	    x, mut ok := pop(mut l)
+06 |	    ok = true
+   |	    ^~
+07 |	    if ok && len(x) > 0 {
+pop-ok-assigned/main.tck:5:5: note: ok is bound beside x here
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    x, mut ok := pop(mut l)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+06 |	    ok = true
+
+-- pop-ok-check-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    mut x, mut ok := pop(mut l)
+    if ok {
+        x, ok = pop(mut l)
+        if len(x) > 0 {
+            print("y")
+        }
+    }
+}
+-- pop-ok-check-dropped/expected --
+stage: typeck
+---
+
+pop-ok-check-dropped/main.tck:8:16: error: x cannot be read before ok is checked; check that ok is true first
+07 |	        x, ok = pop(mut l)
+08 |	        if len(x) > 0 {
+   |	               ^
+09 |	            print("y")
+pop-ok-check-dropped/main.tck:6:8: note: this guard proves ok is true
+05 |	    mut x, mut ok := pop(mut l)
+06 |	    if ok {
+   |	       ^~
+07 |	        x, ok = pop(mut l)
+pop-ok-check-dropped/main.tck:7:12: note: but ok is assigned here, so the proof ends
+06 |	    if ok {
+07 |	        x, ok = pop(mut l)
+   |	           ^~
+08 |	        if len(x) > 0 {
+
+-- pop-ok-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    x, _ := pop(mut l)
+    if len(x) > 0 {
+        print("y")
+    }
+}
+-- pop-ok-dropped/expected --
+stage: typeck
+---
+
+pop-ok-dropped/main.tck:5:8: error: the ok pop returns cannot be dropped: x cannot be read until it is checked; bind it to a variable instead of _
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    x, _ := pop(mut l)
+   |	       ^
+06 |	    if len(x) > 0 {
+
+-- pop-ok-false-branch/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    x, ok := pop(mut l)
+    if !ok && len(x) > 0 {
+        print("y")
+    }
+}
+-- pop-ok-false-branch/expected --
+stage: typeck
+---
+
+pop-ok-false-branch/main.tck:6:19: error: x cannot be read before ok is checked; check that ok is true first
+05 |	    x, ok := pop(mut l)
+06 |	    if !ok && len(x) > 0 {
+   |	                  ^
+07 |	        print("y")
+pop-ok-false-branch/main.tck:6:9: note: this guard allows ok to be false
+05 |	    x, ok := pop(mut l)
+06 |	    if !ok && len(x) > 0 {
+   |	        ^~
+07 |	        print("y")
+
+-- pop-ok-passed-as-mut/main.tck --
+package main
+
+func set(mut b bool) {
+    b = true
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    x, mut ok := pop(mut l)
+    set(mut ok)
+    if ok && len(x) > 0 {
+        print("y")
+    }
+}
+-- pop-ok-passed-as-mut/expected --
+stage: typeck
+---
+
+pop-ok-passed-as-mut/main.tck:10:9: error: cannot pass mut ok: ok says whether pop gave x, so only a binding that also assigns x can assign it
+09 |	    x, mut ok := pop(mut l)
+10 |	    set(mut ok)
+   |	        ^~~~~~
+11 |	    if ok && len(x) > 0 {
+pop-ok-passed-as-mut/main.tck:9:5: note: ok is bound beside x here
+08 |	    mut l := make(list[list[int64]], c_allocator)
+09 |	    x, mut ok := pop(mut l)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~
+10 |	    set(mut ok)
+
+-- pop-owned-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    _, ok := pop(mut l)
+    if ok {
+        print("y")
+    }
+}
+-- pop-owned-dropped/expected --
+stage: typeck
+---
+
+pop-owned-dropped/main.tck:5:5: error: pop returns list[int64], which cannot be dropped; bind it to a variable instead of _
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    _, ok := pop(mut l)
+   |	    ^
+06 |	    if ok {
+
+-- pop-owned-to-field/main.tck --
+package main
+
+type S struct {
+    x list[int64]
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    mut s := S{x: make(list[int64], c_allocator)}
+    mut ok := false
+    s.x, ok = pop(mut l)
+    if ok && len(s.x) > 0 {
+        print("y")
+    }
+}
+-- pop-owned-to-field/expected --
+stage: typeck
+---
+
+pop-owned-to-field/main.tck:11:5: error: s.x cannot take the element pop gives beside its ok; bind it to a local variable
+10 |	    mut ok := false
+11 |	    s.x, ok = pop(mut l)
+   |	    ^~~
+12 |	    if ok && len(s.x) > 0 {
+
+-- pop-read-before-ok/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    x, ok := pop(mut l)
+    if len(x) > 0 || ok {
+        print("y")
+    }
+}
+-- pop-read-before-ok/expected --
+stage: typeck
+---
+
+pop-read-before-ok/main.tck:6:12: error: x cannot be read before ok is checked; check that ok is true first
+05 |	    x, ok := pop(mut l)
+06 |	    if len(x) > 0 || ok {
+   |	           ^
+07 |	        print("y")
+
+-- pop-read-before-ok-mut/main.tck --
+package main
+
+func grow(mut x list[int64]) {
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    mut x, ok := pop(mut l)
+    grow(mut x)
+    if ok {
+        print("y")
+    }
+}
+-- pop-read-before-ok-mut/expected --
+stage: typeck
+---
+
+pop-read-before-ok-mut/main.tck:9:14: error: x cannot be read before ok is checked; check that ok is true first
+08 |	    mut x, ok := pop(mut l)
+09 |	    grow(mut x)
+   |	             ^
+10 |	    if ok {
+
+-- pop-redeclared/main.tck --
+package main
+
+func pop() {
+}
+
+func main() {
+}
+-- pop-redeclared/expected --
+stage: resolve
+---
+
+pop-redeclared/main.tck:3:6: error: duplicate declaration of builtin function
+02 |	
+03 |	func pop() {
+   |	     ^~~
+04 |	}
+
+-- pop-statement-owned/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    pop(mut l)
+}
+-- pop-statement-owned/expected --
+stage: typeck
+---
+
+pop-statement-owned/main.tck:5:5: error: pop returns list[int64], which cannot be dropped; bind it to a variable
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    pop(mut l)
+   |	    ^~~~~~~~~~
+06 |	}
+
+-- pop-statement-unproven/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    pop(mut l)
+}
+-- pop-statement-unproven/expected --
+stage: typeck
+---
+
+pop-statement-unproven/main.tck:5:5: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    pop(mut l)
+   |	    ^~~~~~~~~~
+06 |	}
+
+-- pop-three-names/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    a, b, c := pop(mut l)
+    if a > 0 && b && c {
+        print("y")
+    }
+}
+-- pop-three-names/expected --
+stage: typeck
+---
+
+pop-three-names/main.tck:5:5: error: assignment mismatch: 3 variables but pop gives 2 values
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    a, b, c := pop(mut l)
+   |	    ^~~~~~~~~~~~~~~~~~~~~
+06 |	    if a > 0 && b && c {
+
+-- pop-unproven/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    x := pop(mut l)
+    if x > 0 {
+        print("y")
+    }
+}
+-- pop-unproven/expected --
+stage: typeck
+---
+
+pop-unproven/main.tck:5:10: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    x := pop(mut l)
+   |	         ^~~~~~~~~~
+06 |	    if x > 0 {
+
+-- pop-unproven-field/main.tck --
+package main
+
+type S struct {
+    items list[int64]
+}
+
+func main() {
+    mut s := S{items: make(list[int64], c_allocator)}
+    x := pop(mut s.items)
+    if x > 0 {
+        print("y")
+    }
+}
+-- pop-unproven-field/expected --
+stage: typeck
+---
+
+pop-unproven-field/main.tck:9:10: error: pop may find s.items empty; use x, ok := pop(mut s.items)
+08 |	    mut s := S{items: make(list[int64], c_allocator)}
+09 |	    x := pop(mut s.items)
+   |	         ^~~~~~~~~~~~~~~~
+10 |	    if x > 0 {
 
 -- printf-c-int64/main.tck --
 package main
@@ -15717,6 +16864,190 @@ raw-string-unterminated/main.tck:4:11: error: unterminated string
 04 |	    print(`a raw string
    |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	that is never closed)
+
+-- remove-arity/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    x, ok := remove(mut l)
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- remove-arity/expected --
+stage: typeck
+---
+
+remove-arity/main.tck:5:14: error: remove expects 2 argument(s), got 1
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    x, ok := remove(mut l)
+   |	             ^~~~~~~~~~~~~
+06 |	    if ok && x > 0 {
+
+-- remove-guard-ends-at-remove/main.tck --
+package main
+
+func take(mut l list[int64], i int64) int64 {
+    if 0 <= i && i < len(l) {
+        return remove(mut l, i)
+    }
+    return 0
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if take(mut l, 0) > 0 {
+        print("y")
+    }
+}
+-- remove-guard-ends-at-remove/expected --
+stage: typeck
+---
+
+remove-guard-ends-at-remove/main.tck:5:30: error: index i may be out of range; check 0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)
+04 |	    if 0 <= i && i < len(l) {
+05 |	        return remove(mut l, i)
+   |	                             ^
+06 |	    }
+remove-guard-ends-at-remove/main.tck:4:8: note: this guard proves i < len(l)
+03 |	func take(mut l list[int64], i int64) int64 {
+04 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+05 |	        return remove(mut l, i)
+remove-guard-ends-at-remove/main.tck:5:23: note: but l is passed as mut to remove here, so the proof ends
+04 |	    if 0 <= i && i < len(l) {
+05 |	        return remove(mut l, i)
+   |	                      ^~~~~
+06 |	    }
+
+-- remove-index-type/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    var i uint64 = 0
+    x, ok := remove(mut l, i)
+    y, ok2 := remove(mut l, "0")
+    if ok && ok2 && x + y > 0 {
+        print("y")
+    }
+}
+-- remove-index-type/expected --
+stage: typeck
+---
+
+remove-index-type/main.tck:6:28: error: cannot use uint64 as int64 in argument to remove
+05 |	    var i uint64 = 0
+06 |	    x, ok := remove(mut l, i)
+   |	                           ^
+07 |	    y, ok2 := remove(mut l, "0")
+
+remove-index-type/main.tck:7:29: error: cannot use string as int64 in argument to remove
+06 |	    x, ok := remove(mut l, i)
+07 |	    y, ok2 := remove(mut l, "0")
+   |	                            ^~~
+08 |	    if ok && ok2 && x + y > 0 {
+
+-- remove-negative-constant/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    x, ok := remove(mut l, -1)
+    if ok && x > 0 {
+        print("y")
+    }
+}
+-- remove-negative-constant/expected --
+stage: typeck
+---
+
+remove-negative-constant/main.tck:5:28: error: index -1 is out of range for a list
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    x, ok := remove(mut l, -1)
+   |	                           ^~
+06 |	    if ok && x > 0 {
+
+-- remove-owned-dropped/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    _, ok := remove(mut l, 0)
+    if ok {
+        print("y")
+    }
+}
+-- remove-owned-dropped/expected --
+stage: typeck
+---
+
+remove-owned-dropped/main.tck:5:5: error: remove returns list[int64], which cannot be dropped; bind it to a variable instead of _
+04 |	    mut l := make(list[list[int64]], c_allocator)
+05 |	    _, ok := remove(mut l, 0)
+   |	    ^
+06 |	    if ok {
+
+-- remove-redeclared/main.tck --
+package main
+
+func remove() {
+}
+
+func main() {
+}
+-- remove-redeclared/expected --
+stage: resolve
+---
+
+remove-redeclared/main.tck:3:6: error: duplicate declaration of builtin function
+02 |	
+03 |	func remove() {
+   |	     ^~~~~~
+04 |	}
+
+-- remove-statement-owned/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    if len(l) > 0 {
+        remove(mut l, 0)
+    }
+}
+-- remove-statement-owned/expected --
+stage: typeck
+---
+
+remove-statement-owned/main.tck:6:9: error: remove returns list[int64], which cannot be dropped; bind it to a variable
+05 |	    if len(l) > 0 {
+06 |	        remove(mut l, 0)
+   |	        ^~~~~~~~~~~~~~~~
+07 |	    }
+
+-- remove-unproven/main.tck --
+package main
+
+func take(mut l list[int64], i int64) int64 {
+    return remove(mut l, i)
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if take(mut l, 0) > 0 {
+        print("y")
+    }
+}
+-- remove-unproven/expected --
+stage: typeck
+---
+
+remove-unproven/main.tck:4:26: error: index i may be out of range; check 0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)
+03 |	func take(mut l list[int64], i int64) int64 {
+04 |	    return remove(mut l, i)
+   |	                         ^
+05 |	}
 
 -- return-not-enough/main.tck --
 package main
@@ -20537,30 +21868,6 @@ union-interface-payload/main.tck:8:7: error: Sized is an interface; it can only 
    |	      ^~~~~
 09 |	}
 
--- union-list-of-owned/main.tck --
-package main
-
-type U union {
-    items list[int64]
-    none
-}
-
-type S struct {
-    us list[U]
-}
-
-func main() {
-}
--- union-list-of-owned/expected --
-stage: typeck
----
-
-union-list-of-owned/main.tck:9:8: error: a list cannot hold U: its elements are copied, and U, which holds a list, cannot be
-08 |	type S struct {
-09 |	    us list[U]
-   |	       ^~~~~~~
-10 |	}
-
 -- union-literal/main.tck --
 package main
 
@@ -21867,10 +23174,15 @@ union-recursive/main.tck:23:5: note: D refers to C
    |	    ^~~
 24 |	    none
 
-union-recursive/main.tck:28:11: error: a list cannot hold E: its elements are copied, and E, which holds a list, cannot be
+union-recursive/main.tck:27:6: error: invalid recursive type E: a type cannot hold itself, even through a list
+26 |	
+27 |	type E union {
+   |	     ^
+28 |	    items list[E]
+union-recursive/main.tck:28:5: note: E refers to E
 27 |	type E union {
 28 |	    items list[E]
-   |	          ^~~~~~~
+   |	    ^~~~~~~~~~~~~
 29 |	    none
 
 -- union-tag-value/main.tck --

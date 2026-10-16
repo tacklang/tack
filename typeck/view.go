@@ -49,9 +49,9 @@ func (c *Checker) paramType(param *ast.Param) types.Type {
 }
 
 // viewType returns the view type a written []T denotes, adding it to the
-// table. Its element type may be any type but a view, any included, since
-// a view is a parameter's type too, or an owned type, a list or a struct
-// holding one, whose elements reading the view would copy: either is
+// table. Its element type may be any type but a view, any and an owned
+// type included, an element of an owned type being read in place as a
+// list's is, or a type parameter (see requireElement): either is
 // reported, and gives types.Invalid, as does an element type that was
 // reported.
 func (c *Checker) viewType(vt *ast.ViewType) types.Type {
@@ -63,7 +63,7 @@ func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	if elem == types.Invalid {
 		return types.Invalid
 	}
-	if !c.requireCopyable("a view", elem, vt.Span) {
+	if !c.requireElement("a view", elem, vt.Span) {
 		return types.Invalid
 	}
 	return c.table.View(elem)

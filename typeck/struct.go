@@ -94,18 +94,23 @@ func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
 	return true
 }
 
-// cycleEdge is one step of a struct or union containing another by
-// value: the type from, through its field or case written at span.
+// cycleEdge is one step of a struct or union containing another, by
+// value or through a list: the type from, through its field or case
+// written at span, whose type reaches the other through a list when list
+// is set.
 type cycleEdge struct {
 	span ast.Span
 	from types.Type
+	list bool
 }
 
 // reportCycles reports every struct or union type that contains itself by
 // value, directly, through another struct or union, or through an array,
-// which would make it infinitely large. Each cycle is reported once, at
-// the type it was found from, with a note for every field or case on the
-// way round.
+// which would make it infinitely large, or through a list, which a type
+// cannot do either, though its size would be finite: a list may hold an
+// owned type, but how a type holding itself would be built, freed and
+// lowered is not settled. Each cycle is reported once, at the type it
+// was found from, with a note for every field or case on the way round.
 func (c *Checker) reportCycles() {
 	state := make(map[types.Type]progress)
 	for _, typ := range c.structOrder {
@@ -127,8 +132,12 @@ func (c *Checker) visitStruct(typ types.Type, state map[types.Type]progress, pat
 	}
 	state[typ] = checking
 	for _, part := range c.partsOf(typ) {
-		if inner, ok := c.structIn(part.typ); ok {
-			c.visitStruct(inner, state, append(path, cycleEdge{part.span, typ}))
+		if inner, ok, list := c.structIn(part.typ); ok {
+			c.visitStruct(
+				inner,
+				state,
+				append(path, cycleEdge{span: part.span, from: typ, list: list}),
+			)
 		}
 	}
 	state[typ] = checked
@@ -163,16 +172,18 @@ func (c *Checker) partsOf(typ types.Type) []part {
 	return parts
 }
 
-// structIn returns the struct or union type a value of type typ holds by
-// value at its core: typ itself if it is a struct or a union, the element
-// type of an array, of an array of arrays included, if that is one. error
-// is a struct no declaration gives, which holds no other struct, so it is
-// not one here.
-func (c *Checker) structIn(typ types.Type) (types.Type, bool) {
-	for c.table.IsArray(typ) {
+// structIn returns the struct or union type a value of type typ holds at
+// its core: typ itself if it is a struct or a union, or the element type
+// of an array or a list, of an array of lists of arrays included, if
+// that is one, and whether a list was on the way. error is a struct no
+// declaration gives, which holds no other struct, so it is not one here.
+func (c *Checker) structIn(typ types.Type) (types.Type, bool, bool) {
+	list := false
+	for c.table.IsArray(typ) || c.table.IsList(typ) {
+		list = list || c.table.IsList(typ)
 		typ = c.table.Elem(typ)
 	}
-	return typ, (c.table.IsStruct(typ) || c.table.IsUnion(typ)) && typ != types.Error
+	return typ, (c.table.IsStruct(typ) || c.table.IsUnion(typ)) && typ != types.Error, list
 }
 
 // reportCycle reports the cycle that path, the fields followed so far, closes
@@ -187,6 +198,13 @@ func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
 		}
 	}
 	notes := make([]diag.Diagnostic, 0, len(path)-start)
+	msg := "invalid recursive type " + c.typeName(typ)
+	for _, e := range path[start:] {
+		if e.list {
+			msg += ": a type cannot hold itself, even through a list"
+			break
+		}
+	}
 	for i, e := range path[start:] {
 		to := typ
 		if next := start + i + 1; next < len(path) {
@@ -200,7 +218,7 @@ func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
 	}
 	c.diags = append(c.diags, diag.Diagnostic{
 		Severity: diag.Error,
-		Message:  "invalid recursive type " + c.typeName(typ),
+		Message:  msg,
 		Span:     c.typeDecl(typ).NameSpan,
 		Related:  notes,
 	})

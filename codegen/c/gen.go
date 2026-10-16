@@ -1100,6 +1100,9 @@ func (g *generator) generateForRange(
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	if g.bindsInPlace(loop) {
+		g.inPlace[loop.Elem] = true
+	}
 	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
 		return nil, diags
@@ -1135,7 +1138,9 @@ func (g *generator) generateForRange(
 //	}
 //
 // An array's length is a constant; a string's is read from the copy, as
-// tack_r0.len, and its bytes as tack_r0.ptr[k]. When the array cannot
+// tack_r0.len, and its bytes as tack_r0.ptr[k]. An element of an owned
+// type, of a list or a view, is bound in place, as a pointer to it, const
+// tack_list_8 *const v_x = &tack_r0.ptr[tack_k1], and read through it. When the array cannot
 // change while the loop runs (see rangesInPlace), x is a place, and the
 // temporary is a pointer to it instead, const tack_array_3 *const tack_r0
 // = &a, through which each element is read: the same values a copy gives,
@@ -1160,7 +1165,11 @@ func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string)
 	if loop.Var != nil && loop.Var.Name != ast.Blank {
 		vars = append(vars, fmt.Sprintf("const int64_t %s = %s;", varName(loop.Var.Name), k))
 	}
-	if loop.Elem != nil && loop.Elem.Name != ast.Blank {
+	switch {
+	case g.bindsInPlace(loop):
+		vars = append(vars, fmt.Sprintf("const %s *const %s = &%s.%s[%s];",
+			g.cType(loop.Elem.Type), varName(loop.Elem.Name), read, field, k))
+	case bindsElem(loop):
 		vars = append(vars, fmt.Sprintf("const %s %s = %s.%s[%s];",
 			g.cType(loop.Elem.Type), varName(loop.Elem.Name), read, field, k))
 	}
@@ -1170,6 +1179,15 @@ func (g *generator) collectionRange(loop *ast.ForRange, x string, body []string)
 	}
 	return rangeBlock(eval,
 		fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k), append(vars, body...))
+}
+
+// bindsInPlace reports whether a range loop binds its element to a
+// variable that refers to the element in place, a pointer to it read as
+// (*v_x): an element of an owned type, of a list or a view, which is
+// never copied out of it. The type checker keeps the loop's body from
+// changing the list, or any element of it, while it runs.
+func (g *generator) bindsInPlace(loop *ast.ForRange) bool {
+	return bindsElem(loop) && g.owned(loop.Elem.Type)
 }
 
 // bindsElem reports whether a range loop binds its element to a variable,
@@ -1505,8 +1523,8 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 func (g *generator) holdTemps(src multiSource) (names, lines []string) {
 	for _, t := range src.temps {
 		name := g.temp("r")
+		lines = append(lines, fmt.Sprintf("%s = %s;", t.decl("const ", name), t.initOf(names)))
 		names = append(names, name)
-		lines = append(lines, fmt.Sprintf("%s = %s;", t.decl("const ", name), t.init))
 	}
 	return names, lines
 }
@@ -1547,9 +1565,9 @@ func (g *generator) multiAssignPost(
 	var names, exprs []string
 	for _, t := range src.temps {
 		name := g.temp("r")
-		names = append(names, name)
 		decls = append(decls, t.decl("", name)+";")
-		exprs = append(exprs, fmt.Sprintf("%s = %s", name, t.init))
+		exprs = append(exprs, fmt.Sprintf("%s = %s", name, t.initOf(names)))
+		names = append(names, name)
 	}
 	assigns, diags := g.fieldAssigns(m, src, names)
 	if len(diags) > 0 {
@@ -1598,21 +1616,39 @@ type multiSource struct {
 // multiTemp is one temporary a multiSource is held in: its C type and the
 // expression that initializes it. When ref is set, init is the address of
 // a place of type typ, and the temporary is a pointer to const typ, read
-// through.
+// through; when mut is set, it is the address of a place the source
+// changes, and the temporary a pointer to typ itself.
 type multiTemp struct {
+	// initFrom, when set, renders the initializer instead of init, from
+	// the names of the temporaries before it, in order, which it reads.
+	initFrom func(prev []string) string
+
 	typ, init string
-	ref       bool
+	ref, mut  bool
+}
+
+// initOf returns t's initializer, given the names of the temporaries held
+// before it, in order.
+func (t multiTemp) initOf(prev []string) string {
+	if t.initFrom != nil {
+		return t.initFrom(prev)
+	}
+	return t.init
 }
 
 // decl declares the temporary name, without a semicolon or an initializer:
 // as a typ, qualified by qual, which is "const " or empty, or, when it is
-// a ref, as a pointer to const typ, which the pointer itself is when qual
-// is "const ".
+// a ref, as a pointer to const typ, or a mut, as a pointer to typ, which
+// the pointer itself is when qual is "const ".
 func (t multiTemp) decl(qual, name string) string {
-	if t.ref {
+	switch {
+	case t.ref:
 		return fmt.Sprintf("const %s *%s%s", t.typ, qual, name)
+	case t.mut:
+		return fmt.Sprintf("%s *%s%s", t.typ, qual, name)
+	default:
+		return fmt.Sprintf("%s%s %s", qual, t.typ, name)
 	}
-	return fmt.Sprintf("%s%s %s", qual, t.typ, name)
 }
 
 // multiValues lowers the source of a MultiVar or MultiAssign: a call to a
@@ -1663,8 +1699,12 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 }
 
 // callValues lowers a, b := f(): the call, held as its results struct,
-// read field by field.
+// read field by field, or the checked form of pop or remove (see
+// takeValues).
 func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
+	if isBuiltin(c, "pop") || isBuiltin(c, "remove") {
+		return g.takeValues(c)
+	}
 	fn := ast.Callee(c)
 	if fn == nil {
 		return multiSource{}, []diag.Diagnostic{{
@@ -2186,7 +2226,8 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 }
 
 // genericValue returns what renders a call to the generic builtin named
-// name, len, make, append or reserve, or nil for any other name.
+// name, len, make, append, reserve, pop or remove, or nil for any other
+// name.
 func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Diagnostic) {
 	switch name {
 	case "len":
@@ -2197,6 +2238,10 @@ func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Di
 		return g.appendValue
 	case "reserve":
 		return g.reserveValue
+	case "pop":
+		return g.popValue
+	case "remove":
+		return g.removeValue
 	default:
 		return nil
 	}

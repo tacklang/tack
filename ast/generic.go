@@ -141,8 +141,7 @@ func CallResults(call *Call) []types.Type {
 // them, or Invalid when args has none for it, and typ itself otherwise. A
 // type parameter appears in a signature only as a parameter's or a
 // result's whole type, never inside an array, a view or a list, whose
-// elements are copied and which it cannot be (see typeck), so no other
-// type needs rewriting.
+// element it cannot be (see typeck), so no other type needs rewriting.
 func Substitute(fn *Func, args []types.Type, typ types.Type) types.Type {
 	if typ == types.Invalid {
 		return typ

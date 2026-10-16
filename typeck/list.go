@@ -1,7 +1,11 @@
 package typeck
 
 import (
+	"strings"
+
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -27,26 +31,61 @@ import (
 // element never changes the list's length, so it ends no fact about it
 // (see writes); append and reserve pass the list as mut, which does.
 //
-// A list's element type must be copyable, since reading an element
-// copies it: no list, and no array or struct holding one. Neither may an
-// array's, nor a view's. A list has no zero value, so a variable of one
-// is declared with a value, and no package-level variable may hold one,
-// since make is not a constant expression and a global would need one.
-// Lists have no ==.
+// A list's element type may be owned, a list or a struct, an array or a
+// union holding one, nested to any depth, but not a type parameter. An
+// element of an owned type is never copied out of its list: it is a
+// place inside the list, as a struct's list field is, read in place, l[i]
+// borrowed by a plain parameter or a method's plain receiver, passed as
+// mut l[i], grown, ranged over, matched and indexed in place, and never
+// moved out of it but by pop or remove (see move.go): x := l[i], return
+// l[i] and the like are reported there, and the checked form, which
+// copies, here (see indexResults). Assigning an element, l[i] = v, moves
+// v in and frees the element it replaces; append moves its values in. A
+// view's element type follows the same rule, a view being a borrow
+// already, while an array's and a variadic's elements are copied when
+// read, and stay copyable (see requireCopyable).
+//
+// A list has no zero value, so a variable of one is declared with a
+// value, and no package-level variable may hold one, since make is not a
+// constant expression and a global would need one. Lists have no ==.
+//
+// pop(mut l) and remove(mut l, i) move an element out of a list, the last
+// or the one at i, moving the rest down to keep their order, and give it;
+// neither allocates, so neither returns an error. The plain form needs
+// len(l) > 0, or i in range for l, proven, as an index does; the checked
+// form, x, ok := pop(mut l), is allowed anywhere, and x then holds T's
+// zero value when ok is false, or, for a T with none, cannot be read until
+// ok is checked true (see okHeld).
 
 // listType returns the list type a written list[T] denotes, adding it to
-// the table. Its element type must be a type a list can hold (see
-// requireCopyable); one that cannot be, or was reported, gives
-// types.Invalid.
+// the table. Its element type may be any type but a type parameter (see
+// requireElement); one that is, or was reported, gives types.Invalid.
 func (c *Checker) listType(lt *ast.ListType) types.Type {
 	elem := c.declaredType(lt.Elem)
 	if elem == types.Invalid {
 		return types.Invalid
 	}
-	if !c.requireCopyable("a list", elem, lt.Span) {
+	if !c.requireElement("a list", elem, lt.Span) {
 		return types.Invalid
 	}
 	return c.table.List(elem)
+}
+
+// requireElement reports elem, the element type of holder, a list or a
+// view written at at, when it is a type parameter, which neither may
+// hold, and returns whether elem may be an element. An owned type may: an
+// element of a list or a view is read in place, never copied.
+func (c *Checker) requireElement(holder string, elem types.Type, at ast.Span) bool {
+	if !c.table.IsTypeParam(elem) {
+		return true
+	}
+	what := "a list's"
+	if holder == "a view" {
+		what = "a view's"
+	}
+	c.errorf(at, "%s cannot hold %s: %s element cannot be a type parameter",
+		holder, c.typeName(elem), what)
+	return false
 }
 
 // pendingElem is an element type whose copyability could not be judged
@@ -59,10 +98,11 @@ type pendingElem struct {
 	elem   types.Type
 }
 
-// requireCopyable reports elem, the element type of holder, a list, an
-// array or a view written at at, when it is owned, a list or a struct or
-// array holding one, which an element cannot be: reading an element
-// copies it, and an owned value moves. It returns whether elem may be an
+// requireCopyable reports elem, the element type of holder, an array or
+// a variadic parameter written at at, when it is owned, a list or a
+// struct, an array or a union holding one, or a type parameter, which
+// may hold one, which an element cannot be: reading an element copies it,
+// and an owned value moves. It returns whether elem may be an
 // element. While struct fields are being resolved a struct's fields may
 // not be known yet, so the check waits until they are (see
 // checkPendingElems) and elem is allowed for now.
@@ -133,6 +173,14 @@ func isReserve(call *ast.Call) bool { return isBuiltinCall(call, "reserve") }
 // generic builtins that return an error.
 func returnsListError(call *ast.Call) bool { return isAppend(call) || isReserve(call) }
 
+// isTake reports whether call calls pop or remove, the generic builtins
+// that move an element out of a list.
+func isTake(
+	call *ast.Call,
+) bool {
+	return isBuiltinCall(call, "pop") || isBuiltinCall(call, "remove")
+}
+
 // makeCall checks a call to make, make(list[T], alloc), records the list
 // type it makes on the call and returns it. It takes the list type, as
 // written, and an Allocator to grow it through; a capacity is not taken
@@ -173,7 +221,9 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 // argument is the list to grow, passed as mut, a place of a list type;
 // after it come any number of values, none included, each usable as T,
 // or a view of T spread whole, what a []T parameter takes. The call
-// copies them onto the list's end. Anything else is reported, and gives
+// copies them onto the list's end, or, for an owned T, moves them there
+// (see move.go), so a view of an owned T, whose elements would be
+// copied, cannot be spread. Anything else is reported, and gives
 // types.Invalid. The call is a call like any other otherwise: its mut
 // argument is a place no other argument may reach (see exclusive.go), a
 // spread list included (see checkListBorrows), and its error cannot be
@@ -189,6 +239,14 @@ func (c *Checker) appendCall(call *ast.Call) types.Type {
 	elem := c.listTarget(call.Args[0], "append")
 	if call.Spread {
 		c.appendSpread(call.Args[1], elem)
+		if len(c.diags) == before && c.table.Owned(elem) {
+			c.errorf(
+				call.Args[1].Spanned(),
+				"cannot spread %s into append: its elements would be copied, and %s cannot be",
+				c.text(call.Args[1].Spanned()),
+				c.ownedPhrase(elem),
+			)
+		}
 	} else {
 		value := param{name: "elems", typ: elem}
 		for _, arg := range call.Args[1:] {
@@ -249,10 +307,140 @@ func (c *Checker) reserveCall(call *ast.Call) types.Type {
 	return types.Error
 }
 
-// listTarget checks arg, the list a call to builtin, append or reserve,
-// grows, which must be passed as mut, mut l, and be a place of a list
-// type, and returns the list's element type, types.Invalid when anything
-// was reported.
+// popCall checks a call to pop, x := pop(mut l) or x, ok := pop(mut l),
+// records the type of the element it gives on the call and returns it.
+// Its one argument is the list to take the last element of, passed as mut
+// as append's is. The plain form needs len(l) > 0 proven (see
+// requireNotEmpty); the checked form, the call c.checkedTake is, needs
+// nothing, and nor does a call written as a statement whose element is
+// owned, which drops it, and is reported as dropping it instead. Anything
+// else is reported, and gives types.Invalid.
+func (c *Checker) popCall(call *ast.Call) types.Type {
+	if !c.checkArity(call, "pop", 1) {
+		for _, arg := range call.Args {
+			c.argExpr(arg)
+		}
+		return types.Invalid
+	}
+	elem := c.listTarget(call.Args[0], "pop")
+	if elem == types.Invalid {
+		return types.Invalid
+	}
+	call.Type = elem
+	if c.droppedTake(call) {
+		return types.Invalid
+	}
+	if c.checkedTake != call {
+		c.requireNotEmpty(call, call.Args[0].(*ast.MutArg).X)
+	}
+	return elem
+}
+
+// removeCall checks a call to remove, x := remove(mut l, i) or x, ok :=
+// remove(mut l, i), records the type of the element it gives on the call
+// and returns it. Its first argument is the list to take element i of,
+// passed as mut as append's is, and its second the index, usable as an
+// int64, as reserve's count is. The plain form needs i proven in range
+// for l, as l[i] does; the checked form, the call c.checkedTake is, needs
+// nothing, though a negative constant i, never in range, is still
+// reported, as an index is; a call written as a statement whose element
+// is owned is reported as dropping it. Anything else is reported, and
+// gives types.Invalid.
+func (c *Checker) removeCall(call *ast.Call) types.Type {
+	if !c.checkArity(call, "remove", 2) {
+		for _, arg := range call.Args {
+			c.argExpr(arg)
+		}
+		return types.Invalid
+	}
+	before := len(c.diags)
+	elem := c.listTarget(call.Args[0], "remove")
+	i := call.Args[1]
+	c.checkArg(i, param{name: "i", typ: types.Int64}, "remove")
+	if len(c.diags) > before || elem == types.Invalid {
+		return types.Invalid
+	}
+	call.Type = elem
+	if c.droppedTake(call) {
+		return types.Invalid
+	}
+	// The element remove reads, as the index l[i] would, which the proofs
+	// of an index are asked about.
+	ix := &ast.Index{X: call.Args[0].(*ast.MutArg).X, Index: i, Span: call.Span, Type: elem}
+	if v, known := c.knownValue(i); known && v.IsNegative() {
+		c.reportOutside(ix, v)
+		return types.Invalid
+	}
+	if c.checkedTake != call && !c.stringIndexProven(ix) {
+		msg, notes := c.stringIndexError(ix, true)
+		msg += orUse("x, ok := "+c.text(call.Span), strings.HasSuffix(msg, " first"))
+		c.errorNotes(i.Spanned(), notes, "%s", msg)
+	}
+	return elem
+}
+
+// droppedTake reports call, a call to pop or remove whose element type is
+// recorded on it, when it is written as a statement, c.droppedCall, and
+// its element is owned, which the statement would drop, and returns
+// whether it did. A copyable element may be dropped, as any call's value
+// may.
+func (c *Checker) droppedTake(call *ast.Call) bool {
+	if c.droppedCall != call || !c.table.Owned(call.Type) {
+		return false
+	}
+	id, _ := call.Fn.(*ast.Ident)
+	c.errorf(call.Span, "%s returns %s; bind it to a variable", id.Name, c.droppedName(call.Type))
+	return true
+}
+
+// requireNotEmpty reports l, the list a plain pop takes the last element
+// of, at call, when the facts in force do not prove it holds one: len(l)
+// is at least 1. The error says what check would prove it, when l is a
+// subject, a variable or a path below an immutable one, and the checked
+// form, with notes on a check that falls short.
+func (c *Checker) requireNotEmpty(call *ast.Call, l ast.Expr) {
+	one := constant.FromInt64(1)
+	proven := func() bool { return c.minLen(l).Cmp(one) >= 0 }
+	if proven() {
+		return
+	}
+	name := c.text(l.Spanned())
+	msg := "pop may find " + name + " empty"
+	if bound := c.stringBound(l); bound != "" {
+		msg += "; check " + bound + " > 0 first"
+	}
+	msg += orUse("x, ok := pop(mut "+name+")", strings.HasSuffix(msg, " first"))
+	var notes []diag.Diagnostic
+	if c.isSubject(l) {
+		notes = c.explain(c.lengthProof(l, proven))
+	}
+	notes = append(notes, c.indexedNotes(l)...)
+	c.errorNotes(call.Span, notes, "%s", msg)
+}
+
+// takeResults checks a call to pop or remove bound to want names, the
+// checked form, which gives two: the element, or, when the list is empty
+// or the index out of range, T's zero value, or nothing to read for a T
+// with none (see okHeld); and whether it gave one. It needs no proof.
+func (c *Checker) takeResults(call *ast.Call, want int, span ast.Span) ([]types.Type, bool) {
+	c.checkedTake = call
+	elem := c.expr(call)
+	c.checkedTake = nil
+	if elem == types.Invalid {
+		return nil, false
+	}
+	if want != 2 {
+		id, _ := call.Fn.(*ast.Ident)
+		c.errorf(span, "assignment mismatch: %d variables but %s gives 2 values", want, id.Name)
+		return nil, false
+	}
+	return []types.Type{elem, types.Bool}, true
+}
+
+// listTarget checks arg, the list a call to builtin, append, reserve, pop
+// or remove, grows or takes from, which must be passed as mut, mut l, and
+// be a place of a list type, and returns the list's element type,
+// types.Invalid when anything was reported.
 func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	m, isMut := arg.(*ast.MutArg)
 	if !isMut {
@@ -273,10 +461,14 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append or reserve, each of which checks its own arguments and
-// gives one value, or nil when call calls none of them.
+// make, append, reserve, pop or remove, each of which checks its own
+// arguments and gives one value, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
+	case isBuiltinCall(call, "pop"):
+		return c.popCall
+	case isBuiltinCall(call, "remove"):
+		return c.removeCall
 	case isLen(call):
 		return c.lenCall
 	case isMake(call):

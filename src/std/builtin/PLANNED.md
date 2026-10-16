@@ -30,13 +30,15 @@ What each one needs before it could be declared for real:
 | `write`                   | exposing the file descriptor, which no builtin takes today        |
 | `println`                 | the above, plus string concatenation                              |
 
-`append` and `reserve` are no longer planned here: they are generic
-builtins, `err := append(mut l, a, b)`, `err := append(mut l, v...)` and
-`err := reserve(mut l, n)`, on a `list[T]`, described in `builtin.tck`.
-Still planned for lists: `make(list[T], alloc, n)`, which reserves room
-for `n` elements and can fail, `clone(l, alloc)`, `truncate(mut l, n)`,
-and allocators other than `c_allocator`, an arena and a testing one
-among them.
+`append`, `reserve`, `pop` and `remove` are no longer planned here: they
+are generic builtins, `err := append(mut l, a, b)`, `err := append(mut l,
+v...)`, `err := reserve(mut l, n)`, `x, ok := pop(mut l)` and `x, ok :=
+remove(mut l, i)`, on a `list[T]`, described in `builtin.tck`. Still
+planned for lists: `make(list[T], alloc, n)`, which reserves room for `n`
+elements and can fail, `clone(l, alloc)`, `truncate(mut l, n)`, a builtin
+that moves every element of one list onto another, which spreading a list
+of owned elements cannot, and allocators other than `c_allocator`, an
+arena and a testing one among them.
 
 `printf` is no longer planned here: it is `std/fmt`'s
 `printf(format string, args ...any)`, which writes to standard output, as

@@ -251,14 +251,34 @@ func (c *Checker) constantInRange(v constant.Int, n int64) bool {
 // the element, or its type's zero value when the index is out of range, and
 // whether it was in range. The form needs no proof, and is allowed where
 // one exists, when ok is always true; a constant index out of range, which
-// always fails, is reported by element. An element of a type with no zero
-// value, an Allocator or an array or struct holding one, has nothing to
-// give when out of range, and is reported.
+// always fails, is reported by element. It copies the element, so an
+// element of an owned type, which is only ever read in place, is
+// reported, with the guard that lets it be used where it is; and an
+// element of another type with no zero value, an Allocator or an array or
+// struct holding one, has nothing to give when out of range, and is
+// reported.
 func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedIndex = ix
 	elem := c.expr(ix)
 	c.checkedIndex = nil
 	if elem == types.Invalid {
+		return nil, false
+	}
+	if c.table.Owned(elem) {
+		x := c.text(ix.X.Spanned())
+		guard := inBounds(ix.Index, c.text(ix.Index.Spanned()), "len("+x+")")
+		if v, known := c.knownValue(ix.Index); known {
+			guard = "len(" + x + ") > " + v.String()
+		}
+		c.errorf(
+			span,
+			"the checked form cannot read an element of type %s: it would copy it out of %s; "+
+				"check %s first and use %s in place",
+			c.typeName(elem),
+			x,
+			guard,
+			c.text(ix.Spanned()),
+		)
 		return nil, false
 	}
 	if !c.table.HasZero(elem) {

@@ -26,6 +26,7 @@ const stdPath = "std"
 func (c *Checker) checkExtern(fn *ast.Func) {
 	c.checkExternLists(fn)
 	c.checkExternUnions(fn)
+	c.checkExternOwnedElems(fn)
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan
@@ -92,6 +93,54 @@ func (c *Checker) checkExternLists(fn *ast.Func) {
 				fn.Name, c.ownedTypeName(typ), listCrossing)
 		}
 	}
+}
+
+// checkExternOwnedElems reports each parameter of fn, an extern func,
+// that would cross to C, as a mut parameter or a view, a list or a view
+// whose elements are owned, directly or through a struct or an array:
+// how C would grow, take from and free such a list, and what std's macros
+// would do with its elements, is not settled, so none crosses yet. A
+// plain parameter of an owned type, and any type holding a union, is
+// reported as one instead.
+func (c *Checker) checkExternOwnedElems(fn *ast.Func) {
+	for _, p := range fn.Params {
+		if !p.Mut && c.table.Owned(p.Type) || c.crossesUnion(p.Type) ||
+			!c.holdsOwnedElems(p.Type, make(map[types.Type]bool)) {
+			continue
+		}
+		name := c.typeName(p.Type)
+		if !c.table.IsList(p.Type) && !c.table.IsView(p.Type) {
+			name += ", which holds one"
+		}
+		c.errorf(
+			p.TypeExpr.Spanned(),
+			"parameter %s of extern func %s cannot be %s: a list or a view whose elements hold lists cannot cross to C yet",
+			p.Name,
+			fn.Name,
+			name,
+		)
+	}
+}
+
+// holdsOwnedElems reports whether typ is a list or a view whose element
+// type is owned, or holds one, at any depth, through a struct, an array,
+// a list or a view. seen holds the structs already being looked at.
+func (c *Checker) holdsOwnedElems(typ types.Type, seen map[types.Type]bool) bool {
+	switch {
+	case c.table.IsView(typ), c.table.IsList(typ):
+		elem := c.table.Elem(typ)
+		return c.table.Owned(elem) || c.holdsOwnedElems(elem, seen)
+	case c.table.IsArray(typ):
+		return c.holdsOwnedElems(c.table.Elem(typ), seen)
+	case c.table.IsStruct(typ) && typ != types.Error && !seen[typ]:
+		seen[typ] = true
+		for _, f := range c.table.Fields(typ) {
+			if c.holdsOwnedElems(f.Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ownedTypeName names typ, an owned type, as an error about it does: a

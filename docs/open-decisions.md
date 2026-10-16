@@ -357,8 +357,8 @@ rules already there, rather than decided, and could go another way:
   or as a result, a list or anything holding one is an error.
 - A list, or a struct holding one, cannot be a global, mutable or not.
 - `len(l)`'s facts end at an assignment of `l`, a `mut` argument of it,
-  `append` and `reserve` included, though `reserve` changes no length, or
-  a move; writing an element of a list ends no
+  `append`, `reserve`, `pop` and `remove` included, though `reserve`
+  changes no length, or a move; writing an element of a list ends no
   fact about any variable, since no element of a list is a subject.
 - A variable that holds a list is never `const` in C. The C names are
   `tack_list_<id>` in the generated source and `tack_list_<element>` in
@@ -367,6 +367,122 @@ rules already there, rather than decided, and could go another way:
   type, and std's objects defining a `tack_` symbol a program's own C
   object leaves undefined, so a C file calling std's list macros links
   what they call.
+
+## Lists of owned elements
+
+Ahmed decided that a list may hold owned elements, lists and structs and
+unions holding them, nested to any depth, each read in place as a
+struct's list field is, never copied out, moved in by `append` and by
+`l[i] = v`, and taken out only by the new builtins `pop` and `remove`,
+whose plain forms need a proof and whose checked forms do not; that a
+range binds such an element in place; that a view may hold them while
+arrays and variadics may not yet; and that spreading such a list into
+`append` is an error. These points were settled by the implementation,
+for consistency with the rules already there, rather than decided, and
+could go another way:
+
+- The plain forms, `x := pop(mut l)` and `x := remove(mut l, i)`, cannot
+  be proven by the facts machinery as it is: a fact holds only in a
+  region that never assigns its variable, a `mut` argument included, and
+  the call passes `l` as `mut`, so `if len(l) > 0 { x := pop(mut l) }`
+  is `pop may find l empty; ...` with the note `but l is passed as mut
+  to pop here, so the proof ends`, exactly as `if d != 0 { d = n / d }`
+  is a division error today. The plain forms are checked and lowered,
+  but no program can use one until facts end where the variable is
+  assigned rather than for the whole region, or a call's own `mut`
+  argument stops ending the fact that proves it. That is a change to
+  the proof rules, so it is Ahmed's.
+- In the checked form, `x` is the element type's zero value when `ok` is
+  false, as for the other checked forms. A type with no zero value, any
+  owned type, a union or an `Allocator`, gives nothing: `x` is held by `ok` as a
+  result is by the error beside it, and cannot be read until `ok` is
+  checked true, `x cannot be read before ok is checked; check that ok
+  is true first`. In C, `x` is then zeroed, so freeing it does nothing.
+  The rules that keep an error's check about its results keep `ok`'s
+  about `x`: both are locals, `s.x cannot take the element pop gives
+  beside its ok; bind it to a local variable`, `ok` is assigned only by
+  a binding that assigns `x` too, or passed as `mut`, `ok says whether
+  pop gave x, so only a binding that also assigns x can assign it`, and
+  `ok` is never `_` when it holds `x`, `the ok pop returns cannot be
+  dropped: x cannot be read until it is checked; bind it to a variable
+  instead of _`. An `x` of a type with a zero value is read freely.
+- The check is a fact about a bool variable, which facts did not have:
+  a bool variable written alone as a condition gives one, `if ok` that
+  it is true in its branch, `!ok` that it is false, combined with `&&`,
+  `||` and early exits as every fact is. `ok == true` gives none, as
+  only comparisons with a known integer do. Only an `ok`'s check asks
+  about such a fact.
+- Dropping an element follows the rule for any value: an owned one
+  cannot be dropped, `pop returns list[int64], which cannot be dropped;
+  bind it to a variable`, `... instead of _` in a binding; a copyable one
+  may be, as any call's value may, `pop(mut l)` written as a statement
+  being the plain form, which needs its proof, and `_, ok := pop(mut l)`
+  allowed. `_, _ := pop(mut l)` is the resolver's `every name is _, so
+  nothing is bound; make the call on its own`.
+- `pop` and `remove` are generic builtins, as `append` and `reserve` are:
+  a declaration of either is `duplicate declaration of builtin
+  function`, `builtin.tck` cannot declare them, and a method may share
+  either name. `remove`'s index is an `int64`, as `reserve`'s count is,
+  so a narrower integer widens to it and a `uint64` is `cannot use
+  uint64 as int64 in argument to remove`. A negative constant index is
+  `index -1 is out of range for a list` in the checked form too, as an
+  index into a list is: a failure known at compile time is still an
+  error. Three names are `assignment mismatch: 3 variables but pop
+  gives 2 values`.
+- A type parameter still cannot be a list's or a view's element, as
+  before: a type parameter cannot appear in any composite type, so
+  `list[W]` was and is an error, now worded `a list cannot hold S: a
+  list's element cannot be a type parameter` (`a view's` for a view),
+  since its elements are no longer copied. An array's and a variadic's
+  keep their old wording.
+- A type holding itself through a list is reported as one holding
+  itself by value is, `invalid recursive type Tree: a type cannot hold
+  itself, even through a list`, with the same notes, though such a type
+  would be finite: how it would be built, freed and laid out in C, and
+  whether trees should be written that way, is not settled. Before, the
+  owned element was the error.
+- A range binding of an owned element refers to it in place, as a
+  pointer in C, so while the loop runs nothing may change it: the body
+  changes no element of the list, or any part of one, since any element
+  may be the one bound, `l is being ranged over, and x refers into it,
+  so this loop cannot assign l[i]` (`pass mut`, `move`), a compound
+  assignment or `++` included. A binding of `_` refers to nothing, and
+  the body may then write elements, as before. The binding cannot be
+  moved, `cannot move x: it refers to an element of l in place, and an
+  element cannot be moved out of a list`.
+- A borrowed element overlaps a `mut` argument at the list's level, as
+  any two elements may: `f(l[0], mut l[1])` is `cannot pass l[0]
+  alongside mut l[1] in this call: ...`, whatever the indexes, which the
+  borrow rule already said. `append(mut l, l[0])` is the index proof
+  error, the `mut l` ending the guard's fact, before it can be the
+  move-out error, which an append to another list gives.
+- When an append of owned values cannot grow the buffer, it frees the
+  values, last first, which no variable holds any more after the move,
+  and gives its error; the list is left as it was. The values are held
+  in C temporaries for that.
+- A list frees its elements last first, then its buffer, through one
+  `tack_free_` function per list type of owned elements, as a struct
+  frees its fields last first.
+- `pop` and `remove` lower to new macros in std's `tack.h`,
+  `TACK_LIST_POP(lp)` and `TACK_LIST_REMOVE(lp, i)`, which C may call
+  too; `remove` moves the rest down with a loop rather than `memmove`, so
+  `tack.h` still includes only `<stdbool.h>`, `<stddef.h>` and
+  `<stdint.h>`.
+- A list or a view whose elements are owned does not cross to C, as a
+  `mut` parameter, a view, or inside a struct, `parameter l of extern
+  func f cannot be list[list[uint8]]: a list or a view whose elements
+  hold lists cannot cross to C yet`: how C would name such a type in
+  `tack.h`, and free or take its elements, is not settled.
+- The wording of the new errors follows the nearest existing ones: the
+  move out of an element follows the field's, `cannot move l[0] out of
+  l: an element cannot be moved out of a list; take it out with pop or
+  remove` (`... out of a view, which only borrows it`); the checked form
+  of an owned element, `the checked form cannot read an element of type
+  list[int64]: it would copy it out of l; check 0 <= i && i < len(l)
+  first and use l[i] in place`; a spread follows the old element error,
+  `cannot spread other into append: its elements would be copied, and a
+  list cannot be`; and pop's missing proof follows an index's, `pop may
+  find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`.
 
 ## Methods
 
@@ -631,8 +747,8 @@ rules already there, rather than decided, and could go another way:
   covered, so this default never runs`. A case named twice is `int
   appears twice in this switch`, with a note at the first, as a type
   switch's type is.
-- Like a struct, a union may be a field, an array's element, a list's
-  element when it holds no list, a result, and a package-level variable
+- Like a struct, a union may be a field, an array's element when it
+  holds no list, a list's element, a result, and a package-level variable
   when its initializer is a constant expression and it holds no list. It
   may hold another union, and a switch may be on a clause's binding.
 - A union crossing to C is reported for every parameter or result that

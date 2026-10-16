@@ -74,12 +74,17 @@ v, ok := s[i]       // a string's byte
 x, ok := v[i]       // a view's element
 t, ok := s[i:j]     // a string's slice, s[i:] or s[:j] too
 v, ok := uint8(x)   // a conversion that can fail
+x, ok := pop(mut l)       // a list's last element, taken out
+x, ok := remove(mut l, i) // a list's element i, taken out
 ```
 
 The first value is the result when the operation succeeds, and the zero
 value of its type when it fails: `0` for a division, a conversion or a
 string's byte; the element type's zero value for an array or a view, so `0`, `""`,
-`false`, or a struct with every field zero; `""` for a string's slice. The second is a `bool`, `true`
+`false`, or a struct with every field zero; `""` for a string's slice;
+and for `pop` and `remove`, the element type's zero value, or, for a
+type with none, nothing that can be read until the second value is
+checked true (see [lists](#lists)). The second is a `bool`, `true`
 when the operation succeeded. For a division `ok` says only that the
 divisor was not zero: `m / d` with `m` an `int8` holding `-128` and `d`
 holding `-1` gives `-128` and `true`, since that division wraps rather than
@@ -1193,10 +1198,96 @@ itself, so its body cannot grow, assign or move it:
 <!-- error: move-range-append -->`l is being ranged over, so this loop cannot pass mut l`.
 No global holds a list and no reference is ever stored, so a callee
 reaches a caller's list only through its arguments, and these two
-rules cover every way a buffer could move while something reads it.
+rules cover every way a buffer could move while something reads it. An
+element of a list is part of it for both: two elements of one list may
+always be one, so
+<!-- error: owned-element-borrowed-alongside-mut-element -->`cannot pass l[0] alongside mut l[1] in this call: a list is not copied for a call, and a mut argument must be the only way to reach l[1] during it`.
 
-A list's elements are copied when read, so they must be copyable:
-<!-- error: list-list-of-lists -->`a list cannot hold list[int64]: its elements are copied, and a list cannot be`.
+**Owned elements.** A list may hold lists, and structs and unions
+holding them, to any depth, and owns each: freeing a list frees every
+element it holds, last first, then its buffer, and reassigning it frees
+every old element. An element of an owned type is never copied, since a
+copy would be a second owner. It is a place inside its list, read,
+grown, matched and borrowed where it is, as a struct's list field is,
+and never moved out of it, which would leave the list holding what it
+no longer owns:
+<!-- error: owned-element-moved-by-declaration -->`cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove`,
+through a view too,
+<!-- error: owned-element-of-view-moved -->`cannot move v[0] out of v: an element cannot be moved out of a view, which only borrows it`.
+The checked form would copy one, so it is
+<!-- error: owned-element-checked-index -->`the checked form cannot read an element of type list[int64]: it would copy it out of l; check 0 <= i && i < len(l) first and use l[i] in place`.
+`l[i] = v` moves `v` in, then frees the element it replaces, once `v`
+is computed, as assigning a variable does. `append` moves each value
+into the list, so the variable it came from is used up,
+<!-- error: owned-element-used-after-append -->`t is used after it was moved`,
+and when the buffer cannot grow, the append frees the values it was
+given, which no variable holds any longer. Spreading a list of owned
+elements would copy them,
+<!-- error: owned-element-spread-into-append -->`cannot spread other into append: its elements would be copied, and a list cannot be`.
+A range loop's element variable refers to an owned element in place, as
+a union's binding refers to its payload: it is never moved,
+<!-- error: owned-range-binding-moved -->`cannot move x: it refers to an element of l in place, and an element cannot be moved out of a list`,
+and since it may be any element, the loop's body changes none of them,
+
+<!-- case: owned-range-element-assigned -->
+```tack
+for i, x := range l {
+    l[i] = make(list[int64], c_allocator)
+```
+
+reports <!-- error: owned-range-element-assigned -->`l is being ranged over, and x refers into it, so this loop cannot assign l[i]`,
+so a fact about `len(x)` holds for the body as a fact about an
+immutable variable does. An array's and a variadic's elements are
+copied when read, so they stay copyable,
+<!-- error: list-array-of-lists -->`an array cannot hold list[int64]: its elements are copied, and a list cannot be`,
+and no type holds itself through a list,
+<!-- error: owned-recursive-through-list -->`invalid recursive type Tree: a type cannot hold itself, even through a list`.
+
+**Taking an element out.** `pop(mut l)` takes a list's last element
+and `remove(mut l, i)` its element `i`, moving the rest down; neither
+allocates or frees. The plain forms need the element proven there, as
+an index does,
+<!-- error: pop-unproven -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
+<!-- error: remove-unproven -->`index i may be out of range; check 0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)`,
+but each passes `l` as `mut`, which ends the facts about its length for
+the whole region, its own call included,
+
+<!-- case: pop-guard-ends-at-pop -->
+```tack
+if len(l) > 0 {
+    x := pop(mut l)
+```
+
+reports the pop with <!-- note: pop-guard-ends-at-pop -->`but l is passed as mut to pop here, so the proof ends`,
+so the checked forms, `x, ok := pop(mut l)` and `x, ok := remove(mut
+l, i)`, are the ones a program writes today. `ok` is false for an empty
+list or an index out of range, which leaves the list as it was, and `x`
+is then the element type's zero value; a type with none, owned, a union
+or an `Allocator`, has no value to give, so `x` cannot be read until `ok` is
+checked true, as a result beside an error cannot be until the error is
+checked:
+<!-- error: pop-read-before-ok -->`x cannot be read before ok is checked; check that ok is true first`.
+The check is a fact, `if ok`, `if !ok { return }` or `ok &&`, that
+holds in a region never assigning `ok`, and `ok` is assigned only with
+`x`,
+<!-- error: pop-ok-assigned -->`ok says whether pop gave x, so only a binding that also assigns x can assign it`,
+so a check is always about the element `x` holds. An owned element is
+never dropped,
+<!-- error: pop-owned-dropped -->`pop returns list[int64], which cannot be dropped; bind it to a variable instead of _`,
+and neither is the `ok` that guards one,
+<!-- error: pop-ok-dropped -->`the ok pop returns cannot be dropped: x cannot be read until it is checked; bind it to a variable instead of _`.
+`examples/owned-lists` counts the buffers its allocator holds after
+lists of lists, of structs and of unions are built, read and matched in
+place, grown, replaced, popped and removed at every edge, nested three
+deep, reassigned and made to fail part way, and checks the count is
+back to zero after each.
+
+<!-- example: owned-lists -->
+```tack
+    w, ok := pop(mut words)
+    if ok {
+        check(is(w, "dddd") && len(words) == 3, "the last word popped")
+```
 
 **Type parameters.** A generic function's body is checked once, for
 every type a call may pass, and a struct holding a list is one, so a
@@ -1226,8 +1317,7 @@ rather than copies, <!-- error: union-moved -->`u is used after it was moved`;
 one no variable holds must be given one, a switch's tag included,
 <!-- error: union-temporary-owned -->`cannot use a temporary U here; store it in a variable first`;
 no global holds one, <!-- error: union-global-list -->`package-level variable g cannot hold a list`;
-it is no element,
-<!-- error: union-list-of-owned -->`a list cannot hold U: its elements are copied, and U, which holds a list, cannot be`;
+it is no array's element, though a list's it may be, matched in place;
 and it has no `==`, <!-- error: union-equality-list -->`operator == is not defined on U`.
 Freeing one frees what the case it holds holds, and a moved one is
 empty, so freeing it does nothing; assigning one frees the old value
