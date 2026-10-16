@@ -88,7 +88,7 @@ static const bool tack_4_main11_arraysEqual = true;
 static const int64_t tack_4_main6_picked = 8;
 static const tack_4_main7_Segment tack_4_main6_copied = {{3, 4}, {6, 8}};
 static const int64_t tack_4_main4_deep = 42;
-static tack_array_19 tack_4_main7_offsets = {0};
+static tack_array_19 tack_4_main7_offsets = {};
 static const int64_t tack_4_main5_slots = 4;
 
 static void tack_4_main5_check(bool p_ok, int32_t p_status);

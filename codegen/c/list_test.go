@@ -197,10 +197,10 @@ func TestListLowering(t *testing.T) {
 		"    int64_t *ptr;\n    int64_t len;\n    int64_t cap;\n    tack_allocator alloc;\n} tack_list_",
 		"= ((tack_list_",
 		"){.alloc = TACK_C_ALLOCATOR});",
-		"return (TACK_LIST_APPEND(p_l, p_v) ? (tack_error){0} : (tack_error){1, {tack_str",
+		"return (TACK_LIST_APPEND(p_l, p_v) ? (tack_error){} : (tack_error){1, {tack_str",
 		"v_m = (tack_o",
 		", v_l = (tack_list_",
-		"){0}, tack_o",
+		"){}, tack_o",
 		"tack_list_free_(v_l.ptr, v_l.cap, sizeof (int64_t), _Alignof (int64_t), v_l.alloc);\n    v_l = tack_o",
 		"tack_list_free_(v_s.f_b.ptr, v_s.f_b.cap, sizeof (tack_string), _Alignof (tack_string), v_s.f_b.alloc);\n" +
 			"    tack_list_free_(v_s.f_a.ptr, v_s.f_a.cap, sizeof (int64_t), _Alignof (int64_t), v_s.f_a.alloc);\n" +
@@ -551,7 +551,7 @@ func TestBulkAppendLowering(t *testing.T) {
 		"TACK_LIST_APPEND_N(&v_l, 0, 0)",
 		", TACK_LIST_APPEND_N(&v_l, tack_v",
 		".ptr, tack_v",
-		"(TACK_LIST_RESERVE(&v_l, 4) ? (tack_error){0} : (tack_error){1, {tack_str",
+		"(TACK_LIST_RESERVE(&v_l, 4) ? (tack_error){} : (tack_error){1, {tack_str",
 		" < 0 ? (tack_error){2, {tack_str",
 	} {
 		if !strings.Contains(got, want) {

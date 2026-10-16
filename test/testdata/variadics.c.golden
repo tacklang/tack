@@ -127,7 +127,7 @@ static tack_view_19 tack_slice_from_19(tack_view_19 s, int64_t lo) {
 }
 
 static int64_t tack_4_main5_trace = 0;
-static tack_array_18 tack_4_main5_table = {0};
+static tack_array_18 tack_4_main5_table = {};
 
 typedef struct {
     int64_t r0;
@@ -415,7 +415,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_4_main3_sum((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_view_19){(const int64_t[2]){9223372036854775807, (-9223372036854775807 - 1)}, 2}) == (-1)), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
     tack_4_main5_check(((tack_4_main8_unsigned((tack_view_26){(const uint64_t[2]){18446744073709551615u, 1}, 2}) == 0) && (tack_4_main8_unsigned((tack_view_26){(const uint64_t[2]){v_b, v_u}, 2}) == 4000000255)), (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
     const tack_array_27 v_a = (tack_array_27){{1, 2, 3, 4}};
-    const tack_array_28 v_none = (tack_array_28){0};
+    const tack_array_28 v_none = (tack_array_28){};
     tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (tack_view_19){v_a.e, 4}) == 10) && (tack_4_main5_count((tack_view_19){v_none.e, 0}) == 0)), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     tack_4_main5_check(((tack_4_main3_sum((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, tack_slice_19((tack_view_19){v_a.e, 4}, (int64_t)1, (int64_t)3)) == 5) && (tack_4_main5_count(tack_slice_19((tack_view_19){v_a.e, 4}, (int64_t)2, (int64_t)2)) == 0)), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
     tack_4_main5_check(((tack_4_main6_passOn((tack_view_19){(const int64_t[3]){1, 2, 3}, 3}) == 12) && (tack_4_main6_passOn((tack_view_19){0, 0}) == 0)), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});

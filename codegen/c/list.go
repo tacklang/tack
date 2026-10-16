@@ -43,7 +43,7 @@ import (
 //
 // A move, a name the type checker marked (ast.Ident.Move), takes the
 // value and empties the variable, all of it zeroed, through a temporary,
-// (tack_o3 = v_l, v_l = (tack_list_17){0}, tack_o3), so a later free of
+// (tack_o3 = v_l, v_l = (tack_list_17){}, tack_o3), so a later free of
 // it, at its block's end or when it is assigned, does nothing. That is
 // what makes a conditional move free right on every path without a flag:
 // the free at the end is unconditional, and finds either the list or
@@ -410,7 +410,7 @@ func (g *generator) takeValues(call *ast.Call) (multiSource, []diag.Diagnostic) 
 
 // moveValue renders a name the type checker marked as moved, whose
 // variable or field place is ref, as its value taken through a temporary,
-// with the variable emptied: (tack_o3 = ref, ref = (T){0}, tack_o3). In
+// with the variable emptied: (tack_o3 = ref, ref = (T){}, tack_o3). In
 // an instance of a generic function, a value of a type parameter is
 // moved, since the type checker cannot know whether it owns a list; when
 // its type argument owns none, nothing frees it, so the move is a copy,
@@ -423,7 +423,7 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 	t := g.temp("o")
 	ctype := g.cType(typ)
 	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", ctype, t))
-	return fmt.Sprintf("(%s = %s, %s = (%s){0}, %s)", t, ref, ref, ctype, t)
+	return fmt.Sprintf("(%s = %s, %s = (%s){}, %s)", t, ref, ref, ctype, t)
 }
 
 // frees returns the C statements, each ending in a semicolon, that free

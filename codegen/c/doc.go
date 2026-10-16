@@ -230,7 +230,7 @@
 // at the call, as a plain argument's copy shows it. An any passed on is
 // passed as it is. The values of an ...any are made anys before they are
 // packed. An any local, b := a, is a const tack_any, and the empty any an
-// index out of range gives, (tack_any){0}, type id 0 and a null pointer.
+// index out of range gives, (tack_any){}, type id 0 and a null pointer.
 //
 // A type assertion, v, ok := x.(T), holds x in a const temporary, as a
 // call bound to two names holds its results, and reads v as (tmp.type ==
@@ -393,7 +393,10 @@
 // struct, an element x.e[i], and == calls a helper per array type,
 // tack_eq_ and its ID, that compares element by element. A package-level
 // array is initialized with braces, which a static variable needs, or
-// {0}. Every index the checker accepts is in range, so an element read is
+// {}. Every zero value is written {}, never {0}: clang rejects {0} for an
+// array whose element count is a multiple of 2^32, which it takes for an
+// aggregate with no elements, and takes {}, standard in C23 and an
+// extension before it that only -Wpedantic reports, for any array. Every index the checker accepts is in range, so an element read is
 // plain C. v, ok := a[i] holds the index in a temporary and reads the
 // element only when the index is in range, testing only the bounds the
 // index's type can cross, and giving the element type's zero value
@@ -425,7 +428,7 @@
 // helper per struct type, tack_eq_ and its ID, that compares field by field,
 // an array or struct field through its own helper. Assigning, passing and
 // returning a struct copies it, as C does. A package-level struct is
-// initialized with braces, its fields in order, or {0}, and a local one
+// initialized with braces, its fields in order, or {}, and a local one
 // without a value with a zeroed compound literal, which leaves a string
 // field a null pointer of length 0; print writes nothing for it.
 //
@@ -451,9 +454,9 @@
 // defines, whose members are code and msg, not f_code and f_msg, and
 // whose equality helper, tack_eq_ and error's ID, is emitted, like any
 // struct's, when == compares two. A literal is a compound literal of it,
-// (tack_error){.code = 2, .msg = ...}, noerror the zeroed (tack_error){0},
+// (tack_error){.code = 2, .msg = ...}, noerror the zeroed (tack_error){},
 // and a global holding noerror, or any error with code 0 and an empty
-// message, is initialized with {0}, whose message is a null pointer of
+// message, is initialized with {}, whose message is a null pointer of
 // length 0, as a zeroed string field's is. The rules that keep an error
 // from being dropped or its results from being read unchecked are the
 // type checker's, so an error is lowered as the plain value it is.

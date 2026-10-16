@@ -53,7 +53,7 @@ var assertCTests = []struct {
 	{
 		"checked element of anys, zeroed out of range",
 		assertProgram("e, ok := xs[1]", "use(e)", "use(ok)"),
-		[]string{"? p_xs.ptr[tack_r0] : (tack_any){0});"},
+		[]string{"? p_xs.ptr[tack_r0] : (tack_any){});"},
 	},
 	{
 		"type switch",

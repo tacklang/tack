@@ -47,7 +47,7 @@ static int64_t tack_4_main2_at(tack_array_17 p_v, int64_t p_i) {
 }
 
 static void tack_4_main4_main(void) {
-    tack_array_18 v_counts = (tack_array_18){0};
+    tack_array_18 v_counts = (tack_array_18){};
     {
         const int64_t tack_n2 = 4;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
@@ -60,7 +60,7 @@ static void tack_4_main4_main(void) {
     const int64_t tack_r5 = tack_4_main2_at(tack_4_main7_squares, 1);
     const int64_t v_v = ((tack_r5 >= 0 && tack_r5 <= 3) ? v_counts.e[tack_r5] : 0);
     const bool v_fine = (tack_r5 >= 0 && tack_r5 <= 3);
-    tack_array_19 v_seen = (tack_array_19){0};
+    tack_array_19 v_seen = (tack_array_19){};
     const uint8_t v_b = 200;
     v_seen.e[v_b] = true;
     if ((v_ok || !v_fine) || !v_seen.e[200]) {

@@ -136,7 +136,7 @@ static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);
 }
 
-static tack_array_20 tack_4_main5_table = {0};
+static tack_array_20 tack_4_main5_table = {};
 static tack_string tack_4_main5_label = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
@@ -389,14 +389,14 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((tack_4_main3_sum((tack_view_22){v_three.e, 3}) == 6) && (tack_4_main3_sum((tack_view_22){v_five.e, 5}) == 150)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_4_main5_check(((tack_4_main8_sumRange((tack_view_22){v_five.e, 5}) == 150) && (tack_4_main10_sumByIndex((tack_view_22){v_five.e, 5}) == 150)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main5_check(((tack_4_main10_countRange((tack_view_22){v_five.e, 5}) == 5) && (tack_4_main10_countRange((tack_view_22){v_three.e, 3}) == 3)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
-    const tack_array_30 v_empty = (tack_array_30){0};
+    const tack_array_30 v_empty = (tack_array_30){};
     tack_4_main5_check((((tack_4_main3_sum((tack_view_22){v_empty.e, 0}) == 0) && (tack_4_main8_sumRange((tack_view_22){v_empty.e, 0}) == 0)) && (tack_4_main2_at((tack_view_22){v_empty.e, 0}, 0) == (-1))), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     tack_4_main5_check(((tack_4_main6_lastOf((tack_view_22){v_empty.e, 0}) == 0) && (tack_4_main6_lastOf((tack_view_22){v_five.e, 5}) == 50)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     tack_4_main5_check((tack_4_main6_passOn((tack_view_22){v_five.e, 5}) == 150), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
     tack_4_main5_check((((tack_4_main2_at((tack_view_22){v_three.e, 3}, 2) == 3) && (tack_4_main2_at((tack_view_22){v_three.e, 3}, 3) == (-1))) && (tack_4_main2_at((tack_view_22){v_three.e, 3}, (-1)) == (-1))), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
     tack_4_main5_check(((tack_4_main8_firstTwo((tack_view_22){v_three.e, 3}) == 3) && (tack_4_main8_firstTwo((tack_view_22){v_empty.e, 0}) == (-1))), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
     tack_4_main5_check(((tack_4_main7_guarded((tack_view_22){v_five.e, 5}, 4) == 50) && (tack_4_main7_guarded((tack_view_22){v_five.e, 5}, 5) == (-1))), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
-    tack_4_main5_Shape v_s = (tack_4_main5_Shape){0};
+    tack_4_main5_Shape v_s = (tack_4_main5_Shape){};
     v_s.f_pts.e[0] = (tack_4_main5_Point){.f_x = 1, .f_y = 9};
     v_s.f_pts.e[1] = (tack_4_main5_Point){.f_x = 2, .f_y = 9};
     v_s.f_pts.e[2] = (tack_4_main5_Point){.f_x = 3, .f_y = 9};

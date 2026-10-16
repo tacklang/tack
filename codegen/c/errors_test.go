@@ -35,13 +35,13 @@ func TestGeneratesErrors(t *testing.T) {
 	got := generate(t, errorsSrc)
 	for _, want := range []string{
 		"static const tack_error tack_4_main8_notFound = {2, {tack_str0, TACK_C_STR_LEN(tack_str0)}};\n",
-		"static const tack_error tack_4_main4_none = {0};\n",
+		"static const tack_error tack_4_main4_none = {};\n",
 		"    tack_error f_err;\n",
 		"    tack_error e[2];\n",
 		"    tack_error r1;\n",
 		"static tack_error tack_4_main5_ready(int64_t p_n);\n",
 		"return (tack_error){.code = 1, .msg = (tack_string){",
-		"return (tack_error){0};\n",
+		"return (tack_error){};\n",
 		"if (v_err.code != 0) {\n",
 		"static bool tack_eq_15(tack_error a, tack_error b) {\n" +
 			"    return a.code == b.code && (tack_compare_strings(a.msg, b.msg) == 0);\n}\n",

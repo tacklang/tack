@@ -257,7 +257,7 @@ static void tack_4_main4_main(void) {
     int64_t v_far = 1;
     tack_4_main5_relay(&v_far);
     tack_4_main5_check((v_far == 101), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
-    tack_array_21 v_cells = (tack_array_21){0};
+    tack_array_21 v_cells = (tack_array_21){};
     const int64_t v_i = 2;
     tack_4_main4_bump(&v_cells.e[v_i]);
     tack_4_main4_bump(&v_cells.e[3]);
@@ -283,7 +283,7 @@ static void tack_4_main4_main(void) {
     bool v_on = false;
     tack_4_main4_flip(&v_on);
     tack_4_main5_check(v_on, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
-    tack_4_main4_Wide v_w = (tack_4_main4_Wide){0};
+    tack_4_main4_Wide v_w = (tack_4_main4_Wide){};
     tack_4_main4_deep(&v_w);
     tack_4_main5_check(((v_w.f_rows.e[1].f_pts.e[0].f_y == 1) && (tack_4_main4_read(v_w.f_rows.e[1].f_pts.e[0]) == 0)), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
 }

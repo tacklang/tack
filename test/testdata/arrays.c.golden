@@ -79,7 +79,7 @@ static void tack_4_main4_main(void) {
     if ((v_b.e[0] != 1) || (!tack_eq_18(v_a, (tack_array_18){{10, 2, 3}}))) {
         tack_builtin_exit(1);
     }
-    tack_array_21 v_grid = (tack_array_21){0};
+    tack_array_21 v_grid = (tack_array_21){};
     v_grid.e[1].e[1] = true;
     if (!tack_eq_21(v_grid, (tack_array_21){{(tack_array_20){{false, false}}, (tack_array_20){{false, true}}}})) {
         tack_builtin_exit(2);

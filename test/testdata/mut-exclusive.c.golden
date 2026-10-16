@@ -129,7 +129,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 2, 3, 1}})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     tack_4_main8_swapEnds(&v_a, 1, 2);
     tack_4_main5_check((tack_eq_22(v_a, (tack_array_22){{4, 3, 2, 1}})), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    tack_4_main5_Shape v_s = (tack_4_main5_Shape){0};
+    tack_4_main5_Shape v_s = (tack_4_main5_Shape){};
     v_s.f_pts.e[0] = (tack_4_main5_Point){.f_x = 5, .f_y = 6};
     v_s.f_pts.e[1] = (tack_4_main5_Point){.f_x = 7, .f_y = 8};
     tack_4_main4_swap(&v_s.f_pts.e[0].f_x, &v_s.f_pts.e[1].f_y);

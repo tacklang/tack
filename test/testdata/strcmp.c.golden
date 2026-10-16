@@ -161,7 +161,7 @@ static void tack_4_main4_main(void) {
     if ((!tack_eq_17(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, .f_age = 30})) || (tack_eq_17(v_p, (tack_4_main6_Person){.f_name = (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, .f_age = 30}))) {
         tack_builtin_exit(11);
     }
-    tack_4_main6_Person v_z = (tack_4_main6_Person){0};
+    tack_4_main6_Person v_z = (tack_4_main6_Person){};
     if ((!tack_eq_17(v_z, (tack_4_main6_Person){.f_name = (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, .f_age = 0})) || !(tack_compare_strings(v_z.f_name, v_p.f_name) < 0)) {
         tack_builtin_exit(12);
     }
@@ -169,7 +169,7 @@ static void tack_4_main4_main(void) {
     if ((!tack_eq_20(v_words, (tack_array_20){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}}})) || (tack_eq_20(v_words, (tack_array_20){{(tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, (tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}}}))) {
         tack_builtin_exit(13);
     }
-    tack_array_19 v_blank = (tack_array_19){0};
+    tack_array_19 v_blank = (tack_array_19){};
     if ((!tack_eq_19(v_blank, (tack_array_19){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}}})) || (tack_eq_19(v_blank, (tack_array_19){{(tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}}}))) {
         tack_builtin_exit(14);
     }

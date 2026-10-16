@@ -56,20 +56,20 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 static tack_list_17 tack_4_main5_count(int64_t p_n) {
     tack_list_17 tack_o0;
     tack_list_17 tack_o4;
-    tack_list_17 tack_ret1 = (tack_list_17){0};
+    tack_list_17 tack_ret1 = (tack_list_17){};
     tack_list_17 v_l = ((tack_list_17){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n2 = p_n;
         for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
             const int64_t v_i = tack_k3;
-            const tack_error v_err = (TACK_LIST_APPEND(&v_l, v_i) ? (tack_error){0} : (tack_error){1, {tack_str10, TACK_C_STR_LEN(tack_str10)}});
+            const tack_error v_err = (TACK_LIST_APPEND(&v_l, v_i) ? (tack_error){} : (tack_error){1, {tack_str10, TACK_C_STR_LEN(tack_str10)}});
             if (v_err.code != 0) {
-                tack_ret1 = (tack_o0 = v_l, v_l = (tack_list_17){0}, tack_o0);
+                tack_ret1 = (tack_o0 = v_l, v_l = (tack_list_17){}, tack_o0);
                 goto tack_defer0_1;
             }
         }
     }
-    tack_ret1 = (tack_o4 = v_l, v_l = (tack_list_17){0}, tack_o4);
+    tack_ret1 = (tack_o4 = v_l, v_l = (tack_list_17){}, tack_o4);
     goto tack_defer0_1;
     tack_defer0_1: ;
     tack_list_free_(v_l.ptr, v_l.cap, sizeof (int64_t), _Alignof (int64_t), v_l.alloc);

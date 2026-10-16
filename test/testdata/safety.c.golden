@@ -188,7 +188,7 @@ static void tack_4_main12_checkedIndex(void) {
 }
 
 static int64_t tack_4_main3_set(int64_t p_i) {
-    tack_array_18 v_a = (tack_array_18){0};
+    tack_array_18 v_a = (tack_array_18){};
     if ((p_i < 0) || (p_i >= 3)) {
         return 0;
     }
@@ -302,7 +302,7 @@ static void tack_4_main10_zeroValues(void) {
     const bool v_f = ((tack_r12 >= 0 && tack_r12 <= 1) ? v_flags.e[tack_r12] : false);
     const bool v_okFlag = (tack_r12 >= 0 && tack_r12 <= 1);
     const int64_t tack_r13 = v_i;
-    const tack_4_main5_Point v_p = ((tack_r13 >= 0 && tack_r13 <= 0) ? v_points.e[tack_r13] : (tack_4_main5_Point){0});
+    const tack_4_main5_Point v_p = ((tack_r13 >= 0 && tack_r13 <= 0) ? v_points.e[tack_r13] : (tack_4_main5_Point){});
     const bool v_okPoint = (tack_r13 >= 0 && tack_r13 <= 0);
     tack_4_main5_check((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, ((tack_compare_strings(v_w, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}) == 0) && !v_okWord));
     tack_4_main5_check((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, (!v_f && !v_okFlag));

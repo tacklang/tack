@@ -291,7 +291,7 @@ static tack_results_4_main8_firstInt tack_4_main8_firstInt(tack_view_17 p_args) 
         int64_t v_i = 0;
         for (; v_i <= (p_args).len; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
             const int64_t tack_r6 = v_i;
-            const tack_any v_a = ((tack_r6 >= 0 && tack_r6 < p_args.len) ? p_args.ptr[tack_r6] : (tack_any){0});
+            const tack_any v_a = ((tack_r6 >= 0 && tack_r6 < p_args.len) ? p_args.ptr[tack_r6] : (tack_any){});
             const bool v_ok = (tack_r6 >= 0 && tack_r6 < p_args.len);
             if (!v_ok) {
                 return (tack_results_4_main8_firstInt){(-1), false};
@@ -352,7 +352,7 @@ static tack_results_4_main5_asInt tack_4_main5_asInt(tack_any p_a) {
     if (!v_ok) {
         return (tack_results_4_main5_asInt){0, (tack_error){.code = 1, .msg = (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}}};
     }
-    return (tack_results_4_main5_asInt){v_n, (tack_error){0}};
+    return (tack_results_4_main5_asInt){v_n, (tack_error){}};
 }
 
 static void tack_4_main7_forward(tack_any p_a) {
@@ -411,7 +411,7 @@ static void tack_4_main8_deferred(tack_any p_a) {
 
 static void tack_4_main5_empty(tack_view_17 p_args) {
     const int64_t tack_r18 = (p_args).len;
-    const tack_any v_e = ((tack_r18 >= 0 && tack_r18 < p_args.len) ? p_args.ptr[tack_r18] : (tack_any){0});
+    const tack_any v_e = ((tack_r18 >= 0 && tack_r18 < p_args.len) ? p_args.ptr[tack_r18] : (tack_any){});
     const bool v_ok = (tack_r18 >= 0 && tack_r18 < p_args.len);
     {
         const tack_any tack_s19 = v_e;

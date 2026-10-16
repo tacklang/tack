@@ -53,7 +53,7 @@ void tack_builtin_exit(int32_t);
 
 static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
 static const tack_array_23 tack_4_main7_corners = {{{1, 1}, {2, 2}}};
-static tack_4_main5_Point tack_4_main7_counter = {0};
+static tack_4_main5_Point tack_4_main7_counter = {};
 
 typedef struct {
     tack_4_main5_Point r0;
@@ -122,7 +122,7 @@ static void tack_4_main4_main(void) {
     if ((v_sum != 30) || (tack_4_main7_corners.e[1].f_y != 2)) {
         tack_builtin_exit(5);
     }
-    tack_4_main4_Grid v_g = (tack_4_main4_Grid){0};
+    tack_4_main4_Grid v_g = (tack_4_main4_Grid){};
     v_g.f_cells.e[2] = 5;
     v_g.f_name = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
     {
@@ -135,7 +135,7 @@ static void tack_4_main4_main(void) {
     if ((((((void)v_g.f_cells, (int64_t)3) != 3) || (v_g.f_cells.e[2] != 6)) || (v_g.f_cells.e[0] != 1)) || ((v_g.f_name).len != 4)) {
         tack_builtin_exit(6);
     }
-    tack_4_main5_Point v_z = (tack_4_main5_Point){0};
+    tack_4_main5_Point v_z = (tack_4_main5_Point){};
     if ((!tack_eq_18(v_z, tack_4_main6_origin)) || (!tack_eq_18(tack_4_main7_counter, v_z))) {
         tack_builtin_exit(7);
     }
@@ -146,8 +146,8 @@ static void tack_4_main4_main(void) {
     if (v_s.f_n != (-128)) {
         tack_builtin_exit(8);
     }
-    const tack_4_main5_Empty v_e = (tack_4_main5_Empty){0};
-    if (!tack_eq_21(v_e, (tack_4_main5_Empty){0})) {
+    const tack_4_main5_Empty v_e = (tack_4_main5_Empty){};
+    if (!tack_eq_21(v_e, (tack_4_main5_Empty){})) {
         tack_builtin_exit(9);
     }
     const int64_t tack_r7 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)v_sum + (uint64_t)v_g.f_cells.e[2])) + (uint64_t)tack_4_main7_counter.f_x)) + (uint64_t)tack_4_main7_counter.f_y)) + (uint64_t)100));

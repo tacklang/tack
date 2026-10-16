@@ -427,20 +427,20 @@ static tack_error tack_15_union_2dmethods14_Value_2eappend(tack_15_union_2dmetho
     tack_view_32 tack_v14;
     tack_list_22 tack_o16;
     tack_15_union_2dmethods5_Value tack_o17;
-    tack_error tack_ret15 = (tack_error){0};
+    tack_error tack_ret15 = (tack_error){};
     tack_list_22 v_next = ((tack_list_22){.alloc = TACK_C_ALLOCATOR});
     {
         const tack_15_union_2dmethods5_Value *const tack_s13 = &(*p_v);
         if (tack_s13->tag == 2) {
             const tack_list_22 *const v_ws = &tack_s13->u.c_words;
-            const tack_error v_err = ((tack_v14 = (tack_view_32){(*v_ws).ptr, (*v_ws).len}, TACK_LIST_APPEND_N(&v_next, tack_v14.ptr, tack_v14.len)) ? (tack_error){0} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
+            const tack_error v_err = ((tack_v14 = (tack_view_32){(*v_ws).ptr, (*v_ws).len}, TACK_LIST_APPEND_N(&v_next, tack_v14.ptr, tack_v14.len)) ? (tack_error){} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
             if (v_err.code != 0) {
                 tack_ret15 = v_err;
                 goto tack_defer0_1;
             }
         } else if (tack_s13->tag == 1) {
             const tack_string *const v_s = &tack_s13->u.c_text;
-            const tack_error v_err = (TACK_LIST_APPEND(&v_next, (*v_s)) ? (tack_error){0} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
+            const tack_error v_err = (TACK_LIST_APPEND(&v_next, (*v_s)) ? (tack_error){} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
             if (v_err.code != 0) {
                 tack_ret15 = v_err;
                 goto tack_defer0_1;
@@ -448,15 +448,15 @@ static tack_error tack_15_union_2dmethods14_Value_2eappend(tack_15_union_2dmetho
         } else {
         }
     }
-    const tack_error v_err = (TACK_LIST_APPEND(&v_next, p_w) ? (tack_error){0} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
+    const tack_error v_err = (TACK_LIST_APPEND(&v_next, p_w) ? (tack_error){} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
     if (v_err.code != 0) {
         tack_ret15 = v_err;
         goto tack_defer0_1;
     }
-    tack_o17 = ((tack_15_union_2dmethods5_Value){.tag = 2, .u.c_words = (tack_o16 = v_next, v_next = (tack_list_22){0}, tack_o16)});
+    tack_o17 = ((tack_15_union_2dmethods5_Value){.tag = 2, .u.c_words = (tack_o16 = v_next, v_next = (tack_list_22){}, tack_o16)});
     tack_free_19((*p_v));
     (*p_v) = tack_o17;
-    tack_ret15 = (tack_error){0};
+    tack_ret15 = (tack_error){};
     goto tack_defer0_1;
     tack_defer0_1: ;
     tack_list_free_(v_next.ptr, v_next.cap, sizeof (tack_string), _Alignof (tack_string), v_next.alloc);
@@ -525,7 +525,7 @@ static void tack_15_union_2dmethods12_testGenerics(void) {
     const tack_15_union_2dmethods5_Shape v_c = ((tack_15_union_2dmethods5_Shape){.tag = 0, .u.c_circle = 1});
     tack_15_union_2dmethods5_Value v_v = ((tack_15_union_2dmethods5_Value){.tag = 1, .u.c_text = (tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)}});
     tack_15_union_2dmethods3_Bag v_b = (tack_15_union_2dmethods3_Bag){.f_items = ((tack_list_23){.alloc = TACK_C_ALLOCATOR})};
-    const tack_error v_err = (TACK_LIST_APPEND_N(&v_b.f_items, ((const int64_t[3]){1, 2, 3}), 3) ? (tack_error){0} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
+    const tack_error v_err = (TACK_LIST_APPEND_N(&v_b.f_items, ((const int64_t[3]){1, 2, 3}), 3) ? (tack_error){} : (tack_error){1, {tack_str61, TACK_C_STR_LEN(tack_str61)}});
     tack_15_union_2dmethods5_check((v_err.code == 0), (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)});
     tack_15_union_2dmethods5_check((((tack_15_union_2dmethods36_measure_5bunion_2dmethods_2eShape_5d(v_c) == 6) && (tack_15_union_2dmethods36_measure_5bunion_2dmethods_2eValue_5d(v_v) == 4)) && (tack_15_union_2dmethods34_measure_5bunion_2dmethods_2eBag_5d(v_b) == 3)), (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)});
     tack_15_union_2dmethods5_check((((tack_compare_strings(tack_15_union_2dmethods34_label_5bunion_2dmethods_2eShape_5d(v_c), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}) == 0) && (tack_compare_strings(tack_15_union_2dmethods34_label_5bunion_2dmethods_2eValue_5d(v_v), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}) == 0)) && (tack_compare_strings(tack_15_union_2dmethods32_label_5bunion_2dmethods_2eBag_5d(v_b), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}) == 0)), (tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)});

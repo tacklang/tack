@@ -65,7 +65,7 @@ static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
 static const tack_4_calc4_geom5_Point tack_4_calc4_geom6_Origin = {0, 0};
 static const int64_t tack_4_calc4_geom5_Limit = 20;
 static const tack_array_20 tack_4_calc4_geom7_Corners = {{{0, 0}, {4, 2}}};
-static tack_array_21 tack_4_calc3_cmd4_calc6_counts = {0};
+static tack_array_21 tack_4_calc3_cmd4_calc6_counts = {};
 static const int64_t tack_4_calc3_cmd4_calc6_corner = 4;
 static const int64_t tack_4_calc3_cmd4_calc3_far = 8;
 static const bool tack_4_calc3_cmd4_calc8_atOrigin = true;
@@ -194,7 +194,7 @@ static void tack_4_calc3_cmd4_calc4_main(void) {
     tack_4_calc3_cmd4_calc6_counts.e[3] = 5;
     tack_4_calc3_cmd4_calc5_check((tack_4_calc5_chain3_one5_Depth() == 3), 10);
     tack_4_calc3_cmd4_calc5_check((((tack_4_calc3_cmd4_calc4_size() == 8) && (tack_4_calc5_lexer4_Size() == 3)) && (tack_4_calc4_geom4_Size() == 4)), 11);
-    tack_4_calc5_lexer5_Token v_z = (tack_4_calc5_lexer5_Token){0};
+    tack_4_calc5_lexer5_Token v_z = (tack_4_calc5_lexer5_Token){};
     tack_4_calc3_cmd4_calc5_check((((v_z.f_kind == 0) && (v_z.f_start == 0)) && (v_t.f_start == 0)), 12);
     const tack_4_calc5_lexer5_Token v_w = v_t;
     tack_4_calc3_cmd4_calc5_check(((((tack_eq_17(v_w, v_t)) && (!tack_eq_17(v_z, v_t))) && (tack_eq_17(tack_4_calc5_lexer5_First((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}), v_t))) && (!tack_eq_17(tack_4_calc5_lexer5_First((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}), v_t))), 13);

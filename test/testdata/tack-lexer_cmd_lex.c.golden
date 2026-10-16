@@ -329,7 +329,7 @@ static void tack_12_tack_2dlexer3_cmd3_lex9_printByte(uint8_t p_c);
 static tack_string tack_12_tack_2dlexer5_lexer4_Name(tack_12_tack_2dlexer5_lexer5_Token p_t) {
     if (p_t.f_kind == tack_12_tack_2dlexer5_lexer6_KindOp) {
         const int64_t tack_r0 = p_t.f_sub;
-        const tack_12_tack_2dlexer5_lexer8_spelling v_op = ((tack_r0 >= 0 && tack_r0 <= 47) ? tack_12_tack_2dlexer5_lexer9_operators.e[tack_r0] : (tack_12_tack_2dlexer5_lexer8_spelling){0});
+        const tack_12_tack_2dlexer5_lexer8_spelling v_op = ((tack_r0 >= 0 && tack_r0 <= 47) ? tack_12_tack_2dlexer5_lexer9_operators.e[tack_r0] : (tack_12_tack_2dlexer5_lexer8_spelling){});
         return v_op.f_text;
     }
     const int64_t tack_r1 = p_t.f_kind;
@@ -595,7 +595,7 @@ static void tack_12_tack_2dlexer5_lexer5_ident(tack_12_tack_2dlexer5_lexer5_Lexe
     }
     const int64_t v_k = tack_12_tack_2dlexer5_lexer7_keyword((*p_l).f_src, v_start, (*p_l).f_pos);
     const int64_t tack_r10 = v_k;
-    const tack_12_tack_2dlexer5_lexer8_spelling v_w = ((tack_r10 >= 0 && tack_r10 <= 34) ? tack_12_tack_2dlexer5_lexer8_keywords.e[tack_r10] : (tack_12_tack_2dlexer5_lexer8_spelling){0});
+    const tack_12_tack_2dlexer5_lexer8_spelling v_w = ((tack_r10 >= 0 && tack_r10 <= 34) ? tack_12_tack_2dlexer5_lexer8_keywords.e[tack_r10] : (tack_12_tack_2dlexer5_lexer8_spelling){});
     const bool v_isKeyword = (tack_r10 >= 0 && tack_r10 <= 34);
     if (v_isKeyword) {
         tack_12_tack_2dlexer5_lexer3_add(p_l, tack_12_tack_2dlexer5_lexer11_KindKeyword, v_k, v_start, (*p_l).f_pos, v_w.f_ends);
@@ -687,7 +687,7 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
         tack_builtin_print((tack_string){tack_str102, TACK_C_STR_LEN(tack_str102)});
         tack_builtin_exit(253);
     }
-    tack_12_tack_2dlexer5_lexer5_Lexer v_lx = (tack_12_tack_2dlexer5_lexer5_Lexer){0};
+    tack_12_tack_2dlexer5_lexer5_Lexer v_lx = (tack_12_tack_2dlexer5_lexer5_Lexer){};
     tack_12_tack_2dlexer5_lexer3_Lex(&v_lx, v_src);
     if (v_lx.f_overflow) {
         tack_builtin_print((tack_string){tack_str103, TACK_C_STR_LEN(tack_str103)});
@@ -718,7 +718,7 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
         for (int64_t tack_k20 = 0; tack_k20 < tack_n19; tack_k20++) {
             const int64_t v_i = tack_k20;
             const int64_t tack_r18 = v_i;
-            const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r18 >= 0 && tack_r18 <= 63) ? v_lx.f_errs.e[tack_r18] : (tack_12_tack_2dlexer5_lexer5_Error){0});
+            const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r18 >= 0 && tack_r18 <= 63) ? v_lx.f_errs.e[tack_r18] : (tack_12_tack_2dlexer5_lexer5_Error){});
             tack_builtin_print((tack_string){tack_str107, TACK_C_STR_LEN(tack_str107)});
             tack_12_tack_2dlexer3_cmd3_lex8_printInt(v_e.f_start);
             tack_builtin_print((tack_string){tack_str105, TACK_C_STR_LEN(tack_str105)});

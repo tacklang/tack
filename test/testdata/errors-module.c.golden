@@ -71,14 +71,14 @@ static tack_results_6_errmod3_num5_Parse tack_6_errmod3_num5_Parse(tack_string p
             v_n = ((int64_t)((uint64_t)((int64_t)((uint64_t)v_n * (uint64_t)10)) + (uint64_t)((uint8_t)((uint64_t)v_c - (uint64_t)48))));
         }
     }
-    return (tack_results_6_errmod3_num5_Parse){v_n, (tack_error){0}};
+    return (tack_results_6_errmod3_num5_Parse){v_n, (tack_error){}};
 }
 
 static tack_error tack_6_errmod3_num8_Positive(int64_t p_n) {
     if (p_n <= 0) {
         return (tack_error){.code = 4, .msg = (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}};
     }
-    return (tack_error){0};
+    return (tack_error){};
 }
 
 static void tack_6_errmod5_check(bool p_cond, tack_string p_name) {
@@ -103,7 +103,7 @@ static tack_results_6_errmod3_sum tack_6_errmod3_sum(tack_string p_a, tack_strin
     if (v_errY.code != 0) {
         return (tack_results_6_errmod3_sum){0, v_errY};
     }
-    return (tack_results_6_errmod3_sum){((int64_t)((uint64_t)v_x + (uint64_t)v_y)), (tack_error){0}};
+    return (tack_results_6_errmod3_sum){((int64_t)((uint64_t)v_x + (uint64_t)v_y)), (tack_error){}};
 }
 
 static void tack_6_errmod4_main(void) {
@@ -126,7 +126,7 @@ static void tack_6_errmod4_main(void) {
     if (v_errSum.code == 0) {
         tack_6_errmod5_check(((v_total == 42) && (v_errBad.code == 3)), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
     }
-    tack_6_errmod5_check(((tack_eq_15(tack_6_errmod3_num8_Positive(1), (tack_error){0})) && (tack_compare_strings(tack_6_errmod3_num8_Positive(0).msg, (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}) == 0)), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
+    tack_6_errmod5_check(((tack_eq_15(tack_6_errmod3_num8_Positive(1), (tack_error){})) && (tack_compare_strings(tack_6_errmod3_num8_Positive(0).msg, (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}) == 0)), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
 }
 
 int main(void) {

@@ -238,7 +238,7 @@ func memberName(typ types.Type, name string) string {
 // zeroed.
 func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic) {
 	if len(lit.Elems) == 0 {
-		return fmt.Sprintf("(%s){0}", g.structName(lit.Type)), nil
+		return fmt.Sprintf("(%s){}", g.structName(lit.Type)), nil
 	}
 	inits := make([]string, len(lit.Elems))
 	values := make([]ast.Expr, len(lit.Elems))
@@ -316,7 +316,7 @@ func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 		return g.constValue(c)
 	}
 	if zeroed(typ, values) {
-		return "{0}", true
+		return "{}", true
 	}
 	parts, layout := g.parts(typ), "{%s}"
 	if g.prog.Types.IsArray(typ) {

@@ -59,7 +59,7 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 		return g.structLit(lit)
 	}
 	if len(lit.Elems) == 0 {
-		return fmt.Sprintf("(%s){0}", arrayName(lit.Type)), nil
+		return fmt.Sprintf("(%s){}", arrayName(lit.Type)), nil
 	}
 	elems := make([]string, len(lit.Elems))
 	for i, e := range lit.Elems {

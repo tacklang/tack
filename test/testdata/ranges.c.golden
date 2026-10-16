@@ -122,7 +122,7 @@ static void tack_4_main4_main(void) {
     if (v_sum != 20) {
         tack_builtin_exit(1);
     }
-    tack_array_18 v_doubled = (tack_array_18){0};
+    tack_array_18 v_doubled = (tack_array_18){};
     {
         (void)v_a;
         for (int64_t tack_k7 = 0; tack_k7 < 5; tack_k7++) {
@@ -188,7 +188,7 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(6);
     }
     {
-        (void)(tack_array_20){0};
+        (void)(tack_array_20){};
         for (int64_t tack_k17 = 0; tack_k17 < 0; tack_k17++) {
             tack_builtin_exit(7);
         }

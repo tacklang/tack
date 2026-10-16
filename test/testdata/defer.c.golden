@@ -148,7 +148,7 @@ static int64_t tack_4_main6_result(void) {
 }
 
 static tack_results_4_main4_pair tack_4_main4_pair(void) {
-    tack_results_4_main4_pair tack_ret5 = (tack_results_4_main4_pair){0};
+    tack_results_4_main4_pair tack_ret5 = (tack_results_4_main4_pair){};
     int64_t v_a = 1;
     int64_t v_b = 2;
     tack_ret5 = (tack_results_4_main4_pair){v_a, v_b};

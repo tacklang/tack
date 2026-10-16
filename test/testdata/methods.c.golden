@@ -276,7 +276,7 @@ static tack_7_methods4_strs5_Bytes tack_7_methods4_strs8_NewBytes(void) {
 }
 
 static tack_error tack_7_methods4_strs12_Bytes_2ePush(tack_7_methods4_strs5_Bytes * p_b, uint8_t p_c) {
-    return (TACK_LIST_APPEND(&(*p_b).f_data, p_c) ? (tack_error){0} : (tack_error){1, {tack_str64, TACK_C_STR_LEN(tack_str64)}});
+    return (TACK_LIST_APPEND(&(*p_b).f_data, p_c) ? (tack_error){} : (tack_error){1, {tack_str64, TACK_C_STR_LEN(tack_str64)}});
 }
 
 static int64_t tack_7_methods4_strs11_Bytes_2eLen(tack_7_methods4_strs5_Bytes p_b) {
@@ -321,7 +321,7 @@ static int64_t tack_7_methods13_Builder_2elen(tack_7_methods7_Builder p_b) {
 }
 
 static tack_error tack_7_methods16_Builder_2eappend(tack_7_methods7_Builder * p_b, uint8_t p_c) {
-    return (TACK_LIST_APPEND(&(*p_b).f_buf, p_c) ? (tack_error){0} : (tack_error){1, {tack_str64, TACK_C_STR_LEN(tack_str64)}});
+    return (TACK_LIST_APPEND(&(*p_b).f_buf, p_c) ? (tack_error){} : (tack_error){1, {tack_str64, TACK_C_STR_LEN(tack_str64)}});
 }
 
 static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b, tack_string p_s) {
@@ -335,7 +335,7 @@ static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b
             }
         }
     }
-    return (tack_error){0};
+    return (tack_error){};
 }
 
 static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_29 p_parts) {
@@ -349,11 +349,11 @@ static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * 
             }
         }
     }
-    return (tack_error){0};
+    return (tack_error){};
 }
 
 static tack_error tack_7_methods14_Builder_2eline(tack_7_methods7_Builder * p_b, tack_string p_s) {
-    tack_error tack_ret6 = (tack_error){0};
+    tack_error tack_ret6 = (tack_error){};
     const tack_error v_err = tack_7_methods15_Builder_2ewrite(p_b, p_s);
     if (v_err.code != 0) {
         tack_ret6 = v_err;
@@ -384,7 +384,7 @@ static tack_results_7_methods14_Builder_2elast tack_7_methods14_Builder_2elast(t
     if (!v_ok) {
         return (tack_results_7_methods14_Builder_2elast){0, (tack_error){.code = 1, .msg = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}}};
     }
-    return (tack_results_7_methods14_Builder_2elast){v_c, (tack_error){0}};
+    return (tack_results_7_methods14_Builder_2elast){v_c, (tack_error){}};
 }
 
 static int64_t tack_7_methods15_Builder_2ecount(tack_7_methods7_Builder p_b, uint8_t p_c, int64_t p_i) {

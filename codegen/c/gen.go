@@ -554,7 +554,7 @@ func (g *generator) generateGlobal(v *ast.Var) (string, []diag.Diagnostic) {
 	if v.Const == nil && v.Value == nil && g.isComposite(v.Type) {
 		// An array or a struct with no value starts with every element or
 		// field zero.
-		value, ok = "{0}", true
+		value, ok = "{}", true
 	}
 	if !ok {
 		return "", []diag.Diagnostic{{
@@ -1881,7 +1881,7 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 func (g *generator) zeroValue(typ types.Type) string {
 	if g.isComposite(typ) || g.prog.Types.IsList(typ) || g.prog.Types.IsView(typ) ||
 		typ == types.Allocator || typ == types.Any {
-		return fmt.Sprintf("(%s){0}", g.cType(typ))
+		return fmt.Sprintf("(%s){}", g.cType(typ))
 	}
 	switch typ {
 	case types.String:

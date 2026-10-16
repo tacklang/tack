@@ -105,7 +105,7 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 static void tack_4_main4_main(void) {
     const tack_array_24 v_a = (tack_array_24){{1, 2, 3, (-4)}};
     tack_4_main5_check((tack_4_main5_total((tack_view_18){v_a.e, 4}) == 2), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    const tack_array_25 v_none = (tack_array_25){0};
+    const tack_array_25 v_none = (tack_array_25){};
     tack_4_main5_check((tack_4_main5_total((tack_view_18){v_none.e, 0}) == 0), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     const tack_string v_s = (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)};
     tack_4_main5_check(((tack_4_main9_countByte((tack_view_19){v_s.ptr, v_s.len}, 115) == 4) && (tack_4_main9_countByte((tack_view_19){tack_str5, TACK_C_STR_LEN(tack_str5)}, 115) == 0)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
