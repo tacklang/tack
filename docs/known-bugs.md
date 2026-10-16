@@ -20,3 +20,31 @@ union built in place is no place. The check reads `Expr.eof` as a field
 of a name. A `mut` receiver written without `mut`, `Expr.eof.set()`,
 already says `only a variable, a field or an element can be passed as
 mut` instead; the parameter's wording should too.
+
+## A function must end in a return even when no path reaches its end
+
+A function with a result must end in a `return`, even when every path
+before its end already returns. `func sign(x int64) int64` whose body is
+`if x > 0 { return 1 }`, `if x < 0 { return -1 }` and `if x == 0 { return
+0 }` is `sign must end in a return`, though the three conditions cover
+every value. Tack has no way to say a place is unreachable, and a
+`panic("unreachable")`, as Go writes it, would break the no-panic
+guarantee. Today such a function ends in a `return` that never runs, as
+`append_digits` in `std/bytes` does, or covers the last case with `else`.
+The fix is to prove more paths end, or an `unreachable` statement the
+compiler must prove unreachable, rejecting it otherwise; both wait for a
+stronger prover.
+
+## A plain pop or remove after a length check never compiles
+
+`if len(l) > 0 { x := pop(mut l) }` is `pop may find l empty; check len(l)
+> 0 first, or use x, ok := pop(mut l)`, with notes that the guard proves
+`len(l) >= 1` but that `l` is passed as `mut` to `pop`, so the proof ends.
+Passing a variable as `mut` ends every fact about it, including the fact
+the call itself relies on, so the plain forms `x := pop(mut l)` and `x :=
+remove(mut l, i)` are never accepted, and the hint asks for a check the
+code already makes. Only the checked forms, `x, ok := pop(mut l)` and `x,
+ok := remove(mut l, i)`, compile. The same rule rejects `if d != 0 { d = n
+/ d }` and `if len(l) > 0 && pop(mut l) > 0`. The fix is a change to the
+proof rules, where a fact holds through the call or assignment that
+consumes it and ends after it.
