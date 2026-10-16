@@ -36,8 +36,10 @@ import (
 // holding a list is owned as a struct holding one is, and a payload is
 // never moved out of it.
 //
-// A union cannot cross to C, be passed as any, be converted, or be a type
-// argument; nor can it have methods yet.
+// A union cannot cross to C, be passed as any, or be converted. It may
+// have methods, declared and called as a struct's are (see method.go),
+// none named like one of its cases, and so satisfy interfaces and be a
+// type argument to a generic function (see generic.go).
 
 // unionValue is the computed value of a package-level union, as fold
 // gives it: its case's position among the union's cases and its payload's

@@ -54,12 +54,12 @@
 // anywhere but as a call's argument.
 // A method, func (b Builder) len(), is a Func with Method set, whose
 // receiver is its first parameter, Params[0] (Func.Recv); the resolver
-// records each method on its type's TypeDecl.Methods and the type on
-// Func.RecvType. A method call, x.m(args), is a Call whose Fn is a
-// Selector, whose X is the receiver, a MutArg for mut x.m(args); Receiver
-// returns it and Operands every value the call passes, the receiver
-// first. The type checker records the method it calls in Call.Method, and
-// Callee gives a call's function either way.
+// records each method on its type's TypeDecl.Methods, a struct's or a
+// union's, and the type on Func.RecvType. A method call, x.m(args), is a
+// Call whose Fn is a Selector, whose X is the receiver, a MutArg for mut
+// x.m(args); Receiver returns it and Operands every value the call
+// passes, the receiver first. The type checker records the method it
+// calls in Call.Method, and Callee gives a call's function either way.
 // A generic function, func f[W Writer](w W), has its type parameters in
 // Func.TypeParams, each a TypeParam, a declaration a name written as a
 // type binds to, whose Constraint is an interface's name; the type

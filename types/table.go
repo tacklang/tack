@@ -23,10 +23,10 @@ import "strconv"
 // TypeParam.
 //
 // While code is generated for one instance of a generic function, Bind
-// makes each of its type parameters stand for a struct type: every
-// question about a bound type parameter is then answered about its type,
-// so code that asks the Table what a type is lowers the instance as it
-// would a function written with that type. Unbind ends it.
+// makes each of its type parameters stand for a struct or union type:
+// every question about a bound type parameter is then answered about its
+// type, so code that asks the Table what a type is lowers the instance as
+// it would a function written with that type. Unbind ends it.
 type Table struct {
 	ids   map[array]Type // each array type's ID, by its shape
 	views map[Type]Type  // each view type's ID, by its element type
@@ -182,8 +182,8 @@ func (t *Table) Case(typ Type, name string) (Case, int, bool) {
 // TypeParam adds a type parameter named name, one of a generic
 // function's, and returns its ID: a type of its own, which is no other
 // type, has no fields and holds nothing, but is owned and has no zero
-// value, since it may stand for any struct type, one holding a list
-// among them (see Owned and HasZero).
+// value, since it may stand for any struct or union type, one holding a
+// list among them (see Owned and HasZero).
 func (t *Table) TypeParam(name string) Type {
 	return t.add(entry{param: name})
 }

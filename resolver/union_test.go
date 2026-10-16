@@ -124,8 +124,8 @@ func TestUnionScope(t *testing.T) {
 }
 
 // unionDeclCases are union declarations with the diagnostics each must
-// produce: a case's name follows a field's rule, and a method is never a
-// union's.
+// produce: a case's name follows a field's rule, and a method of a union
+// may not share a case's name.
 var unionDeclCases = []struct {
 	name, decl string
 	want       []string
@@ -139,12 +139,27 @@ var unionDeclCases = []struct {
 	{"case named _", "type U union {\n    _\n}\n", []string{"cannot use _ as a name"}},
 	{"duplicate case", "type U union {\n    a int64\n    a\n}\n", []string{"duplicate case name"}},
 	{"payload not a type", "var n = 1\ntype U union {\n    a n\n}\n", []string{"n is not a type"}},
+	{"method on a union", "type U union {\n    a\n}\nfunc (u U) m() {\n}\n", nil},
+	{"mut method on a union", "type U union {\n    a\n}\nfunc (mut u U) m() {\n}\n", nil},
 	{
-		"method on a union",
-		"type U union {\n    a\n}\nfunc (u U) m() {\n}\n",
-		[]string{
-			"cannot declare a method on U: only a struct type declared in this package can have methods",
-		},
+		"method named like a case",
+		"type U union {\n    a int64\n}\nfunc (u U) a() {\n}\n",
+		[]string{"a is already declared as a case of U"},
+	},
+	{
+		"method named like a case with no payload",
+		"type U union {\n    b\n}\nfunc (mut u U) b() {\n}\n",
+		[]string{"b is already declared as a case of U"},
+	},
+	{
+		"method named like another union's case",
+		"type U union {\n    a\n}\ntype V union {\n    m\n}\nfunc (u U) m() {\n}\n",
+		nil,
+	},
+	{
+		"two methods of a union",
+		"type U union {\n    a\n}\nfunc (u U) m() {\n}\nfunc (u U) m() {\n}\n",
+		[]string{"U.m is already declared"},
 	},
 	{
 		"union shares a name",

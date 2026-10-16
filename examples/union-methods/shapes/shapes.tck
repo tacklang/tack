@@ -1,0 +1,95 @@
+package shapes
+
+// Package shapes declares a union with methods, an interface and generic
+// functions for other packages to use. Tile's len is pub, so every package
+// can pass a Tile as a Sized; its side is private, so only this package
+// can call it.
+
+// Sized knows its length.
+pub type Sized interface {
+    len() int64
+}
+
+// Larger returns the larger of a's and b's lengths: a pub generic function
+// of two type parameters, which another package may call with its own
+// types, its unions included.
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+// Tile is a rectangle one unit across in one direction, wide or tall, or
+// a blank tile.
+pub type Tile union {
+    wide  int64
+    tall  int64
+    blank
+}
+
+// side returns how many units long t is: a private method, which only
+// this package can call.
+func (t Tile) side() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case tall(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// len returns t's perimeter: a pub method named like the builtin, calling
+// a private one on its own receiver.
+pub func (t Tile) len() int64 {
+    if t == Tile.blank {
+        return 0
+    }
+    return 2 * t.side() + 2
+}
+
+// describe names the case t holds: a pub method, which with len lets
+// another package's interface asking for both take a Tile.
+pub func (t Tile) describe() string {
+    switch t {
+    case wide:
+        return "wide"
+    case tall:
+        return "tall"
+    case blank:
+        return "blank"
+    }
+}
+
+// turn turns t a quarter round: a pub method with a mut receiver, which
+// it reassigns after a switch on it.
+pub func (mut t Tile) turn() {
+    mut next := Tile.blank
+    switch t {
+    case wide(n):
+        next = Tile.tall(n)
+    case tall(n):
+        next = Tile.wide(n)
+    case blank:
+        return
+    }
+    t = next
+}
+
+// IsTall reports whether t is tall.
+pub func IsTall(t Tile) bool {
+    switch t {
+    case tall:
+        return true
+    default:
+        return false
+    }
+}
+
+// LargerTile returns the larger of a's and b's perimeters, through
+// Larger: this package passing its own union to its own generic function.
+pub func LargerTile(a Tile, b Tile) int64 {
+    return Larger(a, b)
+}

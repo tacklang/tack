@@ -131,8 +131,15 @@ func (c *Checker) argExpr(arg ast.Expr) {
 // place checks e, the place the mut argument m names, or part of it, and
 // returns its type: a mutable local or a mut parameter, a field of a
 // place, or an element of a place whose index is proven in range. Anything
-// else, a slice included, is reported, and gives types.Invalid.
+// else, a slice or a union built in place, Expr.eof, written as a field is,
+// included, is reported, and gives types.Invalid.
 func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
+	if _, _, _, built := ast.Construction(e); built {
+		if c.expr(e) != types.Invalid {
+			c.errorf(m.Span, "only a variable, a field or an element can be passed as mut")
+		}
+		return types.Invalid
+	}
 	switch x := e.(type) {
 	case *ast.Ident:
 		return c.placeName(x, m)
@@ -144,18 +151,7 @@ func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
 		x.Type = c.field(x, base)
 		return x.Type
 	case *ast.Index:
-		base := c.place(x.X, m)
-		switch base {
-		case types.Invalid:
-			c.expr(x.Index)
-			return types.Invalid
-		case types.String:
-			c.expr(x.Index)
-			c.errorf(m.Span, "cannot pass %s: strings are immutable", c.text(m.Span))
-			return types.Invalid
-		}
-		x.Type = c.element(x, base, true)
-		return x.Type
+		return c.placeElement(x, m)
 	case *ast.Slice:
 		c.notPlace(m.Span, "pass "+c.text(m.Span))
 		return types.Invalid
@@ -167,6 +163,25 @@ func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
 		}
 		return types.Invalid
 	}
+}
+
+// placeElement checks x, an element of the place the mut argument m
+// names, or of part of it, as place does, and returns its type: an
+// element of a place, whose index is proven in range. A string's byte is
+// reported, as strings are immutable.
+func (c *Checker) placeElement(x *ast.Index, m *ast.MutArg) types.Type {
+	base := c.place(x.X, m)
+	switch base {
+	case types.Invalid:
+		c.expr(x.Index)
+		return types.Invalid
+	case types.String:
+		c.expr(x.Index)
+		c.errorf(m.Span, "cannot pass %s: strings are immutable", c.text(m.Span))
+		return types.Invalid
+	}
+	x.Type = c.element(x, base, true)
+	return x.Type
 }
 
 // placeName checks the variable or parameter id names, where a mut

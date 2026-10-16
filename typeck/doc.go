@@ -213,31 +213,33 @@
 // An extern func may take a mut parameter, which C gets as a pointer.
 //
 // A method, checked in method.go, is a function whose first parameter is
-// its receiver, so its signature and body are checked as any function's,
-// and a diagnostic names it by its receiver's type and its name,
-// Builder.write. A method call, x.m(args), checks its receiver first,
-// whose type gives the method, found among those the resolver recorded on
-// the type, of any package (TypeDecl.Methods), and recorded in
-// Call.Method: a type with no such method, a field called, and a method
-// another package cannot see, its visibility capped by its type's as a
-// field's is, are reported. The receiver is then checked as an argument to
-// the method's first parameter: a plain one as a value, a temporary
-// included, and mut x as a mut argument, whose place is checked as one
-// once the method says it is wanted; mut left out for a mut receiver, or
-// written for a plain one, is reported. The arguments follow, as for a
-// function, and the receiver is one of the call's mut arguments for
-// exclusivity, and of its operands for list borrows and for the moves of
-// move.go, a plain receiver borrowing what it is. A method named without
-// a call, b.write, is reported, as there are no method values. Whether a
-// binding of a call's results ties them to an error is collected before
-// a body is checked (errors.go), but a method call's method is known only
-// once its receiver is, so a body binding a method call's results is
-// checked twice: once to find every method, with what it reports dropped,
-// and then with every tie known. A binding of nothing but _ of a method
-// call that returns no error is reported here, as the resolver reports one
-// of a function's call. A pub or lib method exposes only types as visible
-// as it, capped by its type's, its receiver's included, as a function
-// does.
+// its receiver, a struct or a union of its package, so its signature and
+// body are checked as any function's, and a diagnostic names it by its
+// receiver's type and its name, Builder.write. A method call, x.m(args),
+// checks its receiver first, whose type gives the method, found among
+// those the resolver recorded on the type, of any package
+// (TypeDecl.Methods), and recorded in Call.Method: a type with no such
+// method, a field called, and a method another package cannot see, its
+// visibility capped by its type's as a field's is, are reported; a
+// union's case is no method. A union built in place, Expr.eof, is no
+// place, so it is never a mut receiver. The receiver is then checked as
+// an argument to the method's first parameter: a plain one as a value, a
+// temporary included, and mut x as a mut argument, whose place is checked
+// as one once the method says it is wanted; mut left out for a mut
+// receiver, or written for a plain one, is reported. The arguments
+// follow, as for a function, and the receiver is one of the call's mut
+// arguments for exclusivity, and of its operands for list borrows and for
+// the moves of move.go, a plain receiver borrowing what it is. A method
+// named without a call, b.write, is reported, as there are no method
+// values. Whether a binding of a call's results ties them to an error is
+// collected before a body is checked (errors.go), but a method call's
+// method is known only once its receiver is, so a body binding a method
+// call's results is checked twice: once to find every method, with what
+// it reports dropped, and then with every tie known. A binding of nothing
+// but _ of a method call that returns no error is reported here, as the
+// resolver reports one of a function's call. A pub or lib method exposes
+// only types as visible as it, capped by its type's, its receiver's
+// included, as a function does.
 //
 // A parameter written v []T is a read-only view of elements of type T, the
 // second kind of reference a parameter can be, checked in view.go. Only a
@@ -536,8 +538,11 @@
 // moved. The clauses must cover every case, or the switch have a default,
 // but not both; one covering every case is recorded as exhaustive, and is
 // a terminating statement when every clause is. A union does not cross to
-// C, cannot be passed as any, converted, given methods or be a type
-// argument; a pub one exposes its payloads' types as a field does.
+// C, cannot be passed as any or converted; a pub one exposes its payloads'
+// types as a field does. It may have methods, as a struct may, none named
+// like one of its cases, and so satisfy interfaces and be a type argument;
+// a mut method called on the switched place in a clause binding a payload
+// is a mut argument of it, which move.go reports.
 //
 // Interfaces and generic functions (generic.go). An interface's methods
 // have their parameter and result types resolved after the globals, as a
@@ -553,20 +558,20 @@
 // its type argument may hold one, so every ownership rule above applies
 // to it as written. A call to a generic function infers each type
 // parameter from the arguments passed to parameters of that type, which
-// must be struct types, or the caller's own type parameters, satisfying
-// the constraint, one type per type parameter. A struct type satisfies it
-// only with methods visible from the package holding the call, as if that
-// code called them, whatever package the interface is in; a type
-// parameter passed on is checked for no visibility, since its constraint
-// asks for no method the outermost call binding a struct type did not
-// check. The call records the type arguments in Call.TypeArgs; its
-// results are the callee's with them in place (ast.CallResults). Once
-// every body checks, the instances of generic functions the program
-// needs are found (instance.go): from the bodies of the functions that
-// are not generic, then from each instance found, its type parameters
-// standing for its type arguments, each recorded once in
-// Program.Instances and every file's File.Instances, up to MaxInstances,
-// past which the call needing another is reported.
+// must be struct or union types, or the caller's own type parameters,
+// satisfying the constraint, one type per type parameter. A struct or
+// union type satisfies it only with methods visible from the package
+// holding the call, as if that code called them, whatever package the
+// interface is in; a type parameter passed on is checked for no
+// visibility, since its constraint asks for no method the outermost call
+// binding a struct or union type did not check. The call records the type
+// arguments in Call.TypeArgs; its results are the callee's with them in
+// place (ast.CallResults). Once every body checks, the instances of
+// generic functions the program needs are found (instance.go): from the
+// bodies of the functions that are not generic, then from each instance
+// found, its type parameters standing for its type arguments, each
+// recorded once in Program.Instances and every file's File.Instances, up
+// to MaxInstances, past which the call needing another is reported.
 //
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names

@@ -142,13 +142,13 @@
 // that reads a variable another argument passes as mut gets the value it
 // had when it was evaluated.
 //
-// A method is a C function of its own taking its receiver first, a mut
-// receiver as a pointer, as a mut parameter is. A method call, x.m(args)
-// or mut x.m(args), is lowered as the call of that function with the
-// receiver as its first argument (see lowered), so the receiver is
-// evaluated first, a mut one as the address of its place, then the
-// arguments, under every rule of a call's order and of the copies and
-// views an argument may need.
+// A method, of a struct or a union, is a C function of its own taking its
+// receiver first, a mut receiver as a pointer, as a mut parameter is. A
+// method call, x.m(args) or mut x.m(args), is lowered as the call of that
+// function with the receiver as its first argument (see lowered), so the
+// receiver is evaluated first, a mut one as the address of its place,
+// then the arguments, under every rule of a call's order and of the
+// copies and views an argument may need.
 //
 // A generic function is never emitted itself: each of its instances the
 // type checker recorded in Program.Instances is, once, as a function of

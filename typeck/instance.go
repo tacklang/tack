@@ -12,13 +12,13 @@ import (
 // need. Each instance is a function of its own in the generated code, so
 // a few generic functions whose calls of one another permute several type
 // arguments could otherwise need more than any compiler could produce in
-// a reasonable time: n struct types and k type parameters allow n^k
-// instances of one function. The limit is far beyond what a program
+// a reasonable time: n struct or union types and k type parameters allow
+// n^k instances of one function. The limit is far beyond what a program
 // written by hand needs.
 const MaxInstances = 10000
 
 // instance is an instance of a generic function being found: the
-// function and its type arguments, struct types all.
+// function and its type arguments, struct or union types all.
 type instance struct {
 	fn   *ast.Func
 	args []types.Type
@@ -40,10 +40,10 @@ type instances struct {
 // generic function no call reaches has no instance. Each instance is
 // recorded once, in the order it is first found, however many calls need
 // it. Since no type a program writes is generic, every type argument is a
-// struct type the program declares, so the instances are finite; past
-// MaxInstances the call that would add another is reported, and nothing
-// more is looked for. Nothing is instantiated in a program with errors,
-// which is not compiled.
+// struct or union type the program declares, so the instances are finite;
+// past MaxInstances the call that would add another is reported, and
+// nothing more is looked for. Nothing is instantiated in a program with
+// errors, which is not compiled.
 func (c *Checker) instantiate() {
 	if len(c.diags) > 0 {
 		return

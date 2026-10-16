@@ -24,25 +24,25 @@ import (
 // passes, a body that checked once is right for it.
 //
 // A call infers each type parameter from the arguments passed to the
-// parameters of that type: a struct type, or, in another generic
+// parameters of that type: a struct or union type, or, in another generic
 // function, one of its type parameters, which must satisfy the
 // constraint. Two arguments for one type parameter must be of one type.
 // The inferred types are recorded in Call.TypeArgs, and the call's results
 // are the callee's with its type parameters replaced by them (see
 // ast.CallResults).
 //
-// A struct type satisfies an interface when, for each of the interface's
-// methods, it has a method of that name taking its receiver as mut
-// exactly when the interface's does, with the same parameters, each of the
-// same type, mut or variadic as the interface's, and the same results.
-// Where a call binds a type parameter to a struct type, each of those
-// methods must also be visible from the package holding the call, as if
-// that code called it itself: private within its package, lib within its
-// module, pub anywhere. The interface's package plays no part. A type
-// parameter satisfies an interface when its own constraint has every
-// method the interface asks for, alike in the same way, and is checked
-// for no visibility: the call that bound the outermost type argument to a
-// struct type checked every method of its constraint, and a constraint a
+// A struct or union type satisfies an interface when, for each of the
+// interface's methods, it has a method of that name taking its receiver as
+// mut exactly when the interface's does, with the same parameters, each of
+// the same type, mut or variadic as the interface's, and the same results.
+// Where a call binds a type parameter to such a type, each of those methods
+// must also be visible from the package holding the call, as if that code
+// called it itself: private within its package, lib within its module, pub
+// anywhere. The interface's package plays no part. A type parameter
+// satisfies an interface when its own constraint has every method the
+// interface asks for, alike in the same way, and is checked for no
+// visibility: the call that bound the outermost type argument to a struct
+// or union type checked every method of its constraint, and a constraint a
 // type parameter passes on to can ask only for methods of that one, so
 // whatever generic function the type argument reaches through a chain of
 // calls, it can call no method that call did not check.
@@ -262,9 +262,9 @@ func (c *Checker) typeArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 
 // bindTypeArg makes got, the type of arg, the type argument of tp, a type
 // parameter of the callee being inferred, named callee: got must be a
-// struct type a package declares, or a type parameter, satisfy tp's
-// constraint, and be the type any earlier argument gave tp. Anything else
-// is reported at arg, and gives false.
+// struct or union type a package declares, or a type parameter, satisfy
+// tp's constraint, and be the type any earlier argument gave tp. Anything
+// else is reported at arg, and gives false.
 func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) bool {
 	param := c.typeParams[tp]
 	if param == nil || c.inference == nil {
@@ -274,9 +274,9 @@ func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) b
 	if m, ok := arg.(*ast.MutArg); ok {
 		at = m.X
 	}
-	if c.structs[got] == nil && !c.table.IsTypeParam(got) {
+	if c.typeDecl(got) == nil && !c.table.IsTypeParam(got) {
 		c.errorf(at.Spanned(), "cannot use %s as %s in argument to %s: "+
-			"a type argument must be a struct type a package declares",
+			"a type argument must be a struct or union type a package declares",
 			c.typeName(got), param.Name, callee)
 		return false
 	}
@@ -358,11 +358,11 @@ type methodSig struct {
 	mut     bool
 }
 
-// unsatisfied returns why typ, a struct type or a type parameter, does not
-// satisfy iface, an interface, or "" when it does: a method iface asks for
-// that typ lacks, cannot be seen from the package being checked, which
-// holds the call binding typ, takes its receiver as mut where iface's does
-// not or the other way round, or has another signature. Only the first
+// unsatisfied returns why typ, a struct or union type or a type parameter,
+// does not satisfy iface, an interface, or "" when it does: a method iface
+// asks for that typ lacks, cannot be seen from the package being checked,
+// which holds the call binding typ, takes its receiver as mut where iface's
+// does not or the other way round, or has another signature. Only the first
 // such method, in iface's order, is named. here reports that the method
 // cannot be seen, which another package might.
 func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, here bool) {
@@ -394,11 +394,11 @@ func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, 
 	return "", false
 }
 
-// methodFor returns the method named name that typ, a struct type or, tp
-// being its declaration, a type parameter, has to satisfy an interface's
-// method with, as a signature, and how a diagnostic names it: the struct
-// type's method, T.name, or the one of tp's constraint, J's name. When typ
-// has none, it returns why instead; when the struct type's method is not
+// methodFor returns the method named name that typ, a struct or union
+// type or, tp being its declaration, a type parameter, has to satisfy an
+// interface's method with, as a signature, and how a diagnostic names it:
+// the type's method, T.name, or the one of tp's constraint, J's name.
+// When typ has none, it returns why instead; when the type's method is not
 // visible from the package being checked, as hiddenMethod finds, it
 // returns why with here true. A type parameter's methods are its
 // constraint's, which every package that can name it sees.
@@ -416,7 +416,7 @@ func (c *Checker) methodFor(
 		return methodSig{params: m.Params, results: m.ResultTypes, mut: m.Mut},
 			c.ifaceName(tp.Iface) + "'s " + name, "", false
 	}
-	fn := c.structs[typ].Method(name)
+	fn := c.typeDecl(typ).Method(name)
 	if fn == nil {
 		return methodSig{}, "", fmt.Sprintf("%s has no method %s", c.typeName(typ), name), false
 	}

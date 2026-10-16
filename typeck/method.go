@@ -10,10 +10,11 @@ import (
 // Methods. A method is a function whose first parameter, its receiver, is
 // written before its name, func (b Builder) len() int64, and it is called
 // on a value of the receiver's type, b.len(). The resolver has recorded
-// each method on the struct type its receiver has (ast.TypeDecl.Methods);
-// a call finds the method by the type of what it is called on, which is
-// checked first, so it is found through any expression, a field, an
-// element, a call's result or a qualified type of another package alike.
+// each method on the struct or union type its receiver has
+// (ast.TypeDecl.Methods); a call finds the method by the type of what it
+// is called on, which is checked first, so it is found through any
+// expression, a field, an element, a call's result or a qualified type of
+// another package alike.
 //
 // The receiver is a parameter, and a call passes it first, under every
 // rule an argument follows. A plain receiver is a plain parameter: any
@@ -27,7 +28,9 @@ import (
 // capped by its type's, is reported where it is called, as a field is.
 //
 // A method is only ever called: a method named without a call, b.write,
-// is reported, as there are no method values.
+// is reported, as there are no method values. A union's methods are
+// called as a struct's are; a case of a union is no method, and e.int(5)
+// on a value e is reported as a method the union lacks.
 
 // checkMethodCall checks call, a method call, x.m(args) or mut x.m(args):
 // its receiver, which gives the type the method is found on, the method
@@ -147,7 +150,7 @@ func (c *Checker) methodOf(typ types.Type, sel *ast.Selector) *ast.Func {
 		return c.typeParamMethod(typ, sel)
 	}
 	var fn *ast.Func
-	if td := c.structs[typ]; td != nil && c.table.IsStruct(typ) {
+	if td := c.typeDecl(typ); td != nil {
 		fn = td.Method(sel.Name)
 	}
 	if fn == nil {
@@ -203,9 +206,10 @@ func (c *Checker) receiverWithMut(call *ast.Call, m *ast.MutArg, fn *ast.Func, c
 // receiverWithoutMut reports call, whose callee sel names fn, a method with
 // a mut receiver, called on a receiver written without mut: the fix is mut
 // before the call when the receiver is a variable, a field or an element,
-// and otherwise a place in its stead.
+// and otherwise a place in its stead, a union built in place, Expr.eof,
+// included, though it is written as a field is.
 func (c *Checker) receiverWithoutMut(call *ast.Call, sel *ast.Selector, fn *ast.Func) {
-	if ast.Root(sel.X) == nil {
+	if ast.Root(sel.X) == nil || builtInPlace(sel.X) {
 		c.errorf(
 			sel.X.Spanned(),
 			"%s takes its receiver as mut; only a variable, a field or an element can be passed as mut",
@@ -215,6 +219,25 @@ func (c *Checker) receiverWithoutMut(call *ast.Call, sel *ast.Selector, fn *ast.
 	}
 	c.errorf(sel.X.Spanned(), "%s takes its receiver as mut; call mut %s",
 		c.displayName(fn), c.text(call.Span))
+}
+
+// builtInPlace reports whether e is, or is a field or an element of, a
+// union built in place, Expr.eof or Expr.int(5), which is no place,
+// though its root is a name.
+func builtInPlace(e ast.Expr) bool {
+	for {
+		if _, _, _, ok := ast.Construction(e); ok {
+			return true
+		}
+		switch x := e.(type) {
+		case *ast.Index:
+			e = x.X
+		case *ast.Selector:
+			e = x.X
+		default:
+			return false
+		}
+	}
 }
 
 // funcParams returns what checking an argument needs to know about each

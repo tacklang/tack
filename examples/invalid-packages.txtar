@@ -2635,7 +2635,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-imported-type/main.tck:5:9: error: cannot declare a method on lexer.Token: only a struct type declared in this package can have methods
+method-on-imported-type/main.tck:5:9: error: cannot declare a method on lexer.Token: only a struct or union type declared in this package can have methods
 04 |	
 05 |	func (t lexer.Token) twice() int64 {
    |	        ^~~~~~~~~~~
@@ -3937,6 +3937,350 @@ union-hidden/main.tck:7:10: error: Expr is not pub in package calc/ast
 07 |	    f := ast.Expr.eof
    |	         ^~~~~~~~
 08 |	    if ast.Make() == 1 {
+
+-- union-method-exposes/tack.mod --
+module calc
+-- union-method-exposes/ast/ast.tck --
+package ast
+
+type hidden struct {
+    n int64
+}
+
+pub type Expr union {
+    int int64
+    eof
+}
+
+// Get is pub, and exposes hidden.
+pub func (e Expr) Get() hidden {
+    return hidden{n: 1}
+}
+
+// Take is pub, and exposes hidden.
+pub func (mut e Expr) Take(h hidden) {
+}
+
+// Fine is private, so it may name hidden.
+func (e Expr) fine() hidden {
+    return hidden{n: 2}
+}
+
+// Capped is pub on a private union, so private in effect.
+type inner union {
+    a int64
+}
+
+pub func (i inner) Capped() hidden {
+    return hidden{n: 3}
+}
+-- union-method-exposes/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.eof
+    switch e {
+    default:
+    }
+}
+-- union-method-exposes/expected --
+stage: typeck
+---
+
+union-method-exposes/ast/ast.tck:13:25: error: pub method Expr.Get exposes hidden, which is not pub
+12 |	// Get is pub, and exposes hidden.
+13 |	pub func (e Expr) Get() hidden {
+   |	                        ^~~~~~
+14 |	    return hidden{n: 1}
+
+union-method-exposes/ast/ast.tck:18:30: error: pub method Expr.Take exposes hidden, which is not pub
+17 |	// Take is pub, and exposes hidden.
+18 |	pub func (mut e Expr) Take(h hidden) {
+   |	                             ^~~~~~
+19 |	}
+
+-- union-method-lib-other-module/tack.mod --
+module calc
+-- union-method-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Counted interface {
+    count() int64
+}
+
+pub func Count[C Counted](c C) int64 {
+    return c.count()
+}
+
+pub type Pair union {
+    one int64
+    none
+}
+
+lib func (p Pair) count() int64 {
+    return 2
+}
+-- union-method-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Pair.one(1)
+    n := p.count()
+    m := util.Count(p)
+    exit(int32(n + m))
+}
+-- union-method-lib-other-module/expected --
+stage: typeck
+---
+
+union-method-lib-other-module/main.tck:7:12: error: count is lib in module std and cannot be used from module calc
+06 |	    p := util.Pair.one(1)
+07 |	    n := p.count()
+   |	           ^~~~~
+08 |	    m := util.Count(p)
+
+union-method-lib-other-module/main.tck:8:21: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
+07 |	    n := p.count()
+08 |	    m := util.Count(p)
+   |	                    ^
+09 |	    exit(int32(n + m))
+
+-- union-method-on-imported-type/tack.mod --
+module calc
+-- union-method-on-imported-type/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-on-imported-type/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func (t shapes.Tile) area() int64 {
+    return 0
+}
+
+func main() {
+}
+-- union-method-on-imported-type/expected --
+stage: resolve
+---
+
+union-method-on-imported-type/main.tck:5:9: error: cannot declare a method on shapes.Tile: only a struct or union type declared in this package can have methods
+04 |	
+05 |	func (t shapes.Tile) area() int64 {
+   |	        ^~~~~~~~~~~
+06 |	    return 0
+
+-- union-method-private-satisfy/tack.mod --
+module calc
+-- union-method-private-satisfy/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-private-satisfy/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func use(n int64) {
+}
+
+func main() {
+    t := shapes.Tile.wide(2)
+    use(shapes.Twice(t))
+    use(shapes.Larger(t, t))
+    use(shapes.Pass(t))
+}
+-- union-method-private-satisfy/expected --
+stage: typeck
+---
+
+union-method-private-satisfy/main.tck:11:23: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+10 |	    use(shapes.Twice(t))
+11 |	    use(shapes.Larger(t, t))
+   |	                      ^
+12 |	    use(shapes.Pass(t))
+
+union-method-private-satisfy/main.tck:11:26: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+10 |	    use(shapes.Twice(t))
+11 |	    use(shapes.Larger(t, t))
+   |	                         ^
+12 |	    use(shapes.Pass(t))
+
+union-method-private-satisfy/main.tck:12:21: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+11 |	    use(shapes.Larger(t, t))
+12 |	    use(shapes.Pass(t))
+   |	                    ^
+13 |	}
+
+-- union-method-visibility/tack.mod --
+module calc
+-- union-method-visibility/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-visibility/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func use(n int64) {
+}
+
+func main() {
+    t := shapes.Tile.wide(2)
+    use(t.Lib())
+    use(t.len())
+    use(t.nope())
+    k := t.Lib
+    use(k)
+}
+-- union-method-visibility/expected --
+stage: typeck
+---
+
+union-method-visibility/main.tck:11:11: error: len is not pub in shapes.Tile
+10 |	    use(t.Lib())
+11 |	    use(t.len())
+   |	          ^~~
+12 |	    use(t.nope())
+
+union-method-visibility/main.tck:12:11: error: shapes.Tile has no method nope
+11 |	    use(t.len())
+12 |	    use(t.nope())
+   |	          ^~~~
+13 |	    k := t.Lib
+
+union-method-visibility/main.tck:13:12: error: Lib is a method of shapes.Tile, not a field; a method can only be called
+12 |	    use(t.nope())
+13 |	    k := t.Lib
+   |	           ^~~
+14 |	    use(k)
 
 -- union-other-package-switch/tack.mod --
 module calc

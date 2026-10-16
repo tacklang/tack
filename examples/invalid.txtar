@@ -5682,7 +5682,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-array/main.tck:13:16: error: cannot use [2]int64 as S in argument to measure: a type argument must be a struct type a package declares
+generic-arg-array/main.tck:13:16: error: cannot use [2]int64 as S in argument to measure: a type argument must be a struct or union type a package declares
 12 |	    a := [2]int64{1, 2}
 13 |	    if measure(a) > 0 {
    |	               ^
@@ -5776,7 +5776,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-error/main.tck:10:7: error: cannot use error as E in argument to f: a type argument must be a struct type a package declares
+generic-arg-error/main.tck:10:7: error: cannot use error as E in argument to f: a type argument must be a struct or union type a package declares
 09 |	func main() {
 10 |	    f(noerror)
    |	      ^~~~~~~
@@ -5965,7 +5965,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-not-struct/main.tck:12:16: error: cannot use int64 as S in argument to measure: a type argument must be a struct type a package declares
+generic-arg-not-struct/main.tck:12:16: error: cannot use int64 as S in argument to measure: a type argument must be a struct or union type a package declares
 11 |	func main() {
 12 |	    if measure(5) > 0 {
    |	               ^
@@ -5991,7 +5991,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-string/main.tck:12:16: error: cannot use string as S in argument to measure: a type argument must be a struct type a package declares
+generic-arg-string/main.tck:12:16: error: cannot use string as S in argument to measure: a type argument must be a struct or union type a package declares
 11 |	func main() {
 12 |	    if measure("s") > 0 {
    |	               ^~~
@@ -8785,7 +8785,7 @@ func main() {
 stage: resolve
 ---
 
-interface-method-declared/main.tck:7:9: error: cannot declare a method on Sizer: only a struct type declared in this package can have methods
+interface-method-declared/main.tck:7:9: error: cannot declare a method on Sizer: only a struct or union type declared in this package can have methods
 06 |	
 07 |	func (s Sizer) size() int64 {
    |	        ^~~~~
@@ -12061,7 +12061,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-any/main.tck:3:9: error: cannot declare a method on any: only a struct type declared in this package can have methods
+method-on-any/main.tck:3:9: error: cannot declare a method on any: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (a any) f() {
    |	        ^~~
@@ -12080,7 +12080,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-array/main.tck:3:9: error: cannot declare a method on an array type: only a struct type declared in this package can have methods
+method-on-array/main.tck:3:9: error: cannot declare a method on an array type: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (a [3]int64) sum() int64 {
    |	        ^~~~~~~~
@@ -12099,7 +12099,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-error/main.tck:3:9: error: cannot declare a method on error: only a struct type declared in this package can have methods
+method-on-error/main.tck:3:9: error: cannot declare a method on error: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (e error) text() string {
    |	        ^~~~~
@@ -12139,7 +12139,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-int/main.tck:3:9: error: cannot declare a method on int64: only a struct type declared in this package can have methods
+method-on-int/main.tck:3:9: error: cannot declare a method on int64: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (n int64) double() int64 {
    |	        ^~~~~
@@ -12175,7 +12175,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-list/main.tck:3:9: error: cannot declare a method on a list type: only a struct type declared in this package can have methods
+method-on-list/main.tck:3:9: error: cannot declare a method on a list type: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (l list[int64]) first() int64 {
    |	        ^~~~~~~~~~~
@@ -12212,7 +12212,7 @@ func main() {
 stage: resolve
 ---
 
-method-on-view/main.tck:3:9: error: cannot declare a method on a view type: only a struct type declared in this package can have methods
+method-on-view/main.tck:3:9: error: cannot declare a method on a view type: only a struct or union type declared in this package can have methods
 02 |	
 03 |	func (v []int64) first() int64 {
    |	        ^~~~~~~
@@ -19678,7 +19678,7 @@ func main() {
 stage: typeck
 ---
 
-union-as-type-argument/main.tck:17:18: error: cannot use U as S in argument to measure: a type argument must be a struct type a package declares
+union-as-type-argument/main.tck:17:18: error: U does not satisfy Sized: U has no method size
 16 |	    u := U.a(1)
 17 |	    n := measure(u)
    |	                 ^
@@ -20583,28 +20583,663 @@ union-literal/main.tck:8:10: error: U cannot be written as a literal; only array
    |	         ^~~~~~~
 09 |	    if u == U.a(1) {
 
--- union-method/main.tck --
+-- union-method-case-on-value/main.tck --
 package main
 
-type U union {
-    a int64
+type Expr union {
+    int int64
+    eof
 }
 
-func (u U) size() int64 {
+func (e Expr) pos() int64 {
+    return 1
+}
+
+func main() {
+    e := Expr.int(1)
+    if e.int(5) == 0 {
+    }
+    if e.int == Expr.eof {
+    }
+}
+-- union-method-case-on-value/expected --
+stage: typeck
+---
+
+union-method-case-on-value/main.tck:14:10: error: Expr has no method int
+13 |	    e := Expr.int(1)
+14 |	    if e.int(5) == 0 {
+   |	         ^~~
+15 |	    }
+
+union-method-case-on-value/main.tck:16:10: error: Expr has no field int
+15 |	    }
+16 |	    if e.int == Expr.eof {
+   |	         ^~~
+17 |	    }
+
+-- union-method-dropped-error/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) check() error {
+    return noerror
+}
+
+func main() {
+    mut e := Expr.int(1)
+    mut e.check()
+}
+-- union-method-dropped-error/expected --
+stage: typeck
+---
+
+union-method-dropped-error/main.tck:14:5: error: the error Expr.check returns cannot be dropped; bind it, as in err := mut e.check(...)
+13 |	    mut e := Expr.int(1)
+14 |	    mut e.check()
+   |	    ^~~~~~~~~~~~~
+15 |	}
+
+-- union-method-duplicate/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 1
+}
+
+func (mut e Expr) pos() int64 {
+    return 2
+}
+
+func main() {
+}
+-- union-method-duplicate/expected --
+stage: resolve
+---
+
+union-method-duplicate/main.tck:12:19: error: Expr.pos is already declared
+11 |	
+12 |	func (mut e Expr) pos() int64 {
+   |	                  ^~~
+13 |	    return 2
+union-method-duplicate/main.tck:8:15: note: previous declaration of Expr.pos
+07 |	
+08 |	func (e Expr) pos() int64 {
+   |	              ^~~
+09 |	    return 1
+
+-- union-method-expression/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 1
+}
+
+func main() {
+    e := Expr.int(1)
+    if Expr.pos(e) == 0 {
+    }
+    if Expr.pos == e {
+    }
+}
+-- union-method-expression/expected --
+stage: typeck
+---
+
+union-method-expression/main.tck:14:13: error: Expr has no case pos
+13 |	    e := Expr.int(1)
+14 |	    if Expr.pos(e) == 0 {
+   |	            ^~~
+15 |	    }
+
+union-method-expression/main.tck:16:13: error: Expr has no case pos
+15 |	    }
+16 |	    if Expr.pos == e {
+   |	            ^~~
+17 |	    }
+
+-- union-method-extern/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+extern func (e Expr) f() int64
+
+func main() {
+}
+-- union-method-extern/expected --
+stage: resolve
+---
+
+union-method-extern/main.tck:8:1: error: a method cannot be extern; declare an extern func and call it from the method
+07 |	
+08 |	extern func (e Expr) f() int64
+   |	^~~~~~
+09 |	
+
+-- union-method-extra-mut/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 1
+}
+
+func main() {
+    mut e := Expr.int(1)
+    n := mut e.pos()
+    if n == 0 {
+    }
+}
+-- union-method-extra-mut/expected --
+stage: typeck
+---
+
+union-method-extra-mut/main.tck:14:10: error: Expr.pos does not take its receiver as mut; call e.pos()
+13 |	    mut e := Expr.int(1)
+14 |	    n := mut e.pos()
+   |	         ^~~~~
+15 |	    if n == 0 {
+
+-- union-method-missing/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func main() {
+    e := Expr.int(1)
+    e.nope()
+}
+-- union-method-missing/expected --
+stage: typeck
+---
+
+union-method-missing/main.tck:10:7: error: Expr has no method nope
+09 |	    e := Expr.int(1)
+10 |	    e.nope()
+   |	      ^~~~
+11 |	}
+
+-- union-method-mut-alongside/main.tck --
+package main
+
+type Value union {
+    words list[string]
+    none
+}
+
+func (mut v Value) fill(src Value) {
+}
+
+func main() {
+    mut v := Value.none
+    mut v.fill(v)
+}
+-- union-method-mut-alongside/expected --
+stage: typeck
+---
+
+union-method-mut-alongside/main.tck:13:16: error: cannot pass v alongside mut v in this call: a list is not copied for a call, and a mut argument must be the only way to reach v during it
+12 |	    mut v := Value.none
+13 |	    mut v.fill(v)
+   |	               ^
+14 |	}
+union-method-mut-alongside/main.tck:13:5: note: passed as mut here
+12 |	    mut v := Value.none
+13 |	    mut v.fill(v)
+   |	    ^~~~~
+14 |	}
+
+-- union-method-mut-global/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+mut g = Expr.int(1)
+
+func (mut e Expr) set() {
+    e = Expr.eof
+}
+
+func main() {
+    mut g.set()
+}
+-- union-method-mut-global/expected --
+stage: typeck
+---
+
+union-method-mut-global/main.tck:15:5: error: a mutable global cannot be passed as mut; copy it into a local
+14 |	func main() {
+15 |	    mut g.set()
+   |	    ^~~~~
+16 |	}
+
+-- union-method-mut-immutable/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) set() {
+    e = Expr.eof
+}
+
+func main() {
+    e := Expr.int(1)
+    mut e.set()
+}
+-- union-method-mut-immutable/expected --
+stage: typeck
+---
+
+union-method-mut-immutable/main.tck:14:5: error: cannot pass mut e: e is immutable; declare it with mut
+13 |	    e := Expr.int(1)
+14 |	    mut e.set()
+   |	    ^~~~~
+15 |	}
+
+-- union-method-mut-matched/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) set() {
+    e = Expr.eof
+}
+
+func (e Expr) read(n int64) int64 {
+    return n
+}
+
+func (mut e Expr) take(n int64) {
+    e = Expr.int(n)
+}
+
+func main() {
+    mut e := Expr.int(1)
+    switch e {
+    case int(n):
+        k := e.read(n)
+        mut e.set()
+        mut e.take(n)
+        if k == 0 {
+        }
+    case eof:
+        mut e.set()
+    }
+}
+-- union-method-mut-matched/expected --
+stage: typeck
+---
+
+union-method-mut-matched/main.tck:25:13: error: e is being matched, and n refers into it, so this case cannot pass mut e
+24 |	        k := e.read(n)
+25 |	        mut e.set()
+   |	            ^
+26 |	        mut e.take(n)
+
+union-method-mut-matched/main.tck:26:13: error: e is being matched, and n refers into it, so this case cannot pass mut e
+25 |	        mut e.set()
+26 |	        mut e.take(n)
+   |	            ^
+27 |	        if k == 0 {
+
+-- union-method-mut-temporary/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) set() {
+    e = Expr.eof
+}
+
+func (e Expr) get() int64 {
+    return 1
+}
+
+func main() {
+    mut Expr.int(1).set()
+    Expr.eof.set()
+    mut Expr.eof.set()
+    n := mut Expr.eof.get()
+    if n == 0 {
+    }
+}
+-- union-method-mut-temporary/expected --
+stage: typeck
+---
+
+union-method-mut-temporary/main.tck:17:5: error: only a variable, a field or an element can be passed as mut
+16 |	func main() {
+17 |	    mut Expr.int(1).set()
+   |	    ^~~~~~~~~~~~~~~
+18 |	    Expr.eof.set()
+
+union-method-mut-temporary/main.tck:18:5: error: Expr.set takes its receiver as mut; only a variable, a field or an element can be passed as mut
+17 |	    mut Expr.int(1).set()
+18 |	    Expr.eof.set()
+   |	    ^~~~~~~~
+19 |	    mut Expr.eof.set()
+
+union-method-mut-temporary/main.tck:19:5: error: only a variable, a field or an element can be passed as mut
+18 |	    Expr.eof.set()
+19 |	    mut Expr.eof.set()
+   |	    ^~~~~~~~~~~~
+20 |	    n := mut Expr.eof.get()
+
+union-method-mut-temporary/main.tck:20:10: error: only a variable, a field or an element can be passed as mut
+19 |	    mut Expr.eof.set()
+20 |	    n := mut Expr.eof.get()
+   |	         ^~~~~~~~~~~~
+21 |	    if n == 0 {
+
+-- union-method-mut-twice/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) take(mut f Expr) {
+    e = f
+}
+
+func main() {
+    mut e := Expr.int(1)
+    mut e.take(mut e)
+}
+-- union-method-mut-twice/expected --
+stage: typeck
+---
+
+union-method-mut-twice/main.tck:14:16: error: e is passed as mut twice in this call; a mut argument must be the only way to reach e during the call
+13 |	    mut e := Expr.int(1)
+14 |	    mut e.take(mut e)
+   |	               ^~~~~
+15 |	}
+union-method-mut-twice/main.tck:14:5: note: first passed as mut here
+13 |	    mut e := Expr.int(1)
+14 |	    mut e.take(mut e)
+   |	    ^~~~~
+15 |	}
+
+-- union-method-named-like-case/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) int() int64 {
     return 1
 }
 
 func main() {
 }
--- union-method/expected --
+-- union-method-named-like-case/expected --
 stage: resolve
 ---
 
-union-method/main.tck:7:9: error: cannot declare a method on U: only a struct type declared in this package can have methods
-06 |	
-07 |	func (u U) size() int64 {
+union-method-named-like-case/main.tck:8:15: error: int is already declared as a case of Expr
+07 |	
+08 |	func (e Expr) int() int64 {
+   |	              ^~~
+09 |	    return 1
+union-method-named-like-case/main.tck:4:5: note: previous declaration of int
+03 |	type Expr union {
+04 |	    int int64
+   |	    ^~~
+05 |	    eof
+
+-- union-method-named-like-case-no-payload/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) eof() {
+}
+
+func main() {
+}
+-- union-method-named-like-case-no-payload/expected --
+stage: resolve
+---
+
+union-method-named-like-case-no-payload/main.tck:8:19: error: eof is already declared as a case of Expr
+07 |	
+08 |	func (mut e Expr) eof() {
+   |	                  ^~~
+09 |	}
+union-method-named-like-case-no-payload/main.tck:5:5: note: previous declaration of eof
+04 |	    int int64
+05 |	    eof
+   |	    ^~~
+06 |	}
+
+-- union-method-no-body/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) f() int64
+
+func main() {
+}
+-- union-method-no-body/expected --
+stage: resolve
+---
+
+union-method-no-body/main.tck:8:15: error: method Expr.f has no body
+07 |	
+08 |	func (e Expr) f() int64
+   |	              ^
+09 |	
+
+-- union-method-receiver-matched/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) bump() {
+    switch e {
+    case int(n):
+        e = Expr.int(n + 1)
+    case eof:
+        e = Expr.int(0)
+    }
+}
+
+func main() {
+    mut e := Expr.int(1)
+    mut e.bump()
+}
+-- union-method-receiver-matched/expected --
+stage: typeck
+---
+
+union-method-receiver-matched/main.tck:11:9: error: e is being matched, and n refers into it, so this case cannot assign e
+10 |	    case int(n):
+11 |	        e = Expr.int(n + 1)
    |	        ^
-08 |	    return 1
+12 |	    case eof:
+
+-- union-method-receiver-moved/main.tck --
+package main
+
+type Value union {
+    words list[string]
+    none
+}
+
+type Box struct {
+    v Value
+}
+
+func (v Value) box() Box {
+    return Box{v: v}
+}
+
+func (v Value) keep() Value {
+    return v
+}
+
+func main() {
+    v := Value.none
+    b := v.box()
+    w := v.keep()
+    switch w {
+    default:
+    }
+    switch b.v {
+    default:
+    }
+}
+-- union-method-receiver-moved/expected --
+stage: typeck
+---
+
+union-method-receiver-moved/main.tck:13:19: error: cannot move v: it is a parameter, which borrows its caller's value
+12 |	func (v Value) box() Box {
+13 |	    return Box{v: v}
+   |	                  ^
+14 |	}
+
+union-method-receiver-moved/main.tck:17:12: error: cannot move v: it is a parameter, which borrows its caller's value
+16 |	func (v Value) keep() Value {
+17 |	    return v
+   |	           ^
+18 |	}
+
+-- union-method-temporary-owned/main.tck --
+package main
+
+type Value union {
+    words list[string]
+    none
+}
+
+func (v Value) len() int64 {
+    switch v {
+    case words(ws):
+        return len(ws)
+    case none:
+        return 0
+    }
+}
+
+func main() {
+    n := Value.words(make(list[string], c_allocator)).len()
+    if n == 0 {
+    }
+}
+-- union-method-temporary-owned/expected --
+stage: typeck
+---
+
+union-method-temporary-owned/main.tck:18:10: error: cannot use a temporary Value here; store it in a variable first
+17 |	func main() {
+18 |	    n := Value.words(make(list[string], c_allocator)).len()
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+19 |	    if n == 0 {
+
+-- union-method-value/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 1
+}
+
+func main() {
+    e := Expr.int(1)
+    if e.pos == 0 {
+    }
+}
+-- union-method-value/expected --
+stage: typeck
+---
+
+union-method-value/main.tck:14:10: error: pos is a method of Expr, not a field; a method can only be called
+13 |	    e := Expr.int(1)
+14 |	    if e.pos == 0 {
+   |	         ^~~
+15 |	    }
+
+-- union-method-without-mut/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) set() {
+    e = Expr.eof
+}
+
+func main() {
+    mut e := Expr.int(1)
+    e.set()
+}
+-- union-method-without-mut/expected --
+stage: typeck
+---
+
+union-method-without-mut/main.tck:14:5: error: Expr.set takes its receiver as mut; call mut e.set()
+13 |	    mut e := Expr.int(1)
+14 |	    e.set()
+   |	    ^
+15 |	}
 
 -- union-misses-cases/main.tck --
 package main
@@ -20907,6 +21542,78 @@ union-not-a-pattern/main.tck:13:16: error: a case of a switch on U names one of 
 13 |	    case a(1), a(n, n):
    |	               ^~~~~~~
 14 |	    default:
+
+-- union-not-satisfy-mut/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (mut e Expr) size() int64 {
+    return 1
+}
+
+func measure[S Sized](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    e := Expr.int(1)
+    n := measure(e)
+    if n == 0 {
+    }
+}
+-- union-not-satisfy-mut/expected --
+stage: typeck
+---
+
+union-not-satisfy-mut/main.tck:22:18: error: Expr does not satisfy Sized: Expr.size takes its receiver as mut, and Sized's size does not
+21 |	    e := Expr.int(1)
+22 |	    n := measure(e)
+   |	                 ^
+23 |	    if n == 0 {
+
+-- union-not-satisfy-signature/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) size() int32 {
+    return 1
+}
+
+func measure[S Sized](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    e := Expr.int(1)
+    n := measure(e)
+    if n == 0 {
+    }
+}
+-- union-not-satisfy-signature/expected --
+stage: typeck
+---
+
+union-not-satisfy-signature/main.tck:22:18: error: Expr does not satisfy Sized: Expr.size is func() int32, and Sized's size is func() int64
+21 |	    e := Expr.int(1)
+22 |	    n := measure(e)
+   |	                 ^
+23 |	    if n == 0 {
 
 -- union-not-union-switch/main.tck --
 package main
@@ -21233,6 +21940,89 @@ union-temporary-owned/main.tck:13:12: error: cannot use a temporary U here; stor
 13 |	    switch make_u() {
    |	           ^~~~~~~~
 14 |	    case items(l):
+
+-- union-type-argument-differs/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type Expr union {
+    int int64
+    eof
+}
+
+type P struct {
+    x int64
+}
+
+func (e Expr) size() int64 {
+    return 1
+}
+
+func (p P) size() int64 {
+    return p.x
+}
+
+func both[S Sized](a S, b S) int64 {
+    return a.size() + b.size()
+}
+
+func main() {
+    n := both(Expr.int(1), P{x: 2})
+    if n == 0 {
+    }
+}
+-- union-type-argument-differs/expected --
+stage: typeck
+---
+
+union-type-argument-differs/main.tck:29:28: error: cannot use P as S in argument to both: S is Expr in this call, from an earlier argument
+28 |	func main() {
+29 |	    n := both(Expr.int(1), P{x: 2})
+   |	                           ^~~~~~~
+30 |	    if n == 0 {
+
+-- union-type-param-switch/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) size() int64 {
+    return 1
+}
+
+func measure[S Sized](s S) int64 {
+    switch s {
+    case int(n):
+        return n
+    default:
+        return 0
+    }
+}
+
+func main() {
+    n := measure(Expr.int(1))
+    if n == 0 {
+    }
+}
+-- union-type-param-switch/expected --
+stage: typeck
+---
+
+union-type-param-switch/main.tck:17:12: error: operator == is not defined on S
+16 |	func measure[S Sized](s S) int64 {
+17 |	    switch s {
+   |	           ^
+18 |	    case int(n):
 
 -- union-unused-binding/main.tck --
 package main

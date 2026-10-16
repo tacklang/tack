@@ -100,6 +100,17 @@ var loadSeeds = []string{
 		"t := a.T.num(n(v))\nswitch t {\ncase num(k):\nif k > 0 { exit(1) }\ndefault:\n}\n" +
 		"if t == a.T.eof { exit(2) } }\n" +
 		"\x00a/a.tck\npackage a\npub type T union { num int64\nword string\neof }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\n" +
+		"type V union { items list[int64]\nnone }\n" +
+		"func (v V) len() int64 { switch v {\ncase items(l):\nreturn len(l)\ncase none:\nreturn 0 } }\n" +
+		"func (mut v V) reset() { v = V.none }\n" +
+		"func main() { mut v := V.items(make(list[int64], c_allocator))\nn := a.Larger(v, a.T.num(2))\n" +
+		"mut v.reset()\nt := a.T.eof\nif n + v.len() + t.len() != 2 { exit(1) } }\n" +
+		"\x00a/a.tck\npackage a\npub type L interface { len() int64 }\n" +
+		"pub func Larger[A L, B L](a A, b B) int64 { if a.len() > b.len() { return a.len() }\nreturn b.len() }\n" +
+		"pub type T union { num int64\neof }\n" +
+		"pub func (t T) len() int64 { switch t {\ncase num(n):\nreturn n\ndefault:\nreturn 0 } }\n" +
+		"func (mut t T) clear() { t = T.eof }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

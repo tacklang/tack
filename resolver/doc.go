@@ -79,14 +79,13 @@
 //
 // A union's cases are resolved with the structs' fields: each payload's
 // type, and each case's name, which follows a field's rule, reserved
-// names excluded, once per union. A selector whose
-// operand names a union type, plain or qualified, Expr.int(5) or ast.Expr.eof,
-// builds a value of it: the operand is bound to the union's TypeDecl, the
-// qualified one only if this package may see it, and the case's name is
-// left to the type checker, which finds it in the union. A struct type's
-// name there is reported as a type used as a value, as before. A method
-// on a union type is reported as one on any type but a struct of the
-// package is.
+// names excluded, once per union. A selector whose operand names a union
+// type, plain or qualified, Expr.int(5) or ast.Expr.eof, builds a value
+// of it: the operand is bound to the union's TypeDecl, the qualified one
+// only if this package may see it, and the case's name is left to the
+// type checker, which finds it in the union. A struct type's name there
+// is reported as a type used as a value, as before. A union type of the
+// package may have methods, as a struct type may (below).
 //
 // The values of an expression switch's cases may be a union's patterns,
 // which the resolver cannot tell from values, since that depends on the
@@ -99,19 +98,22 @@
 // name is rejected in the body. The type checker reports what is wrong
 // with either reading once it knows the tag's type.
 //
-// A method, func (b Builder) len(), is a function whose first parameter is
-// its receiver, so its body is resolved as any function's, the receiver in
-// scope as a parameter under every parameter's rule, _ and type names
-// reserved and no other parameter, local or global sharing its name. Its
-// name is not one of the package's: methods are not declared with the
-// functions, so one may share a name with a function, a global, a builtin
-// or main. Once every receiver's type is bound, each method is recorded on
-// its type, in TypeDecl.Methods, and its type in Func.RecvType. Its
-// receiver's type must be a struct type declared in the package; a type of
-// another package, a basic type, an array, a view or a list is reported,
-// and a name bound to nothing is left for the type checker to report as
-// an unknown type. A method's name follows a field's rule, and may not be
-// a field's of its type or another method's of it. An extern method is
+// A method, func (b Builder) len(), is a function whose first parameter
+// is its receiver, so its body is resolved as any function's, the
+// receiver in scope as a parameter under every parameter's rule, _ and
+// type names reserved and no other parameter, local or global sharing its
+// name. Its name is not one of the package's: methods are not declared
+// with the functions, so one may share a name with a function, a global,
+// a builtin or main. Once every receiver's type is bound, each method is
+// recorded on its type, in TypeDecl.Methods, and its type in
+// Func.RecvType. Its receiver's type must be a struct or union type
+// declared in the package; a type of another package, an interface, a
+// basic type, an array, a view or a list is reported, and a name bound to
+// nothing is left for the type checker to report as an unknown type. A
+// method's name follows a field's rule, and may not be a field's of its
+// struct, a case's of its union, or another method's of its type, so a
+// union's method and its cases, Expr.int(5) built through the type and
+// e.m() called on a value, never share a name. An extern method is
 // reported: a method calls an extern func instead. A method call, x.m(),
 // has its receiver resolved as a value, and mut x.m() as a mut argument;
 // which method it calls is the type checker's to find, from the

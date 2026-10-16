@@ -11,3 +11,12 @@ line end implies is placed at the comment rather than at the newline. In
 while the same source without the comment points at the newline. The
 comment-as-newline sweep in `parser/comment_test.go` compares diagnostics by
 message only because of this.
+
+## A union built in place passed to a mut parameter without mut
+
+`f(Expr.eof)`, where `f` takes a `mut` parameter, is `f takes e as mut;
+pass mut Expr.eof`, suggesting a fix that is itself rejected, since a
+union built in place is no place. The check reads `Expr.eof` as a field
+of a name. A `mut` receiver written without `mut`, `Expr.eof.set()`,
+already says `only a variable, a field or an element can be passed as
+mut` instead; the parameter's wording should too.

@@ -1176,7 +1176,8 @@ makes for itself, which has a letter after `tack_`.
   and union types can be declared`, anonymous struct types and embedded
   fields are not supported, and each is an error. A field may be `pub` or `lib`, as
   described under visibility. A struct type may have methods (see
-  methods), and satisfy interfaces with them (see interfaces).
+  methods), and satisfy interfaces with them (see interfaces), as a union
+  type may.
 - Struct literals name every field exactly once, in any order:
   `Point{x: 1, y: 2}`. A literal without field names, `Point{1, 2}`, a
   field listed twice, a field the struct does not have, a field name in
@@ -1245,10 +1246,10 @@ makes for itself, which has a letter after `tack_`.
   name and a payload's type, if any`; `anonymous unions are not
   supported`. A union is `pub` or `lib` as a struct is, and exposes its
   payloads' types as a field does, `pub case binary of Expr exposes
-  binary, which is not pub`. It cannot have methods, `cannot declare a
-  method on Expr: only a struct type declared in this package can have
-  methods`, nor be a type argument, `cannot use Expr as S in argument to
-  measure: a type argument must be a struct type a package declares`.
+  binary, which is not pub`. It may have methods, as a struct type may,
+  none named like one of its cases (see methods), and so satisfy
+  interfaces and be a type argument to a generic function (see interfaces
+  and generic functions).
 
   `Expr.int(5)` builds a union holding the case `int` with the payload
   5, which is used as the case's type, as an argument to a parameter of
@@ -1266,7 +1267,10 @@ makes for itself, which has a letter after `tack_`.
   makes a union of a payload implicitly. A union built as a statement is
   `Expr.int(5) is not used`. A union has no literal, `Expr cannot be
   written as a literal; only arrays and structs can`, no field, `Expr has
-  no field int`, and is no function, `cannot call Expr; it is a type`. It
+  no field int`, and is no function, `cannot call Expr; it is a type`. A
+  case is no method: `e.int(5)` on a value `e` is `Expr has no method
+  int`, and a method named through the type, `Expr.pos(e)`, is `Expr has
+  no case pos`. It
   is a value, copied when assigned, passed or returned, unless it holds a
   list (below), and changed only whole, `e = Expr.int(3)`. A
   package-level union is a constant expression when its payload is, `var
@@ -1342,11 +1346,12 @@ makes for itself, which has a letter after `tack_`.
   clause could assign, and a binding is a pointer to its payload.
 - Methods. A function written with a receiver before its name, `func (b
   Builder) len() int64` or `func (mut b Builder) write(s string) error`, is
-  a method of the receiver's type, which must be a struct type declared in
-  the same package, in any file of it, before or after the method; any
-  other type, one of another package, a basic type, `any`, `error`, a
-  union, an array, a view or a list, is `cannot declare a method on lexer.Token:
-  only a struct type declared in this package can have methods`. A method
+  a method of the receiver's type, which must be a struct or union type
+  declared in the same package, in any file of it, before or after the
+  method; any other type, one of another package, an interface, a basic
+  type, `any`, `error`, an array, a view or a list, is `cannot declare a
+  method on lexer.Token: only a struct or union type declared in this
+  package can have methods`. A method
   is called on a value of its type, `b.len()`: a local, a parameter, a
   field, `w.out.len()`, an element, `rows[i].len()`, or a temporary,
   `makePoint(3, 4).norm()` or `Point{x: 1}.norm()`, and it is found from
@@ -1378,8 +1383,10 @@ makes for itself, which has a letter after `tack_`.
   a builtin, as `func (b Builder) len() int64` and `func (mut b Builder)
   append(c uint8) error` do, since a method is only ever reached as
   `x.name(...)`, and inside a method a bare `len(x)` is still the
-  builtin; it may not share one with a field of its type, `len is already
-  declared as a field of Builder`, or with another method of it,
+  builtin; it may not share one with a field of its struct, `len is
+  already declared as a field of Builder`, a case of its union, `int is
+  already declared as a case of Expr`, so `Expr.int(5)` always builds a
+  case and `e.m()` always calls a method, or with another method of it,
   `Builder.len is already declared`, and it follows a field's naming
   rule. There are no method values or method expressions: `b.write`
   without a call is `write is a method of Builder, not a field; a method
@@ -1401,8 +1408,21 @@ makes for itself, which has a letter after `tack_`.
   stay functions: there is no `l.len()`. In C a method is a function of
   its own, named from its package's path, its type's name and its own,
   taking the receiver first, a `mut` one as a pointer, as a `mut`
-  parameter is. A struct type's methods satisfy interfaces (see
-  interfaces); there are no method sets, embedding or generic methods.
+  parameter is. A union's methods are a struct's in every way: `func (e
+  Expr) pos() int64` may switch on its receiver, and a `mut` one may
+  reassign it, `e = Expr.eof`, under the rule for a switched place, so a
+  clause binding a payload of the receiver cannot assign it or pass it
+  as `mut`, `e is being matched, and n refers into it, so this case
+  cannot assign e`, and a caller's `mut e.set()` in such a clause of a
+  switch on `e` is `... cannot pass mut e`, while a plain call, `e.pos()`,
+  reads it and may. A plain receiver of a union holding a list borrows
+  it, and a `mut` one assigned frees the old payload's lists. A union
+  built in place is no place: `mut Expr.eof.set()` is `only a variable, a
+  field or an element can be passed as mut`, and `Expr.eof.set()` is
+  `Expr.set takes its receiver as mut; only a variable, a field or an
+  element can be passed as mut`. A struct or union type's methods
+  satisfy interfaces (see interfaces); there are no method sets,
+  embedding or generic methods.
 - Interfaces. `type Writer interface { mut write(b []uint8) error; size()
   int64 }`, at package level, written as a struct is with one method per
   line or separated by `;`, declares an interface: the methods a type must
@@ -1411,8 +1431,8 @@ makes for itself, which has a letter after `tack_`.
   parameters and results follow a function's rules, a `mut`, a view, a
   variadic or an `any` parameter included, and an error result is last,
   `error must be the last result of Parser.parse`. `interface {}` asks for
-  nothing, and every struct type satisfies it. A method's name is in its
-  interface's namespace, follows a field's naming rule, and is declared
+  nothing, and every struct and union type satisfies it. A method's name
+  is in its interface's namespace, follows a field's naming rule, and is declared
   once, `Writer.write is already declared`; its parameters are named, no
   two alike. An interface holds methods only: `an interface cannot have
   fields; it holds only methods`, `embedded interfaces are not
@@ -1427,21 +1447,24 @@ makes for itself, which has a letter after `tack_`.
   or in a literal, it is `Writer is an interface; it can only constrain a
   type parameter`, `sink.Sink is an interface; ...` from another package.
   It cannot have methods declared on it, `cannot declare a method on
-  Writer: only a struct type declared in this package can have methods`,
-  nor be called, `cannot call Writer; it is a type`. A struct type
-  satisfies an interface, with nothing written to say so, when for each
-  of the interface's methods it has a method of that name that takes its
-  receiver as `mut` exactly when the interface's does, with the same
-  parameters, each of the same type and alike in being `mut` or
-  variadic, and the same results. Each of those methods must also be
-  visible where the type is chosen, from the package holding the call
-  that binds a type parameter to the struct type, as if that code called
-  the method itself: a private method within its own package, a `lib`
-  one within its module, a `pub` one anywhere. The interface's package
+  Writer: only a struct or union type declared in this package can have
+  methods`, nor be called, `cannot call Writer; it is a type`. A struct or
+  union type satisfies an interface, with nothing written to say so,
+  when for each of the interface's methods it has a method of that name
+  that takes its receiver as `mut` exactly when the interface's does,
+  with the same parameters, each of the same type and alike in being
+  `mut` or variadic, and the same results: `Expr does not satisfy Sized:
+  Expr.size takes its receiver as mut, and Sized's size does not`. Each
+  of those methods must also be visible where the type is chosen, from
+  the package holding the call that binds a type parameter to the type,
+  as if that code called the method itself: a private method within its
+  own package, a `lib` one within its module, a `pub` one anywhere. The interface's package
   plays no part, so `main` passes a type of its own, with private
   methods, to another package's generic function, while a third package
   cannot pass a type whose method it cannot call, `words.Bag does not
-  satisfy sink.Sink here: put is not pub in words.Bag`, `util.Pair does
+  satisfy sink.Sink here: put is not pub in words.Bag`, `shapes.Tile
+  does not satisfy shapes.Sized here: len is not pub in shapes.Tile` for
+  a union, `util.Pair does
   not satisfy util.Counted here: count is lib in module std and cannot
   be used from module calc`. Interfaces exist only at compile time:
   nothing of them is in the C.
@@ -1450,9 +1473,9 @@ makes for itself, which has a letter after `tack_`.
   its constraint, an interface, plain or qualified, `[A Writer, B
   sink.Sink]`, with commas between them optional as between parameters.
   Each is a type within its function, its signature and its body, which
-  stands for whichever struct type a call passes. Every type parameter
-  needs an interface for its constraint: `type parameter W has no
-  constraint; write the interface it must satisfy after it, as in [W
+  stands for whichever struct or union type a call passes. Every type
+  parameter needs an interface for its constraint: `type parameter W has
+  no constraint; write the interface it must satisfy after it, as in [W
   Writer]`, and anything else, a struct, a basic type, `any` among them,
   a view or another type parameter, is `Point is not an interface; the
   constraint of type parameter W must be one`. A type parameter must be
@@ -1495,10 +1518,10 @@ makes for itself, which has a letter after `tack_`.
   "x")`; type arguments are never written, `cannot write type arguments;
   they are inferred from the arguments, as in render(...)`. Each type
   parameter is given the type of the arguments passed to the parameters
-  of that type, which must be a struct type a package declares, `cannot
-  use int64 as S in argument to measure: a type argument must be a struct
-  type a package declares`, `error` and every other builtin type
-  included, or, in another generic function, one of its type parameters;
+  of that type, which must be a struct or union type a package declares,
+  `cannot use int64 as S in argument to measure: a type argument must be
+  a struct or union type a package declares`, `error` and every other
+  builtin type included, or, in another generic function, one of its type parameters;
   two arguments for one type parameter must be of one type, `cannot use
   Buffer as W in argument to both: W is Counter in this call, from an
   earlier argument`, and the type must satisfy the constraint: `Sized
@@ -1511,9 +1534,9 @@ makes for itself, which has a letter after `tack_`.
   on satisfies an interface when its own constraint has each method the
   interface asks for, alike in the same way, `S does not satisfy Writer:
   its constraint Sizer has no method write`, and is checked for no
-  visibility: the call that bound a struct type checked every method of
-  its constraint, and no generic function it is passed on to can ask for
-  another. Arguments
+  visibility: the call that bound a struct or union type checked every
+  method of its constraint, and no generic function it is passed on to
+  can ask for another. Arguments
   are otherwise checked as for any function: a `mut` parameter of a type
   parameter takes a `mut` place, `render takes w as mut; pass mut c`. A
   generic function may call itself and other generic functions, with its

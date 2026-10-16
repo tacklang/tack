@@ -42,10 +42,10 @@ type Func struct {
 	// determine is Invalid.
 	ResultTypes []types.Type
 
-	// RecvType is the declaration of the struct type a method's receiver
-	// has, set by the resolver once it has found it to be a struct type of
-	// the method's package; it is nil for a function, and for a method
-	// whose receiver type was reported.
+	// RecvType is the declaration of the struct or union type a method's
+	// receiver has, set by the resolver once it has found it to be a
+	// struct or union type of the method's package; it is nil for a
+	// function, and for a method whose receiver type was reported.
 	RecvType *TypeDecl `json:"-"`
 
 	// Interface is set only on the stand-in the type checker makes for
@@ -53,8 +53,8 @@ type Func struct {
 	// for a w of type W: a method with no body, never declared, whose
 	// receiver has type W and whose other parameters and results are the
 	// interface method's, which a call is checked against. Code generation
-	// calls, in each instance, the method of that name of the struct type
-	// W stands for.
+	// calls, in each instance, the method of that name of the struct or
+	// union type W stands for.
 	Interface *IfaceMethod `json:"-"`
 
 	NameSpan       Span // just the identifier

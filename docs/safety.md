@@ -1248,11 +1248,22 @@ case items(l):
 
 reports <!-- error: union-mut-matched -->`u is being matched, and l refers into it, so this case cannot pass mut u`,
 and assigning it is <!-- error: union-assign-matched -->`u is being matched, and n refers into it, so this case cannot assign u`.
+A `mut` method called on the place is a `mut` argument of it too, so in
+such a clause of a switch on `e`, binding `n`, `mut e.set()`
+reports <!-- error: union-method-mut-matched -->`e is being matched, and n refers into it, so this case cannot pass mut e`,
+while a plain method call, which only reads the place, may be made,
+the binding passed to it included. Inside a `mut` method, the receiver
+is a place like any other, so a switch on it binding a payload keeps
+the method from reassigning it in that clause,
+<!-- error: union-method-receiver-matched -->`e is being matched, and n refers into it, so this case cannot assign e`.
 A clause that binds nothing may change the place, since nothing reads
 the payload after its case is tested. `examples/unions` counts the
 buffers its allocator holds after unions holding lists are built,
 reassigned in loops, moved on some paths, read from defers and nested
-in other unions, and checks the count is back to zero after each.
+in other unions, and checks the count is back to zero after each;
+`examples/union-methods` does the same after `mut` methods replace and
+free a union's list and unions holding lists pass through generic
+functions.
 
 <!-- example: unions -->
 ```tack

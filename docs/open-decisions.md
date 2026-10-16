@@ -384,10 +384,10 @@ there, rather than decided, and could go another way:
   `len is already declared as a field of Builder`, with a note at the
   field, and two methods of one type sharing one is `Builder.len is
   already declared`, with a note at the first; a method on another
-  package's type, a basic type, `any`, `error`, an array, a view or a
-  list is `cannot declare a method on X: only a struct type declared in
-  this package can have methods`, X naming an array, view or list type by
-  its kind. A receiver type bound to nothing is `unknown type: X`, as a
+  package's type, an interface, a basic type, `any`, `error`, an array, a
+  view or a list is `cannot declare a method on X: only a struct or union
+  type declared in this package can have methods`, X naming an array,
+  view or list type by its kind. A receiver type bound to nothing is `unknown type: X`, as a
   parameter's is.
 - A method's name in a diagnostic is its type's and its own, as the type
   is named there, `Builder.write`, or `lexer.Token.kind` from another
@@ -501,11 +501,11 @@ the rules already there, rather than decided, and could go another way:
   result of a type parameter is accepted, as decided, but no program can
   yet produce one usefully: something that makes values, or a consuming
   parameter, would.
-- Only a struct type a package declares is a type argument: `error`, a
-  builtin struct with no methods, is rejected even for an interface with
-  none, `cannot use error as E in argument to f: a type argument must be
-  a struct type a package declares`, and an untyped constant is an
-  `int64` there. Two arguments for one type parameter that differ are
+- Only a struct or union type a package declares is a type argument:
+  `error`, a builtin struct with no methods, is rejected even for an
+  interface with none, `cannot use error as E in argument to f: a type
+  argument must be a struct or union type a package declares`, and an
+  untyped constant is an `int64` there. Two arguments for one type parameter that differ are
   reported at the later one, `cannot use B as W in argument to f: W is A
   in this call, from an earlier argument`, even when, in the body of
   another generic function, A and B might be one type at run time.
@@ -642,6 +642,65 @@ rules already there, rather than decided, and could go another way:
   for a union holding a list.
 - printf given a union reports it twice, as it does a struct: `cannot
   pass U as any: ...` and `printf verb %v does not take U`.
+
+## Methods on unions
+
+Ahmed decided that a union type may have methods under exactly the rules
+for a struct type's, and so satisfy interfaces and be a type argument.
+These points were settled by the implementation, for consistency with
+the rules already there, rather than decided, and could go another way:
+
+- A method may not share a name with a case of its union, as a struct's
+  may not with a field: `int is already declared as a case of Expr`,
+  with a note at the case, a case without a payload included. It may
+  share one with a case of another union. So nothing a program writes
+  is ambiguous: `Expr.int(5)` and `Expr.eof`, through the type, always
+  build a case, and `e.m()`, through a value, always calls a method.
+- A case reached through a value gets no wording of its own: `e.int(5)`
+  is `Expr has no method int`, and `e.int` stays `Expr has no field
+  int`. A method named through the type, `Expr.pos(e)` or `Expr.pos`, is
+  a construction of a case the union lacks, `Expr has no case pos`,
+  where a struct's method expression is `cannot use Builder as a value;
+  it is a type`.
+- The rejection of other receivers now reads `cannot declare a method on
+  X: only a struct or union type declared in this package can have
+  methods`, and of other type arguments `cannot use T as S in argument
+  to f: a type argument must be a struct or union type a package
+  declares`. A union passed for a type parameter is then checked for
+  satisfaction like a struct: `U does not satisfy Sized: U has no method
+  size`.
+- A union built in place is no place. `mut Expr.eof.set()` is `only a
+  variable, a field or an element can be passed as mut`, as `mut
+  Expr.int(1).set()` is, and `Expr.eof.set()` for a `mut` receiver is
+  `Expr.set takes its receiver as mut; only a variable, a field or an
+  element can be passed as mut`, rather than suggesting `mut` before
+  it. Before this change the first reached code generation unreported,
+  since `Expr.eof` reads as a field of a name, and no union had a method
+  to call.
+- A `mut` method called on the place a switch matches, in a clause
+  binding a payload of it, is that place passed as `mut`: `e is being
+  matched, and n refers into it, so this case cannot pass mut e`, also
+  when the binding is passed alongside, `mut e.take(n)`, which is
+  reported once, for the receiver. A plain method call there reads the
+  place, and is allowed with the binding passed to it, `e.read(n)`.
+- Inside a `mut` method the receiver is a `mut` parameter, a place like
+  any other: a switch on it binding a payload keeps that clause from
+  assigning it, `e is being matched, and n refers into it, so this case
+  cannot assign e`, while a clause binding nothing may, and the new
+  value is otherwise assigned after the switch.
+- A plain receiver of a union holding a list borrows it, as a plain
+  parameter does: in C it is passed by value, as a struct holding a list
+  is, and never freed by the method. A `mut` receiver assigned frees
+  the old payload's lists once the new value is computed, as any
+  assignment does.
+- In a generic function's body a value of a type parameter still has
+  only its constraint's methods: a switch on one is an expression
+  switch, `operator == is not defined on S`, even where every call
+  passes a union.
+- An instance's C name writes a union type argument as it writes a
+  struct, its package's path, a period and its name, `measure[main.E]`;
+  the two kinds share one namespace per package, so no two type
+  arguments are written alike.
 
 ## Statements that only give a value
 

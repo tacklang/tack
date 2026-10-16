@@ -276,7 +276,8 @@ func instanceParts(names, paths []string) bool {
 
 // FuzzInstanceCNamesAreDistinct checks that two instances' C names differ
 // whenever their functions' packages, their functions or their type
-// arguments do, and that an instance's is never a function's, a type's, a
+// arguments do, struct and union types alike, which are named the same
+// way, and that an instance's is never a function's, a type's, a
 // global's or a method's. A function's or a type's name is an
 // identifier, holding no period, comma or bracket, and an import path
 // holds no comma or bracket, so inputs that do are skipped.
@@ -284,6 +285,8 @@ func FuzzInstanceCNamesAreDistinct(f *testing.F) {
 	f.Add("calc", "f", "main", "A", "main", "B", "calc", "f", "main", "A", "main", "B")
 	f.Add("m", "f", "a", "B", "c", "D", "m", "f", "a", "B,c", "", "D")
 	f.Add("m", "f", "a.b", "C", "d", "E", "m", "f", "a", "b.C", "d", "E")
+	f.Add("u-m/shapes", "Larger", "u-m", "Shape", "u-m/shapes", "Tile",
+		"u-m/shapes", "Larger", "u-m/shapes", "Shape", "u-m", "Tile")
 	f.Fuzz(func(t *testing.T, path1, fn1, p1, n1, q1, m1, path2, fn2, p2, n2, q2, m2 string) {
 		if !instanceParts([]string{fn1, n1, m1, fn2, n2, m2}, []string{p1, q1, p2, q2}) {
 			return
