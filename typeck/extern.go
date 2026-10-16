@@ -25,6 +25,7 @@ const stdPath = "std"
 // checkExternLists).
 func (c *Checker) checkExtern(fn *ast.Func) {
 	c.checkExternLists(fn)
+	c.checkExternUnions(fn)
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan
@@ -52,6 +53,21 @@ func (c *Checker) checkExtern(fn *ast.Func) {
 	}
 }
 
+// checkExternUnions reports each parameter and each result of fn, an
+// extern func, whose type is or holds a union, through a struct, an
+// array, a view or a list: how a union is laid out for C is not settled,
+// so none crosses yet.
+func (c *Checker) checkExternUnions(fn *ast.Func) {
+	for _, p := range fn.Params {
+		c.externUnion(p.Type, p.TypeExpr.Spanned(),
+			fmt.Sprintf("parameter %s of extern func %s cannot be", p.Name, fn.Name))
+	}
+	for i, typ := range fn.ResultTypes {
+		c.externUnion(typ, fn.Results[i].Spanned(),
+			fmt.Sprintf("extern func %s cannot return", fn.Name))
+	}
+}
+
 // listCrossing is what an error about a list crossing to C by value says
 // it may cross as instead.
 const listCrossing = "a list crosses to C only as a mut parameter, or as a view"
@@ -61,16 +77,17 @@ const listCrossing = "a list crosses to C only as a mut parameter, or as a view"
 // A list crosses to C as a mut parameter, through which C may grow it
 // with std's macros, or as a view of its elements. Passing one by value
 // would move it into C, and returning one would move one out, and who
-// then frees it, and through which allocator, is not settled.
+// then frees it, and through which allocator, is not settled. A type
+// holding a union is reported as one instead (see checkExternUnions).
 func (c *Checker) checkExternLists(fn *ast.Func) {
 	for _, p := range fn.Params {
-		if !p.Mut && c.table.Owned(p.Type) {
+		if !p.Mut && c.table.Owned(p.Type) && !c.crossesUnion(p.Type) {
 			c.errorf(p.TypeExpr.Spanned(), "parameter %s of extern func %s cannot be %s: %s",
 				p.Name, fn.Name, c.ownedTypeName(p.Type), listCrossing)
 		}
 	}
 	for i, typ := range fn.ResultTypes {
-		if c.table.Owned(typ) {
+		if c.table.Owned(typ) && !c.crossesUnion(typ) {
 			c.errorf(fn.Results[i].Spanned(), "extern func %s cannot return %s: %s",
 				fn.Name, c.ownedTypeName(typ), listCrossing)
 		}

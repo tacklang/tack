@@ -208,7 +208,12 @@ var genericParseErrors = []struct{ name, src, msg, at string }{
 	},
 	{"no brace", "type W interface\n", "expected '{' found 'EOF'", ""},
 	{"two methods on a line", "type W interface {\n    f() g()\n}\n", "expected ';' found '('", ""},
-	{"named type", "type C int64\n", "only struct and interface types can be declared", "int64"},
+	{
+		"named type",
+		"type C int64\n",
+		"only struct, interface and union types can be declared",
+		"int64",
+	},
 }
 
 // TestRejectsMalformedGenerics checks each malformed generic function,

@@ -847,8 +847,8 @@ func (c *Checker) throughList(target ast.Expr) bool {
 
 // leaves reports whether a block always leaves the code around it before
 // its end: its last statement is a return, a break or a continue, an if
-// whose branches both leave, or a switch with a default whose cases all
-// leave. Like the terminating rule, it is syntactic, so a call to exit does
+// whose branches both leave, or a switch with a default, or on a union
+// with every case named, whose cases all leave. Like the terminating rule, it is syntactic, so a call to exit does
 // not count.
 func leaves(body []ast.Stmt) bool {
 	return leavesBy(body, false)
@@ -866,7 +866,7 @@ func leavesBy(body []ast.Stmt, exits bool) bool {
 	case *ast.If:
 		return leavesBy(s.Then, exits) && leavesBy(s.Else, exits)
 	case *ast.Switch:
-		return chainLeavesBy(tryOrder(s), exits)
+		return switchLeavesBy(s, exits)
 	case *ast.ExprStmt:
 		call, ok := s.X.(*ast.Call)
 		return exits && ok && isExit(call)

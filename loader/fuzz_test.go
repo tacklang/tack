@@ -93,6 +93,13 @@ var loadSeeds = []string{
 		"if e.code != 0 { return e } }\nreturn noerror }\npub type T struct { n int64 }\n" +
 		"pub func New() T { return T{n: 0} }\npub func (mut t T) put(w string) error { t.n++\nreturn noerror }\n" +
 		"lib func (t T) count() int64 { return t.n }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport a from \"m/a\"\n" +
+		"type V union { items list[int64]\nbag B\nnone }\ntype B struct { l list[uint8] }\n" +
+		"func n(v V) int64 { switch v {\ncase items(l):\nreturn len(l)\ncase bag, none:\nreturn 0 } }\n" +
+		"func main() { mut v := V.items(make(list[int64], c_allocator))\nv = V.none\n" +
+		"t := a.T.num(n(v))\nswitch t {\ncase num(k):\nif k > 0 { exit(1) }\ndefault:\n}\n" +
+		"if t == a.T.eof { exit(2) } }\n" +
+		"\x00a/a.tck\npackage a\npub type T union { num int64\nword string\neof }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

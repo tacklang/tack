@@ -3822,6 +3822,184 @@ two-packages/lexer/b.tck:1:9: note: package lexer is declared here
    |	        ^~~~~
 02 |	
 
+-- union-exposes/tack.mod --
+module calc
+-- union-exposes/ast/ast.tck --
+package ast
+
+type binary struct {
+    lhs int64
+}
+
+lib type Pos struct {
+    at int64
+}
+
+pub type Expr union {
+    int    int64
+    binary binary
+    pos    Pos
+    eof
+}
+
+lib type Node union {
+    hidden binary
+    pos    Pos
+}
+
+type secret union {
+    a int64
+}
+
+pub func Secret() secret {
+    return secret.a(1)
+}
+-- union-exposes/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.eof
+    if e == ast.Expr.int(1) {
+    }
+}
+-- union-exposes/expected --
+stage: typeck
+---
+
+union-exposes/ast/ast.tck:13:12: error: pub case binary of Expr exposes binary, which is not pub
+12 |	    int    int64
+13 |	    binary binary
+   |	           ^~~~~~
+14 |	    pos    Pos
+
+union-exposes/ast/ast.tck:14:12: error: pub case pos of Expr exposes Pos, which is not pub
+13 |	    binary binary
+14 |	    pos    Pos
+   |	           ^~~
+15 |	    eof
+
+union-exposes/ast/ast.tck:19:12: error: lib case hidden of Node exposes binary, which is not lib or pub
+18 |	lib type Node union {
+19 |	    hidden binary
+   |	           ^~~~~~
+20 |	    pos    Pos
+
+union-exposes/ast/ast.tck:27:19: error: pub function Secret exposes secret, which is not pub
+26 |	
+27 |	pub func Secret() secret {
+   |	                  ^~~~~~
+28 |	    return secret.a(1)
+
+-- union-hidden/tack.mod --
+module calc
+-- union-hidden/ast/ast.tck --
+package ast
+
+type Expr union {
+    int int64
+    eof
+}
+
+pub func Make() int64 {
+    e := Expr.int(1)
+    switch e {
+    case int(n):
+        return n
+    case eof:
+        return 0
+    }
+}
+-- union-hidden/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.int(5)
+    f := ast.Expr.eof
+    if ast.Make() == 1 {
+    }
+}
+-- union-hidden/expected --
+stage: resolve
+---
+
+union-hidden/main.tck:6:10: error: Expr is not pub in package calc/ast
+05 |	func main() {
+06 |	    e := ast.Expr.int(5)
+   |	         ^~~~~~~~
+07 |	    f := ast.Expr.eof
+
+union-hidden/main.tck:7:10: error: Expr is not pub in package calc/ast
+06 |	    e := ast.Expr.int(5)
+07 |	    f := ast.Expr.eof
+   |	         ^~~~~~~~
+08 |	    if ast.Make() == 1 {
+
+-- union-other-package-switch/tack.mod --
+module calc
+-- union-other-package-switch/ast/ast.tck --
+package ast
+
+pub type Expr union {
+    int  int64
+    name string
+    eof
+}
+-- union-other-package-switch/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.int(5)
+    switch e {
+    case int(ast):
+    case name(s):
+        print(s)
+    case nope:
+    }
+    x := ast.Expr.nope
+    y := ast.Expr.int("s")
+    if x == y {
+    }
+}
+-- union-other-package-switch/expected --
+stage: typeck
+---
+
+union-other-package-switch/main.tck:7:5: error: switch on ast.Expr misses case eof; cover it or add a default
+06 |	    e := ast.Expr.int(5)
+07 |	    switch e {
+   |	    ^~~~~~~~
+08 |	    case int(ast):
+
+union-other-package-switch/main.tck:8:14: error: ast is an imported package and cannot be redeclared
+07 |	    switch e {
+08 |	    case int(ast):
+   |	             ^~~
+09 |	    case name(s):
+
+union-other-package-switch/main.tck:11:10: error: ast.Expr has no case nope
+10 |	        print(s)
+11 |	    case nope:
+   |	         ^~~~
+12 |	    }
+
+union-other-package-switch/main.tck:13:19: error: ast.Expr has no case nope
+12 |	    }
+13 |	    x := ast.Expr.nope
+   |	                  ^~~~
+14 |	    y := ast.Expr.int("s")
+
+union-other-package-switch/main.tck:14:23: error: cannot use string as int64 in argument to ast.Expr.int
+13 |	    x := ast.Expr.nope
+14 |	    y := ast.Expr.int("s")
+   |	                      ^~~
+15 |	    if x == y {
+
 -- unused-global-in-other-file/tack.mod --
 module unused-global-in-other-file
 -- unused-global-in-other-file/a.tck --

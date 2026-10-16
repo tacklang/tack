@@ -1219,6 +1219,52 @@ does not. `examples/generics` passes a struct holding a list through
 generic functions that borrow it, change it and move it, and checks the
 count of live buffers is back to zero after each check.
 
+**Unions.** A union any of whose cases' payloads holds a list, directly
+or through a struct, an array or another union, holds a list, and is
+owned as a struct holding one is, under every rule above. It moves
+rather than copies, <!-- error: union-moved -->`u is used after it was moved`;
+one no variable holds must be given one, a switch's tag included,
+<!-- error: union-temporary-owned -->`cannot use a temporary U here; store it in a variable first`;
+no global holds one, <!-- error: union-global-list -->`package-level variable g cannot hold a list`;
+it is no element,
+<!-- error: union-list-of-owned -->`a list cannot hold U: its elements are copied, and U, which holds a list, cannot be`;
+and it has no `==`, <!-- error: union-equality-list -->`operator == is not defined on U`.
+Freeing one frees what the case it holds holds, and a moved one is
+empty, so freeing it does nothing; assigning one frees the old value
+once the new one is computed. A payload is built into a union by
+moving it there, as into a struct literal's field, and is never moved
+out of one: a switch on a union binds a payload by referring to it in
+place, as a range loop walks a list, so the binding cannot be moved,
+<!-- error: union-move-binding -->`cannot move l: it refers to a union's payload in place, and a payload cannot be moved out of a union`,
+and while it refers into the switched place its clause cannot assign
+that place, or anything holding it, pass either as `mut`, or move it:
+
+<!-- case: union-mut-matched -->
+```tack
+switch u {
+case items(l):
+    reset(mut u)
+```
+
+reports <!-- error: union-mut-matched -->`u is being matched, and l refers into it, so this case cannot pass mut u`,
+and assigning it is <!-- error: union-assign-matched -->`u is being matched, and n refers into it, so this case cannot assign u`.
+A clause that binds nothing may change the place, since nothing reads
+the payload after its case is tested. `examples/unions` counts the
+buffers its allocator holds after unions holding lists are built,
+reassigned in loops, moved on some paths, read from defers and nested
+in other unions, and checks the count is back to zero after each.
+
+<!-- example: unions -->
+```tack
+func testLoops() {
+    mut v := Value.none
+    mut sum := 0
+    for i := range 10 {
+        v = Value.items(listOf(i))
+        sum += total(v)
+    }
+```
+
 ## Compile-time errors
 
 The compiler reports, rather than proves or checks, an operation whose

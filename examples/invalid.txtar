@@ -8481,7 +8481,7 @@ func main() {
 stage: parse
 ---
 
-interface-alias/main.tck:3:12: error: expected 'struct or interface' found '='
+interface-alias/main.tck:3:12: error: expected 'struct, interface or union' found '='
 02 |	
 03 |	type Sizer = interface {
    |	           ^
@@ -18959,7 +18959,7 @@ func main() {
 stage: parse
 ---
 
-struct-named-non-struct/main.tck:3:14: error: only struct and interface types can be declared
+struct-named-non-struct/main.tck:3:14: error: only struct, interface and union types can be declared
 02 |	
 03 |	type Celsius int64
    |	             ^~~~~
@@ -19569,6 +19569,1712 @@ undefined-arg/main.tck:4:10: error: undefined: nope
 03 |	func main() {
 04 |	    exit(nope)
    |	         ^~~~
+05 |	}
+
+-- union-anonymous/main.tck --
+package main
+
+func main() {
+    var x union {
+        a int64
+    }
+}
+-- union-anonymous/expected --
+stage: parse
+---
+
+union-anonymous/main.tck:4:11: error: anonymous unions are not supported
+03 |	func main() {
+04 |	    var x union {
+   |	          ^~~~~
+05 |	        a int64
+
+-- union-any-payload/main.tck --
+package main
+
+type U union {
+    a any
+}
+
+func main() {
+}
+-- union-any-payload/expected --
+stage: typeck
+---
+
+union-any-payload/main.tck:4:7: error: any can only be the type of a parameter
+03 |	type U union {
+04 |	    a any
+   |	      ^~~
+05 |	}
+
+-- union-array-length-variable/main.tck --
+package main
+
+var n = 3
+
+type U union {
+    a [n]int64
+}
+
+func main() {
+}
+-- union-array-length-variable/expected --
+stage: typeck
+---
+
+union-array-length-variable/main.tck:6:8: error: array length in a union's case must not name variable n
+05 |	type U union {
+06 |	    a [n]int64
+   |	       ^
+07 |	}
+
+-- union-as-any/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func show(a any) {
+}
+
+func main() {
+    show(U.a(1))
+}
+-- union-as-any/expected --
+stage: typeck
+---
+
+union-as-any/main.tck:11:10: error: cannot pass U as any: only the builtin types can be passed as any for now
+10 |	func main() {
+11 |	    show(U.a(1))
+   |	         ^~~~~~
+12 |	}
+
+-- union-as-type-argument/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type U union {
+    a int64
+}
+
+func measure[S Sized](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    u := U.a(1)
+    n := measure(u)
+    print("x")
+    if n == 0 {
+    }
+}
+-- union-as-type-argument/expected --
+stage: typeck
+---
+
+union-as-type-argument/main.tck:17:18: error: cannot use U as S in argument to measure: a type argument must be a struct type a package declares
+16 |	    u := U.a(1)
+17 |	    n := measure(u)
+   |	                 ^
+18 |	    print("x")
+
+-- union-assign-binding/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    u := U.a(1)
+    switch u {
+    case a(n):
+        n = 2
+    case b:
+    }
+}
+-- union-assign-binding/expected --
+stage: typeck
+---
+
+union-assign-binding/main.tck:12:9: error: cannot assign to immutable variable n
+11 |	    case a(n):
+12 |	        n = 2
+   |	        ^
+13 |	    case b:
+
+-- union-assign-matched/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    mut u := U.a(1)
+    switch u {
+    case a(n):
+        u = U.b
+        if n == 1 {
+        }
+    case b:
+        u = U.a(3)
+    }
+}
+-- union-assign-matched/expected --
+stage: typeck
+---
+
+union-assign-matched/main.tck:12:9: error: u is being matched, and n refers into it, so this case cannot assign u
+11 |	    case a(n):
+12 |	        u = U.b
+   |	        ^
+13 |	        if n == 1 {
+
+-- union-assign-matched-container/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+type S struct {
+    u U
+    k int64
+}
+
+func main() {
+    mut s := S{u: U.a(1), k: 0}
+    mut us := [2]U{U.b, U.b}
+    switch s.u {
+    case a(n):
+        s.k = n
+        s = S{u: U.b, k: 2}
+    case b:
+    }
+    switch us[0] {
+    case a(n):
+        us[1] = U.a(n)
+    case b:
+    }
+}
+-- union-assign-matched-container/expected --
+stage: typeck
+---
+
+union-assign-matched-container/main.tck:19:9: error: s.u is being matched, and n refers into it, so this case cannot assign s
+18 |	        s.k = n
+19 |	        s = S{u: U.b, k: 2}
+   |	        ^
+20 |	    case b:
+
+union-assign-matched-container/main.tck:24:9: error: us[0] is being matched, and n refers into it, so this case cannot assign us[1]
+23 |	    case a(n):
+24 |	        us[1] = U.a(n)
+   |	        ^~~~~
+25 |	    case b:
+
+-- union-binding-blank/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a(_):
+    case b:
+    }
+}
+-- union-binding-blank/expected --
+stage: typeck
+---
+
+union-binding-blank/main.tck:10:12: error: every name is _, so nothing is bound; write case a
+09 |	    switch U.b {
+10 |	    case a(_):
+   |	           ^
+11 |	    case b:
+
+-- union-binding-no-payload/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a:
+    case b(x):
+    }
+}
+-- union-binding-no-payload/expected --
+stage: typeck
+---
+
+union-binding-no-payload/main.tck:11:12: error: b has no payload to bind; write case b
+10 |	    case a:
+11 |	    case b(x):
+   |	           ^
+12 |	    }
+
+-- union-binding-several-cases/main.tck --
+package main
+
+type U union {
+    a int64
+    b int64
+    c
+}
+
+func main() {
+    switch U.c {
+    case a(n), b:
+        print("x")
+    case c:
+    }
+}
+-- union-binding-several-cases/expected --
+stage: typeck
+---
+
+union-binding-several-cases/main.tck:11:12: error: a clause naming several cases binds nothing; write a, or give a(n) a clause of its own
+10 |	    switch U.c {
+11 |	    case a(n), b:
+   |	           ^
+12 |	        print("x")
+
+-- union-binding-shadows/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+type U union {
+    a int64
+    b string
+    c
+}
+
+func main() {
+    n := 1
+    switch U.c {
+    case a(n):
+    case b(fmt):
+        fmt.println("x")
+    case c(int64):
+    }
+    if n == 1 {
+    }
+}
+-- union-binding-shadows/expected --
+stage: typeck
+---
+
+union-binding-shadows/main.tck:14:12: error: n is already declared
+13 |	    switch U.c {
+14 |	    case a(n):
+   |	           ^
+15 |	    case b(fmt):
+union-binding-shadows/main.tck:12:5: note: previous declaration of n
+11 |	func main() {
+12 |	    n := 1
+   |	    ^
+13 |	    switch U.c {
+
+union-binding-shadows/main.tck:15:12: error: fmt is an imported package and cannot be redeclared
+14 |	    case a(n):
+15 |	    case b(fmt):
+   |	           ^~~
+16 |	        fmt.println("x")
+
+union-binding-shadows/main.tck:17:12: error: c has no payload to bind; write case c
+16 |	        fmt.println("x")
+17 |	    case c(int64):
+   |	           ^~~~~
+18 |	    }
+
+-- union-binding-shadows-checked-twice/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (p P) two() (int64, int64) {
+    return p.x, p.x
+}
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    p := P{x: 1}
+    n, m := p.two()
+    switch U.a(n) {
+    case a(n):
+        print("x")
+    case b:
+    }
+    if m == 0 {
+    }
+}
+-- union-binding-shadows-checked-twice/expected --
+stage: typeck
+---
+
+union-binding-shadows-checked-twice/main.tck:20:12: error: n is already declared
+19 |	    switch U.a(n) {
+20 |	    case a(n):
+   |	           ^
+21 |	        print("x")
+union-binding-shadows-checked-twice/main.tck:18:5: note: previous declaration of n
+17 |	    p := P{x: 1}
+18 |	    n, m := p.two()
+   |	    ^
+19 |	    switch U.a(n) {
+
+-- union-binding-type-name/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a(int64):
+    case b:
+    }
+}
+-- union-binding-type-name/expected --
+stage: typeck
+---
+
+union-binding-type-name/main.tck:10:12: error: cannot use int64 as a name; it is a type
+09 |	    switch U.b {
+10 |	    case a(int64):
+   |	           ^~~~~
+11 |	    case b:
+
+-- union-build-bare-payload-case/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    u := U.a
+    v := U.b()
+    w := U.b(1)
+    if u == v && v == w {
+    }
+}
+-- union-build-bare-payload-case/expected --
+stage: typeck
+---
+
+union-build-bare-payload-case/main.tck:9:10: error: U.a needs its int64 payload, as in U.a(...)
+08 |	func main() {
+09 |	    u := U.a
+   |	         ^~~
+10 |	    v := U.b()
+
+union-build-bare-payload-case/main.tck:10:10: error: U.b has no payload; write U.b
+09 |	    u := U.a
+10 |	    v := U.b()
+   |	         ^~~~~
+11 |	    w := U.b(1)
+
+union-build-bare-payload-case/main.tck:11:10: error: U.b has no payload; write U.b
+10 |	    v := U.b()
+11 |	    w := U.b(1)
+   |	         ^~~~~~
+12 |	    if u == v && v == w {
+
+-- union-build-no-case/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    u := U.nope(1)
+    v := U.none
+    if u == v {
+    }
+}
+-- union-build-no-case/expected --
+stage: typeck
+---
+
+union-build-no-case/main.tck:8:12: error: U has no case nope
+07 |	func main() {
+08 |	    u := U.nope(1)
+   |	           ^~~~
+09 |	    v := U.none
+
+union-build-no-case/main.tck:9:12: error: U has no case none
+08 |	    u := U.nope(1)
+09 |	    v := U.none
+   |	           ^~~~
+10 |	    if u == v {
+
+-- union-build-payload-count/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    u := U.a()
+    v := U.a(1, 2)
+    if u == v {
+    }
+}
+-- union-build-payload-count/expected --
+stage: typeck
+---
+
+union-build-payload-count/main.tck:8:10: error: U.a expects 1 argument(s), got 0
+07 |	func main() {
+08 |	    u := U.a()
+   |	         ^~~~~
+09 |	    v := U.a(1, 2)
+
+union-build-payload-count/main.tck:9:10: error: U.a expects 1 argument(s), got 2
+08 |	    u := U.a()
+09 |	    v := U.a(1, 2)
+   |	         ^~~~~~~~~
+10 |	    if u == v {
+
+-- union-build-payload-type/main.tck --
+package main
+
+type U union {
+    a int64
+    s string
+    n int8
+}
+
+func main() {
+    u := U.a("x")
+    v := U.n(300)
+    w := U.s(5)
+    if u == v && v == w {
+    }
+}
+-- union-build-payload-type/expected --
+stage: typeck
+---
+
+union-build-payload-type/main.tck:10:14: error: cannot use string as int64 in argument to U.a
+09 |	func main() {
+10 |	    u := U.a("x")
+   |	             ^~~
+11 |	    v := U.n(300)
+
+union-build-payload-type/main.tck:11:14: error: constant 300 overflows int8
+10 |	    u := U.a("x")
+11 |	    v := U.n(300)
+   |	             ^~~
+12 |	    w := U.s(5)
+
+union-build-payload-type/main.tck:12:14: error: cannot use int64 as string in argument to U.s
+11 |	    v := U.n(300)
+12 |	    w := U.s(5)
+   |	             ^
+13 |	    if u == v && v == w {
+
+-- union-build-spread/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func f(xs ...int64) U {
+    return U.a(xs...)
+}
+
+func main() {
+    u := f(1)
+    if u == U.a(1) {
+    }
+}
+-- union-build-spread/expected --
+stage: typeck
+---
+
+union-build-spread/main.tck:8:18: error: cannot use ... in a call to non-variadic U.a
+07 |	func f(xs ...int64) U {
+08 |	    return U.a(xs...)
+   |	                 ^~~
+09 |	}
+
+-- union-build-unused/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    U.a(5)
+}
+-- union-build-unused/expected --
+stage: typeck
+---
+
+union-build-unused/main.tck:8:5: error: U.a(5) is not used
+07 |	func main() {
+08 |	    U.a(5)
+   |	    ^~~~~~
+09 |	}
+
+-- union-call-type/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    u := U(5)
+    if u == U.a(1) {
+    }
+}
+-- union-call-type/expected --
+stage: resolve
+---
+
+union-call-type/main.tck:8:10: error: cannot call U; it is a type
+07 |	func main() {
+08 |	    u := U(5)
+   |	         ^
+09 |	    if u == U.a(1) {
+
+-- union-checked-index/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    us := [2]U{U.a(1), U.a(2)}
+    mut i := 0
+    v, ok := us[i]
+    if ok && v == U.a(1) {
+    }
+}
+-- union-checked-index/expected --
+stage: typeck
+---
+
+union-checked-index/main.tck:10:5: error: the checked form cannot read an element of type U: it has no zero value to give when the index is out of range
+09 |	    mut i := 0
+10 |	    v, ok := us[i]
+   |	    ^~~~~~~~~~~~~~
+11 |	    if ok && v == U.a(1) {
+
+-- union-convert/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    n := int64(U.a(1))
+    if n == 0 {
+    }
+}
+-- union-convert/expected --
+stage: typeck
+---
+
+union-convert/main.tck:8:10: error: cannot convert U to int64
+07 |	func main() {
+08 |	    n := int64(U.a(1))
+   |	         ^~~~~~~~~~~~~
+09 |	    if n == 0 {
+
+-- union-default-covered/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a(n):
+        print("x")
+        if n == 0 {
+        }
+    case b:
+    default:
+    }
+}
+-- union-default-covered/expected --
+stage: typeck
+---
+
+union-default-covered/main.tck:15:5: error: every case of U is already covered, so this default never runs
+14 |	    case b:
+15 |	    default:
+   |	    ^~~~~~~~
+16 |	    }
+
+-- union-duplicate-case/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+    a string
+}
+
+func main() {
+}
+-- union-duplicate-case/expected --
+stage: resolve
+---
+
+union-duplicate-case/main.tck:6:5: error: duplicate case name
+05 |	    b
+06 |	    a string
+   |	    ^
+07 |	}
+union-duplicate-case/main.tck:4:5: note: previous declaration of a
+03 |	type U union {
+04 |	    a int64
+   |	    ^
+05 |	    b
+
+-- union-duplicate-pattern/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a, b:
+    case b:
+    case a(n):
+        if n == 0 {
+        }
+    }
+}
+-- union-duplicate-pattern/expected --
+stage: typeck
+---
+
+union-duplicate-pattern/main.tck:11:10: error: b appears twice in this switch
+10 |	    case a, b:
+11 |	    case b:
+   |	         ^
+12 |	    case a(n):
+union-duplicate-pattern/main.tck:10:13: note: previous case
+09 |	    switch U.b {
+10 |	    case a, b:
+   |	            ^
+11 |	    case b:
+
+union-duplicate-pattern/main.tck:12:10: error: a appears twice in this switch
+11 |	    case b:
+12 |	    case a(n):
+   |	         ^~~~
+13 |	        if n == 0 {
+union-duplicate-pattern/main.tck:10:10: note: previous case
+09 |	    switch U.b {
+10 |	    case a, b:
+   |	         ^
+11 |	    case b:
+
+-- union-equality-list/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func main() {
+    u := U.none
+    v := U.none
+    if u == v {
+    }
+}
+-- union-equality-list/expected --
+stage: typeck
+---
+
+union-equality-list/main.tck:11:8: error: operator == is not defined on U
+10 |	    v := U.none
+11 |	    if u == v {
+   |	       ^~~~~~
+12 |	    }
+
+-- union-extern/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+type S struct {
+    u U
+}
+
+extern func take(u U)
+extern func give() U
+extern func wrapped(s S, mut m U, v []U)
+extern func grow(mut l list[U])
+
+func main() {
+}
+-- union-extern/expected --
+stage: typeck
+---
+
+union-extern/main.tck:11:20: error: parameter u of extern func take cannot be U: a union cannot cross to C yet
+10 |	
+11 |	extern func take(u U)
+   |	                   ^
+12 |	extern func give() U
+
+union-extern/main.tck:12:20: error: extern func give cannot return U: a union cannot cross to C yet
+11 |	extern func take(u U)
+12 |	extern func give() U
+   |	                   ^
+13 |	extern func wrapped(s S, mut m U, v []U)
+
+union-extern/main.tck:13:23: error: parameter s of extern func wrapped cannot be S, which holds a union: a union cannot cross to C yet
+12 |	extern func give() U
+13 |	extern func wrapped(s S, mut m U, v []U)
+   |	                      ^
+14 |	extern func grow(mut l list[U])
+
+union-extern/main.tck:13:32: error: parameter m of extern func wrapped cannot be U: a union cannot cross to C yet
+12 |	extern func give() U
+13 |	extern func wrapped(s S, mut m U, v []U)
+   |	                               ^
+14 |	extern func grow(mut l list[U])
+
+union-extern/main.tck:13:37: error: parameter v of extern func wrapped cannot be []U, which holds a union: a union cannot cross to C yet
+12 |	extern func give() U
+13 |	extern func wrapped(s S, mut m U, v []U)
+   |	                                    ^~~
+14 |	extern func grow(mut l list[U])
+
+union-extern/main.tck:14:24: error: parameter l of extern func grow cannot be list[U], which holds a union: a union cannot cross to C yet
+13 |	extern func wrapped(s S, mut m U, v []U)
+14 |	extern func grow(mut l list[U])
+   |	                       ^~~~~~~
+15 |	
+
+-- union-extern-owned/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+extern func take(u U)
+extern func give() U
+
+func main() {
+}
+-- union-extern-owned/expected --
+stage: typeck
+---
+
+union-extern-owned/main.tck:8:20: error: parameter u of extern func take cannot be U: a union cannot cross to C yet
+07 |	
+08 |	extern func take(u U)
+   |	                   ^
+09 |	extern func give() U
+
+union-extern-owned/main.tck:9:20: error: extern func give cannot return U: a union cannot cross to C yet
+08 |	extern func take(u U)
+09 |	extern func give() U
+   |	                   ^
+10 |	
+
+-- union-field-access/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    u := U.a(1)
+    n := u.a
+    m := u.size()
+    if n == m {
+    }
+}
+-- union-field-access/expected --
+stage: typeck
+---
+
+union-field-access/main.tck:9:12: error: U has no field a
+08 |	    u := U.a(1)
+09 |	    n := u.a
+   |	           ^
+10 |	    m := u.size()
+
+union-field-access/main.tck:10:12: error: U has no method size
+09 |	    n := u.a
+10 |	    m := u.size()
+   |	           ^~~~
+11 |	    if n == m {
+
+-- union-global-list/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+var g = U.none
+
+func main() {
+    if g == g {
+    }
+}
+-- union-global-list/expected --
+stage: typeck
+---
+
+union-global-list/main.tck:8:5: error: package-level variable g cannot hold a list
+07 |	
+08 |	var g = U.none
+   |	    ^
+09 |	
+
+union-global-list/main.tck:11:8: error: operator == is not defined on U
+10 |	func main() {
+11 |	    if g == g {
+   |	       ^~~~~~
+12 |	    }
+
+-- union-global-not-constant/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func one() int64 {
+    return 1
+}
+
+var g = U.a(one())
+
+func main() {
+    if g == U.a(1) {
+    }
+}
+-- union-global-not-constant/expected --
+stage: typeck
+---
+
+union-global-not-constant/main.tck:11:9: error: g must be initialized with a constant expression
+10 |	
+11 |	var g = U.a(one())
+   |	        ^~~~~~~~~~
+12 |	
+
+-- union-interface-payload/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+type U union {
+    s Sized
+}
+
+func main() {
+}
+-- union-interface-payload/expected --
+stage: typeck
+---
+
+union-interface-payload/main.tck:8:7: error: Sized is an interface; it can only constrain a type parameter
+07 |	type U union {
+08 |	    s Sized
+   |	      ^~~~~
+09 |	}
+
+-- union-list-of-owned/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+type S struct {
+    us list[U]
+}
+
+func main() {
+}
+-- union-list-of-owned/expected --
+stage: typeck
+---
+
+union-list-of-owned/main.tck:9:8: error: a list cannot hold U: its elements are copied, and U, which holds a list, cannot be
+08 |	type S struct {
+09 |	    us list[U]
+   |	       ^~~~~~~
+10 |	}
+
+-- union-literal/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    u := U{a: 1}
+    if u == U.a(1) {
+    }
+}
+-- union-literal/expected --
+stage: typeck
+---
+
+union-literal/main.tck:8:10: error: U cannot be written as a literal; only arrays and structs can
+07 |	func main() {
+08 |	    u := U{a: 1}
+   |	         ^~~~~~~
+09 |	    if u == U.a(1) {
+
+-- union-method/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func (u U) size() int64 {
+    return 1
+}
+
+func main() {
+}
+-- union-method/expected --
+stage: resolve
+---
+
+union-method/main.tck:7:9: error: cannot declare a method on U: only a struct type declared in this package can have methods
+06 |	
+07 |	func (u U) size() int64 {
+   |	        ^
+08 |	    return 1
+
+-- union-misses-cases/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+    c string
+}
+
+func f(u U) int64 {
+    switch u {
+    case a(n):
+        return n
+    }
+    return 0
+}
+
+func g(u U) int64 {
+    switch u {
+    case b:
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f(U.b) == g(U.b) {
+    }
+}
+-- union-misses-cases/expected --
+stage: typeck
+---
+
+union-misses-cases/main.tck:10:5: error: switch on U misses cases b, c; cover them or add a default
+09 |	func f(u U) int64 {
+10 |	    switch u {
+   |	    ^~~~~~~~
+11 |	    case a(n):
+
+union-misses-cases/main.tck:18:5: error: switch on U misses cases a, c; cover them or add a default
+17 |	func g(u U) int64 {
+18 |	    switch u {
+   |	    ^~~~~~~~
+19 |	    case b:
+
+-- union-move-binding/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func main() {
+    u := U.items(make(list[int64], c_allocator))
+    switch u {
+    case items(l):
+        m := l
+        if len(m) == 0 {
+        }
+    case none:
+    }
+}
+-- union-move-binding/expected --
+stage: typeck
+---
+
+union-move-binding/main.tck:12:14: error: cannot move l: it refers to a union's payload in place, and a payload cannot be moved out of a union
+11 |	    case items(l):
+12 |	        m := l
+   |	             ^
+13 |	        if len(m) == 0 {
+
+-- union-moved/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func size(u U) int64 {
+    switch u {
+    case items(l):
+        return len(l)
+    case none:
+        return 0
+    }
+}
+
+func main() {
+    u := U.items(make(list[int64], c_allocator))
+    v := u
+    if size(u) == size(v) {
+    }
+}
+-- union-moved/expected --
+stage: typeck
+---
+
+union-moved/main.tck:20:13: error: u is used after it was moved
+19 |	    v := u
+20 |	    if size(u) == size(v) {
+   |	            ^
+21 |	    }
+union-moved/main.tck:19:10: note: u is moved here
+18 |	    u := U.items(make(list[int64], c_allocator))
+19 |	    v := u
+   |	         ^
+20 |	    if size(u) == size(v) {
+
+-- union-mut-binding/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func bump(mut n int64) {
+    n++
+}
+
+func main() {
+    switch U.a(1) {
+    case a(n):
+        bump(mut n)
+    case b:
+    }
+}
+-- union-mut-binding/expected --
+stage: typeck
+---
+
+union-mut-binding/main.tck:15:14: error: cannot pass mut n: n is immutable; declare it with mut
+14 |	    case a(n):
+15 |	        bump(mut n)
+   |	             ^~~~~
+16 |	    case b:
+
+-- union-mut-matched/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func reset(mut u U) {
+    u = U.none
+}
+
+func main() {
+    mut u := U.items(make(list[int64], c_allocator))
+    switch u {
+    case items(l):
+        reset(mut u)
+        if len(l) == 0 {
+        }
+    case none:
+        reset(mut u)
+    }
+    switch u {
+    case items(l):
+        mut w := u
+        if len(l) == 0 {
+            reset(mut w)
+        }
+    case none:
+    }
+}
+-- union-mut-matched/expected --
+stage: typeck
+---
+
+union-mut-matched/main.tck:16:19: error: u is being matched, and l refers into it, so this case cannot pass mut u
+15 |	    case items(l):
+16 |	        reset(mut u)
+   |	                  ^
+17 |	        if len(l) == 0 {
+
+union-mut-matched/main.tck:24:18: error: u is being matched, and l refers into it, so this case cannot move u
+23 |	    case items(l):
+24 |	        mut w := u
+   |	                 ^
+25 |	        if len(l) == 0 {
+
+-- union-named-type/main.tck --
+package main
+
+type U union {
+    int int64
+    string string
+    _ bool
+}
+
+func main() {
+}
+-- union-named-type/expected --
+stage: resolve
+---
+
+union-named-type/main.tck:5:5: error: cannot use string as a name; it is a type
+04 |	    int int64
+05 |	    string string
+   |	    ^~~~~~
+06 |	    _ bool
+
+union-named-type/main.tck:6:5: error: cannot use _ as a name
+05 |	    string string
+06 |	    _ bool
+   |	    ^
+07 |	}
+
+-- union-no-zero-value/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+type S struct {
+    u U
+}
+
+func main() {
+    mut u U
+    mut s S
+    mut a [2]U
+    u = U.a(1)
+    s = S{u: u}
+    a = [2]U{u, u}
+    if s.u == a[0] {
+    }
+}
+-- union-no-zero-value/expected --
+stage: typeck
+---
+
+union-no-zero-value/main.tck:12:9: error: u needs a value: U has no zero value
+11 |	func main() {
+12 |	    mut u U
+   |	        ^
+13 |	    mut s S
+
+union-no-zero-value/main.tck:13:9: error: s needs a value: S has no zero value
+12 |	    mut u U
+13 |	    mut s S
+   |	        ^
+14 |	    mut a [2]U
+
+union-no-zero-value/main.tck:14:9: error: a needs a value: [2]U has no zero value
+13 |	    mut s S
+14 |	    mut a [2]U
+   |	        ^
+15 |	    u = U.a(1)
+
+-- union-not-a-pattern/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    n := 2
+    switch U.b {
+    case 1:
+    case U.b:
+    case a(1), a(n, n):
+    default:
+    }
+}
+-- union-not-a-pattern/expected --
+stage: typeck
+---
+
+union-not-a-pattern/main.tck:11:10: error: a case of a switch on U names one of its cases, as in case a(v)
+10 |	    switch U.b {
+11 |	    case 1:
+   |	         ^
+12 |	    case U.b:
+
+union-not-a-pattern/main.tck:12:10: error: a case of a switch on U names one of its cases, as in case a(v)
+11 |	    case 1:
+12 |	    case U.b:
+   |	         ^~~
+13 |	    case a(1), a(n, n):
+
+union-not-a-pattern/main.tck:13:10: error: a case of a switch on U names one of its cases, as in case a(v)
+12 |	    case U.b:
+13 |	    case a(1), a(n, n):
+   |	         ^~~~
+14 |	    default:
+
+union-not-a-pattern/main.tck:13:16: error: a case of a switch on U names one of its cases, as in case a(v)
+12 |	    case U.b:
+13 |	    case a(1), a(n, n):
+   |	               ^~~~~~~
+14 |	    default:
+
+-- union-not-union-switch/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func f(x int64) int64 {
+    return x
+}
+
+func main() {
+    switch 5 {
+    case f(n):
+    case g(m):
+    case P:
+    case eof:
+    case int64(k):
+    }
+}
+-- union-not-union-switch/expected --
+stage: typeck
+---
+
+union-not-union-switch/main.tck:13:12: error: undefined: n
+12 |	    switch 5 {
+13 |	    case f(n):
+   |	           ^
+14 |	    case g(m):
+
+union-not-union-switch/main.tck:14:10: error: undefined: g
+13 |	    case f(n):
+14 |	    case g(m):
+   |	         ^
+15 |	    case P:
+
+union-not-union-switch/main.tck:14:12: error: undefined: m
+13 |	    case f(n):
+14 |	    case g(m):
+   |	           ^
+15 |	    case P:
+
+union-not-union-switch/main.tck:15:10: error: cannot use P as a value; it is a type
+14 |	    case g(m):
+15 |	    case P:
+   |	         ^
+16 |	    case eof:
+
+union-not-union-switch/main.tck:16:10: error: undefined: eof
+15 |	    case P:
+16 |	    case eof:
+   |	         ^~~
+17 |	    case int64(k):
+
+union-not-union-switch/main.tck:17:16: error: undefined: k
+16 |	    case eof:
+17 |	    case int64(k):
+   |	               ^
+18 |	    }
+
+-- union-not-union-switch-args/main.tck --
+package main
+
+func main() {
+    n := 1
+    switch 5 {
+    case g(n):
+    case h(1, n + "x"):
+    case n:
+    }
+}
+-- union-not-union-switch-args/expected --
+stage: typeck
+---
+
+union-not-union-switch-args/main.tck:6:10: error: undefined: g
+05 |	    switch 5 {
+06 |	    case g(n):
+   |	         ^
+07 |	    case h(1, n + "x"):
+
+union-not-union-switch-args/main.tck:7:10: error: undefined: h
+06 |	    case g(n):
+07 |	    case h(1, n + "x"):
+   |	         ^
+08 |	    case n:
+
+union-not-union-switch-args/main.tck:7:19: error: operator + is not defined on string
+06 |	    case g(n):
+07 |	    case h(1, n + "x"):
+   |	                  ^~~
+08 |	    case n:
+
+-- union-pattern-no-case/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case nope:
+    case other(x):
+    default:
+    }
+}
+-- union-pattern-no-case/expected --
+stage: typeck
+---
+
+union-pattern-no-case/main.tck:10:10: error: U has no case nope
+09 |	    switch U.b {
+10 |	    case nope:
+   |	         ^~~~
+11 |	    case other(x):
+
+union-pattern-no-case/main.tck:11:10: error: U has no case other
+10 |	    case nope:
+11 |	    case other(x):
+   |	         ^~~~~
+12 |	    default:
+
+-- union-printf/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+type U union {
+    a int64
+}
+
+func main() {
+    fmt.printf("%v\n", U.a(1))
+}
+-- union-printf/expected --
+stage: typeck
+---
+
+union-printf/main.tck:10:24: error: cannot pass U as any: only the builtin types can be passed as any for now
+09 |	func main() {
+10 |	    fmt.printf("%v\n", U.a(1))
+   |	                       ^~~~~~
+11 |	}
+
+union-printf/main.tck:10:24: error: printf verb %v does not take U
+09 |	func main() {
+10 |	    fmt.printf("%v\n", U.a(1))
+   |	                       ^~~~~~
+11 |	}
+
+-- union-pub-case/main.tck --
+package main
+
+type U union {
+    pub a int64
+}
+
+func main() {
+}
+-- union-pub-case/expected --
+stage: parse
+---
+
+union-pub-case/main.tck:4:5: error: a union's case cannot be pub; it is as visible as its union
+03 |	type U union {
+04 |	    pub a int64
+   |	    ^~~
+05 |	}
+
+-- union-recursive/main.tck --
+package main
+
+type A union {
+    a A
+    none
+}
+
+type B union {
+    s S
+    none
+}
+
+type S struct {
+    b B
+}
+
+type C union {
+    arr [2]D
+    none
+}
+
+type D union {
+    c C
+    none
+}
+
+type E union {
+    items list[E]
+    none
+}
+
+func main() {
+}
+-- union-recursive/expected --
+stage: typeck
+---
+
+union-recursive/main.tck:3:6: error: invalid recursive type A
+02 |	
+03 |	type A union {
+   |	     ^
+04 |	    a A
+union-recursive/main.tck:4:5: note: A refers to A
+03 |	type A union {
+04 |	    a A
+   |	    ^~~
+05 |	    none
+
+union-recursive/main.tck:8:6: error: invalid recursive type B
+07 |	
+08 |	type B union {
+   |	     ^
+09 |	    s S
+union-recursive/main.tck:9:5: note: B refers to S
+08 |	type B union {
+09 |	    s S
+   |	    ^~~
+10 |	    none
+union-recursive/main.tck:14:5: note: S refers to B
+13 |	type S struct {
+14 |	    b B
+   |	    ^~~
+15 |	}
+
+union-recursive/main.tck:17:6: error: invalid recursive type C
+16 |	
+17 |	type C union {
+   |	     ^
+18 |	    arr [2]D
+union-recursive/main.tck:18:5: note: C refers to D
+17 |	type C union {
+18 |	    arr [2]D
+   |	    ^~~~~~~~
+19 |	    none
+union-recursive/main.tck:23:5: note: D refers to C
+22 |	type D union {
+23 |	    c C
+   |	    ^~~
+24 |	    none
+
+union-recursive/main.tck:28:11: error: a list cannot hold E: its elements are copied, and E, which holds a list, cannot be
+27 |	type E union {
+28 |	    items list[E]
+   |	          ^~~~~~~
+29 |	    none
+
+-- union-tag-value/main.tck --
+package main
+
+type U union {
+    a int64 = 1
+}
+
+func main() {
+}
+-- union-tag-value/expected --
+stage: parse
+---
+
+union-tag-value/main.tck:4:13: error: a union's case cannot have a tag value; it is a name and a payload's type, if any
+03 |	type U union {
+04 |	    a int64 = 1
+   |	            ^
+05 |	}
+
+-- union-tag-value-bare/main.tck --
+package main
+
+type U union {
+    a = 1
+}
+
+func main() {
+}
+-- union-tag-value-bare/expected --
+stage: parse
+---
+
+union-tag-value-bare/main.tck:4:7: error: a union's case cannot have a tag value; it is a name and a payload's type, if any
+03 |	type U union {
+04 |	    a = 1
+   |	      ^
+05 |	}
+
+-- union-temporary-owned/main.tck --
+package main
+
+type U union {
+    items list[int64]
+    none
+}
+
+func make_u() U {
+    return U.none
+}
+
+func main() {
+    switch make_u() {
+    case items(l):
+        if len(l) == 0 {
+        }
+    case none:
+    }
+}
+-- union-temporary-owned/expected --
+stage: typeck
+---
+
+union-temporary-owned/main.tck:13:12: error: cannot use a temporary U here; store it in a variable first
+12 |	func main() {
+13 |	    switch make_u() {
+   |	           ^~~~~~~~
+14 |	    case items(l):
+
+-- union-unused-binding/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a(n):
+    case b:
+    }
+}
+-- union-unused-binding/expected --
+stage: typeck
+---
+
+union-unused-binding/main.tck:10:12: error: declared and not used: n
+09 |	    switch U.b {
+10 |	    case a(n):
+   |	           ^
+11 |	    case b:
+
+-- union-view-payload/main.tck --
+package main
+
+type U union {
+    v []int64
+}
+
+func main() {
+}
+-- union-view-payload/expected --
+stage: typeck
+---
+
+union-view-payload/main.tck:4:7: error: a view can only be the type of a parameter
+03 |	type U union {
+04 |	    v []int64
+   |	      ^~~~~~~
 05 |	}
 
 -- unknown-param-type/main.tck --

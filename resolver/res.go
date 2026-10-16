@@ -199,6 +199,7 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 	diags = append(diags, r.declareImports()...)
 	diags = append(diags, r.resolveGlobals(globals)...)
 	diags = append(diags, r.resolveStructs()...)
+	diags = append(diags, r.resolveUnions()...)
 	diags = append(diags, r.resolveInterfaces()...)
 	diags = append(diags, r.checkVisibility()...)
 	if r.pkg.Name == mainPackage {
@@ -856,7 +857,9 @@ func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 // resolveSwitch resolves a switch: its tag and every case value where the
 // switch is, and each case's body as a block of its own nested in sc, in
 // source order, the default's included. A type switch's case values are
-// types, and resolved as types are.
+// types, and resolved as types are. An expression switch's values may be
+// patterns naming a union's cases, with the variable a clause binds, if
+// any, declared at the start of its body (see Patterns in union.go).
 //
 // A type switch's binding, v in switch v := x.(type), is declared in no
 // scope of its own: its name is checked where the switch is, as any
@@ -874,14 +877,9 @@ func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic 
 	diags = append(diags, bindDiags...)
 	used := false
 	for _, cl := range s.Cases {
-		for _, v := range cl.Values {
-			if s.IsTypeSwitch() {
-				diags = append(diags, r.resolveType(v, sc)...)
-			} else {
-				diags = append(diags, r.resolveExpr(v, sc)...)
-			}
-		}
-		diags = append(diags, r.resolveCase(cl, bound, s.Bind, sc)...)
+		rejected, valueDiags := r.resolveCaseValues(s, cl, sc)
+		diags = append(diags, valueDiags...)
+		diags = append(diags, r.resolveCase(cl, bound || s.Bind == nil, s.Bind, rejected, sc)...)
 		used = used || cl.Var != nil && r.read[cl.Var]
 	}
 	if bound && !used {
@@ -892,6 +890,35 @@ func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic 
 		})
 	}
 	return diags
+}
+
+// resolveCaseValues resolves the values of cl, a case of s, where the
+// switch is, sc: a type switch's as types, a tagless switch's as values,
+// and an expression switch's as values or a union's patterns, the
+// variable one binds recorded as cl's (see Patterns in union.go). It
+// returns the names a pattern's binding declares nothing for, which the
+// case's body must not report.
+func (r *pkgResolver) resolveCaseValues(
+	s *ast.Switch,
+	cl *ast.CaseClause,
+	sc *scope,
+) ([]string, []diag.Diagnostic) {
+	var diags []diag.Diagnostic
+	switch {
+	case s.IsTypeSwitch():
+		for _, v := range cl.Values {
+			diags = append(diags, r.resolveType(v, sc)...)
+		}
+	case s.Tag != nil:
+		var rejected []string
+		cl.Var, rejected, diags = r.casePatterns(cl, sc)
+		return rejected, diags
+	default:
+		for _, v := range cl.Values {
+			diags = append(diags, r.resolveExpr(v, sc)...)
+		}
+	}
+	return nil, diags
 }
 
 // checkBinding reports the name a type switch binds when no variable can
@@ -915,13 +942,17 @@ func (r *pkgResolver) checkBinding(s *ast.Switch, sc *scope) (bool, []diag.Diagn
 // resolveCase resolves the body of cl, a case of a switch nested in sc, as
 // a block of its own, with the case's variable, if bound says the binding
 // b allows one, declared at its start; one whose binding was reported is
-// rejected there instead, so a use of the name is not reported again. The
-// variable is never reported unused here: resolveSwitch reports the
-// binding.
+// rejected there instead, so a use of the name is not reported again, and
+// so is each of rejected, the names a union pattern's binding that
+// declares nothing gives. The variable is never reported unused here:
+// resolveSwitch reports a type switch's binding, and the type checker a
+// union pattern's, since only it knows whether the switch's tag is a
+// union.
 func (r *pkgResolver) resolveCase(
 	cl *ast.CaseClause,
 	bound bool,
 	b *ast.Var,
+	rejected []string,
 	sc *scope,
 ) []diag.Diagnostic {
 	block := newScope(sc)
@@ -930,6 +961,9 @@ func (r *pkgResolver) resolveCase(
 		block.names[cl.Var.Name] = cl.Var
 	case b != nil:
 		block.reject(b.Name)
+	}
+	for _, name := range rejected {
+		block.reject(name)
 	}
 	var diags []diag.Diagnostic
 	for _, stmt := range cl.Body {
@@ -1034,7 +1068,7 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	case *ast.Binary:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
 	case *ast.Unary, *ast.MutArg, *ast.Selector:
-		return r.resolveExpr(operand(x), sc)
+		return r.resolveOperand(x, sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
 	case *ast.Index, *ast.Slice:
@@ -1048,6 +1082,19 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	default:
 		return nil
 	}
+}
+
+// resolveOperand resolves the operand of e, a prefix operator, a mut
+// argument or a field selection, as a value, except that a selection
+// whose operand names a union type, Expr.eof, binds it to the union (see
+// bindUnionName).
+func (r *pkgResolver) resolveOperand(e ast.Expr, sc *scope) []diag.Diagnostic {
+	if sel, ok := e.(*ast.Selector); ok {
+		if isUnion, diags := r.bindUnionName(sel.X, sc); isUnion {
+			return diags
+		}
+	}
+	return r.resolveExpr(operand(e), sc)
 }
 
 // resolveTyped resolves an operand that names a type: a list type, make's
@@ -1188,7 +1235,11 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	case *ast.ViewType:
 		diags = r.resolveType(fn, sc)
 	case *ast.Selector:
-		diags = r.resolveExpr(fn.X, sc)
+		if isUnion, unionDiags := r.bindUnionName(fn.X, sc); isUnion {
+			diags = unionDiags
+		} else {
+			diags = r.resolveExpr(fn.X, sc)
+		}
 	default:
 		panic(fmt.Sprintf("resolver: a call of %T", call.Fn))
 	}

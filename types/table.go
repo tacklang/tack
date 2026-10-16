@@ -17,8 +17,10 @@ import "strconv"
 // view type, []T, is added the first time it is seen, like an array, and
 // found again by its element type, and so is a list type, list[T]. Error
 // is a struct the Table never adds: IsStruct and Fields know it without
-// an entry. A type parameter is added once for each one a generic
-// function declares, by TypeParam.
+// an entry. A union type is added once for each declaration, by Union,
+// as a struct type is, and its cases set afterwards, by SetCases. A type
+// parameter is added once for each one a generic function declares, by
+// TypeParam.
 //
 // While code is generated for one instance of a generic function, Bind
 // makes each of its type parameters stand for a struct type: every
@@ -38,9 +40,11 @@ type Table struct {
 
 // entry is one type a Table added: an array, with its shape, a view or a
 // list, with its element type in arr.elem, a struct, with its name and
-// fields, or a type parameter, with its name.
+// fields, a union, with its name and cases, or a type parameter, with its
+// name.
 type entry struct {
-	strct *structType // nil for an array, a view, a list or a type parameter
+	strct *structType // nil for anything but a struct
+	union *unionType  // nil for anything but a union
 	param string      // a type parameter's name, "" for any other type
 	arr   array
 	view  bool
@@ -64,6 +68,22 @@ type structType struct {
 type Field struct {
 	Name string
 	Type Type
+}
+
+// unionType is a declared union type: its name and its cases, in the
+// order they were declared. cases is nil until SetCases is called.
+type unionType struct {
+	name  string
+	cases []Case
+}
+
+// Case is one case of a union type: its name and, when Payload is set,
+// the type of its payload, which is Invalid when that type could not be
+// determined. A case with no payload has Payload false and Type Invalid.
+type Case struct {
+	Name    string
+	Type    Type
+	Payload bool
 }
 
 // NewTable returns a Table that knows the basic types.
@@ -115,6 +135,48 @@ func (t *Table) List(elem Type) Type {
 // by shape.
 func (t *Table) Struct(name string) Type {
 	return t.add(entry{strct: &structType{name: name}})
+}
+
+// Union adds a new union type named name, with no cases until SetCases
+// gives it some, and returns it. As for Struct, every call adds a type of
+// its own: union types are told apart by declaration, not by shape.
+func (t *Table) Union(name string) Type {
+	return t.add(entry{union: &unionType{name: name}})
+}
+
+// SetCases gives the union type typ its cases, in declaration order. It
+// does nothing if typ is not a union type of this Table.
+func (t *Table) SetCases(typ Type, cases []Case) {
+	if e, ok := t.entry(typ); ok && e.union != nil {
+		e.union.cases = cases
+	}
+}
+
+// IsUnion reports whether typ is a union type.
+func (t *Table) IsUnion(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.union != nil
+}
+
+// Cases returns the cases of the union type typ, in declaration order, or
+// nil if typ is not one or has none yet. The caller must not change them.
+func (t *Table) Cases(typ Type) []Case {
+	e, ok := t.entry(typ)
+	if !ok || e.union == nil {
+		return nil
+	}
+	return e.union.cases
+}
+
+// Case returns the case of the union type typ named name, its position
+// among the cases, which is its tag, and whether typ has one.
+func (t *Table) Case(typ Type, name string) (Case, int, bool) {
+	for i, c := range t.Cases(typ) {
+		if c.Name == name {
+			return c, i, true
+		}
+	}
+	return Case{}, 0, false
 }
 
 // TypeParam adds a type parameter named name, one of a generic
@@ -187,7 +249,7 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil && e.param == "" && !e.view && !e.list
+	return ok && e.strct == nil && e.union == nil && e.param == "" && !e.view && !e.list
 }
 
 // IsList reports whether typ is a list type, list[T].
@@ -262,9 +324,11 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 }
 
 // Owned reports whether a value of type typ owns memory it must free: a
-// list, which owns its buffer, or an array or a struct holding one,
-// directly or through other arrays and structs. A value of an owned type
-// moves rather than copies, and is freed when its owner's block ends.
+// list, which owns its buffer, or an array, a struct or a union holding
+// one, directly or through other arrays, structs and unions, a union
+// holding one when any of its cases' payloads does. A value of an owned
+// type moves rather than copies, and is freed when its owner's block
+// ends.
 func (t *Table) Owned(typ Type) bool {
 	owns := func(typ Type) bool { return t.IsList(typ) || t.IsTypeParam(typ) }
 	return t.holds(typ, owns, make(map[Type]bool))
@@ -272,33 +336,41 @@ func (t *Table) Owned(typ Type) bool {
 
 // HasZero reports whether type typ has a zero value, which a variable
 // declared without a value starts from: every type but a list, an
-// Allocator, and an array or a struct holding either. An empty list
-// still needs an allocator to grow through, and no Allocator stands for
-// none.
+// Allocator, a union, and an array or a struct holding any of them. An
+// empty list still needs an allocator to grow through, no Allocator
+// stands for none, and no case of a union is the one a variable starts
+// as.
 func (t *Table) HasZero(typ Type) bool {
 	noZero := func(typ Type) bool {
-		return typ == Allocator || t.IsList(typ) || t.IsTypeParam(typ)
+		return typ == Allocator || t.IsList(typ) || t.IsTypeParam(typ) || t.IsUnion(typ)
 	}
 	return !t.holds(typ, noZero, make(map[Type]bool))
 }
 
+// HoldsUnion reports whether typ is a union type, or an array or a struct
+// holding one, directly or through other arrays, structs and unions.
+func (t *Table) HoldsUnion(typ Type) bool {
+	return t.holds(typ, t.IsUnion, make(map[Type]bool))
+}
+
 // holds reports whether typ is one of the types is reports true for, or
-// an array or a struct holding one, at any depth. seen holds the structs already
-// being looked at further up, so that a struct holding itself, which the
-// type checker reports elsewhere, cannot loop.
+// an array, a struct or a union holding one, at any depth, a union
+// through its cases' payloads. seen holds the structs and unions already
+// being looked at further up, so that one holding itself, which the type
+// checker reports elsewhere, cannot loop.
 func (t *Table) holds(typ Type, is func(Type) bool, seen map[Type]bool) bool {
 	switch {
 	case is(typ):
 		return true
 	case t.IsArray(typ):
 		return t.holds(t.Elem(typ), is, seen)
-	case t.IsStruct(typ):
+	case t.IsStruct(typ), t.IsUnion(typ):
 		if seen[typ] {
 			return false
 		}
 		seen[typ] = true
-		for _, f := range t.Fields(typ) {
-			if t.holds(f.Type, is, seen) {
+		for _, part := range t.parts(typ) {
+			if t.holds(part, is, seen) {
 				return true
 			}
 		}
@@ -308,10 +380,25 @@ func (t *Table) holds(typ Type, is func(Type) bool, seen map[Type]bool) bool {
 	}
 }
 
+// parts returns the types of the fields of the struct type typ, or of the
+// payloads of the union type typ, in order.
+func (t *Table) parts(typ Type) []Type {
+	var parts []Type
+	for _, f := range t.Fields(typ) {
+		parts = append(parts, f.Type)
+	}
+	for _, c := range t.Cases(typ) {
+		if c.Payload {
+			parts = append(parts, c.Type)
+		}
+	}
+	return parts
+}
+
 // Count returns how many types the Table has added, so a caller can visit
 // each: their IDs are numBasic through numBasic + Count() - 1, in the order
 // they were added. An array, view or list type comes after its element type, but a struct
-// type may come before the types of its fields, so a caller that needs
+// or union type may come before the types of its fields or payloads, so a caller that needs
 // every type a type is made of first has to order them itself.
 func (t *Table) Count() int {
 	if t == nil {
@@ -325,34 +412,48 @@ func Added(i int) Type { return numBasic + Type(i) }
 
 // Name returns a type's name as a program writes it, for diagnostics: a
 // basic type's own name, [n]elem for an array, []elem for a view,
-// list[elem] for a list, or a struct type's declared name. A type the Table does not know, including one from another Table,
+// list[elem] for a list, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
 	return t.NameWith(typ, nil)
 }
 
-// NameWith returns a type's name as Name does, but writes each struct type
-// in it, an array's element type included, as qualify gives it, from the
-// struct type and its declared name. A nil qualify writes the declared
-// name, as Name does.
+// NameWith returns a type's name as Name does, but writes each struct or
+// union type in it, an array's element type included, as qualify gives
+// it, from the type and its declared name. A nil qualify writes the
+// declared name, as Name does.
 func (t *Table) NameWith(typ Type, qualify func(typ Type, name string) string) string {
 	typ = t.Bound(typ)
 	if typ >= 0 && typ < numBasic {
 		return basicNames[typ]
 	}
 	e, ok := t.entry(typ)
+	declared, isDeclared := e.declaredName()
 	switch {
 	case !ok:
 		return "invalid"
-	case e.strct != nil && qualify != nil:
-		return qualify(typ, e.strct.name)
-	case e.strct != nil:
-		return e.strct.name
+	case isDeclared && qualify != nil:
+		return qualify(typ, declared)
+	case isDeclared:
+		return declared
 	case e.param != "":
 		return e.param
 	default:
 		return t.compositeName(e, qualify)
+	}
+}
+
+// declaredName returns the name e, a struct's or a union's entry, was
+// declared with, and whether it is one.
+func (e entry) declaredName() (string, bool) {
+	switch {
+	case e.strct != nil:
+		return e.strct.name, true
+	case e.union != nil:
+		return e.union.name, true
+	default:
+		return "", false
 	}
 }
 

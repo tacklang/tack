@@ -30,7 +30,8 @@ import (
 
 // checkSwitch checks a switch in fn: its tag, then each case, its values and
 // its body, in the order they are tried, the default last. A type switch
-// is checked by checkTypeSwitch. A tag of a type
+// is checked by checkTypeSwitch, and a switch on a union, which matches
+// its cases, by checkUnionSwitch. A tag of any other type
 // with no ==, a view, an any, a list, an Allocator, or a struct or array
 // holding one, is reported, since a switch compares its tag with ==.
 func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
@@ -41,6 +42,10 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	tagType := types.Invalid
 	if s.Tag != nil {
 		tagType = c.valueOf(s.Tag, c.expr(s.Tag))
+	}
+	if c.table.IsUnion(tagType) {
+		c.checkUnionSwitch(s, tagType, fn)
+		return
 	}
 	if tagType != types.Invalid && !c.comparable(tagType) {
 		c.errorf(s.Tag.Spanned(), "operator == is not defined on %s", c.typeName(tagType))
@@ -92,7 +97,9 @@ func tryOrder(s *ast.Switch) []*ast.CaseClause {
 // facts of those before it being false in force, as on the right of ||. In
 // a tagless switch each value must be a bool; in an expression switch each
 // must compare with the tag, and must not repeat a constant value seen
-// earlier in the switch, which seen records.
+// earlier in the switch, which seen records. A value the resolver bound
+// as a union's pattern, which the tag, no union, makes none, is reported
+// as resolving it as a value would have (see unresolvedCase).
 func (c *Checker) checkCaseValues(
 	s *ast.Switch,
 	tagType types.Type,
@@ -104,6 +111,7 @@ func (c *Checker) checkCaseValues(
 		switch {
 		case s.Tag == nil:
 			c.checkCond(v)
+		case c.unresolvedCase(v, tagType):
 		case c.checkCaseValue(tagType, v):
 			c.checkDuplicate(v, seen)
 		}
@@ -227,9 +235,11 @@ func caseCond(s *ast.Switch, v ast.Expr) ast.Expr {
 // every value's facts of being true agree on when true (see union), and
 // every value's facts of being false when false. The default has no
 // condition, and gives nothing, and neither does a type switch's case,
-// whose values are types.
+// whose values are types, nor a union switch's, whose values are
+// patterns.
 func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fact {
-	if cl.Default || len(cl.Values) == 0 || s.IsTypeSwitch() {
+	if cl.Default || len(cl.Values) == 0 || s.IsTypeSwitch() ||
+		c.table.IsUnion(ast.TypeOf(s.Tag)) {
 		return nil
 	}
 	if holds {
@@ -277,6 +287,22 @@ func caseSpan(cl *ast.CaseClause) ast.Span {
 	return span
 }
 
+// switchLeavesBy reports whether s always leaves the code around it: its
+// chain of cases does (see chainLeavesBy), or s is a switch on a union
+// whose clauses name every case and whose every clause's body leaves, a
+// call to exit counting as leaving when exits is set.
+func switchLeavesBy(s *ast.Switch, exits bool) bool {
+	if !s.Exhaustive {
+		return chainLeavesBy(tryOrder(s), exits)
+	}
+	for _, cl := range s.Cases {
+		if !leavesBy(cl.Body, exits) {
+			return false
+		}
+	}
+	return true
+}
+
 // chainLeavesBy reports whether a chain of cases, in the order tried,
 // always leaves the code around it: it ends in a default, and every case's
 // body leaves, a call to exit counting as leaving when exits is set (see
@@ -294,10 +320,11 @@ func chainLeavesBy(order []*ast.CaseClause, exits bool) bool {
 }
 
 // switchTerminates reports whether a switch is a terminating statement: it
-// has a default, and every case's body ends in a terminating statement, as
-// an if must have an else and both branches terminate.
+// has a default, or is a switch on a union whose clauses name every case,
+// and every case's body ends in a terminating statement, as an if must
+// have an else and both branches terminate.
 func switchTerminates(s *ast.Switch) bool {
-	if s.Default() == nil {
+	if s.Default() == nil && !s.Exhaustive {
 		return false
 	}
 	for _, cl := range s.Cases {

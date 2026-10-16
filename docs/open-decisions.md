@@ -546,6 +546,105 @@ the rules already there, rather than decided, and could go another way:
 - The instances are recorded on the Program and on every file, as the
   type table is, so a program rebuilt from one checked file has them.
 
+## Unions
+
+Unions follow the decisions recorded in the README: named cases with one
+payload or none, `Expr.int(5)` and `Expr.eof` to build one, a switch
+whose clauses name cases and bind a payload in place, every case covered
+or a default, `==` when every payload has it, owned when a payload holds
+a list, no recursion by value, no zero value, cases as visible as their
+union, and no extern crossing, `any`, conversion or tag values. These
+points were settled by the implementation, for consistency with the
+rules already there, rather than decided, and could go another way:
+
+- A union with no cases, `union {}`, is allowed, as `struct {}` and
+  `interface {}` are. It has no value, so a function taking one can never
+  be called; a switch on one needs no clause and covers every case, and
+  its C tells the compiler it is never reached,
+  `__builtin_unreachable()`.
+- A case's name follows a field's rule: it may share a name with a type,
+  a function, a variable, a builtin or a method, `len` or `print`, and
+  with a case of another union, but not be `_` or a basic type's name,
+  and is declared once, `duplicate case name`, with the field's note.
+  `type X int64` now reads `only struct, interface and union types can
+  be declared`, and a missing kind `expected 'struct, interface or
+  union'`; a union written where a type is, `anonymous unions are not
+  supported`, as a struct's is.
+- Building takes a call's wording where it is one: `Expr.int expects 1
+  argument(s), got 2`, `cannot use string as int64 in argument to
+  Expr.int`, `cannot use ... in a call to non-variadic Expr.int`. The
+  wrong form of a case is `Expr.eof has no payload; write Expr.eof` and
+  `Expr.int needs its int64 payload, as in Expr.int(...)`; a case the
+  union lacks is `Expr has no case nope`, in a construction and in a
+  switch. A union built as a statement is `Expr.int(5) is not used`: no
+  wording for a value left unused existed. (A conversion or `len` written
+  as a statement, `int8(5)` or `len(s)`, is accepted today and lowered to
+  a call of a C function that does not exist; that is a bug of its own,
+  not changed here.)
+- A payload case named alone, `case int:`, binds nothing, as a clause
+  naming several cases does, and is allowed in a clause of its own.
+  `case int(_)` is `every name is _, so nothing is bound; write case
+  int`, as a binding of nothing but `_` is reported elsewhere. A binding
+  on a case with no payload, `case eof(x)` or `eof(_)`, is `eof has no
+  payload to bind; write case eof`, and one in a clause naming several
+  cases `a clause naming several cases binds nothing; write int, or give
+  int(n) a clause of its own`; the name is not declared in the body, so a
+  use of it is not reported as well.
+- A binding is a variable as a type switch's is: it may reuse no name
+  visible at the switch, `n is already declared` with a note at it, `fmt
+  is an imported package and cannot be redeclared`, `cannot use int64 as
+  a name; it is a type`; and one its clause never reads is `declared and
+  not used: n`, at the binding. Both are reported by the type checker,
+  not the resolver, since only it knows the switch's tag is a union.
+- A value of a switch's case is a pattern or a value by its names, since
+  the resolver cannot know the tag's type: written as `name` or
+  `name(x)`, its last name a variable or a parameter visible at the
+  switch, it is a value, and in a union switch it is then a pattern whose
+  binding is already declared; any other is a pattern, and in a switch on
+  anything else it is reported as a value whose names name nothing,
+  `undefined: n`, or name a type, a package or no function, `cannot use P
+  as a value; it is a type`, `undefined: g`. One consequence: a case
+  named alone like a variable visible at the switch, `case name:` with a
+  local `name`, counts as a read of that variable, so a variable used
+  nowhere else is not reported as unused. A value of any other shape in
+  a union switch is `a case of a switch on Expr names one of its cases,
+  as in case int(v)`, the example naming the union's first case.
+- The rule against changing a matched place holds only in a clause that
+  binds a payload, for the whole of its body, deferred code included;
+  its wording follows the range loop's, `e is being matched, and n
+  refers into it, so this case cannot assign e`, `... cannot pass mut e`,
+  `... cannot move e`, and holds for anything holding the place, `s` for
+  `s.u` and `us[1]` for `us[0]`, elements comparing as a range's do. A
+  binding cannot be moved, `cannot move l: it refers to a union's
+  payload in place, and a payload cannot be moved out of a union`.
+- The tag of a switch on a union holding no list may be any value, a
+  call's result included, which C holds in a temporary. One holding a
+  list must be a place, as a range over a list must: a temporary is
+  `cannot use a temporary Value here; store it in a variable first`. A
+  mutable global is matched through a copy taken when the switch begins,
+  since a call in a clause can assign a global without naming it: its
+  binding keeps the payload the switch matched.
+- A switch on a union covering every case is a terminating statement, and
+  leaves its block when every clause does, as one with a default does.
+  The error for cases it misses is at its header, before anything in its
+  clauses, `switch on Expr misses cases name, eof; cover them or add a
+  default` (`misses case eof; cover it` for one), and the error for a
+  default that never runs at the default, `every case of Expr is already
+  covered, so this default never runs`. A case named twice is `int
+  appears twice in this switch`, with a note at the first, as a type
+  switch's type is.
+- Like a struct, a union may be a field, an array's element, a list's
+  element when it holds no list, a result, and a package-level variable
+  when its initializer is a constant expression and it holds no list. It
+  may hold another union, and a switch may be on a clause's binding.
+- A union crossing to C is reported for every parameter or result that
+  is one or holds one, through a struct, an array, a view or a list, a
+  `mut` parameter included, `parameter e of extern func f cannot be Expr:
+  a union cannot cross to C yet`, and that error replaces the list one
+  for a union holding a list.
+- printf given a union reports it twice, as it does a struct: `cannot
+  pass U as any: ...` and `printf verb %v does not take U`.
+
 ## Extern C
 
 Extern C follows the rules recorded in [extern.md](extern.md). These

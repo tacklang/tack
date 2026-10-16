@@ -50,13 +50,20 @@
 // type in the same way. A struct type is added once per declaration, so two structs
 // with the same fields are two types; it is named by its declaration and
 // given its fields, a name and a type each, in order, after it is added,
-// which lets a field name a struct declared after its own. The Table does
-// not check that a struct does not contain itself; the type checker does.
+// which lets a field name a struct declared after its own. A union type
+// is added once per declaration too, named by it, and given its cases
+// after it is added, each a name and, when it has one, its payload's type
+// (Case), so a payload may name a type declared after it. The Table does
+// not check that a struct or a union does not contain itself; the type
+// checker does.
 //
-// Owned says which types own memory they must free: a list, and an array
-// or a struct holding one at any depth. A value of such a type moves
-// rather than copies. HasZero says which types have a zero value: every
-// type but a list, an Allocator, and an array or a struct holding either.
+// Owned says which types own memory they must free: a list, and an
+// array, a struct or a union holding one at any depth, a union through
+// any of its cases' payloads. A value of such a type moves rather than
+// copies. HasZero says which types have a zero value: every type but a
+// list, an Allocator, a union, none of whose cases is one a variable
+// could start as, and an array or a struct holding any of them.
+// HoldsUnion says which types are or hold a union.
 // A type parameter, one of a generic function's, is a type of its own,
 // added once for each declared, named by its name, which is no array,
 // struct, view or list; it may stand for a struct holding a list, so it
@@ -69,7 +76,7 @@
 //
 // The type checker creates one Table per program and records it on the
 // ast.Program and on every ast.File of it. Name maps an ID back to the
-// type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, list[int64] for a list, the declared name for a struct; Type deliberately has no String method, so naming a type
+// type's name as a program writes it, for diagnostics: [3]int64 for an array, []int64 for a view, list[int64] for a list, the declared name for a struct or a union; Type deliberately has no String method, so naming a type
 // always goes through the Table that knows it, and go vet reports a Type
 // passed to %s. Lookup maps a basic type name as written in source, such as
 // "int64", to its Type.

@@ -12,12 +12,14 @@
 // should emit.
 //
 // Checking happens in passes. The first gives every type declaration its
-// struct type, with no fields yet, recorded in TypeDecl.Type, so any type
-// can name any struct, before its declaration included. The second
-// resolves every struct's fields, then reports every struct that contains
-// itself by value, directly, through another struct or through an array of
-// any length, since it would be infinitely large: once per cycle, at the
-// struct it is found from, with a note for each field on the way round.
+// struct or union type, with no fields or cases yet, recorded in
+// TypeDecl.Type, so any type can name any struct or union, before its
+// declaration included. The second resolves every struct's fields and
+// every union's cases, then reports every struct or union that contains
+// itself by value, directly, through another struct or union or through
+// an array of any length, since it would be infinitely large: once per
+// cycle, at the type it is found from, with a note for each field or case
+// on the way round.
 // The third checks the package-level variables, the fourth resolves every
 // function's signature, recording the type each declared parameter and
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
@@ -463,6 +465,9 @@
 //     variables beside it are read only once it is checked (errors.go);
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
+//   - a switch on a union matches its cases, each value a pattern naming
+//     one, none twice, every case covered or a default, never both, a
+//     clause naming one case binding its payload (union.go);
 //   - a switch's tag, an untyped constant being an int64, compares with each
 //     case value under the rules of ==, the value settling to the tag's
 //     type if it is an untyped constant, and an integer value of any type
@@ -508,6 +513,28 @@
 // declared outside it, and a range over a list cannot change it. A list
 // read in place by one argument cannot share a call with a mut argument
 // that may overlap it (exclusive.go).
+//
+// Unions (union.go). A union type is a type of its own per declaration,
+// whose cases, each a name and a payload's type or none, are resolved
+// with the structs' fields, under a field's rules for their types. A
+// value is built by naming a case through the union, Expr.int(5), its
+// payload used as the case's type as an argument is, or Expr.eof, and the
+// call or selector records the union as its type; one built as a
+// statement is reported as unused. A union has no zero value, is compared
+// with == when every payload's type is, and is owned when a payload holds
+// a list. A switch on one matches its cases (checkUnionSwitch): the
+// resolver bound each value as a value or a pattern by its names, so a
+// pattern's binding reusing a visible name is reported here, as a value
+// whose names name nothing is in a switch on anything else
+// (unresolvedCase); a clause naming one case gives its binding the
+// payload's type, an immutable variable that refers to the payload in
+// place, which is reported unused here, and move.go keeps the clause from
+// changing the switched place while it does, and the binding from being
+// moved. The clauses must cover every case, or the switch have a default,
+// but not both; one covering every case is recorded as exhaustive, and is
+// a terminating statement when every clause is. A union does not cross to
+// C, cannot be passed as any, converted, given methods or be a type
+// argument; a pub one exposes its payloads' types as a field does.
 //
 // Interfaces and generic functions (generic.go). An interface's methods
 // have their parameter and result types resolved after the globals, as a

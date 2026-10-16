@@ -86,9 +86,13 @@ func (c *Call) Spanned() Span { return c.Span }
 
 // Receiver returns what a method call is called on: x in x.m(...), or the
 // *MutArg mut x in mut x.m(...). It returns nil for a call that is not a
-// method call.
+// method call, a union's construction, Expr.int(5), among them, whose
+// selector's operand names a type (see Construction).
 func (c *Call) Receiver() Expr {
 	if sel, ok := c.Fn.(*Selector); ok {
+		if _, _, _, built := Construction(c); built {
+			return nil
+		}
 		return sel.X
 	}
 	return nil
@@ -831,7 +835,9 @@ type Field struct {
 // name is a field's, which the type checker finds from X's type, so it is
 // not an Ident and the resolver never binds it. As a Call's Fn it names a
 // method of X's type instead, whose receiver X is (see Call), and has no
-// Type of its own.
+// Type of its own. When X names a union type, Expr.eof, or Expr.int as a
+// Call's Fn, it names one of the union's cases, and builds a value of it
+// (see Construction); Type is then the union's.
 type Selector struct {
 	X        Expr
 	Name     string

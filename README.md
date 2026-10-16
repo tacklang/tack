@@ -41,7 +41,8 @@ expressions, arithmetic and comparison work, and `if` branches on the result.
 `fib` is in `examples/fib`, and it runs.
 
 Functions have local variables, immutable unless declared with `mut`, and
-loops, and lists, owned and growable, which free themselves. `print` takes strings only; `std/fmt`'s `printf` writes integers,
+loops, and lists, owned and growable, which free themselves, and tagged
+unions, whose cases a switch matches. `print` takes strings only; `std/fmt`'s `printf` writes integers,
 bools and strings, through `any` parameters, and its `write` writes bytes,
 a view of `uint8` (see the language today). `std/bytes`, the first std
 package written in Tack alone, searches byte views and formats integers
@@ -421,12 +422,13 @@ makes for itself, which has a letter after `tack_`.
   `mut` global can be neither `pub` nor `lib`, `a mut variable cannot be
   pub; export a function that reads or changes it`, so only its own package
   changes it. A `pub` declaration may expose only `pub` types, and a `lib`
-  one `lib` or `pub` types: every struct type, or array of one, that a
-  function's parameters or results, a global's type or a field's type
-  name, the field's visibility capped by its struct's, must be at least as
-  visible, or it is an error, `pub function Result exposes hidden, which is
-  not pub` (`which is not lib or pub` for `lib`; `variable` and `field kind
-  of Token` for the others). A `pub` or `lib` global is never reported as
+  one `lib` or `pub` types: every struct or union type, or array of one,
+  that a function's parameters or results, a global's type, a field's
+  type or a union case's payload's type name, the field's visibility
+  capped by its struct's, must be at least as visible, or it is an error,
+  `pub function Result exposes hidden, which is not pub` (`which is not
+  lib or pub` for `lib`; `variable`, `field kind of Token` and `case
+  binary of Expr` for the others). A `pub` or `lib` global is never reported as
   unused, since the packages that read it may not be in the program; a
   private one still is. `main` packages cannot be imported, so `pub` and
   `lib` mean nothing there and are errors wherever written, on a
@@ -666,8 +668,8 @@ makes for itself, which has a letter after `tack_`.
   with nothing written, `show(5)`, `show("s")`; an untyped constant is an
   `int64` there, a character literal a `uint8`, and a constant no `int64`
   holds is `constant 18446744073709551615 overflows int64`. `any(x)` is no
-  conversion, `cannot convert int64 to any`. An array, a struct or a view
-  cannot be passed as one yet, `cannot pass Point as any: only the builtin
+  conversion, `cannot convert int64 to any`. An array, a struct, a union
+  or a view cannot be passed as one yet, `cannot pass Point as any: only the builtin
   types can be passed as any for now`, nor can a `mut` argument, `f does
   not take x as mut; pass x`. The value is a copy taken at the call, as a
   plain argument's is: `f(mut x, x)` gives the `any` `x` as it was before
@@ -746,8 +748,10 @@ makes for itself, which has a letter after `tack_`.
   is no fallthrough, and `break` and `continue` act on the loop around
   it. It gives no facts, since what `a` holds is never known at compile
   time. `.(type)` anywhere but a switch's tag is `.(type) can only be the
-  tag of a switch`. The syntax is meant to serve tagged unions too, which
-  are not in the language yet. In C, a type switch is a chain of ifs on a
+  tag of a switch`. A switch on a union matches its cases with the same
+  shape of switch, each case naming one, and binds a payload in a
+  clause's own value, `case int(n)`, rather than in the header (see
+  unions). In C, a type switch is a chain of ifs on a
   temporary holding `a`, each comparing its type id, and `v` is `*(const
   T *)ptr` in a one-type case, or the `tack_any` itself, declared only in
   a case that reads it.
@@ -998,9 +1002,11 @@ makes for itself, which has a letter after `tack_`.
   and a mut argument must be the only way to reach l during it`.
 
   A struct with a field of a list type, directly or through another
-  struct, holds a list, and is owned as a list is: it moves, has no zero
+  struct or a union, holds a list, and is owned as a list is: it moves, has no zero
   value and no `==`, cannot be a package-level variable, and frees its
-  lists, last field first, when its owner's block ends. In C a list is
+  lists, last field first, when its owner's block ends. So does a union
+  with a case whose payload holds a list, which frees what the case it
+  holds holds (see unions). In C a list is
   `tack_list_<T>`, `{T *ptr; int64_t len; int64_t cap; tack_allocator
   alloc;}` (see extern C), and [docs/safety.md](docs/safety.md#lists) has
   every rule and diagnostic.
@@ -1022,7 +1028,8 @@ makes for itself, which has a letter after `tack_`.
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
-  `default` whose cases all terminate, or a `for` with no condition that no
+  `default`, or on a union naming every one of its cases, whose cases all
+  terminate, or a `for` with no condition that no
   `break` leaves. The rule is syntactic, so a call that never comes back
   does not satisfy it.
 - Switches. `switch x { case 1, 2: ... case y: ... default: ... }` compares
@@ -1047,7 +1054,9 @@ makes for itself, which has a letter after `tack_`.
   constant expression such as `true` or `1 > 2`, or a string literal, are
   an error. There is no init statement,
   `switch v := f(); v`, as `if` has none; the `v :=` of a type switch,
-  `switch v := a.(type)`, is a binding, not one (see type switches). A switch proves what the chain
+  `switch v := a.(type)`, is a binding, not one (see type switches). A
+  switch on a union matches the case it holds instead of comparing it
+  (see unions). A switch proves what the chain
   of ifs it stands for proves: `if c1 {} else if c2 || c3 {} else {}` for
   a tagless switch, and the same with `x == v` for each value `v` of an
   expression switch, so `switch d { case 0: return 0 }` proves `d != 0`
@@ -1128,7 +1137,7 @@ makes for itself, which has a letter after `tack_`.
   `mut x = v`) declares a mutable one, and `mut x T` starts it at its zero
   value: `0`, `""` or `false`. An immutable variable must have a value,
   and so must a variable of a type with no zero value, a list, an
-  `Allocator`, or a struct or array holding one.
+  `Allocator`, a union, or a struct or array holding one.
 - `x = v` assigns to a mutable variable a value its type accepts. Parameters
   are immutable, except a `mut` parameter (see mut parameters).
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
@@ -1157,10 +1166,10 @@ makes for itself, which has a letter after `tack_`.
   field's type may be any type, another struct or an array of one
   included, except one that holds the struct itself, directly, through
   other structs or through an array of any length, which would be
-  infinitely large and is an error. Named types other than structs and
-  interfaces (`type Celsius int64`), `only struct and interface types can
-  be declared`, anonymous struct types and embedded fields are not
-  supported, and each is an error. A field may be `pub` or `lib`, as
+  infinitely large and is an error. Named types other than structs,
+  interfaces and unions (`type Celsius int64`), `only struct, interface
+  and union types can be declared`, anonymous struct types and embedded
+  fields are not supported, and each is an error. A field may be `pub` or `lib`, as
   described under visibility. A struct type may have methods (see
   methods), and satisfy interfaces with them (see interfaces).
 - Struct literals name every field exactly once, in any order:
@@ -1205,12 +1214,133 @@ makes for itself, which has a letter after `tack_`.
   guard proves nothing, and the division needs `q, ok := n / p.d`, or the
   field copied into a variable the guard then names, as in `d := p.d` and
   `if d != 0`.
+- Unions. `type Expr union { int int64; name string; binary Binary; eof
+  }`, at package level, written as a struct is with one case per line or
+  separated by `;`, declares a union type: a value of it holds exactly one
+  of its cases, each a name and the type of its payload, or no payload,
+  as `eof`. `union` is a keyword. A case's name is in its union's
+  namespace, as a field's is in its struct's: it may share a name with
+  anything outside its union, a type, a variable or a function included,
+  and follows a field's naming rule, `cannot use string as a name; it is
+  a type`, `cannot use _ as a name`, once in its union, `duplicate case
+  name`, with a note at the first. A payload's type may be any a field
+  may have, a struct, an array, a list or another union included, under
+  a field's rules: an array length in it names no variable, `array length
+  in a union's case must not name variable n`. `union {}` has no cases,
+  and so no value: a function taking one can never be called, and a
+  switch on one needs no clause. A union containing itself, directly or
+  through a struct, an array or another union, would be infinitely large,
+  `invalid recursive type Expr`, with a note for each step round, `Expr
+  refers to Binary`; through a list it is a list holding an owned type,
+  `a list cannot hold Expr: its elements are copied, and Expr, which holds
+  a list, cannot be`, so a tree is a list of nodes naming each other by
+  index, as `examples/unions` builds one. A case has no visibility of its
+  own, `a union's case cannot be pub; it is as visible as its union`, and
+  no value of its own, `a union's case cannot have a tag value; it is a
+  name and a payload's type, if any`; `anonymous unions are not
+  supported`. A union is `pub` or `lib` as a struct is, and exposes its
+  payloads' types as a field does, `pub case binary of Expr exposes
+  binary, which is not pub`. It cannot have methods, `cannot declare a
+  method on Expr: only a struct type declared in this package can have
+  methods`, nor be a type argument, `cannot use Expr as S in argument to
+  measure: a type argument must be a struct type a package declares`.
+
+  `Expr.int(5)` builds a union holding the case `int` with the payload
+  5, which is used as the case's type, as an argument to a parameter of
+  it is: an untyped constant takes it, a narrower integer widens to it,
+  and anything else is `cannot use string as int64 in argument to
+  Expr.int`, with one payload exactly, `Expr.int expects 1 argument(s),
+  got 2`, and no spread, `cannot use ... in a call to non-variadic
+  Expr.int`. A payload holding a list is moved into the union, as into a
+  struct literal's field. A case with no payload is named without
+  parentheses, `Expr.eof`; `Expr.eof()` is `Expr.eof has no payload;
+  write Expr.eof`, `Expr.int` alone `Expr.int needs its int64 payload, as
+  in Expr.int(...)`, and a case the union lacks `Expr has no case nope`.
+  From another package it is `ast.Expr.int(5)`, its cases exactly as
+  visible as the union, `Expr is not pub in package calc/ast`. Nothing
+  makes a union of a payload implicitly. A union built as a statement is
+  `Expr.int(5) is not used`. A union has no literal, `Expr cannot be
+  written as a literal; only arrays and structs can`, no field, `Expr has
+  no field int`, and is no function, `cannot call Expr; it is a type`. It
+  is a value, copied when assigned, passed or returned, unless it holds a
+  list (below), and changed only whole, `e = Expr.int(3)`. A
+  package-level union is a constant expression when its payload is, `var
+  start = Token.plus`, `var keywords = [2]Token{Token.word("if"),
+  Token.eof}`. There is no zero value: `mut e Expr` is `e needs a value:
+  Expr has no zero value`, and so for a struct or an array holding one,
+  and the checked form cannot read one, `the checked form cannot read an
+  element of type Expr: it has no zero value to give when the index is
+  out of range`.
+
+  `switch e { case int(n): ... case binary(b): ... case name, eof: ...
+  }` runs the clause naming the case `e` holds. Each value of a switch on
+  a union names one of its cases: anything else is `a case of a switch on
+  Expr names one of its cases, as in case int(v)`, a name the union lacks
+  `Expr has no case nope`, and a case named twice `int appears twice in
+  this switch`, with a note at the first. A clause naming one case with a
+  payload may bind it, `case int(n)`: `n` is an immutable variable of the
+  payload's type in that clause's body, and refers to the payload in
+  place rather than copying it, so a payload holding a list is read as a
+  range loop reads one. Like any variable it may reuse no name visible at
+  the switch, `n is already declared`, `fmt is an imported package and
+  cannot be redeclared`, `cannot use int64 as a name; it is a type`, and
+  one its clause never reads is `declared and not used: n`. It cannot be
+  assigned, `cannot assign to immutable variable n`, passed as `mut`,
+  `cannot pass mut n: n is immutable; declare it with mut`, or moved,
+  `cannot move l: it refers to a union's payload in place, and a payload
+  cannot be moved out of a union`; and while it refers into the switched
+  place, its clause cannot assign that place or anything holding it, pass
+  either as `mut`, or move it, `e is being matched, and n refers into
+  it, so this case cannot assign e` (`pass mut e`, `move e`), as a range
+  loop over a list cannot change the list. A clause binding nothing may.
+  A case with a payload named alone, `case int:`, binds nothing; `case
+  int(_)` is `every name is _, so nothing is bound; write case int`; a
+  case with no payload binds nothing, `eof has no payload to bind; write
+  case eof`; and a clause naming several cases binds nothing, `a clause
+  naming several cases binds nothing; write int, or give int(n) a clause
+  of its own`. The clauses cover every case or the switch has a default,
+  `switch on Expr misses cases name, eof; cover them or add a default`,
+  but not both, `every case of Expr is already covered, so this default
+  never runs`. A switch covering every case terminates when its every
+  clause does, as one with a default does. Otherwise it is a switch: the
+  tag is evaluated once, the clauses are tried in order with the default
+  last, there is no fallthrough, and `break` and `continue` act on the
+  loop around it. It gives no facts, since which case a union holds is
+  known only at run time. The tag may be any union, a call's result
+  included, but one holding a list must be a place, `cannot use a
+  temporary Value here; store it in a variable first`. There is no other
+  test of a case: no assertion, and no `is`. A switch's values are
+  patterns only when its tag is a union; written in any other switch,
+  they are values, and a name in one that names nothing is `undefined:
+  n`, as anywhere.
+
+  Two unions of one type compare with `==` and `!=`: equal when they hold
+  the same case and, for a case with a payload, equal payloads, compared
+  as `==` compares the payload's type, so `tok == Token.eof` tests for a
+  case with no payload. A union with a payload of a type without `==`,
+  a list or a struct holding one among them, has none, `operator == is not
+  defined on Value`. A union with a case whose payload holds a list,
+  directly or through a struct, an array or another union, holds a list,
+  and is owned as a struct holding one is (see lists): it moves, cannot be
+  a package-level variable, `package-level variable g cannot hold a
+  list`, nor a list's or an array's element, and frees the lists the case
+  it holds holds when its owner's block ends, or when it is assigned,
+  once the new value is computed. A union cannot be passed as `any`,
+  `cannot pass Expr as any: only the builtin types can be passed as any
+  for now`, so printf cannot print one, nor converted, `cannot convert
+  Expr to int64`, nor cross to C (see extern C). In C a union is a
+  struct of its tag, the position of its case, in the narrowest of
+  `uint8_t`, `uint16_t` and `uint32_t` that holds every case's, and a C
+  union of its payloads, `{uint8_t tag; union {int64_t c_int; ...} u;}`;
+  a switch on one holds a pointer to the switched place, or to a copy of
+  a value that is no place, or of a mutable global, which a call in a
+  clause could assign, and a binding is a pointer to its payload.
 - Methods. A function written with a receiver before its name, `func (b
   Builder) len() int64` or `func (mut b Builder) write(s string) error`, is
   a method of the receiver's type, which must be a struct type declared in
   the same package, in any file of it, before or after the method; any
-  other type, one of another package, a basic type, `any`, `error`, an
-  array, a view or a list, is `cannot declare a method on lexer.Token:
+  other type, one of another package, a basic type, `any`, `error`, a
+  union, an array, a view or a list, is `cannot declare a method on lexer.Token:
   only a struct type declared in this package can have methods`. A method
   is called on a value of its type, `b.len()`: a local, a parameter, a
   field, `w.out.len()`, an element, `rows[i].len()`, or a temporary,
@@ -1476,7 +1606,7 @@ makes for itself, which has a letter after `tack_`.
   `int64` `a` and a `uint64` `b`, is still
   `mismatched types int64 and uint64 in +`. Any other comparison takes two
   operands of one type, after the same widening: two strings with any of
-  the six, or two `bool`s, arrays or structs with `==` and `!=`, an array
+  the six, or two `bool`s, arrays, structs or unions with `==` and `!=`, an array
   or a struct of integers needing the same element or field types, so
   `[2]int8` and `[2]uint8` do not compare. Strings compare byte by byte, each byte unsigned, as in Go: a
   proper prefix is less, so the empty string is least, a zero byte is a
@@ -1559,8 +1689,9 @@ makes for itself, which has a letter after `tack_`.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
   `unsafe_size_t` and `unsafe_uintptr_t`, `string`, `bool` and `error`, arrays,
-  views and `any`, which only a parameter may have, the structs a
-  program declares, and, within a generic function, its type parameters.
+  views and `any`, which only a parameter may have, the structs and
+  unions a program declares, and, within a generic function, its type
+  parameters.
   There is no
   `int`, and no `byte`. A bool is `true`, `false`, or the result of a
   comparison.
@@ -1835,7 +1966,12 @@ makes for itself, which has a letter after `tack_`.
   struct holding one, is `parameter l of extern func f cannot be
   list[int64]: a list crosses to C only as a mut parameter, or as a
   view`, and so is one returned, `extern func f cannot return
-  list[int64]: ...`. An `Allocator` is a `tack_allocator`. An
+  list[int64]: ...`. An `Allocator` is a `tack_allocator`. A union does
+  not cross to C yet: a parameter or a result of an extern func that is
+  one, or holds one through a struct, an array, a view or a list, is
+  `parameter e of extern func f cannot be Expr: a union cannot cross to C
+  yet`, `extern func f cannot return Expr: ...`, or `parameter s of
+  extern func f cannot be S, which holds a union: ...`. An
   extern func is never `pub` or `lib`, and one no C
   file of its package defines is an error at its declaration.
 - Extern C is Tack's unsafe: an extern func's declaration is a promise

@@ -35,10 +35,11 @@
 //     a freestanding C implementation has, and std's <tack/tack.h>, for
 //     tack_string, TACK_C_STR_LEN, tack_error, tack_any and its type ids,
 //     which includes only those three;
-//   - a C struct for every array, view, list and struct type, then
+//   - a C struct for every array, view, list, struct and union type, then
 //     tack_compare_strings if the program compares strings, directly or
-//     inside an array or struct, then an equality helper for every array
-//     and struct type == compares;
+//     inside an array, a struct or a union, then an equality helper for
+//     every array, struct and union type == compares, then a free helper
+//     for every union type that holds a list;
 //   - the string pool: every distinct string the program uses, each as a
 //     static byte array named tack_str0, tack_str1, and so on;
 //   - a prototype for each builtin extern func the program calls, only if
@@ -401,6 +402,23 @@
 // initialized with braces, its fields in order, or {0}, and a local one
 // without a value with a zeroed compound literal, which leaves a string
 // field a null pointer of length 0; print writes nothing for it.
+//
+// A union type lowers to a typedef'd C struct named as a struct is,
+// holding its tag, the position of the case it holds, in the narrowest of
+// uint8_t, uint16_t and uint32_t that holds every case's, and u, a C union
+// of one member per payload, c_ and the case's name. Building one is a
+// compound literal setting the tag and the payload, (T){.tag = 0,
+// .u.c_int = 5}; a package-level one is initialized with braces the same
+// way. == calls tack_eq_ and its ID, which compares the tags, then the
+// payloads of the case both hold. A union holding a list is freed by
+// tack_free_ and its ID, which frees what its case's payload holds, and a
+// struct holding one frees it through that helper. A switch on a union is
+// a chain of ifs on its tag, through a pointer to the switched place, or
+// to a copy of a value that is no place or of a mutable global; the last
+// clause of one covering every case is the final else, and one with no
+// clause, on a union with no cases, is __builtin_unreachable(). A clause's
+// binding is a pointer to the payload, read as (*v_n), declared only when
+// the clause reads it. union.go has the details.
 //
 // An error is the struct no declaration gives: std's tack_error,
 // {int32_t code; tack_string msg;}, which the generated source never

@@ -93,6 +93,7 @@ func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []dia
 		globals:  make(map[*ast.Var]bool),
 		pkgOf:    make(map[ast.Decl]*ast.Package),
 		structs:  make(map[types.Type]*ast.TypeDecl),
+		inPlace:  make(map[*ast.Var]bool),
 	}
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
@@ -124,9 +125,14 @@ type generator struct {
 	builtins *builtin.Set                 // the builtins a call can name
 	decls    []ast.Decl                   // the program's package-level declarations, in order
 	pkgOf    map[ast.Decl]*ast.Package    // the package of each of decls
-	structs  map[types.Type]*ast.TypeDecl // the declaration of each struct type
+	structs  map[types.Type]*ast.TypeDecl // the declaration of each struct and union type
 	strPool  []str
 	globals  map[*ast.Var]bool // the package-level variables
+
+	// inPlace holds the variables declared as a pointer to the value they
+	// refer to, read through it: the payloads a switch on a union binds
+	// (see union.go).
+	inPlace map[*ast.Var]bool
 
 	// scopes holds a deferScope for each block enclosing the statement
 	// being generated, innermost last; see defer.go.
@@ -281,7 +287,8 @@ func (g *generator) poolVar(v *ast.Var) {
 }
 
 // poolConst pools every string in c, the computed value of a global: a
-// string, or one inside an array's elements or a struct's fields.
+// string, or one inside an array's elements, a struct's fields or a
+// union's payload.
 func (g *generator) poolConst(c any) {
 	switch v := c.(type) {
 	case string:
@@ -290,6 +297,8 @@ func (g *generator) poolConst(c any) {
 		for _, x := range v {
 			g.poolConst(x)
 		}
+	case ast.UnionConst:
+		g.poolConst(v.Payload)
 	}
 }
 
@@ -2027,8 +2036,9 @@ func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
 }
 
 // identExpr renders a reference to a parameter or variable as the C name it
-// was declared under, read through the pointer for a mut parameter, or, for
-// a variable whose value the name moves, as the move (see moveValue).
+// was declared under, read through the pointer for a mut parameter or a
+// union's payload a switch binds, or, for a variable whose value the name
+// moves, as the move (see moveValue).
 func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	switch def := id.Def.(type) {
 	case *ast.Param:
@@ -2036,6 +2046,9 @@ func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	case *ast.Var:
 		if id.Move {
 			return g.moveValue(def.Type, g.varRef(def)), nil
+		}
+		if g.inPlace[def] {
+			return "(*" + varName(def.Name) + ")", nil
 		}
 		return g.varRef(def), nil
 	default:
@@ -2131,8 +2144,12 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 
 // callValue renders a call used where a value is wanted, rejecting a callee
 // that is neither a plain name nor a method and a builtin, which has no
-// value to give.
+// value to give. A union's construction, Expr.int(5), is a compound
+// literal of the union (see constructionValue).
 func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
+	if _, _, _, built := ast.Construction(call); built {
+		return g.constructionValue(call)
+	}
 	if call.Conv != types.Invalid {
 		// The checker allows a single-value conversion only where it
 		// cannot lose anything, so a C cast does the whole job.
@@ -2198,7 +2215,8 @@ func (g *generator) strParts(s string) string {
 }
 
 // cType returns the C type a Tack type lowers to: a basic type's own, or for
-// an array, a view, a list or a struct the C struct emitTypes defines for it.
+// an array, a view, a list, a struct or a union the C struct emitTypes
+// defines for it.
 func (g *generator) cType(typ types.Type) string {
 	typ = g.prog.Types.Bound(typ)
 	if g.prog.Types.IsArray(typ) {
@@ -2210,7 +2228,7 @@ func (g *generator) cType(typ types.Type) string {
 	if g.prog.Types.IsList(typ) {
 		return listName(typ)
 	}
-	if g.prog.Types.IsStruct(typ) {
+	if g.prog.Types.IsStruct(typ) || g.prog.Types.IsUnion(typ) {
 		return g.structName(typ)
 	}
 	return basicCType(typ)

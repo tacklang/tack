@@ -73,6 +73,11 @@ const (
 	// CAllocator is the literal c_allocator, the allocator that lowers to
 	// C's malloc, realloc and free.
 	CAllocator
+
+	// Union starts a union type, type Expr union { ... }, a value of
+	// which holds one of its named cases. It comes last so that adding
+	// it numbered no earlier keyword anew.
+	Union
 )
 
 var keywordNames = map[KeywordType]string{
@@ -86,6 +91,7 @@ var keywordNames = map[KeywordType]string{
 	Func:      "func",
 	Struct:    "struct",
 	Interface: "interface",
+	Union:     "union",
 	Map:       "map",
 	ASM:       "asm",
 	Extern:    "extern",

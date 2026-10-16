@@ -20,7 +20,18 @@
 // Func.Results. A Var is both a declaration, so a name can refer to it, and a
 // statement, so it can appear in a function body; at package level it is a
 // top-level declaration, as is a TypeDecl, which declares a struct type: a
-// StructType, whose Fields are part of it rather than nodes of their own.
+// StructType, whose Fields are part of it rather than nodes of their own;
+// or a union type, a UnionType, whose UnionCases are part of it likewise,
+// each a name and its payload's type, if any. A union is built by naming
+// a case through its type, Expr.int(5), a Call whose Fn is a Selector, or
+// Expr.eof, a Selector, whose operand the resolver binds to the union's
+// TypeDecl; Construction reads either, and Call.Receiver gives such a call
+// none. A switch on a union matches its cases: its case values are
+// patterns, CasePattern reads one, a name, eof, or a name and a binding,
+// int(n), and a clause naming one case binds its payload to its
+// CaseClause's Var, which the resolver declares; the type checker sets
+// Switch.Exhaustive when the clauses name every case. A package-level
+// union's computed value is a UnionConst.
 // A Func, a package-level Var, a TypeDecl and a Field carry a Visibility,
 // Private unless pub or lib was written, with the keyword's span; a
 // Package carries the name of the module it is in, which lib is relative

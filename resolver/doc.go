@@ -77,6 +77,28 @@
 // the type checker finds through the type of what holds it, so neither is
 // bound here.
 //
+// A union's cases are resolved with the structs' fields: each payload's
+// type, and each case's name, which follows a field's rule, reserved
+// names excluded, once per union. A selector whose
+// operand names a union type, plain or qualified, Expr.int(5) or ast.Expr.eof,
+// builds a value of it: the operand is bound to the union's TypeDecl, the
+// qualified one only if this package may see it, and the case's name is
+// left to the type checker, which finds it in the union. A struct type's
+// name there is reported as a type used as a value, as before. A method
+// on a union type is reported as one on any type but a struct of the
+// package is.
+//
+// The values of an expression switch's cases may be a union's patterns,
+// which the resolver cannot tell from values, since that depends on the
+// tag's type; union.go's Patterns says how each is bound. A value whose
+// last name is a variable or parameter visible at the switch is resolved
+// as a value, and any other of the shape name or name(x) is bound as a
+// pattern, reporting nothing: a clause of one such value whose binding is
+// a name visible nowhere declares it, its CaseClause's Var, at the start
+// of its body, never reported unused here, and in a clause of several the
+// name is rejected in the body. The type checker reports what is wrong
+// with either reading once it knows the tag's type.
+//
 // A method, func (b Builder) len(), is a function whose first parameter is
 // its receiver, so its body is resolved as any function's, the receiver in
 // scope as a parameter under every parameter's rule, _ and type names

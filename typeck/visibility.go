@@ -63,8 +63,9 @@ func (c *Checker) checkLiteralFields(typ types.Type, span ast.Span) bool {
 
 // checkExposure reports every type a pub or lib declaration exposes that is
 // less visible than it: a type named in a function's signature, a global's
-// type, or a field's type, where the field's visibility is capped by its
-// struct's. A pub one may expose only pub types; a lib one, lib or pub
+// type, a field's type, where the field's visibility is capped by its
+// struct's, or a union case's payload's type, a case being as visible as
+// its union. A pub one may expose only pub types; a lib one, lib or pub
 // ones. A client of the declaration can then name every type it gets.
 func (c *Checker) checkExposure(decls []ast.Decl) {
 	for _, decl := range decls {
@@ -83,13 +84,23 @@ func (c *Checker) checkExposure(decls []ast.Decl) {
 				c.exposure(d.Vis, "variable "+d.Name, d.Type, at)
 			}
 		case *ast.TypeDecl:
-			if d.Interface() != nil {
-				c.ifaceExposure(d)
-			} else {
-				c.fieldExposure(d)
-			}
+			c.typeExposure(d)
 		}
 		restore()
+	}
+}
+
+// typeExposure reports every type td, a type declaration, exposes that is
+// less visible than it: an interface's methods' types, a union's
+// payloads' types, or a struct's fields' types.
+func (c *Checker) typeExposure(td *ast.TypeDecl) {
+	switch {
+	case td.Interface() != nil:
+		c.ifaceExposure(td)
+	case td.Union() != nil:
+		c.unionExposure(td)
+	default:
+		c.fieldExposure(td)
 	}
 }
 
@@ -136,14 +147,14 @@ func (c *Checker) fieldExposure(td *ast.TypeDecl) {
 }
 
 // exposure reports typ, written at at in the declaration what, whose
-// visibility is vis, if it is or holds a struct type less visible than
-// vis, as an array's, a view's or a list's element.
+// visibility is vis, if it is or holds a struct or union type less
+// visible than vis, as an array's, a view's or a list's element.
 func (c *Checker) exposure(vis ast.Visibility, what string, typ types.Type, at ast.Span) {
 	for c.table.IsArray(typ) || c.table.IsView(typ) || c.table.IsList(typ) {
 		typ = c.table.Elem(typ)
 	}
-	td := c.structs[typ]
-	if !c.table.IsStruct(typ) || td == nil || td.Vis >= vis {
+	td := c.typeDecl(typ)
+	if td == nil || td.Vis >= vis {
 		return
 	}
 	need := "pub"

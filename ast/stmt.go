@@ -252,11 +252,23 @@ func (f *ForRange) Spanned() Span { return f.Span }
 // its own named after it, the CaseClause's Var, and Bind is that name as
 // written, the declaration the resolver reports a problem with the name
 // at, and an unused v at, once for the whole switch.
+//
+// A switch whose tag is a union, switch e { case int(n): ... case name,
+// eof: ... }, matches the case the union holds: each value names one of
+// its cases, a pattern (see CasePattern), and a clause naming one case
+// may bind that case's payload to a variable, its CaseClause's Var. The
+// type checker sets Exhaustive when its clauses name every case, which a
+// switch on a union must unless it has a default.
 type Switch struct {
 	Tag   Expr
 	Bind  *Var
 	Cases []*CaseClause
 	Span  Span // 'switch' keyword through the closing brace
+
+	// Exhaustive is set by the type checker on a switch on a union whose
+	// clauses name every one of its cases, which then has no default and
+	// always runs one of its clauses.
+	Exhaustive bool `json:",omitempty"`
 }
 
 var _ Stmt = (*Switch)(nil)
@@ -296,7 +308,11 @@ func (s *Switch) IsTypeSwitch() bool {
 // for its body, named as the switch's Bind is, and immutable: the type
 // checker gives it the case's one type, or, in a case naming several and
 // in the default, the type of the tag's operand, any. It has no Value; it
-// takes the tag's. Var is nil in every other case. In a type switch,
+// takes the tag's. In a switch on a union, Var is the variable a clause
+// naming one case binds that case's payload to, int(n)'s n, which the
+// resolver declares, immutable, for the clause's body, and the type
+// checker gives the payload's type; it refers to the payload in place.
+// Var is nil in every other case. In a type switch,
 // Types holds the type each value names, in order, set by the type
 // checker, since a type as written has no type of its own to record.
 type CaseClause struct {

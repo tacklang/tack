@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/tacklang/tack/types"
 )
 
 // decodeMangled reads a name mangle made back into its parts, the parts of
@@ -127,12 +129,15 @@ var generatorNames = []string{
 	"tack_div_int8",
 	"tack_rem_uint64",
 	"tack_eq_12",
+	"tack_free_12",
 	"tack_array_3",
 	"tack_results_4_main1_f",
 	"tack_n0",
 	"tack_k1",
 	"tack_r0",
 	"tack_o9",
+	"tack_s2",
+	"tack_u3",
 }
 
 // FuzzMangleIsInjective checks two different package paths and names never
@@ -306,6 +311,65 @@ func FuzzInstanceCNamesAreDistinct(f *testing.F) {
 		}
 		if m := "tack_" + mangledParts(path2, methodCName(fn2, n2)); m == x {
 			t.Fatalf("instance %s and method %s.%s.%s both mangle to %s", x, path2, fn2, n2, m)
+		}
+	})
+}
+
+// TestUnionNamesDoNotCollide checks the names a union type brings to the
+// generated C: its free helper is told apart from every other helper
+// named by a type's ID, its tag fits every case's position in the
+// narrowest type that holds them, and its payloads' members, c_ and the
+// case's name, never take the tag's or the payload union's name.
+func TestUnionNamesDoNotCollide(t *testing.T) {
+	seen := make(map[string]bool)
+	for id := range 200 {
+		typ := types.Type(id)
+		for _, name := range []string{
+			freeName(typ), equalityName(typ), arrayName(typ),
+			listName(typ), viewName(typ),
+		} {
+			if seen[name] {
+				t.Fatalf("%s is the name of two helpers or types", name)
+			}
+			seen[name] = true
+		}
+	}
+	for _, tc := range []struct {
+		want string
+		n    int
+	}{
+		{"uint8_t", 0},
+		{"uint8_t", 1},
+		{"uint8_t", 256},
+		{"uint16_t", 257},
+		{"uint16_t", 65536},
+		{"uint32_t", 65537},
+	} {
+		if got := unionTagType(tc.n); got != tc.want {
+			t.Errorf("a union of %d cases has a %s tag, want %s", tc.n, got, tc.want)
+		}
+	}
+	for _, name := range []string{"tag", "u", "c", "int", "while", "c_x", "_"} {
+		if m := caseMember(name); m == "tag" || m == "u" || !strings.HasPrefix(m, "c_") {
+			t.Errorf("case %s has the member %s", name, m)
+		}
+	}
+}
+
+// FuzzUnionCaseMembersAreDistinct checks two different cases of a union,
+// whatever their names, never share a member, and none is the tag's or the
+// payload union's.
+func FuzzUnionCaseMembersAreDistinct(f *testing.F) {
+	f.Add("int", "name")
+	f.Add("tag", "u")
+	f.Add("c_a", "a")
+	f.Fuzz(func(t *testing.T, a, b string) {
+		ma, mb := caseMember(a), caseMember(b)
+		if a != b && ma == mb {
+			t.Fatalf("cases %q and %q share the member %s", a, b, ma)
+		}
+		if ma == "tag" || ma == "u" {
+			t.Fatalf("case %q has the member %s", a, ma)
 		}
 	})
 }

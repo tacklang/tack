@@ -59,6 +59,14 @@ type Checker struct {
 	structOrder []types.Type
 	structState map[types.Type]progress
 
+	// unions maps each union type to its declaration, and unionState says
+	// how far each one's cases have been resolved; see resolveCases.
+	// unionBindings holds the variables union patterns bind, which refer
+	// to a payload in place (see move.go).
+	unions        map[types.Type]*ast.TypeDecl
+	unionState    map[types.Type]progress
+	unionBindings map[*ast.Var]bool
+
 	// knownVars remembers, for each local variable knownVar has been asked
 	// about, what it found.
 	knownVars map[*ast.Var]knownResult
@@ -114,9 +122,11 @@ type Checker struct {
 	// nested defer is not reported again.
 	inRejectedDefer bool
 
-	// inFields is whether a struct's field types are being resolved, where
-	// an array length must name no variable.
+	// inFields is whether a struct's field types, or a union's payload
+	// types, are being resolved, where an array length must name no
+	// variable; inUnion says it is a union's.
 	inFields bool
+	inUnion  bool
 }
 
 // New returns a Checker for prog, which must already have been resolved,
@@ -133,6 +143,10 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		globalState: make(map[*ast.Var]progress),
 		structs:     make(map[types.Type]*ast.TypeDecl),
 		structState: make(map[types.Type]progress),
+
+		unions:        make(map[types.Type]*ast.TypeDecl),
+		unionState:    make(map[types.Type]progress),
+		unionBindings: make(map[*ast.Var]bool),
 
 		knownVars: make(map[*ast.Var]knownResult),
 
@@ -160,9 +174,9 @@ func declPackages(prog *ast.Program) map[ast.Decl]*ast.Package {
 }
 
 // typeName returns a type's name as a diagnostic about the package being
-// checked writes it: a struct type of another package qualified by that
-// package's name, lexer.Token, and any other type as types.Table.Name
-// does.
+// checked writes it: a struct or union type of another package qualified
+// by that package's name, lexer.Token, and any other type as
+// types.Table.Name does.
 func (c *Checker) typeName(typ types.Type) string {
 	return c.table.NameWith(typ, func(st types.Type, name string) string {
 		if pkg := c.structPkg[st]; pkg != nil && c.pkg != nil && pkg != c.pkg {
@@ -330,6 +344,10 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
+		if _, _, _, built := ast.Construction(s.X); built {
+			c.unusedConstruction(s.X)
+			return
+		}
 		c.discard(s.X)
 		c.droppedError(s.X)
 	case *ast.Var:
@@ -657,8 +675,13 @@ func (c *Checker) conversionResults(call *ast.Call, want int, span ast.Span) ([]
 
 // discard checks an expression whose value is not used: a call statement,
 // or a value checked only for what is inside it. A call may return
-// nothing, or several values, here.
+// nothing, or several values, here, and a union is built for what is
+// inside it.
 func (c *Checker) discard(e ast.Expr) {
+	if _, _, _, built := ast.Construction(e); built {
+		c.construction(e)
+		return
+	}
 	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid &&
 		c.genericCall(call) == nil && !isViewConversion(call) {
 		c.checkCall(call)
@@ -969,8 +992,9 @@ func (c *Checker) notConstant(v *ast.Var) {
 
 // isConstant reports whether e is built only from literals, names of
 // immutable package-level variables, of its own package or an imported
-// one, operators, array and struct literals, fields and elements, len and
-// conversions, all of them of such parts, except that len may take
+// one, operators, array and struct literals, unions built of a case and
+// its payload, fields and elements, len and conversions, all of them of
+// such parts, except that len may take
 // anything that calls nothing, since an array's length is its type's,
 // whatever holds it. A call to anything else, a function or a builtin, is
 // never constant, since nothing runs before main to compute it, and a
@@ -983,14 +1007,25 @@ func (c *Checker) isConstant(e ast.Expr) bool {
 		return true
 	case *ast.Ident:
 		return c.constantGlobal(x) != nil
-	case *ast.Call:
-		if isLen(x) && len(x.Args) == 1 && !hasCall(x.Args[0]) {
-			return true
-		}
-		return (x.Conv != types.Invalid || isLen(x)) && c.allConstant(x.Args)
+	}
+	if isConst, built := c.isConstantConstruction(e); built {
+		return isConst
+	}
+	if call, ok := e.(*ast.Call); ok {
+		return c.isConstantCall(call)
 	}
 	parts, ok := subExprs(e)
 	return ok && c.allConstant(parts)
+}
+
+// isConstantCall reports whether call, which builds no union, is a
+// constant expression, as isConstant says: len of anything that calls
+// nothing, or len or a conversion of constant expressions.
+func (c *Checker) isConstantCall(call *ast.Call) bool {
+	if isLen(call) && len(call.Args) == 1 && !hasCall(call.Args[0]) {
+		return true
+	}
+	return (call.Conv != types.Invalid || isLen(call)) && c.allConstant(call.Args)
 }
 
 // subExprs returns the operands of e when it is an operator, a literal of
@@ -1069,9 +1104,9 @@ func zeroConst(typ types.Type) any {
 
 // fold returns the value of a checked constant expression: a constant.Int,
 // computed exactly as it was checked, a string, a bool, the
-// *ast.CAllocatorLit of c_allocator, or an array's
+// *ast.CAllocatorLit of c_allocator, an array's
 // elements, or a struct's fields in declaration order, as a []any of
-// those. A field or an element is computed from the struct or array it is
+// those, or a union's case and payload, as an ast.UnionConst. A field or an element is computed from the struct or array it is
 // part of (foldPart). A bool expression
 // is evaluated in full, the right side of && and || included, as Go does,
 // since any error on either side has already been reported. Arithmetic in
@@ -1083,14 +1118,14 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 	if v, ok, isInt := c.foldInt(e); isInt {
 		return v, ok
 	}
+	if _, _, _, built := ast.Construction(e); built {
+		return c.foldConstruction(e)
+	}
 	switch x := e.(type) {
 	case *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit, *ast.CAllocatorLit, *ast.Ident:
 		return c.foldLeaf(x)
 	case *ast.CompositeLit:
-		if c.table.IsStruct(x.Type) {
-			return c.foldStruct(x)
-		}
-		return c.foldElems(x)
+		return c.foldLiteral(x)
 	case *ast.Binary:
 		if b, ok := x.Const.(bool); ok {
 			return b, true
@@ -1104,6 +1139,15 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.knownSlice(x)
 	}
 	return nil, false
+}
+
+// foldLiteral computes a constant literal of a struct or an array, as a
+// []any of its fields' values in declaration order or of its elements.
+func (c *Checker) foldLiteral(lit *ast.CompositeLit) (any, bool) {
+	if c.table.IsStruct(lit.Type) {
+		return c.foldStruct(lit)
+	}
+	return c.foldElems(lit)
 }
 
 // foldPart computes a field or an element whose struct, array or string is
@@ -1259,10 +1303,12 @@ func (c *Checker) compareConsts(left, right any) (int, bool) {
 
 // equalConsts reports whether two constants of one type are equal, and
 // whether it could tell: two bools, two arrays or two structs, element by
-// element or field by field, or two integers or strings as compareConsts
-// compares them.
+// element or field by field, two unions, by case and then payload, or two
+// integers or strings as compareConsts compares them.
 func (c *Checker) equalConsts(left, right any) (equal, ok bool) {
 	switch a := left.(type) {
+	case unionValue:
+		return c.equalUnions(a, right)
 	case bool:
 		b, isBool := right.(bool)
 		return a == b, isBool
@@ -1283,6 +1329,22 @@ func (c *Checker) equalConsts(left, right any) (equal, ok bool) {
 	}
 	cmp, ok := c.compareConsts(left, right)
 	return cmp == 0, ok
+}
+
+// equalUnions reports whether a, a union's computed value, equals right,
+// another union's of the same type, and whether it could tell: equal when
+// they hold the same case and, for a case with a payload, equal payloads.
+func (c *Checker) equalUnions(a unionValue, right any) (equal, ok bool) {
+	b, isUnion := right.(unionValue)
+	switch {
+	case !isUnion:
+		return false, false
+	case a.Case != b.Case:
+		return false, true
+	case a.Payload == nil || b.Payload == nil:
+		return a.Payload == nil && b.Payload == nil, true
+	}
+	return c.equalConsts(a.Payload, b.Payload)
 }
 
 // foldBools applies an operator to two bool constants.

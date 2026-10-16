@@ -87,8 +87,16 @@
 // parameters and results, as a function's signature is written after its
 // name; interface {} has none. Visibility on a method, a name alone,
 // which would embed an interface, a field and a method's body are
-// reported. Other named types, anonymous struct types and embedded fields
-// are each reported here, as is a type declared inside a function. A field may
+// reported. Or it is type Name union { ... }, a UnionType, its cases
+// separated the same way, each a UnionCase: a name, and the type of its
+// payload unless the case ends after its name; union {} has none.
+// Visibility on a case, which takes its union's, and a value given to
+// one, eof = 1, which would be a tag, are reported. A union's
+// construction, Expr.int(5) or Expr.eof, parses as a method call or a
+// field selection does, and a switch's case values as any values do,
+// int(n) a call: which of them build or match a union is found from types
+// later. Other named types, anonymous struct and union types and embedded
+// fields are each reported here, as is a type declared inside a function. A field may
 // start with pub or lib, and so may a package-level function, variable
 // (var or mut) or type declaration, whose span then starts at the keyword;
 // the parser records the visibility and the keyword's span, and anything

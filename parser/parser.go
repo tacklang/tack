@@ -759,7 +759,7 @@ func (p *Parser) startsType(tk *lexer.Token) bool {
 	case lexer.Ident, lexer.LBrack:
 		return true
 	case lexer.Keyword:
-		return tk.Value() == lexer.Struct || tk.Value() == lexer.List
+		return tk.Value() == lexer.Struct || tk.Value() == lexer.List || tk.Value() == lexer.Union
 	default:
 		return false
 	}
@@ -781,12 +781,8 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 	if isKeyword(p.peek(), lexer.List) {
 		return p.parseListType()
 	}
-	if tk := p.peek(); tk.Kind() == lexer.Keyword && tk.Value() == lexer.Struct {
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "anonymous structs are not supported",
-			Span:     p.span(tk),
-		}}
+	if diags := p.anonymousType(); diags != nil {
+		return nil, diags
 	}
 	// A type is never a field, so a name, a period and a name is always a
 	// qualified type name, whether or not the first name is an import's;
@@ -800,6 +796,26 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 		return nil, typDiags
 	}
 	return typ, nil
+}
+
+// anonymousType reports a struct or a union type written where a type is,
+// rather than declared, when one comes next, which is not supported, and
+// returns nil otherwise.
+func (p *Parser) anonymousType() []diag.Diagnostic {
+	var kind string
+	switch tk := p.peek(); {
+	case isKeyword(tk, lexer.Struct):
+		kind = "structs"
+	case isKeyword(tk, lexer.Union):
+		kind = "unions"
+	default:
+		return nil
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  "anonymous " + kind + " are not supported",
+		Span:     p.span(p.peek()),
+	}}
 }
 
 // atQualified reports whether the tokens n places ahead are a qualified
@@ -1393,28 +1409,9 @@ func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	var typ ast.Expr
-	switch tk := p.peek(); {
-	case isKeyword(tk, lexer.Struct):
-		st, diags := p.parseStructType()
-		if st == nil {
-			return nil, diags
-		}
-		typ = st
-	case isKeyword(tk, lexer.Interface):
-		it, diags := p.parseInterfaceType()
-		if it == nil {
-			return nil, diags
-		}
-		typ = it
-	case tk.Kind() == lexer.Ident || tk.Kind() == lexer.LBrack:
-		return nil, []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "only struct and interface types can be declared",
-			Span:     p.span(tk),
-		}}
-	default:
-		return nil, []diag.Diagnostic{p.diagInvalidToken("struct or interface", tk)}
+	typ, diags := p.parseDeclaredType()
+	if typ == nil {
+		return nil, diags
 	}
 
 	d := &ast.TypeDecl{
@@ -1424,6 +1421,41 @@ func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
 		Span:     ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: typ.Spanned().End},
 	}
 	return d, p.endStmt(&d.Span)
+}
+
+// parseDeclaredType parses the type a type declaration declares, after
+// its name: a struct, an interface or a union type. Anything else, a
+// type's name or an array type, which would declare another named type,
+// is reported. On an error the type is an untyped nil.
+func (p *Parser) parseDeclaredType() (ast.Expr, []diag.Diagnostic) {
+	switch tk := p.peek(); {
+	case isKeyword(tk, lexer.Struct):
+		st, diags := p.parseStructType()
+		if st == nil {
+			return nil, diags
+		}
+		return st, nil
+	case isKeyword(tk, lexer.Interface):
+		it, diags := p.parseInterfaceType()
+		if it == nil {
+			return nil, diags
+		}
+		return it, nil
+	case isKeyword(tk, lexer.Union):
+		ut, diags := p.parseUnionType()
+		if ut == nil {
+			return nil, diags
+		}
+		return ut, nil
+	case tk.Kind() == lexer.Ident || tk.Kind() == lexer.LBrack:
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "only struct, interface and union types can be declared",
+			Span:     p.span(tk),
+		}}
+	default:
+		return nil, []diag.Diagnostic{p.diagInvalidToken("struct, interface or union", tk)}
+	}
 }
 
 // parseInterfaceType parses interface { ... }: its methods, each ended by
@@ -1523,6 +1555,78 @@ func (p *Parser) parseIfaceMethod() (*ast.IfaceMethod, []diag.Diagnostic) {
 		m.Span.Start = m.MutSpan.Start
 	}
 	return m, nil
+}
+
+// parseUnionType parses union { ... }: its cases, each ended by a
+// semicolon, written or inserted at a line end, which may be left out
+// before the closing brace, as a struct's fields are.
+func (p *Parser) parseUnionType() (*ast.UnionType, []diag.Diagnostic) {
+	kw := p.next() // the union keyword
+	if ok, diags := p.expect(lexer.LCurl); !ok {
+		return nil, diags
+	}
+
+	typ := &ast.UnionType{Cases: make([]*ast.UnionCase, 0)}
+	for p.peek().Kind() != lexer.RCurl {
+		c, diags := p.parseUnionCase()
+		if c == nil {
+			return nil, diags
+		}
+		typ.Cases = append(typ.Cases, c)
+
+		if p.peek().Kind() == lexer.RCurl {
+			break
+		}
+		if ok, diags := p.expect(lexer.Semi); !ok {
+			return nil, diags
+		}
+	}
+
+	end := p.next() // the closing brace
+	typ.Span = ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: end.OffsetEnd()}
+	return typ, nil
+}
+
+// parseUnionCase parses one case of a union type: its name, and the type
+// of its payload unless the case ends there. Visibility written on it,
+// which a case takes from its union, and a value given to it, which
+// would be a tag C picks instead, are reported.
+func (p *Parser) parseUnionCase() (*ast.UnionCase, []diag.Diagnostic) {
+	tk := p.peek()
+	if _, visible := visibilityOf(tk); visible {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: fmt.Sprintf(
+				"a union's case cannot be %s; it is as visible as its union",
+				tk.Value()),
+			Span: p.span(tk),
+		}}
+	}
+	name, diags := p.parseIdent("case name")
+	if name == nil {
+		return nil, diags
+	}
+	c := &ast.UnionCase{Name: name.Name, NameSpan: name.Span, Span: name.Span}
+	if kind := p.peek().Kind(); kind == lexer.Semi || kind == lexer.RCurl {
+		return c, nil
+	}
+	if p.peek().Kind() != lexer.Assign {
+		typ, diags := p.parseType()
+		if typ == nil {
+			return nil, diags
+		}
+		c.TypeExpr, c.Span.End = typ, typ.Spanned().End
+	}
+	if tk := p.peek(); tk.Kind() == lexer.Assign {
+		return nil, []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message:  "a union's case cannot have a tag value; it is a name and a payload's type, if any",
+				Span:     p.span(tk),
+			},
+		}
+	}
+	return c, nil
 }
 
 // parseStructType parses struct { ... }: its fields, each ended by a

@@ -53,7 +53,12 @@ import (
 //	        body
 //	    }
 //	}
+//
+// A switch on a union is lowered by generateUnionSwitch.
 func (g *generator) generateSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	if g.isUnionSwitch(s) {
+		return g.generateUnionSwitch(s, fn)
+	}
 	if s.Tag == nil {
 		return g.caseChain(s, "", fn)
 	}

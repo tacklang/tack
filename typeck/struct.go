@@ -21,24 +21,38 @@ const (
 	checked
 )
 
-// declareStructs gives every type declaration in the program its struct type,
-// with no fields yet, so that any type, a field's type included, can name
-// any struct whatever the order of declarations.
+// declareStructs gives every type declaration in the program its struct
+// or union type, with no fields or cases yet, so that any type, a field's
+// or a payload's type included, can name any struct or union whatever
+// the order of declarations. Both are listed in structOrder, in source
+// order.
 func (c *Checker) declareStructs() {
 	for _, decl := range c.prog.Decls() {
-		if td, ok := decl.(*ast.TypeDecl); ok && td.Interface() == nil {
-			td.Type = c.table.Struct(td.Name)
-			c.structPkg[td.Type] = c.declPkg[td]
-			c.structs[td.Type] = td
-			c.structOrder = append(c.structOrder, td.Type)
+		td, ok := decl.(*ast.TypeDecl)
+		if !ok || td.Interface() != nil {
+			continue
 		}
+		if td.Union() != nil {
+			td.Type = c.table.Union(td.Name)
+			c.unions[td.Type] = td
+		} else {
+			td.Type = c.table.Struct(td.Name)
+			c.structs[td.Type] = td
+		}
+		c.structPkg[td.Type] = c.declPkg[td]
+		c.structOrder = append(c.structOrder, td.Type)
 	}
 }
 
-// checkStructs resolves the fields of every struct type not already
-// resolved, then reports every struct that contains itself by value.
+// checkStructs resolves the fields of every struct type, and the cases of
+// every union type, not already resolved, then reports every struct or
+// union that contains itself by value.
 func (c *Checker) checkStructs() {
 	for _, typ := range c.structOrder {
+		if td := c.unions[typ]; td != nil {
+			c.resolveCases(typ, td.NameSpan)
+			continue
+		}
 		c.resolveFields(typ, c.structs[typ].NameSpan)
 	}
 	c.reportCycles()
@@ -68,29 +82,30 @@ func (c *Checker) resolveFields(typ types.Type, at ast.Span) bool {
 	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
 	fields := make([]types.Field, 0)
 	if st != nil {
-		outer := c.inFields
-		c.inFields = true
+		outer, outerUnion := c.inFields, c.inUnion
+		c.inFields, c.inUnion = true, false
 		for _, f := range st.Fields {
 			fields = append(fields, types.Field{Name: f.Name, Type: c.declaredType(f.TypeExpr)})
 		}
-		c.inFields = outer
+		c.inFields, c.inUnion = outer, outerUnion
 	}
 	c.table.SetFields(typ, fields)
 	c.structState[typ] = checked
 	return true
 }
 
-// cycleEdge is one step of a struct containing another by value: the struct
-// from, through its field.
+// cycleEdge is one step of a struct or union containing another by
+// value: the type from, through its field or case written at span.
 type cycleEdge struct {
-	field *ast.Field
-	from  types.Type
+	span ast.Span
+	from types.Type
 }
 
-// reportCycles reports every struct type that contains itself by value,
-// directly, through another struct, or through an array, which would make
-// it infinitely large. Each cycle is reported once, at the struct it was
-// found from, with a note for every field on the way round.
+// reportCycles reports every struct or union type that contains itself by
+// value, directly, through another struct or union, or through an array,
+// which would make it infinitely large. Each cycle is reported once, at
+// the type it was found from, with a note for every field or case on the
+// way round.
 func (c *Checker) reportCycles() {
 	state := make(map[types.Type]progress)
 	for _, typ := range c.structOrder {
@@ -98,9 +113,10 @@ func (c *Checker) reportCycles() {
 	}
 }
 
-// visitStruct walks the structs typ contains by value, depth first, path
-// being the fields followed to reach it, and reports a cycle on reaching a
-// struct still on path.
+// visitStruct walks the structs and unions typ, a struct or a union,
+// contains by value, depth first, path being the fields and cases
+// followed to reach it, and reports a cycle on reaching a type still on
+// path.
 func (c *Checker) visitStruct(typ types.Type, state map[types.Type]progress, path []cycleEdge) {
 	switch state[typ] {
 	case checked:
@@ -110,30 +126,59 @@ func (c *Checker) visitStruct(typ types.Type, state map[types.Type]progress, pat
 		return
 	}
 	state[typ] = checking
-	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
-	for i, f := range c.table.Fields(typ) {
-		if inner, ok := c.structIn(f.Type); ok && st != nil && i < len(st.Fields) {
-			c.visitStruct(inner, state, append(path, cycleEdge{st.Fields[i], typ}))
+	for _, part := range c.partsOf(typ) {
+		if inner, ok := c.structIn(part.typ); ok {
+			c.visitStruct(inner, state, append(path, cycleEdge{part.span, typ}))
 		}
 	}
 	state[typ] = checked
 }
 
-// structIn returns the struct type a value of type typ holds by value at its
-// core: typ itself if it is a struct, the element type of an array, of an
-// array of arrays included, if that is one. error is a struct no
-// declaration gives, which holds no other struct, so it is not one here.
+// part is one field of a struct, or one payload of a union: its type and
+// where it is written.
+type part struct {
+	span ast.Span
+	typ  types.Type
+}
+
+// partsOf returns the fields of the struct typ, or the payloads of the
+// union typ, each with where it is written.
+func (c *Checker) partsOf(typ types.Type) []part {
+	var parts []part
+	if td := c.unions[typ]; td != nil {
+		cases := c.table.Cases(typ)
+		for i, uc := range td.Union().Cases {
+			if i < len(cases) && cases[i].Payload {
+				parts = append(parts, part{span: uc.Span, typ: cases[i].Type})
+			}
+		}
+		return parts
+	}
+	st, _ := c.structs[typ].TypeExpr.(*ast.StructType)
+	for i, f := range c.table.Fields(typ) {
+		if st != nil && i < len(st.Fields) {
+			parts = append(parts, part{span: st.Fields[i].Span, typ: f.Type})
+		}
+	}
+	return parts
+}
+
+// structIn returns the struct or union type a value of type typ holds by
+// value at its core: typ itself if it is a struct or a union, the element
+// type of an array, of an array of arrays included, if that is one. error
+// is a struct no declaration gives, which holds no other struct, so it is
+// not one here.
 func (c *Checker) structIn(typ types.Type) (types.Type, bool) {
 	for c.table.IsArray(typ) {
 		typ = c.table.Elem(typ)
 	}
-	return typ, c.table.IsStruct(typ) && typ != types.Error
+	return typ, (c.table.IsStruct(typ) || c.table.IsUnion(typ)) && typ != types.Error
 }
 
 // reportCycle reports the cycle that path, the fields followed so far, closes
 // by reaching typ again.
 func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
-	defer c.enter(c.structs[typ])()
+	defer c.enter(c.typeDecl(typ))()
 	start := 0
 	for i, e := range path {
 		if e.from == typ {
@@ -150,19 +195,23 @@ func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
 		notes = append(notes, diag.Diagnostic{
 			Severity: diag.Note,
 			Message:  c.typeName(e.from) + " refers to " + c.typeName(to),
-			Span:     e.field.Span,
+			Span:     e.span,
 		})
 	}
 	c.diags = append(c.diags, diag.Diagnostic{
 		Severity: diag.Error,
 		Message:  "invalid recursive type " + c.typeName(typ),
-		Span:     c.structs[typ].NameSpan,
+		Span:     c.typeDecl(typ).NameSpan,
 		Related:  notes,
 	})
 }
 
-// selector checks a field read as a value, x.f, and returns its type.
+// selector checks a field read as a value, x.f, and returns its type, or
+// a union built from a case with no payload, Expr.eof (see construction).
 func (c *Checker) selector(sel *ast.Selector) types.Type {
+	if _, _, _, built := ast.Construction(sel); built {
+		return c.construction(sel)
+	}
 	sel.Type = c.field(sel, c.valueOf(sel.X, c.expr(sel.X)))
 	return sel.Type
 }

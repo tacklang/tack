@@ -43,7 +43,11 @@ import (
 // a variable declared outside it, since the statements after the defer
 // run first, and could assign it again. A range loop over a list walks
 // the list itself, not a copy, so its body cannot assign the list, or
-// anything holding it, pass either as mut, or move it.
+// anything holding it, pass either as mut, or move it. Likewise a clause
+// of a switch on a union whose binding refers to the payload of the
+// switched place in place cannot assign that place, or anything holding
+// it, pass either as mut, or move it, and the binding itself is never
+// moved: a payload cannot be moved out of a union.
 //
 // Each function is checked only if checking its body reported nothing, so
 // every expression in it has its type.
@@ -152,12 +156,23 @@ type mover struct {
 	blocks  []*blockFlow // the blocks enclosing it, innermost last
 	ranging []ast.Expr   // the lists being ranged over around it, innermost last
 
+	// matching holds the places switched on around the point whose
+	// clause binds a payload of them in place, innermost last.
+	matching []matched
+
 	// report says whether errors are reported: not while following a
 	// loop's body for the first time, which the second pass repeats.
 	report bool
 
 	// deferring says whether deferred code is being followed.
 	deferring bool
+}
+
+// matched is a place a switch on a union matches, whose clause being
+// followed binds bind to the payload it holds, in place.
+type matched struct {
+	place ast.Expr
+	bind  *ast.Var
 }
 
 // expression contexts: how the value of an expression is used.
@@ -468,6 +483,10 @@ func (m *mover) placeParts(place ast.Expr, cur *flow) {
 
 // expr follows e, used in ctx.
 func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
+	if _, _, payload, built := ast.Construction(e); built {
+		m.construction(e, payload, ctx, cur)
+		return
+	}
 	switch x := e.(type) {
 	case *ast.Ident:
 		m.ident(x, ctx, cur)
@@ -563,6 +582,23 @@ func (m *mover) ident(id *ast.Ident, ctx useCtx, cur *flow) {
 	)
 }
 
+// movesBinding reports id, a name whose value is moved, when it names a
+// union pattern's binding of an owned type, which refers to its payload in
+// place and so cannot be moved, and returns whether it did.
+func (m *mover) movesBinding(id *ast.Ident) bool {
+	v, ok := id.Def.(*ast.Var)
+	if !ok || !m.c.unionBindings[v] || !m.c.table.Owned(v.Type) {
+		return false
+	}
+	m.errorNotes(
+		id.Span,
+		nil,
+		"cannot move %s: it refers to a union's payload in place, and a payload cannot be moved out of a union",
+		id.Name,
+	)
+	return true
+}
+
 // use reports id, a name, when it names a variable that may have been
 // moved where it is used, with a note at each place it was moved.
 func (m *mover) use(id *ast.Ident, cur *flow) {
@@ -592,10 +628,14 @@ func (m *mover) use(id *ast.Ident, cur *flow) {
 }
 
 // canMove reports whether the value of v, named by id, can be moved where
-// id is, and reports why not when it cannot: deferred code cannot move a
-// variable declared outside it, and a range loop cannot move a list it
-// walks, or anything holding one.
+// id is, and reports why not when it cannot: a union pattern's binding
+// is never moved, deferred code cannot move a variable declared outside
+// it, and a range loop cannot move a list it walks, or anything holding
+// one.
 func (m *mover) canMove(id *ast.Ident, v *ast.Var) bool {
+	if m.movesBinding(id) {
+		return false
+	}
 	if m.deferring && !m.deferLocals[v] {
 		m.errorNotes(id.Span, nil, "a defer cannot move %s, which is declared outside it", v.Name)
 		return false
@@ -632,8 +672,9 @@ func (m *mover) deferReadsOf(v *ast.Var, at ast.Span) {
 
 // rangeChange reports place, which the statement being followed changes
 // as what says, "assign", "pass mut" or "move", when a range loop around
-// it walks a list it is, or holds: a place it is a prefix of. It returns
-// whether it did.
+// it walks a list it is, or holds: a place it is a prefix of; or when a
+// clause of a switch on a union around it binds a payload of a place it
+// is, or holds, in place. It returns whether it did.
 func (m *mover) rangeChange(place ast.Expr, what string) bool {
 	for _, ranged := range m.ranging {
 		if !prefixOf(place, ranged) {
@@ -641,6 +682,15 @@ func (m *mover) rangeChange(place ast.Expr, what string) bool {
 		}
 		m.errorNotes(place.Spanned(), nil, "%s is being ranged over, so this loop cannot %s %s",
 			m.c.text(ranged.Spanned()), what, m.c.text(place.Spanned()))
+		return true
+	}
+	for _, mt := range m.matching {
+		if !prefixOf(place, mt.place) {
+			continue
+		}
+		m.errorNotes(place.Spanned(), nil,
+			"%s is being matched, and %s refers into it, so this case cannot %s %s",
+			m.c.text(mt.place.Spanned()), mt.bind.Name, what, m.c.text(place.Spanned()))
 		return true
 	}
 	return false
@@ -731,6 +781,16 @@ func (m *mover) temporary(e ast.Expr, ctx useCtx) {
 		m.c.typeName(typ))
 }
 
+// construction follows e, a union built of payload, nil for none, used in
+// ctx: an owned payload moves into it, as a struct literal's field's
+// value does, and a union of an owned type must have an owner.
+func (m *mover) construction(e, payload ast.Expr, ctx useCtx, cur *flow) {
+	if payload != nil {
+		m.expr(payload, m.ctxFor(ast.TypeOf(payload)), cur)
+	}
+	m.temporary(e, ctx)
+}
+
 // literal follows a composite literal used in ctx: an owned field's value
 // moves into it, and a literal of an owned type must have an owner.
 func (m *mover) literal(lit *ast.CompositeLit, ctx useCtx, cur *flow) {
@@ -752,27 +812,44 @@ func (m *mover) literal(lit *ast.CompositeLit, ctx useCtx, cur *flow) {
 }
 
 // switchStmt follows a switch from cur: its tag, then each case's values,
-// which a type switch's are types, and so read nothing, and body, every body starting from what is known after the tag, and
-// returns their join, with cur when no default runs a body.
+// which a type switch's are types, and a union switch's patterns, and so
+// read nothing, and body, every body starting from what is known after
+// the tag, and returns their join, with cur when no default, or every
+// case of a union, runs a body. A clause of a switch on a union that
+// binds a payload of a place, in place, is followed with the place being
+// matched (see rangeChange).
 func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
+	union := false
 	if s.Tag != nil {
 		m.expr(s.Tag, readCtx, &cur)
+		union = m.c.table.IsUnion(ast.TypeOf(s.Tag)) && !s.IsTypeSwitch()
 	}
 	out := dead()
-	hasDefault := false
 	for _, cl := range s.Cases {
 		for _, v := range cl.Values {
-			if !s.IsTypeSwitch() {
+			if !s.IsTypeSwitch() && !union {
 				m.expr(v, readCtx, &cur)
 			}
 		}
-		hasDefault = hasDefault || cl.Default
-		out = join(out, m.block(cl.Body, cur.clone()))
+		out = join(out, m.clause(s, cl, union, cur.clone()))
 	}
-	if !hasDefault {
+	if s.Default() == nil && !s.Exhaustive {
 		out = join(out, cur)
 	}
 	return out
+}
+
+// clause follows the body of cl, a case of s, from in, with the place s
+// switches on being matched while it runs when s is on a union, union,
+// and cl binds a payload of it in place.
+func (m *mover) clause(s *ast.Switch, cl *ast.CaseClause, union bool, in flow) flow {
+	bound := union && cl.Var != nil && m.c.unionBindings[cl.Var] && ast.Root(s.Tag) != nil
+	if !bound {
+		return m.block(cl.Body, in)
+	}
+	m.matching = append(m.matching, matched{place: s.Tag, bind: cl.Var})
+	defer func() { m.matching = m.matching[:len(m.matching)-1] }()
+	return m.block(cl.Body, in)
 }
 
 // forStmt follows a loop from cur: its init once, then its condition, body

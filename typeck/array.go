@@ -40,7 +40,11 @@ func (c *Checker) arrayType(a *ast.ArrayType) types.Type {
 func (c *Checker) arrayLength(e ast.Expr) (int64, bool) {
 	if c.inFields {
 		if v := firstVar(e); v != nil {
-			c.errorf(v.Span, "array length in a struct field must not name variable %s", v.Name)
+			where := "a struct field"
+			if c.inUnion {
+				where = "a union's case"
+			}
+			c.errorf(v.Span, "array length in %s must not name variable %s", where, v.Name)
 			return 0, false
 		}
 	}
@@ -393,8 +397,9 @@ func hasCall(e ast.Expr) bool {
 }
 
 // comparable reports whether values of type typ support == and !=: every
-// integer, bool and string, an array whose elements do, and a struct whose
-// fields all do, which a struct with none does.
+// integer, bool and string, an array whose elements do, a struct whose
+// fields all do, which a struct with none does, and a union whose
+// payloads all do, which a union with none does.
 func (c *Checker) comparable(typ types.Type) bool {
 	return c.comparableIn(typ, make(map[types.Type]bool))
 }
@@ -408,13 +413,13 @@ func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 		return true
 	case c.table.IsArray(typ):
 		return c.comparableIn(c.table.Elem(typ), seen)
-	case c.table.IsStruct(typ):
+	case c.table.IsStruct(typ), c.table.IsUnion(typ):
 		if seen[typ] {
 			return true
 		}
 		seen[typ] = true
-		for _, f := range c.table.Fields(typ) {
-			if !c.comparableIn(f.Type, seen) {
+		for _, part := range c.partTypes(typ) {
+			if !c.comparableIn(part, seen) {
 				return false
 			}
 		}
@@ -422,4 +427,19 @@ func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	default:
 		return false
 	}
+}
+
+// partTypes returns the types a struct's fields, or a union's payloads,
+// have, in order.
+func (c *Checker) partTypes(typ types.Type) []types.Type {
+	var parts []types.Type
+	for _, f := range c.table.Fields(typ) {
+		parts = append(parts, f.Type)
+	}
+	for _, uc := range c.table.Cases(typ) {
+		if uc.Payload {
+			parts = append(parts, uc.Type)
+		}
+	}
+	return parts
 }

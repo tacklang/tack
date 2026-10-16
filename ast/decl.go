@@ -214,12 +214,14 @@ func (i *Import) astNode() nodeKey { return _nodeKey }
 func (i *Import) Spanned() Span { return i.Span }
 
 // TypeDecl is a type declaration at package level: type Name struct { ...
-// }, which declares a struct type, or type Name interface { ... }, which
-// declares an interface. Other named types are not supported yet, so
-// TypeExpr is always a *StructType or an *InterfaceType (see Interface).
-// An interface is no type of the table, so its Type stays Invalid.
+// }, which declares a struct type, type Name interface { ... }, which
+// declares an interface, or type Name union { ... }, which declares a
+// union type. Other named types are not supported yet, so TypeExpr is
+// always a *StructType, an *InterfaceType (see Interface) or a
+// *UnionType (see Union). An interface is no type of the table, so its
+// Type stays Invalid.
 type TypeDecl struct {
-	TypeExpr Expr // the type as written, a *StructType or an *InterfaceType
+	TypeExpr Expr // the type as written, a *StructType, an *InterfaceType or a *UnionType
 
 	// Methods are the methods declared on the type, in program order, as
 	// the resolver records them: each one it accepted, whose receiver has

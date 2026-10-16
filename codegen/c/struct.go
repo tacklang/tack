@@ -10,10 +10,11 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// emitTypes defines a C struct for every array and struct type the program
-// uses, then the string comparison helper if the program compares strings,
-// directly or inside those types, then the equality helper of every one ==
-// compares. A type is
+// emitTypes defines a C struct for every array, struct and union type the
+// program uses, then the string comparison helper if the program compares
+// strings, directly or inside those types, then the equality helper of
+// every one == compares, then the free helper of every union holding a
+// list. A type is
 // defined after every type it holds, since C needs a member's type complete
 // before the struct that holds it; the checker has rejected a struct that
 // holds itself, so this order exists. Each type is then emitted in the
@@ -40,20 +41,26 @@ func (g *generator) emitTypes() {
 			g.emitEqualityOf(typ, emitted)
 		}
 	}
+	g.emitUnionFrees()
 }
 
-// isComposite reports whether typ is an array or a struct type, which
-// lowers to a C struct of its own.
+// isComposite reports whether typ is an array, a struct or a union type,
+// which lowers to a C struct of its own.
 func (g *generator) isComposite(typ types.Type) bool {
-	return g.prog.Types.IsArray(typ) || g.prog.Types.IsStruct(typ)
+	table := g.prog.Types
+	return table.IsArray(typ) || table.IsStruct(typ) || table.IsUnion(typ)
 }
 
 // parts returns the types a value of type typ is made of: an array's, a
-// view's or a list's element type, or a struct's field types, in order.
+// view's or a list's element type, a struct's field types, or a union's
+// payloads' types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
 	if table.IsArray(typ) || table.IsView(typ) || table.IsList(typ) {
 		return []types.Type{table.Elem(typ)}
+	}
+	if table.IsUnion(typ) {
+		return g.payloads(typ)
 	}
 	fields := table.Fields(typ)
 	out := make([]types.Type, len(fields))
@@ -63,7 +70,8 @@ func (g *generator) parts(typ types.Type) []types.Type {
 	return out
 }
 
-// emitTypeDef defines the C struct for typ, an array, a view, a list or a struct,
+// emitTypeDef defines the C struct for typ, an array, a view, a list, a
+// struct or a union,
 // after those of the types it is made of, unless defined says it has been already. typ is marked before
 // its parts are visited, so even a type that held itself could not loop.
 // error's struct, tack_error, is std's tack.h's, so it is never defined
@@ -78,19 +86,25 @@ func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	for _, part := range g.parts(typ) {
 		g.emitTypeDef(part, defined)
 	}
-	if table.IsView(typ) {
+	g.emitDef(typ)
+}
+
+// emitDef defines the C struct for typ, an array, a view, a list, a
+// struct or a union, whose parts are defined already.
+func (g *generator) emitDef(typ types.Type) {
+	table := g.prog.Types
+	switch {
+	case table.IsView(typ):
 		g.emitViewDef(typ)
-		return
-	}
-	if table.IsList(typ) {
+	case table.IsList(typ):
 		g.emitListDef(typ)
-		return
-	}
-	if g.prog.Types.IsArray(typ) {
+	case table.IsArray(typ):
 		g.emitArrayDef(typ)
-		return
+	case table.IsUnion(typ):
+		g.emitUnionDef(typ)
+	default:
+		g.emitStructDef(typ)
 	}
-	g.emitStructDef(typ)
 }
 
 // emitStructDef defines the C struct a Tack struct type lowers to: one
@@ -128,7 +142,7 @@ func (g *generator) comparedTypes() map[types.Type]bool {
 		if bin, ok := n.(*ast.Binary); ok && (bin.Op == ast.Eq || bin.Op == ast.Ne) {
 			mark(ast.TypeOf(bin.X))
 		}
-		if typ, ok := switchCompares(n); ok {
+		if typ, ok := switchCompares(n); ok && !g.isUnionSwitch(n.(*ast.Switch)) {
 			mark(typ)
 		}
 		return true
@@ -149,6 +163,10 @@ func (g *generator) emitEqualityOf(typ types.Type, emitted map[types.Type]bool) 
 	}
 	if g.prog.Types.IsArray(typ) {
 		g.emitArrayEquality(typ)
+		return
+	}
+	if g.prog.Types.IsUnion(typ) {
+		g.emitUnionEquality(typ)
 		return
 	}
 	g.emitStructEquality(typ)
@@ -261,8 +279,12 @@ func keyName(kv *ast.KeyValue, isKV bool) (*ast.Ident, bool) {
 
 // selectorExpr renders a field read, x.f_name. x is parenthesized unless it
 // is a name, an element, a field or a call, which C's postfix operators
-// already bind.
+// already bind. A union built of a case with no payload, Expr.eof, is a
+// compound literal of the union (see constructionValue).
 func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) {
+	if _, _, _, built := ast.Construction(sel); built {
+		return g.constructionValue(sel)
+	}
 	base, diags := g.expr(sel.X, types.Invalid)
 	if len(diags) > 0 {
 		return "", diags
@@ -286,10 +308,8 @@ func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) 
 // code 0 and an empty message, noerror, whose message has no string in
 // the pool to point at.
 func (g *generator) constOf(typ types.Type, c any) (string, bool) {
-	if _, isAlloc := c.(*ast.CAllocatorLit); isAlloc {
-		// TACK_C_ALLOCATOR's value, written as an initializer, which a
-		// static variable needs instead of std's compound literal.
-		return "{0, 0}", true
+	if rendered, ok, special := g.specialConst(typ, c); special {
+		return rendered, ok
 	}
 	values, isList := c.([]any)
 	if !isList || !g.isComposite(typ) {
@@ -318,6 +338,22 @@ func (g *generator) constOf(typ types.Type, c any) (string, bool) {
 		out[i] = rendered
 	}
 	return fmt.Sprintf(layout, strings.Join(out, ", ")), true
+}
+
+// specialConst renders c, the computed value of a static variable of type
+// typ, when it is c_allocator's, TACK_C_ALLOCATOR's value written as an
+// initializer, which a static variable needs instead of std's compound
+// literal, or a union's (see unionConst), and reports whether it was one.
+func (g *generator) specialConst(typ types.Type, c any) (rendered string, ok, special bool) {
+	switch v := c.(type) {
+	case *ast.CAllocatorLit:
+		return "{0, 0}", true, true
+	case ast.UnionConst:
+		rendered, ok = g.unionConst(typ, v)
+		return rendered, ok, true
+	default:
+		return "", false, false
+	}
 }
 
 // zeroed reports whether values, the computed elements or fields of a

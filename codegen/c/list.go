@@ -291,11 +291,15 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 
 // frees returns the C statements, each ending in a semicolon, that free
 // the value of the owned type typ held at the place ref: a list's buffer,
-// through its allocator, or each list a struct holds, last field first,
-// at any depth. Each is a call, an expression, so they can be joined into
+// through its allocator, each list a struct holds, last field first, at
+// any depth, or what the case a union holds holds, through its tack_free_
+// (see union.go). Each is a call, an expression, so they can be joined into
 // a loop's post statement.
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
+	if table.IsUnion(typ) {
+		return []string{fmt.Sprintf("%s(%s);", freeName(typ), ref)}
+	}
 	if table.IsList(typ) {
 		elem := g.cType(table.Elem(typ))
 		return []string{fmt.Sprintf(
