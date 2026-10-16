@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"math"
+	"slices"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
@@ -408,7 +409,14 @@ func fitting(v constant.Int, ok bool) func(typ types.Type) (constant.Int, bool) 
 // is known. A left side that decides the value on its own, && false or
 // || true, runs nothing after it, and the right side's own facts come
 // after every part of the condition that runs.
+//
+// The facts of the last && or || binary checked are kept (see joinFacts),
+// and asked about that binary, factsFrom returns a copy of them rather
+// than walking its left side again.
 func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
+	if facts, ok := c.chain.of(cond, holds); ok {
+		return facts
+	}
 	switch x := cond.(type) {
 	case *ast.Ident:
 		return c.boolFact(x, holds)
@@ -417,17 +425,57 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 			return c.factsFrom(x.X, !holds)
 		}
 	case *ast.Binary:
-		switch {
-		case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
-			left := c.dropAssigned(c.factsFrom(x.X, holds), []ast.Node{x.Y})
-			return append(left, c.factsFrom(x.Y, holds)...)
-		case x.Op == ast.And, x.Op == ast.Or:
-			return from(union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)), x)
-		case x.Op.IsComparison():
-			return c.comparisonFact(x, holds)
-		}
+		return c.binaryFacts(x, holds)
 	}
 	return nil
+}
+
+// binaryFacts returns the facts x, a binary condition, gives when its
+// value is holds, as factsFrom does: a comparison's, both sides' of an &&
+// that holds or an || that does not, the left side's dropped where the
+// right side assigns their variables, or what either side's allow, of an
+// && that does not hold or an || that does.
+func (c *Checker) binaryFacts(x *ast.Binary, holds bool) []fact {
+	switch {
+	case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
+		left := c.dropAssigned(c.factsFrom(x.X, holds), []ast.Node{x.Y})
+		return append(left, c.factsFrom(x.Y, holds)...)
+	case x.Op == ast.And, x.Op == ast.Or:
+		return from(union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)), x)
+	case x.Op.IsComparison():
+		return c.comparisonFact(x, holds)
+	}
+	return nil
+}
+
+// chainFacts is the facts of one && or || binary, as factsFrom gives them
+// when its value is the one that lets its right side run, true for && and
+// false for ||. They are the facts of its left side, each dropped where
+// its right side assigns its variable, then its right side's.
+type chainFacts struct {
+	bin   *ast.Binary
+	facts []fact
+}
+
+// of returns a copy of the facts held, when they are cond's when its
+// value is holds, and whether they are.
+func (ch chainFacts) of(cond ast.Expr, holds bool) ([]fact, bool) {
+	if ch.bin == nil || cond != ch.bin || (ch.bin.Op == ast.And) != holds {
+		return nil, false
+	}
+	return slices.Clone(ch.facts), true
+}
+
+// joinFacts records the facts of bin, a checked && or || binary, whose
+// left side gives left, as chainFacts holds them: left, each dropped
+// where bin's right side assigns its variable, then the right side's
+// facts. factsFrom gives the same for bin, by walking its left side
+// again; a chain of n operators would walk n of them at each one.
+func (c *Checker) joinFacts(bin *ast.Binary, left []fact) {
+	holds := bin.Op == ast.And
+	joined := c.dropAssigned(slices.Clone(left), []ast.Node{bin.Y})
+	joined = append(joined, c.factsFrom(bin.Y, holds)...)
+	c.chain = chainFacts{bin: bin, facts: joined}
 }
 
 // boolFact returns the fact a bool variable, id, tested on its own as a

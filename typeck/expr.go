@@ -370,11 +370,15 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 		// result: after a true left side for &&, a false one for ||. What
 		// the left side says holds in the right side only while nothing
 		// in the right side assigns it.
+		// The left side's facts are recorded once it is checked, when it
+		// is an operator too (see joinFacts).
 		m := c.mark()
 		left := &guard{cond: bin.X, span: bin.X.Spanned(), kind: guardCond}
-		c.assume(left, c.factsFrom(bin.X, bin.Op == ast.And), []ast.Node{bin.Y})
+		facts := c.factsFrom(bin.X, bin.Op == ast.And)
+		c.assume(left, facts, []ast.Node{bin.Y})
 		y = c.expr(bin.Y)
 		c.release(m)
+		c.joinFacts(bin, facts)
 	} else {
 		y = c.expr(bin.Y)
 	}

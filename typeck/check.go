@@ -66,6 +66,12 @@ type Checker struct {
 	// mut arguments of its value (see checkAssignBorrows).
 	assigning *pendingAssign
 
+	// chain holds the facts of the last && or || binary checks, as
+	// factsFrom gives them for the result that lets its right side run,
+	// so that one an operator above it joins is found once, not again at
+	// every operator of a long chain (see chainFacts).
+	chain chainFacts
+
 	globals map[*ast.Var]bool // the package-level variables
 
 	// globalState says how far each package-level variable's check has

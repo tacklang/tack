@@ -151,7 +151,9 @@
 // region is everything that can run between the comparison that gave the
 // fact and the use: the rest of its condition (factsFrom drops a left
 // side's fact that the right side assigns, and the right side of && and
-// || is the region of the left side's facts), the branch that falls
+// || is the region of the left side's facts; the facts of each && or ||
+// are found once, as it is checked, and joined by the operator above it,
+// so a long chain is not walked again at every operator), the branch that falls
 // through past an early exit, a later value of a case and every later
 // case's values, every value tried since a switch's tag was evaluated, for
 // a fact about the tag, and, for a counting loop's start, the loop's

@@ -1,7 +1,9 @@
 package typeck_test
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tacklang/tack/types"
 )
@@ -149,6 +151,46 @@ func TestRejectsInvalidLogicalGlobals(t *testing.T) {
 			_, diags := checkTree(t, src)
 			if len(diags) != 1 || diags[0].Message != tt.want {
 				t.Errorf("got %v, want %q", diags, tt.want)
+			}
+		})
+	}
+}
+
+// chainProgram returns a program whose f tests an if condition of n terms
+// joined by op: first d != 0 for &&, or d == 0 for ||, whose fact every
+// later n / d needs, then, in turn, a comparison of n, whose fact holds to
+// the end, so the facts in force grow with the chain, a comparison of k,
+// a call passing k as mut, which ends every fact about k, and a division
+// by d.
+func chainProgram(op string, n int) string {
+	first, kept, test, call, divide := "d != 0", "n >= 0", "k < 100", "bump(mut k)", "n / d >= 0"
+	if op == "||" {
+		first, kept, test, call, divide = "d == 0", "n < 0", "k > 100", "!bump(mut k)", "n / d < 0"
+	}
+	terms := make([]string, 0, n)
+	terms = append(terms, first)
+	for i := 1; i < n; i++ {
+		terms = append(terms, []string{kept, test, call, divide}[i%4])
+	}
+	return "package main\n\nfunc bump(mut k int64) bool {\n    k += 1\n    return true\n}\n\n" +
+		"func f(n int64, d int64, mut k int64) int64 {\n    if " + strings.Join(terms, " "+op+" ") +
+		" {\n        return 1\n    }\n    return 0\n}\n\nfunc main() {\n}\n"
+}
+
+// TestLongLogicalChainsCheckQuickly checks that conditions of thousands
+// of terms joined by && or ||, each carrying the facts of the terms before
+// it into the next, some of them ended by a mut argument, stay fast:
+// each term's facts are found once, not again at every operator above it.
+func TestLongLogicalChainsCheckQuickly(t *testing.T) {
+	for _, op := range []string{"&&", "||"} {
+		t.Run(op, func(t *testing.T) {
+			src := chainProgram(op, 4000)
+			start := time.Now()
+			if _, diags := checkTree(t, src); len(diags) > 0 {
+				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+			}
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Errorf("checking took %v", elapsed)
 			}
 		})
 	}
