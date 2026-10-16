@@ -12,8 +12,8 @@ package bytes
 // equal, index, index_byte, has_prefix, has_suffix and count, take
 // []uint8 views, so a list[uint8], an array or a slice of either, or a
 // string's bytes, []uint8(s), can be passed, and return an index, a count
-// or a bool: a view cannot be returned or stored, so none returns part of
-// its input. They allocate nothing and cannot fail.
+// or a bool, never a view of part of their input. They allocate nothing
+// and cannot fail.
 //
 // The append functions, append_int, append_uint and append_hex, format
 // an integer into the end of the caller's list, passed as mut b, and

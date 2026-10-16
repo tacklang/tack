@@ -65,7 +65,16 @@ func buildWithStdAndC(t *testing.T, src, csrc string, flags ...string) string {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
 	}
-	prog := compileWithStd(t, src)
+	return buildProgram(t, compileWithStd(t, src), csrc, flags...)
+}
+
+// buildProgram builds prog, a program the front end accepted, as
+// buildWithStdAndC builds its source: the generated C, csrc, when not
+// empty, and the C files of every package of prog, each named relative to
+// the repository's root, against the program's tack.h, with std/builtin's
+// C. It returns the binary's path.
+func buildProgram(t *testing.T, prog *ast.Program, csrc string, flags ...string) string {
+	t.Helper()
 	out, diags := c.New().Generate(prog, stdtest.MustBuiltins())
 	if len(diags) > 0 {
 		t.Fatalf("generate reported %+v", diags)

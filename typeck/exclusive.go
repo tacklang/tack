@@ -22,7 +22,9 @@ import (
 // never sees it change. A list is the exception: it is never copied for a
 // call, so an argument that reads one in place, borrowed or viewed, while
 // the same call passes an overlapping place as mut, is an error (see
-// checkListBorrows).
+// checkListBorrows), and so is a view a call returns, read in place,
+// alongside a mut argument that may overlap what it may point into (see
+// checkViewBorrows).
 
 // overlap says how two places relate.
 type overlap int
@@ -228,7 +230,10 @@ func (known interval) single() bool {
 // reads. Places overlap as codegen/c's mayOverlap says: two different
 // fields never do, and two elements always may. A value append adds is
 // no borrow: it is copied, or moved, out of the place it is read from.
+// An argument that is a view a call returns is checked by
+// checkViewBorrows, first.
 func (c *Checker) checkListBorrows(call *ast.Call) {
+	c.checkViewBorrows(call)
 	var muts []*ast.MutArg
 	for _, arg := range call.Operands() {
 		ast.Walk(arg, func(n ast.Node) bool {

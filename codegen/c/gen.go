@@ -918,7 +918,9 @@ func (g *generator) generateReturn(ret *ast.Return, fn *ast.Func) ([]string, []d
 
 // returnValue renders the value a return gives, as one C expression: its
 // one value, a compound literal of fn's results struct holding several, or
-// "" for a bare return.
+// "" for a bare return. A view result is rendered as viewArg renders a
+// view argument, a list or an array as a view of its elements in place,
+// never copied.
 func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.Diagnostic) {
 	if len(ret.Values) == 0 {
 		return "", nil
@@ -926,7 +928,15 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 
 	values := make([]string, len(ret.Values))
 	for i, v := range ret.Values {
-		value, diags := g.expr(v, fn.ResultTypes[i])
+		var (
+			value string
+			diags []diag.Diagnostic
+		)
+		if g.prog.Types.IsView(fn.ResultTypes[i]) {
+			value, diags = g.viewArg(v, fn.ResultTypes[i], nil)
+		} else {
+			value, diags = g.expr(v, fn.ResultTypes[i])
+		}
 		if len(diags) > 0 {
 			return "", diags
 		}
@@ -1858,9 +1868,10 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 		)
 }
 
-// zeroValue is the C expression for a type's zero value, or, for a list or
-// an Allocator, which have none in Tack, the zeroed value the ret variable
-// of a function returning one starts as, which it never returns. The empty string
+// zeroValue is the C expression for a type's zero value, or, for a list,
+// an Allocator or a view, which have none in Tack, the zeroed value the
+// ret variable of a function returning one starts as, which it never
+// returns. The empty string
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer. An array or a struct is zeroed in full, so a string
 // in it starts with a null pointer and a length of 0, which print's C body
@@ -1868,8 +1879,8 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 // of range, is a zeroed tack_any: type id 0, TACK_TYPE_INVALID, which
 // holds nothing, and a null pointer, never read.
 func (g *generator) zeroValue(typ types.Type) string {
-	if g.isComposite(typ) || g.prog.Types.IsList(typ) || typ == types.Allocator ||
-		typ == types.Any {
+	if g.isComposite(typ) || g.prog.Types.IsList(typ) || g.prog.Types.IsView(typ) ||
+		typ == types.Allocator || typ == types.Any {
 		return fmt.Sprintf("(%s){0}", g.cType(typ))
 	}
 	switch typ {

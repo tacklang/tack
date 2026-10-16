@@ -180,7 +180,7 @@ var variadicErrorCases = []struct{ name, src, want string }{
 	{
 		"stored",
 		"package main\n\nfunc f(n ...int64) {\n    x := n\n    f(x...)\n}\n\nfunc main() {\n}\n",
-		"cannot declare x as []int64; a view can only be the type of a parameter",
+		"cannot declare x as []int64; a view can only be the type of a parameter or of a result",
 	},
 	{
 		"index unproven",

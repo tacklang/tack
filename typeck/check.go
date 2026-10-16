@@ -54,6 +54,13 @@ type Checker struct {
 	// slices. A slice of an array or a view anywhere else is reported.
 	viewSlice *ast.Slice
 
+	// viewCall is the call about to be checked where a view it returns
+	// may be: anywhere viewSlice may be, and also what an index indexes,
+	// what a range ranges over, and the value of a return from a function
+	// that returns a view. A call returning a view anywhere else is
+	// reported (see viewresult.go).
+	viewCall *ast.Call
+
 	globals map[*ast.Var]bool // the package-level variables
 
 	// globalState says how far each package-level variable's check has
@@ -362,10 +369,14 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 			c.unusedValue(s.X)
 			return
 		}
+		before := len(c.diags)
 		c.droppedCall, _ = s.X.(*ast.Call)
 		c.discard(s.X)
 		c.droppedCall = nil
 		c.droppedError(s.X)
+		if len(c.diags) == before {
+			c.droppedView(s.X)
+		}
 	case *ast.Var:
 		c.checkVar(s)
 	case *ast.Assign:
@@ -793,8 +804,10 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 // variable the count's type; or over an array, a view, a list or a string, which
 // gives the index an int64 and the element the array's or view's element
 // type, or a string's byte, a uint8. An integer gives only one value, so an element variable
-// over one is reported.
+// over one is reported. What it ranges over may be a call returning a
+// view.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
+	c.allowViewCall(loop.X)
 	got := c.valueOf(loop.X, c.expr(loop.X))
 	index, elem := c.rangeTypes(loop, got)
 	if loop.Var != nil {
@@ -966,9 +979,10 @@ func (c *Checker) checkVar(v *ast.Var) {
 		if c.table.IsView(v.Type) {
 			c.errorf(
 				v.NameSpan,
-				"cannot declare %s as %s; a view can only be the type of a parameter",
+				"cannot declare %s as %s; %s",
 				v.Name,
 				c.typeName(v.Type),
+				viewPlaces,
 			)
 			v.Type = types.Invalid
 		}
@@ -1603,8 +1617,8 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 // does not know and returning types.Invalid for it. A name denotes a basic
 // type, or the struct type the resolver bound it to, and list[T] a list
 // type. A view type and any
-// are reported, since only a parameter may have one; paramType gives a
-// parameter's.
+// are reported, since only a parameter may have one, or, for a view, a
+// result; paramType gives a parameter's and resultType a result's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
 	switch t := expr.(type) {
 	case *ast.ArrayType:
@@ -1698,12 +1712,17 @@ func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 }
 
 // checkResults checks that a return carries one value for each result fn
-// declares, each usable as that result's type. A wrong count is one error,
-// and then no value is compared with a result.
+// declares, each usable as that result's type, a view result's as
+// returnView says. A wrong count is one error, and then no value is
+// compared with a result.
 func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 	got, want := len(ret.Values), len(fn.Results)
 	if got == want {
 		for i, v := range ret.Values {
+			if c.table.IsView(fn.ResultTypes[i]) {
+				c.returnView(v, fn.ResultTypes[i], fn)
+				continue
+			}
 			c.use(v, c.expr(v), fn.ResultTypes[i], "in return from "+c.displayName(fn))
 		}
 		return
@@ -1744,18 +1763,20 @@ func spanOf(exprs []ast.Expr) ast.Span {
 	return span
 }
 
-// resolveResultTypes records what each declared result type denotes. A
-// result whose type is unknown keeps types.Invalid, as a parameter does.
+// resolveResultTypes records what each declared result type denotes, a
+// view included when it is the only one (see resultType). A result whose
+// type is unknown keeps types.Invalid, as a parameter does.
 func (c *Checker) resolveResultTypes(fn *ast.Func) {
 	fn.ResultTypes = make([]types.Type, len(fn.Results))
 	for i, result := range fn.Results {
-		fn.ResultTypes[i] = c.declaredType(result)
+		fn.ResultTypes[i] = c.resultType(result, len(fn.Results), externName(fn))
 	}
 	c.checkErrorLast(fn)
 }
 
 // resolveParamTypes records what each declared parameter type denotes, a
-// view included, which only a parameter may have (see paramType). A
+// view included, which only a parameter or a result may have (see
+// paramType). A
 // parameter whose type is unknown keeps types.Invalid, which every later check
 // reports rather than silently accepting.
 func (c *Checker) resolveParamTypes(fn *ast.Func) {

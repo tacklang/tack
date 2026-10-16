@@ -168,8 +168,10 @@ func (c *Checker) arrayElem(e ast.Expr, elem types.Type) {
 	c.use(e, c.expr(e), elem, "in array literal")
 }
 
-// index checks an element read as a value, x[i], and returns its type.
+// index checks an element read as a value, x[i], and returns its type. x
+// may be a call returning a view.
 func (c *Checker) index(ix *ast.Index) types.Type {
+	c.allowViewCall(ix.X)
 	ix.Type = c.element(ix, c.expr(ix.X), false)
 	return ix.Type
 }
@@ -253,15 +255,27 @@ func (c *Checker) constantInRange(v constant.Int, n int64) bool {
 // one exists, when ok is always true; a constant index out of range, which
 // always fails, is reported by element. It copies the element, so an
 // element of an owned type, which is only ever read in place, is
-// reported, with the guard that lets it be used where it is; and an
-// element of another type with no zero value, an Allocator or an array or
-// struct holding one, has nothing to give when out of range, and is
-// reported.
+// reported, with the guard that lets it be used where it is, or, for a
+// view a call returns, whose elements no guard proves, the range that
+// does; and an element of another type with no zero value, an Allocator
+// or an array or struct holding one, has nothing to give when out of
+// range, and is reported.
 func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.Type, bool) {
 	c.checkedIndex = ix
 	elem := c.expr(ix)
 	c.checkedIndex = nil
 	if elem == types.Invalid {
+		return nil, false
+	}
+	if c.table.Owned(elem) && c.isViewCall(ix.X) {
+		c.errorf(
+			span,
+			"the checked form cannot read an element of type %s: it would copy it out of %s; "+
+				"range over %s to use its elements in place",
+			c.typeName(elem),
+			c.text(ix.X.Spanned()),
+			c.text(ix.X.Spanned()),
+		)
 		return nil, false
 	}
 	if c.table.Owned(elem) {
@@ -379,7 +393,7 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 	}
 
 	arg := call.Args[0]
-	c.allowViewSlice(arg)
+	c.allowView(arg)
 	got := c.expr(arg)
 	switch {
 	case got == types.Invalid:

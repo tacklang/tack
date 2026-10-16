@@ -1,9 +1,10 @@
 package main
 
-// Read-only views, []T. A view is a parameter only: an array of any length
-// passes to it as it is, and a string's bytes through []uint8(s). Inside,
-// a view has len, indexing with a proof or the checked form, range, and
-// being passed on to another view parameter.
+// Read-only views, []T. A view is a parameter, here: an array of any
+// length passes to it as it is, and a string's bytes through []uint8(s).
+// Inside, a view has len, indexing with a proof or the checked form,
+// range, and being passed on to another view parameter. A view may also
+// be a result, which examples/view-results shows.
 
 type Point struct {
     x int64

@@ -58,11 +58,16 @@ func (c *Checker) slice(s *ast.Slice) types.Type {
 	return s.Type
 }
 
-// allowViewSlice marks e, when it is a slice, as written where a view may
-// be, so that checking it does not report it as a view out of place.
-func (c *Checker) allowViewSlice(e ast.Expr) {
-	if s, ok := e.(*ast.Slice); ok {
-		c.viewSlice = s
+// allowView marks e, when it is a slice or a call, as written where a
+// view may be, so that checking it does not report it as a view out of
+// place: a slice of an array, a view or a list, or a call that returns a
+// view (see viewCallValue).
+func (c *Checker) allowView(e ast.Expr) {
+	switch x := e.(type) {
+	case *ast.Slice:
+		c.viewSlice = x
+	case *ast.Call:
+		c.viewCall = x
 	}
 }
 
@@ -73,9 +78,9 @@ func (c *Checker) allowViewSlice(e ast.Expr) {
 // types.Invalid. What s slices may itself be a slice, which s then takes
 // as len would.
 func (c *Checker) sliceType(s *ast.Slice) types.Type {
-	c.allowViewSlice(s.X)
+	c.allowView(s.X)
 	base := c.valueOf(s.X, c.expr(s.X))
-	c.viewSlice = nil
+	c.viewSlice, c.viewCall = nil, nil
 	loOK, hiOK := c.sliceBound(s.Lo), c.sliceBound(s.Hi)
 	var typ types.Type
 	switch {

@@ -23373,7 +23373,7 @@ func main() {
 stage: typeck
 ---
 
-union-view-payload/main.tck:4:7: error: a view can only be the type of a parameter
+union-view-payload/main.tck:4:7: error: a view can only be the type of a parameter or of a result
 03 |	type U union {
 04 |	    v []int64
    |	      ^~~~~~~
@@ -24924,7 +24924,7 @@ func main() {
 stage: typeck
 ---
 
-variadic-store/main.tck:4:5: error: cannot declare x as []int64; a view can only be the type of a parameter
+variadic-store/main.tck:4:5: error: cannot declare x as []int64; a view can only be the type of a parameter or of a result
 03 |	func f(nums ...int64) {
 04 |	    x := nums
    |	    ^
@@ -25154,7 +25154,7 @@ func main() {
 stage: typeck
 ---
 
-view-array-element/main.tck:3:16: error: a view can only be the type of a parameter
+view-array-element/main.tck:3:16: error: a view can only be the type of a parameter or of a result
 02 |	
 03 |	func f(rows [2][]int64) {
    |	               ^~~~~~~
@@ -25388,7 +25388,7 @@ func main() {
 stage: typeck
 ---
 
-view-extern-result/main.tck:3:17: error: a view can only be the type of a parameter
+view-extern-result/main.tck:3:17: error: extern func f cannot return a view: nothing tells the checker what C's view points into
 02 |	
 03 |	extern func f() []int64
    |	                ^~~~~~~
@@ -25409,7 +25409,7 @@ func main() {
 stage: typeck
 ---
 
-view-field/main.tck:4:11: error: a view can only be the type of a parameter
+view-field/main.tck:4:11: error: a view can only be the type of a parameter or of a result
 03 |	type T struct {
 04 |	    items []int64
    |	          ^~~~~~~
@@ -25427,7 +25427,7 @@ func main() {
 stage: typeck
 ---
 
-view-global/main.tck:3:7: error: a view can only be the type of a parameter
+view-global/main.tck:3:7: error: a view can only be the type of a parameter or of a result
 02 |	
 03 |	mut g []int64
    |	      ^~~~~~~
@@ -25511,7 +25511,7 @@ func main() {
 stage: typeck
 ---
 
-view-local/main.tck:4:5: error: cannot declare x as []int64; a view can only be the type of a parameter
+view-local/main.tck:4:5: error: cannot declare x as []int64; a view can only be the type of a parameter or of a result
 03 |	func f(v []int64) {
 04 |	    x := v
    |	    ^
@@ -25531,7 +25531,7 @@ func main() {
 stage: typeck
 ---
 
-view-local-type/main.tck:4:11: error: a view can only be the type of a parameter
+view-local-type/main.tck:4:11: error: a view can only be the type of a parameter or of a result
 03 |	func f(v []int64) {
 04 |	    var x []int64 = v
    |	          ^~~~~~~
@@ -25548,7 +25548,7 @@ func main() {
 stage: typeck
 ---
 
-view-local-zero-value/main.tck:4:11: error: a view can only be the type of a parameter
+view-local-zero-value/main.tck:4:11: error: a view can only be the type of a parameter or of a result
 03 |	func main() {
 04 |	    mut a []int64
    |	          ^~~~~~~
@@ -25677,24 +25677,1712 @@ view-print/main.tck:4:11: error: cannot use []uint8 as string in argument to pri
    |	          ^
 05 |	}
 
--- view-result/main.tck --
+-- view-result-any/main.tck --
 package main
 
-func f(v []int64) []int64 {
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func show(a any) {
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    show(t.bytes())
+}
+-- view-result-any/expected --
+stage: typeck
+---
+
+view-result-any/main.tck:16:10: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+15 |	    t := Text{b: make(list[uint8], c_allocator)}
+16 |	    show(t.bytes())
+   |	         ^~~~~~~~~
+17 |	}
+
+-- view-result-array-field/main.tck --
+package main
+
+type Cell struct {
+    pix [4]uint8
+}
+
+func (c Cell) pixels() []uint8 {
+    return c.pix[1:]
+}
+
+func main() {
+
+}
+-- view-result-array-field/expected --
+stage: typeck
+---
+
+view-result-array-field/main.tck:8:12: error: cannot return a view of c.pix[1:]: the function holds its own copy of c, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+07 |	func (c Cell) pixels() []uint8 {
+08 |	    return c.pix[1:]
+   |	           ^~~~~~~~~
+09 |	}
+
+-- view-result-array-in-array/main.tck --
+package main
+
+type Cell struct {
+    rows [2][4]uint8
+}
+
+func (c Cell) row(i int64, none []uint8) []uint8 {
+    if i >= 0 && i < 2 {
+        return c.rows[i]
+    }
+    return none
+}
+
+func main() {
+
+}
+-- view-result-array-in-array/expected --
+stage: typeck
+---
+
+view-result-array-in-array/main.tck:9:16: error: cannot return a view of c.rows[i]: the function holds its own copy of c, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+08 |	    if i >= 0 && i < 2 {
+09 |	        return c.rows[i]
+   |	               ^~~~~~~~~
+10 |	    }
+
+-- view-result-array-param/main.tck --
+package main
+
+func f(a [3]uint8) []uint8 {
+    return a
+}
+
+func main() {
+
+}
+-- view-result-array-param/expected --
+stage: typeck
+---
+
+view-result-array-param/main.tck:4:12: error: cannot return a view of a: the function holds its own copy of a, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+03 |	func f(a [3]uint8) []uint8 {
+04 |	    return a
+   |	           ^
+05 |	}
+
+-- view-result-assign/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f(v []uint8) {
+    v = whole(v)
+}
+
+func main() {
+
+}
+-- view-result-assign/expected --
+stage: typeck
+---
+
+view-result-assign/main.tck:8:9: error: whole(v) is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+07 |	func f(v []uint8) {
+08 |	    v = whole(v)
+   |	        ^~~~~~~~
+09 |	}
+
+view-result-assign/main.tck:8:5: error: cannot assign to v: v is a read-only view
+07 |	func f(v []uint8) {
+08 |	    v = whole(v)
+   |	    ^
+09 |	}
+
+-- view-result-bad-element/main.tck --
+package main
+
+func f(v []uint8) []nothing {
     return v
 }
 
 func main() {
+
 }
--- view-result/expected --
+-- view-result-bad-element/expected --
 stage: typeck
 ---
 
-view-result/main.tck:3:19: error: a view can only be the type of a parameter
+view-result-bad-element/main.tck:3:21: error: unknown type: nothing
 02 |	
-03 |	func f(v []int64) []int64 {
-   |	                  ^~~~~~~
+03 |	func f(v []uint8) []nothing {
+   |	                    ^~~~~~~
 04 |	    return v
+
+-- view-result-call-array-param/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f(a [3]uint8) []uint8 {
+    return whole(a)
+}
+
+func main() {
+
+}
+-- view-result-call-array-param/expected --
+stage: typeck
+---
+
+view-result-call-array-param/main.tck:8:12: error: cannot return whole(a): the view it returns may point into a, and the function holds its own copy of a, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+07 |	func f(a [3]uint8) []uint8 {
+08 |	    return whole(a)
+   |	           ^~~~~~~~
+09 |	}
+
+-- view-result-call-local/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f() []uint8 {
+    a := [3]uint8{1, 2, 3}
+    return whole(a[1:])
+}
+
+func main() {
+
+}
+-- view-result-call-local/expected --
+stage: typeck
+---
+
+view-result-call-local/main.tck:9:12: error: cannot return whole(a[1:]): the view it returns may point into a, and a is a local variable; a returned view can only point into what a parameter that is not mut holds
+08 |	    a := [3]uint8{1, 2, 3}
+09 |	    return whole(a[1:])
+   |	           ^~~~~~~~~~~~
+10 |	}
+
+-- view-result-call-local-receiver/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f() []uint8 {
+    t := Text{b: make(list[uint8], c_allocator)}
+    return t.bytes()
+}
+
+func main() {
+
+}
+-- view-result-call-local-receiver/expected --
+stage: typeck
+---
+
+view-result-call-local-receiver/main.tck:13:12: error: cannot return t.bytes(): the view it returns may point into t, and t is a local variable; a returned view can only point into what a parameter that is not mut holds
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    return t.bytes()
+   |	           ^~~~~~~~~
+14 |	}
+
+-- view-result-call-mut/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f(mut t Text) []uint8 {
+    return t.bytes()
+}
+
+func main() {
+
+}
+-- view-result-call-mut/expected --
+stage: typeck
+---
+
+view-result-call-mut/main.tck:12:12: error: cannot return t.bytes(): the view it returns may point into t, and t is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+11 |	func f(mut t Text) []uint8 {
+12 |	    return t.bytes()
+   |	           ^~~~~~~~~
+13 |	}
+
+-- view-result-call-packed/main.tck --
+package main
+
+func all(xs ...uint8) []uint8 {
+    return xs
+}
+
+func f() []uint8 {
+    return all(1, 2)
+}
+
+func main() {
+
+}
+-- view-result-call-packed/expected --
+stage: typeck
+---
+
+view-result-call-packed/main.tck:8:12: error: cannot return all(1, 2): the view it returns may point into the values for xs, and they are packed into a temporary; a returned view can only point into what a parameter that is not mut holds
+07 |	func f() []uint8 {
+08 |	    return all(1, 2)
+   |	           ^~~~~~~~~
+09 |	}
+
+-- view-result-call-string/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f(s string) []uint8 {
+    return whole([]uint8(s))
+}
+
+func main() {
+
+}
+-- view-result-call-string/expected --
+stage: typeck
+---
+
+view-result-call-string/main.tck:8:12: error: cannot return whole([]uint8(s)): the view it returns may point into []uint8(s), and it is a string's bytes; a returned view can only point into what a parameter that is not mut holds
+07 |	func f(s string) []uint8 {
+08 |	    return whole([]uint8(s))
+   |	           ^~~~~~~~~~~~~~~~~
+09 |	}
+
+-- view-result-checked-slice/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func use(v []uint8) int64 {
+    return len(v)
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    s, ok := t.bytes()[1:]
+    if ok && len(s) > 0 {
+    }
+}
+-- view-result-checked-slice/expected --
+stage: typeck
+---
+
+view-result-checked-slice/main.tck:17:14: error: t.bytes()[1:] is a view, []uint8, which cannot be bound with ok; prove its bounds instead
+16 |	    t := Text{b: make(list[uint8], c_allocator)}
+17 |	    s, ok := t.bytes()[1:]
+   |	             ^~~~~~~~~~~~~
+18 |	    if ok && len(s) > 0 {
+
+-- view-result-compare/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    if t.bytes() == t.bytes() {
+    }
+}
+-- view-result-compare/expected --
+stage: typeck
+---
+
+view-result-compare/main.tck:13:8: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    if t.bytes() == t.bytes() {
+   |	       ^~~~~~~~~
+14 |	    }
+
+view-result-compare/main.tck:13:21: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    if t.bytes() == t.bytes() {
+   |	                    ^~~~~~~~~
+14 |	    }
+
+-- view-result-convert/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    s := string(t.bytes())
+    print(s)
+}
+-- view-result-convert/expected --
+stage: typeck
+---
+
+view-result-convert/main.tck:13:17: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    s := string(t.bytes())
+   |	                ^~~~~~~~~
+14 |	    print(s)
+
+-- view-result-declare/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    b := t.bytes()
+    if len(b) == 0 {
+    }
+}
+-- view-result-declare/expected --
+stage: typeck
+---
+
+view-result-declare/main.tck:13:10: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    b := t.bytes()
+   |	         ^~~~~~~~~
+14 |	    if len(b) == 0 {
+
+-- view-result-defer-return/main.tck --
+package main
+
+func f(v []uint8) []uint8 {
+    defer {
+        return v
+    }
+    return v
+}
+
+func main() {
+
+}
+-- view-result-defer-return/expected --
+stage: typeck
+---
+
+view-result-defer-return/main.tck:5:9: error: cannot return from a defer
+04 |	    defer {
+05 |	        return v
+   |	        ^~~~~~~~
+06 |	    }
+
+-- view-result-element-write/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    t.bytes()[0] = 1
+}
+-- view-result-element-write/expected --
+stage: parse
+---
+
+view-result-element-write/main.tck:13:5: error: expected 'statement' found 't'
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    t.bytes()[0] = 1
+   |	    ^
+14 |	}
+
+-- view-result-field/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+type Holder struct {
+    b list[uint8]
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    h := Holder{b: t.bytes()}
+    if len(h.b) == 0 {
+    }
+}
+-- view-result-field/expected --
+stage: typeck
+---
+
+view-result-field/main.tck:17:20: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+16 |	    t := Text{b: make(list[uint8], c_allocator)}
+17 |	    h := Holder{b: t.bytes()}
+   |	                   ^~~~~~~~~
+18 |	    if len(h.b) == 0 {
+
+-- view-result-generic-mut/main.tck --
+package main
+
+type Bytes interface {
+    bytes() []uint8
+}
+
+func f[T Bytes](mut x T) []uint8 {
+    return x.bytes()
+}
+
+func main() {
+
+}
+-- view-result-generic-mut/expected --
+stage: typeck
+---
+
+view-result-generic-mut/main.tck:8:12: error: cannot return x.bytes(): the view it returns may point into x, and x is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+07 |	func f[T Bytes](mut x T) []uint8 {
+08 |	    return x.bytes()
+   |	           ^~~~~~~~~
+09 |	}
+
+-- view-result-global/main.tck --
+package main
+
+var g = [2]uint8{1, 2}
+
+func f() []uint8 {
+    return g
+}
+
+func main() {
+
+}
+-- view-result-global/expected --
+stage: typeck
+---
+
+view-result-global/main.tck:6:12: error: cannot return a view of g: g is a global; a returned view can only point into what a parameter that is not mut holds
+05 |	func f() []uint8 {
+06 |	    return g
+   |	           ^
+07 |	}
+
+-- view-result-interface-several/main.tck --
+package main
+
+type Viewer interface {
+    view() (int64, []uint8)
+}
+
+func main() {
+
+}
+-- view-result-interface-several/expected --
+stage: typeck
+---
+
+view-result-interface-several/main.tck:4:20: error: a view can only be a function's only result
+03 |	type Viewer interface {
+04 |	    view() (int64, []uint8)
+   |	                   ^~~~~~~
+05 |	}
+
+-- view-result-local-array/main.tck --
+package main
+
+func f() []uint8 {
+    a := [3]uint8{1, 2, 3}
+    return a
+}
+
+func main() {
+
+}
+-- view-result-local-array/expected --
+stage: typeck
+---
+
+view-result-local-array/main.tck:5:12: error: cannot return a view of a: a is a local variable; a returned view can only point into what a parameter that is not mut holds
+04 |	    a := [3]uint8{1, 2, 3}
+05 |	    return a
+   |	           ^
+06 |	}
+
+-- view-result-local-generic/main.tck --
+package main
+
+type Bytes interface {
+    bytes() []uint8
+}
+
+func f[T Bytes](x T) []uint8 {
+    y := x
+    return y.bytes()
+}
+
+func main() {
+
+}
+-- view-result-local-generic/expected --
+stage: typeck
+---
+
+view-result-local-generic/main.tck:9:12: error: cannot return y.bytes(): the view it returns may point into y, and y is a local variable; a returned view can only point into what a parameter that is not mut holds
+08 |	    y := x
+09 |	    return y.bytes()
+   |	           ^~~~~~~~~
+10 |	}
+
+-- view-result-local-list/main.tck --
+package main
+
+func f() []uint8 {
+    l := make(list[uint8], c_allocator)
+    return l
+}
+
+func main() {
+
+}
+-- view-result-local-list/expected --
+stage: typeck
+---
+
+view-result-local-list/main.tck:5:12: error: cannot return a view of l: l is a local variable; a returned view can only point into what a parameter that is not mut holds
+04 |	    l := make(list[uint8], c_allocator)
+05 |	    return l
+   |	           ^
+06 |	}
+
+-- view-result-local-slice/main.tck --
+package main
+
+func f() []uint8 {
+    mut a [4]uint8
+    return a[1:]
+}
+
+func main() {
+
+}
+-- view-result-local-slice/expected --
+stage: typeck
+---
+
+view-result-local-slice/main.tck:5:12: error: cannot return a view of a[1:]: a is a local variable; a returned view can only point into what a parameter that is not mut holds
+04 |	    mut a [4]uint8
+05 |	    return a[1:]
+   |	           ^~~~~
+06 |	}
+
+-- view-result-mismatch/main.tck --
+package main
+
+func f(v []int64) []uint8 {
+    return v
+}
+
+func main() {
+
+}
+-- view-result-mismatch/expected --
+stage: typeck
+---
+
+view-result-mismatch/main.tck:4:12: error: cannot use []int64 as []uint8 in return from f
+03 |	func f(v []int64) []uint8 {
+04 |	    return v
+   |	           ^
+05 |	}
+
+-- view-result-mut-arg/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func clear(mut l list[uint8]) {
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    clear(mut t.bytes())
+}
+-- view-result-mut-arg/expected --
+stage: typeck
+---
+
+view-result-mut-arg/main.tck:16:11: error: Text.bytes does not take its receiver as mut; call t.bytes()
+15 |	    t := Text{b: make(list[uint8], c_allocator)}
+16 |	    clear(mut t.bytes())
+   |	          ^~~~~
+17 |	}
+
+view-result-mut-arg/main.tck:16:11: error: mut t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+15 |	    t := Text{b: make(list[uint8], c_allocator)}
+16 |	    clear(mut t.bytes())
+   |	          ^~~~~~~~~~~~~
+17 |	}
+
+view-result-mut-arg/main.tck:16:11: error: clear takes l as mut; only a variable, a field or an element can be passed as mut
+15 |	    t := Text{b: make(list[uint8], c_allocator)}
+16 |	    clear(mut t.bytes())
+   |	          ^~~~~~~~~~~~~
+17 |	}
+
+-- view-result-mut-param/main.tck --
+package main
+
+func f(mut l list[uint8]) []uint8 {
+    return l
+}
+
+func main() {
+
+}
+-- view-result-mut-param/expected --
+stage: typeck
+---
+
+view-result-mut-param/main.tck:4:12: error: cannot return a view of l: l is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+03 |	func f(mut l list[uint8]) []uint8 {
+04 |	    return l
+   |	           ^
+05 |	}
+
+-- view-result-mut-receiver/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func (mut t Text) all() []uint8 {
+    return t.b[0:]
+}
+
+func main() {
+
+}
+-- view-result-mut-receiver/expected --
+stage: typeck
+---
+
+view-result-mut-receiver/main.tck:12:12: error: cannot return a view of t.b[0:]: t is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+11 |	func (mut t Text) all() []uint8 {
+12 |	    return t.b[0:]
+   |	           ^~~~~~~
+13 |	}
+
+-- view-result-non-view-func/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f(t Text) int64 {
+    return t.bytes()
+}
+
+func main() {
+
+}
+-- view-result-non-view-func/expected --
+stage: typeck
+---
+
+view-result-non-view-func/main.tck:12:12: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+11 |	func f(t Text) int64 {
+12 |	    return t.bytes()
+   |	           ^~~~~~~~~
+13 |	}
+
+-- view-result-of-views/main.tck --
+package main
+
+func f(v []uint8) [][]uint8 {
+    return v
+}
+
+func main() {
+
+}
+-- view-result-of-views/expected --
+stage: typeck
+---
+
+view-result-of-views/main.tck:3:19: error: the element type of a view cannot be a view
+02 |	
+03 |	func f(v []uint8) [][]uint8 {
+   |	                  ^~~~~~~~~
+04 |	    return v
+
+-- view-result-overlap-after/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f(v []uint8, mut t Text) {
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    f(t.bytes(), mut t)
+}
+-- view-result-overlap-after/expected --
+stage: typeck
+---
+
+view-result-overlap-after/main.tck:16:7: error: cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(t.bytes(), mut t)
+   |	      ^~~~~~~~~
+17 |	}
+view-result-overlap-after/main.tck:16:18: note: passed as mut here
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(t.bytes(), mut t)
+   |	                 ^~~~~
+17 |	}
+
+-- view-result-overlap-append/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    err := append(mut t.b, t.bytes()...)
+    exit(err.code)
+}
+-- view-result-overlap-append/expected --
+stage: typeck
+---
+
+view-result-overlap-append/main.tck:13:28: error: cannot pass t.bytes() alongside mut t.b in this call: the view it returns may point into t, and a mut argument must be the only way to reach t.b during the call
+12 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+13 |	    err := append(mut t.b, t.bytes()...)
+   |	                           ^~~~~~~~~
+14 |	    exit(err.code)
+view-result-overlap-append/main.tck:13:19: note: passed as mut here
+12 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+13 |	    err := append(mut t.b, t.bytes()...)
+   |	                  ^~~~~~~
+14 |	    exit(err.code)
+
+-- view-result-overlap-array/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f(v []uint8, mut a [3]uint8) {
+}
+
+func main() {
+    mut a := [3]uint8{1, 2, 3}
+    f(whole(a), mut a)
+}
+-- view-result-overlap-array/expected --
+stage: typeck
+---
+
+view-result-overlap-array/main.tck:12:7: error: cannot pass whole(a) alongside mut a in this call: the view it returns may point into a, and a mut argument must be the only way to reach a during the call
+11 |	    mut a := [3]uint8{1, 2, 3}
+12 |	    f(whole(a), mut a)
+   |	      ^~~~~~~~
+13 |	}
+view-result-overlap-array/main.tck:12:17: note: passed as mut here
+11 |	    mut a := [3]uint8{1, 2, 3}
+12 |	    f(whole(a), mut a)
+   |	                ^~~~~
+13 |	}
+
+-- view-result-overlap-before/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f(mut t Text, v []uint8) {
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    f(mut t, t.bytes())
+}
+-- view-result-overlap-before/expected --
+stage: typeck
+---
+
+view-result-overlap-before/main.tck:16:14: error: cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(mut t, t.bytes())
+   |	             ^~~~~~~~~
+17 |	}
+view-result-overlap-before/main.tck:16:7: note: passed as mut here
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(mut t, t.bytes())
+   |	      ^~~~~
+17 |	}
+
+-- view-result-overlap-field/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+type Pair struct {
+    a Text
+    b Text
+}
+
+func f(v []uint8, mut l list[uint8]) {
+}
+
+func main() {
+    mut p := Pair{a: Text{b: make(list[uint8], c_allocator)}, b: Text{b: make(list[uint8], c_allocator)}}
+    f(p.a.bytes(), mut p.b.b)
+    f(p.a.bytes(), mut p.a.b)
+}
+-- view-result-overlap-field/expected --
+stage: typeck
+---
+
+view-result-overlap-field/main.tck:22:7: error: cannot pass p.a.bytes() alongside mut p.a.b in this call: the view it returns may point into p.a, and a mut argument must be the only way to reach p.a.b during the call
+21 |	    f(p.a.bytes(), mut p.b.b)
+22 |	    f(p.a.bytes(), mut p.a.b)
+   |	      ^~~~~~~~~~~
+23 |	}
+view-result-overlap-field/main.tck:22:20: note: passed as mut here
+21 |	    f(p.a.bytes(), mut p.b.b)
+22 |	    f(p.a.bytes(), mut p.a.b)
+   |	                   ^~~~~~~~~
+23 |	}
+
+-- view-result-overlap-nested/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func f(v []uint8, n int64) {
+}
+
+func touch(mut t Text) int64 {
+    return 0
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    f(whole(t.bytes()), touch(mut t))
+}
+-- view-result-overlap-nested/expected --
+stage: typeck
+---
+
+view-result-overlap-nested/main.tck:24:7: error: cannot pass whole(t.bytes()) alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+23 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+24 |	    f(whole(t.bytes()), touch(mut t))
+   |	      ^~~~~~~~~~~~~~~~
+25 |	}
+view-result-overlap-nested/main.tck:24:31: note: passed as mut here
+23 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+24 |	    f(whole(t.bytes()), touch(mut t))
+   |	                              ^~~~~
+25 |	}
+
+-- view-result-overlap-receiver/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func (mut t Text) add(v []uint8) error {
+    return append(mut t.b, v...)
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    err := mut t.add(t.bytes())
+    exit(err.code)
+}
+-- view-result-overlap-receiver/expected --
+stage: typeck
+---
+
+view-result-overlap-receiver/main.tck:17:22: error: cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+16 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+17 |	    err := mut t.add(t.bytes())
+   |	                     ^~~~~~~~~
+18 |	    exit(err.code)
+view-result-overlap-receiver/main.tck:17:12: note: passed as mut here
+16 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+17 |	    err := mut t.add(t.bytes())
+   |	           ^~~~~
+18 |	    exit(err.code)
+
+-- view-result-overlap-variadic/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func f(mut t Text, xs ...uint8) {
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    f(mut t, t.bytes()...)
+}
+-- view-result-overlap-variadic/expected --
+stage: typeck
+---
+
+view-result-overlap-variadic/main.tck:16:14: error: cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(mut t, t.bytes()...)
+   |	             ^~~~~~~~~
+17 |	}
+view-result-overlap-variadic/main.tck:16:7: note: passed as mut here
+15 |	    mut t := Text{b: make(list[uint8], c_allocator)}
+16 |	    f(mut t, t.bytes()...)
+   |	      ^~~~~
+17 |	}
+
+-- view-result-owned-checked/main.tck --
+package main
+
+type Words struct {
+    all list[list[uint8]]
+}
+
+func (w Words) view() []list[uint8] {
+    return w.all
+}
+
+func main() {
+    w := Words{all: make(list[list[uint8]], c_allocator)}
+    x, ok := w.view()[0]
+    if ok && len(x) > 0 {
+    }
+}
+-- view-result-owned-checked/expected --
+stage: typeck
+---
+
+view-result-owned-checked/main.tck:13:5: error: the checked form cannot read an element of type list[uint8]: it would copy it out of w.view(); range over w.view() to use its elements in place
+12 |	    w := Words{all: make(list[list[uint8]], c_allocator)}
+13 |	    x, ok := w.view()[0]
+   |	    ^~~~~~~~~~~~~~~~~~~~
+14 |	    if ok && len(x) > 0 {
+
+-- view-result-print/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    print(t.bytes())
+}
+-- view-result-print/expected --
+stage: typeck
+---
+
+view-result-print/main.tck:13:11: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    print(t.bytes())
+   |	          ^~~~~~~~~
+14 |	}
+
+-- view-result-range-assign/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    for _, c := range t.bytes() {
+        t.b = make(list[uint8], c_allocator)
+        exit(c)
+    }
+}
+-- view-result-range-assign/expected --
+stage: typeck
+---
+
+view-result-range-assign/main.tck:14:9: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot assign t.b
+13 |	    for _, c := range t.bytes() {
+14 |	        t.b = make(list[uint8], c_allocator)
+   |	        ^~~
+15 |	        exit(c)
+
+-- view-result-range-assign-whole/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    for range t.bytes() {
+        t = Text{b: make(list[uint8], c_allocator)}
+    }
+}
+-- view-result-range-assign-whole/expected --
+stage: typeck
+---
+
+view-result-range-assign-whole/main.tck:14:9: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot assign t
+13 |	    for range t.bytes() {
+14 |	        t = Text{b: make(list[uint8], c_allocator)}
+   |	        ^
+15 |	    }
+
+-- view-result-range-binding/main.tck --
+package main
+
+func first(words list[list[uint8]], none []uint8) []uint8 {
+    for _, w := range words {
+        return w
+    }
+    return none
+}
+
+func main() {
+
+}
+-- view-result-range-binding/expected --
+stage: typeck
+---
+
+view-result-range-binding/main.tck:5:16: error: cannot return a view of w: w is a local variable; a returned view can only point into what a parameter that is not mut holds
+04 |	    for _, w := range words {
+05 |	        return w
+   |	               ^
+06 |	    }
+
+-- view-result-range-defer/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func (mut t Text) push(c uint8) error {
+    return append(mut t.b, c)
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    for _, c := range t.bytes() {
+        defer {
+            err := mut t.push(c)
+            exit(err.code)
+        }
+    }
+}
+-- view-result-range-defer/expected --
+stage: typeck
+---
+
+view-result-range-defer/main.tck:19:24: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot pass mut t
+18 |	        defer {
+19 |	            err := mut t.push(c)
+   |	                       ^
+20 |	            exit(err.code)
+
+-- view-result-range-element/main.tck --
+package main
+
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+func main() {
+    mut a := [3]uint8{1, 2, 3}
+    for _, x := range whole(a) {
+        a[0] = x
+    }
+}
+-- view-result-range-element/expected --
+stage: typeck
+---
+
+view-result-range-element/main.tck:10:9: error: whole(a) is being ranged over, and the view it returns may point into a, so this loop cannot assign a[0]
+09 |	    for _, x := range whole(a) {
+10 |	        a[0] = x
+   |	        ^~~~
+11 |	    }
+
+-- view-result-range-move/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    for range t.bytes() {
+        u := t
+        if len(u.b) == 0 {
+        }
+    }
+}
+-- view-result-range-move/expected --
+stage: typeck
+---
+
+view-result-range-move/main.tck:14:14: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot move t
+13 |	    for range t.bytes() {
+14 |	        u := t
+   |	             ^
+15 |	        if len(u.b) == 0 {
+
+-- view-result-range-mut/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func (mut t Text) push(c uint8) error {
+    return append(mut t.b, c)
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    for _, c := range t.bytes() {
+        err := mut t.push(c)
+        exit(err.code)
+    }
+}
+-- view-result-range-mut/expected --
+stage: typeck
+---
+
+view-result-range-mut/main.tck:18:20: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot pass mut t
+17 |	    for _, c := range t.bytes() {
+18 |	        err := mut t.push(c)
+   |	                   ^
+19 |	        exit(err.code)
+
+-- view-result-range-other/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func (mut t Text) push(c uint8) error {
+    return append(mut t.b, c)
+}
+
+type Pair struct {
+    a Text
+    b Text
+}
+
+func main() {
+    mut p := Pair{a: Text{b: make(list[uint8], c_allocator)}, b: Text{b: make(list[uint8], c_allocator)}}
+    for _, c := range p.a.bytes() {
+        err := mut p.b.push(c)
+        err2 := mut p.a.push(c)
+        exit(err.code + err2.code)
+    }
+}
+-- view-result-range-other/expected --
+stage: typeck
+---
+
+view-result-range-other/main.tck:24:21: error: p.a.bytes() is being ranged over, and the view it returns may point into p.a, so this loop cannot pass mut p.a
+23 |	        err := mut p.b.push(c)
+24 |	        err2 := mut p.a.push(c)
+   |	                    ^~~
+25 |	        exit(err.code + err2.code)
+
+-- view-result-range-slice/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    for _, c := range t.bytes()[0:] {
+        exit(c)
+    }
+}
+-- view-result-range-slice/expected --
+stage: typeck
+---
+
+view-result-range-slice/main.tck:13:23: error: t.bytes()[0:] is a view, []uint8, which can only be passed to a view parameter or to len
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    for _, c := range t.bytes()[0:] {
+   |	                      ^~~~~~~~~~~~~
+14 |	        exit(c)
+
+-- view-result-several/main.tck --
+package main
+
+func f(v []uint8) ([]uint8, error) {
+    return v, noerror
+}
+
+func main() {
+
+}
+-- view-result-several/expected --
+stage: typeck
+---
+
+view-result-several/main.tck:3:20: error: a view can only be a function's only result
+02 |	
+03 |	func f(v []uint8) ([]uint8, error) {
+   |	                   ^~~~~~~
+04 |	    return v, noerror
+
+-- view-result-statement/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    t.bytes()
+}
+-- view-result-statement/expected --
+stage: typeck
+---
+
+view-result-statement/main.tck:13:5: error: t.bytes() is not used
+12 |	    t := Text{b: make(list[uint8], c_allocator)}
+13 |	    t.bytes()
+   |	    ^~~~~~~~~
+14 |	}
+
+-- view-result-string/main.tck --
+package main
+
+func f(s string) []uint8 {
+    return s
+}
+
+func main() {
+
+}
+-- view-result-string/expected --
+stage: typeck
+---
+
+view-result-string/main.tck:4:12: error: cannot return string s as []uint8: a returned view cannot point into a string's bytes
+03 |	func f(s string) []uint8 {
+04 |	    return s
+   |	           ^
+05 |	}
+
+-- view-result-string-bytes/main.tck --
+package main
+
+func f(s string) []uint8 {
+    return []uint8(s)
+}
+
+func main() {
+
+}
+-- view-result-string-bytes/expected --
+stage: typeck
+---
+
+view-result-string-bytes/main.tck:4:12: error: cannot return []uint8(s): a returned view cannot point into a string's bytes
+03 |	func f(s string) []uint8 {
+04 |	    return []uint8(s)
+   |	           ^~~~~~~~~~
+05 |	}
+
+-- view-result-temporary-array/main.tck --
+package main
+
+func f() []uint8 {
+    return [2]uint8{1, 2}
+}
+
+func main() {
+
+}
+-- view-result-temporary-array/expected --
+stage: typeck
+---
+
+view-result-temporary-array/main.tck:4:12: error: cannot return a view of [2]uint8{1, 2}: it is a temporary; a returned view can only point into what a parameter that is not mut holds
+03 |	func f() []uint8 {
+04 |	    return [2]uint8{1, 2}
+   |	           ^~~~~~~~~~~~~~
+05 |	}
+
+-- view-result-temporary-list/main.tck --
+package main
+
+func make_list() list[uint8] {
+    return make(list[uint8], c_allocator)
+}
+
+func f() []uint8 {
+    return make_list()
+}
+
+func main() {
+
+}
+-- view-result-temporary-list/expected --
+stage: typeck
+---
+
+view-result-temporary-list/main.tck:8:12: error: cannot return a view of make_list(): it is a temporary; a returned view can only point into what a parameter that is not mut holds
+07 |	func f() []uint8 {
+08 |	    return make_list()
+   |	           ^~~~~~~~~~~
+09 |	}
+
+-- view-result-temporary-receiver/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func text() Text {
+    return Text{b: make(list[uint8], c_allocator)}
+}
+
+func use(v []uint8) int64 {
+    return len(v)
+}
+
+func main() {
+    if use(text().bytes()) == 0 {
+    }
+}
+-- view-result-temporary-receiver/expected --
+stage: typeck
+---
+
+view-result-temporary-receiver/main.tck:20:12: error: cannot use a temporary Text here; store it in a variable first
+19 |	func main() {
+20 |	    if use(text().bytes()) == 0 {
+   |	           ^~~~~~
+21 |	    }
+
+-- view-result-truncated/main.tck --
+package main
+
+func f(v []uint8) []
+-- view-result-truncated/expected --
+stage: parse
+---
+
+view-result-truncated/main.tck:3:21: error: expected 'type name' found ';'
+02 |	
+03 |	func f(v []uint8) []
+   |	                    ^
+
+-- view-result-truncated/no-final-newline --
+-- view-result-truncated-call/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    exit(len(t.bytes(
+}
+-- view-result-truncated-call/expected --
+stage: parse
+---
+
+view-result-truncated-call/main.tck:14:1: error: expected 'value' found '}'
+13 |	    exit(len(t.bytes(
+14 |	}
+   |	^
+15 |	
+
+-- view-result-type-param/main.tck --
+package main
+
+type Sized interface {
+    size() int64
+}
+
+func f[T Sized](x T, v []uint8) []T {
+    return v
+}
+
+func main() {
+
+}
+-- view-result-type-param/expected --
+stage: typeck
+---
+
+view-result-type-param/main.tck:7:33: error: a view cannot hold T: a view's element cannot be a type parameter
+06 |	
+07 |	func f[T Sized](x T, v []uint8) []T {
+   |	                                ^~~
+08 |	    return v
+
+-- view-result-unchecked-index/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    if len(t.bytes()) > 0 {
+        exit(t.bytes()[0])
+    }
+}
+-- view-result-unchecked-index/expected --
+stage: typeck
+---
+
+view-result-unchecked-index/main.tck:14:24: error: index 0 may be out of range; use v, ok := ...[0]
+13 |	    if len(t.bytes()) > 0 {
+14 |	        exit(t.bytes()[0])
+   |	                       ^
+15 |	    }
+
+-- view-result-union-binding/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    num int64
+}
+
+func (t Tok) text(none []uint8) []uint8 {
+    switch t {
+    case word(w):
+        return w
+    case num:
+        return none
+    }
+}
+
+func main() {
+
+}
+-- view-result-union-binding/expected --
+stage: typeck
+---
+
+view-result-union-binding/main.tck:11:16: error: cannot return a view of w: w is a local variable; a returned view can only point into what a parameter that is not mut holds
+10 |	    case word(w):
+11 |	        return w
+   |	               ^
+12 |	    case num:
+
+-- view-result-unproven-slice/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func use(v []uint8) int64 {
+    return len(v)
+}
+
+func main() {
+    t := Text{b: make(list[uint8], c_allocator)}
+    if use(t.bytes()[1:]) == 0 {
+    }
+}
+-- view-result-unproven-slice/expected --
+stage: typeck
+---
+
+view-result-unproven-slice/main.tck:17:22: error: slice bound 1 may be out of range
+16 |	    t := Text{b: make(list[uint8], c_allocator)}
+17 |	    if use(t.bytes()[1:]) == 0 {
+   |	                     ^~
+18 |	    }
 
 -- view-string-without-conversion/main.tck --
 package main

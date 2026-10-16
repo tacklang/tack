@@ -599,11 +599,12 @@ makes for itself, which has a letter after `tack_`.
   i, x := range v`, whose index is proven for `v`; and slicing, `v[i:j]`,
   passed on (see slicing). Nothing else: no `==`,
   `operator == is not defined on []int64`, no conversion, no printing. A
-  view is the type of a parameter only: anywhere else, a local, a field, a
-  result, a global or an array's element, it is `a view can only be the
-  type of a parameter`, a variable declared from one, `x := v`, is `cannot
-  declare x as []int64; a view can only be the type of a parameter`, and
-  a view of views is `the element type of a view cannot be a view`. Its
+  view is the type of a parameter or of a result only (see view results):
+  anywhere else, a local, a field, a global or an array's element, it is
+  `a view can only be the type of a parameter or of a result`, a variable
+  declared from one, `x := v`, is `cannot declare x as []int64; a view
+  can only be the type of a parameter or of a result`, and a view of
+  views is `the element type of a view cannot be a view`. Its
   element type may be owned, `[]list[uint8]`, whose elements it reads in
   place as a list does its own (see lists), though not a type
   parameter, `a view cannot hold S: a view's element cannot be a type
@@ -621,6 +622,59 @@ makes for itself, which has a letter after `tack_`.
   which C gets as a pointer and a length (see extern C). A variadic
   parameter is a view too, and a view is passed on to one with a spread,
   `f(v...)` (see variadics).
+- View results. A function or a method may return a view, when it is its
+  only result: `pub func (t Text) bytes() []uint8 { return t.b }` lets
+  another package read a `Text`'s bytes in place, with no `pub` field and
+  no copy. It may return only what its caller passed it and it does not
+  change: a view parameter, a list or an array that is a parameter that
+  is not `mut`, or a field or an element of one, a slice of any of these,
+  `return v[1:]`, or a call returning a view whose arguments are all such
+  places, `return rest(v)` or `return t.bytes()`. An array is returned
+  only when it is reached through an element of a list or a view, which
+  the caller holds: a plain parameter is its function's own copy, so
+  `return a` of an array parameter `a`, or of an array field of a plain
+  parameter, is `cannot return a view of a: the function holds its own
+  copy of a, and so of the array, which ends when it returns; an array is
+  returned as a view only when it is reached through an element of a list
+  or a view`. Anything else is `cannot return a view of l: l is a local
+  variable; a returned view can only point into what a parameter that is
+  not mut holds`, and likewise `g is a global`, `t is a mut parameter`, a
+  `mut` receiver included, and `it is a temporary`; a string's bytes are
+  `cannot return []uint8(s): a returned view cannot point into a string's
+  bytes`; and a call whose view may point into such a place is `cannot
+  return whole(a): the view it returns may point into a, and a is a local
+  variable; ...`, values a variadic call packs included. A view among
+  several results is `a view can only be a function's only result`, an
+  extern func's view result is `extern func f cannot return a view:
+  nothing tells the checker what C's view points into`, and a view of a
+  type parameter is reported as for a parameter. An interface's method may
+  return a view, and a generic function may return the one a type
+  parameter's method returns. The view a call returns is second-class: it
+  is used only inside the expression that consumes it, passed to a view
+  parameter, a variadic one by a spread and an extern func's included,
+  `bytes.equal(t.bytes(), b)`, given to `len`, indexed with the checked
+  form, `c, ok := t.bytes()[i]`, sliced, ranged over, `for i, c := range
+  t.bytes()`, or returned on from a function returning a view. An index
+  without `ok`, or a slice past `[:]` and `[0:0]`, is never proven, since
+  no fact is about a call: `index 0 may be out of range; use v, ok :=
+  ...[0]`. Anywhere else, stored, assigned, compared, converted, printed,
+  passed as `any` or as a field's value, it is `t.bytes() is a view,
+  []uint8, which can only be passed to a view parameter, given to len,
+  indexed, sliced, ranged over or returned`, and dropped as a statement it
+  is `t.bytes() is not used`. The view may point into every argument of
+  its call that is not `mut` and holds data, a list, an array, a struct,
+  a union, a type parameter's value or a view, the receiver included, and
+  reads them in place, as a list borrowed by a plain argument is: a call
+  passing it alongside, at any depth, a `mut` argument that may overlap
+  one of them is `cannot pass t.bytes() alongside mut t in this call: the
+  view it returns may point into t, and a mut argument must be the only
+  way to reach t during the call`, and a range over it cannot change any
+  of them while it runs, `t.bytes() is being ranged over, and the view it
+  returns may point into t, so this loop cannot pass mut t`, nor assign,
+  move or pass as `mut` anything inside them or holding them, a defer in
+  the loop's body included. In C a view result is the view's struct,
+  `tack_view_<T>`, returned by value: a pointer into the caller's data and
+  a length, with nothing copied or freed.
 - Variadics. A function's last parameter may be written `args ...T`, as
   in `func sum(label string, nums ...int64) int64`, and then takes zero or
   more values. Inside the function it is a read-only view, `[]T`, under
@@ -680,9 +734,10 @@ makes for itself, which has a letter after `tack_`.
   the call, and a mutable global is copied too. `args ...any` is a
   variadic of them, a read-only `[]any` under every view rule (see
   variadics), and a view parameter may be `[]any`. `any` is second-class,
-  as a view is: written as the type of anything but a parameter, or a
-  variadic's or view parameter's element, a local's, a field's, a
-  global's, a result's or an array's element's, it is `any can only be the
+  as a view is, and more: unlike a view it is never a result. Written as
+  the type of anything but a parameter, or a variadic's or view
+  parameter's element, a local's, a field's, a global's, a result's or an
+  array's element's, it is `any can only be the
   type of a parameter`, `var b any = a` included. An immutable local may
   still hold one, declared from an `any` with its type left out: `b := a`,
   `v, ok := args[0]`, `for _, v := range args`, and a type switch's `v`
@@ -1468,7 +1523,11 @@ makes for itself, which has a letter after `tack_`.
   `mut` argument it ends the facts about its place. Leaving `mut` out for
   a `mut` receiver is `Builder.write takes its receiver as mut; call mut
   b.write(s)`, and writing it for a plain one is `Builder.len does not
-  take its receiver as mut; call b.len()`. The receiver is evaluated
+  take its receiver as mut; call b.len()`. A method may return a view of
+  what a plain receiver holds, `func (t Text) bytes() []uint8 { return
+  t.b }`, under the rules of view results, so another package reads it
+  without a `pub` field; a `mut` receiver's is `cannot return a view of
+  t.b: t is a mut parameter; ...`. The receiver is evaluated
   first, then the arguments, left to right. A method's name is in its
   type's namespace: it may share one with a function, a global, `main` or
   a builtin, as `func (b Builder) len() int64` and `func (mut b Builder)
@@ -1810,7 +1869,8 @@ makes for itself, which has a letter after `tack_`.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
   `unsafe_size_t` and `unsafe_uintptr_t`, `string`, `bool` and `error`, arrays,
-  views and `any`, which only a parameter may have, the structs and
+  views, which only a parameter or a result may have, and `any`, which
+  only a parameter may have, the structs and
   unions a program declares, and, within a generic function, its type
   parameters.
   There is no
@@ -1911,9 +1971,10 @@ makes for itself, which has a letter after `tack_`.
   of its element type, under the rules for views: it can only be passed
   to a view parameter, `sum(a[1:3])`, an extern func's included, spread
   into a variadic one, `total(a[1:3]...)`, given to `len`, or sliced
-  again; anywhere else, stored, returned, indexed, ranged
-  over or compared, it is `a[1:3] is a view, []int64, which can only be
-  passed to a view parameter or to len`. An array must be a place, as for a
+  again, or returned from a function returning a view (see view
+  results); anywhere else, stored, indexed, ranged over or compared, it is
+  `a[1:3] is a view, []int64, which can only be passed to a view parameter
+  or to len`. An array must be a place, as for a
   view: `f()[1:]` is `cannot slice a temporary array; store it in a variable
   first`, and so is a list, `cannot slice a temporary list; store it in a
   variable first`; a known bound never fits a list whose length is

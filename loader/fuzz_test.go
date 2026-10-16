@@ -121,6 +121,18 @@ var loadSeeds = []string{
 		"mut s := S{vs: make(list[V], c_allocator), n: len(y)}\ne4 := append(mut s.vs, V.items(y), V.none)\n" +
 		"for _, v := range s.vs { switch v {\ncase items(is):\ns.n += len(is)\ncase none:\n} }\n" +
 		"if e.code != 0 || e2.code != 0 || e4.code != 0 || total(ls) != 0 { exit(1) } }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport t from \"m/t\"\n" +
+		"func rest(v []uint8) []uint8 { if len(v) == 0 { return v }\nreturn v[1:] }\n" +
+		"type B interface { Bytes() []uint8 }\nfunc show[T B](x T) []uint8 { return x.Bytes() }\n" +
+		"func main() { mut x, err := t.Of(\"ab\")\nif err.code != 0 { return }\n" +
+		"c, ok := x.Bytes()[1]\nmut n := len(rest(x.Bytes())) + len(show(x))\n" +
+		"for _, b := range x.Bytes() { n += b }\ne := mut x.Push(c)\n" +
+		"if !ok || n == 0 || e.code != 0 { exit(1) } }\n" +
+		"\x00t/t.tck\npackage t\npub type T struct { b list[uint8] }\n" +
+		"pub func Of(s string) (T, error) { mut b := make(list[uint8], c_allocator)\n" +
+		"err := append(mut b, []uint8(s)...)\nreturn T{b: b}, err }\n" +
+		"pub func (t T) Bytes() []uint8 { return t.b }\n" +
+		"pub func (mut t T) Push(c uint8) error { return append(mut t.b, c) }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

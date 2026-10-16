@@ -108,8 +108,12 @@ func literalType(e ast.Expr) types.Type {
 // view parameter may take (see viewArg). len, make and append give their
 // values (see genericCall). A call to a function that returns nothing, or
 // several values, has no one value to give and is reported. A function
-// whose one result type is unknown was reported where it is declared.
+// whose one result type is unknown was reported where it is declared. A
+// view a function returns is allowed only where viewCall marks the call
+// (see viewCallValue).
 func (c *Checker) callValue(call *ast.Call) types.Type {
+	viewOK := c.viewCall == call
+	c.viewCall = nil
 	if _, _, _, built := ast.Construction(call); built {
 		return c.construction(call)
 	}
@@ -130,7 +134,7 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 	}
 	fn := ast.Callee(call)
 	if results := ast.CallResults(call); fn != nil && len(results) == 1 {
-		return results[0]
+		return c.viewCallValue(call, results[0], viewOK)
 	}
 	c.errorf(call.Spanned(), "%s", notOneValue(fn, name))
 	return types.Invalid

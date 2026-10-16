@@ -126,9 +126,11 @@ with `divmod`.
 Every Tack type crosses the boundary, in both directions, by value, with
 the layout the generated C gives it, which is what `tack.h` defines. A
 `mut` parameter is the one exception: it crosses as a pointer to the
-caller's variable. A view, `[]T`, is a parameter only, so it crosses only
-into C, as a struct of a pointer to its first element and its length; an
-extern func cannot return one, since no function can. A variadic
+caller's variable. A view, `[]T`, crosses only into C, as a struct of a
+pointer to its first element and its length: a Tack function may return
+one, of data its caller passed it, but an extern func cannot, `extern
+func f cannot return a view: nothing tells the checker what C's view
+points into`. A variadic
 parameter, `args ...T`, is a view inside a Tack function, and crosses as
 one: C gets a `tack_view_<T>` of the values the call passed, which the
 caller puts in an array on its stack for the call, or of the view a

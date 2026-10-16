@@ -808,6 +808,22 @@ func at(v []int64, i int64) int64 {
 A view is read-only: writing an element, in any form,
 is <!-- error: view-assign-element -->`cannot assign to v[0]: v is a read-only view`.
 
+A view a call returns, `t.bytes()`, has a length no fact is about, since
+a call is no subject, so its index is never proven, even under a guard
+that calls it too:
+<!-- error: view-result-unchecked-index -->`index 0 may be out of range; use v, ok := ...[0]`.
+It is read checked:
+
+<!-- example: view-results -->
+```tack
+c, ok := t.bytes()[1]
+check(ok && c == 'e', "checked index in range")
+```
+
+and its slice is proven only at bounds no length can fail, `[:]`, `[0:]`
+and `[:0]`, so `t.bytes()[1:]` is
+<!-- error: view-result-unproven-slice -->`slice bound 1 may be out of range`.
+
 A variadic parameter, `nums ...int64`, is a view, `[]int64`, inside its
 function, so its index is proven or checked the same way, whatever values a
 call passes, since the body is checked once for every caller. Unproven,
@@ -895,7 +911,7 @@ func checked(s string, i int64, j int64) (string, bool) {
 }
 ```
 
-An array's or a view's slice is a view, which only a parameter may hold,
+An array's or a view's slice is a view, which no variable may hold,
 so it cannot be bound with ok:
 <!-- error: slice-view-checked -->`a[1:] is a view, []int64, which cannot be bound with ok; prove its bounds instead`.
 A slice is never a place:
@@ -1196,6 +1212,13 @@ leaves the list's length, capacity and elements as they were, which
 `examples/list-bulk` checks through its C. A range loop walks the list
 itself, so its body cannot grow, assign or move it:
 <!-- error: move-range-append -->`l is being ranged over, so this loop cannot pass mut l`.
+A view a function returns may point into any argument of its call that
+is not `mut` and holds data, the receiver included, and is read in
+place, so the same holds for each of them: passed alongside a `mut`
+argument that may overlap one,
+<!-- error: view-result-overlap-after -->`cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call`,
+and changed, anything inside it included, by a range over the view,
+<!-- error: view-result-range-mut -->`t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot pass mut t`.
 No global holds a list and no reference is ever stored, so a callee
 reaches a caller's list only through its arguments, and these two
 rules cover every way a buffer could move while something reads it. An

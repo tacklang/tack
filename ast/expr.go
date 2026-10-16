@@ -641,7 +641,8 @@ func (a *ArrayType) astNode() nodeKey { return _nodeKey }
 func (a *ArrayType) Spanned() Span { return a.Span }
 
 // ViewType is a view type as written, []Elem: a read-only view of elements
-// of type Elem, which only a parameter may have. Like ArrayType it is an
+// of type Elem, which only a parameter or a function's only result may
+// have. Like ArrayType it is an
 // expression only so it can stand where a type is written, and as the
 // callee of a conversion, []uint8(s), whose Call has it as Fn; it never
 // has a value of its own.

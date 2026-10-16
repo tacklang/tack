@@ -76,7 +76,9 @@ func (g *generator) viewParamAt(call *ast.Call, params []*ast.Param, i int) *ast
 // array is copied into a temporary first, and the view points at the
 // copy, when the callee could otherwise see it change during the call
 // (see viewCopies), so it sees the array as it was when the argument was
-// evaluated, as it would a plain argument's copy.
+// evaluated, as it would a plain argument's copy. A nil call is a view
+// returned rather than passed, which the checker has made sure points
+// into its function's caller's data, so it is never copied.
 func (g *generator) viewArg(
 	arg ast.Expr,
 	view types.Type,
@@ -100,7 +102,7 @@ func (g *generator) viewArg(
 		return "", diags
 	}
 	n := g.prog.Types.Len(typ)
-	if !g.viewCopies(arg, call) {
+	if call == nil || !g.viewCopies(arg, call) {
 		return fmt.Sprintf("(%s){%s.e, %d}", viewName(view), place, n), nil
 	}
 	t := g.temp("c")

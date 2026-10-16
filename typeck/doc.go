@@ -244,10 +244,11 @@
 //
 // A parameter written v []T is a read-only view of elements of type T, the
 // second kind of reference a parameter can be, checked in view.go. Only a
-// parameter may have a view type: one written anywhere else, a local's,
-// a field's, a result's, a global's or an array's element, and a view of
-// views, are reported, and so is a variable declared from a view's value,
-// x := v, and a view parameter written mut. It takes an array of exactly
+// parameter, or a function's only result (below), may have a view type:
+// one written anywhere else, a local's, a field's, a global's or an
+// array's element, and a view of views, are reported, and so is a
+// variable declared from a view's value, x := v, and a view parameter
+// written mut. It takes an array of exactly
 // its element type that is a place, a variable or a parameter or a field
 // or element of one, with no widening, so the callee reads the caller's
 // array; an array that is not a place, a call's result or a literal, would
@@ -267,6 +268,24 @@
 // a view argument alongside a mut argument of an overlapping place is
 // allowed, as a plain argument is.
 //
+// A function's or a method's only result may be a view, checked in
+// viewresult.go; an extern func's, and one among several results, are
+// reported. A return gives it a view parameter, or a list or an array of
+// exactly its element type, rooted in a parameter that is not mut, an
+// array only through an element of a list or a view, a slice of one, or a
+// call returning a view whose arguments are such places; a local, a
+// global, a mut parameter, a temporary, a string's bytes, packed variadic
+// values and an array the function holds its own copy of are reported.
+// The view a call returns is second-class: the call is allowed only where
+// viewCall marks it, an argument to a view parameter, len's, what a slice
+// slices, what an index indexes, what a range ranges over, or a return's
+// value in a function returning a view, and anywhere else, dropped as a
+// statement included, it is reported. Its index is never proven, since no
+// fact is about a call. It may point into every argument of its call
+// that is not mut and holds data, which it borrows: a call passing it
+// alongside a mut argument that may overlap one is reported
+// (exclusive.go), and a range over it cannot change one (move.go).
+//
 // A variadic parameter, args ...T, the last of its function's, is a view,
 // []T, checked in variadic.go: its type is the view of its element type,
 // so inside its function it follows every rule above, and it may not be
@@ -281,7 +300,8 @@
 // are is known inside the callee, which is checked once for every call.
 //
 // any, checked in any.go, is a reference to a value whose type is known
-// only at run time, and second-class like a view: only a parameter's type,
+// only at run time, and second-class like a view, though never a result:
+// only a parameter's type,
 // a f(a any), and the element type of a variadic or a view parameter,
 // ...any and []any, may be written as it; written anywhere else, a local's
 // type, a field's, a global's, a result's or an array element's, it is
@@ -340,8 +360,9 @@
 // string, and a view of the elements for an array that is a place or a
 // view; anything else, and a bound that is not an integer, of any type, is
 // reported. A view slice is allowed only where viewSlice marks it, as the
-// argument of a view parameter, of len, or of another slice, and is
-// reported anywhere else, a checked form's value included. Its bounds must
+// argument of a view parameter, of len, or of another slice, or a return's
+// value in a function returning a view, and is reported anywhere else, a
+// checked form's value included. Its bounds must
 // be proven, 0 <= i, i <= j and j <= len(x), a bound left out being 0 or
 // len(x), by known values, types and facts, and by two relations only a
 // slice's proof reads (see facts.go): j <= len(x), and i <= j between two

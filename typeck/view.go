@@ -6,10 +6,11 @@ import (
 )
 
 // A view, []T, is a read-only view of elements of type T, and the type of
-// a parameter only: a local, a field, a result, a global or an element of
-// any of those cannot be one, and neither can a view's own element. A
-// view parameter is never mut, so nothing in its function can assign it,
-// an element of it, or pass either as mut, and it holds the same elements
+// a parameter or of a function's only result (see viewresult.go) only: a
+// local, a field, a global or an element of any of those cannot be one,
+// and neither can a view's own element. A view parameter is never mut, so
+// nothing in its function can assign it, an element of it, or pass either
+// as mut, and it holds the same elements
 // for the whole call: the caller passes an array that is a place, a
 // variable or a field or element of one, which the backend copies first
 // when the callee could otherwise see it change (see codegen/c), or a
@@ -25,8 +26,8 @@ import (
 // array of exactly its element type.
 
 // paramType returns the type param is declared with: a view, when its
-// type is written []T, which only a parameter may have, and never a mut
-// one, or when it is variadic, args ...T (see variadicParam); any, which
+// type is written []T, which only a parameter or a result may have, and
+// never a mut one, or when it is variadic, args ...T (see variadicParam); any, which
 // only a parameter may have too, and never a mut one (see anyParam); any
 // other type as declaredType gives it.
 func (c *Checker) paramType(param *ast.Param) types.Type {
@@ -69,10 +70,14 @@ func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	return c.table.View(elem)
 }
 
+// viewPlaces says where a view type may be written, for an error about
+// one written anywhere else.
+const viewPlaces = "a view can only be the type of a parameter or of a result"
+
 // viewElsewhere reports a view type written anywhere but as a parameter's
-// type, and returns types.Invalid.
+// type or a result's (see resultType), and returns types.Invalid.
 func (c *Checker) viewElsewhere(vt *ast.ViewType) types.Type {
-	c.errorf(vt.Span, "a view can only be the type of a parameter")
+	c.errorf(vt.Span, "%s", viewPlaces)
 	return types.Invalid
 }
 
@@ -94,7 +99,7 @@ func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
 		c.use(arg, c.viewConversion(call), want, "in argument to "+callee)
 		return
 	}
-	c.allowViewSlice(arg)
+	c.allowView(arg)
 	got := c.valueOf(arg, c.expr(arg))
 	switch {
 	case got == types.Invalid:

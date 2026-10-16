@@ -133,8 +133,9 @@ way:
   array count as overlapping, which can only add a copy no program sees.
   Copying a large global array costs its size on every such call.
 - `x := v` is `cannot declare x as []int64; a view can only be the type of
-  a parameter`, at the name; a view written as any other type is `a view
-  can only be the type of a parameter`, at the type.
+  a parameter or of a result`, at the name; a view written as any other
+  type is `a view can only be the type of a parameter or of a result`, at
+  the type.
 - A switch on a view is `operator == is not defined on []int64`, even with
   no cases, since a switch compares with `==`.
 - `len expects an array or a string` now reads `len expects an array, a
@@ -142,6 +143,59 @@ way:
 - Each view type is added to the type table when the checker first meets
   it, as an array is, which moves the IDs, and so the C names, of the
   types after it; only programs that use views see this.
+
+## View results
+
+Ahmed decided that a function's or a method's single result may be a
+view, second-class like a view parameter: a call returning one is used
+only inside the expression that consumes it, passed to a view parameter,
+given to `len`, indexed with the checked form, sliced, ranged over, or
+returned from a function returning a view. It borrows every argument of
+its call that is not `mut` and holds data, the receiver included, under
+the rule that keeps a list read in place from a `mut` argument that may
+overlap it, and a range over it locks those places for the loop. A callee
+returns only a view rooted in a parameter that is not `mut`. These points
+were settled by the implementation rather than decided, and could go
+another way:
+
+- A plain parameter is passed by value in C, so an array parameter, or an
+  array field or element of a plain struct parameter, is the callee's own
+  copy, and a view of it would dangle once the call returns. Such an
+  array is rejected, `cannot return a view of a: the function holds its
+  own copy of a, and so of the array, which ends when it returns; ...`;
+  an array is returned only through an element of a list or a view, which
+  the caller holds. Returning a parameter's own array would need such a
+  parameter passed by pointer, an ABI change.
+- A union pattern's binding and a range's element variable that refer to
+  a parameter's payload or element in place are variables, so returning
+  one is `cannot return a view of w: w is a local variable; ...`. A union
+  method therefore cannot return a view of its payload's list.
+- An index without `ok`, or a slice past `[:]`, `[0:]` and `[:0]`, of a
+  call's view is never proven, since no fact is about a call; the error
+  is the usual one for an unproven index or bound.
+- A call's view is not allowed as what a range ranges over when sliced,
+  `range t.bytes()[1:]`, as no view slice is.
+- A call returning a view written as a statement is `t.bytes() is not
+  used`, though the result of any other call may be dropped.
+- A view among several results is `a view can only be a function's only
+  result`, rather than letting a multiple binding hold one.
+- An extern func cannot return a view: `extern func f cannot return a view:
+  nothing tells the checker what C's view points into`.
+- Borrowing is conservative: every argument that is not `mut` and holds
+  data, a struct with no list included, is borrowed, whether or not the
+  callee could return a view into it, and a range over the view locks the
+  whole of each borrowed place, so assigning an element of an array
+  viewed through it is an error, where a range over a list allows one of
+  copyable elements. A `mut` argument inside the view's own call does not
+  count against it at the call outside, since that call runs before the
+  view exists, and is checked at its own call.
+- A call returning a view of values a variadic call packs, `return
+  all(1, 2)`, is rejected: the values live on the callee's stack.
+- `[]uint8(s)` passed to a view-returning call is not borrowed: a string's
+  bytes are static and assigning the string never frees them.
+- The checked form of an owned element of a call's view, `x, ok :=
+  w.view()[0]`, suggests a range, `range over w.view() to use its elements
+  in place`, rather than a guard no fact can satisfy.
 
 ## any and printf
 

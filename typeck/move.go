@@ -43,7 +43,11 @@ import (
 // a variable declared outside it, since the statements after the defer
 // run first, and could assign it again. A range loop over a list walks
 // the list itself, not a copy, so its body cannot assign the list, or
-// anything holding it, pass either as mut, or move it. Likewise a clause
+// anything holding it, pass either as mut, or move it. A range loop over
+// a view a call returns walks what the view points into, which may be
+// any place the call borrows (viewBorrows), so its body cannot assign,
+// pass as mut or move anything that may overlap one of them, inside it or
+// holding it. Likewise a clause
 // of a switch on a union whose binding refers to the payload of the
 // switched place in place cannot assign that place, or anything holding
 // it, pass either as mut, or move it, and the binding itself is never
@@ -142,7 +146,8 @@ type blockFlow struct {
 
 // mover follows one function body for checkMoves.
 type mover struct {
-	c *Checker
+	c  *Checker
+	fn *ast.Func // the function whose body it follows
 
 	// deferLocals holds the variables the deferred code being followed
 	// declares, which it may move.
@@ -170,10 +175,14 @@ type mover struct {
 
 // ranged is a list a range loop around the point walks, place, and the
 // loop's element variable when it refers to the element in place, an
-// element of an owned type, or nil.
+// element of an owned type, or nil. A range over a view a call returns
+// gives one for each place the view may point into (viewBorrows), with
+// view the call: nothing that may overlap the place can change while the
+// loop runs.
 type ranged struct {
 	place ast.Expr
 	bind  *ast.Var
+	view  *ast.Call
 }
 
 // matched is a place a switch on a union matches, whose clause being
@@ -200,7 +209,7 @@ const (
 // checkMoves checks the moves of fn's body, as the comment above
 // describes.
 func (c *Checker) checkMoves(fn *ast.Func) {
-	m := &mover{c: c, report: true, reported: make(map[ast.Span]bool)}
+	m := &mover{c: c, fn: fn, report: true, reported: make(map[ast.Span]bool)}
 	m.block(fn.Body, live())
 }
 
@@ -239,8 +248,8 @@ func (m *mover) block(body []ast.Stmt, in flow) flow {
 func (m *mover) stmt(stmt ast.Stmt, cur flow) flow {
 	switch s := stmt.(type) {
 	case *ast.Return:
-		for _, v := range s.Values {
-			m.value(v, m.ctxFor(ast.TypeOf(v)), &cur)
+		for i, v := range s.Values {
+			m.value(v, m.resultCtx(i, v), &cur)
 		}
 		return dead()
 	case *ast.If:
@@ -370,6 +379,17 @@ func (m *mover) ctxFor(typ types.Type) useCtx {
 		return moveCtx
 	}
 	return readCtx
+}
+
+// resultCtx returns the context v, the value a return gives as the
+// function's result at i, is used in: read through a view, when the
+// result is a view, which points into the value in place, and otherwise
+// as ctxFor says for v's type.
+func (m *mover) resultCtx(i int, v ast.Expr) useCtx {
+	if i < len(m.fn.ResultTypes) && m.c.table.IsView(m.fn.ResultTypes[i]) {
+		return viewCtx
+	}
+	return m.ctxFor(ast.TypeOf(v))
 }
 
 // declare records v, a variable just declared, as owning its value, and,
@@ -731,11 +751,27 @@ func (m *mover) deferReadsOf(v *ast.Var, at ast.Span) {
 // is inside of, an element or a part of one, when the loop's element
 // variable refers to the element in place, since any element may be the
 // one it refers to; or when a clause of a switch on a union around it
-// binds a payload of a place it is, or holds, in place. It returns
-// whether it did.
+// binds a payload of a place it is, or holds, in place; or when a range
+// loop around it walks a view a call returns that may point into a place
+// that may overlap it, either holding the other. It returns whether it
+// did.
 func (m *mover) rangeChange(place ast.Expr, what string) bool {
 	for _, r := range m.ranging {
 		switch {
+		case r.view != nil:
+			if !placesMayOverlap(place, r.place) {
+				continue
+			}
+			m.errorNotes(
+				place.Spanned(),
+				nil,
+				"%s is being ranged over, and the view it returns may point into %s, so this loop cannot %s %s",
+				m.c.text(r.view.Span),
+				m.c.text(r.place.Spanned()),
+				what,
+				m.c.text(place.Spanned()),
+			)
+			return true
 		case prefixOf(place, r.place):
 			m.errorNotes(place.Spanned(), nil, "%s is being ranged over, so this loop cannot %s %s",
 				m.c.text(r.place.Spanned()), what, m.c.text(place.Spanned()))
@@ -949,16 +985,24 @@ func (m *mover) forStmt(loop *ast.For, cur flow) flow {
 }
 
 // rangeStmt follows a range loop from cur: what it ranges over, once,
-// then its body twice, during which a list it walks cannot be changed.
+// then its body twice, during which a list it walks cannot be changed,
+// and nor can any place a view a call returns, which it walks, may point
+// into.
 func (m *mover) rangeStmt(loop *ast.ForRange, cur flow) flow {
 	m.expr(loop.X, readCtx, &cur)
+	n := len(m.ranging)
+	defer func() { m.ranging = m.ranging[:n] }()
 	if m.c.table.IsList(ast.TypeOf(loop.X)) && ast.Root(loop.X) != nil {
 		r := ranged{place: loop.X}
 		if _, inPlace := m.c.rangeBindings[loop.Elem]; inPlace && loop.Elem.Name != ast.Blank {
 			r.bind = loop.Elem
 		}
 		m.ranging = append(m.ranging, r)
-		defer func() { m.ranging = m.ranging[:len(m.ranging)-1] }()
+	}
+	if call := m.c.viewCallOf(loop.X); call != nil {
+		for _, place := range m.c.viewBorrows(call) {
+			m.ranging = append(m.ranging, ranged{place: place, view: call})
+		}
 	}
 	return m.loopTwice(cur, true, func(in flow) flow { return in }, loop.Body, nil)
 }

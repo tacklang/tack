@@ -90,7 +90,7 @@ func (c *Checker) resolveInterfaces(decls []ast.Decl) {
 			}
 			m.ResultTypes = make([]types.Type, len(m.Results))
 			for i, r := range m.Results {
-				m.ResultTypes[i] = c.declaredType(r)
+				m.ResultTypes[i] = c.resultType(r, len(m.Results), "")
 			}
 			for i, typ := range m.ResultTypes[:max(len(m.ResultTypes)-1, 0)] {
 				if typ == types.Error {

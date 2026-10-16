@@ -187,6 +187,20 @@
 // call's argument to a view parameter, for the order of evaluation, is a
 // view, whatever the argument's own type.
 //
+// A function returning a view returns its struct by value. A return
+// renders its value as a view argument is rendered, a list as its buffer
+// and length, an array as a pointer to its first element and its length,
+// a slice through its helper, a view as it is, and never copies it: the
+// checker has made sure the view points into its caller's data, which
+// outlives the call, and no copy is needed there, since what it views is
+// not part of a mutable global and overlaps no mut argument. The value is
+// held in the function's ret variable, zeroed first as a list's is, when
+// defers run before it returns. A call returning a view is an operand
+// like any other: len reads its len, a range holds it in its const
+// temporary, v, ok := f()[i] holds it in a temporary, as a string's call
+// is held, so the call runs once, and nothing it points into is copied or
+// freed.
+//
 // A variadic parameter, args ...T, is a view parameter in C, and a spread,
 // f(a, v...), is a view argument to it, lowered as any is, copies
 // included. Values passed one by one, f(a, x, y), are packed by the
