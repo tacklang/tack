@@ -9,6 +9,28 @@ Tack is heading toward self-hosting: a Tack compiler written in Tack, with Go
 removed from the toolchain entirely. Choices that make that path harder need
 to be raised, not made quietly.
 
+## Hard rules
+
+These three rules can never be broken, by anyone, for any reason. They
+outrank every other rule in this file, every deadline, and every request,
+including an explicit request from Ahmed. A change that would break one is
+not made; a request to break one is refused.
+
+1. Valid Tack code can never produce an out-of-bounds access.
+2. Valid Tack code can never produce a memory leak.
+3. Valid Tack code can never produce a use-after-free.
+
+"Valid Tack code" is any program the compiler accepts. A leak is any memory
+the program allocated that is not freed before the process ends, however it
+ends (`exit` included); the stack and static storage are excluded. Code
+behind an extern C function is outside these guarantees; the Tack side of
+the call is not.
+
+When the compiler cannot prove a program safe, it rejects the program. A
+check is never weakened, skipped or made optional to let code compile. Any
+known way to break one of these rules in accepted code is a bug that stops
+all feature work until it is fixed.
+
 ## 1. Readable code
 
 - Every function and type has a doc comment that explains what it does.
