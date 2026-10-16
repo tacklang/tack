@@ -577,10 +577,8 @@ rules already there, rather than decided, and could go another way:
   `Expr.int needs its int64 payload, as in Expr.int(...)`; a case the
   union lacks is `Expr has no case nope`, in a construction and in a
   switch. A union built as a statement is `Expr.int(5) is not used`: no
-  wording for a value left unused existed. (A conversion or `len` written
-  as a statement, `int8(5)` or `len(s)`, is accepted today and lowered to
-  a call of a C function that does not exist; that is a bug of its own,
-  not changed here.)
+  wording for a value left unused existed. A conversion or `len` written
+  as a statement now takes the same wording; see the next section.
 - A payload case named alone, `case int:`, binds nothing, as a clause
   naming several cases does, and is allowed in a clause of its own.
   `case int(_)` is `every name is _, so nothing is bound; write case
@@ -644,6 +642,34 @@ rules already there, rather than decided, and could go another way:
   for a union holding a list.
 - printf given a union reports it twice, as it does a struct: `cannot
   pass U as any: ...` and `printf verb %v does not take U`.
+
+## Statements that only give a value
+
+A conversion or a call of `len` written as a statement, `int8(5)` or
+`len(s)`, was accepted and lowered to a call of a C function that does
+not exist, so clang rejected the generated C. It is now rejected as a
+union built as a statement is, `int8(5) is not used` and `len(s) is not
+used`, quoting the statement as written. These points were settled by
+the fix, for consistency with the union wording, and could go another
+way:
+
+- The wording is Tack's `X is not used`, not Go's `X (value of type
+  int8) is not used`; the type is left out, as the union's wording
+  leaves it out.
+- A conversion whose operand does something, `int8(f())`, is still `not
+  used`, as Go reports it, rather than allowed for the call's effect;
+  `f()` alone is the statement that keeps it. The same holds for
+  `len(f())`.
+- A statement with an error of its own is reported for that alone:
+  `int8(x)` of an `int64` x is `converting int64 to int8 can fail; use v,
+  ok := int8(...)`, and `len(5)` is len's error, with no `not used`
+  after either.
+- `make` as a statement keeps `make returns list[int64], which cannot be
+  dropped; bind it to a variable`; `print`, `exit`, `append` and
+  `reserve` keep their rules as calls, `append` and `reserve` having an
+  error that cannot be dropped. A view conversion, `[]uint8(s)`, cannot
+  start a statement, which the parser reports as `expected 'statement'
+  found '['`.
 
 ## Extern C
 

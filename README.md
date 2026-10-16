@@ -1026,7 +1026,12 @@ makes for itself, which has a letter after `tack_`.
   `c_allocator` is `TACK_C_ALLOCATOR`, index 0 and generation 0.
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
-  declaration of several results, an assignment, and `x++`/`x--`. A function that declares a result must end in a terminating
+  declaration of several results, an assignment, and `x++`/`x--`. A call
+  statement must do something: one that only gives a value, a conversion
+  or `len`, as a union built does, is `int8(5) is not used` or
+  `len(s) is not used`, even when an argument is a call, `int8(f())`, as
+  Go reports it; one with an error of its own, a conversion that can fail
+  among them, is reported for that alone. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
   terminate, or a `for` with no condition that no

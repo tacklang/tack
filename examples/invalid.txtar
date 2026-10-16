@@ -22008,6 +22008,289 @@ unterminated-string-eof/main.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~
 
 -- unterminated-string-eof/no-final-newline --
+-- unused-stmt-conversion/main.tck --
+package main
+
+func main() {
+    int8(5)
+}
+-- unused-stmt-conversion/expected --
+stage: typeck
+---
+
+unused-stmt-conversion/main.tck:4:5: error: int8(5) is not used
+03 |	func main() {
+04 |	    int8(5)
+   |	    ^~~~~~~
+05 |	}
+
+-- unused-stmt-conversion-can-fail/main.tck --
+package main
+
+func f(x int64) {
+    int8(x)
+}
+
+func main() {
+    f(1)
+}
+-- unused-stmt-conversion-can-fail/expected --
+stage: typeck
+---
+
+unused-stmt-conversion-can-fail/main.tck:4:5: error: converting int64 to int8 can fail; use v, ok := int8(...)
+03 |	func f(x int64) {
+04 |	    int8(x)
+   |	    ^~~~~~~
+05 |	}
+
+-- unused-stmt-conversion-invalid/main.tck --
+package main
+
+func main() {
+    int8("x")
+}
+-- unused-stmt-conversion-invalid/expected --
+stage: typeck
+---
+
+unused-stmt-conversion-invalid/main.tck:4:5: error: cannot convert string to int8
+03 |	func main() {
+04 |	    int8("x")
+   |	    ^~~~~~~~~
+05 |	}
+
+-- unused-stmt-conversion-of-call/main.tck --
+package main
+
+func f() int8 {
+    print("f\n")
+    return 1
+}
+
+func main() {
+    int8(f())
+}
+-- unused-stmt-conversion-of-call/expected --
+stage: typeck
+---
+
+unused-stmt-conversion-of-call/main.tck:9:5: error: int8(f()) is not used
+08 |	func main() {
+09 |	    int8(f())
+   |	    ^~~~~~~~~
+10 |	}
+
+-- unused-stmt-conversion-types/main.tck --
+package main
+
+func main() {
+    int64(1)
+    uint64(1)
+    unsafe_size_t(3)
+    unsafe_uintptr_t(3)
+}
+-- unused-stmt-conversion-types/expected --
+stage: typeck
+---
+
+unused-stmt-conversion-types/main.tck:4:5: error: int64(1) is not used
+03 |	func main() {
+04 |	    int64(1)
+   |	    ^~~~~~~~
+05 |	    uint64(1)
+
+unused-stmt-conversion-types/main.tck:5:5: error: uint64(1) is not used
+04 |	    int64(1)
+05 |	    uint64(1)
+   |	    ^~~~~~~~~
+06 |	    unsafe_size_t(3)
+
+unused-stmt-conversion-types/main.tck:6:5: error: unsafe_size_t(3) is not used
+05 |	    uint64(1)
+06 |	    unsafe_size_t(3)
+   |	    ^~~~~~~~~~~~~~~~
+07 |	    unsafe_uintptr_t(3)
+
+unused-stmt-conversion-types/main.tck:7:5: error: unsafe_uintptr_t(3) is not used
+06 |	    unsafe_size_t(3)
+07 |	    unsafe_uintptr_t(3)
+   |	    ^~~~~~~~~~~~~~~~~~~
+08 |	}
+
+-- unused-stmt-defer/main.tck --
+package main
+
+func main() {
+    defer {
+        len("abc")
+    }
+}
+-- unused-stmt-defer/expected --
+stage: typeck
+---
+
+unused-stmt-defer/main.tck:5:9: error: len("abc") is not used
+04 |	    defer {
+05 |	        len("abc")
+   |	        ^~~~~~~~~~
+06 |	    }
+
+-- unused-stmt-for-clauses/main.tck --
+package main
+
+func main() {
+    for int8(5); false; int8(6) {
+    }
+}
+-- unused-stmt-for-clauses/expected --
+stage: typeck
+---
+
+unused-stmt-for-clauses/main.tck:4:9: error: int8(5) is not used
+03 |	func main() {
+04 |	    for int8(5); false; int8(6) {
+   |	        ^~~~~~~
+05 |	    }
+
+unused-stmt-for-clauses/main.tck:4:25: error: int8(6) is not used
+03 |	func main() {
+04 |	    for int8(5); false; int8(6) {
+   |	                        ^~~~~~~
+05 |	    }
+
+-- unused-stmt-generic/main.tck --
+package main
+
+type Counted interface {
+    count() int32
+}
+
+type S struct {
+    n int32
+}
+
+func (s S) count() int32 {
+    return s.n
+}
+
+func g[C Counted](c C) {
+    int64(c.count())
+}
+
+func main() {
+    g(S{n: 1})
+}
+-- unused-stmt-generic/expected --
+stage: typeck
+---
+
+unused-stmt-generic/main.tck:16:5: error: int64(c.count()) is not used
+15 |	func g[C Counted](c C) {
+16 |	    int64(c.count())
+   |	    ^~~~~~~~~~~~~~~~
+17 |	}
+
+-- unused-stmt-len/main.tck --
+package main
+
+func main() {
+    len("abc")
+}
+-- unused-stmt-len/expected --
+stage: typeck
+---
+
+unused-stmt-len/main.tck:4:5: error: len("abc") is not used
+03 |	func main() {
+04 |	    len("abc")
+   |	    ^~~~~~~~~~
+05 |	}
+
+-- unused-stmt-len-invalid/main.tck --
+package main
+
+func main() {
+    len(5)
+}
+-- unused-stmt-len-invalid/expected --
+stage: typeck
+---
+
+unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view or a list, got int64
+03 |	func main() {
+04 |	    len(5)
+   |	        ^
+05 |	}
+
+-- unused-stmt-len-kinds/main.tck --
+package main
+
+func f() string {
+    return "abc"
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    len(a)
+    len(a[:])
+    mut l := make(list[int64], c_allocator)
+    len(l)
+    len(f())
+}
+-- unused-stmt-len-kinds/expected --
+stage: typeck
+---
+
+unused-stmt-len-kinds/main.tck:9:5: error: len(a) is not used
+08 |	    a := [2]int64{1, 2}
+09 |	    len(a)
+   |	    ^~~~~~
+10 |	    len(a[:])
+
+unused-stmt-len-kinds/main.tck:10:5: error: len(a[:]) is not used
+09 |	    len(a)
+10 |	    len(a[:])
+   |	    ^~~~~~~~~
+11 |	    mut l := make(list[int64], c_allocator)
+
+unused-stmt-len-kinds/main.tck:12:5: error: len(l) is not used
+11 |	    mut l := make(list[int64], c_allocator)
+12 |	    len(l)
+   |	    ^~~~~~
+13 |	    len(f())
+
+unused-stmt-len-kinds/main.tck:13:5: error: len(f()) is not used
+12 |	    len(l)
+13 |	    len(f())
+   |	    ^~~~~~~~
+14 |	}
+
+-- unused-stmt-method/main.tck --
+package main
+
+type S struct {
+    x int8
+}
+
+func (s S) m() {
+    int64(s.x)
+}
+
+func main() {
+    s := S{x: 1}
+    s.m()
+}
+-- unused-stmt-method/expected --
+stage: typeck
+---
+
+unused-stmt-method/main.tck:8:5: error: int64(s.x) is not used
+07 |	func (s S) m() {
+08 |	    int64(s.x)
+   |	    ^~~~~~~~~~
+09 |	}
+
 -- unused-with-undefined-value/main.tck --
 package main
 

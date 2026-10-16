@@ -171,14 +171,6 @@ func (c *Checker) payload(typ types.Type, uc types.Case, name string, call *ast.
 	return typ
 }
 
-// unusedConstruction reports e, a union built as an expression
-// statement, whose value nothing uses, after checking it.
-func (c *Checker) unusedConstruction(e ast.Expr) {
-	if c.construction(e) != types.Invalid {
-		c.errorf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
-	}
-}
-
 // checkUnionSwitch checks s, a switch in fn whose tag, already checked, is
 // of the union type typ: each clause in the order tried, its values as
 // patterns naming typ's cases, the variable a clause naming one case

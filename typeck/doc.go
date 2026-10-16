@@ -408,6 +408,9 @@
 //     hold, and .(type) is only a switch's tag (assert.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value, and a call statement cannot drop an error;
+//   - a call statement does something: one that only gives a value, a
+//     union built, a conversion or a call of len, is reported as not used
+//     (onlyValue), unless it has an error of its own;
 //   - every operand of an arithmetic operator is an integer, the two having
 //     a common type, and the operand of - a signed integer; every operand of
 //     && || and ! is a bool; a binary expression whose operator is not

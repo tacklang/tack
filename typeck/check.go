@@ -344,8 +344,8 @@ func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
 func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
-		if _, _, _, built := ast.Construction(s.X); built {
-			c.unusedConstruction(s.X)
+		if onlyValue(s.X) {
+			c.unusedValue(s.X)
 			return
 		}
 		c.discard(s.X)
@@ -688,6 +688,32 @@ func (c *Checker) discard(e ast.Expr) {
 		return
 	}
 	c.expr(e)
+}
+
+// onlyValue reports whether e, written as a statement, does nothing but
+// give a value: a union built, a conversion, or a call of the builtin
+// len. Dropping that value leaves the statement nothing to do, so it is
+// reported (see unusedValue), even when an argument is a call that does
+// something, as Go reports it. A call of a function or a method, and of
+// the builtins print, exit, make, append and reserve, is a call statement
+// instead, with rules of its own.
+func onlyValue(e ast.Expr) bool {
+	if _, _, _, built := ast.Construction(e); built {
+		return true
+	}
+	call, ok := e.(*ast.Call)
+	return ok && (call.Conv != types.Invalid || isLen(call))
+}
+
+// unusedValue checks e, an expression statement that only gives a value
+// (see onlyValue), and reports that the value is not used. An e that had
+// errors of its own, a conversion that can fail among them, or whose type
+// is invalid, is not reported again.
+func (c *Checker) unusedValue(e ast.Expr) {
+	before := len(c.diags)
+	if c.expr(e) != types.Invalid && len(c.diags) == before {
+		c.errorf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
+	}
 }
 
 // plural returns word, with an s added unless n is one.

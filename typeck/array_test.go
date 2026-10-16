@@ -325,7 +325,11 @@ var arrayErrorCases = []struct {
 		mainLines("exit(len(\"a\", \"b\"))"),
 		[]spanned{{"len expects 1 argument(s), got 2", "len(\"a\", \"b\")"}},
 	},
-	{"len as a statement", mainLines("len(\"a\")"), nil},
+	{
+		"len as a statement",
+		mainLines("len(\"a\")"),
+		[]spanned{{"len(\"a\") is not used", "len(\"a\")"}},
+	},
 	{
 		"global literal with a mutable variable",
 		"package main\n\nmut k = 1\n\nvar a = [2]int64{k, 2}\n\nfunc main() {\n    exit(a[0])\n}\n",
