@@ -17,8 +17,9 @@ import (
 // block of the variable owning it ends (see move.go, and codegen/c).
 //
 // A list reads as a view does: len, an int64 with the facts a string
-// variable's length has, which hold in a region that never assigns the
-// list, passes it as mut or moves it; an element, l[i], with an index
+// variable's length has, which hold up to a write that can reach the use:
+// assigning the list, passing it as mut or moving it, and which a
+// successful append adds to (see appended.go); an element, l[i], with an index
 // proven in range or the checked form; range, which walks the list
 // itself; slicing, l[i:j], to a view; and passing it, whole, to a view
 // parameter of its element type. Unlike a view it can be written: an
@@ -55,7 +56,9 @@ import (
 // len(l) > 0, or i in range for l, proven, as an index does; the checked
 // form, x, ok := pop(mut l), is allowed anywhere, and x then holds T's
 // zero value when ok is false, or, for a T with none, cannot be read until
-// ok is checked true (see okHeld).
+// ok is checked true (see okHeld). Written as a statement, pop(mut l) and
+// remove(mut l, i) need no proof: they drop the element when there is one,
+// and the backend frees it when it is owned.
 
 // listType returns the list type a written list[T] denotes, adding it to
 // the table. Its element type may be any type but a type parameter (see
@@ -312,9 +315,10 @@ func (c *Checker) reserveCall(call *ast.Call) types.Type {
 // Its one argument is the list to take the last element of, passed as mut
 // as append's is. The plain form needs len(l) > 0 proven (see
 // requireNotEmpty); the checked form, the call c.checkedTake is, needs
-// nothing, and nor does a call written as a statement whose element is
-// owned, which drops it, and is reported as dropping it instead. Anything
-// else is reported, and gives types.Invalid.
+// nothing, and nor does a call written as a statement, the call
+// c.droppedCall is, which drops the last element when there is one, and
+// frees it when it is owned. Anything else is reported, and gives
+// types.Invalid.
 func (c *Checker) popCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "pop", 1) {
 		for _, arg := range call.Args {
@@ -327,10 +331,7 @@ func (c *Checker) popCall(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	call.Type = elem
-	if c.droppedTake(call) {
-		return types.Invalid
-	}
-	if c.checkedTake != call {
+	if c.checkedTake != call && c.droppedCall != call {
 		c.requireNotEmpty(call, call.Args[0].(*ast.MutArg).X)
 	}
 	return elem
@@ -342,10 +343,11 @@ func (c *Checker) popCall(call *ast.Call) types.Type {
 // passed as mut as append's is, and its second the index, usable as an
 // int64, as reserve's count is. The plain form needs i proven in range
 // for l, as l[i] does; the checked form, the call c.checkedTake is, needs
-// nothing, though a negative constant i, never in range, is still
-// reported, as an index is; a call written as a statement whose element
-// is owned is reported as dropping it. Anything else is reported, and
-// gives types.Invalid.
+// nothing, and nor does a call written as a statement, the call
+// c.droppedCall is, which drops element i when it is in range, and frees
+// it when it is owned, though in either a negative constant i, never in
+// range, is still reported, as an index is. Anything else is reported,
+// and gives types.Invalid.
 func (c *Checker) removeCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "remove", 2) {
 		for _, arg := range call.Args {
@@ -361,9 +363,6 @@ func (c *Checker) removeCall(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	call.Type = elem
-	if c.droppedTake(call) {
-		return types.Invalid
-	}
 	// The element remove reads, as the index l[i] would, which the proofs
 	// of an index are asked about.
 	ix := &ast.Index{X: call.Args[0].(*ast.MutArg).X, Index: i, Span: call.Span, Type: elem}
@@ -371,26 +370,12 @@ func (c *Checker) removeCall(call *ast.Call) types.Type {
 		c.reportOutside(ix, v)
 		return types.Invalid
 	}
-	if c.checkedTake != call && !c.stringIndexProven(ix) {
+	if c.checkedTake != call && c.droppedCall != call && !c.stringIndexProven(ix) {
 		msg, notes := c.stringIndexError(ix, true)
 		msg += orUse("x, ok := "+c.text(call.Span), strings.HasSuffix(msg, " first"))
 		c.errorNotes(i.Spanned(), notes, "%s", msg)
 	}
 	return elem
-}
-
-// droppedTake reports call, a call to pop or remove whose element type is
-// recorded on it, when it is written as a statement, c.droppedCall, and
-// its element is owned, which the statement would drop, and returns
-// whether it did. A copyable element may be dropped, as any call's value
-// may.
-func (c *Checker) droppedTake(call *ast.Call) bool {
-	if c.droppedCall != call || !c.table.Owned(call.Type) {
-		return false
-	}
-	id, _ := call.Fn.(*ast.Ident)
-	c.errorf(call.Span, "%s returns %s; bind it to a variable", id.Name, c.droppedName(call.Type))
-	return true
 }
 
 // requireNotEmpty reports l, the list a plain pop takes the last element

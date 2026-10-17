@@ -408,6 +408,42 @@ func (g *generator) takeValues(call *ast.Call) (multiSource, []diag.Diagnostic) 
 	return src, nil
 }
 
+// dropTake lowers pop(mut l) or remove(mut l, i) written as a statement,
+// which needs no proof: as the checked form does (see takeValues), it
+// holds the list's address, then remove's index, then whether the list
+// holds what is taken, and only when it does takes the element and drops
+// it, freeing it when its type is owned:
+//
+//	tack_list_9 *const tack_r0 = &v_l;
+//	const bool tack_r1 = tack_r0->len > 0;
+//	if (tack_r1) {
+//	    const tack_list_8 tack_r2 = TACK_LIST_POP(tack_r0);
+//	    tack_list_free_(tack_r2.ptr, ...);
+//	}
+func (g *generator) dropTake(call *ast.Call) ([]string, []diag.Diagnostic) {
+	src, diags := g.takeValues(call)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	// Every temporary but the last, the element, which is taken only
+	// under the test.
+	src.temps = src.temps[:len(src.temps)-1]
+	names, lines := g.holdTemps(src)
+	take := fmt.Sprintf("TACK_LIST_POP(%s)", names[0])
+	if isBuiltin(call, "remove") {
+		take = fmt.Sprintf("TACK_LIST_REMOVE(%s, %s)", names[0], names[1])
+	}
+	body := []string{"(void)" + take + ";"}
+	if g.owned(call.Type) {
+		elem := g.temp("r")
+		body = append(
+			[]string{fmt.Sprintf("const %s %s = %s;", g.cType(call.Type), elem, take)},
+			g.frees(call.Type, elem)...)
+	}
+	lines = append(lines, fmt.Sprintf("if (%s) {", names[len(names)-1]))
+	return append(append(lines, indent(body)...), "}"), nil
+}
+
 // moveValue renders a name the type checker marked as moved, whose
 // variable or field place is ref, as its value taken through a temporary,
 // with the variable emptied: (tack_o3 = ref, ref = (T){}, tack_o3). In

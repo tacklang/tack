@@ -1550,7 +1550,8 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 }
 
 // generateExprStmt lowers an expression statement, which can only be a call
-// to a named function or a method today.
+// to a named function or a method today, pop and remove among them, which
+// drop what they take (see dropTake).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
 	call, ok := stmt.X.(*ast.Call)
 	if !ok {
@@ -1563,6 +1564,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 
 	if call.Receiver() != nil {
 		return g.generateCall("", call)
+	}
+	if isBuiltin(call, "pop") || isBuiltin(call, "remove") {
+		return g.dropTake(call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {

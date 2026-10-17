@@ -225,26 +225,26 @@ var unprovenDivisorCases = []struct {
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{
-		"assigned later inside the guard",
-		divide("mut d := b", "if d != 0 {", "    c := a / d", "    d--", "    return c + d", "}"),
+		"assigned inside the guard before the use",
+		divide("mut d := b", "if d != 0 {", "    d--", "    c := a / d", "    return c + d", "}"),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{
-		"assigned after the early return",
+		"assigned after the early return, before the use",
 		divide(
 			"mut d := b",
 			"if d == 0 {",
 			"    return 0",
 			"}",
+			"d--",
 			"c := a / d",
-			"d = 0",
 			"return c + d",
 		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{
-		"loop body that changes the divisor",
-		divide("mut d := b", "for d != 0 {", "    print(\"\")", "    return a / d", "    d--", "}"),
+		"loop body that changes the divisor before the use",
+		divide("mut d := b", "for d != 0 {", "    print(\"\")", "    d--", "    return a / d", "}"),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{

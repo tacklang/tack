@@ -307,8 +307,8 @@ rather than decided, and could go another way:
   it, `f() == noerror`, uses its error rather than dropping it.
 - A check is a fact about `err.code` that bounds it to exactly 0, from
   the conditions every fact comes from, `if`, `else`, an early exit, a
-  loop's condition, `&&`, `||`, `!` and `switch`, holding only in a
-  region that never assigns `err`; `err == noerror` is not one. `exit`
+  loop's condition, `&&`, `||`, `!` and `switch`, holding up to the
+  first write to `err` that can reach the read; `err == noerror` is not one. `exit`
   in a branch does not leave, as for any fact. `err.code` carries this
   fact even for a mutable `err`, though a field of a mutable variable
   carries none for a divisor or an index.
@@ -417,7 +417,9 @@ rules already there, rather than decided, and could go another way:
 - A list, or a struct holding one, cannot be a global, mutable or not.
 - `len(l)`'s facts end at an assignment of `l`, a `mut` argument of it,
   `append`, `reserve`, `pop` and `remove` included, though `reserve`
-  changes no length, or a move; writing an element of a list ends no
+  changes no length, or a move, each when it can reach the use; a
+  successful `append`, its error proven 0, proves `len(l)` at least the
+  count it added, as Ahmed decided; writing an element of a list ends no
   fact about any variable, since no element of a list is a subject.
 - A variable that holds a list is never `const` in C. The C names are
   `tack_list_<id>` in the generated source and `tack_list_<element>` in
@@ -462,17 +464,12 @@ arrays and variadics may not yet; and that spreading such a list into
 for consistency with the rules already there, rather than decided, and
 could go another way:
 
-- The plain forms, `x := pop(mut l)` and `x := remove(mut l, i)`, cannot
-  be proven by the facts machinery as it is: a fact holds only in a
-  region that never assigns its variable, a `mut` argument included, and
-  the call passes `l` as `mut`, so `if len(l) > 0 { x := pop(mut l) }`
-  is `pop may find l empty; ...` with the note `but l is passed as mut
-  to pop here, so the proof ends`, exactly as `if d != 0 { d = n / d }`
-  is a division error today. The plain forms are checked and lowered,
-  but no program can use one until facts end where the variable is
-  assigned rather than for the whole region, or a call's own `mut`
-  argument stops ending the fact that proves it. That is a change to
-  the proof rules, so it is Ahmed's.
+- The plain forms, `x := pop(mut l)` and `x := remove(mut l, i)`, are
+  proven as an index is. Ahmed decided the proof rules that make them
+  usable: a fact holds up to the first write to its variable that can
+  reach the use, so the call's own `mut` argument, which takes effect
+  after the call's check, does not end the fact it relies on, and `if
+  len(l) > 0 { x := pop(mut l) }` and `if d != 0 { d = n / d }` compile.
 - In the checked form, `x` is the element type's zero value when `ok` is
   false, as for the other checked forms. A type with no zero value, any
   owned type, a union or an `Allocator`, gives nothing: `x` is held by `ok` as a
@@ -493,13 +490,14 @@ could go another way:
   `||` and early exits as every fact is. `ok == true` gives none, as
   only comparisons with a known integer do. Only an `ok`'s check asks
   about such a fact.
-- Dropping an element follows the rule for any value: an owned one
-  cannot be dropped, `pop returns list[int64], which cannot be dropped;
-  bind it to a variable`, `... instead of _` in a binding; a copyable one
-  may be, as any call's value may, `pop(mut l)` written as a statement
-  being the plain form, which needs its proof, and `_, ok := pop(mut l)`
-  allowed. `_, _ := pop(mut l)` is the resolver's `every name is _, so
-  nothing is bound; make the call on its own`.
+- Dropping an element: Ahmed decided that `pop(mut l)` and `remove(mut
+  l, i)` written as a statement need no proof, drop the element when
+  there is one, and free it when it is owned. Bound to `_`, an owned one
+  is `pop returns list[int64], which cannot be dropped; bind it to a
+  variable instead of _`; `_, ok := pop(mut l)` is allowed for a
+  copyable one. `_, _ = pop(mut l)` stays the resolver's `every name is
+  _, so nothing is bound; make the call on its own`, the statement being
+  the way to drop.
 - `pop` and `remove` are generic builtins, as `append` and `reserve` are:
   a declaration of either is `duplicate declaration of builtin
   function`, `builtin.tck` cannot declare them, and a method may share

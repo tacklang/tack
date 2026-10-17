@@ -12,15 +12,18 @@ import "github.com/tacklang/tack/ast"
 // any depth, is not reported again.
 //
 // It is checked with the facts in force at the defer, though it runs
-// later, when the defer's block is left. Each of those facts holds there
-// too. A fact is in force for a region, a whole block or the rest of one,
-// only when nothing in the region assigns its variable, and the region
-// holding the defer holds the whole rest of the defer's block: every path
-// out of the block, every other defer that runs before this one, and this
-// defer's own statements, since ast.Walk visits them. Nothing outside the
-// region can change a variable a fact may be about, a parameter or local,
-// or an immutable global. So a fact true at the defer is still true when
-// the deferred code runs.
+// later, when the defer's block is left, with c.deferSpan set to the
+// defer. Each of those facts holds there too. A fact is in force for a
+// region, a whole block or the rest of one, and holds in deferred code
+// only when nothing in the region outside the defer assigns its variable
+// (see reaches), and the region holding the defer holds the whole rest of
+// the defer's block: every path out of the block, every other defer that
+// runs before this one, and this defer's own statements, since ast.Walk
+// visits them. Nothing outside the region can change a variable a fact
+// may be about, a parameter or local, or an immutable global. So a fact
+// true at the defer is still true when the deferred code runs. Inside the
+// defer, writes are in the order they run, so they end a fact as they
+// would anywhere else.
 func (c *Checker) checkDefer(d *ast.Defer, fn *ast.Func) {
 	outerRejected := c.inRejectedDefer
 	if c.deferred > 0 && !c.inRejectedDefer {
@@ -29,11 +32,12 @@ func (c *Checker) checkDefer(d *ast.Defer, fn *ast.Func) {
 		c.errorf(keyword, "cannot defer inside a defer")
 		c.inRejectedDefer = true
 	}
-	outerLoops := c.deferLoops
+	outerLoops, outerSpan := c.deferLoops, c.deferSpan
 	c.deferred++
 	c.deferLoops = c.loops
+	c.deferSpan = &d.Span
 	c.checkBlock(d.Body, fn)
 	c.deferred--
-	c.deferLoops = outerLoops
+	c.deferLoops, c.deferSpan = outerLoops, outerSpan
 	c.inRejectedDefer = outerRejected
 }

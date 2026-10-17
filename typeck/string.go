@@ -110,9 +110,10 @@ func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
 }
 
 // minLen returns the least length the facts in force give the string s,
-// when s is a subject, a variable or a path below an immutable one, and 0
-// otherwise: a lower bound on len(s), or one when len(s) is known not to
-// be zero.
+// or the list or view, when s is a subject, a variable or a path below an
+// immutable one, and 0 otherwise: a lower bound on len(s), or one when
+// len(s) is known not to be zero. A list's length is bounded by a
+// successful append to it too (see appendedLen).
 func (c *Checker) minLen(s ast.Expr) constant.Int {
 	k, ok := c.subjectKey(s)
 	if !ok {
@@ -120,10 +121,11 @@ func (c *Checker) minLen(s ast.Expr) constant.Int {
 	}
 	var least interval
 	for _, f := range c.active {
-		if f.about == k && f.inForce() {
+		if f.about == k && c.holds(f) {
 			least = least.narrow(f)
 		}
 	}
+	least = c.appendedLen(k, least)
 	one := constant.FromInt64(1)
 	switch {
 	case least.hasLo && least.lo.Cmp(one) >= 0:
@@ -144,7 +146,7 @@ func (c *Checker) belowLen(i, s ast.Expr) bool {
 		return false
 	}
 	for _, f := range c.active {
-		if f.about == ik && f.lenOf == sk && f.inForce() {
+		if f.about == ik && f.lenOf == sk && c.holds(f) {
 			return true
 		}
 	}

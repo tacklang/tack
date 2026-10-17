@@ -71,7 +71,7 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	for i, cl := range order {
 		c.checkCaseValues(s, tagType, cl, seen)
 		span := caseSpan(cl)
-		c.checkGuarded(cl.Body, &guard{span: span, kind: guardCase}, c.caseFacts(s, cl, true), fn)
+		c.checkCaseBody(s, cl, c.caseFacts(s, cl, true), fn)
 		c.assume(
 			&guard{span: span, kind: guardLaterCase},
 			c.caseFacts(s, cl, false),
@@ -79,6 +79,40 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 		)
 	}
 	c.release(m)
+}
+
+// checkCaseBody checks the body of cl, a case of the expression switch s,
+// in fn, with facts, which its condition being true gives, in force. A
+// default written before another case runs after every case's values are
+// tried, which c.lateDefaults records while it is checked (see reaches).
+func (c *Checker) checkCaseBody(s *ast.Switch, cl *ast.CaseClause, facts []fact, fn *ast.Func) {
+	late := cl.Default && cl != s.Cases[len(s.Cases)-1]
+	if late {
+		c.lateDefaults = append(c.lateDefaults, lateDefault{whole: s.Span, body: clauseSpan(cl)})
+	}
+	c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, facts, fn)
+	if late {
+		c.lateDefaults = c.lateDefaults[:len(c.lateDefaults)-1]
+	}
+}
+
+// lateDefault is a switch's default written before some of its cases,
+// whose body runs only after every case's values have been tried: whole
+// is the switch, and body the default, its keyword through its last
+// statement. A write in the switch outside the default may run before
+// the default's body although it is written after it (see reaches).
+type lateDefault struct {
+	whole, body ast.Span
+}
+
+// clauseSpan returns the span of a case clause, its keyword through the
+// end of its last statement.
+func clauseSpan(cl *ast.CaseClause) ast.Span {
+	span := cl.Span
+	if len(cl.Body) > 0 {
+		span.End = cl.Body[len(cl.Body)-1].Spanned().End
+	}
+	return span
 }
 
 // tryOrder returns a switch's cases in the order they are tried: every case

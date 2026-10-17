@@ -579,9 +579,10 @@ makes for itself, which has a letter after `tack_`.
   evaluated, left to right with the others, before the call begins, and
   passed as a copy, so in `scaleBy(mut b, b)` the callee's `q` keeps the
   value `b` had, however it changes `p`. A `mut` parameter counts as a mutable variable for proofs, so
-  a fact about it holds in a region that never assigns it, and a call
-  that passes a variable, or a part of it, as `mut` assigns it at that
-  call (see division). An extern func may take a `mut` parameter, which C
+  a fact about it holds up to the first write to it that can reach the
+  use, and a call that passes a variable, or a part of it, as `mut`
+  assigns it at that call, once its arguments are evaluated (see
+  division). An extern func may take a `mut` parameter, which C
   gets as a pointer (see extern C). A method's `mut` receiver is a `mut`
   parameter too, and its call, `mut b.write(s)`, passes the receiver as a
   `mut` argument under every rule above (see methods).
@@ -983,9 +984,10 @@ makes for itself, which has a letter after `tack_`.
     0, err }` proves it for the rest of the block, `if err.code == 0 {
     ... }` in its branch, the `else` of `if err.code != 0` in that
     branch, a `switch err.code` in its `case 0:`, and `err.code == 0 &&`
-    on its right. Like any fact it holds only in a region that never
-    assigns `err`, so binding a new error to it later in the same block
-    ends it, and a branch ending in `exit` does not leave. Comparing the
+    on its right. Like any fact it holds up to the first write to `err`
+    that can reach the read, so binding a new error to it ends it for
+    every read after the binding, and a branch ending in `exit` does not
+    leave. Comparing the
     whole error, `err == noerror`, is no check. So that a check is about
     the error that came with `v`, both are bound to local variables,
     never a parameter, a global, a field or an element, `p.x cannot take
@@ -1045,10 +1047,15 @@ makes for itself, which has a letter after `tack_`.
   `list[int64]{1, 2}` is `list[int64] cannot be written as a literal;
   only arrays and structs can`. A list reads as a view does: `len(l)`, an
   `int64` with the facts a string variable's length has (see indexing a
-  string), which hold in a region that never assigns `l`, passes it as
-  `mut`, `append`, `reserve`, `pop` and `remove` included, or moves it, though writing an element ends
-  none; `l[i]` with `i` proven in range against `len(l)`, or the checked
-  form `v, ok := l[i]`; every range form, `for i, x := range l`, whose
+  string), which hold up to the first write to `l` that can reach the use,
+  assigning it, passing it as `mut`, `append`, `reserve`, `pop` and
+  `remove` included, or moving it, though writing an element ends none,
+  and which a successful append adds to: after `err := append(mut l, a,
+  b)` and a check proving `err.code == 0`, `len(l)` is at least 2, the
+  number of values passed or the length of an array spread whole, until a
+  write to `l` that can reach the use (see docs/safety.md, lists); a
+  length proven not zero proves `len(l)` as a divisor too; `l[i]` with
+  `i` proven in range against `len(l)`, or the checked form `v, ok := l[i]`; every range form, `for i, x := range l`, whose
   index is proven for `l`; slicing, `l[i:j]`, to a view, `[]T`; and
   passing it whole to a view parameter of its element type, `sum(l)`, or
   spreading it into a variadic one. Unlike a view it can be written: `l[i]
@@ -1067,8 +1074,8 @@ makes for itself, which has a letter after `tack_`.
   `x, ok := pop(mut l)` takes the last element out of `l` and gives it,
   and `x, ok := remove(mut l, i)` takes element `i`, an `int64`, moving
   every element after it down one place, so the rest keep their order,
-  in time proportional to how many follow. Neither allocates, copies or
-  frees anything, so neither returns an error: the element moves out, and
+  in time proportional to how many follow. Neither allocates or copies
+  anything, so neither returns an error: the element moves out, and
   `ok` says whether there was one, `false` for an empty list or an `i` out
   of range, which leaves `l` as it was. `x` is then the element type's
   zero value, `0` from a `list[int64]`; an element type with none, a
@@ -1088,17 +1095,21 @@ makes for itself, which has a letter after `tack_`.
   and it is never `_`, `the ok pop returns cannot be dropped: x cannot be
   read until it is checked; bind it to a variable instead of _`. An owned
   element bound to `_` would never be freed, `pop returns list[int64],
-  which cannot be dropped; bind it to a variable instead of _`, as a call
-  statement would drop it, `... bind it to a variable`; a copyable one
+  which cannot be dropped; bind it to a variable instead of _`; a copyable one
   may be dropped. The plain forms, `x := pop(mut l)` and `x := remove(mut
   l, i)`, are allowed only where `len(l) > 0`, or `i` in range for `l`,
   is proven, as an index is: `pop may find l empty; check len(l) > 0
   first, or use x, ok := pop(mut l)`, `index i may be out of range; check
   0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)`. The
-  call passes `l` as `mut`, which ends every fact about `len(l)` in the
-  region holding it, the call's own included, so no guard can prove one
-  today, and only the checked forms are used. A negative constant `i` is
-  `index -1 is out of range for a list`, checked form or not; three
+  call passes `l` as `mut`, which ends every fact about `len(l)` for what
+  runs after it, but not for the call itself, which checks before it
+  writes, so `if len(l) > 0 { x := pop(mut l) }` compiles. Written as a
+  statement, `pop(mut l)` and `remove(mut l, i)` need no proof: they drop
+  the element when there is one, freeing it when it is owned, and leave
+  `l` as it was otherwise; this is the way to discard an element, since
+  `_, _ = pop(mut l)` is `every name is _, so nothing is bound; make the
+  call on its own`. A negative constant `i` is
+  `index -1 is out of range for a list`, in every form; three
   names are `assignment mismatch: 3 variables but pop gives 2 values`.
 
   A list may hold owned elements: lists, `list[list[uint8]]`, structs
@@ -1217,8 +1228,9 @@ makes for itself, which has a letter after `tack_`.
   alloc;}` (see extern C); one whose elements are owned is freed by a
   `tack_free_` function of its own, which frees each element it holds,
   last first, then its buffer; `pop` and `remove` are std's
-  `TACK_LIST_POP` and `TACK_LIST_REMOVE`, the checked forms testing the
-  length first; and a range binding of an owned element is a pointer to
+  `TACK_LIST_POP` and `TACK_LIST_REMOVE`, the checked forms and the
+  statements testing the length first, a statement then freeing an owned
+  element it drops; and a range binding of an owned element is a pointer to
   it. [docs/safety.md](docs/safety.md#lists) has every rule and
   diagnostic.
 - Allocators. `Allocator` is a builtin type: an opaque handle on an
@@ -1309,9 +1321,10 @@ makes for itself, which has a letter after `tack_`.
   change what is returned, and the same holds for several results. `exit`
   ends the process without running any defer. Deferred code is checked
   with the facts in force where the defer is written (see division), which
-  still hold when it runs: a fact holds only in a region that never
-  assigns its variable, and that region takes in the rest of the defer's
-  block, every other defer in it included.
+  still hold when it runs: deferred code runs when its block is left, so
+  every write in the fact's region outside the defer, the rest of the
+  defer's block and every other defer in it included, ends a fact the
+  deferred code relies on.
 - Loops. `for cond { ... }` runs while `cond`, a `bool`, holds, and
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside
@@ -1901,9 +1914,24 @@ makes for itself, which has a letter after `tack_`.
   of a known value that fits its type, or arithmetic on those. The
   variable must be a
   parameter, a local, or an immutable global, or a field or element of an
-  immutable variable or parameter (see structs), and the region must not assign
-  it anywhere, a call passing it, or a part of it, as `mut` included, so a loop that counts its divisor up needs the check beside the
-  division: `if d != 0 && n % d == 0`. The region is everything that can
+  immutable variable or parameter (see structs), and no write to it in the
+  region, a call passing it, or a part of it, as `mut` included, may reach
+  the use. A write reaches the use when it runs before it: written
+  earlier, or in a loop inside the region that holds the use too, whose
+  next pass runs the use again with no check in between, so a loop that
+  counts its divisor up inside the guard needs the check beside the
+  division: `if d != 0 && n % d == 0`. A write that runs only after the use
+  does not end the fact. That includes the call or the assignment the fact
+  is for, since a call assigns its `mut` arguments only once they are all
+  evaluated, and an assignment stores to its target only once its value
+  is computed: `if d != 0 { d = n / d }` and `if len(l) > 0 { x := pop(mut
+  l) }` compile, while a second `pop` after the first needs a check of its
+  own. It includes a write later in a loop's body when the check runs
+  again before the next use, as the loop's condition, or a guard in the
+  body before the use, does: in `for 0 <= i && i < 3 { use(a[i]); i++ }`
+  the condition proves `a[i]` on every pass. Deferred code is judged
+  where it runs, at its block's end, and a `default` written above other
+  cases runs after their values are tried. The region is everything that can
   run after the comparison and before the use, the rest of the condition
   included: in `if d != 0 && reset(mut d)` the body knows nothing about
   `d`, nor does the code after `if d == 0 || reset(mut d) { return }`,
@@ -1914,9 +1942,11 @@ makes for itself, which has a letter after `tack_`.
   values tried after one count as well. A tag is evaluated once, before
   any value, so in `switch d` what a case proves about `d` also needs
   every value tried up to that case to leave `d` unassigned. A counting
-  loop's start
-  holds only while its condition, which runs again before every pass,
-  assigns nothing either. A write in a branch that leaves never matters.
+  loop's start is not tried again before a later pass, so it holds only
+  while neither the condition, which runs again before every pass, nor
+  the body assigns the variable anywhere, and a range loop's index bound,
+  which holds of what the loop copied when it began, only while the body
+  never assigns what it ranges over. A write in a branch that leaves never matters.
   A call to `exit` does not count as
   leaving. When a guard says something about a divisor or index it did not
   prove, the error comes with notes pointing at the guard and what it

@@ -367,7 +367,10 @@
 // remove its TACK_LIST_REMOVE, each on the address of the list's place;
 // their checked forms hold that address, remove's index and whether the
 // list has the element in temporaries, and take the element only when it
-// does, giving the element type's zero value otherwise. An element, a length, a
+// does, giving the element type's zero value otherwise. Written as a
+// statement, either holds the same temporaries and, only when the list has
+// the element, takes it under an if and drops it, freeing it when its type
+// is owned (see dropTake). An element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in
 // place; a range's variable bound to an owned element is a pointer to it,

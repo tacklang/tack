@@ -117,6 +117,19 @@ var acceptedDefers = []struct {
 		"reads a mutable variable at exit",
 		inF("mut x := 1", "defer { report() }", "defer { x = x + n }", "return x"),
 	},
+	{
+		"the defer changes the divisor after dividing by it",
+		inF(
+			"mut e := d",
+			"if e != 0 {",
+			"    defer {",
+			"        report()",
+			"        e = n / e",
+			"    }",
+			"}",
+			"return 0",
+		),
+	},
 }
 
 // TestAcceptsDefers checks well-formed defers check cleanly.
@@ -284,12 +297,12 @@ var rejectedDefers = []struct {
 		[]switchError{{"divisor e may be zero; check e != 0 first, or use q, ok := ... / e", "e"}},
 	},
 	{
-		"the defer itself changes the divisor",
+		"the defer itself changes the divisor before dividing by it",
 		inF(
 			"mut e := d",
 			"if e != 0 {",
 			"    defer {",
-			"        report()",
+			"        e--",
 			"        e = n / e",
 			"    }",
 			"}",

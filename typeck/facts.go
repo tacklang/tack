@@ -26,11 +26,19 @@ import (
 //     or a field or element of an immutable variable or parameter (see
 //     subject.go); a mutable global can be changed by any call, so it never
 //     has one, and a field of a mutable variable never has one either;
-//   - a fact holds in a region only if the region never assigns the
-//     variable, anywhere, so nothing in it can make the fact false. The
-//     region is everything that can run after the comparison and before
-//     the use: the rest of the condition the comparison is part of, the
-//     branch that falls through past an early exit, later case values,
+//   - a fact holds in its region up to the first write to the variable
+//     that can reach the use (see reaches): one that takes effect before
+//     the use, a call's mut argument at the end of the call and an
+//     assignment's target at the end of the statement, so the call or
+//     assignment the fact is for does not end it; one in a loop inside the
+//     region that holds the use too; and, for a use in deferred code, or
+//     in a switch's default written before other cases, one that runs
+//     before that code although written after it. A counting loop's start,
+//     and a range loop's bounds, which hold of what the loop began with,
+//     end at any write in their region. The region is everything that can
+//     run after the comparison and before the use: the rest of the
+//     condition the comparison is part of, the branch that falls through
+//     past an early exit, later case values,
 //     every value tried since a switch's tag was evaluated, for a fact
 //     about the tag, and a counting loop's condition for the start it
 //     counts from;
@@ -49,8 +57,8 @@ import (
 //     as len(s) > 0 does, and i < len(s) bounds i by it, as a range loop
 //     over len(s), or over s itself, does its index, whatever i's integer
 //     type, a uint64 or a target-width one included. A fact that names s
-//     holds only in a region that assigns neither variable; s may be
-//     mutable, since the region then never changes it;
+//     holds only up to a write to either variable that can reach the use;
+//     s may be mutable, since nothing then changes it before the use;
 //   - for a slice's bounds, which may reach a length but not pass it, and
 //     must be in order, two relations give facts too: j <= len(s) bounds
 //     j by the length itself, and i <= j, or i < j, puts i at or below j,
@@ -74,7 +82,9 @@ import (
 // fact that does not hold where it is: one the region drops because it
 // assigns the variable, and one that would hold but for how its region is
 // written (see explain.go). Such a fact is kept in force only to explain an
-// error, and every query that proves something skips it: see inForce.
+// error, and every query that proves something skips it: see holds. ends
+// holds every write in the fact's region that could end it, each of which
+// ends it only for the code it can reach (see reaches).
 type fact struct {
 	src          ast.Expr
 	guard        *guard
@@ -83,15 +93,32 @@ type fact struct {
 	lenOf        factKey
 	atMostLen    factKey
 	atMost       factKey
+	ends         []ending
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
 }
 
-// inForce reports whether f is in force where it is, and so may prove
-// something: it was not dropped.
-func (f fact) inForce() bool {
-	return f.drop == nil
+// holds reports whether f is in force where checking has reached, c.at,
+// and so may prove something: it was not dropped, and no write in its
+// region that can reach c.at ends it (see dropOf).
+func (c *Checker) holds(f fact) bool {
+	return c.dropOf(f) == nil
+}
+
+// dropOf returns why f does not hold at c.at: the drop it was put in force
+// with, or else the first write in its region that reaches c.at, or nil
+// when it holds there.
+func (c *Checker) dropOf(f fact) *drop {
+	if f.drop != nil {
+		return f.drop
+	}
+	for _, e := range f.ends {
+		if c.reaches(e) {
+			return e.drop
+		}
+	}
+	return nil
 }
 
 // empty reports whether f says nothing about its variable: no bound, not
@@ -118,12 +145,16 @@ type interval struct {
 }
 
 // nonzero reports whether e is known not to be zero where it is checked: a
-// constant other than zero, an immutable variable whose value is one, or a
+// constant other than zero, an immutable variable whose value is one, a
 // subject, a variable or a path below an immutable one, the facts in force
-// keep away from zero.
+// keep away from zero, or len(s) of a string, list or view subject whose
+// length they keep at 1 or more (see minLen).
 func (c *Checker) nonzero(e ast.Expr) bool {
 	if v, ok := c.knownValue(e); ok {
 		return !v.IsZero()
+	}
+	if _, ok := c.stringLen(e); ok {
+		return c.minLen(e.(*ast.Call).Args[0]).Cmp(constant.FromInt64(1)) >= 0
 	}
 	if !c.isSubject(e) {
 		return false
@@ -152,7 +183,7 @@ func (c *Checker) intervalOf(e ast.Expr) interval {
 		return known
 	}
 	for _, f := range c.active {
-		if f.about == k && f.inForce() {
+		if f.about == k && c.holds(f) {
 			known = known.narrow(f)
 		}
 	}
@@ -545,7 +576,7 @@ func union(a, b []fact) []fact {
 	var out []fact
 	seen := make(map[factKey]bool)
 	for _, f := range a {
-		if seen[f.about] || f.relational() || !f.inForce() {
+		if seen[f.about] || f.relational() || f.drop != nil {
 			continue
 		}
 		seen[f.about] = true
@@ -565,7 +596,7 @@ func sideInterval(facts []fact, k factKey) (interval, bool) {
 	var known interval
 	found := false
 	for _, f := range facts {
-		if f.about == k && !f.relational() && f.inForce() {
+		if f.about == k && !f.relational() && f.drop == nil {
 			known, found = known.narrow(f), true
 		}
 	}
@@ -776,17 +807,26 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 }
 
 // assume puts facts in force for the region about to be checked, coming
-// from g. A fact about a variable the region assigns, or about the string
-// whose length bounds one, is put in force dropped, marked with the
-// assignment, so it proves nothing but can explain an error. A fact that
-// says nothing, such as the one b != 3 gives, is left out before the region
-// is searched, which a long chain of cases or ifs would otherwise do once
-// per link. g itself is put in scope too. Everything assume puts in force
-// stays until a release to a mark taken before it.
+// from g. Each fact keeps every write in the region to its variable, or
+// to the string whose length bounds it, or the subject a relation bounds
+// it by (see endingsIn): the fact holds for code no such write can reach
+// (see reaches), and is dropped, marked with the first write that does,
+// everywhere else, so it proves nothing there but can explain an error. A
+// fact that says nothing, such as the one b != 3 gives, is left out
+// before the region is searched, which a long chain of cases or ifs
+// would otherwise do once per link. g itself is put in scope too.
+// Everything assume puts in force stays until a release to a mark taken
+// before it.
 //
 // region is everything that can run after facts became true and before,
 // or while, the code they guard runs: statements, and the parts of a
-// condition or of a switch's cases still to run. A fact that already
+// condition or of a switch's cases still to run, in the order they run.
+// It must be entered only through g: no path from a write in it may come
+// back to code in it without passing g again, but through a loop inside
+// it. A loop whose body is the region, and whose condition is g, meets
+// that, while a loop counting from a start, whose start is not tried
+// again, does not, and its facts are dropped by any write in their region
+// before they are put in force (see dropAssigned). A fact that already
 // carries a drop, such as one a later part of its own condition ends (see
 // factsFrom), keeps it.
 func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
@@ -797,7 +837,7 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 		}
 		f.guard = g
 		if f.drop == nil {
-			f.drop = c.assignedIn(region, f)
+			f.ends = c.endingsIn(region, f)
 		}
 		c.active = append(c.active, f)
 	}
@@ -859,6 +899,161 @@ func (c *Checker) assignedIn(region []ast.Node, f fact) *drop {
 		}
 	}
 	return nil
+}
+
+// ending is a write in a fact's region that ends the fact for the code it
+// can reach: drop says what it is, and at where it takes effect, the end
+// of the call it passes the variable as mut to, or of the assignment
+// statement whose target it is. Either runs after everything written
+// before that end: a call's arguments, and the callee's own check of
+// them, come before it assigns its mut arguments, and an assignment's
+// value, and every check in it, before its target is stored to. loop is
+// the outermost loop in the region that holds the write, through whose
+// back edge it can reach code before it, or the zero span.
+type ending struct {
+	drop *drop
+	loop ast.Span
+	at   int
+}
+
+// endingsIn returns every write in region that may end f, in the order
+// region holds them: each assignment to f's variable, or to the string
+// whose length bounds it, or the subject a relation bounds it by, a call
+// passing any of them as mut included.
+func (c *Checker) endingsIn(region []ast.Node, f fact) []ending {
+	var ends []ending
+	for _, k := range []factKey{f.about, f.lenOf, f.atMostLen, f.atMost} {
+		if !k.isZero() {
+			ends = append(ends, c.writesIn(region, k.decl)...)
+		}
+	}
+	return ends
+}
+
+// writesIn returns every write to decl in region, however deeply nested,
+// as an ending (see eachWrite), each knowing the outermost loop in region
+// that holds it.
+func (c *Checker) writesIn(region []ast.Node, decl ast.Decl) []ending {
+	var ends []ending
+	c.eachWrite(region, decl, func(w write) {
+		d := &drop{kind: dropAssigned, at: w.shown.Spanned(), name: declName(decl)}
+		if w.call != nil {
+			d.kind, d.text = dropMut, c.factCallee(w.call)
+		}
+		var loop ast.Span
+		if len(w.loops) > 0 {
+			loop = w.loops[0]
+		}
+		ends = append(ends, ending{drop: d, loop: loop, at: w.at})
+	})
+	return ends
+}
+
+// write is a write to a variable that eachWrite found: shown, what a note
+// about it underlines, the target or the mut argument; call, the call it
+// is a mut argument of, or nil; at, where it takes effect, as an
+// ending's at; and loops, every loop the walk passed that holds it,
+// outermost first.
+type write struct {
+	shown ast.Node
+	call  *ast.Call
+	loops []ast.Span
+	at    int
+}
+
+// eachWrite calls found with every write to decl in nodes, however deeply
+// nested, in the order the walk meets them: an assignment's target, a
+// compound assignment's, an increment's or decrement's, one of an
+// assignment of several values, or a mut argument, which a call may
+// assign through. Each node is walked on its own, so a write's loops are
+// those inside the node that hold it, found as the walk passes them: a
+// node is in a loop passed before it exactly when it starts before the
+// loop ends.
+func (c *Checker) eachWrite(nodes []ast.Node, decl ast.Decl, found func(w write)) {
+	var loops []ast.Span
+	visit := func(n ast.Node) bool {
+		span := n.Spanned()
+		for len(loops) > 0 && span.Start >= loops[len(loops)-1].End {
+			loops = loops[:len(loops)-1]
+		}
+		if isLoop(n) {
+			loops = append(loops[:len(loops):len(loops)], span)
+		}
+		for _, target := range assignedTargets(n) {
+			if c.writes(target, decl) {
+				found(write{shown: target, loops: loops, at: span.End})
+			}
+		}
+		if call, ok := n.(*ast.Call); ok {
+			if m := c.mutWriter(call, decl); m != nil {
+				found(write{shown: m, call: call, loops: loops, at: span.End})
+			}
+		}
+		return true
+	}
+	for _, n := range nodes {
+		loops = nil
+		ast.Walk(n, visit)
+	}
+}
+
+// assignedTargets returns the places n, a statement, assigns: an
+// assignment's target, a compound assignment's, an increment's or
+// decrement's, or each of an assignment of several values; or nil for
+// any other node.
+func assignedTargets(n ast.Node) []ast.Expr {
+	switch x := n.(type) {
+	case *ast.Assign:
+		return []ast.Expr{x.Target}
+	case *ast.IncDec:
+		return []ast.Expr{x.Target}
+	case *ast.MultiAssign:
+		return x.Targets
+	default:
+		return nil
+	}
+}
+
+// isLoop reports whether n is a loop, of either kind.
+func isLoop(n ast.Node) bool {
+	switch n.(type) {
+	case *ast.For, *ast.ForRange:
+		return true
+	default:
+		return false
+	}
+}
+
+// reaches reports whether e, a write in the region of a fact, can run
+// after the fact became true and before the check at c.at, the end of
+// the expression or statement being checked, without the fact being
+// proved again: it takes effect before c.at; or it is in a loop inside
+// the region that c.at is in too, whose next pass reaches c.at; or c.at
+// is in deferred code, which runs when its block is left, and e is
+// outside it; or c.at is in a switch's default written before cases
+// whose values are tried before it runs, and e is in that switch outside
+// the default (see lateDefault).
+func (c *Checker) reaches(e ending) bool {
+	switch {
+	case e.at < c.at:
+		return true
+	case e.loop.Start < c.at && c.at <= e.loop.End:
+		return true
+	case c.deferSpan != nil && !inSpan(e.at, *c.deferSpan):
+		return true
+	}
+	for _, d := range c.lateDefaults {
+		if inSpan(e.at, d.whole) && !inSpan(e.at, d.body) {
+			return true
+		}
+	}
+	return false
+}
+
+// inSpan reports whether the position at, the end of a node, lies in
+// span: after its start and at or before its end.
+func inSpan(at int, span ast.Span) bool {
+	return span.Start < at && at <= span.End
 }
 
 // assignedDrop returns the drop for the first assignment in region to the

@@ -115,7 +115,7 @@ func TestDroppedFactNotes(t *testing.T) {
 // droppedFactCases are programs where a region drops a fact.
 var droppedFactCases = []noteCase{
 	{
-		"assigned later in the branch",
+		"assigned later in a loop in the branch",
 		program(
 			"package main",
 			"",
@@ -123,8 +123,10 @@ var droppedFactCases = []noteCase{
 			"    mut d int64 = 2",
 			"    mut x int64 = 0",
 			"    if d != 0 {",
-			"        x = 10 / d",
-			"        d = 0",
+			"        for range 2 {",
+			"            x = 10 / d",
+			"            d = 0",
+			"        }",
 			"    }",
 			"    code, _ := int32(x + d)",
 			"    exit(code)",
@@ -133,7 +135,7 @@ var droppedFactCases = []noteCase{
 		divD,
 		[]wantNote{
 			{"this guard proves d != 0", "d != 0", 6, 8},
-			assignedHere("d", 8, 9),
+			assignedHere("d", 9, 13),
 		},
 	},
 	{
@@ -215,8 +217,8 @@ var droppedFactCases = []noteCase{
 			"    mut d int64 = 2",
 			"    mut x int64 = 0",
 			"    if d != 0 {",
-			"        x = 10 / d",
 			"        x, d = g()",
+			"        x = 10 / d",
 			"    }",
 			"    code, _ := int32(x)",
 			"    exit(code)",
@@ -225,7 +227,7 @@ var droppedFactCases = []noteCase{
 		divD,
 		[]wantNote{
 			{"this guard proves d != 0", "d != 0", 10, 8},
-			assignedHere("d", 12, 12),
+			assignedHere("d", 11, 12),
 		},
 	},
 	{
@@ -282,8 +284,8 @@ var droppedFactCases = []noteCase{
 			"    mut i int64 = 1",
 			"    mut sum int64 = 0",
 			"    if 0 <= i && i < 3 {",
-			"        sum += a[i]",
 			"        for ; i < 2; i++ {",
+			"            sum += a[i]",
 			"        }",
 			"    }",
 			"    code, _ := int32(sum)",
@@ -293,7 +295,7 @@ var droppedFactCases = []noteCase{
 		noteIndexI,
 		[]wantNote{
 			{"this guard proves 0 <= i && i < 3", "0 <= i && i < 3", 7, 8},
-			assignedHere("i", 9, 22),
+			assignedHere("i", 8, 22),
 		},
 	},
 	{
@@ -306,15 +308,15 @@ var droppedFactCases = []noteCase{
 			"    if d == 0 {",
 			"        exit(1)",
 			"    } else {",
+			"        d--",
 			"        exit(10 / d)",
-			"        d = 1",
 			"    }",
 			"}",
 		),
 		divD,
 		[]wantNote{
 			{"this guard proves d != 0 in its else branch", "d == 0", 5, 8},
-			assignedHere("d", 9, 9),
+			assignedHere("d", 8, 9),
 		},
 	},
 	{
@@ -327,8 +329,8 @@ var droppedFactCases = []noteCase{
 			"    if d == 0 {",
 			"        return 0",
 			"    }",
+			"    d--",
 			"    q := 10 / d",
-			"    d = 0",
 			"    return q + d",
 			"}",
 			"",
@@ -340,7 +342,7 @@ var droppedFactCases = []noteCase{
 		divD,
 		[]wantNote{
 			{"this early exit proves d != 0 after it", "if d == 0", 5, 5},
-			assignedHere("d", 9, 5),
+			assignedHere("d", 8, 5),
 		},
 	},
 	{
@@ -459,7 +461,7 @@ var droppedFactCases = []noteCase{
 		},
 	},
 	{
-		"a counting loop whose body assigns its variable",
+		"a counting loop whose body assigns its variable after the use",
 		program(
 			"package main",
 			"",
@@ -476,8 +478,9 @@ var droppedFactCases = []noteCase{
 		),
 		noteIndexI,
 		[]wantNote{
+			// The condition runs again before the next use, so i < 3 still
+			// holds; the start does not, so the bound it gives ends.
 			{"counting from this start proves i >= 0", "mut i := 0", 6, 9},
-			{"this guard proves i < 3", "i < 3", 6, 21},
 			assignedHere("i", 8, 9),
 		},
 	},
@@ -490,7 +493,7 @@ var droppedFactCases = []noteCase{
 			"    a := [3]int64{10, 20, 30}",
 			"    mut i int64 = 0",
 			"    mut sum int64 = 0",
-			"    for i < 3 { sum += a[i]; i++ }",
+			"    for i < 3 { i++; sum += a[i] }",
 			"    code, _ := int32(sum)",
 			"    exit(code)",
 			"}",
@@ -498,7 +501,7 @@ var droppedFactCases = []noteCase{
 		noteIndexI,
 		[]wantNote{
 			{"this guard proves i < 3", "i < 3", 7, 9},
-			assignedHere("i", 7, 30),
+			assignedHere("i", 7, 17),
 			{"this guard would bound i only above; i may be negative", "i < 3", 7, 9},
 		},
 	},
@@ -712,9 +715,9 @@ func TestExplainingLeavesTheFactsAlone(t *testing.T) {
 	src := inF2("a [3]int64, n int64",
 		"mut i := n",
 		"if 0 <= i && i < 3 {",
+		"    i = n",
 		"    mut s := a[i]",
 		"    s += a[i]",
-		"    i = 0",
 		"    return s",
 		"}",
 		"return a[i]",

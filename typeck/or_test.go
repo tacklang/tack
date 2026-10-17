@@ -132,9 +132,9 @@ var noOrFactCases = []struct {
 		divide(
 			"mut d := b",
 			"if d < 0 || d > 0 {",
+			"    d--",
 			"    code, _ := int32(a / d)",
 			"    exit(code)",
-			"    d = 0",
 			"}",
 		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},

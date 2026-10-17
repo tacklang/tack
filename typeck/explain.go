@@ -180,8 +180,9 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 		if f.about != p.about || f.relational() && !p.relations {
 			continue
 		}
+		f.drop = c.dropOf(f)
 		facts = append(facts, f)
-		if !f.inForce() {
+		if f.drop != nil {
 			dropped = append(dropped, f)
 		}
 	}
@@ -222,7 +223,7 @@ func (c *Checker) supposing(proven func() bool) bool {
 	saved := c.active
 	c.active = slices.Clone(saved)
 	for i := range c.active {
-		c.active[i].drop = nil
+		c.active[i].drop, c.active[i].ends = nil, nil
 	}
 	defer func() { c.active = saved }()
 	return proven()
@@ -690,7 +691,7 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 		f, bounded := setting(
 			c.active,
 			func(f fact) bool {
-				return f.about == declKey(id.Def) && f.inForce() && !f.relational()
+				return f.about == declKey(id.Def) && c.holds(f) && !f.relational()
 			},
 		)
 		if bounded {

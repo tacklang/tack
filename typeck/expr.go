@@ -15,8 +15,20 @@ import (
 // expression, made only of literals and operators, has types.UntypedInt
 // and its exact value recorded, until settle gives it the type of the place
 // it is used. types.Invalid means a problem in e has already been reported,
-// so a caller never reports anything more about it.
+// so a caller never reports anything more about it. e is checked with
+// c.at at its end (see exprAt).
 func (c *Checker) expr(e ast.Expr) types.Type {
+	outer := c.at
+	c.at = e.Spanned().End
+	typ := c.exprAt(e)
+	c.at = outer
+	return typ
+}
+
+// exprAt checks e, with c.at at its end, so that what checking e proves,
+// once its operands are checked, is judged where e is evaluated, and
+// returns its type.
+func (c *Checker) exprAt(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
 		*ast.CAllocatorLit:

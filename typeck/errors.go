@@ -27,7 +27,7 @@ import (
 // A check is a fact, as a divisor's proof is, so it comes from the
 // conditions facts come from, an if's branches, the rest of a block after
 // an early exit, a loop's body, the right of && and ||, a switch's cases,
-// and holds only in a region that never assigns err. Its subject is
+// and holds only up to a write to err that can reach the read. Its subject is
 // err.code, which carries facts whether err is mutable or not
 // (errorCodeKey), though a field of a mutable variable carries none for
 // any other proof. A check is proven when those facts bound err.code to
@@ -439,7 +439,7 @@ func (c *Checker) noError(errDecl ast.Decl) bool {
 	known := codeInterval()
 	k := factKey{decl: errDecl, path: ".code"}
 	for _, f := range c.active {
-		if f.about == k && f.inForce() {
+		if f.about == k && c.holds(f) {
 			known = known.narrow(f)
 		}
 	}
@@ -533,7 +533,7 @@ func (c *Checker) okTrue(okDecl ast.Decl) bool {
 	var known interval
 	k := declKey(okDecl)
 	for _, f := range c.active {
-		if f.about == k && f.inForce() {
+		if f.about == k && c.holds(f) {
 			known = known.narrow(f)
 		}
 	}

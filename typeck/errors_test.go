@@ -326,10 +326,10 @@ var errorRejectedCases = []struct{ name, src, want string }{
 		readBeforeCheck,
 	},
 	{
-		"check dropped by a rebinding",
+		"check dropped by a rebinding before the read",
 		errorProgram(
-			`mut v, mut err := parse("1")`, "if err.code != 0 {", "    return", "}", "use(v)",
-			`v, err = parse("2")`, "if err.code != 0 {", "    return", "}",
+			`mut v, mut err := parse("1")`, "if err.code != 0 {", "    return", "}",
+			`v, err = parse("2")`, "use(v)", "if err.code != 0 {", "    return", "}",
 		),
 		readBeforeCheck,
 	},
@@ -538,10 +538,10 @@ func TestNotesOnAnUncheckedRead(t *testing.T) {
 	head := "package main\n\nfunc parse() (int64, error) {\n    return 1, noerror\n}\n\nfunc main() {\n"
 	expectNotes(t,
 		head+"    mut v, mut err := parse()\n    if err.code != 0 {\n        return\n    }\n"+
-			"    exit(int32(v))\n    v, err = parse()\n}\n",
+			"    for range 2 {\n        exit(int32(v))\n        v, err = parse()\n    }\n}\n",
 		readBeforeCheck,
 		wantNote{"this early exit proves err.code == 0 after it", "if err.code != 0", 9, 5},
-		wantNote{"but err is assigned here, so the proof ends", "err", 13, 8},
+		wantNote{"but err is assigned here, so the proof ends", "err", 14, 12},
 	)
 	expectNotes(
 		t,

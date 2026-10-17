@@ -332,10 +332,12 @@ func reversed(a [3]int64) int64 {
 ```
 
 The fact holds in the body only: not in the condition, the post, or after
-the loop. A body or a condition that assigns the variable gets no fact
-about it, so
+the loop. The start is not tried again before a later pass, so a body or
+a condition that assigns the variable anywhere, even after the use, gets
+no fact from the start about it, and
 in <!-- case: safety-counting-loop-assigns -->`for mut i := 0; i < 3; i++ { sum += a[i]; i++ }`
-`a[i]` needs a proof. Nor does a step that could wrap: an `int8` at 2
+`a[i]` needs a proof that `i >= 0`, though the condition, tried again
+before every pass, still proves `i < 3`. Nor does a step that could wrap: an `int8` at 2
 plus 126 is -128, which is below 3 again,
 so <!-- case: safety-counting-loop-may-wrap -->`for mut i int8 = 2; i < 3; i += 126 { sum += a[i] }`
 proves nothing about `i`. A target-width variable could wrap past
@@ -372,24 +374,58 @@ func early(a [3]int64, i int64) int64 {
 
 ### Where a fact holds
 
-A fact holds only in a region that never assigns its variable, anywhere,
-before or after the use: an assignment, a compound assignment, `++` or
-`--`, one of several targets, or a call that passes the variable, or a part
-of it, as `mut`, which may assign it. If the region assigns it, the fact is
-dropped for the whole region:
+A fact holds in its region up to the first write to its variable that can
+reach the use: an assignment, a compound assignment, `++` or `--`, one of
+several targets, or a call that passes the variable, or a part of it, as
+`mut`, which may assign it. A write that runs before the use ends the
+fact there:
 
-<!-- case: safety-region-assigned-later -->
+<!-- case: safety-region-assigned-before -->
 ```tack
 mut d int64 = 2
 mut x int64 = 0
 if d != 0 {
-    x = 10 / d      // error: d is assigned later in this branch
-    d = 0
+    d--
+    x = 10 / d      // error: d is assigned before the use
 }
 ```
 
 The division
-reports <!-- error: safety-region-assigned-later -->`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
+reports <!-- error: safety-region-assigned-before -->`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
+
+A write that runs after the use, on every path, does not end it. A call
+assigns its `mut` arguments only after every argument is evaluated and
+the call has begun, and an assignment stores to its target only after
+its value is computed, so the call or the assignment a fact is for may
+write the variable itself: `if len(l) > 0 { x := pop(mut l) }`,
+`if 0 <= i && i < len(l) { x := remove(mut l, i) }` and
+`if d != 0 { d = n / d }` compile. A second use after that write needs a
+proof of its own: in <!-- case: cond-write-pop-twice -->`if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0`
+the second `pop` reports <!-- error: cond-write-pop-twice -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
+with <!-- note: cond-write-pop-twice -->`but l is passed as mut to pop here, so the proof ends`
+at the first. A write later in a loop's body reaches the next pass's use
+only through the loop's back edge, and when the fact comes from the
+loop's condition, or from a guard inside the body before the use, that
+edge runs the check again, so the write does not end it. A write in a
+loop that lies inside the fact's region does reach every use in that
+loop, before or after it, since the next pass starts with no check:
+
+<!-- case: proof-ends-on-back-edge -->
+```tack
+if len(l) > 0 {
+    for range 2 {
+        x := pop(mut l)
+```
+
+reports the pop, <!-- note: proof-ends-on-back-edge -->`but l is passed as mut to pop here, so the proof ends`,
+pointing at the pop itself. Code that runs out of the order it is
+written in is judged by when it runs: deferred code runs when its block
+is left, after every write in the block outside it (see below), and a
+switch's `default` written before other cases runs after every case's
+values are tried, so a value that writes, written below it, ends what
+the default relies
+on: <!-- case: proof-ends-before-early-default -->`if d != 0 { switch { default: exit(10 / d); case zero(mut d): } }`
+reports <!-- note: proof-ends-before-early-default -->`but d is passed as mut to zero here, so the proof ends`.
 
 A call passing the variable as `mut` ends the proof the same way, and the
 note names the
@@ -492,7 +528,7 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
 | <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
 | <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |
-| <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { a[i]; i++ }`                    | the body assigns `i`                                                    |
+| <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { i++; a[i] }`                    | the body assigns `i` before the use                                     |
 | <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
 | <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
 | <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
@@ -511,7 +547,7 @@ code it is about, so its text never repeats a position:
 - a guard whose fact holds but is too weak says what it allows, such as
   `i == 3` for a `[3]T`, or that it bounds the index only above.
 
-For `for i < 3 { sum += a[i]; i++ }` the error is followed
+For `for i < 3 { i++; sum += a[i] }` the error is followed
 by <!-- note: safety-no-proof-loop-assigns -->`this guard proves i < 3`,
 under `i < 3`,
 then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the proof ends`,
@@ -1099,9 +1135,9 @@ A branch ending in `exit` does not leave, as for any fact,
 so <!-- case: error-read-exit -->`if err.code != 0 { exit(1) }` checks
 nothing, <!-- note: error-read-exit -->`but its branch ends in exit, not in return, break or continue`.
 
-A check holds only in a region that never assigns `err`, so binding a
-new error to it later in the same block ends the proof for the whole
-block, as assigning a divisor does:
+A check holds up to the first binding of a new error to `err` that can
+reach the read, as a fact about a divisor does, so a read after the
+rebinding needs a check of its own:
 
 <!-- case: error-read-after-rebinding -->
 ```tack
@@ -1109,16 +1145,19 @@ mut v, mut err := parse("1")
 if err.code != 0 {
     return
 }
+v, err = parse("")
 if v > 0 {
     print("parsed\n")
 }
-v, err = parse("")
 ```
 
 reports the read with the notes <!-- note: error-read-after-rebinding -->`this early exit proves err.code == 0 after it`
 and <!-- note: error-read-after-rebinding -->`but err is assigned here, so the proof ends`.
-A check in a branch of its own, or a new pair of variables, keeps the
-rebinding out of its region.
+A read before the rebinding keeps the check, and so does a read in a loop
+whose body checks `err` again before it, while a rebinding later in a
+loop whose check is outside it reaches the read on the next
+pass: <!-- case: error-read-loop-rebinding -->`for i := range 3 { if v > i { ... }; v, err = parse("2") }`
+after the check reports the read.
 
 The proof is about `err`'s value, and `v` is read on its strength, so
 `err` must still hold the error of the call that gave `v`. Two rules
@@ -1164,10 +1203,24 @@ is freed. Three properties make that safe, and the compiler checks each.
 **Indexes stay in range.** A list's length is never known, so an index
 into one is proven as one into a string parameter is, against `len(l)`,
 by a guard, a range loop or an early exit, or read with the checked
-form. A fact about `len(l)` holds in a region that never assigns `l`,
-passes it as `mut` or moves it; `append(mut l, v)` passes it as `mut`,
-so it ends the proof, as `reserve(mut l, n)` does, though it changes no
-length:
+form. A fact about `len(l)` holds up to the first write to `l` that can
+reach the use: an assignment, a `mut` argument, or a move;
+`append(mut l, v)` passes it as `mut`, so it ends the proof, as
+`reserve(mut l, n)` does, though it changes no length. A successful
+append proves a length of its own instead: it adds all of its values or
+none, and adding none is an error, so once a check proves
+`err.code == 0` for `err := append(mut l, a, b)`, `len(l)` is at least
+2, and `l[1]`, `pop(mut l)` and `10 / len(l)` need no other proof. The
+count is the number of values passed, or the length of an array spread
+whole; a spread of anything else, `reserve`, an error bound to a `mut`
+variable and an append to another list prove nothing. The proof ends at
+a write to `l` that can run between the append and the use, as a fact
+does, so <!-- case: proof-append-then-pop -->`err := append(mut l, 1)`,
+checked, then two pops, reports the
+second, <!-- error: proof-append-then-pop -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
+and a defer reading `l[0]` that runs after a pop
+reports <!-- error: proof-ends-before-defer-runs -->`index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]`.
+The append's proof is its own, and does not add to a guard's:
 
 <!-- case: list-len-dropped-by-append -->
 ```tack
@@ -1175,7 +1228,7 @@ if len(l) > 0 {
     err := append(mut l, 1)
 ```
 
-reports the read of `l[0]` after it with <!-- note: list-len-dropped-by-append -->`but l is passed as mut to append here, so the proof ends`.
+proves `len(l) >= 1` after the check, not 2, and reports the read of `l[1]` after it with <!-- note: list-len-dropped-by-append -->`but l is passed as mut to append here, so the proof ends`.
 Writing an element, `l[i] = v`, changes no list's length, so it ends no
 fact, and a write needs its index proven as a read does, with no checked
 form: <!-- error: list-index-write-unproven -->`index i may be out of range; check 0 <= i && i < len(l) first`.
@@ -1327,22 +1380,32 @@ and no type holds itself through a list,
 
 **Taking an element out.** `pop(mut l)` takes a list's last element
 and `remove(mut l, i)` its element `i`, moving the rest down; neither
-allocates or frees. The plain forms need the element proven there, as
+allocates, and neither frees but when written as a statement (below).
+The plain forms need the element proven there, as
 an index does,
 <!-- error: pop-unproven -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
 <!-- error: remove-unproven -->`index i may be out of range; check 0 <= i && i < len(l) first, or use x, ok := remove(mut l, i)`,
-but each passes `l` as `mut`, which ends the facts about its length for
-the whole region, its own call included,
+and each passes `l` as `mut`, which ends the facts about its length for
+what runs after it, though not for its own call, which checks before it
+writes: `if len(l) > 0 { x := pop(mut l) }` compiles, while a second pop
+in the same branch
 
 <!-- case: pop-guard-ends-at-pop -->
 ```tack
 if len(l) > 0 {
     x := pop(mut l)
+    y := pop(mut l)
 ```
 
-reports the pop with <!-- note: pop-guard-ends-at-pop -->`but l is passed as mut to pop here, so the proof ends`,
-so the checked forms, `x, ok := pop(mut l)` and `x, ok := remove(mut
-l, i)`, are the ones a program writes today. `ok` is false for an empty
+reports the second with <!-- note: pop-guard-ends-at-pop -->`but l is passed as mut to pop here, so the proof ends`.
+A `pop` or a `remove` written as a statement, `pop(mut l)` or
+`remove(mut l, i)`, needs no proof: it drops the element when there is
+one, freeing it when it is owned, and does nothing otherwise, so it is
+how a program drops an element; binding both results to `_`,
+`_, _ = pop(mut l)`,
+is <!-- error: pop-results-all-blank -->`every name is _, so nothing is bound; make the call on its own`.
+The checked forms, `x, ok := pop(mut l)` and `x, ok := remove(mut
+l, i)`, need no proof either. `ok` is false for an empty
 list or an index out of range, which leaves the list as it was, and `x`
 is then the element type's zero value; a type with none, owned, a union
 or an `Allocator`, has no value to give, so `x` cannot be read until `ok` is

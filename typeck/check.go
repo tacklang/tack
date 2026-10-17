@@ -111,6 +111,20 @@ type Checker struct {
 	// and the binary's type then (see knownArithmetic).
 	knownBinaries map[*ast.Binary]knownBinary
 
+	// deferSpan is the defer whose code is being checked, if any, and
+	// lateDefaults each switch whose default, written before some of its
+	// cases, is being checked, innermost last (see reaches).
+	deferSpan    *ast.Span
+	lateDefaults []lateDefault
+
+	// body is the body of the function being checked, appends the calls
+	// to append in it checked so far whose error proves what they added
+	// (see appended.go), and writesByDecl every write in it to each
+	// variable asked about.
+	body         []ast.Stmt
+	appends      []appendRecord
+	writesByDecl map[ast.Decl][]funcWrite
+
 	// active holds the facts in force where checking has reached, innermost
 	// last, and guards the guards they came from, with any guard in scope
 	// that gave none; see facts.go and explain.go.
@@ -159,6 +173,11 @@ type Checker struct {
 
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
+
+	// at is where checking has reached, for the facts in force to be
+	// judged at (see reaches): the end of the innermost expression or
+	// statement being checked.
+	at int
 
 	// deferred is how many defers enclose the statement being checked, and
 	// deferLoops how many loops enclose the innermost of them: a break or
@@ -349,15 +368,18 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 // one is checked twice: first to find every method its calls call, with
 // what it reports dropped, and then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
+	c.body, c.writesByDecl = fn.Body, make(map[ast.Decl][]funcWrite)
 	if hasMethodBinding(fn) {
 		before := len(c.diags)
 		c.collectHolds(fn)
 		c.checkBlock(fn.Body, fn)
 		c.diags = c.diags[:before]
 		clear(c.knownBinaries)
+		c.appends = nil
 	}
 	c.collectHolds(fn)
 	c.checkBlock(fn.Body, fn)
+	c.appends = nil
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
 	// like exit, does not satisfy it.
@@ -366,8 +388,18 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	}
 }
 
-// checkStmt checks a statement of fn and everything nested in it.
+// checkStmt checks a statement of fn and everything nested in it, with
+// c.at at the statement's end for whatever it checks outside an
+// expression (see checkStmtAt).
 func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
+	outer := c.at
+	c.at = stmt.Spanned().End
+	c.checkStmtAt(stmt, fn)
+	c.at = outer
+}
+
+// checkStmtAt checks a statement of fn and everything nested in it.
+func (c *Checker) checkStmtAt(stmt ast.Stmt, fn *ast.Func) {
 	switch s := stmt.(type) {
 	case *ast.Return:
 		c.checkReturn(s, fn)
@@ -842,9 +874,12 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 		f.drop = wrapDrop(loop, f)
 	}
 	// The condition runs again before every later pass, after the bound
-	// was last true, so it is in the region as well as the body.
+	// was last true, so it is in the region as well as the body. The
+	// start is not tried again, so a write anywhere in the region reaches
+	// every later pass, before or after the use, and ends the bound.
 	region := append([]ast.Node{loop.Cond}, stmtNodes(loop.Body)...)
-	c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, []fact{f}, region)
+	counted := c.dropAssigned([]fact{f}, region)
+	c.assume(&guard{span: loop.Init.Spanned(), kind: guardCount}, counted, region)
 }
 
 // checkForRange checks a range loop. It ranges over an integer, of any
@@ -869,8 +904,12 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 		}
 	}
 	header := ast.Span{File: loop.Span.File, Start: loop.Span.Start, End: loop.X.Spanned().End}
+	// The facts hold of what the loop copied when it began, which a write
+	// in the body changes for every later pass, whether it comes before
+	// or after the use: they end at any write in the body.
+	facts := c.dropAssigned(c.rangeFacts(loop, got), stmtNodes(loop.Body))
 	c.loops++
-	c.checkGuarded(loop.Body, &guard{span: header, kind: guardRange}, c.rangeFacts(loop, got), fn)
+	c.checkGuarded(loop.Body, &guard{span: header, kind: guardRange}, facts, fn)
 	c.loops--
 }
 
@@ -911,8 +950,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // a known value, an array's always, and a string's when it is a known
 // string, a literal or an immutable variable holding one.
 // When the count is len(s) of a string variable, or the loop ranges over a
-// string variable s, the index is below len(s) instead, which assume keeps
-// only while the body never assigns s; s then still holds the string the
+// string variable s, the index is below len(s) instead, which checkForRange keeps
+// only while the body never assigns s, anywhere; s then still holds the string the
 // loop copied. Over a view, whose length is never known, the index is
 // below len(v), which holds for the whole call, and over a list below
 // len(l), which the body can never change (see move.go).
@@ -1021,6 +1060,7 @@ func (c *Checker) checkVar(v *ast.Var) {
 	got := c.expr(v.Value)
 	if v.TypeExpr == nil {
 		v.Type = c.valueOf(v.Value, got)
+		c.recordAppend(v)
 		if c.anyLocal(v) {
 			return
 		}

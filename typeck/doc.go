@@ -173,8 +173,20 @@
 // the other of an || that is true, or an && that is false, giving the union of what each
 // side says about a variable both constrain), holds in an if's branches, a
 // loop's body, the right side of && and ||, and the rest of a block after
-// an if whose branch leaves it, and only for a region that never assigns the
-// variable, which must be a parameter, a local, or an immutable global. The
+// an if whose branch leaves it, and only up to the first write to the
+// variable in that region that can reach the use; the variable must be a
+// parameter, a local, or an immutable global. A write reaches a use when it
+// takes effect before it, a call's mut argument at the call's end and an
+// assignment's target at the statement's end, so the call or assignment a
+// fact is for does not end it; when it is in a loop inside the region that
+// holds the use too; when the use is in deferred code and the write
+// outside it; or when the use is in a switch's default written before a
+// case whose value writes. Every write in the region is kept with the
+// fact, and judged at c.at, where checking has reached (see reaches). A
+// counting loop's start and a range loop's bound are not proven again on
+// a later pass, so any write in their region ends them. A successful
+// append, its error proven 0, proves its list's length at least the count
+// it added, until a write that can reach the use (appended.go). The
 // region is everything that can run between the comparison that gave the
 // fact and the use: the rest of its condition (factsFrom drops a left
 // side's fact that the right side assigns, and the right side of && and
@@ -205,9 +217,10 @@
 // index bounded only above or allowed past the end. An unsigned index is
 // never negative, so a note never explains a lower bound on one, whether
 // missing or dropped. Every note's span is the code it is about, so its
-// text names no position. A fact a region
-// drops is kept in force for this, marked with the assignment, and every
-// query that proves something skips it; whether it would have been enough
+// text names no position. A fact a write
+// ends is kept in force for this, marked where it is asked about with
+// the write that ends it there, and every query that proves something
+// skips it; whether it would have been enough
 // is found by running the proof again with every fact counted. Each fact
 // records the comparison that gave it and its guard, the condition, loop,
 // case or early exit whose region it holds in. Two more kinds of fact are
@@ -444,7 +457,7 @@
 // Any other string's length is not, so the facts also
 // bound a string variable's length (len(s) > 0) and bound a variable by one
 // (i < len(s), or a range loop over len(s) or over s). Such a fact holds
-// only in a region that assigns neither variable, and string.go uses it to
+// only up to a write to either variable that can reach the use, and string.go uses it to
 // prove an index. A constant index into a known string is checked at
 // compile time, a negative one
 // is always out of range, and a string's bytes are never assigned. Two

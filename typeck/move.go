@@ -454,7 +454,9 @@ func (c *Checker) droppedName(typ types.Type) string {
 
 // exprStmt follows e, an expression statement, which drops its value, or
 // every result of a call of several: one of an owned type, which nothing
-// would free, is reported, the first such result of several.
+// would free, is reported, the first such result of several. pop and
+// remove written as a statement free the element they drop, so theirs is
+// not.
 func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 	call, ok := e.(*ast.Call)
 	if !ok {
@@ -462,6 +464,9 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 		return
 	}
 	m.call(call, moveCtx, cur)
+	if isTake(call) {
+		return
+	}
 	results := []types.Type{ast.TypeOf(call)}
 	name := "make"
 	if callee, ok := m.c.calleeName(call); ok {
