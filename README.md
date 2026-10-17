@@ -5,8 +5,8 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of five packages, `std/fmt`, `std/bytes`, `std/text`, `std/os` and
-`std/path`, and no intermediate representation.
+of six packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+`std/path` and `std/conv`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -57,7 +57,8 @@ as a view. `std/os` reads the program's arguments and environment,
 reads, writes, lists and removes files and directories, and runs other
 programs, through C that makes one system call at a time, and
 `std/path`, in Tack alone, cleans, splits and joins slash-separated
-paths as Go's `path` package does.
+paths as Go's `path` package does, and `std/conv`, in Tack alone,
+parses integers as Go's `strconv.ParseInt` and `ParseUint` do.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -487,7 +488,8 @@ makes for itself, which has a letter after `tack_`.
   text), [`os`](src/std/os/os.tck), which reaches the operating
   system and runs programs (see os), and
   [`path`](src/std/path/path.tck), which cleans, splits and joins paths
-  (see path).
+  (see path), and [`conv`](src/std/conv/conv.tck), which parses
+  integers (see conv).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1067,6 +1069,34 @@ makes for itself, which has a letter after `tack_`.
   given, `.` from `""` or `a/b` from `a/./b/c`; each fails only for want
   of memory, `error{code: 1, msg: "out of memory"}`, freeing what it
   made.
+- conv. `std/conv` is written in Tack alone, with no C, allocates
+  nothing, and parses integers exactly as Go's `strconv.ParseInt` and
+  `strconv.ParseUint` do, ported from Go's own code. `v, err :=
+  conv.parse_int(s, base, bit_size)` gives an `int64` and `u, err :=
+  conv.parse_uint(s, base, bit_size)` a `uint64`, from `s`, a `[]uint8`
+  view, so `[]uint8("42")`, a Text's `t.bytes()`, a list or an array can
+  be passed; bytes are bytes, so no space is skipped. `base` is 2 to 36,
+  the letters `a` to `z` in either case being the digits past 9, or 0,
+  when the prefix decides: `0x` or `0X` 16, `0o` or `0O` 8, `0b` or
+  `0B` 2, a leading `0` alone 8, and 10 otherwise; with base 0 alone,
+  underscores may stand between digits, or after a prefix, as in a Go
+  literal, so `1_000` and `0x_ff` parse and `_1`, `1__0` and `1_` do
+  not. `bit_size` is 1 to 64, the width the value must fit, 0 meaning
+  64, so `parse_int(s, 10, 8)` takes -128 to 127. `parse_int` takes one
+  leading `+` or `-`, before any prefix, and `parse_uint` none. The
+  errors are Go's: `error{code: 6, msg: "invalid syntax"}` for an empty
+  input, a lone sign or prefix, a byte that is not a digit of the base,
+  a 0 or 0xff byte among them, or an underscore out of place;
+  `error{code: 7, msg: "value out of range"}` for a value past
+  `bit_size`; `error{code: 8, msg: "invalid base"}` and `error{code: 9,
+  msg: "invalid bit size"}` for a base or bit size Go refuses. They come in Go's order: an empty input is a
+  syntax error whatever the base, the base is checked before the bit
+  size, and digits from the first, so a value past range is a range
+  error even with a bad byte after it. Beside a range error the value
+  is the nearest `bit_size` holds, and 0 beside any other, as in Go,
+  though, as for every result beside an error, it cannot be read
+  before the error is checked. Go's own quirk comes too: in bit size 1,
+  `parse_int("-2", 10, 1)` is -1 and no error.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

@@ -1,0 +1,20 @@
+go parse uint64 ok
+go parse uint32 ok
+go parse int64 ok
+go parse int32 ok
+go parse uint64 base ok
+go parse int64 base ok
+go bases and bit sizes ok
+bit sizes ok
+bases ok
+edges ok
+a Text's bytes ok
+a list, its x a syntax error ok
+a slice of a list ok
+an array, 8 in 5 bits ok
+an array, 8 out of range in 4 bits ok
+a slice of an array ok
+a view passed on ok
+a sum of parsed values ok
+the largest uint64 wraps when one is added ok
+every case ok

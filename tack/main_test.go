@@ -1899,6 +1899,38 @@ func TestBuiltPathPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltConvPassesEveryCheck builds examples/conv, which imports
+// std/conv, a std package written in Tack alone, at every optimization
+// level and checks each binary writes exactly examples/conv/output, every
+// check ok: parse_int and parse_uint on Go's own atoi test tables, every
+// base and bit size at its limits and one past them, misplaced
+// underscores, odd bytes and inputs thousands of bytes long, each against
+// what Go's strconv gives.
+func TestBuiltConvPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "conv", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/conv/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "conv")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("conv"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

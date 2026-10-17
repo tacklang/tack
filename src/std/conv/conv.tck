@@ -1,0 +1,329 @@
+package conv
+
+// Package conv converts between integers and their text, as Go's strconv
+// package does. A program imports it as
+//
+//     import conv from "std/conv"
+//
+// and the compiler reads it from $TACK_HOME/src/std/conv, or
+// ~/.tack/src/std/conv, as it reads std/bytes. It is written in Tack
+// alone, with no C, allocates nothing and cannot fail but by its input.
+//
+// parse_int and parse_uint follow Go's strconv.ParseInt and ParseUint
+// exactly, ported from Go's internal/strconv/atoi.go, the function that
+// both of Go's call:
+//
+//   - The input is a []uint8 view, so a string's bytes, []uint8(s), a
+//     std/text Text's, t.bytes(), a list, an array or a slice of one can
+//     be passed. Bytes are bytes: no space is skipped, and a 0 byte, a
+//     0xff byte or a non-ASCII digit is bad syntax like any other byte
+//     that is not a digit.
+//   - base is 2 to 36, digits past 9 being the letters a to z in either
+//     case, or 0, when the input's prefix decides it: 0x or 0X for 16,
+//     0o or 0O for 8, 0b or 0B for 2, a leading 0 alone for 8, and 10
+//     otherwise. Only with base 0 may underscores stand between digits,
+//     or between a prefix and a digit, as in a Go integer literal:
+//     "1_000" and "0x_ff" parse, "_1", "1__0" and "1_" do not.
+//   - bit_size is 1 to 64, the width the value must fit, 0 meaning 64.
+//   - parse_int takes one leading sign, + or -, before any prefix;
+//     parse_uint takes none.
+//
+// The errors are Go's, with codes after std's own, 1 to 5:
+//
+//   - error{code: 6, msg: "invalid syntax"}: an empty input, a lone
+//     sign or prefix, a byte that is not a digit of the base, or an
+//     underscore out of place. The value is 0.
+//   - error{code: 7, msg: "value out of range"}: a value that does not
+//     fit bit_size. The value is the nearest that does, as Go's is,
+//     though Tack lets no caller read it before checking the error.
+//   - error{code: 8, msg: "invalid base"}: a base that is not 0 or 2 to
+//     36.
+//   - error{code: 9, msg: "invalid bit size"}: a bit_size that is not 0
+//     to 64.
+//
+// The checks come in Go's order: an empty input is a syntax error
+// whatever the base and bit size, the base is checked before the bit
+// size, and the digits from the first, so a value already out of range
+// is a range error even if a byte after it is not a digit, and an
+// underscore out of place is found only once every digit has parsed.
+
+// syntax is the error for input that is not an integer.
+var syntax = error{code: 6, msg: "invalid syntax"}
+
+// out_of_range is the error for a value that does not fit the bit size.
+var out_of_range = error{code: 7, msg: "value out of range"}
+
+// bad_base is the error for a base that is not 0 or 2 to 36.
+var bad_base = error{code: 8, msg: "invalid base"}
+
+// bad_bit_size is the error for a bit size that is not 0 to 64.
+var bad_bit_size = error{code: 9, msg: "invalid bit size"}
+
+// Codes unsigned returns beside its value: none, or the code of one of
+// the errors above. They are plain integers, not errors, so a caller can
+// read the value beside a range error and clamp it, as Go does.
+var ok_code int32 = 0
+var syntax_code int32 = 6
+var range_code int32 = 7
+var base_code int32 = 8
+var bit_size_code int32 = 9
+
+// error_of returns the error whose code is code, one of unsigned's.
+func error_of(code int32) error {
+    switch code {
+    case 6:
+        return syntax
+    case 7:
+        return out_of_range
+    case 8:
+        return bad_base
+    }
+    return bad_bit_size
+}
+
+// at returns byte i of s, or 0 when i is outside s. 0 is no digit, sign,
+// prefix letter or underscore, so a check of a byte past the end fails
+// as the length check before it would in Go.
+func at(s []uint8, i int64) uint8 {
+    c, ok := s[i]
+    if !ok {
+        return 0
+    }
+    return c
+}
+
+// lower returns c as a lowercase letter when it is a letter of either
+// case, and something else that is no letter otherwise, as Go's lower
+// does: c | 0x20.
+func lower(c uint8) uint8 {
+    return c | ('x' - 'X')
+}
+
+// unsigned parses the bytes of s from start to its end as Go's ParseUint
+// parses a string, returning the value and ok_code, or the value Go
+// returns with an error and that error's code: 0 for a syntax, base or
+// bit size error, and the largest value bit_size holds for a range
+// error.
+func unsigned(s []uint8, start int64, base int64, bit_size int64) (uint64, int32) {
+    if len(s) - start <= 0 {
+        return 0, syntax_code
+    }
+    base0 := base == 0
+    mut b := base
+    mut i := start
+    if base0 {
+        // Look for an octal, hex or binary prefix; a prefix needs a
+        // byte after it, so "0x" is octal's 0 followed by an x.
+        b = 10
+        if at(s, i) == '0' {
+            long := len(s) - i >= 3
+            p := lower(at(s, i + 1))
+            if long && p == 'b' {
+                b = 2
+                i = i + 2
+            } else if long && p == 'o' {
+                b = 8
+                i = i + 2
+            } else if long && p == 'x' {
+                b = 16
+                i = i + 2
+            } else {
+                b = 8
+                i = i + 1
+            }
+        }
+    } else if base < 2 || base > 36 {
+        return 0, base_code
+    }
+    mut bits := bit_size
+    if bit_size == 0 {
+        bits = 64
+    } else if bit_size < 0 || bit_size > 64 {
+        return 0, bit_size_code
+    }
+    // b is 2 to 36 and bits 1 to 64 here, so both conversions hold.
+    ub, ok := uint64(b)
+    if !ok || ub == 0 {
+        return 0, base_code
+    }
+    ubits, ok2 := uint64(bits)
+    if !ok2 {
+        return 0, bit_size_code
+    }
+    // cutoff is the smallest n for which n * b overflows a uint64.
+    cutoff := 18446744073709551615 / ub + 1
+    // max_val is the largest value bits holds: a shift by 64 is 0, and 0
+    // less 1 wraps to the largest uint64.
+    max_val := (uint64(1) << ubits) - 1
+    mut underscores := false
+    mut n := uint64(0)
+    for j, c := range s {
+        if j < i {
+            continue
+        }
+        if c == '_' && base0 {
+            underscores = true
+            continue
+        }
+        mut d := uint8(0)
+        lc := lower(c)
+        if c >= '0' && c <= '9' {
+            d = c - '0'
+        } else if lc >= 'a' && lc <= 'z' {
+            d = lc - 'a' + 10
+        } else {
+            return 0, syntax_code
+        }
+        if d >= b {
+            return 0, syntax_code
+        }
+        if n >= cutoff {
+            // n * b overflows.
+            return max_val, range_code
+        }
+        n = n * ub
+        n1 := n + d
+        if n1 < n || n1 > max_val {
+            // n + d overflows, or passes bits.
+            return max_val, range_code
+        }
+        n = n1
+    }
+    if underscores && !underscores_ok(s, start) {
+        return 0, syntax_code
+    }
+    return n, ok_code
+}
+
+// The classes of byte underscores_ok tracks, after Go's underscoreOK:
+// the start of the number, a digit or base prefix, an underscore, and
+// anything else.
+var saw_start int64 = 0
+var saw_digit int64 = 1
+var saw_underscore int64 = 2
+var saw_other int64 = 3
+
+// underscores_ok reports whether the underscores in s from start are
+// where Go allows them: each between two digits, or between a base
+// prefix and a digit. It is Go's underscoreOK, which also skips a sign;
+// unsigned calls it only on bytes that are all digits and underscores,
+// so the sign is never there.
+func underscores_ok(s []uint8, start int64) bool {
+    mut saw := saw_start
+    mut i := start
+    if at(s, i) == '-' || at(s, i) == '+' {
+        i++
+    }
+    mut hex := false
+    p := lower(at(s, i + 1))
+    if len(s) - i >= 2 && at(s, i) == '0' && (p == 'b' || p == 'o' || p == 'x') {
+        // A base prefix counts as a digit for the underscore after it.
+        i = i + 2
+        saw = saw_digit
+        hex = p == 'x'
+    }
+    for j, c := range s {
+        if j < i {
+            continue
+        }
+        lc := lower(c)
+        if c >= '0' && c <= '9' || hex && lc >= 'a' && lc <= 'f' {
+            saw = saw_digit
+            continue
+        }
+        if c == '_' {
+            // An underscore must follow a digit.
+            if saw != saw_digit {
+                return false
+            }
+            saw = saw_underscore
+            continue
+        }
+        // An underscore must also be followed by a digit.
+        if saw == saw_underscore {
+            return false
+        }
+        saw = saw_other
+    }
+    return saw != saw_underscore
+}
+
+// parse_uint returns the unsigned integer s holds in base, which fits
+// bit_size, as Go's strconv.ParseUint does: base 0 takes the base from
+// s's prefix, and bit_size 0 means 64. Bad syntax is error{code: 6, msg:
+// "invalid syntax"} beside 0, a value past bit_size error{code: 7, msg:
+// "value out of range"} beside the largest value bit_size holds, and a
+// base or bit size Go refuses code 8 or 9 beside 0. A sign is bad syntax.
+pub func parse_uint(s []uint8, base int64, bit_size int64) (uint64, error) {
+    n, code := unsigned(s, 0, base, bit_size)
+    if code != ok_code {
+        return n, error_of(code)
+    }
+    return n, noerror
+}
+
+// parse_int returns the signed integer s holds in base, which fits
+// bit_size, as Go's strconv.ParseInt does: one leading + or - may come
+// before the digits and any prefix, base 0 takes the base from the
+// prefix, and bit_size 0 means 64. Bad syntax is error{code: 6, msg:
+// "invalid syntax"} beside 0, a value past bit_size error{code: 7, msg:
+// "value out of range"} beside the nearest value bit_size holds, and a
+// base or bit size Go refuses code 8 or 9 beside 0.
+//
+// It follows Go to the bit: in bit size 1, whose values are -1 and 0,
+// Go's ParseInt gives "-2" as -1 and no error, since the unsigned value
+// it clamps 2 to, 1, is the magnitude of -1; so does parse_int.
+pub func parse_int(s []uint8, base int64, bit_size int64) (int64, error) {
+    if len(s) == 0 {
+        return 0, syntax
+    }
+    first := at(s, 0)
+    neg := first == '-'
+    mut start := 0
+    if first == '+' || neg {
+        start = 1
+    }
+    un, code := unsigned(s, start, base, bit_size)
+    if code != ok_code && code != range_code {
+        return 0, error_of(code)
+    }
+    // unsigned checked bit_size, so bits is 1 to 64 and bits - 1 fits.
+    mut bits := bit_size
+    if bits == 0 {
+        bits = 64
+    }
+    shift, ok := uint64(bits - 1)
+    if !ok {
+        return 0, bad_bit_size
+    }
+    // cutoff is the magnitude of the smallest value bits holds, 2^(bits-1);
+    // the largest is cutoff - 1, which fits an int64.
+    cutoff := uint64(1) << shift
+    largest, ok2 := int64(cutoff - 1)
+    if !ok2 {
+        return 0, out_of_range
+    }
+    if !neg && un >= cutoff {
+        return largest, out_of_range
+    }
+    if neg && un > cutoff {
+        return 0 - largest - 1, out_of_range
+    }
+    if neg {
+        // un is 1 to cutoff here, or 0, so un - 1 fits an int64 and
+        // 0 - (un - 1) - 1 is -un without converting cutoff itself.
+        if un == 0 {
+            return 0, noerror
+        }
+        m, ok3 := int64(un - 1)
+        if !ok3 {
+            return 0, out_of_range
+        }
+        return 0 - m - 1, noerror
+    }
+    v, ok4 := int64(un)
+    if !ok4 {
+        return largest, out_of_range
+    }
+    return v, noerror
+}

@@ -24,7 +24,7 @@ import (
 // compileWithStd runs the front end on src, a single file main.tck that
 // may import the repository's standard library, and fails the test if any
 // stage rejects it.
-func compileWithStd(t *testing.T, src string) *ast.Program {
+func compileWithStd(t testing.TB, src string) *ast.Program {
 	t.Helper()
 	l := &loader.Loader{
 		FS:       loader.FromFS(fstest.MapFS{"main.tck": {Data: []byte(src)}}),
@@ -52,7 +52,7 @@ func compileWithStd(t *testing.T, src string) *ast.Program {
 // files of the std packages it imports, each against the program's tack.h
 // as the driver compiles them, and std/builtin's C. It returns the
 // binary's path.
-func buildWithStd(t *testing.T, src string, flags ...string) string {
+func buildWithStd(t testing.TB, src string, flags ...string) string {
 	t.Helper()
 	return buildWithStdAndC(t, src, "", flags...)
 }
@@ -60,7 +60,7 @@ func buildWithStd(t *testing.T, src string, flags ...string) string {
 // buildWithStdAndC builds src as buildWithStd does, and with it csrc, the
 // C file of the program's extern funcs, compiled against the program's
 // tack.h as the driver compiles it; an empty csrc is no C file.
-func buildWithStdAndC(t *testing.T, src, csrc string, flags ...string) string {
+func buildWithStdAndC(t testing.TB, src, csrc string, flags ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
@@ -73,7 +73,7 @@ func buildWithStdAndC(t *testing.T, src, csrc string, flags ...string) string {
 // empty, and the C files of every package of prog, each named relative to
 // the repository's root, against the program's tack.h, with std/builtin's
 // C. It returns the binary's path.
-func buildProgram(t *testing.T, prog *ast.Program, csrc string, flags ...string) string {
+func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string) string {
 	t.Helper()
 	out, diags := c.New().Generate(prog, stdtest.MustBuiltins())
 	if len(diags) > 0 {

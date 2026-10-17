@@ -361,7 +361,7 @@ func readFile(t *testing.T, path string) string {
 }
 
 // writeFile writes data to the file at path.
-func writeFile(t *testing.T, path, data string) {
+func writeFile(t testing.TB, path, data string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)

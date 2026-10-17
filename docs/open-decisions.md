@@ -1156,3 +1156,40 @@ another way:
   a list over (see std/os's `text.from_list` follow-up).
 - Every behavior is Go's, checked against Go's `path` package on its
   documented examples and on random paths.
+
+## std/conv
+
+`std/conv`'s shape was decided: integer parsing after Go's
+`strconv.ParseInt` and `ParseUint`, with Go's rules. These points were
+settled by consistency and could go another way:
+
+- The functions are `parse_int(s []uint8, base int64, bit_size int64)
+  (int64, error)` and `parse_uint`, the same with a `uint64`: a read-only
+  view, as std/bytes and std/path take, so a string passes as
+  `[]uint8(s)` and a Text as `t.bytes()`; `base` and `bit_size` are
+  `int64`, as Go's are `int`; there is no `atoi`, `itoa` or `format_int`
+  yet (std/bytes' `append_int` formats).
+- The error codes follow std's numbering, 1 to 5 already taken: 6
+  `"invalid syntax"`, 7 `"value out of range"`, 8 `"invalid base"` and
+  9 `"invalid bit size"`. The messages are Go's error texts without
+  Go's `strconv.ParseInt: parsing "s": ` prefix, or the number Go adds
+  after an invalid base or bit size, since a message is a literal. The
+  errors are not `pub` globals, so a caller tests the code, as for
+  std/os; Go's `ErrSyntax` and `ErrRange` have no counterpart yet.
+- A base or bit size Go refuses is an error, codes 8 and 9, not a
+  compile-time check, even when the argument is a constant.
+- Beside a range error the value is the nearest `bit_size` holds, and 0
+  beside every other error, as Go returns, though Tack's error rule keeps
+  any caller from reading it before checking the error, so no Tack
+  program sees it.
+- Go's behavior is kept where it is odd: in bit size 1, `parse_int("-2",
+  10, 1)` is -1 and no error, since Go clamps the unsigned 2 to 1 before
+  the sign; a value already out of range is a range error even when a
+  byte after it is not a digit, `"99999999999999999999x"`; and a
+  misplaced underscore is a syntax error only once every digit has
+  parsed, so `"_99999999999999999999"` is a range error.
+- Bytes are bytes: no space is trimmed, and a 0 byte, a 0xff byte or a
+  non-ASCII digit is bad syntax.
+- Every behavior is Go's, checked against Go 1.27.1's
+  `internal/strconv/atoi.go` and its tests, ported into examples/conv,
+  and against `strconv` on random and fuzzed inputs.
