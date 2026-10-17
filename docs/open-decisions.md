@@ -1097,3 +1097,25 @@ These points were settled by consistency and could go another way:
   with no copy, would let `env`, `args`, `list_dir` and `make_temp_dir`
   skip their second copy of each value. std/text has no such
   constructor today.
+
+## std/path
+
+`std/path`'s shape was decided: pure Tack, `/` only, after Go's `path`
+package, with `dir`, `base` and `ext` returning views where they can,
+`is_abs`, and `join` and `clean` returning a `text.Text` through an
+`Allocator`. These points were settled by consistency and could go
+another way:
+
+- `base` and `dir` return a `text.Text` and take an `Allocator`, not a
+  view: `base("")` is `.` and `dir("a")` is `.`, which `p` does not
+  hold, and `dir` cleans what it returns, so `dir("a/./b/c")` is `a/b`,
+  not a part of `p`. Only `ext` returns a view.
+- `join` takes two elements, not a variadic list as Go's does; joining
+  more is `join` applied again, which cleans each time.
+- `join` of two empty elements is an empty Text, not `.`, as Go's
+  `path.Join` gives.
+- `clean` and the functions built on it copy their result twice, into a
+  list and then into a Text, since std/text has no constructor that takes
+  a list over (see std/os's `text.from_list` follow-up).
+- Every behavior is Go's, checked against Go's `path` package on its
+  documented examples and on random paths.

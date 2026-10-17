@@ -1,0 +1,267 @@
+package main
+
+import bytes from "std/bytes"
+import path from "std/path"
+import text from "std/text"
+
+// std/path takes slash-separated paths apart and puts them together, as
+// Go's path package does, for "/" alone: no volume names, no backslashes.
+// Paths are bytes; nothing here knows UTF-8, and a 0 byte is a byte like
+// any other.
+//
+// Each function is checked against what Go's path package gives for the
+// same input, on Go's documented examples and on edge cases of our own,
+// the expected values written here from Go's output. ext returns a view of
+// its argument; base, dir, clean and join return a text.Text, since what
+// they give is not always part of what they were given: base("") is ".",
+// and dir("a/./b/c") is "a/b". Allocations are made to fail, and
+// c_allocator's count of live buffers, read through live.c, is checked
+// to be back to 0 after each group.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("path_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("path_fail_after") func failAfter(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// is reports whether t holds exactly the bytes of want.
+func is(t text.Text, want string) bool {
+    return t.equal([]uint8(want))
+}
+
+// cleanIs reports whether clean(p) is want.
+func cleanIs(p string, want string) bool {
+    t, e := path.clean([]uint8(p), c_allocator)
+    if e.code != 0 {
+        return false
+    }
+    return is(t, want)
+}
+
+// baseIs reports whether base(p) is want.
+func baseIs(p string, want string) bool {
+    t, e := path.base([]uint8(p), c_allocator)
+    if e.code != 0 {
+        return false
+    }
+    return is(t, want)
+}
+
+// dirIs reports whether dir(p) is want.
+func dirIs(p string, want string) bool {
+    t, e := path.dir([]uint8(p), c_allocator)
+    if e.code != 0 {
+        return false
+    }
+    return is(t, want)
+}
+
+// joinIs reports whether join(a, b) is want.
+func joinIs(a string, b string, want string) bool {
+    t, e := path.join([]uint8(a), []uint8(b), c_allocator)
+    if e.code != 0 {
+        return false
+    }
+    return is(t, want)
+}
+
+// abs checks is_abs: a path is absolute when it begins with a slash.
+func abs() {
+    check(path.is_abs([]uint8("/dev/null")), "is_abs(/dev/null)")
+    check(path.is_abs([]uint8("/")), "is_abs(/)")
+    check(!path.is_abs([]uint8("")), "is_abs of nothing")
+    check(!path.is_abs([]uint8("a/b")), "is_abs(a/b)")
+    check(!path.is_abs([]uint8("./a")), "is_abs(./a)")
+}
+
+// views checks that ext's result is part of what it was given, and that
+// clean, given a list, leaves it as it was.
+func views() {
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, []uint8("dir/file.tar.gz")...)
+    if e.code != 0 {
+        check(false, "views")
+        return
+    }
+    check(bytes.equal(path.ext(l), []uint8(".gz")) && len(path.ext(l)) == 3, "ext of a list")
+    t, e2 := path.clean(l, c_allocator)
+    check(e2.code == 0 && is(t, "dir/file.tar.gz") && bytes.equal(l, []uint8("dir/file.tar.gz")), "clean of a list leaves it as it was")
+}
+
+// cleanErr returns the error clean gives for p.
+func cleanErr(p string) error {
+    t, e := path.clean([]uint8(p), c_allocator)
+    if e.code == 0 && t.len() < 0 {
+        return error{code: 9, msg: "a Text of negative length"}
+    }
+    return e
+}
+
+// joinErr returns the error join gives for a and b.
+func joinErr(a string, b string) error {
+    t, e := path.join([]uint8(a), []uint8(b), c_allocator)
+    if e.code == 0 && t.len() < 0 {
+        return error{code: 9, msg: "a Text of negative length"}
+    }
+    return e
+}
+
+// failures makes c_allocator fail during each function that allocates,
+// at each of its allocations in turn: each fails with out of memory and
+// frees what it made, or succeeds once it has room for all of them.
+func failures() {
+    failAfter(0)
+    e0 := cleanErr("a/b")
+    e1 := joinErr("a", "b")
+    b0, e2 := path.base([]uint8(""), c_allocator)
+    d0, e3 := path.dir([]uint8("a/b"), c_allocator)
+    failAfter(-1)
+    check(e0.code == 1 && e1.code == 1 && e2.code == 1 && e3.code == 1 && e0.msg == "out of memory", "clean, join, base and dir fail for want of memory")
+    if e2.code == 0 && b0.len() < 0 || e3.code == 0 && d0.len() < 0 {
+        check(false, "unreachable")
+    }
+    check(live() == 0, "and leave nothing allocated")
+    mut ok := true
+    mut failed := 0
+    for n := range 20 {
+        failAfter(n)
+        e := joinErr("/a/../b", "c/./d/")
+        failAfter(-1)
+        if e.code == 0 {
+            break
+        }
+        failed++
+        if e.code != 1 || live() != 0 {
+            ok = false
+        }
+    }
+    check(ok && failed > 0 && live() == 0, "join failing partway frees what it made")
+    failAfter(0)
+    e4 := joinErr("", "")
+    failAfter(-1)
+    check(e4.code != 1, "join of two empty paths needs no allocation")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    cleans()
+    check(live() == 0, "cleans freed")
+    bases()
+    check(live() == 0, "bases freed")
+    dirs()
+    check(live() == 0, "dirs freed")
+    exts()
+    abs()
+    joins()
+    check(live() == 0, "joins freed")
+    views()
+    check(live() == 0, "views freed")
+    failures()
+    check(live() == 0, "failures freed")
+}
+
+// cleans checks clean against Go's path.Clean, on its documented
+// examples and edge cases of our own: roots, runs of slashes, . and ..
+// elements, .. past the start, names that only begin with dots, and a 0
+// byte, which is a byte like any other.
+func cleans() {
+    check(cleanIs("a/c", "a/c"), "clean(a/c)")
+    check(cleanIs("a//c", "a/c"), "clean(a//c)")
+    check(cleanIs("a/c/.", "a/c"), "clean(a/c/.)")
+    check(cleanIs("a/c/b/..", "a/c"), "clean(a/c/b/..)")
+    check(cleanIs("../a/c", "../a/c"), "clean(../a/c)")
+    check(cleanIs("../a/b/../././/c", "../a/c"), "clean(../a/b/../././/c)")
+    check(cleanIs("/../a/c", "/a/c"), "clean(/../a/c)")
+    check(cleanIs("/../a/b/../././/c", "/a/c"), "clean(/../a/b/../././/c)")
+    check(cleanIs("", "."), "clean()")
+    check(cleanIs("/", "/"), "clean(/)")
+    check(cleanIs("//", "/"), "clean(//)")
+    check(cleanIs("///a///", "/a"), "clean(///a///)")
+    check(cleanIs("..", ".."), "clean(..)")
+    check(cleanIs("../..", "../.."), "clean(../..)")
+    check(cleanIs("a/..", "."), "clean(a/..)")
+    check(cleanIs("/..", "/"), "clean(/..)")
+    check(cleanIs("./", "."), "clean(./)")
+    check(cleanIs(".", "."), "clean(.)")
+    check(cleanIs("a/./b", "a/b"), "clean(a/./b)")
+    check(cleanIs("abc/def/../../..", ".."), "clean(abc/def/../../..)")
+    check(cleanIs("..a", "..a"), "clean(..a)")
+    check(cleanIs(".a/b.", ".a/b."), "clean(.a/b.)")
+    check(cleanIs("a\x00b", "a\x00b"), "clean of a path with a 0 byte")
+    check(cleanIs("/a/b/../../../c", "/c"), "clean(/a/b/../../../c)")
+    check(cleanIs("a/../../b", "../b"), "clean(a/../../b)")
+    check(cleanIs("x/./../..", ".."), "clean(x/./../..)")
+}
+
+// bases checks base against Go's path.Base.
+func bases() {
+    check(baseIs("/a/b", "b"), "base(/a/b)")
+    check(baseIs("/", "/"), "base(/)")
+    check(baseIs("", "."), "base()")
+    check(baseIs("a", "a"), "base(a)")
+    check(baseIs("a/", "a"), "base(a/)")
+    check(baseIs("///", "/"), "base(///)")
+    check(baseIs("a/b/", "b"), "base(a/b/)")
+    check(baseIs("/a", "a"), "base(/a)")
+    check(baseIs("..", ".."), "base(..)")
+    check(baseIs("a//", "a"), "base(a//)")
+}
+
+// dirs checks dir against Go's path.Dir, which cleans what it
+// returns.
+func dirs() {
+    check(dirIs("/a/b/c", "/a/b"), "dir(/a/b/c)")
+    check(dirIs("a/b/c", "a/b"), "dir(a/b/c)")
+    check(dirIs("/a/", "/a"), "dir(/a/)")
+    check(dirIs("a/", "a"), "dir(a/)")
+    check(dirIs("/", "/"), "dir(/)")
+    check(dirIs("", "."), "dir()")
+    check(dirIs("a", "."), "dir(a)")
+    check(dirIs("a/b", "a"), "dir(a/b)")
+    check(dirIs("//a", "/"), "dir(//a)")
+    check(dirIs("a//b", "a"), "dir(a//b)")
+    check(dirIs("../x", ".."), "dir(../x)")
+    check(dirIs("a/../b/c", "b"), "dir(a/../b/c)")
+}
+
+// exts checks ext, a view of its argument, against Go's path.Ext.
+func exts() {
+    check(bytes.equal(path.ext([]uint8("/a/b/c/bar.css")), []uint8(".css")), "ext(/a/b/c/bar.css)")
+    check(bytes.equal(path.ext([]uint8("/")), []uint8("")), "ext(/)")
+    check(bytes.equal(path.ext([]uint8("")), []uint8("")), "ext()")
+    check(bytes.equal(path.ext([]uint8("a.b.c")), []uint8(".c")), "ext(a.b.c)")
+    check(bytes.equal(path.ext([]uint8("a.")), []uint8(".")), "ext(a.)")
+    check(bytes.equal(path.ext([]uint8(".bashrc")), []uint8(".bashrc")), "ext(.bashrc)")
+    check(bytes.equal(path.ext([]uint8("a/b.c/d")), []uint8("")), "ext(a/b.c/d)")
+    check(bytes.equal(path.ext([]uint8("a.b/")), []uint8("")), "ext(a.b/)")
+    check(bytes.equal(path.ext([]uint8("noext")), []uint8("")), "ext(noext)")
+}
+
+// joins checks join against Go's path.Join of two elements, which
+// cleans the result, and gives "" when both are empty.
+func joins() {
+    check(joinIs("a", "b/c", "a/b/c"), "join(a, b/c)")
+    check(joinIs("a/b", "c", "a/b/c"), "join(a/b, c)")
+    check(joinIs("a/b", "../../../xyz", "../xyz"), "join(a/b, ../../../xyz)")
+    check(joinIs("", "", ""), "join(, )")
+    check(joinIs("a", "", "a"), "join(a, )")
+    check(joinIs("", "a", "a"), "join(, a)")
+    check(joinIs("/", "a", "/a"), "join(/, a)")
+    check(joinIs("a/", "/b", "a/b"), "join(a/, /b)")
+    check(joinIs("/", "", "/"), "join(/, )")
+    check(joinIs("", "/", "/"), "join(, /)")
+    check(joinIs("a", "..", "."), "join(a, ..)")
+    check(joinIs("/", "..", "/"), "join(/, ..)")
+    check(joinIs("a//", "//b//", "a/b"), "join(a//, //b//)")
+}

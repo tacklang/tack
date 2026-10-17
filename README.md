@@ -5,8 +5,8 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of four packages, `std/fmt`, `std/bytes`, `std/text` and `std/os`, and no
-intermediate representation.
+of five packages, `std/fmt`, `std/bytes`, `std/text`, `std/os` and
+`std/path`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -55,7 +55,9 @@ and repeats bytes into lists, and `std/text`, also in Tack alone, holds
 growing bytes in a `Text`, compares and hashes them, and lends them out
 as a view. `std/os` reads the program's arguments and environment,
 reads, writes, lists and removes files and directories, and runs other
-programs, through C that makes one system call at a time.
+programs, through C that makes one system call at a time, and
+`std/path`, in Tack alone, cleans, splits and joins slash-separated
+paths as Go's `path` package does.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -482,8 +484,10 @@ makes for itself, which has a letter after `tack_`.
   (see write), [`bytes`](src/std/bytes/bytes.tck), which reads byte
   views and builds byte lists (see bytes), and
   [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
-  text), and [`os`](src/std/os/os.tck), which reaches the operating
-  system and runs programs (see os).
+  text), [`os`](src/std/os/os.tck), which reaches the operating
+  system and runs programs (see os), and
+  [`path`](src/std/path/path.tck), which cleans, splits and joins paths
+  (see path).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1003,6 +1007,29 @@ makes for itself, which has a letter after `tack_`.
   arguments reach std/os through the generated C main, which stores
   `argc` and `argv` in two globals (see
   [docs/extern.md](docs/extern.md#program-arguments)).
+- path. `std/path` is written in Tack alone, with no C, and takes
+  slash-separated paths apart and puts them together as Go's `path`
+  package does, for `/` alone: no volume names or backslashes, and
+  nothing that asks the OS whether a path names anything. Paths are
+  `[]uint8` views of bytes, a 0 byte a byte like any other.
+  `path.is_abs(p)` is whether `p` begins with a slash, and
+  `path.ext(p)` the extension of its last element, from the last dot to
+  the end, a view of `p`, empty when the last element has none.
+  `path.clean(p, alloc)` is the shortest path naming what `p` does, by
+  Go's rules: runs of slashes become one, `.` elements go, each `..`
+  goes with the element before it, a `..` at the root goes, and a
+  trailing slash goes, so `clean("a//b/./c/..")` is `a/b`,
+  `clean("/../a")` is `/a`, and `clean("")` is `.`. `path.base(p,
+  alloc)` is the last element, trailing slashes removed, `/` for a path
+  of slashes and `.` for an empty one; `path.dir(p, alloc)` is everything
+  before the last element, cleaned, so `dir("a")` is `.`; and
+  `path.join(a, b, alloc)` is `a` and `b` joined by a slash and cleaned,
+  an empty element left out, and an empty Text when both are empty, as
+  Go's `path.Join` gives. Those four return a `text.Text`, made through
+  `alloc`, since what they give is not always part of what they are
+  given, `.` from `""` or `a/b` from `a/./b/c`; each fails only for want
+  of memory, `error{code: 1, msg: "out of memory"}`, freeing what it
+  made.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

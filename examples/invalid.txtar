@@ -19130,6 +19130,87 @@ param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument 
    |	      ^~~~
 08 |	}
 
+-- path-base-string-arg/main.tck --
+package main
+
+import path from "std/path"
+
+func main() {
+    b, err := path.base("a/b", c_allocator)
+    if err.code != 0 || b.len() != 1 {
+        exit(1)
+    }
+}
+-- path-base-string-arg/expected --
+stage: typeck
+---
+
+path-base-string-arg/main.tck:6:25: error: cannot use string as []uint8 in argument to path.base; view its bytes with []uint8("a/b")
+05 |	func main() {
+06 |	    b, err := path.base("a/b", c_allocator)
+   |	                        ^~~~~
+07 |	    if err.code != 0 || b.len() != 1 {
+
+-- path-clean-blank/main.tck --
+package main
+
+import path from "std/path"
+
+func main() {
+    _, err := path.clean([]uint8("a//b"), c_allocator)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- path-clean-blank/expected --
+stage: typeck
+---
+
+path-clean-blank/main.tck:6:5: error: path.clean returns text.Text, which holds a list and cannot be dropped; bind it to a variable instead of _
+05 |	func main() {
+06 |	    _, err := path.clean([]uint8("a//b"), c_allocator)
+   |	    ^
+07 |	    if err.code != 0 {
+
+-- path-ext-bound/main.tck --
+package main
+
+import path from "std/path"
+
+func main() {
+    e := path.ext([]uint8("a.txt"))
+    if len(e) != 4 {
+        exit(1)
+    }
+}
+-- path-ext-bound/expected --
+stage: typeck
+---
+
+path-ext-bound/main.tck:6:10: error: path.ext([]uint8("a.txt")) is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+05 |	func main() {
+06 |	    e := path.ext([]uint8("a.txt"))
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	    if len(e) != 4 {
+
+-- path-join-dropped/main.tck --
+package main
+
+import path from "std/path"
+
+func main() {
+    path.join([]uint8("a"), []uint8("b"), c_allocator)
+}
+-- path-join-dropped/expected --
+stage: typeck
+---
+
+path-join-dropped/main.tck:6:5: error: the error path.join returns cannot be dropped; bind it, as in x, err := path.join(...)
+05 |	func main() {
+06 |	    path.join([]uint8("a"), []uint8("b"), c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
 -- pop-all-blank/main.tck --
 package main
 

@@ -1868,6 +1868,37 @@ func TestBuiltListEqualityPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltPathPassesEveryCheck builds examples/path, which imports
+// std/path, a std package written in Tack alone, at every optimization
+// level and checks each binary writes exactly examples/path/output, every
+// check ok: clean, base, dir, ext, is_abs and join on Go's documented
+// examples and edge cases of their own, each against what Go's path
+// package gives, and allocations made to fail, which free what they made.
+func TestBuiltPathPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "path", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/path/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "path")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("path"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

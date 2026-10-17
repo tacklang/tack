@@ -1,0 +1,88 @@
+nothing live at the start ok
+clean(a/c) ok
+clean(a//c) ok
+clean(a/c/.) ok
+clean(a/c/b/..) ok
+clean(../a/c) ok
+clean(../a/b/../././/c) ok
+clean(/../a/c) ok
+clean(/../a/b/../././/c) ok
+clean() ok
+clean(/) ok
+clean(//) ok
+clean(///a///) ok
+clean(..) ok
+clean(../..) ok
+clean(a/..) ok
+clean(/..) ok
+clean(./) ok
+clean(.) ok
+clean(a/./b) ok
+clean(abc/def/../../..) ok
+clean(..a) ok
+clean(.a/b.) ok
+clean of a path with a 0 byte ok
+clean(/a/b/../../../c) ok
+clean(a/../../b) ok
+clean(x/./../..) ok
+cleans freed ok
+base(/a/b) ok
+base(/) ok
+base() ok
+base(a) ok
+base(a/) ok
+base(///) ok
+base(a/b/) ok
+base(/a) ok
+base(..) ok
+base(a//) ok
+bases freed ok
+dir(/a/b/c) ok
+dir(a/b/c) ok
+dir(/a/) ok
+dir(a/) ok
+dir(/) ok
+dir() ok
+dir(a) ok
+dir(a/b) ok
+dir(//a) ok
+dir(a//b) ok
+dir(../x) ok
+dir(a/../b/c) ok
+dirs freed ok
+ext(/a/b/c/bar.css) ok
+ext(/) ok
+ext() ok
+ext(a.b.c) ok
+ext(a.) ok
+ext(.bashrc) ok
+ext(a/b.c/d) ok
+ext(a.b/) ok
+ext(noext) ok
+is_abs(/dev/null) ok
+is_abs(/) ok
+is_abs of nothing ok
+is_abs(a/b) ok
+is_abs(./a) ok
+join(a, b/c) ok
+join(a/b, c) ok
+join(a/b, ../../../xyz) ok
+join(, ) ok
+join(a, ) ok
+join(, a) ok
+join(/, a) ok
+join(a/, /b) ok
+join(/, ) ok
+join(, /) ok
+join(a, ..) ok
+join(/, ..) ok
+join(a//, //b//) ok
+joins freed ok
+ext of a list ok
+clean of a list leaves it as it was ok
+views freed ok
+clean, join, base and dir fail for want of memory ok
+and leave nothing allocated ok
+join failing partway frees what it made ok
+join of two empty paths needs no allocation ok
+failures freed ok

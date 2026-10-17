@@ -180,6 +180,16 @@ var loadSeeds = []string{
 		"e := append(mut a, 1, 2)\nmut ll := make(list[list[uint8]], c_allocator)\n" +
 		"x := S{l: a, n: 1}\ny := S{l: b, n: 1}\nu := U.none\nv := U.none\n" +
 		"if e.code != 0 || x == y || u != v || ll != ll { exit(1) } }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport path from \"std/path\"\n" +
+		"func main() { if len(path.ext([]uint8(\"a.b\"))) != 2 { exit(1) } }\n" +
+		"\x00std/tack.mod\nmodule std\n\x00std/path/path.tck\npackage path\n" +
+		"func at(p []uint8, i int64) uint8 { c, ok := p[i]\nif !ok { return 0 }\nreturn c }\n" +
+		"func part(p []uint8, a int64, b int64) []uint8 { if a < 0 || b < a || b > len(p) { return p[:0] }\n" +
+		"return p[a:b] }\npub func ext(p []uint8) []uint8 { mut i := len(p) - 1\n" +
+		"for i >= 0 { if at(p, i) == '/' { break }\nif at(p, i) == '.' { return part(p, i, len(p)) }\ni-- }\n" +
+		"return part(p, len(p), len(p)) }\n" +
+		"func back(mut out list[uint8], dotdot int64) { mut c, mut ok := pop(mut out)\n" +
+		"for ok && len(out) > dotdot && c != '/' { c, ok = pop(mut out) } }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

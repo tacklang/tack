@@ -1,0 +1,264 @@
+package path
+
+import text from "std/text"
+
+// Package path takes slash-separated paths apart and puts them together,
+// as Go's path package does. A program imports it as
+//
+//     import path from "std/path"
+//
+// and the compiler reads it from $TACK_HOME/src/std/path, or
+// ~/.tack/src/std/path, as it reads std/text. It is written in Tack
+// alone, with no C, and knows nothing of the OS: a path is bytes, split
+// at each "/", and nothing here asks whether it names anything. There are
+// no volume names and no backslashes, as on POSIX.
+//
+// Paths are []uint8 views. Bytes are bytes: nothing here knows UTF-8, and
+// a 0 byte is a byte like any other.
+//
+// ext returns a view of the path it is given, its last element's
+// extension. base, dir, clean and join return a text.Text, made through
+// the Allocator they are given, since what they give is not always part
+// of what they were given: base("") is ".", and dir("a/./b/c") is "a/b",
+// cleaned. Each of those fails only for want of memory, with
+// error{code: 1, msg: "out of memory"} and an empty Text, freeing what it
+// had made.
+
+// at returns byte i of p, or 0 when i is outside p, which a path's
+// checks below treat as no byte: 0 is neither '/' nor '.'.
+func at(p []uint8, i int64) uint8 {
+    c, ok := p[i]
+    if !ok {
+        return 0
+    }
+    return c
+}
+
+// part returns the view of p from a up to b, or an empty view when those
+// are not bounds of p.
+func part(p []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(p) {
+        return p[:0]
+    }
+    return p[a:b]
+}
+
+// is_abs reports whether p is absolute: whether it begins with a slash.
+pub func is_abs(p []uint8) bool {
+    return len(p) > 0 && at(p, 0) == '/'
+}
+
+// ext returns the extension of p's last element, a view of p: the bytes
+// from the last dot in it to its end, the dot included, or an empty view
+// when the last element has no dot. A path ending in a slash has an empty
+// last element, so it has no extension.
+pub func ext(p []uint8) []uint8 {
+    mut i := len(p) - 1
+    for i >= 0 {
+        c := at(p, i)
+        if c == '/' {
+            break
+        }
+        if c == '.' {
+            return part(p, i, len(p))
+        }
+        i--
+    }
+    return part(p, len(p), len(p))
+}
+
+// text_of returns a Text made through alloc holding the bytes of b, and
+// no error, or an empty Text and the error of making it.
+func text_of(b []uint8, alloc Allocator) (text.Text, error) {
+    t, e := text.from_bytes(b, alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
+}
+
+// base returns the last element of p, its trailing slashes removed:
+// base("a/b/") is "b". A path of slashes alone is "/", and an empty one
+// ".".
+pub func base(p []uint8, alloc Allocator) (text.Text, error) {
+    if len(p) == 0 {
+        t, e := text_of([]uint8("."), alloc)
+        if e.code != 0 {
+            return text.new(alloc), e
+        }
+        return t, noerror
+    }
+    mut end := len(p)
+    for end > 0 && at(p, end - 1) == '/' {
+        end--
+    }
+    if end == 0 {
+        t, e := text_of([]uint8("/"), alloc)
+        if e.code != 0 {
+            return text.new(alloc), e
+        }
+        return t, noerror
+    }
+    mut start := end
+    for start > 0 && at(p, start - 1) != '/' {
+        start--
+    }
+    t, e := text_of(part(p, start, end), alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
+}
+
+// dir returns all of p but its last element, cleaned, as clean gives it:
+// dir("a/b/c") is "a/b", dir("a") is ".", and dir("/") is "/". The
+// trailing slashes of what is left are dropped by the cleaning, so it
+// ends in a slash only when it is "/".
+pub func dir(p []uint8, alloc Allocator) (text.Text, error) {
+    mut i := len(p)
+    for i > 0 && at(p, i - 1) != '/' {
+        i--
+    }
+    t, e := clean(part(p, 0, i), alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
+}
+
+// back drops the last element out has, up to and including the slash
+// before it, but nothing at or before dotdot, the length below which out
+// holds its leading slash or its leading ".." elements, which a ".."
+// cannot remove.
+func back(mut out list[uint8], dotdot int64) {
+    mut c, mut ok := pop(mut out)
+    for ok && len(out) > dotdot && c != '/' {
+        c, ok = pop(mut out)
+    }
+}
+
+// element_end returns the index in p of the slash that ends the element
+// starting at r, or len(p) when none does.
+func element_end(p []uint8, r int64) int64 {
+    mut end := r
+    for end < len(p) && at(p, end) != '/' {
+        end++
+    }
+    return end
+}
+
+// clean_into appends to out, which is empty, the shortest path that names
+// what p does, by Go's path.Clean rules, applied until nothing changes:
+// runs of slashes become one; each . element goes; each .. element goes
+// with the element before it that is not itself ..; a .. at the start of
+// a rooted path goes, since /.. is /; and a trailing slash goes, unless
+// the path is "/". When that leaves nothing, the result is ".". It
+// returns no error, or out of memory, the builtin append's.
+func clean_into(mut out list[uint8], p []uint8) error {
+    if len(p) == 0 {
+        return append(mut out, '.')
+    }
+    n := len(p)
+    rooted := at(p, 0) == '/'
+    mut r int64 = 0
+    mut dotdot int64 = 0
+    if rooted {
+        e := append(mut out, '/')
+        if e.code != 0 {
+            return e
+        }
+        r = 1
+        dotdot = 1
+    }
+    for r < n {
+        c := at(p, r)
+        if c == '/' {
+            r++
+        } else if c == '.' && (r + 1 == n || at(p, r + 1) == '/') {
+            r++
+        } else if c == '.' && at(p, r + 1) == '.' && (r + 2 == n || at(p, r + 2) == '/') {
+            r += 2
+            if len(out) > dotdot {
+                back(mut out, dotdot)
+            } else if !rooted {
+                if len(out) > 0 {
+                    e := append(mut out, '/')
+                    if e.code != 0 {
+                        return e
+                    }
+                }
+                e := append(mut out, '.', '.')
+                if e.code != 0 {
+                    return e
+                }
+                dotdot = len(out)
+            }
+        } else {
+            if rooted && len(out) != 1 || !rooted && len(out) != 0 {
+                e := append(mut out, '/')
+                if e.code != 0 {
+                    return e
+                }
+            }
+            end := element_end(p, r)
+            e := append(mut out, part(p, r, end)...)
+            if e.code != 0 {
+                return e
+            }
+            r = end
+        }
+    }
+    if len(out) == 0 {
+        return append(mut out, '.')
+    }
+    return noerror
+}
+
+// clean returns the shortest path that names what p does, by Go's
+// path.Clean rules (see clean_into): clean("a//b/./c/..") is "a/b",
+// clean("/../a") is "/a", clean("../a") is "../a", and clean("") is ".".
+pub func clean(p []uint8, alloc Allocator) (text.Text, error) {
+    mut out := make(list[uint8], alloc)
+    e := clean_into(mut out, p)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    t, e2 := text_of(out, alloc)
+    if e2.code != 0 {
+        return text.new(alloc), e2
+    }
+    return t, noerror
+}
+
+// join returns a and b joined by a slash and cleaned, as Go's path.Join
+// gives for two elements: join("a", "b/c") is "a/b/c", join("a/b",
+// "../xyz") is "a/xyz", an empty element is left out, so join("a", "")
+// is "a", and two empty ones give an empty Text, not ".", allocating
+// nothing.
+pub func join(a []uint8, b []uint8, alloc Allocator) (text.Text, error) {
+    if len(a) == 0 && len(b) == 0 {
+        return text.new(alloc), noerror
+    }
+    mut buf := make(list[uint8], alloc)
+    if len(a) > 0 {
+        e := append(mut buf, a...)
+        if e.code != 0 {
+            return text.new(alloc), e
+        }
+    }
+    if len(buf) > 0 {
+        e := append(mut buf, '/')
+        if e.code != 0 {
+            return text.new(alloc), e
+        }
+    }
+    e2 := append(mut buf, b...)
+    if e2.code != 0 {
+        return text.new(alloc), e2
+    }
+    t, e := clean(buf, alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
+}
