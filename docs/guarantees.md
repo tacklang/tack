@@ -32,23 +32,22 @@ never weakened, skipped or made optional to let a program compile: a
 program the compiler cannot prove safe is rewritten, never waved through.
 
 Any known way to break a guarantee in accepted code is a bug that stops all
-feature work until it is fixed.
+feature work until it is fixed, unless it is parked: a parked violation
+stays listed below until it is fixed, and does not hold up other work.
 
 ## Known violations
 
 These are open bugs against the guarantees, found by an audit on
-2026-10-16. Each is being fixed before any new feature.
+2026-10-16 and after. Each is fixed before new features unless it is
+marked parked.
 
-- **Panic (4).** Unbounded recursion is accepted and can run out of stack.
-  The fix is not decided yet.
-- **Panic (4).** A large local array, or a large value passed or copied by
-  value, can overflow the stack with no recursion at all: a function with
+- **Panic (4), parked.** Unbounded recursion is accepted and can run out
+  of stack. The fix is not decided yet.
+- **Panic (4), parked.** A large local array, or a large value passed or
+  copied by value, can overflow the stack with no recursion at all: a function with
   a 16 MB local array crashes. The same compile-time bound on call chains
   is the fix.
-- **Panic (4).** Comparing values whose type nests deeply runs out of
-  stack. The generated equality helper of each type calls the one of the
-  type inside it, passing both values by value, so a chain of 1000 union
-  types, each holding the one before, needs a frame per level that grows
-  with the level: `a == a` on such a value crashes. Freeing such a value
-  works the same way. The fix: pass the helpers pointers, so each frame
-  stays small, and count the helpers in the compile-time stack bound.
+- **Panic (4), parked.** Comparing or freeing a value whose type nests
+  very deeply uses one frame per level of the type. Since f0d9289 each
+  frame is a few words, so 1000 levels run, but the depth is bounded only
+  once the compile-time stack bound above exists.

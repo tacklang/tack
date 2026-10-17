@@ -35,7 +35,9 @@ the call is not.
 When the compiler cannot prove a program safe, it rejects the program. A
 check is never weakened, skipped or made optional to let code compile. Any
 known way to break one of these rules in accepted code is a bug that stops
-all feature work until it is fixed.
+all feature work until it is fixed, unless Ahmed parks it. A parked
+violation stays listed in `docs/guarantees.md` until it is fixed, and does
+not hold up other work.
 
 ## 1. Readable code
 
