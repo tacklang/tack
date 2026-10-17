@@ -113,6 +113,26 @@ extern("tack_builtin_exit") func exit(code int32)
 // frees the old value. It takes a place of any type, so the compiler
 // implements it itself.
 
+// put(mut m map[K]V, k K, v V) error puts v under k in m: in place of
+// the value k has, which it frees when it holds a list, keeping k's
+// position in m's order and the key m holds, the k given being freed; or
+// at the end of the order, growing m's buffers through m's allocator,
+// when k is new. When the allocator cannot grow them it returns
+// error{code: 1, msg: "out of memory"}, leaves m exactly as it was, and
+// frees k and v, as append frees the values it cannot add; otherwise it
+// returns no error. k and v are moved in. Its error cannot be dropped. It
+// takes a map of any key and value types, which no Tack declaration can
+// say, so the compiler implements it itself.
+
+// delete(mut m map[K]V, k K) (V, bool) takes the value under k out of m,
+// moving it, and frees the key m held; v, ok := delete(mut m, k) gives
+// the value and true, or, when k is not in m, which is then left as it
+// was, V's zero value and false, and for a V with none, a list, a union,
+// an Allocator or anything holding one, v cannot be read until ok is
+// checked true, as pop's x. Written as a statement, delete(mut m, k)
+// frees the value it takes. It takes a map of any key and value types,
+// so the compiler implements it itself.
+
 // c_allocator, a keyword, is the Allocator that lowers to C's malloc,
 // realloc and free, the one Allocator there is. Allocator, a builtin
 // type, is an opaque handle on an allocator, which a list holds; it is

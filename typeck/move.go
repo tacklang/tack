@@ -440,14 +440,17 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 }
 
 // droppedName names typ, an owned type, in an error about dropping one,
-// and says it cannot be: a list by its type, and anything holding one by
-// its type and what it holds.
+// and says it cannot be: a list or a map by its type, and anything
+// holding one by its type and what it holds.
 func (c *Checker) droppedName(typ types.Type) string {
-	if c.table.IsList(typ) {
+	if c.table.IsList(typ) || c.table.IsMap(typ) {
 		return c.typeName(typ) + ", which cannot be dropped"
 	}
 	if c.table.IsTypeParam(typ) {
 		return c.typeName(typ) + ", which may hold a list and cannot be dropped"
+	}
+	if !c.table.HoldsList(typ) {
+		return c.typeName(typ) + ", which holds a map and cannot be dropped"
 	}
 	return c.typeName(typ) + ", which holds a list and cannot be dropped"
 }
@@ -822,12 +825,13 @@ func prefixOf(a, b ast.Expr) bool {
 // receiver first, then, for one of an owned type, that its result has an
 // owner. A plain receiver is read as a plain argument is, borrowed, so a
 // temporary of an owned type is one no variable owns; a value appended to
-// a list of an owned type, or stored by replace, is moved into it.
+// a list of an owned type, or stored by replace, or a key and a value put
+// into a map, is moved into it.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
-	moved := m.appendsOwned(call) || isReplace(call)
+	moved := m.appendsOwned(call) || isReplace(call) || isPut(call)
 	for i, arg := range call.Operands() {
-		if _, isType := arg.(*ast.ListType); isType {
+		if madeType(arg) {
 			continue
 		}
 		argCtx := readCtx
@@ -990,17 +994,23 @@ func (m *mover) forStmt(loop *ast.For, cur flow) flow {
 }
 
 // rangeStmt follows a range loop from cur: what it ranges over, once,
-// then its body twice, during which a list it walks cannot be changed,
+// then its body twice, during which a list or a map it walks cannot be
+// changed,
 // and nor can any place a view a call returns, which it walks, may point
 // into.
 func (m *mover) rangeStmt(loop *ast.ForRange, cur flow) flow {
 	m.expr(loop.X, readCtx, &cur)
 	n := len(m.ranging)
 	defer func() { m.ranging = m.ranging[:n] }()
-	if m.c.table.IsList(ast.TypeOf(loop.X)) && ast.Root(loop.X) != nil {
+	if typ := ast.TypeOf(
+		loop.X,
+	); (m.c.table.IsList(typ) || m.c.table.IsMap(typ)) &&
+		ast.Root(loop.X) != nil {
 		r := ranged{place: loop.X}
-		if _, inPlace := m.c.rangeBindings[loop.Elem]; inPlace && loop.Elem.Name != ast.Blank {
-			r.bind = loop.Elem
+		for _, v := range []*ast.Var{loop.Var, loop.Elem} {
+			if _, inPlace := m.c.rangeBindings[v]; inPlace && v.Name != ast.Blank {
+				r.bind = v
+			}
 		}
 		m.ranging = append(m.ranging, r)
 	}

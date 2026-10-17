@@ -2,6 +2,7 @@ package c
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/types"
@@ -32,9 +33,13 @@ func (g *generator) emitStringCompare() {
 }
 
 // comparesStrings reports whether the program compares two strings, with
-// any operator, or compares an array or a struct, among compared, that
-// holds a string, whose equality helper then compares strings in turn.
+// any operator, keys a map by strings, whose helpers compare its keys, or
+// compares an array or a struct, among compared, that holds a string,
+// whose equality helper then compares strings in turn.
 func (g *generator) comparesStrings(compared map[types.Type]bool) bool {
+	if slices.Contains(g.keyTypes(), types.String) {
+		return true
+	}
 	for typ := range compared {
 		for _, part := range g.parts(typ) {
 			if part == types.String {

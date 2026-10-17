@@ -1103,7 +1103,7 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
 		return r.resolveKeyValue(x, sc)
-	case *ast.ListType, *ast.TypeAssert:
+	case *ast.ListType, *ast.MapType, *ast.TypeAssert:
 		return r.resolveTyped(x, sc)
 	default:
 		return nil
@@ -1123,7 +1123,7 @@ func (r *pkgResolver) resolveOperand(e ast.Expr, sc *scope) []diag.Diagnostic {
 	return r.resolveExpr(operand(e), sc)
 }
 
-// resolveTyped resolves an operand that names a type: a list type, make's
+// resolveTyped resolves an operand that names a type: a list or a map type, make's
 // first argument, which the type checker reports anywhere else, or a type
 // assertion, x.(T) or x.(type), whose x is a value and whose T, when
 // written, is a type.
@@ -1212,6 +1212,8 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveType(t.Elem, sc)
 	case *ast.ListType:
 		return r.resolveType(t.Elem, sc)
+	case *ast.MapType:
+		return append(r.resolveType(t.Key, sc), r.resolveType(t.Value, sc)...)
 	default:
 		return nil
 	}

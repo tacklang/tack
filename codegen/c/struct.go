@@ -28,6 +28,9 @@ func (g *generator) emitTypes() {
 	}
 
 	compared := g.comparedTypes()
+	for _, key := range g.keyTypes() {
+		g.markCompared(key, compared)
+	}
 	if g.comparesStrings(compared) {
 		g.emitStringCompare()
 	}
@@ -43,6 +46,7 @@ func (g *generator) emitTypes() {
 		}
 	}
 	g.emitFrees()
+	g.emitMaps()
 }
 
 // isComposite reports whether typ is an array, a struct or a union type,
@@ -61,12 +65,15 @@ func (g *generator) hasEqualityHelper(typ types.Type) bool {
 }
 
 // parts returns the types a value of type typ is made of: an array's, a
-// view's or a list's element type, a struct's field types, or a union's
-// payloads' types, in order.
+// view's or a list's element type, a map's key and value types, a
+// struct's field types, or a union's payloads' types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
 	if table.IsArray(typ) || table.IsView(typ) || table.IsList(typ) {
 		return []types.Type{table.Elem(typ)}
+	}
+	if table.IsMap(typ) {
+		return []types.Type{table.Key(typ), table.Elem(typ)}
 	}
 	if table.IsUnion(typ) {
 		return g.payloads(typ)
@@ -88,7 +95,7 @@ func (g *generator) parts(typ types.Type) []types.Type {
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	table := g.prog.Types
 	if defined[typ] || typ == types.Error ||
-		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) {
+		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) && !table.IsMap(typ) {
 		return
 	}
 	defined[typ] = true
@@ -107,6 +114,8 @@ func (g *generator) emitDef(typ types.Type) {
 		g.emitViewDef(typ)
 	case table.IsList(typ):
 		g.emitListDef(typ)
+	case table.IsMap(typ):
+		g.emitMapDef(typ)
 	case table.IsArray(typ):
 		g.emitArrayDef(typ)
 	case table.IsUnion(typ):
@@ -134,29 +143,32 @@ func (g *generator) emitStructDef(typ types.Type) {
 
 // comparedTypes returns every array, struct, union and list type the
 // program compares with == or !=, and every such type they are made of,
-// which their helpers compare in turn.
+// which their helpers compare in turn. emitTypes adds the key types of
+// maps, whose helpers compare keys.
 func (g *generator) comparedTypes() map[types.Type]bool {
 	compared := make(map[types.Type]bool)
-	var mark func(typ types.Type)
-	mark = func(typ types.Type) {
-		if compared[typ] || !g.hasEqualityHelper(typ) {
-			return
-		}
-		compared[typ] = true
-		for _, part := range g.parts(typ) {
-			mark(part)
-		}
-	}
 	g.walk(func(n ast.Node) bool {
 		if bin, ok := n.(*ast.Binary); ok && (bin.Op == ast.Eq || bin.Op == ast.Ne) {
-			mark(ast.TypeOf(bin.X))
+			g.markCompared(ast.TypeOf(bin.X), compared)
 		}
 		if typ, ok := switchCompares(n); ok && !g.isUnionSwitch(n.(*ast.Switch)) {
-			mark(typ)
+			g.markCompared(typ, compared)
 		}
 		return true
 	})
 	return compared
+}
+
+// markCompared records in compared that values of typ, and of every type
+// it is made of, are compared, when it has an equality helper.
+func (g *generator) markCompared(typ types.Type, compared map[types.Type]bool) {
+	if compared[typ] || !g.hasEqualityHelper(typ) {
+		return
+	}
+	compared[typ] = true
+	for _, part := range g.parts(typ) {
+		g.markCompared(part, compared)
+	}
 }
 
 // emitEqualityOf writes the equality helper for typ, after those of the

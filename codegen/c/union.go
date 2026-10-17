@@ -138,8 +138,8 @@ func freeName(typ types.Type) string {
 	return fmt.Sprintf("tack_free_%d", typ)
 }
 
-// emitFrees writes tack_free_ for every union type that holds a list, and
-// every list type whose elements are owned, each after those of the
+// emitFrees writes tack_free_ for every union type that holds a list,
+// every list type whose elements are owned, and every map type, each after those of the
 // types its payloads or elements, and the fields of those, hold, which
 // it calls.
 func (g *generator) emitFrees() {
@@ -159,6 +159,8 @@ func (g *generator) emitFrees() {
 			g.emitUnionFree(typ)
 		case table.IsList(typ) && g.owned(table.Elem(typ)):
 			g.emitListFree(typ)
+		case table.IsMap(typ):
+			g.emitMapFree(typ)
 		}
 	}
 	for i := range table.Count() {

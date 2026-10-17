@@ -818,14 +818,16 @@ func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
-// bracket, list, or struct, which parseType reports, since a struct type
-// can only be declared.
+// bracket, list, map, or struct, which parseType reports, since a struct
+// type can only be declared.
 func (p *Parser) startsType(tk *lexer.Token) bool {
 	switch tk.Kind() {
 	case lexer.Ident, lexer.LBrack:
 		return true
 	case lexer.Keyword:
-		return tk.Value() == lexer.Struct || tk.Value() == lexer.List || tk.Value() == lexer.Union
+		return tk.Value() == lexer.Struct || tk.Value() == lexer.List ||
+			tk.Value() == lexer.Union ||
+			tk.Value() == lexer.Map
 	default:
 		return false
 	}
@@ -846,6 +848,9 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 	}
 	if isKeyword(p.peek(), lexer.List) {
 		return p.parseListType()
+	}
+	if isKeyword(p.peek(), lexer.Map) {
+		return p.parseMapType()
 	}
 	if diags := p.anonymousType(); diags != nil {
 		return nil, diags
@@ -2695,6 +2700,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseMutArg()
 	case isKeyword(tk, lexer.List):
 		return p.parseListOperand()
+	case isKeyword(tk, lexer.Map):
+		return p.parseTypeOperand(p.parseMapType)
 	}
 
 	x, diags := p.parsePrimary()
@@ -3119,12 +3126,48 @@ func (p *Parser) parseListType() (ast.Expr, []diag.Diagnostic) {
 	}, nil
 }
 
+// parseMapType parses a map type, map[K]V, whose keyword is next.
+func (p *Parser) parseMapType() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	kw := p.next()
+	if ok, diags := p.expect(lexer.LBrack); !ok {
+		return nil, diags
+	}
+	key, diags := p.parseType()
+	if key == nil {
+		return nil, diags
+	}
+	if ok, closeDiags := p.expect(lexer.RBrack); !ok {
+		return nil, closeDiags
+	}
+	value, diags := p.parseType()
+	if value == nil {
+		return nil, diags
+	}
+	return &ast.MapType{
+		Key:   key,
+		Value: value,
+		Span:  ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: value.Spanned().End},
+	}, nil
+}
+
 // parseListOperand parses a list type written where an operand is, which
 // make's first argument is, make(list[int64], c_allocator), or a literal
 // of one, list[int64]{...}, which the type checker reports, as it does a
 // list type anywhere else a value is wanted.
 func (p *Parser) parseListOperand() (ast.Expr, []diag.Diagnostic) {
-	typ, diags := p.parseListType()
+	return p.parseTypeOperand(p.parseListType)
+}
+
+// parseTypeOperand parses a list or a map type written where an operand
+// is, with parse, and a literal of it, as parseListOperand describes.
+func (p *Parser) parseTypeOperand(
+	parse func() (ast.Expr, []diag.Diagnostic),
+) (ast.Expr, []diag.Diagnostic) {
+	typ, diags := parse()
 	if typ == nil {
 		return nil, diags
 	}

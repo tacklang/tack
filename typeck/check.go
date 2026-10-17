@@ -153,6 +153,11 @@ type Checker struct {
 	// struct's fields are known; see requireCopyable.
 	pendingElems []pendingElem
 
+	// pendingKeys holds the key types of maps written in struct fields,
+	// whose == is judged once every struct's fields are known; see
+	// requireKey.
+	pendingKeys []pendingElem
+
 	// pendingSizes holds the array types met before every struct's and
 	// union's size can be known, and sizeChecked the types whose sizes
 	// have been checked (see size.go).
@@ -352,6 +357,7 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 	}
 	c.checkStructs()
 	c.checkPendingElems()
+	c.checkPendingKeys()
 	c.checkTypeSizes()
 	for _, decl := range decls {
 		if v, ok := decl.(*ast.Var); ok {
@@ -884,7 +890,9 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 // type, an untyped constant count being an int64, which gives the loop
 // variable the count's type; or over an array, a view, a list or a string, which
 // gives the index an int64 and the element the array's or view's element
-// type, or a string's byte, a uint8. An integer gives only one value, so an element variable
+// type, or a string's byte, a uint8; or over a map, which gives the key
+// its key type, referring to the key in place when it is owned, and the
+// element its value type. An integer gives only one value, so an element variable
 // over one is reported. What it ranges over may be a call returning a
 // view.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
@@ -893,6 +901,9 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	index, elem := c.rangeTypes(loop, got)
 	if loop.Var != nil {
 		loop.Var.Type = index
+		if c.table.IsMap(got) && c.table.Owned(index) {
+			c.rangeBindings[loop.Var] = loop.X
+		}
 	}
 	if loop.Elem != nil {
 		loop.Elem.Type = elem
@@ -934,6 +945,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 		return got, types.Invalid
 	case c.table.IsArray(got), c.table.IsView(got), c.table.IsList(got):
 		return types.Int64, c.table.Elem(got)
+	case c.table.IsMap(got):
+		return c.table.Key(got), c.table.Elem(got)
 	case got == types.String:
 		return types.Int64, types.Uint8
 	default:
@@ -943,7 +956,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 }
 
 // rangeFacts returns what a range loop's body knows about its index
-// variable, a range over a value of type got: it is at least 0, and below
+// variable, a range over a value of type got, other than a map, whose key
+// is no index and gets no fact: it is at least 0, and below
 // the count or the length when that is known. A count's is known when it is
 // a known value, an array's always, and a string's when it is a known
 // string, a literal or an immutable variable holding one.
@@ -954,7 +968,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // below len(v), which holds for the whole call, and over a list below
 // len(l), which the body can never change (see move.go).
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
-	if loop.Var == nil || loop.Var.Name == ast.Blank {
+	if loop.Var == nil || loop.Var.Name == ast.Blank || c.table.IsMap(got) {
 		return nil
 	}
 	f := fact{about: declKey(loop.Var), hasLo: true}
@@ -1102,7 +1116,11 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 		return
 	}
 	if c.table.Owned(v.Type) {
-		c.errorf(v.NameSpan, "package-level variable %s cannot hold a list", v.Name)
+		held := "a list"
+		if !c.table.HoldsList(v.Type) {
+			held = "a map"
+		}
+		c.errorf(v.NameSpan, "package-level variable %s cannot hold %s", v.Name, held)
 		return
 	}
 
@@ -1725,6 +1743,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return c.viewElsewhere(t)
 	case *ast.ListType:
 		return c.listType(t)
+	case *ast.MapType:
+		return c.mapType(t)
 	}
 	id, ok := expr.(*ast.Ident)
 	if !ok {

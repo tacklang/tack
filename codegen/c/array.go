@@ -152,13 +152,17 @@ func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string 
 	return "(" + eq + ")"
 }
 
-// indexValues lowers v, ok := a[i]: the index is held in a temporary,
+// indexValues lowers v, ok := a[i], or, for a map, v, ok := m[k] (see
+// lookupValues): the index is held in a temporary,
 // and the element is read only when the index is in range, giving the
 // element type's zero value otherwise. A string is held the same way, and
 // its byte read only when the index is below its length, known only at
 // runtime, giving 0 otherwise. What is indexed is evaluated before the
 // index, as written; see heldIndexed for whether, and how, it is held.
 func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
+	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
+		return g.lookupValues(ix)
+	}
 	steps, place, diags := g.exprSteps(ix.X, false)
 	if len(diags) > 0 {
 		return multiSource{}, diags

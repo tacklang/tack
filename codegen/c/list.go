@@ -81,15 +81,15 @@ const negativeCount = "negative count"
 const negativeCountCode = 2
 
 // listErrors returns the messages of the errors the program's calls to
-// append and reserve can give, so they are pooled: out of memory for
-// either, and negative count for a reserve whose count is not a constant,
+// append, reserve and put can give, so they are pooled: out of memory for
+// any, and negative count for a reserve whose count is not a constant,
 // which the checker has made sure is not negative.
 func (g *generator) listErrors() []string {
 	grows, negative := false, false
 	g.walk(func(n ast.Node) bool {
 		if call, ok := n.(*ast.Call); ok {
 			reserves := isBuiltin(call, "reserve")
-			grows = grows || reserves || isBuiltin(call, "append")
+			grows = grows || reserves || isBuiltin(call, "append") || isBuiltin(call, "put")
 			negative = negative || reserves && !g.constCount(call)
 		}
 		return !negative
@@ -123,11 +123,15 @@ func isBuiltin(call *ast.Call, name string) bool {
 }
 
 // makeValue renders make(list[T], alloc) as an empty list of its type
-// holding the allocator, which allocates nothing.
+// holding the allocator, which allocates nothing, and make(map[K]V,
+// alloc) as an empty map (see makeMap).
 func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
 	alloc, diags := g.expr(call.Args[1], types.Allocator)
 	if len(diags) > 0 {
 		return "", diags
+	}
+	if g.prog.Types.IsMap(call.Type) {
+		return g.makeMap(call, alloc), nil
 	}
 	return fmt.Sprintf("((%s){.alloc = %s})", listName(call.Type), alloc), nil
 }
@@ -471,7 +475,7 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 // expression, so they can be joined into a loop's post statement.
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
-	if table.IsUnion(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
+	if table.IsUnion(typ) || table.IsMap(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
 		return []string{fmt.Sprintf("%s(&%s);", freeName(typ), ref)}
 	}
 	if table.IsList(typ) {

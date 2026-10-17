@@ -719,6 +719,27 @@ func (l *ListType) astNode() nodeKey { return _nodeKey }
 // closing bracket.
 func (l *ListType) Spanned() Span { return l.Span }
 
+// MapType is a map type as written, map[Key]Value: an owned map holding
+// values of type Value by keys of type Key. Like ListType it is an
+// expression only so it can stand where a type is written, and as make's
+// first argument, make(map[string]int64, c_allocator); it never has a
+// value of its own.
+type MapType struct {
+	Key   Expr // the key type as written
+	Value Expr // the value type as written
+	Span  Span // the keyword map through the end of the value type
+}
+
+var _ Expr = (*MapType)(nil)
+
+func (m *MapType) exprKey() exprKey { return _exprKey }
+
+func (m *MapType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the keyword map through the end
+// of the value type.
+func (m *MapType) Spanned() Span { return m.Span }
+
 // CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
 // element for each of the array's, or a struct literal, Point{x: 1, y: 2},
 // whose elements are each a *KeyValue naming a field. TypeExpr is nil for a

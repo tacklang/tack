@@ -605,8 +605,16 @@
 // a range binds one in place (rangeBindings). An array's and a
 // variadic's elements are copyable: no list, and no struct holding one,
 // a check put off for a struct's field until every struct's fields are
-// known. No type holds itself through a list, which the cycle check
-// reports with the cycles by value. A list, an
+// known. No type holds itself through a list, or a map, which the cycle
+// check reports with the cycles by value. A map, map[K]V, checked in
+// maps.go, is owned as a list is, its K any type with == but error and
+// type parameters, a check put off for a struct's field (pendingKeys),
+// its V anything a list's element can be: put moves a key and a value in,
+// its error never dropped, v, ok := m[k] copies a copyable value and m[k]
+// anywhere else is reported, delete gives its value only with ok or as a
+// statement, as pop's checked form does (isTake), a range binds its key
+// and value, in place when owned (rangeBindings), and locks the map as a
+// list's range does, and len(m) is never known. A list, a map, an
 // Allocator, and anything holding either, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable

@@ -84,6 +84,10 @@ func (t *Table) layout(typ Type, visiting map[Type]bool) Size {
 		return Size{Bytes: 16, Align: 8} // a pointer and an int64 length
 	case t.IsList(typ):
 		return Size{Bytes: 32, Align: 8} // a pointer, len, cap and an Allocator
+	case t.IsMap(typ):
+		// Its entries' pointer, length, how many are used, their
+		// capacity, its slots' pointer and count, and an Allocator.
+		return Size{Bytes: 56, Align: 8}
 	case t.IsArray(typ):
 		elem := t.size(t.Elem(typ), visiting)
 		// An array type's length is never negative (see Array), and one

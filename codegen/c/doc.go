@@ -377,7 +377,13 @@
 // is owned (see dropTake). replace(mut place, new) is a comma expression
 // over temporaries at the function's top: the place's address, the new
 // value, the old value read, the new one stored, the old one given; as a
-// statement, the old value is freed when owned (see replace.go). An
+// statement, the old value is freed when owned (see replace.go). A map
+// lowers to a struct of its own per map type, a buffer of entries in
+// insertion order and a table of slots probed from a key's hash, with
+// helpers per map type to find, grow, put and take, and a hash helper per
+// key type, all written after every free and equality helper they call,
+// and freed by tack_free_ like a list of owned elements; put, a checked
+// lookup, delete and a range over one lower through them (see maps.go). An
 // element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in

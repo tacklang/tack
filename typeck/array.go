@@ -192,8 +192,14 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 	// is: a mut argument in it is the index's own (see checkIndexBorrows).
 	assigning := c.assigning
 	c.assigning = nil
-	idx := c.valueOf(ix.Index, c.expr(ix.Index))
+	idx := c.expr(ix.Index)
 	c.assigning = assigning
+	if c.table.IsMap(base) {
+		// A key is used as the map's key type, an untyped constant
+		// taking it, as a value assigned does.
+		return c.mapElement(ix, base, idx, write)
+	}
+	idx = c.valueOf(ix.Index, idx)
 	if base == types.Invalid {
 		return types.Invalid
 	}
@@ -289,6 +295,9 @@ func (c *Checker) indexResults(ix *ast.Index, want int, span ast.Span) ([]types.
 	c.checkedIndex = nil
 	if elem == types.Invalid {
 		return nil, false
+	}
+	if c.table.IsMap(ast.TypeOf(ix.X)) {
+		return c.mapResults(ix, elem, want, span)
 	}
 	if c.table.Owned(elem) && c.isViewCall(ix.X) {
 		c.errorf(
@@ -401,7 +410,8 @@ func inBounds(i ast.Expr, name, bound string) string {
 }
 
 // lenCall checks a call to the builtin len, which takes one array, string,
-// view or list, a slice of an array, a view or a list included, and gives an int64. The length of an array, and of a string
+// view, list or map, a slice of an array, a view or a list included, and
+// gives an int64, a map's being how many keys it holds. The length of an array, and of a string
 // literal, is a constant, recorded on the call, unless working it out runs
 // a call, which it must then still make; a view's or a list's is never known, as a
 // string parameter's is not. A call whose arguments are wrong, or whose
@@ -425,14 +435,17 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		if !hasCall(arg) {
 			call.Const = constant.FromInt64(c.table.Len(got))
 		}
-	case got == types.String, c.table.IsView(got), c.table.IsList(got):
+	case got == types.String, c.table.IsView(got), c.table.IsList(got), c.table.IsMap(got):
 		if lit, ok := arg.(*ast.StrLit); ok {
 			call.Const = constant.FromInt64(int64(len(lit.Value)))
 		}
 	default:
 		if got = c.valueOf(arg, got); got != types.Invalid {
-			c.errorf(arg.Spanned(), "len expects an array, a string, a view or a list, got %s",
-				c.typeName(got))
+			c.errorf(
+				arg.Spanned(),
+				"len expects an array, a string, a view, a list or a map, got %s",
+				c.typeName(got),
+			)
 		}
 		return types.Invalid
 	}

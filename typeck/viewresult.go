@@ -396,14 +396,14 @@ func (c *Checker) borrowedArg(call *ast.Call, p *ast.Param, arg ast.Expr) *viewP
 }
 
 // holdsData reports whether a value of type typ may hold data a view can
-// point into, which a call returning a view borrows: a view, a list, an
-// array, a struct but error, a union, or a type parameter, which may
-// stand for any of them.
+// point into, which a call returning a view borrows: a view, a list, a
+// map, an array, a struct but error, a union, or a type parameter, which
+// may stand for any of them.
 func (c *Checker) holdsData(typ types.Type) bool {
 	switch {
 	case typ == types.Error:
 		return false
-	case c.table.IsView(typ), c.table.IsList(typ), c.table.IsArray(typ),
+	case c.table.IsView(typ), c.table.IsList(typ), c.table.IsMap(typ), c.table.IsArray(typ),
 		c.table.IsStruct(typ), c.table.IsUnion(typ), c.table.IsTypeParam(typ):
 		return true
 	default:

@@ -277,7 +277,7 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 // an owned one that may overlap the place, replace(mut l, l), is
 // reported.
 func appendedValue(call *ast.Call, i int) bool {
-	return isAppend(call) && !call.Spread && i > 0
+	return (isAppend(call) && !call.Spread || isPut(call)) && i > 0
 }
 
 // borrowedList returns the place arg reads a list from in place, when it
@@ -394,15 +394,20 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 		for _, m := range muts {
 			if placesMayOverlap(place, m.X) {
 				passed := c.text(m.X.Spanned())
+				holder := "a list"
+				if c.table.IsMap(ast.TypeOf(x)) {
+					holder = "a map"
+				}
 				c.errorNotes(
 					x.Spanned(),
 					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot %s %s alongside mut %s %s: a list is not copied to be %s, "+
+					"cannot %s %s alongside mut %s %s: %s is not copied to be %s, "+
 						"and a mut argument must be the only way to reach %s during its call",
 					verb,
 					c.text(x.Spanned()),
 					passed,
 					where,
+					holder,
 					done,
 					passed,
 				)

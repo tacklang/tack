@@ -82,11 +82,14 @@ func (c *Checker) requireElement(holder string, elem types.Type, at ast.Span) bo
 	if !c.table.IsTypeParam(elem) {
 		return true
 	}
-	what := "a list's"
-	if holder == "a view" {
-		what = "a view's"
+	what := "a list's element"
+	switch holder {
+	case "a view":
+		what = "a view's element"
+	case "a map":
+		what = "a map's value"
 	}
-	c.errorf(at, "%s cannot hold %s: %s element cannot be a type parameter",
+	c.errorf(at, "%s cannot hold %s: %s cannot be a type parameter",
 		holder, c.typeName(elem), what)
 	return false
 }
@@ -172,42 +175,47 @@ func isAppend(call *ast.Call) bool { return isBuiltinCall(call, "append") }
 // isReserve reports whether call calls the builtin reserve.
 func isReserve(call *ast.Call) bool { return isBuiltinCall(call, "reserve") }
 
-// returnsListError reports whether call calls append or reserve, the
+// returnsListError reports whether call calls append, reserve or put, the
 // generic builtins that return an error.
-func returnsListError(call *ast.Call) bool { return isAppend(call) || isReserve(call) }
+func returnsListError(
+	call *ast.Call,
+) bool {
+	return isAppend(call) || isReserve(call) || isPut(call)
+}
 
 // isTake reports whether call calls pop or remove, the generic builtins
-// that move an element out of a list.
+// that move an element out of a list, or delete, which moves a value out
+// of a map: each gives what it took and, in its checked form, whether
+// there was one.
 func isTake(
 	call *ast.Call,
 ) bool {
-	return isBuiltinCall(call, "pop") || isBuiltinCall(call, "remove")
+	return isBuiltinCall(call, "pop") || isBuiltinCall(call, "remove") || isDelete(call)
 }
 
-// makeCall checks a call to make, make(list[T], alloc), records the list
-// type it makes on the call and returns it. It takes the list type, as
-// written, and an Allocator to grow it through; a capacity is not taken
+// makeCall checks a call to make, make(list[T], alloc) or make(map[K]V,
+// alloc), records the type it makes on the call and returns it. It takes
+// the list or map type, as written, and an Allocator to grow it through; a capacity is not taken
 // yet. Anything else is reported, and gives types.Invalid.
 func (c *Checker) makeCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "make", 2) {
 		for _, arg := range call.Args {
-			if lt, isType := arg.(*ast.ListType); isType {
-				c.listType(lt)
+			if madeType(arg) {
+				c.declaredType(arg)
 				continue
 			}
 			c.argExpr(arg)
 		}
 		return types.Invalid
 	}
-	lt, ok := call.Args[0].(*ast.ListType)
-	if !ok {
+	if !madeType(call.Args[0]) {
 		c.argExpr(call.Args[0])
 		c.errorf(call.Args[0].Spanned(),
-			"make takes a list type, as in make(list[int64], c_allocator)")
+			"make takes a list or a map type, as in make(list[int64], c_allocator)")
 		c.argExpr(call.Args[1])
 		return types.Invalid
 	}
-	typ := c.listType(lt)
+	typ := c.declaredType(call.Args[0])
 	alloc := call.Args[1]
 	if !c.use(alloc, c.expr(alloc), types.Allocator, "in argument to make") ||
 		typ == types.Invalid {
@@ -215,6 +223,17 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	}
 	call.Type = typ
 	return typ
+}
+
+// madeType reports whether e is a type make can make: a list type or a
+// map type, as written.
+func madeType(e ast.Expr) bool {
+	switch e.(type) {
+	case *ast.ListType, *ast.MapType:
+		return true
+	default:
+		return false
+	}
 }
 
 // appendCall checks a call to append, err := append(mut l, a, b) or err
@@ -446,24 +465,37 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append, reserve, pop, remove or replace, each of which checks its own
+// make, append, reserve, pop, remove, replace, put or delete, each of which checks its own
 // arguments and gives one value, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
+	switch {
+	case isLen(call):
+		return c.lenCall
+	case isMake(call):
+		return c.makeCall
+	case isReplace(call):
+		return c.replaceCall
+	case isPut(call):
+		return c.putCall
+	case isDelete(call):
+		return c.deleteCall
+	default:
+		return c.listCall(call)
+	}
+}
+
+// listCall returns the checker of the generic builtin call calls when it
+// is one that changes a list, append, reserve, pop or remove, or nil.
+func (c *Checker) listCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isBuiltinCall(call, "pop"):
 		return c.popCall
 	case isBuiltinCall(call, "remove"):
 		return c.removeCall
-	case isLen(call):
-		return c.lenCall
-	case isMake(call):
-		return c.makeCall
 	case isAppend(call):
 		return c.appendCall
 	case isReserve(call):
 		return c.reserveCall
-	case isReplace(call):
-		return c.replaceCall
 	default:
 		return nil
 	}

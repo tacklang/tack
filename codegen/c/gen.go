@@ -1176,14 +1176,21 @@ func (g *generator) generateForRange(
 		return nil, diags
 	}
 	x, addr := withSteps(steps, place), withSteps(steps, "&"+place)
+	xType := ast.TypeOf(loop.X)
+	isMap := g.prog.Types.IsMap(xType)
 	if g.bindsInPlace(loop) {
 		g.inPlace[loop.Elem] = true
+	}
+	if isMap && loop.Var != nil && g.owned(loop.Var.Type) {
+		g.inPlace[loop.Var] = true
 	}
 	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
-	xType := ast.TypeOf(loop.X)
+	if isMap {
+		return g.mapRange(loop, x, body), nil
+	}
 	if !types.IsInteger(xType) {
 		return g.collectionRange(loop, x, addr, body), nil
 	}
@@ -1616,6 +1623,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	if isBuiltin(call, "replace") {
 		return g.dropReplace(call)
 	}
+	if isBuiltin(call, "delete") {
+		return g.dropDelete(call)
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil, []diag.Diagnostic{{
@@ -1863,6 +1873,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 	if isBuiltin(c, "pop") || isBuiltin(c, "remove") {
 		return g.takeValues(c)
+	}
+	if isBuiltin(c, "delete") {
+		return g.deleteValues(c)
 	}
 	fn := ast.Callee(c)
 	if fn == nil {
@@ -2428,6 +2441,8 @@ func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Di
 		return g.removeValue
 	case "replace":
 		return g.replaceValue
+	case "put":
+		return g.putValue
 	default:
 		return nil
 	}
@@ -2458,6 +2473,9 @@ func (g *generator) cType(typ types.Type) string {
 	}
 	if g.prog.Types.IsList(typ) {
 		return listName(typ)
+	}
+	if g.prog.Types.IsMap(typ) {
+		return mapName(typ)
 	}
 	if g.prog.Types.IsStruct(typ) || g.prog.Types.IsUnion(typ) {
 		return g.structName(typ)

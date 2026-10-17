@@ -15,7 +15,8 @@ import "strconv"
 // two types even when their fields are alike; its fields are set afterwards,
 // by SetFields, so a struct can have a field of a type declared after it. A
 // view type, []T, is added the first time it is seen, like an array, and
-// found again by its element type, and so is a list type, list[T]. Error
+// found again by its element type, and so is a list type, list[T], and a
+// map type, map[K]V, by its key and value types. Error
 // is a struct the Table never adds: IsStruct and Fields know it without
 // an entry. A union type is added once for each declaration, by Union,
 // as a struct type is, and its cases set afterwards, by SetCases. A type
@@ -28,9 +29,10 @@ import "strconv"
 // type, so code that asks the Table what a type is lowers the instance as
 // it would a function written with that type. Unbind ends it.
 type Table struct {
-	ids   map[array]Type // each array type's ID, by its shape
-	views map[Type]Type  // each view type's ID, by its element type
-	lists map[Type]Type  // each list type's ID, by its element type
+	ids   map[array]Type  // each array type's ID, by its shape
+	views map[Type]Type   // each view type's ID, by its element type
+	lists map[Type]Type   // each list type's ID, by its element type
+	maps  map[mapKey]Type // each map type's ID, by its key and value types
 	// bound maps each type parameter Bind bound to the type it stands
 	// for; it is nil when nothing is bound.
 	bound map[Type]Type
@@ -42,16 +44,23 @@ type Table struct {
 }
 
 // entry is one type a Table added: an array, with its shape, a view or a
-// list, with its element type in arr.elem, a struct, with its name and
-// fields, a union, with its name and cases, or a type parameter, with its
-// name.
+// list, with its element type in arr.elem, a map, with its value type in
+// arr.elem and its key type in key, a struct, with its name and fields, a
+// union, with its name and cases, or a type parameter, with its name.
 type entry struct {
-	strct *structType // nil for anything but a struct
-	union *unionType  // nil for anything but a union
-	param string      // a type parameter's name, "" for any other type
-	arr   array
-	view  bool
-	list  bool
+	strct  *structType // nil for anything but a struct
+	union  *unionType  // nil for anything but a union
+	param  string      // a type parameter's name, "" for any other type
+	arr    array
+	key    Type
+	view   bool
+	list   bool
+	mapped bool
+}
+
+// mapKey identifies a map type by its key and value types.
+type mapKey struct {
+	key, value Type
 }
 
 // array is the shape of an array type: its element type and its length.
@@ -95,6 +104,7 @@ func NewTable() *Table {
 		ids:   make(map[array]Type),
 		views: make(map[Type]Type),
 		lists: make(map[Type]Type),
+		maps:  make(map[mapKey]Type),
 	}
 }
 
@@ -129,6 +139,19 @@ func (t *Table) List(elem Type) Type {
 	}
 	id := t.add(entry{arr: array{elem: elem}, list: true})
 	t.lists[elem] = id
+	return id
+}
+
+// Map returns the type of owned maps holding values of type value by keys
+// of type key, map[key]value, adding it if the Table does not have it
+// yet.
+func (t *Table) Map(key, value Type) Type {
+	k := mapKey{key: key, value: value}
+	if id, ok := t.maps[k]; ok {
+		return id
+	}
+	id := t.add(entry{arr: array{elem: value}, key: key, mapped: true})
+	t.maps[k] = id
 	return id
 }
 
@@ -254,13 +277,30 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil && e.union == nil && e.param == "" && !e.view && !e.list
+	return ok && e.strct == nil && e.union == nil && e.param == "" && !e.view && !e.list &&
+		!e.mapped
 }
 
 // IsList reports whether typ is a list type, list[T].
 func (t *Table) IsList(typ Type) bool {
 	e, ok := t.entry(typ)
 	return ok && e.list
+}
+
+// IsMap reports whether typ is a map type, map[K]V.
+func (t *Table) IsMap(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.mapped
+}
+
+// Key returns the key type of the map type typ, or Invalid if typ is not
+// one.
+func (t *Table) Key(typ Type) Type {
+	e, ok := t.entry(typ)
+	if !ok || !e.mapped {
+		return Invalid
+	}
+	return e.key
 }
 
 // IsView reports whether typ is a view type, []T.
@@ -285,9 +325,9 @@ func (t *Table) IsStruct(typ Type) bool {
 var errorFields = []Field{{Name: "code", Type: Int32}, {Name: "msg", Type: String}}
 
 // Elem returns the element type of the array, view or list type typ, or
-// Invalid if typ is none of them.
+// the value type of the map type typ, or Invalid if typ is none of them.
 func (t *Table) Elem(typ Type) Type {
-	if !t.IsArray(typ) && !t.IsView(typ) && !t.IsList(typ) {
+	if !t.IsArray(typ) && !t.IsView(typ) && !t.IsList(typ) && !t.IsMap(typ) {
 		return Invalid
 	}
 	e, _ := t.entry(typ)
@@ -329,27 +369,36 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 }
 
 // Owned reports whether a value of type typ owns memory it must free: a
-// list, which owns its buffer, or an array, a struct or a union holding
+// list, which owns its buffer, a map, which owns its buffers, keys and
+// values, or an array, a struct or a union holding
 // one, directly or through other arrays, structs and unions, a union
 // holding one when any of its cases' payloads does. A value of an owned
 // type moves rather than copies, and is freed when its owner's block
 // ends.
 func (t *Table) Owned(typ Type) bool {
-	owns := func(typ Type) bool { return t.IsList(typ) || t.IsTypeParam(typ) }
+	owns := func(typ Type) bool { return t.IsList(typ) || t.IsMap(typ) || t.IsTypeParam(typ) }
 	return t.holds(typ, owns, make(map[Type]bool))
 }
 
 // HasZero reports whether type typ has a zero value, which a variable
-// declared without a value starts from: every type but a list, an
+// declared without a value starts from: every type but a list, a map, an
 // Allocator, a union, and an array or a struct holding any of them. An
-// empty list still needs an allocator to grow through, no Allocator
+// empty list or map still needs an allocator to grow through, no Allocator
 // stands for none, and no case of a union is the one a variable starts
 // as.
 func (t *Table) HasZero(typ Type) bool {
 	noZero := func(typ Type) bool {
-		return typ == Allocator || t.IsList(typ) || t.IsTypeParam(typ) || t.IsUnion(typ)
+		return typ == Allocator || t.IsList(typ) || t.IsMap(typ) || t.IsTypeParam(typ) ||
+			t.IsUnion(typ)
 	}
 	return !t.holds(typ, noZero, make(map[Type]bool))
+}
+
+// HoldsList reports whether typ is a list type, or an array, a struct or a
+// union holding one, directly or through other arrays, structs and
+// unions.
+func (t *Table) HoldsList(typ Type) bool {
+	return t.holds(typ, t.IsList, make(map[Type]bool))
 }
 
 // HoldsUnion reports whether typ is a union type, or an array or a struct
@@ -417,7 +466,7 @@ func Added(i int) Type { return numBasic + Type(i) }
 
 // Name returns a type's name as a program writes it, for diagnostics: a
 // basic type's own name, [n]elem for an array, []elem for a view,
-// list[elem] for a list, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
+// list[elem] for a list, map[key]value for a map, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
@@ -462,7 +511,7 @@ func (e entry) declaredName() (string, bool) {
 	}
 }
 
-// compositeName returns the name of e, an array's, a view's or a list's
+// compositeName returns the name of e, an array's, a view's, a list's or a map's
 // entry, as NameWith writes it.
 func (t *Table) compositeName(e entry, qualify func(typ Type, name string) string) string {
 	switch {
@@ -470,6 +519,8 @@ func (t *Table) compositeName(e entry, qualify func(typ Type, name string) strin
 		return "[]" + t.NameWith(e.arr.elem, qualify)
 	case e.list:
 		return "list[" + t.NameWith(e.arr.elem, qualify) + "]"
+	case e.mapped:
+		return "map[" + t.NameWith(e.key, qualify) + "]" + t.NameWith(e.arr.elem, qualify)
 	default:
 		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.NameWith(e.arr.elem, qualify)
 	}

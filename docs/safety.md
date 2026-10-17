@@ -1205,9 +1205,9 @@ result: <!-- error: error-not-last -->`error must be the last result of f`.
 
 ## Lists
 
-A list, `list[T]`, is the one value that owns memory: its buffer, which
-its allocator gives it as `append` grows it, and takes back when the list
-is freed. Three properties make that safe, and the compiler checks each.
+A list, `list[T]`, owns memory: its buffer, which its allocator gives
+it as `append` grows it, and takes back when the list is freed; a map
+owns memory the same way (see [Maps](#maps)). Three properties make that safe, and the compiler checks each.
 
 **Indexes stay in range.** A list's length is never known, so an index
 into one is proven as one into a string parameter is, against `len(l)`,
@@ -1525,6 +1525,50 @@ func testLoops() {
         sum += total(v)
     }
 ```
+
+## Maps
+
+A map, `map[K]V`, owns its buffers, its keys and its values, which it
+frees when its owner's block ends, as a list frees its elements; it
+moves rather than copies, as a list does, under the same rules. The rest
+of its safety is the same three properties a list's is.
+
+**A key is never assumed to be there.** Nothing proves a key is in a
+map, so a value is read only with the checked form, `v, ok := m[k]`,
+which gives the value type's zero value and `false` for a key that is
+not, and `m[k]` anywhere else
+is <!-- error: map-lookup-plain -->`key k may not be in m; use v, ok := m[k]`.
+The checked form copies, so it cannot read an owned value,
+<!-- error: map-lookup-owned -->`the checked form cannot read a value of type list[int64]: it would copy it out of m; range over m to use its values in place`,
+nor one of a type with no zero value to give,
+<!-- error: map-lookup-no-zero -->`the checked form cannot read a value of type Allocator: it has no zero value to give when the key is not in the map`.
+`delete` gives its value only with `ok`, which holds it as `pop`'s does,
+<!-- error: map-delete-plain -->`delete gives the value and whether the key was there; use v, ok := delete(mut m, k)`.
+
+**Nothing is freed twice or kept after it is freed.** `put` moves its key
+and value in; replacing a value frees the old one, and the key given is
+freed in favour of the one the map holds; a `put` that cannot grow the
+map frees both and leaves the map as it was, and its error cannot be
+dropped,
+<!-- error: map-put-dropped -->`the error put returns cannot be dropped; bind it, as in err := put(...)`.
+`delete` moves the value out and frees the key, or, as a statement,
+frees the value too. A key moved into a map cannot be used after,
+<!-- error: map-key-moved -->`k is used after it was moved`.
+
+**A walk never sees its map change.** A range over a map binds owned
+keys and values in place, in its buffers, so the loop cannot change the
+map, <!-- error: map-range-put -->`m is being ranged over, so this loop cannot pass mut m`,
+and a lookup whose key passes the map as mut
+is <!-- error: map-index-borrow -->`cannot index m alongside mut m in its index: a map is not copied to be indexed, and a mut argument must be the only way to reach m during its call`.
+
+Keys are compared with `==`, so a key type must have one,
+<!-- error: map-key-map -->`cannot use map[int64]int64 as a map key: it has no ==`,
+and `error` is no key,
+<!-- error: map-key-error -->`cannot use error as a map key: an error is not a key`.
+`examples/maps` puts, reads, replaces, deletes and ranges over maps of
+string, Text and integer keys and of list and struct values, 100000
+entries among them, makes every allocation of a `put` fail in turn, and
+checks after every group that its allocator holds nothing.
 
 ## Compile-time errors
 

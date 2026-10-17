@@ -85,6 +85,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.mutElsewhere(x)
 	case *ast.ListType:
 		return c.listTypeValue(x)
+	case *ast.MapType:
+		return c.typeValue(x, c.mapType(x))
 	case *ast.TypeAssert:
 		return c.typeAssert(x)
 	default:

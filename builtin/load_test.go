@@ -167,8 +167,14 @@ func TestNilSetIsEmpty(t *testing.T) {
 	if _, ok := set.Lookup("print"); ok {
 		t.Error("nil Set looks up print")
 	}
-	if got := strings.Join(set.Names(), " "); got != "len make append reserve pop remove replace" {
-		t.Errorf("nil Set's Names() = %q, want len make append reserve pop remove replace", got)
+	if got := strings.Join(
+		set.Names(),
+		" ",
+	); got != "len make append reserve pop remove replace put delete" {
+		t.Errorf(
+			"nil Set's Names() = %q, want len make append reserve pop remove replace put delete",
+			got,
+		)
 	}
 }
 

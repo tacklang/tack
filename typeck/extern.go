@@ -22,11 +22,13 @@ const stdPath = "std"
 // tack_, which the generated C's own names do. Every type can cross to C,
 // and a mut parameter crosses as a pointer, except a list, or a struct or
 // an array holding one, which crosses only by mut or as a view (see
-// checkExternLists).
+// checkExternLists), and a map, which never does (see checkExternMaps).
 func (c *Checker) checkExtern(fn *ast.Func) {
-	c.checkExternLists(fn)
-	c.checkExternUnions(fn)
-	c.checkExternOwnedElems(fn)
+	if c.checkExternMaps(fn) {
+		c.checkExternLists(fn)
+		c.checkExternUnions(fn)
+		c.checkExternOwnedElems(fn)
+	}
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan
@@ -52,6 +54,58 @@ func (c *Checker) checkExtern(fn *ast.Func) {
 			name,
 		)
 	}
+}
+
+// checkExternMaps reports each parameter and each result of fn, an extern
+// func, whose type is or holds a map, at any depth, through a struct, an
+// array, a union, a list or a view, and returns whether there was none:
+// how a map is laid out for C is not settled, so none crosses.
+func (c *Checker) checkExternMaps(fn *ast.Func) bool {
+	clean := true
+	for _, p := range fn.Params {
+		if c.holdsMap(p.Type, make(map[types.Type]bool)) {
+			c.errorf(
+				p.TypeExpr.Spanned(),
+				"parameter %s of extern func %s cannot be %s: a map does not cross to C",
+				p.Name,
+				fn.Name,
+				c.typeName(p.Type),
+			)
+			clean = false
+		}
+	}
+	for i, typ := range fn.ResultTypes {
+		if c.holdsMap(typ, make(map[types.Type]bool)) {
+			c.errorf(
+				fn.Results[i].Spanned(),
+				"extern func %s cannot return %s: a map does not cross to C",
+				fn.Name,
+				c.typeName(typ),
+			)
+			clean = false
+		}
+	}
+	return clean
+}
+
+// holdsMap reports whether typ is a map type, or holds one, at any depth,
+// through a struct, an array, a union, a list or a view. seen holds the
+// structs and unions already being looked at.
+func (c *Checker) holdsMap(typ types.Type, seen map[types.Type]bool) bool {
+	switch {
+	case c.table.IsMap(typ):
+		return true
+	case c.table.IsArray(typ), c.table.IsList(typ), c.table.IsView(typ):
+		return c.holdsMap(c.table.Elem(typ), seen)
+	case (c.table.IsStruct(typ) || c.table.IsUnion(typ)) && !seen[typ]:
+		seen[typ] = true
+		for _, part := range c.partTypes(typ) {
+			if c.holdsMap(part, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // checkExternUnions reports each parameter and each result of fn, an

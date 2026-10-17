@@ -1135,7 +1135,7 @@ makes for itself, which has a letter after `tack_`.
   field of one: `append(l, 1)` is `append takes l as mut; pass mut l`,
   and anything but a list `append expects a list, got [3]int64`, and the
   same for reserve. `make`
-  takes the list type as written, `make takes a list type, as in
+  takes the list type as written, `make takes a list or a map type, as in
   make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
   argument(s), got 3`; a list type anywhere else a value is wanted is
   `cannot use list[int64] as a value; it is a type`, and
@@ -1371,6 +1371,54 @@ makes for itself, which has a letter after `tack_`.
   element it drops; and a range binding of an owned element is a pointer to
   it. [docs/safety.md](docs/safety.md#lists) has every rule and
   diagnostic.
+- Maps. `map[K]V` holds values of type `V` by keys of type `K`, owned,
+  as a list's elements are, in the order each key was first put: `map`
+  is a keyword. `make(map[string]int64, c_allocator)` makes an empty one,
+  which allocates nothing, and `len(m)` is how many keys it holds, never
+  a known value and carrying no facts. `K` is any type `==` compares, an
+  integer, a `bool`, a `string`, or an array, a struct, a union or a list
+  of them, `text.Text` included, and keys are compared, and hashed, by
+  their contents; not `error`, `cannot use error as a map key: an error
+  is not a key`, `any`, an `Allocator`, a map, `cannot use
+  map[int64]int64 as a map key: it has no ==`, or a type parameter. `V`
+  is anything a list's element can be, owned included, but a type
+  parameter. `err := put(mut m, k, v)` puts `v` under `k`: in place of
+  the value `k` has, which it frees, keeping `k`'s position and the key
+  `m` holds, the `k` given being freed; or at the end of the order when
+  `k` is new, growing `m`'s buffers through its allocator. A put that
+  cannot grow them returns `error{code: 1, msg: "out of memory"}`, leaves
+  `m` as it was and frees `k` and `v`, as `append` frees what it cannot
+  add; its error cannot be dropped, and `k` and `v` are moved in. `v, ok
+  := m[k]` copies the value under `k`, or gives `V`'s zero value and
+  `false` when `k` is not in `m`; it cannot read an owned value, which it
+  would copy, `the checked form cannot read a value of type Bag: it would
+  copy it out of m; range over m to use its values in place`, nor one of
+  a type with no zero value. `m[k]` anywhere else is `key k may not be in
+  m; use v, ok := m[k]`, and assigning it `key k may not be in m; use
+  put(mut m, k, ...)`. `v, ok := delete(mut m, k)` moves the value under
+  `k` out, freeing the key `m` held; when `k` is not in `m`, `m` is left
+  as it was and `v` is `V`'s zero value, or, for a type with none, cannot
+  be read until `ok` is checked true, as `pop`'s `x`; written as a
+  statement, `delete(mut m, k)` frees the value it takes, and bound to
+  one name it is `delete gives the value and whether the key was there;
+  use v, ok := delete(mut m, k)`. `for k, v := range m`, `for k := range
+  m` and `for _, v := range m` walk the keys in insertion order, a key put
+  again after a delete coming last. `k` is never assigned; an owned key
+  or value is bound in place, any other copied, and the loop cannot
+  change `m`, `m is being ranged over, so this loop cannot pass mut m`. A
+  map has no zero value, no `==`, `operator == is not defined on
+  map[int64]int64`, and no literal; it moves as a list does, nests in
+  lists, structs, unions and other maps, and is freed with its keys and
+  values when its owner's block ends. No package-level variable may hold
+  one, `package-level variable g cannot hold a map`, no type may hold
+  itself through one, and none crosses to C, `parameter m of extern func
+  f cannot be map[int64]int64: a map does not cross to C`. In C a map is
+  a struct of its own per map type: a buffer of entries in insertion
+  order, each with its key, value, hash and whether it is live, and a
+  power-of-two table of slots probed linearly from a key's hash; a
+  delete marks its entry and slot deleted, which the next growth, all or
+  nothing, compacts away. Keys hash deterministically, field by field and
+  element by element.
 - Allocators. `Allocator` is a builtin type: an opaque handle on an
   allocator, which a list holds, grows through and is freed through. It
   is copyable, a local, a parameter, a result, a field, an array's or a
@@ -2346,10 +2394,11 @@ makes for itself, which has a letter after `tack_`.
   [docs/safety.md](docs/safety.md#slicing).
 - `len(a)` is the number of elements of an array, a constant, `len(s)`
   the number of bytes of a string, a known value for a known string (see
-  division), and `len(v)` the number of elements of a view or a list,
-  never known but for a slice at known bounds; each is an `int64`.
-  Anything else is `len expects an array, a string, a view or a list,
-  got int64`.
+  division), `len(v)` the number of elements of a view or a list, never
+  known but for a slice at known bounds, and `len(m)` the number of keys
+  of a map, never known and carrying no facts; each is an `int64`.
+  Anything else is `len expects an array, a string, a view, a list or a
+  map, got int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of

@@ -145,6 +145,8 @@ func typeText(typ ast.Expr) string {
 		return "a view type"
 	case *ast.ListType:
 		return "a list type"
+	case *ast.MapType:
+		return "a map type"
 	default:
 		return "this type"
 	}

@@ -7980,7 +7980,7 @@ func main() {
 stage: typeck
 ---
 
-generic-len/main.tck:8:16: error: len expects an array, a string, a view or a list, got S
+generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list or a map, got S
 07 |	func f[S Sizer](s S) int64 {
 08 |	    return len(s)
    |	               ^
@@ -10889,7 +10889,7 @@ func main() {
 stage: typeck
 ---
 
-len-of-integer/main.tck:5:14: error: len expects an array, a string, a view or a list, got int64
+len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a list or a map, got int64
 04 |	    n := 7
 05 |	    exit(len(n))
    |	             ^
@@ -12077,7 +12077,7 @@ func main() {
 stage: typeck
 ---
 
-list-make-not-type/main.tck:5:15: error: make takes a list type, as in make(list[int64], c_allocator)
+list-make-not-type/main.tck:5:15: error: make takes a list or a map type, as in make(list[int64], c_allocator)
 04 |	    n := 3
 05 |	    l := make(n, c_allocator)
    |	              ^
@@ -12883,6 +12883,626 @@ main-with-result/main.tck:3:13: error: main function must not declare a result
 03 |	func main() int64 {
    |	            ^~~~~
 04 |	    return 7
+
+-- map-compare/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    n := make(map[int64]int64, c_allocator)
+    if m == n {
+    }
+}
+-- map-compare/expected --
+stage: typeck
+---
+
+map-compare/main.tck:6:8: error: operator == is not defined on map[int64]int64
+05 |	    n := make(map[int64]int64, c_allocator)
+06 |	    if m == n {
+   |	       ^~~~~~
+07 |	    }
+
+-- map-delete-plain/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    x := delete(mut m, k)
+    exit(int32(x))
+}
+-- map-delete-plain/expected --
+stage: typeck
+---
+
+map-delete-plain/main.tck:6:10: error: delete gives the value and whether the key was there; use v, ok := delete(mut m, k)
+05 |	    k := 1
+06 |	    x := delete(mut m, k)
+   |	         ^~~~~~~~~~~~~~~~
+07 |	    exit(int32(x))
+
+-- map-delete-read-before-ok/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]list[int64], c_allocator)
+    v, ok := delete(mut m, 1)
+    if len(v) > 0 && ok {
+    }
+}
+-- map-delete-read-before-ok/expected --
+stage: typeck
+---
+
+map-delete-read-before-ok/main.tck:6:12: error: v cannot be read before ok is checked; check that ok is true first
+05 |	    v, ok := delete(mut m, 1)
+06 |	    if len(v) > 0 && ok {
+   |	           ^
+07 |	    }
+
+-- map-element-assigned/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    m[k] = 1
+    if len(m) > 0 {
+    }
+}
+-- map-element-assigned/expected --
+stage: typeck
+---
+
+map-element-assigned/main.tck:6:7: error: key k may not be in m; use put(mut m, k, ...)
+05 |	    k := 1
+06 |	    m[k] = 1
+   |	      ^
+07 |	    if len(m) > 0 {
+
+-- map-extern-in-struct/main.tck --
+package main
+
+type S struct {
+    m map[int64]int64
+}
+
+extern("f") func f(mut s S)
+
+func main() {
+}
+-- map-extern-in-struct/expected --
+stage: typeck
+---
+
+map-extern-in-struct/main.tck:7:26: error: parameter s of extern func f cannot be S: a map does not cross to C
+06 |	
+07 |	extern("f") func f(mut s S)
+   |	                         ^
+08 |	
+
+-- map-extern-param/main.tck --
+package main
+
+extern("f") func f(m map[int64]int64)
+
+func main() {
+}
+-- map-extern-param/expected --
+stage: typeck
+---
+
+map-extern-param/main.tck:3:22: error: parameter m of extern func f cannot be map[int64]int64: a map does not cross to C
+02 |	
+03 |	extern("f") func f(m map[int64]int64)
+   |	                     ^~~~~~~~~~~~~~~
+04 |	
+
+-- map-extern-result/main.tck --
+package main
+
+extern("f") func f() map[int64]int64
+
+func main() {
+}
+-- map-extern-result/expected --
+stage: typeck
+---
+
+map-extern-result/main.tck:3:22: error: extern func f cannot return map[int64]int64: a map does not cross to C
+02 |	
+03 |	extern("f") func f() map[int64]int64
+   |	                     ^~~~~~~~~~~~~~~
+04 |	
+
+-- map-global/main.tck --
+package main
+
+mut g map[int64]int64
+
+func main() {
+    if len(g) > 0 {
+    }
+}
+-- map-global/expected --
+stage: typeck
+---
+
+map-global/main.tck:3:5: error: package-level variable g cannot hold a map
+02 |	
+03 |	mut g map[int64]int64
+   |	    ^
+04 |	
+
+-- map-index-borrow/main.tck --
+package main
+
+func bump(mut m map[int64]int64) int64 {
+    return 0
+}
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    v, ok := m[bump(mut m)]
+    if ok && v == 0 {
+    }
+}
+-- map-index-borrow/expected --
+stage: typeck
+---
+
+map-index-borrow/main.tck:9:14: error: cannot index m alongside mut m in its index: a map is not copied to be indexed, and a mut argument must be the only way to reach m during its call
+08 |	    mut m := make(map[int64]int64, c_allocator)
+09 |	    v, ok := m[bump(mut m)]
+   |	             ^
+10 |	    if ok && v == 0 {
+map-index-borrow/main.tck:9:21: note: passed as mut here
+08 |	    mut m := make(map[int64]int64, c_allocator)
+09 |	    v, ok := m[bump(mut m)]
+   |	                    ^~~~~
+10 |	    if ok && v == 0 {
+
+-- map-key-allocator/main.tck --
+package main
+
+func f(m map[Allocator]int64) {
+}
+
+func main() {
+}
+-- map-key-allocator/expected --
+stage: typeck
+---
+
+map-key-allocator/main.tck:3:14: error: cannot use Allocator as a map key: it has no ==
+02 |	
+03 |	func f(m map[Allocator]int64) {
+   |	             ^~~~~~~~~
+04 |	}
+
+-- map-key-any/main.tck --
+package main
+
+func f(m map[any]int64) {
+}
+
+func main() {
+}
+-- map-key-any/expected --
+stage: typeck
+---
+
+map-key-any/main.tck:3:14: error: any can only be the type of a parameter
+02 |	
+03 |	func f(m map[any]int64) {
+   |	             ^~~
+04 |	}
+
+-- map-key-error/main.tck --
+package main
+
+func f(m map[error]int64) {
+}
+
+func main() {
+}
+-- map-key-error/expected --
+stage: typeck
+---
+
+map-key-error/main.tck:3:14: error: cannot use error as a map key: an error is not a key
+02 |	
+03 |	func f(m map[error]int64) {
+   |	             ^~~~~
+04 |	}
+
+-- map-key-map/main.tck --
+package main
+
+func f(m map[map[int64]int64]int64) {
+}
+
+func main() {
+}
+-- map-key-map/expected --
+stage: typeck
+---
+
+map-key-map/main.tck:3:14: error: cannot use map[int64]int64 as a map key: it has no ==
+02 |	
+03 |	func f(m map[map[int64]int64]int64) {
+   |	             ^~~~~~~~~~~~~~~
+04 |	}
+
+-- map-key-moved/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut m := make(map[text.Text]int64, c_allocator)
+    k := text.new(c_allocator)
+    err := put(mut m, k, 1)
+    if err.code != 0 || k.len() == 0 {
+    }
+}
+-- map-key-moved/expected --
+stage: typeck
+---
+
+map-key-moved/main.tck:9:25: error: k is used after it was moved
+08 |	    err := put(mut m, k, 1)
+09 |	    if err.code != 0 || k.len() == 0 {
+   |	                        ^
+10 |	    }
+map-key-moved/main.tck:8:23: note: k is moved here
+07 |	    k := text.new(c_allocator)
+08 |	    err := put(mut m, k, 1)
+   |	                      ^
+09 |	    if err.code != 0 || k.len() == 0 {
+
+-- map-key-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[T Sizer](x T, m map[T]int64) int64 {
+    return x.size()
+}
+
+func main() {
+}
+-- map-key-type-param/expected --
+stage: typeck
+---
+
+map-key-type-param/main.tck:7:28: error: cannot use T as a map key: a map's key cannot be a type parameter
+06 |	
+07 |	func f[T Sizer](x T, m map[T]int64) int64 {
+   |	                           ^
+08 |	    return x.size()
+
+-- map-literal/main.tck --
+package main
+
+func main() {
+    m := map[int64]int64{}
+    if len(m) == 0 {
+    }
+}
+-- map-literal/expected --
+stage: typeck
+---
+
+map-literal/main.tck:4:10: error: map[int64]int64 cannot be written as a literal; only arrays and structs can
+03 |	func main() {
+04 |	    m := map[int64]int64{}
+   |	         ^~~~~~~~~~~~~~~~~
+05 |	    if len(m) == 0 {
+
+-- map-lookup-no-zero/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]Allocator, c_allocator)
+    v, ok := m[1]
+    if ok {
+        mut l := make(list[int64], v)
+        err := append(mut l, 1)
+        if err.code != 0 {
+        }
+    }
+}
+-- map-lookup-no-zero/expected --
+stage: typeck
+---
+
+map-lookup-no-zero/main.tck:5:5: error: the checked form cannot read a value of type Allocator: it has no zero value to give when the key is not in the map
+04 |	    mut m := make(map[int64]Allocator, c_allocator)
+05 |	    v, ok := m[1]
+   |	    ^~~~~~~~~~~~~
+06 |	    if ok {
+
+-- map-lookup-owned/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]list[int64], c_allocator)
+    v, ok := m[1]
+    if ok && len(v) > 0 {
+    }
+}
+-- map-lookup-owned/expected --
+stage: typeck
+---
+
+map-lookup-owned/main.tck:5:5: error: the checked form cannot read a value of type list[int64]: it would copy it out of m; range over m to use its values in place
+04 |	    mut m := make(map[int64]list[int64], c_allocator)
+05 |	    v, ok := m[1]
+   |	    ^~~~~~~~~~~~~
+06 |	    if ok && len(v) > 0 {
+
+-- map-lookup-plain/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    x := m[k]
+    code, _ := int32(x)
+    exit(code)
+}
+-- map-lookup-plain/expected --
+stage: typeck
+---
+
+map-lookup-plain/main.tck:6:12: error: key k may not be in m; use v, ok := m[k]
+05 |	    k := 1
+06 |	    x := m[k]
+   |	           ^
+07 |	    code, _ := int32(x)
+
+-- map-make-dropped/main.tck --
+package main
+
+func main() {
+    make(map[int64]int64, c_allocator)
+}
+-- map-make-dropped/expected --
+stage: typeck
+---
+
+map-make-dropped/main.tck:4:5: error: make returns map[int64]int64, which cannot be dropped; bind it to a variable
+03 |	func main() {
+04 |	    make(map[int64]int64, c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- map-no-zero/main.tck --
+package main
+
+func main() {
+    mut m map[int64]int64
+    if len(m) == 0 {
+    }
+}
+-- map-no-zero/expected --
+stage: typeck
+---
+
+map-no-zero/main.tck:4:9: error: m needs a value: map[int64]int64 has no zero value
+03 |	func main() {
+04 |	    mut m map[int64]int64
+   |	        ^
+05 |	    if len(m) == 0 {
+
+-- map-put-dropped/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    put(mut m, k, 1)
+}
+-- map-put-dropped/expected --
+stage: typeck
+---
+
+map-put-dropped/main.tck:6:5: error: the error put returns cannot be dropped; bind it, as in err := put(...)
+05 |	    k := 1
+06 |	    put(mut m, k, 1)
+   |	    ^~~~~~~~~~~~~~~~
+07 |	}
+
+-- map-put-not-map/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := put(mut l, 1, 2)
+    if err.code != 0 {
+    }
+}
+-- map-put-not-map/expected --
+stage: typeck
+---
+
+map-put-not-map/main.tck:5:20: error: put expects a map, got list[int64]
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := put(mut l, 1, 2)
+   |	                   ^
+06 |	    if err.code != 0 {
+
+-- map-put-not-mut/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    err := put(m, k, 1)
+    if err.code != 0 {
+    }
+}
+-- map-put-not-mut/expected --
+stage: typeck
+---
+
+map-put-not-mut/main.tck:6:16: error: put takes m as mut; pass mut m
+05 |	    k := 1
+06 |	    err := put(m, k, 1)
+   |	               ^
+07 |	    if err.code != 0 {
+
+-- map-put-wrong-key/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    err := put(mut m, "k", 1)
+    if err.code != 0 {
+    }
+}
+-- map-put-wrong-key/expected --
+stage: typeck
+---
+
+map-put-wrong-key/main.tck:5:23: error: cannot use string as int64 in argument to put
+04 |	    mut m := make(map[int64]int64, c_allocator)
+05 |	    err := put(mut m, "k", 1)
+   |	                      ^~~
+06 |	    if err.code != 0 {
+
+-- map-range-put/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    k := 1
+    for key := range m {
+        err := put(mut m, key + k, 1)
+        if err.code != 0 {
+        }
+    }
+}
+-- map-range-put/expected --
+stage: typeck
+---
+
+map-range-put/main.tck:7:24: error: m is being ranged over, so this loop cannot pass mut m
+06 |	    for key := range m {
+07 |	        err := put(mut m, key + k, 1)
+   |	                       ^
+08 |	        if err.code != 0 {
+
+-- map-range-temporary/main.tck --
+package main
+
+func g() map[int64]int64 {
+    return make(map[int64]int64, c_allocator)
+}
+
+func main() {
+    for k := range g() {
+        if k > 0 {
+        }
+    }
+}
+-- map-range-temporary/expected --
+stage: typeck
+---
+
+map-range-temporary/main.tck:8:20: error: cannot use a temporary map[int64]int64 here; store it in a variable first
+07 |	func main() {
+08 |	    for k := range g() {
+   |	                   ^~~
+09 |	        if k > 0 {
+
+-- map-recursive/main.tck --
+package main
+
+type Node struct {
+    kids map[string]Node
+}
+
+func main() {
+}
+-- map-recursive/expected --
+stage: typeck
+---
+
+map-recursive/main.tck:3:6: error: invalid recursive type Node: a type cannot hold itself, even through a map
+02 |	
+03 |	type Node struct {
+   |	     ^~~~
+04 |	    kids map[string]Node
+map-recursive/main.tck:4:5: note: Node refers to Node
+03 |	type Node struct {
+04 |	    kids map[string]Node
+   |	    ^~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- map-switch/main.tck --
+package main
+
+func main() {
+    m := make(map[int64]int64, c_allocator)
+    switch m {
+    default:
+    }
+}
+-- map-switch/expected --
+stage: typeck
+---
+
+map-switch/main.tck:5:12: error: operator == is not defined on map[int64]int64
+04 |	    m := make(map[int64]int64, c_allocator)
+05 |	    switch m {
+   |	           ^
+06 |	    default:
+
+-- map-type-as-value/main.tck --
+package main
+
+func main() {
+    x := map[int64]int64
+    if x == 0 {
+    }
+}
+-- map-type-as-value/expected --
+stage: typeck
+---
+
+map-type-as-value/main.tck:4:10: error: cannot use map[int64]int64 as a value; it is a type
+03 |	func main() {
+04 |	    x := map[int64]int64
+   |	         ^~~~~~~~~~~~~~~
+05 |	    if x == 0 {
+
+-- map-value-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func f[T Sizer](x T, m map[int64]T) int64 {
+    return x.size()
+}
+
+func main() {
+}
+-- map-value-type-param/expected --
+stage: typeck
+---
+
+map-value-type-param/main.tck:7:34: error: a map cannot hold T: a map's value cannot be a type parameter
+06 |	
+07 |	func f[T Sizer](x T, m map[int64]T) int64 {
+   |	                                 ^
+08 |	    return x.size()
 
 -- method-all-blank/main.tck --
 package main
@@ -29295,7 +29915,7 @@ func main() {
 stage: typeck
 ---
 
-unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view or a list, got int64
+unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view, a list or a map, got int64
 03 |	func main() {
 04 |	    len(5)
    |	        ^

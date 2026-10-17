@@ -80,9 +80,10 @@
 // the parser accepts it only after the last argument, and the type
 // checker only in a call to a variadic function, whose variadic parameter
 // v is then passed to whole.
-// A list type written list[T] is a ListType, wherever a type is written,
-// and as an operand, as make's first argument; the type checker records
-// the type of a call to make, append, reserve, pop or remove on Call.Type, and marks a name
+// A list type written list[T] is a ListType, and a map type written
+// map[K]V a MapType, wherever a type is written, and as an operand, as
+// make's first argument; the type checker records the type of a call to
+// make, append, reserve, pop, remove, replace, put or delete on Call.Type, and marks a name
 // whose use moves its variable's value with Ident.Move. c_allocator is a
 // CAllocatorLit.
 // A view type written []T is a ViewType, wherever a type is written; the

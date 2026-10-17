@@ -81,10 +81,21 @@ func (s *Set) Names() []string {
 // list or string; make takes a list type; append takes any list and any
 // number of values of its element type, or a view of them spread;
 // reserve takes any list and a count; pop takes any list; remove takes
-// any list and an index; and replace takes a place of any type and a
-// value of it. They are part of the compiler, not of
+// any list and an index; replace takes a place of any type and a value
+// of it; put takes any map, a key and a value; and delete takes any map
+// and a key. They are part of the compiler, not of
 // std/builtin, and the type checker checks each of them itself.
-var generic = []string{"len", "make", "append", "reserve", "pop", "remove", "replace"}
+var generic = []string{
+	"len",
+	"make",
+	"append",
+	"reserve",
+	"pop",
+	"remove",
+	"replace",
+	"put",
+	"delete",
+}
 
 // ListSymbols holds the C functions of std/builtin that the generated C of
 // a program with lists calls: the one that grows a list's buffer, through
@@ -95,12 +106,13 @@ var generic = []string{"len", "make", "append", "reserve", "pop", "remove", "rep
 var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}
 
 // UsesLists reports whether prog, which must have been type-checked, has
-// a list type anywhere, whose values its generated C grows and frees
-// through ListSymbols.
+// a list or a map type anywhere, whose values its generated C grows and
+// frees through ListSymbols: a map's entries and slots are buffers as a
+// list's is.
 func UsesLists(prog *ast.Program) bool {
 	table := prog.Types
 	for i := range table.Count() {
-		if table.IsList(types.Added(i)) {
+		if typ := types.Added(i); table.IsList(typ) || table.IsMap(typ) {
 			return true
 		}
 	}
