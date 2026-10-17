@@ -156,6 +156,12 @@ type generator struct {
 	// order.go.
 	spill *spillScope
 
+	// heldIndexes maps each index of the target of the assignment being
+	// lowered that was evaluated into a temporary before its value to
+	// that temporary, which elementRef renders in its place (see
+	// holdTargetIndexes).
+	heldIndexes map[*ast.Index]string
+
 	buf    bytes.Buffer
 	temps  int // how many temporaries have been named, for unique names
 	labels int // how many blocks' labels have been named, likewise
@@ -1523,17 +1529,25 @@ func elseIf(s *ast.If) (*ast.If, bool) {
 
 // generateAssign sets a local to a new value. A place of an owned type
 // frees its old value once the new one is computed (see ownedAssign).
+// The target's indexes are evaluated before the value, as Tack defines
+// it, where the order could show (see holdTargetIndexes).
 func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) {
-	value, diags := g.expr(a.Value, ast.TypeOf(a.Value))
+	held, diags := g.holdTargetIndexes(a.Target, a.Value)
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	value, diags := g.expr(a.Value, ast.TypeOf(a.Value))
+	if len(diags) > 0 {
+		g.heldIndexes = nil
+		return nil, diags
+	}
 	name, diags := g.targetRef(a.Target)
+	g.heldIndexes = nil
 	if len(diags) > 0 {
 		return nil, diags
 	}
 	if typ := ast.TypeOf(a.Target); a.Op == ast.InvalidOp && g.owned(typ) {
-		return g.ownedAssign(typ, name, value), nil
+		return append(held, g.ownedAssign(typ, name, value)...), nil
 	}
 	if a.Op != ast.InvalidOp {
 		// x op= v is x = x op v, spelled out the way Tack defines it, x
@@ -1543,7 +1557,62 @@ func (g *generator) generateAssign(a *ast.Assign) ([]string, []diag.Diagnostic) 
 			return arith(a.Op, ast.TypeOf(a.Target), ops[0], ops[1])
 		})
 	}
-	return []string{fmt.Sprintf("%s = %s;", name, value)}, nil
+	return append(held, fmt.Sprintf("%s = %s;", name, value)), nil
+}
+
+// holdTargetIndexes evaluates the indexes of an array's or a list's
+// elements on target's path into temporaries, before value, when the
+// order could show, a call in value changing what an index reads, and
+// records each in heldIndexes for targetRef. It returns the statements
+// that do so, or none when the order cannot show. Only an index's value
+// is held, never an element's address: the store reads its container
+// after value, which nothing in value can move, since a mut argument
+// reaching the container alongside the target is an error, and no global
+// or function value holds a list. A map's key needs no holding: has
+// proves only a constant or a variable that cannot change.
+func (g *generator) holdTargetIndexes(target, value ast.Expr) ([]string, []diag.Diagnostic) {
+	var indexes []*ast.Index
+	for x := target; ; {
+		switch t := x.(type) {
+		case *ast.Index:
+			if !g.prog.Types.IsMap(ast.TypeOf(t.X)) {
+				indexes = append(indexes, t)
+			}
+			x = t.X
+			continue
+		case *ast.Selector:
+			x = t.X
+			continue
+		}
+		break
+	}
+	operands := make([]ast.Expr, 0, len(indexes)+1)
+	for _, ix := range indexes {
+		operands = append(operands, ix.Index)
+	}
+	if !g.orderShows(append(operands, value)) {
+		return nil, nil
+	}
+	g.heldIndexes = make(map[*ast.Index]string, len(indexes))
+	var lines []string
+	// The outermost index is first on the path, so the indexes are held
+	// innermost first, left to right as they are written.
+	for i := len(indexes) - 1; i >= 0; i-- {
+		ix := indexes[i]
+		if g.pure(ix.Index) {
+			continue
+		}
+		index, diags := g.expr(ix.Index, types.Invalid)
+		if len(diags) > 0 {
+			g.heldIndexes = nil
+			return nil, diags
+		}
+		t := g.temp("o")
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.operandType(ix.Index), t))
+		lines = append(lines, fmt.Sprintf("%s = %s;", t, index))
+		g.heldIndexes[ix] = t
+	}
+	return lines, nil
 }
 
 // targetRef renders an assignment target, or the place a mut argument
@@ -1579,7 +1648,8 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 
 // elementRef renders an element being assigned, or passed as mut, ix, as
 // a C lvalue: x.e[i] for an array, x.ptr[i] for a list, and the value
-// under a key for a map (see mapElementRef).
+// under a key for a map (see mapElementRef), its index the temporary
+// holding it when the assignment held it (see holdTargetIndexes).
 func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
 	base, diags := g.targetRef(ix.X)
 	if len(diags) > 0 {
@@ -1588,9 +1658,12 @@ func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
 		return g.mapElementRef(ix, base)
 	}
-	index, diags := g.expr(ix.Index, types.Invalid)
-	if len(diags) > 0 {
-		return "", diags
+	index, held := g.heldIndexes[ix]
+	if !held {
+		index, diags = g.expr(ix.Index, types.Invalid)
+		if len(diags) > 0 {
+			return "", diags
+		}
 	}
 	if g.prog.Types.IsList(ast.TypeOf(ix.X)) {
 		return fmt.Sprintf("%s.ptr[%s]", base, index), nil

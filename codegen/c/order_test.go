@@ -1,6 +1,7 @@
 package c_test
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -196,6 +197,69 @@ func TestHoldsOperandsOnlyWhenOrderShows(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := generate(t, orderProgram(tt.lines...))
+			_, main, found := strings.Cut(got, "static void tack_4_main4_main(void) {")
+			if !found {
+				t.Fatalf("no main in:\n%s", got)
+			}
+			if held := orderTemp.MatchString(main); held != tt.held {
+				t.Errorf("held = %v, want %v:\n%s", held, tt.held, main)
+			}
+		})
+	}
+}
+
+// TestAssignOrderExampleRunsAtEveryLevel builds examples/assign-order,
+// strictly, at every optimization level clang has, and with the address
+// and undefined behavior sanitizers on, every finding fatal, and checks
+// every check passes: an assignment's target indexes read before a value
+// that changes them, a global or a local passed as mut, through a
+// compound assignment of either, a nested array, a field and a loop's post
+// statement, so the store lands where Tack defines it, whatever order C
+// would have chosen.
+func TestAssignOrderExampleRunsAtEveryLevel(t *testing.T) {
+	src := readFile(t, filepath.Join("..", "..", "examples", "assign-order", "main.tck"))
+	for _, flags := range [][]string{
+		{"-O0"},
+		{"-O1"},
+		{"-O2"},
+		{"-O3"},
+		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	} {
+		t.Run(filepath.Join(flags...), func(t *testing.T) {
+			runChecks(t, buildWithStd(t, src, flags...), 7)
+		})
+	}
+}
+
+// assignOrderPrelude declares a uint8 global, which indexes an array of
+// 256 with no proof, a call that moves it, and a local array to store in.
+const assignOrderPrelude = "package main\n\n" +
+	"mut g uint8 = 1\n\n" +
+	"func bump() int64 {\n    g++\n    return 9\n}\n\n" +
+	"func main() {\n    mut a [256]int64\n    "
+
+// TestHoldsTargetIndexesOnlyWhenOrderShows checks an assignment's target
+// indexes go into temporaries before its value only where the order could
+// be seen: an index that reads a mutable global, beside a value that
+// calls, alone or in a compound assignment. An index that is a constant
+// or a local never passed as mut, or a value that calls nothing, is
+// rendered in place.
+func TestHoldsTargetIndexesOnlyWhenOrderShows(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		held  bool
+	}{
+		{"a global index and a call", []string{"a[g] = bump()"}, true},
+		{"a compound assignment", []string{"a[g] += bump()"}, true},
+		{"a constant index and a call", []string{"a[3] = bump()"}, false},
+		{"a local index and a call", []string{"i := g", "a[i] = bump()"}, false},
+		{"a global index and no call", []string{"a[g] = 5"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generate(t, assignOrderPrelude+strings.Join(tt.lines, "\n    ")+
+				"\n    if a[1] == 0 && g > 0 {\n        exit(1)\n    }\n}\n")
 			_, main, found := strings.Cut(got, "static void tack_4_main4_main(void) {")
 			if !found {
 				t.Fatalf("no main in:\n%s", got)

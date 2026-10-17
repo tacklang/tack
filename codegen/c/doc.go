@@ -632,9 +632,14 @@
 // of && included, and no goto can skip their declaration. A switch, a
 // checked division and a checked index already hold their operands in
 // order, a checked index's array by its address where it can. An
-// assignment's target is evaluated before its value, but the checker
-// allows no call and no mutable global in a target's indexes, so that
-// order needs nothing written.
+// assignment's target indexes are evaluated before its value: the checker
+// allows no call in them, but an index that needs no proof, a uint8 into
+// an array of 256, may read a mutable global or a variable passed as mut,
+// which the value can change, so where the order shows, each index that
+// is not pure is held in a temporary, as a statement before the value,
+// and the store reads it: a[g] = f() becomes tack_o0 = g; a.e[tack_o0] =
+// f(); (see holdTargetIndexes). Only the index is held, never the
+// element's address, so the store finds its container after the value.
 //
 // C's parser recurses once per level of nesting, and clang runs out of
 // stack at about a thousand: each Tack operator adds several levels, so a

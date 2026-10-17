@@ -119,11 +119,12 @@ type Checker struct {
 	lateDefaults []lateDefault
 
 	// storing is the assignment whose targets are being checked, if any.
-	// A proof a target needs is held to the whole statement, since the C
-	// backend computes the target's place where C puts it, not before the
-	// value, and stores several targets in turn, so every write in the
-	// statement, in its value or to another target, reaches the checks of
-	// every target, a proven index's included (see reaches).
+	// A proof a target needs is held to the whole statement, a check kept
+	// on its own even though the C backend reads a single target's indexes
+	// before its value, and an assignment of several stores its targets in
+	// turn, so every write in the statement, in its value or to another
+	// target, reaches the checks of every target, a proven index's
+	// included (see reaches).
 	storing *ast.Span
 
 	// body is the body of the function being checked, appends the calls

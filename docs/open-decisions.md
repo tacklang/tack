@@ -101,10 +101,10 @@ another way:
   temporaries; this is coarser than needed and costs only temporaries.
 - A `mut` argument in an assignment's value ends a proof its target's
   index needs, `l[i] = bump(mut i)` being `index i may be out of range`,
-  although the README orders the target's indexes before the value, which
-  would make the store land at the `i` that was proven. The C backend
-  does not hold the index in a temporary first, so the program is
-  rejected rather than given an order the generated code does not keep.
+  although the README orders the target's indexes before the value, and
+  the C backend keeps that order, holding an index the value may change
+  in a temporary first, so the store would land at the `i` that was
+  proven. The rejection is kept as a second check beside that order.
 - In an assignment of several targets, a target that writes what another
   target's index needs ends that proof whichever is written first:
   `i, l[i] = two()` and `l[i], i = two()` are both rejected. The targets
