@@ -131,6 +131,8 @@ func (g *generator) funcValueRef(fn *ast.Func) string {
 		if !g.thunked[fn] {
 			g.thunked[fn] = true
 			g.thunks = append(g.thunks, fn)
+			// The thunk, written after the prototypes, calls fn.
+			g.noteNames(thunkName(name), []string{name})
 		}
 		name = thunkName(name)
 	}

@@ -167,7 +167,7 @@ func syntaxOnly(t *testing.T, src string) {
 	path := filepath.Join(t.TempDir(), "program.c")
 	writeFile(t, path, src)
 	args := []string{
-		"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-fsyntax-only",
+		"-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
 		"-I", stdtest.IncludeDir(), path,
 	}
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {

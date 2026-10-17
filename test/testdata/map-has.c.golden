@@ -410,7 +410,7 @@ static bool tack_mput_23(tack_map_23 *m, tack_string key, int64_t val) {
     return true;
 }
 
-static int64_t tack_mtake_23(tack_map_23 *m, int64_t s) {
+__attribute__((unused)) static int64_t tack_mtake_23(tack_map_23 *m, int64_t s) {
     tack_ment_23 *e = &m->entries[m->slots[s] - 1];
     int64_t val = e->val;
     e->live = false;
@@ -526,7 +526,7 @@ static bool tack_mput_24(tack_map_24 *m, int64_t key, tack_list_22 val) {
     return true;
 }
 
-static tack_list_22 tack_mtake_24(tack_map_24 *m, int64_t s) {
+__attribute__((unused)) static tack_list_22 tack_mtake_24(tack_map_24 *m, int64_t s) {
     tack_ment_24 *e = &m->entries[m->slots[s] - 1];
     tack_list_22 val = e->val;
     e->live = false;
@@ -640,7 +640,7 @@ static bool tack_mput_27(tack_map_27 *m, int64_t key, int64_t val) {
     return true;
 }
 
-static int64_t tack_mtake_27(tack_map_27 *m, int64_t s) {
+__attribute__((unused)) static int64_t tack_mtake_27(tack_map_27 *m, int64_t s) {
     tack_ment_27 *e = &m->entries[m->slots[s] - 1];
     int64_t val = e->val;
     e->live = false;
@@ -758,7 +758,7 @@ static bool tack_mput_28(tack_map_28 *m, tack_3_std4_text4_Text key, tack_list_2
     return true;
 }
 
-static tack_list_22 tack_mtake_28(tack_map_28 *m, int64_t s) {
+__attribute__((unused)) static tack_list_22 tack_mtake_28(tack_map_28 *m, int64_t s) {
     tack_ment_28 *e = &m->entries[m->slots[s] - 1];
     tack_list_22 val = e->val;
     tack_list_free_(e->key.f_b.ptr, e->key.f_b.cap, sizeof (uint8_t), _Alignof (uint8_t), e->key.f_b.alloc);
@@ -875,7 +875,7 @@ static bool tack_mput_29(tack_map_29 *m, int64_t key, tack_map_23 val) {
     return true;
 }
 
-static tack_map_23 tack_mtake_29(tack_map_29 *m, int64_t s) {
+__attribute__((unused)) static tack_map_23 tack_mtake_29(tack_map_29 *m, int64_t s) {
     tack_ment_29 *e = &m->entries[m->slots[s] - 1];
     tack_map_23 val = e->val;
     e->live = false;
@@ -991,7 +991,7 @@ static bool tack_mput_31(tack_map_31 *m, tack_string key, tack_4_main3_Bag val) 
     return true;
 }
 
-static tack_4_main3_Bag tack_mtake_31(tack_map_31 *m, int64_t s) {
+__attribute__((unused)) static tack_4_main3_Bag tack_mtake_31(tack_map_31 *m, int64_t s) {
     tack_ment_31 *e = &m->entries[m->slots[s] - 1];
     tack_4_main3_Bag val = e->val;
     e->live = false;
@@ -1022,11 +1022,11 @@ static int64_t tack_mfind_32(const tack_map_32 *m, const int64_t *k, uint64_t h)
     }
 }
 
-static bool tack_mhas_32(const tack_map_32 *m, int64_t key) {
+__attribute__((unused)) static bool tack_mhas_32(const tack_map_32 *m, int64_t key) {
     return tack_mfind_32(m, &key, tack_hash_1(&key)) >= 0;
 }
 
-static tack_map_27 *tack_mat_32(const tack_map_32 *m, int64_t key) {
+__attribute__((unused)) static tack_map_27 *tack_mat_32(const tack_map_32 *m, int64_t key) {
     return (tack_map_27 *)&m->entries[m->slots[tack_mfind_32(m, &key, tack_hash_1(&key))] - 1].val;
 }
 
@@ -1107,7 +1107,7 @@ static bool tack_mput_32(tack_map_32 *m, int64_t key, tack_map_27 val) {
     return true;
 }
 
-static tack_map_27 tack_mtake_32(tack_map_32 *m, int64_t s) {
+__attribute__((unused)) static tack_map_27 tack_mtake_32(tack_map_32 *m, int64_t s) {
     tack_ment_32 *e = &m->entries[m->slots[s] - 1];
     tack_map_27 val = e->val;
     e->live = false;
@@ -1192,24 +1192,24 @@ typedef struct {
 
 static bool tack_3_std5_bytes5_equal(tack_view_25 p_a, tack_view_25 p_b);
 static bool tack_3_std5_bytes10_match_5fat(tack_view_25 p_s, tack_view_25 p_sub, int64_t p_i);
-static int64_t tack_3_std5_bytes5_index(tack_view_25 p_s, tack_view_25 p_sub);
-static int64_t tack_3_std5_bytes12_index_5fbyte(tack_view_25 p_s, uint8_t p_c);
-static bool tack_3_std5_bytes12_has_5fprefix(tack_view_25 p_s, tack_view_25 p_prefix);
-static bool tack_3_std5_bytes12_has_5fsuffix(tack_view_25 p_s, tack_view_25 p_suffix);
-static int64_t tack_3_std5_bytes5_count(tack_view_25 p_s, tack_view_25 p_sub);
+__attribute__((unused)) static int64_t tack_3_std5_bytes5_index(tack_view_25 p_s, tack_view_25 p_sub);
+__attribute__((unused)) static int64_t tack_3_std5_bytes12_index_5fbyte(tack_view_25 p_s, uint8_t p_c);
+__attribute__((unused)) static bool tack_3_std5_bytes12_has_5fprefix(tack_view_25 p_s, tack_view_25 p_prefix);
+__attribute__((unused)) static bool tack_3_std5_bytes12_has_5fsuffix(tack_view_25 p_s, tack_view_25 p_suffix);
+__attribute__((unused)) static int64_t tack_3_std5_bytes5_count(tack_view_25 p_s, tack_view_25 p_sub);
 static tack_error tack_3_std5_bytes15_append_5fdigits(tack_list_21 * p_b, uint64_t p_v, uint64_t p_base, bool p_neg);
-static tack_error tack_3_std5_bytes13_append_5fuint(tack_list_21 * p_b, uint64_t p_v);
-static tack_error tack_3_std5_bytes12_append_5fint(tack_list_21 * p_b, int64_t p_v);
-static tack_error tack_3_std5_bytes12_append_5fhex(tack_list_21 * p_b, uint64_t p_v);
-static tack_results_3_std5_bytes6_repeat tack_3_std5_bytes6_repeat(tack_view_25 p_s, int64_t p_n, tack_allocator p_alloc);
+__attribute__((unused)) static tack_error tack_3_std5_bytes13_append_5fuint(tack_list_21 * p_b, uint64_t p_v);
+__attribute__((unused)) static tack_error tack_3_std5_bytes12_append_5fint(tack_list_21 * p_b, int64_t p_v);
+__attribute__((unused)) static tack_error tack_3_std5_bytes12_append_5fhex(tack_list_21 * p_b, uint64_t p_v);
+__attribute__((unused)) static tack_results_3_std5_bytes6_repeat tack_3_std5_bytes6_repeat(tack_view_25 p_s, int64_t p_n, tack_allocator p_alloc);
 static tack_3_std4_text4_Text tack_3_std4_text3_new(tack_allocator p_alloc);
 static tack_results_3_std4_text12_from_5fbytes tack_3_std4_text12_from_5fbytes(tack_view_25 p_s, tack_allocator p_alloc);
-static int64_t tack_3_std4_text10_Text_2elen(tack_3_std4_text4_Text p_t);
-static bool tack_3_std4_text12_Text_2eequal(tack_3_std4_text4_Text p_t, tack_view_25 p_s);
-static uint64_t tack_3_std4_text11_Text_2ehash(tack_3_std4_text4_Text p_t);
-static tack_error tack_3_std4_text13_Text_2eappend(tack_3_std4_text4_Text * p_t, tack_view_25 p_s);
-static tack_error tack_3_std4_text20_Text_2eappend_5fbyte(tack_3_std4_text4_Text * p_t, uint8_t p_c);
-static tack_view_25 tack_3_std4_text12_Text_2ebytes(tack_3_std4_text4_Text p_t);
+__attribute__((unused)) static int64_t tack_3_std4_text10_Text_2elen(tack_3_std4_text4_Text p_t);
+__attribute__((unused)) static bool tack_3_std4_text12_Text_2eequal(tack_3_std4_text4_Text p_t, tack_view_25 p_s);
+__attribute__((unused)) static uint64_t tack_3_std4_text11_Text_2ehash(tack_3_std4_text4_Text p_t);
+__attribute__((unused)) static tack_error tack_3_std4_text13_Text_2eappend(tack_3_std4_text4_Text * p_t, tack_view_25 p_s);
+__attribute__((unused)) static tack_error tack_3_std4_text20_Text_2eappend_5fbyte(tack_3_std4_text4_Text * p_t, uint8_t p_c);
+__attribute__((unused)) static tack_view_25 tack_3_std4_text12_Text_2ebytes(tack_3_std4_text4_Text p_t);
 extern int64_t tack_4_main4_live(void) TACK_C_NAME("has_live");
 extern void tack_4_main12_fail_5fafter(int64_t p_n) TACK_C_NAME("has_fail_after");
 static void tack_4_main5_check(bool p_cond, tack_string p_name);

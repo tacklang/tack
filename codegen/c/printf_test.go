@@ -85,10 +85,10 @@ func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string)
 	writeFile(t, program, string(out))
 	writeFile(t, header, string(c.New().Header(prog)))
 
-	// A function of an imported package that the program never calls,
-	// such as std/fmt's println, is still generated, as a static function
-	// nothing calls, which -Wall reports; nothing else is let through.
-	strict := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function"},
+	// Every warning is an error: a function of an imported package the
+	// program never calls, std/fmt's println, is generated declared
+	// unused, which C then does not report.
+	strict := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"},
 		flags...)
 	strict = append(strict, "-I", stdtest.IncludeDir())
 	objs := []string{}

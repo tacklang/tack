@@ -444,10 +444,10 @@ func main() {
 `
 
 // TestEmptyUnion builds a program declaring a union with no cases, and
-// functions taking one, with clang's warnings as errors but for the
-// functions nothing can call, and checks it runs.
+// functions taking one, which nothing can call, with clang's warnings as
+// errors, and checks it runs.
 func TestEmptyUnion(t *testing.T) {
-	bin := buildWith(t, emptyUnion, "-Wno-unused-function")
+	bin := buildWith(t, emptyUnion)
 	out, err := exec.Command(bin).Output()
 	if err != nil || string(out) != "ok\n" {
 		t.Errorf("printed %q, err %v, want ok", out, err)

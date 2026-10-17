@@ -37,12 +37,12 @@ static int64_t tack_4_calc5_chain5_three5_Depth(void);
 static int64_t tack_4_calc5_chain3_two5_Depth(void);
 static int64_t tack_4_calc5_chain3_one5_Depth(void);
 static bool tack_4_calc8_internal4_text7_isDigit(uint8_t p_c);
-static tack_results_4_calc8_internal4_text6_divmod tack_4_calc8_internal4_text6_divmod(int64_t p_a, int64_t p_b);
+__attribute__((unused)) static tack_results_4_calc8_internal4_text6_divmod tack_4_calc8_internal4_text6_divmod(int64_t p_a, int64_t p_b);
 static int64_t tack_4_calc8_internal4_text4_size(void);
-static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src);
-static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t);
+__attribute__((unused)) static tack_4_calc5_lexer5_Token tack_4_calc5_lexer5_First(tack_string p_src);
+__attribute__((unused)) static int64_t tack_4_calc5_lexer5_Width(tack_4_calc5_lexer5_Token p_t);
 static int64_t tack_4_calc5_lexer4_size(void);
-static int64_t tack_4_calc5_lexer4_Size(void);
+__attribute__((unused)) static int64_t tack_4_calc5_lexer4_Size(void);
 static void tack_4_calc3_cmd5_count4_main(void);
 
 static int64_t tack_4_calc5_chain5_three5_Depth(void) {

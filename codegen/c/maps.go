@@ -267,7 +267,8 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 	g.emitMapGrow(typ)
 	fmt.Fprintf(
 		&g.buf,
-		"static bool %s(%s *m, %s key, %s val) {\n",
+		"%sstatic bool %s(%s *m, %s key, %s val) {\n",
+		g.maybeUnused(g.mapHelper("put", typ)),
 		g.mapHelper("put", typ),
 		m,
 		k,
@@ -307,7 +308,8 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 func (g *generator) emitMapTake(typ types.Type) {
 	key := g.prog.Types.Key(typ)
 	m, e, v := g.mapName(typ), g.entryName(typ), g.cType(g.prog.Types.Elem(typ))
-	fmt.Fprintf(&g.buf, "static %s %s(%s *m, int64_t s) {\n", v, g.mapHelper("take", typ), m)
+	take := g.mapHelper("take", typ)
+	fmt.Fprintf(&g.buf, "%sstatic %s %s(%s *m, int64_t s) {\n", g.maybeUnused(take), v, take, m)
 	fmt.Fprintf(&g.buf, "    %s *e = &m->entries[m->slots[s] - 1];\n    %s val = e->val;\n", e, v)
 	g.writeFrees("    ", key, "e->key")
 	g.buf.WriteString("    e->live = false;\n    m->slots[s] = -1;\n    m->len--;\n" +
@@ -340,11 +342,12 @@ func (g *generator) emitMapLookups(typ types.Type) {
 		g.mapHelper("find", typ),
 		g.hashName(table.Key(typ)),
 	)
-	fmt.Fprintf(&g.buf, "static bool %s(const %s *m, %s key) {\n    return %s >= 0;\n}\n\n",
-		g.mapHelper("has", typ), m, k, find)
-	fmt.Fprintf(&g.buf, "static %s *%s(const %s *m, %s key) {\n"+
+	has, at := g.mapHelper("has", typ), g.mapHelper("at", typ)
+	fmt.Fprintf(&g.buf, "%sstatic bool %s(const %s *m, %s key) {\n    return %s >= 0;\n}\n\n",
+		g.maybeUnused(has), has, m, k, find)
+	fmt.Fprintf(&g.buf, "%sstatic %s *%s(const %s *m, %s key) {\n"+
 		"    return (%s *)&m->entries[m->slots[%s] - 1].val;\n}\n\n",
-		v, g.mapHelper("at", typ), m, k, v, find)
+		g.maybeUnused(at), v, at, m, k, v, find)
 }
 
 // emitMapGrow writes the map type typ's grow helper (see the comment at

@@ -158,7 +158,7 @@ func TestSizesMatchC(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "program.c")
 	writeFile(t, path, out+"\n"+asserts.String())
 	args := []string{
-		"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-fsyntax-only",
+		"-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
 		"-I", stdtest.IncludeDir(), path,
 	}
 	if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {

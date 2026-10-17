@@ -146,11 +146,11 @@ static int64_t tack_mfind_18(const tack_map_18 *m, const int64_t *k, uint64_t h)
     }
 }
 
-static bool tack_mhas_18(const tack_map_18 *m, int64_t key) {
+__attribute__((unused)) static bool tack_mhas_18(const tack_map_18 *m, int64_t key) {
     return tack_mfind_18(m, &key, tack_hash_1(&key)) >= 0;
 }
 
-static int64_t *tack_mat_18(const tack_map_18 *m, int64_t key) {
+__attribute__((unused)) static int64_t *tack_mat_18(const tack_map_18 *m, int64_t key) {
     return (int64_t *)&m->entries[m->slots[tack_mfind_18(m, &key, tack_hash_1(&key))] - 1].val;
 }
 
@@ -229,7 +229,7 @@ static bool tack_mput_18(tack_map_18 *m, int64_t key, int64_t val) {
     return true;
 }
 
-static int64_t tack_mtake_18(tack_map_18 *m, int64_t s) {
+__attribute__((unused)) static int64_t tack_mtake_18(tack_map_18 *m, int64_t s) {
     tack_ment_18 *e = &m->entries[m->slots[s] - 1];
     int64_t val = e->val;
     e->live = false;
@@ -260,11 +260,11 @@ static int64_t tack_mfind_19(const tack_map_19 *m, const int64_t *k, uint64_t h)
     }
 }
 
-static bool tack_mhas_19(const tack_map_19 *m, int64_t key) {
+__attribute__((unused)) static bool tack_mhas_19(const tack_map_19 *m, int64_t key) {
     return tack_mfind_19(m, &key, tack_hash_1(&key)) >= 0;
 }
 
-static tack_list_17 *tack_mat_19(const tack_map_19 *m, int64_t key) {
+__attribute__((unused)) static tack_list_17 *tack_mat_19(const tack_map_19 *m, int64_t key) {
     return (tack_list_17 *)&m->entries[m->slots[tack_mfind_19(m, &key, tack_hash_1(&key))] - 1].val;
 }
 
@@ -345,7 +345,7 @@ static bool tack_mput_19(tack_map_19 *m, int64_t key, tack_list_17 val) {
     return true;
 }
 
-static tack_list_17 tack_mtake_19(tack_map_19 *m, int64_t s) {
+__attribute__((unused)) static tack_list_17 tack_mtake_19(tack_map_19 *m, int64_t s) {
     tack_ment_19 *e = &m->entries[m->slots[s] - 1];
     tack_list_17 val = e->val;
     e->live = false;
@@ -376,11 +376,11 @@ static int64_t tack_mfind_21(const tack_map_21 *m, const int64_t *k, uint64_t h)
     }
 }
 
-static bool tack_mhas_21(const tack_map_21 *m, int64_t key) {
+__attribute__((unused)) static bool tack_mhas_21(const tack_map_21 *m, int64_t key) {
     return tack_mfind_21(m, &key, tack_hash_1(&key)) >= 0;
 }
 
-static tack_map_18 *tack_mat_21(const tack_map_21 *m, int64_t key) {
+__attribute__((unused)) static tack_map_18 *tack_mat_21(const tack_map_21 *m, int64_t key) {
     return (tack_map_18 *)&m->entries[m->slots[tack_mfind_21(m, &key, tack_hash_1(&key))] - 1].val;
 }
 

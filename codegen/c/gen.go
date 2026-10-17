@@ -145,6 +145,10 @@ type generator struct {
 	thunks  []*ast.Func
 	thunked map[*ast.Func]bool
 
+	// namedBy holds, for each identifier a lowered function body holds,
+	// the C names of the functions whose bodies hold it (see unused.go).
+	namedBy map[string]map[string]bool
+
 	// scopes holds a deferScope for each block enclosing the statement
 	// being generated, innermost last; see defer.go.
 	scopes []*deferScope
@@ -202,6 +206,8 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 		return nil, diags
 	}
 	sigs, bodies = append(sigs, instSigs...), append(bodies, instBodies...)
+	// C's main, which emitEntryPoint writes, calls Tack's.
+	g.noteNames("main", []string{g.mangle(nil, "main")})
 	builtins := g.builtins.Used(g.prog)
 
 	var includes []string
@@ -746,6 +752,7 @@ func resultsOf(cname string) string {
 
 // emitPrototypes forward declares every Tack function. Tack lets a function
 // call one declared later in the file; C does not, without a prototype.
+// One that may go uncalled is declared so (see maybeUnused).
 func (g *generator) emitPrototypes() {
 	if len(g.decls) == 0 {
 		return
@@ -759,11 +766,15 @@ func (g *generator) emitPrototypes() {
 			fmt.Fprintf(&g.buf, "extern %s TACK_C_NAME(%q);\n",
 				strings.TrimPrefix(g.signature(fn), "static "), fn.CName)
 		default:
-			g.buf.WriteString(g.signature(fn) + ";\n")
+			g.buf.WriteString(g.maybeUnused(g.funcCName(fn)) + g.signature(fn) + ";\n")
 		}
 	}
 	for _, inst := range g.prog.Instances {
-		g.withInstance(inst, func() { g.buf.WriteString(g.signature(inst.Func) + ";\n") })
+		g.withInstance(inst, func() {
+			g.buf.WriteString(
+				g.maybeUnused(g.funcCName(inst.Func)) + g.signature(inst.Func) + ";\n",
+			)
+		})
 	}
 
 	g.buf.WriteString("\n")
@@ -878,12 +889,14 @@ func (g *generator) resultType(fn *ast.Func) string {
 
 // generateFuncBody lowers fn's body, the outermost block of fn, as its
 // frame (see funcFrame), led by a (void) cast of each parameter the
-// lowered body never names (see unusedParams).
+// lowered body never names (see unusedParams), and records what it names
+// (see noteNames).
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	body, diags := g.funcFrame(fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
+	g.noteNames(g.funcCName(fn), body)
 	return append(unusedParams(fn, body), body...), nil
 }
 

@@ -69,7 +69,7 @@ static tack_view_18 tack_slice_from_18(tack_view_18 s, int64_t lo) {
 #define TACK_C_XSTR(x) TACK_C_STR(x)
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
-static void tack_3_std3_fmt7_println(tack_string p_s);
+__attribute__((unused)) static void tack_3_std3_fmt7_println(tack_string p_s);
 static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_17 p_args) TACK_C_NAME("tack_fmt_printf");
 static void tack_3_std3_fmt5_write(tack_view_18 p_b);

@@ -139,7 +139,11 @@
 // called int or exit. A function whose lowered body never names one of its
 // parameters, which Tack allows, as a callback or a generic function ignoring
 // one does, starts with (void)p_x; for it, so C's unused-parameter
-// warning never fires (see unusedParams).
+// warning never fires (see unusedParams). A function, an instance or a map
+// type's has, at, put or take helper that no other function's lowered body
+// names, a function of std the program never calls among them, is declared
+// with __attribute__((unused)), so C's unused-function warning never fires
+// either (see unused.go).
 //
 // A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
 // variable. Every read and write of it goes through the pointer, (*p_p),

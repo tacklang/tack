@@ -36,9 +36,9 @@ static tack_string tack_slice_string(tack_string s, int64_t lo, int64_t hi) {
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
 static void tack_3_std3_fmt7_println(tack_string p_s);
-static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args);
+__attribute__((unused)) static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_17 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_17 p_args) TACK_C_NAME("tack_fmt_printf");
-static void tack_3_std3_fmt5_write(tack_view_18 p_b);
+__attribute__((unused)) static void tack_3_std3_fmt5_write(tack_view_18 p_b);
 extern void tack_3_std3_fmt6_cwrite(tack_view_18 p_b) TACK_C_NAME("tack_fmt_write");
 static void tack_5_hello5_greet5_Greet(tack_string p_name);
 static void tack_5_hello4_main(void);
