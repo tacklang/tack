@@ -133,6 +133,24 @@ var loadSeeds = []string{
 		"err := append(mut b, []uint8(s)...)\nreturn T{b: b}, err }\n" +
 		"pub func (t T) Bytes() []uint8 { return t.b }\n" +
 		"pub func (mut t T) Push(c uint8) error { return append(mut t.b, c) }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport text from \"std/text\"\n" +
+		"func main() { mut t, err := text.from_bytes([]uint8(\"\\x00\\xff\"), c_allocator)\n" +
+		"if err.code != 0 { return }\ne := mut t.append_byte(1)\n" +
+		"if e.code != 0 || t.len() != 3 || t.hash() == 0 || !t.equal(t.bytes()) { exit(1) } }\n" +
+		"\x00std/tack.mod\nmodule std\n\x00std/text/text.tck\npackage text\n" +
+		"var fnv_prime uint64 = 1099511628211\npub type Text struct { b list[uint8] }\n" +
+		"pub func new(alloc Allocator) Text { return Text{b: make(list[uint8], alloc)} }\n" +
+		"pub func from_bytes(s []uint8, alloc Allocator) (Text, error) { mut b := make(list[uint8], alloc)\n" +
+		"err := append(mut b, s...)\nreturn Text{b: b}, err }\n" +
+		"pub func (t Text) len() int64 { return len(t.b) }\n" +
+		"pub func (t Text) equal(s []uint8) bool { return len(t.b) == len(s) }\n" +
+		"func xor_low(h uint64, c uint8) uint64 { low := h % 256\nmut x := low\nmut y uint64 = c\n" +
+		"mut r uint64 = 0\nmut bit uint64 = 1\nfor range 8 { if x % 2 != y % 2 { r += bit }\n" +
+		"x /= 2\ny /= 2\nbit *= 2 }\nreturn h - low + r }\n" +
+		"pub func (t Text) hash() uint64 { mut h uint64 = 14695981039346656037\n" +
+		"for _, c := range t.b { h = xor_low(h, c) * fnv_prime }\nreturn h }\n" +
+		"pub func (mut t Text) append_byte(c uint8) error { return append(mut t.b, c) }\n" +
+		"pub func (t Text) bytes() []uint8 { return t.b }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

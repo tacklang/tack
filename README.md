@@ -5,8 +5,8 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of two packages, `std/fmt` and `std/bytes`, and no intermediate
-representation.
+of three packages, `std/fmt`, `std/bytes` and `std/text`, and no
+intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -51,11 +51,12 @@ lists of their own, and tagged unions, whose cases a switch matches. `print` tak
 bools and strings, through `any` parameters, and its `write` writes bytes,
 a view of `uint8` (see the language today). `std/bytes`, the first std
 package written in Tack alone, searches byte views and formats integers
-and repeats bytes into lists.
+and repeats bytes into lists, and `std/text`, also in Tack alone, holds
+growing bytes in a `Text`, compares and hashes them, and lends them out
+as a view.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
-the global goes away. The language has packages now, but the standard
-library has none yet.
+the global goes away. The standard library has no `os` package yet.
 
 ## Requirements
 
@@ -474,8 +475,10 @@ makes for itself, which has a letter after `tack_`.
   println(s string)` writes `s` and then a newline, `fmt.println("hi")`,
   whose `pub func printf(format string, args ...any)` writes formatted
   text (see printf), and whose `pub func write(b []uint8)` writes bytes
-  (see write), and [`bytes`](src/std/bytes/bytes.tck), which reads byte
-  views and builds byte lists (see bytes).
+  (see write), [`bytes`](src/std/bytes/bytes.tck), which reads byte
+  views and builds byte lists (see bytes), and
+  [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
+  text).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -894,6 +897,43 @@ makes for itself, which has a letter after `tack_`.
   is `bytes.repeat returns list[uint8], which cannot be dropped; bind it
   to a variable instead of _`, and the list cannot be read before the
   error is checked. Bytes are bytes: nothing in it knows UTF-8.
+- text. `std/text` is written in Tack alone, with no C. Its `pub type
+  Text struct` owns a sequence of bytes in a private `list[uint8]`
+  field, so no other package can reach the list, write a `text.Text`
+  literal, `cannot write a text.Text literal outside package text: field
+  b is not pub`, or read the field, `b is not pub in text.Text`; a Text
+  frees its bytes when it goes out of scope, as a list does.
+  `text.new(alloc)` returns an empty Text that grows through `alloc` and
+  allocates nothing until bytes are appended. `t, err :=
+  text.from_bytes(s, alloc)` returns a Text holding a copy of the bytes
+  of the `[]uint8` view `s`; it is `from_bytes` because `from` is a
+  keyword. When `alloc` cannot give the buffer, the error is
+  `error{code: 1, msg: "out of memory"}` and the Text is empty, having
+  allocated nothing; as for any result beside an error, `t` cannot be
+  read before `err` is checked, and `_` cannot drop it, `text.from_bytes
+  returns text.Text, which holds a list and cannot be dropped; bind it to
+  a variable instead of _`. `t.len()` is the number of bytes,
+  `t.equal(s)` whether `t` holds exactly the bytes of the view `s`, so
+  `t.equal([]uint8("if"))` compares against a literal, and `t.hash()`
+  the 64-bit FNV-1a hash of the bytes, from the offset basis
+  `0xcbf29ce484222325` with the prime `0x100000001b3`, so no bytes hash
+  to `0xcbf29ce484222325` and `"a"` to `0xaf63dc4c8601ec8c`. Tack has no
+  bitwise operators, so the XOR is computed with arithmetic, eight steps
+  a byte; when `^` exists hash will use it, with identical results.
+  `err := mut t.append(s)` and `err := mut t.append_byte(c)` grow `t`,
+  all or nothing as the builtin append is: when `t` cannot grow the
+  error is `error{code: 1, msg: "out of memory"}` and `t` is left
+  exactly as it was. `t.bytes()` returns a read-only `[]uint8` view of
+  the bytes, in place, which can be passed to `fmt.write`, to std/bytes'
+  functions or to any view parameter, ranged over, given to `len`, or
+  indexed with the checked form, as any view a call returns. It borrows
+  `t`: `mut t.append(t.bytes())` is `cannot pass t.bytes() alongside mut
+  t in this call: the view it returns may point into t, and a mut
+  argument must be the only way to reach t during the call`, and
+  appending to `t` while ranging over `t.bytes()` is an error too. Only
+  `new` and `from_bytes` take an `Allocator`. Bytes are bytes: nothing in
+  it knows UTF-8, so `len` counts bytes and `equal` compares them
+  exactly.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

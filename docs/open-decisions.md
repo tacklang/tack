@@ -1023,3 +1023,30 @@ and could go another way:
   gives, not the absence of one, since a list has no zero value; the
   caller must still bind it, and cannot read it before checking the
   error.
+
+## std/text
+
+`std/text`'s shape was decided: a `Text` with a private `list[uint8]`,
+`new`, a constructor from a view, `len`, `equal`, `hash` as 64-bit FNV-1a,
+`append`, `append_byte` and `bytes`, a read-only view. These points were
+settled by the coordinator or by consistency with `std/bytes` and the
+builtins, and could go another way:
+
+- The constructor is `from_bytes`, not `from`: `from` is a keyword,
+  reserved everywhere, so `text.from` is `expected 'field name' found
+  'from'`. Making `from` a keyword only in an import would free the name;
+  `from_bytes` leaves room for a later `from_string`.
+- `hash` computes FNV-1a's XOR with `%`, `/` and `+`, eight steps a byte,
+  since Tack has no bitwise operators. It will use `^` once that exists,
+  with identical results.
+- A failed `from_bytes` returns the empty Text it was building, which
+  allocated nothing, beside `error{code: 1, msg: "out of memory"}`, as
+  `bytes.repeat` returns an empty list; the caller must still bind it,
+  and cannot read it before checking the error.
+- `new` allocates nothing and cannot fail, as `make` of a list does.
+- A failed `append` or `append_byte` returns the builtin append's error
+  and leaves the Text as it was.
+- `equal` compares bytes exactly, with no case folding or normalization,
+  and `len` counts bytes, as nothing in std knows UTF-8.
+- `equal` takes a view rather than another Text; two Texts compare with
+  `a.equal(b.bytes())`.

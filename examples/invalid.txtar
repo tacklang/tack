@@ -24161,6 +24161,203 @@ switch-tag-no-value/main.tck:7:12: error: report returns no value
    |	           ^~~~~~~~
 08 |	    }
 
+-- text-append-byte-dropped/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut t := text.new(c_allocator)
+    mut t.append_byte(1)
+}
+-- text-append-byte-dropped/expected --
+stage: typeck
+---
+
+text-append-byte-dropped/main.tck:7:5: error: the error text.Text.append_byte returns cannot be dropped; bind it, as in err := mut t.append_byte(...)
+06 |	    mut t := text.new(c_allocator)
+07 |	    mut t.append_byte(1)
+   |	    ^~~~~~~~~~~~~~~~~~~~
+08 |	}
+
+-- text-append-not-mut/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut t := text.new(c_allocator)
+    err := t.append([]uint8("a"))
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- text-append-not-mut/expected --
+stage: typeck
+---
+
+text-append-not-mut/main.tck:7:12: error: text.Text.append takes its receiver as mut; call mut t.append([]uint8("a"))
+06 |	    mut t := text.new(c_allocator)
+07 |	    err := t.append([]uint8("a"))
+   |	           ^
+08 |	    if err.code != 0 {
+
+-- text-append-own-bytes/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut t := text.new(c_allocator)
+    err := mut t.append(t.bytes())
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- text-append-own-bytes/expected --
+stage: typeck
+---
+
+text-append-own-bytes/main.tck:7:25: error: cannot pass t.bytes() alongside mut t in this call: the view it returns may point into t, and a mut argument must be the only way to reach t during the call
+06 |	    mut t := text.new(c_allocator)
+07 |	    err := mut t.append(t.bytes())
+   |	                        ^~~~~~~~~
+08 |	    if err.code != 0 {
+text-append-own-bytes/main.tck:7:12: note: passed as mut here
+06 |	    mut t := text.new(c_allocator)
+07 |	    err := mut t.append(t.bytes())
+   |	           ^~~~~
+08 |	    if err.code != 0 {
+
+-- text-append-while-ranging/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut t := text.new(c_allocator)
+    for _, c := range t.bytes() {
+        e := mut t.append_byte(c)
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- text-append-while-ranging/expected --
+stage: typeck
+---
+
+text-append-while-ranging/main.tck:8:18: error: t.bytes() is being ranged over, and the view it returns may point into t, so this loop cannot pass mut t
+07 |	    for _, c := range t.bytes() {
+08 |	        e := mut t.append_byte(c)
+   |	                 ^
+09 |	        if e.code != 0 {
+
+-- text-equal-string-arg/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    t := text.new(c_allocator)
+    if t.equal("if") {
+        exit(1)
+    }
+}
+-- text-equal-string-arg/expected --
+stage: typeck
+---
+
+text-equal-string-arg/main.tck:7:16: error: cannot use string as []uint8 in argument to text.Text.equal; view its bytes with []uint8("if")
+06 |	    t := text.new(c_allocator)
+07 |	    if t.equal("if") {
+   |	               ^~~~
+08 |	        exit(1)
+
+-- text-field-private/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    t := text.new(c_allocator)
+    if len(t.b) != 0 {
+        exit(1)
+    }
+}
+-- text-field-private/expected --
+stage: typeck
+---
+
+text-field-private/main.tck:7:14: error: b is not pub in text.Text
+06 |	    t := text.new(c_allocator)
+07 |	    if len(t.b) != 0 {
+   |	             ^
+08 |	        exit(1)
+
+-- text-from-bytes-blank/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    _, err := text.from_bytes([]uint8("a"), c_allocator)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- text-from-bytes-blank/expected --
+stage: typeck
+---
+
+text-from-bytes-blank/main.tck:6:5: error: text.from_bytes returns text.Text, which holds a list and cannot be dropped; bind it to a variable instead of _
+05 |	func main() {
+06 |	    _, err := text.from_bytes([]uint8("a"), c_allocator)
+   |	    ^
+07 |	    if err.code != 0 {
+
+-- text-from-bytes-read-unchecked/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    t, err := text.from_bytes([]uint8("a"), c_allocator)
+    if t.len() != 1 || err.code != 0 {
+        exit(1)
+    }
+}
+-- text-from-bytes-read-unchecked/expected --
+stage: typeck
+---
+
+text-from-bytes-read-unchecked/main.tck:7:8: error: t cannot be read before err is checked; check err.code == 0 first
+06 |	    t, err := text.from_bytes([]uint8("a"), c_allocator)
+07 |	    if t.len() != 1 || err.code != 0 {
+   |	       ^
+08 |	        exit(1)
+
+-- text-literal-outside/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    t := text.Text{}
+    if t.len() != 0 {
+        exit(1)
+    }
+}
+-- text-literal-outside/expected --
+stage: typeck
+---
+
+text-literal-outside/main.tck:6:10: error: cannot write a text.Text literal outside package text: field b is not pub
+05 |	func main() {
+06 |	    t := text.Text{}
+   |	         ^~~~~~~~~
+07 |	    if t.len() != 0 {
+
 -- type-name-as-name/main.tck --
 package main
 
