@@ -60,7 +60,5 @@
 //
 // Block comments ("/* ... */") are not part of the language, and "/*" is
 // reserved: one is reported and skipped, up to its "*/" or the end of the
-// input. The body of an asm block is skipped up to the next "}" without
-// being tokenized, and an asm block with no "}" runs to the end of the input
-// and is reported as unterminated, from its keyword to the end.
+// input.
 package lexer

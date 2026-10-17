@@ -246,8 +246,7 @@ func (l *Lexer) handleNewline() {
 }
 
 // handleIdent lexes an identifier or keyword. It reports false, consuming
-// nothing, when the current byte cannot start an identifier. The asm keyword
-// also swallows everything up to the next closing brace.
+// nothing, when the current byte cannot start an identifier.
 func (l *Lexer) handleIdent() bool {
 	start, data := l.pos, l.file.Data
 
@@ -263,32 +262,11 @@ func (l *Lexer) handleIdent() bool {
 
 	if kw, ok := LookupKeyword(v); ok {
 		l.addToken(Keyword, kw, start, l.pos)
-		if kw == ASM {
-			l.handleASM(start)
-		}
 	} else {
 		l.addToken(Ident, v, start, l.pos)
 	}
 
 	return true
-}
-
-// handleASM skips the body of an asm block, whose keyword starts at start,
-// stopping at its closing brace so that the brace is lexed as an ordinary
-// token. The lines the body spans are still recorded, so later positions
-// stay correct. A block with no closing brace runs to the end of the input
-// and is reported as unterminated, from its keyword to that end.
-func (l *Lexer) handleASM(start int) {
-	for l.pos < len(l.file.Data) {
-		switch l.file.Data[l.pos] {
-		case '}':
-			return
-		case '\n':
-			l.file.AddLineStart(l.pos + 1)
-		}
-		l.pos++
-	}
-	l.diag("unterminated asm block", start, l.pos)
 }
 
 // handleString lexes a double-quoted or backquoted string. It reports

@@ -1258,22 +1258,45 @@ array-ordering/main.tck:6:8: error: operator < is not defined on [2]string
    |	       ^~~~~
 07 |	        exit(1)
 
--- asm-unterminated/main.tck --
+-- asm-extern-name/main.tck --
 package main
 
+extern func asm()
+
 func main() {
-    asm {
-        mov
-        ret
--- asm-unterminated/expected --
-stage: lex
+    asm()
+}
+-- asm-extern-name/expected --
+stage: typeck
 ---
 
-asm-unterminated/main.tck:4:5: error: unterminated asm block
-03 |	func main() {
-04 |	    asm {
-   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-05 |	        mov
+asm-extern-name/main.tck:3:13: error: extern func asm cannot be named asm in C: it is a C keyword
+02 |	
+03 |	extern func asm()
+   |	            ^~~
+04 |	
+
+-- asm-field-in-tack-h/main.tck --
+package main
+
+type P struct {
+    asm int64
+}
+
+extern func f(p P)
+
+func main() {
+    f(P{asm: 1})
+}
+-- asm-field-in-tack-h/expected --
+stage: codegen
+---
+
+asm-field-in-tack-h/main.tck:4:5: error: field asm of type P cannot be named asm in C: it is a C keyword
+03 |	type P struct {
+04 |	    asm int64
+   |	    ^~~
+05 |	}
 
 -- assign-borrow-compound/main.tck --
 package main

@@ -16,7 +16,7 @@ const (
 	Lib
 	Pub
 
-	// Const through ASM start declarations. Var declares an immutable
+	// Const through Extern start declarations. Var declares an immutable
 	// variable and Mut a mutable one. Extern starts a function whose body
 	// is written in C.
 	Const
@@ -27,7 +27,6 @@ const (
 	Struct
 	Interface
 	Map
-	ASM
 	Extern
 
 	// Package, Import and From structure a file. From is reserved
@@ -93,7 +92,6 @@ var keywordNames = map[KeywordType]string{
 	Interface: "interface",
 	Union:     "union",
 	Map:       "map",
-	ASM:       "asm",
 	Extern:    "extern",
 
 	Package: "package",

@@ -523,10 +523,11 @@ makes for itself, which has a letter after `tack_`.
   outside a string or comment it is an error, `block comments are not
   supported`, and the lexer skips to the next `*/`, or the end of the file,
   before going on.
-- `asm` is a keyword with no meaning yet: everything after it up to the
-  next `}` is skipped unread, and an `asm` with no `}` after it is an error,
-  `unterminated asm block`. No statement or declaration starts with `asm`,
-  so any use of it is still rejected.
+- `asm` is not a keyword: it is a name like any other, of a variable, a
+  function, a type, a field or a method, and Tack has no inline assembly.
+  C reserves it, which matters only for a name C sees as written: an
+  extern func's C name, or a field of a struct `tack.h` defines (see
+  [docs/extern.md](docs/extern.md)).
 - A `main` package must declare a `func main()`, which takes no parameters
   and declares no result. No other package may declare anything named
   `main` (see imports).

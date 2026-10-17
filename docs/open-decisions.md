@@ -5,13 +5,6 @@ deliberate answer. Each entry says what happens today and why it matters.
 When a decision is made, the entry is removed and the answer goes into the
 README's "The language today".
 
-## The `asm` keyword
-
-`asm` is a keyword, and the lexer skips everything after it up to the next
-`}` without tokenizing it; one with no `}` is an error. Nothing past the
-lexer handles it. Is `asm` part of the language, and if so, what is its
-syntax?
-
 ## Wording of the invalid character diagnostic
 
 A byte the lexer does not accept is reported as `invalid character %c`

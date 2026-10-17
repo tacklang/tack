@@ -445,7 +445,6 @@ var tokenKindCases = []struct {
 		"x := `a\r\nb`\r\ny",
 		"ident := string <semi> ident <semi> EOF",
 	},
-	{"crlf inside asm", "asm {\r\n\tmov\r\n}\r\nx", "keyword } <semi> ident <semi> EOF"},
 }
 
 // TestTokenKinds pins the token stream for each of tokenKindCases.
@@ -861,14 +860,7 @@ var diagnosticCases = []struct {
 	},
 	{"zero alone", "0", nil},
 	{"zero then a name", "0x10", nil},
-	{"unterminated asm", "asm { mov", []string{"unterminated asm block"}},
-	{"asm at end of input", "asm", []string{"unterminated asm block"}},
-	{
-		"asm over lines with no brace",
-		"func f() {\n    asm {\n        mov\n",
-		[]string{"unterminated asm block"},
-	},
-	{"terminated asm", "asm { mov }", nil},
+	{"asm is a name, with no brace after it", "func f() {\n    asm {\n        mov\n", nil},
 	{"hex escape with one digit", `"\x4"`, []string{`Invalid escape sequence "\\x4"`}},
 	{"hex escape with no digits", `"\x"`, []string{`Invalid escape sequence "\\x"`}},
 	{"hex escape with a non-hex digit", `"\xg0"`, []string{`Invalid escape sequence "\\x"`}},
@@ -1086,5 +1078,33 @@ func TestListKeywords(t *testing.T) {
 		if out := lex(t, src); out.tokens[0].Kind() != lexer.Ident {
 			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
 		}
+	}
+}
+
+// TestAsmIsAnIdentifier checks asm is an ordinary name, not a keyword:
+// alone it is an identifier, and the braces and words after it are lexed
+// as any others, with nothing skipped and nothing reported.
+func TestAsmIsAnIdentifier(t *testing.T) {
+	out := lex(t, "asm")
+	checkInvariants(t, "asm", out)
+	if out.tokens[0].Kind() != lexer.Ident || out.tokens[0].Value() != "asm" {
+		t.Errorf("%q lexed as %s, want the identifier asm", "asm", out.tokens[0].String())
+	}
+	if _, ok := lexer.LookupKeyword("asm"); ok {
+		t.Error("asm is a keyword")
+	}
+	src := "asm { mov }"
+	out = lex(t, src)
+	checkInvariants(t, src, out)
+	if len(out.diags) != 0 {
+		t.Errorf("%q reported %v, want nothing", src, out.diags)
+	}
+	kinds := make([]string, 0, len(out.tokens))
+	for _, tok := range out.tokens {
+		kinds = append(kinds, tok.String())
+	}
+	if len(out.tokens) < 4 || out.tokens[2].Kind() != lexer.Ident ||
+		out.tokens[2].Value() != "mov" {
+		t.Errorf("%q lexed as %v, want asm, {, mov and } as tokens of their own", src, kinds)
 	}
 }

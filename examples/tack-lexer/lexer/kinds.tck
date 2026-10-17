@@ -5,8 +5,8 @@ package lexer
 // decimal integers, quoted and raw strings with their escapes, character
 // literals, every operator and punctuation token, line comments (merged
 // when consecutive), block comments (reported), and Go's semicolon
-// insertion at line ends. Floats, the body-skipping of asm and the UTF-8
-// check on character literals are left out.
+// insertion at line ends. Floats and the UTF-8 check on character literals
+// are left out.
 //
 // Lex fills a Lexer, which holds every token in a fixed-size array, since
 // Tack has no growable list yet. A token is a kind and a span of byte
@@ -55,7 +55,6 @@ var keywords = [...]spelling{
     {text: "struct", ends: false},
     {text: "interface", ends: false},
     {text: "map", ends: false},
-    {text: "asm", ends: false},
     {text: "extern", ends: false},
     {text: "package", ends: false},
     {text: "import", ends: false},

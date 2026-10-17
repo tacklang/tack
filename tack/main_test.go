@@ -2571,8 +2571,8 @@ func TestBuiltTackLexer(t *testing.T) {
 // same kinds, spans and text; errors over the same spans, in the same
 // order, though the Tack lexer's messages are fixed strings, since Tack
 // cannot format one; and a status of the token count, or 254 after an
-// error. Inputs outside the Tack lexer's subset, with a float or an asm
-// block, are skipped, and so are those of more tokens than it holds.
+// error. Inputs outside the Tack lexer's subset, with a float, are
+// skipped, and so are those of more tokens than it holds.
 func TestBuiltTackLexerAgreesWithTheCompiler(t *testing.T) {
 	bin := buildTargetWithClang(t, "lex", tackLexer)
 	inputs := tackLexerInputs(t)
@@ -2662,7 +2662,7 @@ func goLexerTokens(src []byte) (string, int, bool) {
 	}
 	var b strings.Builder
 	for _, tok := range lex.Tokens() {
-		if tok.Kind() == lexer.Float || tok.Kind() == lexer.Keyword && tok.Value() == lexer.ASM {
+		if tok.Kind() == lexer.Float {
 			return "", 0, false
 		}
 		start, end := tok.OffsetStart(), tok.OffsetEnd()
