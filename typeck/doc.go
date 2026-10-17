@@ -593,7 +593,9 @@
 // passed as mut, the plain form with a proof that it is there, the
 // checked form, x, ok := pop(mut l), with none, its x held by its ok when
 // the element type has no zero value, as a result is by the error beside
-// it (errors.go), and a list reads as a view does, len with a string variable's
+// it (errors.go), replace swaps a value into any place passed as mut,
+// giving the old one, which takes a list out of a struct's field and puts
+// it back (replace.go), and a list reads as a view does, len with a string variable's
 // facts, a proven or checked index, range, slicing to a view and passing
 // whole to a view parameter, and can have its elements written when it is
 // mutable. Its elements may be owned, as a view's may, and are then read

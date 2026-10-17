@@ -454,9 +454,9 @@ func (c *Checker) droppedName(typ types.Type) string {
 
 // exprStmt follows e, an expression statement, which drops its value, or
 // every result of a call of several: one of an owned type, which nothing
-// would free, is reported, the first such result of several. pop and
-// remove written as a statement free the element they drop, so theirs is
-// not.
+// would free, is reported, the first such result of several. pop,
+// remove and replace written as a statement free the value they drop, so
+// theirs is not.
 func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 	call, ok := e.(*ast.Call)
 	if !ok {
@@ -464,7 +464,7 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 		return
 	}
 	m.call(call, moveCtx, cur)
-	if isTake(call) {
+	if isTake(call) || isReplace(call) {
 		return
 	}
 	results := []types.Type{ast.TypeOf(call)}
@@ -822,10 +822,10 @@ func prefixOf(a, b ast.Expr) bool {
 // receiver first, then, for one of an owned type, that its result has an
 // owner. A plain receiver is read as a plain argument is, borrowed, so a
 // temporary of an owned type is one no variable owns; a value appended to
-// a list of an owned type is moved into it.
+// a list of an owned type, or stored by replace, is moved into it.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
-	moved := m.appendsOwned(call)
+	moved := m.appendsOwned(call) || isReplace(call)
 	for i, arg := range call.Operands() {
 		if _, isType := arg.(*ast.ListType); isType {
 			continue

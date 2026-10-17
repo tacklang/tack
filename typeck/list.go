@@ -446,7 +446,7 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append, reserve, pop or remove, each of which checks its own
+// make, append, reserve, pop, remove or replace, each of which checks its own
 // arguments and gives one value, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
@@ -462,6 +462,8 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 		return c.appendCall
 	case isReserve(call):
 		return c.reserveCall
+	case isReplace(call):
+		return c.replaceCall
 	default:
 		return nil
 	}

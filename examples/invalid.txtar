@@ -20383,6 +20383,559 @@ remove-unproven/main.tck:4:26: error: index i may be out of range; check 0 <= i 
    |	                         ^
 05 |	}
 
+-- replace-ends-fact/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut d int64) int64 {
+    if d != 0 {
+        old := replace(mut d, 0)
+        return old + 10 / d
+    }
+    return 0
+}
+
+func main() {
+}
+-- replace-ends-fact/expected --
+stage: typeck
+---
+
+replace-ends-fact/main.tck:18:27: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	        old := replace(mut d, 0)
+18 |	        return old + 10 / d
+   |	                          ^
+19 |	    }
+replace-ends-fact/main.tck:16:8: note: this guard proves d != 0
+15 |	func f(mut d int64) int64 {
+16 |	    if d != 0 {
+   |	       ^~~~~~
+17 |	        old := replace(mut d, 0)
+replace-ends-fact/main.tck:17:24: note: but d is passed as mut to replace here, so the proof ends
+16 |	    if d != 0 {
+17 |	        old := replace(mut d, 0)
+   |	                       ^~~~~
+18 |	        return old + 10 / d
+
+-- replace-field-moved-in/main.tck --
+package main
+
+type S struct {
+    a list[int64]
+    b list[int64]
+}
+
+func use(l list[int64]) {
+}
+
+func main() {
+    mut s := S{a: make(list[int64], c_allocator), b: make(list[int64], c_allocator)}
+    old := replace(mut s.a, s.b)
+    use(old)
+}
+-- replace-field-moved-in/expected --
+stage: typeck
+---
+
+replace-field-moved-in/main.tck:13:29: error: cannot move s.b out of s: a field cannot be moved on its own
+12 |	    mut s := S{a: make(list[int64], c_allocator), b: make(list[int64], c_allocator)}
+13 |	    old := replace(mut s.a, s.b)
+   |	                            ^~~
+14 |	    use(old)
+
+-- replace-immutable-local/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f() int64 {
+    x := 1
+    return replace(mut x, 2)
+}
+
+func main() {
+}
+-- replace-immutable-local/expected --
+stage: typeck
+---
+
+replace-immutable-local/main.tck:17:20: error: cannot pass mut x: x is immutable; declare it with mut
+16 |	    x := 1
+17 |	    return replace(mut x, 2)
+   |	                   ^~~~~
+18 |	}
+
+-- replace-immutable-param/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(l list[int64]) list[int64] {
+    return replace(mut l, make(list[int64], c_allocator))
+}
+
+func main() {
+}
+-- replace-immutable-param/expected --
+stage: typeck
+---
+
+replace-immutable-param/main.tck:16:20: error: cannot pass mut l: l is immutable; declare it with mut
+15 |	func f(l list[int64]) list[int64] {
+16 |	    return replace(mut l, make(list[int64], c_allocator))
+   |	                   ^~~~~
+17 |	}
+
+-- replace-in-range/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut ll list[list[int64]]) {
+    for i, x := range ll {
+        old := replace(mut ll[i], make(list[int64], c_allocator))
+        use(old)
+        use(x)
+    }
+}
+
+func main() {
+}
+-- replace-in-range/expected --
+stage: typeck
+---
+
+replace-in-range/main.tck:17:28: error: ll is being ranged over, and x refers into it, so this loop cannot pass mut ll[i]
+16 |	    for i, x := range ll {
+17 |	        old := replace(mut ll[i], make(list[int64], c_allocator))
+   |	                           ^~~~~
+18 |	        use(old)
+
+-- replace-index-ended-by-list-write/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func k(mut ll list[list[int64]]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+func f(mut ll list[list[int64]]) list[int64] {
+    if len(ll) > 0 {
+        return replace(mut ll[0], k(mut ll))
+    }
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+}
+-- replace-index-ended-by-list-write/expected --
+stage: typeck
+---
+
+replace-index-ended-by-list-write/main.tck:20:31: error: index 0 may be out of range; check len(ll) > 0 first
+19 |	    if len(ll) > 0 {
+20 |	        return replace(mut ll[0], k(mut ll))
+   |	                              ^
+21 |	    }
+replace-index-ended-by-list-write/main.tck:19:8: note: this guard proves len(ll) >= 1
+18 |	func f(mut ll list[list[int64]]) list[int64] {
+19 |	    if len(ll) > 0 {
+   |	       ^~~~~~~~~~~
+20 |	        return replace(mut ll[0], k(mut ll))
+replace-index-ended-by-list-write/main.tck:20:37: note: but ll is passed as mut to k here, so the proof ends
+19 |	    if len(ll) > 0 {
+20 |	        return replace(mut ll[0], k(mut ll))
+   |	                                    ^~~~~~
+21 |	    }
+
+-- replace-moved-value-used/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut a list[int64]) {
+    mut b := make(list[int64], c_allocator)
+    old := replace(mut a, b)
+    use(b)
+    use(old)
+}
+
+func main() {
+}
+-- replace-moved-value-used/expected --
+stage: typeck
+---
+
+replace-moved-value-used/main.tck:18:9: error: b is used after it was moved
+17 |	    old := replace(mut a, b)
+18 |	    use(b)
+   |	        ^
+19 |	    use(old)
+replace-moved-value-used/main.tck:17:27: note: b is moved here
+16 |	    mut b := make(list[int64], c_allocator)
+17 |	    old := replace(mut a, b)
+   |	                          ^
+18 |	    use(b)
+
+-- replace-not-mut/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut x int64) int64 {
+    return replace(x, 1)
+}
+
+func main() {
+}
+-- replace-not-mut/expected --
+stage: typeck
+---
+
+replace-not-mut/main.tck:16:20: error: replace takes place as mut; pass mut x
+15 |	func f(mut x int64) int64 {
+16 |	    return replace(x, 1)
+   |	                   ^
+17 |	}
+
+-- replace-owned-from-itself/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut l list[int64]) list[int64] {
+    return replace(mut l, l)
+}
+
+func main() {
+}
+-- replace-owned-from-itself/expected --
+stage: typeck
+---
+
+replace-owned-from-itself/main.tck:16:27: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+15 |	func f(mut l list[int64]) list[int64] {
+16 |	    return replace(mut l, l)
+   |	                          ^
+17 |	}
+replace-owned-from-itself/main.tck:16:20: note: passed as mut here
+15 |	func f(mut l list[int64]) list[int64] {
+16 |	    return replace(mut l, l)
+   |	                   ^~~~~
+17 |	}
+
+-- replace-owned-from-itself-local/main.tck --
+package main
+
+func use(l list[int64]) {
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    old := replace(mut l, l)
+    use(old)
+}
+-- replace-owned-from-itself-local/expected --
+stage: typeck
+---
+
+replace-owned-from-itself-local/main.tck:8:27: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+07 |	    mut l := make(list[int64], c_allocator)
+08 |	    old := replace(mut l, l)
+   |	                          ^
+09 |	    use(old)
+replace-owned-from-itself-local/main.tck:8:20: note: passed as mut here
+07 |	    mut l := make(list[int64], c_allocator)
+08 |	    old := replace(mut l, l)
+   |	                   ^~~~~
+09 |	    use(old)
+
+-- replace-owned-from-sibling/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut ll list[list[int64]]) list[int64] {
+    if len(ll) > 1 {
+        return replace(mut ll[0], ll[1])
+    }
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+}
+-- replace-owned-from-sibling/expected --
+stage: typeck
+---
+
+replace-owned-from-sibling/main.tck:17:35: error: cannot pass ll[1] alongside mut ll[0] in this call: a list is not copied for a call, and a mut argument must be the only way to reach ll[0] during it
+16 |	    if len(ll) > 1 {
+17 |	        return replace(mut ll[0], ll[1])
+   |	                                  ^~~~~
+18 |	    }
+replace-owned-from-sibling/main.tck:17:24: note: passed as mut here
+16 |	    if len(ll) > 1 {
+17 |	        return replace(mut ll[0], ll[1])
+   |	                       ^~~~~~~~~
+18 |	    }
+
+-- replace-pattern-binding/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut t Tok) list[uint8] {
+    switch t {
+    case word(w):
+        return replace(mut w, make(list[uint8], c_allocator))
+    default:
+        return make(list[uint8], c_allocator)
+    }
+}
+
+func main() {
+}
+-- replace-pattern-binding/expected --
+stage: typeck
+---
+
+replace-pattern-binding/main.tck:18:24: error: cannot pass mut w: w is immutable; declare it with mut
+17 |	    case word(w):
+18 |	        return replace(mut w, make(list[uint8], c_allocator))
+   |	                       ^~~~~
+19 |	    default:
+
+-- replace-string-byte/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut s string) uint8 {
+    if len(s) > 0 {
+        return replace(mut s[0], 97)
+    }
+    return 0
+}
+
+func main() {
+}
+-- replace-string-byte/expected --
+stage: typeck
+---
+
+replace-string-byte/main.tck:17:24: error: cannot pass mut s[0]: strings are immutable
+16 |	    if len(s) > 0 {
+17 |	        return replace(mut s[0], 97)
+   |	                       ^~~~~~~~
+18 |	    }
+
+-- replace-view-element/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(v []int64) int64 {
+    if len(v) > 0 {
+        return replace(mut v[0], 1)
+    }
+    return 0
+}
+
+func main() {
+}
+-- replace-view-element/expected --
+stage: typeck
+---
+
+replace-view-element/main.tck:17:24: error: cannot pass mut v[0]: v is a read-only view
+16 |	    if len(v) > 0 {
+17 |	        return replace(mut v[0], 1)
+   |	                       ^~~~~~~~
+18 |	    }
+
+-- replace-wrong-arity/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut x int64) int64 {
+    return replace(mut x)
+}
+
+func main() {
+}
+-- replace-wrong-arity/expected --
+stage: typeck
+---
+
+replace-wrong-arity/main.tck:16:12: error: replace expects 2 argument(s), got 1
+15 |	func f(mut x int64) int64 {
+16 |	    return replace(mut x)
+   |	           ^~~~~~~~~~~~~~
+17 |	}
+
+-- replace-wrong-type/main.tck --
+package main
+
+type Tok union {
+    word list[uint8]
+    none
+}
+
+func g(mut l list[int64]) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func use(l list[int64]) {
+}
+
+func f(mut x int64) int64 {
+    return replace(mut x, "s")
+}
+
+func main() {
+}
+-- replace-wrong-type/expected --
+stage: typeck
+---
+
+replace-wrong-type/main.tck:16:27: error: cannot use string as int64 in argument to replace
+15 |	func f(mut x int64) int64 {
+16 |	    return replace(mut x, "s")
+   |	                          ^~~
+17 |	}
+
 -- return-not-enough/main.tck --
 package main
 

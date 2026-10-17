@@ -1595,7 +1595,8 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 
 // generateExprStmt lowers an expression statement, which can only be a call
 // to a named function or a method today, pop and remove among them, which
-// drop what they take (see dropTake).
+// drop what they take (see dropTake), and replace, which drops the value
+// it moves out (see dropReplace).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
 	call, ok := stmt.X.(*ast.Call)
 	if !ok {
@@ -1611,6 +1612,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	}
 	if isBuiltin(call, "pop") || isBuiltin(call, "remove") {
 		return g.dropTake(call)
+	}
+	if isBuiltin(call, "replace") {
+		return g.dropReplace(call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -2406,8 +2410,8 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 }
 
 // genericValue returns what renders a call to the generic builtin named
-// name, len, make, append, reserve, pop or remove, or nil for any other
-// name.
+// name, len, make, append, reserve, pop, remove or replace, or nil for
+// any other name.
 func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Diagnostic) {
 	switch name {
 	case "len":
@@ -2422,6 +2426,8 @@ func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Di
 		return g.popValue
 	case "remove":
 		return g.removeValue
+	case "replace":
+		return g.replaceValue
 	default:
 		return nil
 	}

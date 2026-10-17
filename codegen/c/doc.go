@@ -374,7 +374,11 @@
 // does, giving the element type's zero value otherwise. Written as a
 // statement, either holds the same temporaries and, only when the list has
 // the element, takes it under an if and drops it, freeing it when its type
-// is owned (see dropTake). An element, a length, a
+// is owned (see dropTake). replace(mut place, new) is a comma expression
+// over temporaries at the function's top: the place's address, the new
+// value, the old value read, the new one stored, the old one given; as a
+// statement, the old value is freed when owned (see replace.go). An
+// element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in
 // place; a range's variable bound to an owned element is a pointer to it,

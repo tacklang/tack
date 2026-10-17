@@ -80,10 +80,11 @@ func (s *Set) Names() []string {
 // so they have no declaration and no Func: len takes any array, view,
 // list or string; make takes a list type; append takes any list and any
 // number of values of its element type, or a view of them spread;
-// reserve takes any list and a count; pop takes any list; and remove
-// takes any list and an index. They are part of the compiler, not of
+// reserve takes any list and a count; pop takes any list; remove takes
+// any list and an index; and replace takes a place of any type and a
+// value of it. They are part of the compiler, not of
 // std/builtin, and the type checker checks each of them itself.
-var generic = []string{"len", "make", "append", "reserve", "pop", "remove"}
+var generic = []string{"len", "make", "append", "reserve", "pop", "remove", "replace"}
 
 // ListSymbols holds the C functions of std/builtin that the generated C of
 // a program with lists calls: the one that grows a list's buffer, through

@@ -34,16 +34,3 @@ guarantee. Today such a function ends in a `return` that never runs, as
 The fix is to prove more paths end, or an `unreachable` statement the
 compiler must prove unreachable, rejecting it otherwise; both wait for a
 stronger prover.
-
-## A field cannot be taken out of a struct and put back
-
-`mut frames := e.frames`, with `e` a `mut` receiver, is `cannot move
-e.frames out of e: a field cannot be moved on its own`, and nothing lets a
-function take a list out of a struct for a while and put it back. So a
-list kept in a struct to be reused across calls is always reached through
-the struct's pointer. In the expression-evaluator benchmark this cost
-about 10%: through a pointer, clang must assume a store into the list's
-buffer may change its length, so it reloads the length, pointer and
-capacity on every push and pop instead of keeping them in registers.
-Fixing it is a language decision, for example a swap or take-and-restore
-operation on a `mut` field.

@@ -1198,6 +1198,29 @@ makes for itself, which has a letter after `tack_`.
   `index -1 is out of range for a list`, in every form; three
   names are `assignment mismatch: 3 variables but pop gives 2 values`.
 
+  `old := replace(mut place, new)` moves the value of `place` out, as its
+  result, and moves `new` in, in one step, so the place never holds no
+  value. It is how a list kept in a struct is worked on as a local, `mut
+  frames := replace(mut s.frames, make(list[int64], c_allocator))`, and
+  put back, `empty := replace(mut s.frames, frames)`, which no move can
+  do, since a field cannot be moved on its own; it replaces a list's
+  element, owned or not, in place too. `place` is anything a `mut`
+  argument can name: a mutable local, a `mut` parameter, a field of one,
+  or an element with its index proven, and not an immutable variable, a
+  union pattern's binding, a view's element or a string's byte. `new` is
+  used as the place's type under assignment's rules, `cannot use string
+  as int64 in argument to replace`, and moved in when owned. The
+  arguments are evaluated left to right, as any call's: the place, with
+  its indexes, first, then `new`, and only then is the old value read and
+  `new` stored, so `replace(mut x, x * 2)` doubles `x` and gives its old
+  value; an owned `new` that may overlap the place, `replace(mut l, l)`,
+  is `cannot pass l alongside mut l in this call: ...`. Like any `mut`
+  argument it ends the facts about the place for what runs after the
+  call. A result holding a list must be bound, as any must; written as a
+  statement, `replace(mut place, new)` is an assignment, which frees the
+  old value. In C it is a comma expression over temporaries: the place's
+  address, the new value, the old one read, the new one stored.
+
   A list may hold owned elements: lists, `list[list[uint8]]`, structs
   or unions holding lists, nested to any depth. An element of an owned
   type is never copied out of its list: it is a place inside the list,
@@ -1254,7 +1277,8 @@ makes for itself, which has a letter after `tack_`.
   caller keeps it; a `mut` parameter can grow it, and assign it whole.
   Neither can be moved, `cannot move l: it is a parameter, which borrows
   its caller's value`, nor can a field on its own, `cannot move s.items
-  out of s: a field cannot be moved on its own`. A list no variable holds,
+  out of s: a field cannot be moved on its own`; `replace` takes one out
+  with a value left in its place (see replace). A list no variable holds,
   a call's result or `make`'s, must be given an owner: anywhere but the
   value of a declaration, an assignment, a return, a binding of several
   results or a struct literal's field it is `cannot use a temporary

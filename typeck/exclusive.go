@@ -273,7 +273,9 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 // appendedValue reports whether the operand at i of call is a value a call
 // to append adds, not a spread, which is copied, or moved when it is
 // owned, and so no borrow: a move out of a list's element is reported as
-// one (see move.go).
+// one (see move.go). The value replace stores is checked as a borrow, so
+// an owned one that may overlap the place, replace(mut l, l), is
+// reported.
 func appendedValue(call *ast.Call, i int) bool {
 	return isAppend(call) && !call.Spread && i > 0
 }

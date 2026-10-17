@@ -1267,7 +1267,11 @@ assigns the variable first: <!-- note: move-in-loop -->`l is moved here, in an e
 A parameter borrows its list, and a `mut` parameter refers to its
 caller's, so neither is moved, <!-- error: move-borrowed-param -->`cannot move l: it is a parameter, which borrows its caller's value`,
 and a field is never moved on its own,
-<!-- error: move-field -->`cannot move s.items out of s: a field cannot be moved on its own`.
+<!-- error: move-field -->`cannot move s.items out of s: a field cannot be moved on its own`;
+`old := replace(mut s.items, new)` takes it out with `new` left in its
+place, so the struct always holds a list. Its `new` is moved in, and an
+owned one that may overlap the place is
+<!-- error: replace-owned-from-itself-local -->`cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it`.
 A list that no variable holds, a call's result or `make`'s, must be given
 one, or it would never be freed:
 <!-- error: move-temporary-len -->`cannot use a temporary list[int64] here; store it in a variable first`,

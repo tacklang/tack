@@ -80,9 +80,11 @@ extern("tack_builtin_exit") func exit(code int32)
 // for an empty list, which is left as it was, and x is then T's zero
 // value, or, for a T with none, a list, a union, an Allocator or
 // anything holding one, cannot be read until ok is checked true, and
-// holds nothing to free. A result of a T holding a list cannot be dropped, as no such
-// value can. It takes a list of any element type, which no Tack
-// declaration can say, so the compiler implements it itself.
+// holds nothing to free. Written as a statement, pop(mut l) needs no
+// proof: it drops the last element when there is one, freeing it when it
+// holds a list, and does nothing to an empty l. It takes a list of any
+// element type, which no Tack declaration can say, so the compiler
+// implements it itself.
 
 // remove(mut l list[T], i int64) T moves element i of l out of it and
 // returns it, moving every element after it down one place, so the rest
@@ -91,7 +93,24 @@ extern("tack_builtin_exit") func exit(code int32)
 // remove(mut l, i), needs i proven in range for l, as an index does;
 // its checked form, x, ok := remove(mut l, i), may be written anywhere,
 // ok being false for an i out of range, l then left as it was and x as
-// pop's is. It takes a list of any element type, so the compiler
+// pop's is. Written as a statement it needs no proof, as pop's, and drops
+// element i only when i is in range. It takes a list of any element type,
+// so the compiler implements it itself.
+
+// replace(mut place T, new T) T moves the value of place out, as its
+// result, and moves new into place, in one step, so the place never holds
+// no value: a list kept in a struct's field is taken out with old :=
+// replace(mut s.items, make(list[T], alloc)), worked on as a local, and
+// put back with replace(mut s.items, old), which no move can do, since a
+// field cannot be moved out on its own. place is anything a mut argument
+// can be: a mutable local, a mut parameter, a field of one, or an element
+// with its index proven. new is used as T, under assignment's rules, and
+// is moved in when it holds a list; it may read place's old value when it
+// is copyable, replace(mut x, x * 2), but an owned one may not be place
+// itself. The arguments are evaluated left to right, place first, before
+// anything is read or stored. A result holding a list must be bound;
+// written as a statement, replace(mut place, new) is an assignment, which
+// frees the old value. It takes a place of any type, so the compiler
 // implements it itself.
 
 // c_allocator, a keyword, is the Allocator that lowers to C's malloc,
