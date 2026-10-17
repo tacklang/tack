@@ -82,8 +82,8 @@ func (s *Set) Names() []string {
 // number of values of its element type, or a view of them spread;
 // reserve takes any list and a count; pop takes any list; remove takes
 // any list and an index; replace takes a place of any type and a value
-// of it; put takes any map, a key and a value; and delete takes any map
-// and a key. They are part of the compiler, not of
+// of it; put takes any map, a key and a value; and delete and has take
+// any map and a key. They are part of the compiler, not of
 // std/builtin, and the type checker checks each of them itself.
 var generic = []string{
 	"len",
@@ -95,6 +95,7 @@ var generic = []string{
 	"replace",
 	"put",
 	"delete",
+	"has",
 }
 
 // ListSymbols holds the C functions of std/builtin that the generated C of

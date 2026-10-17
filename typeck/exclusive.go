@@ -444,17 +444,23 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 }
 
 // checkAssignBorrows reports the target of the assignment being checked
-// when ix, an element of a list of type base on the target's path, is
-// assigned while the value passes as mut, at any depth, that list or a
-// place holding it, with a note at that mut argument, and reports whether
-// it did. The element is assigned in place, in the list's buffer, which
-// such a call could move or free. A mut argument inside the list, an
-// element or a field of one, may be passed: it cannot move the list's own
-// buffer. It reports nothing outside an assignment's target.
+// when ix, an element of a list or a value of a map of type base on the
+// target's path, is assigned while the value passes as mut, at any depth,
+// that list or map or a place holding it, with a note at that mut
+// argument, and reports whether it did. The element is assigned in place,
+// in the list's or the map's buffer, which such a call could move or free.
+// A mut argument inside it, an element or a field of one, may be passed:
+// it cannot move its own buffer. It reports nothing outside an
+// assignment's target.
 func (c *Checker) checkAssignBorrows(ix *ast.Index, base types.Type) bool {
 	a := c.assigning
-	if a == nil || !c.table.IsList(base) {
+	isMap := c.table.IsMap(base)
+	if a == nil || !c.table.IsList(base) && !isMap {
 		return false
+	}
+	holder := "an element is assigned in place in its list"
+	if isMap {
+		holder = "a value is assigned in place in its map"
 	}
 	root, steps := path(ix.X)
 	if root == nil {
@@ -469,10 +475,11 @@ func (c *Checker) checkAssignBorrows(ix *ast.Index, base types.Type) bool {
 		c.errorNotes(
 			a.target.Spanned(),
 			[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-			"cannot assign to %s alongside mut %s in its value: an element is assigned in place in its list, "+
+			"cannot assign to %s alongside mut %s in its value: %s, "+
 				"and a mut argument must be the only way to reach %s during its call",
 			c.text(a.target.Spanned()),
 			passed,
+			holder,
 			passed,
 		)
 		return true

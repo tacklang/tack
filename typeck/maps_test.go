@@ -66,12 +66,13 @@ func TestRejectsMaps(t *testing.T) {
 		{"an error key", mapProgram("m map[error]int64"), "cannot use error as a map key: an error is not a key"},
 		{
 			"a plain lookup", mapProgram("m map[int64]int64, k int64", "x := m[k]", "if x == 0 {", "}"),
-			"key k may not be in m; use v, ok := m[k]",
+			"key k may not be in m; check has(m, k) first, or use v, ok := m[k]",
 		},
-		{"a write", mapProgram("mut m map[int64]int64, k int64", "m[k] = 1"), "key k may not be in m; use put(mut m, k, ...)"},
+		{"a write", mapProgram("mut m map[int64]int64, k int64", "m[k] = 1"), "key k may not be in m; check has(m, k) first, or use put(mut m, k, ...)"},
 		{
 			"an owned value looked up", mapProgram("m map[int64]Bag", "b, ok := m[1]", "if ok && len(b.items) > 0 {", "}"),
-			"the checked form cannot read a value of type Bag: it would copy it out of m; range over m to use its values in place",
+			"the checked form cannot read a value of type Bag: it would copy it out of m; " +
+				"check has(m, 1) first and use m[1] in place",
 		},
 		{
 			"delete bound to one name", mapProgram("mut m map[int64]int64", "x := delete(mut m, 1)", "if x == 0 {", "}"),
@@ -123,5 +124,125 @@ func TestMapTypes(t *testing.T) {
 	loop := fn.Body[0].(*ast.ForRange)
 	if loop.Var.Type != types.String {
 		t.Errorf("key type = %v, want string", loop.Var.Type)
+	}
+}
+
+// TestAcceptsHas checks what a has guard proves: a read, a field read, an
+// assignment, a compound one, a mut argument, an append, a mut method and
+// a replace on m[k], under an if, an early exit, the right of && and ||,
+// and a loop's condition; a constant key proven by the same constant or
+// an immutable name holding it; a key that is a field of a parameter; a
+// write to another key's value, which changes no key; and a proof again
+// after a put.
+func TestAcceptsHas(t *testing.T) {
+	for _, tt := range []struct{ name, src string }{
+		{"an if", mapProgram("mut m map[int64]int64, k int64",
+			"if has(m, k) {", "    m[k] = m[k] + 1", "    m[k] += 1", "}")},
+		{"an early exit", mapProgram("m map[int64]Bag, k int64",
+			"if !has(m, k) {", "    return", "}", "if len(m[k].items) > 0 {", "}")},
+		{"&& and ||", mapProgram("m map[string]int64, k string",
+			"if has(m, k) && m[k] > 0 || !has(m, k) || m[k] < 0 {", "}")},
+		{"a loop's condition", mapProgram("mut m map[int64]int64, k int64",
+			"for has(m, k) {", "    m[k] -= 1", "    delete(mut m, k)", "}")},
+		{"owned values in place", mapProgram("mut m map[int64]list[int64], k int64",
+			"if has(m, k) {", "    err := append(mut m[k], 1)", "    old := replace(mut m[k], make(list[int64], c_allocator))",
+			"    m[k] = old", "    if err.code != 0 || len(m[k]) > 0 {", "    }", "}")},
+		{"a mut method", mapProgram("mut m map[int64]Bag",
+			"if has(m, 1) {", "    err := mut m[1].add(2)", "    if err.code != 0 {", "    }", "}")},
+		{"a constant key by an immutable name", mapProgram("mut m map[int64]int64",
+			"one := 1", "if has(m, one) {", "    m[1] = m[one]", "}")},
+		{"a field of a parameter as the key", mapProgram("m map[int64]int64, p Pair",
+			"if has(m, p.n) && m[p.n] > 0 {", "}")},
+		{"another key's value written", mapProgram("mut m map[int64]int64, k int64, j int64",
+			"if has(m, k) && has(m, j) {", "    m[j] = 1", "    m[k] = 2", "}")},
+		{"a proof again after a put", mapProgram("mut m map[int64]int64, k int64",
+			"err := put(mut m, k, 1)", "if err.code == 0 && has(m, k) {", "    m[k] += 1", "}")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := strings.Replace(tt.src, "func main()", hasHelpers+"func main()", 1)
+			if diags := check(t, src); len(diags) > 0 {
+				t.Fatalf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// hasHelpers declares what TestAcceptsHas and TestRejectsHas use beside
+// mapProgram's Bag: a mut method on Bag, a struct with an int64 field, and
+// a function that changes a map.
+const hasHelpers = `func (mut b Bag) add(x int64) error {
+    return append(mut b.items, x)
+}
+
+type Pair struct {
+    n int64
+}
+
+func gone(mut m map[int64]int64) int64 {
+    delete(mut m, 1)
+    return 0
+}
+
+`
+
+// TestRejectsHas checks what a has guard does not prove: a key used after
+// a write to its map: a put, a delete of any key, a mut argument or an
+// assignment of the map, between them, or after them through a loop's back
+// edge or in deferred code; a key that can change; a map that is not a
+// variable or a field of an immutable one; an assignment whose value
+// changes the map; and a has stored in a variable. It checks has's own
+// errors too.
+func TestRejectsHas(t *testing.T) {
+	const unproven = "key k may not be in m; check has(m, k) first, or use v, ok := m[k]"
+	for _, tt := range []struct{ name, src, want string }{
+		{"a put between", mapProgram("mut m map[int64]int64, k int64",
+			"if has(m, k) {", "    err := put(mut m, 2, 2)", "    if err.code != 0 || m[k] > 0 {", "    }", "}"), unproven},
+		{"a delete of another key", mapProgram("mut m map[int64]int64, k int64, j int64",
+			"if has(m, k) {", "    delete(mut m, j)", "    if m[k] > 0 {", "    }", "}"), unproven},
+		{"a mut argument", mapProgram("mut m map[int64]int64, k int64",
+			"if has(m, k) {", "    x := gone(mut m)", "    if m[k] > x {", "    }", "}"), unproven},
+		{"the map assigned", mapProgram("mut m map[int64]int64, k int64, n map[int64]int64",
+			"if has(m, k) {", "    m = n", "    if m[k] > 0 {", "    }", "}"), unproven},
+		{
+			"a back edge", mapProgram("mut m map[int64]int64, k int64",
+				"if has(m, k) {", "    for i := range 2 {", "        if m[k] > i {", "        }", "        delete(mut m, k)", "    }", "}"),
+			unproven,
+		},
+		{"a defer", mapProgram("mut m map[int64]int64, k int64",
+			"if has(m, k) {", "    defer {", "        if m[k] > 0 {", "        }", "    }", "    delete(mut m, k)", "}"), unproven},
+		{"a mutable key", mapProgram("m map[int64]int64, mut k int64",
+			"if has(m, k) && m[k] > 0 {", "}"), unproven},
+		{"the key outside the guard", mapProgram("m map[int64]int64, k int64",
+			"if !has(m, k) {", "    if m[k] > 0 {", "    }", "}"), unproven},
+		{"a has stored", mapProgram("m map[int64]int64, k int64",
+			"ok := has(m, k)", "if ok && m[k] > 0 {", "}"), unproven},
+		{
+			"a map in a mutable map", mapProgram("mut m map[int64]map[int64]int64",
+				"if has(m, 1) && has(m[1], 2) && m[1][2] > 0 {", "}"),
+			"key 2 may not be in m[1]; check has(m[1], 2) first, or use v, ok := m[1][2]",
+		},
+		{"an owned value unproven", mapProgram("m map[int64]Bag, k int64",
+			"if len(m[k].items) > 0 {", "}"), "key k may not be in m; check has(m, k) first"},
+		{
+			"a value changing its map", mapProgram("mut m map[int64]int64, k int64",
+				"if has(m, k) {", "    m[k] = gone(mut m)", "}"),
+			"cannot assign to m[k] alongside mut m in its value: a value is assigned in place in its map, " +
+				"and a mut argument must be the only way to reach m during its call",
+		},
+		{
+			"a value moved out", mapProgram("m map[int64]Bag, k int64",
+				"if has(m, k) {", "    b := m[k]", "    if len(b.items) > 0 {", "    }", "}"),
+			"cannot move m[k] out of m: a value cannot be moved out of a map; take it out with delete",
+		},
+		{"has of a list", mapProgram("l list[int64]", "if has(l, 0) {", "}"), "has expects a map, got list[int64]"},
+		{"has of one argument", mapProgram("m map[int64]int64", "if has(m) {", "}"), "has expects 2 argument(s), got 1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := strings.Replace(tt.src, "func main()", hasHelpers+"func main()", 1)
+			diags := check(t, src)
+			if len(diags) == 0 || diags[0].Message != tt.want {
+				t.Fatalf("got %v, want %q first", diags, tt.want)
+			}
+		})
 	}
 }

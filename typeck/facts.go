@@ -51,6 +51,11 @@ import (
 //     is at most 2 and may still be negative. || when true and && when false give what
 //     both sides agree on, the union of their facts, for each variable
 //     both sides constrain;
+//   - has(m, k) true gives the relation that k is in the map m, for a map
+//     that is a subject and a key that is a constant or a name nothing
+//     assigns, or a path below one (see memberOf); it ends at any write
+//     to m but not at one to a value m holds, which changes no key (see
+//     writes), and only a map's element asks about it;
 //   - the length of a string parameter or mutable variable has no known
 //     value (an immutable one holding a known string has; see
 //     knownString), so two more comparisons give facts: len(s) with a known value bounds the length,
@@ -71,7 +76,9 @@ import (
 // it is not zero, or that it lies at or above lo, or at or below hi, or
 // below the length of the string subject lenOf, or at or below the length
 // of the string subject atMostLen, or at or below the integer subject
-// atMost. The last two are relations (see relational). A subject is a variable or
+// atMost, or that it is a key in the map subject inMap, which a key whose
+// value is known is by known instead, about being zero then (see
+// memberFact). The last three are relations (see relational). A subject is a variable or
 // a path below an immutable one (see subject.go). For a string subject,
 // the fact can be about its length instead, which about then names.
 //
@@ -93,6 +100,8 @@ type fact struct {
 	lenOf        factKey
 	atMostLen    factKey
 	atMost       factKey
+	inMap        factKey
+	known        string
 	ends         []ending
 	lo, hi       constant.Int
 	hasLo, hasHi bool
@@ -127,12 +136,13 @@ func (f fact) empty() bool {
 	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf.isZero() && !f.relational()
 }
 
-// relational reports whether f is a relation a slice's bounds need: its
-// subject at or below a string's or a view's length, or at or below
-// another subject. Such a fact gives no bound of its own, and only a
-// slice's proof asks about it.
+// relational reports whether f is a relation: one a slice's bounds need,
+// its subject at or below a string's or a view's length, or at or below
+// another subject, or a key being in a map, which only a map's element
+// needs. Such a fact gives no bound of its own, and only those proofs ask
+// about it.
 func (f fact) relational() bool {
-	return !f.atMostLen.isZero() || !f.atMost.isZero()
+	return !f.atMostLen.isZero() || !f.atMost.isZero() || !f.inMap.isZero()
 }
 
 // interval is what all the facts in force say about a variable's value: at
@@ -533,6 +543,10 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	switch x := cond.(type) {
 	case *ast.Ident:
 		return c.boolFact(x, holds)
+	case *ast.Call:
+		if holds && isHas(x) {
+			return c.memberFact(x)
+		}
 	case *ast.Unary:
 		if x.Op == ast.Not {
 			return c.factsFrom(x.X, !holds)
@@ -938,13 +952,16 @@ func (c *Checker) release(m mark) {
 
 // assignedIn returns why region drops f: the first assignment in it, in
 // source order, to f's variable, or else to the string whose length bounds
-// it, or the subject a relation bounds it by, a call passing any of them
-// as mut included. It returns nil when region assigns none of them.
+// it, or the subject a relation bounds it by, or the map it is a key of, a
+// call passing any of them as mut included. It returns nil when region
+// assigns none of them.
 func (c *Checker) assignedIn(region []ast.Node, f fact) *drop {
-	if d := c.assignedDrop(region, f.about); d != nil {
-		return d
+	if !f.about.isZero() {
+		if d := c.assignedDrop(region, f.about); d != nil {
+			return d
+		}
 	}
-	for _, other := range []factKey{f.lenOf, f.atMostLen, f.atMost} {
+	for _, other := range []factKey{f.lenOf, f.atMostLen, f.atMost, f.inMap} {
 		if other.isZero() {
 			continue
 		}
@@ -972,11 +989,11 @@ type ending struct {
 
 // endingsIn returns every write in region that may end f, in the order
 // region holds them: each assignment to f's variable, or to the string
-// whose length bounds it, or the subject a relation bounds it by, a call
-// passing any of them as mut included.
+// whose length bounds it, or the subject a relation bounds it by, or the
+// map it is a key of, a call passing any of them as mut included.
 func (c *Checker) endingsIn(region []ast.Node, f fact) []ending {
 	var ends []ending
-	for _, k := range []factKey{f.about, f.lenOf, f.atMostLen, f.atMost} {
+	for _, k := range []factKey{f.about, f.lenOf, f.atMostLen, f.atMost, f.inMap} {
 		if !k.isZero() {
 			ends = append(ends, c.writesIn(region, k.decl)...)
 		}
@@ -1207,22 +1224,22 @@ func declName(decl ast.Decl) string {
 }
 
 // writes reports whether assigning to target changes decl: target is decl
-// itself, or an element or a field of it, but not an element of a list,
-// or a part of one, which changes no variable a fact can be about: a
-// list's element is never a subject, and writing one changes no list's
-// length.
+// itself, or an element or a field of it, but not an element of a list or
+// a value of a map, or a part of one, which changes no variable a fact can
+// be about: a list's element and a map's value are never subjects, and
+// writing one changes no list's length and no map's keys.
 func (c *Checker) writes(target ast.Expr, decl ast.Decl) bool {
 	root := ast.Root(target)
 	return root != nil && root.Def == decl && !c.throughList(target)
 }
 
-// throughList reports whether target, a place, is an element of a list,
-// or a field or an element of one, at any depth.
+// throughList reports whether target, a place, is an element of a list or
+// a value of a map, or a field or an element of one, at any depth.
 func (c *Checker) throughList(target ast.Expr) bool {
 	for {
 		switch x := target.(type) {
 		case *ast.Index:
-			if c.table.IsList(ast.TypeOf(x.X)) {
+			if typ := ast.TypeOf(x.X); c.table.IsList(typ) || c.table.IsMap(typ) {
 				return true
 			}
 			target = x.X

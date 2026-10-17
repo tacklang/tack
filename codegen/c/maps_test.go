@@ -27,6 +27,27 @@ func TestMapsExampleIsSanitizerClean(t *testing.T) {
 	}
 }
 
+// TestMapHasExampleIsSanitizerClean builds examples/map-has, its C file
+// and std's C as TestMapsExampleIsSanitizerClean does, and checks every
+// check passes: reads, assignments that free the value they replace, mut
+// arguments, appends, replaces and mut methods on values under has,
+// constant keys, early exits, a proof in every pass of a loop, maps in
+// maps, in a field, a union's payload and a range's value, appends under
+// has refused by the allocator at every allocation, and c_allocator
+// holding nothing after each group.
+func TestMapHasExampleIsSanitizerClean(t *testing.T) {
+	src, csrc := exampleFiles(t, "map-has", "live.c")
+	for _, flags := range [][]string{
+		{"-O2"},
+		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	} {
+		t.Run(filepath.Join(flags...), func(t *testing.T) {
+			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 16)
+		})
+	}
+}
+
 // compositeKeys keys maps by arrays, structs holding strings, unions with
 // and without payloads, lists, and the integers at their edges, and looks
 // each key up through a value built apart from the one put, so a hash

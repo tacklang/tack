@@ -572,16 +572,19 @@ func (m *mover) selector(x *ast.Selector, ctx useCtx, cur *flow) {
 }
 
 // element follows an element read in ctx: moving one of an owned type
-// out of its list or view is an error, since the list owns it, and what
-// is indexed and the index are read.
+// out of its list, map or view is an error, since the list or the map
+// owns it, and what is indexed and the index are read.
 func (m *mover) element(x *ast.Index, ctx useCtx, cur *flow) {
 	if ctx == moveCtx && m.c.table.Owned(x.Type) {
-		holder := "a list; take it out with pop or remove"
-		if m.c.table.IsView(ast.TypeOf(x.X)) {
+		what, holder := "an element", "a list; take it out with pop or remove"
+		switch typ := ast.TypeOf(x.X); {
+		case m.c.table.IsView(typ):
 			holder = "a view, which only borrows it"
+		case m.c.table.IsMap(typ):
+			what, holder = "a value", "a map; take it out with delete"
 		}
-		m.errorNotes(x.Span, nil, "cannot move %s out of %s: an element cannot be moved out of %s",
-			m.c.text(x.Span), m.c.text(x.X.Spanned()), holder)
+		m.errorNotes(x.Span, nil, "cannot move %s out of %s: %s cannot be moved out of %s",
+			m.c.text(x.Span), m.c.text(x.X.Spanned()), what, holder)
 	}
 	m.expr(x.X, readCtx, cur)
 	m.expr(x.Index, readCtx, cur)

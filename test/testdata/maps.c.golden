@@ -340,6 +340,14 @@ static int64_t tack_mfind_23(const tack_map_23 *m, const tack_string *k, uint64_
     }
 }
 
+static bool tack_mhas_23(const tack_map_23 *m, tack_string key) {
+    return tack_mfind_23(m, &key, tack_hash_2(&key)) >= 0;
+}
+
+static int64_t *tack_mat_23(const tack_map_23 *m, tack_string key) {
+    return (int64_t *)&m->entries[m->slots[tack_mfind_23(m, &key, tack_hash_2(&key))] - 1].val;
+}
+
 static bool tack_mgrow_23(tack_map_23 *m) {
     if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
         return true;
@@ -444,6 +452,14 @@ static int64_t tack_mfind_24(const tack_map_24 *m, const int64_t *k, uint64_t h)
             return (int64_t)i;
         }
     }
+}
+
+static bool tack_mhas_24(const tack_map_24 *m, int64_t key) {
+    return tack_mfind_24(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+static tack_list_22 *tack_mat_24(const tack_map_24 *m, int64_t key) {
+    return (tack_list_22 *)&m->entries[m->slots[tack_mfind_24(m, &key, tack_hash_1(&key))] - 1].val;
 }
 
 static bool tack_mgrow_24(tack_map_24 *m) {
@@ -554,6 +570,14 @@ static int64_t tack_mfind_26(const tack_map_26 *m, const int64_t *k, uint64_t h)
     }
 }
 
+static bool tack_mhas_26(const tack_map_26 *m, int64_t key) {
+    return tack_mfind_26(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+static int64_t *tack_mat_26(const tack_map_26 *m, int64_t key) {
+    return (int64_t *)&m->entries[m->slots[tack_mfind_26(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
 static bool tack_mgrow_26(tack_map_26 *m) {
     if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
         return true;
@@ -658,6 +682,14 @@ static int64_t tack_mfind_29(const tack_map_29 *m, const tack_3_std4_text4_Text 
             return (int64_t)i;
         }
     }
+}
+
+static bool tack_mhas_29(const tack_map_29 *m, tack_3_std4_text4_Text key) {
+    return tack_mfind_29(m, &key, tack_hash_17(&key)) >= 0;
+}
+
+static int64_t *tack_mat_29(const tack_map_29 *m, tack_3_std4_text4_Text key) {
+    return (int64_t *)&m->entries[m->slots[tack_mfind_29(m, &key, tack_hash_17(&key))] - 1].val;
 }
 
 static bool tack_mgrow_29(tack_map_29 *m) {
@@ -769,6 +801,14 @@ static int64_t tack_mfind_30(const tack_map_30 *m, const tack_string *k, uint64_
     }
 }
 
+static bool tack_mhas_30(const tack_map_30 *m, tack_string key) {
+    return tack_mfind_30(m, &key, tack_hash_2(&key)) >= 0;
+}
+
+static tack_4_main3_Bag *tack_mat_30(const tack_map_30 *m, tack_string key) {
+    return (tack_4_main3_Bag *)&m->entries[m->slots[tack_mfind_30(m, &key, tack_hash_2(&key))] - 1].val;
+}
+
 static bool tack_mgrow_30(tack_map_30 *m) {
     if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
         return true;
@@ -877,6 +917,14 @@ static int64_t tack_mfind_31(const tack_map_31 *m, const int64_t *k, uint64_t h)
     }
 }
 
+static bool tack_mhas_31(const tack_map_31 *m, int64_t key) {
+    return tack_mfind_31(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+static tack_map_26 *tack_mat_31(const tack_map_31 *m, int64_t key) {
+    return (tack_map_26 *)&m->entries[m->slots[tack_mfind_31(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
 static bool tack_mgrow_31(tack_map_31 *m) {
     if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
         return true;
@@ -983,6 +1031,14 @@ static int64_t tack_mfind_33(const tack_map_33 *m, const tack_3_std4_text4_Text 
             return (int64_t)i;
         }
     }
+}
+
+static bool tack_mhas_33(const tack_map_33 *m, tack_3_std4_text4_Text key) {
+    return tack_mfind_33(m, &key, tack_hash_17(&key)) >= 0;
+}
+
+static tack_list_22 *tack_mat_33(const tack_map_33 *m, tack_3_std4_text4_Text key) {
+    return (tack_list_22 *)&m->entries[m->slots[tack_mfind_33(m, &key, tack_hash_17(&key))] - 1].val;
 }
 
 static bool tack_mgrow_33(tack_map_33 *m) {

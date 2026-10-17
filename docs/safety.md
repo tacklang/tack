@@ -1533,17 +1533,44 @@ frees when its owner's block ends, as a list frees its elements; it
 moves rather than copies, as a list does, under the same rules. The rest
 of its safety is the same three properties a list's is.
 
-**A key is never assumed to be there.** Nothing proves a key is in a
-map, so a value is read only with the checked form, `v, ok := m[k]`,
-which gives the value type's zero value and `false` for a key that is
-not, and `m[k]` anywhere else
-is <!-- error: map-lookup-plain -->`key k may not be in m; use v, ok := m[k]`.
+**A key is never assumed to be there.** A value is read only with the
+checked form, `v, ok := m[k]`, which gives the value type's zero value
+and `false` for a key that is not, or where `has(m, k)` proves the key is
+there, and `m[k]` anywhere else
+is <!-- error: map-lookup-plain -->`key k may not be in m; check has(m, k) first, or use v, ok := m[k]`.
 The checked form copies, so it cannot read an owned value,
-<!-- error: map-lookup-owned -->`the checked form cannot read a value of type list[int64]: it would copy it out of m; range over m to use its values in place`,
+<!-- error: map-lookup-owned -->`the checked form cannot read a value of type list[int64]: it would copy it out of m; check has(m, 1) first and use m[1] in place`,
 nor one of a type with no zero value to give,
-<!-- error: map-lookup-no-zero -->`the checked form cannot read a value of type Allocator: it has no zero value to give when the key is not in the map`.
+<!-- error: map-lookup-no-zero -->`the checked form cannot read a value of type Allocator: it has no zero value to give when the key is not in the map; check has(m, 1) first`.
 `delete` gives its value only with `ok`, which holds it as `pop`'s does,
 <!-- error: map-delete-plain -->`delete gives the value and whether the key was there; use v, ok := delete(mut m, k)`.
+
+**A proven key stays there while its value is used.** `has(m, k)`
+tested as a condition proves `k` is in `m` as `i < len(l)` proves an
+index: by the same proof rules, it holds where the condition does, up to
+any write that can reach the use. A write to `m` is a `put`, a `delete`
+of any key, an assignment, or `m` passed as `mut`; each can take the key
+out, or move the entries a value lives in, so each ends the proof,
+<!-- error: map-has-write-between -->`key k may not be in m; check has(m, k) first, or use v, ok := m[k]`,
+<!-- note: map-has-write-between -->`but m is passed as mut to put here, so the proof ends`,
+a delete of another key included
+(<!-- case: map-has-other-key -->), and so does one that reaches the use
+through a loop's back edge (<!-- case: map-has-back-edge -->) or runs
+before deferred code (<!-- case: map-has-defer -->). Writing a value `m`
+holds, `m[k] = v` or `append(mut m[k], x)` for a proven key, changes no
+key and moves no entry, so it ends nothing. The key must be one nothing
+can change, a constant, or a variable or parameter declared without
+`mut`, or a field of one,
+<!-- note: map-has-key-reassigned -->`has proves only a key that cannot change: a constant, a variable or parameter declared without mut, or a field of one`;
+and the map one whose every write is seen, a variable or a parameter, or
+a field or element of one declared without `mut`, not a map held in a
+mutable map, whose keys a `mut` argument of its value would change,
+<!-- note: map-has-map-not-variable -->`has proves a key only in a map that is a variable or a parameter, or a field or an element of one declared without mut`.
+Under the proof `m[k]` is a place, its value in the map's entries, read
+and written there; a value cannot be moved out,
+<!-- error: map-value-moved -->`cannot move m[k] out of m: a value cannot be moved out of a map; take it out with delete`,
+and one assigned cannot be computed by a call that changes the map,
+<!-- error: map-assign-borrow -->`cannot assign to m[k] alongside mut m in its value: a value is assigned in place in its map, and a mut argument must be the only way to reach m during its call`.
 
 **Nothing is freed twice or kept after it is freed.** `put` moves its key
 and value in; replacing a value frees the old one, and the key given is
@@ -1558,6 +1585,8 @@ frees the value too. A key moved into a map cannot be used after,
 **A walk never sees its map change.** A range over a map binds owned
 keys and values in place, in its buffers, so the loop cannot change the
 map, <!-- error: map-range-put -->`m is being ranged over, so this loop cannot pass mut m`,
+nor assign a value a binding may refer to,
+<!-- error: map-has-range-assign -->`m is being ranged over, and v refers into it, so this loop cannot assign m[k]`,
 and a lookup whose key passes the map as mut
 is <!-- error: map-index-borrow -->`cannot index m alongside mut m in its index: a map is not copied to be indexed, and a mut argument must be the only way to reach m during its call`.
 
@@ -1569,6 +1598,10 @@ and `error` is no key,
 string, Text and integer keys and of list and struct values, 100000
 entries among them, makes every allocation of a `put` fail in turn, and
 checks after every group that its allocator holds nothing.
+`examples/map-has` reads, assigns, appends to, replaces and calls mut
+methods on values under `has`, in maps held by variables, fields, union
+payloads, range loops and other maps, makes every allocation of an append
+under `has` fail in turn, and checks the same.
 
 ## Compile-time errors
 

@@ -1570,11 +1570,15 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 }
 
 // elementRef renders an element being assigned, or passed as mut, ix, as
-// a C lvalue: x.e[i] for an array, x.ptr[i] for a list.
+// a C lvalue: x.e[i] for an array, x.ptr[i] for a list, and the value
+// under a key for a map (see mapElementRef).
 func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
 	base, diags := g.targetRef(ix.X)
 	if len(diags) > 0 {
 		return "", diags
+	}
+	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
+		return g.mapElementRef(ix, base)
 	}
 	index, diags := g.expr(ix.Index, types.Invalid)
 	if len(diags) > 0 {
@@ -2423,7 +2427,7 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 }
 
 // genericValue returns what renders a call to the generic builtin named
-// name, len, make, append, reserve, pop, remove or replace, or nil for
+// name, len, make, append, reserve, pop, remove, replace, put or has, or nil for
 // any other name.
 func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Diagnostic) {
 	switch name {
@@ -2441,8 +2445,21 @@ func (g *generator) genericValue(name string) func(*ast.Call) (string, []diag.Di
 		return g.removeValue
 	case "replace":
 		return g.replaceValue
+	default:
+		return g.mapValue(name)
+	}
+}
+
+// mapValue returns what renders a call to the generic builtin named name
+// that works on a map, put or has, or nil for any other name. delete is
+// rendered by deleteValues and dropDelete, since it gives two values or
+// none.
+func (g *generator) mapValue(name string) func(*ast.Call) (string, []diag.Diagnostic) {
+	switch name {
 	case "put":
 		return g.putValue
+	case "has":
+		return g.hasValue
 	default:
 		return nil
 	}

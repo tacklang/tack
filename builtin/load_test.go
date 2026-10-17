@@ -170,9 +170,9 @@ func TestNilSetIsEmpty(t *testing.T) {
 	if got := strings.Join(
 		set.Names(),
 		" ",
-	); got != "len make append reserve pop remove replace put delete" {
+	); got != "len make append reserve pop remove replace put delete has" {
 		t.Errorf(
-			"nil Set's Names() = %q, want len make append reserve pop remove replace put delete",
+			"nil Set's Names() = %q, want len make append reserve pop remove replace put delete has",
 			got,
 		)
 	}

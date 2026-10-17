@@ -1,7 +1,12 @@
 package typeck
 
 import (
+	"fmt"
+	"slices"
+	"strconv"
+
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -25,8 +30,13 @@ import (
 //
 // v, ok := m[k] reads the value under k, a copy, and ok is whether k is
 // in m; v is V's zero value when it is not. An owned V would be copied,
-// so the checked form cannot read one, and m[k] alone, which would need
-// k proven in m, is reported.
+// so the checked form cannot read one. has(m, k) reports whether k is in
+// m, and tested as a condition it proves so, by a fact (see memberFact)
+// that holds as an index's does, up to any write to m, a put, a delete,
+// an assignment or a mut argument, that can reach the use. m[k] is then a
+// place, as a proven l[i] is: read in place, written, passed as mut,
+// appended to or replaced, its value staying in m's entries, which
+// nothing moves while the proof holds. m[k] anywhere else is reported.
 //
 // v, ok := delete(mut m, k) takes the value under k out of m, freeing the
 // key m held; when k is not in m, ok is false, m is unchanged, and v is
@@ -210,38 +220,163 @@ func (c *Checker) deleteCall(call *ast.Call) types.Type {
 // type idx, as element does an index, and returns the map's value type.
 // k must be usable as the map's key type, under assignment's rules, and
 // may not pass the map, or a place holding it, as mut (see
-// checkIndexBorrows). Bound with ok, the checked form, m[k] needs nothing
-// more; anywhere else k is not known to be in m, which is reported, write
-// saying m[k] is being assigned.
+// checkIndexBorrows); nor may the value assigned to m[k] (see
+// checkAssignBorrows). Bound with ok, the checked form, m[k] needs nothing
+// more; anywhere else k must be proven in m, by has (see provenIn), and
+// one that is not is reported, write saying m[k] is being assigned.
 func (c *Checker) mapElement(ix *ast.Index, base, idx types.Type, write bool) types.Type {
 	value := c.table.Elem(base)
 	if !c.use(ix.Index, idx, c.table.Key(base), "as a key of "+c.typeName(base)) ||
-		c.checkIndexBorrows(ix) {
+		c.checkIndexBorrows(ix) || c.checkAssignBorrows(ix, base) {
+		c.assigning = nil
 		return value
 	}
-	if c.checkedIndex == ix {
+	if c.checkedIndex == ix || c.provenIn(ix.X, ix.Index) {
 		return value
 	}
 	key, m := c.text(ix.Index.Spanned()), c.text(ix.X.Spanned())
-	if write {
-		c.errorf(
-			ix.Index.Spanned(),
-			"key %s may not be in %s; use put(mut %s, %s, ...)",
-			key,
-			m,
-			m,
-			key,
-		)
-		return value
+	msg := fmt.Sprintf("key %s may not be in %s; check has(%s, %s) first", key, m, m, key)
+	switch {
+	case write:
+		msg += fmt.Sprintf(", or use put(mut %s, %s, ...)", m, key)
+	case !c.table.Owned(value) && c.table.HasZero(value):
+		msg += ", or use v, ok := " + c.text(ix.Spanned())
 	}
-	c.errorf(
-		ix.Index.Spanned(),
-		"key %s may not be in %s; use v, ok := %s",
-		key,
-		m,
-		c.text(ix.Spanned()),
-	)
+	c.errorNotes(ix.Index.Spanned(), c.memberNotes(ix), "%s", msg)
 	return value
+}
+
+// isHas reports whether call calls has.
+func isHas(call *ast.Call) bool { return isBuiltinCall(call, "has") }
+
+// hasKeyCall checks a call to has, has(m, k), records its type, bool, on
+// the call and returns it. Its first argument is the map, read in place,
+// as len reads one, and its second the key, usable as the map's key type
+// and borrowed, not moved, when owned. Tested as a condition, it proves k
+// is in m (see memberFact). Anything else is reported, and gives
+// types.Invalid.
+func (c *Checker) hasKeyCall(call *ast.Call) types.Type {
+	if !c.checkArity(call, "has", 2) {
+		for _, arg := range call.Args {
+			c.argExpr(arg)
+		}
+		return types.Invalid
+	}
+	before := len(c.diags)
+	typ := c.expr(call.Args[0])
+	if typ != types.Invalid && !c.table.IsMap(typ) {
+		if typ = c.valueOf(call.Args[0], typ); typ != types.Invalid {
+			c.errorf(call.Args[0].Spanned(), "has expects a map, got %s", c.typeName(typ))
+		}
+		typ = types.Invalid
+	}
+	if typ == types.Invalid {
+		c.argExpr(call.Args[1])
+		return types.Invalid
+	}
+	c.checkArg(call.Args[1], param{name: "k", typ: c.table.Key(typ)}, "has")
+	c.checkListBorrows(call)
+	if len(c.diags) > before {
+		return types.Invalid
+	}
+	call.Type = types.Bool
+	return types.Bool
+}
+
+// memberFact returns the fact has(m, k), call, gives when it is true: that
+// k is in m. m must be a subject (see keyOf) and k a key that cannot
+// change (see memberOf); a call to has on anything else gives none. The
+// fact ends at any write to m that can reach its use, a put, a delete, an
+// assignment or a mut argument, but not one to a value m holds, which
+// changes none of its keys (see writes).
+func (c *Checker) memberFact(call *ast.Call) []fact {
+	if call.Type != types.Bool || len(call.Args) != 2 {
+		return nil
+	}
+	m, ok := c.keyOf(call.Args[0])
+	if !ok {
+		return nil
+	}
+	about, known, ok := c.memberOf(call.Args[1])
+	if !ok {
+		return nil
+	}
+	return from([]fact{{about: about, known: known, inMap: m}}, call)
+}
+
+// memberOf returns how a fact that k is in a map knows k: by its value,
+// written out as known, when k is a known integer or string, so has(m, 1)
+// proves m[1]; or as the subject about, when k is a name that nothing can
+// assign, an immutable variable or a parameter declared without mut, or a
+// path below one. A mutable variable is not one, even though facts about
+// its value can be, since writing an element of a list it holds would
+// change the key without ending a fact about it (see writes). It reports
+// false for any other key.
+func (c *Checker) memberOf(k ast.Expr) (about factKey, known string, ok bool) {
+	if v, isKnown := c.knownValue(k); isKnown {
+		return factKey{}, "int " + v.String(), true
+	}
+	if s, isKnown := c.knownString(k); isKnown {
+		return factKey{}, "string " + strconv.Quote(s), true
+	}
+	if id, isName := k.(*ast.Ident); isName {
+		return declKey(id.Def), "", immutableName(id)
+	}
+	about, ok = c.pathKey(k)
+	return about, "", ok
+}
+
+// memberFacts returns every fact in force, held or dropped, that says the
+// key of ix, m[k], is in m.
+func (c *Checker) memberFacts(ix *ast.Index) []fact {
+	m, ok := c.keyOf(ix.X)
+	if !ok {
+		return nil
+	}
+	about, known, ok := c.memberOf(ix.Index)
+	if !ok {
+		return nil
+	}
+	var facts []fact
+	for _, f := range c.active {
+		if f.inMap == m && f.about == about && f.known == known {
+			facts = append(facts, f)
+		}
+	}
+	return facts
+}
+
+// provenIn reports whether a fact in force proves the key k in the map m,
+// as m[k] reads it.
+func (c *Checker) provenIn(m, k ast.Expr) bool {
+	return slices.ContainsFunc(c.memberFacts(&ast.Index{X: m, Index: k}), c.holds)
+}
+
+// memberNotes returns the notes that explain why the key of ix, m[k], is
+// not proven in m: for each has that proved it but whose proof a write
+// ended, the guard and the write; or, when m is a map or the key one has
+// cannot prove anything about, that.
+func (c *Checker) memberNotes(ix *ast.Index) []diag.Diagnostic {
+	if _, ok := c.keyOf(ix.X); !ok {
+		return []diag.Diagnostic{
+			note(ix.X.Spanned(), "has proves a key only in a map that is a variable "+
+				"or a parameter, or a field or an element of one declared without mut"),
+		}
+	}
+	if _, _, ok := c.memberOf(ix.Index); !ok {
+		return []diag.Diagnostic{
+			note(ix.Index.Spanned(), "has proves only a key that cannot change: "+
+				"a constant, a variable or parameter declared without mut, or a field of one"),
+		}
+	}
+	var dropped []fact
+	for _, f := range c.memberFacts(ix) {
+		if f.drop = c.dropOf(f); f.drop != nil {
+			dropped = append(dropped, f)
+		}
+	}
+	key, m := c.text(ix.Index.Spanned()), c.text(ix.X.Spanned())
+	return dropNotes(dropped, func([]fact) string { return key + " is in " + m })
 }
 
 // mapResults checks m[k], ix, a value of type value bound to want names,
@@ -261,15 +396,18 @@ func (c *Checker) mapResults(
 		c.errorf(
 			span,
 			"the checked form cannot read a value of type %s: it would copy it out of %s; "+
-				"range over %s to use its values in place",
+				"check has(%s, %s) first and use %s in place",
 			c.typeName(value),
 			m,
 			m,
+			c.text(ix.Index.Spanned()),
+			c.text(ix.Spanned()),
 		)
 		return nil, false
 	case !c.table.HasZero(value):
 		c.errorf(span, "the checked form cannot read a value of type %s: "+
-			"it has no zero value to give when the key is not in the map", c.typeName(value))
+			"it has no zero value to give when the key is not in the map; check has(%s, %s) first",
+			c.typeName(value), m, c.text(ix.Index.Spanned()))
 		return nil, false
 	case want != 2:
 		c.errorf(span, "assignment mismatch: %d variables but an index gives 2 values", want)

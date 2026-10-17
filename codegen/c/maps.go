@@ -239,9 +239,10 @@ func (g *generator) emitUnionHash(typ types.Type) {
 }
 
 // emitMapHelpers writes the map type typ's helpers: find, which gives the
-// slot of a key, or -1; grow, which makes room for one more entry, all or
-// nothing; put, which puts a key and a value; and take, which takes the
-// entry in a slot out, giving its value.
+// slot of a key, or -1; has, whether a key is there; at, the address of
+// the value under a key proven there; grow, which makes room for one more
+// entry, all or nothing; put, which puts a key and a value; and take,
+// which takes the entry in a slot out, giving its value.
 func (g *generator) emitMapHelpers(typ types.Type) {
 	table := g.prog.Types
 	key, value := table.Key(typ), table.Elem(typ)
@@ -262,6 +263,7 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 		"        if (s > 0 && m->entries[s - 1].hash == h && %s) {\n            return (int64_t)i;\n        }\n    }\n}\n\n",
 		g.equalExpr(key, "m->entries[s - 1].key", "(*k)"),
 	)
+	g.emitMapLookups(typ)
 	g.emitMapGrow(typ)
 	fmt.Fprintf(&g.buf, "static bool %s(%s *m, %s key, %s val) {\n", mapHelper("put", typ), m, k, v)
 	fmt.Fprintf(
@@ -296,6 +298,33 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 		"    if (m->len == 0) {\n        m->used = 0;\n" +
 		"        for (int64_t i = 0; i < m->nslots; i++) {\n            m->slots[i] = 0;\n        }\n    }\n" +
 		"    return val;\n}\n\n")
+}
+
+// emitMapLookups writes the map type typ's has helper, which reports
+// whether a key is in a map, and its at helper, which gives the address of
+// the value under a key that the type checker has proven is there (see
+// typeck's provenIn), as an element's index is proven in range: the
+// address is used at once, by a read, an assignment or a mut argument,
+// while the proof still holds, so no put or delete can have moved the
+// entries or taken the key out. Each takes the key by value, a shallow
+// copy that owns nothing, so a key that is not a place can be passed.
+//
+//	static bool tack_mhas_9(const tack_map_9 *m, int64_t key) {
+//	    return tack_mfind_9(m, &key, tack_hash_1(&key)) >= 0;
+//	}
+//
+//	static int64_t *tack_mat_9(const tack_map_9 *m, int64_t key) {
+//	    return (int64_t *)&m->entries[m->slots[tack_mfind_9(m, &key, tack_hash_1(&key))] - 1].val;
+//	}
+func (g *generator) emitMapLookups(typ types.Type) {
+	table := g.prog.Types
+	m, k, v := mapName(typ), g.cType(table.Key(typ)), g.cType(table.Elem(typ))
+	find := fmt.Sprintf("%s(m, &key, %s(&key))", mapHelper("find", typ), hashName(table.Key(typ)))
+	fmt.Fprintf(&g.buf, "static bool %s(const %s *m, %s key) {\n    return %s >= 0;\n}\n\n",
+		mapHelper("has", typ), m, k, find)
+	fmt.Fprintf(&g.buf, "static %s *%s(const %s *m, %s key) {\n"+
+		"    return (%s *)&m->entries[m->slots[%s] - 1].val;\n}\n\n",
+		v, mapHelper("at", typ), m, k, v, find)
 }
 
 // emitMapGrow writes the map type typ's grow helper (see the comment at
@@ -594,4 +623,59 @@ func (g *generator) keyTypes() []types.Type {
 		keys = append(keys, g.prog.Types.Key(typ))
 	}
 	return keys
+}
+
+// hasValue lowers has(m, k), m and k evaluated in order, to a call to
+// the map type's has helper on m's address (see emitMapLookups). The
+// checker makes m a place, since a map that is a temporary has no owner.
+func (g *generator) hasValue(call *ast.Call) (string, []diag.Diagnostic) {
+	m, key := call.Args[0], call.Args[1]
+	rendered, diags := g.mapOperands(m, key)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	has := mapHelper("has", ast.TypeOf(m))
+	return g.sequenced([]ast.Expr{m, key}, rendered, func(ops []string) string {
+		return fmt.Sprintf("%s(&%s, %s)", has, ops[0], ops[1])
+	}), nil
+}
+
+// mapElementExpr lowers m[k], ix, read where k is proven in m, m and k
+// evaluated in order, to the value the map type's at helper gives the
+// address of (see emitMapLookups).
+func (g *generator) mapElementExpr(ix *ast.Index) (string, []diag.Diagnostic) {
+	rendered, diags := g.mapOperands(ix.X, ix.Index)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	at := mapHelper("at", ast.TypeOf(ix.X))
+	return g.sequenced([]ast.Expr{ix.X, ix.Index}, rendered, func(ops []string) string {
+		return fmt.Sprintf("(*%s(&%s, %s))", at, ops[0], ops[1])
+	}), nil
+}
+
+// mapOperands renders m, a map, and key, one of its keys, as the
+// operands of a lookup: m parenthesized unless it is already one C
+// operand, so its address can be taken.
+func (g *generator) mapOperands(m, key ast.Expr) ([]string, []diag.Diagnostic) {
+	base, diags := g.expr(m, types.Invalid)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	k, diags := g.expr(key, g.prog.Types.Key(ast.TypeOf(m)))
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return []string{"(" + base + ")", k}, nil
+}
+
+// mapElementRef renders m[k], ix, assigned or passed as mut where k is
+// proven in m, as a C lvalue: the value the map type's at helper gives
+// the address of, in base, the map rendered as a target (see targetRef).
+func (g *generator) mapElementRef(ix *ast.Index, base string) (string, []diag.Diagnostic) {
+	key, diags := g.expr(ix.Index, g.prog.Types.Key(ast.TypeOf(ix.X)))
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return fmt.Sprintf("(*%s(&%s, %s))", mapHelper("at", ast.TypeOf(ix.X)), base, key), nil
 }

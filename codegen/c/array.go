@@ -94,12 +94,16 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 	}), nil
 }
 
-// indexExpr renders an element read, x.e[i], or a string's byte or a
+// indexExpr renders an element read, x.e[i], a map's value under a proven
+// key (see mapElementExpr), or a string's byte or a
 // view's element, x.ptr[i].
 // The checker has proven the index in range. x is parenthesized unless it is
 // a name, an element, a field or a call, which C's postfix operators
 // already bind.
 func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
+	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
+		return g.mapElementExpr(ix)
+	}
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
 		return "", diags

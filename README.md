@@ -1392,10 +1392,24 @@ makes for itself, which has a letter after `tack_`.
   := m[k]` copies the value under `k`, or gives `V`'s zero value and
   `false` when `k` is not in `m`; it cannot read an owned value, which it
   would copy, `the checked form cannot read a value of type Bag: it would
-  copy it out of m; range over m to use its values in place`, nor one of
-  a type with no zero value. `m[k]` anywhere else is `key k may not be in
-  m; use v, ok := m[k]`, and assigning it `key k may not be in m; use
-  put(mut m, k, ...)`. `v, ok := delete(mut m, k)` moves the value under
+  copy it out of m; check has(m, 1) first and use m[1] in place`, nor one
+  of a type with no zero value. `has(m, k)` reports whether `k` is in
+  `m`, and tested as a condition it proves so where the condition holds,
+  as `i < len(l)` proves an index: `m[k]` is then a place, as a proven
+  `l[i]` is, read in place, its fields read, passed as it is or as `mut`,
+  appended to, given to a `mut` method or to `replace`, or assigned, `m[k]
+  = v`, which frees the value it held. The proof ends at any write to `m`
+  that can reach the use, a `put`, a `delete` of any key, an assignment or
+  a `mut` argument, but not at one to a value `m` holds, which changes no
+  key; `m` must be a variable or a parameter, or a field or element of one
+  declared without `mut`, and `k` a constant, or a variable or parameter
+  declared without `mut`, or a field of one, `has proves only a key that
+  cannot change: a constant, a variable or parameter declared without mut,
+  or a field of one`. A value cannot be moved out, `cannot move m[k] out
+  of m: a value cannot be moved out of a map; take it out with delete`.
+  `m[k]` unproven is `key k may not be in m; check has(m, k) first, or use
+  v, ok := m[k]`, and assigning it `key k may not be in m; check has(m, k)
+  first, or use put(mut m, k, ...)`. `v, ok := delete(mut m, k)` moves the value under
   `k` out, freeing the key `m` held; when `k` is not in `m`, `m` is left
   as it was and `v` is `V`'s zero value, or, for a type with none, cannot
   be read until `ok` is checked true, as `pop`'s `x`; written as a

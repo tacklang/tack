@@ -610,8 +610,11 @@
 // maps.go, is owned as a list is, its K any type with == but error and
 // type parameters, a check put off for a struct's field (pendingKeys),
 // its V anything a list's element can be: put moves a key and a value in,
-// its error never dropped, v, ok := m[k] copies a copyable value and m[k]
-// anywhere else is reported, delete gives its value only with ok or as a
+// its error never dropped, v, ok := m[k] copies a copyable value, has(m,
+// k) tested as a condition proves k is in m by a fact like an index's
+// (memberFact), ended by any write to m but not to a value it holds, and
+// m[k] where no fact proves its key is reported, being a place where one
+// does, delete gives its value only with ok or as a
 // statement, as pop's checked form does (isTake), a range binds its key
 // and value, in place when owned (rangeBindings), and locks the map as a
 // list's range does, and len(m) is never known. A list, a map, an

@@ -133,6 +133,20 @@ extern("tack_builtin_exit") func exit(code int32)
 // frees the value it takes. It takes a map of any key and value types,
 // so the compiler implements it itself.
 
+// has(m map[K]V, k K) bool reports whether k is in m. Tested as a
+// condition, in an if, a loop's condition, or either side of && or ||, it
+// proves k is in m where the condition holds, as i < len(l) proves an
+// index, and m[k] is then a place, as a proven l[i] is: it can be read in
+// place, its fields read, passed as it is or as mut, appended to, have a
+// mut method called on it, be replaced, and be assigned, m[k] = v, which
+// frees the value it held. The proof ends at any write to m that can
+// reach the use, a put, a delete, an assignment or a mut argument, but
+// not at one to a value m holds, which changes none of its keys. m must
+// be a variable or a parameter, or a field or an element of one declared
+// without mut, and k a constant, a variable or parameter declared without
+// mut, or a field or element of one, so nothing changes it. It takes a
+// map of any key and value types, so the compiler implements it itself.
+
 // c_allocator, a keyword, is the Allocator that lowers to C's malloc,
 // realloc and free, the one Allocator there is. Allocator, a builtin
 // type, is an opaque handle on an allocator, which a list holds; it is
