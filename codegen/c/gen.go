@@ -877,9 +877,62 @@ func (g *generator) resultType(fn *ast.Func) string {
 }
 
 // generateFuncBody lowers fn's body, the outermost block of fn, as its
-// frame; see funcFrame.
+// frame (see funcFrame), led by a (void) cast of each parameter the
+// lowered body never names (see unusedParams).
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
-	return g.funcFrame(fn)
+	body, diags := g.funcFrame(fn)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return append(unusedParams(fn, body), body...), nil
+}
+
+// unusedParams returns a statement casting each parameter of fn to void,
+// in order, (void)p_x;, for each one body, fn's lowered body, never
+// names. Tack asks nothing of a parameter, so a function may ignore one,
+// as a callback or a generic function often does, and one whose every
+// use lowers to a constant, len of an array parameter, is not named in C
+// either; the cast reads it, so C's unused-parameter warning, which a
+// strict build makes an error, never fires. A parameter the body names
+// gets none, so most functions are lowered as they were.
+func unusedParams(fn *ast.Func, body []string) []string {
+	var casts []string
+	for _, p := range fn.Params {
+		name := paramName(p.Name)
+		used := false
+		for _, line := range body {
+			if namesIdent(line, name) {
+				used = true
+				break
+			}
+		}
+		if !used {
+			casts = append(casts, "(void)"+name+";")
+		}
+	}
+	return casts
+}
+
+// namesIdent reports whether line, a line of C, holds the identifier name
+// whole: not as part of a longer identifier.
+func namesIdent(line, name string) bool {
+	for i := 0; ; {
+		k := strings.Index(line[i:], name)
+		if k < 0 {
+			return false
+		}
+		start, end := i+k, i+k+len(name)
+		if (start == 0 || !isIdentByte(line[start-1])) &&
+			(end == len(line) || !isIdentByte(line[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+// isIdentByte reports whether b can be part of a C identifier.
+func isIdentByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // generateBlock lowers a block of fn other than a loop's body; see block.

@@ -468,6 +468,7 @@ static int64_t tack_15_union_2dmethods9_Bag_2elen(tack_15_union_2dmethods3_Bag p
 }
 
 static tack_string tack_15_union_2dmethods14_Bag_2edescribe(tack_15_union_2dmethods3_Bag p_b) {
+    (void)p_b;
     return (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)};
 }
 

@@ -136,10 +136,8 @@ func main() {
 `
 
 // TestOwnedTypeParamShapes builds ownedShapes with the address and
-// undefined behavior sanitizers and checks all its checks pass. one's
-// parameter is never read, which nothing in Tack asks of it, and which C
-// warns about; that warning alone is let through.
+// undefined behavior sanitizers and checks all its checks pass.
 func TestOwnedTypeParamShapes(t *testing.T) {
 	runChecks(t, buildWithStdAndC(t, ownedShapes, "", "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all", "-Wno-unused-parameter"), 5)
+		"-fno-sanitize-recover=all"), 5)
 }

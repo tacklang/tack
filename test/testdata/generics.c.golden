@@ -243,6 +243,7 @@ static tack_8_generics4_sink5_Tally tack_8_generics4_sink8_NewTally(void) {
 }
 
 static tack_error tack_8_generics4_sink11_Tally_2eput(tack_8_generics4_sink5_Tally * p_t, tack_string p_word) {
+    (void)p_word;
     (*p_t).f_n = ((int64_t)((uint64_t)(*p_t).f_n + (uint64_t)1));
     return (tack_error){};
 }
@@ -455,10 +456,12 @@ static int64_t tack_8_generics31_measure_5bgenerics_2eCounter_5d(tack_8_generics
 }
 
 static int64_t tack_8_generics27_one_5bgenerics_2eCounter_5d(tack_8_generics7_Counter p_e) {
+    (void)p_e;
     return 1;
 }
 
 static int64_t tack_8_generics23_one_5bgenerics_2eBox_5d(tack_8_generics3_Box p_e) {
+    (void)p_e;
     return 1;
 }
 

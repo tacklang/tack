@@ -438,16 +438,19 @@ static bool tack_7_methods16_Builder_2eequals(tack_7_methods7_Builder p_b, tack_
 }
 
 static bool tack_7_methods19_Builder_2eallocated(tack_7_methods7_Builder p_b) {
+    (void)p_b;
     return (tack_7_methods4_live() > 0);
 }
 
 static bool tack_7_methods15_Builder_2eisInt(tack_7_methods7_Builder p_b, tack_any p_v) {
+    (void)p_b;
     const tack_any tack_r19 = p_v;
     const bool v_ok = (tack_r19.type == TACK_TYPE_INT64);
     return v_ok;
 }
 
 static void tack_7_methods14_Builder_2eshow(tack_7_methods7_Builder p_b, tack_string p_format, tack_view_27 p_args) {
+    (void)p_b;
     tack_3_std3_fmt6_printf(p_format, p_args);
 }
 

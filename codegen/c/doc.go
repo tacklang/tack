@@ -136,7 +136,10 @@
 // instance's (see instanceCName).
 // A parameter x becomes p_x and a local variable x becomes v_x, since a Tack
 // name may be a C keyword or a name C declares, and either may legally be
-// called int or exit.
+// called int or exit. A function whose lowered body never names one of its
+// parameters, which Tack allows, as a callback or a generic function ignoring
+// one does, starts with (void)p_x; for it, so C's unused-parameter
+// warning never fires (see unusedParams).
 //
 // A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
 // variable. Every read and write of it goes through the pointer, (*p_p),
