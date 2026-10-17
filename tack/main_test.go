@@ -2843,3 +2843,34 @@ func quoteBytes(b []byte) string {
 	s.WriteByte('"')
 	return s.String()
 }
+
+// TestBuiltFailurePassesEveryCheck builds examples/failure, which imports
+// std/errors, at every optimization level and checks each binary writes
+// exactly examples/failure/output, every check ok: Failures built from a
+// literal and by from_bytes, read, printed, moved through calls, results,
+// a list and a map, and made with every allocation refused in turn, the
+// count of live buffers back to 0 after each part.
+func TestBuiltFailurePassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "failure", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/failure/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "failure")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("failure"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}

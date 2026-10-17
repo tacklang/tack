@@ -1,0 +1,203 @@
+package main
+
+import bytes from "std/bytes"
+import errors from "std/errors"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// std/errors' Failure pairs an error, a code and a literal message, with
+// a detail made at run time, a text.Text it owns: the name that was
+// undefined, the path that could not be opened. A literal,
+// errors.Failure{err: e, detail: t}, moves a Text built beforehand into a
+// Failure, and errors.from_bytes copies a view's bytes into a new one. f.err and f.detail are read as fields, and the
+// detail written with %s through f.detail.bytes().
+//
+// A Failure is owned, as the Text it holds is: it moves, is passed to a
+// function to read, as mut to change, returned, and held by a list or a
+// map, and frees its detail when it goes out of scope. When the detail
+// cannot be made, from_bytes keeps the error and gives an empty detail,
+// so a Failure never loses its code. Every part runs in a function of its
+// own, and main asserts after it that c_allocator's count of live
+// buffers is back to 0; allocations are made to fail at every step.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("failure_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("failure_fail_after") func fail_after(n int64)
+
+// undefined is the error a lookup of a name that is not there gives.
+var undefined = error{code: 20, msg: "undefined"}
+
+// cannot_open is the error an open that fails gives.
+var cannot_open = error{code: 21, msg: "cannot open"}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// show writes f as a message: its error's message, a colon and its
+// detail, then a newline.
+func show(f errors.Failure) {
+    fmt.printf("%s: %s\n", f.err.msg, f.detail.bytes())
+}
+
+// building makes Failures with each constructor and reads them back.
+func building() {
+    name, e := text.from_bytes([]uint8("foo"), c_allocator)
+    if e.code != 0 {
+        check(false, "from_bytes")
+        return
+    }
+    f := errors.Failure{err: undefined, detail: name}
+    check(f.err == undefined && f.err.code == 20, "a literal keeps the error")
+    check(f.detail.equal([]uint8("foo")), "a literal moves the detail in")
+    show(f)
+    g := errors.from_bytes(cannot_open, []uint8("/x: no such file"), c_allocator)
+    check(g.err == cannot_open && g.detail.len() == 16, "from_bytes copies the detail")
+    show(g)
+    empty := errors.from_bytes(undefined, []uint8(""), c_allocator)
+    check(empty.detail.len() == 0 && empty.err.code == 20, "an empty detail")
+    none := errors.Failure{err: noerror, detail: text.new(c_allocator)}
+    check(none.err.code == 0 && none.detail.len() == 0, "a Failure of noerror")
+    odd := errors.from_bytes(undefined, []uint8("\x00\xff"), c_allocator)
+    check(odd.detail.equal([]uint8("\x00\xff")), "0x00 and 0xff in a detail")
+    a := [3]uint8{'a', 'b', 'c'}
+    h := errors.from_bytes(undefined, a[1:], c_allocator)
+    check(h.detail.equal([]uint8("bc")), "a detail from a slice")
+    i := errors.from_bytes(undefined, f.detail.bytes(), c_allocator)
+    check(i.detail.equal(f.detail.bytes()), "a detail copied from another")
+}
+
+// lookup returns the value of name, 1 for "one", beside a Failure of
+// noerror, or 0 beside an undefined Failure whose detail is name.
+func lookup(name []uint8) (int64, errors.Failure) {
+    if bytes.equal(name, []uint8("one")) {
+        return 1, errors.Failure{err: noerror, detail: text.new(c_allocator)}
+    }
+    return 0, errors.from_bytes(undefined, name, c_allocator)
+}
+
+// suffix adds " in main" to the end of f's detail, through mut, and
+// reports whether it could.
+func suffix(mut f errors.Failure) bool {
+    e := mut f.detail.append([]uint8(" in main"))
+    return e.code == 0
+}
+
+// take moves the Failure out of the caller's f and returns it, leaving
+// a Failure of noerror with an empty detail in its place, as replace
+// does: a parameter borrows, so moving out of one goes through mut.
+func take(mut f errors.Failure) errors.Failure {
+    return replace(mut f, errors.Failure{err: noerror, detail: text.new(c_allocator)})
+}
+
+// moving passes Failures through calls and results.
+func moving() {
+    v, f := lookup([]uint8("one"))
+    check(v == 1 && f.err.code == 0, "a result beside no failure")
+    w, g := lookup([]uint8("bar"))
+    check(w == 0 && g.err == undefined && g.detail.equal([]uint8("bar")), "a result beside a failure")
+    mut g2 := g
+    mut h := take(mut g2)
+    check(h.detail.equal([]uint8("bar")) && g2.err.code == 0 && g2.detail.len() == 0, "moved out through mut")
+    check(suffix(mut h) && h.detail.equal([]uint8("bar in main")), "changed through mut")
+    show(h)
+    mut k := errors.from_bytes(cannot_open, []uint8("a"), c_allocator)
+    k = errors.from_bytes(cannot_open, []uint8("b"), c_allocator)
+    check(k.detail.equal([]uint8("b")), "assigned over, the first freed")
+}
+
+// held keeps Failures in a list and a map, and takes them out.
+func held() {
+    mut fs := make(list[errors.Failure], c_allocator)
+    for _, n := range [3]string{"x", "yy", "zzz"} {
+        e := append(mut fs, errors.from_bytes(undefined, []uint8(n), c_allocator))
+        if e.code != 0 {
+            check(false, "append")
+            return
+        }
+    }
+    mut total := 0
+    for _, f := range fs {
+        total = total + f.detail.len()
+    }
+    check(len(fs) == 3 && total == 6, "a list of Failures")
+    last, ok := pop(mut fs)
+    if ok {
+        check(last.detail.equal([]uint8("zzz")), "popped out of a list")
+    }
+    mut m := make(map[int64]errors.Failure, c_allocator)
+    e1 := put(mut m, 1, errors.from_bytes(cannot_open, []uint8("/a"), c_allocator))
+    e2 := put(mut m, 2, errors.from_bytes(cannot_open, []uint8("/b"), c_allocator))
+    e3 := put(mut m, 1, errors.from_bytes(cannot_open, []uint8("/c"), c_allocator))
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && len(m) == 2, "a map of Failures")
+    mut paths := 0
+    for _, f := range m {
+        if f.detail.equal([]uint8("/c")) || f.detail.equal([]uint8("/b")) {
+            paths++
+        }
+    }
+    check(paths == 2, "a replaced Failure freed, the new one held")
+    d, had := delete(mut m, 2)
+    if had {
+        check(d.detail.equal([]uint8("/b")), "deleted out of a map")
+    }
+}
+
+// failing makes Failures with every allocation from the n'th on refused,
+// and reports whether each either holds its whole detail or an empty one,
+// its error kept either way, freeing what it made.
+func failing(n int64) bool {
+    mut fs := make(list[errors.Failure], c_allocator)
+    fail_after(n)
+    mut ok := true
+    for i := range 8 {
+        f := errors.from_bytes(undefined, []uint8("a detail of some length"), c_allocator)
+        ok = ok && f.err == undefined && (f.detail.len() == 23 || f.detail.len() == 0)
+        mut g := errors.from_bytes(cannot_open, []uint8("/p"), c_allocator)
+        e := mut g.detail.append([]uint8("/q"))
+        ok = ok && g.err == cannot_open
+        ok = ok && (e.code == 0 && g.detail.equal([]uint8("/p/q")) || e.code == 1 && g.detail.len() <= 2)
+        if i % 2 == 0 {
+            e2 := append(mut fs, f)
+            ok = ok && (e2.code == 0 || e2.code == 1)
+        }
+    }
+    fail_after(-1)
+    return ok
+}
+
+// failures runs failing with the refusal starting at every step it makes.
+func failures() {
+    mut ok := true
+    for n := range 40 {
+        ok = ok && failing(n)
+        ok = ok && live() == 0
+    }
+    check(ok, "every allocation refused in turn, nothing left behind")
+    f := errors.from_bytes(undefined, []uint8("lost"), c_allocator)
+    fail_after(0)
+    g := errors.from_bytes(undefined, []uint8("lost"), c_allocator)
+    fail_after(-1)
+    check(f.detail.len() == 4 && g.detail.len() == 0 && g.err == undefined, "out of memory keeps the error")
+    show(g)
+}
+
+func main() {
+    building()
+    check(live() == 0, "nothing left after building")
+    moving()
+    check(live() == 0, "nothing left after moving")
+    held()
+    check(live() == 0, "nothing left after held")
+    failures()
+    check(live() == 0, "nothing left after failures")
+}

@@ -5,8 +5,8 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of six packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
-`std/path` and `std/conv`, and no intermediate representation.
+of seven packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+`std/path`, `std/conv` and `std/errors`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -57,8 +57,10 @@ as a view. `std/os` reads the program's arguments and environment,
 reads, writes, lists and removes files and directories, and runs other
 programs, through C that makes one system call at a time, and
 `std/path`, in Tack alone, cleans, splits and joins slash-separated
-paths as Go's `path` package does, and `std/conv`, in Tack alone,
-parses integers as Go's `strconv.ParseInt` and `ParseUint` do.
+paths as Go's `path` package does, `std/conv`, in Tack alone,
+parses integers as Go's `strconv.ParseInt` and `ParseUint` do, and
+`std/errors`, in Tack alone, pairs an error with a message made at
+run time in a `Failure`.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -488,8 +490,10 @@ makes for itself, which has a letter after `tack_`.
   text), [`os`](src/std/os/os.tck), which reaches the operating
   system and runs programs (see os), and
   [`path`](src/std/path/path.tck), which cleans, splits and joins paths
-  (see path), and [`conv`](src/std/conv/conv.tck), which parses
-  integers (see conv).
+  (see path), [`conv`](src/std/conv/conv.tck), which parses
+  integers (see conv), and [`errors`](src/std/errors/errors.tck), whose
+  `Failure` carries a message made at run time beside an error (see
+  errors).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1097,6 +1101,25 @@ makes for itself, which has a letter after `tack_`.
   though, as for every result beside an error, it cannot be read
   before the error is checked. Go's own quirk comes too: in bit size 1,
   `parse_int("-2", 10, 1)` is -1 and no error.
+- errors. `std/errors` is written in Tack alone, with no C. An error's
+  message is a literal, so what only the run knows, the name that was
+  undefined or the path that could not be opened, cannot be in it;
+  `pub type Failure struct { pub err error; pub detail text.Text }`
+  holds the error beside a detail made at run time, a Text it owns. It
+  is owned, as a struct holding a Text is: it moves, has no zero value,
+  is borrowed by a parameter and moved out of one only through `mut`, as
+  by `replace`, may be returned or held by a list or a map, and frees its
+  detail when it goes out of scope. A literal, `errors.Failure{err: e,
+  detail: t}`, moves a Text built beforehand in and cannot fail; `f :=
+  errors.from_bytes(e, s, alloc)` copies the bytes of the `[]uint8`
+  view `s` into a new detail made through `alloc`, and when `alloc`
+  cannot give it, keeps `e` with an empty detail, having allocated
+  nothing, so it returns no error of its own and a Failure never loses
+  its code for want of memory. The fields are read as fields, `f.err.code`,
+  and the detail grown through its own methods, `err := mut
+  f.detail.append(s)`, or written with printf, `fmt.printf("%s: %s\n",
+  f.err.msg, f.detail.bytes())`. Nothing asks what the error is: a
+  Failure of `noerror` is a Failure like any other.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

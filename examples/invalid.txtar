@@ -6641,6 +6641,164 @@ extern-wrong-call/main.tck:13:10: error: cannot use bool as int32 in argument to
    |	         ^~~~~~
 14 |	}
 
+-- failure-dropped/main.tck --
+package main
+
+import errors from "std/errors"
+
+func main() {
+    errors.from_bytes(noerror, []uint8("x"), c_allocator)
+}
+-- failure-dropped/expected --
+stage: typeck
+---
+
+failure-dropped/main.tck:6:5: error: errors.from_bytes returns errors.Failure, which holds a list and cannot be dropped; bind it to a variable
+05 |	func main() {
+06 |	    errors.from_bytes(noerror, []uint8("x"), c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
+-- failure-dropped-blank/main.tck --
+package main
+
+import errors from "std/errors"
+
+func lookup() (int64, errors.Failure) {
+    return 0, errors.from_bytes(noerror, []uint8("x"), c_allocator)
+}
+
+func main() {
+    v, _ := lookup()
+    print("")
+    if v == 0 {
+    }
+}
+-- failure-dropped-blank/expected --
+stage: typeck
+---
+
+failure-dropped-blank/main.tck:10:8: error: lookup returns errors.Failure, which holds a list and cannot be dropped; bind it to a variable instead of _
+09 |	func main() {
+10 |	    v, _ := lookup()
+   |	       ^
+11 |	    print("")
+
+-- failure-literal-unknown-field/main.tck --
+package main
+
+import errors from "std/errors"
+import text from "std/text"
+
+func main() {
+    f := errors.Failure{err: noerror, detail: text.new(c_allocator), extra: 1}
+    print(f.err.msg)
+}
+-- failure-literal-unknown-field/expected --
+stage: typeck
+---
+
+failure-literal-unknown-field/main.tck:7:70: error: errors.Failure has no field extra
+06 |	func main() {
+07 |	    f := errors.Failure{err: noerror, detail: text.new(c_allocator), extra: 1}
+   |	                                                                     ^~~~~
+08 |	    print(f.err.msg)
+
+-- failure-moved-from-param/main.tck --
+package main
+
+import errors from "std/errors"
+
+func pass(f errors.Failure) errors.Failure {
+    return f
+}
+
+func main() {
+    f := errors.from_bytes(noerror, []uint8("x"), c_allocator)
+    g := pass(f)
+    print(g.err.msg)
+}
+-- failure-moved-from-param/expected --
+stage: typeck
+---
+
+failure-moved-from-param/main.tck:6:12: error: cannot move f: it is a parameter, which borrows its caller's value
+05 |	func pass(f errors.Failure) errors.Failure {
+06 |	    return f
+   |	           ^
+07 |	}
+
+-- failure-no-zero-value/main.tck --
+package main
+
+import errors from "std/errors"
+
+func main() {
+    mut f errors.Failure
+    print(f.err.msg)
+}
+-- failure-no-zero-value/expected --
+stage: typeck
+---
+
+failure-no-zero-value/main.tck:6:9: error: f needs a value: errors.Failure has no zero value
+05 |	func main() {
+06 |	    mut f errors.Failure
+   |	        ^
+07 |	    print(f.err.msg)
+
+-- failure-temporary-arg/main.tck --
+package main
+
+import errors from "std/errors"
+
+func show(f errors.Failure) {
+    print(f.err.msg)
+}
+
+func main() {
+    show(errors.from_bytes(noerror, []uint8("x"), c_allocator))
+}
+-- failure-temporary-arg/expected --
+stage: typeck
+---
+
+failure-temporary-arg/main.tck:10:10: error: cannot use a temporary errors.Failure here; store it in a variable first
+09 |	func main() {
+10 |	    show(errors.from_bytes(noerror, []uint8("x"), c_allocator))
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	}
+
+-- failure-used-after-move/main.tck --
+package main
+
+import errors from "std/errors"
+
+func show(f errors.Failure) {
+    print(f.err.msg)
+}
+
+func main() {
+    f := errors.from_bytes(noerror, []uint8("x"), c_allocator)
+    g := f
+    show(f)
+    show(g)
+}
+-- failure-used-after-move/expected --
+stage: typeck
+---
+
+failure-used-after-move/main.tck:12:10: error: f is used after it was moved
+11 |	    g := f
+12 |	    show(f)
+   |	         ^
+13 |	    show(g)
+failure-used-after-move/main.tck:11:10: note: f is moved here
+10 |	    f := errors.from_bytes(noerror, []uint8("x"), c_allocator)
+11 |	    g := f
+   |	         ^
+12 |	    show(f)
+
 -- field-fact-mutable-index/main.tck --
 package main
 

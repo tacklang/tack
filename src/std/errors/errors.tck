@@ -1,0 +1,56 @@
+package errors
+
+import text from "std/text"
+
+// Package errors pairs an error with a message made at run time. A
+// program imports it as
+//
+//     import errors from "std/errors"
+//
+// and the compiler reads it from $TACK_HOME/src/std/errors, or
+// ~/.tack/src/std/errors, as it reads std/text. It is written in Tack
+// alone, with no C.
+//
+// An error's message is a literal, fixed when the program is compiled, so
+// what only the run knows, the name that was undefined or the path that
+// could not be opened, has no place in it. A Failure holds both: the
+// error, its code and its literal message, and a detail, a text.Text it
+// owns. Both fields are pub, read as f.err and f.detail, and the detail
+// is written through its view, as in
+//
+//     fmt.printf("%s: %s\n", f.err.msg, f.detail.bytes())
+//
+// A Failure is owned, as the Text it holds is: it moves rather than
+// copies, has no zero value, and frees its detail when it goes out of
+// scope, a list or a map that holds it included.
+//
+// A Failure is built as a literal, errors.Failure{err: e, detail: t},
+// which moves a Text the caller built in and cannot fail, or by
+// from_bytes, which copies a view's bytes into a new detail; when the detail
+// cannot be made it keeps the error and gives an empty detail, having
+// allocated nothing, so a Failure never loses its code for want of
+// memory, and from_bytes returns no error of its own. A detail is grown
+// afterwards through the field, err := mut f.detail.append(s), all or
+// nothing as text's append is.
+//
+// Nothing here asks what the error is: a Failure of noerror, code 0, is
+// a Failure like any other, and the detail may be empty.
+
+// Failure is an error and a message made at run time that goes with it.
+pub type Failure struct {
+    pub err error
+    pub detail text.Text
+}
+
+// from_bytes returns a Failure of err whose detail is a copy of the bytes
+// of s, made through alloc. When alloc cannot give the detail, the
+// Failure keeps err and its detail is empty, having allocated nothing:
+// the error is what matters, and a caller that must know tests
+// f.detail.len().
+pub func from_bytes(err error, s []uint8, alloc Allocator) Failure {
+    t, e := text.from_bytes(s, alloc)
+    if e.code != 0 {
+        return Failure{err: err, detail: text.new(alloc)}
+    }
+    return Failure{err: err, detail: t}
+}

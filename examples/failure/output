@@ -1,0 +1,28 @@
+a literal keeps the error ok
+a literal moves the detail in ok
+undefined: foo
+from_bytes copies the detail ok
+cannot open: /x: no such file
+an empty detail ok
+a Failure of noerror ok
+0x00 and 0xff in a detail ok
+a detail from a slice ok
+a detail copied from another ok
+nothing left after building ok
+a result beside no failure ok
+a result beside a failure ok
+moved out through mut ok
+changed through mut ok
+undefined: bar in main
+assigned over, the first freed ok
+nothing left after moving ok
+a list of Failures ok
+popped out of a list ok
+a map of Failures ok
+a replaced Failure freed, the new one held ok
+deleted out of a map ok
+nothing left after held ok
+every allocation refused in turn, nothing left behind ok
+out of memory keeps the error ok
+undefined: 
+nothing left after failures ok

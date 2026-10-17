@@ -1193,3 +1193,43 @@ settled by consistency and could go another way:
 - Every behavior is Go's, checked against Go 1.27.1's
   `internal/strconv/atoi.go` and its tests, ported into examples/conv,
   and against `strconv` on random and fuzzed inputs.
+
+## std/errors
+
+Ahmed decided that a runtime message lives in `type Failure struct { err
+error; detail text.Text }`. These points were settled for the smallest
+useful API and could go another way:
+
+- The package is `std/errors`, a new one, since std had none; the file is
+  `src/std/errors/errors.tck`, in Tack alone.
+- Both fields are `pub`, so a Failure is read as `f.err` and `f.detail`
+  and built as a literal, `errors.Failure{err: e, detail: t}`. Private
+  fields would need accessor methods, and a method cannot share a
+  field's name, so they would need names of their own; the fields carry
+  no invariant to protect, since any error with any Text is a Failure.
+- There is no `new(err, detail text.Text)`: a parameter borrows its
+  caller's value and cannot be moved, `cannot move detail: it is a
+  parameter, which borrows its caller's value`, so a function cannot
+  take a Text over. The literal does it. A function could take `mut
+  detail` and swap an empty Text in with `replace`, but it would need an
+  `Allocator` only to make that empty Text.
+- `from_bytes(err, s []uint8, alloc) Failure` copies a view into a new
+  detail. When the detail cannot be made it keeps `err` with an empty
+  detail, made by `text.new(alloc)`, which allocates nothing, and returns
+  no error of its own: the Failure is already an error, and a second one
+  beside it would have to be bound and checked before the Failure could
+  be read. A caller that must know tests `f.detail.len()`.
+- There is no builder from parts beyond the Text's own `append` through
+  the field, `err := mut f.detail.append(s)`, all or nothing per part as
+  text's append is; a part that fails leaves the parts before it.
+- Nothing checks the error: a Failure of `noerror`, code 0, is allowed,
+  as a function returning a value beside a Failure needs one for
+  success, and the detail may be empty.
+- There is no printing function: the detail is written through its
+  view, `fmt.printf("%s: %s\n", f.err.msg, f.detail.bytes())`, and
+  nothing fixes how a Failure reads as one line.
+- A Failure is not an `error` and does not take part in the error rules:
+  a value returned beside one can be read before it is checked. Like any
+  struct holding a list it cannot be dropped, `errors.from_bytes returns
+  errors.Failure, which holds a list and cannot be dropped; bind it to a
+  variable`, `_` included, so a Failure is always looked at or moved on.
