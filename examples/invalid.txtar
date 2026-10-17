@@ -26817,6 +26817,82 @@ slice-view-wrong-element/main.tck:9:26: error: cannot use []int64 as []int32 in 
    |	                         ^~~~~
 10 |	    exit(code)
 
+-- sort-by-array/main.tck --
+package main
+
+import sort from "std/sort"
+
+func less(a int64, b int64) bool {
+    return a < b
+}
+
+func main() {
+    mut a := [3]int64{3, 1, 2}
+    sort.by(mut a, less)
+}
+-- sort-by-array/expected --
+stage: typeck
+---
+
+sort-by-array/main.tck:11:17: error: cannot use [3]int64 as list[T] in argument to sort.by
+10 |	    mut a := [3]int64{3, 1, 2}
+11 |	    sort.by(mut a, less)
+   |	                ^
+12 |	}
+
+-- sort-by-not-mut/main.tck --
+package main
+
+import sort from "std/sort"
+
+func less(a int64, b int64) bool {
+    return a < b
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    sort.by(l, less)
+}
+-- sort-by-not-mut/expected --
+stage: typeck
+---
+
+sort-by-not-mut/main.tck:11:13: error: sort.by takes l as mut; pass mut l
+10 |	    mut l := make(list[int64], c_allocator)
+11 |	    sort.by(l, less)
+   |	            ^
+12 |	}
+
+-- sort-by-wrong-less/main.tck --
+package main
+
+import sort from "std/sort"
+
+func less(a int64, b int64) bool {
+    return a < b
+}
+
+func shorter(a int32, b int32) bool {
+    return a < b
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    sort.by(mut l, shorter)
+    print("")
+    if less(1, 2) {
+    }
+}
+-- sort-by-wrong-less/expected --
+stage: typeck
+---
+
+sort-by-wrong-less/main.tck:15:20: error: cannot use func(int32, int32) bool as func(int64, int64) bool in argument to sort.by
+14 |	    mut l := make(list[int64], c_allocator)
+15 |	    sort.by(mut l, shorter)
+   |	                   ^~~~~~~
+16 |	    print("")
+
 -- spread-alone/main.tck --
 package main
 

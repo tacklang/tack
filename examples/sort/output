@@ -1,0 +1,22 @@
+every shape and size, ascending ok
+every shape and size, descending ok
+100000 elements ok
+three elements in order ok
+is_sorted of a sorted array ok
+is_sorted against the order ok
+is_sorted of none and of one ok
+is_sorted of two ok
+nothing left after basics ok
+a less that is always true ok
+a less that is always false ok
+a less that is random on every call ok
+a less that alternates ok
+is_sorted with a less that is always false ok
+is_sorted with a less that is always true ok
+nothing left after adversaries ok
+a list of lists by length ok
+a list of Texts by bytes ok
+the Texts' order ok
+nothing left after owned ok
+structs by a field, payloads kept ok
+nothing left after structs ok

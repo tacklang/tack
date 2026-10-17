@@ -5,8 +5,9 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of seven packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
-`std/path`, `std/conv` and `std/errors`, and no intermediate representation.
+of eight packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+`std/path`, `std/conv`, `std/errors` and `std/sort`, and no intermediate
+representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -60,7 +61,8 @@ programs, through C that makes one system call at a time, and
 paths as Go's `path` package does, `std/conv`, in Tack alone,
 parses integers as Go's `strconv.ParseInt` and `ParseUint` do, and
 `std/errors`, in Tack alone, pairs an error with a message made at
-run time in a `Failure`.
+run time in a `Failure`, and `std/sort`, in Tack alone, sorts a list
+in place by a less function.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -491,9 +493,10 @@ makes for itself, which has a letter after `tack_`.
   system and runs programs (see os), and
   [`path`](src/std/path/path.tck), which cleans, splits and joins paths
   (see path), [`conv`](src/std/conv/conv.tck), which parses
-  integers (see conv), and [`errors`](src/std/errors/errors.tck), whose
+  integers (see conv), [`errors`](src/std/errors/errors.tck), whose
   `Failure` carries a message made at run time beside an error (see
-  errors).
+  errors), and [`sort`](src/std/sort/sort.tck), which sorts lists
+  (see sort).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1120,6 +1123,28 @@ makes for itself, which has a letter after `tack_`.
   f.detail.append(s)`, or written with printf, `fmt.printf("%s: %s\n",
   f.err.msg, f.detail.bytes())`. Nothing asks what the error is: a
   Failure of `noerror` is a Failure like any other.
+- sort. `std/sort` is written in Tack alone, with no C. `sort.by(mut l,
+  less)` sorts the list `l` in place so that no element is less than the
+  one before it, by `less`, a `func(T, T) bool` reporting whether its
+  first argument goes before its second, as Go's `slices.SortFunc` does
+  with a less function in place of a comparison: `sort.by(mut words,
+  shorter)`. It is generic over the element type, so a list of any type
+  sorts, owned elements, lists and Texts, included. It is a heapsort,
+  with an insertion sort for lists of at most 12 elements: it never
+  recurses and its stack does not grow with the list, it allocates
+  nothing and so returns no error, it moves elements only with `swap`,
+  so an owned element is never copied or freed, and it makes O(n log n)
+  comparisons in the worst case. It is not stable: equal elements may
+  change order. `sort.is_sorted(v, less)` reports whether no element of
+  the view `v` is less than the one before it, so a list, an array or a
+  slice of either may be passed, and an empty or one-element view is
+  sorted. For a sorted result `less` must be a strict weak ordering, as
+  Go asks; one that is not, always true, always false, or different on
+  every call, still ends after O(n log n) calls, reads no element out of
+  range and keeps every element, in an order left unspecified, since
+  every loop is bounded by indexes, never by what `less` answers. The
+  list is passed as `mut`, `sort.by takes l as mut; pass mut l`, and must
+  be a list, `cannot use [3]int64 as list[T] in argument to sort.by`.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

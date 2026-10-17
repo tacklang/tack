@@ -1,0 +1,333 @@
+package main
+
+import sort from "std/sort"
+import text from "std/text"
+
+// std/sort orders a list in place by a less function: sort.by(mut l,
+// less) sorts l so that no element is less than the one before it, and
+// sort.is_sorted(v, less) reports whether a view already is. The sort is
+// a heapsort, with an insertion sort for short lists: it never recurses,
+// allocates nothing, moves elements only by swapping them, so a list of
+// owned elements, lists or Texts, is sorted with nothing copied or freed,
+// and takes O(n log n) comparisons in the worst case. It is not stable.
+//
+// Each sort is checked to give a sorted permutation of what it was given:
+// the same values, counted, in an order is_sorted accepts. Less functions
+// that are no ordering at all, always true, always false, or random and
+// different on every call, must still end, stay in bounds and keep every
+// element. Every check prints its name and "ok", or "FAIL", and main
+// asserts after each part that c_allocator's count of live buffers is
+// back to zero.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("sort_live") func live() int64
+
+// seed is the state of next's linear congruential generator.
+mut seed uint64 = 12345
+
+// flips counts the calls of flip, which answers differently each time.
+mut flips int64 = 0
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// next returns the next value of a 64-bit LCG, Knuth's MMIX constants,
+// reduced to 0 up to m - 1 for a positive m.
+func next(m int64) int64 {
+    seed = seed * 6364136223846793005 + 1442695040888963407
+    v, ok := int64(seed >> 33)
+    if !ok || m <= 0 {
+        return 0
+    }
+    return v % m
+}
+
+// less orders int64s ascending.
+func less(a int64, b int64) bool {
+    return a < b
+}
+
+// greater orders int64s descending.
+func greater(a int64, b int64) bool {
+    return a > b
+}
+
+// The less functions below that order nothing still read a and b,
+// through a test that is always false, since a C function that ignores a
+// parameter fails the sanitizer test's -Wunused-parameter.
+
+// always says every element is less than every other.
+func always(a int64, b int64) bool {
+    return !(a < b && b < a)
+}
+
+// never says no element is less than another.
+func never(a int64, b int64) bool {
+    return a < b && b < a
+}
+
+// coin answers at random, differently on each call, by reading the
+// generator's global state.
+func coin(a int64, b int64) bool {
+    return (next(2) == 0) != (a < b && b < a)
+}
+
+// flip alternates true and false, whatever it is asked.
+func flip(a int64, b int64) bool {
+    flips++
+    return (flips % 2 == 0) != (a < b && b < a)
+}
+
+// shorter orders lists by length.
+func shorter(a list[int64], b list[int64]) bool {
+    return len(a) < len(b)
+}
+
+// bytes_less orders Texts by their bytes, as before does.
+func bytes_less(a text.Text, b text.Text) bool {
+    return before(a.bytes(), b.bytes())
+}
+
+// before orders byte views as Go compares strings: the first differing
+// byte decides, and a prefix comes first.
+func before(x []uint8, y []uint8) bool {
+    for i, c := range x {
+        d, ok := y[i]
+        if !ok {
+            return false
+        }
+        if c != d {
+            return c < d
+        }
+    }
+    return len(x) < len(y)
+}
+
+// Keyed is a key with a payload, to sort structs by one field.
+type Keyed struct {
+    key int64
+    tag int64
+}
+
+// by_key orders Keyed values by key.
+func by_key(a Keyed, b Keyed) bool {
+    return a.key < b.key
+}
+
+// counts returns how many times each value occurs in v, or false when
+// the map cannot grow.
+func counts(v []int64) (map[int64]int64, bool) {
+    mut m := make(map[int64]int64, c_allocator)
+    for _, x := range v {
+        c, had := m[x]
+        mut n := 1
+        if had {
+            n = c + 1
+        }
+        e := put(mut m, x, n)
+        if e.code != 0 {
+            return m, false
+        }
+    }
+    return m, true
+}
+
+// same reports whether v holds each value exactly as many times as want
+// counts it.
+func same(want map[int64]int64, v []int64) bool {
+    got, ok := counts(v)
+    if !ok || len(got) != len(want) {
+        return false
+    }
+    for k, c := range want {
+        d, had := got[k]
+        if !had || d != c {
+            return false
+        }
+    }
+    return true
+}
+
+// shape returns n values: 0 sorted, 1 reversed, 2 a sawtooth of period
+// 7, 3 all equal, 4 random below 1000000, 5 random below 3, so with many
+// repeats.
+func shape(kind int64, n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    e := reserve(mut l, n)
+    if e.code != 0 {
+        return l
+    }
+    for i := range n {
+        mut v := i
+        switch kind {
+        case 1:
+            v = n - i
+        case 2:
+            v = i % 7
+        case 3:
+            v = 5
+        case 4:
+            v = next(1000000)
+        case 5:
+            v = next(3)
+        }
+        e2 := append(mut l, v)
+        if e2.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// sorts sorts a list of each shape and size by less and reports whether
+// every one came out a sorted permutation of what went in.
+func sorts(sizes []int64, cmp func(int64, int64) bool) bool {
+    mut ok := true
+    for kind := range 6 {
+        for _, n := range sizes {
+            mut l := shape(kind, n)
+            want, built := counts(l)
+            if !built || len(l) != n {
+                return false
+            }
+            sort.by(mut l, cmp)
+            ok = ok && sort.is_sorted(l, cmp) && same(want, l)
+        }
+    }
+    return ok
+}
+
+// basics sorts lists of every shape and of the sizes around the
+// insertion sort's threshold, ascending and descending.
+func basics() {
+    sizes := [16]int64{0, 1, 2, 3, 4, 7, 11, 12, 13, 14, 17, 31, 32, 33, 100, 1000}
+    check(sorts(sizes, less), "every shape and size, ascending")
+    check(sorts(sizes, greater), "every shape and size, descending")
+    big := [1]int64{100000}
+    check(sorts(big, less), "100000 elements")
+    mut l := make(list[int64], c_allocator)
+    e := append(mut l, 3, 1, 2)
+    if e.code != 0 {
+        return
+    }
+    sort.by(mut l, less)
+    x, ok0 := l[0]
+    y, ok1 := l[1]
+    z, ok2 := l[2]
+    check(ok0 && ok1 && ok2 && x == 1 && y == 2 && z == 3, "three elements in order")
+    a := [5]int64{1, 2, 2, 3, 9}
+    check(sort.is_sorted(a, less), "is_sorted of a sorted array")
+    check(!sort.is_sorted(a, greater), "is_sorted against the order")
+    check(sort.is_sorted(a[0:0], never) && sort.is_sorted(a[4:], always), "is_sorted of none and of one")
+    b := [2]int64{2, 1}
+    check(!sort.is_sorted(b, less) && sort.is_sorted(b, greater), "is_sorted of two")
+}
+
+// adversary sorts with less functions that order nothing, and reports
+// whether each sort ended with every element kept.
+func adversary(cmp func(int64, int64) bool) bool {
+    mut ok := true
+    for kind := range 6 {
+        for _, n := range [7]int64{0, 1, 2, 12, 13, 100, 5000} {
+            mut l := shape(kind, n)
+            want, built := counts(l)
+            if !built {
+                return false
+            }
+            sort.by(mut l, cmp)
+            ok = ok && len(l) == n && same(want, l)
+        }
+    }
+    return ok
+}
+
+// adversaries runs adversary with each less that is no ordering.
+func adversaries() {
+    check(adversary(always), "a less that is always true")
+    check(adversary(never), "a less that is always false")
+    check(adversary(coin), "a less that is random on every call")
+    check(adversary(flip), "a less that alternates")
+    r := shape(4, 50)
+    check(sort.is_sorted(r, never), "is_sorted with a less that is always false")
+    check(!sort.is_sorted(r, always), "is_sorted with a less that is always true")
+}
+
+// owned sorts lists of lists and of Texts, which own their buffers and
+// must be moved by swapping, never copied or freed.
+func owned() {
+    mut ls := make(list[list[int64]], c_allocator)
+    mut total := 0
+    for range 200 {
+        n := next(20)
+        e := append(mut ls, shape(4, n))
+        if e.code != 0 {
+            check(false, "append a list")
+            return
+        }
+        total = total + n
+    }
+    sort.by(mut ls, shorter)
+    mut sum := 0
+    for _, l := range ls {
+        sum = sum + len(l)
+    }
+    check(sort.is_sorted(ls, shorter) && len(ls) == 200 && sum == total, "a list of lists by length")
+    mut ts := make(list[text.Text], c_allocator)
+    for _, w := range [8]string{"pear", "apple", "fig", "", "apple", "banana", "a", "\xff"} {
+        t, e := text.from_bytes([]uint8(w), c_allocator)
+        if e.code != 0 {
+            check(false, "from_bytes")
+            return
+        }
+        e2 := append(mut ts, t)
+        if e2.code != 0 {
+            check(false, "append a Text")
+            return
+        }
+    }
+    sort.by(mut ts, bytes_less)
+    check(sort.is_sorted(ts, bytes_less), "a list of Texts by bytes")
+    if len(ts) != 8 {
+        check(false, "the Texts' order")
+        return
+    }
+    check(ts[0].len() == 0 && ts[1].equal([]uint8("a")) && ts[7].equal([]uint8("\xff")), "the Texts' order")
+}
+
+// structs sorts structs by one field and checks every payload stayed
+// with its key.
+func structs() {
+    mut ks := make(list[Keyed], c_allocator)
+    for i := range 500 {
+        k := next(50)
+        e := append(mut ks, Keyed{key: k, tag: k * 1000 + i})
+        if e.code != 0 {
+            check(false, "append a Keyed")
+            return
+        }
+    }
+    sort.by(mut ks, by_key)
+    mut kept := true
+    for _, k := range ks {
+        kept = kept && k.tag / 1000 == k.key
+    }
+    check(sort.is_sorted(ks, by_key) && kept && len(ks) == 500, "structs by a field, payloads kept")
+}
+
+func main() {
+    basics()
+    check(live() == 0, "nothing left after basics")
+    adversaries()
+    check(live() == 0, "nothing left after adversaries")
+    owned()
+    check(live() == 0, "nothing left after owned")
+    structs()
+    check(live() == 0, "nothing left after structs")
+}

@@ -1244,3 +1244,33 @@ useful API and could go another way:
   struct holding a list it cannot be dropped, `errors.from_bytes returns
   errors.Failure, which holds a list and cannot be dropped; bind it to a
   variable`, `_` included, so a Failure is always looked at or moved on.
+
+## std/sort
+
+Ahmed decided on a std sort with a less function, after function values
+and generics step 2. These points were settled conservatively and could
+go another way:
+
+- The functions are `by[T Any](mut l list[T], less func(T, T) bool)` and
+  `is_sorted[T Any](v []T, less func(T, T) bool) bool`, with `pub type
+  Any interface {}` as the constraint. `sort.list` cannot be the name, as
+  `list` is a keyword, and `sort.sort` repeats itself; `sort.by(mut l,
+  less)` reads as "sort by less". `is_sorted` takes a view, so arrays and
+  slices are checked too; `by` takes a list only, since `swap` takes a
+  list.
+- The algorithm is heapsort, with an insertion sort for lists of at most
+  12 elements: no recursion, a fixed set of locals, no allocation, so no
+  error result, and O(n log n) comparisons in the worst case. An
+  introsort or pdqsort would be faster on average, but needs a bounded
+  explicit stack and a fallback; heapsort is the simplest that meets the
+  bound.
+- It is not stable, as Go's `slices.SortFunc` is not. A stable sort
+  without allocation is O(n log^2 n) and Go's is recursive (insertion
+  blocks then SymMerge); a stable one, or one taking an `Allocator` for a
+  merge buffer, is left open.
+- A less function that is not a strict weak ordering is allowed: every
+  loop is bounded by indexes alone, so the sort still ends after O(n log
+  n) calls, reads no element out of range and keeps every element, in an
+  order the package does not specify. Nothing detects such a function.
+- There is no `sort.reverse`, no key function, no binary search and no
+  sorting of views (a view is read-only).
