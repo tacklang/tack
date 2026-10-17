@@ -52,6 +52,14 @@ func (g *generator) isComposite(typ types.Type) bool {
 	return table.IsArray(typ) || table.IsStruct(typ) || table.IsUnion(typ)
 }
 
+// hasEqualityHelper reports whether two values of type typ are compared
+// through an equality helper, tack_eq_ (see equalityName): an array, a
+// struct, a union or a list. Every other comparable type compares with
+// C's == or the string comparison helper.
+func (g *generator) hasEqualityHelper(typ types.Type) bool {
+	return g.isComposite(typ) || g.prog.Types.IsList(typ)
+}
+
 // parts returns the types a value of type typ is made of: an array's, a
 // view's or a list's element type, a struct's field types, or a union's
 // payloads' types, in order.
@@ -124,14 +132,14 @@ func (g *generator) emitStructDef(typ types.Type) {
 	fmt.Fprintf(&g.buf, "} %s;\n\n", g.structName(typ))
 }
 
-// comparedTypes returns every array and struct type the program compares
-// with == or !=, and every array and struct type they are made of, which
-// their helpers compare in turn.
+// comparedTypes returns every array, struct, union and list type the
+// program compares with == or !=, and every such type they are made of,
+// which their helpers compare in turn.
 func (g *generator) comparedTypes() map[types.Type]bool {
 	compared := make(map[types.Type]bool)
 	var mark func(typ types.Type)
 	mark = func(typ types.Type) {
-		if compared[typ] || !g.isComposite(typ) {
+		if compared[typ] || !g.hasEqualityHelper(typ) {
 			return
 		}
 		compared[typ] = true
@@ -155,14 +163,14 @@ func (g *generator) comparedTypes() map[types.Type]bool {
 // types it is made of, which it calls, unless emitted says it has been
 // written already.
 func (g *generator) emitEqualityOf(typ types.Type, emitted map[types.Type]bool) {
-	if emitted[typ] || !g.isComposite(typ) {
+	if emitted[typ] || !g.hasEqualityHelper(typ) {
 		return
 	}
 	emitted[typ] = true
 	for _, part := range g.parts(typ) {
 		g.emitEqualityOf(part, emitted)
 	}
-	if g.prog.Types.IsArray(typ) {
+	if g.prog.Types.IsArray(typ) || g.prog.Types.IsList(typ) {
 		g.emitArrayEquality(typ)
 		return
 	}
@@ -202,10 +210,10 @@ func (g *generator) emitStructEquality(typ types.Type) {
 // equalExpr renders a C test of whether l and r, two values of type typ,
 // each a place an equality helper reads through its pointers, are equal:
 // the type's equality helper, given their addresses, for an array, a
-// struct or a union, the string comparison helper giving zero for a
-// string, and C's == otherwise.
+// struct, a union or a list, the string comparison helper giving zero for
+// a string, and C's == otherwise.
 func (g *generator) equalExpr(typ types.Type, l, r string) string {
-	if g.isComposite(typ) {
+	if g.hasEqualityHelper(typ) {
 		return fmt.Sprintf("%s(&%s, &%s)", equalityName(typ), l, r)
 	}
 	if typ == types.String {

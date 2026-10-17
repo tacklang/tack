@@ -1472,7 +1472,9 @@ one no variable holds must be given one, a switch's tag included,
 <!-- error: union-temporary-owned -->`cannot use a temporary U here; store it in a variable first`;
 no global holds one, <!-- error: union-global-list -->`package-level variable g cannot hold a list`;
 it is no array's element, though a list's it may be, matched in place;
-and it has no `==`, <!-- error: union-equality-list -->`operator == is not defined on U`.
+and it compares with `==` as a list does, reading both in place, so
+neither operand may be passed as `mut` in the other,
+<!-- error: list-eq-alongside-mut -->`cannot compare a alongside mut a in the other operand: a list is not copied to be compared, and a mut argument must be the only way to reach a during its call`.
 Freeing one frees what the case it holds holds, and a moved one is
 empty, so freeing it does nothing; assigning one frees the old value
 once the new one is computed. A payload is built into a union by

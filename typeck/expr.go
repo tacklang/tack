@@ -730,8 +730,10 @@ func (c *Checker) foldArithmetic(bin *ast.Binary) types.Type {
 // once an untyped constant has taken the other operand's type, which it
 // must fit: int8(-1) < uint64(0) holds. Any other operands must have one
 // type, and that type must support the operator: a string supports all
-// six, a bool, an array or a struct only == and !=. A mismatch, or an
-// unsupported operator, is one error covering the whole comparison. Two
+// six, a bool, an array, a list, a struct or a union only == and !=. A
+// mismatch, or an unsupported operator, is one error covering the whole
+// comparison; a comparison of values holding lists is then checked for
+// borrows (checkCompareBorrows). Two
 // untyped constants are compared exactly, and the result recorded on bin;
 // two string literals are not folded, and are compared at run time.
 func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
@@ -767,6 +769,8 @@ func (c *Checker) comparisonOfOneType(bin *ast.Binary, x, y types.Type) {
 		)
 	case !c.supports(common, bin.Op):
 		c.errorf(bin.Span, "operator %s is not defined on %s", bin.Op, c.typeName(common))
+	case c.table.Owned(common):
+		c.checkCompareBorrows(bin)
 	}
 }
 

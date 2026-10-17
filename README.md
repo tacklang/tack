@@ -1133,9 +1133,27 @@ makes for itself, which has a letter after `tack_`.
   element writes in the body show in later iterations, and the body
   cannot change the list: assigning it or anything holding it, passing
   either as `mut`, `append`, `reserve`, `pop` and `remove` included, or moving it is `l is being ranged
-  over, so this loop cannot pass mut l`. Lists have no `==`, no order and
-  no zero value: `mut l list[int64]` is `l needs a value: list[int64] has
-  no zero value`. No package-level variable may hold a list,
+  over, so this loop cannot pass mut l`. Two lists of one type compare
+  with `==` and `!=` when their element type does: equal when they have
+  the same length and each element equals the one at the same index,
+  compared as `==` compares the element type, whatever their capacities,
+  so two empty lists are equal and a proper prefix is not. A list of
+  lists, of strings, of arrays or of structs compares element by
+  element, each through its own type's `==`; a list of elements without
+  `==` has none, `operator == is not defined on list[Pool]` for a struct
+  `Pool` holding an `Allocator`, and a view never has one. Comparing reads
+  both lists where they are, copying nothing and allocating nothing, so
+  each operand must be a variable or a place in one, `cannot use a
+  temporary list[uint8] here; store it in a variable first`, and neither
+  may be passed as `mut` in the other operand: `a == lists[first(mut
+  a)]` is `cannot compare a alongside mut a in the other operand: a list
+  is not copied to be compared, and a mut argument must be the only way
+  to reach a during its call`. A switch cannot take a value holding a
+  list as its tag, since it holds its tag while it evaluates each case:
+  `switch l` is `cannot switch on list[int64], which holds a list;
+  compare it with == in an if instead`. Lists have no order and no zero
+  value: `mut l list[int64]` is `l needs a value: list[int64] has no zero
+  value`. No package-level variable may hold a list,
   `package-level variable g cannot hold a list`, since any function could
   reach one.
 
@@ -1288,7 +1306,8 @@ makes for itself, which has a letter after `tack_`.
 
   A struct with a field of a list type, directly or through another
   struct or a union, holds a list, and is owned as a list is: it moves, has no zero
-  value and no `==`, cannot be a package-level variable, and frees its
+  value, compares with `==` as a list does when every field does,
+  cannot be a package-level variable, and frees its
   lists, last field first, when its owner's block ends. So does a union
   with a case whose payload holds a list, which frees what the case it
   holds holds (see unions). In C a list is
@@ -1501,8 +1520,10 @@ makes for itself, which has a letter after `tack_`.
   zero value, as `mut` does for any type. Two structs of one type compare
   with `==` and `!=`, field by field, a string field by its bytes, and a
   struct with no fields is always equal to another. A struct holding a
-  list is owned, as a list is: it moves rather than copies, and has no
-  zero value and no `==` (see lists). Structs are not
+  list is owned, as a list is: it moves rather than copies, has no zero
+  value, and compares with `==` as a list does, reading its lists in
+  place (see lists); `==` compares every field, a private one included,
+  so two `text.Text` values are equal when their bytes are. Structs are not
   ordered: `<` on two structs is an error. Structs may be package-level
   variables, initialized with a constant expression (see package-level
   variables). A field of an immutable global is a known value, so `n /
@@ -1623,8 +1644,8 @@ makes for itself, which has a letter after `tack_`.
   the same case and, for a case with a payload, equal payloads, compared
   as `==` compares the payload's type, so `tok == Token.eof` tests for a
   case with no payload. A union with a payload of a type without `==`,
-  a list or a struct holding one among them, has none, `operator == is not
-  defined on Value`. A union with a case whose payload holds a list,
+  a view or an `Allocator` among them, has none, `operator == is not
+  defined on Value`; a payload holding a list compares as a list does. A union with a case whose payload holds a list,
   directly or through a struct, an array or another union, holds a list,
   and is owned as a struct holding one is (see lists): it moves, cannot be
   a package-level variable, `package-level variable g cannot hold a
@@ -1968,7 +1989,7 @@ makes for itself, which has a letter after `tack_`.
   `int64` `a` and a `uint64` `b`, is still
   `mismatched types int64 and uint64 in +`. Any other comparison takes two
   operands of one type, after the same widening: two strings with any of
-  the six, or two `bool`s, arrays, structs or unions with `==` and `!=`, an array
+  the six, or two `bool`s, arrays, lists, structs or unions with `==` and `!=`, an array
   or a struct of integers needing the same element or field types, so
   `[2]int8` and `[2]uint8` do not compare. Strings compare byte by byte, each byte unsigned, as in Go: a
   proper prefix is less, so the empty string is least, a zero byte is a

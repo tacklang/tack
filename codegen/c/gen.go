@@ -2303,7 +2303,7 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 	if bin.Op.IsInteger() {
 		return arith(bin.Op, bin.Type, left, right)
 	}
-	if g.isComposite(ast.TypeOf(bin.X)) {
+	if g.hasEqualityHelper(ast.TypeOf(bin.X)) {
 		return g.arrayComparison(bin, left, right)
 	}
 	if ast.TypeOf(bin.X) == types.String {

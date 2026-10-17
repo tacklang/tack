@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -27,6 +28,9 @@ func listing(lines ...string) string {
 // operation takes.
 var listAcceptCases = []struct{ name, src string }{
 	{"guard proves an index", listing("if 0 <= i && i < len(l) {", "    use(l[i])", "}")},
+	{"compare lists", listing("if l == m || l != m {", "    use(1)", "}")},
+	{"compare structs holding lists", listing("if s == s {", "    use(1)", "}")},
+	{"compare a field's list", listing("if s.items == l {", "    use(1)", "}")},
 	{"length bound proves a constant index", listing("if len(l) > 2 {", "    use(l[2])", "}")},
 	{"range index", listing("for j := range l {", "    use(l[j])", "}")},
 	{"checked form", listing("x, ok := l[i]", "if ok {", "    use(x)", "}")},
@@ -315,6 +319,26 @@ var listErrorCases = []struct{ name, src, want string }{
 		"cannot pass s.items alongside mut s.items in this call: a list is not copied for a call, and a mut argument must be the only way to reach s.items during it",
 	},
 	{
+		"compare a temporary list",
+		listing("if make2() == l {", "    use(1)", "}"),
+		"cannot use a temporary list[int64] here; store it in a variable first",
+	},
+	{
+		"order lists",
+		listing("if l < m {", "    use(1)", "}"),
+		"operator < is not defined on list[int64]",
+	},
+	{
+		"switch on a list",
+		listing("switch l {", "}"),
+		"cannot switch on list[int64], which holds a list; compare it with == in an if instead",
+	},
+	{
+		"switch on a struct holding a list",
+		listing("switch s {", "}"),
+		"cannot switch on Stack, which holds a list; compare it with == in an if instead",
+	},
+	{
 		"spread a temporary list",
 		listing("err := append(mut m, make2()...)", "if err.code != 0 {", "    return 1", "}"),
 		"cannot view a temporary list; store it in a variable first",
@@ -352,14 +376,11 @@ var listErrorCases = []struct{ name, src, want string }{
 		"m is being ranged over, so this loop cannot pass mut m",
 	},
 	{
-		"compare lists",
-		listing("if l == m {", "    return 1", "}"),
-		"operator == is not defined on list[int64]",
-	},
-	{
-		"compare structs holding lists",
-		listing("t := Stack{items: make2(), n: 0}", "if s == t {", "    return 1", "}"),
-		"operator == is not defined on Stack",
+		"compare lists of elements without ==",
+		"package main\n\ntype Stack struct {\n    items list[int64]\n    n     int64\n}\n\n" +
+			"type Pool struct {\n    alloc Allocator\n}\n\n" +
+			"func f(a list[Pool], b list[Pool]) bool {\n    return a == b\n}\n\nfunc main() {\n}\n",
+		"operator == is not defined on list[Pool]",
 	},
 }
 
@@ -496,5 +517,36 @@ func TestDeepLoopsCheckInLinearTime(t *testing.T) {
 	b.WriteString("}\n")
 	if _, diags := checkTree(t, b.String()); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
+	}
+}
+
+// TestCompareAlongsideMut checks a comparison of lists is rejected when
+// the other operand passes a list it reads as mut, either way round, with
+// a note at the mut argument, and accepted when the mut argument is a
+// different list, which the comparison does not read.
+func TestCompareAlongsideMut(t *testing.T) {
+	const src = "package main\n\nfunc bump(mut l list[int64]) int64 {\n    return 0\n}\n\n" +
+		"func f(mut a list[int64], b list[int64], ls list[list[int64]], mut other list[int64]) bool {\n" +
+		"    if 0 <= bump(mut other) && bump(mut other) < len(ls) {\n    }\n" +
+		"    return a == ls[bump(mut a)] || ls[bump(mut a)] == a || b == ls[bump(mut other)]\n}\n\nfunc main() {\n}\n"
+	diags := check(t, src)
+	want := "cannot compare a alongside mut a in the other operand: a list is not copied to be compared, " +
+		"and a mut argument must be the only way to reach a during its call"
+	var got []diag.Diagnostic
+	for _, d := range diags {
+		if strings.HasPrefix(d.Message, "cannot compare") {
+			got = append(got, d)
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d comparison errors, want 2: %v", len(got), diags)
+	}
+	for _, d := range got {
+		if d.Message != want {
+			t.Errorf("message %q, want %q", d.Message, want)
+		}
+		if len(d.Related) != 1 || d.Related[0].Message != "passed as mut here" {
+			t.Errorf("notes %v, want one at the mut argument", d.Related)
+		}
 	}
 }

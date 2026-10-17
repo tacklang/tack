@@ -38,7 +38,8 @@
 //   - a C struct for every array, view, list, struct and union type, then
 //     tack_compare_strings if the program compares strings, directly or
 //     inside an array, a struct or a union, then an equality helper for
-//     every array, struct and union type == compares, then a free helper
+//     every array, list, struct and union type == compares, and every one
+//     of those types they are made of, then a free helper
 //     for every union type that holds a list and every list type whose
 //     elements are owned;
 //   - the string pool: every distinct string the program uses, each as a
@@ -460,9 +461,14 @@
 // tack_free_ takes const pointers to the values it reads, so a helper
 // calling the helper of a type nested in its own uses one small frame
 // whatever the size of the values, and a thousand types nested one in
-// another compare and free within the stack. An operand of == that is not
-// a place C can take the address of, such as a call's result, is held in
-// a temporary first, where the comparison evaluates it. A switch on a union is
+// another compare and free within the stack. A list's tack_eq_ compares
+// the lengths, then each element below the length through the element
+// type's own ==, reading the buffer in place; typeck makes sure neither
+// operand holding a list is a temporary or passed as mut in the other, so
+// the buffers it reads are the operands' own and still allocated. An
+// operand of == that is not a place C can take the address of, such as a
+// call's result, is held in a temporary first, where the comparison
+// evaluates it. A switch on a union is
 // a chain of ifs on its tag, through a pointer to the switched place, or
 // to a copy of a value that is no place or of a mutable global; the last
 // clause of one covering every case is the final else, and one with no

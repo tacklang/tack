@@ -30,14 +30,22 @@ func (g *generator) emitArrayDef(typ types.Type) {
 	)
 }
 
-// emitArrayEquality writes tack_eq_ for an array type, which compares two
-// arrays element by element, through pointers to them (see equalityName).
+// emitArrayEquality writes tack_eq_ for an array or a list type, which
+// compares two of them element by element, through pointers to them (see
+// equalityName): two arrays always have the same length, and two lists
+// are equal only when theirs are the same, whatever their capacities. A
+// list's elements are read through its buffer pointer, which is null for
+// an empty list, and only below its length, so an empty list reads none.
 func (g *generator) emitArrayEquality(typ types.Type) {
 	table := g.prog.Types
-	name := arrayName(typ)
-	differ := "a->e[i] != b->e[i]"
-	if elem := table.Elem(typ); g.isComposite(elem) || elem == types.String {
-		differ = "!" + g.equalExpr(elem, "a->e[i]", "b->e[i]")
+	name, field, n := arrayName(typ), "e", fmt.Sprint(table.Len(typ))
+	if table.IsList(typ) {
+		name, field, n = g.cType(typ), "ptr", "a->len"
+	}
+	l, r := "a->"+field+"[i]", "b->"+field+"[i]"
+	differ := l + " != " + r
+	if elem := table.Elem(typ); g.hasEqualityHelper(elem) || elem == types.String {
+		differ = "!" + g.equalExpr(elem, l, r)
 	}
 	fmt.Fprintf(
 		&g.buf,
@@ -46,7 +54,10 @@ func (g *generator) emitArrayEquality(typ types.Type) {
 		name,
 		name,
 	)
-	fmt.Fprintf(&g.buf, "    for (int64_t i = 0; i < %d; i++) {\n", table.Len(typ))
+	if table.IsList(typ) {
+		g.buf.WriteString("    if (a->len != b->len) {\n        return false;\n    }\n")
+	}
+	fmt.Fprintf(&g.buf, "    for (int64_t i = 0; i < %s; i++) {\n", n)
 	fmt.Fprintf(&g.buf, "        if (%s) {\n            return false;\n        }\n    }\n", differ)
 	g.buf.WriteString("    return true;\n}\n\n")
 }
@@ -128,9 +139,9 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 	return fmt.Sprintf("(%s).len", v), nil
 }
 
-// arrayComparison renders == or != on two arrays, two structs or two
-// unions, as a call to the type's equality helper on their addresses (see
-// addressOf), parenthesized as every comparison is.
+// arrayComparison renders == or != on two arrays, two structs, two unions
+// or two lists, as a call to the type's equality helper on their
+// addresses (see addressOf), parenthesized as every comparison is.
 func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string {
 	typ := ast.TypeOf(bin.X)
 	eq := fmt.Sprintf("%s(%s, %s)", equalityName(typ),

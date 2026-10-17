@@ -47,9 +47,8 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 		c.checkUnionSwitch(s, tagType, fn)
 		return
 	}
-	if tagType != types.Invalid && !c.comparable(tagType) {
-		c.errorf(s.Tag.Spanned(), "operator == is not defined on %s", c.typeName(tagType))
-		tagType = types.Invalid
+	if tagType != types.Invalid {
+		tagType = c.switchTagType(s.Tag, tagType)
 	}
 
 	order := tryOrder(s)
@@ -455,4 +454,26 @@ func switchTerminates(s *ast.Switch) bool {
 		}
 	}
 	return true
+}
+
+// switchTagType returns tagType, the type of tag, a switch's tag other
+// than a union, when a switch can compare it with its cases, and Invalid
+// otherwise, having reported why: a type without ==, or one holding a
+// list. == reads a list in place, which a switch, holding its tag while
+// it evaluates each case, does not promise, so a value holding a list is
+// compared in an if instead.
+func (c *Checker) switchTagType(tag ast.Expr, tagType types.Type) types.Type {
+	if !c.comparable(tagType) {
+		c.errorf(tag.Spanned(), "operator == is not defined on %s", c.typeName(tagType))
+		return types.Invalid
+	}
+	if c.table.Owned(tagType) {
+		c.errorf(
+			tag.Spanned(),
+			"cannot switch on %s, which holds a list; compare it with == in an if instead",
+			c.typeName(tagType),
+		)
+		return types.Invalid
+	}
+	return tagType
 }

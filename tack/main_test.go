@@ -1836,6 +1836,38 @@ func TestBuiltOsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltListEqualityPassesEveryCheck builds examples/list-equality at
+// every optimization level and checks each binary writes exactly
+// examples/list-equality/output, every check ok: == and != on lists of
+// bytes, integers, strings, bools and arrays, empty, of different lengths
+// and differing in their first or last element, lists of lists three
+// deep, text.Text values, and structs and unions holding lists, with
+// nothing allocated by a comparison and everything freed.
+func TestBuiltListEqualityPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "list-equality", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/list-equality/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "list-equality")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("list-equality"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

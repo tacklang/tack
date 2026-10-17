@@ -454,9 +454,10 @@ func hasCall(e ast.Expr) bool {
 }
 
 // comparable reports whether values of type typ support == and !=: every
-// integer, bool and string, an array whose elements do, a struct whose
-// fields all do, which a struct with none does, and a union whose
-// payloads all do, which a union with none does.
+// integer, bool and string, an array or a list whose elements do, a
+// struct whose fields all do, which a struct with none does, and a union
+// whose payloads all do, which a union with none does. A view does not,
+// nor an Allocator or an any.
 func (c *Checker) comparable(typ types.Type) bool {
 	return c.comparableIn(typ, make(map[types.Type]bool))
 }
@@ -468,7 +469,7 @@ func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
 	case types.IsInteger(typ), typ == types.Bool, typ == types.String:
 		return true
-	case c.table.IsArray(typ):
+	case c.table.IsArray(typ), c.table.IsList(typ):
 		return c.comparableIn(c.table.Elem(typ), seen)
 	case c.table.IsStruct(typ), c.table.IsUnion(typ):
 		if seen[typ] {

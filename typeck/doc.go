@@ -439,7 +439,8 @@
 // and so are the fields left out. A field, x.f, may be read from any struct
 // value, and written where x is a mutable variable, or an element or field
 // of one, since a struct follows its variable as an array does. Two structs
-// of one type compare with == and != when every field's type does.
+// of one type compare with == and != when every field's type does, a
+// field holding a list included.
 //
 // Array types are added to the Table as they are written, so [3]int64
 // written twice is one type. An array's length must be a known value: a
@@ -512,10 +513,13 @@
 //     holds and u < -1, for a uint64 u, is an error. The facts such a
 //     comparison gives are about those values too. Any other operands have
 //     one type, after widening, which supports the operator: a string all
-//     six, a bool, an array or a struct only == and !=, an array or struct
-//     of integers included, whose element or field types must match. A
-//     mismatch, or an unsupported operator, is one error covering the whole
-//     comparison;
+//     six, a bool, an array, a list, a struct or a union only == and !=,
+//     an array or struct of integers included, whose element or field
+//     types must match. A mismatch, or an unsupported operator, is one
+//     error covering the whole comparison. Values holding lists are read
+//     in place, so neither may be a temporary (move.go reports one), nor
+//     be passed as mut in the other operand (checkCompareBorrows), and a
+//     switch may not take one as its tag;
 //   - a divisor is proven not zero, or the division is bound with ok, and
 //     the quotient of two untyped constants bound with ok settles to the
 //     type of the variable it is assigned, or int64 where there is none;

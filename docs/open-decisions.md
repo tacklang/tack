@@ -1042,8 +1042,6 @@ builtins, and could go another way:
   and leaves the Text as it was.
 - `equal` compares bytes exactly, with no case folding or normalization,
   and `len` counts bytes, as nothing in std knows UTF-8.
-- `equal` takes a view rather than another Text; two Texts compare with
-  `a.equal(b.bytes())`.
 
 ## std/os
 

@@ -324,6 +324,40 @@ type pendingAssign struct {
 	value  ast.Expr
 }
 
+// checkCompareBorrows reports an operand of bin, a comparison of two
+// values holding lists, that is a place read in place, a list or a
+// struct or a union holding one (borrowedList), while the other operand
+// passes as mut, at any depth, a place that may overlap it, with a note
+// at that mut argument. Both operands are read where they are, as an
+// array's are not: an array is copied before the other operand runs (see
+// codegen/c), but a list is not copied to be compared, since copying one
+// would allocate, so a call in the other operand that grew it could free
+// the buffer the comparison then reads.
+func (c *Checker) checkCompareBorrows(bin *ast.Binary) {
+	operands := []ast.Expr{bin.X, bin.Y}
+	for i, operand := range operands {
+		place := c.borrowedList(operand)
+		if place == nil {
+			continue
+		}
+		for _, m := range mutArgsIn([]ast.Expr{operands[1-i]}) {
+			if placesMayOverlap(place, m.X) {
+				passed := c.text(m.X.Spanned())
+				c.errorNotes(
+					operand.Spanned(),
+					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
+					"cannot compare %s alongside mut %s in the other operand: a list is not copied "+
+						"to be compared, and a mut argument must be the only way to reach %s during its call",
+					c.text(operand.Spanned()),
+					passed,
+					passed,
+				)
+				return
+			}
+		}
+	}
+}
+
 // checkIndexBorrows reports ix, an element read or assigned, when what it
 // indexes is read in place, a list or a part of one (borrowedList) or a
 // view a call returns (viewBorrows), while its index passes as mut, at any

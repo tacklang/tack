@@ -174,6 +174,12 @@ var loadSeeds = []string{
 		"for a >= 0 { c_close(a)\na = -1 }\ne := reserve(mut out, len(got))\n" +
 		"if e.code != 0 { return -1, e }\ne2 := append(mut out, got...)\n" +
 		"e3 := append(mut err_out, 0)\nif e2.code != 0 || e3.code != 0 { return -1, e2 }\nreturn 0, noerror }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\ntype S struct { l list[uint8]\nn int64 }\n" +
+		"type U union { items list[int64]\nnone }\n" +
+		"func main() { mut a := make(list[uint8], c_allocator)\nb := make(list[uint8], c_allocator)\n" +
+		"e := append(mut a, 1, 2)\nmut ll := make(list[list[uint8]], c_allocator)\n" +
+		"x := S{l: a, n: 1}\ny := S{l: b, n: 1}\nu := U.none\nv := U.none\n" +
+		"if e.code != 0 || x == y || u != v || ll != ll { exit(1) } }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

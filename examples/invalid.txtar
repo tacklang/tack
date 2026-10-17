@@ -11547,50 +11547,6 @@ list-checked-negative/main.tck:5:16: error: index -1 is out of range for a list
    |	               ^~
 06 |	    if ok && v > 0 {
 
--- list-compare/main.tck --
-package main
-
-func main() {
-    a := make(list[int64], c_allocator)
-    b := make(list[int64], c_allocator)
-    if a == b {
-        print("same")
-    }
-}
--- list-compare/expected --
-stage: typeck
----
-
-list-compare/main.tck:6:8: error: operator == is not defined on list[int64]
-05 |	    b := make(list[int64], c_allocator)
-06 |	    if a == b {
-   |	       ^~~~~~
-07 |	        print("same")
-
--- list-compare-struct/main.tck --
-package main
-
-type S struct {
-    items list[int64]
-}
-
-func main() {
-    a := S{items: make(list[int64], c_allocator)}
-    b := S{items: make(list[int64], c_allocator)}
-    if a == b {
-        print("same")
-    }
-}
--- list-compare-struct/expected --
-stage: typeck
----
-
-list-compare-struct/main.tck:10:8: error: operator == is not defined on S
-09 |	    b := S{items: make(list[int64], c_allocator)}
-10 |	    if a == b {
-   |	       ^~~~~~
-11 |	        print("same")
-
 -- list-element-type-mismatch/main.tck --
 package main
 
@@ -11610,6 +11566,154 @@ list-element-type-mismatch/main.tck:8:7: error: cannot use list[int64] as list[i
 08 |	    f(l)
    |	      ^
 09 |	}
+
+-- list-eq-alongside-mut/main.tck --
+package main
+
+func first(mut l list[uint8]) int64 {
+    e := append(mut l, 1)
+    if e.code != 0 {
+        return 0
+    }
+    return 0
+}
+
+func main() {
+    mut a := make(list[uint8], c_allocator)
+    lists := make(list[list[uint8]], c_allocator)
+    if a == lists[first(mut a)] {
+        exit(1)
+    }
+}
+-- list-eq-alongside-mut/expected --
+stage: typeck
+---
+
+list-eq-alongside-mut/main.tck:14:19: error: index may be out of range; use v, ok := ...[...]
+13 |	    lists := make(list[list[uint8]], c_allocator)
+14 |	    if a == lists[first(mut a)] {
+   |	                  ^~~~~~~~~~~~
+15 |	        exit(1)
+
+list-eq-alongside-mut/main.tck:14:8: error: cannot compare a alongside mut a in the other operand: a list is not copied to be compared, and a mut argument must be the only way to reach a during its call
+13 |	    lists := make(list[list[uint8]], c_allocator)
+14 |	    if a == lists[first(mut a)] {
+   |	       ^
+15 |	        exit(1)
+list-eq-alongside-mut/main.tck:14:25: note: passed as mut here
+13 |	    lists := make(list[list[uint8]], c_allocator)
+14 |	    if a == lists[first(mut a)] {
+   |	                        ^~~~~
+15 |	        exit(1)
+
+-- list-eq-element-not-comparable/main.tck --
+package main
+
+type Pool struct {
+    alloc Allocator
+}
+
+func main() {
+    a := make(list[Pool], c_allocator)
+    b := make(list[Pool], c_allocator)
+    if a == b {
+        exit(1)
+    }
+}
+-- list-eq-element-not-comparable/expected --
+stage: typeck
+---
+
+list-eq-element-not-comparable/main.tck:10:8: error: operator == is not defined on list[Pool]
+09 |	    b := make(list[Pool], c_allocator)
+10 |	    if a == b {
+   |	       ^~~~~~
+11 |	        exit(1)
+
+-- list-eq-mismatched/main.tck --
+package main
+
+func main() {
+    a := make(list[uint8], c_allocator)
+    b := make(list[int64], c_allocator)
+    if a == b {
+        exit(1)
+    }
+}
+-- list-eq-mismatched/expected --
+stage: typeck
+---
+
+list-eq-mismatched/main.tck:6:8: error: mismatched types list[uint8] and list[int64] in ==
+05 |	    b := make(list[int64], c_allocator)
+06 |	    if a == b {
+   |	       ^~~~~~
+07 |	        exit(1)
+
+-- list-eq-ordered/main.tck --
+package main
+
+func main() {
+    a := make(list[uint8], c_allocator)
+    b := make(list[uint8], c_allocator)
+    if a < b {
+        exit(1)
+    }
+}
+-- list-eq-ordered/expected --
+stage: typeck
+---
+
+list-eq-ordered/main.tck:6:8: error: operator < is not defined on list[uint8]
+05 |	    b := make(list[uint8], c_allocator)
+06 |	    if a < b {
+   |	       ^~~~~
+07 |	        exit(1)
+
+-- list-eq-temporary/main.tck --
+package main
+
+func letters() list[uint8] {
+    return make(list[uint8], c_allocator)
+}
+
+func main() {
+    a := make(list[uint8], c_allocator)
+    if letters() == a {
+        exit(1)
+    }
+}
+-- list-eq-temporary/expected --
+stage: typeck
+---
+
+list-eq-temporary/main.tck:9:8: error: cannot use a temporary list[uint8] here; store it in a variable first
+08 |	    a := make(list[uint8], c_allocator)
+09 |	    if letters() == a {
+   |	       ^~~~~~~~~
+10 |	        exit(1)
+
+-- list-eq-views/main.tck --
+package main
+
+func same(a []uint8, b []uint8) bool {
+    return a == b
+}
+
+func main() {
+    if same([]uint8("a"), []uint8("a")) {
+        exit(1)
+    }
+}
+-- list-eq-views/expected --
+stage: typeck
+---
+
+list-eq-views/main.tck:4:12: error: operator == is not defined on []uint8
+03 |	func same(a []uint8, b []uint8) bool {
+04 |	    return a == b
+   |	           ^~~~~~
+05 |	}
 
 -- list-extern-by-value/main.tck --
 package main
@@ -12441,7 +12545,7 @@ func main() {
 stage: typeck
 ---
 
-list-switch/main.tck:5:12: error: operator == is not defined on list[int64]
+list-switch/main.tck:5:12: error: cannot switch on list[int64], which holds a list; compare it with == in an if instead
 04 |	    l := make(list[int64], c_allocator)
 05 |	    switch l {
    |	           ^
@@ -25816,30 +25920,6 @@ union-duplicate-pattern/main.tck:10:10: note: previous case
    |	         ^
 11 |	    case b:
 
--- union-equality-list/main.tck --
-package main
-
-type U union {
-    items list[int64]
-    none
-}
-
-func main() {
-    u := U.none
-    v := U.none
-    if u == v {
-    }
-}
--- union-equality-list/expected --
-stage: typeck
----
-
-union-equality-list/main.tck:11:8: error: operator == is not defined on U
-10 |	    v := U.none
-11 |	    if u == v {
-   |	       ^~~~~~
-12 |	    }
-
 -- union-extern/main.tck --
 package main
 
@@ -25980,12 +26060,6 @@ union-global-list/main.tck:8:5: error: package-level variable g cannot hold a li
 08 |	var g = U.none
    |	    ^
 09 |	
-
-union-global-list/main.tck:11:8: error: operator == is not defined on U
-10 |	func main() {
-11 |	    if g == g {
-   |	       ^~~~~~
-12 |	    }
 
 -- union-global-not-constant/main.tck --
 package main

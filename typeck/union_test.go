@@ -203,7 +203,7 @@ func TestUnionMessagesNameTheUnion(t *testing.T) {
 			withTypes(unionDecls, "e := E.eof", "switch e {", "case int(n):", "    use(n)", "}"),
 			"switch on E misses cases name, pair, eof; cover them or add a default",
 		},
-		{withTypes(unionDecls, "v := V.none", "if v == v {", "}"), "operator == is not defined on V"},
+		{withTypes(unionDecls, "v := V.none", "if v < v {", "}"), "operator < is not defined on V"},
 	} {
 		t.Run(tc.want, func(t *testing.T) {
 			diags := check(t, tc.src)
