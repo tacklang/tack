@@ -40,6 +40,15 @@ type Call struct {
 	// check. It is left out of the JSON dump: a method's body can call it.
 	Method *Func `json:"-"`
 
+	// Dynamic is the stand-in the type checker makes for a call through a
+	// function value, f(x) where Fn names a variable or a parameter of a
+	// function type: a Func with no body, never declared, whose
+	// parameters and results are the type's, which the call is checked
+	// against, and whose Value is that type. It is nil for any other
+	// call, and for a call through a value the checker reported. Which
+	// function runs is known only when the call is made.
+	Dynamic *Func `json:"-"`
+
 	// Const is the value of a call the type checker can compute, a
 	// constant.Int: len of an array or a string literal. It is nil for any
 	// other call.
@@ -110,12 +119,17 @@ func (c *Call) Operands() []Expr {
 }
 
 // Callee returns the function call calls: the function its name is bound
-// to, or the method the type checker found for a method call. It returns
-// nil for a builtin, whose declaration is a nil *Func, for a conversion,
-// and for a method call the type checker has not found a method for.
+// to, the method the type checker found for a method call, or the
+// stand-in it made for a call through a function value (see
+// Call.Dynamic). It returns nil for a builtin, whose declaration is a nil
+// *Func, for a conversion, and for a method call or a call through a
+// value the type checker has not checked.
 func Callee(call *Call) *Func {
 	if call.Method != nil {
 		return call.Method
+	}
+	if call.Dynamic != nil {
+		return call.Dynamic
 	}
 	if id, ok := call.Fn.(*Ident); ok {
 		if fn, ok := id.Def.(*Func); ok && fn != nil {
@@ -131,7 +145,16 @@ func Callee(call *Call) *Func {
 // covers all of it; Def is the declaration of name in the imported
 // package.
 type Ident struct {
-	Def     Decl // filled in by the resolver, nil before
+	Def Decl // filled in by the resolver, nil before
+
+	// Hidden is a variable or a parameter named like a called function or
+	// builtin, visible where the call is written, which the resolver
+	// passed over to bind the call to the function: a call by a bare name
+	// calls the function of that name before any local. The type checker
+	// reports the call when Hidden holds a function value, which the call
+	// could be meant to call. It is nil for any other name.
+	Hidden Decl `json:"-"`
+
 	Pkg     string
 	Name    string
 	PkgSpan Span
@@ -591,14 +614,20 @@ func recordedType(expr Expr) types.Type {
 }
 
 // identType returns the type of the parameter or variable a name is bound
-// to, which is all an expression can name today. A name bound to a type
-// has no value, so its type is Invalid.
+// to, or of the function it names, used as a value, as the type checker
+// recorded it (see Func.Value). A name bound to a type has no value, and
+// a builtin's Def is a nil *Func, so the type of either is Invalid.
 func identType(id *Ident) types.Type {
 	switch def := id.Def.(type) {
 	case *Param:
 		return def.Type
 	case *Var:
 		return def.Type
+	case *Func:
+		if def == nil {
+			return types.Invalid
+		}
+		return def.Value
 	default:
 		return types.Invalid
 	}
@@ -739,6 +768,29 @@ func (m *MapType) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the keyword map through the end
 // of the value type.
 func (m *MapType) Spanned() Span { return m.Span }
+
+// FuncType is a function type as written, func(A, mut B) R: the type of a
+// value naming a function whose parameters have Params' types, in order,
+// each mut where it is written so, and whose results are Results, none, one
+// alone, or several in parentheses, func(A) (R, error). Each of Params has
+// no name, only its TypeExpr, Mut and MutSpan, and Span, which covers mut
+// and the type. Like MapType it is an expression only so it can stand where
+// a type is written; it never has a value of its own.
+type FuncType struct {
+	Params  []*Param
+	Results []Expr // the result types as written, empty if none
+	Span    Span   // the keyword func through the end of the last result, or the closing parenthesis
+}
+
+var _ Expr = (*FuncType)(nil)
+
+func (f *FuncType) exprKey() exprKey { return _exprKey }
+
+func (f *FuncType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the keyword func through the end
+// of the type.
+func (f *FuncType) Spanned() Span { return f.Span }
 
 // CompositeLit is an array literal, [3]int64{1, 2, 3}, with exactly one
 // element for each of the array's, or a struct literal, Point{x: 1, y: 2},

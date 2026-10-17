@@ -49,7 +49,8 @@ func (c *Checker) exprAt(e ast.Expr) types.Type {
 }
 
 // ident checks a name used as a value and returns its type: its parameter's
-// or variable's. A package-level variable not checked yet, which a struct's
+// or variable's, or its function's, used as a value (see funcValue). A
+// package-level variable not checked yet, which a struct's
 // field may need first, is checked now. A variable held by an error cannot
 // be read before the error is checked (requireChecked).
 func (c *Checker) ident(id *ast.Ident) types.Type {
@@ -59,6 +60,9 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	if id.Def == nil {
 		c.errorf(id.Span, "undefined: %s", id.Qualified())
 		return types.Invalid
+	}
+	if fn, ok := id.Def.(*ast.Func); ok {
+		return c.funcValue(id, fn)
 	}
 	if v, ok := id.Def.(*ast.Var); ok && c.globals[v] {
 		c.ensureGlobal(v, id.Span)
@@ -141,6 +145,10 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 		return generic(call)
 	}
 	c.checkCall(call)
+	if isValueCall(call) && call.Dynamic == nil {
+		// What the call calls through was reported.
+		return types.Invalid
+	}
 
 	name, ok := c.calleeName(call)
 	if !ok {
@@ -169,14 +177,14 @@ func isLen(call *ast.Call) bool {
 // value: it returns nothing, or more than one value. A builtin, whose fn is
 // nil, returns nothing.
 func notOneValue(fn *ast.Func, name string) string {
-	if fn != nil && len(fn.Results) > 1 {
-		return fmt.Sprintf("%s returns %d values", name, len(fn.Results))
+	if fn != nil && len(fn.ResultTypes) > 1 {
+		return fmt.Sprintf("%s returns %d values", name, len(fn.ResultTypes))
 	}
 	return fmt.Sprintf("%s returns no value", name)
 }
 
-// checkCall checks a call to a function, a builtin or a method (see
-// checkMethodCall): its argument count,
+// checkCall checks a call to a function, a builtin, a method (see
+// checkMethodCall) or a function value (see dynamicCall): its argument count,
 // that each argument can be passed to the parameter in its position (see
 // checkArg), or to a variadic one (see checkVariadicCall), that no two of
 // its mut arguments overlap (see checkExclusive), that none reads a list
@@ -193,6 +201,11 @@ func (c *Checker) checkCall(call *ast.Call) {
 		c.errorf(call.Spanned(), "cannot call %T", call.Fn)
 		return
 	}
+	if isValueCall(call) {
+		c.dynamicCall(call, id)
+		return
+	}
+	c.hiddenValue(id)
 
 	params := c.calleeParams(id)
 	var (

@@ -393,7 +393,17 @@
 // type, all written after every free and equality helper they call, and
 // freed by tack_free_ like a list of owned elements; put, has, a checked
 // lookup, m[k] read or written in place through at, delete and a range
-// over one lower through them (see maps.go). An
+// over one lower through them (see maps.go). A function value is a
+// tack_fnptr, one C function pointer type for every function type,
+// defined before any type that may hold one, so a struct may hold one
+// that takes the struct; a function named as a value is a pointer of its
+// function type's own pointer type, tack_fn_ and the type's ID, a
+// compound literal C checks the function's type against, converted to
+// tack_fnptr, and a call through one converts it back before calling,
+// the value an operand evaluated before the arguments. A function of
+// several results named as a value is a thunk, tack_value_ and its name,
+// returning them in its function type's results struct, tack_fnres_ and
+// the type's ID (see funcvalue.go). An
 // element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in

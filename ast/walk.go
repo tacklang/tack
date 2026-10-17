@@ -164,7 +164,7 @@ func walkExpr(e Expr, v Visitor) {
 		walkAll(e.Args, v)
 	case *Ident, *StrLit, *IntLit, *CharLit, *BoolLit, *NoErrorLit, *CAllocatorLit:
 		// leaves
-	case *StructType, *InterfaceType, *UnionType, *MapType:
+	case *StructType, *InterfaceType, *UnionType, *MapType, *FuncType:
 		walkTypeExpr(e, v)
 	case *KeyValue:
 		Walk(e.Key, v)
@@ -176,7 +176,8 @@ func walkExpr(e Expr, v Visitor) {
 
 // walkTypeExpr walks the children of a type as written: a struct's
 // fields' types, an interface's methods, the types of a union's payloads,
-// or a map type's key and value types, in order.
+// a map type's key and value types, or a function type's parameters'
+// types and its results, in order.
 func walkTypeExpr(e Expr, v Visitor) {
 	switch e := e.(type) {
 	case *StructType:
@@ -194,6 +195,11 @@ func walkTypeExpr(e Expr, v Visitor) {
 	case *MapType:
 		Walk(e.Key, v)
 		Walk(e.Value, v)
+	case *FuncType:
+		for _, p := range e.Params {
+			Walk(p.TypeExpr, v)
+		}
+		walkAll(e.Results, v)
 	}
 }
 

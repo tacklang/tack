@@ -24,6 +24,11 @@ type Resolver struct {
 	read     map[*ast.Var]bool // variables read at least once
 	excused  map[*ast.Var]bool // variables never reported unused: see excuse
 
+	// hiddenBy holds, for each variable a call by its name passed over
+	// to call the function or builtin of that name, the first such
+	// callee, which a report of the variable as unused points at.
+	hiddenBy map[*ast.Var]*ast.Ident
+
 	// packages holds each package's resolver once its package-level names
 	// are declared, which is before any package importing it is resolved.
 	packages map[*ast.Package]*pkgResolver
@@ -38,6 +43,7 @@ func New(prog *ast.Program, builtins *builtin.Set) *Resolver {
 		builtins: builtins,
 		read:     make(map[*ast.Var]bool),
 		excused:  make(map[*ast.Var]bool),
+		hiddenBy: make(map[*ast.Var]*ast.Ident),
 		packages: make(map[*ast.Package]*pkgResolver),
 	}
 }
@@ -616,19 +622,40 @@ func elseIf(s *ast.If) (*ast.If, bool) {
 }
 
 // unused reports every variable a scope declared and never read, unless it
-// is excused.
+// is excused. One a call by its name passed over, to call the function or
+// builtin of that name, gets a note at the call saying so.
 func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
 		if !r.read[v] && !r.excused[v] {
-			diags = append(diags, diag.Diagnostic{
+			d := diag.Diagnostic{
 				Severity: diag.Error,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
 				Span:     v.NameSpan,
-			})
+			}
+			if callee := r.hiddenBy[v]; callee != nil {
+				d.Related = []diag.Diagnostic{{
+					Severity: diag.Note,
+					Message: fmt.Sprintf(
+						"this call calls the %s %s, not the variable; rename one of them",
+						calleeKind(callee), v.Name,
+					),
+					Span: callee.Span,
+				}}
+			}
+			diags = append(diags, d)
 		}
 	}
 	return diags
+}
+
+// calleeKind says what callee, a call's callee bound to a function or a
+// builtin, names: "function" or "builtin".
+func calleeKind(callee *ast.Ident) string {
+	if fn, ok := callee.Def.(*ast.Func); ok && fn == nil {
+		return "builtin"
+	}
+	return "function"
 }
 
 // declareVar adds a variable to the current scope. Its value is resolved
@@ -734,6 +761,13 @@ func returnsError(value ast.Expr) bool {
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return false
+	}
+	switch id.Def.(type) {
+	case *ast.Var, *ast.Param:
+		// A call through a function value returns what the value's
+		// type says, known only to the type checker, which reports a
+		// binding of nothing but _ instead.
+		return true
 	}
 	fn, ok := id.Def.(*ast.Func)
 	if !ok || fn == nil || len(fn.Results) == 0 {
@@ -1212,11 +1246,30 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveType(t.Elem, sc)
 	case *ast.ListType:
 		return r.resolveType(t.Elem, sc)
-	case *ast.MapType:
-		return append(r.resolveType(t.Key, sc), r.resolveType(t.Value, sc)...)
+	case *ast.MapType, *ast.FuncType:
+		var diags []diag.Diagnostic
+		for _, part := range typeParts(t) {
+			diags = append(diags, r.resolveType(part, sc)...)
+		}
+		return diags
 	default:
 		return nil
 	}
+}
+
+// typeParts returns the types written in typ, a map type or a function
+// type: a map's key and value, or a function type's parameters' types and
+// its results, in order.
+func typeParts(typ ast.Expr) []ast.Expr {
+	if m, ok := typ.(*ast.MapType); ok {
+		return []ast.Expr{m.Key, m.Value}
+	}
+	f, _ := typ.(*ast.FuncType)
+	parts := make([]ast.Expr, 0, len(f.Params)+len(f.Results))
+	for _, p := range f.Params {
+		parts = append(parts, p.TypeExpr)
+	}
+	return append(parts, f.Results...)
 }
 
 // resolveTypeName binds a name written as a type to the type declaration it
@@ -1278,7 +1331,12 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 }
 
 // bindCallee binds ident, the callee of call, to the function or builtin
-// it names, or records the type a conversion converts to.
+// it names, or records the type a conversion converts to. A name no
+// function or builtin has may name a variable or a parameter, which the
+// call calls through, holding a function value; whether it does is the
+// type checker's to say. A function's or a builtin's name is bound to it
+// even where a variable or a parameter of that name is visible, which is
+// recorded in Ident.Hidden for the type checker to judge.
 func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []diag.Diagnostic {
 	if ident.Pkg != "" {
 		return r.bindQualifiedCallee(ident, sc)
@@ -1289,12 +1347,7 @@ func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []
 		call.Conv = typ
 		return nil
 	}
-	if def, seen := r.seen(ident.Name); seen {
-		ident.Def = def
-		return nil
-	}
-	if def, seen := r.builtinSeen(ident.Name); seen {
-		ident.Def = def
+	if r.bindCalled(ident, sc) {
 		return nil
 	}
 	if decl, ok := sc.lookup(ident.Name); ok && isImport(decl) {
@@ -1314,9 +1367,60 @@ func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []
 	}}
 }
 
+// bindCalled binds ident, the callee of a call, to the function or the
+// builtin of its name, recording a variable or a parameter of that name
+// visible in sc as hidden, or, when there is neither, to that variable or
+// parameter, marking a variable read, and reports whether it bound ident.
+func (r *pkgResolver) bindCalled(ident *ast.Ident, sc *scope) bool {
+	local := localValue(ident.Name, sc)
+	def, seen := r.seen(ident.Name)
+	if !seen {
+		def, seen = r.builtinSeen(ident.Name)
+	}
+	switch {
+	case seen:
+		ident.Def, ident.Hidden = def, local
+		r.hide(local, ident)
+	case local != nil:
+		ident.Def = local
+		if v, ok := local.(*ast.Var); ok {
+			r.read[v] = true
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// hide records that callee, a call's callee bound to a function or a
+// builtin, passed over local, a variable or a parameter of its name, or
+// nil, so a report of the variable as unused can say why.
+func (r *pkgResolver) hide(local ast.Decl, callee *ast.Ident) {
+	if v, ok := local.(*ast.Var); ok && r.hiddenBy[v] == nil {
+		r.hiddenBy[v] = callee
+	}
+}
+
+// localValue returns the variable or parameter named name visible in sc,
+// a global among them, or nil when name names neither there.
+func localValue(name string, sc *scope) ast.Decl {
+	decl, ok := sc.lookup(name)
+	if !ok {
+		return nil
+	}
+	switch decl.(type) {
+	case *ast.Var, *ast.Param:
+		return decl
+	default:
+		return nil
+	}
+}
+
 // resolveIdent binds a name used as a value to the parameter or variable it
-// names, and marks a variable as read. A name whose declaration was
-// rejected is not reported again (unrejected).
+// names, or to the function it names when no parameter or variable has
+// the name there, and marks a variable as read. A builtin's name is not a
+// value. A name whose declaration was rejected is not reported again
+// (unrejected).
 func (r *pkgResolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	return unrejected(r.bindIdent(id, sc), id.Qualified(), sc)
 }
@@ -1340,11 +1444,7 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	}
 	decl, visible := sc.lookup(id.Name)
 	if !visible {
-		return []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("undefined: %s", id.Name),
-			Span:     id.Span,
-		}}
+		return r.bindFuncValue(id)
 	}
 	if isTypeName(decl) {
 		return []diag.Diagnostic{{
@@ -1363,16 +1463,51 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	return nil
 }
 
+// bindFuncValue binds id, a name no parameter, variable or type has where
+// it is used as a value, to the function of the package it names, whose
+// value it is; whether that function can be a value is the type
+// checker's to say. A builtin's name is reported, since a builtin is no
+// function a value can name, and any other name as undefined.
+func (r *pkgResolver) bindFuncValue(id *ast.Ident) []diag.Diagnostic {
+	if fn, seen := r.seen(id.Name); seen {
+		id.Def = fn
+		return nil
+	}
+	if _, seen := r.builtinSeen(id.Name); seen {
+		return []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"cannot use the builtin %s as a value; only a declared function can be one",
+					id.Name,
+				),
+				Span: id.Span,
+			},
+		}
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  fmt.Sprintf("undefined: %s", id.Name),
+		Span:     id.Span,
+	}}
+}
+
+// seen returns the function of the package named ref, and whether there
+// is one.
 func (r *pkgResolver) seen(ref string) (*ast.Func, bool) {
 	fn, seen := r.funcRefs[r.refLabel(r.pkg.Name, ref)]
 	return fn, seen
 }
 
+// builtinSeen reports whether ref is a builtin's name, returning the nil
+// *ast.Func a call to one binds to.
 func (r *pkgResolver) builtinSeen(ref string) (*ast.Func, bool) {
 	fn, seen := r.funcRefs[r.refLabel(builtinPackage, ref)]
 	return fn, seen
 }
 
+// refLabel returns the key funcRefs holds the function of the package
+// pkg named ref under.
 func (r *pkgResolver) refLabel(pkg, ref string) string {
 	return fmt.Sprintf("_%s.%s", pkg, ref)
 }

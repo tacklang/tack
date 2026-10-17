@@ -8,6 +8,7 @@ import (
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/source"
+	"github.com/tacklang/tack/types"
 )
 
 // Parser turns one file's token stream into an AST. It stops at the first
@@ -818,8 +819,8 @@ func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
-// bracket, list, map, or struct, which parseType reports, since a struct
-// type can only be declared.
+// bracket, list, map, func, or struct, which parseType reports, since a
+// struct type can only be declared.
 func (p *Parser) startsType(tk *lexer.Token) bool {
 	switch tk.Kind() {
 	case lexer.Ident, lexer.LBrack:
@@ -827,14 +828,14 @@ func (p *Parser) startsType(tk *lexer.Token) bool {
 	case lexer.Keyword:
 		return tk.Value() == lexer.Struct || tk.Value() == lexer.List ||
 			tk.Value() == lexer.Union ||
-			tk.Value() == lexer.Map
+			tk.Value() == lexer.Map || tk.Value() == lexer.Func
 	default:
 		return false
 	}
 }
 
 // parseType parses a type: a name, qualified or not, an array type, a
-// view type or a list type. parseParam takes the ... of a variadic parameter before its
+// view type, a list type, a map type or a function type. parseParam takes the ... of a variadic parameter before its
 // type, so a ... here is one written anywhere else, a result's type, a
 // variable's, a field's or an element's, and is reported rather than
 // skipped, which would make it mean the type after it.
@@ -843,14 +844,8 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 		return nil, []diag.Diagnostic{notFinal(p.span(tk))}
 	}
 
-	if p.peek().Kind() == lexer.LBrack {
-		return p.parseArrayType(false)
-	}
-	if isKeyword(p.peek(), lexer.List) {
-		return p.parseListType()
-	}
-	if isKeyword(p.peek(), lexer.Map) {
-		return p.parseMapType()
+	if parse := p.compositeType(); parse != nil {
+		return parse()
 	}
 	if diags := p.anonymousType(); diags != nil {
 		return nil, diags
@@ -867,6 +862,24 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 		return nil, typDiags
 	}
 	return typ, nil
+}
+
+// compositeType returns the parser of the type that starts with the next
+// token when it is an array or a view type's bracket, list, map or func,
+// and nil for any other.
+func (p *Parser) compositeType() func() (ast.Expr, []diag.Diagnostic) {
+	switch tk := p.peek(); {
+	case tk.Kind() == lexer.LBrack:
+		return func() (ast.Expr, []diag.Diagnostic) { return p.parseArrayType(false) }
+	case isKeyword(tk, lexer.List):
+		return p.parseListType
+	case isKeyword(tk, lexer.Map):
+		return p.parseMapType
+	case isKeyword(tk, lexer.Func):
+		return p.parseFuncType
+	default:
+		return nil
+	}
 }
 
 // anonymousType reports a struct or a union type written where a type is,
@@ -2702,6 +2715,14 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseListOperand()
 	case isKeyword(tk, lexer.Map):
 		return p.parseTypeOperand(p.parseMapType)
+	case isKeyword(tk, lexer.Func):
+		return nil, []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message:  "function literals are not supported; declare the function and use its name as a value",
+				Span:     p.span(tk),
+			},
+		}
 	}
 
 	x, diags := p.parsePrimary()
@@ -3152,6 +3173,104 @@ func (p *Parser) parseMapType() (ast.Expr, []diag.Diagnostic) {
 		Value: value,
 		Span:  ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: value.Spanned().End},
 	}, nil
+}
+
+// parseFuncType parses a function type, func(A, mut B) R, whose keyword
+// is next: its parameters' types in parentheses, each with mut before it
+// when it is mut, separated by commas, and its results as a function's
+// are written (see parseResults), unless a name and a type follow, which
+// start the next parameter of a list it is a parameter's type in. A
+// parameter has no name, and no variadic parameter, ...T, is allowed;
+// each is reported.
+func (p *Parser) parseFuncType() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	kw := p.next()
+	if ok, diags := p.expect(lexer.LParen); !ok {
+		return nil, diags
+	}
+	var params []*ast.Param
+	for p.peek().Kind() != lexer.RParen {
+		param, diags := p.parseFuncTypeParam()
+		if param == nil {
+			return nil, diags
+		}
+		params = append(params, param)
+		if p.peek().Kind() != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	if ok, diags := p.expect(lexer.RParen); !ok {
+		return nil, diags
+	}
+	var results []ast.Expr
+	// A name followed by a type is the next parameter of a parameter
+	// list, f func() n int64, its comma left out, as commas between
+	// parameters may be, so the function type returns nothing.
+	if p.peek().Kind() != lexer.Ident || !p.startsType(p.peekAt(1)) {
+		var diags []diag.Diagnostic
+		if results, diags = p.parseResults(); diags != nil {
+			return nil, diags
+		}
+	}
+	return &ast.FuncType{
+		Params:  params,
+		Results: results,
+		Span:    ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.lastEnd()},
+	}, nil
+}
+
+// parseFuncTypeParam parses one parameter of a function type: its type,
+// with mut before it for a mut parameter. A name before the type, which a
+// function type's parameters do not have, and a ..., which would make the
+// parameter variadic, are reported.
+func (p *Parser) parseFuncTypeParam() (*ast.Param, []diag.Diagnostic) {
+	param := &ast.Param{}
+	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
+		p.next()
+		param.Mut, param.MutSpan = true, p.span(tk)
+	}
+	if tk := p.peek(); tk.Kind() == lexer.Ellipsis {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a function type cannot have a variadic parameter",
+			Span:     p.span(tk),
+		}}
+	}
+	typ, diags := p.parseType()
+	if typ == nil {
+		return nil, diags
+	}
+	// A basic type's name is never a parameter's, so one followed by a
+	// type is a comma left out, which expect reports.
+	if name, isName := typ.(*ast.Ident); isName && name.Pkg == "" && !isBasicType(name.Name) {
+		if tk := p.peek(); p.startsType(tk) || tk.Kind() == lexer.Ellipsis {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"a function type's parameters have no names; write only the type, not %s",
+					name.Name,
+				),
+				Span: name.Span,
+			}}
+		}
+	}
+	param.TypeExpr = typ
+	param.Span = ast.Span{File: p.fileID, Start: typ.Spanned().Start, End: typ.Spanned().End}
+	if param.Mut {
+		param.Span.Start = param.MutSpan.Start
+	}
+	return param, nil
+}
+
+// isBasicType reports whether name is a basic type's, such as int64,
+// which no declaration may take as its name.
+func isBasicType(name string) bool {
+	_, ok := types.Lookup(name)
+	return ok
 }
 
 // parseListOperand parses a list type written where an operand is, which

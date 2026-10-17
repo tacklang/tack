@@ -580,3 +580,69 @@ func TestAllocatorIsABasicType(t *testing.T) {
 		t.Errorf("Name = %q", got)
 	}
 }
+
+// TestFuncTypes checks that a function type is found again by its
+// signature, mut parameters and results included, is named as a program
+// writes it, and keeps its own copy of its signature.
+func TestFuncTypes(t *testing.T) {
+	table := types.NewTable()
+	point := table.Struct("Point")
+	params := []types.FuncParam{{Type: types.Int64}, {Type: point, Mut: true}}
+	f := table.Func(params, []types.Type{types.Int64, types.Error})
+	if got := table.Func(params, []types.Type{types.Int64, types.Error}); got != f {
+		t.Errorf("one signature gave two types, %d and %d", f, got)
+	}
+	others := []types.Type{
+		table.Func(params, []types.Type{types.Int64}),
+		table.Func(
+			[]types.FuncParam{{Type: types.Int64}, {Type: point}},
+			[]types.Type{types.Int64, types.Error},
+		),
+		table.Func(nil, nil),
+	}
+	for _, other := range others {
+		if other == f {
+			t.Errorf("a different signature gave the same type %d", f)
+		}
+	}
+	for typ, want := range map[types.Type]string{
+		f:         "func(int64, mut Point) (int64, error)",
+		others[0]: "func(int64, mut Point) int64",
+		others[2]: "func()",
+	} {
+		if got := table.Name(typ); got != want {
+			t.Errorf("named %q, want %q", got, want)
+		}
+	}
+	params[0].Type = types.Bool
+	if got := table.FuncParams(f)[0].Type; got != types.Int64 {
+		t.Errorf("changing the caller's parameters changed the type's to %s", table.Name(got))
+	}
+}
+
+// TestFuncTypeShapes checks that a function type is no other kind of
+// type, owns nothing, has no zero value, and is a pointer in size, and
+// that a struct holding one has no zero value either.
+func TestFuncTypeShapes(t *testing.T) {
+	table := types.NewTable()
+	f := table.Func([]types.FuncParam{{Type: types.Int64}}, []types.Type{types.Bool})
+	switch {
+	case !table.IsFunc(f), table.IsArray(f), table.IsStruct(f), table.IsList(f), table.IsView(f):
+		t.Errorf("%s is the wrong kind of type", table.Name(f))
+	case table.Owned(f) || table.HasZero(f):
+		t.Errorf(
+			"%s: owned %v, has a zero value %v, want neither",
+			table.Name(f),
+			table.Owned(f),
+			table.HasZero(f),
+		)
+	case table.Size(f) != types.Size{Bytes: 8, Align: 8}:
+		t.Errorf("%s has size %+v, want 8 bytes aligned to 8", table.Name(f), table.Size(f))
+	}
+	holder := table.Struct("Holder")
+	table.SetFields(holder, []types.Field{{Name: "f", Type: f}})
+	if table.HasZero(holder) || table.Owned(holder) {
+		t.Errorf("a struct holding a function value: has a zero value %v, owned %v; want neither",
+			table.HasZero(holder), table.Owned(holder))
+	}
+}

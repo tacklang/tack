@@ -74,6 +74,12 @@ type Func struct {
 	ExternSpan Span   `json:"-"`
 	CNameSpan  Span   `json:"-"`
 
+	// Value is the function's type as a value, func(A) R, which a name
+	// naming it has where it is used as one, set by the type checker when
+	// such a use is allowed; Invalid otherwise. On the stand-in for a call
+	// through a function value it is the value's type (see Call.Dynamic).
+	Value types.Type `json:",omitempty"`
+
 	Vis Visibility `json:",omitempty"`
 
 	// Extern is whether the function was declared extern func: its body

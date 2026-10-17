@@ -148,7 +148,11 @@ parameter, a view, or inside a struct: `parameter l of extern func f
 cannot be list[list[uint8]]: a list or a view whose elements hold lists
 cannot cross to C yet`, or `parameter s of extern func f cannot be S,
 which holds one: ...`, since how C would free or take its elements is
-not settled.
+not settled. A function value, or anything holding one, does not cross
+at all, `parameter f of extern func take cannot be func(): a function
+value does not cross to C`, since nothing would check what C's pointer
+points to, and an extern func is no value, `cannot use now as a value:
+it is an extern func, and a function value does not cross to C`.
 
 | Tack                         | C                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------------|

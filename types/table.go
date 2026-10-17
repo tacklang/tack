@@ -1,6 +1,9 @@
 package types
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // Table describes the types one compilation uses. The type checker creates
 // it and records it on the file it checks, and every later stage reads types
@@ -15,8 +18,10 @@ import "strconv"
 // two types even when their fields are alike; its fields are set afterwards,
 // by SetFields, so a struct can have a field of a type declared after it. A
 // view type, []T, is added the first time it is seen, like an array, and
-// found again by its element type, and so is a list type, list[T], and a
-// map type, map[K]V, by its key and value types. Error
+// found again by its element type, and so is a list type, list[T], a
+// map type, map[K]V, by its key and value types, and a function type,
+// func(A, mut B) R, by its parameters, each a type and whether it is
+// mut, and its results. Error
 // is a struct the Table never adds: IsStruct and Fields know it without
 // an entry. A union type is added once for each declaration, by Union,
 // as a struct type is, and its cases set afterwards, by SetCases. A type
@@ -33,6 +38,7 @@ type Table struct {
 	views map[Type]Type   // each view type's ID, by its element type
 	lists map[Type]Type   // each list type's ID, by its element type
 	maps  map[mapKey]Type // each map type's ID, by its key and value types
+	funcs map[string]Type // each function type's ID, by its signature (see funcKey)
 	// bound maps each type parameter Bind bound to the type it stands
 	// for; it is nil when nothing is bound.
 	bound map[Type]Type
@@ -46,16 +52,33 @@ type Table struct {
 // entry is one type a Table added: an array, with its shape, a view or a
 // list, with its element type in arr.elem, a map, with its value type in
 // arr.elem and its key type in key, a struct, with its name and fields, a
-// union, with its name and cases, or a type parameter, with its name.
+// union, with its name and cases, a function type, with its signature,
+// or a type parameter, with its name.
 type entry struct {
 	strct  *structType // nil for anything but a struct
 	union  *unionType  // nil for anything but a union
+	fn     *funcType   // nil for anything but a function type
 	param  string      // a type parameter's name, "" for any other type
 	arr    array
 	key    Type
 	view   bool
 	list   bool
 	mapped bool
+}
+
+// funcType is a function type's signature: its parameters, in order, and
+// its result types, in order, none for a function that returns nothing.
+type funcType struct {
+	params  []FuncParam
+	results []Type
+}
+
+// FuncParam is one parameter of a function type: its type, and whether
+// it is mut, a reference to the caller's place rather than a copy of its
+// value.
+type FuncParam struct {
+	Type Type
+	Mut  bool
 }
 
 // mapKey identifies a map type by its key and value types.
@@ -105,6 +128,7 @@ func NewTable() *Table {
 		views: make(map[Type]Type),
 		lists: make(map[Type]Type),
 		maps:  make(map[mapKey]Type),
+		funcs: make(map[string]Type),
 	}
 }
 
@@ -153,6 +177,70 @@ func (t *Table) Map(key, value Type) Type {
 	id := t.add(entry{arr: array{elem: value}, key: key, mapped: true})
 	t.maps[k] = id
 	return id
+}
+
+// Func returns the function type with the parameters params and the
+// results results, in order, func(A, mut B) R, adding it if the Table does
+// not have it yet: two functions of one signature have one type. The
+// Table keeps its own copies of params and results.
+func (t *Table) Func(params []FuncParam, results []Type) Type {
+	key := funcKey(params, results)
+	if id, ok := t.funcs[key]; ok {
+		return id
+	}
+	id := t.add(entry{fn: &funcType{
+		params:  append([]FuncParam(nil), params...),
+		results: append([]Type(nil), results...),
+	}})
+	t.funcs[key] = id
+	return id
+}
+
+// funcKey writes out a function type's signature, the ID of each
+// parameter's type, marked when it is mut, then the ID of each result's,
+// so that two signatures have one key exactly when they are alike.
+func funcKey(params []FuncParam, results []Type) string {
+	var b strings.Builder
+	for _, p := range params {
+		if p.Mut {
+			b.WriteByte('m')
+		}
+		b.WriteString(strconv.Itoa(int(p.Type)))
+		b.WriteByte(',')
+	}
+	b.WriteByte(';')
+	for _, r := range results {
+		b.WriteString(strconv.Itoa(int(r)))
+		b.WriteByte(',')
+	}
+	return b.String()
+}
+
+// IsFunc reports whether typ is a function type, func(A) R.
+func (t *Table) IsFunc(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.fn != nil
+}
+
+// FuncParams returns the parameters of the function type typ, in order,
+// or nil if typ is not one. The caller must not change them.
+func (t *Table) FuncParams(typ Type) []FuncParam {
+	e, ok := t.entry(typ)
+	if !ok || e.fn == nil {
+		return nil
+	}
+	return e.fn.params
+}
+
+// FuncResults returns the result types of the function type typ, in
+// order, or nil if typ is not one or returns nothing. The caller must not
+// change them.
+func (t *Table) FuncResults(typ Type) []Type {
+	e, ok := t.entry(typ)
+	if !ok || e.fn == nil {
+		return nil
+	}
+	return e.fn.results
 }
 
 // Struct adds a new struct type named name, with no fields until SetFields
@@ -277,8 +365,8 @@ func (t *Table) entry(typ Type) (entry, bool) {
 // IsArray reports whether typ is an array type.
 func (t *Table) IsArray(typ Type) bool {
 	e, ok := t.entry(typ)
-	return ok && e.strct == nil && e.union == nil && e.param == "" && !e.view && !e.list &&
-		!e.mapped
+	return ok && e.strct == nil && e.union == nil && e.fn == nil && e.param == "" && !e.view &&
+		!e.list && !e.mapped
 }
 
 // IsList reports whether typ is a list type, list[T].
@@ -390,14 +478,15 @@ func (t *Table) Owned(typ Type) bool {
 
 // HasZero reports whether type typ has a zero value, which a variable
 // declared without a value starts from: every type but a list, a map, an
-// Allocator, a union, and an array or a struct holding any of them. An
-// empty list or map still needs an allocator to grow through, no Allocator
-// stands for none, and no case of a union is the one a variable starts
+// Allocator, a union, a function type, and an array or a struct holding
+// any of them. An empty list or map still needs an allocator to grow
+// through, no Allocator stands for none, no case of a union is the one a
+// variable starts as, and no function is the one a function value starts
 // as.
 func (t *Table) HasZero(typ Type) bool {
 	noZero := func(typ Type) bool {
 		return typ == Allocator || t.IsList(typ) || t.IsMap(typ) || t.IsTypeParam(typ) ||
-			t.IsUnion(typ)
+			t.IsUnion(typ) || t.IsFunc(typ)
 	}
 	return !t.holds(typ, noZero, make(map[Type]bool))
 }
@@ -459,9 +548,9 @@ func (t *Table) parts(typ Type) []Type {
 
 // Count returns how many types the Table has added, so a caller can visit
 // each: their IDs are numBasic through numBasic + Count() - 1, in the order
-// they were added. An array, view or list type comes after its element type, but a struct
-// or union type may come before the types of its fields or payloads, so a caller that needs
-// every type a type is made of first has to order them itself.
+// they were added. An array, view, list, map or function type comes after the types it is
+// made of, but a struct or union type may come before the types of its fields or payloads,
+// so a caller that needs every type a type is made of first has to order them itself.
 func (t *Table) Count() int {
 	if t == nil {
 		return 0
@@ -474,7 +563,8 @@ func Added(i int) Type { return numBasic + Type(i) }
 
 // Name returns a type's name as a program writes it, for diagnostics: a
 // basic type's own name, [n]elem for an array, []elem for a view,
-// list[elem] for a list, map[key]value for a map, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
+// list[elem] for a list, map[key]value for a map, func(A, mut B) (R, S)
+// for a function type, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
 func (t *Table) Name(typ Type) string {
@@ -519,8 +609,8 @@ func (e entry) declaredName() (string, bool) {
 	}
 }
 
-// compositeName returns the name of e, an array's, a view's, a list's or a map's
-// entry, as NameWith writes it.
+// compositeName returns the name of e, an array's, a view's, a list's, a
+// map's or a function type's entry, as NameWith writes it.
 func (t *Table) compositeName(e entry, qualify func(typ Type, name string) string) string {
 	switch {
 	case e.view:
@@ -529,7 +619,35 @@ func (t *Table) compositeName(e entry, qualify func(typ Type, name string) strin
 		return "list[" + t.NameWith(e.arr.elem, qualify) + "]"
 	case e.mapped:
 		return "map[" + t.NameWith(e.key, qualify) + "]" + t.NameWith(e.arr.elem, qualify)
+	case e.fn != nil:
+		return t.funcName(e.fn, qualify)
 	default:
 		return "[" + strconv.FormatInt(e.arr.n, 10) + "]" + t.NameWith(e.arr.elem, qualify)
+	}
+}
+
+// funcName returns the name of the function type fn as NameWith writes
+// it: func, its parameters' types in parentheses, mut before a mut one,
+// and its results, none, one alone, or several in parentheses.
+func (t *Table) funcName(fn *funcType, qualify func(typ Type, name string) string) string {
+	params := make([]string, len(fn.params))
+	for i, p := range fn.params {
+		params[i] = t.NameWith(p.Type, qualify)
+		if p.Mut {
+			params[i] = "mut " + params[i]
+		}
+	}
+	name := "func(" + strings.Join(params, ", ") + ")"
+	results := make([]string, len(fn.results))
+	for i, r := range fn.results {
+		results[i] = t.NameWith(r, qualify)
+	}
+	switch len(results) {
+	case 0:
+		return name
+	case 1:
+		return name + " " + results[0]
+	default:
+		return name + " (" + strings.Join(results, ", ") + ")"
 	}
 }

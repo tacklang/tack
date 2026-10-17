@@ -80,14 +80,8 @@ func (t *Table) layout(typ Type, visiting map[Type]bool) Size {
 	switch {
 	case typ == Error:
 		return t.structSize(errorFields, visiting)
-	case t.IsView(typ):
-		return Size{Bytes: 16, Align: 8} // a pointer and an int64 length
-	case t.IsList(typ):
-		return Size{Bytes: 32, Align: 8} // a pointer, len, cap and an Allocator
-	case t.IsMap(typ):
-		// Its entries' pointer, length, how many are used, their
-		// capacity, its slots' pointer and count, and an Allocator.
-		return Size{Bytes: 56, Align: 8}
+	case t.IsView(typ), t.IsList(typ), t.IsMap(typ), t.IsFunc(typ):
+		return t.handleSize(typ)
 	case t.IsArray(typ):
 		elem := t.size(t.Elem(typ), visiting)
 		// An array type's length is never negative (see Array), and one
@@ -101,6 +95,23 @@ func (t *Table) layout(typ Type, visiting map[Type]bool) Size {
 		return t.unionSize(t.Cases(typ), visiting)
 	default:
 		return Size{}
+	}
+}
+
+// handleSize returns the size of typ, a view, a list, a map or a
+// function type, each a fixed handle on what it refers to or owns.
+func (t *Table) handleSize(typ Type) Size {
+	switch {
+	case t.IsView(typ):
+		return Size{Bytes: 16, Align: 8} // a pointer and an int64 length
+	case t.IsList(typ):
+		return Size{Bytes: 32, Align: 8} // a pointer, len, cap and an Allocator
+	case t.IsMap(typ):
+		// Its entries' pointer, length, how many are used, their
+		// capacity, its slots' pointer and count, and an Allocator.
+		return Size{Bytes: 56, Align: 8}
+	default:
+		return Size{Bytes: 8, Align: 8} // a pointer to the function
 	}
 }
 

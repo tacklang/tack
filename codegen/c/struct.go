@@ -12,7 +12,9 @@ import (
 )
 
 // emitTypes defines a C struct for every array, struct and union type the
-// program uses, then the string comparison helper if the program compares
+// program uses, after tack_fnptr, which any of them may hold, and before
+// the pointer type of every function type (see funcvalue.go), then the
+// string comparison helper if the program compares
 // strings, directly or inside those types, then the equality helper of
 // every one == compares, then the free helper of every union holding a
 // list and of every list of owned elements. A type is
@@ -23,9 +25,11 @@ import (
 func (g *generator) emitTypes() {
 	table := g.prog.Types
 	defined := make(map[types.Type]bool)
+	g.emitFuncPtr()
 	for i := range table.Count() {
 		g.emitTypeDef(types.Added(i), defined)
 	}
+	g.emitFuncTypes()
 
 	compared := g.comparedTypes()
 	for _, key := range g.keyTypes() {

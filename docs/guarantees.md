@@ -42,7 +42,10 @@ These are open bugs against the guarantees, found by an audit on
 marked parked.
 
 - **Panic (4), parked.** Unbounded recursion is accepted and can run out
-  of stack. The fix is not decided yet.
+  of stack. The fix is not decided yet. A call through a function value
+  calls whichever function the value names when it runs, so recursion
+  through values, a function passed itself or one that calls it, cannot be
+  found from the source by following names; the fix has to bound it too.
 - **Panic (4), parked.** A large local array, or a large value passed or
   copied by value, can overflow the stack with no recursion at all: a function with
   a 16 MB local array crashes. The same compile-time bound on call chains

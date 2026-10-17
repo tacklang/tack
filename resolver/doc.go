@@ -51,7 +51,18 @@
 // names are reserved like keywords: nothing may be declared with one, and
 // one is never read or assigned as a name. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
-// declaration in the tree. The builtins are those of the builtin.Set New
+// declaration in the tree. A callee is bound to the function or builtin
+// of its name first, even where a variable or parameter of that name is
+// visible, which is recorded in Ident.Hidden for the type checker, and a
+// variable never read otherwise is reported unused with a note at the
+// call; a callee no function or builtin has is bound to the variable or
+// parameter of its name, a global included, which the call calls through,
+// and marks a variable read. A name used as a value that no parameter,
+// variable or type has where it is used is bound to the function of the
+// package of that name, plain or qualified, whose value it is; a
+// builtin's name is no value, `cannot use the builtin len as a value;
+// only a declared function can be one`. The names in a function type,
+// func(A) R, are bound as any type's are. The builtins are those of the builtin.Set New
 // is given, which std/builtin declares, and the generic ones, len, make,
 // append, reserve, pop and remove.
 //

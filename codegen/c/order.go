@@ -280,10 +280,10 @@ func callsFunc(e ast.Expr) bool {
 }
 
 // callsItself reports whether call, not counting its operands, calls a
-// Tack function, a method or a builtin that changes a list, as callsFunc
-// counts them.
+// Tack function, a method, a function value, whichever function it
+// names, or a builtin that changes a list, as callsFunc counts them.
 func callsItself(call *ast.Call) bool {
-	if call.Receiver() != nil {
+	if call.Receiver() != nil || call.Dynamic != nil {
 		return true
 	}
 	id, isName := call.Fn.(*ast.Ident)

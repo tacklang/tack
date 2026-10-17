@@ -80,6 +80,16 @@
 // the parser accepts it only after the last argument, and the type
 // checker only in a call to a variadic function, whose variadic parameter
 // v is then passed to whole.
+// A function type written func(A, mut B) R is a FuncType, wherever a type
+// is written, its parameters Params with no names; a function's name used
+// as a value, f or pkg.f, is an Ident whose Def is the Func, whose type
+// the type checker records in Func.Value. A call through a function
+// value, f(x) where f names a variable or a parameter, is a Call whose Fn
+// is that Ident, and the type checker records in Call.Dynamic a stand-in
+// Func with the value's parameters and results, which Callee returns. A
+// callee bound to a function or a builtin records in Ident.Hidden a
+// variable or parameter of its name visible there, which the call passed
+// over.
 // A list type written list[T] is a ListType, and a map type written
 // map[K]V a MapType, wherever a type is written, and as an operand, as
 // make's first argument; the type checker records the type of a call to

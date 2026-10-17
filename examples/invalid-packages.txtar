@@ -542,6 +542,96 @@ extern-visible/util/util.tck:5:1: error: an extern func cannot be lib; export a 
    |	^~~
 06 |	
 
+-- func-value-exposes/tack.mod --
+module calc
+-- func-value-exposes/geo/geo.tck --
+package geo
+
+type secret struct {
+    n int64
+}
+
+pub type Op struct {
+    pub run func(secret) int64
+}
+
+pub func Apply(f func(int64) secret) int64 {
+    return 0
+}
+
+pub func Pick() func(list[map[int64]secret]) {
+    return drop
+}
+
+func drop(l list[map[int64]secret]) {
+}
+
+pub func Nothing() {
+}
+-- func-value-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- func-value-exposes/expected --
+stage: typeck
+---
+
+func-value-exposes/geo/geo.tck:8:13: error: pub field run of Op exposes secret, which is not pub
+07 |	pub type Op struct {
+08 |	    pub run func(secret) int64
+   |	            ^~~~~~~~~~~~~~~~~~
+09 |	}
+
+func-value-exposes/geo/geo.tck:11:18: error: pub function Apply exposes secret, which is not pub
+10 |	
+11 |	pub func Apply(f func(int64) secret) int64 {
+   |	                 ^~~~~~~~~~~~~~~~~~
+12 |	    return 0
+
+func-value-exposes/geo/geo.tck:15:17: error: pub function Pick exposes secret, which is not pub
+14 |	
+15 |	pub func Pick() func(list[map[int64]secret]) {
+   |	                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+16 |	    return drop
+
+-- func-value-not-pub/tack.mod --
+module calc
+-- func-value-not-pub/geo/geo.tck --
+package geo
+
+pub func Area(w int64, h int64) int64 {
+    return w * h
+}
+
+func secret(n int64) int64 {
+    return n
+}
+-- func-value-not-pub/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    f := geo.secret
+    g := geo.Area
+    if f(1) == g(1, 1) {
+        print("same")
+    }
+}
+-- func-value-not-pub/expected --
+stage: resolve
+---
+
+func-value-not-pub/main.tck:6:10: error: secret is not pub in package calc/geo
+05 |	func main() {
+06 |	    f := geo.secret
+   |	         ^~~~~~~~~~
+07 |	    g := geo.Area
+
 -- generic-foreign-private-method/tack.mod --
 module calc
 -- generic-foreign-private-method/sink/sink.tck --
@@ -3291,12 +3381,6 @@ qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it
    |	         ^~~~~~~~~~~
 07 |	    f := lexer.First
 
-qualified-wrong-kind/main.tck:7:10: error: undefined: lexer.First
-06 |	    t := lexer.Token
-07 |	    f := lexer.First
-   |	         ^~~~~~~~~~~
-08 |	    var x lexer.First
-
 qualified-wrong-kind/main.tck:8:11: error: lexer.First is not a type
 07 |	    f := lexer.First
 08 |	    var x lexer.First
@@ -3326,6 +3410,12 @@ qualified-wrong-kind/main.tck:12:5: error: undefined: lexer.First
 12 |	    lexer.First = 1
    |	    ^~~~~~~~~~~
 13 |	}
+
+qualified-wrong-kind/main.tck:7:5: error: declared and not used: f
+06 |	    t := lexer.Token
+07 |	    f := lexer.First
+   |	    ^
+08 |	    var x lexer.First
 
 -- qualifier-not-a-package/tack.mod --
 module calc

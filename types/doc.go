@@ -48,7 +48,14 @@
 // after that; it has no length, and an array type is never a view type,
 // so []int64 and [3]int64 are two types. A list type, list[T], an owned,
 // growable list of elements of type T, is added and found by its element
-// type in the same way. A struct type is added once per declaration, so two structs
+// type in the same way, and a map type, map[K]V, by its key and value
+// types. A function type, func(A, mut B) R, the type of a value naming
+// a function, is added the first time it is seen and found by its
+// signature after that, its parameters' types, each with whether it is
+// mut (FuncParam), and its result types, so two functions of one
+// signature have one type; FuncParams and FuncResults give them. It is
+// copyable, owns nothing, has no zero value, and is a pointer in size.
+// A struct type is added once per declaration, so two structs
 // with the same fields are two types; it is named by its declaration and
 // given its fields, a name and a type each, in order, after it is added,
 // which lets a field name a struct declared after its own. A union type
@@ -62,8 +69,9 @@
 // array, a struct or a union holding one at any depth, a union through
 // any of its cases' payloads. A value of such a type moves rather than
 // copies. HasZero says which types have a zero value: every type but a
-// list, an Allocator, a union, none of whose cases is one a variable
-// could start as, and an array or a struct holding any of them.
+// list, a map, an Allocator, a union, none of whose cases is one a
+// variable could start as, a function type, no function being the one a
+// value starts as, and an array or a struct holding any of them.
 // HoldsUnion says which types are or hold a union.
 // A type parameter, one of a generic function's, is a type of its own,
 // added once for each declared, named by its name, which is no array,

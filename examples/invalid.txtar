@@ -7160,6 +7160,866 @@ from-keyword-type/main.tck:3:6: error: expected 'type name' found 'from'
    |	     ^
 04 |	}
 
+-- func-type-any-param/main.tck --
+package main
+
+func run(f func(any)) {
+}
+
+func main() {
+}
+-- func-type-any-param/expected --
+stage: typeck
+---
+
+func-type-any-param/main.tck:3:17: error: a function type's parameter cannot be any
+02 |	
+03 |	func run(f func(any)) {
+   |	                ^~~
+04 |	}
+
+-- func-type-error-not-last/main.tck --
+package main
+
+func run(f func() (error, int64)) {
+}
+
+func main() {
+}
+-- func-type-error-not-last/expected --
+stage: typeck
+---
+
+func-type-error-not-last/main.tck:3:20: error: error must be the last result of a function type
+02 |	
+03 |	func run(f func() (error, int64)) {
+   |	                   ^~~~~
+04 |	}
+
+-- func-type-mut-view/main.tck --
+package main
+
+func run(f func(mut []int64)) {
+}
+
+func main() {
+}
+-- func-type-mut-view/expected --
+stage: typeck
+---
+
+func-type-mut-view/main.tck:3:17: error: a view cannot be a mut parameter; views are read-only
+02 |	
+03 |	func run(f func(mut []int64)) {
+   |	                ^~~~~~~~~~~
+04 |	}
+
+-- func-type-param-name/main.tck --
+package main
+
+func run(f func(x int64) int64) {
+}
+
+func main() {
+}
+-- func-type-param-name/expected --
+stage: parse
+---
+
+func-type-param-name/main.tck:3:17: error: a function type's parameters have no names; write only the type, not x
+02 |	
+03 |	func run(f func(x int64) int64) {
+   |	                ^
+04 |	}
+
+-- func-type-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func run[S Sizer](s S, f func(S) int64) int64 {
+    return f(s)
+}
+
+func main() {
+}
+-- func-type-type-param/expected --
+stage: typeck
+---
+
+func-type-type-param/main.tck:7:31: error: a function type cannot hold the type parameter S
+06 |	
+07 |	func run[S Sizer](s S, f func(S) int64) int64 {
+   |	                              ^
+08 |	    return f(s)
+
+-- func-type-variadic/main.tck --
+package main
+
+func run(f func(...int64)) {
+}
+
+func main() {
+}
+-- func-type-variadic/expected --
+stage: parse
+---
+
+func-type-variadic/main.tck:3:17: error: a function type cannot have a variadic parameter
+02 |	
+03 |	func run(f func(...int64)) {
+   |	                ^~~
+04 |	}
+
+-- func-type-view-result/main.tck --
+package main
+
+func run(f func([]int64) []int64) {
+}
+
+func main() {
+}
+-- func-type-view-result/expected --
+stage: typeck
+---
+
+func-type-view-result/main.tck:3:26: error: a function type cannot return a view
+02 |	
+03 |	func run(f func([]int64) []int64) {
+   |	                         ^~~~~~~
+04 |	}
+
+-- func-value-any-arg/main.tck --
+package main
+
+func one() int64 {
+    return 1
+}
+
+func show(v any) {
+}
+
+func main() {
+    show(one)
+}
+-- func-value-any-arg/expected --
+stage: typeck
+---
+
+func-value-any-arg/main.tck:11:10: error: cannot pass func() int64 as any: only the builtin types and views of them can be passed as any for now
+10 |	func main() {
+11 |	    show(one)
+   |	         ^~~
+12 |	}
+
+-- func-value-any-param/main.tck --
+package main
+
+func show(v any) {
+}
+
+func main() {
+    f := show
+    f(1)
+}
+-- func-value-any-param/expected --
+stage: typeck
+---
+
+func-value-any-param/main.tck:7:10: error: cannot use show as a value: its parameter v is an any, which no function type's can be
+06 |	func main() {
+07 |	    f := show
+   |	         ^~~~
+08 |	    f(1)
+
+-- func-value-arity/main.tck --
+package main
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func main() {
+    f := double
+    if f(1, 2) == 2 {
+        print("two")
+    }
+}
+-- func-value-arity/expected --
+stage: typeck
+---
+
+func-value-arity/main.tck:9:8: error: f expects 1 argument(s), got 2
+08 |	    f := double
+09 |	    if f(1, 2) == 2 {
+   |	       ^~~~~~~
+10 |	        print("two")
+
+-- func-value-builtin/main.tck --
+package main
+
+func main() {
+    f := len
+    print(f)
+}
+-- func-value-builtin/expected --
+stage: resolve
+---
+
+func-value-builtin/main.tck:4:10: error: cannot use the builtin len as a value; only a declared function can be one
+03 |	func main() {
+04 |	    f := len
+   |	         ^~~
+05 |	    print(f)
+
+-- func-value-call-not-func/main.tck --
+package main
+
+func main() {
+    n := 3
+    n(1)
+}
+-- func-value-call-not-func/expected --
+stage: typeck
+---
+
+func-value-call-not-func/main.tck:5:5: error: cannot call n: it is int64, not a function
+04 |	    n := 3
+05 |	    n(1)
+   |	    ^
+06 |	}
+
+-- func-value-checked-index/main.tck --
+package main
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func main() {
+    mut l := make(list[func(int64) int64], c_allocator)
+    err := append(mut l, double)
+    if err.code != 0 {
+        return
+    }
+    f, ok := l[0]
+    if ok {
+        if f(1) == 2 {
+            print("two")
+        }
+    }
+}
+-- func-value-checked-index/expected --
+stage: typeck
+---
+
+func-value-checked-index/main.tck:13:5: error: the checked form cannot read an element of type func(int64) int64: it has no zero value to give when the index is out of range
+12 |	    }
+13 |	    f, ok := l[0]
+   |	    ^~~~~~~~~~~~~
+14 |	    if ok {
+
+-- func-value-compare/main.tck --
+package main
+
+func one() int64 {
+    return 1
+}
+
+func two() int64 {
+    return 2
+}
+
+func main() {
+    f := one
+    g := two
+    if f == g {
+        print("same")
+    }
+}
+-- func-value-compare/expected --
+stage: typeck
+---
+
+func-value-compare/main.tck:14:8: error: operator == is not defined on func() int64
+13 |	    g := two
+14 |	    if f == g {
+   |	       ^~~~~~
+15 |	        print("same")
+
+-- func-value-dropped-error/main.tck --
+package main
+
+func fail(n int64) error {
+    return error{code: 1, msg: "no"}
+}
+
+func main() {
+    f := fail
+    f(1)
+}
+-- func-value-dropped-error/expected --
+stage: typeck
+---
+
+func-value-dropped-error/main.tck:9:5: error: the error f returns cannot be dropped; bind it, as in err := f(...)
+08 |	    f := fail
+09 |	    f(1)
+   |	    ^~~~
+10 |	}
+
+-- func-value-error-held/main.tck --
+package main
+
+func one(x int64) int64 {
+    return x
+}
+
+func get() (func(int64) int64, error) {
+    return one, noerror
+}
+
+func main() {
+    f, err := get()
+    if f(1) == 1 {
+        print("one")
+    }
+    if err.code != 0 {
+        return
+    }
+}
+-- func-value-error-held/expected --
+stage: typeck
+---
+
+func-value-error-held/main.tck:13:8: error: f cannot be read before err is checked; check err.code == 0 first
+12 |	    f, err := get()
+13 |	    if f(1) == 1 {
+   |	       ^
+14 |	        print("one")
+
+-- func-value-extern/main.tck --
+package main
+
+extern func now() int64
+
+func main() {
+    f := now
+    if f() == 0 {
+        print("zero")
+    }
+}
+-- func-value-extern/expected --
+stage: typeck
+---
+
+func-value-extern/main.tck:6:10: error: cannot use now as a value: it is an extern func, and a function value does not cross to C
+05 |	func main() {
+06 |	    f := now
+   |	         ^~~
+07 |	    if f() == 0 {
+
+-- func-value-extern-param/main.tck --
+package main
+
+type Op struct {
+    run func(int64) int64
+}
+
+extern func call(op Op) int64
+
+extern func take(f func()) int64
+
+func main() {
+}
+-- func-value-extern-param/expected --
+stage: typeck
+---
+
+func-value-extern-param/main.tck:7:21: error: parameter op of extern func call cannot be Op: a function value does not cross to C
+06 |	
+07 |	extern func call(op Op) int64
+   |	                    ^~
+08 |	
+
+func-value-extern-param/main.tck:9:20: error: parameter f of extern func take cannot be func(): a function value does not cross to C
+08 |	
+09 |	extern func take(f func()) int64
+   |	                   ^~~~~~
+10 |	
+
+-- func-value-extern-result/main.tck --
+package main
+
+extern func get() func(int64) int64
+
+func main() {
+}
+-- func-value-extern-result/expected --
+stage: typeck
+---
+
+func-value-extern-result/main.tck:3:19: error: extern func get cannot return func(int64) int64: a function value does not cross to C
+02 |	
+03 |	extern func get() func(int64) int64
+   |	                  ^~~~~~~~~~~~~~~~~
+04 |	
+
+-- func-value-field-call/main.tck --
+package main
+
+type Op struct {
+    run func(int64) int64
+}
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func main() {
+    op := Op{run: double}
+    print(op.run(3))
+}
+-- func-value-field-call/expected --
+stage: typeck
+---
+
+func-value-field-call/main.tck:13:14: error: run is a field of Op holding a function value, not a method; call it through a local, as in f := op.run, then f(...)
+12 |	    op := Op{run: double}
+13 |	    print(op.run(3))
+   |	             ^~~
+14 |	}
+
+-- func-value-generic-brackets/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    f := measure[Box]
+    if f(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- func-value-generic-brackets/expected --
+stage: resolve
+---
+
+func-value-generic-brackets/main.tck:20:18: error: cannot use Box as a value; it is a type
+19 |	func main() {
+20 |	    f := measure[Box]
+   |	                 ^~~
+21 |	    if f(Box{n: 1}) == 1 {
+
+-- func-value-global/main.tck --
+package main
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+var f func(int64) int64 = double
+
+func main() {
+    if f(1) == 2 {
+        print("two")
+    }
+}
+-- func-value-global/expected --
+stage: typeck
+---
+
+func-value-global/main.tck:7:5: error: package-level variable f cannot hold a function value
+06 |	
+07 |	var f func(int64) int64 = double
+   |	    ^
+08 |	
+
+-- func-value-global-no-value/main.tck --
+package main
+
+mut f func(int64) int64
+
+func main() {
+    g := f
+    if g(1) == 2 {
+        print("two")
+    }
+}
+-- func-value-global-no-value/expected --
+stage: typeck
+---
+
+func-value-global-no-value/main.tck:3:5: error: f needs a value: func(int64) int64 has no zero value
+02 |	
+03 |	mut f func(int64) int64
+   |	    ^
+04 |	
+
+-- func-value-hidden/main.tck --
+package main
+
+func step(x int64) int64 {
+    return x + 1
+}
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func apply(step func(int64) int64, x int64) int64 {
+    return step(x)
+}
+
+func main() {
+    if apply(double, 1) == 2 {
+        print("two")
+    }
+}
+-- func-value-hidden/expected --
+stage: typeck
+---
+
+func-value-hidden/main.tck:12:12: error: step calls the function step, not the function value of that name; rename one of them
+11 |	func apply(step func(int64) int64, x int64) int64 {
+12 |	    return step(x)
+   |	           ^~~~
+13 |	}
+func-value-hidden/main.tck:11:12: note: the function value step is declared here
+10 |	
+11 |	func apply(step func(int64) int64, x int64) int64 {
+   |	           ^~~~
+12 |	    return step(x)
+
+-- func-value-hidden-unused/main.tck --
+package main
+
+func step(x int64) int64 {
+    return x + 1
+}
+
+func run(fs [2]func(int64) int64) int64 {
+    mut v := 0
+    for _, step := range fs {
+        v = step(v)
+    }
+    return v
+}
+
+func main() {
+    if run([2]func(int64) int64{step, step}) == 2 {
+        print("two")
+    }
+}
+-- func-value-hidden-unused/expected --
+stage: resolve
+---
+
+func-value-hidden-unused/main.tck:9:12: error: declared and not used: step
+08 |	    mut v := 0
+09 |	    for _, step := range fs {
+   |	           ^~~~
+10 |	        v = step(v)
+func-value-hidden-unused/main.tck:10:13: note: this call calls the function step, not the variable; rename one of them
+09 |	    for _, step := range fs {
+10 |	        v = step(v)
+   |	            ^~~~
+11 |	    }
+
+-- func-value-literal/main.tck --
+package main
+
+func main() {
+    f := func(x int64) int64 {
+        return x
+    }
+    print(f(1))
+}
+-- func-value-literal/expected --
+stage: parse
+---
+
+func-value-literal/main.tck:4:10: error: function literals are not supported; declare the function and use its name as a value
+03 |	func main() {
+04 |	    f := func(x int64) int64 {
+   |	         ^~~~
+05 |	        return x
+
+-- func-value-map-key/main.tck --
+package main
+
+func main() {
+    m := make(map[func()]int64, c_allocator)
+    print(len(m))
+}
+-- func-value-map-key/expected --
+stage: typeck
+---
+
+func-value-map-key/main.tck:4:19: error: cannot use func() as a map key: it has no ==
+03 |	func main() {
+04 |	    m := make(map[func()]int64, c_allocator)
+   |	                  ^~~~~~
+05 |	    print(len(m))
+
+-- func-value-method/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    b := Box{n: 1}
+    f := b.size
+    if f() == 1 {
+        print("one")
+    }
+}
+-- func-value-method/expected --
+stage: typeck
+---
+
+func-value-method/main.tck:13:12: error: size is a method of Box, not a field; a method can only be called
+12 |	    b := Box{n: 1}
+13 |	    f := b.size
+   |	           ^~~~
+14 |	    if f() == 1 {
+
+-- func-value-missing-mut/main.tck --
+package main
+
+func bump(mut n int64) {
+    n = n + 1
+}
+
+func main() {
+    f := bump
+    mut n := 1
+    f(n)
+    if n == 2 {
+        print("two")
+    }
+}
+-- func-value-missing-mut/expected --
+stage: typeck
+---
+
+func-value-missing-mut/main.tck:10:7: error: f takes argument 1 as mut; pass mut n
+09 |	    mut n := 1
+10 |	    f(n)
+   |	      ^
+11 |	    if n == 2 {
+
+-- func-value-mut-overlap/main.tck --
+package main
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func main() {
+    f := swap
+    mut n := 1
+    f(mut n, mut n)
+    if n == 1 {
+        print("one")
+    }
+}
+-- func-value-mut-overlap/expected --
+stage: typeck
+---
+
+func-value-mut-overlap/main.tck:12:14: error: n is passed as mut twice in this call; a mut argument must be the only way to reach n during the call
+11 |	    mut n := 1
+12 |	    f(mut n, mut n)
+   |	             ^~~~~
+13 |	    if n == 1 {
+func-value-mut-overlap/main.tck:12:7: note: first passed as mut here
+11 |	    mut n := 1
+12 |	    f(mut n, mut n)
+   |	      ^~~~~
+13 |	    if n == 1 {
+
+-- func-value-no-zero/main.tck --
+package main
+
+func main() {
+    mut f func(int64) int64
+    if f(1) == 2 {
+        print("two")
+    }
+}
+-- func-value-no-zero/expected --
+stage: typeck
+---
+
+func-value-no-zero/main.tck:4:9: error: f needs a value: func(int64) int64 has no zero value
+03 |	func main() {
+04 |	    mut f func(int64) int64
+   |	        ^
+05 |	    if f(1) == 2 {
+
+-- func-value-nothing-bound/main.tck --
+package main
+
+func two() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    f := two
+    _, _ := f()
+}
+-- func-value-nothing-bound/expected --
+stage: typeck
+---
+
+func-value-nothing-bound/main.tck:9:5: error: every name is _, so nothing is bound; make the call on its own
+08 |	    f := two
+09 |	    _, _ := f()
+   |	    ^~~~~~~~~~~
+10 |	}
+
+-- func-value-several-results/main.tck --
+package main
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    f := pair
+    x := f()
+    if x == 1 {
+        print("one")
+    }
+}
+-- func-value-several-results/expected --
+stage: typeck
+---
+
+func-value-several-results/main.tck:9:10: error: f returns 2 values
+08 |	    f := pair
+09 |	    x := f()
+   |	         ^~~
+10 |	    if x == 1 {
+
+-- func-value-variadic/main.tck --
+package main
+
+func sum(xs ...int64) int64 {
+    return 0
+}
+
+func main() {
+    f := sum
+    if f(1) == 0 {
+        print("zero")
+    }
+}
+-- func-value-variadic/expected --
+stage: typeck
+---
+
+func-value-variadic/main.tck:8:10: error: cannot use sum as a value: its parameter xs is variadic, which no function type's can be
+07 |	func main() {
+08 |	    f := sum
+   |	         ^~~
+09 |	    if f(1) == 0 {
+
+-- func-value-view-result/main.tck --
+package main
+
+func head(v []int64) []int64 {
+    return v
+}
+
+func main() {
+    f := head
+    a := [2]int64{1, 2}
+    if len(f(a)) == 2 {
+        print("two")
+    }
+}
+-- func-value-view-result/expected --
+stage: typeck
+---
+
+func-value-view-result/main.tck:8:10: error: cannot use head as a value: it returns a view, which no function type can
+07 |	func main() {
+08 |	    f := head
+   |	         ^~~~
+09 |	    a := [2]int64{1, 2}
+
+-- func-value-wrong-arg/main.tck --
+package main
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func main() {
+    f := double
+    if f("two") == 4 {
+        print("four")
+    }
+}
+-- func-value-wrong-arg/expected --
+stage: typeck
+---
+
+func-value-wrong-arg/main.tck:9:10: error: cannot use string as int64 in argument to f
+08 |	    f := double
+09 |	    if f("two") == 4 {
+   |	         ^~~~~
+10 |	        print("four")
+
+-- func-value-wrong-type/main.tck --
+package main
+
+func double(x int64) int64 {
+    return x * 2
+}
+
+func main() {
+    var g func(int64) bool = double
+    if g(1) {
+        print("yes")
+    }
+}
+-- func-value-wrong-type/expected --
+stage: typeck
+---
+
+func-value-wrong-type/main.tck:8:30: error: cannot use func(int64) int64 as func(int64) bool in declaration of g
+07 |	func main() {
+08 |	    var g func(int64) bool = double
+   |	                             ^~~~~~
+09 |	    if g(1) {
+
 -- garbage/main.tck --
 package main
 
@@ -8178,18 +9038,21 @@ func measure[S Sizer](s S) int64 {
     return s.size()
 }
 
+func run(f func(int64) int64) {
+}
+
 func main() {
-    f := measure
+    run(measure)
 }
 -- generic-func-value/expected --
-stage: resolve
+stage: typeck
 ---
 
-generic-func-value/main.tck:12:10: error: undefined: measure
-11 |	func main() {
-12 |	    f := measure
-   |	         ^~~~~~~
-13 |	}
+generic-func-value/main.tck:15:9: error: cannot use measure as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+14 |	func main() {
+15 |	    run(measure)
+   |	        ^~~~~~~
+16 |	}
 
 -- generic-len/main.tck --
 package main

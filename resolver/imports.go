@@ -193,7 +193,8 @@ func (r *pkgResolver) qualified(id *ast.Ident, sc *scope) (ast.Decl, []diag.Diag
 }
 
 // bindQualifiedValue binds the qualified name id, used as a value, to the
-// global it names, and marks the global read.
+// global it names, marking the global read, or to the function it names,
+// whose value it is.
 func (r *pkgResolver) bindQualifiedValue(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	decl, diags := r.qualified(id, sc)
 	switch d := decl.(type) {
@@ -209,8 +210,12 @@ func (r *pkgResolver) bindQualifiedValue(id *ast.Ident, sc *scope) []diag.Diagno
 		id.Def = d
 		r.read[d] = true
 		return nil
+	case *ast.Func:
+		// The function's value; whether it can be one is the type
+		// checker's to say.
+		id.Def = d
+		return nil
 	default:
-		// A function is not a value, here as anywhere.
 		return []diag.Diagnostic{undefined(id)}
 	}
 }

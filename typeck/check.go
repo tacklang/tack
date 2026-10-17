@@ -177,6 +177,10 @@ type Checker struct {
 	standIns   map[standInKey]*ast.Func
 	inference  *inference
 
+	// dynamics holds the stand-in for calls through values of each
+	// function type (see dynamicFunc).
+	dynamics map[types.Type]*ast.Func
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
 
@@ -237,6 +241,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		typeParams: make(map[types.Type]*ast.TypeParam),
 		standIns:   make(map[standInKey]*ast.Func),
+		dynamics:   make(map[types.Type]*ast.Func),
 
 		sizeChecked: make(map[types.Type]bool),
 		exitCalls:   make(map[ast.Stmt]*ast.Call),
@@ -372,9 +377,11 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 //
 // What a binding of an error ties together is collected before the body
 // is checked (see collectHolds), but a binding of a method call's results
-// calls a method found only once its receiver is checked. So a body with
-// one is checked twice: first to find every method its calls call, with
-// what it reports dropped, and then for good, with every tie known.
+// calls a method found only once its receiver is checked, and one of a
+// call through a function value returns what the value's type, known
+// once the value is checked, says. So a body with either is checked
+// twice: first to find what each such call calls, with what it reports
+// dropped, and then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
 	c.body, c.writesByDecl = fn.Body, make(map[ast.Decl][]funcWrite)
 	if hasMethodBinding(fn) {
@@ -743,7 +750,7 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 		c.checkCall(call)
 	}
 	name, ok := c.calleeName(call)
-	if !ok {
+	if !ok || isValueCall(call) && call.Dynamic == nil {
 		return nil, false
 	}
 
@@ -1096,12 +1103,16 @@ func (c *Checker) checkVar(v *ast.Var) {
 // requires its initializer to be a constant expression, one the compiler
 // can compute, which it evaluates into v.Const, and its type to hold no
 // list, which any function could otherwise reach and change while a
-// view of it, or a mut argument of it, is live. An initializer that calls
+// view of it, or a mut argument of it, is live, and no function value
+// (see globalFuncValue). An initializer that calls
 // anything but len or a conversion, or names a mutable global, is
 // reported before it is checked, since the functions it could call have
 // no signatures yet. A global without a value takes its type's zero
 // value.
 func (c *Checker) checkGlobal(v *ast.Var) {
+	if c.globalFuncValue(v) {
+		return
+	}
 	if v.Value != nil && !c.isConstant(v.Value) {
 		c.notConstant(v)
 		if v.TypeExpr != nil {
@@ -1115,12 +1126,7 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 	if len(c.diags) > before {
 		return
 	}
-	if c.table.Owned(v.Type) {
-		held := "a list"
-		if !c.table.HoldsList(v.Type) {
-			held = "a map"
-		}
-		c.errorf(v.NameSpan, "package-level variable %s cannot hold %s", v.Name, held)
+	if c.badGlobalType(v) {
 		return
 	}
 
@@ -1136,6 +1142,25 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 		return
 	}
 	v.Const = value
+}
+
+// badGlobalType reports v, a package-level variable, when its type holds a
+// function value, a list or a map, which no global may, and returns
+// whether it did.
+func (c *Checker) badGlobalType(v *ast.Var) bool {
+	if c.holdsFunc(v.Type, make(map[types.Type]bool)) {
+		c.noGlobalFunc(v)
+		return true
+	}
+	if !c.table.Owned(v.Type) {
+		return false
+	}
+	held := "a list"
+	if !c.table.HoldsList(v.Type) {
+		held = "a map"
+	}
+	c.errorf(v.NameSpan, "package-level variable %s cannot hold %s", v.Name, held)
+	return true
 }
 
 // namesFailedGlobal reports whether e names an immutable global with no
@@ -1731,20 +1756,13 @@ func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) 
 
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it. A name denotes a basic
-// type, or the struct type the resolver bound it to, and list[T] a list
-// type. A view type and any
+// type, or the struct type the resolver bound it to, list[T] a list
+// type, map[K]V a map type, and func(A) R a function type. A view type and any
 // are reported, since only a parameter may have one, or, for a view, a
 // result; paramType gives a parameter's and resultType a result's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
-	switch t := expr.(type) {
-	case *ast.ArrayType:
-		return c.arrayType(t)
-	case *ast.ViewType:
-		return c.viewElsewhere(t)
-	case *ast.ListType:
-		return c.listType(t)
-	case *ast.MapType:
-		return c.mapType(t)
+	if typ, ok := c.compositeType(expr); ok {
+		return typ
 	}
 	id, ok := expr.(*ast.Ident)
 	if !ok {
@@ -1765,6 +1783,26 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return types.Invalid
 	}
 	return typ
+}
+
+// compositeType returns the type expr denotes when it is an array, a
+// view, a list, a map or a function type, as declaredType says, and
+// whether it is one.
+func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
+	switch t := expr.(type) {
+	case *ast.ArrayType:
+		return c.arrayType(t), true
+	case *ast.ViewType:
+		return c.viewElsewhere(t), true
+	case *ast.ListType:
+		return c.listType(t), true
+	case *ast.MapType:
+		return c.mapType(t), true
+	case *ast.FuncType:
+		return c.funcType(t), true
+	default:
+		return types.Invalid, false
+	}
 }
 
 // terminates reports whether control cannot fall out of the bottom of stmt.

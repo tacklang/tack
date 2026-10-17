@@ -27,7 +27,7 @@ func repeatMarked(open string, n int) string {
 // nestingShapes are the constructs that nest: parentheses, the unary
 // operators, mut, a call's arguments, an index's brackets, a slice's,
 // array, struct and nested literals, blocks of if, for, switch, defer and
-// a plain block's statements, and array, view and list types; and
+// a plain block's statements, and array, view, list and function types; and
 // shapes that mix them, which count against one limit together.
 var nestingShapes = []nestingShape{
 	{name: "parens", gen: func(n int) string {
@@ -152,6 +152,10 @@ var nestingShapes = []nestingShape{
 			"]",
 			n,
 		) + ") {\n}\n"
+	}},
+	{name: "function types", gen: func(n int) string {
+		return "package main\n\nfunc f(a " + repeatMarked("func(", n) + "int64" +
+			strings.Repeat(")", n) + ") {\n}\n"
 	}},
 	{name: "blocks around parens", gen: func(n int) string {
 		half := n / 2

@@ -24,7 +24,8 @@ const stdPath = "std"
 // an array holding one, which crosses only by mut or as a view (see
 // checkExternLists), and a map, which never does (see checkExternMaps).
 func (c *Checker) checkExtern(fn *ast.Func) {
-	if c.checkExternMaps(fn) {
+	maps := c.checkExternMaps(fn)
+	if c.checkExternFuncs(fn) && maps {
 		c.checkExternLists(fn)
 		c.checkExternUnions(fn)
 		c.checkExternOwnedElems(fn)

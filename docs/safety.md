@@ -1603,6 +1603,53 @@ methods on values under `has`, in maps held by variables, fields, union
 payloads, range loops and other maps, makes every allocation of an append
 under `has` fail in turn, and checks the same.
 
+## Function values
+
+A function value, a function's name used as a value, `f := double`, is
+a pointer to a function the program declares, and nothing else can make
+one: there are no function literals, no conversions to a function type
+and no C function behind one. Its safety is two properties.
+
+**A function value always names a function.** A function type has no
+zero value, so a variable of one is declared with its value,
+<!-- error: func-value-no-zero -->`f needs a value: func(int64) int64 has no zero value`,
+and a struct or an array holding one has no zero value either. The
+checked forms that would give a zero value cannot read one,
+<!-- error: func-value-checked-index -->`the checked form cannot read an element of type func(int64) int64: it has no zero value to give when the index is out of range`,
+and the one a checked `pop`, `remove` or `delete` gives cannot be read
+until its `ok` is checked true, as an `Allocator` cannot. A value a call
+returned beside an error cannot be read before the error is checked,
+<!-- error: func-value-error-held -->`f cannot be read before err is checked; check err.code == 0 first`.
+No function value crosses to C, where nothing would check what it
+points to,
+<!-- error: func-value-extern-param -->`parameter f of extern func take cannot be func(): a function value does not cross to C`,
+and no package-level variable holds one,
+<!-- error: func-value-global -->`package-level variable f cannot hold a function value`.
+
+**A call through a value is checked as a call by name.** The value's
+type gives its parameters and results, so the call's arguments are
+checked against them exactly as a call to a function of that signature
+is: `mut` arguments, which end every proof about their places and never
+overlap (<!-- case: func-value-mut-overlap -->), views, a list never
+read and passed as `mut` at once, moves, owned results that cannot be
+dropped, and errors that cannot be either
+(<!-- case: func-value-dropped-error -->). No proof depends on which
+function a call calls, only on what its arguments let it change, so
+nothing the checker proves is lost to a call through a value. A function
+type says no more than its values can be called with, so a generic
+function, an extern func, a method and a function with a variadic or
+`any` parameter or a view result are no values
+(<!-- case: generic-func-value -->). A call by a bare name calls the
+function of that name, so a local or parameter holding a value under
+that name is
+<!-- error: func-value-hidden -->`step calls the function step, not the function value of that name; rename one of them`.
+Recursion through a value is unbounded recursion like any other, a known
+violation of the no-panic guarantee, parked (see
+[guarantees.md](guarantees.md)). `examples/func-values` passes, returns,
+stores and calls function values with every kind of argument and result,
+makes every allocation fail in turn while appending them to a list, and
+checks that its allocator holds nothing after each group.
+
 ## Compile-time errors
 
 The compiler reports, rather than proves or checks, an operation whose

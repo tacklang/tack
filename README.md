@@ -1516,6 +1516,51 @@ makes for itself, which has a letter after `tack_`.
   c_allocator` is a global. In C an `Allocator` is a `tack_allocator`,
   the index of an allocator std's C keeps and its generation, and
   `c_allocator` is `TACK_C_ALLOCATOR`, index 0 and generation 0.
+- Function values. A function's name used anywhere but as a call's callee,
+  `double` or `bytes.equal`, is a value of its function type, written as
+  a signature is, with types alone and commas between them,
+  `func(int64) int64`, `func([]uint8, mut list[int64]) (int64, error)`,
+  `func()`: its parameters' types, `mut` before a `mut` one, and its
+  results. Two functions of one signature have one type, and nothing else
+  widens to one, `cannot use func(int64) int64 as func(int64) bool in
+  declaration of g`. A function value is copyable and owns nothing: a
+  local, a parameter, a result, a field, an array's, a list's or a view's
+  element, a map's value or a union's payload can hold one. It is called
+  through a name, `f(x)`, a local or a parameter holding it, with every
+  rule a call by name has for its arguments, `mut` ones, views, borrows,
+  moves, owned and error results and their order; the value is read
+  first, then the arguments, left to right, so `f(swap(mut f))` calls the
+  function `f` held before `swap` changed it. Calling anything else is
+  `cannot call n: it is int64, not a function`, and a field holding one
+  is called through a local, `run is a field of Op holding a function
+  value, not a method; call it through a local, as in f := op.run, then
+  f(...)`. A call by a bare name calls the function or builtin of that
+  name before any local, so a local or parameter holding a function value
+  under a function's name is `step calls the function step, not the
+  function value of that name; rename one of them`. A function type has
+  no zero value, `f needs a value: func(int64) int64 has no zero value`,
+  so a struct or array holding one has none either, and the checked forms
+  that would give a zero value cannot read one; no `==`, `operator == is
+  not defined on func() int64`, so it is no map's key; no conversion; and
+  it cannot be passed as `any`. A function type's parameters have no
+  names, `a function type's parameters have no names; write only the
+  type, not x`, and none is variadic, `any`, a `mut` view or a type
+  parameter, and it returns no view, so a function whose signature has
+  one, a generic function, `cannot use measure as a value: it is generic,
+  and a generic function is only called, its type arguments inferred from
+  the call`, an extern func and a method are no values; neither is a
+  builtin, `cannot use the builtin len as a value; only a declared
+  function can be one`. There are no function literals and no closures,
+  `function literals are not supported; declare the function and use its
+  name as a value`. Nothing holding a function value crosses to C,
+  `parameter f of extern func take cannot be func(): a function value does
+  not cross to C`, and no package-level variable holds one,
+  `package-level variable f cannot hold a function value`. In C every
+  function value is a `tack_fnptr`, one function pointer type, which a
+  call converts back to its function type's pointer type, `tack_fn_` and
+  the type's ID, before calling it; a function of several results named as
+  a value is a thunk that returns them in its function type's results
+  struct.
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A call
@@ -2096,8 +2141,8 @@ makes for itself, which has a letter after `tack_`.
   variable or parameter may reuse the name of another variable or parameter
   in scope, package-level ones included, and a variable that is never read is
   an error. Reusing a function's name is allowed.
-- Expressions are literals, parameter and variable names, calls, a call's
-  `mut` arguments, parentheses,
+- Expressions are literals, parameter and variable names, functions'
+  names as values, calls, a call's `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix
   operators `+ - * / %`, `& | ^ &^ << >>`, `== != < <= > >=` and `&& ||`,
   and the prefix `!`, `-` and `^`, with Go's precedence: the prefix
@@ -2279,7 +2324,8 @@ makes for itself, which has a letter after `tack_`.
 - Evaluation order is left to right wherever Tack evaluates several
   operands: the two sides of an operator, a call's arguments, a return's
   values, an array literal's elements, a struct literal's values in the
-  order they are written, an indexed array before its index, a sliced
+  order they are written, a function value before the arguments of a
+  call through it, an indexed array before its index, a sliced
   value before its bounds and the low bound before the high, and a
   switch's tag before its case values, which run one by one up to the
   first match. In an assignment the target's indexes come before the

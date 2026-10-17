@@ -154,7 +154,13 @@ func (c *Checker) methodOf(typ types.Type, sel *ast.Selector) *ast.Func {
 		fn = td.Method(sel.Name)
 	}
 	if fn == nil {
-		if _, _, isField := c.table.Field(typ, sel.Name); isField {
+		if f, _, isField := c.table.Field(typ, sel.Name); isField {
+			if c.table.IsFunc(f.Type) {
+				c.errorf(sel.NameSpan, "%s is a field of %s holding a function value, not a "+
+					"method; call it through a local, as in f := %s, then f(...)",
+					sel.Name, c.typeName(typ), c.text(sel.Span))
+				return nil
+			}
 			c.errorf(sel.NameSpan, "%s is a field of %s, not a method; a field cannot be called",
 				sel.Name, c.typeName(typ))
 			return nil
@@ -307,9 +313,11 @@ func (c *Checker) callText(call *ast.Call) string {
 }
 
 // hasMethodBinding reports whether fn's body binds the results of a
-// method call, a, b := x.m(), at any depth: which method that calls, and
-// so whether it returns an error that holds what the binding binds beside
-// it, is known only once the receiver is checked (see checkBody).
+// method call, a, b := x.m(), or of a call through a function value, a, b
+// := f(), at any depth: which method the one calls, and what the other's
+// value returns, and so whether either returns an error that holds what
+// the binding binds beside it, is known only once the receiver or the
+// value is checked (see checkBody).
 func hasMethodBinding(fn *ast.Func) bool {
 	found := false
 	for _, stmt := range fn.Body {
@@ -321,7 +329,7 @@ func hasMethodBinding(fn *ast.Func) bool {
 			case *ast.MultiAssign:
 				value = s.Value
 			}
-			if call, ok := value.(*ast.Call); ok && call.Receiver() != nil {
+			if call, ok := value.(*ast.Call); ok && (call.Receiver() != nil || isValueCall(call)) {
 				found = true
 			}
 			return !found
@@ -330,15 +338,16 @@ func hasMethodBinding(fn *ast.Func) bool {
 	return found
 }
 
-// nothingBound reports a binding at span of value, a method call whose
-// results checked as valid, that binds nothing, every name, blank says, _,
-// when the method returns no error: the call can be made on its own. The
-// resolver reports such a binding of a function's call; which method a
-// method call calls is known only here. One that drops an error was
-// reported as dropping it.
+// nothingBound reports a binding at span of value, a method call or a
+// call through a function value whose results checked as valid, that
+// binds nothing, every name, blank says, _, when the callee returns no
+// error: the call can be made on its own. The resolver reports such a
+// binding of a function's call; which method a method call calls, and
+// what a function value's type returns, is known only here. One that
+// drops an error was reported as dropping it.
 func (c *Checker) nothingBound(value ast.Expr, blank []bool, span ast.Span) {
 	call, ok := value.(*ast.Call)
-	if !ok || call.Receiver() == nil {
+	if !ok || call.Receiver() == nil && call.Dynamic == nil {
 		return
 	}
 	for _, b := range blank {

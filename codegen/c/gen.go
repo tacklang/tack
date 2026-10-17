@@ -94,6 +94,7 @@ func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []dia
 		pkgOf:    make(map[ast.Decl]*ast.Package),
 		structs:  make(map[types.Type]*ast.TypeDecl),
 		inPlace:  make(map[*ast.Var]bool),
+		thunked:  make(map[*ast.Func]bool),
 	}
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
@@ -137,6 +138,12 @@ type generator struct {
 	// refer to, read through it: the payloads a switch on a union binds
 	// (see union.go).
 	inPlace map[*ast.Var]bool
+
+	// thunks are the functions of several results named as values, in
+	// the order first met, whose thunks are written after the
+	// prototypes, and thunked marks each (see funcvalue.go).
+	thunks  []*ast.Func
+	thunked map[*ast.Func]bool
 
 	// scopes holds a deferScope for each block enclosing the statement
 	// being generated, innermost last; see defer.go.
@@ -202,6 +209,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	g.emitResultStructs()
 	g.emitCNameMacro()
 	g.emitPrototypes()
+	g.emitThunks()
 
 	for i, sig := range sigs {
 		g.emitFunc(sig, bodies[i])
@@ -1890,9 +1898,13 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 		}}
 	}
 	call, diags := g.callExpr(fn.Name, c)
-	_, cname := g.target(fn, c.TypeArgs)
+	results := funcResultsName(fn.Value)
+	if c.Dynamic == nil {
+		_, cname := g.target(fn, c.TypeArgs)
+		results = resultsOf(cname)
+	}
 	return multiSource{
-		temps: []multiTemp{{typ: resultsOf(cname), init: call}},
+		temps: []multiTemp{{typ: results, init: call}},
 		field: func(tmps []string, i int) string { return fmt.Sprintf("%s.r%d", tmps[0], i) },
 	}, diags
 }
@@ -2116,6 +2128,9 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 			Span:     call.Spanned(),
 		}}
 	}
+	if call.Dynamic != nil {
+		return g.dynamicCall(call)
+	}
 	typeArgs := call.TypeArgs
 	call = lowered(call)
 	callee := g.mangle(nil, name)
@@ -2151,6 +2166,32 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 		}
 	}
 	return g.sequencedAs(call.Args, args, g.argTypes(call, params), build), nil
+}
+
+// dynamicCall renders call, a call through a function value (see
+// ast.Call.Dynamic), as a C expression: the value converted back to its
+// function's pointer type and called with the arguments, rendered as a
+// call by name renders them. The value is an operand evaluated first,
+// before the arguments, left to right, so an argument that changes the
+// variable holding it, through a mut argument, changes what a later call
+// calls but not this one.
+func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
+	fn := call.Dynamic
+	value, diags := g.expr(call.Fn, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	args, diags := g.callArgs(call, fn)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	operands := append([]ast.Expr{call.Fn}, call.Args...)
+	rendered := append([]string{value}, args...)
+	ctypes := append([]string{funcPtr}, g.argTypes(call, fn.Params)...)
+	build := func(ops []string) string {
+		return fmt.Sprintf("%s(%s)", dynamicCallee(fn.Value, ops[0]), strings.Join(ops[1:], ", "))
+	}
+	return g.sequencedAs(operands, rendered, ctypes, build), nil
 }
 
 // expr renders an expression as C. want is the type the context requires;
@@ -2262,9 +2303,14 @@ func (g *generator) plainLiteral(e ast.Expr) (string, bool) {
 // identExpr renders a reference to a parameter or variable as the C name it
 // was declared under, read through the pointer for a mut parameter or a
 // union's payload a switch binds, or, for a variable whose value the name
-// moves, as the move (see moveValue).
+// moves, as the move (see moveValue), and a function named as a value as
+// a function pointer (see funcValueRef).
 func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	switch def := id.Def.(type) {
+	case *ast.Func:
+		if def != nil && def.Value != types.Invalid {
+			return g.funcValueRef(def), nil
+		}
 	case *ast.Param:
 		return g.paramRef(def), nil
 	case *ast.Var:
@@ -2275,13 +2321,12 @@ func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 			return "(*" + varName(def.Name) + ")", nil
 		}
 		return g.varRef(def), nil
-	default:
-		return "", []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("unbound identifier: %s", id.Name),
-			Span:     id.Span,
-		}}
 	}
+	return "", []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  fmt.Sprintf("unbound identifier: %s", id.Name),
+		Span:     id.Span,
+	}}
 }
 
 // binaryExpr renders an infix operation as C.
@@ -2494,6 +2539,9 @@ func (g *generator) cType(typ types.Type) string {
 	if g.prog.Types.IsMap(typ) {
 		return mapName(typ)
 	}
+	if g.prog.Types.IsFunc(typ) {
+		return funcPtr
+	}
 	if g.prog.Types.IsStruct(typ) || g.prog.Types.IsUnion(typ) {
 		return g.structName(typ)
 	}
@@ -2650,7 +2698,8 @@ func lowered(call *ast.Call) *ast.Call {
 // one either: after tack_, a mangled name has a digit, 1 to 9 since a path
 // part is never empty, and every other name starting tack_ (tack_string,
 // tack_builtin_print, tack_str0, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
-// and temporaries such as tack_r0) has a letter; locals and parameters
+// tack_fnptr, tack_fn_3, tack_fnres_3, tack_value_..., and temporaries
+// such as tack_r0) has a letter; locals and parameters
 // start v_ and p_.
 func (g *generator) mangle(decl ast.Decl, name string) string {
 	pkg := g.pkgOf[decl]

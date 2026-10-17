@@ -623,8 +623,20 @@
 // does, delete gives its value only with ok or as a
 // statement, as pop's checked form does (isTake), a range binds its key
 // and value, in place when owned (rangeBindings), and locks the map as a
-// list's range does, and len(m) is never known. A list, a map, an
-// Allocator, and anything holding either, has no zero value; a list has
+// list's range does, and len(m) is never known. A function type,
+// func(A, mut B) R, checked in funcvalue.go, is the type of a value
+// naming a function: a function's name used as a value, its type
+// recorded in Func.Value, unless the function is generic, an extern
+// func, or has a variadic or any parameter or a view result, which no
+// function type can say. A call through a variable or a parameter holding
+// one is checked against a stand-in function of its type (Call.Dynamic),
+// as a call by name is against its function's signature, so every rule
+// for arguments, proofs, borrows, moves and results holds for it. A
+// function type has no zero value, no ==, and never crosses to C or sits
+// in a global. A callee bound to a function, where a variable or a
+// parameter of its name holding a function value is visible (Ident.Hidden),
+// is reported. A list, a map, an
+// Allocator, a function value, and anything holding one, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable
 // is not used again until it is assigned, a parameter and a field are

@@ -70,14 +70,21 @@
 // start a statement or be declared as a name.
 //
 // A type is a name, an array type, [n]T, a view type, []T, a list type,
-// list[T], list being a keyword, or a map type, map[K]V, map being one,
-// nested to any depth; in an array literal, [...]T leaves the length to the
+// list[T], list being a keyword, a map type, map[K]V, map being one, or a
+// function type, func(A, mut B) R, an ast.FuncType: its parameters' types
+// in parentheses, mut before one that is mut, with commas between them,
+// none named, a name before a type reported, and none variadic, then its
+// results as a function's are written; a name and a type after one with
+// no results start the next parameter of a list it is written in, f func()
+// n int64. Nested to any depth; in an array literal, [...]T leaves the length to the
 // elements. Where a type is allowed is the type checker's to judge, so a
 // view type is parsed wherever a type is. A list or a map type is parsed
 // where an operand is too, as a ListType or a MapType, which make's first
 // argument is, and one
 // followed by braces is a literal, which the type checker reports, as it
-// does a list type anywhere else a value is wanted. In an expression, a view type
+// does a list type anywhere else a value is wanted. func where an operand
+// is would start a function literal, which Tack does not have, and is
+// reported. In an expression, a view type
 // followed by parentheses is a conversion, []uint8(s), a Call whose Fn is
 // the ViewType, and one followed by braces is a literal, which the type
 // checker reports. A type declaration, at package level only, is
