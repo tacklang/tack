@@ -172,16 +172,19 @@ another way:
   the caller holds. Returning a parameter's own array would need such a
   parameter passed by pointer, an ABI change.
 - A union pattern's binding and a range's element variable that refer to
-  a parameter's payload or element in place are variables, so returning
-  one is `cannot return a view of w: w is a local variable; ...`. A union
-  method therefore cannot return a view of its payload's list.
+  a parameter's payload or element in place are rooted, as Ahmed decided,
+  in what they refer into, so a union method can return a view of its
+  payload's list; through a `mut` parameter or receiver, a local, a global
+  or a call's result they are not, `cannot return a view of n.bytes: n
+  refers into e, and e is a mut parameter; ...`. A range element of a
+  copyable type is a copy, and stays a local.
 - An index without `ok`, or a slice past `[:]`, `[0:]` and `[:0]`, of a
   call's view is never proven, since no fact is about a call; the error
   is the usual one for an unproven index or bound.
 - A call's view is not allowed as what a range ranges over when sliced,
   `range t.bytes()[1:]`, as no view slice is.
-- A call returning a view written as a statement is `t.bytes() is not
-  used`, though the result of any other call may be dropped.
+- A call returning a view written as a statement drops the view, as
+  Ahmed decided, as any call's result may be dropped.
 - A view among several results is `a view can only be a function's only
   result`, rather than letting a multiple binding hold one.
 - An extern func cannot return a view: `extern func f cannot return a view:

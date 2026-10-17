@@ -15,8 +15,9 @@ import (
 // sliced, and also indexed, x, ok := t.bytes()[i] (an index without ok is
 // never proven, since no fact is about a call), ranged over, and returned
 // from a function that itself returns one. A call returning a view
-// anywhere else, stored, compared, printed, passed as any, or dropped as
-// a statement, is reported. An extern func cannot return a view, and a
+// anywhere else, stored, compared, printed or passed as any, is
+// reported; written as a statement, it drops the view, as any call's
+// result may be dropped, borrowing nothing past the statement. An extern func cannot return a view, and a
 // view among several results is reported.
 //
 // What the view may point into is everything its call was passed but as
@@ -34,7 +35,10 @@ import (
 // or a call returning a view whose borrowed arguments are all such
 // places. A plain parameter is the function's own copy, so an array is
 // returned only when it is reached through a list's or a view's element,
-// which live in the caller's data; a list's elements always do. A local,
+// which live in the caller's data; a list's elements always do. A union
+// pattern's binding and a range loop's element variable over owned
+// elements refer in place into what they match or range over, and are
+// rooted where that is (see referent). A local,
 // a global, a mut parameter, a temporary, a string's bytes, and values a
 // variadic call packs are reported (returnedView).
 
@@ -99,19 +103,6 @@ func (c *Checker) viewCallValue(call *ast.Call, typ types.Type, allowed bool) ty
 func (c *Checker) allowViewCall(e ast.Expr) {
 	if call, ok := e.(*ast.Call); ok {
 		c.viewCall = call
-	}
-}
-
-// droppedView reports e, a call written as a statement, when it returns a
-// view: the view is all it gives, and dropping it is reported as any
-// value given only to be dropped is.
-func (c *Checker) droppedView(e ast.Expr) {
-	call, ok := e.(*ast.Call)
-	if !ok || ast.Callee(call) == nil {
-		return
-	}
-	if results := ast.CallResults(call); len(results) == 1 && c.table.IsView(results[0]) {
-		c.errorf(call.Span, "%s is not used", c.text(call.Span))
 	}
 }
 
@@ -234,8 +225,8 @@ func (c *Checker) returnedView(e ast.Expr) *viewProblem {
 	if why, ok := c.paramRoot(e); !ok {
 		return problem(why)
 	}
-	if c.table.IsArray(ast.TypeOf(e)) && !callerMemory(c.table, e) {
-		p := problem("the function holds its own copy of " + ast.Root(e).Name +
+	if c.table.IsArray(ast.TypeOf(e)) && !c.callerMemory(e) {
+		p := problem("the function holds its own copy of " + c.ownerName(e) +
 			", and so of the array, which ends when it returns")
 		p.copied = true
 		return p
@@ -245,11 +236,20 @@ func (c *Checker) returnedView(e ast.Expr) *viewProblem {
 
 // paramRoot reports whether e is a place rooted in a parameter that is
 // not mut, a parameter or a field or an element of one, and, when it is
-// not, says why.
+// not, says why. A variable that refers in place into something else, a
+// union pattern's binding or a range loop's element over an owned one,
+// is rooted where what it refers into is, which must be what a returned
+// view can point into (see referent).
 func (c *Checker) paramRoot(e ast.Expr) (string, bool) {
 	root := ast.Root(e)
 	if root == nil {
 		return "it is a temporary", false
+	}
+	if v, place, ok := c.referent(root); ok {
+		if p := c.returnedView(place); p != nil {
+			return v.Name + " refers into " + p.what + ", and " + p.why, false
+		}
+		return "", true
 	}
 	switch def := root.Def.(type) {
 	case *ast.Param:
@@ -269,23 +269,85 @@ func (c *Checker) paramRoot(e ast.Expr) (string, bool) {
 
 // callerMemory reports whether the array place e, rooted in a parameter,
 // is stored in its caller's data: reached through an element of a list or
-// a view, whose elements its caller holds. A parameter of any other type
-// is its function's own copy, and so is every field and array element
-// inside it.
-func callerMemory(table *types.Table, e ast.Expr) bool {
+// a view, whose elements its caller holds, a range loop's element over an
+// owned one being one. A parameter of any other type is its function's
+// own copy, and so is every field and array element inside it, and a
+// union pattern's binding is a payload of what its switch matches, which
+// is followed in its place.
+func (c *Checker) callerMemory(e ast.Expr) bool {
 	for {
 		switch x := e.(type) {
 		case *ast.Index:
-			if base := ast.TypeOf(x.X); table.IsList(base) || table.IsView(base) {
+			if base := ast.TypeOf(x.X); c.table.IsList(base) || c.table.IsView(base) {
 				return true
 			}
 			e = x.X
 		case *ast.Selector:
 			e = x.X
+		case *ast.Ident:
+			next, inCaller := c.boundIn(x)
+			if next == nil {
+				return inCaller
+			}
+			e = next
 		default:
 			return false
 		}
 	}
+}
+
+// boundIn says, for id, the root of an array place, where the place's
+// storage is found: in the caller's data, inCaller, when id is a range
+// loop's element in place, an element of a list or a view; in next, what
+// its switch matches, when it is a union pattern's binding; and in the
+// function's own copy otherwise, when it returns neither.
+func (c *Checker) boundIn(id *ast.Ident) (next ast.Expr, inCaller bool) {
+	v, isVar := id.Def.(*ast.Var)
+	if !isVar {
+		return nil, false
+	}
+	if _, inPlace := c.rangeBindings[v]; inPlace {
+		return nil, true
+	}
+	return c.unionBindings[v], false
+}
+
+// ownerName returns the name of the parameter e, a place, is rooted in,
+// through any union pattern's binding to what its switch matches.
+func (c *Checker) ownerName(e ast.Expr) string {
+	root := ast.Root(e)
+	for {
+		v, ok := root.Def.(*ast.Var)
+		if !ok || c.unionBindings[v] == nil {
+			return root.Name
+		}
+		next := ast.Root(c.unionBindings[v])
+		if next == nil {
+			return root.Name
+		}
+		root = next
+	}
+}
+
+// referent returns the variable root names and what it refers into in
+// place, when it is one that does: a union pattern's binding, which
+// refers into what its switch matches, or a range loop's element variable
+// over a list or a view of an owned type, which refers into an element of
+// what the loop ranges over. Neither is ever assigned, and what it refers
+// into cannot change while it is in scope (see move.go), so a view of it
+// points where a view of what it refers into would.
+func (c *Checker) referent(root *ast.Ident) (*ast.Var, ast.Expr, bool) {
+	v, ok := root.Def.(*ast.Var)
+	if !ok {
+		return nil, nil, false
+	}
+	if tag := c.unionBindings[v]; tag != nil {
+		return v, tag, true
+	}
+	if x, inPlace := c.rangeBindings[v]; inPlace {
+		return v, x, true
+	}
+	return nil, nil, false
 }
 
 // callBorrowsParams returns why call, a call returning a view being

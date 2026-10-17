@@ -187,7 +187,7 @@ func (c *Checker) checkUnionSwitch(s *ast.Switch, typ types.Type, fn *ast.Func) 
 	covered := c.checkCoverage(s, typ)
 	seen := make(map[string]ast.Expr)
 	for _, cl := range tryOrder(s) {
-		c.checkPatterns(typ, cl, seen)
+		c.checkPatterns(typ, cl, seen, s.Tag)
 		if cl.Default && covered {
 			c.errorf(cl.Span, "every case of %s is already covered, so this default never runs",
 				c.typeName(typ))
@@ -202,11 +202,17 @@ func (c *Checker) checkUnionSwitch(s *ast.Switch, typ types.Type, fn *ast.Func) 
 // checkPatterns checks the values of cl, a clause of a switch on the
 // union typ, each a pattern naming one of its cases, none named earlier in
 // the switch, which seen records, and gives the variable the clause binds,
-// if any, its payload's type (see checkBinding). A value of any other
+// if any, its payload's type, referring into tag, what the switch matches
+// (see checkBinding). A value of any other
 // shape is reported. Whatever the resolver bound a pattern's names to is
 // unbound, since a case's name is found in the union and not where the
 // switch is.
-func (c *Checker) checkPatterns(typ types.Type, cl *ast.CaseClause, seen map[string]ast.Expr) {
+func (c *Checker) checkPatterns(
+	typ types.Type,
+	cl *ast.CaseClause,
+	seen map[string]ast.Expr,
+	tag ast.Expr,
+) {
 	bound := false
 	for _, v := range cl.Values {
 		name, bind, ok := ast.CasePattern(v)
@@ -226,7 +232,7 @@ func (c *Checker) checkPatterns(typ types.Type, cl *ast.CaseClause, seen map[str
 		}
 		c.notTwice(name, v, seen)
 		if bind != nil {
-			bound = c.checkBinding(cl, uc, name, bind) || bound
+			bound = c.checkBinding(cl, uc, name, bind, tag) || bound
 		}
 	}
 	if cl.Var != nil && !bound {
@@ -276,8 +282,15 @@ func (c *Checker) notTwice(name *ast.Ident, v ast.Expr, seen map[string]ast.Expr
 // nothing, a type's name, or a name visible at the switch, which the
 // resolver bound bind to, and which is left bound, since a body binding
 // a method call's results is checked twice (see checkBody). It gives the
-// clause's variable the payload's type and reports whether it did.
-func (c *Checker) checkBinding(cl *ast.CaseClause, uc types.Case, name, bind *ast.Ident) bool {
+// clause's variable the payload's type, records tag, what the switch
+// matches, as what it refers into (unionBindings), and reports whether it
+// did.
+func (c *Checker) checkBinding(
+	cl *ast.CaseClause,
+	uc types.Case,
+	name, bind *ast.Ident,
+	tag ast.Expr,
+) bool {
 	switch {
 	case !uc.Payload:
 		c.errorf(bind.Span, "%s has no payload to bind; write case %s", name.Name, name.Name)
@@ -307,7 +320,7 @@ func (c *Checker) checkBinding(cl *ast.CaseClause, uc types.Case, name, bind *as
 		return false
 	}
 	cl.Var.Type = uc.Type
-	c.unionBindings[cl.Var] = true
+	c.unionBindings[cl.Var] = tag
 	return uc.Type != types.Invalid
 }
 

@@ -29,6 +29,7 @@ func returning(decls string, lines ...string) string {
 // viewResultAcceptCases are programs with views returned by functions and
 // methods that the checker accepts.
 var viewResultAcceptCases = []struct{ name, src string }{
+	{"dropped as a statement", returning("", "t.bytes()")},
 	{
 		"passed to a view parameter",
 		returning("", "n := use(t.bytes()) + use(whole(v))", "if n == 0 {", "}"),
@@ -150,7 +151,6 @@ var viewResultRejectCases = []struct{ name, src, want string }{
 		returning("", "print(whole(v))"),
 		"whole(v) is a view, []uint8, which can only be passed",
 	},
-	{"dropped", returning("", "t.bytes()"), "t.bytes() is not used"},
 	{
 		"unchecked index",
 		returning("", "if t.bytes()[0] == 0 {", "}"),

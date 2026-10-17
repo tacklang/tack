@@ -667,7 +667,7 @@ func (m *mover) movesBinding(id *ast.Ident) bool {
 		)
 		return true
 	}
-	if !m.c.unionBindings[v] {
+	if m.c.unionBindings[v] == nil {
 		return false
 	}
 	m.errorNotes(
@@ -966,7 +966,7 @@ func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 // switches on being matched while it runs when s is on a union, union,
 // and cl binds a payload of it in place.
 func (m *mover) clause(s *ast.Switch, cl *ast.CaseClause, union bool, in flow) flow {
-	bound := union && cl.Var != nil && m.c.unionBindings[cl.Var] && ast.Root(s.Tag) != nil
+	bound := union && cl.Var != nil && m.c.unionBindings[cl.Var] != nil && ast.Root(s.Tag) != nil
 	if !bound {
 		return m.block(cl.Body, in)
 	}

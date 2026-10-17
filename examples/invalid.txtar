@@ -29369,6 +29369,415 @@ view-assign-field/main.tck:9:9: error: cannot assign to v[i].x: v is a read-only
    |	        ^~~~~~
 10 |	    }
 
+-- view-binding-array-payload/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func (u Arr) view(or []uint8) []uint8 {
+    switch u {
+    case arr(a):
+        return a[:]
+    default:
+        return or
+    }
+}
+
+func main() {
+}
+-- view-binding-array-payload/expected --
+stage: typeck
+---
+
+view-binding-array-payload/main.tck:24:16: error: cannot return a view of a[:]: the function holds its own copy of u, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+23 |	    case arr(a):
+24 |	        return a[:]
+   |	               ^~~~
+25 |	    default:
+
+-- view-binding-call-arg-mut/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func bytes_of(n Name) []uint8 {
+    return n.bytes
+}
+
+func (mut e Expr) text(or []uint8) []uint8 {
+    switch e {
+    case name(n):
+        return bytes_of(n)
+    default:
+        return or
+    }
+}
+
+func main() {
+}
+-- view-binding-call-arg-mut/expected --
+stage: typeck
+---
+
+view-binding-call-arg-mut/main.tck:28:16: error: cannot return bytes_of(n): the view it returns may point into n, and n refers into e, and e is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+27 |	    case name(n):
+28 |	        return bytes_of(n)
+   |	               ^~~~~~~~~~~
+29 |	    default:
+
+-- view-binding-call-switch/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func text() []uint8 {
+    switch make_expr() {
+    case name(n):
+        return n.bytes
+    case word(w):
+        return w
+    }
+}
+
+func main() {
+}
+-- view-binding-call-switch/expected --
+stage: typeck
+---
+
+view-binding-call-switch/main.tck:24:16: error: cannot return a view of n.bytes: n refers into make_expr(), and it is a temporary; a returned view can only point into what a parameter that is not mut holds
+23 |	    case name(n):
+24 |	        return n.bytes
+   |	               ^~~~~~~
+25 |	    case word(w):
+
+view-binding-call-switch/main.tck:26:16: error: cannot return a view of w: w refers into make_expr(), and it is a temporary; a returned view can only point into what a parameter that is not mut holds
+25 |	    case word(w):
+26 |	        return w
+   |	               ^
+27 |	    }
+
+-- view-binding-caller-borrow/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func (e Expr) text() []uint8 {
+    switch e {
+    case name(n):
+        return n.bytes
+    case word(w):
+        return w
+    }
+}
+
+func use(v []uint8, mut e Expr) {
+}
+
+func g(mut e Expr) {
+    use(e.text(), mut e)
+}
+
+func main() {
+}
+-- view-binding-caller-borrow/expected --
+stage: typeck
+---
+
+view-binding-caller-borrow/main.tck:34:9: error: cannot pass e.text() alongside mut e in this call: the view it returns may point into e, and a mut argument must be the only way to reach e during the call
+33 |	func g(mut e Expr) {
+34 |	    use(e.text(), mut e)
+   |	        ^~~~~~~~
+35 |	}
+view-binding-caller-borrow/main.tck:34:19: note: passed as mut here
+33 |	func g(mut e Expr) {
+34 |	    use(e.text(), mut e)
+   |	                  ^~~~~
+35 |	}
+
+-- view-binding-local-switch/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func text(e Expr) []uint8 {
+    mut x := make_expr()
+    x = e
+    switch x {
+    case name(n):
+        return n.bytes
+    case word(w):
+        return w
+    }
+}
+
+func main() {
+}
+-- view-binding-local-switch/expected --
+stage: typeck
+---
+
+view-binding-local-switch/main.tck:26:16: error: cannot return a view of n.bytes: n refers into x, and x is a local variable; a returned view can only point into what a parameter that is not mut holds
+25 |	    case name(n):
+26 |	        return n.bytes
+   |	               ^~~~~~~
+27 |	    case word(w):
+
+view-binding-local-switch/main.tck:28:16: error: cannot return a view of w: w refers into x, and x is a local variable; a returned view can only point into what a parameter that is not mut holds
+27 |	    case word(w):
+28 |	        return w
+   |	               ^
+29 |	    }
+
+-- view-binding-mut-receiver/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func (mut e Expr) text() []uint8 {
+    switch e {
+    case name(n):
+        return n.bytes
+    case word(w):
+        return w
+    }
+}
+
+func main() {
+}
+-- view-binding-mut-receiver/expected --
+stage: typeck
+---
+
+view-binding-mut-receiver/main.tck:24:16: error: cannot return a view of n.bytes: n refers into e, and e is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+23 |	    case name(n):
+24 |	        return n.bytes
+   |	               ^~~~~~~
+25 |	    case word(w):
+
+view-binding-mut-receiver/main.tck:26:16: error: cannot return a view of w: w refers into e, and e is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+25 |	    case word(w):
+26 |	        return w
+   |	               ^
+27 |	    }
+
+-- view-binding-range-copy/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func first(as [][4]uint8, or []uint8) []uint8 {
+    for _, a := range as {
+        return a[:]
+    }
+    return or
+}
+
+func main() {
+}
+-- view-binding-range-copy/expected --
+stage: typeck
+---
+
+view-binding-range-copy/main.tck:23:16: error: cannot return a view of a[:]: a is a local variable; a returned view can only point into what a parameter that is not mut holds
+22 |	    for _, a := range as {
+23 |	        return a[:]
+   |	               ^~~~
+24 |	    }
+
+-- view-binding-range-local/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func first(or []uint8) []uint8 {
+    ws := make(list[list[uint8]], c_allocator)
+    for _, w := range ws {
+        return w
+    }
+    return or
+}
+
+func main() {
+}
+-- view-binding-range-local/expected --
+stage: typeck
+---
+
+view-binding-range-local/main.tck:24:16: error: cannot return a view of w: w refers into ws, and ws is a local variable; a returned view can only point into what a parameter that is not mut holds
+23 |	    for _, w := range ws {
+24 |	        return w
+   |	               ^
+25 |	    }
+
+-- view-binding-range-mut/main.tck --
+package main
+
+type Name struct {
+    bytes list[uint8]
+}
+
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+type Arr union {
+    arr [4]uint8
+    none
+}
+
+func make_expr() Expr {
+    return Expr.word(make(list[uint8], c_allocator))
+}
+
+func first(mut ws list[list[uint8]], or []uint8) []uint8 {
+    for _, w := range ws {
+        return w
+    }
+    return or
+}
+
+func main() {
+}
+-- view-binding-range-mut/expected --
+stage: typeck
+---
+
+view-binding-range-mut/main.tck:23:16: error: cannot return a view of w: w refers into ws, and ws is a mut parameter; a returned view can only point into what a parameter that is not mut holds
+22 |	    for _, w := range ws {
+23 |	        return w
+   |	               ^
+24 |	    }
+
 -- view-compare/main.tck --
 package main
 
@@ -31012,29 +31421,6 @@ view-result-range-assign-whole/main.tck:14:9: error: t.bytes() is being ranged o
    |	        ^
 15 |	    }
 
--- view-result-range-binding/main.tck --
-package main
-
-func first(words list[list[uint8]], none []uint8) []uint8 {
-    for _, w := range words {
-        return w
-    }
-    return none
-}
-
-func main() {
-
-}
--- view-result-range-binding/expected --
-stage: typeck
----
-
-view-result-range-binding/main.tck:5:16: error: cannot return a view of w: w is a local variable; a returned view can only point into what a parameter that is not mut holds
-04 |	    for _, w := range words {
-05 |	        return w
-   |	               ^
-06 |	    }
-
 -- view-result-range-defer/main.tck --
 package main
 
@@ -31237,31 +31623,6 @@ view-result-several/main.tck:3:20: error: a view can only be a function's only r
 03 |	func f(v []uint8) ([]uint8, error) {
    |	                   ^~~~~~~
 04 |	    return v, noerror
-
--- view-result-statement/main.tck --
-package main
-
-type Text struct {
-    b list[uint8]
-}
-
-func (t Text) bytes() []uint8 {
-    return t.b
-}
-
-func main() {
-    t := Text{b: make(list[uint8], c_allocator)}
-    t.bytes()
-}
--- view-result-statement/expected --
-stage: typeck
----
-
-view-result-statement/main.tck:13:5: error: t.bytes() is not used
-12 |	    t := Text{b: make(list[uint8], c_allocator)}
-13 |	    t.bytes()
-   |	    ^~~~~~~~~
-14 |	}
 
 -- view-result-string/main.tck --
 package main
@@ -31469,36 +31830,6 @@ view-result-unchecked-index/main.tck:14:24: error: index 0 may be out of range; 
 14 |	        exit(t.bytes()[0])
    |	                       ^
 15 |	    }
-
--- view-result-union-binding/main.tck --
-package main
-
-type Tok union {
-    word list[uint8]
-    num int64
-}
-
-func (t Tok) text(none []uint8) []uint8 {
-    switch t {
-    case word(w):
-        return w
-    case num:
-        return none
-    }
-}
-
-func main() {
-
-}
--- view-result-union-binding/expected --
-stage: typeck
----
-
-view-result-union-binding/main.tck:11:16: error: cannot return a view of w: w is a local variable; a returned view can only point into what a parameter that is not mut holds
-10 |	    case word(w):
-11 |	        return w
-   |	               ^
-12 |	    case num:
 
 -- view-result-unproven-slice/main.tck --
 package main

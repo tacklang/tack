@@ -325,12 +325,16 @@
 // array only through an element of a list or a view, a slice of one, or a
 // call returning a view whose arguments are such places; a local, a
 // global, a mut parameter, a temporary, a string's bytes, packed variadic
-// values and an array the function holds its own copy of are reported.
+// values and an array the function holds its own copy of are reported. A
+// union pattern's binding and a range loop's element variable over owned
+// elements refer in place into what they match or range over
+// (unionBindings, rangeBindings), and are rooted where that is
+// (referent), so a view of one is returned when a view of that could be.
 // The view a call returns is second-class: the call is allowed only where
 // viewCall marks it, an argument to a view parameter, len's, what a slice
 // slices, what an index indexes, what a range ranges over, or a return's
-// value in a function returning a view, and anywhere else, dropped as a
-// statement included, it is reported. Its index is never proven, since no
+// value in a function returning a view, and anywhere else it is
+// reported, but as a statement, which drops the view. Its index is never proven, since no
 // fact is about a call. It may point into every argument of its call
 // that is not mut and holds data, which it borrows: a call passing it
 // alongside a mut argument that may overlap one is reported

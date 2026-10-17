@@ -87,11 +87,12 @@ type Checker struct {
 
 	// unions maps each union type to its declaration, and unionState says
 	// how far each one's cases have been resolved; see resolveCases.
-	// unionBindings holds the variables union patterns bind, which refer
-	// to a payload in place (see move.go).
+	// unionBindings holds the variables union patterns bind, each with
+	// the tag of its switch: they refer to a payload of it in place (see
+	// move.go).
 	unions        map[types.Type]*ast.TypeDecl
 	unionState    map[types.Type]progress
-	unionBindings map[*ast.Var]bool
+	unionBindings map[*ast.Var]ast.Expr
 
 	// rangeBindings holds the element variables of range loops over a
 	// list or a view of an owned type, each with what its loop ranges
@@ -219,7 +220,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		unions:        make(map[types.Type]*ast.TypeDecl),
 		unionState:    make(map[types.Type]progress),
-		unionBindings: make(map[*ast.Var]bool),
+		unionBindings: make(map[*ast.Var]ast.Expr),
 		rangeBindings: make(map[*ast.Var]ast.Expr),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
 
@@ -443,14 +444,10 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 			c.unusedValue(s.X)
 			return
 		}
-		before := len(c.diags)
 		c.droppedCall, _ = s.X.(*ast.Call)
 		c.discard(s.X)
 		c.droppedCall = nil
 		c.droppedError(s.X)
-		if len(c.diags) == before {
-			c.droppedView(s.X)
-		}
 	case *ast.Var:
 		c.checkVar(s)
 	case *ast.Assign:

@@ -644,7 +644,17 @@ makes for itself, which has a letter after `tack_`.
   change: a view parameter, a list or an array that is a parameter that
   is not `mut`, or a field or an element of one, a slice of any of these,
   `return v[1:]`, or a call returning a view whose arguments are all such
-  places, `return rest(v)` or `return t.bytes()`. An array is returned
+  places, `return rest(v)` or `return t.bytes()`. A union pattern's
+  binding and a range loop's element variable over owned elements refer
+  in place into what they match or range over, so they are such places
+  when that is one: in `func (e Expr) name_bytes() []uint8`, `case
+  name(n): return n.bytes` returns a view into `e`, and `for _, w := range
+  ws { return w }` one into the list parameter `ws`. Through a `mut`
+  parameter or receiver, a local, a global or a call's result they are
+  not: `cannot return a view of n.bytes: n refers into e, and e is a mut
+  parameter; a returned view can only point into what a parameter that is
+  not mut holds`. A range element of a copyable type is a copy, a local
+  of its own. An array is returned
   only when it is reached through an element of a list or a view, which
   the caller holds: a plain parameter is its function's own copy, so
   `return a` of an array parameter `a`, or of an array field of a plain
@@ -675,8 +685,9 @@ makes for itself, which has a letter after `tack_`.
   ...[0]`. Anywhere else, stored, assigned, compared, converted, printed,
   passed as `any` or as a field's value, it is `t.bytes() is a view,
   []uint8, which can only be passed to a view parameter, given to len,
-  indexed, sliced, ranged over or returned`, and dropped as a statement it
-  is `t.bytes() is not used`. The view may point into every argument of
+  indexed, sliced, ranged over or returned`. Written as a statement,
+  `t.bytes()`, the call is made and its view dropped, as any call's result
+  may be, borrowing nothing past the statement. The view may point into every argument of
   its call that is not `mut` and holds data, a list, an array, a struct,
   a union, a type parameter's value or a view, the receiver included, and
   reads them in place, as a list borrowed by a plain argument is: a call
