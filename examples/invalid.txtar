@@ -18174,6 +18174,107 @@ os-reserved-argv/main.tck:3:6: error: type tack_argv_ of package main cannot be 
    |	     ^~~~~~~~~~
 04 |	    x int64
 
+-- os-run-dropped/main.tck --
+package main
+
+import os from "std/os"
+import text from "std/text"
+
+func main() {
+    mut argv := make(list[text.Text], c_allocator)
+    mut out := make(list[uint8], c_allocator)
+    mut err_out := make(list[uint8], c_allocator)
+    os.run(argv, mut out, mut err_out, c_allocator)
+}
+-- os-run-dropped/expected --
+stage: typeck
+---
+
+os-run-dropped/main.tck:10:5: error: the error os.run returns cannot be dropped; bind it, as in _, err := os.run(...)
+09 |	    mut err_out := make(list[uint8], c_allocator)
+10 |	    os.run(argv, mut out, mut err_out, c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	}
+
+-- os-run-out-not-mut/main.tck --
+package main
+
+import os from "std/os"
+import text from "std/text"
+
+func main() {
+    mut argv := make(list[text.Text], c_allocator)
+    mut out := make(list[uint8], c_allocator)
+    mut err_out := make(list[uint8], c_allocator)
+    status, err := os.run(argv, out, mut err_out, c_allocator)
+    if err.code != 0 || status != 0 {
+        exit(1)
+    }
+}
+-- os-run-out-not-mut/expected --
+stage: typeck
+---
+
+os-run-out-not-mut/main.tck:10:33: error: os.run takes out as mut; pass mut out
+09 |	    mut err_out := make(list[uint8], c_allocator)
+10 |	    status, err := os.run(argv, out, mut err_out, c_allocator)
+   |	                                ^~~
+11 |	    if err.code != 0 || status != 0 {
+
+-- os-run-same-list-twice/main.tck --
+package main
+
+import os from "std/os"
+import text from "std/text"
+
+func main() {
+    mut argv := make(list[text.Text], c_allocator)
+    mut out := make(list[uint8], c_allocator)
+    status, err := os.run(argv, mut out, mut out, c_allocator)
+    if err.code != 0 || status != 0 {
+        exit(1)
+    }
+}
+-- os-run-same-list-twice/expected --
+stage: typeck
+---
+
+os-run-same-list-twice/main.tck:9:42: error: out is passed as mut twice in this call; a mut argument must be the only way to reach out during the call
+08 |	    mut out := make(list[uint8], c_allocator)
+09 |	    status, err := os.run(argv, mut out, mut out, c_allocator)
+   |	                                         ^~~~~~~
+10 |	    if err.code != 0 || status != 0 {
+os-run-same-list-twice/main.tck:9:33: note: first passed as mut here
+08 |	    mut out := make(list[uint8], c_allocator)
+09 |	    status, err := os.run(argv, mut out, mut out, c_allocator)
+   |	                                ^~~~~~~
+10 |	    if err.code != 0 || status != 0 {
+
+-- os-run-status-unchecked/main.tck --
+package main
+
+import os from "std/os"
+import text from "std/text"
+
+func main() {
+    mut argv := make(list[text.Text], c_allocator)
+    mut out := make(list[uint8], c_allocator)
+    mut err_out := make(list[uint8], c_allocator)
+    status, err := os.run(argv, mut out, mut err_out, c_allocator)
+    if status != 0 || err.code != 0 {
+        exit(1)
+    }
+}
+-- os-run-status-unchecked/expected --
+stage: typeck
+---
+
+os-run-status-unchecked/main.tck:11:8: error: status cannot be read before err is checked; check err.code == 0 first
+10 |	    status, err := os.run(argv, mut out, mut err_out, c_allocator)
+11 |	    if status != 0 || err.code != 0 {
+   |	       ^~~~~~
+12 |	        exit(1)
+
 -- os-write-file-dropped/main.tck --
 package main
 

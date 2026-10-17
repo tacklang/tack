@@ -18,20 +18,26 @@
 // ENAMETOOLONG, which the OS would give for most such paths anyway.
 //
 // Every file descriptor and directory stream this file opens is closed on
-// every path out of the call that opened it, except a descriptor
-// tack_os_open returns, which std/os's Tack closes, and each is opened
-// close-on-exec, so no child a later call starts inherits it.
+// every path out of the call that opened it, except the descriptors
+// tack_os_open and tack_os_pipe return, which std/os's Tack closes, and
+// each is opened close-on-exec, so no child a later call starts inherits
+// it. The one thing here the C library may allocate for itself is
+// tack_os_spawn's posix_spawn_file_actions_t, which it destroys on every
+// path.
 #define _POSIX_C_SOURCE 200809L
 
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <tack/tack.h>
@@ -217,6 +223,102 @@ int64_t tack_os_arg(int64_t i, tack_list_uint8 *arg) {
         return -EINVAL;
     }
     return append_bytes(arg, tack_argv_[i], strlen(tack_argv_[i]));
+}
+
+// environ is the process's environment, which a child run starts with.
+extern char **environ;
+
+// max_args is the most arguments tack_os_spawn passes a child, its
+// program's name included; the array of their pointers is on its stack.
+enum { max_args = 8192 };
+
+int64_t tack_os_pipe(tack_array_2_int32 *fds) {
+    int p[2];
+    if (pipe(p) != 0) {
+        return -errno;
+    }
+    // macOS has no pipe2, so close-on-exec is set after; the process runs
+    // no other thread that could start a child in between.
+    if (fcntl(p[0], F_SETFD, FD_CLOEXEC) != 0 || fcntl(p[1], F_SETFD, FD_CLOEXEC) != 0) {
+        int e = errno;
+        close(p[0]);
+        close(p[1]);
+        return -e;
+    }
+    fds->e[0] = p[0];
+    fds->e[1] = p[1];
+    return 0;
+}
+
+int64_t tack_os_spawn(tack_view_uint8 flat, int64_t argc, int32_t out, int32_t err) {
+    if (argc < 1 || argc > max_args) {
+        return -E2BIG;
+    }
+    if (flat.len < argc || flat.ptr[flat.len - 1] != 0) {
+        return -EINVAL;
+    }
+    char *argv[max_args + 1];
+    int64_t n = 0;
+    int64_t at = 0;
+    while (at < flat.len && n < argc) {
+        argv[n++] = (char *)flat.ptr + at;
+        const uint8_t *end = memchr(flat.ptr + at, 0, (size_t)(flat.len - at));
+        at = (int64_t)(end - flat.ptr) + 1;
+    }
+    if (n != argc || at != flat.len) {
+        return -EINVAL;
+    }
+    argv[n] = NULL;
+    posix_spawn_file_actions_t fa;
+    int e = posix_spawn_file_actions_init(&fa);
+    if (e != 0) {
+        return -e;
+    }
+    e = posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+    if (e == 0) {
+        e = posix_spawn_file_actions_adddup2(&fa, out, 1);
+    }
+    if (e == 0) {
+        e = posix_spawn_file_actions_adddup2(&fa, err, 2);
+    }
+    pid_t pid = 0;
+    if (e == 0) {
+        e = posix_spawnp(&pid, argv[0], &fa, NULL, argv, environ);
+    }
+    posix_spawn_file_actions_destroy(&fa);
+    if (e != 0) {
+        return -e;
+    }
+    return pid;
+}
+
+int64_t tack_os_poll2(int32_t a, int32_t b) {
+    struct pollfd p[2] = {{.fd = a, .events = POLLIN}, {.fd = b, .events = POLLIN}};
+    if (poll(p, 2, -1) < 0) {
+        return -errno;
+    }
+    int64_t mask = 0;
+    if (a >= 0 && p[0].revents != 0) {
+        mask += 1;
+    }
+    if (b >= 0 && p[1].revents != 0) {
+        mask += 2;
+    }
+    return mask;
+}
+
+int64_t tack_os_wait(int64_t pid) {
+    int status = 0;
+    if (waitpid((pid_t)pid, &status, 0) < 0) {
+        return -errno;
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 256 + WTERMSIG(status);
+    }
+    return -EINVAL;
 }
 
 int64_t tack_os_eintr(void) {

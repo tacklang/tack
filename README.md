@@ -53,9 +53,9 @@ a view of `uint8` (see the language today). `std/bytes`, the first std
 package written in Tack alone, searches byte views and formats integers
 and repeats bytes into lists, and `std/text`, also in Tack alone, holds
 growing bytes in a `Text`, compares and hashes them, and lends them out
-as a view. `std/os` reads the program's arguments and environment and
-reads, writes, lists and removes files and directories, through C that
-makes one system call at a time.
+as a view. `std/os` reads the program's arguments and environment,
+reads, writes, lists and removes files and directories, and runs other
+programs, through C that makes one system call at a time.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -483,7 +483,7 @@ makes for itself, which has a letter after `tack_`.
   views and builds byte lists (see bytes), and
   [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
   text), and [`os`](src/std/os/os.tck), which reaches the operating
-  system (see os).
+  system and runs programs (see os).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -957,14 +957,33 @@ makes for itself, which has a letter after `tack_`.
   file or an empty directory, named `remove_path` because `remove` is a
   builtin; and `d, err := os.make_temp_dir(alloc)` makes a new directory,
   mode 0700, in `$TMPDIR`, or `/tmp`, named `tack-` and six characters,
-  which the caller removes. An allocation that fails is `error{code: 1,
+  which the caller removes. `status, err := os.run(argv, mut out, mut
+  err_out, alloc)` runs the program `argv[0]` names, looked up on `PATH`
+  through `posix_spawnp`, with `argv` as its arguments, this process's
+  environment, and `/dev/null` as its standard input, and waits for it.
+  It reads the child's standard output and standard error from two
+  pipes at once, whichever has something, so neither fills and blocks
+  the child, then appends each to `out` and `err_out`, and returns the
+  exit status, 0 to 255, a status other than 0 being no error. `alloc`
+  makes only run's own lists, all freed before it returns. On an error
+  the status is -1, which cannot be read before the error is checked,
+  and `out` and `err_out` keep their lengths and bytes: an empty `argv`
+  is `error{code: 4, msg: "argv is empty"}`, a 0 byte in an argument
+  `error{code: 4, msg: "argument contains a NUL byte"}`, a child killed
+  by a signal `error{code: 5, msg: "child killed by a signal"}`, and a
+  program not on `PATH` `error{code: 3, msg: "No such file or
+  directory"}`. Out of memory while making room for the bytes read is
+  the one path where `out`'s capacity may have grown, when only
+  `err_out` could not. After an error while reading, run closes its
+  ends of the pipes, so the child gets `EPIPE` or `SIGPIPE`, and waits
+  for it, killing nothing; there is no timeout. An allocation that fails is `error{code: 1,
   msg: "out of memory"}`; the OS refusing is code 3 and the message
   macOS's strerror gives, the same on every target, `error{code: 3, msg:
   "No such file or directory"}`. A function that fails returns an empty
   list or Text and frees what it made; only `write_file` can leave work
   half done, a file created or truncated and partly written. Every file
   descriptor is opened close-on-exec and closed before the function
-  returns, on every path. The results follow the rules every call does:
+  returns, on every path, and every child run starts is waited for. The results follow the rules every call does:
   `_, err := os.read_file(...)` is `os.read_file returns list[uint8],
   which cannot be dropped; bind it to a variable instead of _`, and
   `os.write_file(p, d)` alone is `the error os.write_file returns cannot

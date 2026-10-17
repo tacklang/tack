@@ -46,5 +46,26 @@ list_dir and args failing partway free what they made ok
 shortages freed ok
 1000 rounds of each leave no descriptor open ok
 descriptors freed ok
+run captures both outputs and the status ok
+run appends after what out held ok
+run returns status 255 ok
+run gives the child an empty standard input ok
+run passes the environment on ok
+run passes no variable that is not set ok
+run reads both pipes at once, more than either holds ok
+run keeps every line of both ok
+run wrote: hi againdoneset by the testunset
+processes freed ok
+run of a child killed by a signal ok
+run of a program not on PATH ok
+run of a path that names nothing ok
+run of an empty argv ok
+run of an argument with a 0 byte ok
+failed runs leave both outputs as they were ok
+run of an empty program name ok
+run failing for want of memory at each allocation leaves the outputs as they were ok
+process failures freed ok
+100 runs leave no descriptor open ok
+child descriptors freed ok
 remove files and an empty directory ok
 remove the temporary directory ok

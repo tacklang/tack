@@ -27,6 +27,10 @@ typedef struct {
     tack_allocator alloc;
 } tack_list_uint8;
 
+typedef struct {
+    int32_t e[2];
+} tack_array_2_int32;
+
 // package std/fmt
 void tack_fmt_printf(tack_string /* format */, tack_view_any /* args */); // extern func cprintf(format string, args ...any)
 void tack_fmt_write(tack_view_uint8 /* b */); // extern func cwrite(b []uint8)
@@ -43,6 +47,10 @@ int64_t tack_os_make_temp_dir(tack_list_uint8 * /* tmpl */); // extern func c_ma
 int64_t tack_os_env(tack_view_uint8 /* name */, tack_list_uint8 * /* value */); // extern func c_env(name []uint8, mut value list[uint8]) int64
 int64_t tack_os_argc(void); // extern func c_argc() int64
 int64_t tack_os_arg(int64_t /* i */, tack_list_uint8 * /* arg */); // extern func c_arg(i int64, mut arg list[uint8]) int64
+int64_t tack_os_pipe(tack_array_2_int32 * /* fds */); // extern func c_pipe(mut fds [2]int32) int64
+int64_t tack_os_spawn(tack_view_uint8 /* flat */, int64_t /* argc */, int32_t /* out */, int32_t /* err */); // extern func c_spawn(flat []uint8, argc int64, out int32, err int32) int64
+int64_t tack_os_poll2(int32_t /* a */, int32_t /* b */); // extern func c_poll2(a int32, b int32) int64
+int64_t tack_os_wait(int64_t /* pid */); // extern func c_wait(pid int64) int64
 int64_t tack_os_eintr(void); // extern func c_eintr() int64
 tack_error tack_os_error(int64_t /* e */); // extern func c_error(e int64) error
 

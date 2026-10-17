@@ -162,6 +162,18 @@ var loadSeeds = []string{
 		"for { e := reserve(mut data, 65536)\nif e.code != 0 { return empty, e }\n" +
 		"n := c_read(fd, mut data)\nif n == 0 { return data, noerror }\n" +
 		"if n < 0 { return empty, c_error(-n) } } }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport os from \"std/os\"\n" +
+		"func main() { mut o := make(list[uint8], c_allocator)\nmut e := make(list[uint8], c_allocator)\n" +
+		"s, err := os.run(mut o, mut e, c_allocator)\nif err.code != 0 { return }\nif s != 0 { exit(1) } }\n" +
+		"\x00std/tack.mod\nmodule std\n\x00std/os/os.tck\npackage os\n" +
+		"extern(\"tack_os_pipe\") func c_pipe(mut fds [2]int32) int64\n" +
+		"extern(\"tack_os_close\") func c_close(fd int32) int64\n" +
+		"pub func run(mut out list[uint8], mut err_out list[uint8], alloc Allocator) (int64, error) {\n" +
+		"mut p [2]int32\nr := c_pipe(mut p)\nif r < 0 { return -1, error{code: 3, msg: \"pipe\"} }\n" +
+		"mut a := p[0]\nc_close(p[1])\nmut got := make(list[uint8], alloc)\n" +
+		"for a >= 0 { c_close(a)\na = -1 }\ne := reserve(mut out, len(got))\n" +
+		"if e.code != 0 { return -1, e }\ne2 := append(mut out, got...)\n" +
+		"e3 := append(mut err_out, 0)\nif e2.code != 0 || e3.code != 0 { return -1, e2 }\nreturn 0, noerror }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

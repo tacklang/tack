@@ -4,7 +4,8 @@ import bytes from "std/bytes"
 import text from "std/text"
 
 // Package os reaches the operating system: the program's arguments and
-// environment, and files and directories. A program imports it as
+// environment, files and directories, and other programs, which run
+// starts and waits for. A program imports it as
 //
 //     import os from "std/os"
 //
@@ -32,7 +33,9 @@ import text from "std/text"
 // what it had made; nothing it returns is partial.
 //
 // Every file descriptor os opens it closes before it returns, on every
-// path, and opens close-on-exec, so no child process inherits it.
+// path, and opens close-on-exec, so no child process inherits it, and
+// every child run starts it waits for before it returns, so none is left
+// a zombie.
 
 // read_size is how many bytes read_file makes room for before each read,
 // the most os.c reads at once.
@@ -40,6 +43,9 @@ var read_size int64 = 65536
 
 // nul_path is the error for a path holding a 0 byte.
 var nul_path = error{code: 4, msg: "path contains a NUL byte"}
+
+// nul_arg is the error for an argument of run holding a 0 byte.
+var nul_arg = error{code: 4, msg: "argument contains a NUL byte"}
 
 // nul_name is the error for an environment variable's name holding a 0
 // byte.
@@ -93,6 +99,29 @@ extern("tack_os_argc") func c_argc() int64
 // c_arg appends argument i to arg and returns 0, or the errno negated:
 // ENOMEM when arg cannot grow.
 extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
+
+// c_pipe makes a pipe, both its ends close-on-exec, puts its read end in
+// fds[0] and its write end in fds[1], and returns 0, or the errno
+// negated.
+extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
+
+// c_spawn starts the program flat names, through posix_spawnp, which
+// looks it up on PATH: flat holds argc arguments, the program's name
+// first, each followed by a 0. The child reads /dev/null as its standard
+// input, writes its standard output to out and its standard error to
+// err, and starts with the process's environment. It returns the child's
+// process id, or the errno negated: E2BIG for more than 8192 arguments.
+extern("tack_os_spawn") func c_spawn(flat []uint8, argc int64, out int32, err int32) int64
+
+// c_poll2 waits until a or b, each a descriptor or negative for none,
+// can be read without blocking, its writer has closed it, or it has
+// failed, and returns 1 when a can, 2 when b can, 3 when both can, or the
+// errno negated.
+extern("tack_os_poll2") func c_poll2(a int32, b int32) int64
+
+// c_wait waits for the child pid to end and returns its exit status, 0
+// to 255, or 256 plus the signal that killed it, or the errno negated.
+extern("tack_os_wait") func c_wait(pid int64) int64
 
 // c_eintr returns EINTR, the errno of a call a signal interrupted.
 extern("tack_os_eintr") func c_eintr() int64
@@ -466,4 +495,166 @@ pub func make_temp_dir(alloc Allocator) (text.Text, error) {
         return text.new(alloc), e3
     }
     return t, noerror
+}
+
+// drain reads what fd has into l, once: when fd is at its end, it closes
+// it and sets it to -1, so the next poll ignores it. A read a signal
+// interrupted reads nothing and is no error; the next poll tries again.
+func drain(mut fd int32, mut l list[uint8]) error {
+    n := c_read(fd, mut l)
+    if n == 0 {
+        c_close(fd)
+        fd = -1
+        return noerror
+    }
+    if n < 0 && -n != c_eintr() {
+        return c_error(-n)
+    }
+    return noerror
+}
+
+// wait_for waits for the child pid to end, retrying a wait a signal
+// interrupted, and returns what c_wait does.
+func wait_for(pid int64) int64 {
+    for {
+        s := c_wait(pid)
+        if s >= 0 || -s != c_eintr() {
+            return s
+        }
+    }
+}
+
+// run runs a program and waits for it to end, and returns its exit
+// status, 0 to 255, and no error. argv[0] names the program, looked up on
+// PATH when it holds no /, and argv, argv[0] included, is what the child
+// is given as its arguments. The child starts with this process's
+// environment, reads /dev/null as its standard input, and writes its
+// standard output and its standard error to pipes, which run reads at
+// once, whichever has something, until both reach their ends, so
+// neither can fill and block the child; it then appends all the child
+// wrote to its standard output to out, and all it wrote to its standard
+// error to err_out, after what each held. A status other than 0 is no
+// error: it is returned as it is. alloc makes run's own lists, the
+// arguments as C takes them and the bytes read, all freed before run
+// returns.
+//
+// On an error the status is -1, and out and err_out are left as they
+// were, their lengths and their bytes: what was read is appended only
+// once everything has succeeded. Errors are:
+//
+//   - error{code: 4, msg: "argv is empty"};
+//   - error{code: 4, msg: "argument contains a NUL byte"};
+//   - error{code: 5, msg: "child killed by a signal"}, when it was;
+//   - code 3 and the OS's message, when a pipe cannot be made, the child
+//     cannot be started, "No such file or directory" for a program not on
+//     PATH, or a read, poll or wait fails;
+//   - error{code: 1, msg: "out of memory"}. Room for the bytes read is
+//     made in out first, then in err_out, so when only err_out cannot
+//     grow, out's capacity may have grown, though its length and bytes
+//     have not.
+//
+// Once the child has started, run waits for it on every path. After an
+// error while reading, it first closes its ends of the pipes, so a child
+// still writing gets EPIPE, or dies of SIGPIPE, and ends; it does not
+// kill it, and a child that never ends keeps run waiting, as it would
+// without the error.
+pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], alloc Allocator) (int64, error) {
+    if len(argv) == 0 {
+        return -1, error{code: 4, msg: "argv is empty"}
+    }
+    mut flat := make(list[uint8], alloc)
+    for _, a := range argv {
+        if has_nul(a.bytes()) {
+            return -1, nul_arg
+        }
+        e0 := append(mut flat, a.bytes()...)
+        if e0.code != 0 {
+            return -1, e0
+        }
+        e1 := append(mut flat, 0)
+        if e1.code != 0 {
+            return -1, e1
+        }
+    }
+    mut stdout_pipe [2]int32
+    r0 := c_pipe(mut stdout_pipe)
+    if r0 < 0 {
+        return -1, c_error(-r0)
+    }
+    mut stderr_pipe [2]int32
+    r1 := c_pipe(mut stderr_pipe)
+    if r1 < 0 {
+        c_close(stdout_pipe[0])
+        c_close(stdout_pipe[1])
+        return -1, c_error(-r1)
+    }
+    pid := c_spawn(flat, len(argv), stdout_pipe[1], stderr_pipe[1])
+    // The child has its own copies of the write ends, if it started; run
+    // keeps none, so each read end reaches its end when the child's
+    // copies close.
+    c_close(stdout_pipe[1])
+    c_close(stderr_pipe[1])
+    mut a := stdout_pipe[0]
+    mut b := stderr_pipe[0]
+    if pid < 0 {
+        c_close(a)
+        c_close(b)
+        return -1, c_error(-pid)
+    }
+    mut got_out := make(list[uint8], alloc)
+    mut got_err := make(list[uint8], alloc)
+    mut failure := noerror
+    for a >= 0 || b >= 0 {
+        m := c_poll2(a, b)
+        if m < 0 {
+            if -m == c_eintr() {
+                continue
+            }
+            failure = c_error(-m)
+            break
+        }
+        if m % 2 == 1 {
+            failure = drain(mut a, mut got_out)
+            if failure.code != 0 {
+                break
+            }
+        }
+        if m / 2 % 2 == 1 {
+            failure = drain(mut b, mut got_err)
+            if failure.code != 0 {
+                break
+            }
+        }
+    }
+    if a >= 0 {
+        c_close(a)
+    }
+    if b >= 0 {
+        c_close(b)
+    }
+    status := wait_for(pid)
+    if failure.code != 0 {
+        return -1, failure
+    }
+    if status < 0 {
+        return -1, c_error(-status)
+    }
+    if status >= 256 {
+        return -1, error{code: 5, msg: "child killed by a signal"}
+    }
+    e2 := reserve(mut out, len(got_out))
+    if e2.code != 0 {
+        return -1, e2
+    }
+    e3 := reserve(mut err_out, len(got_err))
+    if e3.code != 0 {
+        return -1, e3
+    }
+    // Neither append can fail: each list has room for what it appends.
+    e4 := append(mut out, got_out...)
+    e5 := append(mut err_out, got_err...)
+    if e4.code != 0 || e5.code != 0 {
+        return -1, error{code: 1, msg: "out of memory"}
+    }
+    return status, noerror
 }

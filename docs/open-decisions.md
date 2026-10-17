@@ -1056,10 +1056,13 @@ every byte in lists Tack owns; paths and names as `[]uint8` views; text
 results as `text.Text`; the generated `main` taking `argc` and `argv`
 and storing them in `tack_argc_` and `tack_argv_`; code 3 for an OS
 failure with a literal message per errno; code 4 for a 0 byte in a path
-or name; `list_dir` as one extern, so no `DIR *` reaches Tack; and, for
-the coming `run`, code 5 for a child killed by a signal, and outputs
-left unchanged on any error. These points were settled by consistency
-and could go another way:
+or name; `list_dir` as one extern, so no `DIR *` reaches Tack; and, for `run`,
+an `Allocator` as its last parameter, for its own lists only, code 5 for
+a child killed by a signal, the outputs' lengths and bytes left as they
+were on any error, an empty `argv` and a 0 byte in an argument as code
+4, a status other than 0 as no error, waiting for the child after an
+error without killing it, at most 8192 arguments, and no timeout.
+These points were settled by consistency and could go another way:
 
 - The file and directory remover is `remove_path`, since `remove` is a
   builtin and a package-level function cannot take a builtin's name.
@@ -1089,3 +1092,14 @@ and could go another way:
 - `list_dir`'s sort is bytewise, with no locale or case folding, so
   capitals sort before lowercase and a name before every longer name it
   begins.
+- `run`'s status on an error is -1, though no caller can read it before
+  checking the error, so it is never seen.
+- `run` makes room in `out` before `err_out`, so when only `err_out`
+  cannot grow, `out`'s capacity has grown, though its length and bytes
+  have not: two lists cannot grow atomically together.
+- `run` gives the child the process's whole environment; there is no way
+  to set or remove a variable for one child.
+- A follow-up: `text.from_list(l list[uint8]) Text`, taking a list over
+  with no copy, would let `env`, `args`, `list_dir` and `make_temp_dir`
+  skip their second copy of each value. std/text has no such
+  constructor today.

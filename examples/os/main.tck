@@ -3,6 +3,7 @@ package main
 import bytes from "std/bytes"
 import fmt from "std/fmt"
 import os from "std/os"
+import text from "std/text"
 
 // std/os reaches the operating system through C that makes one system
 // call at a time, and keeps every byte it reads in lists Tack owns and
@@ -15,7 +16,12 @@ import os from "std/os"
 // it, makes each function fail as the OS fails it, a missing file, a
 // path through a file, a directory that is not empty or already exists,
 // and a 0 byte in a path, makes every allocating function fail for want
-// of memory, and removes the directory at the end. Each check is
+// of memory, and removes the directory at the end. It runs children
+// through sh: one that writes to both its outputs and exits 3, one that
+// reads its standard input, which is empty, one that writes more to both
+// than a pipe holds, one that reads the environment, one killed by a
+// signal, and programs that do not exist, and makes run fail for want of
+// memory at each of its allocations. Each check is
 // printed, ok or FAIL, and c_allocator's count of live buffers, read
 // through live.c, is checked to be back to 0 after each group.
 
@@ -387,6 +393,158 @@ func descriptors(dir []uint8) {
     check(ok, "1000 rounds of each leave no descriptor open")
 }
 
+// command returns parts as a list of Texts, the arguments of a run.
+func command(parts ...string) (list[text.Text], error) {
+    mut l := make(list[text.Text], c_allocator)
+    for _, p := range parts {
+        t, e := text.from_bytes([]uint8(p), c_allocator)
+        if e.code != 0 {
+            return l, e
+        }
+        e2 := append(mut l, t)
+        if e2.code != 0 {
+            return l, e2
+        }
+    }
+    return l, noerror
+}
+
+// runSh runs sh -c script, appending its outputs to out and errOut, and
+// returns what run does.
+func runSh(script string, mut out list[uint8], mut errOut list[uint8]) (int64, error) {
+    c, e := command("sh", "-c", script)
+    if e.code != 0 {
+        return -1, e
+    }
+    s, e2 := os.run(c, mut out, mut errOut, c_allocator)
+    if e2.code != 0 {
+        return -1, e2
+    }
+    return s, noerror
+}
+
+// processes runs children through sh and checks what each wrote, to its
+// standard output and its standard error, and its exit status.
+func processes() {
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s0, e0 := runSh("printf hi; printf err >&2; exit 3", mut out, mut errOut)
+    check(e0.code == 0 && s0 == 3 && bytes.equal(out, []uint8("hi")) && bytes.equal(errOut, []uint8("err")), "run captures both outputs and the status")
+    s1, e1 := runSh("printf ' again'; exit 0", mut out, mut errOut)
+    check(e1.code == 0 && s1 == 0 && bytes.equal(out, []uint8("hi again")) && bytes.equal(errOut, []uint8("err")), "run appends after what out held")
+    s2, e2 := runSh("exit 255", mut out, mut errOut)
+    check(e2.code == 0 && s2 == 255, "run returns status 255")
+    s3, e3 := runSh("cat; printf done", mut out, mut errOut)
+    check(e3.code == 0 && s3 == 0 && bytes.has_suffix(out, []uint8("done")), "run gives the child an empty standard input")
+    s4, e4 := runSh("printf '%s' \"$TACK_OS_EXAMPLE\"", mut out, mut errOut)
+    check(e4.code == 0 && s4 == 0 && bytes.has_suffix(out, []uint8("set by the test")), "run passes the environment on")
+    s5, e5 := runSh("printf '%s' \"${TACK_OS_EXAMPLE_UNSET-unset}\"", mut out, mut errOut)
+    check(e5.code == 0 && s5 == 0 && bytes.has_suffix(out, []uint8("unset")), "run passes no variable that is not set")
+
+    mut big := make(list[uint8], c_allocator)
+    mut bigErr := make(list[uint8], c_allocator)
+    s6, e6 := runSh("i=0; while [ $i -lt 3000 ]; do echo 0123456789012345678901234567890123456789; echo abcdefghijabcdefghijabcdefghijabcdefghij >&2; i=$((i+1)); done", mut big, mut bigErr)
+    check(e6.code == 0 && s6 == 0 && len(big) == 123000 && len(bigErr) == 123000, "run reads both pipes at once, more than either holds")
+    mut lines := bytes.count(big, []uint8("0123456789012345678901234567890123456789\n")) == 3000
+    lines = lines && bytes.count(bigErr, []uint8("abcdefghijabcdefghijabcdefghijabcdefghij\n")) == 3000
+    check(lines, "run keeps every line of both")
+
+    print("run wrote: ")
+    fmt.write(out)
+    print("\n")
+}
+
+// processFailures makes run fail: a child killed by a signal, a program
+// not on PATH, a path that names nothing, an empty argv, and a 0 byte in
+// an argument, each leaving out and errOut exactly as they were; and,
+// for want of memory, at each of run's allocations in turn.
+func processFailures() {
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    e0 := append(mut out, []uint8("keep")...)
+    e1 := append(mut errOut, []uint8("this")...)
+    if e0.code != 0 || e1.code != 0 {
+        check(false, "outputs")
+        return
+    }
+    _, e2 := runSh("printf lost; printf lost >&2; kill -9 $$", mut out, mut errOut)
+    check(e2.code == 5 && e2.msg == "child killed by a signal", "run of a child killed by a signal")
+    c3, e3 := command("tack-os-example-no-such-program")
+    c4, e4 := command("/nonexistent/tack/sh", "-c", "exit 0")
+    c5, e5 := command("sh", "-c", "printf \x00")
+    if e3.code != 0 || e4.code != 0 || e5.code != 0 {
+        check(false, "commands")
+        return
+    }
+    _, e6 := os.run(c3, mut out, mut errOut, c_allocator)
+    check(osError(e6, "No such file or directory"), "run of a program not on PATH")
+    _, e7 := os.run(c4, mut out, mut errOut, c_allocator)
+    check(osError(e7, "No such file or directory"), "run of a path that names nothing")
+    mut none := make(list[text.Text], c_allocator)
+    _, e8 := os.run(none, mut out, mut errOut, c_allocator)
+    check(e8.code == 4 && e8.msg == "argv is empty", "run of an empty argv")
+    _, e9 := os.run(c5, mut out, mut errOut, c_allocator)
+    check(e9.code == 4 && e9.msg == "argument contains a NUL byte", "run of an argument with a 0 byte")
+    check(bytes.equal(out, []uint8("keep")) && bytes.equal(errOut, []uint8("this")), "failed runs leave both outputs as they were")
+    e10 := append(mut none, text.new(c_allocator))
+    if e10.code != 0 {
+        check(false, "an empty name")
+        return
+    }
+    _, e11 := os.run(none, mut out, mut errOut, c_allocator)
+    check(e11.code == 3, "run of an empty program name")
+
+    c12, e12 := command("sh", "-c", "printf 0123456789; printf abc >&2")
+    if e12.code != 0 {
+        check(false, "command for shortages")
+        return
+    }
+    base := live()
+    mut failed := 0
+    mut ok := true
+    for n := range 12 {
+        failAfter(n)
+        s, e := os.run(c12, mut out, mut errOut, c_allocator)
+        failAfter(-1)
+        if e.code == 0 {
+            ok = ok && s == 0 && bytes.equal(out, []uint8("keep0123456789")) && bytes.equal(errOut, []uint8("thisabc"))
+            break
+        }
+        failed++
+        ok = ok && oom(e) && bytes.equal(out, []uint8("keep")) && bytes.equal(errOut, []uint8("this")) && live() == base
+    }
+    check(ok && failed > 2, "run failing for want of memory at each allocation leaves the outputs as they were")
+}
+
+// childDescriptors runs 100 children that exit, 100 killed by a signal,
+// and 100 programs that do not exist, more than 64 open files could hold
+// if run left a pipe open each time.
+func childDescriptors() {
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    mut ok := true
+    for range 100 {
+        s, e := runSh("printf x; printf y >&2", mut out, mut errOut)
+        if e.code != 0 || s != 0 {
+            ok = false
+        }
+        _, e2 := runSh("kill -9 $$", mut out, mut errOut)
+        if e2.code != 5 {
+            ok = false
+        }
+        c, e3 := command("tack-os-example-no-such-program")
+        if e3.code != 0 {
+            ok = false
+        } else {
+            _, e4 := os.run(c, mut out, mut errOut, c_allocator)
+            if !osError(e4, "No such file or directory") {
+                ok = false
+            }
+        }
+    }
+    check(ok && len(out) == 100 && len(errOut) == 100, "100 runs leave no descriptor open")
+}
+
 // cleanup removes what files and dirs made, then dir itself, and checks
 // it is gone.
 func cleanup(dir []uint8) {
@@ -430,5 +588,11 @@ func main() {
     check(live() == 1, "shortages freed")
     descriptors(d.bytes())
     check(live() == 1, "descriptors freed")
+    processes()
+    check(live() == 1, "processes freed")
+    processFailures()
+    check(live() == 1, "process failures freed")
+    childDescriptors()
+    check(live() == 1, "child descriptors freed")
     cleanup(d.bytes())
 }
