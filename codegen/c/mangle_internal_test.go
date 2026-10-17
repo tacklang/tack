@@ -328,8 +328,9 @@ func TestUnionNamesDoNotCollide(t *testing.T) {
 	for id := range 200 {
 		typ := types.Type(id)
 		for _, name := range []string{
-			freeName(typ), equalityName(typ), arrayName(typ),
-			listName(typ), viewName(typ),
+			freeNameOf(typ), equalityNameOf(typ), arrayNameOf(typ),
+			listNameOf(typ), viewNameOf(typ), mapNameOf(typ), funcPtrNameOf(typ),
+			funcResultsNameOf(typ),
 		} {
 			if seen[name] {
 				t.Fatalf("%s is the name of two helpers or types", name)

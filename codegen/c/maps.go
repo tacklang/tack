@@ -54,23 +54,23 @@ import (
 // and value, first to last, when they are owned, then both buffers.
 
 // mapName is the name of the C struct a map type lowers to.
-func mapName(typ types.Type) string {
+func mapNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_map_%d", typ)
 }
 
 // entryName is the name of the C struct of one entry of the map type typ.
-func entryName(typ types.Type) string {
+func entryNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_ment_%d", typ)
 }
 
 // hashName is the name of the helper that hashes a key of type typ.
-func hashName(typ types.Type) string {
+func hashNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_hash_%d", typ)
 }
 
 // mapHelper is the name of the map type typ's helper what: find, grow,
 // put or take.
-func mapHelper(what string, typ types.Type) string {
+func mapHelperOf(what string, typ types.Type) string {
 	return fmt.Sprintf("tack_m%s_%d", what, typ)
 }
 
@@ -80,13 +80,13 @@ func (g *generator) emitMapDef(typ types.Type) {
 	table := g.prog.Types
 	fmt.Fprintf(&g.buf,
 		"typedef struct {\n    %s key;\n    %s val;\n    uint64_t hash;\n    bool live;\n} %s;\n\n",
-		g.cType(table.Key(typ)), g.cType(table.Elem(typ)), entryName(typ))
+		g.cType(table.Key(typ)), g.cType(table.Elem(typ)), g.entryName(typ))
 	fmt.Fprintf(
 		&g.buf,
 		"typedef struct {\n    %s *entries;\n    int64_t len;\n    int64_t used;\n    int64_t cap;\n"+
 			"    int64_t *slots;\n    int64_t nslots;\n    tack_allocator alloc;\n} %s;\n\n",
-		entryName(typ),
-		mapName(typ),
+		g.entryName(typ),
+		g.mapName(typ),
 	)
 }
 
@@ -95,8 +95,8 @@ func (g *generator) emitMapDef(typ types.Type) {
 func (g *generator) mapTypes() []types.Type {
 	table := g.prog.Types
 	var maps []types.Type
-	for i := range table.Count() {
-		if typ := types.Added(i); table.IsMap(typ) {
+	for _, typ := range g.emittedTypes() {
+		if table.IsMap(typ) {
 			maps = append(maps, typ)
 		}
 	}
@@ -138,7 +138,7 @@ func (g *generator) emitHashOf(typ types.Type, hashed map[types.Type]bool) {
 		}
 	}
 	t := g.cType(typ)
-	fmt.Fprintf(&g.buf, "static uint64_t %s(const %s *k) {\n", hashName(typ), t)
+	fmt.Fprintf(&g.buf, "static uint64_t %s(const %s *k) {\n", g.hashName(typ), t)
 	switch {
 	case typ == types.Bool, types.IsInteger(typ), typ == types.String:
 		g.buf.WriteString(basicHash(typ))
@@ -160,7 +160,7 @@ func (g *generator) emitStructHash(typ types.Type) {
 		fmt.Fprintf(
 			&g.buf,
 			"    h = tack_mix_(h ^ %s(&k->%s));\n",
-			hashName(f.Type),
+			g.hashName(f.Type),
 			memberName(typ, f.Name),
 		)
 	}
@@ -218,7 +218,7 @@ func (g *generator) emitSequenceHash(typ types.Type) {
 		&g.buf,
 		"    for (int64_t i = 0; i < %s; i++) {\n        h = tack_mix_(h ^ %s(&k->%s[i]));\n    }\n",
 		n,
-		hashName(table.Elem(typ)),
+		g.hashName(table.Elem(typ)),
 		field,
 	)
 	g.buf.WriteString("    return h;\n")
@@ -232,7 +232,7 @@ func (g *generator) emitUnionHash(typ types.Type) {
 	for i, uc := range g.prog.Types.Cases(typ) {
 		if uc.Payload {
 			fmt.Fprintf(&g.buf, "    case %d:\n        return tack_mix_(h ^ %s(&k->u.%s));\n",
-				i, hashName(uc.Type), caseMember(uc.Name))
+				i, g.hashName(uc.Type), caseMember(uc.Name))
 		}
 	}
 	g.buf.WriteString("    default:\n        return h;\n    }\n")
@@ -246,11 +246,11 @@ func (g *generator) emitUnionHash(typ types.Type) {
 func (g *generator) emitMapHelpers(typ types.Type) {
 	table := g.prog.Types
 	key, value := table.Key(typ), table.Elem(typ)
-	m, e, k, v := mapName(typ), entryName(typ), g.cType(key), g.cType(value)
+	m, e, k, v := g.mapName(typ), g.entryName(typ), g.cType(key), g.cType(value)
 	fmt.Fprintf(
 		&g.buf,
 		"static int64_t %s(const %s *m, const %s *k, uint64_t h) {\n",
-		mapHelper("find", typ),
+		g.mapHelper("find", typ),
 		m,
 		k,
 	)
@@ -265,12 +265,19 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 	)
 	g.emitMapLookups(typ)
 	g.emitMapGrow(typ)
-	fmt.Fprintf(&g.buf, "static bool %s(%s *m, %s key, %s val) {\n", mapHelper("put", typ), m, k, v)
+	fmt.Fprintf(
+		&g.buf,
+		"static bool %s(%s *m, %s key, %s val) {\n",
+		g.mapHelper("put", typ),
+		m,
+		k,
+		v,
+	)
 	fmt.Fprintf(
 		&g.buf,
 		"    uint64_t h = %s(&key);\n    int64_t s = %s(m, &key, h);\n",
-		hashName(key),
-		mapHelper("find", typ),
+		g.hashName(key),
+		g.mapHelper("find", typ),
 	)
 	g.buf.WriteString("    if (s >= 0) {\n")
 	fmt.Fprintf(&g.buf, "        %s *e = &m->entries[m->slots[s] - 1];\n", e)
@@ -278,7 +285,7 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 	g.buf.WriteString("        e->val = val;\n")
 	g.writeFrees("        ", key, "key")
 	g.buf.WriteString("        return true;\n    }\n")
-	fmt.Fprintf(&g.buf, "    if (!%s(m)) {\n", mapHelper("grow", typ))
+	fmt.Fprintf(&g.buf, "    if (!%s(m)) {\n", g.mapHelper("grow", typ))
 	g.writeFrees("        ", key, "key")
 	g.writeFrees("        ", value, "val")
 	g.buf.WriteString("        return false;\n    }\n" +
@@ -291,7 +298,16 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 		e,
 	)
 	g.buf.WriteString("    m->used++;\n    m->len++;\n    return true;\n}\n\n")
-	fmt.Fprintf(&g.buf, "static %s %s(%s *m, int64_t s) {\n", v, mapHelper("take", typ), m)
+	g.emitMapTake(typ)
+}
+
+// emitMapTake writes the map type typ's take helper, which moves the
+// value of the entry in slot s out, frees its key, and marks the entry
+// and the slot deleted, clearing every slot once the map is empty.
+func (g *generator) emitMapTake(typ types.Type) {
+	key := g.prog.Types.Key(typ)
+	m, e, v := g.mapName(typ), g.entryName(typ), g.cType(g.prog.Types.Elem(typ))
+	fmt.Fprintf(&g.buf, "static %s %s(%s *m, int64_t s) {\n", v, g.mapHelper("take", typ), m)
 	fmt.Fprintf(&g.buf, "    %s *e = &m->entries[m->slots[s] - 1];\n    %s val = e->val;\n", e, v)
 	g.writeFrees("    ", key, "e->key")
 	g.buf.WriteString("    e->live = false;\n    m->slots[s] = -1;\n    m->len--;\n" +
@@ -318,13 +334,17 @@ func (g *generator) emitMapHelpers(typ types.Type) {
 //	}
 func (g *generator) emitMapLookups(typ types.Type) {
 	table := g.prog.Types
-	m, k, v := mapName(typ), g.cType(table.Key(typ)), g.cType(table.Elem(typ))
-	find := fmt.Sprintf("%s(m, &key, %s(&key))", mapHelper("find", typ), hashName(table.Key(typ)))
+	m, k, v := g.mapName(typ), g.cType(table.Key(typ)), g.cType(table.Elem(typ))
+	find := fmt.Sprintf(
+		"%s(m, &key, %s(&key))",
+		g.mapHelper("find", typ),
+		g.hashName(table.Key(typ)),
+	)
 	fmt.Fprintf(&g.buf, "static bool %s(const %s *m, %s key) {\n    return %s >= 0;\n}\n\n",
-		mapHelper("has", typ), m, k, find)
+		g.mapHelper("has", typ), m, k, find)
 	fmt.Fprintf(&g.buf, "static %s *%s(const %s *m, %s key) {\n"+
 		"    return (%s *)&m->entries[m->slots[%s] - 1].val;\n}\n\n",
-		v, mapHelper("at", typ), m, k, v, find)
+		v, g.mapHelper("at", typ), m, k, v, find)
 }
 
 // emitMapGrow writes the map type typ's grow helper (see the comment at
@@ -333,8 +353,8 @@ func (g *generator) emitMapLookups(typ types.Type) {
 // before exactly the count asked for, a power of two of at least 8, when
 // it has none to grow from, so the count it reports back is that power.
 func (g *generator) emitMapGrow(typ types.Type) {
-	m, e := mapName(typ), entryName(typ)
-	fmt.Fprintf(&g.buf, "static bool %s(%s *m) {\n", mapHelper("grow", typ), m)
+	m, e := g.mapName(typ), g.entryName(typ)
+	fmt.Fprintf(&g.buf, "static bool %s(%s *m) {\n", g.mapHelper("grow", typ), m)
 	g.buf.WriteString(
 		"    if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {\n        return true;\n    }\n" +
 			"    int64_t ns = 8;\n    while (ns * 3 < (m->len + 1) * 8) {\n" +
@@ -384,7 +404,7 @@ func (g *generator) writeFrees(indent string, typ types.Type, ref string) {
 func (g *generator) emitMapFree(typ types.Type) {
 	table := g.prog.Types
 	key, value := table.Key(typ), table.Elem(typ)
-	fmt.Fprintf(&g.buf, "static void %s(const %s *m) {\n", freeName(typ), mapName(typ))
+	fmt.Fprintf(&g.buf, "static void %s(const %s *m) {\n", g.freeName(typ), g.mapName(typ))
 	if g.owned(key) || g.owned(value) {
 		g.buf.WriteString(
 			"    for (int64_t i = 0; i < m->used; i++) {\n        if (m->entries[i].live) {\n",
@@ -396,8 +416,8 @@ func (g *generator) emitMapFree(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
 		"    tack_list_free_(m->entries, m->cap, sizeof (%s), _Alignof (%s), m->alloc);\n",
-		entryName(typ),
-		entryName(typ),
+		g.entryName(typ),
+		g.entryName(typ),
 	)
 	g.buf.WriteString(
 		"    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);\n}\n\n",
@@ -407,7 +427,7 @@ func (g *generator) emitMapFree(typ types.Type) {
 // makeMap renders make(map[K]V, alloc) as an empty map of its type
 // holding the allocator, which allocates nothing.
 func (g *generator) makeMap(call *ast.Call, alloc string) string {
-	return fmt.Sprintf("((%s){.alloc = %s})", mapName(call.Type), alloc)
+	return fmt.Sprintf("((%s){.alloc = %s})", g.mapName(call.Type), alloc)
 }
 
 // putValue renders err := put(mut m, k, v) as a comma expression over
@@ -435,7 +455,7 @@ func (g *generator) putValue(call *ast.Call) (string, []diag.Diagnostic) {
 	p, k, v := g.temp("o"), g.temp("o"), g.temp("o")
 	g.frame.temps = append(
 		g.frame.temps,
-		fmt.Sprintf("%s *%s;", mapName(typ), p),
+		fmt.Sprintf("%s *%s;", g.mapName(typ), p),
 		fmt.Sprintf(
 			"%s %s;",
 			g.cType(table.Key(typ)),
@@ -444,7 +464,7 @@ func (g *generator) putValue(call *ast.Call) (string, []diag.Diagnostic) {
 		fmt.Sprintf("%s %s;", g.cType(table.Elem(typ)), v),
 	)
 	return fmt.Sprintf("(%s = %s, %s = %s, %s = %s, %s(%s, %s, %s) ? (tack_error){} : %s)",
-		p, addr, k, key, v, val, mapHelper("put", typ), p, k, v, g.listError(1, outOfMemory)), nil
+		p, addr, k, key, v, val, g.mapHelper("put", typ), p, k, v, g.listError(1, outOfMemory)), nil
 }
 
 // deleteValues lowers v, ok := delete(mut m, k): the map's address is held
@@ -466,7 +486,7 @@ func (g *generator) deleteValues(call *ast.Call) (multiSource, []diag.Diagnostic
 			return fmt.Sprintf(
 				"%s >= 0 ? %s(%s, %s) : %s",
 				r[2],
-				mapHelper("take", typ),
+				g.mapHelper("take", typ),
 				r[0],
 				r[2],
 				zero,
@@ -495,7 +515,7 @@ func (g *generator) dropDelete(call *ast.Call) ([]string, []diag.Diagnostic) {
 	}
 	names, lines := g.holdTemps(src)
 	typ := ast.TypeOf(m)
-	take := fmt.Sprintf("%s(%s, %s)", mapHelper("take", typ), names[0], names[2])
+	take := fmt.Sprintf("%s(%s, %s)", g.mapHelper("take", typ), names[0], names[2])
 	body := []string{"(void)" + take + ";"}
 	if g.owned(call.Type) {
 		old := g.temp("r")
@@ -540,10 +560,10 @@ func (g *generator) mapKeySource(m, key ast.Expr, mut bool) (multiSource, []diag
 	if len(diags) > 0 {
 		return multiSource{}, diags
 	}
-	find := mapHelper("find", typ)
-	hash := hashName(table.Key(typ))
+	find := g.mapHelper("find", typ)
+	hash := g.hashName(table.Key(typ))
 	return multiSource{temps: []multiTemp{
-		{typ: mapName(typ), init: withSteps(steps, "&"+place), ref: !mut, mut: mut},
+		{typ: g.mapName(typ), init: withSteps(steps, "&"+place), ref: !mut, mut: mut},
 		{typ: g.cType(table.Key(typ)), init: k},
 		{typ: "int64_t", initFrom: func(r []string) string {
 			return fmt.Sprintf("%s(%s, &%s, %s(&%s))", find, r[0], r[1], hash, r[1])
@@ -602,7 +622,7 @@ func (g *generator) mapRange(loop *ast.ForRange, x string, body []string) []stri
 	bind(loop.Var, "key")
 	bind(loop.Elem, "val")
 	return rangeBlock(
-		fmt.Sprintf("const %s %s = %s;", mapName(xType), r, x),
+		fmt.Sprintf("const %s %s = %s;", g.mapName(xType), r, x),
 		fmt.Sprintf(
 			"for (int64_t %s = 0; %s < %s.used; %s++) {",
 			k,
@@ -634,7 +654,7 @@ func (g *generator) hasValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
-	has := mapHelper("has", ast.TypeOf(m))
+	has := g.mapHelper("has", ast.TypeOf(m))
 	return g.sequenced([]ast.Expr{m, key}, rendered, func(ops []string) string {
 		return fmt.Sprintf("%s(&%s, %s)", has, ops[0], ops[1])
 	}), nil
@@ -648,7 +668,7 @@ func (g *generator) mapElementExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
-	at := mapHelper("at", ast.TypeOf(ix.X))
+	at := g.mapHelper("at", ast.TypeOf(ix.X))
 	return g.sequenced([]ast.Expr{ix.X, ix.Index}, rendered, func(ops []string) string {
 		return fmt.Sprintf("(*%s(&%s, %s))", at, ops[0], ops[1])
 	}), nil
@@ -677,5 +697,5 @@ func (g *generator) mapElementRef(ix *ast.Index, base string) (string, []diag.Di
 	if len(diags) > 0 {
 		return "", diags
 	}
-	return fmt.Sprintf("(*%s(&%s, %s))", mapHelper("at", ast.TypeOf(ix.X)), base, key), nil
+	return fmt.Sprintf("(*%s(&%s, %s))", g.mapHelper("at", ast.TypeOf(ix.X)), base, key), nil
 }

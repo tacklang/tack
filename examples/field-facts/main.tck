@@ -119,13 +119,13 @@ func swapHalves(mut a [4]int64, q Pair) {
         t := a[q.i]
         a[q.i] = a[q.j]
         a[q.j] = t
-        swap(mut a[q.i], mut a[q.j])
-        swap(mut a[q.i], mut a[q.j])
+        exchange(mut a[q.i], mut a[q.j])
+        exchange(mut a[q.i], mut a[q.j])
     }
 }
 
-// swap exchanges two integers.
-func swap(mut x int64, mut y int64) {
+// exchange swaps two integers.
+func exchange(mut x int64, mut y int64) {
     t := x
     x = y
     y = t

@@ -243,7 +243,7 @@ func (g *generator) valueTest(
 	case g.isComposite(typ):
 		return fmt.Sprintf(
 			"%s(&%s, %s)",
-			equalityName(typ),
+			g.equalityName(typ),
 			tagRef,
 			g.addressOf(v, typ, value),
 		), nil

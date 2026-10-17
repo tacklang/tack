@@ -1,0 +1,326 @@
+package main
+
+import text from "std/text"
+
+// A generic function's type parameter T is owned, whatever a call makes
+// it: a list of T, a view of T, a map holding T values and a function
+// taking or returning T can be written, a value of T is moved, borrowed
+// and freed as a list is, never copied, and a T can be returned. swap
+// reorders a list's elements in place, so generic code reorders owned
+// elements without copying them. An instance whose T is int64, a struct,
+// a list or a Text runs the one body checked once.
+//
+// Every check that allocates runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("go_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// reverse reverses l in place by swapping its elements.
+func reverse[T Any](mut l list[T]) {
+    mut i := 0
+    mut j := len(l) - 1
+    for i < j {
+        if 0 <= i && i < len(l) && 0 <= j && j < len(l) {
+            swap(mut l, i, j)
+        }
+        i += 1
+        j -= 1
+    }
+}
+
+// sort sorts l in place by lt, an insertion sort that swaps neighbours,
+// borrowing each pair it compares.
+func sort[T Any](mut l list[T], lt func(T, T) bool) {
+    for i := range len(l) {
+        mut j := i
+        for j > 0 {
+            k := j - 1
+            if 0 <= k && k < len(l) && j < len(l) && lt(l[j], l[k]) {
+                swap(mut l, j, k)
+                j = k
+            } else {
+                j = 0
+            }
+        }
+    }
+}
+
+// move_top moves the last element of src onto dst, and reports whether
+// there was one and dst could grow to hold it; when it could not, append
+// freed it.
+func move_top[T Any](mut src list[T], mut dst list[T]) bool {
+    x, ok := pop(mut src)
+    if !ok {
+        return false
+    }
+    err := append(mut dst, x)
+    return err.code == 0
+}
+
+// rotate moves q's first element to its end, a queue's turn, and reports
+// whether q could grow to hold it again.
+func rotate[T Any](mut q list[T]) bool {
+    if len(q) == 0 {
+        return true
+    }
+    x := remove(mut q, 0)
+    err := append(mut q, x)
+    return err.code == 0
+}
+
+// take returns the last element of l, or what mk makes when l is empty.
+func take[T Any](mut l list[T], mk func() T) T {
+    if len(l) > 0 {
+        return pop(mut l)
+    }
+    return mk()
+}
+
+// count_if returns how many of v's elements pred holds for, each borrowed
+// in place.
+func count_if[T Any](v []T, pred func(T) bool) int64 {
+    mut n := 0
+    for _, x := range v {
+        if pred(x) {
+            n += 1
+        }
+    }
+    return n
+}
+
+// stash moves the last element of l into m under k, replacing and freeing
+// any value k had, and returns the error put gives, or none when l is
+// empty.
+func stash[T Any](mut m map[string]T, k string, mut l list[T]) error {
+    if len(l) == 0 {
+        return noerror
+    }
+    return put(mut m, k, pop(mut l))
+}
+
+// holds reports whether m has k, and pred holds for its value, read in
+// place under the proof has gives.
+func holds[T Any](m map[string]T, k string, pred func(T) bool) bool {
+    if has(m, k) {
+        return pred(m[k])
+    }
+    return false
+}
+
+// count returns a list holding 0 through n-1, or as many as fit.
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// textOf returns a Text holding s's bytes, or an empty one on failure.
+func textOf(s string) text.Text {
+    t, err := text.from_bytes([]uint8(s), c_allocator)
+    if err.code != 0 {
+        return text.new(c_allocator)
+    }
+    return t
+}
+
+// shorter reports whether a has fewer elements than b.
+func shorter(a list[int64], b list[int64]) bool {
+    return len(a) < len(b)
+}
+
+// before reports whether a is shorter than b.
+func before(a text.Text, b text.Text) bool {
+    return a.len() < b.len()
+}
+
+// less reports whether a is less than b.
+func less(a int64, b int64) bool {
+    return a < b
+}
+
+// nonEmpty reports whether l holds anything.
+func nonEmpty(l list[int64]) bool {
+    return len(l) > 0
+}
+
+// empty returns an empty list.
+func empty() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+// plain reverses, sorts and swaps int64s, i equal to j among the swaps.
+func plain() {
+    mut l := count(5)
+    reverse(mut l)
+    mut first := 0
+    if len(l) == 5 {
+        first = l[0]
+        swap(mut l, 1, 1)
+        swap(mut l, 0, 4)
+    }
+    sort(mut l, less)
+    mut ordered := len(l) == 5
+    for i := range len(l) {
+        ordered = ordered && l[i] == i
+    }
+    check(first == 4 && ordered, "int64s reversed, swapped and sorted")
+}
+
+// lists keeps owned lists in a generic stack and queue, moves them
+// between stacks, and sorts them by length, every one moved, never
+// copied.
+func lists() {
+    mut a := make(list[list[int64]], c_allocator)
+    e1 := append(mut a, count(3), count(1), count(2))
+    mut b := make(list[list[int64]], c_allocator)
+    moved := move_top(mut a, mut b)
+    turned := rotate(mut a)
+    sort(mut a, shorter)
+    mut lens := 0
+    for _, l := range a {
+        lens = lens * 10 + len(l)
+    }
+    mut head := 0
+    if len(a) == 2 {
+        swap(mut a, 0, 1)
+        swap(mut a, 0, 0)
+        head = len(a[0])
+    }
+    got := take(mut b, empty)
+    none := take(mut b, empty)
+    check(e1.code == 0 && moved && turned && lens == 13 && head == 3 && len(got) == 2 &&
+        len(none) == 0 && len(b) == 0, "lists moved, rotated, sorted and taken")
+}
+
+// texts sorts owned Texts by length and reverses them.
+func texts() {
+    mut l := make(list[text.Text], c_allocator)
+    e1 := append(mut l, textOf("pear"), textOf("apple"), textOf("fig"))
+    sort(mut l, before)
+    reverse(mut l)
+    mut first := false
+    if len(l) == 3 {
+        first = l[0].equal([]uint8("apple")) && l[1].equal([]uint8("pear")) &&
+            l[2].equal([]uint8("fig"))
+    }
+    check(e1.code == 0 && first, "Texts sorted and reversed")
+}
+
+// Op is a struct holding a function value.
+type Op struct {
+    run func(int64) int64
+}
+
+// double returns twice x.
+func double(x int64) int64 {
+    return x * 2
+}
+
+// square returns x times x.
+func square(x int64) int64 {
+    return x * x
+}
+
+// funcs reverses a list of structs holding function values, and a list
+// of function values, and calls them in their new order.
+func funcs() {
+    mut ops := make(list[Op], c_allocator)
+    e1 := append(mut ops, Op{run: double}, Op{run: square})
+    reverse(mut ops)
+    mut n := 3
+    for _, op := range ops {
+        f := op.run
+        n = f(n)
+    }
+    mut fs := make(list[func(int64) int64], c_allocator)
+    e2 := append(mut fs, double, square)
+    reverse(mut fs)
+    mut m := 3
+    for _, f := range fs {
+        m = f(m)
+    }
+    check(e1.code == 0 && n == 18 && e2.code == 0 && m == 18, "structs holding function values, and function values")
+}
+
+// maps stashes owned lists in a map of T values, replacing one, and reads
+// one in place under has.
+func maps() {
+    mut m := make(map[string]list[int64], c_allocator)
+    mut l := make(list[list[int64]], c_allocator)
+    e1 := append(mut l, count(2), count(4), empty())
+    e2 := stash(mut m, "a", mut l)
+    e3 := stash(mut m, "a", mut l)
+    e4 := stash(mut m, "b", mut l)
+    e5 := stash(mut m, "c", mut l)
+    mut v := make(list[list[int64]], c_allocator)
+    e6 := append(mut v, count(1), empty(), count(3))
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 && e5.code == 0 &&
+        len(m) == 2 && holds(m, "a", nonEmpty) && holds(m, "b", nonEmpty) && !holds(m, "c", nonEmpty) &&
+        e6.code == 0 && count_if(v, nonEmpty) == 2, "a map of T values and a view of T")
+}
+
+// failing moves lists between stacks, and rotates a queue of Texts, with
+// every allocation from the n'th on refused, and reports whether every
+// list and Text still counts what it should.
+func failing(n int64) bool {
+    mut a := make(list[list[int64]], c_allocator)
+    e1 := append(mut a, count(2), count(3), count(4))
+    mut q := make(list[text.Text], c_allocator)
+    e2 := append(mut q, textOf("x"), textOf("y"))
+    fail_after(n)
+    mut b := make(list[list[int64]], c_allocator)
+    mut kept := 0
+    for range 3 {
+        if move_top(mut a, mut b) {
+            kept += 1
+        }
+    }
+    turned := rotate(mut q)
+    fail_after(-1)
+    ok := e1.code != 0 || len(a) == 0 && len(b) == kept
+    return ok && (e2.code != 0 || turned && len(q) == 2 || !turned && len(q) == 1)
+}
+
+func main() {
+    plain()
+    check(live() == 0, "nothing left after int64s")
+    lists()
+    check(live() == 0, "nothing left after lists")
+    texts()
+    check(live() == 0, "nothing left after Texts")
+    funcs()
+    check(live() == 0, "nothing left after function values")
+    maps()
+    check(live() == 0, "nothing left after maps and views")
+    mut all := true
+    for n := range 40 {
+        all = all && failing(n)
+        all = all && live() == 0
+    }
+    check(all, "moves that cannot grow a list free what they could not keep")
+}

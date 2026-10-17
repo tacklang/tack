@@ -125,13 +125,15 @@
 // so a method's C name is never a function's, a type's, a global's or
 // another method's, even a function's of a package whose path ends in the
 // type's name (see funcCName). An instance of a generic function is named
-// as if its function's name and its type arguments, each its package's
-// path, a period and its name, separated by commas and in brackets, were
-// one name, so render with File of the main package of a program of one
-// file is tack_4_main23_render_5bmain_2eFile_5d: no other name holds a
-// bracket, and a path holds no comma or bracket, so an instance's C name
-// is never another declaration's or another instance's (see
-// instanceCName).
+// as if its function's name and its type arguments, each a struct's or a
+// union's package path, a period and its name, or any other type as a
+// program writes it, its structs and unions written so, separated by
+// commas and in brackets, were one name, so render with File of the main
+// package of a program of one file is
+// tack_4_main23_render_5bmain_2eFile_5d: no other name holds a bracket,
+// a path holds no comma or bracket, and a type's name balances its own,
+// so an instance's C name is never another declaration's or another
+// instance's (see instanceCName).
 // A parameter x becomes p_x and a local variable x becomes v_x, since a Tack
 // name may be a C keyword or a name C declares, and either may legally be
 // called int or exit.
@@ -162,7 +164,13 @@
 // with the type table binding each type parameter to the instance's type
 // argument (types.Table.Bind), so every C type it writes and every
 // question it asks of a type, whether it is owned, how it is freed, is
-// its type argument's; a call of an interface method on a value of a
+// its type argument's, and a type made of a type parameter, list[T], is
+// the type made the same way of its type argument, whose C struct and
+// helpers are the caller's own; every C name made from a type's ID is
+// made from the type it stands for (see names.go), and a type made of a
+// type parameter nothing binds is never written itself. A caller passes
+// its arguments as the types the checker recorded for the call
+// (Call.ParamTypes), its type arguments in place. A call of an interface method on a value of a
 // type parameter calls the type argument's method of that name directly,
 // and a call of a generic function calls its instance for the call's
 // type arguments, as bound. The checker moves a value of a type
@@ -385,7 +393,10 @@
 // is owned (see dropTake). replace(mut place, new) is a comma expression
 // over temporaries at the function's top: the place's address, the new
 // value, the old value read, the new one stored, the old one given; as a
-// statement, the old value is freed when owned (see replace.go). A map
+// statement, the old value is freed when owned (see replace.go).
+// swap(mut l, i, j), a statement, holds the list's address and both
+// indexes in temporaries and exchanges the two elements through a third,
+// freeing nothing (see swap.go). A map
 // lowers to a struct of its own per map type, a buffer of entries in
 // insertion order and a table of slots probed from a key's hash, with
 // helpers per map type to find, ask has, take the address of a value

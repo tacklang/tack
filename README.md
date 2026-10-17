@@ -254,7 +254,7 @@ Every declaration there must be such a builtin: an extern func with its C
 name given, starting `tack_`, returning nothing, with parameters of basic
 types, none `mut` or variadic (`parameter xs of builtin p cannot be
 variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make`,
-`append`, `reserve`, `pop` or `remove`, `main` or `_`. Anything
+`append`, `reserve`, `pop`, `remove` or `swap`, `main` or `_`. Anything
 else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
@@ -280,7 +280,7 @@ includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
 that calls neither builtin, and has no list, links neither body and none
 of the C library they call. A target without a C library needs only different bodies.
 
-`len`, `make`, `append`, `reserve`, `pop` and `remove` are generic, so
+`len`, `make`, `append`, `reserve`, `pop`, `remove` and `swap` are generic, so
 no Tack declaration can describe them: the compiler implements them
 itself, and `builtin.tck` describes them in comments. A program with lists also links `list.c`,
 the one C file of `std/builtin` that is no builtin's body: it holds the
@@ -1315,6 +1315,20 @@ makes for itself, which has a letter after `tack_`.
   `index -1 is out of range for a list`, in every form; three
   names are `assignment mismatch: 3 variables but pop gives 2 values`.
 
+  `swap(mut l, i, j)` swaps elements `i` and `j` of `l` in place, an
+  `i` equal to `j` leaving it as it was; it moves neither out, copies
+  neither and frees nothing, so it reorders a list of any element type,
+  owned ones and a type parameter's included. Both indexes need proofs,
+  `index j may be out of range; check 0 <= j && j < len(l) first`, as
+  `l[i]` does, and there is no checked form; it changes no length, so a
+  proof about `len(l)` holds across it, though it passes `l` as `mut`, so
+  not inside a range over `l`, `l is being ranged over, so this loop
+  cannot pass mut l`. It gives no value, `swap returns no value`, so it
+  is only written as a statement. A function named `swap` is `duplicate
+  declaration of builtin function`. In C it holds the list's address and
+  both indexes in temporaries, then exchanges the two elements through a
+  third.
+
   `old := replace(mut place, new)` moves the value of `place` out, as its
   result, and moves `new` in, in one step, so the place never holds no
   value. It is how a list kept in a struct is worked on as a local, `mut
@@ -1552,8 +1566,8 @@ makes for itself, which has a letter after `tack_`.
   through a name, `f(x)`, a local or a parameter holding it, with every
   rule a call by name has for its arguments, `mut` ones, views, borrows,
   moves, owned and error results and their order; the value is read
-  first, then the arguments, left to right, so `f(swap(mut f))` calls the
-  function `f` held before `swap` changed it. Calling anything else is
+  first, then the arguments, left to right, so `f(reassign(mut f))` calls
+  the function `f` held before `reassign` changed it. Calling anything else is
   `cannot call n: it is int64, not a function`, and a field holding one
   is called through a local, `run is a field of Op holding a function
   value, not a method; call it through a local, as in f := op.run, then
@@ -1567,8 +1581,9 @@ makes for itself, which has a letter after `tack_`.
   not defined on func() int64`, so it is no map's key; no conversion; and
   it cannot be passed as `any`. A function type's parameters have no
   names, `a function type's parameters have no names; write only the
-  type, not x`, and none is variadic, `any`, a `mut` view or a type
-  parameter, and it returns no view, so a function whose signature has
+  type, not x`, and none is variadic, `any` or a `mut` view, though in a
+  generic function one may be a type parameter, `func(T, T) bool`, and it
+  returns no view, so a function whose signature has
   one, a generic function, `cannot use measure as a value: it is generic,
   and a generic function is only called, its type arguments inferred from
   the call`, an extern func and a method are no values; neither is a
@@ -2043,18 +2058,18 @@ makes for itself, which has a letter after `tack_`.
   its constraint, an interface, plain or qualified, `[A Writer, B
   sink.Sink]`, with commas between them optional as between parameters.
   Each is a type within its function, its signature and its body, which
-  stands for whichever struct or union type a call passes. Every type
+  stands for whichever type a call passes. Every type
   parameter needs an interface for its constraint: `type parameter W has
   no constraint; write the interface it must satisfy after it, as in [W
   Writer]`, and anything else, a struct, a basic type, `any` among them,
   a view or another type parameter, is `Point is not an interface; the
-  constraint of type parameter W must be one`. A type parameter must be
-  the type of some parameter, as a call infers it from the arguments,
-  `W appears in no parameter of f, so no call can infer it`, and is never
-  a result's type: `stuck's result cannot be its type parameter S: a
-  generic function has no way to produce a value of S`, for a function
-  `stuck[S Sizer](s S) S`, the only result or one of several (see
-  below). `[]` is `empty type parameter list`. A type
+  constraint of type parameter W must be one`. A type parameter must
+  appear in some parameter's type, whole, `w W`, or as a part of it, a
+  list's, a view's or a map value's element or a function type's
+  parameter or result, `l list[T]`, `v []T`, `m map[string]T`, `less
+  func(T, T) bool`, as a call infers it from the arguments, `W appears in
+  no parameter of f, so no call can infer it`. A result may be one, or be
+  made of one (see below). `[]` is `empty type parameter list`. A type
   parameter's name follows a parameter's rules: `duplicate type parameter
   name`, `Point is already declared` for a package-level name, and no
   parameter or local may reuse it. It is a type, never a value: `cannot
@@ -2081,21 +2096,41 @@ makes for itself, which has a letter after `tack_`.
   no zero value`, it is never borrowed alongside a `mut` argument of
   itself, and it cannot be an element of an array or a variadic, `a
   variadic parameter cannot hold S: its elements are copied, and S, a
-  type parameter, which may hold a list, cannot be`, nor, though a list
-  or a view may hold owned elements, of a list or a view, `a list cannot
-  hold S: a list's element cannot be a type parameter`. A parameter is
-  never moved, and nothing else makes a value of a type parameter, so a
-  generic function could return one only by passing on what another such
-  call returned, and no call could start the chain; a result of a type
-  parameter is therefore an error, and every value of one in a generic
-  function is a parameter, which borrows its argument. A call is written as any call, `render(mut f,
+  type parameter, which may hold a list, cannot be`, nor a map's key,
+  `cannot use T as a map key: a map's key cannot be a type parameter`.
+  It is owned whatever a call makes it, so an instance whose type
+  argument is `int64` follows the same rules, a move of it being a copy.
+  A list, a view, a map's value and a function type may be made of one,
+  in a signature and in a body, `make(list[T], alloc)` among them: their
+  elements are owned ones, read in place, moved in by `append` and `put`
+  and out by `pop`, `remove` and `delete`, never copied out, `cannot move
+  l[0] out of l: an element cannot be moved out of a list; take it out
+  with pop or remove`, and `swap(mut l, i, j)` reorders them in place. So
+  a generic function makes a value of a type parameter by moving one out
+  of a list or getting one from a function value or a call returning one,
+  and may return it: `func take[T Any](mut l list[T], mk func() T) T { if
+  len(l) > 0 { return pop(mut l) }; return mk() }`. A parameter is never
+  moved, `cannot move x: it is a parameter, which borrows its caller's
+  value`, and a result of one cannot be dropped, `stuck returns S, which
+  may hold a list and cannot be dropped; bind it to a variable`. A call is written as any call, `render(mut f,
   "x")`; type arguments are never written, `cannot write type arguments;
   they are inferred from the arguments, as in render(...)`. Each type
-  parameter is given the type of the arguments passed to the parameters
-  of that type, which must be a struct or union type a package declares,
-  `cannot use int64 as S in argument to measure: a type argument must be
-  a struct or union type a package declares`, `error` and every other
-  builtin type included, or, in another generic function, one of its type parameters;
+  parameter is given its type from the arguments, in order: the type of
+  one passed to a parameter of that type, or the part of an argument's
+  type where the parameter's type has it, the element of a list, an
+  array or a view passed for a `list[T]` or a `[]T`, the value type of a
+  map whose key type is the parameter's for a `map[K]T`, or a parameter's
+  or a result's type of a function value passed for a function type,
+  whose shape must match, `cannot use list[int64] as map[string]T in
+  argument to size`. A type argument may be any type but a view, `cannot
+  use []int64 as T in argument to keep: a type argument cannot be a
+  view`, an `any`, `cannot use any as T in argument to one: a type
+  argument cannot be an any`, and a type made of a type parameter,
+  `cannot use list[T] as U in argument to count: a type argument cannot
+  be made of a type parameter, only be one`, so a type parameter is
+  passed on only whole; a type that is no struct or union has no
+  method, so it satisfies only an interface asking for none, `int64 does
+  not satisfy Sizer: int64 has no method size`, `type Any interface {}`;
   two arguments for one type parameter must be of one type, `cannot use
   Buffer as W in argument to both: W is Counter in this call, from an
   earlier argument`, and the type must satisfy the constraint: `Sized
@@ -2114,17 +2149,21 @@ makes for itself, which has a letter after `tack_`.
   are otherwise checked as for any function: a `mut` parameter of a type
   parameter takes a `mut` place, `render takes w as mut; pass mut c`. A
   generic function may call itself and other generic functions, with its
-  type parameters as type arguments; it is never a value, `undefined:
-  measure`. A `pub` or `lib` one exposes its constraints, `pub function
+  type parameters as type arguments; it is never a value, `cannot use
+  measure as a value: it is generic, and a generic function is only
+  called, its type arguments inferred from the call`. A `pub` or `lib` one exposes its constraints, `pub function
   Size exposes hidden, which is not pub`. In C each generic function is
   compiled once for every set of type arguments the program's calls need
   it with, an instance, found from the functions that are not generic
   and then from each instance, and emitted once however many calls need
   it; an uncalled one is not emitted. An instance is a function of its
   own, named from its function's name and its type arguments,
-  `render[main.File]` mangled, and its method calls on a type parameter
-  call the type argument's method directly. Instances are finite, since
-  no type is generic, but a program needing more than 10000 is an error,
+  `render[main.File]` or `sort[list[int64]]` mangled, its method calls
+  on a type parameter call the type argument's method directly, and its
+  `list[T]` is the C type of `list[int64]` its caller passes. Instances
+  are finite, since every type argument is one code that is not generic
+  writes, a type parameter being passed on only whole, but a program
+  needing more than 10000 is an error,
   `instantiating g with ... makes more than 10000 instances of generic
   functions, the most a program may have`, so the compiler never runs
   away. A type parameter's value is passed and moved as its type

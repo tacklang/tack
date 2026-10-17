@@ -2,7 +2,6 @@ package typeck
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
@@ -22,18 +21,21 @@ import (
 // nothing else, no field, no ==, no zero value and no any, and it is owned
 // as a list is, since it may stand for a struct holding one, so it moves
 // rather than copies and a parameter of one borrows. So whatever a call
-// passes, a body that checked once is right for it. Since a parameter of
-// a type parameter cannot be moved, and nothing else makes a value of
-// one, no result of a generic function may be one of its type parameters
-// (checkTypeParamResults).
+// passes, a body that checked once is right for it, int64 as much as a
+// struct holding a list. A list, a view, a map's value and a function
+// type may be made of one, and a result may be one: a body makes a value
+// of one by moving it out of a list, or getting it from a function value
+// or a call, and the rules for returns report a body that cannot.
 //
-// A call infers each type parameter from the arguments passed to the
-// parameters of that type: a struct or union type, or, in another generic
-// function, one of its type parameters, which must satisfy the
-// constraint. Two arguments for one type parameter must be of one type.
-// The inferred types are recorded in Call.TypeArgs, and the call's results
-// are the callee's with its type parameters replaced by them (see
-// ast.CallResults).
+// A call infers each type parameter from the arguments (see infer.go):
+// any type but a view, an any or one made of a type parameter, so, in
+// another generic function, one of its type parameters is passed on only
+// whole (notTypeArg); it must satisfy the constraint, which a type that
+// is no struct or union does only when the constraint asks for no
+// method. Two arguments for one type parameter must be of one type. The
+// inferred types are recorded in Call.TypeArgs, and the callee's
+// parameters' and results' types with them in place in Call.ParamTypes
+// and Call.ResultTypes (see ast.CallResults).
 //
 // A struct or union type satisfies an interface when, for each of the
 // interface's methods, it has a method of that name taking its receiver as
@@ -141,14 +143,16 @@ func (c *Checker) constraint(tp *ast.TypeParam) *ast.TypeDecl {
 }
 
 // checkTypeParamsUsed reports each type parameter of fn that no
-// parameter's type names, the whole type or a variadic's element: a call
-// infers a type argument only from the arguments, so it could infer none
-// for one. A result alone does not name one usably.
+// parameter's type mentions, as the whole type or a part of it, a list's,
+// a view's or a function type's among them: a call infers a type argument
+// only from the arguments, so it could infer none for one. A result alone
+// does not name one usably. A parameter whose type was reported may have
+// mentioned it, and counts as doing so.
 func (c *Checker) checkTypeParamsUsed(fn *ast.Func) {
 	for _, tp := range fn.TypeParams {
 		used := false
 		for _, p := range fn.Params {
-			if id, ok := p.TypeExpr.(*ast.Ident); ok && id.Def == tp {
+			if p.Type == types.Invalid || c.mentions(p.Type, tp.Type) {
 				used = true
 			}
 		}
@@ -156,33 +160,6 @@ func (c *Checker) checkTypeParamsUsed(fn *ast.Func) {
 			c.errorf(tp.NameSpan, "%s appears in no parameter of %s, so no call can infer it",
 				tp.Name, fn.Name)
 		}
-	}
-}
-
-// checkTypeParamResults reports each result of fn whose type is one of
-// fn's own type parameters. A type parameter is owned, so a parameter of
-// one borrows its argument and cannot be moved out of, and a function has
-// nothing else to make a value of one from: a result of one could only be
-// passed on from another call returning one, and no call can start the
-// chain. An array, a list or a view of a type parameter cannot be written
-// at all, so a result can hold one only by being one.
-func (c *Checker) checkTypeParamResults(fn *ast.Func) {
-	for _, r := range fn.Results {
-		id, ok := r.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		tp, ok := id.Def.(*ast.TypeParam)
-		if !ok || !slices.Contains(fn.TypeParams, tp) {
-			continue
-		}
-		c.errorf(
-			id.Span,
-			"%s's result cannot be its type parameter %s: a generic function has no way to produce a value of %s",
-			fn.Name,
-			tp.Name,
-			tp.Name,
-		)
 	}
 }
 
@@ -305,10 +282,9 @@ func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) b
 	if m, ok := arg.(*ast.MutArg); ok {
 		at = m.X
 	}
-	if c.typeDecl(got) == nil && !c.table.IsTypeParam(got) {
-		c.errorf(at.Spanned(), "cannot use %s as %s in argument to %s: "+
-			"a type argument must be a struct or union type a package declares",
-			c.typeName(got), param.Name, callee)
+	if why := c.notTypeArg(got); why != "" {
+		c.errorf(at.Spanned(), "cannot use %s as %s in argument to %s: %s",
+			c.typeName(got), param.Name, callee, why)
 		return false
 	}
 	if prev, ok := c.inference.args[tp]; ok && prev != got {
@@ -364,7 +340,7 @@ func (c *Checker) checkGenericCall(
 	c.inference = inf
 	muts, counted := c.checkArgs(call, callee, c.funcParams(fn.Params))
 	c.inference = outer
-	call.TypeArgs = nil
+	call.TypeArgs, call.ParamTypes, call.ResultTypes = nil, nil, nil
 	if !counted {
 		return muts, counted
 	}
@@ -377,7 +353,27 @@ func (c *Checker) checkGenericCall(
 		args[i] = arg
 	}
 	call.TypeArgs = args
+	c.recordSignature(call, fn, inf.args)
 	return muts, counted
+}
+
+// notTypeArg returns why a value of type got cannot give a type parameter
+// its type argument, or "" when it can: a view and an any refer to what
+// another value holds, and neither is ever a list's element or a
+// variable's type, as a type parameter's values are; and a type made of
+// a type parameter, list[T] in a generic body, would make every instance
+// need another, without end, so a type parameter is passed on only whole.
+func (c *Checker) notTypeArg(got types.Type) string {
+	switch {
+	case c.table.IsView(got):
+		return "a type argument cannot be a view"
+	case got == types.Any:
+		return "a type argument cannot be an any"
+	case c.table.HasTypeParam(got) && !c.table.IsTypeParam(got):
+		return "a type argument cannot be made of a type parameter, only be one"
+	default:
+		return ""
+	}
 }
 
 // methodSig is what satisfying an interface compares of two methods: the
@@ -447,7 +443,11 @@ func (c *Checker) methodFor(
 		return methodSig{params: m.Params, results: m.ResultTypes, mut: m.Mut},
 			c.ifaceName(tp.Iface) + "'s " + name, "", false
 	}
-	fn := c.typeDecl(typ).Method(name)
+	td := c.typeDecl(typ)
+	if td == nil {
+		return methodSig{}, "", fmt.Sprintf("%s has no method %s", c.typeName(typ), name), false
+	}
+	fn := td.Method(name)
 	if fn == nil {
 		return methodSig{}, "", fmt.Sprintf("%s has no method %s", c.typeName(typ), name), false
 	}

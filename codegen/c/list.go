@@ -55,13 +55,13 @@ func (g *generator) emitListDef(typ types.Type) {
 		&g.buf,
 		"typedef struct {\n    %s *ptr;\n    int64_t len;\n    int64_t cap;\n    tack_allocator alloc;\n} %s;\n\n",
 		g.cType(g.prog.Types.Elem(typ)),
-		listName(typ),
+		g.listName(typ),
 	)
 }
 
 // listName is the name of the C struct a list type lowers to, made from
 // its ID as a view's is, tack_list_ and a digit.
-func listName(typ types.Type) string {
+func listNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_list_%d", typ)
 }
 
@@ -133,7 +133,7 @@ func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsMap(call.Type) {
 		return g.makeMap(call, alloc), nil
 	}
-	return fmt.Sprintf("((%s){.alloc = %s})", listName(call.Type), alloc), nil
+	return fmt.Sprintf("((%s){.alloc = %s})", g.listName(call.Type), alloc), nil
 }
 
 // listError renders the error code and message, a pooled string, make.
@@ -240,7 +240,7 @@ func (g *generator) appendOperands(
 		if call.Spread {
 			view := g.prog.Types.View(elem)
 			v, diags = g.viewArg(arg, view, call)
-			ctype = viewName(view)
+			ctype = g.viewName(view)
 		} else {
 			v, diags = g.expr(arg, elem)
 			ctype = g.operandType(arg)
@@ -262,7 +262,7 @@ func (g *generator) appendBuild(call *ast.Call, elem types.Type, ops []string) s
 	case call.Spread:
 		t := g.temp("v")
 		view := g.prog.Types.View(elem)
-		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", viewName(view), t))
+		g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.viewName(view), t))
 		return fmt.Sprintf(
 			"(%s = %s, TACK_LIST_APPEND_N(%s, %s.ptr, %s.len))",
 			t,
@@ -476,7 +476,7 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
 	if table.IsUnion(typ) || table.IsMap(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
-		return []string{fmt.Sprintf("%s(&%s);", freeName(typ), ref)}
+		return []string{fmt.Sprintf("%s(&%s);", g.freeName(typ), ref)}
 	}
 	if table.IsList(typ) {
 		elem := g.cType(table.Elem(typ))
@@ -511,7 +511,7 @@ func (g *generator) frees(typ types.Type, ref string) []string {
 func (g *generator) emitListFree(typ types.Type) {
 	table := g.prog.Types
 	elem := table.Elem(typ)
-	fmt.Fprintf(&g.buf, "static void %s(const %s *v) {\n", freeName(typ), listName(typ))
+	fmt.Fprintf(&g.buf, "static void %s(const %s *v) {\n", g.freeName(typ), g.listName(typ))
 	g.buf.WriteString("    for (int64_t i = v->len; i > 0; i--) {\n")
 	for _, line := range g.frees(elem, "v->ptr[i - 1]") {
 		fmt.Fprintf(&g.buf, "        %s\n", line)

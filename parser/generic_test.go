@@ -244,6 +244,8 @@ var genericSeeds = []string{
 	"package main\ntype W interface {\nmut write(b []uint8) error\nsize() int64\n}\n" +
 		"func f[A W, B W](mut a A, b B) (A, error) { x := g(b)\nreturn x, mut a.write([]uint8(\"x\")) }\n",
 	"package main\nfunc main() { f[A](x) }\n",
+	"package main\nfunc sort[T Any](mut l list[T], lt func(T, T) bool, v []T, m map[string]T) T {\n" +
+		"swap(mut l, 0, 1)\nreturn pop(mut l) }\n",
 	"package main\nfunc main() { x := p.f[A, B[C]](y) }\n",
 	"package main\ntype W interface {",
 	"package main\ntype W interface { mut",

@@ -51,7 +51,7 @@ func square(x int64) int64 {
     return x * x
 }
 
-func swap(mut g func(int64) int64) int64 {
+func reassign(mut g func(int64) int64) int64 {
     g = square
     return 3
 }
@@ -69,7 +69,7 @@ func add(a int64, b int64) int64 {
 
 func main() {
     mut f := double
-    first := f(swap(mut f))
+    first := f(reassign(mut f))
     second := f(3)
     check(first == 6 && second == 9, "the value read before its arguments")
     g := add

@@ -23,11 +23,10 @@ import (
 // holds itself, so this order exists. Each type is then emitted in the
 // order the checker met it, unless something it holds came later.
 func (g *generator) emitTypes() {
-	table := g.prog.Types
 	defined := make(map[types.Type]bool)
 	g.emitFuncPtr()
-	for i := range table.Count() {
-		g.emitTypeDef(types.Added(i), defined)
+	for _, typ := range g.emittedTypes() {
+		g.emitTypeDef(typ, defined)
 	}
 	g.emitFuncTypes()
 
@@ -44,13 +43,29 @@ func (g *generator) emitTypes() {
 	if compared[types.Error] {
 		g.emitEqualityOf(types.Error, emitted)
 	}
-	for i := range table.Count() {
-		if typ := types.Added(i); compared[typ] {
+	for _, typ := range g.emittedTypes() {
+		if compared[typ] {
 			g.emitEqualityOf(typ, emitted)
 		}
 	}
 	g.emitFrees()
 	g.emitMaps()
+}
+
+// emittedTypes returns every type the Table added that C has, in the order
+// they were added: every one but those made of a type parameter, list[T]
+// or map[string]T in a generic function's body, which C has only as the
+// types they stand for in each instance, each added to the Table as its
+// instance is generated, which is before any type is written.
+func (g *generator) emittedTypes() []types.Type {
+	table := g.prog.Types
+	out := make([]types.Type, 0, table.Count())
+	for i := range table.Count() {
+		if typ := types.Added(i); !table.HasTypeParam(typ) {
+			out = append(out, typ)
+		}
+	}
+	return out
 }
 
 // isComposite reports whether typ is an array, a struct or a union type,
@@ -206,7 +221,7 @@ func (g *generator) emitStructEquality(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
 		"static bool %s(const %s *a, const %s *b) {\n",
-		equalityName(typ),
+		g.equalityName(typ),
 		name,
 		name,
 	)
@@ -230,7 +245,7 @@ func (g *generator) emitStructEquality(typ types.Type) {
 // a string, and C's == otherwise.
 func (g *generator) equalExpr(typ types.Type, l, r string) string {
 	if g.hasEqualityHelper(typ) {
-		return fmt.Sprintf("%s(&%s, &%s)", equalityName(typ), l, r)
+		return fmt.Sprintf("%s(&%s, &%s)", g.equalityName(typ), l, r)
 	}
 	if typ == types.String {
 		return stringComparison(ast.Eq, l, r)

@@ -39,8 +39,8 @@ func bump(mut n int64) {
     n++
 }
 
-// swap exchanges two integers.
-func swap(mut a int64, mut b int64) {
+// exchange swaps two integers.
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
@@ -150,7 +150,7 @@ func main() {
 
     mut a int64 = 1
     mut b int64 = 2
-    swap(mut a, mut b)
+    exchange(mut a, mut b)
     check(a == 2 && b == 1, "swap")
 
     mut box := Box{lo: Point{x: 1, y: 2}, hi: Point{x: 5, y: 6}, cells: [4]int64{1, 2, 3, 4}, name: "box"}

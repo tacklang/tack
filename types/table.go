@@ -40,8 +40,10 @@ type Table struct {
 	maps  map[mapKey]Type // each map type's ID, by its key and value types
 	funcs map[string]Type // each function type's ID, by its signature (see funcKey)
 	// bound maps each type parameter Bind bound to the type it stands
-	// for; it is nil when nothing is bound.
-	bound map[Type]Type
+	// for; it is nil when nothing is bound. substituted keeps, while it
+	// is, what each type made of type parameters stands for (see Bound).
+	bound       map[Type]Type
+	substituted map[Type]Type
 	// sizes keeps each size Size has computed; SetFields and SetCases
 	// forget them all.
 	sizes map[Type]Size
@@ -313,27 +315,139 @@ func (t *Table) IsTypeParam(typ Type) bool {
 // Bind makes each type parameter in args, a map from type parameter to
 // type, stand for that type until Unbind is called: every question asked
 // about it is answered about its type instead, and Bound returns that
-// type. It replaces any earlier binding.
+// type. A type made of type parameters, list[T], []T, map[K]T or func(T)
+// R, stands for the type made the same way of what they stand for, which
+// the Table adds if it has not yet. It replaces any earlier binding.
 func (t *Table) Bind(args map[Type]Type) {
 	t.bound = args
+	t.substituted = make(map[Type]Type)
 }
 
 // Unbind ends the binding Bind made, so every type parameter stands for
 // itself again.
 func (t *Table) Unbind() {
 	t.bound = nil
+	t.substituted = nil
 }
 
 // Bound returns the type typ stands for: the type Bind bound it to, for a
-// bound type parameter, and typ itself for any other type.
+// bound type parameter, the type made the same way of what its parts
+// stand for, for an array, a view, a list, a map or a function type made
+// of a bound type parameter, and typ itself for any other type.
 func (t *Table) Bound(typ Type) Type {
-	if t == nil {
+	if t == nil || t.bound == nil {
 		return typ
 	}
 	if to, ok := t.bound[typ]; ok {
 		return to
 	}
-	return typ
+	if to, ok := t.substituted[typ]; ok {
+		return to
+	}
+	to := t.substitute(typ)
+	t.substituted[typ] = to
+	return to
+}
+
+// substitute returns the type made as typ is, an array, a view, a list,
+// a map or a function type, of what each of its parts stands for under
+// the binding, adding it if the Table does not have it, or typ itself
+// when no part stands for another type, as for any other type.
+func (t *Table) substitute(typ Type) Type {
+	if typ < numBasic || int(typ-numBasic) >= len(t.entries) {
+		return typ
+	}
+	e := t.entries[typ-numBasic]
+	switch {
+	case e.fn != nil:
+		return t.substituteFunc(typ, e.fn)
+	case e.mapped:
+		key, value := t.Bound(e.key), t.Bound(e.arr.elem)
+		if key == e.key && value == e.arr.elem {
+			return typ
+		}
+		return t.Map(key, value)
+	case e.strct != nil, e.union != nil, e.param != "":
+		return typ
+	default:
+		return t.substituteElem(typ, e)
+	}
+}
+
+// substituteElem returns typ, a view, a list or an array whose entry is
+// e, with its element type replaced by what it stands for, or typ itself
+// when that is its own.
+func (t *Table) substituteElem(typ Type, e entry) Type {
+	elem := t.Bound(e.arr.elem)
+	switch {
+	case elem == e.arr.elem:
+		return typ
+	case e.view:
+		return t.View(elem)
+	case e.list:
+		return t.List(elem)
+	default:
+		return t.Array(elem, e.arr.n)
+	}
+}
+
+// substituteFunc returns the function type typ, whose signature is fn,
+// with each of its parameters' and results' types replaced by what it
+// stands for, or typ itself when none stands for another type.
+func (t *Table) substituteFunc(typ Type, fn *funcType) Type {
+	changed := false
+	params := make([]FuncParam, len(fn.params))
+	for i, p := range fn.params {
+		params[i] = FuncParam{Type: t.Bound(p.Type), Mut: p.Mut}
+		changed = changed || params[i].Type != p.Type
+	}
+	results := make([]Type, len(fn.results))
+	for i, r := range fn.results {
+		results[i] = t.Bound(r)
+		changed = changed || results[i] != r
+	}
+	if !changed {
+		return typ
+	}
+	return t.Func(params, results)
+}
+
+// HasTypeParam reports whether typ is a type parameter, or is made of
+// one, as an array's, a view's or a list's element, a map's key or value,
+// or a function type's parameter or result, that no binding stands for.
+// A struct or a union is never made of one.
+func (t *Table) HasTypeParam(typ Type) bool {
+	e, ok := t.entry(t.Bound(typ))
+	switch {
+	case !ok, e.strct != nil, e.union != nil:
+		return false
+	case e.param != "":
+		return true
+	}
+	for _, part := range e.madeOf() {
+		if t.HasTypeParam(part) {
+			return true
+		}
+	}
+	return false
+}
+
+// madeOf returns the types e, an array's, a view's, a list's, a map's or
+// a function type's entry, is made of: an element type, a map's key and
+// value types, or a function type's parameters' and results' types.
+func (e entry) madeOf() []Type {
+	switch {
+	case e.fn != nil:
+		parts := make([]Type, 0, len(e.fn.params)+len(e.fn.results))
+		for _, p := range e.fn.params {
+			parts = append(parts, p.Type)
+		}
+		return append(parts, e.fn.results...)
+	case e.mapped:
+		return []Type{e.key, e.arr.elem}
+	default:
+		return []Type{e.arr.elem}
+	}
 }
 
 // add gives e the next free ID and returns it.

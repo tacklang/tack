@@ -26,7 +26,7 @@ func (g *generator) emitArrayDef(typ types.Type) {
 		"typedef struct {\n    %s e[%d];\n} %s;\n\n",
 		g.cType(table.Elem(typ)),
 		n,
-		arrayName(typ),
+		g.arrayName(typ),
 	)
 }
 
@@ -38,7 +38,7 @@ func (g *generator) emitArrayDef(typ types.Type) {
 // an empty list, and only below its length, so an empty list reads none.
 func (g *generator) emitArrayEquality(typ types.Type) {
 	table := g.prog.Types
-	name, field, n := arrayName(typ), "e", fmt.Sprint(table.Len(typ))
+	name, field, n := g.arrayName(typ), "e", fmt.Sprint(table.Len(typ))
 	if table.IsList(typ) {
 		name, field, n = g.cType(typ), "ptr", "a->len"
 	}
@@ -50,7 +50,7 @@ func (g *generator) emitArrayEquality(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
 		"static bool %s(const %s *a, const %s *b) {\n",
-		equalityName(typ),
+		g.equalityName(typ),
 		name,
 		name,
 	)
@@ -67,7 +67,7 @@ func (g *generator) emitArrayEquality(typ types.Type) {
 // that each call, however deeply one type nests another, uses a frame of
 // the same small size, where values passed by copy would grow with every
 // level a type nests, and a chain of them would run out of stack.
-func equalityName(typ types.Type) string {
+func equalityNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_eq_%d", typ)
 }
 
@@ -79,7 +79,7 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 		return g.structLit(lit)
 	}
 	if len(lit.Elems) == 0 {
-		return fmt.Sprintf("(%s){}", arrayName(lit.Type)), nil
+		return fmt.Sprintf("(%s){}", g.arrayName(lit.Type)), nil
 	}
 	elems := make([]string, len(lit.Elems))
 	for i, e := range lit.Elems {
@@ -90,7 +90,7 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 		elems[i] = v
 	}
 	return g.sequencedLit(lit.Elems, elems, func(ops []string) string {
-		return fmt.Sprintf("(%s){{%s}}", arrayName(lit.Type), strings.Join(ops, ", "))
+		return fmt.Sprintf("(%s){{%s}}", g.arrayName(lit.Type), strings.Join(ops, ", "))
 	}), nil
 }
 
@@ -148,7 +148,7 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 // addresses (see addressOf), parenthesized as every comparison is.
 func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string {
 	typ := ast.TypeOf(bin.X)
-	eq := fmt.Sprintf("%s(%s, %s)", equalityName(typ),
+	eq := fmt.Sprintf("%s(%s, %s)", g.equalityName(typ),
 		g.addressOf(bin.X, typ, left), g.addressOf(bin.Y, typ, right))
 	if bin.Op == ast.Ne {
 		return "(!" + eq + ")"

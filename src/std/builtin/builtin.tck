@@ -97,6 +97,17 @@ extern("tack_builtin_exit") func exit(code int32)
 // element i only when i is in range. It takes a list of any element type,
 // so the compiler implements it itself.
 
+// swap(mut l list[T], i int64, j int64) swaps elements i and j of l in
+// place: what was at i is then at j, and what was at j at i, and i equal
+// to j leaves l as it was. It moves neither element out of l, copies
+// neither and frees nothing, so it takes a list of any element type, a
+// list of lists or of a generic function's type parameter included,
+// which is how generic code reorders owned elements. Both indexes need
+// proofs, as l[i] does, and there is no checked form; it changes no
+// length, so a proof about len(l) holds across it. It gives no value, so
+// it is only ever written as a statement. It takes a list of any element
+// type, so the compiler implements it itself.
+
 // replace(mut place T, new T) T moves the value of place out, as its
 // result, and moves new into place, in one step, so the place never holds
 // no value: a list kept in a struct's field is taken out with old :=

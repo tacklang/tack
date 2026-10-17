@@ -1203,8 +1203,13 @@ func (c *Checker) assignment(region []ast.Node, decl ast.Decl) (ast.Expr, *ast.C
 }
 
 // mutWriter returns the first of call's arguments, its receiver first,
-// that passes decl, or a part of it, as mut, or nil when none does.
+// that passes decl, or a part of it, as mut, or nil when none does. A
+// call to swap writes only two elements of its list, which no fact is
+// about, and changes no length, so it writes nothing a fact holds.
 func (c *Checker) mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
+	if isSwap(call) {
+		return nil
+	}
 	for _, arg := range call.Operands() {
 		if m, ok := arg.(*ast.MutArg); ok && c.writes(m.X, decl) {
 			return m

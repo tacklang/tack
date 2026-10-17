@@ -174,12 +174,12 @@ func (g *generator) sliceBase(s *ast.Slice, call *ast.Call) (string, []diag.Diag
 		return "", diags
 	}
 	n := g.prog.Types.Len(typ)
-	view := viewName(s.Type)
+	view := g.viewName(s.Type)
 	if call == nil || !g.viewCopies(s.X, call) {
 		return fmt.Sprintf("(%s){%s.e, %d}", view, place, n), nil
 	}
 	t := g.temp("c")
-	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", arrayName(typ), t))
+	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.arrayName(typ), t))
 	return fmt.Sprintf("(%s = %s, (%s){%s.e, %d})", t, place, view, t, n), nil
 }
 

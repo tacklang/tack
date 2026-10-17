@@ -46,6 +46,12 @@ func (g *generator) generateInstances() ([]string, [][]string, []diag.Diagnostic
 			var body []string
 			body, diags = g.generateFuncBody(inst.Func)
 			sigs = append(sigs, g.signature(inst.Func))
+			// The instance's results struct, written after every type,
+			// names its results' C types, which binding adds to the
+			// table only as they are asked about.
+			for _, r := range inst.Func.ResultTypes {
+				g.cType(r)
+			}
 			bodies = append(bodies, body)
 		})
 		if len(diags) > 0 {
@@ -69,6 +75,26 @@ func (g *generator) target(fn *ast.Func, typeArgs []types.Type) (*ast.Func, stri
 		return fn, g.instanceCName(fn, typeArgs)
 	}
 	return fn, g.funcCName(fn)
+}
+
+// atCall returns fn, called by call, as the call passes its arguments:
+// for a generic function, a copy whose parameters have the types the type
+// checker recorded for the call, ParamTypes, its type parameters replaced
+// by the call's type arguments, so an argument passed to a view of a type
+// parameter, or one held in a temporary, is the type the instance takes;
+// and fn itself for any other function.
+func atCall(fn *ast.Func, call *ast.Call) *ast.Func {
+	if !fn.Generic() || len(call.ParamTypes) != len(fn.Params) {
+		return fn
+	}
+	at := *fn
+	at.Params = make([]*ast.Param, len(fn.Params))
+	for i, p := range fn.Params {
+		param := *p
+		param.Type = call.ParamTypes[i]
+		at.Params[i] = &param
+	}
+	return &at
 }
 
 // boundMethod returns, for fn, the stand-in of an interface method called
@@ -114,12 +140,20 @@ func instanceName(name string, args []string) string {
 	return name + "[" + strings.Join(args, ",") + "]"
 }
 
-// typeArgName writes typ, a struct or union type, as an instance's C name
-// holds it: its package's import path, a period and its name.
+// typeArgName writes typ, a type argument, as an instance's C name holds
+// it: a struct or union type as its package's import path, a period and
+// its name, and any other type as a program writes it, each struct or
+// union type in it written so, list[calc/geo.Point] or int64. Brackets,
+// parentheses and commas in such a name are balanced, so the arguments
+// of an instance's name split apart at the commas outside all of them,
+// and two types of one name in two packages are told apart by their
+// paths.
 func (g *generator) typeArgName(typ types.Type) string {
 	td := g.structs[typ]
 	if td == nil {
-		return g.prog.Types.Name(typ)
+		return g.prog.Types.NameWith(typ, func(st types.Type, _ string) string {
+			return g.typeArgName(st)
+		})
 	}
 	path := g.prog.Main().Path
 	if pkg := g.pkgOf[td]; pkg != nil {

@@ -81,7 +81,7 @@ func (s *Set) Names() []string {
 // list or string; make takes a list type; append takes any list and any
 // number of values of its element type, or a view of them spread;
 // reserve takes any list and a count; pop takes any list; remove takes
-// any list and an index; replace takes a place of any type and a value
+// any list and an index; swap takes any list and two indexes; replace takes a place of any type and a value
 // of it; put takes any map, a key and a value; and delete and has take
 // any map and a key. They are part of the compiler, not of
 // std/builtin, and the type checker checks each of them itself.
@@ -92,6 +92,7 @@ var generic = []string{
 	"reserve",
 	"pop",
 	"remove",
+	"swap",
 	"replace",
 	"put",
 	"delete",

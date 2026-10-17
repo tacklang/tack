@@ -685,23 +685,30 @@
 // parameter's constraint is reported. A generic function's type
 // parameters are each given a type of their own (types.Table.TypeParam)
 // before its parameters' types are resolved, which may name them; each
-// constraint must name an interface, and each type parameter be the type
-// of some parameter. The body is checked once, against the constraints,
+// constraint must name an interface, and each type parameter be mentioned
+// by some parameter's type, whole or inside a list, a view, a map's value
+// or a function type. The body is checked once, against the constraints,
 // never for a call: a value of a type parameter has its constraint's
 // methods, a call of one checked against a stand-in method (see
 // ast.Func.Interface), and nothing else, and is owned as a list is, since
 // its type argument may hold one, so every ownership rule above applies
-// to it as written. A call to a generic function infers each type
-// parameter from the arguments passed to parameters of that type, which
-// must be struct or union types, or the caller's own type parameters,
-// satisfying the constraint, one type per type parameter. A struct or
+// to it as written, whatever the type argument: a list, a view, a map's
+// value and a function type may be made of one, a result may be one, and
+// swap (swap.go) reorders a list of one in place. A call to a generic
+// function infers each type parameter from the arguments, in order, by
+// matching each argument's type against its parameter's, part by part
+// (infer.go), as any type but a view, an any or one made of a type
+// parameter, the caller's own type parameters included, satisfying the
+// constraint, one type per type parameter; a type that is no struct or
+// union has no method. A struct or
 // union type satisfies it only with methods visible from the package
 // holding the call, as if that code called them, whatever package the
 // interface is in; a type parameter passed on is checked for no
 // visibility, since its constraint asks for no method the outermost call
 // binding a struct or union type did not check. The call records the type
-// arguments in Call.TypeArgs; its results are the callee's with them in
-// place (ast.CallResults). Once every body checks, the instances of
+// arguments in Call.TypeArgs, and the callee's parameters' and results'
+// types with them in place in Call.ParamTypes and Call.ResultTypes, which
+// are its results (ast.CallResults). Once every body checks, the instances of
 // generic functions the program needs are found (instance.go): from the
 // bodies of the functions that are not generic, then from each instance
 // found, its type parameters standing for its type arguments, each

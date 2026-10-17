@@ -39,8 +39,9 @@ type instances struct {
 // the instance's type arguments in place of its type parameters. A
 // generic function no call reaches has no instance. Each instance is
 // recorded once, in the order it is first found, however many calls need
-// it. Since no type a program writes is generic, every type argument is a
-// struct or union type the program declares, so the instances are finite;
+// it. A type parameter is passed on only whole, never inside a type made
+// of it (see notTypeArg), so every type argument is a type some code that
+// is not generic writes, and the instances are finite;
 // past MaxInstances the call that would add another is reported, and
 // nothing more is looked for. Nothing is instantiated in a program with
 // errors, which is not compiled.

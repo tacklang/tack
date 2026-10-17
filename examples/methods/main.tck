@@ -325,11 +325,11 @@ func (mut p Point) scale(k int64) {
 
 // flip exchanges x and y, passing two fields of its receiver as mut.
 func (mut p Point) flip() {
-    swap(mut p.x, mut p.y)
+    exchange(mut p.x, mut p.y)
 }
 
-// swap exchanges two integers.
-func swap(mut a int64, mut b int64) {
+// exchange swaps two integers.
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t

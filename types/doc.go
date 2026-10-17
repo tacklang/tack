@@ -81,7 +81,12 @@
 // type argument, and every question the Table answers about a bound type
 // parameter, Owned, Fields, Name and the rest, is answered about its type
 // argument, until Unbind; Bound gives the type a type parameter stands
-// for. The checker never binds one.
+// for. A type made of a type parameter, list[T], []T, map[K]T or a
+// function type, stands then for the type made the same way of what its
+// parts stand for, which Bound adds to the Table if it has not yet, so an
+// instance's list[T] is its caller's list[int64]. HasTypeParam says which
+// types are or are made of a type parameter nothing binds. The checker
+// never binds one.
 //
 // Size gives the size and alignment of a type as the C backend lays it
 // out, for the 64-bit targets it builds for, arm64 and x86-64: a

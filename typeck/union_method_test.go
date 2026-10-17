@@ -188,7 +188,7 @@ func TestUnionMethodMessages(t *testing.T) {
 		{withTypes(unionMethodDecls, "e := E.eof", "x := e.size", "use(x)"), "size is a method of E, not a field; a method can only be called"},
 		{withTypes(unionMethodDecls, "E.eof.bump()"), "E.bump takes its receiver as mut; only a variable, a field or an element can be passed as mut"},
 		{withTypes(unionMethodDecls, "mut E.eof.bump()"), "only a variable, a field or an element can be passed as mut"},
-		{withTypes(unionMethodDecls, "use(measure(1))"), "a type argument must be a struct or union type a package declares"},
+		{withTypes(unionMethodDecls, "use(measure(1))"), "int64 does not satisfy Sizer: int64 has no method size"},
 		{
 			withTypes(unionMethodDecls, "mut e := E.int(1)", "switch e {", "case int(n):", "    mut e.reset()", "    use(n)", "default:", "}"),
 			"e is being matched, and n refers into it, so this case cannot pass mut e",

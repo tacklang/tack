@@ -61,8 +61,7 @@ func (c *Checker) mapType(mt *ast.MapType) types.Type {
 	if key == types.Invalid || value == types.Invalid {
 		return types.Invalid
 	}
-	if !c.requireKey(key, mt.Key.Spanned()) ||
-		!c.requireElement("a map", value, mt.Value.Spanned()) {
+	if !c.requireKey(key, mt.Key.Spanned()) {
 		return types.Invalid
 	}
 	return c.table.Map(key, value)

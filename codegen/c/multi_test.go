@@ -152,8 +152,8 @@ var multiAssignCases = []struct {
 }{
 	{
 		"arguments read before any target is written",
-		"package main\n\nfunc swap(a int64, b int64) (int64, int64) {\n    return b, a\n}\n\n" +
-			"func main() {\n    mut x, mut y := swap(1, 2)\n    x, y = swap(x, y)\n    code, _ := int32(x * 10 + y)\n    exit(code)\n}\n",
+		"package main\n\nfunc exchange(a int64, b int64) (int64, int64) {\n    return b, a\n}\n\n" +
+			"func main() {\n    mut x, mut y := exchange(1, 2)\n    x, y = exchange(x, y)\n    code, _ := int32(x * 10 + y)\n    exit(code)\n}\n",
 		"", 12,
 	},
 	{

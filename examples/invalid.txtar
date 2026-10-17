@@ -7934,29 +7934,6 @@ func-type-param-name/main.tck:3:17: error: a function type's parameters have no 
    |	                ^
 04 |	}
 
--- func-type-type-param/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-func run[S Sizer](s S, f func(S) int64) int64 {
-    return f(s)
-}
-
-func main() {
-}
--- func-type-type-param/expected --
-stage: typeck
----
-
-func-type-type-param/main.tck:7:31: error: a function type cannot hold the type parameter S
-06 |	
-07 |	func run[S Sizer](s S, f func(S) int64) int64 {
-   |	                              ^
-08 |	    return f(s)
-
 -- func-type-variadic/main.tck --
 package main
 
@@ -8536,14 +8513,14 @@ func-value-missing-mut/main.tck:10:7: error: f takes argument 1 as mut; pass mut
 -- func-value-mut-overlap/main.tck --
 package main
 
-func swap(mut a int64, mut b int64) {
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
 }
 
 func main() {
-    f := swap
+    f := exchange
     mut n := 1
     f(mut n, mut n)
     if n == 1 {
@@ -8776,6 +8753,35 @@ generic-any/main.tck:11:10: error: cannot pass S as any: only the builtin types 
    |	         ^
 12 |	}
 
+-- generic-arg-any/main.tck --
+package main
+
+type Any interface {
+}
+
+func one[T Any](x T) int64 {
+    return 1
+}
+
+func show(v any) {
+    if one(v) == 1 {
+        print("one")
+    }
+}
+
+func main() {
+    show(1)
+}
+-- generic-arg-any/expected --
+stage: typeck
+---
+
+generic-arg-any/main.tck:11:12: error: cannot use any as T in argument to one: a type argument cannot be an any
+10 |	func show(v any) {
+11 |	    if one(v) == 1 {
+   |	           ^
+12 |	        print("one")
+
 -- generic-arg-array/main.tck --
 package main
 
@@ -8797,7 +8803,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-array/main.tck:13:16: error: cannot use [2]int64 as S in argument to measure: a type argument must be a struct or union type a package declares
+generic-arg-array/main.tck:13:16: error: [2]int64 does not satisfy Sizer: [2]int64 has no method size
 12 |	    a := [2]int64{1, 2}
 13 |	    if measure(a) > 0 {
    |	               ^
@@ -8875,28 +8881,6 @@ generic-arg-count/main.tck:26:8: error: measure expects 1 argument(s), got 2
    |	       ^~~~~~~~~~~~~
 27 |	        exit(1)
 
--- generic-arg-error/main.tck --
-package main
-
-type Empty interface {
-}
-
-func f[E Empty](e E) {
-}
-
-func main() {
-    f(noerror)
-}
--- generic-arg-error/expected --
-stage: typeck
----
-
-generic-arg-error/main.tck:10:7: error: cannot use error as E in argument to f: a type argument must be a struct or union type a package declares
-09 |	func main() {
-10 |	    f(noerror)
-   |	      ^~~~~~~
-11 |	}
-
 -- generic-arg-extra-mut/main.tck --
 package main
 
@@ -8936,6 +8920,36 @@ generic-arg-extra-mut/main.tck:26:16: error: measure does not take c as mut; pas
 26 |	    if measure(mut c) > 0 {
    |	               ^~~~~
 27 |	        exit(1)
+
+-- generic-arg-made-of-type-param/main.tck --
+package main
+
+type Any interface {
+}
+
+func count[U Any](u U) int64 {
+    return 1
+}
+
+func outer[T Any](l list[T]) int64 {
+    return count(l)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if outer(l) == 1 {
+        print("one")
+    }
+}
+-- generic-arg-made-of-type-param/expected --
+stage: typeck
+---
+
+generic-arg-made-of-type-param/main.tck:11:18: error: cannot use list[T] as U in argument to count: a type argument cannot be made of a type parameter, only be one
+10 |	func outer[T Any](l list[T]) int64 {
+11 |	    return count(l)
+   |	                 ^
+12 |	}
 
 -- generic-arg-missing-mut/main.tck --
 package main
@@ -9080,7 +9094,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-not-struct/main.tck:12:16: error: cannot use int64 as S in argument to measure: a type argument must be a struct or union type a package declares
+generic-arg-not-struct/main.tck:12:16: error: int64 does not satisfy Sizer: int64 has no method size
 11 |	func main() {
 12 |	    if measure(5) > 0 {
    |	               ^
@@ -9106,7 +9120,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-string/main.tck:12:16: error: cannot use string as S in argument to measure: a type argument must be a struct or union type a package declares
+generic-arg-string/main.tck:12:16: error: string does not satisfy Sizer: string has no method size
 11 |	func main() {
 12 |	    if measure("s") > 0 {
    |	               ^~~
@@ -9187,6 +9201,34 @@ generic-arg-two-types/main.tck:34:16: error: cannot use Other as S in argument t
    |	               ^
 35 |	        exit(1)
 
+-- generic-arg-view/main.tck --
+package main
+
+type Any interface {
+}
+
+func keep[T Any](x T) int64 {
+    return 1
+}
+
+func run(v []int64) {
+    if keep(v) > 0 {
+        print("x")
+    }
+}
+
+func main() {
+}
+-- generic-arg-view/expected --
+stage: typeck
+---
+
+generic-arg-view/main.tck:11:13: error: cannot use []int64 as T in argument to keep: a type argument cannot be a view
+10 |	func run(v []int64) {
+11 |	    if keep(v) > 0 {
+   |	            ^
+12 |	        print("x")
+
 -- generic-array/main.tck --
 package main
 
@@ -9208,6 +9250,32 @@ generic-array/main.tck:7:24: error: an array cannot hold S: its elements are cop
 07 |	func f[S Sizer](s S, a [2]S) {
    |	                       ^~~~
 08 |	}
+
+-- generic-as-any/main.tck --
+package main
+
+type Any interface {
+}
+
+func show(v any) {
+}
+
+func pass[T Any](x T) {
+    show(x)
+}
+
+func main() {
+    pass(1)
+}
+-- generic-as-any/expected --
+stage: typeck
+---
+
+generic-as-any/main.tck:10:10: error: cannot pass T as any: only the builtin types and views of them can be passed as any for now
+09 |	func pass[T Any](x T) {
+10 |	    show(x)
+   |	         ^
+11 |	}
 
 -- generic-assert/main.tck --
 package main
@@ -9483,6 +9551,32 @@ generic-constraint-view/main.tck:3:10: error: []int64 is not an interface; the c
    |	         ^~~~~~~
 04 |	}
 
+-- generic-copy-element/main.tck --
+package main
+
+type Any interface {
+}
+
+func first[T Any](l list[T]) T {
+    if len(l) > 0 {
+        return l[0]
+    }
+    for {
+    }
+}
+
+func main() {
+}
+-- generic-copy-element/expected --
+stage: typeck
+---
+
+generic-copy-element/main.tck:8:16: error: cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove
+07 |	    if len(l) > 0 {
+08 |	        return l[0]
+   |	               ^~~~
+09 |	    }
+
 -- generic-copy-param/main.tck --
 package main
 
@@ -9528,12 +9622,6 @@ func main() {
 -- generic-dropped-result/expected --
 stage: typeck
 ---
-
-generic-dropped-result/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
-06 |	
-07 |	func stuck[S Sizer](s S) S {
-   |	                         ^
-08 |	    for {
 
 generic-dropped-result/main.tck:13:5: error: stuck returns S, which may hold a list and cannot be dropped; bind it to a variable
 12 |	func f[S Sizer](s S) {
@@ -9585,6 +9673,31 @@ generic-empty-type-params/main.tck:3:7: error: empty type parameter list
 03 |	func f[](x int64) {
    |	      ^~
 04 |	}
+
+-- generic-eq/main.tck --
+package main
+
+type Any interface {
+}
+
+func same[T Any](a T, b T) bool {
+    return a == b
+}
+
+func main() {
+    if same(1, 2) {
+        print("same")
+    }
+}
+-- generic-eq/expected --
+stage: typeck
+---
+
+generic-eq/main.tck:7:12: error: operator == is not defined on T
+06 |	func same[T Any](a T, b T) bool {
+07 |	    return a == b
+   |	           ^~~~~~
+08 |	}
 
 -- generic-equal/main.tck --
 package main
@@ -9756,6 +9869,142 @@ generic-func-value/main.tck:15:9: error: cannot use measure as a value: it is ge
    |	        ^~~~~~~
 16 |	}
 
+-- generic-infer-conflict/main.tck --
+package main
+
+type Any interface {
+}
+
+func both[T Any](a list[T], b list[T]) int64 {
+    return len(a) + len(b)
+}
+
+func main() {
+    a := make(list[int64], c_allocator)
+    b := make(list[bool], c_allocator)
+    if both(a, b) == 0 {
+        print("zero")
+    }
+}
+-- generic-infer-conflict/expected --
+stage: typeck
+---
+
+generic-infer-conflict/main.tck:13:16: error: cannot use list[bool] as list[int64] in argument to both
+12 |	    b := make(list[bool], c_allocator)
+13 |	    if both(a, b) == 0 {
+   |	               ^
+14 |	        print("zero")
+
+-- generic-infer-func-arity/main.tck --
+package main
+
+type Any interface {
+}
+
+func apply[T Any](l list[T], f func(T) bool) int64 {
+    return len(l)
+}
+
+func two(a int64, b int64) bool {
+    return a < b
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if apply(l, two) == 0 {
+        print("zero")
+    }
+}
+-- generic-infer-func-arity/expected --
+stage: typeck
+---
+
+generic-infer-func-arity/main.tck:16:17: error: cannot use func(int64, int64) bool as func(int64) bool in argument to apply
+15 |	    l := make(list[int64], c_allocator)
+16 |	    if apply(l, two) == 0 {
+   |	                ^~~
+17 |	        print("zero")
+
+-- generic-infer-key-mismatch/main.tck --
+package main
+
+type Any interface {
+}
+
+func size[T Any](m map[string]T) int64 {
+    return len(m)
+}
+
+func main() {
+    m := make(map[int64]int64, c_allocator)
+    if size(m) == 0 {
+        print("zero")
+    }
+}
+-- generic-infer-key-mismatch/expected --
+stage: typeck
+---
+
+generic-infer-key-mismatch/main.tck:12:13: error: cannot use map[int64]int64 as map[string]T in argument to size
+11 |	    m := make(map[int64]int64, c_allocator)
+12 |	    if size(m) == 0 {
+   |	            ^
+13 |	        print("zero")
+
+-- generic-infer-mut-place/main.tck --
+package main
+
+type Any interface {
+}
+
+func grow[T Any](mut l list[T], mut m list[T]) int64 {
+    return len(l) + len(m)
+}
+
+func main() {
+    mut a := make(list[int64], c_allocator)
+    mut b := make(list[[2]int64], c_allocator)
+    if grow(mut a, mut b) == 0 {
+        print("zero")
+    }
+}
+-- generic-infer-mut-place/expected --
+stage: typeck
+---
+
+generic-infer-mut-place/main.tck:13:24: error: cannot use list[[2]int64] as list[int64] in argument to grow
+12 |	    mut b := make(list[[2]int64], c_allocator)
+13 |	    if grow(mut a, mut b) == 0 {
+   |	                       ^
+14 |	        print("zero")
+
+-- generic-infer-shape-mismatch/main.tck --
+package main
+
+type Any interface {
+}
+
+func size[T Any](m map[string]T) int64 {
+    return len(m)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if size(l) == 0 {
+        print("zero")
+    }
+}
+-- generic-infer-shape-mismatch/expected --
+stage: typeck
+---
+
+generic-infer-shape-mismatch/main.tck:12:13: error: cannot use list[int64] as map[string]T in argument to size
+11 |	    l := make(list[int64], c_allocator)
+12 |	    if size(l) == 0 {
+   |	            ^
+13 |	        print("zero")
+
 -- generic-len/main.tck --
 package main
 
@@ -9778,32 +10027,6 @@ generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list
 08 |	    return len(s)
    |	               ^
 09 |	}
-
--- generic-list/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-func f[S Sizer](s S) {
-    l := make(list[S], c_allocator)
-    if len(l) > 0 {
-        exit(1)
-    }
-}
-
-func main() {
-}
--- generic-list/expected --
-stage: typeck
----
-
-generic-list/main.tck:8:15: error: a list cannot hold S: a list's element cannot be a type parameter
-07 |	func f[S Sizer](s S) {
-08 |	    l := make(list[S], c_allocator)
-   |	              ^~~~~~~
-09 |	    if len(l) > 0 {
 
 -- generic-literal/main.tck --
 package main
@@ -10258,6 +10481,28 @@ generic-missing-method/main.tck:22:23: error: Sized does not satisfy Writer: Siz
    |	                      ^
 23 |	    exit(err.code)
 
+-- generic-move-param/main.tck --
+package main
+
+type Any interface {
+}
+
+func keep[T Any](mut l list[T], x T) error {
+    return append(mut l, x)
+}
+
+func main() {
+}
+-- generic-move-param/expected --
+stage: typeck
+---
+
+generic-move-param/main.tck:7:26: error: cannot move x: it is a parameter, which borrows its caller's value
+06 |	func keep[T Any](mut l list[T], x T) error {
+07 |	    return append(mut l, x)
+   |	                         ^
+08 |	}
+
 -- generic-mut-method-immutable/main.tck --
 package main
 
@@ -10375,6 +10620,33 @@ generic-param-reuses-type-param/main.tck:7:8: note: previous declaration of S
    |	       ^
 08 |	}
 
+-- generic-popped-unchecked/main.tck --
+package main
+
+type Any interface {
+}
+
+func last[T Any](mut l list[T], mut out list[T]) error {
+    x, ok := pop(mut l)
+    err := append(mut out, x)
+    if ok {
+        return err
+    }
+    return err
+}
+
+func main() {
+}
+-- generic-popped-unchecked/expected --
+stage: typeck
+---
+
+generic-popped-unchecked/main.tck:8:28: error: x cannot be read before ok is checked; check that ok is true first
+07 |	    x, ok := pop(mut l)
+08 |	    err := append(mut out, x)
+   |	                           ^
+09 |	    if ok {
+
 -- generic-print/main.tck --
 package main
 
@@ -10423,75 +10695,6 @@ generic-range/main.tck:8:20: error: cannot range over S
    |	                   ^
 09 |	        print(x)
 
--- generic-result-type-param/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-type Counter struct {
-    n int64
-}
-
-func (c Counter) size() int64 {
-    return c.n
-}
-
-func stuck[S Sizer](s S) S {
-    for {
-    }
-}
-
-func main() {
-    report(Counter{n: 1})
-}
-
-func report[S Sizer](s S) {
-    print("x")
-}
--- generic-result-type-param/expected --
-stage: typeck
----
-
-generic-result-type-param/main.tck:15:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
-14 |	
-15 |	func stuck[S Sizer](s S) S {
-   |	                         ^
-16 |	    for {
-
--- generic-result-type-param-among-several/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-type Counter struct {
-    n int64
-}
-
-func (c Counter) size() int64 {
-    return c.n
-}
-
-func pair[S Sizer](s S) (int64, S) {
-    for {
-    }
-}
-
-func main() {
-}
--- generic-result-type-param-among-several/expected --
-stage: typeck
----
-
-generic-result-type-param-among-several/main.tck:15:33: error: pair's result cannot be its type parameter S: a generic function has no way to produce a value of S
-14 |	
-15 |	func pair[S Sizer](s S) (int64, S) {
-   |	                                ^
-16 |	    for {
-
 -- generic-return-param/main.tck --
 package main
 
@@ -10508,12 +10711,6 @@ func main() {
 -- generic-return-param/expected --
 stage: typeck
 ---
-
-generic-return-param/main.tck:7:22: error: f's result cannot be its type parameter S: a generic function has no way to produce a value of S
-06 |	
-07 |	func f[S Sizer](s S) S {
-   |	                     ^
-08 |	    return s
 
 generic-return-param/main.tck:8:12: error: cannot move s: it is a parameter, which borrows its caller's value
 07 |	func f[S Sizer](s S) S {
@@ -10542,12 +10739,6 @@ func main() {
 -- generic-temporary/expected --
 stage: typeck
 ---
-
-generic-temporary/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
-06 |	
-07 |	func stuck[S Sizer](s S) S {
-   |	                         ^
-08 |	    for {
 
 generic-temporary/main.tck:13:12: error: cannot use a temporary S here; store it in a variable first
 12 |	func f[S Sizer](s S) int64 {
@@ -10727,12 +10918,6 @@ generic-type-param-result-only/main.tck:7:8: error: S appears in no parameter of
    |	       ^
 08 |	    for {
 
-generic-type-param-result-only/main.tck:7:19: error: f's result cannot be its type parameter S: a generic function has no way to produce a value of S
-06 |	
-07 |	func f[S Sizer]() S {
-   |	                  ^
-08 |	    for {
-
 -- generic-type-param-unused/main.tck --
 package main
 
@@ -10801,6 +10986,33 @@ generic-unknown-method/main.tck:8:14: error: S has no method len
    |	             ^~~
 09 |	}
 
+-- generic-unsatisfied-list/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if measure(l) == 0 {
+        print("zero")
+    }
+}
+-- generic-unsatisfied-list/expected --
+stage: typeck
+---
+
+generic-unsatisfied-list/main.tck:13:16: error: list[int64] does not satisfy Sizer: list[int64] has no method size
+12 |	    l := make(list[int64], c_allocator)
+13 |	    if measure(l) == 0 {
+   |	               ^
+14 |	        print("zero")
+
 -- generic-use-after-move/main.tck --
 package main
 
@@ -10824,12 +11036,6 @@ func main() {
 -- generic-use-after-move/expected --
 stage: typeck
 ---
-
-generic-use-after-move/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
-06 |	
-07 |	func stuck[S Sizer](s S) S {
-   |	                         ^
-08 |	    for {
 
 generic-use-after-move/main.tck:15:12: error: x is used after it was moved
 14 |	    y := x
@@ -10862,28 +11068,6 @@ generic-variadic/main.tck:7:23: error: a variadic parameter cannot hold S: its e
 06 |	
 07 |	func f[S Sizer](ss ...S) {
    |	                      ^
-08 |	}
-
--- generic-view/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-func f[S Sizer](s S, ss []S) {
-}
-
-func main() {
-}
--- generic-view/expected --
-stage: typeck
----
-
-generic-view/main.tck:7:25: error: a view cannot hold S: a view's element cannot be a type parameter
-06 |	
-07 |	func f[S Sizer](s S, ss []S) {
-   |	                        ^~~
 08 |	}
 
 -- generic-zero-value/main.tck --
@@ -15578,29 +15762,6 @@ map-value-moved/main.tck:7:14: error: cannot move m[k] out of m: a value cannot 
    |	             ^~~~
 08 |	        code, _ := int32(len(l))
 
--- map-value-type-param/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-func f[T Sizer](x T, m map[int64]T) int64 {
-    return x.size()
-}
-
-func main() {
-}
--- map-value-type-param/expected --
-stage: typeck
----
-
-map-value-type-param/main.tck:7:34: error: a map cannot hold T: a map's value cannot be a type parameter
-06 |	
-07 |	func f[T Sizer](x T, m map[int64]T) int64 {
-   |	                                 ^
-08 |	    return x.size()
-
 -- method-all-blank/main.tck --
 package main
 
@@ -18365,7 +18526,7 @@ mut-exclusive-element-and-array/main.tck:10:11: note: first passed as mut here
 -- mut-exclusive-elements-may-overlap/main.tck --
 package main
 
-func swap(mut a int64, mut b int64) {
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
@@ -18375,7 +18536,7 @@ func main() {
     mut a := [3]int64{1, 2, 3}
     for i := range a {
         for j := range a {
-            swap(mut a[i], mut a[j])
+            exchange(mut a[i], mut a[j])
         }
     }
     code, _ := int32(a[0])
@@ -18385,15 +18546,15 @@ func main() {
 stage: typeck
 ---
 
-mut-exclusive-elements-may-overlap/main.tck:13:28: error: a[i] and a[j] may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
+mut-exclusive-elements-may-overlap/main.tck:13:32: error: a[i] and a[j] may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
 12 |	        for j := range a {
-13 |	            swap(mut a[i], mut a[j])
-   |	                           ^~~~~~~~
+13 |	            exchange(mut a[i], mut a[j])
+   |	                               ^~~~~~~~
 14 |	        }
-mut-exclusive-elements-may-overlap/main.tck:13:18: note: first passed as mut here
+mut-exclusive-elements-may-overlap/main.tck:13:22: note: first passed as mut here
 12 |	        for j := range a {
-13 |	            swap(mut a[i], mut a[j])
-   |	                 ^~~~~~~~
+13 |	            exchange(mut a[i], mut a[j])
+   |	                     ^~~~~~~~
 14 |	        }
 
 -- mut-exclusive-elements-nested/main.tck --
@@ -18404,7 +18565,7 @@ type Point struct {
     y int64
 }
 
-func swap(mut a int64, mut b int64) {
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
@@ -18413,22 +18574,22 @@ func swap(mut a int64, mut b int64) {
 func main() {
     mut pts [2]Point
     for i := range pts {
-        swap(mut pts[i].x, mut pts[1].x)
+        exchange(mut pts[i].x, mut pts[1].x)
     }
 }
 -- mut-exclusive-elements-nested/expected --
 stage: typeck
 ---
 
-mut-exclusive-elements-nested/main.tck:17:28: error: pts[i].x and pts[1].x may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
+mut-exclusive-elements-nested/main.tck:17:32: error: pts[i].x and pts[1].x may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ
 16 |	    for i := range pts {
-17 |	        swap(mut pts[i].x, mut pts[1].x)
-   |	                           ^~~~~~~~~~~~
+17 |	        exchange(mut pts[i].x, mut pts[1].x)
+   |	                               ^~~~~~~~~~~~
 18 |	    }
-mut-exclusive-elements-nested/main.tck:17:14: note: first passed as mut here
+mut-exclusive-elements-nested/main.tck:17:18: note: first passed as mut here
 16 |	    for i := range pts {
-17 |	        swap(mut pts[i].x, mut pts[1].x)
-   |	             ^~~~~~~~~~~~
+17 |	        exchange(mut pts[i].x, mut pts[1].x)
+   |	                 ^~~~~~~~~~~~
 18 |	    }
 
 -- mut-exclusive-field-and-whole/main.tck --
@@ -18468,7 +18629,7 @@ mut-exclusive-field-and-whole/main.tck:15:11: note: first passed as mut here
 -- mut-exclusive-same-element/main.tck --
 package main
 
-func swap(mut a int64, mut b int64) {
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
@@ -18476,9 +18637,9 @@ func swap(mut a int64, mut b int64) {
 
 func main() {
     mut a := [3]int64{1, 2, 3}
-    swap(mut a[2], mut a[2])
+    exchange(mut a[2], mut a[2])
     for i := range a {
-        swap(mut a[i], mut a[i])
+        exchange(mut a[i], mut a[i])
     }
     code, _ := int32(a[0])
     exit(code)
@@ -18487,26 +18648,26 @@ func main() {
 stage: typeck
 ---
 
-mut-exclusive-same-element/main.tck:11:20: error: a[2] is passed as mut twice in this call; a mut argument must be the only way to reach a[2] during the call
+mut-exclusive-same-element/main.tck:11:24: error: a[2] is passed as mut twice in this call; a mut argument must be the only way to reach a[2] during the call
 10 |	    mut a := [3]int64{1, 2, 3}
-11 |	    swap(mut a[2], mut a[2])
-   |	                   ^~~~~~~~
+11 |	    exchange(mut a[2], mut a[2])
+   |	                       ^~~~~~~~
 12 |	    for i := range a {
-mut-exclusive-same-element/main.tck:11:10: note: first passed as mut here
+mut-exclusive-same-element/main.tck:11:14: note: first passed as mut here
 10 |	    mut a := [3]int64{1, 2, 3}
-11 |	    swap(mut a[2], mut a[2])
-   |	         ^~~~~~~~
+11 |	    exchange(mut a[2], mut a[2])
+   |	             ^~~~~~~~
 12 |	    for i := range a {
 
-mut-exclusive-same-element/main.tck:13:24: error: a[i] is passed as mut twice in this call; a mut argument must be the only way to reach a[i] during the call
+mut-exclusive-same-element/main.tck:13:28: error: a[i] is passed as mut twice in this call; a mut argument must be the only way to reach a[i] during the call
 12 |	    for i := range a {
-13 |	        swap(mut a[i], mut a[i])
-   |	                       ^~~~~~~~
+13 |	        exchange(mut a[i], mut a[i])
+   |	                           ^~~~~~~~
 14 |	    }
-mut-exclusive-same-element/main.tck:13:14: note: first passed as mut here
+mut-exclusive-same-element/main.tck:13:18: note: first passed as mut here
 12 |	    for i := range a {
-13 |	        swap(mut a[i], mut a[i])
-   |	             ^~~~~~~~
+13 |	        exchange(mut a[i], mut a[i])
+   |	                 ^~~~~~~~
 14 |	    }
 
 -- mut-exclusive-three/main.tck --
@@ -18539,45 +18700,45 @@ mut-exclusive-three/main.tck:10:11: note: first passed as mut here
 -- mut-exclusive-twice/main.tck --
 package main
 
-func swap(mut a int64, mut b int64) {
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
 }
 
 func twice(mut n int64) {
-    swap(mut n, mut n)
+    exchange(mut n, mut n)
 }
 
 func main() {
     mut x int64 = 1
-    swap(mut x, mut x)
+    exchange(mut x, mut x)
     twice(mut x)
 }
 -- mut-exclusive-twice/expected --
 stage: typeck
 ---
 
-mut-exclusive-twice/main.tck:10:17: error: n is passed as mut twice in this call; a mut argument must be the only way to reach n during the call
+mut-exclusive-twice/main.tck:10:21: error: n is passed as mut twice in this call; a mut argument must be the only way to reach n during the call
 09 |	func twice(mut n int64) {
-10 |	    swap(mut n, mut n)
-   |	                ^~~~~
+10 |	    exchange(mut n, mut n)
+   |	                    ^~~~~
 11 |	}
-mut-exclusive-twice/main.tck:10:10: note: first passed as mut here
+mut-exclusive-twice/main.tck:10:14: note: first passed as mut here
 09 |	func twice(mut n int64) {
-10 |	    swap(mut n, mut n)
-   |	         ^~~~~
+10 |	    exchange(mut n, mut n)
+   |	             ^~~~~
 11 |	}
 
-mut-exclusive-twice/main.tck:15:17: error: x is passed as mut twice in this call; a mut argument must be the only way to reach x during the call
+mut-exclusive-twice/main.tck:15:21: error: x is passed as mut twice in this call; a mut argument must be the only way to reach x during the call
 14 |	    mut x int64 = 1
-15 |	    swap(mut x, mut x)
-   |	                ^~~~~
+15 |	    exchange(mut x, mut x)
+   |	                    ^~~~~
 16 |	    twice(mut x)
-mut-exclusive-twice/main.tck:15:10: note: first passed as mut here
+mut-exclusive-twice/main.tck:15:14: note: first passed as mut here
 14 |	    mut x int64 = 1
-15 |	    swap(mut x, mut x)
-   |	         ^~~~~
+15 |	    exchange(mut x, mut x)
+   |	             ^~~~~
 16 |	    twice(mut x)
 
 -- mut-exclusive-whole-and-field/main.tck --
@@ -21675,29 +21836,6 @@ owned-extern-list-of-lists/main.tck:11:27: error: parameter s of extern func wra
 11 |	extern func wrapped(mut s S)
    |	                          ^
 12 |	
-
--- owned-generic-list/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-func f[S Sizer](s S, v []S) int64 {
-    return s.size()
-}
-
-func main() {
-}
--- owned-generic-list/expected --
-stage: typeck
----
-
-owned-generic-list/main.tck:7:24: error: a view cannot hold S: a view's element cannot be a type parameter
-06 |	
-07 |	func f[S Sizer](s S, v []S) int64 {
-   |	                       ^~~
-08 |	    return s.size()
 
 -- owned-range-binding-moved/main.tck --
 package main
@@ -27941,6 +28079,209 @@ struct-recursive-length/main.tck:4:16: error: invalid recursive type Box
 04 |	    items [len(Box{}.items)]int64
    |	               ^~~~~
 05 |	}
+
+-- swap-arity/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    swap(mut l, 0)
+}
+-- swap-arity/expected --
+stage: typeck
+---
+
+swap-arity/main.tck:5:5: error: swap expects 3 argument(s), got 2
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    swap(mut l, 0)
+   |	    ^~~~~~~~~~~~~~
+06 |	}
+
+-- swap-as-value/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1, 2)
+    if err.code == 0 && len(l) == 2 {
+        print(swap(mut l, 0, 1))
+    }
+}
+-- swap-as-value/expected --
+stage: typeck
+---
+
+swap-as-value/main.tck:7:15: error: swap returns no value
+06 |	    if err.code == 0 && len(l) == 2 {
+07 |	        print(swap(mut l, 0, 1))
+   |	              ^~~~~~~~~~~~~~~~~
+08 |	    }
+
+-- swap-index-reads-list/main.tck --
+package main
+
+func last(mut l list[int64]) int64 {
+    _, ok := pop(mut l)
+    if ok {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 2 {
+        swap(mut l, last(mut l), 1)
+    }
+}
+-- swap-index-reads-list/expected --
+stage: typeck
+---
+
+swap-index-reads-list/main.tck:14:21: error: index may be out of range
+13 |	    if len(l) > 2 {
+14 |	        swap(mut l, last(mut l), 1)
+   |	                    ^~~~~~~~~~~
+15 |	    }
+
+swap-index-reads-list/main.tck:14:34: error: index 1 may be out of range; check len(l) > 1 first
+13 |	    if len(l) > 2 {
+14 |	        swap(mut l, last(mut l), 1)
+   |	                                 ^
+15 |	    }
+swap-index-reads-list/main.tck:13:8: note: this guard proves len(l) >= 3
+12 |	    mut l := make(list[int64], c_allocator)
+13 |	    if len(l) > 2 {
+   |	       ^~~~~~~~~~
+14 |	        swap(mut l, last(mut l), 1)
+swap-index-reads-list/main.tck:14:26: note: but l is passed as mut to last here, so the proof ends
+13 |	    if len(l) > 2 {
+14 |	        swap(mut l, last(mut l), 1)
+   |	                         ^~~~~
+15 |	    }
+
+-- swap-negative/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if len(l) > 1 {
+        swap(mut l, -1, 0)
+    }
+}
+-- swap-negative/expected --
+stage: typeck
+---
+
+swap-negative/main.tck:6:21: error: index -1 is out of range for a list
+05 |	    if len(l) > 1 {
+06 |	        swap(mut l, -1, 0)
+   |	                    ^~
+07 |	    }
+
+-- swap-not-list/main.tck --
+package main
+
+func main() {
+    mut a := [3]int64{1, 2, 3}
+    swap(mut a, 0, 1)
+}
+-- swap-not-list/expected --
+stage: typeck
+---
+
+swap-not-list/main.tck:5:14: error: swap expects a list, got [3]int64
+04 |	    mut a := [3]int64{1, 2, 3}
+05 |	    swap(mut a, 0, 1)
+   |	             ^
+06 |	}
+
+-- swap-not-mut/main.tck --
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    if len(l) > 1 {
+        swap(l, 0, 1)
+    }
+}
+-- swap-not-mut/expected --
+stage: typeck
+---
+
+swap-not-mut/main.tck:6:14: error: swap takes l as mut; pass mut l
+05 |	    if len(l) > 1 {
+06 |	        swap(l, 0, 1)
+   |	             ^
+07 |	    }
+
+-- swap-ranged/main.tck --
+package main
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    for _, x := range l {
+        if len(l) > 1 {
+            swap(mut l, 0, 1)
+        }
+        if len(x) > 0 {
+            print("x")
+        }
+    }
+}
+-- swap-ranged/expected --
+stage: typeck
+---
+
+swap-ranged/main.tck:7:22: error: l is being ranged over, so this loop cannot pass mut l
+06 |	        if len(l) > 1 {
+07 |	            swap(mut l, 0, 1)
+   |	                     ^
+08 |	        }
+
+-- swap-redeclared/main.tck --
+package main
+
+func swap(mut a int64, mut b int64) {
+    t := a
+    a = b
+    b = t
+}
+
+func main() {
+}
+-- swap-redeclared/expected --
+stage: resolve
+---
+
+swap-redeclared/main.tck:3:6: error: duplicate declaration of builtin function
+02 |	
+03 |	func swap(mut a int64, mut b int64) {
+   |	     ^~~~
+04 |	    t := a
+
+-- swap-unproven/main.tck --
+package main
+
+func flip(mut l list[int64], i int64, j int64) {
+    if 0 <= i && i < len(l) {
+        swap(mut l, i, j)
+    }
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    flip(mut l, 0, 1)
+}
+-- swap-unproven/expected --
+stage: typeck
+---
+
+swap-unproven/main.tck:5:24: error: index j may be out of range; check 0 <= j && j < len(l) first
+04 |	    if 0 <= i && i < len(l) {
+05 |	        swap(mut l, i, j)
+   |	                       ^
+06 |	    }
 
 -- switch-bad-clause/main.tck --
 package main
@@ -35349,11 +35690,11 @@ func main() {
 stage: typeck
 ---
 
-view-result-type-param/main.tck:7:33: error: a view cannot hold T: a view's element cannot be a type parameter
-06 |	
+view-result-type-param/main.tck:8:12: error: cannot use []uint8 as []T in return from f
 07 |	func f[T Sized](x T, v []uint8) []T {
-   |	                                ^~~
 08 |	    return v
+   |	           ^
+09 |	}
 
 -- view-result-unchecked-index/main.tck --
 package main

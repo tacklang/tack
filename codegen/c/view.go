@@ -18,13 +18,13 @@ func (g *generator) emitViewDef(typ types.Type) {
 		&g.buf,
 		"typedef struct {\n    const %s *ptr;\n    int64_t len;\n} %s;\n\n",
 		g.cType(g.prog.Types.Elem(typ)),
-		viewName(typ),
+		g.viewName(typ),
 	)
 }
 
 // viewName is the name of the C struct a view type lowers to, made from
 // its ID as an array's is, tack_view_ and a digit.
-func viewName(typ types.Type) string {
+func viewNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_view_%d", typ)
 }
 
@@ -103,11 +103,11 @@ func (g *generator) viewArg(
 	}
 	n := g.prog.Types.Len(typ)
 	if call == nil || !g.viewCopies(arg, call) {
-		return fmt.Sprintf("(%s){%s.e, %d}", viewName(view), place, n), nil
+		return fmt.Sprintf("(%s){%s.e, %d}", g.viewName(view), place, n), nil
 	}
 	t := g.temp("c")
-	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", arrayName(typ), t))
-	return fmt.Sprintf("(%s = %s, (%s){%s.e, %d})", t, place, viewName(view), t, n), nil
+	g.frame.temps = append(g.frame.temps, fmt.Sprintf("%s %s;", g.arrayName(typ), t))
+	return fmt.Sprintf("(%s = %s, (%s){%s.e, %d})", t, place, g.viewName(view), t, n), nil
 }
 
 // listView renders l, a list the checker has made sure is a place, as a
@@ -121,7 +121,7 @@ func (g *generator) listView(l ast.Expr, view types.Type) (string, []diag.Diagno
 	if len(diags) > 0 {
 		return "", diags
 	}
-	return fmt.Sprintf("(%s){%s.ptr, %s.len}", viewName(view), place, place), nil
+	return fmt.Sprintf("(%s){%s.ptr, %s.len}", g.viewName(view), place, place), nil
 }
 
 // bytesView renders []uint8(s), conv, as a view of type view of the
@@ -131,18 +131,18 @@ func (g *generator) listView(l ast.Expr, view types.Type) (string, []diag.Diagno
 // in a temporary first, so it is evaluated once.
 func (g *generator) bytesView(conv *ast.Call, view types.Type) (string, []diag.Diagnostic) {
 	if lit, ok := conv.Args[0].(*ast.StrLit); ok {
-		return fmt.Sprintf("(%s){%s}", viewName(view), g.strParts(lit.Value)), nil
+		return fmt.Sprintf("(%s){%s}", g.viewName(view), g.strParts(lit.Value)), nil
 	}
 	s, diags := g.expr(conv.Args[0], types.Invalid)
 	if len(diags) > 0 {
 		return "", diags
 	}
 	if _, isName := conv.Args[0].(*ast.Ident); isName {
-		return fmt.Sprintf("(%s){%s.ptr, %s.len}", viewName(view), s, s), nil
+		return fmt.Sprintf("(%s){%s.ptr, %s.len}", g.viewName(view), s, s), nil
 	}
 	t := g.temp("s")
 	g.frame.temps = append(g.frame.temps, fmt.Sprintf("tack_string %s;", t))
-	return fmt.Sprintf("(%s = %s, (%s){%s.ptr, %s.len})", t, s, viewName(view), t, t), nil
+	return fmt.Sprintf("(%s = %s, (%s){%s.ptr, %s.len})", t, s, g.viewName(view), t, t), nil
 }
 
 // viewCopies reports whether the array place, viewed by an argument of
@@ -264,11 +264,11 @@ func packs(call *ast.Call, params []*ast.Param) bool {
 // of no elements.
 func (g *generator) packed(view types.Type, values []string) string {
 	if len(values) == 0 {
-		return fmt.Sprintf("(%s){0, 0}", viewName(view))
+		return fmt.Sprintf("(%s){0, 0}", g.viewName(view))
 	}
 	return fmt.Sprintf(
 		"(%s){(const %s[%d]){%s}, %d}",
-		viewName(view),
+		g.viewName(view),
 		g.cType(g.prog.Types.Elem(view)),
 		len(values),
 		strings.Join(values, ", "),

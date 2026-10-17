@@ -146,8 +146,7 @@ func TestRejectsFuncValues(t *testing.T) {
 			"func main() {\n    c := count\n    if c(\"ab\") > 0 {\n    }\n}\n", "cannot use string as []uint8 in argument to c; view its bytes with []uint8(\"ab\")"},
 		{"a function value as a type argument", "package main\n\ntype Sizer interface {\n    size() int64\n}\n\n" +
 			"func measure[S Sizer](s S) int64 {\n    return s.size()\n}\n\nfunc double(x int64) int64 {\n    return x * 2\n}\n\n" +
-			"func main() {\n    if measure(double) > 0 {\n    }\n}\n", "cannot use func(int64) int64 as S in argument to measure: a type argument must be a struct " +
-			"or union type a package declares"},
+			"func main() {\n    if measure(double) > 0 {\n    }\n}\n", "func(int64) int64 does not satisfy Sizer: func(int64) int64 has no method size"},
 		{"a conversion", funcProgram("", "g := double", "n := int64(g)", "if n > 0 {", "}"), "cannot convert func(int64) int64 to int64"},
 		{"an operator", funcProgram("", "g := double", "h := double", "if g != h {", "}"), "operator != is not defined on func(int64) int64"},
 		{"a type assertion target", funcProgram("v any", "g, ok := v.(func(int64) int64)", "if ok && g(1) > 0 {", "}"), "an any never holds func(int64) int64: only the builtin types and views of them can be passed " +

@@ -69,8 +69,9 @@
 // receiver is mut. A method call on a value of a type parameter has as
 // Call.Method a stand-in the type checker makes, with Func.Interface set
 // to the interface's method. A call to a generic function records the
-// type arguments the checker inferred in Call.TypeArgs, and CallResults
-// gives its results with them in place. The checker records every
+// type arguments the checker inferred in Call.TypeArgs, and the callee's
+// parameters' and results' types with them in place in Call.ParamTypes
+// and Call.ResultTypes, which CallResults gives. The checker records every
 // instance of a generic function the program needs, a function and its
 // type arguments, in Program.Instances, and on every file, as it records
 // Types.

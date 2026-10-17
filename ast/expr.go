@@ -63,6 +63,15 @@ type Call struct {
 	// nil for any other call, and for one whose inference was reported.
 	TypeArgs []types.Type `json:",omitempty"`
 
+	// ParamTypes and ResultTypes are the types of a generic callee's
+	// parameters and results at this call, with each of its type
+	// parameters replaced by the call's type argument, through every list,
+	// view, map and function type made of one, as the type checker found
+	// them once it inferred every type argument. Both are nil for any
+	// other call, and for one whose inference was reported.
+	ParamTypes  []types.Type `json:",omitempty"`
+	ResultTypes []types.Type `json:",omitempty"`
+
 	Span Span // start of Fn through the closing RParen
 
 	// EllipsisSpan is the ... after the last argument, f(v...), a spread,

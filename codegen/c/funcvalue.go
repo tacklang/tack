@@ -38,21 +38,21 @@ const funcPtr = "tack_fnptr"
 
 // funcPtrName is the C pointer type of the function type typ, which a call
 // through a value of it converts the value to.
-func funcPtrName(typ types.Type) string {
+func funcPtrNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_fn_%d", typ)
 }
 
 // funcResultsName is the C struct a function of the function type typ,
 // with several results, returns them in, when called through a value.
-func funcResultsName(typ types.Type) string {
+func funcResultsNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_fnres_%d", typ)
 }
 
 // usesFuncTypes reports whether the program has a function type.
 func (g *generator) usesFuncTypes() bool {
 	table := g.prog.Types
-	for i := range table.Count() {
-		if table.IsFunc(types.Added(i)) {
+	for _, typ := range g.emittedTypes() {
+		if table.IsFunc(typ) {
 			return true
 		}
 	}
@@ -73,8 +73,7 @@ func (g *generator) emitFuncPtr() {
 // converts the value to.
 func (g *generator) emitFuncTypes() {
 	table := g.prog.Types
-	for i := range table.Count() {
-		typ := types.Added(i)
+	for _, typ := range g.emittedTypes() {
 		if !table.IsFunc(typ) {
 			continue
 		}
@@ -84,7 +83,7 @@ func (g *generator) emitFuncTypes() {
 			for j, r := range results {
 				fmt.Fprintf(&g.buf, "    %s r%d;\n", g.cType(r), j)
 			}
-			fmt.Fprintf(&g.buf, "} %s;\n\n", funcResultsName(typ))
+			fmt.Fprintf(&g.buf, "} %s;\n\n", g.funcResultsName(typ))
 		}
 		params := make([]string, len(table.FuncParams(typ)))
 		for j, p := range table.FuncParams(typ) {
@@ -101,7 +100,7 @@ func (g *generator) emitFuncTypes() {
 			&g.buf,
 			"typedef %s (*%s)(%s);\n\n",
 			g.funcTypeResult(typ),
-			funcPtrName(typ),
+			g.funcPtrName(typ),
 			list,
 		)
 	}
@@ -118,7 +117,7 @@ func (g *generator) funcTypeResult(typ types.Type) string {
 	case 1:
 		return g.cType(results[0])
 	default:
-		return funcResultsName(typ)
+		return g.funcResultsName(typ)
 	}
 }
 
@@ -135,7 +134,7 @@ func (g *generator) funcValueRef(fn *ast.Func) string {
 		}
 		name = thunkName(name)
 	}
-	return "((" + funcPtr + ")(" + funcPtrName(fn.Value) + "){" + name + "})"
+	return "((" + funcPtr + ")(" + g.funcPtrName(fn.Value) + "){" + name + "})"
 }
 
 // thunkName returns the name of the thunk of the function whose C name is
@@ -162,7 +161,7 @@ func (g *generator) emitThunks() {
 		if len(params) == 0 {
 			list = "void"
 		}
-		results := funcResultsName(fn.Value)
+		results := g.funcResultsName(fn.Value)
 		fmt.Fprintf(&g.buf, "static %s %s(%s) {\n", results, thunkName(cname), list)
 		fmt.Fprintf(
 			&g.buf,
@@ -182,6 +181,6 @@ func (g *generator) emitThunks() {
 // dynamicCallee returns the C callee of a call through rendered, a
 // function value of the function type typ, converted back to the pointer
 // type of its function.
-func dynamicCallee(typ types.Type, rendered string) string {
-	return "((" + funcPtrName(typ) + ")" + rendered + ")"
+func (g *generator) dynamicCallee(typ types.Type, rendered string) string {
+	return "((" + g.funcPtrName(typ) + ")" + rendered + ")"
 }

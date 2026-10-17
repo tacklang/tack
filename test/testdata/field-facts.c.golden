@@ -76,7 +76,7 @@ static int64_t tack_4_main3_sum(tack_4_main1_P p_p);
 static int64_t tack_4_main5_cases(int64_t p_n, tack_4_main1_P p_p);
 static void tack_4_main8_deferred(int64_t * p_out, int64_t p_n, tack_4_main1_P p_p);
 static void tack_4_main10_swapHalves(tack_array_21 * p_a, tack_4_main4_Pair p_q);
-static void tack_4_main4_swap(int64_t * p_x, int64_t * p_y);
+static void tack_4_main8_exchange(int64_t * p_x, int64_t * p_y);
 static int64_t tack_4_main5_local(int64_t p_n);
 static void tack_4_main4_main(void);
 
@@ -175,12 +175,12 @@ static void tack_4_main10_swapHalves(tack_array_21 * p_a, tack_4_main4_Pair p_q)
         const int64_t v_t = (*p_a).e[p_q.f_i];
         (*p_a).e[p_q.f_i] = (*p_a).e[p_q.f_j];
         (*p_a).e[p_q.f_j] = v_t;
-        tack_4_main4_swap(&(*p_a).e[p_q.f_i], &(*p_a).e[p_q.f_j]);
-        tack_4_main4_swap(&(*p_a).e[p_q.f_i], &(*p_a).e[p_q.f_j]);
+        tack_4_main8_exchange(&(*p_a).e[p_q.f_i], &(*p_a).e[p_q.f_j]);
+        tack_4_main8_exchange(&(*p_a).e[p_q.f_i], &(*p_a).e[p_q.f_j]);
     }
 }
 
-static void tack_4_main4_swap(int64_t * p_x, int64_t * p_y) {
+static void tack_4_main8_exchange(int64_t * p_x, int64_t * p_y) {
     const int64_t v_t = (*p_x);
     (*p_x) = (*p_y);
     (*p_y) = v_t;

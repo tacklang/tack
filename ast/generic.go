@@ -108,8 +108,8 @@ func (fn *Func) Generic() bool {
 }
 
 // Instance is one instance of a generic function: the function, compiled
-// with each of its type parameters, in order, standing for the struct
-// type in TypeArgs at the same position.
+// with each of its type parameters, in order, standing for the type in
+// TypeArgs at the same position.
 type Instance struct {
 	Func     *Func
 	TypeArgs []types.Type
@@ -118,9 +118,12 @@ type Instance struct {
 // CallResults returns the types of the values call gives: its callee's
 // result types, a function's or the method the checker found, with each
 // of a generic callee's type parameters replaced by the type argument the
-// checker inferred for it at this call, Call.TypeArgs, or by Invalid when
-// it inferred none, which it has reported. It returns nil for a call to a
-// builtin or a conversion, which have no callee.
+// checker inferred for it at this call, as Call.ResultTypes records them,
+// through every type made of one; before the checker records those, a
+// result that is a whole type parameter is replaced by the type in
+// Call.TypeArgs, or by Invalid when it inferred none, which it has
+// reported. It returns nil for a call to a builtin or a conversion, which
+// have no callee.
 func CallResults(call *Call) []types.Type {
 	fn := Callee(call)
 	if fn == nil {
@@ -128,6 +131,9 @@ func CallResults(call *Call) []types.Type {
 	}
 	if !fn.Generic() {
 		return fn.ResultTypes
+	}
+	if call.ResultTypes != nil {
+		return call.ResultTypes
 	}
 	out := make([]types.Type, len(fn.ResultTypes))
 	for i, typ := range fn.ResultTypes {
@@ -139,9 +145,9 @@ func CallResults(call *Call) []types.Type {
 // Substitute returns typ with each of fn's type parameters replaced by
 // the type at its position in args: the type argument when typ is one of
 // them, or Invalid when args has none for it, and typ itself otherwise. A
-// type parameter appears in a signature only as a parameter's or a
-// result's whole type, never inside an array, a view or a list, whose
-// element it cannot be (see typeck), so no other type needs rewriting.
+// type made of a type parameter, a list, a view, a map or a function type,
+// needs a table to rewrite, so the type checker records a call's results
+// rewritten in Call.ResultTypes, which CallResults gives instead.
 func Substitute(fn *Func, args []types.Type, typ types.Type) types.Type {
 	if typ == types.Invalid {
 		return typ

@@ -1463,7 +1463,8 @@ back to zero after each.
 **Type parameters.** A generic function's body is checked once, for
 every type a call may pass, and a struct holding a list is one, so a
 value of a type parameter is owned as a list is, under every rule
-above. It moves rather than copies, and a parameter of one borrows its
+above, whatever a call makes it: an instance whose type argument is
+`int64` keeps the same rules, a move of it being a copy. It moves rather than copies, and a parameter of one borrows its
 argument, <!-- error: generic-copy-param -->`cannot move s: it is a parameter, which borrows its caller's value`;
 a moved one cannot be used, <!-- error: generic-use-after-move -->`x is used after it was moved`;
 one no variable holds must be given one,
@@ -1472,14 +1473,33 @@ one no variable holds must be given one,
 it has no zero value, <!-- error: generic-zero-value -->`z needs a value: S has no zero value`;
 it is never borrowed alongside a `mut` argument of itself,
 <!-- error: generic-arg-borrow-alongside-mut -->`cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it`;
-and it is no element,
+and it is no element of an array, whose elements are copied,
 <!-- error: generic-array -->`an array cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be`.
+A list, a view, a map's value and a function type may hold one, whose
+elements are read in place and never copied out,
+<!-- error: generic-copy-element -->`cannot move l[0] out of l: an element cannot be moved out of a list; take it out with pop or remove`;
+a value of one is made by moving one out of a list, or getting one from
+a function value or a call, so a generic function may return one, and
+one taken by a checked `pop` cannot be read until its `ok` is checked,
+<!-- error: generic-popped-unchecked -->`x cannot be read before ok is checked; check that ok is true first`.
+`swap(mut l, i, j)` reorders a list's elements in place, moving neither
+out, with both indexes proven as an index is,
+<!-- error: swap-unproven -->`index j may be out of range; check 0 <= j && j < len(l) first`,
+and never while the list is ranged over,
+<!-- error: swap-ranged -->`l is being ranged over, so this loop cannot pass mut l`.
+A type argument is never a view, an `any` or a type made of a type
+parameter (<!-- case: generic-arg-made-of-type-param -->), so every
+instance's types are ones code that is not generic writes, and an
+instance's `list[T]` is exactly the list type its caller passes.
 Each instance of the function is compiled with its type arguments, so
 its moves and frees are those of a struct holding a list where the type
 argument holds one, and plain copies, with nothing to free, where it
 does not. `examples/generics` passes a struct holding a list through
-generic functions that borrow it, change it and move it, and checks the
-count of live buffers is back to zero after each check.
+generic functions that borrow it, change it and move it, and
+`examples/generics-owned` keeps lists, Texts, structs and function
+values in generic lists, maps and views, swaps, sorts, moves and takes
+them, and makes every allocation of those moves fail in turn; each checks
+the count of live buffers is back to zero after each check.
 
 **Unions.** A union any of whose cases' payloads holds a list, directly
 or through a struct, an array or another union, holds a list, and is

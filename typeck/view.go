@@ -50,11 +50,10 @@ func (c *Checker) paramType(param *ast.Param) types.Type {
 }
 
 // viewType returns the view type a written []T denotes, adding it to the
-// table. Its element type may be any type but a view, any and an owned
-// type included, an element of an owned type being read in place as a
-// list's is, or a type parameter (see requireElement): either is
-// reported, and gives types.Invalid, as does an element type that was
-// reported.
+// table. Its element type may be any type but a view, any, an owned type
+// and a type parameter included, an element of an owned type being read
+// in place as a list's is: a view is reported, and gives types.Invalid,
+// as does an element type that was reported.
 func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	if _, ok := vt.Elem.(*ast.ViewType); ok {
 		c.errorf(vt.Span, "the element type of a view cannot be a view")
@@ -62,9 +61,6 @@ func (c *Checker) viewType(vt *ast.ViewType) types.Type {
 	}
 	elem := c.paramElemType(vt.Elem)
 	if elem == types.Invalid {
-		return types.Invalid
-	}
-	if !c.requireElement("a view", elem, vt.Span) {
 		return types.Invalid
 	}
 	return c.table.View(elem)
@@ -95,12 +91,29 @@ func isViewConversion(call *ast.Call) bool {
 // says, and any other value is used as want under the usual rules, which
 // report it.
 func (c *Checker) viewArg(arg ast.Expr, want types.Type, callee string) {
+	got, conv := c.viewArgValue(arg)
+	c.viewArgFits(arg, got, want, callee, conv)
+}
+
+// viewArgValue checks arg, passed to a view parameter, as a value where a
+// view may be, and returns its type, and whether it is a conversion to a
+// view, []uint8(s), which gives that view.
+func (c *Checker) viewArgValue(arg ast.Expr) (types.Type, bool) {
 	if call, ok := arg.(*ast.Call); ok && isViewConversion(call) {
-		c.use(arg, c.viewConversion(call), want, "in argument to "+callee)
-		return
+		return c.viewConversion(call), true
 	}
 	c.allowView(arg)
-	got := c.valueOf(arg, c.expr(arg))
+	return c.valueOf(arg, c.expr(arg)), false
+}
+
+// viewArgFits reports arg, of type got, checked by viewArgValue, conv
+// saying whether it is a conversion to a view, unless a view parameter of
+// type want in a call to callee can take it, as viewArg says.
+func (c *Checker) viewArgFits(arg ast.Expr, got, want types.Type, callee string, conv bool) {
+	if conv {
+		c.use(arg, got, want, "in argument to "+callee)
+		return
+	}
 	switch {
 	case got == types.Invalid:
 	case got == types.String && c.table.Elem(want) == types.Uint8:

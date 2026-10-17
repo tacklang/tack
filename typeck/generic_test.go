@@ -114,8 +114,8 @@ func TestAcceptsGenericCode(t *testing.T) {
 			"W()\n    use(f(P{x: 1}))",
 		},
 		{
-			"recursion swapping type arguments", "func swap[A Sizer, B Sizer](a A, b B, n int64) int64 {\n    if n == 0 {\n        return a.size()\n    }\n    return swap(b, a, n - 1)\n}\n",
-			"use(swap(P{x: 1}, C{n: 2}, 3))",
+			"recursion swapping type arguments", "func flip[A Sizer, B Sizer](a A, b B, n int64) int64 {\n    if n == 0 {\n        return a.size()\n    }\n    return flip(b, a, n - 1)\n}\n",
+			"use(flip(P{x: 1}, C{n: 2}, 3))",
 		},
 		{"an uncalled generic function", "func never[S Sizer](s S) int64 {\n    return s.size()\n}\n", "use(1)"},
 	} {
@@ -149,11 +149,11 @@ func instanceNames(file *ast.File) []string {
 // parameters there standing for the instance's type arguments.
 func TestRecordsEachInstanceOnce(t *testing.T) {
 	src := "package main\n\n" + genericDecls + `
-func swap[A Sizer, B Sizer](a A, b B, n int64) int64 {
+func flip[A Sizer, B Sizer](a A, b B, n int64) int64 {
     if n == 0 {
         return pair(a, b)
     }
-    return swap(b, a, n - 1)
+    return flip(b, a, n - 1)
 }
 
 func never[S Sizer](s S) int64 {
@@ -163,14 +163,14 @@ func never[S Sizer](s S) int64 {
 func main() {
     mut c := C{n: 1}
     use(render(mut c, "x") + measure(c) + measure(c))
-    use(swap(c, P{x: 1}, 3))
+    use(flip(c, P{x: 1}, 3))
 }
 `
 	file, diags := checkFile(t, src)
 	if len(diags) > 0 {
 		t.Fatalf("rejected: %+v", diags)
 	}
-	want := []string{"render[C]", "measure[C]", "swap[C,P]", "pair[C,P]", "swap[P,C]", "pair[P,C]"}
+	want := []string{"render[C]", "measure[C]", "flip[C,P]", "pair[C,P]", "flip[P,C]", "pair[P,C]"}
 	if got := instanceNames(file); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("instances %q, want %q", got, want)
 	}
@@ -243,33 +243,34 @@ func TestNoInstancesInAProgramWithErrors(t *testing.T) {
 	}
 }
 
-// TestRejectsTypeParamResults checks a result of a generic function's own
-// type parameter is reported at the result, whether it is the only one
-// or one of several, and once for each such result, while a generic
-// function with no such result is not.
-func TestRejectsTypeParamResults(t *testing.T) {
-	msg := func(fn string) string {
-		return fn + "'s result cannot be its type parameter S: a generic function has no way to produce a value of S"
-	}
+// TestAcceptsTypeParamResults checks a result of a generic function's own
+// type parameter is allowed, whether it is the only one or one of
+// several: a value of a type parameter is owned, so a body that returns
+// one moves it out of where it got it, and a body that cannot get one has
+// nothing to return, which the rules for returns report.
+func TestAcceptsTypeParamResults(t *testing.T) {
 	for _, tt := range []struct {
 		name, decls string
 		want        []string
 	}{
-		{"the only result", "func stuck[S Sizer](s S) S {\n    for {\n    }\n}\n", []string{msg("stuck")}},
-		{
-			"one of several",
-			"func duo[S Sizer](s S) (int64, S) {\n    for {\n    }\n}\n",
-			[]string{msg("duo")},
-		},
-		{
-			"two of several",
-			"func two[S Sizer](s S) (S, S) {\n    for {\n    }\n}\n",
-			[]string{msg("two"), msg("two")},
-		},
+		{"the only result", "func stuck[S Sizer](s S) S {\n    for {\n    }\n}\n", nil},
+		{"one of several", "func duo[S Sizer](s S) (int64, S) {\n    for {\n    }\n}\n", nil},
+		{"two of several", "func two[S Sizer](s S) (S, S) {\n    for {\n    }\n}\n", nil},
 		{
 			"a second type parameter",
 			"func other[A Sizer, S Sizer](a A, s S) (int64, S) {\n    for {\n    }\n}\n",
-			[]string{msg("other")},
+			nil,
+		},
+		{
+			"one popped from a list",
+			"func last[S Sizer](mut l list[S], s S) S {\n    if len(l) > 0 {\n        return pop(mut l)\n    }\n" +
+				"    for {\n    }\n}\n",
+			nil,
+		},
+		{
+			"a parameter, which it cannot move",
+			"func same[S Sizer](s S) S {\n    return s\n}\n",
+			[]string{"cannot move s: it is a parameter, which borrows its caller's value"},
 		},
 		{"no such result", "func sized[S Sizer](s S) (int64, bool) {\n    return s.size(), true\n}\n", nil},
 	} {

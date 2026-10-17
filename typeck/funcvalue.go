@@ -35,10 +35,11 @@ import (
 //
 // What a function type can say is what a value of it can be called
 // with, so it is narrower than what a function can declare: no variadic
-// parameter, no any parameter, no view result, and no type parameter
-// anywhere in it, since nothing instantiates one. A function whose
-// signature has any of those, a generic function, a method and an extern
-// func is not a value (funcValue).
+// parameter, no any parameter and no view result. In a generic function
+// it may be made of the function's type parameters, func(T, T) bool,
+// which each instance has as the type made of its type arguments. A
+// function whose signature has any of those, a generic function, a method
+// and an extern func is not a value (funcValue).
 //
 // The call graph is no longer fixed by the source: a call through a
 // value calls whichever function the value names when it runs. Nothing
@@ -52,9 +53,9 @@ import (
 // funcType returns the function type a written func(A, mut B) R denotes,
 // adding it to the table. A parameter may have any type a function's
 // parameter may but any, and a view only when it is not mut; a result any
-// type a function's result may but a view; an error only as the last
-// result; and nothing in it may be a type parameter. Anything else is
-// reported, and gives types.Invalid, as does a part that was reported.
+// type a function's result may but a view; and an error only as the last
+// result; a type parameter among them. Anything else is reported, and
+// gives types.Invalid, as does a part that was reported.
 func (c *Checker) funcType(ft *ast.FuncType) types.Type {
 	ok := true
 	params := make([]types.FuncParam, len(ft.Params))
@@ -82,8 +83,8 @@ func (c *Checker) funcType(ft *ast.FuncType) types.Type {
 }
 
 // funcTypeParam returns the type p, a parameter of a function type, has:
-// a view, which may not be mut, or any other type declaredType gives, but
-// any or a type parameter, each reported.
+// a view, which may not be mut, or any other type declaredType gives, a
+// type parameter included, but any, which is reported.
 func (c *Checker) funcTypeParam(p *ast.Param) types.Type {
 	if isAnyName(p.TypeExpr) {
 		c.errorf(p.TypeExpr.Spanned(), "a function type's parameter cannot be any")
@@ -97,30 +98,18 @@ func (c *Checker) funcTypeParam(p *ast.Param) types.Type {
 		}
 		return typ
 	}
-	return c.noTypeParam(p.TypeExpr, c.declaredType(p.TypeExpr))
+	return c.declaredType(p.TypeExpr)
 }
 
 // funcTypeResult returns the type r, a result of a function type,
-// denotes: any type declaredType gives but a view or a type parameter,
-// each reported.
+// denotes: any type declaredType gives, a type parameter included, but a
+// view, which is reported.
 func (c *Checker) funcTypeResult(r ast.Expr) types.Type {
 	if vt, isView := r.(*ast.ViewType); isView {
 		c.errorf(vt.Span, "a function type cannot return a view")
 		return types.Invalid
 	}
-	return c.noTypeParam(r, c.declaredType(r))
-}
-
-// noTypeParam returns typ, the type written as written, unless it is a
-// type parameter, which nothing in a function type may be: it is
-// reported, and gives types.Invalid.
-func (c *Checker) noTypeParam(written ast.Expr, typ types.Type) types.Type {
-	if !c.table.IsTypeParam(typ) {
-		return typ
-	}
-	c.errorf(written.Spanned(), "a function type cannot hold the type parameter %s",
-		c.typeName(typ))
-	return types.Invalid
+	return c.declaredType(r)
 }
 
 // funcValue checks id, a name of the function fn used as a value, and

@@ -1711,6 +1711,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	if isBuiltin(call, "delete") {
 		return g.dropDelete(call)
 	}
+	if isBuiltin(call, "swap") {
+		return g.swapStmt(call)
+	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
 		return nil, []diag.Diagnostic{{
@@ -1971,7 +1974,7 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 		}}
 	}
 	call, diags := g.callExpr(fn.Name, c)
-	results := funcResultsName(fn.Value)
+	results := g.funcResultsName(fn.Value)
 	if c.Dynamic == nil {
 		_, cname := g.target(fn, c.TypeArgs)
 		results = resultsOf(cname)
@@ -2215,6 +2218,7 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 	var fn *ast.Func
 	if f := ast.Callee(call); f != nil {
 		fn, callee = g.target(f, typeArgs)
+		fn = atCall(fn, call)
 	}
 	args, diags := g.callArgs(call, fn)
 	if len(diags) > 0 {
@@ -2267,7 +2271,7 @@ func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
 	rendered := append([]string{value}, args...)
 	ctypes := append([]string{funcPtr}, g.argTypes(call, fn.Params)...)
 	build := func(ops []string) string {
-		return fmt.Sprintf("%s(%s)", dynamicCallee(fn.Value, ops[0]), strings.Join(ops[1:], ", "))
+		return fmt.Sprintf("%s(%s)", g.dynamicCallee(fn.Value, ops[0]), strings.Join(ops[1:], ", "))
 	}
 	return g.sequencedAs(operands, rendered, ctypes, build), nil
 }
@@ -2278,7 +2282,11 @@ func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
 // holding deep parts in temporaries, assigned first (see exprSteps); one
 // rendered as part of another leaves that to the outer one (see spilled).
 func (g *generator) expr(e ast.Expr, want types.Type) (string, []diag.Diagnostic) {
-	if got := ast.TypeOf(e); !types.Widens(got, want) && want != types.Invalid {
+	// In an instance of a generic function, a type made of a type
+	// parameter and the type it stands for are one type.
+	table := g.prog.Types
+	if got := table.Bound(ast.TypeOf(e)); !types.Widens(got, table.Bound(want)) &&
+		want != types.Invalid {
 		return "", []diag.Diagnostic{
 			{
 				Severity: diag.Error,
@@ -2606,16 +2614,16 @@ func (g *generator) strParts(s string) string {
 func (g *generator) cType(typ types.Type) string {
 	typ = g.prog.Types.Bound(typ)
 	if g.prog.Types.IsArray(typ) {
-		return arrayName(typ)
+		return g.arrayName(typ)
 	}
 	if g.prog.Types.IsView(typ) {
-		return viewName(typ)
+		return g.viewName(typ)
 	}
 	if g.prog.Types.IsList(typ) {
-		return listName(typ)
+		return g.listName(typ)
 	}
 	if g.prog.Types.IsMap(typ) {
-		return mapName(typ)
+		return g.mapName(typ)
 	}
 	if g.prog.Types.IsFunc(typ) {
 		return funcPtr
@@ -2629,7 +2637,7 @@ func (g *generator) cType(typ types.Type) string {
 // arrayName is the name of the C struct an array type lowers to, made from
 // its ID, so it starts tack_array_ where a mangled name starts with tack_
 // and the package, and a temporary's has no second underscore.
-func arrayName(typ types.Type) string {
+func arrayNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_array_%d", typ)
 }
 

@@ -88,7 +88,7 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static void tack_4_main5_scale(tack_4_main5_Point * p_p, int64_t p_k);
 static void tack_4_main5_reset(tack_4_main5_Point * p_p);
 static void tack_4_main4_bump(int64_t * p_n);
-static void tack_4_main4_swap(int64_t * p_a, int64_t * p_b);
+static void tack_4_main8_exchange(int64_t * p_a, int64_t * p_b);
 static void tack_4_main4_grow(tack_4_main3_Box * p_b);
 static void tack_4_main6_rename(tack_4_main3_Box * p_b);
 static int64_t tack_4_main5_later(int64_t * p_n);
@@ -130,7 +130,7 @@ static void tack_4_main4_bump(int64_t * p_n) {
     (*p_n) = ((int64_t)((uint64_t)(*p_n) + (uint64_t)1));
 }
 
-static void tack_4_main4_swap(int64_t * p_a, int64_t * p_b) {
+static void tack_4_main8_exchange(int64_t * p_a, int64_t * p_b) {
     const int64_t v_t = (*p_a);
     (*p_a) = (*p_b);
     (*p_b) = v_t;
@@ -240,7 +240,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_eq_17(&v_p, &(tack_4_main5_Point){.f_x = (-1), .f_y = (-2)})), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     int64_t v_a = 1;
     int64_t v_b = 2;
-    tack_4_main4_swap(&v_a, &v_b);
+    tack_4_main8_exchange(&v_a, &v_b);
     tack_4_main5_check(((v_a == 2) && (v_b == 1)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
     tack_4_main3_Box v_box = (tack_4_main3_Box){.f_lo = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_hi = (tack_4_main5_Point){.f_x = 5, .f_y = 6}, .f_cells = (tack_array_21){{1, 2, 3, 4}}, .f_name = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}};
     tack_4_main4_grow(&v_box);

@@ -112,7 +112,7 @@ func (g *generator) emitUnionEquality(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
 		"static bool %s(const %s *a, const %s *b) {\n",
-		equalityName(typ),
+		g.equalityName(typ),
 		name,
 		name,
 	)
@@ -134,7 +134,7 @@ func (g *generator) emitUnionEquality(typ types.Type) {
 // owned, and its elements. It takes a const pointer to the value, as an
 // equality helper does (see equalityName), so a chain of types nested
 // one in another frees in frames of one small size.
-func freeName(typ types.Type) string {
+func freeNameOf(typ types.Type) string {
 	return fmt.Sprintf("tack_free_%d", typ)
 }
 
@@ -163,8 +163,8 @@ func (g *generator) emitFrees() {
 			g.emitMapFree(typ)
 		}
 	}
-	for i := range table.Count() {
-		emit(types.Added(i))
+	for _, typ := range g.emittedTypes() {
+		emit(typ)
 	}
 }
 
@@ -175,7 +175,7 @@ func (g *generator) emitUnionFree(typ types.Type) {
 	fmt.Fprintf(
 		&g.buf,
 		"static void %s(const %s *v) {\n    switch (v->tag) {\n",
-		freeName(typ),
+		g.freeName(typ),
 		g.structName(typ),
 	)
 	for i, uc := range g.prog.Types.Cases(typ) {

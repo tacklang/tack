@@ -212,8 +212,8 @@ var structCases = []struct{ name, src string }{
 	{
 		"struct parameter and result",
 		withTypes(
-			pointDecls+"\n\nfunc swap(p Point) Point {\n    return Point{x: p.y, y: p.x}\n}",
-			"code, _ := int32(swap(Point{x: 1, y: 2}).x)",
+			pointDecls+"\n\nfunc flipped(p Point) Point {\n    return Point{x: p.y, y: p.x}\n}",
+			"code, _ := int32(flipped(Point{x: 1, y: 2}).x)",
 			"exit(code)",
 		),
 	},

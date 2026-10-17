@@ -227,7 +227,7 @@ static void tack_7_methods6_chains(void);
 static int64_t tack_7_methods12_Point_2enorm(tack_7_methods5_Point p_p);
 static void tack_7_methods13_Point_2escale(tack_7_methods5_Point * p_p, int64_t p_k);
 static void tack_7_methods12_Point_2eflip(tack_7_methods5_Point * p_p);
-static void tack_7_methods4_swap(int64_t * p_a, int64_t * p_b);
+static void tack_7_methods8_exchange(int64_t * p_a, int64_t * p_b);
 static int64_t tack_7_methods14_Point_2edigits(tack_7_methods5_Point p_p, int64_t p_a, int64_t p_b);
 static int64_t tack_7_methods12_Point_2epeek(tack_7_methods5_Point p_p, tack_7_methods5_Point * p_q);
 static void tack_7_methods6_points(void);
@@ -595,10 +595,10 @@ static void tack_7_methods13_Point_2escale(tack_7_methods5_Point * p_p, int64_t 
 }
 
 static void tack_7_methods12_Point_2eflip(tack_7_methods5_Point * p_p) {
-    tack_7_methods4_swap(&(*p_p).f_x, &(*p_p).f_y);
+    tack_7_methods8_exchange(&(*p_p).f_x, &(*p_p).f_y);
 }
 
-static void tack_7_methods4_swap(int64_t * p_a, int64_t * p_b) {
+static void tack_7_methods8_exchange(int64_t * p_a, int64_t * p_b) {
     const int64_t v_t = (*p_a);
     (*p_a) = (*p_b);
     (*p_b) = v_t;

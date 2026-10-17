@@ -61,37 +61,15 @@ import (
 // and the backend frees it when it is owned.
 
 // listType returns the list type a written list[T] denotes, adding it to
-// the table. Its element type may be any type but a type parameter (see
-// requireElement); one that is, or was reported, gives types.Invalid.
+// the table. Its element type may be any type, an owned one or a type
+// parameter included, whose elements are read in place, never copied; one
+// that was reported gives types.Invalid.
 func (c *Checker) listType(lt *ast.ListType) types.Type {
 	elem := c.declaredType(lt.Elem)
 	if elem == types.Invalid {
 		return types.Invalid
 	}
-	if !c.requireElement("a list", elem, lt.Span) {
-		return types.Invalid
-	}
 	return c.table.List(elem)
-}
-
-// requireElement reports elem, the element type of holder, a list or a
-// view written at at, when it is a type parameter, which neither may
-// hold, and returns whether elem may be an element. An owned type may: an
-// element of a list or a view is read in place, never copied.
-func (c *Checker) requireElement(holder string, elem types.Type, at ast.Span) bool {
-	if !c.table.IsTypeParam(elem) {
-		return true
-	}
-	what := "a list's element"
-	switch holder {
-	case "a view":
-		what = "a view's element"
-	case "a map":
-		what = "a map's value"
-	}
-	c.errorf(at, "%s cannot hold %s: %s cannot be a type parameter",
-		holder, c.typeName(elem), what)
-	return false
 }
 
 // pendingElem is an element type whose copyability could not be judged
@@ -465,8 +443,9 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append, reserve, pop, remove, replace, put, delete or has, each of which checks its own
-// arguments and gives one value, or nil when call calls none of them.
+// make, append, reserve, pop, remove, swap, replace, put, delete or has,
+// each of which checks its own arguments and gives one value, but swap,
+// which gives none, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isLen(call):
@@ -487,13 +466,16 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 }
 
 // listCall returns the checker of the generic builtin call calls when it
-// is one that changes a list, append, reserve, pop or remove, or nil.
+// is one that changes a list, append, reserve, pop, remove or swap, or
+// nil.
 func (c *Checker) listCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isBuiltinCall(call, "pop"):
 		return c.popCall
 	case isBuiltinCall(call, "remove"):
 		return c.removeCall
+	case isSwap(call):
+		return c.swapCall
 	case isAppend(call):
 		return c.appendCall
 	case isReserve(call):

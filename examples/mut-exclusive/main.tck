@@ -20,8 +20,8 @@ func check(cond bool, name string) {
     }
 }
 
-// swap exchanges two integers.
-func swap(mut a int64, mut b int64) {
+// exchange swaps two integers.
+func exchange(mut a int64, mut b int64) {
     t := a
     a = b
     b = t
@@ -57,25 +57,25 @@ func double(mut p Point) int64 {
 // different halves of a, so they are known to differ.
 func swapEnds(mut a [4]int64, i int64, j int64) {
     if 0 <= i && i < 2 && 2 <= j && j < 4 {
-        swap(mut a[i], mut a[j])
+        exchange(mut a[i], mut a[j])
     }
 }
 
 // mirror swaps a point's fields, and passes the parameter's own parts on.
 func mirror(mut p Point) {
-    swap(mut p.x, mut p.y)
+    exchange(mut p.x, mut p.y)
 }
 
 func main() {
     mut p := Point{x: 1, y: 2}
-    swap(mut p.x, mut p.y)
+    exchange(mut p.x, mut p.y)
     check(p.x == 2 && p.y == 1, "fields of one struct")
 
     mirror(mut p)
     check(p.x == 1 && p.y == 2, "fields of a mut parameter")
 
     mut a := [4]int64{1, 2, 3, 4}
-    swap(mut a[0], mut a[3])
+    exchange(mut a[0], mut a[3])
     check(a == [4]int64{4, 2, 3, 1}, "elements at known indexes")
 
     swapEnds(mut a, 1, 2)
@@ -84,7 +84,7 @@ func main() {
     mut s Shape
     s.pts[0] = Point{x: 5, y: 6}
     s.pts[1] = Point{x: 7, y: 8}
-    swap(mut s.pts[0].x, mut s.pts[1].y)
+    exchange(mut s.pts[0].x, mut s.pts[1].y)
     check(s.pts[0].x == 8 && s.pts[1].y == 5, "nested paths")
 
     swapPoints(mut s.pts[0], mut s.pts[1])
@@ -92,11 +92,11 @@ func main() {
 
     s.grid[0][1] = 1
     s.grid[1][0] = 2
-    swap(mut s.grid[0][1], mut s.grid[1][0])
+    exchange(mut s.grid[0][1], mut s.grid[1][0])
     check(s.grid[0][1] == 2 && s.grid[1][0] == 1, "two-level elements")
 
     for i := range s.pts {
-        swap(mut s.pts[i].x, mut s.pts[1].y)
+        exchange(mut s.pts[i].x, mut s.pts[1].y)
     }
     check(s.pts[0] == Point{x: 6, y: 5} && s.pts[1] == Point{x: 7, y: 8}, "different fields of elements at unknown indexes")
 
@@ -112,6 +112,6 @@ func main() {
     check(c.x == 4 && c.y == 3, "inner call changes the place first")
 
     mut d := Point{x: 1, y: 0}
-    swap(mut d.y, mut c.x)
+    exchange(mut d.y, mut c.x)
     check(d.y == 4 && c.x == 0, "two variables")
 }
