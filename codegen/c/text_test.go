@@ -49,8 +49,8 @@ func tackBytes(b []byte) string {
 }
 
 // TestTextHashMatchesFNV1a builds a program that hashes each of
-// hashInputs with std/text's hash, which computes FNV-1a's XOR with
-// arithmetic since Tack has no bitwise operators, and checks every hash
+// hashInputs with std/text's hash, which computes FNV-1a's XOR with ^,
+// and checks every hash
 // equals the one Go's hash/fnv gives, an implementation written apart
 // from Tack's.
 func TestTextHashMatchesFNV1a(t *testing.T) {

@@ -1034,9 +1034,9 @@ builtins, and could go another way:
   reserved everywhere, so `text.from` is `expected 'field name' found
   'from'`. Making `from` a keyword only in an import would free the name;
   `from_bytes` leaves room for a later `from_string`.
-- `hash` computes FNV-1a's XOR with `%`, `/` and `+`, eight steps a byte,
-  since Tack has no bitwise operators. It will use `^` once that exists,
-  with identical results.
+- `hash` computes FNV-1a's XOR with `^`. It computed it with `%`, `/` and
+  `+`, eight steps a byte, until Tack had bitwise operators, with
+  identical results.
 - A failed `from_bytes` returns the empty Text it was building, which
   allocated nothing, beside `error{code: 1, msg: "out of memory"}`, as
   `bytes.repeat` returns an empty list; the caller must still bind it,

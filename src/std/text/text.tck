@@ -68,41 +68,17 @@ pub func (t Text) equal(s []uint8) bool {
     return bytes.equal(t.b, s)
 }
 
-// xor_low returns h with its lowest byte replaced by that byte XOR c,
-// h ^ uint64(c), computed bit by bit with % and /, since Tack has no
-// bitwise operators. The other 56 bits of h are not changed, since c has
-// none of them set.
-func xor_low(h uint64, c uint8) uint64 {
-    low := h % 256
-    mut x := low
-    mut y uint64 = c
-    mut r uint64 = 0
-    mut bit uint64 = 1
-    for range 8 {
-        if x % 2 != y % 2 {
-            r += bit
-        }
-        x /= 2
-        y /= 2
-        bit *= 2
-    }
-    return h - low + r
-}
-
 // hash returns the 64-bit FNV-1a hash of t's bytes: from the offset
 // basis, 0xcbf29ce484222325, for each byte c in order, h = (h ^ c) *
 // 0x100000001b3, the multiplication wrapping at 64 bits. No bytes hash to
 // the offset basis, "a" to 0xaf63dc4c8601ec8c and "foobar" to
 // 0x85944171f73967e8. Equal Texts hash alike, however they were built.
-//
-// Tack has no bitwise operators, so the XOR is computed by xor_low with
-// arithmetic, which costs about eight steps a byte; when Tack gains ^,
-// hash will use it, with identical results. The multiplication wraps
-// because h is mut, whose value the compiler never knows.
+// The multiplication wraps because h is mut, whose value the compiler
+// never knows.
 pub func (t Text) hash() uint64 {
     mut h := fnv_offset
     for _, c := range t.b {
-        h = xor_low(h, c) * fnv_prime
+        h = (h ^ uint64(c)) * fnv_prime
     }
     return h
 }

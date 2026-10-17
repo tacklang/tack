@@ -923,9 +923,7 @@ makes for itself, which has a letter after `tack_`.
   `t.equal([]uint8("if"))` compares against a literal, and `t.hash()`
   the 64-bit FNV-1a hash of the bytes, from the offset basis
   `0xcbf29ce484222325` with the prime `0x100000001b3`, so no bytes hash
-  to `0xcbf29ce484222325` and `"a"` to `0xaf63dc4c8601ec8c`. Tack has no
-  bitwise operators, so the XOR is computed with arithmetic, eight steps
-  a byte; when `^` exists hash will use it, with identical results.
+  to `0xcbf29ce484222325` and `"a"` to `0xaf63dc4c8601ec8c`.
   `err := mut t.append(s)` and `err := mut t.append_byte(c)` grow `t`,
   all or nothing as the builtin append is: when `t` cannot grow the
   error is `error{code: 1, msg: "out of memory"}` and `t` is left
@@ -1411,7 +1409,9 @@ makes for itself, which has a letter after `tack_`.
 - `x = v` assigns to a mutable variable a value its type accepts. Parameters
   are immutable, except a `mut` parameter (see mut parameters).
 - `x += v`, `x -= v`, `x *= v`, `x /= v` and `x %= v` mean `x = x op v` for a
-  mutable integer variable and a value its type accepts. Like a plain assignment, they do
+  mutable integer variable and a value its type accepts, and so do `x &= v`,
+  `x |= v`, `x ^= v` and `x &^= v`; `x <<= n` and `x >>= n` shift `x` by `n`,
+  a shift's count (see expressions). Like a plain assignment, they do
   not count as reading `x`, so a variable that is only ever updated is still
   unused. `x++` and `x--` add and subtract one the same way. They are
   statements, never values, and there is no prefix form.
@@ -1844,7 +1844,9 @@ makes for itself, which has a letter after `tack_`.
     one, whose length is its type's, as long as computing it calls nothing;
   - a conversion `T(x)` of a constant expression, which, as anywhere, must
     give a value of `T`;
-  - arithmetic, comparisons, `&&`, `||` and `!` on constant expressions,
+  - arithmetic, bitwise and shift operators, comparisons, `&&`, `||` and
+    `!` on constant expressions, `^x` of a target-width type excepted,
+    since its value is the target's,
     strings, arrays and structs comparing as they do at run time.
 
   A package-level variable cannot hold a list (see lists).
@@ -1863,9 +1865,11 @@ makes for itself, which has a letter after `tack_`.
 - Expressions are literals, parameter and variable names, calls, a call's
   `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix
-  operators `+ - * / %`, `== != < <= > >=` and `&& ||`, and the
-  prefix `!` and `-`, with Go's precedence: the prefix operators bind
-  tightest, then arithmetic, then comparisons, then `&&`, then `||`.
+  operators `+ - * / %`, `& | ^ &^ << >>`, `== != < <= > >=` and `&& ||`,
+  and the prefix `!`, `-` and `^`, with Go's precedence: the prefix
+  operators bind tightest, then `* / % << >> & &^`, then `+ - | ^`, then
+  comparisons, then `&&`, then `||`, each level left-associative, so
+  `1 + 2 << 3` is 17 and `6 & 3 * 2` is 4.
   Arithmetic takes two integers and gives their common type: the type of
   both, or the wider when one widens to the other, as `int8 + int64` is an
   `int64`; `int8 + uint8` and `uint64 + int64` have no common type and are
@@ -1893,6 +1897,32 @@ makes for itself, which has a letter after `tack_`.
   `var m int8 = 127`, `m + 1` is an error, while after `mut m int8 = 127`
   the same `m + 1` is `-128`, since a mutable variable's value is never
   known.
+  The bitwise operators `& | ^ &^` (and, or, exclusive or, and and-not,
+  `a &^ b` clearing in `a` every bit set in `b`) take two integers under
+  the same rules as arithmetic, giving their common type, so
+  `int8 & uint8` is `mismatched types int8 and uint8 in &`, and work on
+  a signed value's two's complement bits. `^x` flips every bit of an
+  integer of any type: `^int8(0)` is -1 and `^uint8(0)` 255. None is
+  defined on anything but an integer, `operator & is not defined on
+  bool`. `x << n` and `x >> n` shift `x`, an integer, by `n`, which must be
+  an unsigned integer of any width, `shift count must be an unsigned
+  integer, got int64`, or an untyped constant that is not negative,
+  `shift count must not be negative, got -1`; the result has `x`'s type,
+  and an untyped `x` shifted by a typed count is an `int64`, so `1 << n`
+  in a `uint64` needs `uint64(1) << n`. A count at or past `x`'s width
+  shifts every bit out: `x << n` is 0, and `x >> n` is 0, or -1 when `x`
+  is negative, as in Go, never C's undefined behavior. `>>` of a signed
+  value is arithmetic, copying the sign bit in, and of an unsigned one
+  logical, and `<<` wraps at the width as `+` does, so `int8(64) << 1`
+  at run time is -128. Untyped constants are computed exactly, as Go's
+  are, on their infinitely wide two's complement form: `^5` is -6, `-8 >> 1`
+  is -4, and `1 << 64` is `constant expression is out of range`; on
+  known values a shift that loses a set bit is `constant expression
+  overflows uint8`, as `uint8(1) << 8` is, under the overflow rule above.
+  Every one has a compound form, `&= |= ^= &^= <<= >>=`, whose value is
+  the right operand of its operator. They give no fact for a proof (see
+  division), though a known value through them is known, as `k & 3` of
+  a known `k` is.
   A comparison of two integers takes any two integer types, the
   target-width ones included, with any of the six operators, and compares
   their values, with no common type needed: `int64(-1) < uint64(0)` and

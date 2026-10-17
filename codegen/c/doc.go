@@ -521,10 +521,16 @@
 // Arithmetic wraps on overflow at its type's width, where C leaves signed
 // overflow undefined, and promotes a narrow type to int, where it can
 // overflow too: + - * and unary - are done on uint64_t, which C defines to
-// wrap, and converted to the expression's type. / and % call a helper per
-// operator and type, such as tack_div_int8, emitted only when used, which
-// gives the smallest signed value divided by -1 as itself and its remainder
-// as 0. q, ok := a / b holds both operands in temporaries, the dividend
+// wrap, and converted to the expression's type, and so are & | ^ &^ and
+// unary ^, on the two's complement bits a conversion to uint64_t keeps. /
+// and % call a helper per operator and type, such as tack_div_int8, emitted
+// only when used, which gives the smallest signed value divided by -1 as
+// itself and its remainder as 0, and so do << and >>, tack_shl_int8 and
+// tack_shr_int8, which take the count as a uint64_t and give 0, or -1 for
+// >> of a negative value, for a count at or past the width, where C's
+// shift is undefined: << shifts on uint64_t, and a signed >> shifts a
+// negative value's complement and flips it back, an arithmetic shift that
+// never shifts a negative value in C (see emitShift). q, ok := a / b holds both operands in temporaries, the dividend
 // first, and divides only when the divisor is not zero, giving 0 otherwise;
 // one of two constants, which the checker has computed, is written as its
 // value and true, with no temporary. Every other division has a divisor the checker proved not zero. A compound assignment x op= v is written out as

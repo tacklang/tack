@@ -404,6 +404,8 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 	case bin.Op.IsComparison():
 		c.comparison(bin, x, y)
 		return types.Bool
+	case bin.Op.IsShift():
+		return c.shift(bin, x, y)
 	default:
 		return c.arithmetic(bin, x, y)
 	}
@@ -425,8 +427,8 @@ func (c *Checker) require(operand ast.Expr, got types.Type, op string, want type
 	return false
 }
 
-// arithmetic checks + - * / or % on operands of types x and y, which must be
-// integers, and returns the type of the result. Two untyped constants give
+// arithmetic checks + - * / % & | ^ or &^ on operands of types x and y,
+// which must be integers, and returns the type of the result. Two untyped constants give
 // an untyped constant, computed exactly; an untyped constant and a typed
 // operand give the typed one's type, which the constant must fit; and two
 // typed operands give whichever of the two the other widens to.
@@ -684,8 +686,8 @@ func commonType(x, y types.Type) (types.Type, bool) {
 	}
 }
 
-// foldArithmetic computes an arithmetic expression on two untyped constants
-// exactly, recording the value on bin. A division by zero, or a result
+// foldArithmetic computes an arithmetic or a bitwise expression on two
+// untyped constants exactly, recording the value on bin. A division by zero, or a result
 // outside the range constants must stay in, is reported.
 func (c *Checker) foldArithmetic(bin *ast.Binary) types.Type {
 	a, _ := constValue(bin.X)
@@ -702,6 +704,8 @@ func (c *Checker) foldArithmetic(bin *ast.Binary) types.Type {
 		result, ok = a.Sub(b)
 	case ast.Mul:
 		result, ok = a.Mul(b)
+	case ast.BitAnd, ast.BitOr, ast.BitXor, ast.AndNot:
+		result, ok = bitwiseStep(bin.Op, a, b)
 	default:
 		if b.IsZero() {
 			c.errorf(bin.Span, "division by zero in constant expression")
@@ -820,18 +824,21 @@ func (c *Checker) supports(typ types.Type, op ast.BinaryOp) bool {
 	return (op == ast.Eq || op == ast.Ne) && c.comparable(typ)
 }
 
-// unary checks a prefix expression and returns its type. ! takes a bool. -
-// takes a signed integer, and negating an untyped constant is computed
+// unary checks a prefix expression and returns its type. ! takes a bool, ^
+// any integer (see complement). - takes a signed integer, and negating an untyped constant is computed
 // exactly, as is negating a known value of a signed type, which must not
 // overflow it; it is not defined on unsigned types, where -x is almost always a
 // mistake, and 0 - x says what wrapping is wanted.
 func (c *Checker) unary(u *ast.Unary) types.Type {
 	x := c.expr(u.X)
-	if u.Op == ast.Not {
+	switch u.Op {
+	case ast.Not:
 		if c.require(u.X, x, "!", types.Bool) {
 			return types.Bool
 		}
 		return types.Invalid
+	case ast.Complement:
+		return c.complement(u, x)
 	}
 
 	switch {
@@ -979,4 +986,117 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 		return c.knownFits(arg, v, to)
 	}
 	return true
+}
+
+// complement checks ^x, x of type x, and returns its type: x's, for any
+// integer type, flipping every bit, and an untyped constant's complement,
+// -x - 1, computed exactly, for an untyped constant. Its value, when
+// known, is never out of its type's range, so there is nothing to report
+// about it.
+func (c *Checker) complement(u *ast.Unary, x types.Type) types.Type {
+	switch {
+	case x == types.Invalid:
+		return types.Invalid
+	case x == types.UntypedInt:
+		value, _ := constValue(u.X)
+		flipped, ok := value.Not()
+		if !ok {
+			c.errorf(u.Span, "constant expression is out of range")
+			return types.Invalid
+		}
+		u.Const = flipped
+		return types.UntypedInt
+	case types.IsInteger(x):
+		return x
+	default:
+		c.errorf(u.X.Spanned(), "operator ^ is not defined on %s", c.typeName(x))
+		return types.Invalid
+	}
+}
+
+// shift checks x << n or x >> n, bin, on operands of types x and y, and
+// returns the type of the result: x's. x must be an integer and n an
+// unsigned integer or an untyped constant that is not negative (see
+// shiftCount). Two untyped constants give an untyped constant, computed
+// exactly. An untyped x shifted by a typed count is an int64, as an
+// untyped constant with nothing else to give it a type is; an untyped
+// count is a uint64. Known operands are computed as for arithmetic, and
+// a result that is not a value of the type is reported (see
+// knownOverflow).
+func (c *Checker) shift(bin *ast.Binary, x, y types.Type) types.Type {
+	if !c.shiftOperands(bin, x, y) {
+		return types.Invalid
+	}
+	if x == types.UntypedInt && y == types.UntypedInt {
+		return c.foldShift(bin)
+	}
+	typ := x
+	if x == types.UntypedInt {
+		typ = types.Int64
+		if !c.settle(bin.X, typ) {
+			return types.Invalid
+		}
+	}
+	if y == types.UntypedInt && !c.settle(bin.Y, types.Uint64) {
+		return types.Invalid
+	}
+	if c.knownOverflow(bin, typ) {
+		return types.Invalid
+	}
+	return typ
+}
+
+// shiftOperands reports the operands of bin, a shift, of types x and y,
+// unless x is an integer and y a count (see shiftCount), and returns
+// whether they are. An Invalid operand has been reported already.
+func (c *Checker) shiftOperands(bin *ast.Binary, x, y types.Type) bool {
+	if x == types.Invalid || y == types.Invalid {
+		return false
+	}
+	leftOK := types.IsInteger(x)
+	if !leftOK {
+		if got := c.valueOf(bin.X, x); got != types.Invalid {
+			c.errorf(bin.X.Spanned(), "operator %s is not defined on %s", bin.Op, c.typeName(got))
+		}
+	}
+	return c.shiftCount(bin.Y, y) && leftOK
+}
+
+// shiftCount checks n, of type y, the count of a shift: an unsigned
+// integer of any width, or an untyped constant that is not negative,
+// which becomes a uint64 unless the shift is of two untyped constants. It
+// reports any other count and returns whether n is one.
+func (c *Checker) shiftCount(n ast.Expr, y types.Type) bool {
+	switch {
+	case y == types.Invalid:
+		return false
+	case y == types.UntypedInt:
+		if v, _ := constValue(n); v.IsNegative() {
+			c.errorf(n.Spanned(), "shift count must not be negative, got %s", v)
+			return false
+		}
+		return true
+	case types.IsInteger(y) && types.IsUnsigned(y):
+		return true
+	}
+	if got := c.valueOf(n, y); got != types.Invalid {
+		c.errorf(n.Spanned(), "shift count must be an unsigned integer, got %s", c.typeName(got))
+	}
+	return false
+}
+
+// foldShift computes a shift of an untyped constant by an untyped count,
+// exactly, recording the value on bin: x << n is x times 2^n, which must
+// stay in the range constants lie in, and x >> n x divided by 2^n,
+// rounded down.
+func (c *Checker) foldShift(bin *ast.Binary) types.Type {
+	a, _ := constValue(bin.X)
+	n, _ := constValue(bin.Y)
+	result, ok := shiftStep(bin.Op, a, n)
+	if !ok {
+		c.errorf(bin.Span, "constant expression is out of range")
+		return types.Invalid
+	}
+	bin.Const = result
+	return types.UntypedInt
 }

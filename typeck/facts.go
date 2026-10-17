@@ -224,8 +224,9 @@ func typeBounds(typ types.Type) (lo, hi constant.Int) {
 // function, a field or an element of a known struct or array, such as a
 // field of an immutable global, or a byte of a known string, at a known
 // index (see foldPart), a conversion of a known value that is a value of
-// its type, or arithmetic on known values whose exact result is a value of
-// its type, as in len(a) - 1.
+// its type, or arithmetic, a bitwise operator, a shift, a negation or a
+// complement on known values whose exact result is a value of its type,
+// as in len(a) - 1 or k << 2.
 func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 	if v, ok := constValue(e); ok {
 		return v, true
@@ -240,17 +241,34 @@ func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
 		k, isInt := v.(constant.Int)
 		return k, ok && isInt
 	case *ast.Unary:
-		v, ok := c.knownValue(x.X)
-		if !ok || x.Op != ast.Neg {
-			return constant.Int{}, false
-		}
-		return fitting(v.Neg())(x.Type)
+		return c.knownUnary(x)
 	}
 	id, ok := e.(*ast.Ident)
 	if !ok {
 		return constant.Int{}, false
 	}
 	return c.knownVar(id)
+}
+
+// knownUnary returns the value of -x or ^x, u, when x's value is known and
+// the result is a value of u's type on every target. ^x of a signed type
+// is -x - 1, and of an unsigned one x with every bit of its width flipped,
+// which a target-width type's width leaves unknown.
+func (c *Checker) knownUnary(u *ast.Unary) (constant.Int, bool) {
+	v, ok := c.knownValue(u.X)
+	switch {
+	case !ok:
+		return constant.Int{}, false
+	case u.Op == ast.Neg:
+		return fitting(v.Neg())(u.Type)
+	case u.Op != ast.Complement || types.TargetWidth(u.Type):
+		return constant.Int{}, false
+	case types.IsUnsigned(u.Type):
+		mask := uint64(math.MaxUint64) >> (64 - types.MaxBits(u.Type))
+		return fitting(v.Xor(constant.FromUint64(mask)))(u.Type)
+	default:
+		return fitting(v.Not())(u.Type)
+	}
 }
 
 // knownVar returns the value of the variable id names, when it is
@@ -397,7 +415,7 @@ type knownBinary struct {
 // Nothing else it depends on changes once its operands are checked. A
 // body checked twice (see checkBody) forgets every answer between the two.
 func (c *Checker) knownArithmetic(bin *ast.Binary) (constant.Int, bool) {
-	if !bin.Op.IsArithmetic() {
+	if !bin.Op.IsInteger() {
 		return constant.Int{}, false
 	}
 	typed := bin.Type != types.Invalid && bin.Type != types.UntypedInt
@@ -422,17 +440,23 @@ func (c *Checker) computeArithmetic(bin *ast.Binary) (constant.Int, bool) {
 	return knownStep(bin.Op, a, b, bin.Type)
 }
 
-// knownStep computes a op b, exactly, for the arithmetic operator op, and
-// keeps the result only if it is a value of the type typ the operation
-// works in. A division or remainder by zero has no value.
+// knownStep computes a op b, exactly, for the arithmetic, bitwise or
+// shift operator op, and keeps the result only if it is a value of the
+// type typ the operation works in. A division or remainder by zero has no
+// value. A bitwise operator on two values of typ always gives one, and a
+// left shift is exact, so one that shifts a set bit out of typ gives none.
 func knownStep(op ast.BinaryOp, a, b constant.Int, typ types.Type) (constant.Int, bool) {
-	switch op {
-	case ast.Add:
+	switch {
+	case op == ast.Add:
 		return fitting(a.Add(b))(typ)
-	case ast.Sub:
+	case op == ast.Sub:
 		return fitting(a.Sub(b))(typ)
-	case ast.Mul:
+	case op == ast.Mul:
 		return fitting(a.Mul(b))(typ)
+	case op.IsBitwise():
+		return fitting(bitwiseStep(op, a, b))(typ)
+	case op.IsShift():
+		return fitting(shiftStep(op, a, b))(typ)
 	}
 	if b.IsZero() {
 		return constant.Int{}, false
@@ -441,6 +465,36 @@ func knownStep(op ast.BinaryOp, a, b constant.Int, typ types.Type) (constant.Int
 		return fitting(a.Quo(b))(typ)
 	}
 	return fitting(a.Rem(b))(typ)
+}
+
+// bitwiseStep computes a op b, exactly, for the bitwise operator op, on
+// the values' two's complement forms (see constant.Int.And), and reports
+// whether the result is in the range constants lie in.
+func bitwiseStep(op ast.BinaryOp, a, b constant.Int) (constant.Int, bool) {
+	switch op {
+	case ast.BitAnd:
+		return a.And(b)
+	case ast.BitOr:
+		return a.Or(b)
+	case ast.BitXor:
+		return a.Xor(b)
+	default: // ast.AndNot
+		return a.AndNot(b)
+	}
+}
+
+// shiftStep computes a op n, exactly, for the shift operator op: a << n
+// is a times 2^n, and a >> n a divided by 2^n, rounded down. It reports
+// whether the result is in the range constants lie in; a negative count,
+// which the checker reports, gives none.
+func shiftStep(op ast.BinaryOp, a, n constant.Int) (constant.Int, bool) {
+	if n.IsNegative() {
+		return constant.Int{}, false
+	}
+	if op == ast.Shl {
+		return a.Shl(n.Uint64())
+	}
+	return a.Shr(n.Uint64())
 }
 
 // fitting turns the result of a constant operation into a known value of

@@ -380,12 +380,33 @@ const (
 	And
 	// Or is ||.
 	Or
+
+	// The bitwise operators take two integers of one type and yield that
+	// type, as the arithmetic operators do.
+
+	// BitAnd is &.
+	BitAnd
+	// BitOr is |.
+	BitOr
+	// BitXor is ^.
+	BitXor
+	// AndNot is &^, a & ^b.
+	AndNot
+
+	// The shift operators take an integer and an unsigned count and yield
+	// the integer's type.
+
+	// Shl is <<.
+	Shl
+	// Shr is >>.
+	Shr
 )
 
 var binaryOpNames = map[BinaryOp]string{
 	Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%",
 	Eq: "==", Ne: "!=", Lt: "<", Le: "<=", Gt: ">", Ge: ">=",
 	And: "&&", Or: "||",
+	BitAnd: "&", BitOr: "|", BitXor: "^", AndNot: "&^", Shl: "<<", Shr: ">>",
 }
 
 // String returns the operator as it is written in source.
@@ -406,6 +427,18 @@ func (o BinaryOp) IsComparison() bool { return o >= Eq && o <= Ge }
 
 // IsLogical reports whether the operator is && or ||.
 func (o BinaryOp) IsLogical() bool { return o == And || o == Or }
+
+// IsBitwise reports whether the operator is one of & | ^ &^, which take two
+// integers of one type and yield it.
+func (o BinaryOp) IsBitwise() bool { return o >= BitAnd && o <= AndNot }
+
+// IsShift reports whether the operator is << or >>, which shift an integer
+// by an unsigned count and yield the integer's type.
+func (o BinaryOp) IsShift() bool { return o == Shl || o == Shr }
+
+// IsInteger reports whether the operator works on integers and yields one:
+// an arithmetic, a bitwise or a shift operator.
+func (o BinaryOp) IsInteger() bool { return o.IsArithmetic() || o.IsBitwise() || o.IsShift() }
 
 // Binary is an infix operation, X Op Y.
 type Binary struct {
@@ -443,6 +476,9 @@ const (
 	Not
 	// Neg is -, which negates an int: -x means 0 - x.
 	Neg
+	// Complement is ^, which flips every bit of an int: ^x means x ^ m,
+	// with m all ones for an unsigned type and -1 for a signed one.
+	Complement
 )
 
 // String returns the operator as it is written in source.
@@ -452,6 +488,8 @@ func (o UnaryOp) String() string {
 		return "!"
 	case Neg:
 		return "-"
+	case Complement:
+		return "^"
 	default:
 		return "invalid operator"
 	}

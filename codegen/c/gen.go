@@ -404,10 +404,15 @@ func (g *generator) emitConstantPool(builtins []builtin.Func) {
 
 	// Division and remainder by -1 are written out, since the smallest int
 	// divided by -1 overflows and C leaves that undefined: the quotient wraps
-	// to the smallest int, and the remainder is 0. Each helper is emitted only
-	// when the program uses its operator.
+	// to the smallest int, and the remainder is 0. A shift's count is
+	// tested against the width, which C leaves undefined at or past it.
+	// Each helper is emitted only when the program uses its operator.
 	for _, use := range g.divisions() {
-		g.emitDivision(use.op, use.typ)
+		if use.op.IsShift() {
+			g.emitShift(use.op, use.typ)
+		} else {
+			g.emitDivision(use.op, use.typ)
+		}
 	}
 
 	// Each slice helper is emitted only when the program slices its type,
@@ -417,13 +422,14 @@ func (g *generator) emitConstantPool(builtins []builtin.Func) {
 	}
 }
 
-// division is one operator, / or %, applied in one integer type.
+// division is one operator that goes through a helper, / % << or >>,
+// applied in one integer type.
 type division struct {
 	op  ast.BinaryOp
 	typ types.Type
 }
 
-// divisions lists each division and remainder the program does, by
+// divisions lists each division, remainder and shift the program does, by
 // operator and type, in a fixed order, so the helpers are emitted the same
 // way every time.
 func (g *generator) divisions() []division {
@@ -436,7 +442,7 @@ func (g *generator) divisions() []division {
 	})
 
 	var out []division
-	for _, op := range []ast.BinaryOp{ast.Div, ast.Rem} {
+	for _, op := range []ast.BinaryOp{ast.Div, ast.Rem, ast.Shl, ast.Shr} {
 		for typ := types.Type(0); typ < types.UntypedInt; typ++ {
 			if used[division{op, typ}] {
 				out = append(out, division{op, typ})
@@ -446,11 +452,11 @@ func (g *generator) divisions() []division {
 	return out
 }
 
-// divisionIn returns the division or remainder node n does at runtime, if
-// it does one: an operator expression that is not a constant, or a compound
-// assignment, which works in its target's type.
+// divisionIn returns the division, remainder or shift node n does at
+// runtime, if it does one: an operator expression that is not a constant,
+// or a compound assignment, which works in its target's type.
 func divisionIn(n ast.Node) (division, bool) {
-	isDivision := func(op ast.BinaryOp) bool { return op == ast.Div || op == ast.Rem }
+	isDivision := func(op ast.BinaryOp) bool { return op == ast.Div || op == ast.Rem || op.IsShift() }
 	switch x := n.(type) {
 	case *ast.Binary:
 		return division{x.Op, x.Type}, isDivision(x.Op) && x.Const == nil
@@ -482,14 +488,48 @@ func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
 	g.buf.WriteString("}\n\n")
 }
 
-// divisionName is the name of the helper for op in typ, such as
-// tack_div_int8.
-func divisionName(op ast.BinaryOp, typ types.Type) string {
-	name := "div"
-	if op == ast.Rem {
-		name = "rem"
+// emitShift writes the helper for the shift op in typ, which takes the
+// count as a uint64_t, the widest unsigned type, so a count of any
+// unsigned type converts to it unchanged. A count at or past the width
+// shifts every bit out, which C leaves undefined: << gives 0, and >> 0, or
+// -1 for a negative value. << shifts on uint64_t, as + adds, and keeps the
+// low bits, so a signed value wraps rather than overflowing. A signed >>
+// is written out as an arithmetic shift, a negative value's complement
+// being shifted instead, so it never relies on how C shifts a negative
+// value; a count past the width is one less than the width there, which
+// gives the same 0 or -1.
+//
+//	static int8_t tack_shr_int8(int8_t a, uint64_t n) {
+//	    if (n >= sizeof (int8_t) * 8) {
+//	        n = sizeof (int8_t) * 8 - 1;
+//	    }
+//	    return a < 0 ? (int8_t)~(~a >> n) : (int8_t)(a >> n);
+//	}
+func (g *generator) emitShift(op ast.BinaryOp, typ types.Type) {
+	t := g.cType(typ)
+	fmt.Fprintf(&g.buf, "static %s %s(%s a, uint64_t n) {\n", t, divisionName(op, typ), t)
+	switch {
+	case op == ast.Shl:
+		fmt.Fprintf(&g.buf, "    return n >= sizeof (%s) * 8 ? 0 : (%s)((uint64_t)a << n);\n", t, t)
+	case types.IsUnsigned(typ):
+		fmt.Fprintf(&g.buf, "    return n >= sizeof (%s) * 8 ? 0 : (%s)(a >> n);\n", t, t)
+	default:
+		fmt.Fprintf(
+			&g.buf,
+			"    if (n >= sizeof (%s) * 8) {\n        n = sizeof (%s) * 8 - 1;\n    }\n",
+			t,
+			t,
+		)
+		fmt.Fprintf(&g.buf, "    return a < 0 ? (%s)~(~a >> n) : (%s)(a >> n);\n", t, t)
 	}
-	return "tack_" + name + "_" + types.NewTable().Name(typ)
+	g.buf.WriteString("}\n\n")
+}
+
+// divisionName is the name of the helper for op in typ, such as
+// tack_div_int8 or tack_shl_uint64.
+func divisionName(op ast.BinaryOp, typ types.Type) string {
+	names := map[ast.BinaryOp]string{ast.Div: "div", ast.Rem: "rem", ast.Shl: "shl", ast.Shr: "shr"}
+	return "tack_" + names[op] + "_" + types.NewTable().Name(typ)
 }
 
 // generateDecls generates every top-level declaration: each global as one
@@ -978,11 +1018,11 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 
 // parenthesised reports whether e is lowered to C wrapped in a pair of
 // parentheses of its own: a binary expression, unless it is a constant,
-// which is written as its value, or a division or remainder, which calls a
-// helper.
+// which is written as its value, or a division, a remainder or a shift,
+// which calls a helper.
 func parenthesised(e ast.Expr) bool {
 	b, ok := e.(*ast.Binary)
-	return ok && b.Const == nil && b.Op != ast.Div && b.Op != ast.Rem
+	return ok && b.Const == nil && b.Op != ast.Div && b.Op != ast.Rem && !b.Op.IsShift()
 }
 
 // condHeader writes the opening line of an if or while whose condition is
@@ -2260,7 +2300,7 @@ func (g *generator) binaryExpr(bin *ast.Binary) (string, []diag.Diagnostic) {
 // binaryOf renders bin, other than && and ||, applied to its operands
 // rendered as left and right.
 func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
-	if bin.Op.IsArithmetic() {
+	if bin.Op.IsInteger() {
 		return arith(bin.Op, bin.Type, left, right)
 	}
 	if g.isComposite(ast.TypeOf(bin.X)) {
@@ -2285,17 +2325,22 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 // the implementation for a signed typ, and clang keeps the low bits; the
 // sanitizer tests in wrap_test.go check it. / and % go through a helper per
 // type, which handles the smallest value divided by -1, the one overflow
-// division has. Each operand appears once, so neither is evaluated twice.
+// division has, and so do << and >>, which handle a count at or past the
+// width (see emitShift). & | ^ and &^ are done on uint64_t too, which keeps
+// every bit a signed value's two's complement form has. Each operand
+// appears once, so neither is evaluated twice.
 func arith(op ast.BinaryOp, typ types.Type, l, r string) string {
 	switch op {
-	case ast.Div, ast.Rem:
+	case ast.Div, ast.Rem, ast.Shl, ast.Shr:
 		return fmt.Sprintf("%s(%s, %s)", divisionName(op, typ), l, r)
+	case ast.AndNot:
+		return fmt.Sprintf("((%s)((uint64_t)%s & ~(uint64_t)%s))", basicCType(typ), l, r)
 	default:
 		return fmt.Sprintf("((%s)((uint64_t)%s %s (uint64_t)%s))", basicCType(typ), l, op, r)
 	}
 }
 
-// unaryExpr renders ! or -. A ! gets no parentheses of its own: C's ! binds
+// unaryExpr renders ! - or ^. A ! gets no parentheses of its own: C's ! binds
 // tighter than any binary operator, as Tack's does, and its operand comes out
 // already grouped, since every binary expression is parenthesised. A - is
 // parenthesised, so that two in a row never read as C's decrement operator.
@@ -2304,10 +2349,15 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 	if len(diags) > 0 {
 		return "", diags
 	}
-	if u.Op == ast.Neg {
+	switch u.Op {
+	case ast.Neg:
 		// -x is 0 - x, done on uint64_t so that negating the smallest value
 		// wraps to itself instead of being undefined.
 		return fmt.Sprintf("((%s)(0 - (uint64_t)%s))", g.cType(u.Type), x), nil
+	case ast.Complement:
+		// ^x flips every bit, done on uint64_t, as & is, and converted back,
+		// which keeps the low bits.
+		return fmt.Sprintf("((%s)~(uint64_t)%s)", g.cType(u.Type), x), nil
 	}
 	return u.Op.String() + x, nil
 }

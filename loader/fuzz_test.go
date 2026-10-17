@@ -144,11 +144,8 @@ var loadSeeds = []string{
 		"err := append(mut b, s...)\nreturn Text{b: b}, err }\n" +
 		"pub func (t Text) len() int64 { return len(t.b) }\n" +
 		"pub func (t Text) equal(s []uint8) bool { return len(t.b) == len(s) }\n" +
-		"func xor_low(h uint64, c uint8) uint64 { low := h % 256\nmut x := low\nmut y uint64 = c\n" +
-		"mut r uint64 = 0\nmut bit uint64 = 1\nfor range 8 { if x % 2 != y % 2 { r += bit }\n" +
-		"x /= 2\ny /= 2\nbit *= 2 }\nreturn h - low + r }\n" +
 		"pub func (t Text) hash() uint64 { mut h uint64 = 14695981039346656037\n" +
-		"for _, c := range t.b { h = xor_low(h, c) * fnv_prime }\nreturn h }\n" +
+		"for _, c := range t.b { h = (h ^ uint64(c)) * fnv_prime }\nreturn h }\n" +
 		"pub func (mut t Text) append_byte(c uint8) error { return append(mut t.b, c) }\n" +
 		"pub func (t Text) bytes() []uint8 { return t.b }\n",
 	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport os from \"std/os\"\n" +

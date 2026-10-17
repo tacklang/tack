@@ -57,8 +57,7 @@ func TestCompoundAssignmentSpan(t *testing.T) {
 }
 
 // TestRejectsMalformedCompoundAssignment checks a missing or extra operand is
-// a parse error, as are the bitwise forms, which come with the bitwise
-// operators.
+// a parse error, the bitwise and shift forms as much as the others.
 func TestRejectsMalformedCompoundAssignment(t *testing.T) {
 	tests := []struct {
 		src  string
@@ -69,8 +68,8 @@ func TestRejectsMalformedCompoundAssignment(t *testing.T) {
 		{"1 += 2", "expected 'statement' found '1'"},
 		{"x += y += 1", "expected ';' found '+='"},
 		{"y := x += 1", "expected ';' found '+='"},
-		{"x &= 1", "expected 'statement' found 'x'"},
-		{"x <<= 1", "expected 'statement' found 'x'"},
+		{"x &= 1 2", "expected ';' found '2'"},
+		{"x <<=", "expected 'value' found '}'"},
 		{"var x += 1", "expected 'type or =' found '+='"},
 		{"true += 1", "expected 'statement' found 'true'"},
 	}

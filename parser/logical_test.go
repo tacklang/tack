@@ -118,8 +118,7 @@ func TestDeeplyNestedNot(t *testing.T) {
 }
 
 // TestRejectsMalformedLogicalExpressions checks a missing operand is a parse
-// error, and that the other unary operators the lexer knows are not
-// accepted.
+// error, after a prefix ^ and between two & as much as around && and ||.
 func TestRejectsMalformedLogicalExpressions(t *testing.T) {
 	tests := []struct {
 		expr string
@@ -130,8 +129,8 @@ func TestRejectsMalformedLogicalExpressions(t *testing.T) {
 		{"a || || b", "expected 'value' found '||'"},
 		{"!", "expected 'value' found '}'"},
 		{"a !", "expected ';' found '!'"},
-		{"^a", "expected 'value' found '^'"},
-		{"a & b", "expected ';' found '&'"},
+		{"^", "expected 'value' found '}'"},
+		{"a & & b", "expected 'value' found '&'"},
 	}
 
 	for _, tt := range tests {

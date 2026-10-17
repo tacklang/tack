@@ -1078,7 +1078,13 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.SubAssign,
 		lexer.MulAssign,
 		lexer.DivAssign,
-		lexer.ModAssign:
+		lexer.ModAssign,
+		lexer.BitAndAssign,
+		lexer.BitOrAssign,
+		lexer.BitXorAssign,
+		lexer.BitAndNotAssign,
+		lexer.ShiftLeftAssign,
+		lexer.ShiftRightAssign:
 		return p.parseAssign()
 	case lexer.LParen:
 		return p.parseCallLike(tk, n, postfixed)
@@ -1820,14 +1826,21 @@ func (p *Parser) parseAssign() (*ast.Assign, []diag.Diagnostic) {
 	return a, nil
 }
 
-// compoundOps maps each compound assignment operator to the arithmetic
-// operator it applies. A plain = is absent, so it maps to ast.InvalidOp.
+// compoundOps maps each compound assignment operator to the arithmetic,
+// bitwise or shift operator it applies. A plain = is absent, so it maps to ast.InvalidOp.
 var compoundOps = map[lexer.TokenKind]ast.BinaryOp{
 	lexer.AddAssign: ast.Add,
 	lexer.SubAssign: ast.Sub,
 	lexer.MulAssign: ast.Mul,
 	lexer.DivAssign: ast.Div,
 	lexer.ModAssign: ast.Rem,
+
+	lexer.BitAndAssign:     ast.BitAnd,
+	lexer.BitOrAssign:      ast.BitOr,
+	lexer.BitXorAssign:     ast.BitXor,
+	lexer.BitAndNotAssign:  ast.AndNot,
+	lexer.ShiftLeftAssign:  ast.Shl,
+	lexer.ShiftRightAssign: ast.Shr,
 }
 
 // endStmt consumes the semicolon that ends a statement, which may be left out
@@ -2587,9 +2600,10 @@ func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 // is not one. Higher binds tighter, following Go's ordering.
 func precedence(kind lexer.TokenKind) int {
 	switch kind {
-	case lexer.Mul, lexer.Div, lexer.Mod:
+	case lexer.Mul, lexer.Div, lexer.Mod,
+		lexer.ShiftLeft, lexer.ShiftRight, lexer.BitAnd, lexer.BitAndNot:
 		return 5
-	case lexer.Add, lexer.Sub:
+	case lexer.Add, lexer.Sub, lexer.BitOr, lexer.BitXor:
 		return 4
 	case lexer.Equal,
 		lexer.NotEqual,
@@ -2621,6 +2635,12 @@ var binaryOps = map[lexer.TokenKind]ast.BinaryOp{
 	lexer.GreaterEqual: ast.Ge,
 	lexer.LogicalAnd:   ast.And,
 	lexer.LogicalOr:    ast.Or,
+	lexer.BitAnd:       ast.BitAnd,
+	lexer.BitOr:        ast.BitOr,
+	lexer.BitXor:       ast.BitXor,
+	lexer.BitAndNot:    ast.AndNot,
+	lexer.ShiftLeft:    ast.Shl,
+	lexer.ShiftRight:   ast.Shr,
 }
 
 // parseExpr parses an expression whose operators bind at least as tightly as
@@ -2669,6 +2689,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseUnary(ast.Not)
 	case tk.Kind() == lexer.Sub:
 		return p.parseUnary(ast.Neg)
+	case tk.Kind() == lexer.BitXor:
+		return p.parseUnary(ast.Complement)
 	case isKeyword(tk, lexer.Mut):
 		return p.parseMutArg()
 	case isKeyword(tk, lexer.List):

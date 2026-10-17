@@ -66,6 +66,15 @@ Conversions are the odd one out: no guard or fact makes `T(x)` compile
 when `x`'s type does not widen to `T`, only a known value that fits `T`
 (see [Conversions](#conversions)).
 
+A shift, `x << n` or `x >> n`, never fails, so it is not in the table: a
+count at or past `x`'s width shifts every bit out, giving 0, or -1 for
+`>>` of a negative value, where C leaves it undefined, and the backend
+tests the count before shifting. What a count cannot be is negative, which
+its type rules out instead of a proof: it must be an unsigned integer,
+<!-- error: shift-signed-count -->`shift count must be an unsigned integer, got int64`,
+or an untyped constant that is not
+negative, <!-- error: shift-negative-count -->`shift count must not be negative, got -1`.
+
 ## The checked form
 
 The checked form is the operation, alone, as the value of a declaration or

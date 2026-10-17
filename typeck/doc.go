@@ -486,12 +486,17 @@
 //   - a call statement does something: one that only gives a value, a
 //     union built, a conversion or a call of len, is reported as not used
 //     (onlyValue), unless it has an error of its own;
-//   - every operand of an arithmetic operator is an integer, the two having
-//     a common type, and the operand of - a signed integer; every operand of
+//   - every operand of an arithmetic or a bitwise operator is an integer,
+//     the two having a common type, and the operand of - a signed integer
+//     and of ^ any integer; a shift's left operand is an integer, whose
+//     type it gives, an untyped constant becoming an int64 beside a typed
+//     count, and its count an unsigned integer or an untyped constant that
+//     is not negative, a uint64 unless both are untyped (shift); every operand of
 //     && || and ! is a bool; a binary expression whose operator is not
 //     defined on its operands is one error, at the first such operand;
-//   - typed arithmetic whose operands are known values, as knownValue
-//     computes them, gives a value of its type, or the step that does not
+//   - typed arithmetic, bitwise or shift operators whose operands are
+//     known values, as knownValue computes them, give a value of their
+//     type, a shift that drops a set bit not doing so, or the step that does not
 //     is reported as overflowing it, here as at package level; so is - on
 //     a known smallest value of a signed type. The expression is then
 //     Invalid, so nothing around it is reported again. Arithmetic on a

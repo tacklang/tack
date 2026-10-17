@@ -11,7 +11,11 @@
 // An Int is a sign and a 64-bit magnitude. Each operation returns its result
 // and whether it is in range; the type checker turns false into a
 // diagnostic. Division truncates toward zero and a remainder takes the sign
-// of the dividend, as in Go and C. Fits reports whether a value belongs to a
+// of the dividend, as in Go and C. The bitwise operators work on a value's
+// infinitely wide two's complement form, as Go's do on its untyped
+// constants, which 65 bits hold for every value in range (see bits.go); a
+// left shift is exact, a multiplication by a power of two, and a right
+// shift rounds toward negative infinity. Fits reports whether a value belongs to a
 // particular integer type, which is how a constant is checked against the
 // type it is given.
 //

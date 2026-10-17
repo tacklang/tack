@@ -57,9 +57,9 @@
 //
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence (from loosest: ||, &&, the
-// comparisons, + and -, then * / and %); every binary operator is
-// left-associative. The prefix operators ! and - apply to the operand right
-// after them, so they bind tighter than any binary operator. A - right before
+// comparisons, + - | and ^, then * / % << >> & and &^); every binary
+// operator is left-associative. The prefix operators ! - and ^ apply to the
+// operand right after them, so they bind tighter than any binary operator. A - right before
 // an integer literal is part of the literal instead, which is how the
 // smallest int64 is written. Parentheses group without leaving a node of
 // their own, but an expression whose first or last operand is written in

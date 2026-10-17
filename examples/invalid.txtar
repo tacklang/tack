@@ -1546,6 +1546,125 @@ bare-return-with-result/main.tck:4:5: error: f must return a value of type int64
    |	    ^~~~~~
 05 |	}
 
+-- bitwise-compound-mismatched/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int8 {
+    mut v := a
+    v |= b
+    return v
+}
+
+func main() {
+}
+-- bitwise-compound-mismatched/expected --
+stage: typeck
+---
+
+bitwise-compound-mismatched/main.tck:5:10: error: cannot use uint8 as int8 in |=
+04 |	    mut v := a
+05 |	    v |= b
+   |	         ^
+06 |	    return v
+
+-- bitwise-compound-on-bool/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+    mut v := ok
+    v &= ok
+    return v
+}
+
+func main() {
+}
+-- bitwise-compound-on-bool/expected --
+stage: typeck
+---
+
+bitwise-compound-on-bool/main.tck:5:5: error: operator &= is not defined on bool
+04 |	    mut v := ok
+05 |	    v &= ok
+   |	    ^
+06 |	    return v
+
+-- bitwise-known-overflow/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint8 {
+    k := uint8(200)
+    return k << 2
+}
+
+func main() {
+}
+-- bitwise-known-overflow/expected --
+stage: typeck
+---
+
+bitwise-known-overflow/main.tck:5:12: error: constant expression overflows uint8
+04 |	    k := uint8(200)
+05 |	    return k << 2
+   |	           ^~~~~~
+06 |	}
+
+-- bitwise-mismatched-types/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int8 {
+    return a & b
+}
+
+func main() {
+}
+-- bitwise-mismatched-types/expected --
+stage: typeck
+---
+
+bitwise-mismatched-types/main.tck:4:12: error: mismatched types int8 and uint8 in &
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int8 {
+04 |	    return a & b
+   |	           ^~~~~
+05 |	}
+
+-- bitwise-on-bool/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+    return ok & ok
+}
+
+func main() {
+}
+-- bitwise-on-bool/expected --
+stage: typeck
+---
+
+bitwise-on-bool/main.tck:4:12: error: operator & is not defined on bool
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+04 |	    return ok & ok
+   |	           ^~
+05 |	}
+
+-- bitwise-on-string/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) string {
+    return s ^ s
+}
+
+func main() {
+}
+-- bitwise-on-string/expected --
+stage: typeck
+---
+
+bitwise-on-string/main.tck:4:12: error: operator ^ is not defined on string
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) string {
+04 |	    return s ^ s
+   |	           ^
+05 |	}
+
 -- blank-as-name/main.tck --
 package main
 
@@ -2309,6 +2428,44 @@ compare-mismatch-parenthesized/main.tck:4:8: error: mismatched types bool and in
 04 |	    if (true) == (1) {
    |	       ^~~~~~~~~~~~~
 05 |	        exit(1)
+
+-- complement-on-bool/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+    return ^ok
+}
+
+func main() {
+}
+-- complement-on-bool/expected --
+stage: typeck
+---
+
+complement-on-bool/main.tck:4:13: error: operator ^ is not defined on bool
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+04 |	    return ^ok
+   |	            ^~
+05 |	}
+
+-- complement-untyped-out-of-range/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int64 {
+    return ^18446744073709551615
+}
+
+func main() {
+}
+-- complement-untyped-out-of-range/expected --
+stage: typeck
+---
+
+complement-untyped-out-of-range/main.tck:4:12: error: constant expression is out of range
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int64 {
+04 |	    return ^18446744073709551615
+   |	           ^~~~~~~~~~~~~~~~~~~~~
+05 |	}
 
 -- compound-immutable/main.tck --
 package main
@@ -21179,6 +21336,201 @@ safety-string-index-unguarded/main.tck:4:14: error: index i may be out of range;
 03 |	func at(s string, i int64) uint8 {
 04 |	    return s[i]
    |	             ^
+05 |	}
+
+-- shift-compound-negative-count/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    mut v := u
+    v <<= -3
+    return v
+}
+
+func main() {
+}
+-- shift-compound-negative-count/expected --
+stage: typeck
+---
+
+shift-compound-negative-count/main.tck:5:11: error: shift count must not be negative, got -3
+04 |	    mut v := u
+05 |	    v <<= -3
+   |	          ^~
+06 |	    return v
+
+-- shift-compound-signed-count/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    mut v := u
+    v >>= n
+    return v
+}
+
+func main() {
+}
+-- shift-compound-signed-count/expected --
+stage: typeck
+---
+
+shift-compound-signed-count/main.tck:5:11: error: shift count must be an unsigned integer, got int64
+04 |	    mut v := u
+05 |	    v >>= n
+   |	          ^
+06 |	    return v
+
+-- shift-count-not-integer/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    return u << s
+}
+
+func main() {
+}
+-- shift-count-not-integer/expected --
+stage: typeck
+---
+
+shift-count-not-integer/main.tck:4:17: error: shift count must be an unsigned integer, got string
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+04 |	    return u << s
+   |	                ^
+05 |	}
+
+-- shift-negative-count/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    return u >> -1
+}
+
+func main() {
+}
+-- shift-negative-count/expected --
+stage: typeck
+---
+
+shift-negative-count/main.tck:4:17: error: shift count must not be negative, got -1
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+04 |	    return u >> -1
+   |	                ^~
+05 |	}
+
+-- shift-on-bool/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+    return ok << u
+}
+
+func main() {
+}
+-- shift-on-bool/expected --
+stage: typeck
+---
+
+shift-on-bool/main.tck:4:12: error: operator << is not defined on bool
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) bool {
+04 |	    return ok << u
+   |	           ^~
+05 |	}
+
+-- shift-signed-count/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    return u << n
+}
+
+func main() {
+}
+-- shift-signed-count/expected --
+stage: typeck
+---
+
+shift-signed-count/main.tck:4:17: error: shift count must be an unsigned integer, got int64
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+04 |	    return u << n
+   |	                ^
+05 |	}
+
+-- shift-typed-overflow/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint8 {
+    return uint8(1) << 8
+}
+
+func main() {
+}
+-- shift-typed-overflow/expected --
+stage: typeck
+---
+
+shift-typed-overflow/main.tck:4:12: error: constant expression overflows uint8
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint8 {
+04 |	    return uint8(1) << 8
+   |	           ^~~~~~~~~~~~~
+05 |	}
+
+-- shift-typed-overflow-signed/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int8 {
+    return int8(1) << 7
+}
+
+func main() {
+}
+-- shift-typed-overflow-signed/expected --
+stage: typeck
+---
+
+shift-typed-overflow-signed/main.tck:4:12: error: constant expression overflows int8
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int8 {
+04 |	    return int8(1) << 7
+   |	           ^~~~~~~~~~~~
+05 |	}
+
+-- shift-untyped-left-is-int64/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+    mut m uint64 = 1 << u
+    return m
+}
+
+func main() {
+}
+-- shift-untyped-left-is-int64/expected --
+stage: typeck
+---
+
+shift-untyped-left-is-int64/main.tck:4:20: error: cannot use int64 as uint64 in declaration of m
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) uint64 {
+04 |	    mut m uint64 = 1 << u
+   |	                   ^~~~~~
+05 |	    return m
+
+-- shift-untyped-out-of-range/main.tck --
+package main
+
+func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int64 {
+    return 1 << 64
+}
+
+func main() {
+}
+-- shift-untyped-out-of-range/expected --
+stage: typeck
+---
+
+shift-untyped-out-of-range/main.tck:4:12: error: constant expression is out of range
+03 |	func f(a int8, b uint8, n int64, u uint64, ok bool, s string) int64 {
+04 |	    return 1 << 64
+   |	           ^~~~~~~
 05 |	}
 
 -- single-file-import/main.tck --

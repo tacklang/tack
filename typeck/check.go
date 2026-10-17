@@ -1678,10 +1678,17 @@ func targetName(target ast.Expr) string {
 
 // checkCompound checks a compound assignment whose value has type got: the
 // target must be an integer variable it can update, and the value usable
-// as the target's type.
+// as the target's type, or, for <<= and >>=, a shift's count (see
+// shiftCount).
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
 	if typ, ok := c.checkIntTarget(a.Target, op); ok {
+		if a.Op.IsShift() {
+			if c.shiftCount(a.Value, got) && got == types.UntypedInt {
+				c.settle(a.Value, types.Uint64)
+			}
+			return
+		}
 		usable := c.use(a.Value, got, typ, "in "+op)
 		if usable && (a.Op == ast.Div || a.Op == ast.Rem) {
 			c.requireNonzero(a.Value, false)
