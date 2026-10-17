@@ -118,6 +118,14 @@ type Checker struct {
 	deferSpan    *ast.Span
 	lateDefaults []lateDefault
 
+	// storing is the assignment whose targets are being checked, if any.
+	// A proof a target needs is held to the whole statement, since the C
+	// backend computes the target's place where C puts it, not before the
+	// value, and stores several targets in turn, so every write in the
+	// statement, in its value or to another target, reaches the checks of
+	// every target, a proven index's included (see reaches).
+	storing *ast.Span
+
 	// body is the body of the function being checked, appends the calls
 	// to append in it checked so far whose error proves what they added
 	// (see appended.go), and writesByDecl every write in it to each
@@ -521,7 +529,7 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 		if ok {
 			got = results[i]
 		}
-		c.checkMultiTarget(m.Value, target, got, seen)
+		c.checkMultiTarget(m.Span, m.Value, target, got, seen)
 	}
 	if !ok {
 		return
@@ -541,11 +549,16 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 	}
 }
 
-// checkMultiTarget checks one target of a MultiAssign whose value, value,
-// gives got in the target's position, Invalid when the value is wrong.
-// seen holds the variables already named, each of which may be named only
-// once.
-func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen map[ast.Decl]bool) {
+// checkMultiTarget checks one target of a MultiAssign, stmt, whose value,
+// value, gives got in the target's position, Invalid when the value is
+// wrong. seen holds the variables already named, each of which may be
+// named only once.
+func (c *Checker) checkMultiTarget(
+	stmt ast.Span,
+	value, target ast.Expr,
+	got types.Type,
+	seen map[ast.Decl]bool,
+) {
 	// _ discards its value, whatever its type, and may appear more than
 	// once.
 	if ast.IsBlank(target) {
@@ -561,7 +574,9 @@ func (c *Checker) checkMultiTarget(value, target ast.Expr, got types.Type, seen 
 	}
 
 	c.assigning = &pendingAssign{target: target, value: value}
+	outer := c.storeTo(stmt)
 	typ, assignable := c.assignable(target)
+	c.storing = outer
 	c.assigning = nil
 	got = c.settleResult(value, got, typ)
 	if !assignable || typ == types.Invalid || got == types.Invalid || types.Widens(got, typ) {
@@ -1565,7 +1580,9 @@ func foldBools(op ast.BinaryOp, x, y bool) (any, bool) {
 func (c *Checker) checkAssign(a *ast.Assign) {
 	got := c.expr(a.Value)
 	if a.Op != ast.InvalidOp {
+		outer := c.storeTo(a.Span)
 		c.readHeld(a.Target)
+		c.storing = outer
 		c.assigning = &pendingAssign{target: a.Target, value: a.Value}
 		c.checkCompound(a, got)
 		c.assigning = nil
@@ -1573,13 +1590,24 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 		return
 	}
 
+	outer := c.storeTo(a.Span)
 	c.assigning = &pendingAssign{target: a.Target, value: a.Value}
 	typ, ok := c.assignable(a.Target)
 	c.assigning = nil
+	c.storing = outer
 	if ok {
 		c.use(a.Value, got, typ, "in assignment to "+targetName(a.Target))
 	}
 	c.checkErrorAssign(a, a.Target)
+}
+
+// storeTo marks stmt, an assignment, as the one whose targets are being
+// checked, so that every write in it reaches them, and returns the mark
+// it replaces, which the caller puts back once they are checked.
+func (c *Checker) storeTo(stmt ast.Span) *ast.Span {
+	outer := c.storing
+	c.storing = &stmt
+	return outer
 }
 
 // assignable checks that target can be assigned: a mutable variable or a
@@ -1723,7 +1751,10 @@ func targetName(target ast.Expr) string {
 // shiftCount).
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
-	if typ, ok := c.checkIntTarget(a.Target, op); ok {
+	outer := c.storeTo(a.Span)
+	typ, ok := c.checkIntTarget(a.Target, op)
+	c.storing = outer
+	if ok {
 		if a.Op.IsShift() {
 			if c.shiftCount(a.Value, got) && got == types.UntypedInt {
 				c.settle(a.Value, types.Uint64)

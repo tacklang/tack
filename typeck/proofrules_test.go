@@ -55,7 +55,33 @@ const (
 	indexIArr  = "index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]"
 	indexIStr  = "index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]"
 	lenDivisor = "divisor may be zero; use q, ok := ... / ..."
+	// The target of an assignment is told to check, and never offered the
+	// checked form, which cannot be assigned.
+	targetI    = "index i may be out of range; check 0 <= i && i < len(l) first"
+	targetIArr = "index i may be out of range; check 0 <= i && i < 3 first"
 )
+
+// assignPrelude adds to proofPrelude functions of two results, one taking
+// a mut argument, for the targets of an assignment of several values.
+const assignPrelude = proofPrelude + `func pair(mut i int64) (int64, int64) {
+    i = 0
+    return 1, 2
+}
+
+func both() (int64, int64) {
+    return 1, 2
+}
+
+`
+
+// assignProgram returns assignPrelude followed by a function g taking
+// params whose body is lines.
+func assignProgram(params string, lines ...string) string {
+	return assignPrelude + "func g(" + params + ") {\n    " + strings.Join(
+		lines,
+		"\n    ",
+	) + "\n}\n"
+}
 
 // TestWritesThatReachTheUseEndAProof checks that a proof ends at a write
 // that can run between the check and the use: before the use in the same
@@ -63,8 +89,10 @@ const (
 // part of the same expression, in code a defer runs after, in a switch's
 // case value tried before a default written above it, and through a mut
 // argument of a method, and that a successful append proves only what it
-// added, only until a later write to its list. Each program would compile
-// if the proof held.
+// added, only until a later write to its list. A proof an assignment's
+// target needs is held to the whole statement, so a write in its value or
+// another target ends it, a mut argument that ends where the statement
+// does included. Each program would compile if the proof held.
 func TestWritesThatReachTheUseEndAProof(t *testing.T) {
 	for _, tt := range endedProofs {
 		t.Run(tt.name, func(t *testing.T) {
@@ -375,6 +403,42 @@ var endedProofs = []struct{ name, src, msg string }{
 		"use(pop(mut l))"), popEmpty},
 	{"a plain remove not a statement", proofProgram("mut l list[int64], i int64",
 		"use(remove(mut l, i))"), removeI},
+	{
+		"a mut argument that is the whole of the target's value",
+		proofProgram("mut l list[int64], mut i int64",
+			"if 0 <= i && i < len(l) {", "    l[i] = five(mut i)", "}"),
+		targetI,
+	},
+	{"a mut argument ending a binary value", proofProgram("mut l list[int64], mut i int64",
+		"if 0 <= i && i < len(l) {", "    l[i] = 1 + five(mut i)", "}"), targetI},
+	{
+		"a mut argument in a compound assignment's value",
+		proofProgram("mut l list[int64], mut i int64",
+			"if 0 <= i && i < len(l) {", "    l[i] += five(mut i)", "}"),
+		targetI,
+	},
+	{"a mut argument assigning an element's field", proofProgram("mut l list[Box], mut i int64",
+		"if 0 <= i && i < len(l) {", "    l[i].n = five(mut i)", "}"), targetI},
+	{"a mut argument assigning an array's element", proofProgram("mut a [3]int64, mut i int64",
+		"if 0 <= i && i < 3 {", "    a[i] = five(mut i)", "}"), targetIArr},
+	{
+		"a mut argument assigning a nested array's element",
+		proofProgram("mut a [3][3]int64, mut i int64",
+			"if 0 <= i && i < 3 {", "    a[1][i] = five(mut i)", "}"),
+		targetIArr,
+	},
+	{"a mut argument through a function value", proofProgram("mut l list[int64], mut i int64",
+		"f := five", "if 0 <= i && i < len(l) {", "    l[i] = f(mut i)", "}"), targetI},
+	{
+		"a mut argument in the value of several targets",
+		assignProgram("mut l list[int64], mut i int64, mut x int64",
+			"if 0 <= i && i < len(l) {", "    l[i], x = pair(mut i)", "}"),
+		targetI,
+	},
+	{"an earlier target of several", assignProgram("mut l list[int64], mut i int64",
+		"if 0 <= i && i < len(l) {", "    i, l[i] = both()", "}"), targetI},
+	{"a later target of several", assignProgram("mut l list[int64], mut i int64",
+		"if 0 <= i && i < len(l) {", "    l[i], i = both()", "}"), targetI},
 }
 
 // TestWritesAfterTheUseKeepAProof checks that a proof holds through a
@@ -436,6 +500,29 @@ func TestWritesAfterTheUseKeepAProof(t *testing.T) {
 			"pop(mut l)", "remove(mut l, i)")},
 		{"a pop statement in a defer", proofProgram("mut l list[int64]",
 			"defer { pop(mut l) }", "pop(mut l)")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if diags := check(t, tt.src); len(diags) > 0 {
+				t.Fatalf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// TestAssignmentsKeepAProofOfTheirTarget checks that an assignment's
+// target keeps its proof through every write in the statement that does
+// not touch what the proof is about: a value's mut argument of another
+// variable, a plain or compound assignment, a value computed into a
+// variable before the index is proven, and a target of several beside
+// one that writes nothing the index needs.
+func TestAssignmentsKeepAProofOfTheirTarget(t *testing.T) {
+	for _, tt := range []struct{ name, src string }{
+		{"a value's mut argument of another variable", proofProgram("mut l list[int64], mut i int64, mut j int64",
+			"if 0 <= i && i < len(l) {", "    l[i] = five(mut j)", "    l[i] += five(mut j)", "}")},
+		{"a value computed before the target is proven", proofProgram("mut l list[int64], mut i int64",
+			"v := five(mut i)", "if 0 <= i && i < len(l) {", "    l[i] = v", "}")},
+		{"a target of several that writes no index", assignProgram("mut l list[int64], i int64, mut x int64",
+			"if 0 <= i && i < len(l) {", "    l[i], x = both()", "}")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if diags := check(t, tt.src); len(diags) > 0 {

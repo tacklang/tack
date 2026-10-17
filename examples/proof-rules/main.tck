@@ -178,6 +178,91 @@ func droppedOwned() {
     check(len(ll) == 1, "owned elements dropped by statements")
 }
 
+// moved sets i far past the end of every list here and returns 1: a
+// value that writes its target's index, which an assignment's value
+// cannot be, since a proof the target needs holds to the statement's end.
+func moved(mut i int64) int64 {
+    i = 1000000
+    return 1
+}
+
+// next moves i on by one and returns 7.
+func next(mut i int64) int64 {
+    i += 1
+    return 7
+}
+
+// both returns two values, for an assignment of several targets.
+func both() (int64, int64) {
+    return 8, 9
+}
+
+// Spot is a struct with a field to assign in place in a list.
+type Spot struct {
+    at int64
+    tag int64
+}
+
+// assigned computes each value that writes an index into a local first,
+// then proves the index it left and assigns the element: in a list, at
+// i where next left it; skipped, where moved left i out of range; an
+// array's element, a nested array's, an element's field, through a
+// function value, and a compound assignment; and a value writing another
+// variable than its target's index, and a target of several beside one
+// that writes no index. It returns whether every element ended where it
+// should.
+func assigned() bool {
+    mut l := count(3)
+    mut i := 0
+    v := next(mut i)
+    if 0 <= i && i < len(l) {
+        l[i] = v
+    }
+    mut far := 2
+    w := moved(mut far)
+    if 0 <= far && far < len(l) {
+        l[far] = w
+    }
+    mut k := 0
+    if 0 <= i && i < len(l) {
+        l[i] += moved(mut k)
+    }
+    mut a := [3]int64{0, 0, 0}
+    mut grid := [2][3]int64{[3]int64{0, 0, 0}, [3]int64{0, 0, 0}}
+    mut j := 1
+    x := next(mut j)
+    if 0 <= j && j < 3 {
+        a[j] = x
+        grid[1][j] = x
+    }
+    mut spots := make(list[Spot], c_allocator)
+    err := append(mut spots, Spot{at: 0, tag: 0}, Spot{at: 1, tag: 0})
+    if err.code != 0 {
+        return false
+    }
+    f := next
+    mut s := 0
+    y := f(mut s)
+    mut other := 0
+    if 0 <= s && s < len(spots) && s < len(l) {
+        spots[s].tag = y
+        l[s], other = both()
+    }
+    mut tags := 0
+    for _, sp := range spots {
+        tags = tags * 10 + sp.tag
+    }
+    want := [3]int64{0, 8, 2}
+    mut same := len(l) == 3
+    for n, e := range l {
+        if n < 3 && 0 <= n {
+            same = same && e == want[n]
+        }
+    }
+    return same && k == 1000000 && far == 1000000 && a[2] == 7 && grid[1][2] == 7 &&
+        grid[0][2] == 0 && tags == 7 && other == 9
+}
+
 func main() {
     mut l := count(3)
     check(lastOr(mut l, -1) == 2 && len(l) == 2, "pop after a length check")
@@ -210,4 +295,6 @@ func main() {
     before := live()
     droppedOwned()
     check(live() == before, "every dropped list freed")
+    check(assigned(), "each value that writes an index computed before it is proven")
+    check(live() == before, "every assigned list freed")
 }

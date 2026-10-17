@@ -1103,7 +1103,9 @@ func isLoop(n ast.Node) bool {
 // is in deferred code, which runs when its block is left, and e is
 // outside it; or c.at is in a switch's default written before cases
 // whose values are tried before it runs, and e is in that switch outside
-// the default (see lateDefault).
+// the default (see lateDefault); or c.at is in the targets of an
+// assignment and e is anywhere in that assignment, its value or its
+// targets (see storing).
 func (c *Checker) reaches(e ending) bool {
 	switch {
 	case e.at < c.at:
@@ -1112,7 +1114,16 @@ func (c *Checker) reaches(e ending) bool {
 		return true
 	case c.deferSpan != nil && !inSpan(e.at, *c.deferSpan):
 		return true
+	case c.storing != nil && inSpan(e.at, *c.storing):
+		return true
 	}
+	return c.beforeLateDefault(e)
+}
+
+// beforeLateDefault reports whether e is in a switch whose default,
+// written before some of its cases, is being checked, and outside that
+// default: every case's values are tried before the default runs.
+func (c *Checker) beforeLateDefault(e ending) bool {
 	for _, d := range c.lateDefaults {
 		if inSpan(e.at, d.whole) && !inSpan(e.at, d.body) {
 			return true

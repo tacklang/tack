@@ -2297,7 +2297,12 @@ makes for itself, which has a letter after `tack_`.
   evaluated, and an assignment stores to its target only once its value
   is computed: `if d != 0 { d = n / d }` and `if len(l) > 0 { x := pop(mut
   l) }` compile, while a second `pop` after the first needs a check of its
-  own. It includes a write later in a loop's body when the check runs
+  own. A proof an assignment's target needs must hold through the whole
+  statement, so a write in the value, or, in an assignment of several, to
+  another target, ends it: `l[i] = bump(mut i)` and `i, l[i] = two()` are
+  both `index i may be out of range; check 0 <= i && i < len(l) first`, as
+  is `l[i], i = two()`, and such a value is computed into a variable
+  before the index is proven. It includes a write later in a loop's body when the check runs
   again before the next use, as the loop's condition, or a guard in the
   body before the use, does: in `for 0 <= i && i < 3 { use(a[i]); i++ }`
   the condition proves `a[i]` on every pass. Deferred code is judged

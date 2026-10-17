@@ -1700,6 +1700,550 @@ assign-borrow-owner/main.tck:21:23: note: passed as mut here
    |	                      ^~~~~
 22 |	}
 
+-- assign-index-multi-target/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func two() (int64, int64) {
+    return 100000, 7
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    if 0 <= i && i < len(l) {
+        i, l[i] = two()
+    }
+}
+-- assign-index-multi-target/expected --
+stage: typeck
+---
+
+assign-index-multi-target/main.tck:27:14: error: index i may be out of range; check 0 <= i && i < len(l) first
+26 |	    if 0 <= i && i < len(l) {
+27 |	        i, l[i] = two()
+   |	             ^
+28 |	    }
+assign-index-multi-target/main.tck:26:8: note: this guard proves 0 <= i && i < len(l)
+25 |	    mut i := 3
+26 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+27 |	        i, l[i] = two()
+assign-index-multi-target/main.tck:27:9: note: but i is assigned here, so the proof ends
+26 |	    if 0 <= i && i < len(l) {
+27 |	        i, l[i] = two()
+   |	        ^
+28 |	    }
+
+-- assign-index-multi-target-after/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func two() (int64, int64) {
+    return 7, 100000
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    if 0 <= i && i < len(l) {
+        l[i], i = two()
+    }
+}
+-- assign-index-multi-target-after/expected --
+stage: typeck
+---
+
+assign-index-multi-target-after/main.tck:27:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+26 |	    if 0 <= i && i < len(l) {
+27 |	        l[i], i = two()
+   |	          ^
+28 |	    }
+assign-index-multi-target-after/main.tck:26:8: note: this guard proves 0 <= i && i < len(l)
+25 |	    mut i := 3
+26 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+27 |	        l[i], i = two()
+assign-index-multi-target-after/main.tck:27:15: note: but i is assigned here, so the proof ends
+26 |	    if 0 <= i && i < len(l) {
+27 |	        l[i], i = two()
+   |	              ^
+28 |	    }
+
+-- assign-index-mut-array/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut a := [4]int64{1, 2, 3, 4}
+    mut i := 3
+    if 0 <= i && i < 4 {
+        a[i] = bump(mut i)
+    }
+    if a[0] == 1 {
+        print("one\n")
+    }
+}
+-- assign-index-mut-array/expected --
+stage: typeck
+---
+
+assign-index-mut-array/main.tck:23:11: error: index i may be out of range; check 0 <= i && i < 4 first
+22 |	    if 0 <= i && i < 4 {
+23 |	        a[i] = bump(mut i)
+   |	          ^
+24 |	    }
+assign-index-mut-array/main.tck:22:8: note: this guard proves 0 <= i && i < 4
+21 |	    mut i := 3
+22 |	    if 0 <= i && i < 4 {
+   |	       ^~~~~~~~~~~~~~~
+23 |	        a[i] = bump(mut i)
+assign-index-mut-array/main.tck:23:21: note: but i is passed as mut to bump here, so the proof ends
+22 |	    if 0 <= i && i < 4 {
+23 |	        a[i] = bump(mut i)
+   |	                    ^~~~~
+24 |	    }
+
+-- assign-index-mut-binary/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    if 0 <= i && i < len(l) {
+        l[i] = 1 + bump(mut i)
+    }
+}
+-- assign-index-mut-binary/expected --
+stage: typeck
+---
+
+assign-index-mut-binary/main.tck:23:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] = 1 + bump(mut i)
+   |	          ^
+24 |	    }
+assign-index-mut-binary/main.tck:22:8: note: this guard proves 0 <= i && i < len(l)
+21 |	    mut i := 3
+22 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+23 |	        l[i] = 1 + bump(mut i)
+assign-index-mut-binary/main.tck:23:25: note: but i is passed as mut to bump here, so the proof ends
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] = 1 + bump(mut i)
+   |	                        ^~~~~
+24 |	    }
+
+-- assign-index-mut-compound/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    if 0 <= i && i < len(l) {
+        l[i] += bump(mut i)
+    }
+}
+-- assign-index-mut-compound/expected --
+stage: typeck
+---
+
+assign-index-mut-compound/main.tck:23:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] += bump(mut i)
+   |	          ^
+24 |	    }
+assign-index-mut-compound/main.tck:22:8: note: this guard proves 0 <= i && i < len(l)
+21 |	    mut i := 3
+22 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+23 |	        l[i] += bump(mut i)
+assign-index-mut-compound/main.tck:23:22: note: but i is passed as mut to bump here, so the proof ends
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] += bump(mut i)
+   |	                     ^~~~~
+24 |	    }
+
+-- assign-index-mut-field/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    mut l := make(list[Point], c_allocator)
+    err := append(mut l, Point{x: 1, y: 2})
+    if err.code != 0 {
+        return
+    }
+    mut i := 0
+    if 0 <= i && i < len(l) {
+        l[i].y = bump(mut i)
+    }
+}
+-- assign-index-mut-field/expected --
+stage: typeck
+---
+
+assign-index-mut-field/main.tck:32:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+31 |	    if 0 <= i && i < len(l) {
+32 |	        l[i].y = bump(mut i)
+   |	          ^
+33 |	    }
+assign-index-mut-field/main.tck:31:8: note: this guard proves 0 <= i && i < len(l)
+30 |	    mut i := 0
+31 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+32 |	        l[i].y = bump(mut i)
+assign-index-mut-field/main.tck:32:23: note: but i is passed as mut to bump here, so the proof ends
+31 |	    if 0 <= i && i < len(l) {
+32 |	        l[i].y = bump(mut i)
+   |	                      ^~~~~
+33 |	    }
+
+-- assign-index-mut-func-value/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    f := bump
+    if 0 <= i && i < len(l) {
+        l[i] = f(mut i)
+    }
+}
+-- assign-index-mut-func-value/expected --
+stage: typeck
+---
+
+assign-index-mut-func-value/main.tck:24:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+23 |	    if 0 <= i && i < len(l) {
+24 |	        l[i] = f(mut i)
+   |	          ^
+25 |	    }
+assign-index-mut-func-value/main.tck:23:8: note: this guard proves 0 <= i && i < len(l)
+22 |	    f := bump
+23 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+24 |	        l[i] = f(mut i)
+assign-index-mut-func-value/main.tck:24:18: note: but i is passed as mut to f here, so the proof ends
+23 |	    if 0 <= i && i < len(l) {
+24 |	        l[i] = f(mut i)
+   |	                 ^~~~~
+25 |	    }
+
+-- assign-index-mut-map-key/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func next(mut k int64) list[int64] {
+    k = 2
+    return count(1)
+}
+
+func main() {
+    mut m := make(map[int64]list[int64], c_allocator)
+    err := put(mut m, 1, count(3))
+    if err.code != 0 {
+        return
+    }
+    mut k := 1
+    if has(m, k) {
+        m[k] = next(mut k)
+    }
+}
+-- assign-index-mut-map-key/expected --
+stage: typeck
+---
+
+assign-index-mut-map-key/main.tck:32:11: error: key k may not be in m; check has(m, k) first, or use put(mut m, k, ...)
+31 |	    if has(m, k) {
+32 |	        m[k] = next(mut k)
+   |	          ^
+33 |	    }
+assign-index-mut-map-key/main.tck:32:11: note: has proves only a key that cannot change: a constant, a variable or parameter declared without mut, or a field of one
+31 |	    if has(m, k) {
+32 |	        m[k] = next(mut k)
+   |	          ^
+33 |	    }
+
+-- assign-index-mut-multi/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func pair(mut i int64) (int64, int64) {
+    i = 100000
+    return 0, 1
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    mut x := 0
+    if 0 <= i && i < len(l) {
+        l[i], x = pair(mut i)
+    }
+    if x == 1 {
+        print("one\n")
+    }
+}
+-- assign-index-mut-multi/expected --
+stage: typeck
+---
+
+assign-index-mut-multi/main.tck:29:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+28 |	    if 0 <= i && i < len(l) {
+29 |	        l[i], x = pair(mut i)
+   |	          ^
+30 |	    }
+assign-index-mut-multi/main.tck:28:8: note: this guard proves 0 <= i && i < len(l)
+27 |	    mut x := 0
+28 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+29 |	        l[i], x = pair(mut i)
+assign-index-mut-multi/main.tck:29:24: note: but i is passed as mut to pair here, so the proof ends
+28 |	    if 0 <= i && i < len(l) {
+29 |	        l[i], x = pair(mut i)
+   |	                       ^~~~~
+30 |	    }
+
+-- assign-index-mut-nested/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut a := [2][3]int64{[3]int64{1, 2, 3}, [3]int64{4, 5, 6}}
+    mut i := 1
+    mut j := 2
+    if 0 <= i && i < 2 && 0 <= j && j < 3 {
+        a[i][j] = bump(mut j)
+    }
+    if a[0][0] == 1 {
+        print("one\n")
+    }
+}
+-- assign-index-mut-nested/expected --
+stage: typeck
+---
+
+assign-index-mut-nested/main.tck:24:14: error: index j may be out of range; check 0 <= j && j < 3 first
+23 |	    if 0 <= i && i < 2 && 0 <= j && j < 3 {
+24 |	        a[i][j] = bump(mut j)
+   |	             ^
+25 |	    }
+assign-index-mut-nested/main.tck:23:8: note: this guard proves 0 <= j && j < 3
+22 |	    mut j := 2
+23 |	    if 0 <= i && i < 2 && 0 <= j && j < 3 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+24 |	        a[i][j] = bump(mut j)
+assign-index-mut-nested/main.tck:24:24: note: but j is passed as mut to bump here, so the proof ends
+23 |	    if 0 <= i && i < 2 && 0 <= j && j < 3 {
+24 |	        a[i][j] = bump(mut j)
+   |	                       ^~~~~
+25 |	    }
+
+-- assign-index-mut-value/main.tck --
+package main
+
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func bump(mut i int64) int64 {
+    i = 100000
+    return 0
+}
+
+func main() {
+    mut l := count(4)
+    mut i := 3
+    if 0 <= i && i < len(l) {
+        l[i] = bump(mut i)
+    }
+}
+-- assign-index-mut-value/expected --
+stage: typeck
+---
+
+assign-index-mut-value/main.tck:23:11: error: index i may be out of range; check 0 <= i && i < len(l) first
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] = bump(mut i)
+   |	          ^
+24 |	    }
+assign-index-mut-value/main.tck:22:8: note: this guard proves 0 <= i && i < len(l)
+21 |	    mut i := 3
+22 |	    if 0 <= i && i < len(l) {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+23 |	        l[i] = bump(mut i)
+assign-index-mut-value/main.tck:23:21: note: but i is passed as mut to bump here, so the proof ends
+22 |	    if 0 <= i && i < len(l) {
+23 |	        l[i] = bump(mut i)
+   |	                    ^~~~~
+24 |	    }
+
 -- assignment-mismatch-count/main.tck --
 package main
 

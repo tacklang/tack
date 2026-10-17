@@ -180,8 +180,11 @@
 // assignment's target at the statement's end, so the call or assignment a
 // fact is for does not end it; when it is in a loop inside the region that
 // holds the use too; when the use is in deferred code and the write
-// outside it; or when the use is in a switch's default written before a
-// case whose value writes. Every write in the region is kept with the
+// outside it; when the use is in a switch's default written before a
+// case whose value writes; or when the use is in an assignment's target
+// and the write anywhere in that assignment, its value or another
+// target, so l[i] = bump(mut i) and i, l[i] = two() end the proof of i
+// (see storing). Every write in the region is kept with the
 // fact, and judged at c.at, where checking has reached (see reaches). A
 // counting loop's start and a range loop's bound are not proven again on
 // a later pass, so any write in their region ends them. A successful

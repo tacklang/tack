@@ -408,7 +408,20 @@ the call has begun, and an assignment stores to its target only after
 its value is computed, so the call or the assignment a fact is for may
 write the variable itself: `if len(l) > 0 { x := pop(mut l) }`,
 `if 0 <= i && i < len(l) { x := remove(mut l, i) }` and
-`if d != 0 { d = n / d }` compile. A second use after that write needs a
+`if d != 0 { d = n / d }` compile. A proof the target itself needs is
+held to the whole statement: a write in the value, a `mut` argument
+included, or, in an assignment of several, to another target, ends it.
+<!-- case: assign-index-mut-value -->`if 0 <= i && i < len(l) { l[i] = bump(mut i) }`
+reports <!-- error: assign-index-mut-value -->`index i may be out of range; check 0 <= i && i < len(l) first`,
+with <!-- note: assign-index-mut-value -->`but i is passed as mut to bump here, so the proof ends`,
+and so do `l[i] += ...`, `l[i].y = ...` and an array's `a[i] = ...`.
+<!-- case: assign-index-multi-target -->`i, l[i] = two()` reports
+<!-- note: assign-index-multi-target -->`but i is assigned here, so the proof ends`,
+and so does <!-- case: assign-index-multi-target-after -->`l[i], i = two()`:
+an assignment of several targets is rejected when one writes what
+another's index needs, in either order. A value that writes the index is
+computed into a variable first, and the index proven after it. A second
+use after that write needs a
 proof of its own: in <!-- case: cond-write-pop-twice -->`if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0`
 the second `pop` reports <!-- error: cond-write-pop-twice -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
 with <!-- note: cond-write-pop-twice -->`but l is passed as mut to pop here, so the proof ends`

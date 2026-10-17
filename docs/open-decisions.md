@@ -99,6 +99,17 @@ another way:
   treated as changeable by any call in that function when deciding where
   evaluation order could show, so its reads around such calls are held in
   temporaries; this is coarser than needed and costs only temporaries.
+- A `mut` argument in an assignment's value ends a proof its target's
+  index needs, `l[i] = bump(mut i)` being `index i may be out of range`,
+  although the README orders the target's indexes before the value, which
+  would make the store land at the `i` that was proven. The C backend
+  does not hold the index in a temporary first, so the program is
+  rejected rather than given an order the generated code does not keep.
+- In an assignment of several targets, a target that writes what another
+  target's index needs ends that proof whichever is written first:
+  `i, l[i] = two()` and `l[i], i = two()` are both rejected. The targets
+  are stored in the order they are written today, which would make the
+  second one safe; rejecting both leaves the order free to be decided.
 
 ## Views
 
