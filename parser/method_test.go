@@ -383,12 +383,14 @@ func TestRejectsMalformedMethods(t *testing.T) {
 
 // TestDeepMethodChains checks long chains of method calls and of fields
 // before one parse, in time linear in their length: the lookahead that
-// tells a mut call from a declaration scans each chain once.
+// tells a mut call from a declaration scans each chain once. A chain is
+// flat, however long; calls nested in one another nest, so they stop at
+// the parser's limit, a call's arguments in the thousandth.
 func TestDeepMethodChains(t *testing.T) {
 	const n = 5000
 	calls := "b" + strings.Repeat(".f()", n)
 	fields := "mut b" + strings.Repeat(".x", n) + ".f()"
-	nested := strings.Repeat("g(", n) + "b.f()" + strings.Repeat(")", n)
+	nested := strings.Repeat("g(", 999) + "b.f()" + strings.Repeat(")", 999)
 	for _, body := range []string{"x := " + calls, calls, fields, "x := " + nested} {
 		file, diags := parse(t, "package main\n\nfunc main() {\n    "+body+"\n}\n")
 		if file == nil || len(diags) > 0 {

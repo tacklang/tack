@@ -1888,6 +1888,21 @@ makes for itself, which has a letter after `tack_`.
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
   such as a two-value form whose `ok` is always `true`.
+- Nesting limit. A program nests at most 1000 levels deep, counted
+  together across expressions, statements and types: a parenthesized
+  expression, a `!` or `-` and its operand, `mut` and its argument, a
+  call's arguments, an index's or a slice's brackets, a literal's braces,
+  the block of an `if`, a `for` or a `defer`, a `switch`'s cases, and an
+  array, view or list type each open one level, inside the function body
+  or declaration they are in. A level more is `expression nested too
+  deeply: more than 1000 levels`, reported once, at the token that opens
+  it, and parsing stops there. A chain of binary operators binds left to
+  right and nests no deeper for its length, so `x + x + ... + x` has no
+  limit, while one nested on the right, `x && (x && (...))`, opens a
+  level per parenthesis; an `else if` is a branch of its chain, not a
+  level, so a chain of any length is flat. The limit keeps every stage
+  of the compiler, and the C it writes, within what clang compiles: past
+  about a thousand levels of nesting, clang's parser runs out of stack.
 - Evaluation order is left to right wherever Tack evaluates several
   operands: the two sides of an operator, a call's arguments, a return's
   values, an array literal's elements, a struct literal's values in the

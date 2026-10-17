@@ -100,11 +100,12 @@ func TestUnarySpan(t *testing.T) {
 	}
 }
 
-// Deeply nested negation parses without trouble.
+// Negation nested as deep as the parser takes, a thousand levels, parses
+// without trouble (see nesting_test.go for one level more).
 func TestDeeplyNestedNot(t *testing.T) {
-	expr := strings.Repeat("!", 10000) + "a"
+	expr := strings.Repeat("!", 1000) + "a"
 	e := declared(t, expr)
-	for i := range 10000 {
+	for i := range 1000 {
 		u, ok := e.(*ast.Unary)
 		if !ok {
 			t.Fatalf("level %d is %T, want *ast.Unary", i, e)

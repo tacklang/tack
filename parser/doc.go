@@ -218,6 +218,13 @@
 // semicolon after it. The file's own span is the exception: it runs to the
 // end of the input.
 //
+// A program nests at most maxNesting levels deep, a thousand, counted
+// together across expressions, statements and types (see nest), so the
+// parser's recursion and every later stage's is bounded, and the C the
+// program becomes stays within what clang parses. The first construct
+// past it is reported, once, at the token that opens it, and parsing
+// stops: nothing nests further, and the file has no tree.
+//
 // An else if is the else branch of the if before it, holding that if
 // alone, as in the source's meaning, but a chain of them is parsed in a
 // loop, not by recursion, so a chain flat in the source costs no stack

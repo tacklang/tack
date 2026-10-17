@@ -28,6 +28,10 @@ type Parser struct {
 	// name, never a field. See atQualified.
 	imports map[string]bool
 
+	// tooDeep is the error for nesting past maxNesting, once a program
+	// has, after which nothing nests further (see nest).
+	tooDeep *diag.Diagnostic
+
 	fileID   source.FileID
 	tokens   []lexer.Token // every token but the comments
 	comments []lexer.Token // the comment tokens, in source order
@@ -39,6 +43,63 @@ type Parser struct {
 	// brackets and braces a literal is unambiguous again, so parsing them
 	// clears it. See allowLits.
 	noLit bool
+
+	// depth is how many levels of nesting the construct being parsed is
+	// inside (see nest).
+	depth int
+}
+
+// maxNesting is how many levels a program may nest one construct inside
+// another, counted together across expressions, statements and types:
+// a parenthesized expression, a unary operator or mut and its operand, a
+// call's arguments, an index's or a slice's brackets, a literal's braces,
+// a block, a switch's cases, and an array, view or list type, each one
+// level. A chain of binary operators binds left to right and nests no
+// deeper for its length, and an else if is a branch of the chain it is
+// in, not a level of its own. Every level is a frame of the parser's own
+// recursion and of the later stages', and the C a program becomes nests
+// with it: clang runs out of stack past about a thousand, so a program
+// is held to that, here, where the recursion starts.
+const maxNesting = 1000
+
+// nest enters one more level of nesting, opened by tk, or, past
+// maxNesting, reports the program as nested too deeply, at tk, and
+// returns that error, which every later call returns too without going
+// deeper. Each nest that returns nothing is matched by an unnest.
+func (p *Parser) nest(tk *lexer.Token) []diag.Diagnostic {
+	if p.tooDeep != nil {
+		return []diag.Diagnostic{*p.tooDeep}
+	}
+	if p.depth == maxNesting {
+		p.tooDeep = &diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("expression nested too deeply: more than %d levels", maxNesting),
+			Span:     p.span(tk),
+		}
+		return []diag.Diagnostic{*p.tooDeep}
+	}
+	p.depth++
+	return nil
+}
+
+// nestAt is nest for a construct opened by a token of kind, which is
+// next if the construct is written right: a token of another kind is
+// left for the construct's own check to report, and nests nothing, but is
+// still matched by an unnest.
+func (p *Parser) nestAt(kind lexer.TokenKind) []diag.Diagnostic {
+	if p.peek().Kind() != kind {
+		if p.tooDeep != nil {
+			return []diag.Diagnostic{*p.tooDeep}
+		}
+		p.depth++
+		return nil
+	}
+	return p.nest(p.peek())
+}
+
+// unnest leaves the level of nesting the last nest entered.
+func (p *Parser) unnest() {
+	p.depth--
 }
 
 // NewParser returns a parser over tokens, which must come from a lexer that
@@ -159,6 +220,11 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 		p.file.Decls = append(p.file.Decls, dec)
 	}
 
+	// A program nested too deeply has no tree, even where a parse that
+	// went on past the error found nothing else wrong.
+	if p.tooDeep != nil {
+		return nil, []diag.Diagnostic{*p.tooDeep}
+	}
 	p.file.Span.End = p.peek().OffsetEnd()
 
 	return p.file, nil
@@ -1800,6 +1866,17 @@ func (p *Parser) parseCall() (*ast.Call, []diag.Diagnostic) {
 // parseArgs parses the parenthesized arguments of a call to fn, which
 // spans fn's own span through the closing parenthesis.
 func (p *Parser) parseArgs(fn ast.Expr, span ast.Span) (*ast.Call, []diag.Diagnostic) {
+	if diags := p.nestAt(lexer.LParen); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	return p.parseArgList(fn, span)
+}
+
+// parseArgList parses the parenthesized arguments of a call of fn, which
+// starts at span, as parseArgs does once it has entered their level of
+// nesting.
+func (p *Parser) parseArgList(fn ast.Expr, span ast.Span) (*ast.Call, []diag.Diagnostic) {
 	call := &ast.Call{
 		Fn:   fn,
 		Args: make([]ast.Expr, 0),
@@ -1852,6 +1929,10 @@ func (p *Parser) parseArgs(fn ast.Expr, span ast.Span) (*ast.Call, []diag.Diagno
 
 // parseBlock parses a brace-delimited statement list.
 func (p *Parser) parseBlock() ([]ast.Stmt, []diag.Diagnostic) {
+	if diags := p.nestAt(lexer.LCurl); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	if ok, lcurlDiags := p.expect(lexer.LCurl); !ok {
 		return nil, lcurlDiags
 	}
@@ -2055,6 +2136,16 @@ func (p *Parser) checkBinding(stmt *ast.Switch) []diag.Diagnostic {
 // any number of case clauses, and the closing brace. A second default is
 // reported, with a note pointing at the first.
 func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
+	if diags := p.nestAt(lexer.LCurl); diags != nil {
+		return diags
+	}
+	defer p.unnest()
+	return p.parseCaseList(stmt)
+}
+
+// parseCaseList parses stmt's cases in braces, as parseCases does once it
+// has entered their level of nesting.
+func (p *Parser) parseCaseList(stmt *ast.Switch) []diag.Diagnostic {
 	if ok, diags := p.expect(lexer.LCurl); !ok {
 		return diags
 	}
@@ -2598,6 +2689,10 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 // parentheses, mut (x.m()), is not one: mut covers the whole call, which
 // is not a place.
 func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	kw := p.next()
 	x, diags := p.parseOperand()
 	if x == nil {
@@ -2705,6 +2800,10 @@ func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 // parseIndex parses one index after x, x[i], or one slice, x[i:j], whose
 // bounds may each be left out, x[:j], x[i:] or x[:]; see parseSlice.
 func (p *Parser) parseIndex(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	p.next() // the opening bracket
 	restore := p.allowLits(true)
 	defer restore()
@@ -2848,6 +2947,10 @@ func (p *Parser) parseCompositeLit() (ast.Expr, []diag.Diagnostic) {
 // only braces is a literal whose type is left out, typ is nil, and comes
 // from the enclosing literal. The literal spans from start.
 func (p *Parser) parseLitBody(typ ast.Expr, start int) (*ast.CompositeLit, []diag.Diagnostic) {
+	if diags := p.nestAt(lexer.LCurl); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	if ok, diags := p.expect(lexer.LCurl); !ok {
 		return nil, diags
 	}
@@ -2916,6 +3019,10 @@ func (p *Parser) parseLitValue() (ast.Expr, []diag.Diagnostic) {
 // length may be [...], left for the elements to give. An empty length, [],
 // makes it a view type, []T, which parseViewType parses.
 func (p *Parser) parseArrayType(literal bool) (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	open := p.next() // the opening bracket
 	typ := &ast.ArrayType{Span: p.span(open)}
 
@@ -2969,6 +3076,10 @@ func (p *Parser) parseViewType(open *lexer.Token) (ast.Expr, []diag.Diagnostic) 
 
 // parseListType parses a list type, list[T], whose keyword is next.
 func (p *Parser) parseListType() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	kw := p.next()
 	if ok, diags := p.expect(lexer.LBrack); !ok {
 		return nil, diags
@@ -3011,6 +3122,10 @@ func (p *Parser) parseListOperand() (ast.Expr, []diag.Diagnostic) {
 // before an integer literal makes one negative literal instead, so the
 // smallest int, whose digits alone do not fit, can be written.
 func (p *Parser) parseUnary(op ast.UnaryOp) (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	tk := p.next()
 
 	if op == ast.Neg && p.peek().Kind() == lexer.Int {
@@ -3051,6 +3166,10 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 // expression; the parentheses leave no node of their own, and are recorded
 // in p.parens instead, so the expression around them can span them.
 func (p *Parser) parseParenExpr() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
 	lparen := p.next()
 
 	restore := p.allowLits(true)

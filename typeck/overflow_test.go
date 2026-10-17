@@ -1,6 +1,7 @@
 package typeck_test
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -261,18 +262,21 @@ func TestKnownValuesOfALongChainAreFast(t *testing.T) {
 // the chain below it, are checked in time linear in their length: a
 // chain of a parameter, whose value is not known, nested left and right,
 // and a chain of an immutable local whose value is, in every sized
-// integer type.
+// integer type. A chain nested on the right nests a level per term, so it
+// is ten of 999 terms each, within the parser's limit of a thousand
+// levels, joined by + into one of about ten thousand.
 func TestKnownValuesOfLongExpressionsAreFast(t *testing.T) {
 	const n = 10000
 	var b strings.Builder
 	b.WriteString("package main\n\n")
 	for _, typ := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
 		left := strings.Repeat("x + ", n-1) + "x"
-		right := strings.Repeat("x * (", n-1) + "x" + strings.Repeat(")", n-1)
+		segment := strings.Repeat("x * (", 998) + "x" + strings.Repeat(")", 998)
+		right := strings.Join(slices.Repeat([]string{segment}, n/1000), " + ")
 		known := strings.Repeat("k + ", n-1) + "k"
 		b.WriteString("func f_" + typ + "(x " + typ + ") " + typ + " {\n" +
 			"    k := " + typ + "(0)\n" +
-			"    return " + left + " + (" + right + ") + (" + known + ")\n}\n\n")
+			"    return " + left + " + " + right + " + (" + known + ")\n}\n\n")
 	}
 	b.WriteString("func main() {\n}\n")
 

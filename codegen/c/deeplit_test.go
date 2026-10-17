@@ -9,10 +9,13 @@ import (
 	"github.com/tacklang/tack/internal/stdtest"
 )
 
-// deepLiteralLevels is how deeply deepLiteralProgram nests its literals:
-// past where clang ran out of stack on the C the backend wrote before it
-// held deep literals in temporaries, about 950 levels of array literals
-// in a function and 400 in a global's initializer.
+// deepLiteralLevels is how deeply deepLiteralProgram nests its literals,
+// the parser's limit: past where clang ran out of stack on the C the
+// backend wrote before it held deep literals in temporaries, about 950
+// levels of array literals in a function and 400 in a global's
+// initializer. A literal whose innermost level holds a call, which is a
+// level too, has one literal level fewer, and one alternating struct and
+// array literals, two levels each, about half as many of each.
 const deepLiteralLevels = 1000
 
 // deepLiteralProgram writes a program that builds literals nested n
@@ -95,18 +98,20 @@ func deepValues(n int) deepLiterals {
 		),
 		arrayRead:   strings.Repeat("[0]", n),
 		mixed:       "M0{v: 9}",
-		mixedRead:   strings.Repeat(".a[0]", n/2) + ".v",
+		mixedRead:   strings.Repeat(".a[0]", (n-1)/2) + ".v",
 		union:       "U0.v(5)",
 		global:      `G0{name: "deep", on: true, zero: 0, pick: Pick.word("leaf")}`,
-		globalRead:  strings.Repeat(".g", n-1),
+		globalRead:  strings.Repeat(".g", n-2),
 		ordered:     "T0{v: tick()}",
-		orderedRead: strings.Repeat(".s", n-1) + ".v",
+		orderedRead: strings.Repeat(".s", n-2) + ".v",
 	}
-	for i := 1; i <= n/2; i++ {
+	for i := 1; i <= (n-1)/2; i++ {
 		v.mixed = fmt.Sprintf("M%d{a: [1]M%d{%s}}", i, i-1, v.mixed)
 	}
 	for i := 1; i < n; i++ {
 		v.union = fmt.Sprintf("U%d.u(%s)", i, v.union)
+	}
+	for i := 1; i < n-1; i++ {
 		v.global = fmt.Sprintf("G%d{g: %s}", i, v.global)
 		v.ordered = fmt.Sprintf("T%d{a: tick(), s: %s, b: tick()}", i, v.ordered)
 	}
@@ -124,8 +129,8 @@ func writeDeepMain(b *strings.Builder, n int, v deepLiterals) {
 		b,
 		"    check(t.a == 1 && t%s == %d && t.b == %d, \"a struct literal, in order\")\n",
 		v.orderedRead,
-		n,
-		2*n-1,
+		n-1,
+		2*(n-1)-1,
 	)
 	fmt.Fprintf(b, "    m := %s\n", v.mixed)
 	fmt.Fprintf(b, "    check(m%s == 9, \"structs and arrays\")\n", v.mixedRead)

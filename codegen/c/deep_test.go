@@ -21,6 +21,7 @@ var update = flag.Bool("update", false, "rewrite examples/deep-expressions/main.
 // deepSizes says how long and how deep each shape deepProgram writes is.
 type deepSizes struct {
 	chain int // terms of each chain of + - and *, and of the order checks
+	nest  int // terms of each chain nested in parentheses, right or left
 	calls int // nested calls
 	unary int // nested unary minuses
 	logic int // terms of each && and || chain
@@ -31,13 +32,19 @@ type deepSizes struct {
 // chains wrap the narrow types, while the example stays small, since the
 // parser's tests parse every example once per token. bigSizes, which
 // only tests write, are what C could not parse.
-var exampleSizes = deepSizes{chain: 20, calls: 36, unary: 36, logic: 36}
+var exampleSizes = deepSizes{chain: 20, nest: 20, calls: 36, unary: 36, logic: 36}
 
 // bigSizes are the sizes TestDeepExpressionsRun checks at every
-// optimization level: each far past where clang ran out of stack on the C
-// the backend wrote before it held deep parts in temporaries, 287 terms of
-// +, 283 minuses, 1883 nested calls and 1200 terms of &&.
-var bigSizes = deepSizes{chain: 2000, calls: 2500, unary: 1000, logic: 2500}
+// optimization level: past where clang ran out of stack on the C the
+// backend wrote before it held deep parts in temporaries, 287 terms of +,
+// 283 minuses, 1883 nested calls and 1200 terms of &&, where the parser's
+// limit of a thousand levels of nesting allows. A flat chain nests no
+// deeper for its length, so chains and logic go far past; a nested chain
+// is held to about a thousand parentheses, nest 499, its two terms to a
+// parenthesis, a call and its mut argument in the innermost, and so are
+// minuses, a minus and a parenthesis each, and nested calls, a level
+// each, which the limit keeps short of 1883.
+var bigSizes = deepSizes{chain: 2000, nest: 499, calls: 1000, unary: 500, logic: 2500}
 
 // intType is one of Tack's sized integer types, which wrap.
 type intType struct {
@@ -165,7 +172,10 @@ func (d *deepWriter) chains(t intType) {
 		{"times", joined("x", "*", n)},
 	}
 	if t.bits == 64 {
-		bodies = append(bodies, struct{ name, body string }{"right", rightNested("x", "+", n)})
+		bodies = append(
+			bodies,
+			struct{ name, body string }{"right", rightNested("x", "+", d.s.nest)},
+		)
 	}
 	for _, f := range bodies {
 		d.decl("func %s_%s(x %s) %s {\n    return %s\n}", f.name, t.name, t.name, t.name, f.body)
@@ -184,8 +194,8 @@ func (d *deepWriter) chains(t intType) {
 		fmt.Sprintf("%d terms of * in %s", n, t.name),
 	)
 	if t.bits == 64 {
-		d.check(fmt.Sprintf("right_%s(3) == %s", t.name, t.wrap(3*u)),
-			fmt.Sprintf("%d right-nested terms of + in %s", n, t.name))
+		d.check(fmt.Sprintf("right_%s(3) == %s", t.name, t.wrap(3*uint64(d.s.nest))),
+			fmt.Sprintf("%d right-nested terms of + in %s", d.s.nest, t.name))
 	}
 }
 
@@ -208,19 +218,19 @@ var mixedSteps = []struct {
 // operators do.
 func (d *deepWriter) mixed() {
 	expr, v := "x", int64(5)
-	for i := range 2*d.s.chain - 1 {
+	for i := range 2*d.s.nest - 1 {
 		step := mixedSteps[i%len(mixedSteps)]
 		expr = "(" + expr + " " + step.tack + ")"
 		v = step.do(v)
 	}
 	d.decl("func mixed(x int64) int64 {\n    return %s\n}", expr)
-	d.check(fmt.Sprintf("mixed(5) == %d", v), fmt.Sprintf("%d mixed operators", 2*d.s.chain))
+	d.check(fmt.Sprintf("mixed(5) == %d", v), fmt.Sprintf("%d mixed operators", 2*d.s.nest))
 }
 
 // mixedRight writes x * (x - (x + (x * ...))), right nested.
 func (d *deepWriter) mixedRight() {
 	expr, v := "x", int64(2)
-	for i := d.s.chain - 2; i >= 0; i-- {
+	for i := d.s.nest - 2; i >= 0; i-- {
 		switch i % 3 {
 		case 0:
 			expr, v = "x * ("+expr+")", 2*v
@@ -233,7 +243,7 @@ func (d *deepWriter) mixedRight() {
 	d.decl("func mixed_right(x int64) int64 {\n    return %s\n}", expr)
 	d.check(
 		fmt.Sprintf("mixed_right(2) == %d", v),
-		fmt.Sprintf("%d right-nested mixed operators", d.s.chain),
+		fmt.Sprintf("%d right-nested mixed operators", d.s.nest),
 	)
 }
 
@@ -266,12 +276,12 @@ func (d *deepWriter) calls() {
 	d.check(fmt.Sprintf("negated(9) == %d", neg), fmt.Sprintf("%d nested minuses", d.s.unary))
 }
 
-// orderParts returns 2*s.chain terms that read c and tick it, in turn,
-// twice as many as the other chains have, since a call nests less in C
-// than an operator does, and what their sum is, and c after them, when
-// they run left to right.
-func (d *deepWriter) orderParts() (parts []string, sum, c int64) {
-	parts = make([]string, 2*d.s.chain)
+// orderParts returns 2*n terms that read c and tick it, in turn, twice as
+// many as the other chains have, since a call nests less in C than an
+// operator does, and what their sum is, and c after them, when they run
+// left to right.
+func orderParts(n int) (parts []string, sum, c int64) {
+	parts = make([]string, 2*n)
 	for i := range parts {
 		parts[i] = "c"
 		if i%2 == 1 {
@@ -287,9 +297,10 @@ func (d *deepWriter) orderParts() (parts []string, sum, c int64) {
 // whose sum shows every part ran in its place, and one as the right side
 // of &&, which runs only when the left side is true.
 func (d *deepWriter) order() {
-	parts, sum, c := d.orderParts()
+	parts, sum, c := orderParts(d.s.chain)
 	left := strings.Join(parts, " + ")
-	right := strings.Join(parts, " + (") + strings.Repeat(")", len(parts)-1)
+	rparts, rsum, _ := orderParts(d.s.nest)
+	right := strings.Join(rparts, " + (") + strings.Repeat(")", len(rparts)-1)
 	d.decl("func order_left() int64 {\n    mut c int64 = 0\n    return %s\n}", left)
 	d.decl("func order_right() int64 {\n    mut c int64 = 0\n    return %s\n}", right)
 	d.decl("func guarded(run bool) int64 {\n    mut c int64 = 0\n    if run && %s > 0 {\n"+
@@ -299,8 +310,8 @@ func (d *deepWriter) order() {
 		fmt.Sprintf("%d terms run left to right", 2*d.s.chain),
 	)
 	d.check(
-		fmt.Sprintf("order_right() == %d", sum),
-		fmt.Sprintf("%d right-nested terms run left to right", 2*d.s.chain),
+		fmt.Sprintf("order_right() == %d", rsum),
+		fmt.Sprintf("%d right-nested terms run left to right", 2*d.s.nest),
 	)
 	d.check("guarded(false) == 0", "a deep right side of && does not run")
 	d.check(fmt.Sprintf("guarded(true) == %d", c), "a deep right side of && runs")
@@ -402,7 +413,7 @@ func (d *deepWriter) places() {
 // deepChecks is how many checks deepProgram's program prints.
 func deepChecks() int {
 	return strings.Count(
-		deepProgram(deepSizes{chain: 3, calls: 1, unary: 1, logic: 4}),
+		deepProgram(deepSizes{chain: 3, nest: 3, calls: 1, unary: 1, logic: 4}),
 		"check(",
 	) - 1
 }
