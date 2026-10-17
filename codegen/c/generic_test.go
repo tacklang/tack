@@ -80,8 +80,6 @@ func (mut b Buffer) writeAll(parts ...string) error {
     return noerror
 }
 
-mut gate bool = false
-
 func check(cond bool, name string) {
     print(name)
     if cond {
@@ -131,21 +129,6 @@ func alternate[A Sizer, B Sizer](a A, b B, n int64) int64 {
     return alternate(b, a, n - 1)
 }
 
-func stuck[S Sizer](s S) S {
-    for {
-        if s.size() == -1 {
-            print("never\n")
-        }
-    }
-}
-
-func relay[S Sizer](s S) (S, int64) {
-    x := stuck(s)
-    y := x
-    n := y.size()
-    return y, n
-}
-
 func main() {
     mut c := Counter{n: 0}
     n, err := render(mut c, "abc")
@@ -157,11 +140,6 @@ func main() {
     check(err3.code == 0 && b.size() == 5, "spread into an interface method")
     check(sum(mut b) == 427, "several results through an interface method")
     check(alternate(b, c, 3) == 4 - 5, "type arguments swapped")
-    if gate {
-        x, k := relay(c)
-        y, j := relay(b)
-        check(x.size() + y.size() + k + j > 0, "never")
-    }
 }
 `
 
@@ -197,7 +175,7 @@ func TestEachInstanceIsDefinedOnce(t *testing.T) {
 		"return tack_4_main14_Counter_2esize(p_s);",
 		"tack_4_main14_Buffer_2ewrite(p_w, ",
 		"tack_results_4_main13_Buffer_2enext",
-		"tack_results_4_main24_relay_5bmain_2eBuffer_5d",
+		"tack_results_4_main25_render_5bmain_2eBuffer_5d",
 		"tack_4_main45_alternate_5bmain_2eBuffer_2cmain_2eCounter_5d(p_b, p_a, ",
 		"tack_4_main45_alternate_5bmain_2eCounter_2cmain_2eBuffer_5d(p_b, p_a, ",
 	} {

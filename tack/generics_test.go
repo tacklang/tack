@@ -26,7 +26,7 @@ var genericsWant = strings.Join([]string{
 	"a type whose private methods satisfy another package's interface here",
 	"a private type passed on through generic functions of two packages",
 	"a constraint of another package", "a generic call inside another package",
-	"packages freed", "results of a type parameter", "never freed",
+	"packages freed",
 }, " ok\n") + " ok\na counter holds 5\n"
 
 // TestBuiltGenericsPassesEveryCheck builds examples/generics at every

@@ -239,30 +239,6 @@ func report[S Sizer](s S, name string) {
     fmt.printf("%s holds %d\n", name, s.size())
 }
 
-// stuck never returns. A parameter borrows its argument and cannot be
-// moved out of, so a function can produce a value of its type parameter
-// only from another call that does; this one, which never returns, is
-// where such values start.
-func stuck[S Sizer](s S) S {
-    for {
-    }
-}
-
-// relay returns what stuck gives it: a local of a type parameter, moved
-// by the return.
-func relay[S Sizer](s S) S {
-    x := stuck(s)
-    return x
-}
-
-// pair returns what stuck gives it and that value's size: a type
-// parameter among several results.
-func pair[S Sizer](s S) (S, int64) {
-    x := stuck(s)
-    n := x.size()
-    return x, n
-}
-
 func main() {
     check(live() == 0, "nothing live at the start")
     counters()
@@ -276,8 +252,6 @@ func main() {
     twoOfOne()
     packages()
     freed("packages freed")
-    never()
-    freed("never freed")
     report(Counter{n: 5}, "a counter")
 }
 
@@ -360,16 +334,3 @@ func packages() {
     check(sink.Tallied("x", "y") == 2, "a generic call inside another package")
 }
 
-// never calls the functions that produce values of a type parameter on a
-// path that never runs: their instances, and what they move, still
-// compile.
-func never() {
-    c := Counter{n: 2}
-    if live() < 0 {
-        x := relay(c)
-        b := newBuffer()
-        y, n := pair(b)
-        check(x.size() + y.size() + n > 0, "never printed")
-    }
-    check(true, "results of a type parameter")
-}

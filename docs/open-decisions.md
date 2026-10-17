@@ -685,13 +685,14 @@ the rules already there, rather than decided, and could go another way:
   parameter cannot hold W: its elements are copied, and W, a type
   parameter, which may hold a list, cannot be`, since a type parameter is
   owned; the same holds for an array, a list or a view of one.
-- Since a type parameter is owned, its parameters borrow and cannot be
-  moved, and a local of one comes only from a call returning one; so a
-  function can return a value of a type parameter only by passing on one
-  a call gave it, and the only source is a call that never returns. A
-  result of a type parameter is accepted, as decided, but no program can
-  yet produce one usefully: something that makes values, or a consuming
-  parameter, would.
+- A result of a type parameter was decided against: since a type
+  parameter is owned, its parameters borrow and cannot be moved, so a
+  function could return a value of one only by passing on what another
+  such call returned, and no call could start the chain. `f's result
+  cannot be its type parameter S: a generic function has no way to
+  produce a value of S`. Something that makes values of a type
+  parameter, or a parameter that consumes its argument, would make such
+  results useful, and would reopen the rule.
 - Only a struct or union type a package declares is a type argument:
   `error`, a builtin struct with no methods, is rejected even for an
   interface with none, `cannot use error as E in argument to f: a type

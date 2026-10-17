@@ -311,6 +311,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
 			c.checkTypeParamsUsed(fn)
+			c.checkTypeParamResults(fn)
 			restore()
 		}
 	}

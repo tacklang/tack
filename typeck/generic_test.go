@@ -117,11 +117,6 @@ func TestAcceptsGenericCode(t *testing.T) {
 			"recursion swapping type arguments", "func swap[A Sizer, B Sizer](a A, b B, n int64) int64 {\n    if n == 0 {\n        return a.size()\n    }\n    return swap(b, a, n - 1)\n}\n",
 			"use(swap(P{x: 1}, C{n: 2}, 3))",
 		},
-		{
-			"a local of a type parameter moved and returned",
-			"func stuck[S Sizer](s S) S {\n    for {\n    }\n}\n\nfunc relay[S Sizer](s S) (S, int64) {\n    x := stuck(s)\n    y := x\n    n := y.size()\n    return y, n\n}\n",
-			"x, n := relay(P{x: 1})\n    use(x.size() + n)",
-		},
 		{"an uncalled generic function", "func never[S Sizer](s S) int64 {\n    return s.size()\n}\n", "use(1)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,24 +176,22 @@ func main() {
 	}
 }
 
-// TestRecordsInferredTypeArgs checks a call to a generic function, stuck
-// here, records the type arguments it inferred, and has the type its callee's result
-// takes with them: a struct type from main, and the caller's own type
-// parameter inside another generic function.
+// TestRecordsInferredTypeArgs checks a call to a generic function, sized
+// here, records the type arguments it inferred, a struct type from main,
+// and the caller's own type parameter inside another generic function,
+// and has its callee's result type, which no type parameter can be.
 func TestRecordsInferredTypeArgs(t *testing.T) {
 	src := "package main\n\n" + genericDecls + `
-func stuck[S Sizer](s S) S {
-    for {
-    }
+func sized[S Sizer](s S) int64 {
+    return s.size()
 }
 
-func again[S Sizer](s S) S {
-    return stuck(s)
+func again[S Sizer](s S) int64 {
+    return sized(s)
 }
 
 func main() {
-    x := stuck(P{x: 1})
-    use(x.size())
+    use(sized(P{x: 1}) + again(P{x: 2}))
 }
 `
 	file, diags := checkFile(t, src)
@@ -208,7 +201,7 @@ func main() {
 	var got []string
 	ast.Walk(file, func(n ast.Node) bool {
 		if call, ok := n.(*ast.Call); ok && call.TypeArgs != nil &&
-			ast.Callee(call).Name == "stuck" {
+			ast.Callee(call).Name == "sized" {
 			got = append(
 				got,
 				file.Types.Name(call.TypeArgs[0])+" "+file.Types.Name(ast.TypeOf(call)),
@@ -216,7 +209,7 @@ func main() {
 		}
 		return true
 	})
-	if want := []string{"S S", "P P"}; strings.Join(got, ",") != strings.Join(want, ",") {
+	if want := []string{"S int64", "P int64"}; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("calls inferred %q, want %q", got, want)
 	}
 }
@@ -247,5 +240,48 @@ func TestNoInstancesInAProgramWithErrors(t *testing.T) {
 	file, diags := checkFile(t, src)
 	if len(diags) == 0 || file.Instances != nil {
 		t.Errorf("got %d diagnostics and instances %q", len(diags), instanceNames(file))
+	}
+}
+
+// TestRejectsTypeParamResults checks a result of a generic function's own
+// type parameter is reported at the result, whether it is the only one
+// or one of several, and once for each such result, while a generic
+// function with no such result is not.
+func TestRejectsTypeParamResults(t *testing.T) {
+	msg := func(fn string) string {
+		return fn + "'s result cannot be its type parameter S: a generic function has no way to produce a value of S"
+	}
+	for _, tt := range []struct {
+		name, decls string
+		want        []string
+	}{
+		{"the only result", "func stuck[S Sizer](s S) S {\n    for {\n    }\n}\n", []string{msg("stuck")}},
+		{
+			"one of several",
+			"func duo[S Sizer](s S) (int64, S) {\n    for {\n    }\n}\n",
+			[]string{msg("duo")},
+		},
+		{
+			"two of several",
+			"func two[S Sizer](s S) (S, S) {\n    for {\n    }\n}\n",
+			[]string{msg("two"), msg("two")},
+		},
+		{
+			"a second type parameter",
+			"func other[A Sizer, S Sizer](a A, s S) (int64, S) {\n    for {\n    }\n}\n",
+			[]string{msg("other")},
+		},
+		{"no such result", "func sized[S Sizer](s S) (int64, bool) {\n    return s.size(), true\n}\n", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := "package main\n\n" + genericDecls + "\n" + tt.decls + "\nfunc main() {\n}\n"
+			var got []string
+			for _, d := range check(t, src) {
+				got = append(got, d.Message)
+			}
+			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+				t.Errorf("reported %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

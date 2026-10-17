@@ -1853,8 +1853,11 @@ makes for itself, which has a letter after `tack_`.
   a view or another type parameter, is `Point is not an interface; the
   constraint of type parameter W must be one`. A type parameter must be
   the type of some parameter, as a call infers it from the arguments,
-  `W appears in no parameter of f, so no call can infer it`, and may be a
-  result's type too. `[]` is `empty type parameter list`. A type
+  `W appears in no parameter of f, so no call can infer it`, and is never
+  a result's type: `stuck's result cannot be its type parameter S: a
+  generic function has no way to produce a value of S`, for a function
+  `stuck[S Sizer](s S) S`, the only result or one of several (see
+  below). `[]` is `empty type parameter list`. A type
   parameter's name follows a parameter's rules: `duplicate type parameter
   name`, `Point is already declared` for a package-level name, and no
   parameter or local may reuse it. It is a type, never a value: `cannot
@@ -1877,19 +1880,18 @@ makes for itself, which has a letter after `tack_`.
   parameter of one, which borrows its argument, cannot be moved, `cannot
   move w: it is a parameter, which borrows its caller's value`, a moved
   local cannot be used, a temporary must be stored, `cannot use a
-  temporary S here; store it in a variable first`, a result cannot be
-  dropped, `stuck returns S, which may hold a list and cannot be dropped;
-  bind it to a variable`, it has no zero value, `z needs a value: S has
+  temporary S here; store it in a variable first`, it has no zero value, `z needs a value: S has
   no zero value`, it is never borrowed alongside a `mut` argument of
   itself, and it cannot be an element of an array or a variadic, `a
   variadic parameter cannot hold S: its elements are copied, and S, a
   type parameter, which may hold a list, cannot be`, nor, though a list
   or a view may hold owned elements, of a list or a view, `a list cannot
-  hold S: a list's element cannot be a type parameter`. A local is
-  a type parameter's only from a call returning one, and a parameter is
-  never moved, so a value of a type parameter comes only from an
-  argument: a function returning one can return only what a call that
-  never returns gave it. A call is written as any call, `render(mut f,
+  hold S: a list's element cannot be a type parameter`. A parameter is
+  never moved, and nothing else makes a value of a type parameter, so a
+  generic function could return one only by passing on what another such
+  call returned, and no call could start the chain; a result of a type
+  parameter is therefore an error, and every value of one in a generic
+  function is a parameter, which borrows its argument. A call is written as any call, `render(mut f,
   "x")`; type arguments are never written, `cannot write type arguments;
   they are inferred from the arguments, as in render(...)`. Each type
   parameter is given the type of the arguments passed to the parameters

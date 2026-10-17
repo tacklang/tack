@@ -7739,6 +7739,12 @@ func main() {
 stage: typeck
 ---
 
+generic-dropped-result/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
+06 |	
+07 |	func stuck[S Sizer](s S) S {
+   |	                         ^
+08 |	    for {
+
 generic-dropped-result/main.tck:13:5: error: stuck returns S, which may hold a list and cannot be dropped; bind it to a variable
 12 |	func f[S Sizer](s S) {
 13 |	    stuck(s)
@@ -8624,6 +8630,75 @@ generic-range/main.tck:8:20: error: cannot range over S
    |	                   ^
 09 |	        print(x)
 
+-- generic-result-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func stuck[S Sizer](s S) S {
+    for {
+    }
+}
+
+func main() {
+    report(Counter{n: 1})
+}
+
+func report[S Sizer](s S) {
+    print("x")
+}
+-- generic-result-type-param/expected --
+stage: typeck
+---
+
+generic-result-type-param/main.tck:15:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
+14 |	
+15 |	func stuck[S Sizer](s S) S {
+   |	                         ^
+16 |	    for {
+
+-- generic-result-type-param-among-several/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Counter struct {
+    n int64
+}
+
+func (c Counter) size() int64 {
+    return c.n
+}
+
+func pair[S Sizer](s S) (int64, S) {
+    for {
+    }
+}
+
+func main() {
+}
+-- generic-result-type-param-among-several/expected --
+stage: typeck
+---
+
+generic-result-type-param-among-several/main.tck:15:33: error: pair's result cannot be its type parameter S: a generic function has no way to produce a value of S
+14 |	
+15 |	func pair[S Sizer](s S) (int64, S) {
+   |	                                ^
+16 |	    for {
+
 -- generic-return-param/main.tck --
 package main
 
@@ -8640,6 +8715,12 @@ func main() {
 -- generic-return-param/expected --
 stage: typeck
 ---
+
+generic-return-param/main.tck:7:22: error: f's result cannot be its type parameter S: a generic function has no way to produce a value of S
+06 |	
+07 |	func f[S Sizer](s S) S {
+   |	                     ^
+08 |	    return s
 
 generic-return-param/main.tck:8:12: error: cannot move s: it is a parameter, which borrows its caller's value
 07 |	func f[S Sizer](s S) S {
@@ -8668,6 +8749,12 @@ func main() {
 -- generic-temporary/expected --
 stage: typeck
 ---
+
+generic-temporary/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
+06 |	
+07 |	func stuck[S Sizer](s S) S {
+   |	                         ^
+08 |	    for {
 
 generic-temporary/main.tck:13:12: error: cannot use a temporary S here; store it in a variable first
 12 |	func f[S Sizer](s S) int64 {
@@ -8847,6 +8934,12 @@ generic-type-param-result-only/main.tck:7:8: error: S appears in no parameter of
    |	       ^
 08 |	    for {
 
+generic-type-param-result-only/main.tck:7:19: error: f's result cannot be its type parameter S: a generic function has no way to produce a value of S
+06 |	
+07 |	func f[S Sizer]() S {
+   |	                  ^
+08 |	    for {
+
 -- generic-type-param-unused/main.tck --
 package main
 
@@ -8938,6 +9031,12 @@ func main() {
 -- generic-use-after-move/expected --
 stage: typeck
 ---
+
+generic-use-after-move/main.tck:7:26: error: stuck's result cannot be its type parameter S: a generic function has no way to produce a value of S
+06 |	
+07 |	func stuck[S Sizer](s S) S {
+   |	                         ^
+08 |	    for {
 
 generic-use-after-move/main.tck:15:12: error: x is used after it was moved
 14 |	    y := x

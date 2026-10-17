@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
@@ -21,7 +22,10 @@ import (
 // nothing else, no field, no ==, no zero value and no any, and it is owned
 // as a list is, since it may stand for a struct holding one, so it moves
 // rather than copies and a parameter of one borrows. So whatever a call
-// passes, a body that checked once is right for it.
+// passes, a body that checked once is right for it. Since a parameter of
+// a type parameter cannot be moved, and nothing else makes a value of
+// one, no result of a generic function may be one of its type parameters
+// (checkTypeParamResults).
 //
 // A call infers each type parameter from the arguments passed to the
 // parameters of that type: a struct or union type, or, in another generic
@@ -152,6 +156,33 @@ func (c *Checker) checkTypeParamsUsed(fn *ast.Func) {
 			c.errorf(tp.NameSpan, "%s appears in no parameter of %s, so no call can infer it",
 				tp.Name, fn.Name)
 		}
+	}
+}
+
+// checkTypeParamResults reports each result of fn whose type is one of
+// fn's own type parameters. A type parameter is owned, so a parameter of
+// one borrows its argument and cannot be moved out of, and a function has
+// nothing else to make a value of one from: a result of one could only be
+// passed on from another call returning one, and no call can start the
+// chain. An array, a list or a view of a type parameter cannot be written
+// at all, so a result can hold one only by being one.
+func (c *Checker) checkTypeParamResults(fn *ast.Func) {
+	for _, r := range fn.Results {
+		id, ok := r.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		tp, ok := id.Def.(*ast.TypeParam)
+		if !ok || !slices.Contains(fn.TypeParams, tp) {
+			continue
+		}
+		c.errorf(
+			id.Span,
+			"%s's result cannot be its type parameter %s: a generic function has no way to produce a value of %s",
+			fn.Name,
+			tp.Name,
+			tp.Name,
+		)
 	}
 }
 
