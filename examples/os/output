@@ -1,0 +1,50 @@
+nothing live at the start ok
+args has the name and three arguments ok
+[one]
+[]
+[two words]
+args are the name and the arguments, in order ok
+args freed ok
+env of a set variable ok
+env of a variable set to nothing ok
+env of an unset variable ok
+env of an empty name is unset ok
+env of a name with a 0 byte ok
+env freed ok
+make_temp_dir is an absolute path ending in tack- ok
+write_file and read_file ok
+write_file truncates ok
+an empty file ok
+300000 bytes written and read back ok
+hi
+read_file of a path with a 0 byte ok
+files freed ok
+make_dir ok
+make_dir of a directory that exists ok
+write_file Zed ok
+list_dir: Zed a.txt b big sub
+list_dir has five names ok
+list_dir is sorted bytewise ok
+list_dir of an empty directory ok
+dirs freed ok
+read_file of a missing file ok
+read_file through a file ok
+read_file of a directory ok
+list_dir of a file ok
+list_dir of a missing directory ok
+write_file through a file ok
+remove of a missing file ok
+make_dir through a file ok
+remove of a directory that is not empty ok
+failures allocate nothing ok
+a 0 byte in a path is an error ok
+failures freed ok
+every allocating function fails ok
+and allocates nothing ok
+env of an unset variable needs no allocation ok
+list_dir and args failing partway free what they made ok
+shortages freed ok
+1000 rounds of each leave no descriptor open ok
+descriptors freed ok
+remove files and an empty directory ok
+remove the temporary directory ok

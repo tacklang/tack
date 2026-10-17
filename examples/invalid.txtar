@@ -17889,6 +17889,152 @@ operator-on-two-wrong-operands/main.tck:5:15: error: operator - is not defined o
    |	              ^~~
 06 |	    }
 
+-- os-extern-private/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    if os.c_argc() < 1 {
+        exit(1)
+    }
+}
+-- os-extern-private/expected --
+stage: resolve
+---
+
+os-extern-private/main.tck:6:8: error: c_argc is not pub in package std/os
+05 |	func main() {
+06 |	    if os.c_argc() < 1 {
+   |	       ^~~~~~~~~
+07 |	        exit(1)
+
+-- os-path-string-arg/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    err := os.make_dir("out")
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- os-path-string-arg/expected --
+stage: typeck
+---
+
+os-path-string-arg/main.tck:6:24: error: cannot use string as []uint8 in argument to os.make_dir; view its bytes with []uint8("out")
+05 |	func main() {
+06 |	    err := os.make_dir("out")
+   |	                       ^~~~~
+07 |	    if err.code != 0 {
+
+-- os-read-file-blank/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    _, err := os.read_file([]uint8("a"), c_allocator)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- os-read-file-blank/expected --
+stage: typeck
+---
+
+os-read-file-blank/main.tck:6:5: error: os.read_file returns list[uint8], which cannot be dropped; bind it to a variable instead of _
+05 |	func main() {
+06 |	    _, err := os.read_file([]uint8("a"), c_allocator)
+   |	    ^
+07 |	    if err.code != 0 {
+
+-- os-read-file-unchecked/main.tck --
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+
+func main() {
+    data, err := os.read_file([]uint8("a"), c_allocator)
+    fmt.write(data)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- os-read-file-unchecked/expected --
+stage: typeck
+---
+
+os-read-file-unchecked/main.tck:8:15: error: data cannot be read before err is checked; check err.code == 0 first
+07 |	    data, err := os.read_file([]uint8("a"), c_allocator)
+08 |	    fmt.write(data)
+   |	              ^~~~
+09 |	    if err.code != 0 {
+
+-- os-remove-is-remove-path/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    err := os.remove([]uint8("a"))
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- os-remove-is-remove-path/expected --
+stage: resolve
+---
+
+os-remove-is-remove-path/main.tck:6:12: error: undefined: os.remove
+05 |	func main() {
+06 |	    err := os.remove([]uint8("a"))
+   |	           ^~~~~~~~~
+07 |	    if err.code != 0 {
+
+-- os-reserved-argv/main.tck --
+package main
+
+type tack_argv_ struct {
+    x int64
+}
+
+extern func f(p tack_argv_)
+
+func main() {
+    f(tack_argv_{x: 1})
+}
+-- os-reserved-argv/expected --
+stage: codegen
+---
+
+os-reserved-argv/main.tck:3:6: error: type tack_argv_ of package main cannot be named tack_argv_ in tack.h: that is a tack.h program global
+02 |	
+03 |	type tack_argv_ struct {
+   |	     ^~~~~~~~~~
+04 |	    x int64
+
+-- os-write-file-dropped/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    os.write_file([]uint8("a"), []uint8("x"))
+}
+-- os-write-file-dropped/expected --
+stage: typeck
+---
+
+os-write-file-dropped/main.tck:6:5: error: the error os.write_file returns cannot be dropped; bind it, as in err := os.write_file(...)
+05 |	func main() {
+06 |	    os.write_file([]uint8("a"), []uint8("x"))
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
 -- owned-element-appended/main.tck --
 package main
 
@@ -21039,7 +21185,7 @@ safety-string-index-unguarded/main.tck:4:14: error: index i may be out of range;
 package main
 
 import lexer from "calc/lexer"
-import os from "std/os"
+import net from "std/net"
 import rel from "../lexer"
 
 func main() {
@@ -21052,16 +21198,16 @@ single-file-import/main.tck:3:19: error: cannot import calc/lexer: a single file
 02 |	
 03 |	import lexer from "calc/lexer"
    |	                  ^~~~~~~~~~~~
-04 |	import os from "std/os"
+04 |	import net from "std/net"
 
-single-file-import/main.tck:4:16: error: cannot find package std/os: no directory std/os in module std
+single-file-import/main.tck:4:17: error: cannot find package std/net: no directory std/net in module std
 03 |	import lexer from "calc/lexer"
-04 |	import os from "std/os"
-   |	               ^~~~~~~~
+04 |	import net from "std/net"
+   |	                ^~~~~~~~~
 05 |	import rel from "../lexer"
 
 single-file-import/main.tck:5:17: error: cannot import ../lexer: a single file can import only the standard library
-04 |	import os from "std/os"
+04 |	import net from "std/net"
 05 |	import rel from "../lexer"
    |	                ^~~~~~~~~~
 06 |	

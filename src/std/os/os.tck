@@ -1,0 +1,469 @@
+package os
+
+import bytes from "std/bytes"
+import text from "std/text"
+
+// Package os reaches the operating system: the program's arguments and
+// environment, and files and directories. A program imports it as
+//
+//     import os from "std/os"
+//
+// and the compiler reads it from $TACK_HOME/src/std/os, or
+// ~/.tack/src/std/os, as it reads std/fmt. Its C, os.c, makes one POSIX
+// call at a time and decides nothing; every loop, every retry and every
+// allocation is here, in Tack.
+//
+// Paths and names are []uint8 views, passed to the OS as they are, with
+// no cleaning or joining. A path or a name holding a 0 byte, which C
+// would read as its end, is refused before the OS sees it, as error{code:
+// 4, msg: "path contains a NUL byte"} or "name contains a NUL byte". Text
+// the OS gives back, an argument, a variable's value, a directory's
+// names, is a text.Text, and a file's bytes a list[uint8]; each function
+// that returns one takes the Allocator it is made through, and no other
+// does.
+//
+// Every byte from the OS lands in a list Tack owns, appended by C
+// through the list's own allocator, so Tack frees it. When an allocation
+// fails, the error is error{code: 1, msg: "out of memory"}, as for every
+// std function. When the OS refuses, the error is code 3 and the message
+// the C library's strerror gives on macOS, the same on every target:
+// error{code: 3, msg: "No such file or directory"}, for one. A function
+// that fails returns an empty list or Text beside its error, and frees
+// what it had made; nothing it returns is partial.
+//
+// Every file descriptor os opens it closes before it returns, on every
+// path, and opens close-on-exec, so no child process inherits it.
+
+// read_size is how many bytes read_file makes room for before each read,
+// the most os.c reads at once.
+var read_size int64 = 65536
+
+// nul_path is the error for a path holding a 0 byte.
+var nul_path = error{code: 4, msg: "path contains a NUL byte"}
+
+// nul_name is the error for an environment variable's name holding a 0
+// byte.
+var nul_name = error{code: 4, msg: "name contains a NUL byte"}
+
+// c_open opens path, for reading when mode is 0, and for writing when it
+// is 1, creating the file with mode 0644 or truncating it, close-on-exec
+// either way, and returns the file descriptor, or the errno negated.
+extern("tack_os_open") func c_open(path []uint8, mode int32) int64
+
+// c_close closes fd and returns 0, or the errno negated.
+extern("tack_os_close") func c_close(fd int32) int64
+
+// c_read reads up to 65536 bytes from fd and appends them to l, and
+// returns how many, 0 at the end of the file, or the errno negated:
+// ENOMEM when l cannot grow to hold them.
+extern("tack_os_read") func c_read(fd int32, mut l list[uint8]) int64
+
+// c_write writes some of data to fd, with one write, and returns how many
+// bytes, or the errno negated.
+extern("tack_os_write") func c_write(fd int32, data []uint8) int64
+
+// c_remove removes the file or empty directory at path, with C's remove,
+// and returns 0, or the errno negated.
+extern("tack_os_remove") func c_remove(path []uint8) int64
+
+// c_make_dir makes the directory path with mode 0755 and returns 0, or
+// the errno negated.
+extern("tack_os_make_dir") func c_make_dir(path []uint8) int64
+
+// c_list_dir appends the name of every entry of the directory path,
+// each followed by a 0, to names, in the order the OS gives them, "."
+// and ".." included, and returns 0, or the errno negated: ENOMEM when
+// names cannot grow.
+extern("tack_os_list_dir") func c_list_dir(path []uint8, mut names list[uint8]) int64
+
+// c_make_temp_dir makes a new directory named by tmpl, a path ending in
+// XXXXXX and a 0, through mkdtemp, which replaces the Xs, and returns 0,
+// or the errno negated.
+extern("tack_os_make_temp_dir") func c_make_temp_dir(mut tmpl list[uint8]) int64
+
+// c_env appends the value of the environment variable name to value and
+// returns 1, or returns 0 when it is not set, or the errno negated:
+// ENOMEM when value cannot grow.
+extern("tack_os_env") func c_env(name []uint8, mut value list[uint8]) int64
+
+// c_argc returns how many arguments the program was given, its name
+// included.
+extern("tack_os_argc") func c_argc() int64
+
+// c_arg appends argument i to arg and returns 0, or the errno negated:
+// ENOMEM when arg cannot grow.
+extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
+
+// c_eintr returns EINTR, the errno of a call a signal interrupted.
+extern("tack_os_eintr") func c_eintr() int64
+
+// c_error returns the error for the errno e: out of memory for ENOMEM,
+// and code 3 with strerror's message otherwise.
+extern("tack_os_error") func c_error(e int64) error
+
+// has_nul reports whether s holds a 0 byte.
+func has_nul(s []uint8) bool {
+    return bytes.index_byte(s, 0) >= 0
+}
+
+// part returns the view of s from a up to b, or an empty view when those
+// are not bounds of s.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// args returns the program's arguments, made through alloc: its name, as
+// it was run, first, then each argument, an empty one included, in
+// order. It fails only for want of memory, returning an empty list and
+// freeing what it had made.
+pub func args(alloc Allocator) (list[text.Text], error) {
+    empty := make(list[text.Text], alloc)
+    mut out := make(list[text.Text], alloc)
+    for i := range c_argc() {
+        mut b := make(list[uint8], alloc)
+        r := c_arg(i, mut b)
+        if r < 0 {
+            return empty, c_error(-r)
+        }
+        t, e := text.from_bytes(b, alloc)
+        if e.code != 0 {
+            return empty, e
+        }
+        e2 := append(mut out, t)
+        if e2.code != 0 {
+            return empty, e2
+        }
+    }
+    return out, noerror
+}
+
+// env returns the value of the environment variable name, made through
+// alloc, and true, or an empty Text and false when it is not set, which
+// an empty name never is. A variable set to nothing is an empty Text and
+// true. A name holding a 0 byte is error{code: 4, msg: "name contains a
+// NUL byte"}; otherwise it fails only for want of memory. On an error the
+// Text is empty and the bool false.
+pub func env(name []uint8, alloc Allocator) (text.Text, bool, error) {
+    if has_nul(name) {
+        return text.new(alloc), false, nul_name
+    }
+    mut v := make(list[uint8], alloc)
+    r := c_env(name, mut v)
+    if r < 0 {
+        return text.new(alloc), false, c_error(-r)
+    }
+    if r == 0 {
+        return text.new(alloc), false, noerror
+    }
+    t, e := text.from_bytes(v, alloc)
+    if e.code != 0 {
+        return text.new(alloc), false, e
+    }
+    return t, true, noerror
+}
+
+// read_file returns every byte of the file at path, in a list made
+// through alloc. It reads until the end of the file, retrying a read a
+// signal interrupted, and closes the file on every path. On an error,
+// the OS's or out of memory, the list is empty and what had been read is
+// freed. A directory is error{code: 3, msg: "Is a directory"}.
+pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {
+    empty := make(list[uint8], alloc)
+    if has_nul(path) {
+        return empty, nul_path
+    }
+    r := c_open(path, 0)
+    if r < 0 {
+        return empty, c_error(-r)
+    }
+    fd, _ := int32(r)
+    // A file opened for reading has nothing to flush, so a failed close
+    // loses nothing that was read; its errno is not reported.
+    defer {
+        c_close(fd)
+    }
+    mut data := make(list[uint8], alloc)
+    for {
+        e := reserve(mut data, read_size)
+        if e.code != 0 {
+            return empty, e
+        }
+        n := c_read(fd, mut data)
+        if n == 0 {
+            return data, noerror
+        }
+        if n < 0 && -n != c_eintr() {
+            return empty, c_error(-n)
+        }
+    }
+}
+
+// write_file writes data to the file at path, creating it with mode 0644
+// when it does not exist and truncating it when it does, and returns no
+// error. It writes until every byte is written, retrying a write a
+// signal interrupted, and closes the file on every path; a failed close,
+// which can mean the bytes did not reach the file, is an error. On an
+// error the file may have been created or truncated, and hold some of
+// data: nothing makes the write all or nothing.
+pub func write_file(path []uint8, data []uint8) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    r := c_open(path, 1)
+    if r < 0 {
+        return c_error(-r)
+    }
+    fd, _ := int32(r)
+    mut at int64 = 0
+    for at < len(data) {
+        n := c_write(fd, part(data, at, len(data)))
+        if n <= 0 && -n != c_eintr() {
+            c_close(fd)
+            // A write of something that writes nothing has no errno; 0
+            // is none, so it is "unknown OS error".
+            return c_error(-n)
+        }
+        if n > 0 {
+            at += n
+        }
+    }
+    c := c_close(fd)
+    if c < 0 {
+        return c_error(-c)
+    }
+    return noerror
+}
+
+// remove_path removes the file, or the empty directory, at path, and returns
+// no error. A directory that is not empty is error{code: 3, msg:
+// "Directory not empty"}, and a missing path error{code: 3, msg: "No
+// such file or directory"}.
+pub func remove_path(path []uint8) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    r := c_remove(path)
+    if r < 0 {
+        return c_error(-r)
+    }
+    return noerror
+}
+
+// make_dir makes the directory path, with mode 0755 before the umask, and
+// returns no error. It makes no parent: a missing one is error{code: 3,
+// msg: "No such file or directory"}, and a path that exists is
+// error{code: 3, msg: "File exists"}.
+pub func make_dir(path []uint8) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    r := c_make_dir(path)
+    if r < 0 {
+        return c_error(-r)
+    }
+    return noerror
+}
+
+// is_dot reports whether name is "." or "..".
+func is_dot(name []uint8) bool {
+    return bytes.equal(name, []uint8(".")) || bytes.equal(name, []uint8(".."))
+}
+
+// less reports whether a sorts before b bytewise: at the first byte that
+// differs, a's is smaller, or a ends first, being a prefix of b.
+func less(a []uint8, b []uint8) bool {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return false
+        }
+        if x != y {
+            return x < y
+        }
+    }
+    return len(a) < len(b)
+}
+
+// name_at returns the bytes of name k of names, which run from starts[k]
+// up to ends[k] in buf, or an empty view for a k that is no name's.
+func name_at(buf []uint8, starts []int64, ends []int64, k int64) []uint8 {
+    a, ok := starts[k]
+    b, ok2 := ends[k]
+    if !ok || !ok2 {
+        return buf[:0]
+    }
+    return part(buf, a, b)
+}
+
+// sort_names returns the indexes of the names in buf, which run from
+// starts[k] up to ends[k] for each k, ordered by their bytes, through a
+// merge sort, bottom up, which is stable and takes O(n log n)
+// comparisons. It fails only for want of memory.
+func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (list[int64], error) {
+    n := len(starts)
+    mut src := make(list[int64], alloc)
+    e0 := reserve(mut src, n)
+    if e0.code != 0 {
+        return src, e0
+    }
+    for i := range n {
+        e := append(mut src, i)
+        if e.code != 0 {
+            return src, e
+        }
+    }
+    mut width int64 = 1
+    for width < n {
+        mut dst := make(list[int64], alloc)
+        e1 := reserve(mut dst, n)
+        if e1.code != 0 {
+            return dst, e1
+        }
+        mut lo int64 = 0
+        for lo < n {
+            mut mid := lo + width
+            if mid > n {
+                mid = n
+            }
+            mut hi := mid + width
+            if hi > n {
+                hi = n
+            }
+            mut i := lo
+            mut j := mid
+            for i < mid || j < hi {
+                a, _ := src[i]
+                b, _ := src[j]
+                // The left run's name goes first unless the right's sorts
+                // strictly before it, which keeps equal names in order.
+                if j >= hi || i < mid && !less(name_at(buf, starts, ends, b), name_at(buf, starts, ends, a)) {
+                    e := append(mut dst, a)
+                    if e.code != 0 {
+                        return dst, e
+                    }
+                    i++
+                } else {
+                    e := append(mut dst, b)
+                    if e.code != 0 {
+                        return dst, e
+                    }
+                    j++
+                }
+            }
+            lo = hi
+        }
+        src = dst
+        width *= 2
+    }
+    return src, noerror
+}
+
+// list_dir returns the name of every entry of the directory path, made
+// through alloc, sorted bytewise, so the order does not depend on the
+// OS, without "." and "..". On an error, the OS's or out of memory, the
+// list is empty and what had been made is freed. A file is error{code:
+// 3, msg: "Not a directory"}.
+pub func list_dir(path []uint8, alloc Allocator) (list[text.Text], error) {
+    empty := make(list[text.Text], alloc)
+    if has_nul(path) {
+        return empty, nul_path
+    }
+    mut buf := make(list[uint8], alloc)
+    r := c_list_dir(path, mut buf)
+    if r < 0 {
+        return empty, c_error(-r)
+    }
+    mut starts := make(list[int64], alloc)
+    mut ends := make(list[int64], alloc)
+    mut start int64 = 0
+    for i, c := range buf {
+        if c == 0 {
+            if !is_dot(part(buf, start, i)) {
+                e0 := append(mut starts, start)
+                e1 := append(mut ends, i)
+                if e0.code != 0 || e1.code != 0 {
+                    return empty, error{code: 1, msg: "out of memory"}
+                }
+            }
+            start = i + 1
+        }
+    }
+    order, e2 := sort_names(buf, starts, ends, alloc)
+    if e2.code != 0 {
+        return empty, e2
+    }
+    mut names := make(list[text.Text], alloc)
+    e3 := reserve(mut names, len(order))
+    if e3.code != 0 {
+        return empty, e3
+    }
+    for _, k := range order {
+        t, e4 := text.from_bytes(name_at(buf, starts, ends, k), alloc)
+        if e4.code != 0 {
+            return empty, e4
+        }
+        e5 := append(mut names, t)
+        if e5.code != 0 {
+            return empty, e5
+        }
+    }
+    return names, noerror
+}
+
+// append_temp_base appends to tmpl the directory make_temp_dir makes its
+// directory in, dir, or /tmp when dir is empty, without the slashes dir
+// ends in, unless it is all slashes.
+func append_temp_base(mut tmpl list[uint8], dir []uint8) error {
+    if len(dir) == 0 {
+        return append(mut tmpl, []uint8("/tmp")...)
+    }
+    mut n := len(dir)
+    for n > 1 {
+        c, ok := dir[n - 1]
+        if !ok || c != '/' {
+            break
+        }
+        n--
+    }
+    return append(mut tmpl, part(dir, 0, n)...)
+}
+
+// make_temp_dir makes a new directory, with mode 0700, whose name no
+// other has, in $TMPDIR, or in /tmp when TMPDIR is unset or empty, and
+// returns its path, made through alloc: the directory, a /, and tack-
+// and six characters mkdtemp picks. The caller removes it. On an error,
+// the OS's or out of memory, the Text is empty and no directory is left
+// behind.
+pub func make_temp_dir(alloc Allocator) (text.Text, error) {
+    dir, set, e0 := env([]uint8("TMPDIR"), alloc)
+    if e0.code != 0 {
+        return text.new(alloc), e0
+    }
+    mut tmpl := make(list[uint8], alloc)
+    mut e1 := noerror
+    if set {
+        e1 = append_temp_base(mut tmpl, dir.bytes())
+    } else {
+        e1 = append_temp_base(mut tmpl, []uint8(""))
+    }
+    if e1.code != 0 {
+        return text.new(alloc), e1
+    }
+    e2 := append(mut tmpl, []uint8("/tack-XXXXXX\x00")...)
+    if e2.code != 0 {
+        return text.new(alloc), e2
+    }
+    r := c_make_temp_dir(mut tmpl)
+    if r < 0 {
+        return text.new(alloc), c_error(-r)
+    }
+    t, e3 := text.from_bytes(part(tmpl, 0, len(tmpl) - 1), alloc)
+    if e3.code != 0 {
+        c_remove(part(tmpl, 0, len(tmpl) - 1))
+        return text.new(alloc), e3
+    }
+    return t, noerror
+}

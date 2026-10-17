@@ -217,7 +217,8 @@ func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 		"#include <stdint.h>",
 		"static void tack_4_main4_main(void);",
 		"static void tack_4_main4_main(void) {",
-		"int main(void) {\n    tack_4_main4_main();\n    return 0;\n}",
+		"int tack_argc_;\nchar **tack_argv_;\n\nint main(int argc, char **argv) {\n" +
+			"    tack_argc_ = argc;\n    tack_argv_ = argv;\n    tack_4_main4_main();\n    return 0;\n}",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated C is missing %q:\n%s", want, got)

@@ -1,0 +1,434 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+
+// std/os reaches the operating system through C that makes one system
+// call at a time, and keeps every byte it reads in lists Tack owns and
+// frees.
+//
+// The example reads its arguments and environment, which its test sets:
+// it is run as `os one "" "two words"` with TACK_OS_EXAMPLE set to "set
+// by the test" and TACK_OS_EXAMPLE_EMPTY set to "". It makes a temporary
+// directory, writes, reads, lists and removes files and directories in
+// it, makes each function fail as the OS fails it, a missing file, a
+// path through a file, a directory that is not empty or already exists,
+// and a 0 byte in a path, makes every allocating function fail for want
+// of memory, and removes the directory at the end. Each check is
+// printed, ok or FAIL, and c_allocator's count of live buffers, read
+// through live.c, is checked to be back to 0 after each group.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("os_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("os_fail_after") func failAfter(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// osError reports whether e is the error std/os returns when the OS
+// refuses with the message msg.
+func osError(e error, msg string) bool {
+    return e.code == 3 && e.msg == msg
+}
+
+// nulError reports whether e is the error std/os returns for a 0 byte in
+// a path.
+func nulError(e error) bool {
+    return e.code == 4 && e.msg == "path contains a NUL byte"
+}
+
+// oom reports whether e is std's out of memory error.
+func oom(e error) bool {
+    return e.code == 1 && e.msg == "out of memory"
+}
+
+// join returns dir, a /, and name, in a new list.
+func join(dir []uint8, name string) (list[uint8], error) {
+    mut p := make(list[uint8], c_allocator)
+    e0 := append(mut p, dir...)
+    if e0.code != 0 {
+        return p, e0
+    }
+    e1 := append(mut p, '/')
+    if e1.code != 0 {
+        return p, e1
+    }
+    e2 := append(mut p, []uint8(name)...)
+    return p, e2
+}
+
+// readErr returns the error read_file gives for p, after checking that a
+// read that succeeds returns a list, which it then frees.
+func readErr(p []uint8) error {
+    r, e := os.read_file(p, c_allocator)
+    if e.code == 0 && len(r) < 0 {
+        return error{code: 9, msg: "a list of negative length"}
+    }
+    return e
+}
+
+// listErr returns the error list_dir gives for p.
+func listErr(p []uint8) error {
+    r, e := os.list_dir(p, c_allocator)
+    if e.code == 0 && len(r) < 0 {
+        return error{code: 9, msg: "a list of negative length"}
+    }
+    return e
+}
+
+// argsErr returns the error args gives.
+func argsErr() error {
+    r, e := os.args(c_allocator)
+    if e.code == 0 && len(r) < 0 {
+        return error{code: 9, msg: "a list of negative length"}
+    }
+    return e
+}
+
+// envErr returns the error env gives for name.
+func envErr(name []uint8) error {
+    v, _, e := os.env(name, c_allocator)
+    if e.code == 0 && v.len() < 0 {
+        return error{code: 9, msg: "a Text of negative length"}
+    }
+    return e
+}
+
+// tempErr returns the error make_temp_dir gives, removing the directory
+// when it makes one.
+func tempErr() error {
+    d, e := os.make_temp_dir(c_allocator)
+    if e.code == 0 {
+        return os.remove_path(d.bytes())
+    }
+    return e
+}
+
+// arguments checks args: the program's name first, then each argument
+// the test passed, an empty one and one holding a space among them,
+// written between brackets.
+func arguments() {
+    a, err := os.args(c_allocator)
+    if err.code != 0 {
+        check(false, "args")
+        return
+    }
+    check(len(a) == 4, "args has the name and three arguments")
+    for i, s := range a {
+        if i > 0 {
+            print("[")
+            fmt.write(s.bytes())
+            print("]\n")
+        }
+    }
+    mut ok := true
+    for i, s := range a {
+        if i == 0 && s.len() == 0 {
+            ok = false
+        }
+        if i == 1 && !s.equal([]uint8("one")) || i == 2 && s.len() != 0 || i == 3 && !s.equal([]uint8("two words")) {
+            ok = false
+        }
+    }
+    check(ok, "args are the name and the arguments, in order")
+}
+
+// environment checks env: a set variable, one set to "", one unset, an
+// empty name, and a 0 byte in a name.
+func environment() {
+    v, set, e0 := os.env([]uint8("TACK_OS_EXAMPLE"), c_allocator)
+    if e0.code != 0 {
+        check(false, "env set")
+        return
+    }
+    check(set && v.equal([]uint8("set by the test")), "env of a set variable")
+    w, set1, e1 := os.env([]uint8("TACK_OS_EXAMPLE_EMPTY"), c_allocator)
+    if e1.code != 0 {
+        check(false, "env empty")
+        return
+    }
+    check(set1 && w.len() == 0, "env of a variable set to nothing")
+    x, set2, e2 := os.env([]uint8("TACK_OS_EXAMPLE_UNSET"), c_allocator)
+    if e2.code != 0 {
+        check(false, "env unset")
+        return
+    }
+    check(!set2 && x.len() == 0, "env of an unset variable")
+    y, set3, e3 := os.env([]uint8(""), c_allocator)
+    if e3.code != 0 {
+        check(false, "env empty name")
+        return
+    }
+    check(!set3 && y.len() == 0, "env of an empty name is unset")
+    e4 := envErr([]uint8("TACK_OS\x00EXAMPLE"))
+    check(e4.code == 4 && e4.msg == "name contains a NUL byte", "env of a name with a 0 byte")
+}
+
+// readsBack reports whether the file at p holds exactly want.
+func readsBack(p []uint8, want []uint8) bool {
+    got, err := os.read_file(p, c_allocator)
+    if err.code != 0 {
+        return false
+    }
+    return bytes.equal(got, want)
+}
+
+// files writes and reads files in dir: bytes 0x00 and 0xff, an empty
+// file, a file written again shorter, which truncates it, and one large
+// enough to take many reads.
+func files(dir []uint8) {
+    a, e0 := join(dir, "a.txt")
+    if e0.code != 0 {
+        check(false, "join a.txt")
+        return
+    }
+    e1 := os.write_file(a, []uint8("hello\x00\xff world\n"))
+    check(e1.code == 0 && readsBack(a, []uint8("hello\x00\xff world\n")), "write_file and read_file")
+    e2 := os.write_file(a, []uint8("hi"))
+    check(e2.code == 0 && readsBack(a, []uint8("hi")), "write_file truncates")
+
+    b, e3 := join(dir, "b")
+    if e3.code != 0 {
+        check(false, "join b")
+        return
+    }
+    e4 := os.write_file(b, []uint8(""))
+    check(e4.code == 0 && readsBack(b, []uint8("")), "an empty file")
+
+    big, e5 := join(dir, "big")
+    mut data := make(list[uint8], c_allocator)
+    if e5.code != 0 {
+        check(false, "join big")
+        return
+    }
+    mut ok := true
+    for i := range 300000 {
+        c, _ := uint8(i % 253)
+        e := append(mut data, c)
+        if e.code != 0 {
+            ok = false
+        }
+    }
+    e6 := os.write_file(big, data)
+    check(ok && e6.code == 0 && readsBack(big, data), "300000 bytes written and read back")
+
+    mut text_path, e7 := join(dir, "a.txt")
+    if e7.code != 0 {
+        check(false, "join a.txt again")
+        return
+    }
+    got, e8 := os.read_file(text_path, c_allocator)
+    if e8.code != 0 {
+        check(false, "read_file a.txt")
+        return
+    }
+    fmt.write(got)
+    print("\n")
+    e9 := append(mut text_path, 0, 'x')
+    e10 := readErr(text_path)
+    check(e9.code == 0 && nulError(e10), "read_file of a path with a 0 byte")
+}
+
+// dirs makes directories in dir and lists it: sorted bytewise, so
+// capitals before lowercase and a name before every longer name it
+// begins, with no "." or "..".
+func dirs(dir []uint8) {
+    sub, e0 := join(dir, "sub")
+    if e0.code != 0 {
+        check(false, "join sub")
+        return
+    }
+    e1 := os.make_dir(sub)
+    check(e1.code == 0, "make_dir")
+    e2 := os.make_dir(sub)
+    check(osError(e2, "File exists"), "make_dir of a directory that exists")
+    zed, e3 := join(dir, "Zed")
+    if e3.code != 0 {
+        check(false, "join Zed")
+        return
+    }
+    e4 := os.write_file(zed, []uint8("z"))
+    check(e4.code == 0, "write_file Zed")
+
+    names, e5 := os.list_dir(dir, c_allocator)
+    if e5.code != 0 {
+        check(false, "list_dir")
+        return
+    }
+    print("list_dir:")
+    for _, n := range names {
+        print(" ")
+        fmt.write(n.bytes())
+    }
+    print("\n")
+    check(len(names) == 5, "list_dir has five names")
+    mut ok := true
+    for i, n := range names {
+        if i == 0 && !n.equal([]uint8("Zed")) || i == 1 && !n.equal([]uint8("a.txt")) || i == 2 && !n.equal([]uint8("b")) || i == 3 && !n.equal([]uint8("big")) || i == 4 && !n.equal([]uint8("sub")) {
+            ok = false
+        }
+    }
+    check(ok, "list_dir is sorted bytewise")
+
+    empty, e6 := os.list_dir(sub, c_allocator)
+    if e6.code != 0 {
+        check(false, "list_dir empty")
+        return
+    }
+    check(len(empty) == 0, "list_dir of an empty directory")
+}
+
+// failures makes the OS refuse: a missing file, a path through a file,
+// a directory read as a file, a file listed as a directory, a directory
+// that is not empty, and a 0 byte in each function's path.
+func failures(dir []uint8) {
+    missing, e0 := join(dir, "missing")
+    through, e1 := join(dir, "a.txt/x")
+    a, e2 := join(dir, "a.txt")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 {
+        check(false, "join failure paths")
+        return
+    }
+    e4 := readErr(missing)
+    check(osError(e4, "No such file or directory"), "read_file of a missing file")
+    e5 := readErr(through)
+    check(osError(e5, "Not a directory"), "read_file through a file")
+    e6 := readErr(dir)
+    check(osError(e6, "Is a directory"), "read_file of a directory")
+    e7 := listErr(a)
+    check(osError(e7, "Not a directory"), "list_dir of a file")
+    e8 := listErr(missing)
+    check(osError(e8, "No such file or directory"), "list_dir of a missing directory")
+    e9 := os.write_file(through, []uint8("x"))
+    check(osError(e9, "Not a directory"), "write_file through a file")
+    e10 := os.remove_path(missing)
+    check(osError(e10, "No such file or directory"), "remove of a missing file")
+    e11 := os.make_dir(through)
+    check(osError(e11, "Not a directory"), "make_dir through a file")
+    e12 := os.remove_path(dir)
+    check(osError(e12, "Directory not empty"), "remove of a directory that is not empty")
+    check(live() == 4, "failures allocate nothing")
+
+    e13 := listErr([]uint8("a\x00b"))
+    e14 := os.write_file([]uint8("a\x00b"), []uint8("x"))
+    e15 := os.remove_path([]uint8("a\x00b"))
+    e16 := os.make_dir([]uint8("a\x00b"))
+    check(nulError(e13) && nulError(e14) && nulError(e15) && nulError(e16), "a 0 byte in a path is an error")
+}
+
+// shortages makes c_allocator fail during each function that allocates:
+// none returns anything it allocated, and a partial list_dir frees what
+// it had made.
+func shortages(dir []uint8) {
+    a, e0 := join(dir, "a.txt")
+    if e0.code != 0 {
+        check(false, "join a.txt")
+        return
+    }
+    base := live()
+    failAfter(0)
+    e1 := readErr(a)
+    e2 := listErr(dir)
+    e3 := argsErr()
+    e4 := envErr([]uint8("TACK_OS_EXAMPLE"))
+    e5 := tempErr()
+    failAfter(-1)
+    check(oom(e1) && oom(e2) && oom(e3) && oom(e4) && oom(e5), "every allocating function fails")
+    check(live() == base, "and allocates nothing")
+    e6 := envErr([]uint8("TACK_OS_EXAMPLE_UNSET"))
+    check(e6.code == 0, "env of an unset variable needs no allocation")
+    for n := range 30 {
+        failAfter(n)
+        e7 := listErr(dir)
+        e8 := argsErr()
+        failAfter(-1)
+        if e7.code != 0 && !oom(e7) || e8.code != 0 && !oom(e8) || live() != base {
+            check(false, "a list_dir or args failing partway")
+        }
+    }
+    check(live() == base, "list_dir and args failing partway free what they made")
+}
+
+// descriptors reads, writes and lists 1000 times each, more than a
+// process may usually hold open at once, so a function that left a file
+// or a directory open would fail with "Too many open files".
+func descriptors(dir []uint8) {
+    a, e0 := join(dir, "a.txt")
+    if e0.code != 0 {
+        check(false, "join a.txt")
+        return
+    }
+    mut ok := true
+    for range 1000 {
+        e1 := os.write_file(a, []uint8("hi"))
+        e2 := readErr(a)
+        e3 := listErr(dir)
+        e4 := readErr(dir)
+        if e1.code != 0 || e2.code != 0 || e3.code != 0 || !osError(e4, "Is a directory") {
+            ok = false
+        }
+    }
+    check(ok, "1000 rounds of each leave no descriptor open")
+}
+
+// cleanup removes what files and dirs made, then dir itself, and checks
+// it is gone.
+func cleanup(dir []uint8) {
+    mut ok := true
+    for _, name := range [5]string{"a.txt", "b", "big", "sub", "Zed"} {
+        p, e := join(dir, name)
+        if e.code != 0 {
+            ok = false
+        } else {
+            r := os.remove_path(p)
+            if r.code != 0 {
+                ok = false
+            }
+        }
+    }
+    check(ok, "remove files and an empty directory")
+    e0 := os.remove_path(dir)
+    e1 := listErr(dir)
+    check(e0.code == 0 && osError(e1, "No such file or directory"), "remove the temporary directory")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    arguments()
+    freed("args freed")
+    environment()
+    freed("env freed")
+    d, err := os.make_temp_dir(c_allocator)
+    if err.code != 0 {
+        check(false, "make_temp_dir")
+        return
+    }
+    check(bytes.has_prefix(d.bytes(), []uint8("/")) && bytes.index(d.bytes(), []uint8("/tack-")) > 0, "make_temp_dir is an absolute path ending in tack-")
+    files(d.bytes())
+    check(live() == 1, "files freed")
+    dirs(d.bytes())
+    check(live() == 1, "dirs freed")
+    failures(d.bytes())
+    check(live() == 1, "failures freed")
+    shortages(d.bytes())
+    check(live() == 1, "shortages freed")
+    descriptors(d.bytes())
+    check(live() == 1, "descriptors freed")
+    cleanup(d.bytes())
+}

@@ -5,7 +5,7 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of three packages, `std/fmt`, `std/bytes` and `std/text`, and no
+of four packages, `std/fmt`, `std/bytes`, `std/text` and `std/os`, and no
 intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
@@ -53,10 +53,12 @@ a view of `uint8` (see the language today). `std/bytes`, the first std
 package written in Tack alone, searches byte views and formats integers
 and repeats bytes into lists, and `std/text`, also in Tack alone, holds
 growing bytes in a `Text`, compares and hashes them, and lends them out
-as a view.
+as a view. `std/os` reads the program's arguments and environment and
+reads, writes, lists and removes files and directories, through C that
+makes one system call at a time.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
-the global goes away. The standard library has no `os` package yet.
+the global goes away. `std/os` does not have one yet, so `exit` stays.
 
 ## Requirements
 
@@ -330,7 +332,9 @@ string literals are pooled into `unsigned char` byte arrays, `tack_str0` and
 on, so that arbitrary
 bytes survive without an escaping scheme, a call to `print` is a call to the
 static `tack_builtin_print`, whose body is one `fwrite` to `stdout`, and a
-generated `int main(void)` calls the Tack `main`. Each
+generated `int main(int argc, char **argv)` stores `argc` and `argv` in
+two globals, `tack_argc_` and `tack_argv_`, for `std/os`, and calls the
+Tack `main`. Each
 part is read back by its length, so no two Tack names, whatever underscores
 they hold, map to one C name, and none takes the shape of a name the backend
 makes for itself, which has a letter after `tack_`.
@@ -478,7 +482,8 @@ makes for itself, which has a letter after `tack_`.
   (see write), [`bytes`](src/std/bytes/bytes.tck), which reads byte
   views and builds byte lists (see bytes), and
   [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
-  text).
+  text), and [`os`](src/std/os/os.tck), which reaches the operating
+  system (see os).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -935,6 +940,40 @@ makes for itself, which has a letter after `tack_`.
   `new` and `from_bytes` take an `Allocator`. Bytes are bytes: nothing in
   it knows UTF-8, so `len` counts bytes and `equal` compares them
   exactly.
+- os. `std/os` reaches the operating system through C, in
+  [`os.c`](src/std/os/os.c), that makes one POSIX call at a time and
+  decides nothing; every loop, retry and allocation is in Tack. Paths
+  and names are `[]uint8` views, passed as they are; one holding a 0
+  byte is refused before the OS sees it, `error{code: 4, msg: "path
+  contains a NUL byte"}`, or `"name contains a NUL byte"` for `env`.
+  What the OS gives back lands in lists Tack owns, appended by C through
+  the list's own allocator: `a, err := os.args(alloc)`, a
+  `list[text.Text]` of the program's name and its arguments, in order;
+  `v, set, err := os.env(name, alloc)`, a variable's value and whether it
+  is set; `data, err := os.read_file(path, alloc)`, every byte of a file;
+  and `names, err := os.list_dir(path, alloc)`, a directory's entries
+  without `.` and `..`, sorted bytewise so the order does not depend on
+  the OS. `os.write_file(path, data)` creates a file with mode 0644 or
+  truncates it and writes all of `data`; `os.make_dir(path)` makes one
+  directory, mode 0755, and no parents; `os.remove_path(path)` removes a
+  file or an empty directory, named `remove_path` because `remove` is a
+  builtin; and `d, err := os.make_temp_dir(alloc)` makes a new directory,
+  mode 0700, in `$TMPDIR`, or `/tmp`, named `tack-` and six characters,
+  which the caller removes. An allocation that fails is `error{code: 1,
+  msg: "out of memory"}`; the OS refusing is code 3 and the message
+  macOS's strerror gives, the same on every target, `error{code: 3, msg:
+  "No such file or directory"}`. A function that fails returns an empty
+  list or Text and frees what it made; only `write_file` can leave work
+  half done, a file created or truncated and partly written. Every file
+  descriptor is opened close-on-exec and closed before the function
+  returns, on every path. The results follow the rules every call does:
+  `_, err := os.read_file(...)` is `os.read_file returns list[uint8],
+  which cannot be dropped; bind it to a variable instead of _`, and
+  `os.write_file(p, d)` alone is `the error os.write_file returns cannot
+  be dropped; bind it, as in err := os.write_file(...)`. The program's
+  arguments reach std/os through the generated C main, which stores
+  `argc` and `argv` in two globals (see
+  [docs/extern.md](docs/extern.md#program-arguments)).
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

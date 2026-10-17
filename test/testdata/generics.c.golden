@@ -677,7 +677,12 @@ static tack_8_generics6_Buffer tack_8_generics28_stuck_5bgenerics_2eBuffer_5d(ta
     }
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_8_generics4_main();
     return 0;
 }

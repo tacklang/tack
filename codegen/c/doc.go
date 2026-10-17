@@ -51,7 +51,10 @@
 //   - a prototype for every Tack function, since Tack lets a function call one
 //     declared later in the file, or in another file, and C does not;
 //   - every Tack function but an extern func, as a static C function;
-//   - a C main that calls the Tack main and returns 0.
+//   - the globals tack_argc_ and tack_argv_, which std's tack.h declares,
+//     and a C main, int main(int argc, char **argv), that stores its
+//     arguments in them, for std/os to read, calls the Tack main and
+//     returns 0.
 //
 // Values map to C types directly. Each integer type is the C fixed-width
 // type of its name, int8_t through uint64_t, but for the target-width

@@ -118,7 +118,12 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_4_main7_viaTack((tack_view_18){v_a.e, 4}) == 2), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

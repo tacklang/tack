@@ -65,7 +65,12 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_compare_strings(tack_4_main6_global(), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}) == 0), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

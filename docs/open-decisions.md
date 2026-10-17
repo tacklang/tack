@@ -1048,3 +1048,44 @@ builtins, and could go another way:
   and `len` counts bytes, as nothing in std knows UTF-8.
 - `equal` takes a view rather than another Text; two Texts compare with
   `a.equal(b.bytes())`.
+
+## std/os
+
+`std/os`'s shape was decided: thin C, one system call per extern, with
+every byte in lists Tack owns; paths and names as `[]uint8` views; text
+results as `text.Text`; the generated `main` taking `argc` and `argv`
+and storing them in `tack_argc_` and `tack_argv_`; code 3 for an OS
+failure with a literal message per errno; code 4 for a 0 byte in a path
+or name; `list_dir` as one extern, so no `DIR *` reaches Tack; and, for
+the coming `run`, code 5 for a child killed by a signal, and outputs
+left unchanged on any error. These points were settled by consistency
+and could go another way:
+
+- The file and directory remover is `remove_path`, since `remove` is a
+  builtin and a package-level function cannot take a builtin's name.
+- An OS error's message is macOS's strerror text, the same on every
+  target, so a program's output does not depend on the C library. An
+  errno the table does not list is `"unknown OS error"`, and the errno
+  itself is not kept. `ENOMEM` from the OS is `error{code: 1, msg: "out
+  of memory"}`, as an allocation failure is.
+- A 0 byte in an environment variable's name is `"name contains a NUL
+  byte"`; in a path, `"path contains a NUL byte"`.
+- A path or a name too long for the C library's `PATH_MAX` is code 3,
+  `"File name too long"`, without asking the OS.
+- `env` of an empty name is unset, not an error, as `getenv` gives.
+  `env` copies the value twice, into a list and then into a Text, since
+  std/text has no constructor that takes a list over.
+- `read_file` makes room for 65536 more bytes before every read, so its
+  list's capacity may be up to that much over its length.
+- A failed `close` after reading is not reported; after writing it is,
+  since it can mean the bytes did not reach the file.
+- `write_file` is not atomic: an error after the file is opened leaves it
+  created or truncated, holding some of the data.
+- `remove_path` is C's `remove`, so whether a directory is tried with
+  `rmdir` after `unlink` fails is the C library's choice.
+- `make_temp_dir` trims the slashes `$TMPDIR` ends in, and treats an
+  empty `TMPDIR` as unset; its directory's mode is mkdtemp's, 0700. When
+  making its Text fails, it removes the directory it made.
+- `list_dir`'s sort is bytewise, with no locale or case folding, so
+  capitals sort before lowercase and a name before every longer name it
+  begins.

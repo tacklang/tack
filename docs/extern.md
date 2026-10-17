@@ -241,8 +241,12 @@ A name `tack.h` cannot give is an error whatever is built:
   `tack_c_allocator_fail_after_` and `tack_allocators_release_all_`, each
   `a tack.h allocator function`:
   `type tack_allocator of package main cannot be named tack_allocator in
-  tack.h: that is tack.h's allocator type`. Each is reserved whether or
-  not the program uses strings, errors, `any` or lists;
+  tack.h: that is tack.h's allocator type`. So are `tack_argc_` and
+  `tack_argv_`, each `a tack.h program global` (see [Program
+  arguments](#program-arguments)): `type tack_argv_ of package main
+  cannot be named tack_argv_ in tack.h: that is a tack.h program global`.
+  Each is reserved whether or not the program uses strings, errors, `any`
+  or lists;
 - a type or an extern func's C name named like a macro the C standard
   specifies one of the headers `tack.h` includes defines, whether or not
   this `tack.h` includes it: `type NULL of package main cannot be named
@@ -406,6 +410,17 @@ it. It may read `cap`. `examples/extern-lists` appends integers and
 structs from C, one at a time and several at once, reserves room, doubles
 elements in place, reads a view of the list, and makes appends and a
 reserve fail.
+
+## Program arguments
+
+The generated C's `main` is `int main(int argc, char **argv)`. Before it
+calls the Tack `main`, it stores `argc` and `argv` in two globals the
+generated source defines, `int tack_argc_` and `char **tack_argv_`,
+which std's `<tack/tack.h>` declares, so every program has them, whether
+or not it reads them. `std/os`'s C reads its arguments from them, and
+nothing writes them after `main` has: C reads them, never writes them,
+and never writes through `tack_argv_`. No extern func may take either
+name, as no program's extern may take any name starting `tack_`.
 
 ## any
 

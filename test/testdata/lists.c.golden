@@ -861,7 +861,12 @@ static void tack_4_main4_main(void) {
     tack_4_main5_freed((tack_string){tack_str102, TACK_C_STR_LEN(tack_str102)});
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

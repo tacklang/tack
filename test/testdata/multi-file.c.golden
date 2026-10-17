@@ -65,7 +65,12 @@ static int64_t tack_12_multi_2dfile9_perimeter(tack_12_multi_2dfile4_Rect p_r) {
     return tack_12_multi_2dfile5_twice(((int64_t)((uint64_t)p_r.f_w + (uint64_t)p_r.f_h)));
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_12_multi_2dfile4_main();
     return 0;
 }

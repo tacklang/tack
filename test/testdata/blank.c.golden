@@ -47,7 +47,12 @@ static void tack_4_main4_main(void) {
     tack_builtin_exit(v_code);
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

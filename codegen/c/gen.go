@@ -765,10 +765,14 @@ func (g *generator) emitFunc(sig string, body []string) {
 }
 
 // emitEntryPoint writes C's main, which exists only to call Tack's, once
-// it has given each global too deep for a C initializer its value (see
+// it has stored its argc and argv in tack_argc_ and tack_argv_, the
+// globals std's tack.h declares and this source defines, for std/os to
+// read, and given each global too deep for a C initializer its value (see
 // deepGlobal).
 func (g *generator) emitEntryPoint() {
-	g.buf.WriteString("int main(void) {\n")
+	g.buf.WriteString("int tack_argc_;\nchar **tack_argv_;\n\n")
+	g.buf.WriteString("int main(int argc, char **argv) {\n")
+	g.buf.WriteString("    tack_argc_ = argc;\n    tack_argv_ = argv;\n")
 	for _, init := range g.globalInits {
 		g.buf.WriteString("    " + init + "\n")
 	}

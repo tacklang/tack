@@ -327,6 +327,13 @@ int64_t tack_c_allocator_live_(void);
 // n is negative, for tests of what a failed allocation does.
 void tack_c_allocator_fail_after_(int64_t n);
 
+// tack_argc_ and tack_argv_ are the argc and argv C's main was given,
+// which the generated main stores before it calls Tack's main, and which
+// nothing else writes: std/os reads its arguments from them. The
+// generated source defines them, so every program has them.
+extern int tack_argc_;
+extern char **tack_argv_;
+
 // TACK_LIST_LEN(l) is the number of elements of the list l, a
 // tack_list_ struct, not a pointer to one.
 #define TACK_LIST_LEN(l) ((l).len)

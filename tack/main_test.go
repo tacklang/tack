@@ -1770,6 +1770,72 @@ func TestBuiltTextPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// osExampleArgs are the arguments examples/os is run with, and
+// examples/os/output what it writes for them.
+var osExampleArgs = []string{"one", "", "two words"}
+
+// osExampleEnv returns the environment examples/os is run with: the
+// test's own, with TACK_OS_EXAMPLE set to "set by the test",
+// TACK_OS_EXAMPLE_EMPTY set to nothing, TACK_OS_EXAMPLE_UNSET not set,
+// and TMPDIR set to tmp, where its temporary directory goes.
+func osExampleEnv(tmp string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "TACK_OS_EXAMPLE") && !strings.HasPrefix(kv, "TMPDIR=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "TACK_OS_EXAMPLE=set by the test", "TACK_OS_EXAMPLE_EMPTY=", "TMPDIR="+tmp)
+}
+
+// osLimitedArgs returns the arguments to sh that run bin with
+// osExampleArgs and at most 64 open files, so examples/os's 1000 rounds
+// of opening files fail with "Too many open files" if std/os leaves one
+// open each time.
+func osLimitedArgs(bin string) []string {
+	return append([]string{"-c", `ulimit -n 64 && exec "$0" "$@"`, bin}, osExampleArgs...)
+}
+
+// TestBuiltOsPassesEveryCheck builds examples/os, which imports std/os,
+// at every optimization level and runs each binary with osExampleArgs
+// and osExampleEnv, and at most 64 open files, checking it writes exactly examples/os/output, every
+// check ok: its arguments and environment, files written, read, listed
+// and removed in a temporary directory it makes, the OS's refusals, a 0
+// byte in a path, and every allocating function made to fail. TMPDIR is
+// a directory of the test's, which must be empty after each run: the
+// example removes what it made.
+func TestBuiltOsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "os", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/os/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "os")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("os"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			tmp := t.TempDir()
+			cmd := exec.CommandContext(t.Context(), "sh", osLimitedArgs(bin)...)
+			cmd.Env = osExampleEnv(tmp)
+			out, err := cmd.Output()
+			if err != nil || string(out) != string(want) {
+				t.Errorf("wrote\n%q\nand ended with %v, want\n%q\nand exit 0", out, err, want)
+			}
+			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+				t.Errorf("left %d entries in TMPDIR, the first %s", len(left), left[0].Name())
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

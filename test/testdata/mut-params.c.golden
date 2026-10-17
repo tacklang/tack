@@ -293,7 +293,12 @@ static int64_t tack_4_main5_cell2(tack_4_main5_Point * p_p) {
     return (*p_p).f_x;
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

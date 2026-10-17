@@ -151,6 +151,20 @@ var loadSeeds = []string{
 		"for _, c := range t.b { h = xor_low(h, c) * fnv_prime }\nreturn h }\n" +
 		"pub func (mut t Text) append_byte(c uint8) error { return append(mut t.b, c) }\n" +
 		"pub func (t Text) bytes() []uint8 { return t.b }\n",
+	"tack.mod\nmodule m\n\x00main.tck\npackage main\nimport os from \"std/os\"\n" +
+		"func main() { d, err := os.read_file([]uint8(\"a\\x00\"), c_allocator)\n" +
+		"if err.code != 0 { return }\nif len(d) > 0 { exit(1) } }\n" +
+		"\x00std/tack.mod\nmodule std\n\x00std/os/os.tck\npackage os\n" +
+		"extern(\"tack_os_open\") func c_open(path []uint8, mode int32) int64\n" +
+		"extern(\"tack_os_close\") func c_close(fd int32) int64\n" +
+		"extern(\"tack_os_read\") func c_read(fd int32, mut l list[uint8]) int64\n" +
+		"extern(\"tack_os_error\") func c_error(e int64) error\n" +
+		"pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {\n" +
+		"empty := make(list[uint8], alloc)\nr := c_open(path, 0)\nif r < 0 { return empty, c_error(-r) }\n" +
+		"fd, _ := int32(r)\ndefer { c_close(fd) }\nmut data := make(list[uint8], alloc)\n" +
+		"for { e := reserve(mut data, 65536)\nif e.code != 0 { return empty, e }\n" +
+		"n := c_read(fd, mut data)\nif n == 0 { return data, noerror }\n" +
+		"if n < 0 { return empty, c_error(-n) } } }\n",
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports

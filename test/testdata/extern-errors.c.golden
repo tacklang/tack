@@ -94,7 +94,12 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((tack_4_main5_codes((tack_view_18){(const tack_error[3]){v_e, tack_4_main4_fail(2), (tack_error){}}, 3}) == (-1)) && (tack_4_main5_codes((tack_view_18){0, 0}) == 0)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }

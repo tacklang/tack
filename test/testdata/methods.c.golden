@@ -698,7 +698,12 @@ static void tack_7_methods7_tallies(void) {
     tack_list_free_(v_b.f_buf.ptr, v_b.f_buf.cap, sizeof (uint8_t), _Alignof (uint8_t), v_b.f_buf.alloc);
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_7_methods4_main();
     return 0;
 }

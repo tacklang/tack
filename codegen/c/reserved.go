@@ -23,7 +23,8 @@ type reservation struct {
 // guard; what std's tack.h defines, its include guard, tack_string and
 // the string helpers, tack_error and the error helpers, tack_any, its
 // type ids and its helpers, tack_allocator, TACK_C_ALLOCATOR, the list
-// functions and macros and c_allocator's testing hooks; and the
+// functions and macros, c_allocator's testing hooks and the globals
+// holding main's argc and argv; and the
 // macros the C standard specifies that <stdbool.h>, <stdint.h> and
 // <stddef.h> define, C23's and Annex K's among them. Each is reserved whether or not tack.h includes the header
 // that defines it, so whether a name is allowed does not depend on what
@@ -54,6 +55,8 @@ var reservedNames = func() map[string]reservation {
 		"tack_c_allocator_live_":       {what: "a tack.h allocator function"},
 		"tack_c_allocator_fail_after_": {what: "a tack.h allocator function"},
 		"tack_allocators_release_all_": {what: "a tack.h allocator function"},
+		"tack_argc_":                   {what: "a tack.h program global"},
+		"tack_argv_":                   {what: "a tack.h program global"},
 		"TACK_LIST_LEN":                {what: "a tack.h list helper"},
 		"TACK_LIST_AT":                 {what: "a tack.h list helper"},
 		"TACK_LIST_APPEND":             {what: "a tack.h list helper"},

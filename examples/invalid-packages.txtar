@@ -1813,7 +1813,7 @@ module calc
 -- import-std/main.tck --
 package main
 
-import os from "std/os"
+import net from "std/net"
 import s from "std"
 import f from "std//fmt"
 import t from "std/fmt/../fmt"
@@ -1824,14 +1824,14 @@ func main() {
 stage: load
 ---
 
-import-std/main.tck:3:16: error: cannot find package std/os: no directory std/os in module std
+import-std/main.tck:3:17: error: cannot find package std/net: no directory std/net in module std
 02 |	
-03 |	import os from "std/os"
-   |	               ^~~~~~~~
+03 |	import net from "std/net"
+   |	                ^~~~~~~~~
 04 |	import s from "std"
 
 import-std/main.tck:4:15: error: cannot find package std: no .tck files in src/std
-03 |	import os from "std/os"
+03 |	import net from "std/net"
 04 |	import s from "std"
    |	              ^~~~~
 05 |	import f from "std//fmt"

@@ -330,7 +330,12 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(tack_4_main12_indexChecked(v_nums, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_view_19){v_hundreds.e, 4}, 0, 4, 4294967295, 5000000000), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
 }
 
-int main(void) {
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_argc_ = argc;
+    tack_argv_ = argv;
     tack_4_main4_main();
     return 0;
 }
