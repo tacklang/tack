@@ -393,7 +393,10 @@
 // type, all written after every free and equality helper they call, and
 // freed by tack_free_ like a list of owned elements; put, has, a checked
 // lookup, m[k] read or written in place through at, delete and a range
-// over one lower through them (see maps.go). A function value is a
+// over one lower through them (see maps.go). Where the C starts a map
+// before Tack gives it one, a function's result, or the value a checked
+// pop or delete gives when there is none, it is a zeroed struct, an
+// empty map no code reads (see zeroValue). A function value is a
 // tack_fnptr, one C function pointer type for every function type,
 // defined before any type that may hold one, so a struct may hold one
 // that takes the struct; a function named as a value is a pointer of its

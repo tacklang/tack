@@ -2047,9 +2047,13 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 }
 
 // zeroValue is the C expression for a type's zero value, or, for a list,
-// an Allocator or a view, which have none in Tack, the zeroed value the
-// ret variable of a function returning one starts as, which it never
-// returns. The empty string
+// a map, an Allocator or a view, which have none in Tack, the zeroed value
+// the ret variable of a function returning one starts as, which it never
+// returns, and the value v, ok := pop(mut l) or v, ok := delete(mut m, k)
+// gives with ok false, which is never read. A map is a C struct, zeroed
+// an empty map with no buffer, which freeing leaves alone. A function
+// value is a C function pointer, so its 0 is a null pointer, which is
+// likewise never called. The empty string
 // points at a pooled empty array rather than NULL, so writing it never hands
 // libc a null pointer. An array or a struct is zeroed in full, so a string
 // in it starts with a null pointer and a length of 0, which print's C body
@@ -2057,7 +2061,8 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 // of range, is a zeroed tack_any: type id 0, TACK_TYPE_INVALID, which
 // holds nothing, and a null pointer, never read.
 func (g *generator) zeroValue(typ types.Type) string {
-	if g.isComposite(typ) || g.prog.Types.IsList(typ) || g.prog.Types.IsView(typ) ||
+	table := g.prog.Types
+	if g.isComposite(typ) || table.IsList(typ) || table.IsMap(typ) || table.IsView(typ) ||
 		typ == types.Allocator || typ == types.Any {
 		return fmt.Sprintf("(%s){}", g.cType(typ))
 	}

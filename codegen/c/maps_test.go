@@ -48,6 +48,26 @@ func TestMapHasExampleIsSanitizerClean(t *testing.T) {
 	}
 }
 
+// TestMapZeroExampleIsSanitizerClean builds examples/map-zero, its C file
+// and std's C as TestMapsExampleIsSanitizerClean does, and checks every
+// check passes: maps built in locals and returned, one of two returned,
+// the checked pop of a list of maps and of an empty one, and the checked
+// delete of a map of maps, each of which starts a map at its zero value,
+// a zeroed C struct, with every allocation refused in turn, and
+// c_allocator holding nothing after each group.
+func TestMapZeroExampleIsSanitizerClean(t *testing.T) {
+	src, csrc := exampleFiles(t, "map-zero", "live.c")
+	for _, flags := range [][]string{
+		{"-O2"},
+		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	} {
+		t.Run(filepath.Join(flags...), func(t *testing.T) {
+			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 9)
+		})
+	}
+}
+
 // compositeKeys keys maps by arrays, structs holding strings, unions with
 // and without payloads, lists, and the integers at their edges, and looks
 // each key up through a value built apart from the one put, so a hash
