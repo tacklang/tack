@@ -148,6 +148,26 @@ func TestPrintfExampleIsSanitizerClean(t *testing.T) {
 	}
 }
 
+// TestAnyViewsExampleIsSanitizerClean builds examples/any-views with
+// clang's warnings as errors and the address and undefined behavior
+// sanitizers on, std's C included, so a tack_any pointing at a view no
+// longer there, printf reading past a view's elements, or an empty
+// view's null pointer moved, fails the run, and checks it writes exactly
+// its output.
+func TestAnyViewsExampleIsSanitizerClean(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "any-views")
+	src := readFile(t, filepath.Join(dir, "main.tck"))
+	want := readFile(t, filepath.Join(dir, "output"))
+	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
+	out, err := exec.Command(bin).Output()
+	if err != nil {
+		t.Fatalf("any-views failed: %v\n%s", err, out)
+	}
+	if string(out) != want {
+		t.Errorf("any-views wrote\n%q\nwant\n%q", out, want)
+	}
+}
+
 // TestFmtWriteExampleIsSanitizerClean builds examples/fmt-write with
 // clang's warnings as errors and the address and undefined behavior
 // sanitizers on, std/fmt's C included, so an empty view's null pointer
@@ -385,15 +405,20 @@ func TestPrintfMarkersMatchGo(t *testing.T) {
 }
 
 // harnessHeader stands in for a program's tack.h for a C file that calls
-// printf's C directly: the view of anys, and the prototype.
+// printf's C directly: the view of anys, the view of bytes, which std/fmt's
+// write gives every program's tack.h, and the prototype.
 const harnessHeader = "#include <tack/tack.h>\n" +
 	"typedef struct {\n    const tack_any *ptr;\n    int64_t len;\n} tack_view_any;\n" +
+	"typedef struct {\n    const uint8_t *ptr;\n    int64_t len;\n} tack_view_uint8;\n" +
 	"void tack_fmt_printf(tack_string format, tack_view_any args);\n"
 
 // TestPrintfCHandlesWhatTackNeverPasses calls printf's C from C with what
 // no Tack program passes it, under the sanitizers: tack_anys whose ids
-// are no type's, zero and past the last, and a zeroed format and view,
-// whose pointers are null. Each must be written as a marker, never read.
+// are no type's, zero, past the last view's and far past it, a zeroed
+// format and view, whose pointers are null, and views as anys: a []uint8
+// of no bytes, whose pointer is null, and a []int64, which no verb
+// takes. Each must be written as a marker, or as no bytes, never read
+// past.
 func TestPrintfCHandlesWhatTackNeverPasses(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
@@ -411,6 +436,14 @@ int main(void) {
     tack_fmt_printf((tack_string){0, 0}, (tack_view_any){0, 0});
     tack_fmt_printf((tack_string){0, 0}, (tack_view_any){bad + 2, 1});
     tack_fmt_printf(TACK_STR("%d"), (tack_view_any){0, 0});
+    tack_view_uint8 none = {0, 0};
+    int64_t xs[2] = {1, 2};
+    struct { const int64_t *ptr; int64_t len; } nums = {xs, 2};
+    tack_any views[4] = {
+        {TACK_TYPE_VIEW_UINT8, &none}, {TACK_TYPE_VIEW_INT64, &nums}, {25, &n}, {TACK_TYPE_VIEW_UINT8, &none},
+    };
+    tack_fmt_printf(TACK_STR("|[%s] [%v] %v %v"), (tack_view_any){views, 3});
+    tack_fmt_printf(TACK_STR("|"), (tack_view_any){views, 4});
     return 0;
 }
 `)
@@ -431,7 +464,9 @@ int main(void) {
 	want := "%!d(invalid) %!v(invalid) 5|" +
 		"|%!(EXTRA invalid, invalid)" +
 		"%!(EXTRA int64=5)" +
-		"%!d(MISSING)"
+		"%!d(MISSING)" +
+		"|[] [%!v([]int64)] %!v(invalid) %!v(MISSING)" +
+		"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)"
 	if string(out) != want {
 		t.Errorf("got %q, want %q", out, want)
 	}

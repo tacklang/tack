@@ -121,12 +121,14 @@ var anyErrorCases = []struct{ name, src, want string }{
 		"any can only be the type of a parameter",
 	},
 	{
-		"struct", anyCalling("one(P{d: 1})"),
-		"cannot pass P as any: only the builtin types can be passed as any for now",
+		"struct",
+		anyCalling("one(P{d: 1})"),
+		"cannot pass P as any: only the builtin types and views of them can be passed as any for now",
 	},
 	{
-		"array", anyCalling("a := [1]int64{1}", "many(a)"),
-		"cannot pass [1]int64 as any: only the builtin types can be passed as any for now",
+		"array",
+		anyCalling("a := [1]int64{1}", "many(a)"),
+		"cannot pass [1]int64 as any: only the builtin types and views of them can be passed as any for now",
 	},
 	{
 		"constant overflows int64", anyCalling("one(18446744073709551615)"),

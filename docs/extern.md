@@ -136,8 +136,8 @@ one: C gets a `tack_view_<T>` of the values the call passed, which the
 caller puts in an array on its stack for the call, or of the view a
 spread, `f(v...)`, passes on. An `any` is a parameter only too, or the
 element of a variadic or view parameter: C gets a `tack_any`, a type id
-and a pointer to the caller's value, and `args ...any` a `tack_view_any`
-of them. A list, `list[T]`, crosses only as a `mut` parameter, a pointer
+and a pointer to the caller's value, a view of a basic type included,
+and `args ...any` a `tack_view_any` of them. A list, `list[T]`, crosses only as a `mut` parameter, a pointer
 to the caller's list, which C may read and grow during the call (see
 [Lists](#lists)), or as a view of its elements; by value, as a
 parameter or a result, it, or a struct or an array holding one, is an
@@ -167,7 +167,7 @@ not settled.
 | a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
 | a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
 | an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
-| an `a any` parameter         | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, valid only during the call |
+| an `a any` parameter         | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, a view's struct for a view, valid only during the call |
 | an `args ...any` parameter   | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is |
 | `Allocator`                  | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle      |
 | a `mut l list[T]` parameter  | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call |
@@ -224,7 +224,8 @@ A name `tack.h` cannot give is an error whatever is built:
   for a type or an extern func's C name: `extern func wrap of package main
   cannot be named TACK_STR_N in tack.h: that is a tack.h string helper`.
   So are `tack_any`, `tack.h's any type`, `TACK_TYPE_INVALID` through
-  `TACK_TYPE_STRING`, each `a tack.h any type id`, and `TACK_ANY_IS`, the
+  `TACK_TYPE_STRING` and `TACK_TYPE_VIEW_BOOL` through
+  `TACK_TYPE_VIEW_STRING`, each `a tack.h any type id`, and `TACK_ANY_IS`, the
   twelve `tack_any_<type>` unpack helpers, `tack_any_signed` and
   `tack_any_unsigned`, each `a tack.h any helper`: `type tack_any of
   package main cannot be named tack_any in tack.h: that is tack.h's any
@@ -302,7 +303,8 @@ passes integers, strings, none and spreads.
 and `extern func sum(args ...any) int64` is
 `int64_t sum(tack_view_any /* args */);`, whose C reads `args.ptr[i]`
 for `i` below `args.len`; `examples/extern-any` passes every basic type
-at its edges and unpacks each.
+at its edges and unpacks each, and passes views, whose ids it checks and
+one of which it reads as its view struct.
 `extern func half(n int64) (int64, error)` is
 `tack_results_half half(int64_t /* n */);`, whose C returns
 `(tack_results_half){n / 2, TACK_NO_ERROR}`, or a value and
@@ -445,13 +447,37 @@ and std's `<tack/tack.h>` names each:
 | 10 | `TACK_TYPE_UNSAFE_SIZE_T`    | `unsafe_size_t`    | `size_t`        |
 | 11 | `TACK_TYPE_UNSAFE_UINTPTR_T` | `unsafe_uintptr_t` | `uintptr_t`     |
 | 12 | `TACK_TYPE_STRING`           | `string`           | `tack_string`   |
+| 13 to 24 | `TACK_TYPE_VIEW_BOOL` through `TACK_TYPE_VIEW_STRING` | `[]bool` through `[]string` | `tack_view_<T>` |
 
 0 is no type, so a zeroed `tack_any` is recognisably empty: it is the
 `any` an index out of range gives, `v, ok := args[i]`, which Tack code
 can pass on, so C may get one, with a null `ptr`, and every helper below
-refuses it. 13 to 255 are kept for types to come. Arrays, structs and
-views cannot be passed as `any` yet. C reads one with these, from std's
-`<tack/tack.h>`:
+refuses it. A view of each of the twelve basic types has an id of its
+own, its element's plus 12, named `TACK_TYPE_VIEW_` and the end of its
+element's macro: 13 is `TACK_TYPE_VIEW_BOOL`, `[]bool`, 18
+`TACK_TYPE_VIEW_UINT8`, `[]uint8`, and 24 `TACK_TYPE_VIEW_STRING`,
+`[]string`. `ptr` points at the view itself, a struct of a `const`
+pointer to its first element, `ptr`, and their number, `len`, an
+`int64_t`, the layout of every view (see the table above), whose
+elements are the caller's, as `const`, and for as long, as the view.
+Std's `<tack/tack.h>` declares no view type, so no helper unpacks one:
+C checks the id, then reads the view as the struct the program's
+`tack.h` declares for it, `tack_view_int64` for `[]int64`, which it
+does when an extern func's signature uses that view:
+
+```c
+if (TACK_ANY_IS(a, VIEW_INT64)) {
+    tack_view_int64 v = *(const tack_view_int64 *)a.ptr;
+    // v.ptr[i] for i below v.len, during the call only
+}
+```
+
+A program that uses no such signature has no such type in its
+`tack.h`, and C declares its own with the same members, a `const T *ptr`
+and an `int64_t len`. `examples/extern-any` reads a `[]int64` this
+way. 25 to 255 are kept for types to come. Arrays, structs, lists and
+views of any other type cannot be passed as `any` yet. C reads the
+basic types with these, from std's `<tack/tack.h>`:
 
 - `TACK_ANY_IS(a, T)` reports whether `a` holds a `T`, where `T` is the
   end of an id's macro: `TACK_ANY_IS(a, STRING)`. Any other `T` does not
@@ -557,7 +583,9 @@ whole program, Tack code included, which no Tack proof can catch.
   it may point at a copy the caller made for the call. C never writes
   through it: it is `const`, the value may be a constant in read-only
   memory, and writing it would change a value Tack passed as a copy. A
-  `tack_view_any` is a view, under the rule above.
+  `tack_view_any` is a view, under the rule above, and so is a view an
+  `any` holds, once read through `ptr`: its elements are the caller's,
+  valid and unchanged for the call only.
 - **`mut` parameters.** C may read and write the caller's variable through
   a `mut` parameter's pointer, but only during the call: it must not store
   the pointer, return it, or use it after returning, since in Tack a

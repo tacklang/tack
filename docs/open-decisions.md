@@ -235,6 +235,42 @@ decided, and could go another way:
   writes to, in its own C file of `std/fmt`, rather than through
   `print`'s object, which is linked only when the program calls `print`.
 
+## Views as any
+
+Ahmed approved passing a view to an `any` parameter, and a type switch
+binding one, with printf writing a `[]uint8` for `%s` and `%v`. These
+points were settled by the implementation, each the most conservative
+choice consistent with the rules around it, and could go another way:
+
+- Only a view of one of the twelve basic types can be held: `[]Point`,
+  `[]any` and a view of lists are `cannot pass []Point as any: only the
+  builtin types and views of them can be passed as any for now`, the
+  existing message reworded for every type it reports.
+- A view's type id is its element's plus 12, 13 `[]bool` to 24
+  `[]string`, named `TACK_TYPE_VIEW_` and the end of the element's macro;
+  25 to 255 stay kept. A scheme with a view bit, `0x100 | element`, was
+  the other choice, which a view of views or of arrays could extend.
+- A list or an array is not viewed for an `any`, since no view type is
+  asked for there: `show(l)` stays an error, and `show(l[:])` views it.
+  `[]uint8(s)` stays allowed only where a `[]uint8` parameter takes it.
+- A type assertion to a view, `v, ok := a.([]uint8)`, is `a type
+  assertion cannot give []uint8, a view; ask with a type switch, as in
+  switch v := a.(type)`, since it would declare a view variable a
+  mismatch leaves empty, and its assigning form would need a mutable one.
+- A type switch's view `v` is an immutable local: assigning through it is
+  `cannot assign to element of immutable variable v`, rather than a view
+  parameter's `v is a read-only view`.
+- printf takes no view but `[]uint8`: `%v` of a `[]int64` is `printf
+  verb %v does not take []int64` for a known format, and written
+  `%!v([]int64)`, its type with no value, for one not known, rather than
+  Go's `[1 2 3]`. `%x` of a `[]uint8`, which Go writes in hexadecimal,
+  is not taken either.
+- Std's `tack.h` declares no view struct and so no unpack helper for a
+  view: C checks the id with `TACK_ANY_IS` and reads the view as the
+  `tack_view_<T>` the program's `tack.h` declares when a signature uses
+  it. printf's C reads a `[]uint8` as `tack_view_uint8`, which std/fmt's
+  own `write` makes every program's `tack.h` declare.
+
 
 ## Type assertions and type switches
 

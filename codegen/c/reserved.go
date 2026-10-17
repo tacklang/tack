@@ -71,6 +71,7 @@ var reservedNames = func() map[string]reservation {
 	names["TACK_TYPE_INVALID"] = reservation{what: "a tack.h any type id", objectMacro: true}
 	for typ := range anyIDs {
 		names["tack_any_"+(*types.Table)(nil).Name(typ)] = reservation{what: "a tack.h any helper"}
+		names[viewAnyID(typ)] = reservation{what: "a tack.h any type id", objectMacro: true}
 	}
 	names["tack_any_signed"] = reservation{what: "a tack.h any helper"}
 	names["tack_any_unsigned"] = reservation{what: "a tack.h any helper"}

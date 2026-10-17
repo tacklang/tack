@@ -27,7 +27,10 @@ import (
 // starts a verb, and the verb is the UTF-8 sequence after it, whose
 // length its first byte gives (see verbLen); %% writes a %, and takes no
 // value. Each other verb takes the next value: %d and %x an integer of
-// any type, %s a string, %t a bool, %c a uint8 and %v any of those.
+// any type, %s a string or a []uint8, whose bytes it writes as a
+// string's, %t a bool, %c a uint8 and %v any of those. No verb takes a
+// view of any other type, though an any can hold one: printf's C writes
+// %!v([]int64) for it, as for any verb given a value it does not take.
 
 // stdFmt is the import path of the standard library's fmt package, whose
 // printf the checker checks the format of.
@@ -54,7 +57,7 @@ func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
 			valueTypes[i] = ast.TypeOf(v)
 		}
 	}
-	for _, p := range checkFormat(format, valueTypes, !call.Spread, c.typeName) {
+	for _, p := range checkFormat(format, valueTypes, !call.Spread, c.typeName, c.isBytes) {
 		switch {
 		case p.value < 0:
 			c.errorf(call.Args[0].Spanned(), "%s", p.message)
@@ -62,6 +65,12 @@ func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
 			c.errorf(spanOf(values[p.value:p.value+max(p.values, 1)]), "%s", p.message)
 		}
 	}
+}
+
+// isBytes reports whether typ is []uint8, which printf's %s and %v
+// write as a string's bytes.
+func (c *Checker) isBytes(typ types.Type) bool {
+	return c.table.IsView(typ) && c.table.Elem(typ) == types.Uint8
 }
 
 // isPrintf reports whether fn is std/fmt's printf.
@@ -85,12 +94,13 @@ type formatProblem struct {
 // the values are a spread, whose number and types are not known, so only
 // the verbs are checked. A value of types.Any, whose type is known only
 // at run time, or of types.Invalid, already reported, matches every verb.
-// name names a type in a message.
+// name names a type in a message, and bytes says which type is []uint8.
 func checkFormat(
 	format string,
 	valueTypes []types.Type,
 	counted bool,
 	name func(types.Type) string,
+	bytes func(types.Type) bool,
 ) []formatProblem {
 	verbs, lone := formatVerbs(format)
 	var problems []formatProblem
@@ -99,7 +109,7 @@ func checkFormat(
 		if counted && value < len(valueTypes) {
 			typ = valueTypes[value]
 		}
-		if p, bad := verbProblem(verb, value, typ, name); bad {
+		if p, bad := verbProblem(verb, value, typ, name, bytes); bad {
 			problems = append(problems, p)
 		}
 	}
@@ -147,14 +157,15 @@ func formatVerbs(format string) (verbs []string, lone bool) {
 // verbProblem returns the mistake in verb, the format's verb number value,
 // given a value of type typ, and whether there is one: a verb printf does
 // not know, or one that does not take typ. types.Invalid and types.Any
-// match every verb.
+// match every verb. bytes says which type is []uint8.
 func verbProblem(
 	verb string,
 	value int,
 	typ types.Type,
 	name func(types.Type) string,
+	bytes func(types.Type) bool,
 ) (formatProblem, bool) {
-	accepts, known := verbTakes(verb)
+	accepts, known := verbTakes(verb, bytes)
 	switch {
 	case !known:
 		return formatProblem{message: "unknown printf verb " + showVerb(verb), value: -1}, true
@@ -189,20 +200,21 @@ func verbLen(b byte, n int) int {
 }
 
 // verbTakes returns which types the printf verb accepts a value of, and
-// whether it is a verb at all: %d and %x an integer, %s a string, %t a
-// bool, %c a uint8 and %v any type a value of can be passed as any.
-func verbTakes(verb string) (func(types.Type) bool, bool) {
+// whether it is a verb at all: %d and %x an integer, %s a string or a
+// []uint8, which bytes says a type is, %t a bool, %c a uint8 and %v any
+// basic type a value of can be passed as any, or a []uint8.
+func verbTakes(verb string, bytes func(types.Type) bool) (func(types.Type) bool, bool) {
 	switch verb {
 	case "d", "x":
 		return types.IsInteger, true
 	case "s":
-		return func(t types.Type) bool { return t == types.String }, true
+		return func(t types.Type) bool { return t == types.String || bytes(t) }, true
 	case "t":
 		return func(t types.Type) bool { return t == types.Bool }, true
 	case "c":
 		return func(t types.Type) bool { return t == types.Uint8 }, true
 	case "v":
-		return types.InAny, true
+		return func(t types.Type) bool { return types.InAny(t) || bytes(t) }, true
 	default:
 		return nil, false
 	}

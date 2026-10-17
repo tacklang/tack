@@ -88,10 +88,19 @@ typedef struct {
 
 // The type ids an any can hold, one for each type a value can be passed
 // as any with, fixed for good: C is written against them. 0 is no type,
-// so a zeroed tack_any is recognisably empty; 13 to 255 are kept for
+// so a zeroed tack_any is recognisably empty; 25 to 255 are kept for
 // types to come. Each names the C type ptr points to: bool, int8_t
 // through uint64_t, size_t for unsafe_size_t, uintptr_t for
-// unsafe_uintptr_t, and tack_string.
+// unsafe_uintptr_t, and tack_string; and, from 13, a view of each of
+// them, its id 12 more than its element's, ptr pointing at the view
+// itself, a struct of a const pointer to its first element, ptr, and
+// their number, len, an int64_t: tack_view_uint8 for TACK_TYPE_VIEW_UINT8,
+// with a tack_view_ name, as the program's tack.h declares it when an
+// extern signature uses that view. The elements are the caller's too,
+// and as read-only, and for as long, as the view itself. No helper below
+// unpacks a view, since this file declares no view type: C checks the id
+// with TACK_ANY_IS(a, VIEW_UINT8), then reads *(const tack_view_uint8
+// *)a.ptr.
 #define TACK_TYPE_INVALID 0
 #define TACK_TYPE_BOOL 1
 #define TACK_TYPE_INT8 2
@@ -105,6 +114,18 @@ typedef struct {
 #define TACK_TYPE_UNSAFE_SIZE_T 10
 #define TACK_TYPE_UNSAFE_UINTPTR_T 11
 #define TACK_TYPE_STRING 12
+#define TACK_TYPE_VIEW_BOOL 13
+#define TACK_TYPE_VIEW_INT8 14
+#define TACK_TYPE_VIEW_INT16 15
+#define TACK_TYPE_VIEW_INT32 16
+#define TACK_TYPE_VIEW_INT64 17
+#define TACK_TYPE_VIEW_UINT8 18
+#define TACK_TYPE_VIEW_UINT16 19
+#define TACK_TYPE_VIEW_UINT32 20
+#define TACK_TYPE_VIEW_UINT64 21
+#define TACK_TYPE_VIEW_UNSAFE_SIZE_T 22
+#define TACK_TYPE_VIEW_UNSAFE_UINTPTR_T 23
+#define TACK_TYPE_VIEW_STRING 24
 
 // TACK_ANY_IS(a, T) reports whether the tack_any a holds a T, where T is
 // the end of one of the ids above: TACK_ANY_IS(a, INT64). Any other T

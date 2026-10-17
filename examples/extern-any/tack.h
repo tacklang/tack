@@ -15,6 +15,11 @@ typedef struct {
     int64_t len;
 } tack_view_any;
 
+typedef struct {
+    const int64_t *ptr;
+    int64_t len;
+} tack_view_int64;
+
 // package main
 uint32_t kind(tack_any /* a */); // extern func kind(a any) uint32
 bool holds_int64(tack_any /* a */); // extern func holdsInt64(a any) bool
@@ -23,6 +28,7 @@ bool mismatches(tack_any /* a */); // extern func mismatches(a any) bool
 int64_t sum_signed(tack_view_any /* args */); // extern func sumSigned(args ...any) int64
 uint64_t sum_unsigned(tack_view_any /* args */); // extern func sumUnsigned(args ...any) uint64
 int64_t count(tack_view_any /* args */); // extern func count(args ...any) int64
+int64_t total(tack_view_int64 /* v */, tack_any /* a */); // extern func total(v []int64, a any) int64
 int64_t set_then_read(int64_t * /* x */, tack_any /* a */); // extern func setThenRead(mut x int64, a any) int64
 
 #endif

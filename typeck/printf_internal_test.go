@@ -8,8 +8,23 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// nameOf names a type in checkFormat's messages, as the checker would.
-func nameOf(t types.Type) string { return (*types.Table)(nil).Name(t) }
+// bytesType stands for []uint8 in these tests: a type ID past the basic
+// ones, which no Table here hands out, so nameOf and isBytesType are all
+// that say what it is.
+const bytesType types.Type = 200
+
+// nameOf names a type in checkFormat's messages, as the checker would,
+// bytesType as []uint8.
+func nameOf(t types.Type) string {
+	if t == bytesType {
+		return "[]uint8"
+	}
+	return (*types.Table)(nil).Name(t)
+}
+
+// isBytesType reports whether t is bytesType, standing for []uint8, as
+// the checker's isBytes reports a view of uint8.
+func isBytesType(t types.Type) bool { return t == bytesType }
 
 // formatCases are formats and the types of the values given them, and
 // the messages checkFormat returns, in order, each with the value it is
@@ -39,6 +54,22 @@ var formatCases = []struct {
 		values: []types.Type{types.Any, types.Any, types.Any},
 	},
 	{name: "invalid matches any verb", format: "%t", values: []types.Type{types.Invalid}},
+	{
+		name:   "bytes for %s and %v",
+		format: "%s %v",
+		values: []types.Type{bytesType, bytesType},
+	},
+	{
+		name:   "bytes for every other verb",
+		format: "%d %x %t %c",
+		values: []types.Type{bytesType, bytesType, bytesType, bytesType},
+		want: []formatProblem{
+			{"printf verb %d does not take []uint8", 0, 1},
+			{"printf verb %x does not take []uint8", 1, 1},
+			{"printf verb %t does not take []uint8", 2, 1},
+			{"printf verb %c does not take []uint8", 3, 1},
+		},
+	},
 	{
 		name:   "mismatches",
 		format: "%d %s %t %c %x",
@@ -116,7 +147,7 @@ var formatCases = []struct {
 func TestCheckFormat(t *testing.T) {
 	for _, tt := range formatCases {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkFormat(tt.format, tt.values, !tt.spread, nameOf)
+			got := checkFormat(tt.format, tt.values, !tt.spread, nameOf, isBytesType)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
@@ -169,11 +200,11 @@ func FuzzCheckFormat(f *testing.F) {
 		for i, k := range kinds {
 			values[i] = types.Type(int(k) % 16)
 		}
-		checkValueProblems(t, checkFormat(format, values, true, nameOf), len(values))
-		checkFormatOnly(t, "a spread", checkFormat(format, nil, false, nameOf))
+		checkValueProblems(t, checkFormat(format, values, true, nameOf, isBytesType), len(values))
+		checkFormatOnly(t, "a spread", checkFormat(format, nil, false, nameOf, isBytesType))
 		verbs, _ := formatVerbs(format)
 		anys := slices.Repeat([]types.Type{types.Any}, len(verbs))
-		checkFormatOnly(t, "one any per verb", checkFormat(format, anys, true, nameOf))
+		checkFormatOnly(t, "one any per verb", checkFormat(format, anys, true, nameOf, isBytesType))
 	})
 }
 

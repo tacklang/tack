@@ -617,8 +617,10 @@ makes for itself, which has a letter after `tack_`.
   length has; `v[i]`, with `i` proven in range against `len(v)` as for a
   string, or the checked form `x, ok := v[i]`; every range form, `for
   i, x := range v`, whose index is proven for `v`; and slicing, `v[i:j]`,
-  passed on (see slicing). Nothing else: no `==`,
-  `operator == is not defined on []int64`, no conversion, no printing. A
+  passed on (see slicing), and being passed as `any`, when its element
+  is a basic type, which printf writes as a string's bytes for a `[]uint8`
+  (see any). Nothing else: no `==`, `operator == is not defined on
+  []int64`, no conversion, no printing with `print`. A
   view is the type of a parameter or of a result only (see view results):
   anywhere else, a local, a field, a global or an array's element, it is
   `a view can only be the type of a parameter or of a result`, a variable
@@ -682,13 +684,15 @@ makes for itself, which has a letter after `tack_`.
   parameter's method returns. The view a call returns is second-class: it
   is used only inside the expression that consumes it, passed to a view
   parameter, a variadic one by a spread and an extern func's included,
-  `bytes.equal(t.bytes(), b)`, given to `len`, indexed with the checked
-  form, `c, ok := t.bytes()[i]`, sliced, ranged over, `for i, c := range
-  t.bytes()`, or returned on from a function returning a view. An index
+  `bytes.equal(t.bytes(), b)`, passed as `any` when its element is a
+  basic type, `fmt.printf("%s", t.bytes())`, given to `len`, indexed with
+  the checked form, `c, ok := t.bytes()[i]`, sliced, ranged over, `for i,
+  c := range t.bytes()`, or returned on from a function returning a view.
+  An index
   without `ok`, or a slice past `[:]` and `[0:0]`, is never proven, since
   no fact is about a call: `index 0 may be out of range; use v, ok :=
-  ...[0]`. Anywhere else, stored, assigned, compared, converted, printed,
-  passed as `any` or as a field's value, it is `t.bytes() is a view,
+  ...[0]`. Anywhere else, stored, assigned, compared, converted, printed
+  with `print`, or passed as a field's value, it is `t.bytes() is a view,
   []uint8, which can only be passed to a view parameter, given to len,
   indexed, sliced, ranged over or returned`. Written as a statement,
   `t.bytes()`, the call is made and its view dropped, as any call's result
@@ -760,12 +764,30 @@ makes for itself, which has a letter after `tack_`.
   with nothing written, `show(5)`, `show("s")`; an untyped constant is an
   `int64` there, a character literal a `uint8`, and a constant no `int64`
   holds is `constant 18446744073709551615 overflows int64`. `any(x)` is no
-  conversion, `cannot convert int64 to any`. An array, a struct, a union
-  or a view cannot be passed as one yet, `cannot pass Point as any: only the builtin
-  types can be passed as any for now`, nor can a `mut` argument, `f does
-  not take x as mut; pass x`. The value is a copy taken at the call, as a
-  plain argument's is: `f(mut x, x)` gives the `any` `x` as it was before
-  the call, and a mutable global is copied too. `args ...any` is a
+  conversion, `cannot convert int64 to any`. A view of a basic type,
+  `[]uint8`, `[]int64`, `[]string` and so on, passes to one as it is too:
+  a view parameter, `show(v)`, a slice of a list, an array, a view or a
+  string, `show(l[:])`, `show(a[1:])`, a call returning a view,
+  `show(t.bytes())`, and an `any` holding one refers to the view, and so
+  to the caller's elements, for the call. The elements are borrowed as a
+  view argument's are, under the same rules: a list, or what a view a
+  call returns may point into, passed as `mut` in the same call is
+  `cannot pass l alongside mut l in this call: a list is not copied for a
+  call, and a mut argument must be the only way to reach l during it`,
+  and an array the call could change, through a `mut` argument or as a
+  mutable global, is viewed as a copy taken at the call. A list or an
+  array itself is not viewed for an `any`, since nothing asks for a view
+  there: `show(l)` is `cannot pass list[uint8] as any: only the builtin
+  types and views of them can be passed as any for now`, and `show(l[:])`
+  views it. A string's bytes, `show([]uint8(s))`, are `[]uint8(...) can
+  only be passed to a []uint8 parameter`; the string itself passes. An
+  array, a struct, a union, a list, a view of any other type, `[]Point`
+  or `[]any`, cannot be passed as one yet, `cannot pass Point as any:
+  only the builtin types and views of them can be passed as any for now`,
+  nor can a `mut` argument, `f does not take x as mut; pass x`. The value
+  is a copy taken at the call, as a plain argument's is: `f(mut x, x)`
+  gives the `any` `x` as it was before the call, and a mutable global is
+  copied too. `args ...any` is a
   variadic of them, a read-only `[]any` under every view rule (see
   variadics), and a view parameter may be `[]any`. `any` is second-class,
   as a view is, and more: unlike a view it is never a result. Written as
@@ -809,11 +831,15 @@ makes for itself, which has a letter after `tack_`.
   else, a declaration, an argument, a condition, is `a type assertion needs
   two results; write v, ok := a.(int64)`, and three names are `assignment
   mismatch: 3 variables but a type assertion gives 2 values`. `T` is one
-  of the twelve types an `any` can hold; any other, a struct, an array, a
-  view, a list, `error`, `Allocator` or `any`, is `an any never holds
-  Point: only the builtin types can be passed as any for now`, and an
-  operand that is not an `any` is `cannot assert on x: it is int64, not
-  any`. Nothing about what an `any` holds is known at compile time, so an
+  of the twelve basic types an `any` can hold; any other, a struct, an
+  array, a view of another type, a list, `error`, `Allocator` or `any`,
+  is `an any never holds Point: only the builtin types and views of them
+  can be passed as any for now`, and an operand that is not an `any` is
+  `cannot assert on x: it is int64, not any`. A view an `any` can hold is
+  asked for only with a type switch: `v, ok := a.([]uint8)` is `a type
+  assertion cannot give []uint8, a view; ask with a type switch, as in
+  switch v := a.(type)`, since `v` would be a view variable a mismatch
+  left empty. Nothing about what an `any` holds is known at compile time, so an
   assertion proves nothing, but `ok` and `v` give facts as any variables
   do: `if ok && v != 0` proves a divisor. In C, `a` is held in a
   temporary, its type id compared with `T`'s, and `v` read as `*(const T
@@ -836,7 +862,14 @@ makes for itself, which has a letter after `tack_`.
   in this type switch`, a type an `any` never holds is the assertion's
   error, and a value is a parse error, `expected 'type name' found '1'`.
   `default` is optional, and there is no check that the cases cover every
-  type. Otherwise it is a switch: `a` is evaluated once, the cases are
+  type. A case may name a view of a basic type, `case []uint8:`, and its
+  `v` is then that view, the caller's, under every rule a view parameter
+  follows: `len(v)`, a proven or checked index, range, slicing, passing
+  it on to a view parameter or as `any`, printing it with printf, and
+  nothing that would keep it: `w := v` is `cannot declare w as []uint8; a
+  view can only be the type of a parameter or of a result`, `return v` is
+  `cannot return a view of v: v is a local variable; ...`, and `v[0] = 1`
+  is `cannot assign to element of immutable variable v`. Otherwise it is a switch: `a` is evaluated once, the cases are
   tried top to bottom and the default last, wherever it is written, there
   is no fallthrough, and `break` and `continue` act on the loop around
   it. It gives no facts, since what `a` holds is never known at compile
@@ -852,8 +885,12 @@ makes for itself, which has a letter after `tack_`.
   to standard output with each verb replaced by its argument: `%d` an
   integer of any type in decimal, `%x` one in lowercase hexadecimal, with
   a `-` before a negative value as Go writes it, `%s` a string's bytes,
-  `%t` a bool, `%c` a `uint8` as its byte, `%v` any of them as its own
-  verb would, and `%%` a `%`. There are no widths or flags. A verb is the
+  or a `[]uint8`'s, `fmt.printf("undefined: %s\n", name.bytes())`, `%t`
+  a bool, `%c` a `uint8` as its byte, `%v` any of them as its own verb
+  would, and `%%` a `%`. No verb takes a view of any other type, which
+  is `printf verb %v does not take []int64`, and written `%!v([]int64)`
+  when the format is not known: printf writes no view's elements but
+  bytes. There are no widths or flags. A verb is the
   `%` and the UTF-8 character after it. When the compiler knows the
   format, a literal or an immutable variable holding one, every verb is
   checked against its argument, and each mistake is an error: `printf
@@ -1766,8 +1803,8 @@ makes for itself, which has a letter after `tack_`.
   matched in place (see lists), and frees the lists the case
   it holds holds when its owner's block ends, or when it is assigned,
   once the new value is computed. A union cannot be passed as `any`,
-  `cannot pass Expr as any: only the builtin types can be passed as any
-  for now`, so printf cannot print one, nor converted, `cannot convert
+  `cannot pass Expr as any: only the builtin types and views of them can
+  be passed as any for now`, so printf cannot print one, nor converted, `cannot convert
   Expr to int64`, nor cross to C (see extern C). In C a union is a
   struct of its tag, the position of its case, in the narrowest of
   `uint8_t`, `uint16_t` and `uint32_t` that holds every case's, and a C
@@ -1934,8 +1971,8 @@ makes for itself, which has a letter after `tack_`.
   rule of a method call, `W.write takes its receiver as mut; call mut
   w.write(b)`, `W has no method nope`, and nothing else: `W has no field
   n: a type parameter has only its constraint's methods`, `operator == is
-  not defined on W`, `cannot pass W as any: only the builtin types can be
-  passed as any for now`, `W cannot be written as a literal; only arrays
+  not defined on W`, `cannot pass W as any: only the builtin types and
+  views of them can be passed as any for now`, `W cannot be written as a literal; only arrays
   and structs can`, and no conversion, `len` or range. Since a struct
   holding a list may be passed for it, a type parameter is owned as a
   list is (see lists): a value of one moves rather than copies, so a
@@ -2539,7 +2576,10 @@ makes for itself, which has a letter after `tack_`.
   checks the type id with `TACK_ANY_IS(a, INT64)` or reads the value with
   a checked unpack helper, `tack_any_int64(a, &v)`, from std's
   `<tack/tack.h>`, during the call only, and never writes through the
-  pointer or keeps it. An error is a `tack_error`, `{int32_t code;
+  pointer or keeps it. A view held by an `any` has an id of its own,
+  `TACK_TYPE_VIEW_INT64` for `[]int64`, and points at the view, which C
+  reads as `*(const tack_view_int64 *)a.ptr` once `TACK_ANY_IS(a,
+  VIEW_INT64)` holds. An error is a `tack_error`, `{int32_t code;
   tack_string msg;}`, by value, which C builds with `TACK_ERROR(code,
   "literal")`, or `TACK_NO_ERROR` for none, from std's `<tack/tack.h>`;
   an extern func that returns one returns it last, in its results struct

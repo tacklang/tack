@@ -235,6 +235,14 @@
 // passed as it is. The values of an ...any are made anys before they are
 // packed. An any local, b := a, is a const tack_any, and the empty any an
 // index out of range gives, (tack_any){}, type id 0 and a null pointer.
+// A view of a basic type passed as any is its view struct, rendered as a
+// view argument is (view.go), so an array it slices is copied first when
+// the call could change it, and its id is TACK_TYPE_VIEW_ and the end of
+// its element's macro, TACK_TYPE_VIEW_UINT8 for []uint8: (tack_a0 =
+// tack_slice_from_N(...), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a0}), or
+// &p_v for a view parameter, which nothing in its function can change. A
+// type switch's case naming a view declares v as the view struct,
+// *(const tack_view_N *)tmp.ptr, as for any one type.
 //
 // A type assertion, v, ok := x.(T), holds x in a const temporary, as a
 // call bound to two names holds its results, and reads v as (tmp.type ==

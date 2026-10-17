@@ -40,7 +40,7 @@ func main() {
 stage: typeck
 ---
 
-any-array-arg/main.tck:8:7: error: cannot pass [2]int64 as any: only the builtin types can be passed as any for now
+any-array-arg/main.tck:8:7: error: cannot pass [2]int64 as any: only the builtin types and views of them can be passed as any for now
 07 |	    xs := [2]int64{1, 2}
 08 |	    f(xs)
    |	      ^~
@@ -161,7 +161,7 @@ func main() {
 stage: typeck
 ---
 
-any-assert-list/main.tck:4:17: error: an any never holds list[int64]: only the builtin types can be passed as any for now
+any-assert-list/main.tck:4:17: error: an any never holds list[int64]: only the builtin types and views of them can be passed as any for now
 03 |	func f(a any) int64 {
 04 |	    l, ok := a.(list[int64])
    |	                ^~~~~~~~~~~
@@ -234,7 +234,7 @@ func main() {
 stage: typeck
 ---
 
-any-assert-struct/main.tck:8:17: error: an any never holds Point: only the builtin types can be passed as any for now
+any-assert-struct/main.tck:8:17: error: an any never holds Point: only the builtin types and views of them can be passed as any for now
 07 |	func f(a any) int64 {
 08 |	    p, ok := a.(Point)
    |	                ^~~~~
@@ -284,6 +284,29 @@ any-assert-type-outside-switch/main.tck:7:7: error: .(type) can only be the tag 
 07 |	    g(a.(type))
    |	      ^~~~~~~~
 08 |	}
+
+-- any-assert-view/main.tck --
+package main
+
+func f(a any) int64 {
+    v, ok := a.([]uint8)
+    if ok {
+        return len(v)
+    }
+    return 0
+}
+
+func main() {
+}
+-- any-assert-view/expected --
+stage: typeck
+---
+
+any-assert-view/main.tck:4:17: error: a type assertion cannot give []uint8, a view; ask with a type switch, as in switch v := a.(type)
+03 |	func f(a any) int64 {
+04 |	    v, ok := a.([]uint8)
+   |	                ^~~~~~~
+05 |	    if ok {
 
 -- any-assign-param/main.tck --
 package main
@@ -699,7 +722,7 @@ func main() {
 stage: typeck
 ---
 
-any-struct-arg/main.tck:11:7: error: cannot pass Point as any: only the builtin types can be passed as any for now
+any-struct-arg/main.tck:11:7: error: cannot pass Point as any: only the builtin types and views of them can be passed as any for now
 10 |	func main() {
 11 |	    f(Point{x: 1})
    |	      ^~~~~~~~~~~
@@ -825,7 +848,7 @@ func main() {
 stage: typeck
 ---
 
-any-switch-never-held/main.tck:9:10: error: an any never holds Point: only the builtin types can be passed as any for now
+any-switch-never-held/main.tck:9:10: error: an any never holds Point: only the builtin types and views of them can be passed as any for now
 08 |	    switch v := a.(type) {
 09 |	    case Point:
    |	         ^~~~~
@@ -1004,6 +1027,80 @@ any-switch-var-mut-local/main.tck:9:13: error: cannot declare mut w as any; an a
    |	            ^
 10 |	        g(w)
 
+-- any-switch-view-local/main.tck --
+package main
+
+func g(a any) {
+}
+
+func f(a any) {
+    switch v := a.(type) {
+    case []uint8:
+        w := v
+        g(w)
+    }
+}
+
+func main() {
+}
+-- any-switch-view-local/expected --
+stage: typeck
+---
+
+any-switch-view-local/main.tck:9:9: error: cannot declare w as []uint8; a view can only be the type of a parameter or of a result
+08 |	    case []uint8:
+09 |	        w := v
+   |	        ^
+10 |	        g(w)
+
+-- any-switch-view-never-held/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f(a any) {
+    switch a.(type) {
+    case []Point:
+    }
+}
+
+func main() {
+}
+-- any-switch-view-never-held/expected --
+stage: typeck
+---
+
+any-switch-view-never-held/main.tck:9:10: error: an any never holds []Point: only the builtin types and views of them can be passed as any for now
+08 |	    switch a.(type) {
+09 |	    case []Point:
+   |	         ^~~~~~~
+10 |	    }
+
+-- any-switch-view-returned/main.tck --
+package main
+
+func f(a any, d []uint8) []uint8 {
+    switch v := a.(type) {
+    case []uint8:
+        return v
+    }
+    return d
+}
+
+func main() {
+}
+-- any-switch-view-returned/expected --
+stage: typeck
+---
+
+any-switch-view-returned/main.tck:6:16: error: cannot return a view of v: v is a local variable; a returned view can only point into what a parameter that is not mut holds
+05 |	    case []uint8:
+06 |	        return v
+   |	               ^
+07 |	    }
+
 -- any-to-concrete/main.tck --
 package main
 
@@ -1064,19 +1161,48 @@ func main() {
 stage: typeck
 ---
 
-any-variadic-struct/main.tck:12:10: error: cannot pass Point as any: only the builtin types can be passed as any for now
+any-variadic-struct/main.tck:12:10: error: cannot pass Point as any: only the builtin types and views of them can be passed as any for now
 11 |	    p := Point{x: 1}
 12 |	    f(1, p)
    |	         ^
 13 |	}
 
+-- any-view-alongside-mut/main.tck --
+package main
+
+func f(mut l list[uint8], a any) {
+}
+
+func main() {
+    mut l := make(list[uint8], c_allocator)
+    f(mut l, l[:])
+}
+-- any-view-alongside-mut/expected --
+stage: typeck
+---
+
+any-view-alongside-mut/main.tck:8:14: error: cannot pass l alongside mut l in this call: a list is not copied for a call, and a mut argument must be the only way to reach l during it
+07 |	    mut l := make(list[uint8], c_allocator)
+08 |	    f(mut l, l[:])
+   |	             ^~~~
+09 |	}
+any-view-alongside-mut/main.tck:8:7: note: passed as mut here
+07 |	    mut l := make(list[uint8], c_allocator)
+08 |	    f(mut l, l[:])
+   |	      ^~~~~
+09 |	}
+
 -- any-view-arg/main.tck --
 package main
+
+type Point struct {
+    x int64
+}
 
 func f(a any) {
 }
 
-func g(v []int64) {
+func g(v []Point) {
     f(v)
 }
 
@@ -1086,11 +1212,113 @@ func main() {
 stage: typeck
 ---
 
-any-view-arg/main.tck:7:7: error: cannot pass []int64 as any: only the builtin types can be passed as any for now
-06 |	func g(v []int64) {
-07 |	    f(v)
+any-view-arg/main.tck:11:7: error: cannot pass []Point as any: only the builtin types and views of them can be passed as any for now
+10 |	func g(v []Point) {
+11 |	    f(v)
    |	      ^
+12 |	}
+
+-- any-view-list-unsliced/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    l := make(list[uint8], c_allocator)
+    f(l)
+}
+-- any-view-list-unsliced/expected --
+stage: typeck
+---
+
+any-view-list-unsliced/main.tck:8:7: error: cannot pass list[uint8] as any: only the builtin types and views of them can be passed as any for now
+07 |	    l := make(list[uint8], c_allocator)
+08 |	    f(l)
+   |	      ^
+09 |	}
+
+-- any-view-of-anys/main.tck --
+package main
+
+func f(a any) {
+}
+
+func g(xs ...any) {
+    f(xs)
+}
+
+func main() {
+    g(1)
+}
+-- any-view-of-anys/expected --
+stage: typeck
+---
+
+any-view-of-anys/main.tck:7:7: error: cannot pass []any as any: only the builtin types and views of them can be passed as any for now
+06 |	func g(xs ...any) {
+07 |	    f(xs)
+   |	      ^~
 08 |	}
+
+-- any-view-printf-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    b := [2]uint8{'o', 'k'}
+    n := [1]int64{1}
+    fmt.printf("%d %v\n", b[:], n[:])
+}
+-- any-view-printf-verb/expected --
+stage: typeck
+---
+
+any-view-printf-verb/main.tck:8:27: error: printf verb %d does not take []uint8
+07 |	    n := [1]int64{1}
+08 |	    fmt.printf("%d %v\n", b[:], n[:])
+   |	                          ^~~~
+09 |	}
+
+any-view-printf-verb/main.tck:8:33: error: printf verb %v does not take []int64
+07 |	    n := [1]int64{1}
+08 |	    fmt.printf("%d %v\n", b[:], n[:])
+   |	                                ^~~~
+09 |	}
+
+-- any-view-result-alongside-mut/main.tck --
+package main
+
+type Buf struct {
+    l list[uint8]
+}
+
+func (b Buf) bytes() []uint8 {
+    return b.l
+}
+
+func f(mut b Buf, a any) {
+}
+
+func main() {
+    mut b := Buf{l: make(list[uint8], c_allocator)}
+    f(mut b, b.bytes())
+}
+-- any-view-result-alongside-mut/expected --
+stage: typeck
+---
+
+any-view-result-alongside-mut/main.tck:16:14: error: cannot pass b.bytes() alongside mut b in this call: the view it returns may point into b, and a mut argument must be the only way to reach b during the call
+15 |	    mut b := Buf{l: make(list[uint8], c_allocator)}
+16 |	    f(mut b, b.bytes())
+   |	             ^~~~~~~~~
+17 |	}
+any-view-result-alongside-mut/main.tck:16:7: note: passed as mut here
+15 |	    mut b := Buf{l: make(list[uint8], c_allocator)}
+16 |	    f(mut b, b.bytes())
+   |	      ^~~~~
+17 |	}
 
 -- arg-count/main.tck --
 package main
@@ -4139,7 +4367,7 @@ func main() {
 stage: typeck
 ---
 
-error-as-any/main.tck:7:10: error: cannot pass error as any: only the builtin types can be passed as any for now
+error-as-any/main.tck:7:10: error: cannot pass error as any: only the builtin types and views of them can be passed as any for now
 06 |	func main() {
 07 |	    show(noerror)
    |	         ^~~~~~~
@@ -6980,7 +7208,7 @@ func main() {
 stage: typeck
 ---
 
-generic-any/main.tck:11:10: error: cannot pass S as any: only the builtin types can be passed as any for now
+generic-any/main.tck:11:10: error: cannot pass S as any: only the builtin types and views of them can be passed as any for now
 10 |	func f[S Sizer](s S) {
 11 |	    show(s)
    |	         ^
@@ -7439,7 +7667,7 @@ func main() {
 stage: typeck
 ---
 
-generic-assert/main.tck:8:17: error: an any never holds S: only the builtin types can be passed as any for now
+generic-assert/main.tck:8:17: error: an any never holds S: only the builtin types and views of them can be passed as any for now
 07 |	func f[S Sizer](s S, a any) {
 08 |	    v, ok := a.(S)
    |	                ^
@@ -10979,7 +11207,7 @@ func main() {
 stage: typeck
 ---
 
-list-any-arg/main.tck:8:7: error: cannot pass list[int64] as any: only the builtin types can be passed as any for now
+list-any-arg/main.tck:8:7: error: cannot pass list[int64] as any: only the builtin types and views of them can be passed as any for now
 07 |	    l := make(list[int64], c_allocator)
 08 |	    f(l)
    |	      ^
@@ -26907,7 +27135,7 @@ func main() {
 stage: typeck
 ---
 
-union-as-any/main.tck:11:10: error: cannot pass U as any: only the builtin types can be passed as any for now
+union-as-any/main.tck:11:10: error: cannot pass U as any: only the builtin types and views of them can be passed as any for now
 10 |	func main() {
 11 |	    show(U.a(1))
    |	         ^~~~~~
@@ -28962,7 +29190,7 @@ func main() {
 stage: typeck
 ---
 
-union-printf/main.tck:10:24: error: cannot pass U as any: only the builtin types can be passed as any for now
+union-printf/main.tck:10:24: error: cannot pass U as any: only the builtin types and views of them can be passed as any for now
 09 |	func main() {
 10 |	    fmt.printf("%v\n", U.a(1))
    |	                       ^~~~~~
@@ -31989,30 +32217,34 @@ view-print/main.tck:4:11: error: cannot use []uint8 as string in argument to pri
 -- view-result-any/main.tck --
 package main
 
-type Text struct {
-    b list[uint8]
+type Point struct {
+    x int64
 }
 
-func (t Text) bytes() []uint8 {
-    return t.b
+type Shape struct {
+    points list[Point]
+}
+
+func (s Shape) all() []Point {
+    return s.points
 }
 
 func show(a any) {
 }
 
 func main() {
-    t := Text{b: make(list[uint8], c_allocator)}
-    show(t.bytes())
+    s := Shape{points: make(list[Point], c_allocator)}
+    show(s.all())
 }
 -- view-result-any/expected --
 stage: typeck
 ---
 
-view-result-any/main.tck:16:10: error: t.bytes() is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
-15 |	    t := Text{b: make(list[uint8], c_allocator)}
-16 |	    show(t.bytes())
-   |	         ^~~~~~~~~
-17 |	}
+view-result-any/main.tck:20:10: error: cannot pass []Point as any: only the builtin types and views of them can be passed as any for now
+19 |	    s := Shape{points: make(list[Point], c_allocator)}
+20 |	    show(s.all())
+   |	         ^~~~~~~
+21 |	}
 
 -- view-result-array-field/main.tck --
 package main

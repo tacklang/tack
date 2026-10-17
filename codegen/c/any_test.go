@@ -3,6 +3,7 @@ package c_test
 import (
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -105,6 +106,68 @@ func TestGeneratesAnyArguments(t *testing.T) {
 	}
 }
 
+// viewAnyProgram declares one, an extern func taking an any, setFirst,
+// taking a mut array and an any, show, passing its view parameter on as
+// any, and decls, around the lines of main's body.
+func viewAnyProgram(decls string, lines ...string) string {
+	return "package main\n\nextern func one(a any)\n\n" +
+		"extern(\"set_first\") func setFirst(mut a [2]uint8, v any)\n\n" +
+		"func show(v []uint8) {\n    one(v)\n}\n\n" + decls +
+		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
+}
+
+// digits matches each run of digits in C, which normalized replaces.
+var digits = regexp.MustCompile(`[0-9]+`)
+
+// normalized is c with each run of digits replaced by N, so a check of
+// its shape does not depend on the type IDs and temporaries it numbers.
+func normalized(c string) string {
+	return digits.ReplaceAllString(c, "N")
+}
+
+// viewAnyCTests are calls passing views as any, and the C each must
+// contain, compared with its digits normalized.
+var viewAnyCTests = []struct{ name, src, want string }{
+	{
+		"view parameter, by address",
+		viewAnyProgram("", "a := [2]uint8{1, 2}", "show(a)"),
+		"    tack_4_main3_one((tack_any){TACK_TYPE_VIEW_UINT8, &p_v});\n",
+	},
+	{
+		"slice of an array, held in a temporary",
+		viewAnyProgram("", "a := [2]uint8{1, 2}", "one(a[:])"),
+		"(tack_a0 = tack_slice_from_19((tack_view_19){v_a.e, 2}, 0), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a0})",
+	},
+	{
+		"slice of an array passed as mut in the call, of a copy",
+		viewAnyProgram("", "mut a := [2]uint8{1, 2}", "setFirst(mut a, a[1:])"),
+		"tack_4_main8_setFirst(&v_a, (tack_a1 = tack_slice_from_19((tack_c0 = v_a, (tack_view_19){tack_c0.e, 2}), " +
+			"(int64_t)1), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a1}));",
+	},
+	{
+		"slice of a mutable global array, of a copy",
+		viewAnyProgram("mut grid [2]uint8 = [2]uint8{1, 2}\n\n", "one(grid[:])"),
+		"(tack_a1 = tack_slice_from_19((tack_c0 = tack_4_main4_grid, (tack_view_19){tack_c0.e, 2}), 0), " +
+			"(tack_any){TACK_TYPE_VIEW_UINT8, &tack_a1})",
+	},
+	{
+		"slice of a list, its buffer",
+		viewAnyProgram("", "l := make(list[int64], c_allocator)", "one(l[:])"),
+		"(tack_a0 = tack_slice_from_20((tack_view_20){v_l.ptr, v_l.len}, 0), (tack_any){TACK_TYPE_VIEW_INT64, &tack_a0})",
+	},
+}
+
+// TestGeneratesViewsAsAny checks the C each of viewAnyCTests generates.
+func TestGeneratesViewsAsAny(t *testing.T) {
+	for _, tt := range viewAnyCTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := generate(t, tt.src); !strings.Contains(normalized(got), normalized(tt.want)) {
+				t.Errorf("want\n%s\nin\n%s", tt.want, got)
+			}
+		})
+	}
+}
+
 // TestAnyArgumentsRunStrictly builds a program passing values as any
 // through Tack functions to C under the sanitizers, and checks C reads
 // each as it was at the call, and the type id it was passed with.
@@ -140,9 +203,10 @@ func TestAnyArgumentsRunStrictly(t *testing.T) {
 
 // TestExternAnyExampleIsWarningFree builds examples/extern-any with
 // clang's warnings as errors, its C file against its tack.h, so tack_any,
-// the view of them, the type ids and the unpack helpers agree between the
-// generated source, the header, std's tack.h and the C file, and checks
-// every check it prints passed.
+// the view of them, the type ids, a view's among them, the view struct C
+// reads one through, and the unpack helpers agree between the generated
+// source, the header, std's tack.h and the C file, and checks every check
+// it prints passed.
 func TestExternAnyExampleIsWarningFree(t *testing.T) {
 	dir := filepath.Join("..", "..", "examples", "extern-any")
 	src := readFile(t, filepath.Join(dir, "main.tck"))
@@ -151,7 +215,7 @@ func TestExternAnyExampleIsWarningFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extern-any failed: %v", err)
 	}
-	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 13 {
+	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 15 {
 		t.Errorf("extern-any printed\n%s", out)
 	}
 }

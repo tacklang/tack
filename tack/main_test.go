@@ -1932,6 +1932,39 @@ func TestBuiltAnySwitchWritesItsOutput(t *testing.T) {
 	}
 }
 
+// TestBuiltAnyViewsWritesItsOutput builds examples/any-views, which
+// passes views as any, at every optimization level, and checks each
+// binary writes exactly examples/any-views/output: every check ok, a
+// Text's bytes and views of a list, an array, slices, view results and a
+// view parameter printed with %s and %v, empty views and bytes 0 and
+// 0xff, a type switch binding each view, the markers printf writes for a
+// view a verb does not take, and a view of an array copied when the call
+// changes the array, through a mut argument or as a mutable global.
+func TestBuiltAnyViewsWritesItsOutput(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "any-views", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/any-views/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "any-views")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("any-views"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // slicesWant is what examples/slices prints when every check passes.
 var slicesWant = "string slices ok\n" +
 	"omitted and empty bounds ok\n" +

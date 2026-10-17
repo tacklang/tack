@@ -28,15 +28,19 @@ pub func println(s string) {
 //     %d  an integer of any type, in decimal, with - before a negative one
 //     %x  an integer of any type, in lowercase hexadecimal with no 0x,
 //         with - before a negative one: -1 is -1, as in Go, not ff
-//     %s  a string, its bytes exactly
+//     %s  a string, its bytes exactly, or a []uint8, its bytes the same
+//         way: printf("undefined: %s\n", name.bytes())
 //     %t  a bool, true or false
 //     %c  a uint8, the byte itself
 //     %v  a value of any type above, as its own verb writes it: %d for an
-//         integer, %s for a string, %t for a bool
+//         integer, %s for a string or a []uint8, %t for a bool
 //     %%  a %, taking no argument
 //
 // There are no widths, precisions or flags. An untyped constant argument
-// is an int64, and a character literal a uint8.
+// is an int64, and a character literal a uint8. No verb takes a view of
+// any other type, a []int64 or a []string, though one can be passed: it
+// is written as a verb given a value it does not take, %!v([]int64),
+// with its type and no value.
 //
 // When the compiler knows format, a literal or an immutable variable
 // holding one, it checks each verb against its argument, and every

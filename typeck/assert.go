@@ -21,9 +21,16 @@ import (
 // and in the default. x.(type) is a type switch's tag and nothing else.
 //
 // T, and every type a case names, must be one an any can hold: one of the
-// twelve types InAny accepts. Any other, an array, a struct, a view, a
-// list, error, Allocator or any itself, is reported, since asking would
-// always give false. A type named twice in one type switch, in one case
+// twelve types InAny accepts, or a view of one of them. Any other, an
+// array, a struct, a view of another type, a list, error, Allocator or
+// any itself, is reported, since asking would always give false. A view
+// is named only by a type switch's case, whose v is then that view, under
+// every rule a view parameter follows: it refers to the caller's
+// elements, which nothing changes during the call, for no longer than
+// the any does, and is immutable, so it is never assigned, stored or
+// returned. A type assertion to a view is reported: it would declare
+// a variable of a view type that a mismatch leaves empty, and that
+// v, ok = a.([]T) would need a mutable one to assign. A type named twice in one type switch, in one case
 // or two, is reported, since the second could never match. The operand
 // must be an any. Nothing about what an any holds is ever known at compile
 // time, so a type switch gives no facts, and an assertion proves nothing.
@@ -47,14 +54,10 @@ func (c *Checker) assertedType(expr ast.Expr) types.Type {
 			typ = c.declaredType(expr)
 		}
 	}
-	if typ == types.Invalid || types.InAny(typ) {
+	if typ == types.Invalid || c.table.InAny(typ) {
 		return typ
 	}
-	c.errorf(
-		expr.Spanned(),
-		"an any never holds %s: only the builtin types can be passed as any for now",
-		c.typeName(typ),
-	)
+	c.errorf(expr.Spanned(), "an any never holds %s: %s", c.typeName(typ), anyHolds)
 	return types.Invalid
 }
 
@@ -82,7 +85,8 @@ func (c *Checker) assertOperand(x ast.Expr) bool {
 // value, which it records on a: x.(T) gives T when it is checkedAssert,
 // being bound with ok, and is reported anywhere else, as is x.(type)
 // anywhere but a type switch's tag, which checkTypeSwitch checks without
-// coming here.
+// coming here, and a T that is a view, which only a type switch's case
+// may name.
 func (c *Checker) typeAssert(a *ast.TypeAssert) types.Type {
 	a.Type = types.Invalid
 	if a.TypeExpr == nil {
@@ -93,6 +97,11 @@ func (c *Checker) typeAssert(a *ast.TypeAssert) types.Type {
 	isAny := c.assertOperand(a.X)
 	typ := c.assertedType(a.TypeExpr)
 	if !isAny || typ == types.Invalid {
+		return types.Invalid
+	}
+	if c.table.IsView(typ) {
+		c.errorf(a.TypeExpr.Spanned(), "a type assertion cannot give %s, a view; "+
+			"ask with a type switch, as in switch v := %s.(type)", c.typeName(typ), c.text(a.X.Spanned()))
 		return types.Invalid
 	}
 	if a != c.checkedAssert {

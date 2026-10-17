@@ -364,8 +364,11 @@
 // value, x := a, v, ok := args[i], a range's element or a type switch's
 // variable, and a mutable one is reported. A mut any parameter is
 // reported. An argument to an any parameter, or a value of an ...any, is a
-// value of a basic type, an untyped constant settled to int64, or an any
-// passed on; an array, a struct or a view is reported. Nothing widens to
+// value of a basic type, an untyped constant settled to int64, an any
+// passed on, or a view of a basic type, a slice or a call returning one
+// allowed there as where a view parameter takes it, whose elements are
+// borrowed under the rules a view argument's are; an array, a list, a
+// struct or a view of another type is reported. Nothing widens to
 // any or from it, and it supports no operator and no conversion, so every
 // other use of an any, ==, an expression switch on it, arithmetic, len, an
 // index, a range, a conversion, printing, a return, is reported by the
@@ -376,10 +379,12 @@
 // := x.(T), is a checked form, bound with ok as a division, an index or a
 // conversion may be, sharing their rules, and reported anywhere else, as
 // x.(type) is anywhere but a switch's tag. x must be an any and T one of
-// the types one can hold. A type switch, switch v := x.(type), checks each
-// case's types the same way, reports a type named twice, and gives each
-// case's variable the case's one type, or any; it gives no facts, and is
-// otherwise checked as a switch, its default last.
+// the basic types one can hold; a view is reported. A type switch, switch
+// v := x.(type), checks each case's types the same way, a view of a basic
+// type allowed, reports a type named twice, and gives each case's
+// variable the case's one type, a view under every view rule included,
+// or any; it gives no facts, and is otherwise checked as a switch, its
+// default last.
 //
 // A call to std/fmt's printf, checked in printf.go, has its format read
 // when it is a known string (knownString): every verb against the value
@@ -482,10 +487,11 @@
 //     and then values of the element type or one spread (variadic.go); a
 //     mut parameter takes mut x, where x is a place of exactly its type,
 //     and only a mut parameter does (mut.go); an any parameter takes a
-//     value of a basic type or an any (any.go); and std/fmt's printf a
+//     value of a basic type, a view of one or an any (any.go); and std/fmt's printf a
 //     known format its values match (printf.go);
-//   - a type assertion is bound with ok, on an any, to a type an any can
-//     hold, and .(type) is only a switch's tag (assert.go);
+//   - a type assertion is bound with ok, on an any, to a basic type an any
+//     can hold, a view only being a type switch's case, and .(type) is
+//     only a switch's tag (assert.go);
 //   - a call to a function that returns nothing, or several values, cannot
 //     be used as a value, and a call statement cannot drop an error;
 //   - a call statement does something: one that only gives a value, a

@@ -458,8 +458,9 @@ var errorRejectedCases = []struct{ name, src, want string }{
 	{"unknown field", mainLines("e := noerror", "print(e.text)"), "error has no field text"},
 	{"ordered", mainLines("if noerror < noerror {", "}"), "operator < is not defined on error"},
 	{
-		"as any", "package main\n\nfunc f(a any) {\n}\n\nfunc main() {\n    f(noerror)\n}\n",
-		"cannot pass error as any: only the builtin types can be passed as any for now",
+		"as any",
+		"package main\n\nfunc f(a any) {\n}\n\nfunc main() {\n    f(noerror)\n}\n",
+		"cannot pass error as any: only the builtin types and views of them can be passed as any for now",
 	},
 	{"converted", mainLines("exit(int32(noerror))"), "cannot convert error to int32"},
 	{

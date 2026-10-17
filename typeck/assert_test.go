@@ -174,8 +174,11 @@ var assertErrorCases = []struct {
 		[]string{"cannot assign to immutable variable n", "cannot assign to immutable variable ok"},
 	},
 	{
-		"a struct", anyFunc("v, ok := a.(P)", "one(v)", "one(ok)"),
-		[]string{"an any never holds P: only the builtin types can be passed as any for now"},
+		"a struct",
+		anyFunc("v, ok := a.(P)", "one(v)", "one(ok)"),
+		[]string{
+			"an any never holds P: only the builtin types and views of them can be passed as any for now",
+		},
 	},
 	{
 		"never-held types",
@@ -186,12 +189,12 @@ var assertErrorCases = []struct {
 			"one(ok2)", "one(ok3)", "one(ok4)", "one(ok5)", "one(ok6)",
 		),
 		[]string{
-			"an any never holds [2]int64: only the builtin types can be passed as any for now",
-			"an any never holds []int64: only the builtin types can be passed as any for now",
-			"an any never holds list[int64]: only the builtin types can be passed as any for now",
-			"an any never holds error: only the builtin types can be passed as any for now",
-			"an any never holds Allocator: only the builtin types can be passed as any for now",
-			"an any never holds any: only the builtin types can be passed as any for now",
+			"an any never holds [2]int64: only the builtin types and views of them can be passed as any for now",
+			"a type assertion cannot give []int64, a view; ask with a type switch, as in switch v := a.(type)",
+			"an any never holds list[int64]: only the builtin types and views of them can be passed as any for now",
+			"an any never holds error: only the builtin types and views of them can be passed as any for now",
+			"an any never holds Allocator: only the builtin types and views of them can be passed as any for now",
+			"an any never holds any: only the builtin types and views of them can be passed as any for now",
 		},
 	},
 	{
@@ -215,7 +218,7 @@ var assertErrorCases = []struct {
 		anyFunc("n := 1", "v, ok := n.(P)", "one(v)", "one(ok)"),
 		[]string{
 			"cannot assert on n: it is int64, not any",
-			"an any never holds P: only the builtin types can be passed as any for now",
+			"an any never holds P: only the builtin types and views of them can be passed as any for now",
 		},
 	},
 	{
@@ -261,8 +264,8 @@ var assertErrorCases = []struct {
 		"never-held type in a case",
 		anyFunc("switch a.(type) {", "case P, [1]bool:", "}"),
 		[]string{
-			"an any never holds P: only the builtin types can be passed as any for now",
-			"an any never holds [1]bool: only the builtin types can be passed as any for now",
+			"an any never holds P: only the builtin types and views of them can be passed as any for now",
+			"an any never holds [1]bool: only the builtin types and views of them can be passed as any for now",
 		},
 	},
 	{

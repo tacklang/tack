@@ -204,7 +204,7 @@ func (g *generator) caseTest(
 	tests := make([]string, len(cl.Values))
 	for i, v := range cl.Values {
 		if s.IsTypeSwitch() {
-			tests[i] = fmt.Sprintf("%s.type == %s", tagRef, anyIDs[cl.Types[i]])
+			tests[i] = fmt.Sprintf("%s.type == %s", tagRef, g.anyID(cl.Types[i]))
 			continue
 		}
 		test, diags := g.valueTest(s, tagRef, v)

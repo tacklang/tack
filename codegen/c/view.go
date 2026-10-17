@@ -212,8 +212,9 @@ func placePath(place ast.Expr) (ast.Decl, []string) {
 
 // callArgs renders call's arguments for a call to fn, whose parameters
 // they are passed to: one passed as a view, a spread included, by
-// viewArg, and any other, a value for a variadic parameter included, as
-// itself.
+// viewArg, a view passed as any by viewArg too, as a view of its own
+// type, so an array it slices is copied when the call could change it,
+// and any other, a value for a variadic parameter included, as itself.
 func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	params := paramsOf(fn)
 	args := make([]string, len(call.Args))
@@ -224,6 +225,8 @@ func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Dia
 		)
 		if p := g.viewParamAt(call, params, i); p != nil {
 			expr, diags = g.viewArg(a, p.Type, call)
+		} else if typ := ast.TypeOf(a); g.prog.Types.IsView(typ) && g.boxesAt(call, params, i) {
+			expr, diags = g.viewArg(a, typ, call)
 		} else {
 			expr, diags = g.expr(a, ast.TypeOf(a))
 		}

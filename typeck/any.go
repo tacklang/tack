@@ -21,9 +21,17 @@ import (
 //
 // A value passes to an any parameter as it is, with no conversion
 // written: any value of one of the basic types, an untyped constant as an
-// int64, or an any passed on. Arrays, structs and views cannot be passed
-// as any in this version. The value is a copy taken at the call, as a
-// plain argument's is (see codegen/c).
+// int64, an any passed on, or a view of one of the basic types, []uint8
+// or []string. A view comes from a view parameter, a slice of a list, an
+// array, a view or a string, or a call returning one, t.bytes(), and an
+// any holding it refers to the view, and so to the caller's elements, for
+// the call: what holds those elements is borrowed as a view argument's
+// is, under the same rules (see checkListBorrows and checkViewBorrows). A
+// list or an array is not viewed for an any, since no view type is
+// asked for; a slice of it, l[:], is its view. Arrays, structs, lists and
+// views of any other type cannot be passed as any in this version. The
+// value is a copy taken at the call, as a plain argument's is, and a
+// view's elements are as they were when the call began (see codegen/c).
 //
 // Inside a function, an any can be passed on, to another any parameter
 // or as a value of an ...any, held in an immutable local, or asked which
@@ -77,18 +85,22 @@ func (c *Checker) anyParam(param *ast.Param) types.Type {
 
 // anyArg checks arg, passed to an any parameter, or as a value of an
 // ...any one: a value of a basic type, an untyped constant,
-// which becomes an int64, or an any passed on. Anything else is reported.
+// which becomes an int64, an any passed on, or a view of a basic type, a
+// slice or a call returning one being allowed there as it is where a view
+// parameter takes it. Anything else is reported, []uint8(s) where it is
+// checked (see viewConversionElsewhere).
 func (c *Checker) anyArg(arg ast.Expr) {
+	c.allowView(arg)
 	got := c.valueOf(arg, c.expr(arg))
-	if got == types.Invalid || got == types.Any || types.InAny(got) {
+	if got == types.Invalid || got == types.Any || c.table.InAny(got) {
 		return
 	}
-	c.errorf(
-		arg.Spanned(),
-		"cannot pass %s as any: only the builtin types can be passed as any for now",
-		c.typeName(got),
-	)
+	c.errorf(arg.Spanned(), "cannot pass %s as any: %s", c.typeName(got), anyHolds)
 }
+
+// anyHolds says which types an any can hold, for an error about one it
+// cannot.
+const anyHolds = "only the builtin types and views of them can be passed as any for now"
 
 // anyLocal reports v, a local variable that takes its type from its value,
 // when that type is any and v is mutable, and returns whether it was. An

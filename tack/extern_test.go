@@ -453,7 +453,8 @@ func TestBuiltExternVariadicsPassesEveryCheck(t *testing.T) {
 // at every optimization level: the type id of every basic type, of
 // constants and of a character, TACK_ANY_IS, every type at its edges
 // through its unpack helper, every other helper refusing a value, the
-// widening helpers, counts, values passed on from Tack, a copy alongside
+// widening helpers, counts, values passed on from Tack, the type ids of
+// views and a view read through its any in C, a copy alongside
 // a mut argument of the same variable, the order values are evaluated in,
 // and anys made in a loop's condition.
 func TestBuiltExternAnyPassesEveryCheck(t *testing.T) {
@@ -470,6 +471,8 @@ func TestBuiltExternAnyPassesEveryCheck(t *testing.T) {
 		"widened by the helpers ok\n" +
 		"counts ok\n" +
 		"passed on from Tack ok\n" +
+		"ids of views ok\n" +
+		"a view read in C ok\n" +
 		"copy alongside mut ok\n" +
 		"evaluation order ok\n" +
 		"in a loop condition ok\n"

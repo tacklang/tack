@@ -3,7 +3,9 @@ package main
 // Values of every basic type passed to C as any, one at a time and as
 // ...any. C gets a tack_any, a type id and a pointer to the value, which
 // it inspects with TACK_ANY_IS and reads with the checked unpack helpers
-// of std's tack.h, during the call only.
+// of std's tack.h, during the call only. A view passed as any is a type
+// id of its own and a pointer to the view, which C reads as the view's
+// struct, tack_view_int64 for []int64, after checking the id.
 
 // kind returns the type id a holds, read in C.
 extern func kind(a any) uint32
@@ -29,6 +31,11 @@ extern("sum_unsigned") func sumUnsigned(args ...any) uint64
 
 // count returns how many values args holds.
 extern func count(args ...any) int64
+
+// total returns the sum of v's elements and those of the []int64 a holds,
+// or -1 when a holds anything else, read in C with TACK_ANY_IS and the
+// view struct v's type gives the program's tack.h.
+extern func total(v []int64, a any) int64
 
 // setThenRead sets x to 99, then returns the int64 a holds, or -1: a is
 // a copy taken at the call, so it is x's old value.
@@ -88,6 +95,13 @@ func main() {
         "widened by the helpers")
     check(count() == 0 && count(1) == 1 && count(b, s, u8) == 3, "counts")
     check(viaTack(u16) == 7 && allVia(1, 2, i8) == -125 && allVia() == 0, "passed on from Tack")
+    nums := [3]int64{1, 20, 300}
+    bs := [1]bool{true}
+    words := [2]string{"a", "b"}
+    check(kind(nums[:]) == 17 && kind(bs[:]) == 13 && kind(words[:]) == 24 && kind(s[1:]) == 12,
+        "ids of views")
+    check(total(nums, nums[1:]) == 641 && total(nums, nums[0:0]) == 321 && total(nums, 5) == -1,
+        "a view read in C")
 
     mut x int64 = 7
     check(setThenRead(mut x, x) == 7 && x == 99, "copy alongside mut")

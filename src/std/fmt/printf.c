@@ -18,7 +18,13 @@
 // with no argument left; %!(EXTRA int64=5, bool=true) after the output
 // for arguments no verb took; %!(NOVERB) for a % that ends the format. An
 // argument whose id is no type's, which Tack never passes, is written as
-// invalid, with no value.
+// invalid, with no value, and a view %v does not take, any but a []uint8,
+// as its type alone, %!v([]int64), since printf writes no view's elements
+// but bytes.
+//
+// A []uint8 is written as a string's bytes, for %s and %v. The any holds a
+// pointer to the view, a tack_view_uint8, which the program's tack.h
+// declares because std/fmt's own write takes one.
 #include <stdio.h>
 
 #include <tack/tack.h>
@@ -61,8 +67,20 @@ static const char *type_name(uint32_t id) {
         [TACK_TYPE_UNSAFE_SIZE_T] = "unsafe_size_t",
         [TACK_TYPE_UNSAFE_UINTPTR_T] = "unsafe_uintptr_t",
         [TACK_TYPE_STRING] = "string",
+        [TACK_TYPE_VIEW_BOOL] = "[]bool",
+        [TACK_TYPE_VIEW_INT8] = "[]int8",
+        [TACK_TYPE_VIEW_INT16] = "[]int16",
+        [TACK_TYPE_VIEW_INT32] = "[]int32",
+        [TACK_TYPE_VIEW_INT64] = "[]int64",
+        [TACK_TYPE_VIEW_UINT8] = "[]uint8",
+        [TACK_TYPE_VIEW_UINT16] = "[]uint16",
+        [TACK_TYPE_VIEW_UINT32] = "[]uint32",
+        [TACK_TYPE_VIEW_UINT64] = "[]uint64",
+        [TACK_TYPE_VIEW_UNSAFE_SIZE_T] = "[]unsafe_size_t",
+        [TACK_TYPE_VIEW_UNSAFE_UINTPTR_T] = "[]unsafe_uintptr_t",
+        [TACK_TYPE_VIEW_STRING] = "[]string",
     };
-    if (id == TACK_TYPE_INVALID || id > TACK_TYPE_STRING) {
+    if (id == TACK_TYPE_INVALID || id > TACK_TYPE_VIEW_STRING) {
         return "invalid";
     }
     return names[id];
@@ -111,11 +129,27 @@ static bool out_int(tack_any a, unsigned base) {
     return false;
 }
 
+// out_bytes writes the bytes of a, a []uint8 or a string, and reports
+// whether a held one of those. A view's pointer is null when it has no
+// elements, which out never moves.
+static bool out_bytes(tack_any a) {
+    tack_string s;
+    if (TACK_ANY_IS(a, VIEW_UINT8)) {
+        tack_view_uint8 b = *(const tack_view_uint8 *)a.ptr;
+        out(b.ptr, b.len);
+        return true;
+    }
+    if (tack_any_string(a, &s)) {
+        out(s.ptr, s.len);
+        return true;
+    }
+    return false;
+}
+
 // out_value writes a as %v does, and reports whether a held a type %v
-// takes: every type an any can hold.
+// takes: every basic type an any can hold, and a []uint8.
 static bool out_value(tack_any a) {
     bool b;
-    tack_string s;
     if (tack_any_bool(a, &b)) {
         if (b) {
             out_lit("true");
@@ -124,11 +158,16 @@ static bool out_value(tack_any a) {
         }
         return true;
     }
-    if (tack_any_string(a, &s)) {
-        out(s.ptr, s.len);
+    if (out_bytes(a)) {
         return true;
     }
     return out_int(a, 10);
+}
+
+// takes_value reports whether %v takes a's type, without writing it.
+static bool takes_value(tack_any a) {
+    return (a.type != TACK_TYPE_INVALID && a.type <= TACK_TYPE_STRING) ||
+           TACK_ANY_IS(a, VIEW_UINT8);
 }
 
 // out_verb writes a as the verb at v, n bytes long, says, and reports
@@ -144,7 +183,7 @@ static bool out_verb(const unsigned char *v, int64_t n, tack_any a) {
     case 'x':
         return out_int(a, 16);
     case 's':
-        return TACK_ANY_IS(a, STRING) && out_value(a);
+        return out_bytes(a);
     case 't':
         return TACK_ANY_IS(a, BOOL) && out_value(a);
     case 'c':
@@ -160,12 +199,12 @@ static bool out_verb(const unsigned char *v, int64_t n, tack_any a) {
     }
 }
 
-// out_typed writes a's type name, then = and a as %v writes it, or
-// invalid alone for an id that is no type's: what a marker shows of a
-// value.
+// out_typed writes a's type name, then = and a as %v writes it, or the
+// name alone for a type %v does not take, invalid for an id that is no
+// type's: what a marker shows of a value.
 static void out_typed(tack_any a) {
     out_cstr(type_name(a.type));
-    if (a.type != TACK_TYPE_INVALID && a.type <= TACK_TYPE_STRING) {
+    if (takes_value(a)) {
         out_lit("=");
         out_value(a);
     }

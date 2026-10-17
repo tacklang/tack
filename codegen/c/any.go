@@ -2,6 +2,7 @@ package c
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
@@ -25,10 +26,28 @@ var anyIDs = map[types.Type]string{
 	types.String:        "TACK_TYPE_STRING",
 }
 
+// anyID returns the macro of std's tack.h that names the type id of typ,
+// a type the checker lets an any hold: a basic type's, from anyIDs, or a
+// view's, TACK_TYPE_VIEW_ and its element's name, TACK_TYPE_VIEW_UINT8
+// for []uint8, whose id is its element's plus 12 (see viewAnyID).
+func (g *generator) anyID(typ types.Type) string {
+	if g.prog.Types.IsView(typ) {
+		return viewAnyID(g.prog.Types.Elem(typ))
+	}
+	return anyIDs[typ]
+}
+
+// viewAnyID returns the macro naming the type id of a view of elem, one of
+// the basic types in anyIDs: TACK_TYPE_VIEW_ and the end of elem's own
+// macro, TACK_TYPE_VIEW_UNSAFE_SIZE_T for []unsafe_size_t.
+func viewAnyID(elem types.Type) string {
+	return "TACK_TYPE_VIEW_" + strings.TrimPrefix(anyIDs[elem], "TACK_TYPE_")
+}
+
 // boxesAt reports whether call, to a function with parameters params,
-// makes an any of its argument i: the argument is a value of a basic type
-// passed to an any parameter, or as a value of an ...any one. An any
-// passed on is one already, and a spread is a view.
+// makes an any of its argument i: the argument is a value of a basic type,
+// or a view of one, passed to an any parameter, or as a value of an
+// ...any one. An any passed on is one already, and a spread is a view.
 func (g *generator) boxesAt(call *ast.Call, params []*ast.Param, i int) bool {
 	if ast.TypeOf(call.Args[i]) == types.Any || g.viewParamAt(call, params, i) != nil {
 		return false
@@ -45,7 +64,11 @@ func (g *generator) boxesAt(call *ast.Call, params []*ast.Param, i int) bool {
 
 // boxed renders arg, already rendered as op, as the tack_any a call passes
 // for it: its type's id and the address of a copy of its value as it was
-// when the argument was evaluated, which lives for the whole call. held
+// when the argument was evaluated, which lives for the whole call. A
+// view's value is its struct, the pointer to its elements and their
+// number, which viewArg has rendered so that the elements stay as they
+// were for the call too: an array is copied when the call could change
+// it, and nothing can change a list's while it is viewed. held
 // says op is a temporary the call's order of evaluation already holds arg
 // in (see sequenced), whose address is taken as it is. So is a name the
 // call cannot change, one stable says is. Anything else, a mutable global,
@@ -56,7 +79,7 @@ func (g *generator) boxesAt(call *ast.Call, params []*ast.Param, i int) bool {
 // reuses once this one has returned.
 func (g *generator) boxed(arg ast.Expr, op string, held bool) string {
 	typ := ast.TypeOf(arg)
-	id := anyIDs[typ]
+	id := g.anyID(typ)
 	if held || g.stable(arg) {
 		return fmt.Sprintf("(tack_any){%s, &%s}", id, op)
 	}

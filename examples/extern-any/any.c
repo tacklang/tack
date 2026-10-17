@@ -2,7 +2,9 @@
 // type id and a pointer to a value of that type; a variadic ...any as a
 // view of them. C checks the id before it reads, with TACK_ANY_IS or an
 // unpack helper, reads only during the call, and neither writes through
-// the pointer nor keeps it.
+// the pointer nor keeps it. A view arrives as its own type id, and a
+// pointer to the view's struct, read as the type the program's tack.h
+// declares for it.
 #include "tack.h"
 
 uint32_t kind(tack_any a) {
@@ -112,6 +114,21 @@ uint64_t sum_unsigned(tack_view_any args) {
 
 int64_t count(tack_view_any args) {
     return args.len;
+}
+
+int64_t total(tack_view_int64 v, tack_any a) {
+    int64_t sum = 0;
+    for (int64_t i = 0; i < v.len; i++) {
+        sum += v.ptr[i];
+    }
+    if (!TACK_ANY_IS(a, VIEW_INT64)) {
+        return -1;
+    }
+    tack_view_int64 w = *(const tack_view_int64 *)a.ptr;
+    for (int64_t i = 0; i < w.len; i++) {
+        sum += w.ptr[i];
+    }
+    return sum;
 }
 
 int64_t set_then_read(int64_t *x, tack_any a) {
