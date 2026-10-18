@@ -139,7 +139,21 @@
 // nothing does. settle checks its value fits that type and records it. A
 // character literal is a constant too, but typed: always a uint8, so an
 // untyped constant beside it settles to uint8, and it widens like any uint8.
-// It is a known value wherever a constant is.
+// It is a known value wherever a constant is. A float constant expression,
+// one with a float literal among its literals, is computed exactly, as a
+// constant.Float, and has types.UntypedFloat until the place it is used
+// gives it a float type, which settleFloat checks it rounds to a finite
+// value of, or float64 where nothing does; an untyped integer constant
+// may settle to a float type too, but an untyped float constant never to
+// an integer one. Typed floats combine only with the same float type,
+// under + - * and / (floatArithmetic) and the six comparisons, with no
+// widening and no proof of a non-zero divisor: a float division gives an
+// infinity or NaN. A float is never a subject (see subjectKey, keyOf) and
+// never a known value (knownValue), so floats carry no facts, cannot be an
+// index or a length, and cannot be a map key, alone or held in a struct,
+// an array or a union (holdsFloat). Conversions to and from floats, a
+// float passed as any and a float crossing to C are rejected until they
+// are supported.
 // Typed integers combine through lossless widening (types.Widens): a value of
 // one type can be used where a type it widens to is expected, and an
 // arithmetic operator on two integer types works in the one the other

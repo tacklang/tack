@@ -3659,6 +3659,28 @@ func (p *Parser) intLit(sign string, start int, digits *lexer.Token) (ast.Expr, 
 	return &ast.IntLit{Value: val, Span: span}, nil
 }
 
+// floatLit decodes the float literal tk. A literal too large or too
+// precise for an untyped float constant to hold exactly (see
+// constant.ParseFloat) is reported here, as an integer literal out of
+// range is.
+func (p *Parser) floatLit(tk *lexer.Token) (ast.Expr, []diag.Diagnostic) {
+	text := lexer.ValueChecked[string](tk)
+	val, ok := constant.ParseFloat(text)
+	if !ok {
+		return nil, []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message: fmt.Sprintf(
+					"float literal %s is too large or too precise to hold exactly",
+					text,
+				),
+				Span: p.span(tk),
+			},
+		}
+	}
+	return &ast.FloatLit{Value: val, Span: p.span(tk)}, nil
+}
+
 // parseParenExpr parses a parenthesized expression and returns the inner
 // expression; the parentheses leave no node of their own, and are recorded
 // in p.parens instead, so the expression around them can span them.
@@ -3713,6 +3735,8 @@ func (p *Parser) parseLiteral() (ast.Expr, []diag.Diagnostic) {
 		return &ast.Ident{Name: lexer.ValueChecked[string](tk), Span: p.span(tk)}, nil
 	case lexer.Int:
 		return p.intLit("", tk.OffsetStart(), tk)
+	case lexer.Float:
+		return p.floatLit(tk)
 	case lexer.Char:
 		// The lexer gives a char literal only when it holds exactly one byte.
 		return &ast.CharLit{Value: lexer.ValueChecked[string](tk)[0], Span: p.span(tk)}, nil

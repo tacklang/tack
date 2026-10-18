@@ -69,29 +69,29 @@ var anyCTests = []struct{ name, src, want string }{
 		"held for the order of evaluation, by the holding temporary's address",
 		anyProgram("many(g, get(), g)"),
 		"(tack_o0 = tack_4_main1_g, tack_o1 = tack_4_main3_get(), tack_o2 = tack_4_main1_g, " +
-			"tack_4_main4_many((tack_view_17){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o0}, " +
+			"tack_4_main4_many((tack_view_20){(const tack_any[3]){(tack_any){TACK_TYPE_INT64, &tack_o0}, " +
 			"(tack_any){TACK_TYPE_INT64, &tack_o1}, (tack_any){TACK_TYPE_INT64, &tack_o2}}, 3}));",
 	},
 	{
 		"no values",
 		anyProgram("many()"),
-		"tack_4_main4_many((tack_view_17){0, 0});",
+		"tack_4_main4_many((tack_view_20){0, 0});",
 	},
 	{
 		"an any passed on as itself",
 		anyProgram("on(1)"),
 		"    tack_4_main3_one(p_a);\n    tack_4_main4_many(p_xs);\n" +
-			"    tack_4_main4_many((tack_view_17){(const tack_any[2]){p_a, p_a}, 2});\n",
+			"    tack_4_main4_many((tack_view_20){(const tack_any[2]){p_a, p_a}, 2});\n",
 	},
 	{
 		"view of anys",
 		anyProgram("many()"),
-		"typedef struct {\n    const tack_any *ptr;\n    int64_t len;\n} tack_view_17;\n",
+		"typedef struct {\n    const tack_any *ptr;\n    int64_t len;\n} tack_view_20;\n",
 	},
 	{
 		"any parameter",
 		anyProgram("many()"),
-		"static void tack_4_main2_on(tack_any p_a, tack_view_17 p_xs);\n",
+		"static void tack_4_main2_on(tack_any p_a, tack_view_20 p_xs);\n",
 	},
 }
 
@@ -136,24 +136,24 @@ var viewAnyCTests = []struct{ name, src, want string }{
 	{
 		"slice of an array, held in a temporary",
 		viewAnyProgram("", "a := [2]uint8{1, 2}", "one(a[:])"),
-		"(tack_a0 = tack_slice_from_19((tack_view_19){v_a.e, 2}, 0), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a0})",
+		"(tack_a0 = tack_slice_from_22((tack_view_22){v_a.e, 2}, 0), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a0})",
 	},
 	{
 		"slice of an array passed as mut in the call, of a copy",
 		viewAnyProgram("", "mut a := [2]uint8{1, 2}", "setFirst(mut a, a[1:])"),
-		"tack_4_main8_setFirst(&v_a, (tack_a1 = tack_slice_from_19((tack_c0 = v_a, (tack_view_19){tack_c0.e, 2}), " +
+		"tack_4_main8_setFirst(&v_a, (tack_a1 = tack_slice_from_22((tack_c0 = v_a, (tack_view_22){tack_c0.e, 2}), " +
 			"(int64_t)1), (tack_any){TACK_TYPE_VIEW_UINT8, &tack_a1}));",
 	},
 	{
 		"slice of a mutable global array, of a copy",
 		viewAnyProgram("mut grid [2]uint8 = [2]uint8{1, 2}\n\n", "one(grid[:])"),
-		"(tack_a1 = tack_slice_from_19((tack_c0 = tack_4_main4_grid, (tack_view_19){tack_c0.e, 2}), 0), " +
+		"(tack_a1 = tack_slice_from_22((tack_c0 = tack_4_main4_grid, (tack_view_22){tack_c0.e, 2}), 0), " +
 			"(tack_any){TACK_TYPE_VIEW_UINT8, &tack_a1})",
 	},
 	{
 		"slice of a list, its buffer",
 		viewAnyProgram("", "l := make(list[int64], c_allocator)", "one(l[:])"),
-		"(tack_a0 = tack_slice_from_20((tack_view_20){v_l.ptr, v_l.len}, 0), (tack_any){TACK_TYPE_VIEW_INT64, &tack_a0})",
+		"(tack_a0 = tack_slice_from_23((tack_view_23){v_l.ptr, v_l.len}, 0), (tack_any){TACK_TYPE_VIEW_INT64, &tack_a0})",
 	},
 }
 

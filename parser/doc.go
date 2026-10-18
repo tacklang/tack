@@ -66,7 +66,10 @@
 // operator is left-associative. The prefix operators ! - and ^ apply to the
 // operand right after them, so they bind tighter than any binary operator. A - right before
 // an integer literal is part of the literal instead, which is how the
-// smallest int64 is written. Parentheses group without leaving a node of
+// smallest int64 is written; before a float literal it is a Unary, negated
+// exactly as a constant. A float literal is decoded into an ast.FloatLit by
+// constant.ParseFloat, and one too large or too precise to hold exactly is
+// reported. Parentheses group without leaving a node of
 // their own, but an expression whose first or last operand is written in
 // them spans them: (a) == (b) covers both pairs, while (a) alone is the
 // Ident a, spanning only the name. The keywords true and false are bool literals, and

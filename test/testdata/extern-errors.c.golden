@@ -14,7 +14,7 @@ typedef struct {
 typedef struct {
     const tack_error *ptr;
     int64_t len;
-} tack_view_18;
+} tack_view_21;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -58,7 +58,7 @@ extern tack_results_4_main4_half tack_4_main4_half(int64_t p_n) TACK_C_NAME("hal
 extern int32_t tack_4_main6_codeOf(tack_error p_e) TACK_C_NAME("code_of");
 extern int64_t tack_4_main6_msgLen(tack_error p_e) TACK_C_NAME("msg_len");
 extern void tack_4_main5_clear(tack_4_main5_Point * p_p) TACK_C_NAME("clear");
-extern int64_t tack_4_main5_codes(tack_view_18 p_errs) TACK_C_NAME("codes");
+extern int64_t tack_4_main5_codes(tack_view_21 p_errs) TACK_C_NAME("codes");
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static void tack_4_main4_main(void);
 
@@ -91,7 +91,7 @@ static void tack_4_main4_main(void) {
     tack_4_main5_Point v_p = (tack_4_main5_Point){.f_x = 5, .f_err = v_e};
     tack_4_main5_clear(&v_p);
     tack_4_main5_check(((v_p.f_x == 0) && (tack_eq_15(&v_p.f_err, &(tack_error){}))), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
-    tack_4_main5_check(((tack_4_main5_codes((tack_view_18){(const tack_error[3]){v_e, tack_4_main4_fail(2), (tack_error){}}, 3}) == (-1)) && (tack_4_main5_codes((tack_view_18){0, 0}) == 0)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
+    tack_4_main5_check(((tack_4_main5_codes((tack_view_21){(const tack_error[3]){v_e, tack_4_main4_fail(2), (tack_error){}}, 3}) == (-1)) && (tack_4_main5_codes((tack_view_21){0, 0}) == 0)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
 }
 
 int tack_argc_;

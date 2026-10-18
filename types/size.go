@@ -183,8 +183,9 @@ func padTo(s Size, align uint64) Size {
 
 // basicSizes are the sizes of the basic types in C, for the LP64 targets
 // Size describes: tack_string a pointer and an int64, tack_any a
-// uint32_t type id and a pointer, tack_allocator two uint32_t, and the
-// target-width integers at their widest. Error is a struct, laid out
+// uint32_t type id and a pointer, tack_allocator two uint32_t, float and
+// double IEEE 754's binary32 and binary64, and the target-width integers
+// at their widest. Error is a struct, laid out
 // from its fields.
 var basicSizes = map[Type]Size{
 	Int8:          {Bytes: 1, Align: 1},
@@ -201,4 +202,6 @@ var basicSizes = map[Type]Size{
 	String:        {Bytes: 16, Align: 8},
 	Any:           {Bytes: 16, Align: 8},
 	Allocator:     {Bytes: 8, Align: 4},
+	Float32:       {Bytes: 4, Align: 4},
+	Float64:       {Bytes: 8, Align: 8},
 }

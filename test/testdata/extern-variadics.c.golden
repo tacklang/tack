@@ -9,20 +9,20 @@ stage: ok
 typedef struct {
     const int64_t *ptr;
     int64_t len;
-} tack_view_17;
+} tack_view_20;
 
 typedef struct {
     const tack_string *ptr;
     int64_t len;
-} tack_view_18;
+} tack_view_21;
 
 typedef struct {
     int64_t e[3];
-} tack_array_19;
+} tack_array_22;
 
 typedef struct {
     tack_string e[2];
-} tack_array_20;
+} tack_array_23;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -40,22 +40,22 @@ static const unsigned char tack_str12[15] = {112, 97, 115, 115, 101, 100, 32, 11
 
 void tack_builtin_print(tack_string);
 
-static tack_view_17 tack_slice_from_17(tack_view_17 s, int64_t lo) {
-    return (tack_view_17){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
+static tack_view_20 tack_slice_from_20(tack_view_20 s, int64_t lo) {
+    return (tack_view_20){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
 }
 
 #define TACK_C_STR(x) #x
 #define TACK_C_XSTR(x) TACK_C_STR(x)
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
-extern int64_t tack_4_main5_total(tack_view_17 p_nums) TACK_C_NAME("total");
-extern int64_t tack_4_main7_lengths(int64_t p_base, tack_view_18 p_words) TACK_C_NAME("sum_lengths");
-extern bool tack_4_main7_isEmpty(tack_view_17 p_nums) TACK_C_NAME("is_empty");
-static int64_t tack_4_main7_viaTack(tack_view_17 p_nums);
+extern int64_t tack_4_main5_total(tack_view_20 p_nums) TACK_C_NAME("total");
+extern int64_t tack_4_main7_lengths(int64_t p_base, tack_view_21 p_words) TACK_C_NAME("sum_lengths");
+extern bool tack_4_main7_isEmpty(tack_view_20 p_nums) TACK_C_NAME("is_empty");
+static int64_t tack_4_main7_viaTack(tack_view_20 p_nums);
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static void tack_4_main4_main(void);
 
-static int64_t tack_4_main7_viaTack(tack_view_17 p_nums) {
+static int64_t tack_4_main7_viaTack(tack_view_20 p_nums) {
     return tack_4_main5_total(p_nums);
 }
 
@@ -70,14 +70,14 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 
 static void tack_4_main4_main(void) {
     const int8_t v_small = (-4);
-    tack_4_main5_check((tack_4_main5_total((tack_view_17){(const int64_t[4]){1, 2, 3, v_small}, 4}) == 2), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
-    tack_4_main5_check((((tack_4_main5_total((tack_view_17){0, 0}) == 0) && tack_4_main7_isEmpty((tack_view_17){0, 0})) && !tack_4_main7_isEmpty((tack_view_17){(const int64_t[1]){0}, 1})), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
-    const tack_array_19 v_a = (tack_array_19){{10, 20, 30}};
-    tack_4_main5_check(((tack_4_main5_total((tack_view_17){v_a.e, 3}) == 60) && (tack_4_main5_total(tack_slice_from_17((tack_view_17){v_a.e, 3}, (int64_t)1)) == 50)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
-    tack_4_main5_check(((tack_4_main7_lengths(1, (tack_view_18){(const tack_string[3]){(tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}}, 3}) == 4) && (tack_4_main7_lengths(7, (tack_view_18){0, 0}) == 7)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
-    const tack_array_20 v_words = (tack_array_20){{(tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}}};
-    tack_4_main5_check((tack_4_main7_lengths(0, (tack_view_18){v_words.e, 2}) == 5), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    tack_4_main5_check(((tack_4_main7_viaTack((tack_view_17){(const int64_t[2]){4, 5}, 2}) == 9) && (tack_4_main7_viaTack((tack_view_17){0, 0}) == 0)), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main5_check((tack_4_main5_total((tack_view_20){(const int64_t[4]){1, 2, 3, v_small}, 4}) == 2), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    tack_4_main5_check((((tack_4_main5_total((tack_view_20){0, 0}) == 0) && tack_4_main7_isEmpty((tack_view_20){0, 0})) && !tack_4_main7_isEmpty((tack_view_20){(const int64_t[1]){0}, 1})), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
+    const tack_array_22 v_a = (tack_array_22){{10, 20, 30}};
+    tack_4_main5_check(((tack_4_main5_total((tack_view_20){v_a.e, 3}) == 60) && (tack_4_main5_total(tack_slice_from_20((tack_view_20){v_a.e, 3}, (int64_t)1)) == 50)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    tack_4_main5_check(((tack_4_main7_lengths(1, (tack_view_21){(const tack_string[3]){(tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}}, 3}) == 4) && (tack_4_main7_lengths(7, (tack_view_21){0, 0}) == 7)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
+    const tack_array_23 v_words = (tack_array_23){{(tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}}};
+    tack_4_main5_check((tack_4_main7_lengths(0, (tack_view_21){v_words.e, 2}) == 5), (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
+    tack_4_main5_check(((tack_4_main7_viaTack((tack_view_20){(const int64_t[2]){4, 5}, 2}) == 9) && (tack_4_main7_viaTack((tack_view_20){0, 0}) == 0)), (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
 }
 
 int tack_argc_;

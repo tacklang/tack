@@ -1,4 +1,5 @@
-// Package constant holds the exact values of integer constant expressions.
+// Package constant holds the exact values of integer and float constant
+// expressions.
 //
 // Tack computes a constant expression, such as 1 + 2 * 3 written as literals
 // and operators, exactly, before giving it a type. Every literal and every
@@ -18,6 +19,18 @@
 // shift rounds toward negative infinity. Fits reports whether a value belongs to a
 // particular integer type, which is how a constant is checked against the
 // type it is given.
+//
+// A Float is an untyped float constant's exact value: a rational number,
+// held by math/big, rounded only when the constant is given a float type
+// (Float64, Float32), to the nearest value, ties to even, a value too
+// large becoming an infinity, which the type checker reports as an
+// overflow. Unlike an Int, it needs arbitrary precision: 0.1 is 1/10, and
+// 1e-300 a denominator of a thousand bits, so the bound is on size instead,
+// MaxBits bits each of numerator and denominator, which every operation
+// checks, and ParseFloat refuses a literal past it before computing it, so
+// no constant takes unbounded memory or time. That bound is far past what
+// any float64 needs. A self-hosted compiler will need a big rational of
+// its own to do the same.
 //
 // It is a leaf package: the parser decodes literals into it, the type
 // checker computes with it, and the C backend prints it.

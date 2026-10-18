@@ -47,6 +47,16 @@ type unsafe_size_t unsafe_size_t
 // unsafe_size_t.
 type unsafe_uintptr_t unsafe_uintptr_t
 
+// float64 is an IEEE 754 binary64 float, with + - * and / and the six
+// comparisons. A float constant with nothing to give it a type is a
+// float64. Dividing by zero gives an infinity, or NaN for 0.0 / 0.0, and
+// NaN is equal to nothing, itself included. A float carries no facts,
+// cannot index, and is not converted to or from an integer implicitly.
+type float64 float64
+
+// float32 is an IEEE 754 binary32 float, as float64 is a binary64 one.
+type float32 float32
+
 // bool is true or false.
 type bool bool
 

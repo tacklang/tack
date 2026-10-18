@@ -30,7 +30,7 @@ func (c *Checker) expr(e ast.Expr) types.Type {
 // returns its type.
 func (c *Checker) exprAt(e ast.Expr) types.Type {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
+	case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
 		*ast.CAllocatorLit:
 		return literalType(x)
 	case *ast.Ident:
@@ -104,12 +104,15 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 
 // literalType returns the type of a literal: a string's or a bool's, a
 // character's, which is a uint8, noerror's, an error, c_allocator's, an
-// Allocator, or an integer's, which is untyped until settled.
+// Allocator, or an integer's or a float's, which is untyped until settled.
 func literalType(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.IntLit:
 		x.Type = types.UntypedInt
 		return types.UntypedInt
+	case *ast.FloatLit:
+		x.Type = types.UntypedFloat
+		return types.UntypedFloat
 	case *ast.CharLit:
 		return types.Uint8
 	case *ast.StrLit:
@@ -294,21 +297,25 @@ func (c *Checker) checkArity(call *ast.Call, name string, want int) bool {
 
 // use checks that e, of type got, can be used where a value of type want is
 // expected, as described by context ("in argument to f"). An untyped
-// constant takes want as its type if its value fits; a typed value must be
-// of type want or widen to it without loss. An Invalid got or want has been
-// reported already. It reports whether e is a usable value of want.
+// constant takes want as its type if its value fits, an untyped integer
+// constant an integer or a float type and an untyped float constant a
+// float type; a typed value must be of type want or widen to it without
+// loss. An Invalid got or want has been reported already. It reports
+// whether e is a usable value of want.
 func (c *Checker) use(e ast.Expr, got, want types.Type, context string) bool {
 	if got == types.Invalid || want == types.Invalid {
 		return false
 	}
-	if got == types.UntypedInt {
-		if types.IsInteger(want) {
+	if types.IsUntyped(got) {
+		switch {
+		case types.IsFloat(want) && !types.IsUntyped(want):
+			return c.settleFloat(e, want)
+		case got == types.UntypedInt && types.IsInteger(want):
 			return c.settle(e, want)
 		}
-		if !c.settle(e, types.Int64) {
+		if got = c.valueOf(e, got); got == types.Invalid {
 			return false
 		}
-		got = types.Int64
 	}
 	if !types.Widens(got, want) {
 		c.errorf(
@@ -374,22 +381,91 @@ func widthNote(v constant.Int, typ types.Type) string {
 }
 
 // valueOf gives e, of type got, a type of its own where nothing else does:
-// an untyped constant becomes an int64, if its value fits. It returns the
-// resulting type, Invalid if the value does not fit.
+// an untyped integer constant becomes an int64, and an untyped float
+// constant a float64, if its value fits. It returns the resulting type,
+// Invalid if the value does not fit.
 func (c *Checker) valueOf(e ast.Expr, got types.Type) types.Type {
-	if got != types.UntypedInt {
+	switch got {
+	case types.UntypedInt:
+		if !c.settle(e, types.Int64) {
+			return types.Invalid
+		}
+		return types.Int64
+	case types.UntypedFloat:
+		if !c.settleFloat(e, types.Float64) {
+			return types.Invalid
+		}
+		return types.Float64
+	default:
 		return got
 	}
-	if !c.settle(e, types.Int64) {
-		return types.Invalid
+}
+
+// settleFloat gives the untyped constant expression e, an integer or a
+// float one, the float type typ, if its value rounds to a finite value of
+// typ, and reports whether it does. A value too large for typ is
+// reported as overflowing it; one too small rounds to zero, or to a
+// subnormal, as at run time. As for settle, the type is recorded on e
+// alone, and the backend writes out e's value, rounded to typ.
+func (c *Checker) settleFloat(e ast.Expr, typ types.Type) bool {
+	value, _ := floatValue(e)
+	var finite bool
+	if typ == types.Float32 {
+		_, finite = value.Float32()
+	} else {
+		_, finite = value.Float64()
 	}
-	return types.Int64
+	if !finite {
+		c.errorf(e.Spanned(), "constant %s overflows %s", value, c.typeName(typ))
+		return false
+	}
+	switch x := e.(type) {
+	case *ast.IntLit:
+		x.Type = typ
+	case *ast.FloatLit:
+		x.Type = typ
+	case *ast.Binary:
+		x.Type = typ
+	case *ast.Unary:
+		x.Type = typ
+	}
+	return true
+}
+
+// floatValue returns the exact value of an untyped constant expression,
+// an integer or a float one, as a float constant, and whether e is one.
+func floatValue(e ast.Expr) (constant.Float, bool) {
+	var v any
+	switch x := e.(type) {
+	case *ast.FloatLit:
+		return x.Value, true
+	case *ast.IntLit:
+		return constant.FloatFromInt(x.Value), true
+	case *ast.Binary:
+		v = x.Const
+	case *ast.Unary:
+		v = x.Const
+	case *ast.Call:
+		v = x.Const
+	}
+	switch k := v.(type) {
+	case constant.Float:
+		return k, true
+	case constant.Int:
+		return constant.FloatFromInt(k), true
+	default:
+		return constant.Float{}, false
+	}
 }
 
 // constValue returns the value of an integer constant expression, and
 // whether e is one. A character literal is one too, though of type uint8
-// rather than untyped.
+// rather than untyped. An integer constant given a float type is not
+// one: its value is a float's from then on (see floatValue).
 func constValue(e ast.Expr) (constant.Int, bool) {
+	if types.IsFloat(ast.TypeOf(e)) {
+		return constant.Int{}, false
+	}
 	switch x := e.(type) {
 	case *ast.IntLit:
 		return x.Value, true
@@ -471,6 +547,14 @@ func (c *Checker) require(operand ast.Expr, got types.Type, op string, want type
 // operand give the typed one's type, which the constant must fit; and two
 // typed operands give whichever of the two the other widens to.
 func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
+	if types.IsFloat(x) || types.IsFloat(y) {
+		return c.floatArithmetic(bin, x, y)
+	}
+	return c.intArithmetic(bin, x, y)
+}
+
+// intArithmetic is arithmetic on operands of which neither is a float.
+func (c *Checker) intArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 	if !c.integerOperands(bin, x, y) {
 		return types.Invalid
 	}
@@ -489,6 +573,100 @@ func (c *Checker) arithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 		return types.Invalid
 	}
 	return typ
+}
+
+// floatArithmetic checks arithmetic with a float among its operands, of
+// types x and y: only + - * and / are defined on a float, and both
+// operands must be numbers. Two untyped constants give an untyped float
+// constant, computed exactly (see foldFloat); an untyped constant and a
+// typed float give the float's type, which the constant must fit; and two
+// typed operands must have the same float type, since no integer, and no
+// other float type, is converted to a float implicitly. A float division
+// needs no proof that its divisor is not zero: it gives an infinity, or
+// NaN, and never traps.
+func (c *Checker) floatArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
+	if !c.operandsDefined(bin, x, y, types.IsNumeric) || !c.floatOperator(bin, x, y) {
+		return types.Invalid
+	}
+	if types.IsUntyped(x) && types.IsUntyped(y) {
+		return c.foldFloat(bin)
+	}
+	return c.typedFloatArithmetic(bin, x, y)
+}
+
+// floatOperator reports bin, whose operands, of types x and y, are a
+// float and a number, unless its operator is defined on floats, + - * or
+// /, naming the float operand's type, and returns whether it is.
+func (c *Checker) floatOperator(bin *ast.Binary, x, y types.Type) bool {
+	if floatOp(bin.Op) {
+		return true
+	}
+	operand, got := bin.X, x
+	if !types.IsFloat(x) {
+		operand, got = bin.Y, y
+	}
+	if got = c.valueOf(operand, got); got != types.Invalid {
+		c.errorf(operand.Spanned(), "operator %s is not defined on %s", bin.Op, c.typeName(got))
+	}
+	return false
+}
+
+// typedFloatArithmetic returns the type float arithmetic on operands of
+// types x and y works in, when at least one is typed (see
+// floatArithmetic).
+func (c *Checker) typedFloatArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
+	switch {
+	case types.IsUntyped(x) && types.IsFloat(y):
+		if !c.settleFloat(bin.X, y) {
+			return types.Invalid
+		}
+		return y
+	case types.IsUntyped(y) && types.IsFloat(x):
+		if !c.settleFloat(bin.Y, x) {
+			return types.Invalid
+		}
+		return x
+	}
+	if x, y = c.valueOf(bin.X, x), c.valueOf(bin.Y, y); x == types.Invalid || y == types.Invalid {
+		return types.Invalid
+	}
+	if x != y {
+		c.errorf(bin.Span, "mismatched types %s and %s in %s", c.typeName(x), c.typeName(y), bin.Op)
+		return types.Invalid
+	}
+	return x
+}
+
+// foldFloat computes + - * or / on two untyped constants, at least one of
+// them a float, exactly, recording the value on bin. A division by zero,
+// or a result too large or too precise to hold exactly, is reported.
+func (c *Checker) foldFloat(bin *ast.Binary) types.Type {
+	a, _ := floatValue(bin.X)
+	b, _ := floatValue(bin.Y)
+	var (
+		result constant.Float
+		ok     bool
+	)
+	switch bin.Op {
+	case ast.Add:
+		result, ok = a.Add(b)
+	case ast.Sub:
+		result, ok = a.Sub(b)
+	case ast.Mul:
+		result, ok = a.Mul(b)
+	default:
+		if b.IsZero() {
+			c.errorf(bin.Span, "division by zero in constant expression")
+			return types.Invalid
+		}
+		result, ok = a.Quo(b)
+	}
+	if !ok {
+		c.errorf(bin.Span, "constant expression is out of range")
+		return types.Invalid
+	}
+	bin.Const = result
+	return types.UntypedFloat
 }
 
 // knownOverflow reports typed arithmetic whose operands are both known
@@ -660,6 +838,10 @@ func (c *Checker) divisionResults(bin *ast.Binary, want int, span ast.Span) ([]t
 	if typ == types.Invalid {
 		return nil, false
 	}
+	if types.IsFloat(typ) {
+		c.errorf(span, "dividing floats cannot fail, so it has no checked form; use a / b")
+		return nil, false
+	}
 
 	if v, ok := c.knownValue(bin.Y); ok && v.IsZero() {
 		c.errorf(bin.Y.Spanned(), "division by zero")
@@ -778,7 +960,7 @@ func (c *Checker) comparison(bin *ast.Binary, x, y types.Type) {
 	if x == types.Invalid || y == types.Invalid {
 		return
 	}
-	if x == types.UntypedInt && y == types.UntypedInt {
+	if types.IsUntyped(x) && types.IsUntyped(y) {
 		foldComparison(bin)
 		return
 	}
@@ -812,23 +994,36 @@ func (c *Checker) comparisonOfOneType(bin *ast.Binary, x, y types.Type) {
 	}
 }
 
-// foldComparison compares bin's two untyped constant operands exactly, and
-// records the result on bin.
+// foldComparison compares bin's two untyped constant operands exactly, as
+// floats when either is one, and records the result on bin.
 func foldComparison(bin *ast.Binary) {
-	a, _ := constValue(bin.X)
-	b, _ := constValue(bin.Y)
+	if a, ok := constValue(bin.X); ok {
+		if b, ok := constValue(bin.Y); ok {
+			bin.Const = compare(bin.Op, a.Cmp(b))
+			return
+		}
+	}
+	a, _ := floatValue(bin.X)
+	b, _ := floatValue(bin.Y)
 	bin.Const = compare(bin.Op, a.Cmp(b))
 }
 
 // untypedAs settles operand, of type got, to the type other of the operand
-// it is compared with, when got is untyped: to other itself if other is an
-// integer type, and to int64 otherwise, so a mismatch names it as one. It
-// returns the operand's type, Invalid if the constant does not fit.
+// it is compared with, when got is untyped: to other itself if other is a
+// float type, or an integer type for an untyped integer, and to its own
+// type otherwise (see valueOf), so a mismatch names it as one. It returns
+// the operand's type, Invalid if the constant does not fit.
 func (c *Checker) untypedAs(operand ast.Expr, got, other types.Type) types.Type {
-	if got != types.UntypedInt {
+	if !types.IsUntyped(got) {
 		return got
 	}
-	if types.IsInteger(other) && other != types.UntypedInt {
+	if types.IsFloat(other) && !types.IsUntyped(other) {
+		if !c.settleFloat(operand, other) {
+			return types.Invalid
+		}
+		return other
+	}
+	if got == types.UntypedInt && types.IsInteger(other) && other != types.UntypedInt {
 		if !c.settle(operand, other) {
 			return types.Invalid
 		}
@@ -857,17 +1052,19 @@ func compare(op ast.BinaryOp, cmp int) bool {
 }
 
 // supports reports whether values of type typ can be compared with op: an
-// integer or a string with all six, and any other comparable type, a bool,
-// an array or a struct, with == and != only.
+// integer, a float or a string with all six, and any other comparable
+// type, a bool, an array or a struct, with == and != only. Floats compare
+// as IEEE 754 says: NaN is equal to nothing, itself included, and -0 is
+// equal to 0.
 func (c *Checker) supports(typ types.Type, op ast.BinaryOp) bool {
-	if types.IsInteger(typ) || typ == types.String {
+	if types.IsNumeric(typ) || typ == types.String {
 		return true
 	}
 	return (op == ast.Eq || op == ast.Ne) && c.comparable(typ)
 }
 
 // unary checks a prefix expression and returns its type. ! takes a bool, ^
-// any integer (see complement). - takes a signed integer, and negating an untyped constant is computed
+// any integer (see complement). - takes a float, or a signed integer, and negating an untyped constant is computed
 // exactly, as is negating a known value of a signed type, which must not
 // overflow it; it is not defined on unsigned types, where -x is almost always a
 // mistake, and 0 - x says what wrapping is wanted.
@@ -882,7 +1079,11 @@ func (c *Checker) unary(u *ast.Unary) types.Type {
 	case ast.Complement:
 		return c.complement(u, x)
 	}
+	return c.negation(u, x)
+}
 
+// negation checks -x, u, x of type x, and returns its type (see unary).
+func (c *Checker) negation(u *ast.Unary, x types.Type) types.Type {
 	switch {
 	case x == types.Invalid:
 		return types.Invalid
@@ -895,6 +1096,12 @@ func (c *Checker) unary(u *ast.Unary) types.Type {
 		}
 		u.Const = negated
 		return types.UntypedInt
+	case x == types.UntypedFloat:
+		value, _ := floatValue(u.X)
+		u.Const = value.Neg()
+		return types.UntypedFloat
+	case types.IsFloat(x):
+		return x
 	case types.IsInteger(x) && !types.IsUnsigned(x):
 		return c.knownNegation(u, x)
 	default:
@@ -994,6 +1201,17 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 	if from == types.Invalid {
 		return types.Invalid, false
 	}
+	if types.IsFloat(to) || types.IsFloat(from) {
+		if from = c.valueOf(call.Args[0], from); from != types.Invalid {
+			c.errorf(
+				call.Span,
+				"cannot convert %s to %s: conversions to and from floats are not supported yet",
+				c.typeName(from),
+				name,
+			)
+		}
+		return types.Invalid, false
+	}
 	if !types.IsInteger(to) || !types.IsInteger(from) {
 		from = c.valueOf(call.Args[0], from)
 		if from != types.Invalid {
@@ -1051,7 +1269,9 @@ func (c *Checker) complement(u *ast.Unary, x types.Type) types.Type {
 	case types.IsInteger(x):
 		return x
 	default:
-		c.errorf(u.X.Spanned(), "operator ^ is not defined on %s", c.typeName(x))
+		if x = c.valueOf(u.X, x); x != types.Invalid {
+			c.errorf(u.X.Spanned(), "operator ^ is not defined on %s", c.typeName(x))
+		}
 		return types.Invalid
 	}
 }

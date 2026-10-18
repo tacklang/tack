@@ -16,10 +16,10 @@ typedef struct {
     int64_t len;
     int64_t cap;
     tack_allocator alloc;
-} tack_list_25;
+} tack_list_28;
 
 typedef struct {
-    tack_list_25 f_data;
+    tack_list_28 f_data;
 } tack_7_methods4_strs5_Bytes;
 
 typedef struct {
@@ -27,7 +27,7 @@ typedef struct {
 } tack_7_methods4_strs6_hidden;
 
 typedef struct {
-    tack_list_25 f_buf;
+    tack_list_28 f_buf;
     int64_t f_lines;
 } tack_7_methods7_Builder;
 
@@ -43,10 +43,10 @@ typedef struct {
 
 typedef struct {
     tack_7_methods5_Point e[2];
-} tack_array_26;
+} tack_array_29;
 
 typedef struct {
-    tack_array_26 f_pages;
+    tack_array_29 f_pages;
     tack_7_methods6_Writer f_w;
 } tack_7_methods3_Doc;
 
@@ -57,25 +57,25 @@ typedef struct {
 typedef struct {
     const tack_any *ptr;
     int64_t len;
-} tack_view_27;
+} tack_view_30;
 
 typedef struct {
     const uint8_t *ptr;
     int64_t len;
-} tack_view_28;
+} tack_view_31;
 
 typedef struct {
     const tack_string *ptr;
     int64_t len;
-} tack_view_29;
+} tack_view_32;
 
 typedef struct {
     tack_string e[2];
-} tack_array_30;
+} tack_array_33;
 
 typedef struct {
     tack_7_methods5_Point e[3];
-} tack_array_31;
+} tack_array_34;
 
 static int tack_compare_strings(tack_string a, tack_string b) {
     int64_t n = a.len < b.len ? a.len : b.len;
@@ -87,7 +87,7 @@ static int tack_compare_strings(tack_string a, tack_string b) {
     return (a.len > b.len) - (a.len < b.len);
 }
 
-static bool tack_eq_23(const tack_7_methods5_Point *a, const tack_7_methods5_Point *b) {
+static bool tack_eq_26(const tack_7_methods5_Point *a, const tack_7_methods5_Point *b) {
     return a->f_x == b->f_x && a->f_y == b->f_y;
 }
 
@@ -159,8 +159,8 @@ static const unsigned char tack_str64[14] = {111, 117, 116, 32, 111, 102, 32, 10
 
 void tack_builtin_print(tack_string);
 
-static tack_view_29 tack_slice_from_29(tack_view_29 s, int64_t lo) {
-    return (tack_view_29){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
+static tack_view_32 tack_slice_from_32(tack_view_32 s, int64_t lo) {
+    return (tack_view_32){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};
 }
 
 typedef struct {
@@ -183,10 +183,10 @@ typedef struct {
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
 __attribute__((unused)) static void tack_3_std3_fmt7_println(tack_string p_s);
-static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args);
-extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_27 p_args) TACK_C_NAME("tack_fmt_printf");
-__attribute__((unused)) static void tack_3_std3_fmt5_write(tack_view_28 p_b);
-extern void tack_3_std3_fmt6_cwrite(tack_view_28 p_b) TACK_C_NAME("tack_fmt_write");
+static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_30 p_args);
+extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_30 p_args) TACK_C_NAME("tack_fmt_printf");
+__attribute__((unused)) static void tack_3_std3_fmt5_write(tack_view_31 p_b);
+extern void tack_3_std3_fmt6_cwrite(tack_view_31 p_b) TACK_C_NAME("tack_fmt_write");
 static tack_7_methods4_strs7_Counter tack_7_methods4_strs3_New(int64_t p_n);
 static void tack_7_methods4_strs13_Counter_2eAdd(tack_7_methods4_strs7_Counter * p_c, int64_t p_k);
 static int64_t tack_7_methods4_strs15_Counter_2eValue(tack_7_methods4_strs7_Counter p_c);
@@ -205,7 +205,7 @@ static tack_7_methods7_Builder tack_7_methods10_newBuilder(void);
 static int64_t tack_7_methods13_Builder_2elen(tack_7_methods7_Builder p_b);
 static tack_error tack_7_methods16_Builder_2eappend(tack_7_methods7_Builder * p_b, uint8_t p_c);
 static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b, tack_string p_s);
-static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_29 p_parts);
+static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_32 p_parts);
 static tack_error tack_7_methods14_Builder_2eline(tack_7_methods7_Builder * p_b, tack_string p_s);
 static tack_results_7_methods12_Builder_2eat tack_7_methods12_Builder_2eat(tack_7_methods7_Builder p_b, int64_t p_i);
 static tack_results_7_methods14_Builder_2elast tack_7_methods14_Builder_2elast(tack_7_methods7_Builder p_b);
@@ -214,7 +214,7 @@ static int64_t tack_7_methods5_count(tack_string p_s, uint8_t p_c);
 static bool tack_7_methods16_Builder_2eequals(tack_7_methods7_Builder p_b, tack_string p_s);
 static bool tack_7_methods19_Builder_2eallocated(tack_7_methods7_Builder p_b);
 static bool tack_7_methods15_Builder_2eisInt(tack_7_methods7_Builder p_b, tack_any p_v);
-static void tack_7_methods14_Builder_2eshow(tack_7_methods7_Builder p_b, tack_string p_format, tack_view_27 p_args);
+static void tack_7_methods14_Builder_2eshow(tack_7_methods7_Builder p_b, tack_string p_format, tack_view_30 p_args);
 static tack_7_methods5_Point tack_7_methods9_makePoint(int64_t p_x, int64_t p_y);
 static tack_7_methods5_Point tack_7_methods7_pointAt(int64_t p_n);
 static int64_t tack_7_methods4_next(int64_t * p_n);
@@ -242,11 +242,11 @@ static void tack_3_std3_fmt7_println(tack_string p_s) {
     tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
 }
 
-static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args) {
+static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_30 p_args) {
     tack_3_std3_fmt7_cprintf(p_format, p_args);
 }
 
-static void tack_3_std3_fmt5_write(tack_view_28 p_b) {
+static void tack_3_std3_fmt5_write(tack_view_31 p_b) {
     tack_3_std3_fmt6_cwrite(p_b);
 }
 
@@ -272,7 +272,7 @@ static void tack_7_methods4_strs15_Counter_2etouch(tack_7_methods4_strs7_Counter
 }
 
 static tack_7_methods4_strs5_Bytes tack_7_methods4_strs8_NewBytes(void) {
-    return (tack_7_methods4_strs5_Bytes){.f_data = ((tack_list_25){.alloc = TACK_C_ALLOCATOR})};
+    return (tack_7_methods4_strs5_Bytes){.f_data = ((tack_list_28){.alloc = TACK_C_ALLOCATOR})};
 }
 
 static tack_error tack_7_methods4_strs12_Bytes_2ePush(tack_7_methods4_strs5_Bytes * p_b, uint8_t p_c) {
@@ -284,7 +284,7 @@ static int64_t tack_7_methods4_strs11_Bytes_2eLen(tack_7_methods4_strs5_Bytes p_
 }
 
 static tack_results_7_methods4_strs10_Bytes_2eAt tack_7_methods4_strs10_Bytes_2eAt(tack_7_methods4_strs5_Bytes p_b, int64_t p_i) {
-    const tack_list_25 tack_r0 = p_b.f_data;
+    const tack_list_28 tack_r0 = p_b.f_data;
     const int64_t tack_r1 = p_i;
     const uint8_t v_c = ((tack_r1 >= 0 && tack_r1 < tack_r0.len) ? tack_r0.ptr[tack_r1] : 0);
     const bool v_ok = (tack_r1 >= 0 && tack_r1 < tack_r0.len);
@@ -313,7 +313,7 @@ static void tack_7_methods5_freed(tack_string p_name) {
 }
 
 static tack_7_methods7_Builder tack_7_methods10_newBuilder(void) {
-    return (tack_7_methods7_Builder){.f_buf = ((tack_list_25){.alloc = TACK_C_ALLOCATOR}), .f_lines = 0};
+    return (tack_7_methods7_Builder){.f_buf = ((tack_list_28){.alloc = TACK_C_ALLOCATOR}), .f_lines = 0};
 }
 
 static int64_t tack_7_methods13_Builder_2elen(tack_7_methods7_Builder p_b) {
@@ -338,9 +338,9 @@ static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b
     return (tack_error){};
 }
 
-static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_29 p_parts) {
+static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_32 p_parts) {
     {
-        const tack_view_29 tack_r4 = p_parts;
+        const tack_view_32 tack_r4 = p_parts;
         for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
             const tack_string v_p = tack_r4.ptr[tack_k5];
             const tack_error v_err = tack_7_methods15_Builder_2ewrite(p_b, v_p);
@@ -369,7 +369,7 @@ static tack_error tack_7_methods14_Builder_2eline(tack_7_methods7_Builder * p_b,
 }
 
 static tack_results_7_methods12_Builder_2eat tack_7_methods12_Builder_2eat(tack_7_methods7_Builder p_b, int64_t p_i) {
-    const tack_list_25 tack_r7 = p_b.f_buf;
+    const tack_list_28 tack_r7 = p_b.f_buf;
     const int64_t tack_r8 = p_i;
     const uint8_t v_c = ((tack_r8 >= 0 && tack_r8 < tack_r7.len) ? tack_r7.ptr[tack_r8] : 0);
     const bool v_ok = (tack_r8 >= 0 && tack_r8 < tack_r7.len);
@@ -377,7 +377,7 @@ static tack_results_7_methods12_Builder_2eat tack_7_methods12_Builder_2eat(tack_
 }
 
 static tack_results_7_methods14_Builder_2elast tack_7_methods14_Builder_2elast(tack_7_methods7_Builder p_b) {
-    const tack_list_25 tack_r9 = p_b.f_buf;
+    const tack_list_28 tack_r9 = p_b.f_buf;
     const int64_t tack_r10 = ((int64_t)((uint64_t)tack_7_methods13_Builder_2elen(p_b) - (uint64_t)1));
     const uint8_t v_c = ((tack_r10 >= 0 && tack_r10 < tack_r9.len) ? tack_r9.ptr[tack_r10] : 0);
     const bool v_ok = (tack_r10 >= 0 && tack_r10 < tack_r9.len);
@@ -388,7 +388,7 @@ static tack_results_7_methods14_Builder_2elast tack_7_methods14_Builder_2elast(t
 }
 
 static int64_t tack_7_methods15_Builder_2ecount(tack_7_methods7_Builder p_b, uint8_t p_c, int64_t p_i) {
-    const tack_list_25 tack_r11 = p_b.f_buf;
+    const tack_list_28 tack_r11 = p_b.f_buf;
     const int64_t tack_r12 = p_i;
     const uint8_t v_x = ((tack_r12 >= 0 && tack_r12 < tack_r11.len) ? tack_r11.ptr[tack_r12] : 0);
     const bool v_ok = (tack_r12 >= 0 && tack_r12 < tack_r11.len);
@@ -425,7 +425,7 @@ static bool tack_7_methods16_Builder_2eequals(tack_7_methods7_Builder p_b, tack_
         for (int64_t tack_k18 = 0; tack_k18 < tack_r17.len; tack_k18++) {
             const int64_t v_i = tack_k18;
             const uint8_t v_c = tack_r17.ptr[tack_k18];
-            const tack_list_25 tack_r15 = p_b.f_buf;
+            const tack_list_28 tack_r15 = p_b.f_buf;
             const int64_t tack_r16 = v_i;
             const uint8_t v_x = ((tack_r16 >= 0 && tack_r16 < tack_r15.len) ? tack_r15.ptr[tack_r16] : 0);
             const bool v_ok = (tack_r16 >= 0 && tack_r16 < tack_r15.len);
@@ -449,7 +449,7 @@ static bool tack_7_methods15_Builder_2eisInt(tack_7_methods7_Builder p_b, tack_a
     return v_ok;
 }
 
-static void tack_7_methods14_Builder_2eshow(tack_7_methods7_Builder p_b, tack_string p_format, tack_view_27 p_args) {
+static void tack_7_methods14_Builder_2eshow(tack_7_methods7_Builder p_b, tack_string p_format, tack_view_30 p_args) {
     (void)p_b;
     tack_3_std3_fmt6_printf(p_format, p_args);
 }
@@ -511,16 +511,16 @@ static void tack_7_methods6_builds(void) {
         tack_7_methods5_check((v_l == 33), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     }
     tack_7_methods5_check(((tack_7_methods15_Builder_2ecount(v_b, 108, 0) == 2) && (tack_7_methods5_count((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, 108) == 2)), (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
-    const tack_error v_errAll = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_29){(const tack_string[3]){(tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}}, 3});
+    const tack_error v_errAll = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_32){(const tack_string[3]){(tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}}, 3});
     if (v_errAll.code == 0) {
         tack_7_methods5_check(tack_7_methods16_Builder_2eequals(v_b, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     }
-    const tack_error v_errNone = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_29){0, 0});
+    const tack_error v_errNone = tack_7_methods18_Builder_2ewriteAll(&v_b, (tack_view_32){0, 0});
     if (v_errNone.code == 0) {
         tack_7_methods5_check((tack_7_methods13_Builder_2elen(v_b) == 12), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
     }
-    const tack_array_30 v_parts = (tack_array_30){{(tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
-    const tack_error v_errSpread = tack_7_methods18_Builder_2ewriteAll(&v_b, tack_slice_from_29((tack_view_29){v_parts.e, 2}, 0));
+    const tack_array_33 v_parts = (tack_array_33){{(tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}}};
+    const tack_error v_errSpread = tack_7_methods18_Builder_2ewriteAll(&v_b, tack_slice_from_32((tack_view_32){v_parts.e, 2}, 0));
     if (v_errSpread.code == 0) {
         tack_7_methods5_check(tack_7_methods16_Builder_2eequals(v_b, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}), (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
     }
@@ -553,7 +553,7 @@ static void tack_7_methods5_lines(void) {
 static void tack_7_methods6_chains(void) {
     tack_7_methods5_Point tack_o26;
     tack_7_methods5_Point tack_o27;
-    tack_array_26 tack_o28;
+    tack_array_29 tack_o28;
     tack_7_methods6_Writer tack_o29;
     tack_7_methods5_Point tack_o30;
     tack_7_methods5_Point tack_o31;
@@ -562,13 +562,13 @@ static void tack_7_methods6_chains(void) {
     if (v_err.code == 0) {
         tack_7_methods5_check((tack_7_methods16_Builder_2eequals(v_w.f_out, (tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)}) && (tack_7_methods13_Builder_2elen(v_w.f_out) == 5)), (tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)});
     }
-    tack_7_methods3_Doc v_d = (tack_o28 = (tack_o26 = tack_7_methods9_makePoint(1, 2), tack_o27 = tack_7_methods9_makePoint(3, 4), (tack_array_26){{tack_o26, tack_o27}}), tack_o29 = (tack_7_methods6_Writer){.f_out = tack_7_methods10_newBuilder(), .f_name = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}}, (tack_7_methods3_Doc){.f_pages = tack_o28, .f_w = tack_o29});
+    tack_7_methods3_Doc v_d = (tack_o28 = (tack_o26 = tack_7_methods9_makePoint(1, 2), tack_o27 = tack_7_methods9_makePoint(3, 4), (tack_array_29){{tack_o26, tack_o27}}), tack_o29 = (tack_7_methods6_Writer){.f_out = tack_7_methods10_newBuilder(), .f_name = (tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}}, (tack_7_methods3_Doc){.f_pages = tack_o28, .f_w = tack_o29});
     const tack_error v_errD = tack_7_methods14_Builder_2eline(&v_d.f_w.f_out, (tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)});
     if (v_errD.code == 0) {
         tack_7_methods5_check(((v_d.f_w.f_out.f_lines == 1) && tack_7_methods16_Builder_2eequals(v_d.f_w.f_out, (tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)})), (tack_string){tack_str40, TACK_C_STR_LEN(tack_str40)});
     }
     tack_7_methods13_Point_2escale(&v_d.f_pages.e[1], 10);
-    tack_7_methods5_check(((tack_o30 = v_d.f_pages.e[1], tack_o31 = tack_7_methods9_makePoint(30, 40), (tack_eq_23(&tack_o30, &tack_o31))) && (tack_7_methods12_Point_2enorm(v_d.f_pages.e[0]) == 3)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
+    tack_7_methods5_check(((tack_o30 = v_d.f_pages.e[1], tack_o31 = tack_7_methods9_makePoint(30, 40), (tack_eq_26(&tack_o30, &tack_o31))) && (tack_7_methods12_Point_2enorm(v_d.f_pages.e[0]) == 3)), (tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)});
     const tack_error v_errF = tack_7_methods4_fill(&v_d.f_w.f_out, (tack_string){tack_str42, TACK_C_STR_LEN(tack_str42)});
     if (v_errF.code == 0) {
         tack_7_methods5_check((tack_7_methods4_size(&v_d.f_w.f_out) == 6), (tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)});
@@ -629,7 +629,7 @@ static void tack_7_methods6_points(void) {
     int64_t tack_o43;
     tack_7_methods5_check((tack_7_methods12_Point_2enorm(tack_7_methods9_makePoint((-3), 4)) == 7), (tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)});
     tack_7_methods5_check((tack_7_methods12_Point_2enorm((tack_7_methods5_Point){.f_x = 1, .f_y = 1}) == 2), (tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)});
-    tack_array_31 v_ps = (tack_o32 = tack_7_methods9_makePoint(1, 2), tack_o33 = tack_7_methods9_makePoint(3, 4), tack_o34 = tack_7_methods9_makePoint(5, 6), (tack_array_31){{tack_o32, tack_o33, tack_o34}});
+    tack_array_34 v_ps = (tack_o32 = tack_7_methods9_makePoint(1, 2), tack_o33 = tack_7_methods9_makePoint(3, 4), tack_o34 = tack_7_methods9_makePoint(5, 6), (tack_array_34){{tack_o32, tack_o33, tack_o34}});
     {
         (void)v_ps;
         for (int64_t tack_k36 = 0; tack_k36 < 3; tack_k36++) {
@@ -638,7 +638,7 @@ static void tack_7_methods6_points(void) {
         }
     }
     tack_7_methods12_Point_2eflip(&v_ps.e[2]);
-    tack_7_methods5_check(((tack_o37 = v_ps.e[0], tack_o38 = tack_7_methods9_makePoint(2, 4), (tack_eq_23(&tack_o37, &tack_o38))) && (tack_o39 = v_ps.e[2], tack_o40 = tack_7_methods9_makePoint(12, 10), (tack_eq_23(&tack_o39, &tack_o40)))), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
+    tack_7_methods5_check(((tack_o37 = v_ps.e[0], tack_o38 = tack_7_methods9_makePoint(2, 4), (tack_eq_26(&tack_o37, &tack_o38))) && (tack_o39 = v_ps.e[2], tack_o40 = tack_7_methods9_makePoint(12, 10), (tack_eq_26(&tack_o39, &tack_o40)))), (tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
     tack_7_methods5_check((tack_7_methods12_Point_2enorm(v_ps.e[1]) == 14), (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
     int64_t v_k = 1;
     tack_7_methods5_check((((tack_o41 = tack_7_methods7_pointAt(v_k), tack_o42 = tack_7_methods4_next(&v_k), tack_o43 = tack_7_methods4_next(&v_k), tack_7_methods14_Point_2edigits(tack_o41, tack_o42, tack_o43)) == 112) && (v_k == 3)), (tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
@@ -680,7 +680,7 @@ static void tack_7_methods4_main(void) {
     tack_7_methods7_tallies();
     tack_7_methods5_freed((tack_string){tack_str59, TACK_C_STR_LEN(tack_str59)});
     tack_7_methods7_Builder v_b = tack_7_methods10_newBuilder();
-    tack_7_methods14_Builder_2eshow(v_b, (tack_string){tack_str60, TACK_C_STR_LEN(tack_str60)}, (tack_view_27){(const tack_any[2]){(tack_a45 = (tack_string){tack_str61, TACK_C_STR_LEN(tack_str61)}, (tack_any){TACK_TYPE_STRING, &tack_a45}), (tack_a46 = 42, (tack_any){TACK_TYPE_INT64, &tack_a46})}, 2});
+    tack_7_methods14_Builder_2eshow(v_b, (tack_string){tack_str60, TACK_C_STR_LEN(tack_str60)}, (tack_view_30){(const tack_any[2]){(tack_a45 = (tack_string){tack_str61, TACK_C_STR_LEN(tack_str61)}, (tack_any){TACK_TYPE_STRING, &tack_a45}), (tack_a46 = 42, (tack_any){TACK_TYPE_INT64, &tack_a46})}, 2});
     tack_7_methods5_check((tack_7_methods13_Builder_2elen(v_b) == 0), (tack_string){tack_str62, TACK_C_STR_LEN(tack_str62)});
     tack_list_free_(v_b.f_buf.ptr, v_b.f_buf.cap, sizeof (uint8_t), _Alignof (uint8_t), v_b.f_buf.alloc);
 }

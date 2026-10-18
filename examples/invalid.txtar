@@ -9277,6 +9277,394 @@ field-fact-weak-guard/main.tck:8:8: note: this guard bounds p.i only above; p.i 
    |	       ^~~~~~~
 09 |	        return a[p.i]
 
+-- float-any/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    f := 1.5
+    fmt.printf("%v\n", f)
+}
+-- float-any/expected --
+stage: typeck
+---
+
+float-any/main.tck:7:24: error: cannot pass float64 as any: only the builtin types and views of them can be passed as any for now
+06 |	    f := 1.5
+07 |	    fmt.printf("%v\n", f)
+   |	                       ^
+08 |	}
+
+float-any/main.tck:7:24: error: printf verb %v does not take float64
+06 |	    f := 1.5
+07 |	    fmt.printf("%v\n", f)
+   |	                       ^
+08 |	}
+
+-- float-array-length/main.tck --
+package main
+
+func main() {
+    a := [2.0]int64{1, 2}
+    exit(int32(a[0]))
+}
+-- float-array-length/expected --
+stage: typeck
+---
+
+float-array-length/main.tck:4:11: error: array length must be a constant integer
+03 |	func main() {
+04 |	    a := [2.0]int64{1, 2}
+   |	          ^~~
+05 |	    exit(int32(a[0]))
+
+-- float-checked-division/main.tck --
+package main
+
+func main() {
+    a := 1.5
+    b := 0.5
+    q, ok := a / b
+    if ok && q > 0.0 {
+        exit(1)
+    }
+}
+-- float-checked-division/expected --
+stage: typeck
+---
+
+float-checked-division/main.tck:6:5: error: dividing floats cannot fail, so it has no checked form; use a / b
+05 |	    b := 0.5
+06 |	    q, ok := a / b
+   |	    ^~~~~~~~~~~~~~
+07 |	    if ok && q > 0.0 {
+
+-- float-constant-division-by-zero/main.tck --
+package main
+
+func main() {
+    f := 1.0 / 0.0
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-constant-division-by-zero/expected --
+stage: typeck
+---
+
+float-constant-division-by-zero/main.tck:4:10: error: division by zero in constant expression
+03 |	func main() {
+04 |	    f := 1.0 / 0.0
+   |	         ^~~~~~~~~
+05 |	    if f > 0.0 {
+
+-- float-conversion-from-int/main.tck --
+package main
+
+func main() {
+    i := 3
+    f := float64(i)
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-conversion-from-int/expected --
+stage: typeck
+---
+
+float-conversion-from-int/main.tck:5:10: error: cannot convert int64 to float64: conversions to and from floats are not supported yet
+04 |	    i := 3
+05 |	    f := float64(i)
+   |	         ^~~~~~~~~~
+06 |	    if f > 0.0 {
+
+-- float-conversion-to-int/main.tck --
+package main
+
+func main() {
+    f := 3.5
+    i, ok := int64(f)
+    if ok && i > 0 {
+        exit(1)
+    }
+}
+-- float-conversion-to-int/expected --
+stage: typeck
+---
+
+float-conversion-to-int/main.tck:5:14: error: cannot convert float64 to int64: conversions to and from floats are not supported yet
+04 |	    f := 3.5
+05 |	    i, ok := int64(f)
+   |	             ^~~~~~~~
+06 |	    if ok && i > 0 {
+
+-- float-exponent-no-digits/main.tck --
+package main
+
+func main() {
+    f := 1e
+}
+-- float-exponent-no-digits/expected --
+stage: lex
+---
+
+float-exponent-no-digits/main.tck:4:10: error: exponent has no digits in 1e
+03 |	func main() {
+04 |	    f := 1e
+   |	         ^~
+05 |	}
+
+-- float-extern-param/main.tck --
+package main
+
+extern("c_scale") func scale(x float64)
+
+func main() {
+    scale(1.0)
+}
+-- float-extern-param/expected --
+stage: typeck
+---
+
+float-extern-param/main.tck:3:32: error: parameter x of extern func scale cannot be float64: a float does not cross to C yet
+02 |	
+03 |	extern("c_scale") func scale(x float64)
+   |	                               ^~~~~~~
+04 |	
+
+-- float-extern-result/main.tck --
+package main
+
+extern("c_half") func half() float32
+
+func main() {
+    if half() > 0.0 {
+        exit(1)
+    }
+}
+-- float-extern-result/expected --
+stage: typeck
+---
+
+float-extern-result/main.tck:3:30: error: extern func half cannot return float32: a float does not cross to C yet
+02 |	
+03 |	extern("c_half") func half() float32
+   |	                             ^~~~~~~
+04 |	
+
+-- float-increment/main.tck --
+package main
+
+func main() {
+    mut f := 1.5
+    f++
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-increment/expected --
+stage: typeck
+---
+
+float-increment/main.tck:5:5: error: operator ++ is not defined on float64
+04 |	    mut f := 1.5
+05 |	    f++
+   |	    ^
+06 |	    if f > 0.0 {
+
+-- float-index/main.tck --
+package main
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    f := 1.0
+    if a[f] == 2 {
+        exit(1)
+    }
+}
+-- float-index/expected --
+stage: typeck
+---
+
+float-index/main.tck:6:10: error: index must be an integer, got float64
+05 |	    f := 1.0
+06 |	    if a[f] == 2 {
+   |	         ^
+07 |	        exit(1)
+
+-- float-int-mismatch/main.tck --
+package main
+
+func main() {
+    f := 1.5
+    i := 2
+    if f + i > 0.0 {
+        exit(1)
+    }
+}
+-- float-int-mismatch/expected --
+stage: typeck
+---
+
+float-int-mismatch/main.tck:6:8: error: mismatched types float64 and int64 in +
+05 |	    i := 2
+06 |	    if f + i > 0.0 {
+   |	       ^~~~~
+07 |	        exit(1)
+
+-- float-literal-too-large/main.tck --
+package main
+
+func main() {
+    f := 1e3000
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-literal-too-large/expected --
+stage: parse
+---
+
+float-literal-too-large/main.tck:4:10: error: float literal 1e3000 is too large or too precise to hold exactly
+03 |	func main() {
+04 |	    f := 1e3000
+   |	         ^~~~~~
+05 |	    if f > 0.0 {
+
+-- float-map-key/main.tck --
+package main
+
+func main() {
+    m := make(map[float64]int64, c_allocator)
+    exit(int32(len(m)))
+}
+-- float-map-key/expected --
+stage: typeck
+---
+
+float-map-key/main.tck:4:19: error: cannot use float64 as a map key: a float is not a key
+03 |	func main() {
+04 |	    m := make(map[float64]int64, c_allocator)
+   |	                  ^~~~~~~
+05 |	    exit(int32(len(m)))
+
+-- float-map-key-in-struct/main.tck --
+package main
+
+type Point struct {
+    x float64
+    y float64
+}
+
+func main() {
+    m := make(map[Point]int64, c_allocator)
+    exit(int32(len(m)))
+}
+-- float-map-key-in-struct/expected --
+stage: typeck
+---
+
+float-map-key-in-struct/main.tck:9:19: error: cannot use Point as a map key: it holds a float, which is not a key
+08 |	func main() {
+09 |	    m := make(map[Point]int64, c_allocator)
+   |	                  ^~~~~
+10 |	    exit(int32(len(m)))
+
+-- float-overflows-float32/main.tck --
+package main
+
+func main() {
+    var f float32 = 1e39
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-overflows-float32/expected --
+stage: typeck
+---
+
+float-overflows-float32/main.tck:4:21: error: constant 1e+39 overflows float32
+03 |	func main() {
+04 |	    var f float32 = 1e39
+   |	                    ^~~~
+05 |	    if f > 0.0 {
+
+-- float-remainder/main.tck --
+package main
+
+func main() {
+    f := 5.5
+    if f % 2.0 > 0.0 {
+        exit(1)
+    }
+}
+-- float-remainder/expected --
+stage: typeck
+---
+
+float-remainder/main.tck:5:8: error: operator % is not defined on float64
+04 |	    f := 5.5
+05 |	    if f % 2.0 > 0.0 {
+   |	       ^
+06 |	        exit(1)
+
+-- float-separator/main.tck --
+package main
+
+func main() {
+    f := 1_.5
+    if f > 0.0 {
+        exit(1)
+    }
+}
+-- float-separator/expected --
+stage: lex
+---
+
+float-separator/main.tck:4:10: error: _ must separate successive digits in 1_.5
+03 |	func main() {
+04 |	    f := 1_.5
+   |	         ^~~~
+05 |	    if f > 0.0 {
+
+-- float-to-integer-variable/main.tck --
+package main
+
+func main() {
+    var i int32 = 2.0
+    exit(i)
+}
+-- float-to-integer-variable/expected --
+stage: typeck
+---
+
+float-to-integer-variable/main.tck:4:19: error: cannot use float64 as int32 in declaration of i
+03 |	func main() {
+04 |	    var i int32 = 2.0
+   |	                  ^~~
+05 |	    exit(i)
+
+-- float32-float64-mismatch/main.tck --
+package main
+
+func main() {
+    var f float32 = 1.5
+    g := 2.5
+    if f + g > 0.0 {
+        exit(1)
+    }
+}
+-- float32-float64-mismatch/expected --
+stage: typeck
+---
+
+float32-float64-mismatch/main.tck:6:8: error: mismatched types float32 and float64 in +
+05 |	    g := 2.5
+06 |	    if f + g > 0.0 {
+   |	       ^~~~~
+07 |	        exit(1)
+
 -- fmt-cwrite-not-pub/main.tck --
 package main
 

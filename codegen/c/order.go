@@ -434,7 +434,7 @@ func builds(e ast.Expr) bool {
 // a type with values, which a C variable can hold.
 func (g *generator) holdable(e ast.Expr) bool {
 	typ := ast.TypeOf(e)
-	return typ != types.Invalid && typ != types.UntypedInt && g.cType(typ) != "void"
+	return typ != types.Invalid && !types.IsUntyped(typ) && g.cType(typ) != "void"
 }
 
 // otherScope renders e, the right side of an && or an ||, which runs only

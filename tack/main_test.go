@@ -2156,6 +2156,38 @@ func TestBuiltBytesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltFloatsPassesEveryCheck builds examples/floats at every
+// optimization level and checks each binary writes exactly
+// examples/floats/output, every check ok: float32 and float64 constants,
+// exact until used, arithmetic that rounds at run time, infinities and
+// NaN from dividing by zero, negative zero, float32's rounding, the
+// smallest subnormal, and floats in structs and arrays. Every level must
+// print the same, so no level fuses or reorders float operations.
+func TestBuiltFloatsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "floats", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/floats/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "floats")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("floats"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltTextPassesEveryCheck builds examples/text, which imports
 // std/text, a std package written in Tack alone, at every optimization
 // level and checks each binary writes exactly examples/text/output, every
@@ -3181,8 +3213,7 @@ func TestBuiltTackLexer(t *testing.T) {
 // same kinds, spans and text; errors over the same spans, in the same
 // order, though the Tack lexer's messages are fixed strings, since Tack
 // cannot format one; and a status of the token count, or 254 after an
-// error. Inputs outside the Tack lexer's subset, with a float, are
-// skipped, and so are those of more tokens than it holds.
+// error. Inputs of more tokens than the Tack lexer holds are skipped.
 func TestBuiltTackLexerAgreesWithTheCompiler(t *testing.T) {
 	bin := buildTargetWithClang(t, "lex", tackLexer)
 	inputs := tackLexerInputs(t)
@@ -3258,13 +3289,16 @@ var tackLexerHostileInputs = []string{
 	"x // a\n  // b\n\n// c\ny", "x // a\r\n\t// b\r\ny", "// end", "x //",
 	"a&^=b<<=c>>=d...e&^f<-g", "x++\ny--\nreturn\nbreak\ncontinue\ntrue\nfalse\n)\n]\n}\n",
 	"00 007 0 10", "`a\nb\r\nc`", "`open\n", "x\n\n\r\n\n",
+	"1.5 .5 1. 1e9 1.5e-3 1E+2 01.5 0e5", "1e", "1e+", "2.5E-", "1e_", "1_.5", "1._5", "1e_5",
+	"1_e5", "1e1_0 1_000.000_5", "1.2.3", "1..2", "x.5", "0x1.8p3", "1ex", ".", "..5", "5.e",
+
 	strings.Repeat("(", 2000) + strings.Repeat(")", 2000),
 }
 
 // goLexerTokens lexes src with the compiler's lexer and formats its tokens
 // as examples/tack-lexer prints them, and its errors without their
 // messages, and returns that lexer's exit status for src. It reports false
-// for a source outside that lexer's subset or capacity.
+// for a source past that lexer's capacity.
 func goLexerTokens(src []byte) (string, int, bool) {
 	lex := lexer.New(&source.File{ID: "in.tck", Filename: "in.tck", Data: src})
 	diags := lex.Lex()
@@ -3273,9 +3307,6 @@ func goLexerTokens(src []byte) (string, int, bool) {
 	}
 	var b strings.Builder
 	for _, tok := range lex.Tokens() {
-		if tok.Kind() == lexer.Float {
-			return "", 0, false
-		}
 		start, end := tok.OffsetStart(), tok.OffsetEnd()
 		b.WriteString(
 			tok.Kind().String() + " " + strconv.Itoa(start) + " " + strconv.Itoa(end) + " ",

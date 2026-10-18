@@ -553,15 +553,20 @@ func hexDigit(c byte) (byte, bool) {
 // handleDigit lexes a number: an integer literal, decimal or, after a 0x,
 // 0b or 0o prefix in either case, hexadecimal, binary or octal, with _
 // allowed between digits and after a prefix to group them; or a decimal
-// one with a fraction, which is lexed as a Float. The token's value is the
-// literal as written, which the parser decodes (see constant.Parse). A
-// prefix with no digit after it, a digit its base does not have, and a _
-// that does not separate digits are reported, the literal still a token;
-// a decimal integer starting with 0 is reported by checkLeadingZero. It
-// reports false, consuming nothing, when the current byte is no digit.
+// float literal, as Go writes one, lexed as a Float: digits with a
+// fraction point, 1.5 or 1., a point and digits, .5, or either or plain
+// digits followed by an exponent, e or E, an optional sign and digits, as
+// in 1e9 or 1.5e-3, with _ allowed between digits. The token's value is
+// the literal as written, which the parser decodes (see constant.Parse,
+// constant.ParseFloat). A prefix with no digit after it, a digit its base
+// does not have, an exponent with no digits, and a _ that does not
+// separate digits are reported, the literal still a token; a decimal
+// integer starting with 0 is reported by checkLeadingZero. It reports
+// false, consuming nothing, when the current byte is no digit, nor a
+// point followed by one.
 func (l *Lexer) handleDigit() bool {
 	start, data := l.pos, l.file.Data
-	if !isDigit(data[l.pos]) {
+	if !l.numberStarts() {
 		return false
 	}
 	if base, name := prefixBase(data[l.pos:]); base != 0 {
@@ -571,12 +576,37 @@ func (l *Lexer) handleDigit() bool {
 	}
 
 	k := l.decimal()
-	text := string(data[start:l.pos])
-	if k == Int && l.checkSeparators(text, start, 0) {
-		l.checkLeadingZero(text, start)
+	expOK := true
+	if l.pos < len(data) && (data[l.pos] == 'e' || data[l.pos] == 'E') {
+		k, expOK = Float, l.exponent()
 	}
+	text := string(data[start:l.pos])
+	l.checkDecimal(k, expOK, text, start)
 	l.addToken(k, text, start, l.pos)
 	return true
+}
+
+// numberStarts reports whether a number starts at the current position:
+// a digit, or a point followed by one, as in .5.
+func (l *Lexer) numberStarts() bool {
+	data := l.file.Data
+	return isDigit(data[l.pos]) ||
+		data[l.pos] == '.' && l.pos+1 < len(data) && isDigit(data[l.pos+1])
+}
+
+// checkDecimal reports what is wrong with text, a decimal literal of kind
+// k starting at start, an integer or a float whose exponent has a digit
+// when expOK: an exponent with no digits, a _ that separates none, or an
+// integer's leading zero.
+func (l *Lexer) checkDecimal(k TokenKind, expOK bool, text string, start int) {
+	switch {
+	case !expOK:
+		l.diag(fmt.Sprintf("exponent has no digits in %s", text), start, l.pos)
+	case k == Float:
+		l.checkFloatSeparators(text, start)
+	case l.checkSeparators(text, start, 0):
+		l.checkLeadingZero(text, start)
+	}
 }
 
 // decimal consumes a decimal number's digits and _ separators, with one
@@ -592,6 +622,36 @@ func (l *Lexer) decimal() TokenKind {
 		l.pos++
 	}
 	return k
+}
+
+// exponent consumes a float literal's exponent, at the current e or E:
+// the letter, an optional + or -, and the digits and _ separators after
+// it. It reports whether a digit was among them.
+func (l *Lexer) exponent() bool {
+	data := l.file.Data
+	l.pos++
+	if l.pos < len(data) && (data[l.pos] == '+' || data[l.pos] == '-') {
+		l.pos++
+	}
+	digits := false
+	for l.pos < len(data) && (isDigit(data[l.pos]) || data[l.pos] == '_') {
+		digits = digits || isDigit(data[l.pos])
+		l.pos++
+	}
+	return digits
+}
+
+// checkFloatSeparators reports text, a float literal starting at start,
+// when a _ in it does not stand between two digits: next to the point,
+// the exponent's letter or sign, another _, or either end.
+func (l *Lexer) checkFloatSeparators(text string, start int) {
+	for i := range len(text) {
+		if text[i] == '_' &&
+			(i == 0 || !isDigit(text[i-1]) || i+1 == len(text) || !isDigit(text[i+1])) {
+			l.diag(fmt.Sprintf("_ must separate successive digits in %s", text), start, l.pos)
+			return
+		}
+	}
 }
 
 // prefixBase returns the base and the name of the integer literal whose

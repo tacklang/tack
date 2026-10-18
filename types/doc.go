@@ -10,9 +10,13 @@
 // The basic types have fixed IDs that mean the same thing in every Table, so
 // code can name them as constants: the signed integers Int8 to Int64, the
 // unsigned Uint8 to Uint64, the unsigned target-width integers UnsafeSize
-// and UnsafeUintptr, String, a sequence of bytes, and Bool. UntypedInt is
-// the type of an integer constant expression until it is given one where it
-// is used; no program can name it. Any, any, is a reference to a value of
+// and UnsafeUintptr, the IEEE 754 floats Float32 and Float64, String, a
+// sequence of bytes, and Bool. UntypedInt is the type of an integer
+// constant expression, and UntypedFloat of a float one, until it is given
+// one where it is used; no program can name either. The float types come
+// after every other basic type, so adding them moved no other basic type's
+// ID; a Table's own types start after them. IsFloat, IsNumeric and
+// IsUntyped describe them. Any, any, is a reference to a value of
 // some other type known only at run time; it widens to and from nothing
 // but itself, and InAny says which types a value of can be passed as one:
 // the twelve above, the integers, String and Bool, to which a Table's

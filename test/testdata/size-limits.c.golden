@@ -8,19 +8,19 @@ stage: ok
 
 typedef struct {
     int64_t e[134217727];
-} tack_array_19;
+} tack_array_22;
 
 typedef struct {
     int8_t f_count;
-    tack_array_19 f_cells;
+    tack_array_22 f_cells;
 } tack_4_main5_Table;
 
 typedef struct {
     uint8_t e[2147483648];
-} tack_array_20;
+} tack_array_23;
 
 typedef struct {
-    tack_array_20 f_bytes;
+    tack_array_23 f_bytes;
 } tack_4_main4_Page;
 
 typedef struct {
@@ -28,14 +28,14 @@ typedef struct {
     int64_t len;
     int64_t cap;
     tack_allocator alloc;
-} tack_list_21;
+} tack_list_24;
 
 typedef struct {
     int64_t *ptr;
     int64_t len;
     int64_t cap;
     tack_allocator alloc;
-} tack_list_22;
+} tack_list_25;
 
 static const unsigned char tack_str0[5] = {32, 111, 107, 10, 0};
 static const unsigned char tack_str1[7] = {32, 70, 65, 73, 76, 10, 0};
@@ -68,9 +68,9 @@ static void tack_4_main4_main(void) {
     tack_4_main5_table.f_count = 1;
     tack_4_main5_check(((tack_4_main5_table.f_cells.e[134217726] == 7) && (tack_4_main5_table.f_count == 1)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     tack_4_main5_check((((void)tack_4_main5_table.f_cells, (int64_t)134217727) == 134217727), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
-    tack_list_21 v_pages = ((tack_list_21){.alloc = TACK_C_ALLOCATOR});
+    tack_list_24 v_pages = ((tack_list_24){.alloc = TACK_C_ALLOCATOR});
     tack_4_main5_check(((v_pages).len == 0), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    tack_list_22 v_more = ((tack_list_22){.alloc = TACK_C_ALLOCATOR});
+    tack_list_25 v_more = ((tack_list_25){.alloc = TACK_C_ALLOCATOR});
     const tack_error v_err = (TACK_LIST_RESERVE(&v_more, 1000) ? (tack_error){} : (tack_error){1, {tack_str7, TACK_C_STR_LEN(tack_str7)}});
     tack_4_main5_check(((v_err.code == 0) && ((v_more).len == 0)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
     tack_list_free_(v_more.ptr, v_more.cap, sizeof (int64_t), _Alignof (int64_t), v_more.alloc);

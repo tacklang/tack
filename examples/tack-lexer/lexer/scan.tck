@@ -26,7 +26,7 @@ pub func Lex(mut l Lexer, src string) {
             raw(mut l)
         case c == '\'':
             char(mut l)
-        case isDigit(c):
+        case isDigit(c) || c == '.' && isDigit(next):
             number(mut l)
         case c == '/' && next == '/':
             comment(mut l)
@@ -82,7 +82,9 @@ func keyword(src string, start int64, end int64) int64 {
 
 // number lexes an integer literal: decimal, or hexadecimal, binary or
 // octal after a 0x, 0b or 0o prefix in either case, with _ between
-// digits. A prefixed literal takes every letter, digit and _ after its
+// digits; or a decimal float literal, with a fraction point, 1.5, .5 or
+// 1., an exponent, 1e9 or 1.5e-3, or both, and _ only between digits,
+// whose exponent must have a digit. A prefixed literal takes every letter, digit and _ after its
 // prefix. A prefix with no digit, a digit its base lacks, a _ that
 // separates no digits, and a decimal literal of more than one digit
 // starting with 0 are reported.
@@ -115,15 +117,57 @@ func number(mut l Lexer) {
         add(mut l, KindInt, 0, start, l.pos, true)
         return
     }
-    for l.pos < len(l.src) && (isDigit(byteAt(l.src, l.pos)) || byteAt(l.src, l.pos) == '_') {
+    mut isFloat := false
+    for l.pos < len(l.src) && (isDigit(byteAt(l.src, l.pos)) || byteAt(l.src, l.pos) == '_' ||
+        byteAt(l.src, l.pos) == '.' && !isFloat) {
+        if byteAt(l.src, l.pos) == '.' {
+            isFloat = true
+        }
         l.pos++
     }
-    if !separated(l.src, start, l.pos, start) {
+    mut expDigits := true
+    if byteAt(l.src, l.pos) == 'e' || byteAt(l.src, l.pos) == 'E' {
+        isFloat = true
+        expDigits = false
+        l.pos++
+        if byteAt(l.src, l.pos) == '+' || byteAt(l.src, l.pos) == '-' {
+            l.pos++
+        }
+        for l.pos < len(l.src) && (isDigit(byteAt(l.src, l.pos)) || byteAt(l.src, l.pos) == '_') {
+            if isDigit(byteAt(l.src, l.pos)) {
+                expDigits = true
+            }
+            l.pos++
+        }
+    }
+    if !expDigits {
+        fail(mut l, start, l.pos, "exponent has no digits")
+    } else if isFloat {
+        if !floatSeparated(l.src, start, l.pos) {
+            fail(mut l, start, l.pos, "_ must separate successive digits")
+        }
+    } else if !separated(l.src, start, l.pos, start) {
         fail(mut l, start, l.pos, "_ must separate successive digits")
     } else if l.pos - start > 1 && byteAt(l.src, start) == '0' {
         fail(mut l, start, l.pos, "integer literal has a leading zero")
     }
-    add(mut l, KindInt, 0, start, l.pos, true)
+    if isFloat {
+        add(mut l, KindFloat, 0, start, l.pos, true)
+    } else {
+        add(mut l, KindInt, 0, start, l.pos, true)
+    }
+}
+
+// floatSeparated reports whether every _ in src[start:end], a float
+// literal, stands between two digits.
+func floatSeparated(src string, start int64, end int64) bool {
+    for mut i := start; i < end; i++ {
+        if byteAt(src, i) == '_' && (i == start || !isDigit(byteAt(src, i - 1)) || i + 1 == end ||
+            !isDigit(byteAt(src, i + 1))) {
+            return false
+        }
+    }
+    return true
 }
 
 // prefixBase returns the base of the integer literal at pos in src when

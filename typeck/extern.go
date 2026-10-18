@@ -22,11 +22,13 @@ const stdPath = "std"
 // tack_, which the generated C's own names do. Every type can cross to C,
 // and a mut parameter crosses as a pointer, except a list, or a struct or
 // an array holding one, which crosses only by mut or as a view (see
-// checkExternLists), and a map, which never does (see checkExternMaps);
-// and no parameter is own (see checkExternOwn).
+// checkExternLists), and a map, which never does (see checkExternMaps),
+// nor yet does a float (see checkExternFloats); and no parameter is own
+// (see checkExternOwn).
 func (c *Checker) checkExtern(fn *ast.Func) {
 	maps := c.checkExternMaps(fn)
-	if c.checkExternOwn(fn) && c.checkExternFuncs(fn) && maps {
+	floats := c.checkExternFloats(fn)
+	if c.checkExternOwn(fn) && c.checkExternFuncs(fn) && maps && floats {
 		c.checkExternLists(fn)
 		c.checkExternUnions(fn)
 		c.checkExternOwnedElems(fn)
@@ -87,6 +89,38 @@ func (c *Checker) checkExternMaps(fn *ast.Func) bool {
 			c.errorf(
 				fn.Results[i].Spanned(),
 				"extern func %s cannot return %s: a map does not cross to C",
+				fn.Name,
+				c.typeName(typ),
+			)
+			clean = false
+		}
+	}
+	return clean
+}
+
+// checkExternFloats reports each parameter and each result of fn, an
+// extern func, whose type is or holds a float, at any depth, through a
+// struct, an array, a union, a list or a view, and returns whether there
+// was none: floats do not cross to C yet.
+func (c *Checker) checkExternFloats(fn *ast.Func) bool {
+	clean := true
+	for _, p := range fn.Params {
+		if c.holdsFloat(p.Type) {
+			c.errorf(
+				p.TypeExpr.Spanned(),
+				"parameter %s of extern func %s cannot be %s: a float does not cross to C yet",
+				p.Name,
+				fn.Name,
+				c.typeName(p.Type),
+			)
+			clean = false
+		}
+	}
+	for i, typ := range fn.ResultTypes {
+		if c.holdsFloat(typ) {
+			c.errorf(
+				fn.Results[i].Spanned(),
+				"extern func %s cannot return %s: a float does not cross to C yet",
 				fn.Name,
 				c.typeName(typ),
 			)

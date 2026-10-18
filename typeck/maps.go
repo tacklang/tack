@@ -82,7 +82,7 @@ func (c *Checker) requireKey(key types.Type, at ast.Span) bool {
 	case c.inFields:
 		c.pendingKeys = append(c.pendingKeys, pendingElem{holder: "a map", at: at, elem: key})
 		return true
-	case !c.comparable(key):
+	case !c.comparable(key) || c.holdsFloat(key):
 		c.badKey(key, at)
 		return false
 	default:
@@ -94,14 +94,16 @@ func (c *Checker) requireKey(key types.Type, at ast.Span) bool {
 // out to have no ==, once every struct's fields are known.
 func (c *Checker) checkPendingKeys() {
 	for _, p := range c.pendingKeys {
-		if !c.comparable(p.elem) {
+		if !c.comparable(p.elem) || c.holdsFloat(p.elem) {
 			c.badKey(p.elem, p.at)
 		}
 	}
 	c.pendingKeys = nil
 }
 
-// badKey reports key, written at at, as a type no map can be keyed by.
+// badKey reports key, written at at, as a type no map can be keyed by. A
+// float, or anything holding one, has == but is no key: NaN equals
+// nothing, itself included, so a key holding it could never be found.
 func (c *Checker) badKey(key types.Type, at ast.Span) {
 	why := "it has no =="
 	switch {
@@ -109,6 +111,10 @@ func (c *Checker) badKey(key types.Type, at ast.Span) {
 		why = "an error is not a key"
 	case c.table.IsTypeParam(key):
 		why = "a map's key cannot be a type parameter"
+	case types.IsFloat(key):
+		why = "a float is not a key"
+	case c.comparable(key) && c.holdsFloat(key):
+		why = "it holds a float, which is not a key"
 	}
 	c.errorf(at, "cannot use %s as a map key: %s", c.typeName(key), why)
 }

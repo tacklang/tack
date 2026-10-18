@@ -9,10 +9,10 @@
 // tree and fill in fields the parser leaves empty: the resolver sets
 // Ident.Def to the declaration a name refers to, a type name's included,
 // and the type checker sets Param.Type, Var.Type, Func.ResultTypes and
-// TypeDecl.Type to the types those declarations denote, the type of every operator expression and integer literal (a
+// TypeDecl.Type to the types those declarations denote, the type of every operator expression and integer and float literal (a
 // character literal is always a uint8, so it has no field for one),
 // Binary.Const and Unary.Const to the value of an integer constant
-// expression, Var.Const to a package-level variable's computed initial value,
+// expression, a constant.Int, or of a float one, a constant.Float, Var.Const to a package-level variable's computed initial value,
 // CompositeLit.Type, Index.Type and Selector.Type to an array or struct
 // literal's, an element's and a field's type, Call.Const to a len the checker can compute, and Program.Types,
 // and File.Types of every file, to the table that gives those types meaning. The types as

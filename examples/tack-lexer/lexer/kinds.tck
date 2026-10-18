@@ -2,11 +2,11 @@ package lexer
 
 // Package lexer turns Tack source into tokens, as the compiler's own lexer
 // package does in Go, for a subset of the language: identifiers, keywords,
-// decimal integers, quoted and raw strings with their escapes, character
-// literals, every operator and punctuation token, line comments (merged
-// when consecutive), block comments (reported), and Go's semicolon
-// insertion at line ends. Floats and the UTF-8 check on character literals
-// are left out.
+// integers in every base, decimal floats, quoted and raw strings with
+// their escapes, character literals, every operator and punctuation
+// token, line comments (merged when consecutive), block comments
+// (reported), and Go's semicolon insertion at line ends. The UTF-8 check
+// on character literals is left out.
 //
 // Lex fills a Lexer, which holds every token in a fixed-size array, since
 // Tack has no growable list yet. A token is a kind and a span of byte
@@ -30,9 +30,12 @@ pub var KindOp int64 = 7
 // the source is a KindOp.
 pub var KindSemi int64 = 8
 
+// KindFloat is a float literal.
+pub var KindFloat int64 = 9
+
 // kindNames names each kind as the Go lexer's TokenKind.String does, by
 // the kind's value. An operator is named by its spelling instead (see Name).
-var kindNames = [...]string{"EOF", "comment", "ident", "keyword", "int", "char", "string", "op", ";"}
+var kindNames = [...]string{"EOF", "comment", "ident", "keyword", "int", "char", "string", "op", ";", "float"}
 
 // spelling is a keyword's or an operator's text, and whether a line end
 // right after it inserts a semicolon.

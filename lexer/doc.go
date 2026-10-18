@@ -53,7 +53,13 @@
 // literal with a bad digit, reported here. A _ must stand between two
 // digits, or right after a prefix; a prefix needs a digit; and a decimal
 // literal of more than one digit that starts with 0, such as 007, 00 or
-// 0_7, is reported here, 0 alone being fine.
+// 0_7, is reported here, 0 alone being fine. A float literal is decimal,
+// as Go writes one: digits with a fraction point, 1.5 or 1., a point and
+// digits, .5, either of them or plain digits with an exponent, e or E,
+// an optional sign and digits, 1e9 or 1.5e-3, and _ only between two
+// digits. It may start with 0, 01.5, as in Go. An exponent with no
+// digits, 1e, is reported here. There are no hexadecimal floats: 0x1.8
+// is an integer and then a float, .8, which the parser reports.
 //
 // The lexer guarantees that tokens appear in source order, never overlap, and
 // never extend past the end of the input. It checks this before returning and

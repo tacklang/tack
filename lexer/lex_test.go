@@ -488,7 +488,7 @@ var tokenKindCases = []struct {
 	{"digits in ident", "a1b2", "ident <semi> EOF"},
 	{"underscore ident", "_", "ident <semi> EOF"},
 	{"keyword prefix is an ident", "funcs", "ident <semi> EOF"},
-	{"second dot ends a float", "1.2.3", "float . int <semi> EOF"},
+	{"second dot starts another float", "1.2.3", "float float <semi> EOF"},
 	{"crlf ends a line", "x\r\ny\r\n", "ident <semi> ident <semi> EOF"},
 	{"a run of crlfs gets one semicolon", "x\r\n\r\n\r\ny", "ident <semi> ident <semi> EOF"},
 	{"crlf and lf mixed", "x\n\r\n\ny\r\n", "ident <semi> ident <semi> EOF"},
@@ -939,6 +939,24 @@ var diagnosticCases = []struct {
 		"integer literal 0_7 has a leading zero; write 7",
 	}},
 	{"a name right after a decimal", "12ab", nil},
+	{"floats", "1.5 .5 1. 1e9 1.5e-3 1E+2 0.0 01.5 0e5", nil},
+	{"float separators", "1_000.000_5 1_0e1_0", nil},
+	{"an exponent with no digits", "1e", []string{"exponent has no digits in 1e"}},
+	{"an exponent with only a sign", "2.5e+", []string{"exponent has no digits in 2.5e+"}},
+	{"an exponent with only a separator", "1e_", []string{"exponent has no digits in 1e_"}},
+	{"a separator before the point", "1_.5", []string{
+		"_ must separate successive digits in 1_.5",
+	}},
+	{"a separator after the point", "1._5", []string{
+		"_ must separate successive digits in 1._5",
+	}},
+	{"a separator after the exponent's letter", "1e_5", []string{
+		"_ must separate successive digits in 1e_5",
+	}},
+	{"a separator before the exponent's letter", "1_e5", []string{
+		"_ must separate successive digits in 1_e5",
+	}},
+	{"a point then a point", "1..2", nil},
 	{"asm is a name, with no brace after it", "func f() {\n    asm {\n        mov\n", nil},
 	{"hex escape with one digit", `"\x4"`, []string{`Invalid escape sequence "\\x4"`}},
 	{"hex escape with no digits", `"\x"`, []string{`Invalid escape sequence "\\x"`}},

@@ -82,6 +82,20 @@
 // literal is written as its byte's value, a plain C int literal; arithmetic
 // on it is uint8 arithmetic, lowered like any other.
 //
+// float32 and float64 are C's float and double. A float constant, or an
+// integer constant given a float type, is written as the value of its
+// type the checker rounded it to, as a C hexadecimal float literal,
+// 0x1.8p+00, with an f suffix for a float32, which C reads as exactly that
+// value with no decimal rounding in between (floatLiteral); a negative one
+// is parenthesised. Float arithmetic, negation and comparison are C's own,
+// which IEEE 754 defines for every operand, a zero divisor included, so
+// none needs a helper, and two floats compare as they are: a struct's,
+// an array's or a union's equality compares float fields with C's ==, NaN
+// unequal to itself and -0 equal to 0. A program with a float turns
+// FP_CONTRACT off at the top of its C (emitPreamble), so clang never
+// fuses a multiply and an add into one rounding, and every optimization
+// level computes the same result.
+//
 // Two integers of any types compare by their values (compare.go), where
 // C's usual arithmetic conversions would make -1 < 0u false. Two operands
 // of one type compare as they are; two of different types are each cast,

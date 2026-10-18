@@ -25,37 +25,37 @@ typedef struct {
 
 typedef struct {
     int64_t e[3];
-} tack_array_20;
+} tack_array_23;
 
 typedef struct {
     tack_4_main1_S e[2];
-} tack_array_21;
+} tack_array_24;
 
 typedef struct {
-    tack_array_20 e[2];
-} tack_array_22;
+    tack_array_23 e[2];
+} tack_array_25;
 
-static bool tack_eq_17(const tack_4_main1_S *a, const tack_4_main1_S *b) {
+static bool tack_eq_20(const tack_4_main1_S *a, const tack_4_main1_S *b) {
     return a->f_a == b->f_a && a->f_b == b->f_b;
 }
 
-static bool tack_eq_18(const tack_4_main5_Outer *a, const tack_4_main5_Outer *b) {
-    return tack_eq_17(&a->f_s, &b->f_s) && a->f_c == b->f_c;
+static bool tack_eq_21(const tack_4_main5_Outer *a, const tack_4_main5_Outer *b) {
+    return tack_eq_20(&a->f_s, &b->f_s) && a->f_c == b->f_c;
 }
 
-static bool tack_eq_19(const tack_4_main5_Shape *a, const tack_4_main5_Shape *b) {
+static bool tack_eq_22(const tack_4_main5_Shape *a, const tack_4_main5_Shape *b) {
     if (a->tag != b->tag) {
         return false;
     }
     switch (a->tag) {
     case 0:
-        return tack_eq_17(&a->u.c_pair, &b->u.c_pair);
+        return tack_eq_20(&a->u.c_pair, &b->u.c_pair);
     default:
         return true;
     }
 }
 
-static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
+static bool tack_eq_23(const tack_array_23 *a, const tack_array_23 *b) {
     for (int64_t i = 0; i < 3; i++) {
         if (a->e[i] != b->e[i]) {
             return false;
@@ -108,9 +108,9 @@ static int64_t tack_4_main5_which(tack_4_main1_S p_p) {
     tack_4_main1_S tack_q6;
     {
         const tack_4_main1_S tack_s0 = p_p;
-        if (tack_eq_17(&tack_s0, (tack_q3 = (tack_o1 = tack_4_main1_f(1), tack_o2 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o1, .f_b = tack_o2}), &tack_q3))) {
+        if (tack_eq_20(&tack_s0, (tack_q3 = (tack_o1 = tack_4_main1_f(1), tack_o2 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o1, .f_b = tack_o2}), &tack_q3))) {
             return 1;
-        } else if (tack_eq_17(&tack_s0, (tack_q6 = (tack_o4 = tack_4_main1_f(3), tack_o5 = tack_4_main1_f(4), (tack_4_main1_S){.f_a = tack_o4, .f_b = tack_o5}), &tack_q6))) {
+        } else if (tack_eq_20(&tack_s0, (tack_q6 = (tack_o4 = tack_4_main1_f(3), tack_o5 = tack_4_main1_f(4), (tack_4_main1_S){.f_a = tack_o4, .f_b = tack_o5}), &tack_q6))) {
             return 2;
         }
     }
@@ -139,11 +139,11 @@ static void tack_4_main4_main(void) {
     int64_t tack_o25;
     int64_t tack_o26;
     int64_t tack_o27;
-    tack_array_20 tack_q28;
+    tack_array_23 tack_q28;
     int64_t tack_o29;
     int64_t tack_o30;
     int64_t tack_o31;
-    tack_array_20 tack_q32;
+    tack_array_23 tack_q32;
     int64_t tack_o33;
     int64_t tack_o34;
     tack_4_main1_S tack_o35;
@@ -161,7 +161,7 @@ static void tack_4_main4_main(void) {
     int64_t tack_o47;
     int64_t tack_o48;
     int64_t tack_o49;
-    tack_array_20 tack_q50;
+    tack_array_23 tack_q50;
     int64_t tack_o51;
     int64_t tack_o52;
     tack_4_main1_S tack_o53;
@@ -171,31 +171,31 @@ static void tack_4_main4_main(void) {
     tack_4_main1_S tack_o57;
     tack_4_main1_S tack_o58;
     const tack_4_main1_S v_p = (tack_4_main1_S){.f_a = 1, .f_b = 2};
-    tack_4_main5_check((tack_eq_17(&v_p, (tack_q9 = (tack_o7 = tack_4_main1_f(1), tack_o8 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o7, .f_b = tack_o8}), &tack_q9))), 12, 1);
-    tack_4_main5_check(!(tack_eq_17(&v_p, (tack_q12 = (tack_o10 = tack_4_main1_f(2), tack_o11 = tack_4_main1_f(1), (tack_4_main1_S){.f_a = tack_o10, .f_b = tack_o11}), &tack_q12))), 21, 2);
-    tack_4_main5_check((!tack_eq_17(&v_p, (tack_q15 = (tack_o13 = tack_4_main1_f(1), tack_o14 = tack_4_main1_f(3), (tack_4_main1_S){.f_a = tack_o13, .f_b = tack_o14}), &tack_q15))), 13, 3);
-    tack_4_main5_check((tack_eq_17((tack_q18 = (tack_o16 = tack_4_main1_f(1), tack_o17 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o16, .f_b = tack_o17}), &tack_q18), &v_p)), 12, 4);
-    tack_4_main5_check((tack_o23 = (tack_o19 = tack_4_main1_f(1), tack_o20 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o19, .f_b = tack_o20}), tack_o24 = (tack_o21 = tack_4_main1_f(1), tack_o22 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o21, .f_b = tack_o22}), (tack_eq_17(&tack_o23, &tack_o24))), 1212, 5);
-    const tack_array_20 v_a = (tack_array_20){{1, 2, 3}};
-    tack_4_main5_check((tack_eq_20(&v_a, (tack_q28 = (tack_o25 = tack_4_main1_f(1), tack_o26 = tack_4_main1_f(2), tack_o27 = tack_4_main1_f(3), (tack_array_20){{tack_o25, tack_o26, tack_o27}}), &tack_q28))), 123, 6);
-    tack_4_main5_check((!tack_eq_20(&v_a, (tack_q32 = (tack_o29 = tack_4_main1_f(1), tack_o30 = tack_4_main1_f(2), tack_o31 = tack_4_main1_f(4), (tack_array_20){{tack_o29, tack_o30, tack_o31}}), &tack_q32))), 124, 7);
+    tack_4_main5_check((tack_eq_20(&v_p, (tack_q9 = (tack_o7 = tack_4_main1_f(1), tack_o8 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o7, .f_b = tack_o8}), &tack_q9))), 12, 1);
+    tack_4_main5_check(!(tack_eq_20(&v_p, (tack_q12 = (tack_o10 = tack_4_main1_f(2), tack_o11 = tack_4_main1_f(1), (tack_4_main1_S){.f_a = tack_o10, .f_b = tack_o11}), &tack_q12))), 21, 2);
+    tack_4_main5_check((!tack_eq_20(&v_p, (tack_q15 = (tack_o13 = tack_4_main1_f(1), tack_o14 = tack_4_main1_f(3), (tack_4_main1_S){.f_a = tack_o13, .f_b = tack_o14}), &tack_q15))), 13, 3);
+    tack_4_main5_check((tack_eq_20((tack_q18 = (tack_o16 = tack_4_main1_f(1), tack_o17 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o16, .f_b = tack_o17}), &tack_q18), &v_p)), 12, 4);
+    tack_4_main5_check((tack_o23 = (tack_o19 = tack_4_main1_f(1), tack_o20 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o19, .f_b = tack_o20}), tack_o24 = (tack_o21 = tack_4_main1_f(1), tack_o22 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o21, .f_b = tack_o22}), (tack_eq_20(&tack_o23, &tack_o24))), 1212, 5);
+    const tack_array_23 v_a = (tack_array_23){{1, 2, 3}};
+    tack_4_main5_check((tack_eq_23(&v_a, (tack_q28 = (tack_o25 = tack_4_main1_f(1), tack_o26 = tack_4_main1_f(2), tack_o27 = tack_4_main1_f(3), (tack_array_23){{tack_o25, tack_o26, tack_o27}}), &tack_q28))), 123, 6);
+    tack_4_main5_check((!tack_eq_23(&v_a, (tack_q32 = (tack_o29 = tack_4_main1_f(1), tack_o30 = tack_4_main1_f(2), tack_o31 = tack_4_main1_f(4), (tack_array_23){{tack_o29, tack_o30, tack_o31}}), &tack_q32))), 124, 7);
     const tack_4_main5_Outer v_o = (tack_4_main5_Outer){.f_s = (tack_4_main1_S){.f_a = 1, .f_b = 2}, .f_c = 3};
-    tack_4_main5_check((tack_eq_18(&v_o, (tack_q37 = (tack_o35 = (tack_o33 = tack_4_main1_f(1), tack_o34 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o33, .f_b = tack_o34}), tack_o36 = tack_4_main1_f(3), (tack_4_main5_Outer){.f_s = tack_o35, .f_c = tack_o36}), &tack_q37))), 123, 8);
+    tack_4_main5_check((tack_eq_21(&v_o, (tack_q37 = (tack_o35 = (tack_o33 = tack_4_main1_f(1), tack_o34 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o33, .f_b = tack_o34}), tack_o36 = tack_4_main1_f(3), (tack_4_main5_Outer){.f_s = tack_o35, .f_c = tack_o36}), &tack_q37))), 123, 8);
     const tack_4_main5_Shape v_u = ((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_4_main1_S){.f_a = 1, .f_b = 2}});
-    tack_4_main5_check((tack_eq_19(&v_u, &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o38 = tack_4_main1_f(1), tack_o39 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o38, .f_b = tack_o39})}))), 12, 9);
-    tack_4_main5_check((!tack_eq_19(&v_u, &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o40 = tack_4_main1_f(2), tack_o41 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o40, .f_b = tack_o41})}))), 22, 10);
-    tack_4_main5_check((!tack_eq_19(&((tack_4_main5_Shape){.tag = 1}), &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o42 = tack_4_main1_f(1), tack_o43 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o42, .f_b = tack_o43})}))), 12, 11);
-    const tack_array_21 v_rows = (tack_array_21){{(tack_4_main1_S){.f_a = 1, .f_b = 2}, (tack_4_main1_S){.f_a = 3, .f_b = 4}}};
-    tack_4_main5_check((!tack_eq_17(&v_rows.e[0], &v_rows.e[1])), 0, 12);
-    tack_4_main5_check((tack_eq_17(&v_rows.e[1], (tack_q46 = (tack_o44 = tack_4_main1_f(3), tack_o45 = tack_4_main1_f(4), (tack_4_main1_S){.f_a = tack_o44, .f_b = tack_o45}), &tack_q46))), 34, 13);
-    const tack_array_22 v_grid = (tack_array_22){{(tack_array_20){{1, 2, 3}}, (tack_array_20){{4, 5, 6}}}};
-    tack_4_main5_check((tack_eq_20(&v_grid.e[0], &v_a)), 0, 14);
-    tack_4_main5_check((tack_eq_20(&v_grid.e[1], (tack_q50 = (tack_o47 = tack_4_main1_f(4), tack_o48 = tack_4_main1_f(5), tack_o49 = tack_4_main1_f(6), (tack_array_20){{tack_o47, tack_o48, tack_o49}}), &tack_q50))), 456, 15);
+    tack_4_main5_check((tack_eq_22(&v_u, &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o38 = tack_4_main1_f(1), tack_o39 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o38, .f_b = tack_o39})}))), 12, 9);
+    tack_4_main5_check((!tack_eq_22(&v_u, &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o40 = tack_4_main1_f(2), tack_o41 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o40, .f_b = tack_o41})}))), 22, 10);
+    tack_4_main5_check((!tack_eq_22(&((tack_4_main5_Shape){.tag = 1}), &((tack_4_main5_Shape){.tag = 0, .u.c_pair = (tack_o42 = tack_4_main1_f(1), tack_o43 = tack_4_main1_f(2), (tack_4_main1_S){.f_a = tack_o42, .f_b = tack_o43})}))), 12, 11);
+    const tack_array_24 v_rows = (tack_array_24){{(tack_4_main1_S){.f_a = 1, .f_b = 2}, (tack_4_main1_S){.f_a = 3, .f_b = 4}}};
+    tack_4_main5_check((!tack_eq_20(&v_rows.e[0], &v_rows.e[1])), 0, 12);
+    tack_4_main5_check((tack_eq_20(&v_rows.e[1], (tack_q46 = (tack_o44 = tack_4_main1_f(3), tack_o45 = tack_4_main1_f(4), (tack_4_main1_S){.f_a = tack_o44, .f_b = tack_o45}), &tack_q46))), 34, 13);
+    const tack_array_25 v_grid = (tack_array_25){{(tack_array_23){{1, 2, 3}}, (tack_array_23){{4, 5, 6}}}};
+    tack_4_main5_check((tack_eq_23(&v_grid.e[0], &v_a)), 0, 14);
+    tack_4_main5_check((tack_eq_23(&v_grid.e[1], (tack_q50 = (tack_o47 = tack_4_main1_f(4), tack_o48 = tack_4_main1_f(5), tack_o49 = tack_4_main1_f(6), (tack_array_23){{tack_o47, tack_o48, tack_o49}}), &tack_q50))), 456, 15);
     tack_4_main5_moved = (tack_4_main1_S){.f_a = 1, .f_b = 2};
-    tack_4_main5_check((tack_o53 = tack_4_main5_moved, tack_o54 = (tack_o51 = tack_4_main4_bump(1), tack_o52 = tack_4_main4_bump(2), (tack_4_main1_S){.f_a = tack_o51, .f_b = tack_o52}), (tack_eq_17(&tack_o53, &tack_o54))), 12, 19);
+    tack_4_main5_check((tack_o53 = tack_4_main5_moved, tack_o54 = (tack_o51 = tack_4_main4_bump(1), tack_o52 = tack_4_main4_bump(2), (tack_4_main1_S){.f_a = tack_o51, .f_b = tack_o52}), (tack_eq_20(&tack_o53, &tack_o54))), 12, 19);
     tack_4_main5_check((tack_4_main5_moved.f_a == 21), 0, 20);
     tack_4_main1_S v_m = (tack_4_main1_S){.f_a = 1, .f_b = 2};
-    tack_4_main5_check((tack_o57 = v_m, tack_o58 = (tack_o55 = tack_4_main3_set(&v_m, 1), tack_o56 = tack_4_main3_set(&v_m, 2), (tack_4_main1_S){.f_a = tack_o55, .f_b = tack_o56}), (tack_eq_17(&tack_o57, &tack_o58))), 12, 21);
+    tack_4_main5_check((tack_o57 = v_m, tack_o58 = (tack_o55 = tack_4_main3_set(&v_m, 1), tack_o56 = tack_4_main3_set(&v_m, 2), (tack_4_main1_S){.f_a = tack_o55, .f_b = tack_o56}), (tack_eq_20(&tack_o57, &tack_o58))), 12, 21);
     tack_4_main5_check((v_m.f_a == 12), 0, 22);
     tack_4_main5_check((tack_4_main5_which(v_p) == 1), 12, 16);
     tack_4_main5_check((tack_4_main5_which((tack_4_main1_S){.f_a = 3, .f_b = 4}) == 2), 1234, 17);

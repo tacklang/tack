@@ -299,7 +299,11 @@ The integer types are emitted as C's fixed-width types, `int8_t` through
 `uint64_t`, except the two whose width is the target's: `unsafe_size_t` is
 emitted as C's `size_t`, from `<stddef.h>`, which the generated source
 includes only when a program uses it, and `unsafe_uintptr_t` as
-`uintptr_t`. A `bool` is emitted as C's `bool`.
+`uintptr_t`. A `bool` is emitted as C's `bool`. `float32` and `float64`
+are emitted as C's `float` and `double`, IEEE 754's binary32 and binary64,
+and a program that uses either turns off `FP_CONTRACT`, so C never fuses
+`a * b + c` into one operation that rounds once where Tack rounds twice:
+every optimization level computes the same result.
 
 ## Builtins
 
@@ -2711,7 +2715,8 @@ makes for itself, which has a letter after `tack_`.
   is computed in full, so an error on either side is reported.
 - The types are the integers `int8`, `int16`, `int32`, `int64`, `uint8`,
   `uint16`, `uint32` and `uint64`, the target-width integers
-  `unsafe_size_t` and `unsafe_uintptr_t`, `string`, `bool` and `error`, arrays,
+  `unsafe_size_t` and `unsafe_uintptr_t`, the floats `float32` and
+  `float64`, `string`, `bool` and `error`, arrays,
   views, which only a parameter or a result may have, and `any`, which
   only a parameter may have, the structs and
   unions a program declares, and, within a generic function, its type
@@ -2974,6 +2979,40 @@ makes for itself, which has a letter after `tack_`.
   `0x1g` is one bad literal, not `0x1` and a name. A decimal literal has
   no leading zeros: `0` is fine, but `007`, `00` and `0_7` are errors,
   unlike C and Go, where `010` is octal 8, so `0o` is the one octal form.
+- Floats. `float32` and `float64` are IEEE 754's binary32 and binary64,
+  with no fast-math. A float literal is decimal, as in Go: `1.5`, `.5`,
+  `1.`, `1e9`, `1.5e-3`, `1E+2`, with `_` between digits as in an integer,
+  `1_000.000_5`; an exponent needs a digit, `exponent has no digits in 1e`.
+  There are no hexadecimal floats. A float literal is an untyped constant,
+  computed exactly, as a rational number, until it is used, so `0.1 + 0.2
+  == 0.3` holds, and becomes a `float64` where nothing gives it a type,
+  `x := 1.5`; given a type, it rounds to that type's nearest value, and one
+  too large for it is an error, `constant 1e+39 overflows float32`. An
+  untyped integer constant can be used as a float, `f * 2`, but an untyped
+  float constant never as an integer, not even `2.0`. A constant is held
+  in at most 8192 bits of numerator and of denominator: a literal past
+  that, `1e3000`, is `float literal 1e3000 is too large or too precise to
+  hold exactly`. `+ - * /`, unary `-`, and the six comparisons work on
+  floats, and `+= -= *= /=` on a float variable; `%`, the bitwise operators,
+  shifts, `++` and `--` do not. Both operands of a float operator must have
+  the same type: there is no implicit conversion between integers and
+  floats, nor between `float32` and `float64`, so `f + i` is `mismatched
+  types float64 and int64 in +`. Dividing a float by zero needs no proof:
+  it gives an infinity, or NaN for `0.0 / 0.0`, and never stops the
+  program, though a constant division by zero is still an error, as for
+  integers; so a float division has no checked form, `dividing floats
+  cannot fail, so it has no checked form; use a / b`. Comparisons follow
+  IEEE 754: NaN equals nothing, itself included, and `-0.0` equals `0.0`,
+  in a struct's, an array's or a union's `==` too. A float carries no
+  facts and cannot index, and a float, or anything holding one, cannot be a
+  map key: `cannot use float64 as a map key: a float is not a key`. Floats
+  may be fields, elements, payloads, list and map elements, parameters,
+  results and globals; a global's initializer must be a constant
+  expression. Not yet: conversions, `float64(i)` and `v, ok := int64(f)`,
+  are `cannot convert int64 to float64: conversions to and from floats are
+  not supported yet`; a float cannot be passed as `any`, so `fmt.printf`
+  cannot print one; and a float does not cross to C, `parameter x of
+  extern func scale cannot be float64: a float does not cross to C yet`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given: `f expects 2 argument(s), got
   3`, or for a variadic function, which takes any number past its other

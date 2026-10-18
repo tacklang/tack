@@ -8,25 +8,25 @@ stage: ok
 
 typedef struct {
     int64_t e[5];
-} tack_array_17;
-
-typedef struct {
-    int64_t e[3];
-} tack_array_18;
-
-typedef struct {
-    int64_t e[2];
-} tack_array_19;
-
-typedef struct {
-    bool e[2];
 } tack_array_20;
 
 typedef struct {
-    tack_array_20 e[2];
+    int64_t e[3];
 } tack_array_21;
 
-static bool tack_eq_18(const tack_array_18 *a, const tack_array_18 *b) {
+typedef struct {
+    int64_t e[2];
+} tack_array_22;
+
+typedef struct {
+    bool e[2];
+} tack_array_23;
+
+typedef struct {
+    tack_array_23 e[2];
+} tack_array_24;
+
+static bool tack_eq_21(const tack_array_21 *a, const tack_array_21 *b) {
     for (int64_t i = 0; i < 3; i++) {
         if (a->e[i] != b->e[i]) {
             return false;
@@ -35,7 +35,7 @@ static bool tack_eq_18(const tack_array_18 *a, const tack_array_18 *b) {
     return true;
 }
 
-static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
+static bool tack_eq_23(const tack_array_23 *a, const tack_array_23 *b) {
     for (int64_t i = 0; i < 2; i++) {
         if (a->e[i] != b->e[i]) {
             return false;
@@ -44,9 +44,9 @@ static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
     return true;
 }
 
-static bool tack_eq_21(const tack_array_21 *a, const tack_array_21 *b) {
+static bool tack_eq_24(const tack_array_24 *a, const tack_array_24 *b) {
     for (int64_t i = 0; i < 2; i++) {
-        if (!tack_eq_20(&a->e[i], &b->e[i])) {
+        if (!tack_eq_23(&a->e[i], &b->e[i])) {
             return false;
         }
     }
@@ -58,33 +58,33 @@ __attribute__((unused)) static const unsigned char tack_str1[4] = {97, 98, 99, 0
 
 _Noreturn void tack_builtin_exit(int32_t);
 
-static const tack_array_17 tack_4_main6_primes = {{2, 3, 5, 7, 11}};
+static const tack_array_20 tack_4_main6_primes = {{2, 3, 5, 7, 11}};
 
-static int64_t tack_4_main4_sum3(tack_array_18 p_v);
-static tack_array_19 tack_4_main6_origin(void);
+static int64_t tack_4_main4_sum3(tack_array_21 p_v);
+static tack_array_22 tack_4_main6_origin(void);
 static void tack_4_main4_main(void);
 
-static int64_t tack_4_main4_sum3(tack_array_18 p_v) {
+static int64_t tack_4_main4_sum3(tack_array_21 p_v) {
     return ((int64_t)((uint64_t)((int64_t)((uint64_t)p_v.e[0] + (uint64_t)p_v.e[1])) + (uint64_t)p_v.e[2]));
 }
 
-static tack_array_19 tack_4_main6_origin(void) {
-    return (tack_array_19){{0, 0}};
+static tack_array_22 tack_4_main6_origin(void) {
+    return (tack_array_22){{0, 0}};
 }
 
 static void tack_4_main4_main(void) {
-    tack_array_18 v_a = (tack_array_18){{1, 2, 3}};
-    const tack_array_18 v_b = v_a;
+    tack_array_21 v_a = (tack_array_21){{1, 2, 3}};
+    const tack_array_21 v_b = v_a;
     v_a.e[0] = 10;
-    if ((v_b.e[0] != 1) || (!tack_eq_18(&v_a, &(tack_array_18){{10, 2, 3}}))) {
+    if ((v_b.e[0] != 1) || (!tack_eq_21(&v_a, &(tack_array_21){{10, 2, 3}}))) {
         tack_builtin_exit(1);
     }
-    tack_array_21 v_grid = (tack_array_21){};
+    tack_array_24 v_grid = (tack_array_24){};
     v_grid.e[1].e[1] = true;
-    if (!tack_eq_21(&v_grid, &(tack_array_21){{(tack_array_20){{false, false}}, (tack_array_20){{false, true}}}})) {
+    if (!tack_eq_24(&v_grid, &(tack_array_24){{(tack_array_23){{false, false}}, (tack_array_23){{false, true}}}})) {
         tack_builtin_exit(2);
     }
-    const tack_array_19 v_o = tack_4_main6_origin();
+    const tack_array_22 v_o = tack_4_main6_origin();
     if ((v_o.e[0] != 0) || (v_o.e[1] != 0)) {
         tack_builtin_exit(3);
     }

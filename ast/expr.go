@@ -285,6 +285,28 @@ func (s *StrLit) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the literal, quotes included.
 func (s *StrLit) Spanned() Span { return s.Span }
 
+// FloatLit is a float literal, 1.5, .5, 1., 1e9 or 1.5e-3. Its value is
+// exact, as an untyped float constant's is (see constant.Float), and it
+// has no type of its own until the type checker gives it one from where
+// it is used. A - before it is a Unary, negated exactly as a constant.
+type FloatLit struct {
+	Value constant.Float // decoded
+	Span  Span
+
+	// Type is the type the literal is used as, set by the type checker:
+	// types.UntypedFloat while it is part of a larger constant expression.
+	Type types.Type
+}
+
+var _ Expr = (*FloatLit)(nil)
+
+func (f *FloatLit) exprKey() exprKey { return _exprKey }
+
+func (f *FloatLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the literal.
+func (f *FloatLit) Spanned() Span { return f.Span }
+
 // IntLit is an integer literal. A - written right before the digits is part
 // of the literal, which is how the smallest int64 is written. Its value is
 // exact, anywhere from the smallest int64 to the largest uint64, and it has
@@ -571,17 +593,16 @@ func TypeOf(expr Expr) types.Type {
 }
 
 // literalType returns the type of expr when it is a literal, and whether
-// it is one: an integer literal's recorded type, or untyped before the
-// checker reaches it, and every other literal's fixed type.
+// it is one: an integer or a float literal's recorded type, or untyped
+// before the checker reaches it, and every other literal's fixed type.
 func literalType(expr Expr) (types.Type, bool) {
 	switch e := expr.(type) {
 	case *StrLit:
 		return types.String, true
 	case *IntLit:
-		if e.Type == types.Invalid {
-			return types.UntypedInt, true
-		}
-		return e.Type, true
+		return orUntyped(e.Type, types.UntypedInt), true
+	case *FloatLit:
+		return orUntyped(e.Type, types.UntypedFloat), true
 	case *CharLit:
 		return types.Uint8, true
 	case *BoolLit:
@@ -593,6 +614,15 @@ func literalType(expr Expr) (types.Type, bool) {
 	default:
 		return types.Invalid, false
 	}
+}
+
+// orUntyped returns recorded, the type the checker recorded on a literal,
+// or untyped, its untyped type, before the checker has reached it.
+func orUntyped(recorded, untyped types.Type) types.Type {
+	if recorded == types.Invalid {
+		return untyped
+	}
+	return recorded
 }
 
 // recordedType returns the type the type checker recorded on an operator

@@ -220,7 +220,7 @@ func (c *Checker) clauseShape(fn *ast.Func, e ast.Expr) {
 	switch x := e.(type) {
 	case *ast.Ident:
 		c.clauseName(fn, x)
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
+	case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit:
 	case *ast.Selector:
 		c.clauseShape(fn, x.X)
 	case *ast.Index:

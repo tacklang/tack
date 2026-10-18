@@ -66,6 +66,16 @@ const (
 	// defined in the runtime's tack.h. It is copyable, has no zero value, no
 	// order and no ==; c_allocator is its one value today.
 	Allocator
+	// Float32 is an IEEE 754 binary32 float: in C, float.
+	Float32
+	// Float64 is an IEEE 754 binary64 float: in C, double.
+	Float64
+	// UntypedFloat is the type of a float constant expression, made only
+	// of literals and operators with a float literal among them, until the
+	// place it is used gives it a float type, or Float64 where nothing
+	// does. Its value is exact until then (see constant.Float). No program
+	// can write it.
+	UntypedFloat
 
 	// numBasic is the number of basic types, Invalid included. It is the
 	// first ID a Table would hand out.
@@ -93,13 +103,17 @@ var basicNames = [numBasic]string{
 	Any:           "any",
 	Error:         "error",
 	Allocator:     "Allocator",
+	Float32:       "float32",
+	Float64:       "float64",
+	UntypedFloat:  "untyped float",
 }
 
-// Lookup returns the basic type a type name denotes. Invalid and UntypedInt
-// have no name a program can write, so neither is ever returned as a match.
+// Lookup returns the basic type a type name denotes. Invalid, UntypedInt
+// and UntypedFloat have no name a program can write, so none is ever
+// returned as a match.
 func Lookup(name string) (Type, bool) {
 	for t := Int64; t < numBasic; t++ {
-		if t != UntypedInt && basicNames[t] == name {
+		if !IsUntyped(t) && basicNames[t] == name {
 			return t, true
 		}
 	}
@@ -111,7 +125,7 @@ func Lookup(name string) (Type, bool) {
 func Names() []string {
 	var names []string
 	for t := Int64; t < numBasic; t++ {
-		if t != UntypedInt {
+		if !IsUntyped(t) {
 			names = append(names, basicNames[t])
 		}
 	}
@@ -126,6 +140,18 @@ func Names() []string {
 func InAny(t Type) bool {
 	return t >= Int64 && t < UntypedInt
 }
+
+// IsUntyped reports whether t is the type of an untyped constant,
+// UntypedInt or UntypedFloat.
+func IsUntyped(t Type) bool { return t == UntypedInt || t == UntypedFloat }
+
+// IsFloat reports whether t is one of the float types, UntypedFloat
+// included.
+func IsFloat(t Type) bool { return t == Float32 || t == Float64 || t == UntypedFloat }
+
+// IsNumeric reports whether t is an integer or a float type, an untyped
+// one included: one the arithmetic operators + - * and / work on.
+func IsNumeric(t Type) bool { return IsInteger(t) || IsFloat(t) }
 
 // IsInteger reports whether t is one of the integer types, UntypedInt
 // included.

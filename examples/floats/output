@@ -1,0 +1,21 @@
+untyped constants ok
+a float64 by default ok
+literal forms ok
+separators ok
+constants are exact ok
+arithmetic at run time rounds ok
+a global ok
+typed globals ok
+parameters and results ok
+dividing by zero gives infinity ok
+NaN equals nothing, itself included ok
+negative zero equals zero ok
+overflow gives infinity ok
+float32 rounds to 24 bits ok
+the smallest subnormal ok
+negation ok
+a struct of floats ok
+struct == compares fields as floats ok
+an array of floats ok
+compound assignment ok
+a switch ok

@@ -835,10 +835,10 @@ func (c *Checker) notWhole(value, op ast.Expr, b binding) {
 // the type of the variable it is assigned to, when that is an integer type,
 // and to int64 otherwise, and is Invalid if it does not fit.
 func (c *Checker) settleResult(value ast.Expr, got, typ types.Type) types.Type {
-	if got != types.UntypedInt {
+	if !types.IsUntyped(got) {
 		return got
 	}
-	if types.IsInteger(typ) {
+	if got == types.UntypedInt && types.IsInteger(typ) {
 		if !c.settle(value, typ) {
 			return types.Invalid
 		}
@@ -1349,7 +1349,7 @@ func (c *Checker) notConstant(v *ast.Var) {
 // expression's value can be computed is found once it is checked, by fold.
 func (c *Checker) isConstant(e ast.Expr) bool {
 	switch x := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
+	case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StrLit, *ast.BoolLit, *ast.NoErrorLit,
 		*ast.CAllocatorLit:
 		return true
 	case *ast.Ident:
@@ -1462,7 +1462,7 @@ func zeroConst(typ types.Type) any {
 // not, as it does in a function, and checkGlobal folds only an initializer
 // that checked without errors.
 func (c *Checker) fold(e ast.Expr) (any, bool) {
-	if v, ok, isInt := c.foldInt(e); isInt {
+	if v, ok, isNumber := c.foldNumber(e); isNumber {
 		return v, ok
 	}
 	if _, _, _, built := ast.Construction(e); built {
@@ -1486,6 +1486,50 @@ func (c *Checker) fold(e ast.Expr) (any, bool) {
 		return c.knownSlice(x)
 	}
 	return nil, false
+}
+
+// foldNumber computes e when it is a float literal or operator expression
+// (see foldFloat) or an integer constant expression (see foldInt), and
+// reports whether it has a value and whether it is one.
+func (c *Checker) foldNumber(e ast.Expr) (any, bool, bool) {
+	if v, ok, isFloat := foldFloat(e); isFloat {
+		return v, ok, true
+	}
+	v, ok, isInt := c.foldInt(e)
+	return v, ok, isInt
+}
+
+// foldFloat computes e when it is a literal or an operator expression of
+// a float type, as foldFloatConst does, and reports whether it has a
+// value and whether it is one. Any other float, a name or a part, is
+// folded as any other value is.
+func foldFloat(e ast.Expr) (v any, ok, isFloat bool) {
+	if !types.IsFloat(ast.TypeOf(e)) {
+		return nil, false, false
+	}
+	switch e.(type) {
+	case *ast.FloatLit, *ast.IntLit, *ast.Binary, *ast.Unary:
+		v, ok = foldFloatConst(e)
+		return v, ok, true
+	}
+	return nil, false, false
+}
+
+// foldFloatConst computes e, a float constant expression, as the value
+// of its float type it rounds to: a float32 or a float64. Arithmetic on
+// typed floats is not computed here, so a global whose initializer does
+// any has no value.
+func foldFloatConst(e ast.Expr) (any, bool) {
+	v, ok := floatValue(e)
+	if !ok {
+		return nil, false
+	}
+	if ast.TypeOf(e) == types.Float32 {
+		f, _ := v.Float32()
+		return f, true
+	}
+	f, _ := v.Float64()
+	return f, true
 }
 
 // foldLiteral computes a constant literal of a struct or an array, as a
@@ -1892,13 +1936,14 @@ func targetName(target ast.Expr) string {
 }
 
 // checkCompound checks a compound assignment whose value has type got: the
-// target must be an integer variable it can update, and the value usable
-// as the target's type, or, for <<= and >>=, a shift's count (see
-// shiftCount).
+// target must be an integer variable it can update, or, for += -= *= and
+// /=, a float one, and the value usable as the target's type, or, for <<=
+// and >>=, a shift's count (see shiftCount). A float's /= needs no proof
+// that its divisor is not zero.
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
 	outer := c.storeTo(a.Span)
-	typ, ok := c.checkIntTarget(a.Target, op)
+	typ, ok := c.checkNumberTarget(a.Target, op, floatOp(a.Op))
 	c.storing = outer
 	if ok {
 		if a.Op.IsShift() {
@@ -1908,10 +1953,15 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 			return
 		}
 		usable := c.use(a.Value, got, typ, "in "+op)
-		if usable && (a.Op == ast.Div || a.Op == ast.Rem) {
+		if usable && (a.Op == ast.Div || a.Op == ast.Rem) && !types.IsFloat(typ) {
 			c.requireNonzero(a.Value, false)
 		}
 	}
+}
+
+// floatOp reports whether op is defined on floats: + - * or /.
+func floatOp(op ast.BinaryOp) bool {
+	return op == ast.Add || op == ast.Sub || op == ast.Mul || op == ast.Div
 }
 
 // checkIntTarget checks the target of an operator that updates an integer
@@ -1920,11 +1970,17 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 // false when anything about it was reported, or its type is unknown, so the
 // caller need not check further.
 func (c *Checker) checkIntTarget(target ast.Expr, op string) (types.Type, bool) {
+	return c.checkNumberTarget(target, op, false)
+}
+
+// checkNumberTarget is checkIntTarget for an operator that updates an
+// integer, or, when floats says so, a float, in place.
+func (c *Checker) checkNumberTarget(target ast.Expr, op string, floats bool) (types.Type, bool) {
 	typ, ok := c.assignable(target)
 	if !ok || typ == types.Invalid {
 		return types.Invalid, false
 	}
-	if !types.IsInteger(typ) {
+	if !types.IsInteger(typ) && (!floats || !types.IsFloat(typ)) {
 		c.errorf(target.Spanned(), "operator %s is not defined on %s", op, c.typeName(typ))
 		return types.Invalid, false
 	}

@@ -242,8 +242,12 @@ func typeBounds(typ types.Type) (lo, hi constant.Int) {
 // index (see foldPart), a conversion of a known value that is a value of
 // its type, or arithmetic, a bitwise operator, a shift, a negation or a
 // complement on known values whose exact result is a value of its type,
-// as in len(a) - 1 or k << 2.
+// as in len(a) - 1 or k << 2. A float's value is never known this way:
+// floats carry no facts.
 func (c *Checker) knownValue(e ast.Expr) (constant.Int, bool) {
+	if types.IsFloat(ast.TypeOf(e)) {
+		return constant.Int{}, false
+	}
 	if v, ok := constValue(e); ok {
 		return v, true
 	}

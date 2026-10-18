@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
@@ -481,7 +482,7 @@ func (c *Checker) comparable(typ types.Type) bool {
 // itself, which is reported elsewhere, cannot loop.
 func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
-	case types.IsInteger(typ), typ == types.Bool, typ == types.String:
+	case types.IsNumeric(typ), typ == types.Bool, typ == types.String:
 		return true
 	case c.table.IsArray(typ), c.table.IsList(typ):
 		return c.comparableIn(c.table.Elem(typ), seen)
@@ -496,6 +497,33 @@ func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 			}
 		}
 		return true
+	default:
+		return false
+	}
+}
+
+// holdsFloat reports whether typ is a float type, or an array, a list, a
+// view, a struct or a union holding one at any depth.
+func (c *Checker) holdsFloat(typ types.Type) bool {
+	return c.holdsFloatIn(typ, make(map[types.Type]bool))
+}
+
+// holdsFloatIn is holdsFloat for typ, where seen holds the structs and
+// unions being looked at further up, as for comparableIn.
+func (c *Checker) holdsFloatIn(typ types.Type, seen map[types.Type]bool) bool {
+	switch {
+	case types.IsFloat(typ):
+		return true
+	case c.table.IsArray(typ), c.table.IsList(typ), c.table.IsView(typ):
+		return c.holdsFloatIn(c.table.Elem(typ), seen)
+	case c.table.IsStruct(typ), c.table.IsUnion(typ):
+		if seen[typ] {
+			return false
+		}
+		seen[typ] = true
+		return slices.ContainsFunc(c.partTypes(typ), func(part types.Type) bool {
+			return c.holdsFloatIn(part, seen)
+		})
 	default:
 		return false
 	}

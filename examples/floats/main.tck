@@ -1,0 +1,101 @@
+package main
+
+// Floats: float32 and float64, IEEE 754 binary floating point, with + - *
+// and /, unary -, and the six comparisons. A float literal, 1.5, 1e9,
+// 1.5e-3, .5 or 1., with _ between digits as in an integer, is an untyped
+// constant, computed exactly until it is used, and a float64 where
+// nothing gives it a type. Dividing by zero needs no proof: it gives an
+// infinity, or NaN for 0.0 / 0.0, and never stops the program. Each check
+// prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+var third float64 = 1.0 / 3.0
+var half float32 = 0.5
+var big float64 = 1e300
+
+// mean returns the mean of a and b.
+func mean(a float64, b float64) float64 {
+    return (a + b) / 2.0
+}
+
+// Point is a point in the plane.
+type Point struct {
+    x float64
+    y float64
+}
+
+// norm1 returns the distance from the origin to p, walking along the axes.
+func norm1(p Point) float64 {
+    mut d := 0.0
+    if p.x < 0.0 {
+        d -= p.x
+    } else {
+        d += p.x
+    }
+    if p.y < 0.0 {
+        return d - p.y
+    }
+    return d + p.y
+}
+
+func main() {
+    check(1.5 + 2.25 == 3.75 && 2.5 * 4 == 10, "untyped constants")
+    x := 1.5
+    check(x * 2.0 == 3.0 && x / 2 == 0.75, "a float64 by default")
+    check(.5 == 0.5 && 1. == 1.0 && 1e3 == 1000.0 && 1.5e-3 == 0.0015 && 1E+2 == 100.0 &&
+        2.5e0 == 2.5 && 1e-2 == 0.01, "literal forms")
+    check(1_000.000_5 == 1000.0005 && 1_0e1_0 == 1e11, "separators")
+    check(0.1 + 0.2 == 0.3 && 1.0 / 3.0 * 3.0 == 1.0, "constants are exact")
+    a := 0.1
+    b := 0.2
+    check(a + b != 0.3 && a + b > 0.3, "arithmetic at run time rounds")
+    check(third > 0.333333 && third < 0.333334, "a global")
+    check(half * 2.0 == 1.0 && big > 1e299 && big < 1e301, "typed globals")
+    check(mean(1.0, 2.0) == 1.5 && mean(-1e308, 1e308) == 0.0, "parameters and results")
+    zero := 0.0
+    inf := 1.0 / zero
+    check(inf > 1e308 && inf == inf + 1.0 && -inf < -1e308, "dividing by zero gives infinity")
+    nan := zero / zero
+    check(nan != nan && !(nan < 1.0) && !(nan > 1.0) && !(nan == nan) && !(nan <= nan),
+        "NaN equals nothing, itself included")
+    nz := -zero
+    check(nz == 0.0 && 1.0 / nz < 0.0, "negative zero equals zero")
+    check(big * 1e10 == inf, "overflow gives infinity")
+    var f float32 = 16777216.0
+    check(f + 1.0 == f && f + 2.0 != f, "float32 rounds to 24 bits")
+    var tiny float64 = 5e-324
+    check(tiny > 0.0 && tiny / 2.0 == 0.0, "the smallest subnormal")
+    check(-x == -1.5 && -(-x) == x && 0.0 - x == -x, "negation")
+    p := Point{x: -1.5, y: 2.0}
+    check(norm1(p) == 3.5 && p == Point{x: -1.5, y: 2.0}, "a struct of floats")
+    q := Point{x: nan, y: 0.0}
+    check(q != q && Point{x: nz, y: 0.0} == Point{x: 0.0, y: 0.0}, "struct == compares fields as floats")
+    arr := [3]float64{1.5, 2.5, 3.5}
+    mut sum := 0.0
+    for i := range 3 {
+        sum += arr[i]
+    }
+    check(sum == 7.5, "an array of floats")
+    mut y := 10.0
+    y *= 1.5
+    y -= 0.5
+    y /= 2.0
+    check(y == 7.25, "compound assignment")
+    switch {
+    case x < 1.0:
+        check(false, "a switch")
+    case x >= 1.0 && x <= 2.0:
+        check(true, "a switch")
+    default:
+        check(false, "a switch")
+    }
+}

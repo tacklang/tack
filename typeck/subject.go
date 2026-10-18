@@ -1,6 +1,9 @@
 package typeck
 
-import "github.com/tacklang/tack/ast"
+import (
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/types"
+)
 
 // A fact is about a subject: a variable or a parameter, or a path below an
 // immutable one, a field, p.d, an element at an index that cannot change,
@@ -41,10 +44,13 @@ func (k factKey) name() string {
 }
 
 // keyOf returns the subject e is, when a fact can be about it: a variable
-// that can hold a fact (canHoldFact), or a path below an immutable one.
+// that can hold a fact (canHoldFact), or a path below an immutable one. A
+// float never is: floats carry no facts.
 func (c *Checker) keyOf(e ast.Expr) (factKey, bool) {
 	id, ok := e.(*ast.Ident)
 	switch {
+	case types.IsFloat(ast.TypeOf(e)):
+		return factKey{}, false
 	case !ok:
 		return c.pathKey(e)
 	case c.canHoldFact(id.Def):
@@ -56,8 +62,12 @@ func (c *Checker) keyOf(e ast.Expr) (factKey, bool) {
 
 // subjectKey returns the subject facts about e would be about: the
 // variable any name names, whether or not it can hold a fact, so that its
-// type still bounds it, or a path below an immutable variable.
+// type still bounds it, or a path below an immutable variable. A float is
+// no subject: floats carry no facts.
 func (c *Checker) subjectKey(e ast.Expr) (factKey, bool) {
+	if types.IsFloat(ast.TypeOf(e)) {
+		return factKey{}, false
+	}
 	if id, ok := e.(*ast.Ident); ok {
 		return declKey(id.Def), true
 	}

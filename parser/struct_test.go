@@ -308,9 +308,9 @@ var structParseErrors = []struct{ name, src, msg, at string }{
 		"",
 	},
 	{
-		"selector of a number",
+		"selector of a number, which reads as a float, as in Go",
 		"func main() {\n    x := p.1\n}\n",
-		"expected 'field name' found '1'",
+		"expected ';' found '.1'",
 		"",
 	},
 	{"field declared", "func main() {\n    p.x := 1\n}\n", "expected '=' found ':='", ""},

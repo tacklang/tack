@@ -9,11 +9,11 @@ stage: ok
 typedef struct {
     const int64_t *ptr;
     int64_t len;
-} tack_view_17;
+} tack_view_20;
 
 typedef struct {
     int64_t e[3];
-} tack_array_18;
+} tack_array_21;
 
 static const unsigned char tack_str0[6] = {101, 109, 112, 116, 121, 0};
 static const unsigned char tack_str1[12] = {110, 111, 116, 32, 97, 32, 100, 105, 103, 105, 116, 0};
@@ -35,7 +35,7 @@ static tack_results_6_ensmod3_num5_Parse tack_6_ensmod3_num5_Parse(tack_string p
 static void tack_6_ensmod3_num4_Must(tack_error p_err);
 static void tack_6_ensmod3_num5_Clamp(int64_t * p_i, int64_t p_n);
 static void tack_6_ensmod5_check(bool p_cond, tack_string p_name);
-static int64_t tack_6_ensmod4_pick(tack_view_17 p_a, int64_t p_i);
+static int64_t tack_6_ensmod4_pick(tack_view_20 p_a, int64_t p_i);
 static void tack_6_ensmod4_main(void);
 
 static tack_results_6_ensmod3_num5_Parse tack_6_ensmod3_num5_Parse(tack_string p_s) {
@@ -87,7 +87,7 @@ static void tack_6_ensmod5_check(bool p_cond, tack_string p_name) {
     }
 }
 
-static int64_t tack_6_ensmod4_pick(tack_view_17 p_a, int64_t p_i) {
+static int64_t tack_6_ensmod4_pick(tack_view_20 p_a, int64_t p_i) {
     int64_t v_at = p_i;
     const int64_t v_n = (p_a).len;
     tack_6_ensmod3_num5_Clamp(&v_at, v_n);
@@ -100,8 +100,8 @@ static void tack_6_ensmod4_main(void) {
     const tack_error v_err = tack_r2.r1;
     tack_6_ensmod3_num4_Must(v_err);
     tack_6_ensmod5_check((v_v == 12), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    const tack_array_18 v_a = (tack_array_18){{10, 20, 30}};
-    tack_6_ensmod5_check((((tack_6_ensmod4_pick((tack_view_17){v_a.e, 3}, (-5)) == 10) && (tack_6_ensmod4_pick((tack_view_17){v_a.e, 3}, 1) == 20)) && (tack_6_ensmod4_pick((tack_view_17){v_a.e, 3}, 9) == 30)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    const tack_array_21 v_a = (tack_array_21){{10, 20, 30}};
+    tack_6_ensmod5_check((((tack_6_ensmod4_pick((tack_view_20){v_a.e, 3}, (-5)) == 10) && (tack_6_ensmod4_pick((tack_view_20){v_a.e, 3}, 1) == 20)) && (tack_6_ensmod4_pick((tack_view_20){v_a.e, 3}, 9) == 30)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
 }
 
 int tack_argc_;
