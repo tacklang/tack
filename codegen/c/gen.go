@@ -210,8 +210,11 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 		return nil, diags
 	}
 	sigs, bodies = append(sigs, instSigs...), append(bodies, instBodies...)
-	// C's main, which emitEntryPoint writes, calls Tack's.
-	g.noteNames("main", []string{g.mangle(nil, "main")})
+	// C's main, which emitEntryPoint writes, calls Tack's; a library has
+	// neither.
+	if !g.isLibrary() {
+		g.noteNames("main", []string{g.mangle(nil, "main")})
+	}
 	builtins := g.builtins.Used(g.prog)
 
 	var includes []string
@@ -838,7 +841,28 @@ func (g *generator) emitFunc(sig string, body []string) {
 // globals std's tack.h declares and this source defines, for std/os to
 // read, and given each global too deep for a C initializer its value (see
 // deepGlobal).
+//
+// A library, checked with --check, has no Tack main and so no C main; the
+// statements that would give its globals their values are written as the
+// body of tack_init_, unused, so that its C still shows them.
 func (g *generator) emitEntryPoint() {
+	if g.isLibrary() {
+		if len(g.globalInits) == 0 {
+			// Every function ends in a blank line, for the next one; the
+			// file ends in one newline.
+			if bytes.HasSuffix(g.buf.Bytes(), []byte("\n\n")) {
+				g.buf.Truncate(g.buf.Len() - 1)
+			}
+			return
+		}
+		g.buf.WriteString("static void tack_init_(void) __attribute__((unused));\n")
+		g.buf.WriteString("static void tack_init_(void) {\n")
+		for _, init := range g.globalInits {
+			g.buf.WriteString("    " + init + "\n")
+		}
+		g.buf.WriteString("}\n")
+		return
+	}
 	g.buf.WriteString("int tack_argc_;\nchar **tack_argv_;\n\n")
 	g.buf.WriteString("int main(int argc, char **argv) {\n")
 	g.buf.WriteString("    tack_argc_ = argc;\n    tack_argv_ = argv;\n")
@@ -848,6 +872,13 @@ func (g *generator) emitEntryPoint() {
 	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle(nil, "main"))
 	g.buf.WriteString("    return 0;\n")
 	g.buf.WriteString("}\n")
+}
+
+// isLibrary reports whether the program is a library, whose last package
+// is not a main package: the driver's --check loads one, and it has no
+// entry point.
+func (g *generator) isLibrary() bool {
+	return g.prog.Main().Name != "main"
 }
 
 // signature returns fn's C declaration, without a body or semicolon: a
@@ -2873,7 +2904,7 @@ func lowered(call *ast.Call) *ast.Call {
 // one either: after tack_, a mangled name has a digit, 1 to 9 since a path
 // part is never empty, and every other name starting tack_ (tack_string,
 // tack_builtin_print, tack_str0, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
-// tack_fnptr, tack_fn_3, tack_fnres_3, tack_value_..., and temporaries
+// tack_fnptr, tack_fn_3, tack_fnres_3, tack_value_..., a library's tack_init_, and temporaries
 // such as tack_r0) has a letter; locals and parameters
 // start v_ and p_.
 func (g *generator) mangle(decl ast.Decl, name string) string {

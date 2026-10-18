@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("tack.mod\nmodule m\x000.tck\npackage m\nimport A from\"m/a\"\x00a/0.tck")

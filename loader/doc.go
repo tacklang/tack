@@ -21,6 +21,25 @@
 // with no such file is an error, not a diagnostic, since there is no source
 // to point into; so is a file or directory that cannot be read.
 //
+// # Libraries
+//
+// With Loader.Lib set, which the driver's --check does, a directory or
+// import path holding a package other than main, or no Tack file, is
+// loaded as a library: every package in a directory at or below it, in
+// the byte order of the directories' paths, with everything each imports,
+// in one Program that has no main package. A directory whose name starts
+// with a dot is left out, with everything below it, as is one holding a
+// tack.mod, another module's root, and std's root. A main package is left
+// out too, decided by the first file's package clause; it is loaded by
+// naming its own directory. Each package is loaded as an import is, so one
+// imported by another package of the library is loaded once, and a cycle
+// between them is an import cycle. A package that fails to lex or parse
+// stops loading, as an import does. With Stop set, the Result gets the
+// tokens or trees of every package of the library, and of none it
+// imports. No package to load is an error, which says so when only main
+// packages were found. A directory holding a main package loads as it
+// does without Lib.
+//
 // # C files
 //
 // Every package records the directory it was read from, Dir, and the path
@@ -141,5 +160,7 @@
 // to; code is generated only from a program with none. Every package of
 // the Program has at least one file, and every file of a package has a
 // package clause that parsed. An import's Package is nil exactly when it
-// was reported. The main package, the one being built, is the last.
+// was reported. The main package, the one being built, is the last; a
+// library, loaded with Lib, has no main package, and its last package is
+// any of its own.
 package loader

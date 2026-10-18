@@ -26,6 +26,7 @@
 //
 //	tack --out <path> [flags] <target>
 //	tack (--lex | --ast | --res | --emit | --emit-header) [flags] <target>
+//	tack --check [dump flag] [flags] <target>
 //	tack --backends
 //
 // The target is a file, a directory, or an import path. A file is compiled
@@ -51,6 +52,7 @@
 //	--res             print the resolved syntax tree as JSON and stop
 //	--emit            print the generated code and stop
 //	--emit-header     write tack.h into the package directories and stop
+//	--check           check without building, reporting every diagnostic
 //	--backend <name>  use the code generation backend name (default c)
 //	--backends        list the available backends, one per line, and stop
 //	--out <path>      write the linked binary to path
@@ -75,7 +77,8 @@
 //
 // # Exit status
 //
-//   - 0: the dump, list, help, header, or binary was produced.
+//   - 0: the dump, list, help, header, or binary was produced, or --check
+//     found no diagnostic.
 //   - 1: the program was rejected with diagnostics, or a file could not be
 //     read or written, or the toolchain failed or could not be run, or the
 //     run was interrupted.
@@ -83,8 +86,8 @@
 //     file or more than one, an empty file name, an unknown backend, a
 //     negative --max-errors or --max-diags, more than one dump flag (--emit-header counts
 //     as one), --out missing when building, --out given together with a
-//     dump flag, two -O flags, an -O flag given together with a dump flag,
-//     or --out naming the input file itself.
+//     dump flag or --check, two -O flags, an -O flag given together with a
+//     dump flag or --check, or --out naming the input file itself.
 //
 // Usage errors are all detected before the input is read. --help wins over
 // everything else on the command line, and --backends ignores the rest of
@@ -236,6 +239,56 @@
 // std's include directory on its include path. A package of another module, a
 // std package, is not written into: it is not the program's. A build never reads those copies: CompileCmd's
 // -include of the fresh one makes a stale one's include guard skip it.
+//
+// # Checking
+//
+// --check runs the whole pipeline, through code generation, and builds
+// nothing: no toolchain is run, nothing is written to the temporary
+// directory or the build cache, and it takes no --out or -O flag. It is
+// for a library, an editor or a language server, which want every problem
+// a target has rather than a binary. Its exit status is 0 when it finds no
+// diagnostic and 1 when it finds any.
+//
+// A target holding a main package is checked as the program a build would
+// compile, with one difference: a main package that declares no main
+// function gets the same diagnostic a build gives, main function not
+// found, and the stages after the resolver run all the same, since none
+// depends on main. A directory or import path holding another package, or
+// no Tack file, is checked as a library: every package at or below it in
+// its module, with everything those import, in one program (see
+// loader.Loader.Lib). A main package below it is left out, and is checked
+// by naming its directory; so is a directory starting with a dot and
+// another module below it. A target with no package to check is a "tack:"
+// error: "no .tck files in <dir> or below", or, when it holds only main
+// packages, "no library package in <dir> or below; check a main package by
+// naming its directory". A single file whose package is not main is
+// checked as a library of that one package.
+//
+// Every stage runs whatever an earlier one reported, as without --check,
+// and the diagnostics of all of them are sorted and capped by
+// --max-errors as any run's are, the missing main function among them.
+//
+// --check combines with one dump flag, which prints its output for the
+// packages checked, or writes tack.h for --emit-header, when the stages up
+// to it found no problem, together with the diagnostics of any later
+// stage: --check --ast on a program with a type error prints the trees on
+// stdout and the type error on stderr, and exits 1. --lex and --ast print
+// what a dump without --check prints, from a load that stops after them,
+// and the program is then loaded in full to be checked. On syntax errors,
+// --check --ast prints the trees the parser recovered, each damaged
+// declaration or statement a bad node holding its Span and, for a
+// declaration, the name it was declaring when the parser got to it, with
+// the errors; --ast without --check prints only the errors, and a lex error
+// leaves no tree either way. For a library,
+// --lex and --ast cover the files of every package checked, under one
+// header per file as for a directory, and --res the whole program. The
+// generated code and tack.h exist only for a program or library with no
+// diagnostic at all, a missing main function included. A library's C has
+// no C main, since it has no Tack main; the statements a C main would run
+// first, giving a deep global its value, are the body of an unused static
+// function, tack_init_. tack.h is written into every package of the
+// library's module with C files or extern funcs, as for a program's
+// packages other than main.
 //
 // # Structure
 //

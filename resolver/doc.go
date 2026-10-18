@@ -37,6 +37,10 @@
 // the program's shape first:
 // the package being built must be package main, which must declare a main
 // function that is not extern, takes no parameters and declares no results;
+// with Resolver.MainOptional, which the driver's --check sets, the package
+// being built may be any package, as a library's is, and a missing main
+// function is left to MissingMain, so the caller can report it and check
+// on;
 // no function may be declared twice,
 // none may reuse a builtin's name, and only an extern func, whose body is
 // in C, may be declared without a body, and a method never may. An extern func can be neither pub

@@ -49,7 +49,8 @@ type Program struct {
 	Types *types.Table `json:"-"`
 
 	// Packages are the program's packages. The package being built, the
-	// main package, is the last.
+	// main package, is the last. A library, which the driver's --check
+	// loads, has no main package, and its last package is one of its own.
 	Packages []*Package
 
 	// Instances are the instances of generic functions the program's code
@@ -65,8 +66,8 @@ type Program struct {
 	Errors int `json:"-"`
 }
 
-// Main returns the package being built: the last one. It returns nil for a
-// program with no packages.
+// Main returns the package being built: the last one, which is not a main
+// package for a library. It returns nil for a program with no packages.
 func (p *Program) Main() *Package {
 	if len(p.Packages) == 0 {
 		return nil

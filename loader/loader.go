@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -42,6 +43,10 @@ const mainPath = "main"
 // mainPackage is the name of the package a program is built from.
 const mainPackage = "main"
 
+// errNoTackFiles is wrapped by the error for a package directory that
+// holds no Tack file.
+var errNoTackFiles = errors.New("no " + sourceExt + " files")
+
 // Loader reads the files of a program and parses them. Its fields are
 // set by the caller; the zero value is not usable, since FS is required.
 type Loader struct {
@@ -70,6 +75,14 @@ type Loader struct {
 	// MaxErrors, when positive, is how many syntax errors a file's parse
 	// goes past before it stops (see parser.Parser.Limit).
 	MaxErrors int
+
+	// Lib, if set, makes Dir and Path load a directory that holds no
+	// main package as a library instead of rejecting it: every package
+	// at or below it in its module that is not a main package, with
+	// everything they import, in one Program with no main package (see
+	// loadLib). A directory holding a main package loads as it does
+	// without Lib. The driver sets it for --check.
+	Lib bool
 }
 
 // Std is where a Loader finds the standard library: the directory Dir, the
@@ -93,16 +106,22 @@ type Std struct {
 type Result struct {
 	// Program is the program loaded, which may hold bad nodes and imports
 	// bound to no package when Diags is not empty (see Diags). It is nil
-	// when loading could not go on, and when it stopped early at Stop.
+	// when loading could not go on, and when it stopped early at Stop. A
+	// library's has no main package (see Loader.Lib).
 	Program *ast.Program
 
 	// Files holds every file read, for rendering diagnostics.
 	Files *source.Set
 
 	// Sources holds the target's own Tack files when loading stopped at
-	// StageLex or StageParse, and Tokens and Trees what was asked for, in
+	// StageLex or StageParse, a library's those of every package loaded
+	// as its own, and Tokens and Trees what was asked for, in
 	// the same order: each file's tokens when loading stopped at StageLex,
-	// and its syntax tree when it stopped at StageParse.
+	// and its syntax tree when it stopped at StageParse. Loading that
+	// stops at StageParse keeps the trees the parser recovered, with
+	// their bad nodes, when the package's files had syntax errors, along
+	// with those errors in Diags; a file too deeply nested to have a tree
+	// leaves its package's out.
 	Sources []*source.File
 	Tokens  [][]lexer.Token
 	Trees   []*ast.File
@@ -231,8 +250,13 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 // loadMain loads the package in dir, whose import path is importPath in
 // mod, as the main package of a program, into res, with every package it
 // imports.
+// With l.Lib set, a directory with no Tack files, or whose files make a
+// package other than main, is loaded as a library instead (see loadLib).
 func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Result, error) {
 	files, cFiles, err := l.readPackageFiles(res, mod.fsys, dir)
+	if l.isLib(files, err) {
+		return l.loadLib(res, mod, dir, files, cFiles)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +281,20 @@ func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Re
 	return g.finish(), nil
 }
 
+// isLib reports whether a directory is to be loaded as a library: l.Lib
+// is set, and reading the directory's Tack files, files, found none, err,
+// or found a package other than main.
+func (l *Loader) isLib(files []*source.File, err error) bool {
+	if !l.Lib {
+		return false
+	}
+	if err != nil {
+		return errors.Is(err, errNoTackFiles)
+	}
+	name, ok := clauseName(files)
+	return ok && name != mainPackage
+}
+
 // readPackageFiles reads every Tack file directly in dir, in the byte order
 // of their names, through fsys, and adds each to res. A name starting with
 // a dot is left out, as an editor's or a tool's, and so is a directory. It
@@ -279,7 +317,7 @@ func (l *Loader) readPackageFiles(
 		names = append(names, name)
 	}
 	if len(names) == 0 {
-		return nil, nil, fmt.Errorf("no %s files in %s", sourceExt, l.display(dir))
+		return nil, nil, fmt.Errorf("%w in %s", errNoTackFiles, l.display(dir))
 	}
 	sort.Strings(names)
 
@@ -341,14 +379,18 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		return nil, false
 	}
 	if l.Stop == StageLex {
-		res.Sources, res.Tokens = files, tokens
+		res.Sources, res.Tokens = append(res.Sources, files...), append(res.Tokens, tokens...)
 		return nil, false
 	}
 
 	pkg, whole, diags := l.parseFiles(files, tokens)
 	res.report(StageParse, diags)
 	if l.Stop == StageParse {
-		res.Sources, res.Trees = files, pkg.Files
+		if len(pkg.Files) == len(files) {
+			// The trees, bad nodes and all when the parser recovered
+			// from errors, are kept for a dump that asks for them.
+			res.Sources, res.Trees = append(res.Sources, files...), append(res.Trees, pkg.Files...)
+		}
 		return nil, false
 	}
 	if !whole || len(pkg.Files) == 0 {

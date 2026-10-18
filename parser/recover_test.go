@@ -152,6 +152,16 @@ func main() {
     q := 1 1       //E
 }
 `},
+	{"a semicolon inside parentheses ends the statement", `package main
+
+func main() {
+    n := 1
+    print(n +;  //E
+    late := )   //E
+    f(g(1;      //E
+    x := ]      //E
+}
+`},
 }
 
 // wantLines returns the 1-based lines of src marked //E.

@@ -214,6 +214,9 @@ func (p *Parser) braceDepth(start int) int {
 // so that block's own closing brace is missing too, and its statements
 // end there.
 func (p *Parser) syncStmt(start int, inClause bool) bool {
+	if p.semiInParens(start) {
+		return false
+	}
 	depth := p.braceDepth(start)
 	for {
 		if stop, broken := p.stmtEnds(start, depth, inClause); stop {
@@ -230,6 +233,38 @@ func (p *Parser) syncStmt(start int, inClause bool) bool {
 			}
 		}
 	}
+}
+
+// semiInParens reports whether the statement that started at the token
+// start ends at a semicolon the failed construct consumed with a
+// parenthesis or a bracket it opened still open, outside any brace, as in
+// print(n +; whose operand's error consumed the semicolon. No expression
+// holds one there, so the statement ends at it, and the parser is moved
+// to the token after it. A closing brace that ends the block before such
+// a semicolon is left for braceDepth.
+func (p *Parser) semiInParens(start int) bool {
+	parens, braces := 0, 0
+	for i := start; i < p.index; i++ {
+		switch p.tokens[i].Kind() {
+		case lexer.LParen, lexer.LBrack:
+			parens++
+		case lexer.RParen, lexer.RBrack:
+			parens = max(parens-1, 0)
+		case lexer.LCurl:
+			braces++
+		case lexer.RCurl:
+			if braces == 0 {
+				return false
+			}
+			braces--
+		case lexer.Semi:
+			if parens > 0 && braces == 0 {
+				p.index = i + 1
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // stmtEnds reports whether the statement that started at the token start,

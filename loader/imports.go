@@ -34,9 +34,9 @@ const (
 type graph struct {
 	l    *Loader
 	res  *Result
-	mod  *module // the main package's; nil for a program built from a single file
-	std  *module // the standard library; nil when the Loader has none
-	main *ast.Package
+	mod  *module      // the main package's; nil for a program built from a single file
+	std  *module      // the standard library; nil when the Loader has none
+	main *ast.Package // nil for a library, which has none
 
 	state    map[string]progress     // each package looked at, by import path
 	packages map[string]*ast.Package // each package loaded, by import path
@@ -47,7 +47,8 @@ type graph struct {
 }
 
 // newGraph returns a graph for the program whose main package is main, in
-// mod, recording what it reads in res.
+// mod, recording what it reads in res. main is nil for a library, whose
+// packages loadLib adds as roots.
 func newGraph(l *Loader, res *Result, mod *module, main *ast.Package) *graph {
 	return &graph{
 		l:        l,
@@ -102,7 +103,7 @@ func (g *graph) load(from *ast.Package, imp *ast.Import) *ast.Package {
 		g.errorAt(imp, msg)
 		return nil
 	}
-	if p == g.main.Path {
+	if g.main != nil && p == g.main.Path {
 		g.errorAt(imp, fmt.Sprintf("cannot import %s: it is a main package", show(p)))
 		return nil
 	}

@@ -191,12 +191,12 @@ list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |------------------------------------|---------|----------------------------------------------------------------------------|
 | C backend                          | yes     | Needs `clang` on `PATH`                                                    |
 | Other backends                     | no      | The registry allows them; arm64 was dropped                                |
-| `tack` driver                      | yes     | Build, stage dumps, `--max-errors` (default 10, `--max-diags` its old name), errors sorted by file and position, exit codes 0/1/2; a file, a directory or an import path |
+| `tack` driver                      | yes     | Build, stage dumps, `--max-errors` (default 10, `--max-diags` its old name), errors sorted by file and position, exit codes 0/1/2; a file, a directory or an import path; `--check`, which builds nothing, checks a library module (every non-main package at or below the target), reports a missing `func main` and checks on, and combines with a dump flag |
 | Diagnostics with source context    | yes     | Every stage runs whatever an earlier one reported, and all their problems are reported together, each once, and nothing that follows from one reported; the parser recovers after each syntax error, to the end of the statement or the next declaration, marking the damage with bad nodes; a name an error leaves invalid is reported nothing more about; nothing is generated from a program with any error |
 | Build cache                        | partial | std/builtin's objects, keyed on their inputs and the toolchain, in `$TACK_CACHE` or the user cache directory; the program's C, and std packages' C, are compiled every build; nothing trims it |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/`, every case in `examples/invalid.txtar` and `examples/invalid-packages.txtar` |
-| Fuzzing                            | partial | Lexer alone, the parser with a comment at any token boundary and on generics, methods and unions, the whole pipeline through the driver, a package's file order, `tack.mod`, the loader on random file trees, C name mangling, constant arithmetic, and printf's format check |
+| Fuzzing                            | partial | Lexer alone, the parser with a comment at any token boundary and on generics, methods and unions, the whole pipeline through the driver, with and without `--check`, a package's file order, `tack.mod`, the loader on random file trees, as a program and as a library, C name mangling, constant arithmetic, and printf's format check |
 | Self-hosting                       | no      | The goal: a Tack compiler written in Tack                                  |
 
 ## Timeline

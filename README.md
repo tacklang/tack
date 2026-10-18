@@ -169,6 +169,7 @@ has.
 | `--res`            | print the resolved syntax tree as JSON and stop |
 | `--emit`           | print the generated code and stop               |
 | `--emit-header`    | write `tack.h` beside the C files and stop      |
+| `--check`          | check without building; combines with a dump    |
 | `--backend <name>` | select the code generation backend, default `c` |
 | `--backends`       | list the available backends and stop            |
 | `--out <path>`     | compile and link to `<path>`                    |
@@ -176,6 +177,29 @@ has.
 | `--max-diags <n>`  | the old name of `--max-errors`                  |
 | `-O0` ... `-O3`, `-Os`, `-Oz` | optimize the build at that clang level, default `-O3` |
 | `-h`, `--help`     | print usage and exit                            |
+
+`--check` runs every stage, code generation included, and builds
+nothing: no clang, no `--out`, no `-O` flag. It exits 0 when it finds no
+diagnostic and 1 when it finds any. A target holding a main package is
+checked as the program a build would compile, but a missing `func main`
+is reported without stopping the stages after the resolver. A directory or
+import path holding another package, or no `.tck` file, is checked as a
+library: every package at or below it in its module, with what they
+import, leaving out main packages (check one by naming its directory),
+directories starting with `.`, and nested modules. A single file whose
+package is not main is checked as a library too. With a dump flag,
+`--check` prints that stage's output, when the stages up to it found no
+problem, and the diagnostics of any later stage: `--check --ast` prints
+the trees on stdout and a type error on stderr, and exits 1; on syntax
+errors it prints the tree the parser recovered, each damaged part a node
+holding its span and, for a declaration, the name it was declaring. `--emit`
+and `--emit-header` produce nothing for a program with any diagnostic;
+a library's `--emit` is C with no `main`.
+
+```sh
+tack --check .                 # every library package at or below .
+tack --check --res cmd/tool    # the resolved tree and every diagnostic
+```
 
 Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when
 the program has errors or the build fails, and 2 when the command line is

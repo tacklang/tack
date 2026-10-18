@@ -64,6 +64,9 @@ type options struct {
 	maxErrors    int
 	dump         dump
 	listBackends bool
+	// check is --check: report every diagnostic, and the dump asked for,
+	// without building (see executeCheck).
+	check bool
 }
 
 // usageError is a mistake on the command line. run reports it together with
@@ -128,8 +131,8 @@ func main() {
 }
 
 // run is the whole driver: it parses args, compiles the named file, and
-// either prints the requested intermediate form to stdout or builds a
-// binary. The standard library is found from env. Diagnostics and errors
+// either prints the requested intermediate form to stdout, builds a
+// binary, or, for --check, checks it. The standard library is found from env. Diagnostics and errors
 // go to stderr. It returns the process exit code (exitOK, exitFailure, or
 // exitUsage) and never exits itself, which is what lets tests call it in
 // process.
@@ -140,7 +143,11 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 		printUsage(fs, stdout)
 		return exitOK
 	}
-	if err == nil {
+	switch {
+	case err != nil:
+	case opts.check:
+		err = executeCheck(opts, env, stdout)
+	default:
 		err = execute(ctx, opts, env, stdout, stderr)
 	}
 	return report(err, stderr)
@@ -182,6 +189,7 @@ type flagValues struct {
 	emit         bool
 	emitHeader   bool
 	listBackends bool
+	check        bool
 }
 
 // newFlagSet declares every flag tack accepts on a fresh FlagSet and returns
@@ -199,12 +207,15 @@ func newFlagSet() (*flag.FlagSet, *flagValues) {
 	fs.BoolVar(&v.emitHeader, "emit-header", false,
 		"write tack.h, which declares the extern funcs, into the target's directory and\n"+
 			"        every package directory with C files or extern funcs, and stop")
+	fs.BoolVar(&v.check, "check", false,
+		"check the program, or the library packages at or below a directory, and\n"+
+			"        report every diagnostic without building; a dump flag adds its output")
 	fs.StringVar(&v.backendName, "backend", defaultBackend,
 		"use the code generation backend `name`")
 	fs.BoolVar(&v.listBackends, "backends", false,
 		"list the available code generation backends and stop")
 	fs.StringVar(&v.outBin, "out", "",
-		"write the linked binary to `path` (required unless a dump flag is given)")
+		"write the linked binary to `path` (required unless --check or a dump flag is given)")
 	fs.IntVar(&v.maxErrors, "max-errors", defaultMaxErrors,
 		"report at most `n` errors, then say there are more; 0 reports them all")
 	fs.IntVar(&v.maxDiags, "max-diags", defaultMaxErrors,
@@ -232,6 +243,7 @@ func parseArgs(fs *flag.FlagSet, v *flagValues, args []string) (options, error) 
 		outBin:       v.outBin,
 		maxErrors:    v.maxErrors,
 		listBackends: v.listBackends,
+		check:        v.check,
 	}
 	limitName := "--max-errors"
 	fs.Visit(func(f *flag.Flag) {
@@ -251,7 +263,7 @@ func parseArgs(fs *flag.FlagSet, v *flagValues, args []string) (options, error) 
 	if opts.dump, err = dumpOf(*v); err != nil {
 		return options{}, err
 	}
-	if opts.opt, err = optOf(*v, opts.dump); err != nil {
+	if opts.opt, err = optOf(*v, opts.dump, opts.check); err != nil {
 		return options{}, err
 	}
 	if opts.file, err = fileArg(fs.Args()); err != nil {
@@ -293,8 +305,8 @@ func dumpOf(v flagValues) (dump, error) {
 
 // optOf returns the optimization level the flags in v ask for, the
 // default if none. Asking for two is a usage error, as is asking for one
-// with d, a dump, which builds nothing to optimize.
-func optOf(v flagValues, d dump) (codegen.Opt, error) {
+// with --check, check set, or d, a dump, which build nothing to optimize.
+func optOf(v flagValues, d dump, check bool) (codegen.Opt, error) {
 	var names []string
 	opt := codegen.DefaultOpt
 	for _, o := range codegen.Opts {
@@ -306,6 +318,8 @@ func optOf(v flagValues, d dump) (codegen.Opt, error) {
 	switch {
 	case len(names) > 1:
 		return "", usagef("%s cannot be combined; pick one", strings.Join(names, " and "))
+	case len(names) == 1 && check:
+		return "", usagef("%s cannot be combined with --check, which builds nothing", names[0])
 	case len(names) == 1 && d != dumpNone:
 		return "", usagef(
 			"%s cannot be combined with a dump flag, which prints instead of building",
@@ -335,6 +349,9 @@ func fileArg(rest []string) (string, error) {
 // meaningless or contradictory together.
 func checkCombination(opts options) error {
 	switch {
+	case opts.check && opts.outBin != "":
+		return usagef("--out cannot be combined with --check, which builds nothing")
+	case opts.check:
 	case opts.dump == dumpNone && opts.outBin == "":
 		return usagef("--out is required to build a binary")
 	case opts.dump != dumpNone && opts.outBin != "":
@@ -366,6 +383,7 @@ func printUsage(fs *flag.FlagSet, w io.Writer) {
 	b.WriteString(
 		"       tack (--lex | --ast | --res | --emit | --emit-header) [flags] <file or directory>\n",
 	)
+	b.WriteString("       tack --check [dump flag] [flags] <file or directory>\n")
 	b.WriteString("       tack --backends\n\nFlags:\n")
 	fs.VisitAll(func(f *flag.Flag) {
 		if isOptFlag(f.Name) {
@@ -466,15 +484,35 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 // std package is read from lib, which is nil only for such a dump. It also
 // reports whether the target is a single file.
 func load(target string, d dump, lib *std, maxErrors int) (*loader.Result, bool, error) {
-	l := &loader.Loader{
+	l := newLoader(lib, maxErrors)
+	l.Stop = stopFor(d)
+	return loadWith(l, target)
+}
+
+// newLoader returns a Loader that reads from the operating system, with
+// lib's builtins and lib as the standard library, whose parse of a file
+// goes past at most maxErrors syntax errors when maxErrors is positive.
+func newLoader(lib *std, maxErrors int) *loader.Loader {
+	return &loader.Loader{
 		FS: loader.OS{}, Builtins: lib.builtinSet(), Std: lib.loaderStd(), MaxErrors: maxErrors,
 	}
+}
+
+// stopFor returns the loader stage the dump d stops after: lexing for
+// --lex, parsing for --ast, and none for any other.
+func stopFor(d dump) loader.Stage {
 	switch d {
 	case dumpLex:
-		l.Stop = loader.StageLex
+		return loader.StageLex
 	case dumpAST:
-		l.Stop = loader.StageParse
+		return loader.StageParse
 	}
+	return ""
+}
+
+// loadWith loads target with l, as load describes, and reports whether it
+// is a single file.
+func loadWith(l *loader.Loader, target string) (*loader.Result, bool, error) {
 	info, statErr := os.Stat(target)
 	switch {
 	case statErr == nil && info.IsDir():

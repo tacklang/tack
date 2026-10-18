@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/tacklang/tack/codegen/c"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
@@ -246,4 +247,93 @@ func FuzzLoad(f *testing.F) {
 			}
 		}
 	})
+}
+
+// libSeeds are the file trees FuzzLoadLib starts from, besides
+// loadSeeds: libraries with no Tack file at the root, packages below one
+// another, cycles between the library's own packages, main packages and
+// nested modules below the target, and imports of either.
+var libSeeds = []string{
+	"tack.mod\nmodule m\n\x00a/a.tck\npackage a\npub func F() int64 { return 1 }\n" +
+		"\x00a/b/b.tck\npackage b\nimport a from \"m/a\"\npub func G() int64 { return a.F() }\n",
+	"tack.mod\nmodule m\n\x00a/a.tck\npackage a\nimport b from \"m/b\"\n" +
+		"\x00b/b.tck\npackage b\nimport a from \"m/a\"\n",
+	"tack.mod\nmodule m\n\x00a/a.tck\npackage a\nimport t from \"m/cmd/t\"\n" +
+		"\x00cmd/t/main.tck\npackage main\nfunc main() {}\n",
+	"tack.mod\nmodule m\n\x00n/tack.mod\nmodule n\n\x00n/x/x.tck\npackage x\n\x00.h/h.tck\npackage h\n",
+	"tack.mod\nmodule m\n\x00a/a.tck\npackage zz\n\x00b/b.tck\npackage b\nvar g = [3]int64{1, 2, 3}\n",
+	"tack.mod\nmodule m\n\x00m.tck\npackage m\nfunc helper() {}\n\x00x/x.tck\npackage x\n\"\n",
+}
+
+// FuzzLoadLib is FuzzLoad for a library, loaded with Lib set: the loader
+// never panics, gives a program, a diagnostic or both, a program counting
+// its diagnostics, and every diagnostic renders against the files it
+// read; a program is compiled on as a library is checked, every stage
+// whatever an earlier one reported, without requiring a main function,
+// and code generation refuses it when any stage reported an error.
+func FuzzLoadLib(f *testing.F) {
+	for _, seed := range append(append([]string{}, loadSeeds...), libSeeds...) {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		fsys, _ := treeFromBytes(data)
+		l := &loader.Loader{
+			FS:       loader.FromFS(fsys),
+			Builtins: stdtest.MustBuiltins(),
+			Std:      &loader.Std{Dir: "std"},
+			Lib:      true,
+		}
+		res, err := l.Dir(".")
+		if err != nil {
+			return
+		}
+		diags := checkLibResult(t, res)
+		for _, d := range diags {
+			file := res.Files.Lookup(d.Span.File)
+			if file == nil || d.Span.Start < 0 || d.Span.End > len(file.Data) {
+				t.Fatalf("diagnostic %q has span %v outside every file read", d.Message, d.Span)
+			}
+		}
+		_ = diag.RenderAllPretty(res.Files, diags)
+	})
+}
+
+// checkLibResult checks what FuzzLoadLib says of res, a library the
+// loader returned with no error, as checkResult does for a program, and
+// returns every diagnostic of the library: the loader's, and when there is
+// a program, a missing main function and what compileLib gives.
+func checkLibResult(t *testing.T, res *loader.Result) []diag.Diagnostic {
+	t.Helper()
+	if res.Program == nil && len(res.Diags) == 0 {
+		t.Fatalf("no program and no diagnostics")
+	}
+	if res.Program == nil {
+		return res.Diags
+	}
+	if res.Program.Errors != len(res.Diags) {
+		t.Fatalf("program counts %d errors with %d diagnostics",
+			res.Program.Errors, len(res.Diags))
+	}
+	return append(resolver.MissingMain(res.Program), compileLib(t, res)...)
+}
+
+// compileLib is compileLoaded for a library, resolved with MainOptional:
+// the resolver and the type checker run whatever the loader reported,
+// and code generation must refuse a library any stage reported an error
+// about. It returns the diagnostics of the resolver and the type checker,
+// or, when no stage reported anything before it, code generation's.
+func compileLib(t *testing.T, res *loader.Result) []diag.Diagnostic {
+	t.Helper()
+	r := resolver.New(res.Program, stdtest.MustBuiltins())
+	r.MainOptional = true
+	diags := r.Resolve()
+	diags = append(diags, typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()...)
+	out, genDiags := c.New().Generate(res.Program, stdtest.MustBuiltins())
+	if len(res.Diags)+len(diags) == 0 {
+		return genDiags
+	}
+	if out != nil || len(genDiags) == 0 {
+		t.Fatalf("code generated from a library with %d errors", len(res.Diags)+len(diags))
+	}
+	return diags
 }

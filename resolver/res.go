@@ -32,6 +32,14 @@ type Resolver struct {
 	// packages holds each package's resolver once its package-level names
 	// are declared, which is before any package importing it is resolved.
 	packages map[*ast.Package]*pkgResolver
+
+	// MainOptional, if set before Resolve, resolves the program without
+	// requiring a main package or a main function: its last package may
+	// be any package, as a library's is, and a main package that declares
+	// no main function is not reported, which MissingMain reports for a
+	// caller that checks on past it. A main function with the wrong
+	// signature is reported all the same. The driver sets it for --check.
+	MainOptional bool
 }
 
 // New returns a Resolver for prog, whose calls can bind to builtins, the
@@ -169,7 +177,7 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 // resolve does Resolve's work, returning every problem found.
 func (r *Resolver) resolve() []diag.Diagnostic {
 	main := r.prog.Main()
-	if main.Name != mainPackage {
+	if main.Name != mainPackage && !r.MainOptional {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "main package not found",
@@ -516,11 +524,10 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 		return nil
 	}
 	if !mainDefined {
-		return []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message:  "main function not found",
-			Span:     ast.Span{Start: 0, End: 0, File: firstFile(r.pkg)},
-		}}
+		if r.MainOptional {
+			return nil
+		}
+		return missingMain(r.pkg)
 	}
 	if mainFn == nil {
 		return nil
@@ -551,6 +558,49 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 		})
 	}
 	return diags
+}
+
+// MissingMain reports a main package of prog that declares no main
+// function, as Resolve does without MainOptional, so that a caller that
+// set it can report the problem and still check the program on. A
+// method named main is not a main function. A bad declaration that may
+// have been main, one named main or one that got to no name, hides it. A program whose last package
+// is not a main package, a library, has none to report.
+func MissingMain(prog *ast.Program) []diag.Diagnostic {
+	main := prog.Main()
+	if main == nil || main.Name != mainPackage || mayDeclareMain(main) {
+		return nil
+	}
+	return missingMain(main)
+}
+
+// mayDeclareMain reports whether pkg declares a main function, or has a
+// bad declaration that may have been one, named main or with no name,
+// which the parser reported (see invalid.go).
+func mayDeclareMain(pkg *ast.Package) bool {
+	for _, decl := range pkg.Decls() {
+		switch d := decl.(type) {
+		case *ast.Func:
+			if d.Name == mainFunc && !d.Method {
+				return true
+			}
+		case *ast.BadDecl:
+			if d.Name == "" || d.Name == mainFunc && !d.Method {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// missingMain returns the report of pkg, a main package, declaring no main
+// function, at the start of its first file.
+func missingMain(pkg *ast.Package) []diag.Diagnostic {
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  "main function not found",
+		Span:     ast.Span{Start: 0, End: 0, File: firstFile(pkg)},
+	}}
 }
 
 // paramScope returns the outermost scope of a function, holding its

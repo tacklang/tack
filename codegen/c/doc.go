@@ -57,7 +57,10 @@
 //   - the globals tack_argc_ and tack_argv_, which std's tack.h declares,
 //     and a C main, int main(int argc, char **argv), that stores its
 //     arguments in them, for std/os to read, calls the Tack main and
-//     returns 0.
+//     returns 0. A library, a program whose last package is not a main
+//     package, which only the driver's --check makes, has neither; the
+//     statements its C main would run first are the body of an unused
+//     static function, tack_init_, when there are any.
 //
 // Values map to C types directly. Each integer type is the C fixed-width
 // type of its name, int8_t through uint64_t, but for the target-width
