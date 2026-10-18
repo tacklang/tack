@@ -13,4 +13,10 @@ type Diagnostic struct {
 	Related  []Diagnostic
 	Span     ast.Span
 	Severity Severity
+
+	// Unused says the span is code that is never used, which an editor
+	// may dim: the name of a declaration nothing uses, or an expression
+	// whose value is dropped. Only a warning sets it; it changes nothing
+	// rendered.
+	Unused bool
 }

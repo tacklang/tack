@@ -62,3 +62,48 @@ unused-global-in-other-file/b.tck:3:5: warning: declared and not used: spare
    |	    ^~~~~
 04 |	
 
+-- unused-private-in-library/tack.mod --
+module calc
+-- unused-private-in-library/geo/geo.tck --
+package geo
+
+pub type Rect struct {
+    pub w int64
+    pub h int64
+}
+
+pub func Area(r Rect) int64 {
+    return r.w * r.h
+}
+
+func spare(r Rect) int64 {
+    return r.w + r.h
+}
+
+type hidden struct {
+    x int64
+}
+-- unused-private-in-library/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    if geo.Area(geo.Rect{w: 2, h: 3}) == 6 {
+        print("ok\n")
+    }
+}
+-- unused-private-in-library/expected --
+
+unused-private-in-library/geo/geo.tck:12:6: warning: declared and not used: spare
+11 |	
+12 |	func spare(r Rect) int64 {
+   |	     ^~~~~
+13 |	    return r.w + r.h
+
+unused-private-in-library/geo/geo.tck:16:6: warning: declared and not used: hidden
+15 |	
+16 |	type hidden struct {
+   |	     ^~~~~~
+17 |	    x int64
+

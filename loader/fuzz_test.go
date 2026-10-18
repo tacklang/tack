@@ -70,8 +70,8 @@ func compileLoaded(t *testing.T, res *loader.Result) {
 	diags = append(diags, resolver.New(res.Program, stdtest.MustBuiltins()).Resolve()...)
 	diags = append(diags, typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()...)
 	out, genDiags := c.New().Generate(res.Program, stdtest.MustBuiltins())
-	if len(diags) > 0 && (out != nil || len(genDiags) == 0) {
-		t.Fatalf("code generated from a program with %d errors", len(diags))
+	if diag.HasErrors(diags) && (out != nil || len(genDiags) == 0) {
+		t.Fatalf("code generated from a program with %d errors", diag.ErrorCount(diags))
 	}
 }
 
@@ -321,7 +321,8 @@ func checkLibResult(t *testing.T, res *loader.Result) []diag.Diagnostic {
 // the resolver and the type checker run whatever the loader reported,
 // and code generation must refuse a library any stage reported an error
 // about. It returns the diagnostics of the resolver and the type checker,
-// or, when no stage reported anything before it, code generation's.
+// with code generation's after them when neither reported an error, so a
+// library with only warnings is compiled on.
 func compileLib(t *testing.T, res *loader.Result) []diag.Diagnostic {
 	t.Helper()
 	r := resolver.New(res.Program, stdtest.MustBuiltins())
@@ -329,11 +330,12 @@ func compileLib(t *testing.T, res *loader.Result) []diag.Diagnostic {
 	diags := r.Resolve()
 	diags = append(diags, typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()...)
 	out, genDiags := c.New().Generate(res.Program, stdtest.MustBuiltins())
-	if len(res.Diags)+len(diags) == 0 {
-		return genDiags
+	errs := diag.ErrorCount(res.Diags) + diag.ErrorCount(diags)
+	if errs == 0 {
+		return append(diags, genDiags...)
 	}
 	if out != nil || len(genDiags) == 0 {
-		t.Fatalf("code generated from a library with %d errors", len(res.Diags)+len(diags))
+		t.Fatalf("code generated from a library with %d errors", errs)
 	}
 	return diags
 }

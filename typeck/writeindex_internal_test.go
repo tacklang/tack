@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
@@ -75,7 +76,7 @@ func checkedExample(t *testing.T, dir string) (*Checker, *ast.Program) {
 		return nil, nil
 	}
 	c := New(res.Program, res.Files, stdtest.Builtins(t))
-	if diags := c.Check(); len(diags) > 0 {
+	if diags := c.Check(); diag.HasErrors(diags) {
 		return nil, nil
 	}
 	return c, res.Program

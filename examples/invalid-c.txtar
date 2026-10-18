@@ -196,6 +196,13 @@ int64_t ad(int64_t a, int64_t b) {
 }
 -- missing-definition/expected --
 
+missing-definition/main.tck:7:13: warning: declared and not used: unused
+06 |	
+07 |	extern func unused()
+   |	            ^~~~~~
+08 |	
+
+
 missing-definition/main.tck:3:13: error: extern func add has no C definition in package main
 02 |	
 03 |	extern func add(a int64, b int64) int64

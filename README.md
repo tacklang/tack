@@ -2404,7 +2404,24 @@ makes for itself, which has a letter after `tack_`.
   in scope, package-level ones included. A variable that is never read
   is a warning, `declared and not used: x`, and so is an import no name
   uses, `imported and not used: fmt`; neither stops the program from
-  building. Reusing a function's name is allowed.
+  building. So is, in a program with no error, a parameter its function
+  never reads, `declared and not used: by`, and a private function,
+  method or type nothing names, `declared and not used: helper`, `...:
+  T.spare`, `...: Point`. A function is used when a name outside its own
+  body names it, called or as a value; a method when a call outside its
+  own body calls it, or when a generic call binds its type to a type
+  parameter whose constraint asks for it; a type when a name outside its
+  declaration and its methods names it, a field of another type, a
+  literal, a signature or a constraint among them. Uses are not followed
+  further: a function only an unused one calls is used. `pub` and `lib`
+  declarations, which another package may use, are never warned of, nor
+  is `func main`, nor a method's receiver, nor a struct's field; nor are
+  the parameters of a function whose signature is not its own to change:
+  an extern func's, a `pub` or `lib` function's or method's, a function
+  used as a value, and a method a constraint asks for. An unused
+  function's parameters are not warned of apart from it. A parameter
+  cannot be named `_`, `cannot use _ as a name`, so one a function
+  ignores on purpose is warned of. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, functions'
   names as values, calls, a call's `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix

@@ -719,6 +719,7 @@ func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 				Severity: diag.Warning,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
 				Span:     v.NameSpan,
+				Unused:   true,
 			}
 			if callee := r.hiddenBy[v]; callee != nil {
 				// The note says what the type checker would say of the
@@ -1046,6 +1047,7 @@ func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic 
 			Severity: diag.Warning,
 			Message:  fmt.Sprintf("declared and not used: %s", s.Bind.Name),
 			Span:     s.Bind.NameSpan,
+			Unused:   true,
 		})
 	}
 	return diags

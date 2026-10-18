@@ -23,7 +23,7 @@ const maxGrowth = 6
 func checkWork(t *testing.T, src string) ([]diag.Diagnostic, typeck.ProverWork) {
 	t.Helper()
 	_, c := checkerFor(t, src)
-	diags := c.Check()
+	diags := errorsOf(c.Check())
 	return diags, c.ProverWork()
 }
 

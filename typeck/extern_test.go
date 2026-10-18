@@ -46,7 +46,7 @@ func checkWithLibrary(t *testing.T, libPath, lib string) []diag.Diagnostic {
 	if diags := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(set, diags))
 	}
-	return typeck.New(prog, set, stdtest.MustBuiltins()).Check()
+	return errorsOf(typeck.New(prog, set, stdtest.MustBuiltins()).Check())
 }
 
 // TestTackPrefixIsTheStandardLibrarys checks a package of the standard

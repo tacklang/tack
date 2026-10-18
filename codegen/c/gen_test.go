@@ -38,19 +38,17 @@ func compile(t *testing.T, src string) *ast.File {
 		t.Fatalf("parse: %s", diag.RenderAllPretty(f, diags))
 	}
 
+	// A warning, a helper the snippet never calls or a parameter it never
+	// reads, stops nothing, as it stops no build.
 	if diags := resolver.New(ast.SingleFile(file), stdtest.MustBuiltins()).
-		Resolve(); len(
-		diags,
-	) > 0 {
+		Resolve(); diag.HasErrors(diags) {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
 	// The backend reads the types the checker records, so a tree that has not
 	// been checked is not a tree it is meant to be handed.
 	if diags := typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).
-		Check(); len(
-		diags,
-	) > 0 {
+		Check(); diag.HasErrors(diags) {
 		t.Fatalf("typeck: %s", diag.RenderAllPretty(f, diags))
 	}
 

@@ -106,6 +106,7 @@ func (r *pkgResolver) unusedImports() []diag.Diagnostic {
 					Severity: diag.Warning,
 					Message:  fmt.Sprintf("imported and not used: %s", imp.Name),
 					Span:     imp.NameSpan,
+					Unused:   true,
 				})
 			}
 		}

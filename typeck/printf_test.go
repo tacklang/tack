@@ -31,7 +31,7 @@ func checkWithStd(t *testing.T, src string) []diag.Diagnostic {
 	if diags := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(res.Files, diags))
 	}
-	return typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()
+	return errorsOf(typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check())
 }
 
 // printfMain returns a program importing std/fmt whose main's body is

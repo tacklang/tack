@@ -25,6 +25,12 @@ func main() {
 }
 -- any-switch-unused-binding/expected --
 
+any-switch-unused-binding/main.tck:3:6: warning: declared and not used: f
+02 |	
+03 |	func f(a any) int64 {
+   |	     ^
+04 |	    switch v := a.(type) {
+
 any-switch-unused-binding/main.tck:4:12: warning: declared and not used: v
 03 |	func f(a any) int64 {
 04 |	    switch v := a.(type) {
@@ -118,6 +124,145 @@ union-unused-binding/main.tck:10:12: warning: declared and not used: n
 10 |	    case a(n):
    |	           ^
 11 |	    case b:
+
+-- unused-method/main.tck --
+package main
+
+type T struct {
+    x int64
+}
+
+func (t T) get() int64 {
+    return t.x
+}
+
+func (t T) spare(by int64) int64 {
+    return t.x * by
+}
+
+func main() {
+    t := T{x: 1}
+    if t.get() == 1 {
+        print("ok\n")
+    }
+}
+-- unused-method/expected --
+
+unused-method/main.tck:11:12: warning: declared and not used: T.spare
+10 |	
+11 |	func (t T) spare(by int64) int64 {
+   |	           ^~~~~
+12 |	    return t.x * by
+
+-- unused-param/main.tck --
+package main
+
+func scale(n int64, by int64) int64 {
+    return n * 2
+}
+
+func main() {
+    if scale(3, 4) == 6 {
+        print("ok\n")
+    }
+}
+-- unused-param/expected --
+
+unused-param/main.tck:3:21: warning: declared and not used: by
+02 |	
+03 |	func scale(n int64, by int64) int64 {
+   |	                    ^~
+04 |	    return n * 2
+
+-- unused-private-func/main.tck --
+package main
+
+func helper() int64 {
+    return 1
+}
+
+func countdown(n int64) int64 {
+    if n == 0 {
+        return 0
+    }
+    return countdown(n - 1)
+}
+
+func main() {
+    print("ok\n")
+}
+-- unused-private-func/expected --
+
+unused-private-func/main.tck:3:6: warning: declared and not used: helper
+02 |	
+03 |	func helper() int64 {
+   |	     ^~~~~~
+04 |	    return 1
+
+unused-private-func/main.tck:7:6: warning: declared and not used: countdown
+06 |	
+07 |	func countdown(n int64) int64 {
+   |	     ^~~~~~~~~
+08 |	    if n == 0 {
+
+-- unused-private-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+type Shape union {
+    dot
+    size int64
+}
+
+type Sizer interface {
+    size() int64
+}
+
+type Node struct {
+    n int64
+}
+
+func (n Node) next() Node {
+    return Node{n: n.n + 1}
+}
+
+func main() {
+    print("ok\n")
+}
+-- unused-private-type/expected --
+
+unused-private-type/main.tck:3:6: warning: declared and not used: Point
+02 |	
+03 |	type Point struct {
+   |	     ^~~~~
+04 |	    x int64
+
+unused-private-type/main.tck:7:6: warning: declared and not used: Shape
+06 |	
+07 |	type Shape union {
+   |	     ^~~~~
+08 |	    dot
+
+unused-private-type/main.tck:12:6: warning: declared and not used: Sizer
+11 |	
+12 |	type Sizer interface {
+   |	     ^~~~~
+13 |	    size() int64
+
+unused-private-type/main.tck:16:6: warning: declared and not used: Node
+15 |	
+16 |	type Node struct {
+   |	     ^~~~
+17 |	    n int64
+
+unused-private-type/main.tck:20:15: warning: declared and not used: Node.next
+19 |	
+20 |	func (n Node) next() Node {
+   |	              ^~~~
+21 |	    return Node{n: n.n + 1}
 
 -- unused-stmt-conversion/main.tck --
 package main

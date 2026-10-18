@@ -10,13 +10,14 @@ static const unsigned char tack_str0[4] = {104, 105, 10, 0};
 
 void tack_builtin_print(tack_string);
 
-__attribute__((unused)) static void tack_4_main5_other(void);
+static void tack_4_main5_other(void);
 static void tack_4_main4_main(void);
 
 static void tack_4_main5_other(void) {
 }
 
 static void tack_4_main4_main(void) {
+    tack_4_main5_other();
     tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
 }
 

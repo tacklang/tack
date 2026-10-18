@@ -417,6 +417,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 
 	c.checkBadDecls()
 	c.instantiate()
+	c.checkUnusedDecls()
 	c.prog.Errors += len(c.diags)
 	c.table.Errors = c.prog.Errors
 	return append(c.diags, c.warnings...)
@@ -948,7 +949,7 @@ func onlyValue(e ast.Expr) bool {
 func (c *Checker) unusedValue(e ast.Expr) {
 	before := len(c.diags)
 	if c.expr(e) != types.Invalid && len(c.diags) == before {
-		c.warnf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
+		c.unusedf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
 	}
 }
 
@@ -2143,13 +2144,15 @@ func (c *Checker) errorf(span ast.Span, format string, args ...any) {
 	c.errorNotes(span, nil, format, args...)
 }
 
-// warnf reports a warning at span: something suspicious that does not
-// stop compilation (see warnings).
-func (c *Checker) warnf(span ast.Span, format string, args ...any) {
+// unusedf reports a warning at span, code that is never used: something
+// suspicious that does not stop compilation (see warnings), marked
+// Unused, which an editor may dim.
+func (c *Checker) unusedf(span ast.Span, format string, args ...any) {
 	c.warnings = append(c.warnings, diag.Diagnostic{
 		Severity: diag.Warning,
 		Message:  fmt.Sprintf(format, args...),
 		Span:     span,
+		Unused:   true,
 	})
 }
 

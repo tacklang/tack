@@ -40,7 +40,7 @@ func check(t *testing.T, src string) []diag.Diagnostic {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
+	return errorsOf(typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check())
 }
 
 func inMain(body string) string {
@@ -195,7 +195,7 @@ func checkFile(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
 
-	return file, typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
+	return file, errorsOf(typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check())
 }
 
 // The parameter's type is what the backend reads to size and place it, so the

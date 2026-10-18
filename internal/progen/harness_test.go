@@ -42,7 +42,8 @@ var sanitize = []string{
 
 // frontEnd compiles src, the program main.tck, through the loader, the
 // resolver, the type checker and the C backend, and returns the program,
-// the generated C and its header, or the diagnostics that rejected it,
+// the generated C and its header, or the diagnostics, an error among
+// them, that rejected it,
 // rendered.
 func frontEnd(src string) (*ast.Program, []byte, []byte, string) {
 	fsys := fstest.MapFS{"main.tck": {Data: []byte(src)}}
@@ -58,10 +59,12 @@ func frontEnd(src string) (*ast.Program, []byte, []byte, string) {
 	if len(res.Diags) > 0 {
 		return nil, nil, nil, diag.RenderAllPretty(res.Files, res.Diags)
 	}
-	if d := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); len(d) > 0 {
+	// A generated program may leave a helper, a type or a parameter
+	// unused, which is a warning, and stops nothing.
+	if d := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); diag.HasErrors(d) {
 		return nil, nil, nil, diag.RenderAllPretty(res.Files, d)
 	}
-	if d := typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check(); len(d) > 0 {
+	if d := typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check(); diag.HasErrors(d) {
 		return nil, nil, nil, diag.RenderAllPretty(res.Files, d)
 	}
 	out, d := c.New().Generate(res.Program, stdtest.MustBuiltins())

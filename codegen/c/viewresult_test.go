@@ -33,10 +33,11 @@ func compileExampleDir(t *testing.T, name string) *ast.Program {
 	if len(res.Diags) > 0 {
 		t.Fatalf("load: %s", diag.RenderAllPretty(res.Files, res.Diags))
 	}
-	if diags := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {
+	if diags := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); diag.HasErrors(diags) {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(res.Files, diags))
 	}
-	if diags := typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check(); len(diags) > 0 {
+	diags := typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()
+	if diag.HasErrors(diags) {
 		t.Fatalf("typeck: %s", diag.RenderAllPretty(res.Files, diags))
 	}
 	return res.Program

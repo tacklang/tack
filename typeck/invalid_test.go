@@ -33,7 +33,7 @@ func checkAfterErrors(t *testing.T, src string, counted bool) (*ast.Program, []d
 	if !counted {
 		prog.Errors = 0
 	}
-	return prog, typeck.New(prog, f, stdtest.MustBuiltins()).Check()
+	return prog, errorsOf(typeck.New(prog, f, stdtest.MustBuiltins()).Check())
 }
 
 // messagesOf returns the messages of diags, one per line.

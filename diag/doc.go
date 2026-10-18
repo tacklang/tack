@@ -13,7 +13,9 @@
 // printed as one; a program with only warnings compiles as one with none
 // does. A note only adds to another diagnostic, among its Related.
 // ErrorCount and HasErrors count the errors of a list, which is what
-// every stage's and the driver's decisions count, warnings aside.
+// every stage's and the driver's decisions count, warnings aside. A
+// warning about code never used, every one the compiler gives today, sets
+// Unused, its span the code an editor may dim; nothing rendered shows it.
 //
 // Render and RenderAll produce one compact line per diagnostic, which the
 // golden tests pin. RenderPretty and RenderAllPretty add the offending source

@@ -830,11 +830,13 @@
 // records the total on the program's types.Table, and a backend generates
 // code only when both are zero (see codegen.Refuse).
 //
-// Two of the checker's reports are warnings, not errors: a statement that
-// only gives a value, x is not used, and a union clause's variable its
-// body never reads, declared and not used, which is marked
-// ast.Var.Unused. Warnings are kept apart from the errors (Checker's
-// warnings, reported by warnf), so every count of what has been reported
+// The checker's warnings, not errors, are: a statement that only gives a
+// value, x is not used; a union clause's variable its body never reads,
+// declared and not used, which is marked ast.Var.Unused; and, in a
+// program with no error, a parameter, a private function or method and a
+// private type nothing uses (see unusedecl.go). Every one is about code
+// never used, and is marked diag.Diagnostic.Unused (see unusedf). Warnings are kept apart from the errors (Checker's
+// warnings, reported by unusedf), so every count of what has been reported
 // that decides what is checked next, whether a body is checked for moved
 // values or anything is instantiated among them, counts errors alone,
 // and Program.Errors counts no warning. Check returns both, the errors

@@ -16,8 +16,25 @@ import (
 )
 
 // checkTree runs the front end through type checking and returns the checked
-// tree with the checker's diagnostics. Earlier stages failing aborts the test.
+// tree with the checker's errors, its warnings left out: a test of what the
+// checker accepts or rejects counts errors, and the small programs tests
+// check leave much unused (see checkTreeAll). Earlier stages failing aborts
+// the test.
 func checkTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
+	t.Helper()
+	file, diags := checkTreeAll(t, src)
+	errs := diags[:0:0]
+	for _, d := range diags {
+		if d.Severity == diag.Error {
+			errs = append(errs, d)
+		}
+	}
+	return file, errs
+}
+
+// checkTreeAll is checkTree with the checker's warnings kept, after its
+// errors.
+func checkTreeAll(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	t.Helper()
 	file, c := checkerFor(t, src)
 	return file, c.Check()

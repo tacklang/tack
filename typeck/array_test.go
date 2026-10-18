@@ -365,11 +365,11 @@ var arrayErrorCases = []struct {
 }
 
 // TestRejectsArrayErrors checks each misuse is reported as listed, covering
-// the right source.
+// the right source, a warning among them.
 func TestRejectsArrayErrors(t *testing.T) {
 	for _, tt := range arrayErrorCases {
 		t.Run(tt.name, func(t *testing.T) {
-			_, diags := checkTree(t, tt.src)
+			_, diags := checkTreeAll(t, tt.src)
 			if len(diags) != len(tt.want) {
 				t.Fatalf("got %v, want %v", diags, tt.want)
 			}
