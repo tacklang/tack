@@ -198,8 +198,8 @@ func (c *Checker) intervalOf(e ast.Expr) interval {
 	if !ok {
 		return known
 	}
-	for _, f := range c.active {
-		if f.about == k && c.holds(f) {
+	for f := range c.factsAbout(k) {
+		if c.holds(f) {
 			known = known.narrow(f)
 		}
 	}

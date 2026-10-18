@@ -445,9 +445,7 @@ func (c *Checker) proves(cf clauseFact) bool {
 	minusOne := constant.FromInt64(-1)
 	switch {
 	case !f.inMap.isZero():
-		return slices.ContainsFunc(c.active, func(g fact) bool {
-			return g.inMap == f.inMap && g.about == f.about && g.known == f.known && c.holds(g)
-		})
+		return c.provesMember(f)
 	case !f.lenOf.isZero():
 		return c.relates(about, linTerm{node: f.lenOf, isLen: true}, minusOne)
 	case !f.atMostLen.isZero():
@@ -508,14 +506,25 @@ func (c *Checker) provesBounds(cf clauseFact) bool {
 		(!f.hasHi || c.atMostOf(known, about, f.hi))
 }
 
+// provesMember reports whether a fact in force says what f, a key's
+// being in a map, does: the same key in the same map.
+func (c *Checker) provesMember(f fact) bool {
+	for g := range c.factsAbout(f.about) {
+		if g.inMap == f.inMap && g.known == f.known && c.holds(g) {
+			return true
+		}
+	}
+	return false
+}
+
 // knownOf returns what the facts in force say of the subject of cf's
 // fact, starting from what cf.base knows of it, and, for a length, what a
 // successful append proves, with a bound at zero moved past it where zero
 // is ruled out.
 func (c *Checker) knownOf(cf clauseFact) interval {
 	known := cf.base
-	for _, g := range c.active {
-		if g.about == cf.fact.about && g.inMap.isZero() && c.holds(g) {
+	for g := range c.factsAbout(cf.fact.about) {
+		if g.inMap.isZero() && c.holds(g) {
 			known = known.narrow(g)
 		}
 	}

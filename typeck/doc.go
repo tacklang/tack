@@ -475,7 +475,9 @@
 // that rules out a wrap, or the cap. The checker counts the steps its
 // provers take (proverWork, in work.go): each known value of an
 // arithmetic operator worked out, each edge a relation query looks at,
-// and each fact read into the index. The counts change nothing it checks;
+// each fact read into the index, and each fact a query about one
+// subject reads, through an index of the facts in force by subject once
+// more than a few are (factindex.go). The counts change nothing it checks;
 // the tests read them to bound how checking grows with a program, which,
 // unlike a time, does not depend on the machine's load.
 //

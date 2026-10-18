@@ -337,8 +337,8 @@ func (c *Checker) memberFacts(ix *ast.Index) []fact {
 		return nil
 	}
 	var facts []fact
-	for _, f := range c.active {
-		if f.inMap == m && f.about == about && f.known == known {
+	for f := range c.factsAbout(about) {
+		if f.inMap == m && f.known == known {
 			facts = append(facts, f)
 		}
 	}

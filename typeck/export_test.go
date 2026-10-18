@@ -2,10 +2,10 @@ package typeck
 
 // ProverWork is how many steps a checker's provers took (see proverWork).
 type ProverWork struct {
-	Arithmetic, Relations, Indexed int
+	Arithmetic, Relations, Indexed, Scanned int
 }
 
 // ProverWork returns how many steps c's provers have taken.
 func (c *Checker) ProverWork() ProverWork {
-	return ProverWork{c.work.arithmetic, c.work.relations, c.work.indexed}
+	return ProverWork{c.work.arithmetic, c.work.relations, c.work.indexed, c.work.scanned}
 }

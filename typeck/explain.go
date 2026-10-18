@@ -173,8 +173,8 @@ type proof struct {
 // its own (see relationNotes).
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
-	for _, f := range c.active {
-		if f.about != p.about || f.relational() && !p.relations || f.diff != nil {
+	for f := range c.factsAbout(p.about) {
+		if f.relational() && !p.relations || f.diff != nil {
 			continue
 		}
 		f.drop = c.dropOf(f)
