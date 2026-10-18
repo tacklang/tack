@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"bytes"
 	_ "embed" // for the builtins' file
 	"fmt"
 	"sync"
@@ -29,6 +30,21 @@ const DocFileID source.FileID = "<builtin>/builtin.tck"
 // Source returns the builtins' file as built into the compiler. Callers
 // must not change it.
 func Source() []byte { return docSource }
+
+// CopyError returns nil when data, a copy of the builtins' file read from
+// the file named name, std/builtin/builtin.tck, is the same as the one
+// built into the compiler, and otherwise the error saying the copy is out
+// of date and how to refresh it, which the driver's --check and editors
+// both report.
+func CopyError(name string, data []byte) error {
+	if bytes.Equal(data, docSource) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s differs from the builtins built into the compiler; "+
+			"refresh it with make std-copies, or make install-std for an installed std",
+		name)
+}
 
 // DocFile is the builtins' file parsed: its source, as spans into it are
 // read, and its tree, whose declarations document the builtin types,

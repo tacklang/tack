@@ -721,3 +721,37 @@ func TestCheckPackagesNamedBuiltinAndStd(t *testing.T) {
 	t.Chdir(root)
 	assertCheckClean(t, runTack(t, "--check", "."))
 }
+
+// TestCheckBuiltinDoc checks --check on std/builtin/builtin.tck, the copy
+// of the builtins' documentation, which no parser but the compiler's own
+// builtin mode reads: named as a file or by its directory, in the
+// installed std or a checkout of it, it is clean when it matches the
+// builtins built into the compiler, and one error saying how to refresh it
+// when it does not. Another .tck file anywhere is checked as code, a file
+// named builtin.tck outside std among them.
+func TestCheckBuiltinDoc(t *testing.T) {
+	installed := filepath.Join(stdtest.Dir(), "builtin")
+	copied := filepath.Join(copyStd(t), "src", "std", "builtin")
+	for _, dir := range []string{installed, copied} {
+		assertCheckClean(t, runTack(t, "--check", filepath.Join(dir, "builtin.tck")))
+		assertCheckClean(t, runTack(t, "--check", dir))
+	}
+
+	appendTo(t, filepath.Join(copied, "builtin.tck"), "\n// edited\n")
+	for _, target := range []string{filepath.Join(copied, "builtin.tck"), copied} {
+		r := runTack(t, "--check", target)
+		if r.code != exitFailure || !strings.Contains(r.stderr, "make std-copies") {
+			t.Errorf("--check %s on a stale copy: exit %d, stderr %q", target, r.code, r.stderr)
+		}
+	}
+
+	elsewhere := writeDir(t, map[string]string{
+		"tack.mod":            "module calc\n",
+		"builtin/builtin.tck": "package builtin\n\ntype int64 int64\n",
+	})
+	r := runTack(t, "--check", filepath.Join(elsewhere, "builtin", "builtin.tck"))
+	assertDiagnostics(t, r)
+	if !strings.Contains(r.stderr, "only struct, interface and union types can be declared") {
+		t.Errorf("a builtin.tck outside std was not checked as code:\n%s", r.stderr)
+	}
+}

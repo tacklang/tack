@@ -252,3 +252,17 @@ func checkNoBuiltinParser(t *testing.T, path string) error {
 	}
 	return nil
 }
+
+// TestCopyError checks CopyError accepts the compiler's own builtins' file
+// and rejects any other, naming the copy and how to refresh it.
+func TestCopyError(t *testing.T) {
+	if err := builtin.CopyError("builtin.tck", builtin.Source()); err != nil {
+		t.Errorf("the compiler's own file: %v", err)
+	}
+	edited := append(append([]byte{}, builtin.Source()...), "// edited\n"...)
+	err := builtin.CopyError("std/builtin/builtin.tck", edited)
+	if err == nil || !strings.Contains(err.Error(), "std/builtin/builtin.tck differs") ||
+		!strings.Contains(err.Error(), "make std-copies") {
+		t.Errorf("an edited copy: %v", err)
+	}
+}

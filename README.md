@@ -191,7 +191,10 @@ package is not main is checked as a library too, and a library with a
 syntax error is still one: the error is reported and its package checked
 past it. `tack --check src/std` checks the standard library, from a
 checkout as well as the installed copy, leaving out `std/builtin`, which
-only holds a copy of the builtins' documentation. With a dump flag,
+only holds a copy of the builtins' documentation. Named on its own,
+`tack --check src/std/builtin/builtin.tck`, or by its directory, that copy
+is clean when it matches the builtins built into the compiler, and
+otherwise an error saying to refresh it with `make std-copies`. With a dump flag,
 `--check` prints that stage's output, when the stages up to it found no
 problem, and the diagnostics of any later stage: `--check --ast` prints
 the trees on stdout and a type error on stderr, and exits 1; on syntax

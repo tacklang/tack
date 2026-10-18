@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/tacklang/tack/ast"
@@ -34,6 +36,12 @@ func executeCheck(opts options, env environment, stdout io.Writer) error {
 	lib, err := findStd(env)
 	if err != nil {
 		return err
+	}
+
+	if opts.dump == dumpNone {
+		if doc, docErr := checkBuiltinDoc(opts.file, lib); doc {
+			return docErr
+		}
 	}
 
 	out, err := loadedCheckDump(opts, lib)
@@ -195,4 +203,42 @@ func checkProgram(
 // last package, the one a program is built from, is not a main package.
 func isLibrary(prog *ast.Program) bool {
 	return prog.Main().Name != "main"
+}
+
+// builtinDocName is the name of the copy of the builtins' documentation
+// in std/builtin.
+const builtinDocName = "builtin.tck"
+
+// checkBuiltinDoc checks target when it is std/builtin/builtin.tck, or
+// the directory std/builtin, and reports whether it was: that file is a
+// copy of the documentation of the builtins the compiler builds in (see
+// builtin.Source), written in forms only the compiler's builtin mode
+// parses, so it is never checked as code. It is clean when it matches
+// the compiler's own, and an error saying how to refresh it when it does
+// not. Any other target, another .tck file in std/builtin among them, is
+// left to the loader.
+func checkBuiltinDoc(target string, lib *std) (bool, error) {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return false, nil //nolint:nilerr // the loader reports the target
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return false, nil //nolint:nilerr // the loader reports the target
+	}
+	file, dir := filepath.Join(abs, builtinDocName), abs
+	if !info.IsDir() {
+		file, dir = abs, filepath.Dir(abs)
+		if filepath.Base(abs) != builtinDocName {
+			return false, nil
+		}
+	}
+	if !newLoader(lib, 0).IsStdBuiltinDir(filepath.ToSlash(dir)) {
+		return false, nil
+	}
+	data, err := os.ReadFile(file) //nolint:gosec // G304: the target the user named
+	if err != nil {
+		return false, nil //nolint:nilerr // no copy: the loader reports the directory
+	}
+	return true, builtin.CopyError(target, data) //nolint:wrapcheck // the message is the driver's
 }

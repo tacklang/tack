@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/modfile"
+	"github.com/tacklang/tack/source"
 )
 
 // stdName is the name of the standard library's module, the first part of
@@ -112,4 +113,16 @@ func (m *module) dirOf(importPath string) (string, string) {
 		return "", fmt.Sprintf("unknown module %s in import path %s", show(first), show(importPath))
 	}
 	return path.Join(m.root, rest), ""
+}
+
+// IsStdBuiltinDir reports whether the directory dir is std/builtin: the
+// directory builtin at the root of the module std, the installed standard
+// library or a checkout of it. Its builtin.tck is a copy of the builtins'
+// documentation, which the compiler builds in and which no package of
+// std or anything else is made of, so tools treat that one file apart.
+func (l *Loader) IsStdBuiltinDir(dir string) bool {
+	res := &Result{Files: source.NewSet()}
+	mod, err := l.findModule(res, path.Clean(dir))
+	return err == nil && mod != nil && mod.name == stdName &&
+		mod.pathOf(path.Clean(dir)) == builtinPath
 }
