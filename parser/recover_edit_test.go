@@ -1,8 +1,10 @@
 package parser_test
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,15 +20,40 @@ import (
 )
 
 // editFile is a valid program the edit fuzzers damage: its source, its
-// tokens, and its tree.
+// tokens, its tree, its path from the repository's root, and the key that
+// picks it (see pickFile).
 type editFile struct {
 	tree   *ast.File
 	src    string
+	path   string
 	tokens []lexer.Token
+	key    uint32
+}
+
+// fileKey returns the key of the file at path, from the repository's
+// root: the FNV-1a hash of the path.
+func fileKey(path string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(path))
+	return h.Sum32()
+}
+
+// pickFile returns the file of editCorpus that key picks: the first, in
+// the order of their keys, whose key is key or more, or the first of all
+// past the last. A fuzz input names its file by key so that it keeps
+// naming it as files are added: one added takes only the keys between
+// its own and the one before it, and none of the file's own key, which
+// is what a committed seed uses (see the failure's log).
+func pickFile(key uint32) editFile {
+	files := editCorpus()
+	i, _ := slices.BinarySearchFunc(files, key, func(f editFile, key uint32) int {
+		return cmp.Compare(f.key, key)
+	})
+	return files[i%len(files)]
 }
 
 // editCorpus holds every Tack file under examples/ and src/std/ that parses
-// without an error, read once.
+// without an error, read once, in the order of their keys (see pickFile).
 var editCorpus = sync.OnceValue(func() []editFile {
 	var paths []string
 	for _, pattern := range []string{
@@ -44,9 +71,15 @@ var editCorpus = sync.OnceValue(func() []editFile {
 		}
 		toks, tree, diags := parseLimited(string(data), 0)
 		if tree != nil && len(diags) == 0 {
-			files = append(files, editFile{tree: tree, src: string(data), tokens: toks})
+			rel := strings.TrimPrefix(filepath.ToSlash(p), "../")
+			files = append(files, editFile{
+				tree: tree, src: string(data), path: rel, tokens: toks, key: fileKey(rel),
+			})
 		}
 	}
+	slices.SortFunc(files, func(a, b editFile) int {
+		return cmp.Or(cmp.Compare(a.key, b.key), strings.Compare(a.path, b.path))
+	})
 	return files
 })
 
@@ -159,7 +192,7 @@ func declAt(decls []topDecl, off int) int {
 const maxEditErrors = 3
 
 // FuzzOneTokenEdit damages one token of a valid program from examples/ or
-// std and checks recovery: the parse ends without panicking (see
+// std, the one its key picks (see pickFile), and checks recovery: the parse ends without panicking (see
 // checkParse); the first error is the one a parse that stops at the first
 // gives; every bad node has an error at it or at the token after it; and
 // the tree renders as JSON, as --check --ast does. For an edit that keeps
@@ -168,18 +201,18 @@ const maxEditErrors = 3
 // declaration before the damaged one, and every one after the next, is in
 // the tree unchanged.
 func FuzzOneTokenEdit(f *testing.F) {
+	files := editCorpus()
 	for i := range 40 {
-		f.Add(uint16(i), uint16(i*37), uint8(i%4), uint8(i))
+		f.Add(files[i*len(files)/40].key, uint16(i*37), uint8(i%4), uint8(i))
 	}
 	f.Fuzz(checkOneEdit)
 }
 
 // checkOneEdit checks FuzzOneTokenEdit's properties for the edit of the
-// fi'th file of editCorpus, counted modulo how many there are, that edit
-// describes.
-func checkOneEdit(t *testing.T, fi, ti uint16, op, ins uint8) {
-	files := editCorpus()
-	file := files[int(fi)%len(files)]
+// file key picks (see pickFile) that edit describes.
+func checkOneEdit(t *testing.T, key uint32, ti uint16, op, ins uint8) {
+	file := pickFile(key)
+	logFile(t, file)
 	src, at, delta, ok := edit(file, int(ti), op, ins)
 	if !ok {
 		return
@@ -213,6 +246,15 @@ func checkOneEdit(t *testing.T, fi, ti uint16, op, ins uint8) {
 	late := missingBraceAt(diags, at)
 	checkErrorsNear(t, src, diags, orig, k, at, delta, late)
 	checkOtherDecls(t, src, tree, orig, k, at, delta, late)
+}
+
+// logFile logs which file an edit fuzzer damages, and its own key, which
+// a seed committed for a failure should use, so that it names the file
+// whatever files are added (see pickFile). A test's log is shown only when
+// it fails.
+func logFile(t *testing.T, file editFile) {
+	t.Helper()
+	t.Logf("damaging %s, whose key is uint32(%d)", file.path, file.key)
 }
 
 // missingBraceAt returns where diags report a block's closing brace
@@ -376,14 +418,15 @@ func checkOtherDecls(
 	}
 }
 
-// FuzzTwoDistantEdits damages two declarations of a valid program with
-// at least two between them, and checks that when each edit alone gives
+// FuzzTwoDistantEdits damages two declarations of a valid program, the
+// one its key picks (see pickFile), with at least two between them, and checks that when each edit alone gives
 // an error in its own declaration, both together still do: recovery from
 // the first does not lose the second.
 func FuzzTwoDistantEdits(f *testing.F) {
+	files := editCorpus()
 	for i := range 20 {
 		f.Add(
-			uint16(i),
+			files[i*len(files)/20].key,
 			uint16(i*13),
 			uint8(i%4),
 			uint8(i),
@@ -392,9 +435,9 @@ func FuzzTwoDistantEdits(f *testing.F) {
 			uint8(i+3),
 		)
 	}
-	f.Fuzz(func(t *testing.T, fi, t1 uint16, op1, in1 uint8, t2 uint16, op2, in2 uint8) {
-		files := editCorpus()
-		file := files[int(fi)%len(files)]
+	f.Fuzz(func(t *testing.T, key uint32, t1 uint16, op1, in1 uint8, t2 uint16, op2, in2 uint8) {
+		file := pickFile(key)
+		logFile(t, file)
 		n := len(editTokens(file))
 		if n == 0 {
 			return

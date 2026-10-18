@@ -55,6 +55,7 @@ func (c *Checker) relationIndex() *relIndex {
 	}
 	idx := &relIndex{gen: c.factGen, adj: make(map[factKey][]int), isLen: make(map[factKey]bool)}
 	for i, f := range c.active {
+		c.work.indexed++
 		if f.inMap.isZero() {
 			idx.addFact(i, f)
 		}
@@ -134,12 +135,26 @@ func (idx *relIndex) length(k factKey, yes bool) {
 // cap left edges out, and the shortest paths found so far from a node,
 // and to one.
 type relGraph struct {
-	index    map[factKey]int
-	from, to map[int]relDist
+	index map[factKey]int
+	from  map[int]relDist
+	to    map[int]relDist
+
+	// steps, when set, counts the edges the query looks at, finding the
+	// graph and following its paths (see proverWork).
+	steps *int
+
 	nodes    []factKey
 	admitted []relEdge
 	pending  []relEdge
 	capped   bool
+}
+
+// count adds n to the steps the graph's query took, when they are
+// counted.
+func (g *relGraph) count(n int) {
+	if g.steps != nil {
+		*g.steps += n
+	}
 }
 
 // relDist is the bound found from, or to, one node on each node: dist[i]
@@ -162,7 +177,8 @@ func (c *Checker) relationGraph(x, y factKey, xLen, yLen bool) *relGraph {
 	// The maps are sized for a graph at the cap, so building one does not
 	// grow them again and again.
 	b := &graphBuilder{
-		c: c, idx: idx, g: &relGraph{index: make(map[factKey]int, relationCap)},
+		c: c, idx: idx,
+		g:     &relGraph{index: make(map[factKey]int, relationCap), steps: &c.work.relations},
 		holds: make(map[int]bool, 4*relationCap), used: make(map[int]bool, 4*relationCap),
 		ranged: make(map[factKey]bool), lens: idx.lens, x: x, y: y, xLen: xLen, yLen: yLen,
 		edges: make([]relEdge, 0, 4*relationCap),
@@ -242,6 +258,7 @@ func (b *graphBuilder) expand(u factKey) {
 // to a node the graph has room for, each once.
 func (b *graphBuilder) takeEdges(u factKey) {
 	for _, ei := range b.idx.adj[u] {
+		b.g.count(1)
 		e := b.idx.edges[ei]
 		if b.used[ei] || !b.holdsAt(e.fact) {
 			continue
@@ -331,6 +348,7 @@ func (g *relGraph) withPending() *relGraph {
 		admitted: append(slices.Clip(g.admitted), g.pending...),
 		from:     make(map[int]relDist),
 		to:       make(map[int]relDist),
+		steps:    g.steps,
 	}
 	return all
 }
@@ -366,6 +384,7 @@ func (g *relGraph) shortest(src int, reverse bool) relDist {
 	}
 	for range n {
 		changed := false
+		g.count(len(g.admitted))
 		for i, e := range g.admitted {
 			a, b := ends[i][0], ends[i][1]
 			if !d.known[a] {

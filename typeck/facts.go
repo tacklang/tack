@@ -448,6 +448,7 @@ func (c *Checker) knownArithmetic(bin *ast.Binary) (constant.Int, bool) {
 // computeArithmetic is knownArithmetic, with no answer remembered: the
 // known values of bin's operands, and the operation on them.
 func (c *Checker) computeArithmetic(bin *ast.Binary) (constant.Int, bool) {
+	c.work.arithmetic++
 	a, okA := c.knownValue(bin.X)
 	b, okB := c.knownValue(bin.Y)
 	if !okA || !okB {

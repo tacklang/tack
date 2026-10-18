@@ -244,6 +244,10 @@ type Checker struct {
 	// that takes facts out of force.
 	factGen int
 
+	// work counts the steps the provers take, for the tests that bound
+	// how checking grows with the program checked (see proverWork).
+	work proverWork
+
 	// dead is how many blocks around the statement being checked have
 	// left before it, by a return, a break, a continue or a call to exit,
 	// so that it never runs (see ensures.go).

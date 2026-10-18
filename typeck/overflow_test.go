@@ -257,16 +257,29 @@ func TestKnownValuesOfALongChainAreFast(t *testing.T) {
 	}
 }
 
-// TestKnownValuesOfLongExpressionsAreFast checks expressions of ten
-// thousand terms, each of whose operators asks for the known value of
-// the chain below it, are checked in time linear in their length: a
-// chain of a parameter, whose value is not known, nested left and right,
-// and a chain of an immutable local whose value is, in every sized
-// integer type. A chain nested on the right nests a level per term, so it
-// is ten of 999 terms each, within the parser's limit of a thousand
-// levels, joined by + into one of about ten thousand.
+// TestKnownValuesOfLongExpressionsAreFast checks expressions of
+// thousands of terms, each of whose operators asks for the known value
+// of the chain below it, are checked in steps linear in their length (see
+// checkGrowth): a chain of a parameter, whose value is not known, nested
+// left and right, and a chain of an immutable local whose value is, in
+// every sized integer type. A chain nested on the right nests a level per
+// term, so it is segments of 999 terms each, within the parser's limit of
+// a thousand levels, joined by + into one as long as the others.
 func TestKnownValuesOfLongExpressionsAreFast(t *testing.T) {
-	const n = 10000
+	const n = 2000
+	diags, small := checkWork(t, longExpressions(n))
+	if len(diags) > 0 {
+		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+	}
+	_, grown := checkWork(t, longExpressions(4*n))
+	checkGrowth(t, "known values worked out", small.Arithmetic, grown.Arithmetic)
+}
+
+// longExpressions returns a program whose functions, one for each sized
+// integer type, each return a sum of chains of n terms: of a parameter,
+// nested left and right, the right in segments of 999, and of a known
+// local. n is a multiple of a thousand.
+func longExpressions(n int) string {
 	var b strings.Builder
 	b.WriteString("package main\n\n")
 	for _, typ := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
@@ -279,12 +292,5 @@ func TestKnownValuesOfLongExpressionsAreFast(t *testing.T) {
 			"    return " + left + " + " + right + " + (" + known + ")\n}\n\n")
 	}
 	b.WriteString("func main() {\n}\n")
-
-	start := time.Now()
-	if _, diags := checkTree(t, b.String()); len(diags) > 0 {
-		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Errorf("checking took %s", elapsed)
-	}
+	return b.String()
 }

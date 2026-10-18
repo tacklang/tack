@@ -19,6 +19,15 @@ import (
 // tree with the checker's diagnostics. Earlier stages failing aborts the test.
 func checkTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	t.Helper()
+	file, c := checkerFor(t, src)
+	return file, c.Check()
+}
+
+// checkerFor runs the front end through name resolution and returns the
+// resolved tree with a checker for it, not yet run. Earlier stages failing
+// aborts the test.
+func checkerFor(t *testing.T, src string) (*ast.File, *typeck.Checker) {
+	t.Helper()
 
 	f := &source.File{ID: "test", Filename: "case.tck", Data: []byte(src)}
 	lex := lexer.New(f)
@@ -35,7 +44,7 @@ func checkTree(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 	) > 0 {
 		t.Fatalf("resolve: %s", diag.RenderAllPretty(f, diags))
 	}
-	return file, typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins()).Check()
+	return file, typeck.New(ast.SingleFile(file), f, stdtest.MustBuiltins())
 }
 
 // mainLines wraps statements, one per line, in a main function.

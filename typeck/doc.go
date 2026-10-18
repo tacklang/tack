@@ -472,7 +472,12 @@
 // int64 weights never wrap. Relations end as facts do: a writeIndex's
 // endings take in every node a fact names. explain leaves them out, and relationNotes says
 // what a chain lacks: a missing link between two values, the condition
-// that rules out a wrap, or the cap.
+// that rules out a wrap, or the cap. The checker counts the steps its
+// provers take (proverWork, in work.go): each known value of an
+// arithmetic operator worked out, each edge a relation query looks at,
+// and each fact read into the index. The counts change nothing it checks;
+// the tests read them to bound how checking grows with a program, which,
+// unlike a time, does not depend on the machine's load.
 //
 // A slice, x[i:j], checked in slice.go, is a string for a string, any
 // string, and a view of the elements for an array that is a place or a

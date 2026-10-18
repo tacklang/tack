@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tacklang/tack/diag"
 )
@@ -579,16 +578,16 @@ func TestShortRelationChainsProve(t *testing.T) {
 // of them an index. Every index needs the whole chain, from 0 through v0
 // to it and from it to len(a), which is past the cap, so each is
 // reported, with the note on the cap, and each query stays within the
-// cap, so checking stays fast.
+// cap, so the steps the relation queries take, and the facts read into
+// their index, grow linearly with the chain (see checkGrowth).
 func TestLongRelationChainsCheckQuickly(t *testing.T) {
-	const n = 2000
-	start := time.Now()
-	_, diags := checkTree(t, chainSource(n))
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Errorf("checking took %v", elapsed)
-	}
-	if errs := errorsOf(diags); len(errs) != n {
-		t.Fatalf("got %d errors, want %d", len(errs), n)
+	const n = 500
+	_, small := checkWork(t, chainSource(n))
+	diags, grown := checkWork(t, chainSource(4*n))
+	checkGrowth(t, "relation steps", small.Relations, grown.Relations)
+	checkGrowth(t, "facts indexed", small.Indexed, grown.Indexed)
+	if errs := errorsOf(diags); len(errs) != 4*n {
+		t.Fatalf("got %d errors, want %d", len(errs), 4*n)
 	}
 	for _, d := range diags {
 		if !slices.ContainsFunc(d.Related, func(n diag.Diagnostic) bool {
