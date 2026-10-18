@@ -78,4 +78,16 @@
 // the same; and, run with allocations failing after each n from 0 until
 // none fails, it still exits 0, which main's check of live makes a check
 // that nothing leaked. Findings, minimized, are kept in findings_test.go.
+//
+// Building and running every program is thorough but slow, clang taking
+// most of the time. FuzzGeneratedFrontEnd is the front-end-only mode: it
+// generates programs from the fuzz engine's bytes as FuzzGenerated does,
+// but compiles none, so it needs no clang and gets through many times as
+// many programs, for runs of hours. It checks that the front end accepts
+// each program and the C backend generates its C and its header, with no
+// stage panicking, and that the interpreter's run of it does not panic
+// and gives the same result each time it is run; with no binary, the
+// checksum is compared with nothing else. Both targets read the same
+// input, so an input it saves under testdata/fuzz/FuzzGeneratedFrontEnd
+// runs through every oracle when copied to testdata/fuzz/FuzzGenerated.
 package progen

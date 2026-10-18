@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"testing"
@@ -184,8 +185,55 @@ func FuzzGenerated(f *testing.F) {
 	})
 }
 
+// FuzzGeneratedFrontEnd is FuzzGenerated without clang: it generates a
+// program from the fuzz engine's bytes as FuzzGenerated does and puts it
+// through the front end and the C backend alone, the C never compiled
+// and no binary run, so it gets through many more programs in a given
+// time (see frontEndOnly). It needs no clang, and can run for hours.
+func FuzzGeneratedFrontEnd(f *testing.F) {
+	for seed := range uint64(8) {
+		f.Add(seedBytes(seed, 64+int(seed)*48))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		p := progen.Generate(progen.NewBytes(data))
+		if msg := frontEndOnly(p); msg != "" {
+			t.Fatalf("%s\n%s", msg, numbered(p.Source))
+		}
+	})
+}
+
+// frontEndOnly puts p through the oracles that need no C compiler, and
+// returns what went wrong, or "": the front end accepts it, valid by
+// construction, and the C backend generates its C and its header, with
+// no stage panicking; and the interpreter's run of it does not panic and
+// gives the same checksum, or runs past its budget, each time it is run.
+// With no binary to compare it with, the checksum itself is not checked:
+// a run that differs from the one before shows state the interpreter
+// keeps between runs, which would make FuzzGenerated's comparison fail
+// for no fault of the compiler's.
+func frontEndOnly(p *progen.Program) (msg string) {
+	defer func() {
+		if r := recover(); r != nil {
+			msg = fmt.Sprintf("panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	_, csrc, header, rejected := frontEnd(p.Source)
+	switch {
+	case rejected != "":
+		return "the compiler rejected a generated program:\n" + rejected
+	case len(csrc) == 0 || len(header) == 0:
+		return "the C backend generated no C or no header"
+	}
+	want, ok := p.Expect(stepBudget)
+	if again, okAgain := p.Expect(stepBudget); again != want || okAgain != ok {
+		return fmt.Sprintf("the interpreter gave %q (within budget: %v), then %q (%v)",
+			want, ok, again, okAgain)
+	}
+	return ""
+}
+
 // seedBytes returns n pseudo-random bytes from seed, a starting input for
-// FuzzGenerated.
+// FuzzGenerated and FuzzGeneratedFrontEnd.
 func seedBytes(seed uint64, n int) []byte {
 	src := progen.NewSeeded(seed)
 	b := make([]byte, n)
