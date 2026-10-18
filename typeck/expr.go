@@ -401,7 +401,7 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 		// is an operator too (see joinFacts).
 		m := c.mark()
 		left := &guard{cond: bin.X, span: bin.X.Spanned(), kind: guardCond}
-		facts := c.factsFrom(bin.X, bin.Op == ast.And)
+		facts := c.takeChain(bin.X, bin.Op == ast.And)
 		c.assume(left, facts, []ast.Node{bin.Y})
 		y = c.expr(bin.Y)
 		c.release(m)

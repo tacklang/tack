@@ -1,0 +1,30 @@
+chain ok
+chain outside ok
+chain edges ok
+three ok
+reversed ok
+equal ok
+next ok
+next edges ok
+next first ok
+len minus ok
+len minus edges ok
+before ok
+before edges ok
+back ok
+back unsigned ok
+next narrow ok
+next narrow edges ok
+counted ok
+last of ok
+pair ok
+span ok
+span edges ok
+tail ok
+byte before ok
+find ok
+find edges ok
+palindrome ok
+mut back ok
+reassigned ok
+lists ok

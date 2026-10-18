@@ -217,7 +217,8 @@
 // something about the operand (explain.go): the guard whose fact a region
 // dropped, with the assignment that dropped it, and what the facts would
 // still have lacked, or the guard whose fact holds but falls short, an
-// index bounded only above or allowed past the end. An unsigned index is
+// index bounded only above or allowed past the end, and a note on the
+// relations in force when they fall short (relationNotes). An unsigned index is
 // never negative, so a note never explains a lower bound on one, whether
 // missing or dropped. Every note's span is the code it is about, so its
 // text names no position. A fact a write
@@ -419,6 +420,29 @@
 // it, a mut argument included, is reported, with a note at the binding
 // that tied them.
 //
+// Where a value's own bounds fall short of proving an index, a slice's
+// bound or a constant index into a string (never a divisor), the
+// relations in force are asked (relations.go): difference bounds x - y <=
+// w between two nodes, each a subject, the length of a string, view or
+// list subject, or the constant 0, which every fact in force gives, a
+// bound by a known value against 0, i < len(s) and j <= len(s) against
+// the length, i <= j and i < j between two subjects, and the difference
+// bounds of a comparison of two values, each a node plus or minus a known
+// amount (linearFacts), or of a declaration or a plain assignment storing
+// one (storedFacts, put in force by checkBlock for the rest of the block).
+// Arithmetic wraps, so a bound through x + c carries the condition that
+// x lies where the sum stays in its type (stepBounds' bounds, so a
+// target-width type's top is types.PortableMax), and counts only once the
+// other bounds prove it. A query (relates) builds a graph of the bounds
+// that hold at c.at from an index of the facts by node, rebuilt when the
+// facts in force change (factGen), finding at most relationCap nodes
+// breadth first from the query's two, and takes shortest paths by
+// Bellman and Ford; it only proves less for what it leaves out, and its
+// int64 weights never wrap. Relations end as facts do: a writeIndex's
+// endings take in every node a fact names. explain leaves them out, and relationNotes says
+// what a chain lacks: a missing link between two values, the condition
+// that rules out a wrap, or the cap.
+//
 // A slice, x[i:j], checked in slice.go, is a string for a string, any
 // string, and a view of the elements for an array that is a place or a
 // view; anything else, and a bound that is not an integer, of any type, is
@@ -427,9 +451,8 @@
 // value in a function returning a view, and is reported anywhere else, a
 // checked form's value included. Its bounds must
 // be proven, 0 <= i, i <= j and j <= len(x), a bound left out being 0 or
-// len(x), by known values, types and facts, and by two relations only a
-// slice's proof reads (see facts.go): j <= len(x), and i <= j between two
-// integer subjects. An error names exactly the comparisons missing, and
+// len(x), by known values, types and facts, and by the relations in force
+// (see below and relations.go). An error names exactly the comparisons missing, and
 // notes explain a bound that is a subject as an index's are. A known bound
 // negative, past a known length (extentOf: an array's, a known string's,
 // or a slice's at known bounds), or past the other is always reported. A

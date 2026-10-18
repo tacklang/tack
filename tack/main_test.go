@@ -1963,6 +1963,38 @@ func TestBuiltSortPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltRelationsPassesEveryCheck builds examples/relations, whose
+// indexes and slices only relations between two values prove, at every
+// optimization level and checks each binary writes exactly
+// examples/relations/output, every check ok: each function at its first
+// and last index, one past each end, on empty views, and at int64's and
+// uint64's extremes, where a relation that ignored wrapping would read
+// out of range.
+func TestBuiltRelationsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "relations", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/relations/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "relations")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("relations"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAnySwitchWritesItsOutput builds examples/any-switch, which asks
 // anys which type they hold from Tack, at every optimization level, and
 // checks each binary writes exactly examples/any-switch/output: every

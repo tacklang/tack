@@ -24756,6 +24756,609 @@ raw-string-unterminated/main.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	that is never closed)
 
+-- relation-append/main.tck --
+package main
+
+// n := len(l) holds only until l grows.
+func at(mut l list[int64], i int64) int64 {
+    n := len(l)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return -1
+    }
+    if 0 <= i && i < n {
+        return l[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-append/expected --
+stage: typeck
+---
+
+relation-append/main.tck:11:18: error: index i may be out of range; check 0 <= i && i < len(l) first, or use v, ok := ...[i]
+10 |	    if 0 <= i && i < n {
+11 |	        return l[i]
+   |	                 ^
+12 |	    }
+relation-append/main.tck:11:18: note: i < n holds here; check n <= len(l) too
+10 |	    if 0 <= i && i < n {
+11 |	        return l[i]
+   |	                 ^
+12 |	    }
+
+-- relation-back-edge/main.tck --
+package main
+
+// The body shrinks m on every pass, so on the next one i < m no longer
+// holds: the write reaches the use through the loop's back edge.
+func total(a []int64, i int64, n int64) int64 {
+    mut m := n
+    mut sum int64 = 0
+    if 0 <= i && i < m && m <= len(a) {
+        for k := range 3 {
+            sum += a[i] + k
+            m = m + 1
+        }
+    }
+    return sum
+}
+
+func main() {
+}
+-- relation-back-edge/expected --
+stage: typeck
+---
+
+relation-back-edge/main.tck:10:22: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+09 |	        for k := range 3 {
+10 |	            sum += a[i] + k
+   |	                     ^
+11 |	            m = m + 1
+
+-- relation-back-edge-step/main.tck --
+package main
+
+// The loop's condition relates i to n, and the body steps i past it
+// before the use.
+func walk(a []int64, n int64) int64 {
+    mut i int64 = 0
+    mut sum int64 = 0
+    if n <= len(a) {
+        for i < n {
+            i++
+            sum += a[i]
+        }
+    }
+    return sum
+}
+
+func main() {
+}
+-- relation-back-edge-step/expected --
+stage: typeck
+---
+
+relation-back-edge-step/main.tck:11:22: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+10 |	            i++
+11 |	            sum += a[i]
+   |	                     ^
+12 |	        }
+relation-back-edge-step/main.tck:11:22: note: n <= len(a) holds here; check i < n too
+10 |	            i++
+11 |	            sum += a[i]
+   |	                     ^
+12 |	        }
+
+-- relation-cap/main.tck --
+package main
+
+// A chain of 70 values, each below the next, the last below len(a): a
+// query follows at most 64 related values, so neither a[v0], which needs
+// the chain up to len(a), nor a[v69], which needs it down to 0, is proven.
+func f(a []int64, v0 int64, v1 int64, v2 int64, v3 int64, v4 int64, v5 int64, v6 int64, v7 int64, v8 int64, v9 int64, v10 int64, v11 int64, v12 int64, v13 int64, v14 int64, v15 int64, v16 int64, v17 int64, v18 int64, v19 int64, v20 int64, v21 int64, v22 int64, v23 int64, v24 int64, v25 int64, v26 int64, v27 int64, v28 int64, v29 int64, v30 int64, v31 int64, v32 int64, v33 int64, v34 int64, v35 int64, v36 int64, v37 int64, v38 int64, v39 int64, v40 int64, v41 int64, v42 int64, v43 int64, v44 int64, v45 int64, v46 int64, v47 int64, v48 int64, v49 int64, v50 int64, v51 int64, v52 int64, v53 int64, v54 int64, v55 int64, v56 int64, v57 int64, v58 int64, v59 int64, v60 int64, v61 int64, v62 int64, v63 int64, v64 int64, v65 int64, v66 int64, v67 int64, v68 int64, v69 int64) int64 {
+    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+        return a[v69] + a[v0]
+    }
+    return 0
+}
+
+func main() {
+}
+-- relation-cap/expected --
+stage: typeck
+---
+
+relation-cap/main.tck:8:18: error: index v69 may be out of range; check 0 <= v69 && v69 < len(a) first, or use v, ok := ...[v69]
+07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+08 |	        return a[v69] + a[v0]
+   |	                 ^~~
+09 |	    }
+relation-cap/main.tck:7:897: note: this guard bounds v69 only above; v69 may be negative
+06 |	func f(a []int64, v0 int64, v1 int64, v2 int64, v3 int64, v4 int64, v5 int64, v6 int64, v7 int64, v8 int64, v9 int64, v10 int64, v11 int64, v12 int64, v13 int64, v14 int64, v15 int64, v16 int64, v17 int64, v18 int64, v19 int64, v20 int64, v21 int64, v22 int64, v23 int64, v24 int64, v25 int64, v26 int64, v27 int64, v28 int64, v29 int64, v30 int64, v31 int64, v32 int64, v33 int64, v34 int64, v35 int64, v36 int64, v37 int64, v38 int64, v39 int64, v40 int64, v41 int64, v42 int64, v43 int64, v44 int64, v45 int64, v46 int64, v47 int64, v48 int64, v49 int64, v50 int64, v51 int64, v52 int64, v53 int64, v54 int64, v55 int64, v56 int64, v57 int64, v58 int64, v59 int64, v60 int64, v61 int64, v62 int64, v63 int64, v64 int64, v65 int64, v66 int64, v67 int64, v68 int64, v69 int64) int64 {
+07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+   |	                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ^~~~~~~~~~~~
+08 |	        return a[v69] + a[v0]
+relation-cap/main.tck:8:18: note: the checker follows at most 64 related values from here, so relations further along are not used; check 0 <= v69 directly
+07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+08 |	        return a[v69] + a[v0]
+   |	                 ^~~
+09 |	    }
+
+relation-cap/main.tck:8:27: error: index v0 may be out of range; check 0 <= v0 && v0 < len(a) first, or use v, ok := ...[v0]
+07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+08 |	        return a[v69] + a[v0]
+   |	                          ^~
+09 |	    }
+relation-cap/main.tck:8:27: note: the checker follows at most 64 related values from here, so relations further along are not used; check v0 < len(a) directly
+07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
+08 |	        return a[v69] + a[v0]
+   |	                          ^~
+09 |	    }
+
+-- relation-copy-ends/main.tck --
+package main
+
+// k := j - 1 relates k to j until j is assigned.
+func at(a []int64, j0 int64) int64 {
+    mut j := j0
+    if 0 < j && j < len(a) {
+        k := j - 1
+        j = j + 10
+        return a[k] + j
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-copy-ends/expected --
+stage: typeck
+---
+
+relation-copy-ends/main.tck:9:18: error: index k may be out of range; check 0 <= k && k < len(a) first, or use v, ok := ...[k]
+08 |	        j = j + 10
+09 |	        return a[k] + j
+   |	                 ^
+10 |	    }
+
+-- relation-func-value/main.tck --
+package main
+
+// The same write, through a function value.
+func bump(mut n int64) {
+    n = n + 10
+}
+
+func at(a []int64, i int64, n0 int64, f func(mut int64)) int64 {
+    mut n := n0
+    if 0 <= i && i < n && n <= len(a) {
+        f(mut n)
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    arr := [3]int64{1, 2, 3}
+    if at(arr[:], 2, 3, bump) != 3 {
+        exit(1)
+    }
+}
+-- relation-func-value/expected --
+stage: typeck
+---
+
+relation-func-value/main.tck:12:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+11 |	        f(mut n)
+12 |	        return a[i]
+   |	                 ^
+13 |	    }
+
+-- relation-int8-wrap/main.tck --
+package main
+
+// For an int8 i, i < len(a) keeps nothing from wrapping: i = 127 passes it
+// for a long enough a, and i + 1 is -128.
+func pair(a []int64, i int8) int64 {
+    if 0 <= i && i < len(a) && i + 1 < len(a) {
+        j := i + 1
+        return a[j]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-int8-wrap/expected --
+stage: typeck
+---
+
+relation-int8-wrap/main.tck:8:18: error: index j may be out of range; check 0 <= j && j < len(a) first, or use v, ok := ...[j]
+07 |	        j := i + 1
+08 |	        return a[j]
+   |	                 ^
+09 |	    }
+relation-int8-wrap/main.tck:8:18: note: a relation through + or - here holds only where it cannot wrap; check i < 127 too
+07 |	        j := i + 1
+08 |	        return a[j]
+   |	                 ^
+09 |	    }
+
+-- relation-loop-moves/main.tck --
+package main
+
+// A binary search whose loop does not restate its bounds: the body moves
+// lo and hi, which ends what was known of them before the loop.
+func find(a []int64, x int64) int64 {
+    mut lo int64 = 0
+    mut hi := len(a)
+    for lo < hi {
+        mid := lo + (hi - lo) / 2
+        if a[mid] < x {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+func main() {
+}
+-- relation-loop-moves/expected --
+stage: typeck
+---
+
+relation-loop-moves/main.tck:10:14: error: index mid may be out of range; check 0 <= mid && mid < len(a) first, or use v, ok := ...[mid]
+09 |	        mid := lo + (hi - lo) / 2
+10 |	        if a[mid] < x {
+   |	             ^~~
+11 |	            lo = mid + 1
+
+-- relation-missing-link/main.tck --
+package main
+
+// i < n, with nothing relating n to len(a).
+func at(a []int64, i int64, n int64) int64 {
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-missing-link/expected --
+stage: typeck
+---
+
+relation-missing-link/main.tck:6:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+05 |	    if 0 <= i && i < n {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+relation-missing-link/main.tck:6:18: note: i < n holds here; check n <= len(a) too
+05 |	    if 0 <= i && i < n {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+
+-- relation-multiply/main.tck --
+package main
+
+// A heap's child index: 2 * r + 1 is no node plus a known amount, and it
+// can wrap besides.
+func child(a []int64, r int64, end int64) int64 {
+    if 0 <= r && r < end && end <= len(a) {
+        c := 2 * r + 1
+        if c < end {
+            return a[c]
+        }
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-multiply/expected --
+stage: typeck
+---
+
+relation-multiply/main.tck:9:22: error: index c may be out of range; check 0 <= c && c < len(a) first, or use v, ok := ...[c]
+08 |	        if c < end {
+09 |	            return a[c]
+   |	                     ^
+10 |	        }
+
+-- relation-mut-call/main.tck --
+package main
+
+// bump changes n through mut, which ends n <= len(a).
+func bump(mut n int64) {
+    n = n + 10
+}
+
+func at(a []int64, i int64, n0 int64) int64 {
+    mut n := n0
+    if 0 <= i && i < n && n <= len(a) {
+        bump(mut n)
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-mut-call/expected --
+stage: typeck
+---
+
+relation-mut-call/main.tck:12:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+11 |	        bump(mut n)
+12 |	        return a[i]
+   |	                 ^
+13 |	    }
+
+-- relation-not-a-name/main.tck --
+package main
+
+// The relations prove i + 1 below len(a), but only a name is proven as
+// an index: copy i + 1 into a variable.
+func pair(a []int64, i int64) int64 {
+    if 0 <= i && i < len(a) - 1 {
+        return a[i + 1]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-not-a-name/expected --
+stage: typeck
+---
+
+relation-not-a-name/main.tck:7:18: error: index may be out of range; use v, ok := ...[...]
+06 |	    if 0 <= i && i < len(a) - 1 {
+07 |	        return a[i + 1]
+   |	                 ^~~~~
+08 |	    }
+relation-not-a-name/main.tck:6:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
+05 |	func pair(a []int64, i int64) int64 {
+06 |	    if 0 <= i && i < len(a) - 1 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~
+07 |	        return a[i + 1]
+
+-- relation-or/main.tck --
+package main
+
+// || keeps only what both sides say of one value, so i < n is lost.
+func at(a []int64, i int64, n int64) int64 {
+    if 0 <= i && (i < n || i < 2) && n <= len(a) {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-or/expected --
+stage: typeck
+---
+
+relation-or/main.tck:6:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+05 |	    if 0 <= i && (i < n || i < 2) && n <= len(a) {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+
+-- relation-overflow/main.tck --
+package main
+
+// i + 1 < len(a) holds for the largest int64, whose i + 1 wraps to the
+// smallest, so it relates i to len(a) only where i cannot be that large.
+func at(a []int64, i int64) int64 {
+    if 0 <= i && i + 1 < len(a) {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-overflow/expected --
+stage: typeck
+---
+
+relation-overflow/main.tck:7:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+06 |	    if 0 <= i && i + 1 < len(a) {
+07 |	        return a[i]
+   |	                 ^
+08 |	    }
+relation-overflow/main.tck:7:18: note: a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too
+06 |	    if 0 <= i && i + 1 < len(a) {
+07 |	        return a[i]
+   |	                 ^
+08 |	    }
+
+-- relation-overflow-copy/main.tck --
+package main
+
+// j := i + 1 is the smallest int64 when i is the largest.
+func next(a []int64, i int64) int64 {
+    if 0 <= i && i + 1 < len(a) {
+        j := i + 1
+        return a[j]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-overflow-copy/expected --
+stage: typeck
+---
+
+relation-overflow-copy/main.tck:7:18: error: index j may be out of range; check 0 <= j && j < len(a) first, or use v, ok := ...[j]
+06 |	        j := i + 1
+07 |	        return a[j]
+   |	                 ^
+08 |	    }
+relation-overflow-copy/main.tck:7:18: note: a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too
+06 |	        j := i + 1
+07 |	        return a[j]
+   |	                 ^
+08 |	    }
+
+-- relation-slice-missing-link/main.tck --
+package main
+
+// i <= j and n <= len(a), with nothing relating j to n.
+func part(a []int64, i int64, j int64, n int64) int64 {
+    if 0 <= i && i <= j && n <= len(a) {
+        return len(a[i:n])
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-slice-missing-link/expected --
+stage: typeck
+---
+
+relation-slice-missing-link/main.tck:6:22: error: slice bounds i:n may be out of range; check i <= n first
+05 |	    if 0 <= i && i <= j && n <= len(a) {
+06 |	        return len(a[i:n])
+   |	                     ^~~
+07 |	    }
+relation-slice-missing-link/main.tck:6:24: note: i <= j holds here; check j <= n too
+05 |	    if 0 <= i && i <= j && n <= len(a) {
+06 |	        return len(a[i:n])
+   |	                       ^
+07 |	    }
+
+-- relation-uint-plus/main.tck --
+package main
+
+// A uint64 i + 1 is 0 at the largest uint64, so i + 1 < len(a) holds there.
+func at(a []int64, i uint64) int64 {
+    if i + 1 < len(a) {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-uint-plus/expected --
+stage: typeck
+---
+
+relation-uint-plus/main.tck:6:18: error: index i may be out of range; check i < len(a) first, or use v, ok := ...[i]
+05 |	    if i + 1 < len(a) {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+relation-uint-plus/main.tck:6:18: note: a relation through + or - here holds only where it cannot wrap; check i < 18446744073709551615 too
+05 |	    if i + 1 < len(a) {
+06 |	        return a[i]
+   |	                 ^
+07 |	    }
+
+-- relation-uint-wrap/main.tck --
+package main
+
+// A uint64 j - 1 wraps at j = 0.
+func back(a []int64, j uint64) int64 {
+    if j < len(a) {
+        k := j - 1
+        return a[k]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-uint-wrap/expected --
+stage: typeck
+---
+
+relation-uint-wrap/main.tck:7:18: error: index k may be out of range; check k < len(a) first, or use v, ok := ...[k]
+06 |	        k := j - 1
+07 |	        return a[k]
+   |	                 ^
+08 |	    }
+relation-uint-wrap/main.tck:7:18: note: a relation through + or - here holds only where it cannot wrap; check 1 <= j too
+06 |	        k := j - 1
+07 |	        return a[k]
+   |	                 ^
+08 |	    }
+
+-- relation-write/main.tck --
+package main
+
+// Growing m ends m <= len(a); i < m checked again proves nothing more.
+func at(a []int64, i int64, n int64) int64 {
+    mut m := n
+    if 0 <= i && i < m && m <= len(a) {
+        m = m + 5
+        if i < m {
+            return a[i]
+        }
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-write/expected --
+stage: typeck
+---
+
+relation-write/main.tck:9:22: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+08 |	        if i < m {
+09 |	            return a[i]
+   |	                     ^
+10 |	        }
+relation-write/main.tck:9:22: note: i < m holds here; check m <= len(a) too
+08 |	        if i < m {
+09 |	            return a[i]
+   |	                     ^
+10 |	        }
+
+-- relation-write-index/main.tck --
+package main
+
+// Assigning i ends what the guard said of it.
+func at(a []int64, n int64) int64 {
+    mut i int64 = 0
+    if i < n && n <= len(a) {
+        i = n
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+}
+-- relation-write-index/expected --
+stage: typeck
+---
+
+relation-write-index/main.tck:8:18: error: index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]
+07 |	        i = n
+08 |	        return a[i]
+   |	                 ^
+09 |	    }
+relation-write-index/main.tck:8:18: note: i <= n holds here; check n < len(a) too
+07 |	        i = n
+08 |	        return a[i]
+   |	                 ^
+09 |	    }
+
 -- remove-arity/main.tck --
 package main
 
@@ -26536,27 +27139,6 @@ safety-no-proof-string-equality/main.tck:4:30: error: index 0 may be out of rang
 03 |	func f(s string) uint8 {
 04 |	    if s == "abc" { return s[0] }
    |	                             ^
-05 |	    return 0
-
--- safety-no-proof-string-len-minus-one/main.tck --
-package main
-
-func f(s string, i int64) uint8 {
-    if 0 <= i && i <= len(s) - 1 { return s[i] }
-    return 0
-}
-
-func main() {
-    exit(f("tack", 1))
-}
--- safety-no-proof-string-len-minus-one/expected --
-stage: typeck
----
-
-safety-no-proof-string-len-minus-one/main.tck:4:45: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
-03 |	func f(s string, i int64) uint8 {
-04 |	    if 0 <= i && i <= len(s) - 1 { return s[i] }
-   |	                                            ^
 05 |	    return 0
 
 -- safety-no-proof-unknown-bound/main.tck --

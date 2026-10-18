@@ -55,6 +55,10 @@ const (
 	// guardExit is an if or a switch whose branch leaves the block, for the
 	// rest of the block.
 	guardExit
+	// guardStore is a declaration or an assignment relating what it stores
+	// to what it was computed from, for the rest of the block (see
+	// storedFacts).
+	guardStore
 )
 
 // subject returns how a note names g.
@@ -68,6 +72,8 @@ func (g *guard) subject() string {
 		return "this case"
 	case guardExit:
 		return "this early exit"
+	case guardStore:
+		return "this assignment"
 	default:
 		return "this guard"
 	}
@@ -81,7 +87,7 @@ func (g *guard) where() string {
 		return " in its else branch"
 	case guardLaterCase:
 		return " in the cases after it"
-	case guardExit:
+	case guardExit, guardStore:
 		return " after it"
 	default:
 		return ""
@@ -173,11 +179,13 @@ type proof struct {
 // its variable that was dropped, the guard that gave it and what dropped
 // it, and then, if those facts would not have been enough, or none was
 // dropped, why the facts fall short. A guard's facts that one reason
-// dropped are explained only when one of them is relevant to p.
+// dropped are explained only when one of them is relevant to p. A
+// difference bound is left out: what relations fall short of is a note of
+// its own (see relationNotes).
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
 	for _, f := range c.active {
-		if f.about != p.about || f.relational() && !p.relations {
+		if f.about != p.about || f.relational() && !p.relations || f.diff != nil {
 			continue
 		}
 		f.drop = c.dropOf(f)

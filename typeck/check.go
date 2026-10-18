@@ -152,6 +152,10 @@ type Checker struct {
 	active []fact
 	guards []*guard
 
+	// relIdx is the index of the relations the facts in force give, built
+	// for the generation of them it records (see factGen and relgraph.go).
+	relIdx *relIndex
+
 	// holding is what the bindings of errors in the function being checked
 	// tie together; see errors.go.
 	holding holding
@@ -215,6 +219,10 @@ type Checker struct {
 	// deferred code.
 	deferred   int
 	deferLoops int
+
+	// factGen counts the changes to active: each assume, and each release
+	// that takes facts out of force.
+	factGen int
 
 	// inRejectedDefer is whether the statement being checked is inside a
 	// defer already reported as a defer inside a defer, where a further
@@ -1030,7 +1038,8 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 
 // checkBlock checks each statement of a block in fn. An if whose branch
 // leaves the block gives the statements after it the facts of having got
-// past it.
+// past it, and a declaration or an assignment the relations of what it
+// stored (see storedFacts).
 func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 	m := c.mark()
 	for i, stmt := range body {
@@ -1042,6 +1051,9 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 			if g, facts = c.exitAfterFacts(stmt); len(facts) == 0 {
 				g = nil
 			}
+		}
+		if g == nil {
+			g, facts = c.storedFacts(stmt)
 		}
 		if g != nil {
 			c.assume(g, facts, append(fallsThrough(stmt), stmtNodes(body[i+1:])...))

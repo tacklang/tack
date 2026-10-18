@@ -75,22 +75,23 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 
 // stringIndexProven reports whether the index of s[i] is known to be in
 // range for the string s where it is used: a constant below a known
-// string's length, or below the least length the facts in force give s; or
-// a subject, a variable or a path below an immutable one, at least 0 that
-// is below a known string's length, below the least length of s, or below
-// len(s) itself by a fact.
+// string's length, or below the least length the facts in force give s, or
+// the relations in force do (see relates); or a subject, a variable or a
+// path below an immutable one, at least 0, by its bounds or the relations,
+// that is below a known string's length, below the least length of s, or
+// below len(s) itself by a fact or the relations.
 func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 	if v, ok := c.knownValue(ix.Index); ok {
 		if n, isKnown := c.extentOf(ix.X); isKnown {
 			return c.constantInRange(v, n)
 		}
-		return !v.IsNegative() && v.Cmp(c.minLen(ix.X)) < 0
+		return !v.IsNegative() && (v.Cmp(c.minLen(ix.X)) < 0 || c.lenAbove(ix.X, v))
 	}
 	if !c.isSubject(ix.Index) {
 		return false
 	}
 	known := c.intervalOf(ix.Index)
-	if !known.hasLo || known.lo.IsNegative() {
+	if (!known.hasLo || known.lo.IsNegative()) && !c.atLeast(ix.Index) {
 		return false
 	}
 	return c.belowStringLen(ix.Index, known, ix.X)
@@ -98,15 +99,39 @@ func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 
 // belowStringLen reports whether the subject i, of which known is what the
 // facts say, is below the length of the string s: a known string's
-// constant length, the least length the facts give s, or len(s) itself.
+// constant length, the least length the facts give s, or len(s) itself,
+// by its bounds, a fact or the relations in force.
 func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
 	if n, isKnown := c.extentOf(s); isKnown {
-		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0
+		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0 ||
+			c.atMostBy(i, nil, constant.FromInt64(n-1))
 	}
 	if known.hasHi && known.hi.Cmp(c.minLen(s)) < 0 {
 		return true
 	}
-	return c.belowLen(i, s)
+	return c.belowLen(i, s) || c.belowLenBy(i, s)
+}
+
+// belowLenBy reports whether the relations in force put the subject i
+// below the length of s, a string, view or list subject.
+func (c *Checker) belowLenBy(i, s ast.Expr) bool {
+	ti, okI := c.queryTerm(i)
+	ts, okS := c.lenTerm(s)
+	return okI && okS && c.relates(ti, ts, constant.FromInt64(-1))
+}
+
+// lenAbove reports whether the relations in force put the length of s, a
+// string, view or list subject, above the known value v.
+func (c *Checker) lenAbove(s ast.Expr, v constant.Int) bool {
+	ts, ok := c.lenTerm(s)
+	if !ok {
+		return false
+	}
+	least, ok := v.Add(constant.FromInt64(1))
+	if ok {
+		least, ok = least.Neg()
+	}
+	return ok && c.relates(zeroTerm(), ts, least)
 }
 
 // minLen returns the least length the facts in force give the string s,
@@ -202,7 +227,8 @@ func (c *Checker) stringIndexError(ix *ast.Index, write bool) (string, []diag.Di
 				unit = "element"
 			}
 			e := c.newExtent(ix.X, unit, n, known)
-			return c.explain(c.indexProof(i, e, proven))
+			explained := c.explain(c.indexProof(i, e, proven))
+			return append(explained, c.indexRelationNotes(i, ix.X)...)
 		})
 	}
 	notes = append(notes, c.indexedNotes(ix.X)...)

@@ -271,10 +271,11 @@ func (c *Checker) sliceNeeds(s *ast.Slice) sliceNeed {
 
 // notNegative reports whether the bound b is known not to be negative: a
 // known value that is not, a len, which never is, or anything whose type,
-// and for a subject the facts in force, keep it at or above 0.
+// and for a subject the facts in force, keep it at or above 0, or that the
+// relations in force do.
 func (c *Checker) notNegative(b ast.Expr) bool {
 	lo, ok := c.lowest(b)
-	return ok && !lo.IsNegative()
+	return ok && !lo.IsNegative() || c.atLeast(b)
 }
 
 // lowest returns the least value the bound b can have where it is used,
@@ -312,7 +313,8 @@ func (c *Checker) highest(b ast.Expr) (constant.Int, bool) {
 // of x, which s slices: a known value or a subject's upper bound at most a
 // known length, or at most the least length the facts give x, when x is a
 // subject; len(x) itself; or a subject a fact in force bounds by len(x),
-// below it or at most it.
+// below it or at most it, or the relations in force do, at most len(x),
+// or a known length.
 func (c *Checker) withinLen(b, x ast.Expr) bool {
 	limit := c.minLen(x)
 	if n, ok := c.extentOf(x); ok {
@@ -331,13 +333,25 @@ func (c *Checker) withinLen(b, x ast.Expr) bool {
 		return true
 	}
 	return c.belowLen(b, x) ||
-		c.related(b, x, func(f fact, k factKey) bool { return f.atMostLen == k })
+		c.related(b, x, func(f fact, k factKey) bool { return f.atMostLen == k }) ||
+		c.withinLenBy(b, x)
+}
+
+// withinLenBy reports whether the relations in force put the bound b at
+// most the length of x: a known length, or len(x) for a subject x.
+func (c *Checker) withinLenBy(b, x ast.Expr) bool {
+	if n, ok := c.extentOf(x); ok {
+		return c.atMostBy(b, nil, constant.FromInt64(n))
+	}
+	tb, okB := c.queryTerm(b)
+	tx, okX := c.lenTerm(x)
+	return okB && okX && c.relates(tb, tx, constant.Int{})
 }
 
 // inOrder reports whether the bound lo is known to be at most the bound
 // hi, of a slice of x: they are the same subject; hi is len(x) and lo is
 // at most it; the greatest value lo can have is at most the least hi can;
-// or a fact in force puts lo at or below hi.
+// or a fact in force, or a chain of relations, puts lo at or below hi.
 func (c *Checker) inOrder(lo, hi, x ast.Expr) bool {
 	if c.sameSubject(lo, hi) {
 		return true
@@ -350,7 +364,8 @@ func (c *Checker) inOrder(lo, hi, x ast.Expr) bool {
 	if okTop && okBottom && top.Cmp(bottom) <= 0 {
 		return true
 	}
-	return c.related(lo, hi, func(f fact, k factKey) bool { return f.atMost == k })
+	return c.related(lo, hi, func(f fact, k factKey) bool { return f.atMost == k }) ||
+		c.atMostBy(lo, hi, constant.Int{})
 }
 
 // related reports whether a fact in force about the subject a relates it
@@ -591,6 +606,9 @@ func (c *Checker) sliceNotes(s *ast.Slice, need sliceNeed) []diag.Diagnostic {
 	if need.hi {
 		notes = append(notes, c.boundNotes(s, s.Hi, false)...)
 	}
+	if need.order && s.Lo != nil && s.Hi != nil {
+		notes = append(notes, c.orderRelationNotes(s.Lo, s.Hi)...)
+	}
 	if ast.TypeOf(s.X) == types.String {
 		notes = append(notes, c.indexedNotes(s.X)...)
 	}
@@ -612,7 +630,11 @@ func (c *Checker) boundNotes(s *ast.Slice, b ast.Expr, lower bool) []diag.Diagno
 		}
 		e := c.newExtent(s.X, unit, n, known)
 		e.atEnd = true
-		return c.explain(c.boundProof(b, e, lower, !lower))
+		notes := c.explain(c.boundProof(b, e, lower, !lower))
+		if lower {
+			return append(notes, c.lowerRelationNotes(b)...)
+		}
+		return append(notes, c.upperRelationNotes(b, s.X, constant.Int{})...)
 	}
 	if _, isKnown := c.knownValue(b); isKnown && !lower && c.isSubject(s.X) {
 		return c.explain(c.lengthProof(s.X, func() bool { return c.withinLen(b, s.X) }))

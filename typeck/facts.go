@@ -76,9 +76,11 @@ import (
 // it is not zero, or that it lies at or above lo, or at or below hi, or
 // below the length of the string subject lenOf, or at or below the length
 // of the string subject atMostLen, or at or below the integer subject
-// atMost, or that it is a key in the map subject inMap, which a key whose
-// value is known is by known instead, about being zero then (see
-// memberFact). The last three are relations (see relational). A subject is a variable or
+// atMost, below it when strict, or that it is a key in the map subject
+// inMap, which a key whose value is known is by known instead, about being
+// zero then (see memberFact), or a difference bound between two values,
+// diff (see relations.go). The last four are relations (see relational).
+// A subject is a variable or
 // a path below an immutable one (see subject.go). For a string subject,
 // the fact can be about its length instead, which about then names.
 //
@@ -101,11 +103,13 @@ type fact struct {
 	atMostLen    factKey
 	atMost       factKey
 	inMap        factKey
+	diff         *diffBound
 	known        string
 	ends         []ending
 	lo, hi       constant.Int
 	hasLo, hasHi bool
 	nonzero      bool
+	strict       bool
 }
 
 // holds reports whether f is in force where checking has reached, c.at,
@@ -139,10 +143,10 @@ func (f fact) empty() bool {
 // relational reports whether f is a relation: one a slice's bounds need,
 // its subject at or below a string's or a view's length, or at or below
 // another subject, or a key being in a map, which only a map's element
-// needs. Such a fact gives no bound of its own, and only those proofs ask
-// about it.
+// needs, or a difference bound, which only a query of the relations in
+// force asks about (see relates). Such a fact gives no bound of its own.
 func (f fact) relational() bool {
-	return !f.atMostLen.isZero() || !f.atMost.isZero() || !f.inMap.isZero()
+	return !f.atMostLen.isZero() || !f.atMost.isZero() || !f.inMap.isZero() || f.diff != nil
 }
 
 // interval is what all the facts in force say about a variable's value: at
@@ -174,14 +178,16 @@ func (c *Checker) nonzero(e ast.Expr) bool {
 
 // inRange reports whether a subject used as an index, a variable or a path
 // below an immutable one, is known to lie in [0, n) where it is used, by
-// its type and the facts in force.
+// its type and the facts in force, or, for a bound they do not give, by
+// the relations in force (see relates).
 func (c *Checker) inRange(index ast.Expr, n int64) bool {
 	if !c.isSubject(index) || n == 0 {
 		return false
 	}
 	known := c.intervalOf(index)
-	return known.hasLo && !known.lo.IsNegative() &&
-		known.hasHi && known.hi.Cmp(constant.FromInt64(n-1)) <= 0
+	last := constant.FromInt64(n - 1)
+	return (known.hasLo && !known.lo.IsNegative() || c.atLeast(index)) &&
+		(known.hasHi && known.hi.Cmp(last) <= 0 || c.atMostBy(index, nil, last))
 }
 
 // intervalOf returns what is known about the value of e, a subject: its
@@ -593,14 +599,33 @@ func (ch chainFacts) of(cond ast.Expr, holds bool) ([]fact, bool) {
 	return slices.Clone(ch.facts), true
 }
 
+// takeChain returns the facts factsFrom gives for cond when its value is
+// holds, handing over the facts of the last && or || binary checked, when
+// cond is that binary, rather than a copy of them, and forgetting them.
+// binary asks for its left side's facts this way: that left side is
+// asked about once, by the binary it is the left side of, which then
+// records facts of its own (see joinFacts), so no copy is needed, and a
+// chain of n operators copies none of its facts at each one.
+func (c *Checker) takeChain(cond ast.Expr, holds bool) []fact {
+	ch := c.chain
+	if ch.bin == nil || cond != ch.bin || (ch.bin.Op == ast.And) != holds {
+		return c.factsFrom(cond, holds)
+	}
+	c.chain = chainFacts{}
+	return ch.facts
+}
+
 // joinFacts records the facts of bin, a checked && or || binary, whose
 // left side gives left, as chainFacts holds them: left, each dropped
 // where bin's right side assigns its variable, then the right side's
 // facts. factsFrom gives the same for bin, by walking its left side
-// again; a chain of n operators would walk n of them at each one.
+// again; a chain of n operators would walk n of them at each one. left
+// is the caller's to give up: factsFrom returns a slice of its own, and
+// assume copies each fact it puts in force, so joinFacts marks and
+// extends left in place rather than copying it again.
 func (c *Checker) joinFacts(bin *ast.Binary, left []fact) {
 	holds := bin.Op == ast.And
-	joined := c.dropAssigned(slices.Clone(left), []ast.Node{bin.Y})
+	joined := c.dropAssigned(left, []ast.Node{bin.Y})
 	joined = append(joined, c.factsFrom(bin.Y, holds)...)
 	c.chain = chainFacts{bin: bin, facts: joined}
 }
@@ -714,7 +739,9 @@ func (known interval) fact(k factKey) fact {
 // comparisonFact returns the fact a comparison gives, when its value is
 // holds: about a variable compared with a known value, the length of a
 // string variable compared with one, or a variable below a string
-// variable's length. Either side may be the one the fact is about.
+// variable's length. Either side may be the one the fact is about. A
+// comparison that gives none of those may give difference bounds (see
+// linearFacts).
 func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 	op := cmp.Op
 	if !holds {
@@ -726,7 +753,7 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 	if f, ok := c.orientedFact(cmp.Y, flip(op), cmp.X); ok {
 		return from([]fact{f}, cmp)
 	}
-	return nil
+	return from(c.linearFacts(cmp.X, op, cmp.Y), cmp)
 }
 
 // orientedFact returns the fact that left op right gives about left: a
@@ -750,7 +777,7 @@ func (c *Checker) orientedFact(left ast.Expr, op ast.BinaryOp, right ast.Expr) (
 // relation returns the relation left op right gives about left, an
 // integer subject whose key is about, other than a length: at or below
 // len(s), for left <= len(s), or at or below right, an integer subject,
-// for left <= right or left < right.
+// for left <= right, or below it, strictly, for left < right.
 func (c *Checker) relation(
 	left ast.Expr,
 	about factKey,
@@ -764,7 +791,7 @@ func (c *Checker) relation(
 		return fact{about: about, atMostLen: s}, op == ast.Le
 	}
 	if other, ok := c.keyOf(right); ok && types.IsInteger(ast.TypeOf(right)) {
-		return fact{about: about, atMost: other}, true
+		return fact{about: about, atMost: other, strict: op == ast.Lt}, true
 	}
 	return fact{}, false
 }
@@ -877,7 +904,7 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 // assume puts facts in force for the region about to be checked, coming
 // from g. Each fact keeps every write in the region to its variable, or
 // to the string whose length bounds it, or the subject a relation bounds
-// it by (see endingsIn): the fact holds for code no such write can reach
+// it by (see writeIndex.endings): the fact holds for code no such write can reach
 // (see reaches), and is dropped, marked with the first write that does,
 // everywhere else, so it proves nothing there but can explain an error. A
 // fact that says nothing, such as the one b != 3 gives, is left out
@@ -899,13 +926,18 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 // factsFrom), keeps it.
 func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 	c.guards = append(c.guards, g)
+	c.factGen++
+	var idx writeIndex
 	for _, f := range facts {
 		if f.empty() {
 			continue
 		}
 		f.guard = g
 		if f.drop == nil {
-			f.ends = c.endingsIn(region, f)
+			if idx == nil {
+				idx = c.indexWrites(region)
+			}
+			f.ends = idx.endings(f)
 		}
 		c.active = append(c.active, f)
 	}
@@ -922,19 +954,24 @@ func (c *Checker) mark() mark {
 }
 
 // dropAssigned returns facts with every one that region assigns the
-// variable of, as assignedIn says, marked dropped by that assignment. A
-// fact already dropped keeps its drop.
+// variable of, as writeIndex.assigned says, marked dropped by that
+// assignment. A fact already dropped keeps its drop. The region is walked
+// once for all the facts, not once for each (see writeIndex).
 func (c *Checker) dropAssigned(facts []fact, region []ast.Node) []fact {
+	var idx writeIndex
 	for i := range facts {
 		if facts[i].drop == nil && !facts[i].empty() {
-			facts[i].drop = c.assignedIn(region, facts[i])
+			if idx == nil {
+				idx = c.indexWrites(region)
+			}
+			facts[i].drop = idx.assigned(facts[i])
 		}
 	}
 	return facts
 }
 
 // stmtNodes returns the statements of body as a region assume and
-// assignedIn search.
+// dropAssigned search.
 func stmtNodes(body []ast.Stmt) []ast.Node {
 	nodes := make([]ast.Node, len(body))
 	for i, stmt := range body {
@@ -946,27 +983,30 @@ func stmtNodes(body []ast.Stmt) []ast.Node {
 // release takes out of force every fact and guard assumed since m was
 // taken.
 func (c *Checker) release(m mark) {
+	if len(c.active) != m.facts {
+		c.factGen++
+	}
 	c.active = c.active[:m.facts]
 	c.guards = c.guards[:m.guards]
 }
 
-// assignedIn returns why region drops f: the first assignment in it, in
-// source order, to f's variable, or else to the string whose length bounds
-// it, or the subject a relation bounds it by, or the map it is a key of, a
-// call passing any of them as mut included. It returns nil when region
-// assigns none of them.
-func (c *Checker) assignedIn(region []ast.Node, f fact) *drop {
-	if !f.about.isZero() {
-		if d := c.assignedDrop(region, f.about); d != nil {
-			return d
-		}
+// assigned returns why the region idx indexes drops f: the first write
+// in it, in source order, to f's variable, or else to the string whose
+// length bounds it, or the subject a relation bounds it by, or the map it
+// is a key of, or either node of a difference bound, a call passing any
+// of them as mut included. It returns nil when the region writes none of
+// them.
+func (idx writeIndex) assigned(f fact) *drop {
+	if len(idx) == 0 {
+		return nil
 	}
-	for _, other := range []factKey{f.lenOf, f.atMostLen, f.atMost, f.inMap} {
-		if other.isZero() {
+	var buf [7]factKey
+	for _, k := range f.allKeys(&buf) {
+		if k.isZero() {
 			continue
 		}
-		if d := c.assignedDrop(region, other); d != nil {
-			return d
+		if ws := idx[k.decl]; len(ws) > 0 {
+			return ws[0].drop
 		}
 	}
 	return nil
@@ -987,37 +1027,122 @@ type ending struct {
 	at   int
 }
 
-// endingsIn returns every write in region that may end f, in the order
-// region holds them: each assignment to f's variable, or to the string
-// whose length bounds it, or the subject a relation bounds it by, or the
-// map it is a key of, a call passing any of them as mut included.
-func (c *Checker) endingsIn(region []ast.Node, f fact) []ending {
+// endings returns every write in the region idx indexes that may end
+// f, in the order the region holds them: each assignment to f's
+// variable, or to the string whose length bounds it, or the subject a
+// relation bounds it by, or the map it is a key of, or either node of a
+// difference bound, a call passing any of them as mut included. Each
+// knows the outermost loop in the region that holds it.
+func (idx writeIndex) endings(f fact) []ending {
+	if len(idx) == 0 {
+		return nil
+	}
 	var ends []ending
-	for _, k := range []factKey{f.about, f.lenOf, f.atMostLen, f.atMost, f.inMap} {
-		if !k.isZero() {
-			ends = append(ends, c.writesIn(region, k.decl)...)
+	var buf [7]factKey
+	var seenBuf [7]ast.Decl
+	seen := seenBuf[:0]
+	for _, k := range f.allKeys(&buf) {
+		if k.isZero() || slices.Contains(seen, k.decl) {
+			continue
+		}
+		seen = append(seen, k.decl)
+		for _, w := range idx[k.decl] {
+			var loop ast.Span
+			if len(w.loops) > 0 {
+				loop = w.loops[0]
+			}
+			ends = append(ends, ending{drop: w.drop, loop: loop, at: w.at})
 		}
 	}
 	return ends
 }
 
-// writesIn returns every write to decl in region, however deeply nested,
-// as an ending (see eachWrite), each knowing the outermost loop in region
-// that holds it.
-func (c *Checker) writesIn(region []ast.Node, decl ast.Decl) []ending {
-	var ends []ending
-	c.eachWrite(region, decl, func(w write) {
-		d := &drop{kind: dropAssigned, at: w.shown.Spanned(), name: declName(decl)}
-		if w.call != nil {
-			d.kind, d.text = dropMut, c.factCallee(w.call)
+// writeIndex holds every write in a region, by the declaration it writes,
+// each declaration's in the order the region holds them, as eachWrite
+// finds them. It is built for one use, since whether a target writes
+// through a list depends on types the checker may not have recorded yet
+// (see throughList): assume and dropAssigned each build one and ask it
+// about every fact they take, rather than walking the region once a fact.
+type writeIndex map[ast.Decl][]write
+
+// indexWrites returns the writeIndex of region, from one walk of it:
+// every write eachWrite would find for each declaration, in the same
+// order, with the same loops.
+func (c *Checker) indexWrites(region []ast.Node) writeIndex {
+	idx := make(writeIndex)
+	var loops []ast.Span
+	visit := func(n ast.Node) bool {
+		span := n.Spanned()
+		for len(loops) > 0 && span.Start >= loops[len(loops)-1].End {
+			loops = loops[:len(loops)-1]
 		}
-		var loop ast.Span
-		if len(w.loops) > 0 {
-			loop = w.loops[0]
+		if isLoop(n) {
+			loops = append(loops[:len(loops):len(loops)], span)
 		}
-		ends = append(ends, ending{drop: d, loop: loop, at: w.at})
-	})
-	return ends
+		c.indexNode(idx, n, write{loops: loops, at: span.End})
+		return true
+	}
+	for _, n := range region {
+		loops = nil
+		ast.Walk(n, visit)
+	}
+	return idx
+}
+
+// indexNode adds to idx the writes the node n makes, as eachWrite finds
+// them: each target it assigns, then, for a call, the first argument
+// passing each declaration as mut, as mutWriter finds it. at holds the
+// loops around n and where its writes take effect.
+func (c *Checker) indexNode(idx writeIndex, n ast.Node, at write) {
+	add := func(w write, decl ast.Decl) {
+		w.drop = c.writeDrop(w, decl)
+		idx[decl] = append(idx[decl], w)
+	}
+	for _, target := range assignedTargets(n) {
+		if decl := c.writtenDecl(target); decl != nil {
+			w := at
+			w.shown = target
+			add(w, decl)
+		}
+	}
+	call, ok := n.(*ast.Call)
+	if !ok || isSwap(call) {
+		return
+	}
+	var done []ast.Decl
+	for _, arg := range call.Operands() {
+		m, ok := arg.(*ast.MutArg)
+		if !ok {
+			continue
+		}
+		if decl := c.writtenDecl(m.X); decl != nil && !slices.Contains(done, decl) {
+			done = append(done, decl)
+			w := at
+			w.shown, w.call = m, call
+			add(w, decl)
+		}
+	}
+}
+
+// writtenDecl returns the declaration assigning to target changes, as
+// writes decides it, or nil for none.
+func (c *Checker) writtenDecl(target ast.Expr) ast.Decl {
+	root := ast.Root(target)
+	if root == nil || root.Def == nil || c.throughList(target) {
+		return nil
+	}
+	return root.Def
+}
+
+// writeDrop returns why w, a write to decl, ends a fact: an assignment
+// to decl, or a call passing it as mut.
+func (c *Checker) writeDrop(w write, decl ast.Decl) *drop {
+	if w.call != nil {
+		return &drop{
+			kind: dropMut, at: w.shown.Spanned(), name: declName(decl), text: c.factCallee(w.call),
+		}
+	}
+	return &drop{kind: dropAssigned, at: w.shown.Spanned(), name: declName(decl)}
 }
 
 // write is a write to a variable that eachWrite found: shown, what a note
@@ -1028,6 +1153,7 @@ func (c *Checker) writesIn(region []ast.Node, decl ast.Decl) []ending {
 type write struct {
 	shown ast.Node
 	call  *ast.Call
+	drop  *drop // why the write ends a fact, set only in a writeIndex
 	loops []ast.Span
 	at    int
 }
@@ -1138,27 +1264,6 @@ func inSpan(at int, span ast.Span) bool {
 	return span.Start < at && at <= span.End
 }
 
-// assignedDrop returns the drop for the first assignment in region to the
-// variable the subject k starts from, which names the call when it is a
-// mut argument, or nil when there is none. A path's variable is immutable,
-// so nothing assigns it.
-func (c *Checker) assignedDrop(region []ast.Node, k factKey) *drop {
-	target, call := c.assignment(region, k.decl)
-	switch {
-	case target == nil:
-		return nil
-	case call != nil:
-		return &drop{
-			kind: dropMut,
-			at:   target.Spanned(),
-			name: declName(k.decl),
-			text: c.factCallee(call),
-		}
-	default:
-		return &drop{kind: dropAssigned, at: target.Spanned(), name: declName(k.decl)}
-	}
-}
-
 // factCallee returns the name call calls, as calleeName gives it, or "a
 // function" for a call it cannot name.
 func (c *Checker) factCallee(call *ast.Call) string {
@@ -1166,40 +1271,6 @@ func (c *Checker) factCallee(call *ast.Call) string {
 		return name
 	}
 	return "a function"
-}
-
-// assignment returns the first target, in source order, through which any
-// statement or expression in region, however deeply nested, assigns to
-// decl: an assignment's target, a compound assignment's, an increment's
-// or decrement's, one of an assignment of several values, or a mut
-// argument, which a call may assign through, with the call. It returns
-// nil when there is none.
-func (c *Checker) assignment(region []ast.Node, decl ast.Decl) (ast.Expr, *ast.Call) {
-	var found ast.Expr
-	var by *ast.Call
-	visit := func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.Assign:
-			found = c.writer(found, x.Target, decl)
-		case *ast.IncDec:
-			found = c.writer(found, x.Target, decl)
-		case *ast.MultiAssign:
-			for _, target := range x.Targets {
-				found = c.writer(found, target, decl)
-			}
-		case *ast.Call:
-			if m := c.mutWriter(x, decl); found == nil && m != nil {
-				found, by = m, x
-			}
-		}
-		return found == nil
-	}
-	for _, n := range region {
-		if ast.Walk(n, visit); found != nil {
-			return found, by
-		}
-	}
-	return nil, nil
 }
 
 // mutWriter returns the first of call's arguments, its receiver first,
@@ -1216,15 +1287,6 @@ func (c *Checker) mutWriter(call *ast.Call, decl ast.Decl) *ast.MutArg {
 		}
 	}
 	return nil
-}
-
-// writer returns found, the target already found to assign decl, if any,
-// and otherwise target when assigning to it changes decl.
-func (c *Checker) writer(found, target ast.Expr, decl ast.Decl) ast.Expr {
-	if found == nil && c.writes(target, decl) {
-		return target
-	}
-	return found
 }
 
 // declName returns the name a parameter or variable is declared with.

@@ -89,7 +89,7 @@ func larger[T Any](v []T, less func(T, T) bool, left int64, end int64) int64 {
         return -1
     }
     right := left + 1
-    if 0 <= right && right < end && right < len(v) && less(v[left], v[right]) {
+    if right < end && right < len(v) && less(v[left], v[right]) {
         return right
     }
     return left
@@ -103,7 +103,7 @@ func insertion[T Any](mut l list[T], less func(T, T) bool) {
         mut j := i
         for j > 0 {
             k := j - 1
-            if 0 <= k && k < len(l) && j < len(l) && less(l[j], l[k]) {
+            if j < len(l) && less(l[j], l[k]) {
                 swap(mut l, j, k)
                 j = k
             } else {

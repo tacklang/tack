@@ -267,10 +267,11 @@ The conditions that give facts are:
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it,
   whatever `i`'s integer type, a `uint64` or a target-width type included;
   the same for a view `v`, `len(v) > 0` and `i < len(v)`;
-- for a slice's bounds only, two relations: `j <= len(s)`, for a string
-  or a view, bounds `j` by the length itself, and `i <= j`, or `i < j`,
-  puts `i` at or below `j`, for integer variables of any types. An index
-  or a divisor never uses them;
+- a comparison of two values that are not both known, each a variable,
+  a length or a known value, plus or minus a known amount: `i < n`,
+  `n <= len(a)`, `i == j`, `i + 1 < len(a)`. It relates the two, and
+  relations chain; see relations, below. An index and a slice's bounds
+  use them, and a divisor does not;
 - `c1 && c2` when true gives the facts of both sides; `c1 || c2` when false
   gives the facts of both sides being false; `!c` swaps true and false;
 - `c1 || c2` when true, and `c1 && c2` when false, give only what every
@@ -380,6 +381,92 @@ func early(a [3]int64, i int64) int64 {
     return -1
 }
 ```
+
+### Relations
+
+A comparison of two values gives a *relation*, how far apart they are:
+`i < n` says `i - n <= -1`, and `n <= len(a)` says `n - len(a) <= 0`.
+Relations chain, so the two together prove `i < len(a)`, and a chain may
+run through any number of values, each a parameter, a local variable, an
+immutable global, a path below an immutable one, or the length of a
+string, view or list among them. A declaration or a plain assignment of
+such a value plus or minus a known amount relates what it stores to it,
+in the rest of its block: after `k := j - 1`, `k` is one less than `j`,
+and after `n := len(a)`, `n` is `len(a)`. A relation ends where a fact
+does, at a write to either of its values that can reach the use.
+
+<!-- example: relations -->
+```tack
+func chain(a []int64, i int64, n int64) int64 {
+    if 0 <= i && i < n && n <= len(a) {
+        return a[i]
+    }
+    return -1
+}
+```
+
+<!-- example: relations -->
+```tack
+func back(a []int64, j int64) int64 {
+    if 0 < j && j < len(a) {
+        k := j - 1
+        return a[k] + a[j]
+    }
+    return -1
+}
+```
+
+Arithmetic wraps, so `x + c` is `x` plus `c` only where the sum stays
+within `x`'s type, and a relation through it holds only where the other
+facts in force prove that it does. `i + 1 < len(a)` holds for the largest
+`int64`, whose `i + 1` is the smallest, so on its own it relates nothing:
+<!-- case: relation-overflow -->`if 0 <= i && i + 1 < len(a) { a[i] }`
+is reported, with
+the note <!-- note: relation-overflow -->`a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too`.
+`i < len(a)` alongside it, before or after, rules the wrap out for an
+`int64`, since no length is past the largest `int64`:
+
+<!-- example: relations -->
+```tack
+func next(a []int64, i int64) int64 {
+    if 0 <= i && i < len(a) && i + 1 < len(a) {
+        j := i + 1
+        return a[i] + a[j]
+    }
+    return -1
+}
+```
+
+A narrower type wraps sooner. For an `int8` `i`, `i < len(a)` keeps
+nothing from wrapping, since a length may be past 127,
+so <!-- case: relation-int8-wrap -->`if 0 <= i && i < len(a) && i + 1 < len(a) { j := i + 1; a[j] }`
+is reported, and `i < 100` would rule the wrap out. An unsigned `j - 1`
+wraps at 0, so `0 < j` must hold for `k := j - 1` to be one less than `j`
+(<!-- case: relation-uint-wrap -->`if j < len(a) { k := j - 1; a[k] }`
+is reported for a `uint64` `j`). `len(a) - c` never wraps, since a length
+is never negative, so `i < len(a) - 1` needs nothing more.
+
+A relation is a value less another, so a product is none: the heap's
+child index, <!-- case: relation-multiply -->`c := 2 * r + 1`, relates `c`
+to nothing. Nor does `||` keep relations: of
+<!-- case: relation-or -->`if 0 <= i && (i < n || i < 2) && n <= len(a)`
+only what both sides say of one value is kept. A loop proves only what
+its condition says on each pass, so a loop that moves its bounds must
+restate them in its condition, as a binary search over `lo` and `hi` does:
+
+<!-- example: relations -->
+```tack
+    for 0 <= lo && lo < hi && hi <= len(a) {
+        mid := lo + (hi - lo) / 2
+        if lo <= mid && mid < hi {
+```
+
+A query follows at most 64 related values from the two it is about, so a
+chain longer than that proves nothing past it, and the error says so
+(<!-- case: relation-cap -->a chain of 70 values). When one link is missing from a
+chain that would prove an index, a note names it:
+<!-- case: relation-missing-link -->`if 0 <= i && i < n { a[i] }` gets
+<!-- note: relation-missing-link -->`i < n holds here; check n <= len(a) too`.
 
 ### Where a fact holds
 
@@ -542,10 +629,9 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
 | <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`        | only a name, or a field or element of an immutable variable, is proven  |
 | <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable | an element in a path is proven only at a known index or an immutable name's |
-| <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value gives no fact    |
-| <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | the same                                                                |
+| <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value only relates the two; nothing relates `n` to 3 |
+| <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | a divisor is proven by its own facts only, never by a relation          |
 | <!-- case: mixed-compare-no-lower-bound -->`if i < limit { a[i] }` with `limit := uint64(3)` and `i` an `int64` | a comparison bounds `i` by value, here only above; `i` may be negative |
-| <!-- case: safety-no-proof-string-len-minus-one -->`if 0 <= i && i <= len(s) - 1 { s[i] }`      | `len(s)` of a string variable is not known, and only `i < len(s)` bounds `i` by it |
 | <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
 | <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
 | <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
@@ -568,6 +654,10 @@ code it is about, so its text never repeats a position:
   would have lacked;
 - a guard whose fact holds but is too weak says what it allows, such as
   `i == 3` for a `[3]T`, or that it bounds the index only above.
+- a chain of relations missing one link between two values says what
+  holds and which check would complete it; one through `+` or `-` that
+  could wrap names the check that rules the wrap out; and one past the
+  64 values a query follows says so.
 
 For `for i < 3 { i++; sum += a[i] }` the error is followed
 by <!-- note: safety-no-proof-loop-assigns -->`this guard proves i < 3`,

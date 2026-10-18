@@ -357,7 +357,8 @@ func (c *Checker) requireInRange(ix *ast.Index, typ types.Type, n int64, write b
 	}
 	msg, notes := c.indexError(ix, fmt.Sprint(n), func(i ast.Expr) []diag.Diagnostic {
 		e := c.newExtent(ix.X, "element", n, true)
-		return c.explain(c.indexProof(i, e, func() bool { return c.inRange(index, n) }))
+		notes := c.explain(c.indexProof(i, e, func() bool { return c.inRange(index, n) }))
+		return append(notes, c.indexRelationNotes(i, ix.X)...)
 	})
 	if !write {
 		msg += orUse("v, ok := ...["+c.operandName(index)+"]", strings.HasSuffix(msg, " first"))

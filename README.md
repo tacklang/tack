@@ -2610,9 +2610,25 @@ makes for itself, which has a letter after `tack_`.
   length of the array it ranges over less one, a
   comparison with a known value bounds a variable, as in
   `if 0 <= i && i < len(a)`, and a variable's type bounds it too, so a
-  `uint8` index into a `[256]T` needs nothing. Only a name is proven; an
-  index like `i + 1` needs the two-value form. See
-  [docs/safety.md](docs/safety.md) for every proof and diagnostic.
+  `uint8` index into a `[256]T` needs nothing. Relations between two
+  values prove an index too, and a slice's bounds, though never a
+  divisor: a comparison of two values that are not both known, each a
+  variable, a length or a known value plus or minus a known amount,
+  says how far apart they are, `i < n` that `i - n <= -1`, and
+  relations chain, so `0 <= i && i < n && n <= len(a)` proves `a[i]`.
+  A declaration or a plain assignment of such a value relates what it
+  stores to it for the rest of its block, so `k := j - 1` is one less
+  than `j` and `n := len(a)` is `len(a)`, until a write to either can
+  reach the use. Arithmetic wraps, so a relation through `x + c` or
+  `x - c` counts only where the other facts in force keep it from
+  wrapping in `x`'s type: `0 <= i && i + 1 < len(a)` proves nothing, as
+  `i + 1` wraps for the largest `int64`, while `i < len(a) && i + 1 <
+  len(a)` relates `i + 1` to `len(a)`; for an `int8` `i`, it takes a
+  bound like `i < 100`. `len(a) - c` never wraps. `||` keeps no
+  relation, a product such as `2 * i + 1` is none, and a query follows
+  at most 64 related values. Only a name is proven; an index like
+  `i + 1` needs the two-value form, or `j := i + 1` and a proof of `j`.
+  See [docs/safety.md](docs/safety.md) for every proof and diagnostic.
 - Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
   the same rules: it compiles only where `i` is proven in range, and
   `v, ok := s[i]` (or `v, ok = s[i]`) reads it otherwise, giving `0` and
