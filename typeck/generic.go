@@ -244,6 +244,10 @@ func (c *Checker) typeParamMethod(typ types.Type, sel *ast.Selector) *ast.Func {
 // (see bindTypeArg). It returns the mut argument when arg is one passed to
 // a mut parameter with nothing reported, for the exclusivity check.
 func (c *Checker) typeArg(arg ast.Expr, p param, callee string) *ast.MutArg {
+	arg, ok := c.ownArg(arg, p, callee)
+	if !ok {
+		return nil
+	}
 	m, isMut := arg.(*ast.MutArg)
 	var got types.Type
 	switch {
@@ -459,7 +463,7 @@ func (c *Checker) methodFor(
 }
 
 // sameSig reports whether a and b have the same parameters, each of one
-// type and alike in being mut or variadic, and the same results. The
+// type and alike in being mut, own or variadic, and the same results. The
 // receivers are compared apart.
 func sameSig(a, b methodSig) bool {
 	if len(a.params) != len(b.params) || len(a.results) != len(b.results) {
@@ -467,7 +471,7 @@ func sameSig(a, b methodSig) bool {
 	}
 	for i, p := range a.params {
 		q := b.params[i]
-		if p.Type != q.Type || p.Mut != q.Mut || p.Variadic != q.Variadic {
+		if p.Type != q.Type || p.Mut != q.Mut || p.Own != q.Own || p.Variadic != q.Variadic {
 			return false
 		}
 	}
@@ -480,8 +484,8 @@ func sameSig(a, b methodSig) bool {
 }
 
 // sigText writes s as a diagnostic shows a method's signature, without
-// its receiver or its parameters' names: func(mut Point, ...string)
-// (int64, error).
+// its receiver or its parameters' names: func(mut Point, own Text,
+// ...string) (int64, error).
 func (c *Checker) sigText(s methodSig) string {
 	params := make([]string, len(s.params))
 	for i, p := range s.params {
@@ -490,6 +494,8 @@ func (c *Checker) sigText(s methodSig) string {
 			params[i] = "..." + c.typeName(c.table.Elem(p.Type))
 		case p.Mut:
 			params[i] = "mut " + c.typeName(p.Type)
+		case p.Own:
+			params[i] = "own " + c.typeName(p.Type)
 		default:
 			params[i] = c.typeName(p.Type)
 		}

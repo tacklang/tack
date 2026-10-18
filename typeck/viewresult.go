@@ -31,7 +31,8 @@ import (
 //
 // A function may return as a view only what it was passed and does not
 // own or change: a view parameter, a list or an array that is a parameter
-// that is not mut or a field or element of one, a slice of any of these,
+// that is neither mut nor own, which the function frees when it returns,
+// or a field or element of one, a slice of any of these,
 // or a call returning a view whose borrowed arguments are all such
 // places. A plain parameter is the function's own copy, so an array is
 // returned only when it is reached through a list's or a view's element,
@@ -256,6 +257,9 @@ func (c *Checker) paramRoot(e ast.Expr) (string, bool) {
 		if def.Mut {
 			return root.Name + " is a mut parameter", false
 		}
+		if def.Own {
+			return root.Name + " is an own parameter, which is freed when the function returns", false
+		}
 		return "", true
 	case *ast.Var:
 		if c.globals[def] {
@@ -356,7 +360,9 @@ func (c *Checker) referent(root *ast.Ident) (*ast.Var, ast.Expr, bool) {
 // a view parameter is followed as returnedView follows the value
 // returned; one of any other type holding data, passed by value, is the
 // callee's own copy, which it can only return a view into the lists of,
-// so it needs only to be rooted in a parameter that is not mut. A call
+// so it needs only to be rooted in a parameter that is not mut. An
+// argument to an own parameter is the callee's to free, so no view it
+// returns points into it, and it is passed over. A call
 // that packs values for a variadic parameter packs them into a temporary,
 // which is reported.
 func (c *Checker) callBorrowsParams(call *ast.Call) *viewProblem {
@@ -365,7 +371,7 @@ func (c *Checker) callBorrowsParams(call *ast.Call) *viewProblem {
 		return &viewProblem{at: call, what: c.text(call.Span), why: "it is a temporary"}
 	}
 	for i, arg := range call.Operands() {
-		if _, isMut := arg.(*ast.MutArg); isMut || i >= len(fn.Params) {
+		if _, isMut := arg.(*ast.MutArg); isMut || i >= len(fn.Params) || fn.Params[i].Own {
 			continue
 		}
 		if problem := c.borrowedArg(call, fn.Params[i], arg); problem != nil {
@@ -422,7 +428,8 @@ func (c *Checker) viewCallOf(e ast.Expr) *ast.Call {
 }
 
 // viewBorrows returns the places the view call returns may point into:
-// each of its operands, the receiver among them, that is not mut, holds
+// each of its operands, the receiver among them, that is neither mut nor
+// own, which leaves the caller for the call, holds
 // data (holdsData) and is a place, or what a slice of one slices, and,
 // for one that is itself a call returning a view, the places that call
 // borrows, at any depth. An operand that is not a place, a temporary or
@@ -431,7 +438,8 @@ func (c *Checker) viewCallOf(e ast.Expr) *ast.Call {
 func (c *Checker) viewBorrows(call *ast.Call) []ast.Expr {
 	var places []ast.Expr
 	for _, arg := range call.Operands() {
-		if _, isMut := arg.(*ast.MutArg); isMut {
+		switch arg.(type) {
+		case *ast.MutArg, *ast.OwnArg:
 			continue
 		}
 		if inner := c.viewCallOf(arg); inner != nil {

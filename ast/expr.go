@@ -598,7 +598,8 @@ func literalType(expr Expr) (types.Type, bool) {
 // recordedType returns the type the type checker recorded on an operator
 // expression, a composite literal, an element, a slice, a field or a type
 // assertion, the type it asserts, the type of the place a mut argument
-// names, or Invalid for any other expression.
+// names or of the variable an own argument names, or Invalid for any
+// other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -613,8 +614,8 @@ func recordedType(expr Expr) types.Type {
 		return e.Type
 	case *Selector:
 		return e.Type
-	case *MutArg:
-		return TypeOf(e.X)
+	case *MutArg, *OwnArg:
+		return TypeOf(ArgOperand(e))
 	case *TypeAssert:
 		return e.Type
 	default:
@@ -778,12 +779,12 @@ func (m *MapType) astNode() nodeKey { return _nodeKey }
 // of the value type.
 func (m *MapType) Spanned() Span { return m.Span }
 
-// FuncType is a function type as written, func(A, mut B) R: the type of a
-// value naming a function whose parameters have Params' types, in order,
-// each mut where it is written so, and whose results are Results, none, one
-// alone, or several in parentheses, func(A) (R, error). Each of Params has
-// no name, only its TypeExpr, Mut and MutSpan, and Span, which covers mut
-// and the type. Like MapType it is an expression only so it can stand where
+// FuncType is a function type as written, func(A, mut B, own C) R: the
+// type of a value naming a function whose parameters have Params' types,
+// in order, each mut or own where it is written so, and whose results are
+// Results, none, one alone, or several in parentheses, func(A) (R, error).
+// Each of Params has no name, only its TypeExpr, Mut and MutSpan, Own and
+// OwnSpan, and Span, which covers mut or own and the type. Like MapType it is an expression only so it can stand where
 // a type is written; it never has a value of its own.
 type FuncType struct {
 	Params  []*Param
@@ -1021,3 +1022,36 @@ func (m *MutArg) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the mut keyword through the end of
 // X.
 func (m *MutArg) Spanned() Span { return m.Span }
+
+// OwnArg is an argument passed to an own parameter, own X: X names the
+// variable or own parameter whose value the call moves into the callee.
+// The parser accepts own before any operand, so that one written anywhere
+// but as a call's argument, or before something that is not a variable,
+// gets a precise error from the type checker.
+type OwnArg struct {
+	X    Expr
+	Span Span // the own keyword through the end of X
+}
+
+var _ Expr = (*OwnArg)(nil)
+
+func (o *OwnArg) exprKey() exprKey { return _exprKey }
+
+func (o *OwnArg) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the own keyword through the end of
+// X.
+func (o *OwnArg) Spanned() Span { return o.Span }
+
+// ArgOperand returns what e, a mut or an own argument, is written before:
+// X of either, and nil for any other expression.
+func ArgOperand(e Expr) Expr {
+	switch x := e.(type) {
+	case *MutArg:
+		return x.X
+	case *OwnArg:
+		return x.X
+	default:
+		return nil
+	}
+}

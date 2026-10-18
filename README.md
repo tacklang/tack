@@ -605,6 +605,66 @@ makes for itself, which has a letter after `tack_`.
   gets as a pointer (see extern C). A method's `mut` receiver is a `mut`
   parameter too, and its call, `mut b.write(s)`, passes the receiver as a
   `mut` argument under every rule above (see methods).
+- Own parameters. A parameter written `own p T`, as in `func failure(err
+  error, own detail text.Text) errors.Failure`, takes its argument's value
+  from the caller, which writes `own` before it, as `mut` is written at
+  both ends: `f := failure(e, own t)`. The caller's variable is moved, so
+  it cannot be used again until it is assigned a new value, `t is used
+  after it was moved`, and the callee owns the value: it can read it,
+  borrow it to a plain or a view parameter, return it, store it in a
+  struct, a list or a map, move it on, `give_back(own p)`, or leave it,
+  and it is freed when the function ends, at every exit, early returns
+  and returns from loops included, after its defers. An own parameter is
+  immutable, `cannot assign to parameter p`, `cannot pass mut p: p is an
+  own parameter, which is immutable; move it into a mutable variable with
+  mut x := p`, and `mut u := p` moves it into a variable that can change.
+  Inside the callee it is followed as a local is: a use after it may have
+  been moved, a move in a loop, a defer reading it before a later move,
+  and a defer moving it are each the error a local's would be. What
+  follows `own` at a call is a local variable or an own parameter of the
+  caller: a plain parameter, `cannot move p: it is a parameter, which
+  borrows its caller's value`, a `mut` one, a field, `cannot pass own s.l:
+  a field cannot be moved on its own`, an element, `cannot pass own ls[0]:
+  an element cannot be moved out of what holds it`, and a list being
+  ranged over cannot be passed as `own`. A value no variable holds, a
+  call's result or a literal, is passed with no `own`, `failure(e,
+  text.new(alloc))`, and writing it is `cannot pass own g(): only a
+  variable can be passed as own; pass g() without own`. Leaving `own`
+  out for a variable is `sink takes l as own; pass own t`, writing it for
+  a parameter that is not own, the builtins' included, is `f does not
+  take t as own; pass t`, and `own x` anywhere but as a call's argument is
+  `own x can only be passed to an own parameter`. `append`, `put` and
+  `replace` move what they store with no `own`, as before. An own
+  parameter's type must own something, a list, a map, a struct, an array
+  or a union holding one, or a type parameter: `int64 cannot be an own
+  parameter: it owns no list or map, so it is copied; drop own`, `Allocator`
+  and a function type alike, and a view, an `any`, a variadic parameter, a
+  method's receiver, `a method cannot take its receiver as own; take it as
+  a plain or a mut receiver`, and an extern func's parameter, `parameter l
+  of extern func take cannot be own: C is not held to free what it is
+  given`, are errors; `mut own` is `a parameter cannot be both mut and own;
+  an own parameter is moved into a mutable variable with mut x := p`. A
+  variable passed as `own` leaves the caller as the call begins, so
+  nothing else in the call may name it, no other argument at any depth,
+  no call nested in one, no receiver and no function value being called:
+  `f(t, own t)`, `f(own t, t[0:])`, `f(own t, len(t))`, `f(t, g(own t))`,
+  `f(mut t, own t)` and `s.take(own s)` are each `cannot use t alongside
+  own t in this call: it is moved into the call, and nothing else in the
+  call may reach it`, with a note at the own argument, and `f(own t, own
+  t)` is reported at the second. A view a function returns cannot point
+  into an own parameter, which is freed as it returns, `cannot return a
+  view of l[0:]: l is an own parameter, which is freed when the function
+  returns; ...`. In a generic function, `own x T` takes a value of the
+  type parameter, and its body passes one on as `own x`; a call whose
+  type argument owns nothing passes a copy, `push(mut ints, n)`, and
+  writing `own` for it is `cannot pass own n: int64 owns no list or map,
+  so it is copied; pass n`. `own` is part of a function's type,
+  `func(own list[int64]) int64`, and a method's signature when a type
+  satisfies an interface. In C an own parameter is passed by value, as a
+  plain one is; the caller's variable is emptied as the argument is
+  evaluated, and the callee's block frees the parameter at every exit,
+  which an emptied one, moved on, makes a no-op. `exit` in the callee
+  frees it as it frees every buffer.
 - Views. A parameter written `v []T`, as in `func sum(v []int64) int64`, is
   a read-only view of elements of type `T`: one function takes arrays of
   any length. An array `[N]T` of exactly the element type passes to it as
@@ -1582,8 +1642,11 @@ makes for itself, which has a letter after `tack_`.
   `double` or `bytes.equal`, is a value of its function type, written as
   a signature is, with types alone and commas between them,
   `func(int64) int64`, `func([]uint8, mut list[int64]) (int64, error)`,
-  `func()`: its parameters' types, `mut` before a `mut` one, and its
-  results. Two functions of one signature have one type, and nothing else
+  `func()`: its parameters' types, `mut` before a `mut` one and `own`
+  before an `own` one, `func(own list[int64]) int64`, and its results, so
+  a function taking a list as `own` is never a value of a type that
+  borrows it, `cannot use func(own list[int64]) as func(list[int64]) in
+  declaration of g`, nor the other way round. Two functions of one signature have one type, and nothing else
   widens to one, `cannot use func(int64) int64 as func(int64) bool in
   declaration of g`. A function value is copyable and owns nothing: a
   local, a parameter, a result, a field, an array's, a list's or a view's
@@ -2063,7 +2126,7 @@ makes for itself, which has a letter after `tack_`.
   when for each of the interface's methods it has a method of that name
   that takes its receiver as `mut` exactly when the interface's does,
   with the same parameters, each of the same type and alike in being
-  `mut` or variadic, and the same results: `Expr does not satisfy Sized:
+  `mut`, `own` or variadic, and the same results: `Expr does not satisfy Sized:
   Expr.size takes its receiver as mut, and Sized's size does not`. Each
   of those methods must also be visible where the type is chosen, from
   the package holding the call that binds a type parameter to the type,
@@ -2134,9 +2197,10 @@ makes for itself, which has a letter after `tack_`.
   a generic function makes a value of a type parameter by moving one out
   of a list or getting one from a function value or a call returning one,
   and may return it: `func take[T Any](mut l list[T], mk func() T) T { if
-  len(l) > 0 { return pop(mut l) }; return mk() }`. A parameter is never
-  moved, `cannot move x: it is a parameter, which borrows its caller's
-  value`, and a result of one cannot be dropped, `stuck returns S, which
+  len(l) > 0 { return pop(mut l) }; return mk() }`, or by taking one as
+  an own parameter, `func push[T Any](mut l list[T], own x T) error`
+  (see own parameters). A plain parameter is never moved, `cannot move x:
+  it is a parameter, which borrows its caller's value`, and a result of one cannot be dropped, `stuck returns S, which
   may hold a list and cannot be dropped; bind it to a variable`. A call is written as any call, `render(mut f,
   "x")`; type arguments are never written, `cannot write type arguments;
   they are inferred from the arguments, as in render(...)`. Each type

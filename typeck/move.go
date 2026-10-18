@@ -12,14 +12,17 @@ import (
 // one (types.Table.Owned), has one owner, the variable holding it, which
 // frees it when its block ends. So it is never copied: assigning it,
 // declaring a variable with it, returning it or writing it as a struct
-// literal's field moves it, and the variable it came from cannot be used
-// again until it is assigned a new value. A plain parameter of an owned
-// type borrows its argument, which its caller keeps, and a mut parameter
-// refers to its caller's variable, so neither can be moved, and nor can
-// a field, alone, out of the struct holding it.
+// literal's field, or passing it to an own parameter, moves it, and the
+// variable it came from cannot be used again until it is assigned a new
+// value. An own parameter owns its value as a local variable does, and is
+// followed as one, though it is never assigned. A plain parameter of an
+// owned type borrows its argument, which its caller keeps, and a mut
+// parameter refers to its caller's variable, so neither can be moved, and
+// nor can a field, alone, out of the struct holding it.
 //
 // checkMoves follows each function body in the order it runs, keeping for
-// each local variable of an owned type whether it has been moved, on every
+// each local variable and own parameter of an owned type whether it has
+// been moved, on every
 // path that reaches the point being checked or on some of them, and where.
 // Control flow is structured: an if and a switch join what their branches
 // leave, a branch that returns, breaks or continues leaving nothing to
@@ -68,23 +71,23 @@ type moveFact struct {
 // variables: those moved on some path that reaches it, and how. A dead
 // flow is a point no path reaches, after a return, a break or a continue.
 type flow struct {
-	moved map[*ast.Var]moveFact
+	moved map[ast.Decl]moveFact
 	dead  bool
 }
 
 // live returns a flow at a reachable point where nothing has been moved.
 func live() flow {
-	return flow{moved: make(map[*ast.Var]moveFact)}
+	return flow{moved: make(map[ast.Decl]moveFact)}
 }
 
 // dead returns a flow at a point no path reaches.
 func dead() flow {
-	return flow{dead: true, moved: make(map[*ast.Var]moveFact)}
+	return flow{dead: true, moved: make(map[ast.Decl]moveFact)}
 }
 
 // clone returns a copy of f that can be changed without changing f.
 func (f flow) clone() flow {
-	moved := make(map[*ast.Var]moveFact, len(f.moved))
+	moved := make(map[ast.Decl]moveFact, len(f.moved))
 	for v, mf := range f.moved {
 		moved[v] = moveFact{maybe: mf.maybe, at: slices.Clone(mf.at)}
 	}
@@ -130,10 +133,10 @@ type loopFlow struct {
 	breaks, continues flow
 }
 
-// deferRead is a read, at, of an owned variable v declared outside the
-// defer that reads it.
+// deferRead is a read, at, of an owned variable or own parameter v
+// declared outside the defer that reads it.
 type deferRead struct {
-	v  *ast.Var
+	v  ast.Decl
 	at ast.Span
 }
 
@@ -151,7 +154,7 @@ type mover struct {
 
 	// deferLocals holds the variables the deferred code being followed
 	// declares, which it may move.
-	deferLocals map[*ast.Var]bool
+	deferLocals map[ast.Decl]bool
 
 	// reported holds the defer reads already reported, so a read of a
 	// variable moved twice later is reported once.
@@ -213,14 +216,20 @@ func (c *Checker) checkMoves(fn *ast.Func) {
 	m.block(fn.Body, live())
 }
 
-// ownedLocal returns the local variable id names when it holds an owned
-// value, and nil otherwise.
-func (m *mover) ownedLocal(id *ast.Ident) *ast.Var {
-	v, ok := id.Def.(*ast.Var)
-	if !ok || m.c.globals[v] || !m.c.table.Owned(v.Type) {
-		return nil
+// ownedLocal returns the local variable or the own parameter id names
+// when it holds an owned value, and nil otherwise.
+func (m *mover) ownedLocal(id *ast.Ident) ast.Decl {
+	switch d := id.Def.(type) {
+	case *ast.Var:
+		if !m.c.globals[d] && m.c.table.Owned(d.Type) {
+			return d
+		}
+	case *ast.Param:
+		if d.Own && m.c.table.Owned(d.Type) {
+			return d
+		}
 	}
-	return v
+	return nil
 }
 
 // errorNotes reports an error, unless the loop pass being followed is not
@@ -534,9 +543,8 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 		m.call(x, ctx, cur)
 	case *ast.CompositeLit:
 		m.literal(x, ctx, cur)
-	case *ast.MutArg:
-		m.rangeChange(x.X, "pass mut")
-		m.placeParts(x.X, cur)
+	case *ast.MutArg, *ast.OwnArg:
+		m.argument(x, cur)
 	case *ast.KeyValue:
 		m.expr(x.Value, ctx, cur)
 	default:
@@ -544,6 +552,18 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 			m.expr(part, readCtx, cur)
 		}
 	}
+}
+
+// argument follows e, a mut argument, whose place must be usable and may
+// not be one a range loop or a switch around it holds, or an own argument,
+// whose variable it moves.
+func (m *mover) argument(e ast.Expr, cur *flow) {
+	if x, ok := e.(*ast.MutArg); ok {
+		m.rangeChange(x.X, "pass mut")
+		m.placeParts(x.X, cur)
+		return
+	}
+	m.expr(ast.ArgOperand(e), moveCtx, cur)
 }
 
 // part follows e, a field or an element read in ctx (see selector and
@@ -615,8 +635,8 @@ func readParts(e ast.Expr) []ast.Expr {
 
 // ident follows a name used in ctx: a variable of an owned type must be
 // usable, and in moveCtx it is moved, unless it cannot be (see canMove),
-// which is all that is reported; a parameter of an owned type cannot be
-// moved.
+// which is all that is reported; a parameter of an owned type that is
+// not own cannot be moved.
 func (m *mover) ident(id *ast.Ident, ctx useCtx, cur *flow) {
 	if v := m.ownedLocal(id); v != nil {
 		if ctx == moveCtx && !m.canMove(id, v) {
@@ -698,9 +718,9 @@ func (m *mover) use(id *ast.Ident, cur *flow) {
 	}
 	notes := make([]diag.Diagnostic, len(mf.at))
 	for i, at := range mf.at {
-		notes[i] = note(at, v.Name+" is moved here")
+		notes[i] = note(at, declName(v)+" is moved here")
 		if at == id.Span {
-			notes[i] = note(at, v.Name+" is moved here, in an earlier iteration of the loop")
+			notes[i] = note(at, declName(v)+" is moved here, in an earlier iteration of the loop")
 		}
 	}
 	if mf.maybe {
@@ -718,12 +738,13 @@ func (m *mover) use(id *ast.Ident, cur *flow) {
 // is never moved, deferred code cannot move a variable declared outside
 // it, and a range loop cannot move a list it walks, or anything holding
 // one.
-func (m *mover) canMove(id *ast.Ident, v *ast.Var) bool {
+func (m *mover) canMove(id *ast.Ident, v ast.Decl) bool {
 	if m.movesBinding(id) {
 		return false
 	}
 	if m.deferring && !m.deferLocals[v] {
-		m.errorNotes(id.Span, nil, "a defer cannot move %s, which is declared outside it", v.Name)
+		m.errorNotes(id.Span, nil,
+			"a defer cannot move %s, which is declared outside it", declName(v))
 		return false
 	}
 	return !m.rangeChange(id, "move")
@@ -732,7 +753,7 @@ func (m *mover) canMove(id *ast.Ident, v *ast.Var) bool {
 // move moves the value of v, named by id, out of it: id is marked, so the
 // backend empties v, and v is moved from here on. A defer that reads v
 // and has yet to run would read a moved value, and is reported.
-func (m *mover) move(id *ast.Ident, v *ast.Var, cur *flow) {
+func (m *mover) move(id *ast.Ident, v ast.Decl, cur *flow) {
 	id.Move = true
 	m.deferReadsOf(v, id.Span)
 	mf := cur.moved[v]
@@ -743,15 +764,15 @@ func (m *mover) move(id *ast.Ident, v *ast.Var, cur *flow) {
 
 // deferReadsOf reports every read of v by a defer whose block has not yet
 // ended, which v being moved at at would leave reading a moved value.
-func (m *mover) deferReadsOf(v *ast.Var, at ast.Span) {
+func (m *mover) deferReadsOf(v ast.Decl, at ast.Span) {
 	for _, b := range m.blocks {
 		for _, r := range b.reads {
 			if r.v != v || m.reported[r.at] || !m.report {
 				continue
 			}
 			m.reported[r.at] = true
-			m.c.errorNotes(r.at, []diag.Diagnostic{note(at, v.Name+" is moved here")},
-				"%s is moved after this defer, which reads it when its block ends", v.Name)
+			m.c.errorNotes(r.at, []diag.Diagnostic{note(at, declName(v)+" is moved here")},
+				"%s is moved after this defer, which reads it when its block ends", declName(v))
 		}
 	}
 }
@@ -827,9 +848,9 @@ func prefixOf(a, b ast.Expr) bool {
 // call follows a call used in ctx: its arguments, a method call's
 // receiver first, then, for one of an owned type, that its result has an
 // owner. A plain receiver is read as a plain argument is, borrowed, so a
-// temporary of an owned type is one no variable owns; a value appended to
-// a list of an owned type, or stored by replace, or a key and a value put
-// into a map, is moved into it.
+// temporary of an owned type is one no variable owns; a value passed to
+// an own parameter, appended to a list of an owned type, or stored by
+// replace, or a key and a value put into a map, is moved into it.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
 	moved := m.appendsOwned(call) || isReplace(call) || isPut(call)
@@ -839,9 +860,9 @@ func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 		}
 		argCtx := readCtx
 		switch {
-		case i < len(params) && params[i]:
+		case i < len(params) && params[i].view:
 			argCtx = viewCtx
-		case moved && i > 0:
+		case i < len(params) && params[i].own, moved && i > 0:
 			argCtx = moveCtx
 		}
 		m.expr(arg, argCtx, cur)
@@ -863,11 +884,16 @@ func (m *mover) appendsOwned(call *ast.Call) bool {
 	return m.c.table.IsList(list) && m.c.table.Owned(m.c.table.Elem(list))
 }
 
+// argMode is how a call passes one of its operands: to a view parameter,
+// or spread into a variadic one, where viewArg checks a list that is not
+// a place, or to an own parameter, which takes its value.
+type argMode struct {
+	view, own bool
+}
+
 // callParams says, for each operand of call, a method call's receiver
-// first, whether it is passed to a view parameter, or spread into a
-// variadic one, append's included, where viewArg checks a list that is
-// not a place.
-func (m *mover) callParams(call *ast.Call) []bool {
+// first, how it is passed (see argMode), append's included.
+func (m *mover) callParams(call *ast.Call) []argMode {
 	if isAppend(call) {
 		return appendViews(call)
 	}
@@ -876,25 +902,28 @@ func (m *mover) callParams(call *ast.Call) []bool {
 		return nil
 	}
 	operands := call.Operands()
-	views := make([]bool, len(operands))
+	modes := make([]argMode, len(operands))
 	for i := range operands {
 		if i >= len(fn.Params) {
 			break
 		}
 		p := fn.Params[i]
-		views[i] = m.c.table.IsView(p.Type) && (!p.Variadic || call.Spread)
+		modes[i] = argMode{
+			view: m.c.table.IsView(p.Type) && (!p.Variadic || call.Spread),
+			own:  p.Own,
+		}
 	}
-	return views
+	return modes
 }
 
-// appendViews says, for each argument of call, a call to append, whether
-// it is a view: only a spread, its last argument, is.
-func appendViews(call *ast.Call) []bool {
-	views := make([]bool, len(call.Args))
+// appendViews says, for each argument of call, a call to append, how it is
+// passed: only a spread, its last argument, is a view.
+func appendViews(call *ast.Call) []argMode {
+	modes := make([]argMode, len(call.Args))
 	if call.Spread && len(call.Args) > 0 {
-		views[len(call.Args)-1] = true
+		modes[len(call.Args)-1].view = true
 	}
-	return views
+	return modes
 }
 
 // temporary reports e, a value no variable holds, used in ctx, when it is
@@ -1078,7 +1107,7 @@ func (m *mover) loopTwice(
 // outside it that it reads, which nothing after it in its block may move.
 func (m *mover) deferStmt(d *ast.Defer, cur flow) {
 	outerDeferring, outerLocals, outerLoops := m.deferring, m.deferLocals, m.loops
-	m.deferring, m.deferLocals, m.loops = true, make(map[*ast.Var]bool), nil
+	m.deferring, m.deferLocals, m.loops = true, make(map[ast.Decl]bool), nil
 	in := cur.clone()
 	m.block(d.Body, in)
 	reads := m.deferReads(d)
@@ -1088,8 +1117,8 @@ func (m *mover) deferStmt(d *ast.Defer, cur flow) {
 	}
 }
 
-// deferReads returns every name in d's body of an owned local variable
-// declared outside d.
+// deferReads returns every name in d's body of an owned local variable or
+// own parameter declared outside d.
 func (m *mover) deferReads(d *ast.Defer) []deferRead {
 	var reads []deferRead
 	for _, stmt := range d.Body {

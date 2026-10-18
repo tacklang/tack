@@ -22,10 +22,11 @@ const stdPath = "std"
 // tack_, which the generated C's own names do. Every type can cross to C,
 // and a mut parameter crosses as a pointer, except a list, or a struct or
 // an array holding one, which crosses only by mut or as a view (see
-// checkExternLists), and a map, which never does (see checkExternMaps).
+// checkExternLists), and a map, which never does (see checkExternMaps);
+// and no parameter is own (see checkExternOwn).
 func (c *Checker) checkExtern(fn *ast.Func) {
 	maps := c.checkExternMaps(fn)
-	if c.checkExternFuncs(fn) && maps {
+	if c.checkExternOwn(fn) && c.checkExternFuncs(fn) && maps {
 		c.checkExternLists(fn)
 		c.checkExternUnions(fn)
 		c.checkExternOwnedElems(fn)

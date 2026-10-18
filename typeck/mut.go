@@ -24,12 +24,13 @@ import (
 // mut p to another call is how a reference reaches further.
 
 // param is what checking an argument needs to know about the parameter
-// it is passed to: its name, its type, and whether it is mut, or
+// it is passed to: its name, its type, and whether it is mut, own, or
 // variadic, the last parameter, args ...T, whose type is the view []T.
 type param struct {
 	name     string
 	typ      types.Type
 	mut      bool
+	own      bool
 	variadic bool
 }
 
@@ -52,12 +53,17 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 // argument must be usable as its plain parameter's type, or be what
 // viewArg allows a view parameter, or anyArg an any parameter, to take. A
 // mut argument to a plain parameter, or a plain one to a mut parameter, is
-// reported, and what it holds is still checked for errors of its own. It returns the mut
+// reported, and what it holds is still checked for errors of its own; own
+// is checked first, as ownArg says. It returns the mut
 // argument when arg is one passed to a mut parameter with nothing
 // reported, for the exclusivity check, and nil otherwise.
 func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	if c.inference.mentionsAny(c, p.typ) {
 		return c.inferArg(arg, p, callee)
+	}
+	arg, ok := c.ownArg(arg, p, callee)
+	if !ok {
+		return nil
 	}
 	m, isMut := arg.(*ast.MutArg)
 	switch {
@@ -121,11 +127,14 @@ func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
 // which is matched with no parameter: only for errors of its own, so a
 // mut argument is not reported as passed to a plain parameter.
 func (c *Checker) argExpr(arg ast.Expr) {
-	if m, ok := arg.(*ast.MutArg); ok {
-		c.expr(m.X)
-		return
+	switch x := arg.(type) {
+	case *ast.MutArg:
+		c.expr(x.X)
+	case *ast.OwnArg:
+		c.expr(x.X)
+	default:
+		c.expr(arg)
 	}
-	c.expr(arg)
 }
 
 // place checks e, the place the mut argument m names, or part of it, and
@@ -194,6 +203,11 @@ func (c *Checker) placeName(id *ast.Ident, m *ast.MutArg) types.Type {
 	case *ast.Param:
 		if def.Mut {
 			return typ
+		}
+		if def.Own {
+			c.errorf(m.Span, "cannot pass %s: %s is an own parameter, which is immutable; "+
+				"move it into a mutable variable with mut x := %s", c.text(m.Span), id.Name, id.Name)
+			return types.Invalid
 		}
 		if c.table.IsView(def.Type) {
 			c.readOnly(m.Span, "pass "+c.text(m.Span), id)

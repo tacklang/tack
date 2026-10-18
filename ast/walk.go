@@ -157,7 +157,7 @@ func walkExpr(e Expr, v Visitor) {
 	case *Binary:
 		Walk(e.X, v)
 		Walk(e.Y, v)
-	case *Unary, *MutArg, *Selector, *TypeAssert:
+	case *Unary, *MutArg, *OwnArg, *Selector, *TypeAssert:
 		walkOperand(e, v)
 	case *Call:
 		Walk(e.Fn, v)
@@ -204,7 +204,8 @@ func walkTypeExpr(e Expr, v Visitor) {
 }
 
 // walkOperand walks the children of an expression with one operand: a
-// prefix operator's operand, a mut argument's place, the struct a field
+// prefix operator's operand, a mut argument's place, an own argument's
+// variable, the struct a field
 // is selected from, or a type assertion's operand and then its type, if
 // written.
 func walkOperand(e Expr, v Visitor) {
@@ -212,6 +213,8 @@ func walkOperand(e Expr, v Visitor) {
 	case *Unary:
 		Walk(e.X, v)
 	case *MutArg:
+		Walk(e.X, v)
+	case *OwnArg:
 		Walk(e.X, v)
 	case *Selector:
 		Walk(e.X, v)

@@ -51,7 +51,11 @@
 // A Param written mut p T has Mut set. A call's argument written mut x is
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one
-// anywhere but as a call's argument.
+// anywhere but as a call's argument. A Param written own p T has Own set,
+// and a call's argument written own x is an OwnArg holding x, the variable
+// whose value the call moves into the parameter, accepted and reported
+// the same way. The type checker marks the x of an own argument it
+// accepts as moving its value, Ident.Move, as it marks any other move.
 // A method, func (b Builder) len(), is a Func with Method set, whose
 // receiver is its first parameter, Params[0] (Func.Recv); the resolver
 // records each method on its type's TypeDecl.Methods, a struct's or a

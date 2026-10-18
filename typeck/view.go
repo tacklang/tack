@@ -29,8 +29,19 @@ import (
 // type is written []T, which only a parameter or a result may have, and
 // never a mut one, or when it is variadic, args ...T (see variadicParam); any, which
 // only a parameter may have too, and never a mut one (see anyParam); any
-// other type as declaredType gives it.
+// other type as declaredType gives it. An own parameter's type is then
+// checked as ownParamType says.
 func (c *Checker) paramType(param *ast.Param) types.Type {
+	typ := c.plainParamType(param)
+	if param.Own {
+		return c.ownParamType(param, typ)
+	}
+	return typ
+}
+
+// plainParamType returns the type param is declared with, as paramType
+// says, before own is asked about.
+func (c *Checker) plainParamType(param *ast.Param) types.Type {
 	if param.Variadic {
 		return c.variadicParam(param)
 	}

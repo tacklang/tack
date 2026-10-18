@@ -1320,6 +1320,60 @@ moved later in its block is an error,
 and so is deferred code moving a list declared outside it,
 <!-- error: move-defer-moves-outer -->`a defer cannot move l, which is declared outside it`.
 
+**Own parameters.** A parameter written `own p T` takes its caller's
+value: the caller writes `own x`, its variable is moved as a declaration
+would move it, and the function owns the value, an immutable local, and
+frees it at every exit, after its defers, unless it moved it on first.
+A move empties its variable, so the free at the end of `maybe_pass`
+frees the list on the path that kept it and nothing on the one that
+moved it on:
+
+<!-- example: own-params -->
+```tack
+func maybe_pass(own l list[int64], c bool) int64 {
+    if c {
+        k := give_back(own l)
+        return len(k)
+    }
+    return len(l)
+}
+```
+
+Inside the function an own parameter is followed as a local is,
+<!-- error: own-param-used-after-move -->`p is used after it was moved`,
+<!-- error: own-param-moved-after-defer -->`p is moved after this defer, which reads it when its block ends`.
+Only what the caller owns can be passed as `own`: a plain parameter
+still borrows, <!-- error: own-borrowed-param -->`cannot move p: it is a parameter, which borrows its caller's value`,
+and a field stays in its struct,
+<!-- error: own-field -->`cannot pass own s.l: a field cannot be moved on its own`.
+A list is never copied for a call, so a variable passed as `own`, which
+the callee may grow or free, is the only way the call reaches it: any
+other name of it in the call, an argument, one nested in a call inside
+an argument, a receiver or the function value called, is an error,
+
+<!-- case: own-in-nested-call -->
+```tack
+    f(t, g(own t))
+```
+
+reports <!-- error: own-in-nested-call -->`cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it`,
+with <!-- note: own-in-nested-call -->`t is passed as own here`. A view
+a function returns outlives its call, so it cannot point into an own
+parameter, which the call frees,
+<!-- error: own-param-view-returned -->`cannot return a view of l[0:]: l is an own parameter, which is freed when the function returns; a returned view can only point into what a parameter that is not mut holds`.
+`own` is part of a function's type, so a function that frees what it is
+given is never called through a type whose callers keep and free it
+too, <!-- error: own-func-value-drops-own -->`cannot use func(own list[int64]) as func(list[int64]) in declaration of g`,
+and a method satisfies an interface's only when they agree on it. C is
+not held to free what it is given, so no extern func takes an own
+parameter, <!-- error: own-extern-param -->`parameter l of extern func take cannot be own: C is not held to free what it is given`.
+`examples/own-params` returns, stores, moves on, rebinds, borrows and
+frees values given by own parameters, through generic functions, an
+interface's method and function values, makes every allocation fail in
+turn, and checks that its allocator holds nothing after each group;
+`examples/own-exit` calls `exit` in a function owning two lists, and
+checks nothing is live as the process ends.
+
 **No buffer read after it moves.** Growing a list may move its buffer
 and free the old one, so nothing may read the old one then. A list is
 never copied for a call, so an argument that reads one in place, a list

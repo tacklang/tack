@@ -77,6 +77,11 @@ const (
 	// which holds one of its named cases. It comes last so that adding
 	// it numbered no earlier keyword anew.
 	Union
+
+	// Own marks a parameter that takes its argument from the caller, own t
+	// T, and the argument a call moves into one, f(own t). It comes after
+	// Union for the same reason Union comes last.
+	Own
 )
 
 var keywordNames = map[KeywordType]string{
@@ -125,6 +130,8 @@ var keywordNames = map[KeywordType]string{
 	List: "list",
 
 	CAllocator: "c_allocator",
+
+	Own: "own",
 }
 
 // String returns the keyword as written in source.

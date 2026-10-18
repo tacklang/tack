@@ -87,7 +87,7 @@ func (c *Checker) substitute(typ types.Type, args map[types.Type]types.Type) typ
 	case c.table.IsFunc(typ):
 		params := make([]types.FuncParam, len(c.table.FuncParams(typ)))
 		for i, p := range c.table.FuncParams(typ) {
-			params[i] = types.FuncParam{Type: c.substitute(p.Type, args), Mut: p.Mut}
+			params[i] = types.FuncParam{Type: c.substitute(p.Type, args), Mut: p.Mut, Own: p.Own}
 		}
 		results := make([]types.Type, len(c.table.FuncResults(typ)))
 		for i, r := range c.table.FuncResults(typ) {
@@ -130,6 +130,10 @@ func (c *Checker) inferArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 // reporting a mut argument to a plain parameter or a plain one to a mut
 // parameter as checkArg does.
 func (c *Checker) inferFrom(arg ast.Expr, p param, callee string) *ast.MutArg {
+	arg, ok := c.ownArg(arg, p, callee)
+	if !ok {
+		return nil
+	}
 	m, isMut := arg.(*ast.MutArg)
 	switch {
 	case p.mut && isMut:
@@ -256,14 +260,14 @@ func (c *Checker) sameElemKind(want, got types.Type) bool {
 }
 
 // sameShape reports whether the function types a and b have as many
-// parameters, mut at the same positions, and as many results.
+// parameters, mut and own at the same positions, and as many results.
 func (c *Checker) sameShape(a, b types.Type) bool {
 	pa, pb := c.table.FuncParams(a), c.table.FuncParams(b)
 	if len(pa) != len(pb) || len(c.table.FuncResults(a)) != len(c.table.FuncResults(b)) {
 		return false
 	}
 	for i := range pa {
-		if pa[i].Mut != pb[i].Mut {
+		if pa[i].Mut != pb[i].Mut || pa[i].Own != pb[i].Own {
 			return false
 		}
 	}

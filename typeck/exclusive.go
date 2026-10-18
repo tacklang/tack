@@ -240,8 +240,10 @@ func (known interval) single() bool {
 // fields never do, and two elements always may. A value append adds is
 // no borrow: it is copied, or moved, out of the place it is read from.
 // An argument that is a view a call returns is checked by
-// checkViewBorrows, first.
+// checkViewBorrows, first, and a variable passed as own, which nothing
+// else in the call may name, by checkOwnExclusive, before that.
 func (c *Checker) checkListBorrows(call *ast.Call) {
+	c.checkOwnExclusive(call)
 	c.checkViewBorrows(call)
 	operands := call.Operands()
 	for i, arg := range operands {

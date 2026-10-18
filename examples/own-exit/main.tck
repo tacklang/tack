@@ -1,0 +1,54 @@
+package main
+
+// exit in a function that owns what it was given. main moves a list into
+// hold by an own parameter, and hold moves it, and one of its own, on to
+// quit, which calls exit(3) with both still live: no defer and no free
+// runs, and every allocator frees every buffer it still holds before the
+// process ends, which live.c's destructor checks. main's variable was
+// emptied by the move, so nothing would free the list twice either way.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("own_exit_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// numbers returns a list of 1 to n.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// quit exits with both lists it owns still live.
+func quit(own a list[int64], own b list[int64]) {
+    check(len(a) == 3 && len(b) == 2 && live() == 2, "both lists live in quit")
+    defer {
+        print("a defer ran FAIL\n")
+    }
+    exit(3)
+}
+
+// hold makes a list of its own and moves both on to quit.
+func hold(own a list[int64]) {
+    b := numbers(2)
+    quit(own a, own b)
+}
+
+func main() {
+    l := numbers(3)
+    hold(own l)
+    print("returned from exit FAIL\n")
+}

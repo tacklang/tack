@@ -156,6 +156,19 @@
 // that reads a variable another argument passes as mut gets the value it
 // had when it was evaluated.
 //
+// An own parameter, own p T, is passed by value too, T p_p, the C type a
+// plain one has, so a function value's type needs nothing new in C. An own
+// argument, own x, is the move of x, which the checker marked: its value
+// taken through a temporary and the variable emptied, (tack_o3 = v_x, v_x
+// = (T){}, tack_o3), so nothing in the caller frees it again. The callee's
+// body, the first block its frame opens, adds a free for each own
+// parameter of an owned type to its cleanup chain ahead of every
+// statement (addParamFrees), so it is freed at every exit, after every
+// defer, as a local declared first would be; a move out of it, return p
+// or own p to another call, empties p_p the same way, which makes that
+// free a no-op. In an instance of a generic function whose type argument
+// owns nothing, there is no free and a move is a copy.
+//
 // A method, of a struct or a union, is a C function of its own taking its
 // receiver first, a mut receiver as a pointer, as a mut parameter is. A
 // method call, x.m(args) or mut x.m(args), is lowered as the call of that

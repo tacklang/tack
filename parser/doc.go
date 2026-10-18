@@ -71,8 +71,8 @@
 //
 // A type is a name, an array type, [n]T, a view type, []T, a list type,
 // list[T], list being a keyword, a map type, map[K]V, map being one, or a
-// function type, func(A, mut B) R, an ast.FuncType: its parameters' types
-// in parentheses, mut before one that is mut, with commas between them,
+// function type, func(A, mut B, own C) R, an ast.FuncType: its parameters'
+// types in parentheses, mut or own before one that is so, with commas between them,
 // none named, a name before a type reported, and none variadic, then its
 // results as a function's are written; a name and a type after one with
 // no results start the next parameter of a list it is written in, f func()
@@ -123,7 +123,11 @@
 // whose Fn is the Selector, whose X is the receiver. mut before an operand
 // that is a method call, mut x.m(args), makes the receiver, what comes
 // before the last .m(, a MutArg, the call of a mut receiver; mut before a
-// call in parentheses, mut (x.m()), covers the call. A statement may be a
+// call in parentheses, mut (x.m()), covers the call. own before an operand
+// makes an OwnArg of it, whatever the operand, a method call included,
+// since no receiver is ever own; which ones are allowed is the type
+// checker's to judge. own before an interface's method name, which would
+// take its receiver as own, is reported. A statement may be a
 // method call, x.m(), f().m() or a[i].f.m(), told apart from an
 // assignment by looking past its brackets, fields, calls and assertions,
 // each matched pair scanned once, to see that it ends in .name(...); and
@@ -153,7 +157,9 @@
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.
 // A parameter is a name and a type, with mut before the name for a mut
-// parameter, mut p T, whose span then starts at mut, and ... before the
+// parameter, mut p T, or own for an own one, own p T, whose span then
+// starts at the keyword, mut and own together, in either order, reported
+// at the second, and ... before the
 // type for a variadic one, args ...T, whose TypeExpr is then the element
 // type T. A variadic parameter followed by another, a second variadic
 // included, is reported at its ..., and so is a ... wherever else a type

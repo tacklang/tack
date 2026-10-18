@@ -61,8 +61,11 @@ func (c *Checker) funcType(ft *ast.FuncType) types.Type {
 	params := make([]types.FuncParam, len(ft.Params))
 	for i, p := range ft.Params {
 		typ := c.funcTypeParam(p)
+		if p.Own {
+			typ = c.ownParamType(p, typ)
+		}
 		ok = ok && typ != types.Invalid
-		params[i] = types.FuncParam{Type: typ, Mut: p.Mut}
+		params[i] = types.FuncParam{Type: typ, Mut: p.Mut, Own: p.Own}
 	}
 	results := make([]types.Type, len(ft.Results))
 	for i, r := range ft.Results {
@@ -134,7 +137,7 @@ func (c *Checker) funcValue(id *ast.Ident, fn *ast.Func) types.Type {
 		if p.Type == types.Invalid {
 			return types.Invalid
 		}
-		params[i] = types.FuncParam{Type: p.Type, Mut: p.Mut}
+		params[i] = types.FuncParam{Type: p.Type, Mut: p.Mut, Own: p.Own}
 	}
 	for _, typ := range fn.ResultTypes {
 		if typ == types.Invalid {
@@ -210,7 +213,9 @@ func (c *Checker) dynamicFunc(typ types.Type) *ast.Func {
 	ps := c.table.FuncParams(typ)
 	params := make([]*ast.Param, len(ps))
 	for i, p := range ps {
-		params[i] = &ast.Param{Name: fmt.Sprintf("argument %d", i+1), Type: p.Type, Mut: p.Mut}
+		params[i] = &ast.Param{
+			Name: fmt.Sprintf("argument %d", i+1), Type: p.Type, Mut: p.Mut, Own: p.Own,
+		}
 	}
 	fn := &ast.Func{
 		Name:        c.typeName(typ),

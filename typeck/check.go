@@ -99,6 +99,10 @@ type Checker struct {
 	// over: they refer to the element in place (see move.go).
 	rangeBindings map[*ast.Var]ast.Expr
 
+	// ownReported holds the names checkOwnExclusive has reported, so a
+	// call around the one that reported a name does not report it again.
+	ownReported map[ast.Span]bool
+
 	// tagWrites remembers, for each switch with a tag that tagFacts has
 	// been asked about, where its values first may assign a variable.
 	tagWrites map[*ast.Switch]tagWrite
@@ -240,6 +244,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		unionState:    make(map[types.Type]progress),
 		unionBindings: make(map[*ast.Var]ast.Expr),
 		rangeBindings: make(map[*ast.Var]ast.Expr),
+		ownReported:   make(map[ast.Span]bool),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
 
 		knownVars:     make(map[*ast.Var]knownResult),
@@ -1970,6 +1975,7 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 	for _, param := range fn.Params {
 		param.Type = c.paramType(param)
 	}
+	c.ownReceiver(fn)
 }
 
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {

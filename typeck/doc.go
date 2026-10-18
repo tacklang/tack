@@ -642,8 +642,11 @@
 // Allocator, a function value, and anything holding one, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable
-// is not used again until it is assigned, a parameter and a field are
-// never moved, a list no variable holds is given an owner where it is
+// is not used again until it is assigned, a parameter that is not own and
+// a field are never moved, an own parameter is followed as a local (see
+// own.go, which checks how own is written on parameters and arguments,
+// and that nothing else in a call names a variable passed as own), a list
+// no variable holds is given an owner where it is
 // made, a defer reads no list moved later in its block and moves none
 // declared outside it, and a range over a list cannot change it. A list
 // read in place by one argument cannot share a call with a mut argument

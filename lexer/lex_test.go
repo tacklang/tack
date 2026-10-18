@@ -978,6 +978,22 @@ func TestDeclarationKeywords(t *testing.T) {
 	}
 }
 
+// TestOwnKeyword pins own as a keyword, and that a longer word starting
+// with it, or a name holding it, is an identifier.
+func TestOwnKeyword(t *testing.T) {
+	out := lex(t, "own")
+	checkInvariants(t, "own", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.Own {
+		t.Errorf("%q lexed as %s, want keyword own", "own", out.tokens[0].String())
+	}
+	for _, src := range []string{"owner", "owns", "_own", "own_", "Own"} {
+		out := lex(t, src)
+		if out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}
+
 // TestBoolKeywords pins true and false as keywords, and that a longer word
 // starting with one is an identifier.
 func TestBoolKeywords(t *testing.T) {

@@ -2,6 +2,9 @@
 // the pipeline: it takes a *source.File and produces the []Token the parser
 // consumes, plus diagnostics for anything it could not tokenize.
 //
+// own is a keyword like mut, reserved everywhere, though only a parameter
+// and a call's argument use it.
+//
 // The lexer works on bytes, not runes. Identifiers are ASCII letters, digits
 // and underscores; any other byte outside a literal or comment is reported as
 // an invalid character and skipped. Lexing continues past every error, so a

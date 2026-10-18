@@ -21397,6 +21397,1361 @@ os-write-file-dropped/main.tck:6:5: error: the error os.write_file returns canno
    |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 07 |	}
 
+-- own-after-borrowed-in-one-call/main.tck --
+package main
+
+func f(b list[int64], own a list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(t, own t)
+}
+-- own-after-borrowed-in-one-call/expected --
+stage: typeck
+---
+
+own-after-borrowed-in-one-call/main.tck:8:7: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(t, own t)
+   |	      ^
+09 |	}
+own-after-borrowed-in-one-call/main.tck:8:10: note: t is passed as own here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(t, own t)
+   |	         ^~~~~
+09 |	}
+
+-- own-allocator-param/main.tck --
+package main
+
+func f(own a Allocator) {
+}
+
+func main() {
+}
+-- own-allocator-param/expected --
+stage: typeck
+---
+
+own-allocator-param/main.tck:3:8: error: Allocator cannot be an own parameter: it owns no list or map, so it is copied; drop own
+02 |	
+03 |	func f(own a Allocator) {
+   |	       ^~~
+04 |	}
+
+-- own-alongside-len/main.tck --
+package main
+
+func f(own a list[int64], n int64) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(own t, len(t))
+}
+-- own-alongside-len/expected --
+stage: typeck
+---
+
+own-alongside-len/main.tck:8:18: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, len(t))
+   |	                 ^
+09 |	}
+own-alongside-len/main.tck:8:7: note: t is passed as own here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, len(t))
+   |	      ^~~~~
+09 |	}
+
+-- own-alongside-mut/main.tck --
+package main
+
+func f(mut b list[int64], own a list[int64]) {
+}
+
+func main() {
+    mut t := make(list[int64], c_allocator)
+    f(mut t, own t)
+}
+-- own-alongside-mut/expected --
+stage: typeck
+---
+
+own-alongside-mut/main.tck:8:11: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    mut t := make(list[int64], c_allocator)
+08 |	    f(mut t, own t)
+   |	          ^
+09 |	}
+own-alongside-mut/main.tck:8:14: note: t is passed as own here
+07 |	    mut t := make(list[int64], c_allocator)
+08 |	    f(mut t, own t)
+   |	             ^~~~~
+09 |	}
+
+-- own-alongside-receiver/main.tck --
+package main
+
+type S struct {
+    l list[int64]
+}
+
+func (s S) take(own o S) {
+}
+
+func main() {
+    s := S{l: make(list[int64], c_allocator)}
+    s.take(own s)
+}
+-- own-alongside-receiver/expected --
+stage: typeck
+---
+
+own-alongside-receiver/main.tck:12:5: error: cannot use s alongside own s in this call: it is moved into the call, and nothing else in the call may reach it
+11 |	    s := S{l: make(list[int64], c_allocator)}
+12 |	    s.take(own s)
+   |	    ^
+13 |	}
+own-alongside-receiver/main.tck:12:12: note: s is passed as own here
+11 |	    s := S{l: make(list[int64], c_allocator)}
+12 |	    s.take(own s)
+   |	           ^~~~~
+13 |	}
+
+-- own-alongside-through-func-value/main.tck --
+package main
+
+func two(own a list[int64], b list[int64]) {
+}
+
+func main() {
+    f := two
+    t := make(list[int64], c_allocator)
+    f(own t, t)
+}
+-- own-alongside-through-func-value/expected --
+stage: typeck
+---
+
+own-alongside-through-func-value/main.tck:9:14: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+08 |	    t := make(list[int64], c_allocator)
+09 |	    f(own t, t)
+   |	             ^
+10 |	}
+own-alongside-through-func-value/main.tck:9:7: note: t is passed as own here
+08 |	    t := make(list[int64], c_allocator)
+09 |	    f(own t, t)
+   |	      ^~~~~
+10 |	}
+
+-- own-alongside-view/main.tck --
+package main
+
+func f(own a list[int64], v []int64) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(own t, t[0:])
+}
+-- own-alongside-view/expected --
+stage: typeck
+---
+
+own-alongside-view/main.tck:8:14: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, t[0:])
+   |	             ^
+09 |	}
+own-alongside-view/main.tck:8:7: note: t is passed as own here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, t[0:])
+   |	      ^~~~~
+09 |	}
+
+-- own-any-param/main.tck --
+package main
+
+func f(own a any) {
+}
+
+func main() {
+}
+-- own-any-param/expected --
+stage: typeck
+---
+
+own-any-param/main.tck:3:8: error: an any cannot be an own parameter: it only borrows the value it holds
+02 |	
+03 |	func f(own a any) {
+   |	       ^~~
+04 |	}
+
+-- own-as-name/main.tck --
+package main
+
+func main() {
+    own := 1
+}
+-- own-as-name/expected --
+stage: parse
+---
+
+own-as-name/main.tck:4:5: error: expected 'statement' found 'own'
+03 |	func main() {
+04 |	    own := 1
+   |	    ^
+05 |	}
+
+-- own-borrowed-param/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(p list[int64]) {
+    sink(own p)
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(t)
+}
+-- own-borrowed-param/expected --
+stage: typeck
+---
+
+own-borrowed-param/main.tck:7:14: error: cannot move p: it is a parameter, which borrows its caller's value
+06 |	func f(p list[int64]) {
+07 |	    sink(own p)
+   |	             ^
+08 |	}
+
+-- own-copyable-arg-in-generic-call/main.tck --
+package main
+
+type Any interface {
+}
+
+func push[T Any](mut l list[T], own x T) error {
+    return append(mut l, x)
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    n := 7
+    e := push(mut l, own n)
+    exit(int32(e.code))
+}
+-- own-copyable-arg-in-generic-call/expected --
+stage: typeck
+---
+
+own-copyable-arg-in-generic-call/main.tck:13:22: error: cannot pass own n: int64 owns no list or map, so it is copied; pass n
+12 |	    n := 7
+13 |	    e := push(mut l, own n)
+   |	                     ^~~~~
+14 |	    exit(int32(e.code))
+
+-- own-copyable-param/main.tck --
+package main
+
+func f(own n int64) int64 {
+    return n
+}
+
+func main() {
+    if f(1) == 0 {
+        print("zero\n")
+    }
+}
+-- own-copyable-param/expected --
+stage: typeck
+---
+
+own-copyable-param/main.tck:3:8: error: int64 cannot be an own parameter: it owns no list or map, so it is copied; drop own
+02 |	
+03 |	func f(own n int64) int64 {
+   |	       ^~~
+04 |	    return n
+
+-- own-copyable-struct-param/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func f(own p P) int64 {
+    return p.x
+}
+
+func main() {
+}
+-- own-copyable-struct-param/expected --
+stage: typeck
+---
+
+own-copyable-struct-param/main.tck:7:8: error: P cannot be an own parameter: it owns no list or map, so it is copied; drop own
+06 |	
+07 |	func f(own p P) int64 {
+   |	       ^~~
+08 |	    return p.x
+
+-- own-element/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    mut ls := make(list[list[int64]], c_allocator)
+    if len(ls) > 0 {
+        sink(own ls[0])
+    }
+}
+-- own-element/expected --
+stage: typeck
+---
+
+own-element/main.tck:9:14: error: cannot pass own ls[0]: an element cannot be moved out of what holds it
+08 |	    if len(ls) > 0 {
+09 |	        sink(own ls[0])
+   |	             ^~~~~~~~~
+10 |	    }
+
+-- own-elsewhere/main.tck --
+package main
+
+func main() {
+    t := make(list[int64], c_allocator)
+    u := own t
+    if len(u) == 0 {
+        print("empty\n")
+    }
+}
+-- own-elsewhere/expected --
+stage: typeck
+---
+
+own-elsewhere/main.tck:5:10: error: own t can only be passed to an own parameter
+04 |	    t := make(list[int64], c_allocator)
+05 |	    u := own t
+   |	         ^~~~~
+06 |	    if len(u) == 0 {
+
+-- own-extern-param/main.tck --
+package main
+
+extern("c_take") func take(own l list[int64])
+
+func main() {
+}
+-- own-extern-param/expected --
+stage: typeck
+---
+
+own-extern-param/main.tck:3:28: error: parameter l of extern func take cannot be own: C is not held to free what it is given
+02 |	
+03 |	extern("c_take") func take(own l list[int64])
+   |	                           ^~~
+04 |	
+
+-- own-field/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+type S struct {
+    l list[int64]
+}
+
+func main() {
+    s := S{l: make(list[int64], c_allocator)}
+    sink(own s.l)
+}
+-- own-field/expected --
+stage: typeck
+---
+
+own-field/main.tck:12:10: error: cannot pass own s.l: a field cannot be moved on its own
+11 |	    s := S{l: make(list[int64], c_allocator)}
+12 |	    sink(own s.l)
+   |	         ^~~~~~~
+13 |	}
+
+-- own-func-type-copyable/main.tck --
+package main
+
+func apply(f func(own int64)) {
+}
+
+func main() {
+}
+-- own-func-type-copyable/expected --
+stage: typeck
+---
+
+own-func-type-copyable/main.tck:3:19: error: int64 cannot be an own parameter: it owns no list or map, so it is copied; drop own
+02 |	
+03 |	func apply(f func(own int64)) {
+   |	                  ^~~
+04 |	}
+
+-- own-func-type-mut-own/main.tck --
+package main
+
+func apply(f func(mut own list[int64])) {
+}
+
+func main() {
+}
+-- own-func-type-mut-own/expected --
+stage: parse
+---
+
+own-func-type-mut-own/main.tck:3:23: error: a parameter cannot be both mut and own; an own parameter is moved into a mutable variable with mut x := p
+02 |	
+03 |	func apply(f func(mut own list[int64])) {
+   |	                      ^~~
+04 |	}
+
+-- own-func-value-adds-own/main.tck --
+package main
+
+func borrow(l list[int64]) {
+}
+
+func main() {
+    var g func(own list[int64]) = borrow
+    g(make(list[int64], c_allocator))
+}
+-- own-func-value-adds-own/expected --
+stage: typeck
+---
+
+own-func-value-adds-own/main.tck:7:35: error: cannot use func(list[int64]) as func(own list[int64]) in declaration of g
+06 |	func main() {
+07 |	    var g func(own list[int64]) = borrow
+   |	                                  ^~~~~~
+08 |	    g(make(list[int64], c_allocator))
+
+-- own-func-value-drops-own/main.tck --
+package main
+
+func consume(own l list[int64]) {
+}
+
+func main() {
+    var g func(list[int64]) = consume
+    g(make(list[int64], c_allocator))
+}
+-- own-func-value-drops-own/expected --
+stage: typeck
+---
+
+own-func-value-drops-own/main.tck:7:31: error: cannot use func(own list[int64]) as func(list[int64]) in declaration of g
+06 |	func main() {
+07 |	    var g func(list[int64]) = consume
+   |	                              ^~~~~~~
+08 |	    g(make(list[int64], c_allocator))
+
+-- own-func-value-param/main.tck --
+package main
+
+func f(own g func()) {
+}
+
+func main() {
+}
+-- own-func-value-param/expected --
+stage: typeck
+---
+
+own-func-value-param/main.tck:3:8: error: func() cannot be an own parameter: it owns no list or map, so it is copied; drop own
+02 |	
+03 |	func f(own g func()) {
+   |	       ^~~
+04 |	}
+
+-- own-function-name/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func helper() {
+}
+
+func main() {
+    sink(own helper)
+}
+-- own-function-name/expected --
+stage: typeck
+---
+
+own-function-name/main.tck:10:10: error: cannot pass own helper: only a variable can be passed as own
+09 |	func main() {
+10 |	    sink(own helper)
+   |	         ^~~~~~~~~~
+11 |	}
+
+-- own-in-nested-call/main.tck --
+package main
+
+func g(own l list[int64]) int64 {
+    return len(l)
+}
+
+func f(b list[int64], n int64) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(t, g(own t))
+}
+-- own-in-nested-call/expected --
+stage: typeck
+---
+
+own-in-nested-call/main.tck:12:7: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+11 |	    t := make(list[int64], c_allocator)
+12 |	    f(t, g(own t))
+   |	      ^
+13 |	}
+own-in-nested-call/main.tck:12:12: note: t is passed as own here
+11 |	    t := make(list[int64], c_allocator)
+12 |	    f(t, g(own t))
+   |	           ^~~~~
+13 |	}
+
+-- own-interface-method-adds-own/main.tck --
+package main
+
+type Taker interface {
+    take(l list[int64])
+}
+
+type S struct {
+}
+
+func (s S) take(own l list[int64]) {
+}
+
+func use[T Taker](t T) {
+}
+
+func main() {
+    use(S{})
+}
+-- own-interface-method-adds-own/expected --
+stage: typeck
+---
+
+own-interface-method-adds-own/main.tck:17:9: error: S does not satisfy Taker: S.take is func(own list[int64]), and Taker's take is func(list[int64])
+16 |	func main() {
+17 |	    use(S{})
+   |	        ^~~
+18 |	}
+
+-- own-interface-method-drops-own/main.tck --
+package main
+
+type Taker interface {
+    take(own l list[int64])
+}
+
+type S struct {
+}
+
+func (s S) take(l list[int64]) {
+}
+
+func use[T Taker](t T) {
+}
+
+func main() {
+    use(S{})
+}
+-- own-interface-method-drops-own/expected --
+stage: typeck
+---
+
+own-interface-method-drops-own/main.tck:17:9: error: S does not satisfy Taker: S.take is func(list[int64]), and Taker's take is func(own list[int64])
+16 |	func main() {
+17 |	    use(S{})
+   |	        ^~~
+18 |	}
+
+-- own-interface-receiver/main.tck --
+package main
+
+type I interface {
+    own m()
+}
+
+func main() {
+}
+-- own-interface-receiver/expected --
+stage: parse
+---
+
+own-interface-receiver/main.tck:4:5: error: a method cannot take its receiver as own; take it as a plain or a mut receiver
+03 |	type I interface {
+04 |	    own m()
+   |	    ^~~
+05 |	}
+
+-- own-maybe-moved/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    if len(t) == 0 {
+        sink(own t)
+    }
+    sink(own t)
+}
+-- own-maybe-moved/expected --
+stage: typeck
+---
+
+own-maybe-moved/main.tck:11:14: error: t is used after it may have been moved
+10 |	    }
+11 |	    sink(own t)
+   |	             ^
+12 |	}
+own-maybe-moved/main.tck:9:18: note: t is moved here
+08 |	    if len(t) == 0 {
+09 |	        sink(own t)
+   |	                 ^
+10 |	    }
+
+-- own-missing/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    sink(t)
+}
+-- own-missing/expected --
+stage: typeck
+---
+
+own-missing/main.tck:8:10: error: sink takes l as own; pass own t
+07 |	    t := make(list[int64], c_allocator)
+08 |	    sink(t)
+   |	         ^
+09 |	}
+
+-- own-missing-in-generic/main.tck --
+package main
+
+type Any interface {
+}
+
+func push[T Any](mut l list[T], own x T) error {
+    return append(mut l, x)
+}
+
+func pass[T Any](mut l list[T], own x T) error {
+    return push(mut l, x)
+}
+
+func main() {
+}
+-- own-missing-in-generic/expected --
+stage: typeck
+---
+
+own-missing-in-generic/main.tck:11:24: error: push takes x as own; pass own x
+10 |	func pass[T Any](mut l list[T], own x T) error {
+11 |	    return push(mut l, x)
+   |	                       ^
+12 |	}
+
+-- own-moved-after-defer/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    defer {
+        if len(t) == 0 {
+            print("empty\n")
+        }
+    }
+    sink(own t)
+}
+-- own-moved-after-defer/expected --
+stage: typeck
+---
+
+own-moved-after-defer/main.tck:9:16: error: t is moved after this defer, which reads it when its block ends
+08 |	    defer {
+09 |	        if len(t) == 0 {
+   |	               ^
+10 |	            print("empty\n")
+own-moved-after-defer/main.tck:13:14: note: t is moved here
+12 |	    }
+13 |	    sink(own t)
+   |	             ^
+14 |	}
+
+-- own-moved-by-defer/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    defer {
+        sink(own t)
+    }
+}
+-- own-moved-by-defer/expected --
+stage: typeck
+---
+
+own-moved-by-defer/main.tck:9:18: error: a defer cannot move t, which is declared outside it
+08 |	    defer {
+09 |	        sink(own t)
+   |	                 ^
+10 |	    }
+
+-- own-moved-in-loop/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    for range 2 {
+        sink(own t)
+    }
+}
+-- own-moved-in-loop/expected --
+stage: typeck
+---
+
+own-moved-in-loop/main.tck:9:18: error: t is used after it may have been moved
+08 |	    for range 2 {
+09 |	        sink(own t)
+   |	                 ^
+10 |	    }
+own-moved-in-loop/main.tck:9:18: note: t is moved here, in an earlier iteration of the loop
+08 |	    for range 2 {
+09 |	        sink(own t)
+   |	                 ^
+10 |	    }
+
+-- own-mut-param/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(mut p list[int64]) {
+    sink(own p)
+}
+
+func main() {
+    mut t := make(list[int64], c_allocator)
+    f(mut t)
+}
+-- own-mut-param/expected --
+stage: typeck
+---
+
+own-mut-param/main.tck:7:14: error: cannot move p: it is a mut parameter, whose value stays its caller's
+06 |	func f(mut p list[int64]) {
+07 |	    sink(own p)
+   |	             ^
+08 |	}
+
+-- own-mut-param-syntax/main.tck --
+package main
+
+func f(mut own l list[int64]) {
+}
+
+func main() {
+}
+-- own-mut-param-syntax/expected --
+stage: parse
+---
+
+own-mut-param-syntax/main.tck:3:12: error: a parameter cannot be both mut and own; an own parameter is moved into a mutable variable with mut x := p
+02 |	
+03 |	func f(mut own l list[int64]) {
+   |	           ^~~
+04 |	}
+
+-- own-mut-param-syntax-reversed/main.tck --
+package main
+
+func f(own mut l list[int64]) {
+}
+
+func main() {
+}
+-- own-mut-param-syntax-reversed/expected --
+stage: parse
+---
+
+own-mut-param-syntax-reversed/main.tck:3:12: error: a parameter cannot be both mut and own; an own parameter is moved into a mutable variable with mut x := p
+02 |	
+03 |	func f(own mut l list[int64]) {
+   |	           ^~~
+04 |	}
+
+-- own-param-assigned/main.tck --
+package main
+
+func f(own p list[int64]) {
+    p = make(list[int64], c_allocator)
+}
+
+func main() {
+    f(make(list[int64], c_allocator))
+}
+-- own-param-assigned/expected --
+stage: typeck
+---
+
+own-param-assigned/main.tck:4:5: error: cannot assign to parameter p
+03 |	func f(own p list[int64]) {
+04 |	    p = make(list[int64], c_allocator)
+   |	    ^
+05 |	}
+
+-- own-param-maybe-moved/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(own p list[int64], c bool) int64 {
+    if c {
+        sink(own p)
+    }
+    return len(p)
+}
+
+func main() {
+    if f(make(list[int64], c_allocator), true) == 0 {
+        print("zero\n")
+    }
+}
+-- own-param-maybe-moved/expected --
+stage: typeck
+---
+
+own-param-maybe-moved/main.tck:10:16: error: p is used after it may have been moved
+09 |	    }
+10 |	    return len(p)
+   |	               ^
+11 |	}
+own-param-maybe-moved/main.tck:8:18: note: p is moved here
+07 |	    if c {
+08 |	        sink(own p)
+   |	                 ^
+09 |	    }
+
+-- own-param-moved-after-defer/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(own p list[int64]) {
+    defer {
+        if len(p) == 0 {
+            print("empty\n")
+        }
+    }
+    sink(own p)
+}
+
+func main() {
+    f(make(list[int64], c_allocator))
+}
+-- own-param-moved-after-defer/expected --
+stage: typeck
+---
+
+own-param-moved-after-defer/main.tck:8:16: error: p is moved after this defer, which reads it when its block ends
+07 |	    defer {
+08 |	        if len(p) == 0 {
+   |	               ^
+09 |	            print("empty\n")
+own-param-moved-after-defer/main.tck:12:14: note: p is moved here
+11 |	    }
+12 |	    sink(own p)
+   |	             ^
+13 |	}
+
+-- own-param-moved-by-defer/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(own p list[int64]) {
+    defer {
+        sink(own p)
+    }
+}
+
+func main() {
+    f(make(list[int64], c_allocator))
+}
+-- own-param-moved-by-defer/expected --
+stage: typeck
+---
+
+own-param-moved-by-defer/main.tck:8:18: error: a defer cannot move p, which is declared outside it
+07 |	    defer {
+08 |	        sink(own p)
+   |	                 ^
+09 |	    }
+
+-- own-param-moved-in-loop/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(own p list[int64]) {
+    for range 2 {
+        sink(own p)
+    }
+}
+
+func main() {
+    f(make(list[int64], c_allocator))
+}
+-- own-param-moved-in-loop/expected --
+stage: typeck
+---
+
+own-param-moved-in-loop/main.tck:8:18: error: p is used after it may have been moved
+07 |	    for range 2 {
+08 |	        sink(own p)
+   |	                 ^
+09 |	    }
+own-param-moved-in-loop/main.tck:8:18: note: p is moved here, in an earlier iteration of the loop
+07 |	    for range 2 {
+08 |	        sink(own p)
+   |	                 ^
+09 |	    }
+
+-- own-param-passed-mut/main.tck --
+package main
+
+func f(own p list[int64]) error {
+    return append(mut p, 1)
+}
+
+func main() {
+    e := f(make(list[int64], c_allocator))
+    exit(int32(e.code))
+}
+-- own-param-passed-mut/expected --
+stage: typeck
+---
+
+own-param-passed-mut/main.tck:4:19: error: cannot pass mut p: p is an own parameter, which is immutable; move it into a mutable variable with mut x := p
+03 |	func f(own p list[int64]) error {
+04 |	    return append(mut p, 1)
+   |	                  ^~~~~
+05 |	}
+
+-- own-param-result-dropped/main.tck --
+package main
+
+func give(own l list[int64]) list[int64] {
+    return l
+}
+
+func main() {
+    give(make(list[int64], c_allocator))
+}
+-- own-param-result-dropped/expected --
+stage: typeck
+---
+
+own-param-result-dropped/main.tck:8:5: error: give returns list[int64], which cannot be dropped; bind it to a variable
+07 |	func main() {
+08 |	    give(make(list[int64], c_allocator))
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+09 |	}
+
+-- own-param-used-after-move/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func f(own p list[int64]) int64 {
+    sink(own p)
+    return len(p)
+}
+
+func main() {
+    if f(make(list[int64], c_allocator)) == 0 {
+        print("zero\n")
+    }
+}
+-- own-param-used-after-move/expected --
+stage: typeck
+---
+
+own-param-used-after-move/main.tck:8:16: error: p is used after it was moved
+07 |	    sink(own p)
+08 |	    return len(p)
+   |	               ^
+09 |	}
+own-param-used-after-move/main.tck:7:14: note: p is moved here
+06 |	func f(own p list[int64]) int64 {
+07 |	    sink(own p)
+   |	             ^
+08 |	    return len(p)
+
+-- own-param-view-of-field-returned/main.tck --
+package main
+
+type S struct {
+    l list[int64]
+}
+
+func bad(own s S) []int64 {
+    return s.l[0:]
+}
+
+func main() {
+}
+-- own-param-view-of-field-returned/expected --
+stage: typeck
+---
+
+own-param-view-of-field-returned/main.tck:8:12: error: cannot return a view of s.l[0:]: s is an own parameter, which is freed when the function returns; a returned view can only point into what a parameter that is not mut holds
+07 |	func bad(own s S) []int64 {
+08 |	    return s.l[0:]
+   |	           ^~~~~~~
+09 |	}
+
+-- own-param-view-returned/main.tck --
+package main
+
+func bad(own l list[int64]) []int64 {
+    return l[0:]
+}
+
+func main() {
+}
+-- own-param-view-returned/expected --
+stage: typeck
+---
+
+own-param-view-returned/main.tck:4:12: error: cannot return a view of l[0:]: l is an own parameter, which is freed when the function returns; a returned view can only point into what a parameter that is not mut holds
+03 |	func bad(own l list[int64]) []int64 {
+04 |	    return l[0:]
+   |	           ^~~~~
+05 |	}
+
+-- own-plain-field-to-own-param/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+type S struct {
+    l list[int64]
+}
+
+func main() {
+    s := S{l: make(list[int64], c_allocator)}
+    sink(s.l)
+}
+-- own-plain-field-to-own-param/expected --
+stage: typeck
+---
+
+own-plain-field-to-own-param/main.tck:12:10: error: cannot move s.l out of s: a field cannot be moved on its own
+11 |	    s := S{l: make(list[int64], c_allocator)}
+12 |	    sink(s.l)
+   |	         ^~~
+13 |	}
+
+-- own-range-element-moved/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    ls := make(list[list[int64]], c_allocator)
+    for _, l := range ls {
+        sink(own l)
+    }
+}
+-- own-range-element-moved/expected --
+stage: typeck
+---
+
+own-range-element-moved/main.tck:9:18: error: cannot move l: it refers to an element of ls in place, and an element cannot be moved out of a list
+08 |	    for _, l := range ls {
+09 |	        sink(own l)
+   |	                 ^
+10 |	    }
+
+-- own-ranged-list-moved/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    for range t {
+        sink(own t)
+    }
+}
+-- own-ranged-list-moved/expected --
+stage: typeck
+---
+
+own-ranged-list-moved/main.tck:9:18: error: t is being ranged over, so this loop cannot move t
+08 |	    for range t {
+09 |	        sink(own t)
+   |	                 ^
+10 |	    }
+
+-- own-receiver/main.tck --
+package main
+
+type S struct {
+    l list[int64]
+}
+
+func (own s S) m() {
+}
+
+func main() {
+}
+-- own-receiver/expected --
+stage: typeck
+---
+
+own-receiver/main.tck:7:7: error: a method cannot take its receiver as own; take it as a plain or a mut receiver
+06 |	
+07 |	func (own s S) m() {
+   |	      ^~~
+08 |	}
+
+-- own-temporary/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    sink(own make(list[int64], c_allocator))
+}
+-- own-temporary/expected --
+stage: typeck
+---
+
+own-temporary/main.tck:7:10: error: cannot pass own make(list[int64], c_allocator): only a variable can be passed as own; pass make(list[int64], c_allocator) without own
+06 |	func main() {
+07 |	    sink(own make(list[int64], c_allocator))
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	}
+
+-- own-then-borrowed-in-one-call/main.tck --
+package main
+
+func f(own a list[int64], b list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(own t, t)
+}
+-- own-then-borrowed-in-one-call/expected --
+stage: typeck
+---
+
+own-then-borrowed-in-one-call/main.tck:8:14: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, t)
+   |	             ^
+09 |	}
+own-then-borrowed-in-one-call/main.tck:8:7: note: t is passed as own here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t, t)
+   |	      ^~~~~
+09 |	}
+
+-- own-to-builtin/main.tck --
+package main
+
+func main() {
+    mut ls := make(list[list[int64]], c_allocator)
+    t := make(list[int64], c_allocator)
+    e := append(mut ls, own t)
+    exit(int32(e.code))
+}
+-- own-to-builtin/expected --
+stage: typeck
+---
+
+own-to-builtin/main.tck:6:25: error: append does not take t as own; pass t
+05 |	    t := make(list[int64], c_allocator)
+06 |	    e := append(mut ls, own t)
+   |	                        ^~~~~
+07 |	    exit(int32(e.code))
+
+-- own-to-plain-param/main.tck --
+package main
+
+func f(l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    f(own t)
+}
+-- own-to-plain-param/expected --
+stage: typeck
+---
+
+own-to-plain-param/main.tck:8:7: error: f does not take t as own; pass t
+07 |	    t := make(list[int64], c_allocator)
+08 |	    f(own t)
+   |	      ^~~~~
+09 |	}
+
+-- own-twice-in-one-call/main.tck --
+package main
+
+func both(own a list[int64], own b list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    both(own t, own t)
+}
+-- own-twice-in-one-call/expected --
+stage: typeck
+---
+
+own-twice-in-one-call/main.tck:8:21: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+07 |	    t := make(list[int64], c_allocator)
+08 |	    both(own t, own t)
+   |	                    ^
+09 |	}
+own-twice-in-one-call/main.tck:8:10: note: t is passed as own here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    both(own t, own t)
+   |	         ^~~~~
+09 |	}
+
+-- own-used-after-move/main.tck --
+package main
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    t := make(list[int64], c_allocator)
+    sink(own t)
+    if len(t) == 0 {
+        print("empty\n")
+    }
+}
+-- own-used-after-move/expected --
+stage: typeck
+---
+
+own-used-after-move/main.tck:9:12: error: t is used after it was moved
+08 |	    sink(own t)
+09 |	    if len(t) == 0 {
+   |	           ^
+10 |	        print("empty\n")
+own-used-after-move/main.tck:8:14: note: t is moved here
+07 |	    t := make(list[int64], c_allocator)
+08 |	    sink(own t)
+   |	             ^
+09 |	    if len(t) == 0 {
+
+-- own-variadic-param/main.tck --
+package main
+
+func f(own ns ...int64) {
+}
+
+func main() {
+}
+-- own-variadic-param/expected --
+stage: typeck
+---
+
+own-variadic-param/main.tck:3:8: error: a variadic parameter cannot be own; take a list as own instead
+02 |	
+03 |	func f(own ns ...int64) {
+   |	       ^~~
+04 |	}
+
+-- own-view-param/main.tck --
+package main
+
+func f(own v []int64) {
+}
+
+func main() {
+}
+-- own-view-param/expected --
+stage: typeck
+---
+
+own-view-param/main.tck:3:8: error: a view cannot be an own parameter: it only borrows what it points into
+02 |	
+03 |	func f(own v []int64) {
+   |	       ^~~
+04 |	}
+
+-- own-written-twice/main.tck --
+package main
+
+func f(own own l list[int64]) {
+}
+
+func main() {
+}
+-- own-written-twice/expected --
+stage: parse
+---
+
+own-written-twice/main.tck:3:12: error: expected 'parameter name' found 'own'
+02 |	
+03 |	func f(own own l list[int64]) {
+   |	           ^
+04 |	}
+
 -- owned-element-appended/main.tck --
 package main
 

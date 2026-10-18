@@ -174,7 +174,8 @@
 // package level. The target of an assignment to an element or a field,
 // a[i].x, binds its variable without counting as a read of it, and its
 // index like any value. A mut argument, mut x, binds x as a value, so it
-// counts as a read: the callee may read the variable through it. A slice,
+// counts as a read: the callee may read the variable through it; an own
+// argument, own x, likewise, the callee reading the value it takes. A slice,
 // x[i:j], is bound as a value wherever it is written, an assignment's
 // target included, which the type checker then reports, since a slice is
 // never a place.

@@ -539,15 +539,35 @@ func (g *generator) ownedAssign(typ types.Type, ref, value string) []string {
 	return append(lines, fmt.Sprintf("%s = %s;", ref, t))
 }
 
-// freeEntry is one owned local variable whose value its block frees when
-// it ends, as a defer would: see defer.go.
+// freeEntry is one owned local variable, or own parameter, whose value
+// its block frees when it ends, as a defer would: see defer.go. Exactly
+// one of v and p is set.
 type freeEntry struct {
 	v *ast.Var
+	p *ast.Param
 }
 
-// lower returns the statements that free the variable's value.
+// lower returns the statements that free the variable's or the
+// parameter's value.
 func (e freeEntry) lower(g *generator) []string {
+	if e.p != nil {
+		return g.frees(e.p.Type, g.paramRef(e.p))
+	}
 	return g.frees(e.v.Type, g.varRef(e.v))
+}
+
+// addParamFrees records, in the innermost block, the body of fn, a free
+// for each own parameter of fn that holds an owned value, in order, ahead
+// of every statement, so every exit from the body frees it, unless it was
+// moved on first, which emptied it. In an instance of a generic function
+// whose type argument owns nothing, there is none.
+func (g *generator) addParamFrees(fn *ast.Func) {
+	sc := g.scopes[len(g.scopes)-1]
+	for _, p := range fn.Params {
+		if p.Own && g.owned(p.Type) {
+			sc.entries = append(sc.entries, cleanup{free: &freeEntry{p: p}})
+		}
+	}
 }
 
 // addFrees records, in the innermost block, a free for each variable of

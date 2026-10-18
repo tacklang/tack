@@ -1127,7 +1127,7 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveCall(x, sc)
 	case *ast.Binary:
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
-	case *ast.Unary, *ast.MutArg, *ast.Selector:
+	case *ast.Unary, *ast.MutArg, *ast.OwnArg, *ast.Selector:
 		return r.resolveOperand(x, sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
@@ -1189,11 +1189,13 @@ func (r *pkgResolver) resolveElement(e ast.Expr, sc *scope) []diag.Diagnostic {
 	return diags
 }
 
-// operand returns the operand of e, a prefix operator, a mut argument, or
-// a field selection, whose struct is its one operand.
+// operand returns the operand of e, a prefix operator, a mut argument, an
+// own argument, or a field selection, whose struct is its one operand.
 func operand(e ast.Expr) ast.Expr {
 	switch x := e.(type) {
 	case *ast.MutArg:
+		return x.X
+	case *ast.OwnArg:
 		return x.X
 	case *ast.Selector:
 		return x.X

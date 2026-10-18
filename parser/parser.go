@@ -665,7 +665,8 @@ func (p *Parser) endReceiver(recv *ast.Param) (*ast.Param, []diag.Diagnostic) {
 	case tk.Kind() == lexer.RParen:
 		p.next()
 		return recv, nil
-	case tk.Kind() == lexer.Comma || tk.Kind() == lexer.Ident || isKeyword(tk, lexer.Mut):
+	case tk.Kind() == lexer.Comma || tk.Kind() == lexer.Ident || isKeyword(tk, lexer.Mut) ||
+		isKeyword(tk, lexer.Own):
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "method has multiple receivers",
@@ -786,15 +787,14 @@ func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
 }
 
 // parseParam parses one parameter: a name and its type, with mut before
-// the name for a mut parameter, mut p T, and ... before the type for a
-// variadic one, args ...T, whose type is then its element type. expected
-// names what the name is, for the error when there is none: a parameter's
-// or a receiver's.
+// the name for a mut parameter, mut p T, or own for an own one, own p T,
+// and ... before the type for a variadic one, args ...T, whose type is
+// then its element type. expected names what the name is, for the error
+// when there is none: a parameter's or a receiver's.
 func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 	param := &ast.Param{}
-	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
-		p.next()
-		param.Mut, param.MutSpan = true, p.span(tk)
+	if diags := p.parseParamMode(param); diags != nil {
+		return nil, diags
 	}
 	name, nameDiags := p.parseIdent(expected)
 	if name == nil {
@@ -812,10 +812,56 @@ func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 
 	param.Name, param.NameSpan, param.TypeExpr = name.Name, name.Span, typ
 	param.Span = ast.Span{File: p.fileID, Start: name.Span.Start, End: typ.Spanned().End}
-	if param.Mut {
-		param.Span.Start = param.MutSpan.Start
-	}
+	startAtMode(param)
 	return param, nil
+}
+
+// parseParamMode parses the mut or own a parameter may start with into
+// param. A parameter is a reference to its caller's variable or the owner
+// of its caller's value, never both, so mut and own together, in either
+// order, are reported at the second; one written twice is left for the
+// parameter's name to report.
+func (p *Parser) parseParamMode(param *ast.Param) []diag.Diagnostic {
+	if !p.takeParamMode(param) {
+		return nil
+	}
+	if tk := p.peek(); isKeyword(tk, lexer.Mut) && param.Own ||
+		isKeyword(tk, lexer.Own) && param.Mut {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: "a parameter cannot be both mut and own; " +
+				"an own parameter is moved into a mutable variable with mut x := p",
+			Span: p.span(tk),
+		}}
+	}
+	return nil
+}
+
+// takeParamMode takes the next token into param when it is mut or own,
+// and reports whether it was.
+func (p *Parser) takeParamMode(param *ast.Param) bool {
+	tk := p.peek()
+	switch {
+	case isKeyword(tk, lexer.Mut):
+		param.Mut, param.MutSpan = true, p.span(tk)
+	case isKeyword(tk, lexer.Own):
+		param.Own, param.OwnSpan = true, p.span(tk)
+	default:
+		return false
+	}
+	p.next()
+	return true
+}
+
+// startAtMode moves the start of param's span back to its mut or own,
+// when it has one.
+func startAtMode(param *ast.Param) {
+	switch {
+	case param.Mut:
+		param.Span.Start = param.MutSpan.Start
+	case param.Own:
+		param.Span.Start = param.OwnSpan.Start
+	}
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
@@ -1613,6 +1659,14 @@ func (p *Parser) parseIfaceMethod() (*ast.IfaceMethod, []diag.Diagnostic) {
 	if isKeyword(tk, lexer.Mut) {
 		p.next()
 		m.Mut, m.MutSpan = true, p.span(tk)
+	}
+	if tk := p.peek(); isKeyword(tk, lexer.Own) {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: "a method cannot take its receiver as own; " +
+				"take it as a plain or a mut receiver",
+			Span: p.span(tk),
+		}}
 	}
 	name, diags := p.parseIdent("method name")
 	if name == nil {
@@ -2699,7 +2753,8 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 // parseOperand parses an expression with no infix operator at its root: a
 // literal, a name, a call, a parenthesised expression, a prefix operator
 // and its operand, or mut and an operand, which is only meaningful as a
-// call's argument; the type checker reports it anywhere else; or a list
+// call's argument; the type checker reports it anywhere else; own and an
+// operand, likewise; or a list
 // type, which only make's first argument may be (see parseListOperand).
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	switch tk := p.peek(); {
@@ -2711,6 +2766,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseUnary(ast.Complement)
 	case isKeyword(tk, lexer.Mut):
 		return p.parseMutArg()
+	case isKeyword(tk, lexer.Own):
+		return p.parseOwnArg()
 	case isKeyword(tk, lexer.List):
 		return p.parseListOperand()
 	case isKeyword(tk, lexer.Map):
@@ -2765,6 +2822,26 @@ func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
 		}
 	}
 	return &ast.MutArg{
+		X:    x,
+		Span: ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.extent(x).End},
+	}, nil
+}
+
+// parseOwnArg parses own and the operand after it, an own argument. Unlike
+// mut, own never covers a method call's receiver: own x.m() is own before
+// the call, which the type checker reports, as it reports own before
+// anything but a variable's name.
+func (p *Parser) parseOwnArg() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	kw := p.next()
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	return &ast.OwnArg{
 		X:    x,
 		Span: ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.extent(x).End},
 	}, nil
@@ -3224,14 +3301,13 @@ func (p *Parser) parseFuncType() (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseFuncTypeParam parses one parameter of a function type: its type,
-// with mut before it for a mut parameter. A name before the type, which a
-// function type's parameters do not have, and a ..., which would make the
-// parameter variadic, are reported.
+// with mut before it for a mut parameter, or own for an own one. A name
+// before the type, which a function type's parameters do not have, and a
+// ..., which would make the parameter variadic, are reported.
 func (p *Parser) parseFuncTypeParam() (*ast.Param, []diag.Diagnostic) {
 	param := &ast.Param{}
-	if tk := p.peek(); isKeyword(tk, lexer.Mut) {
-		p.next()
-		param.Mut, param.MutSpan = true, p.span(tk)
+	if diags := p.parseParamMode(param); diags != nil {
+		return nil, diags
 	}
 	if tk := p.peek(); tk.Kind() == lexer.Ellipsis {
 		return nil, []diag.Diagnostic{{
@@ -3260,9 +3336,7 @@ func (p *Parser) parseFuncTypeParam() (*ast.Param, []diag.Diagnostic) {
 	}
 	param.TypeExpr = typ
 	param.Span = ast.Span{File: p.fileID, Start: typ.Spanned().Start, End: typ.Spanned().End}
-	if param.Mut {
-		param.Span.Start = param.MutSpan.Start
-	}
+	startAtMode(param)
 	return param, nil
 }
 

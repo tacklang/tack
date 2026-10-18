@@ -77,10 +77,12 @@ type funcType struct {
 
 // FuncParam is one parameter of a function type: its type, and whether
 // it is mut, a reference to the caller's place rather than a copy of its
-// value.
+// value, or own, taking its caller's value, which the function then owns.
+// A parameter is never both.
 type FuncParam struct {
 	Type Type
 	Mut  bool
+	Own  bool
 }
 
 // mapKey identifies a map type by its key and value types.
@@ -199,13 +201,16 @@ func (t *Table) Func(params []FuncParam, results []Type) Type {
 }
 
 // funcKey writes out a function type's signature, the ID of each
-// parameter's type, marked when it is mut, then the ID of each result's,
+// parameter's type, marked when it is mut or own, then the ID of each result's,
 // so that two signatures have one key exactly when they are alike.
 func funcKey(params []FuncParam, results []Type) string {
 	var b strings.Builder
 	for _, p := range params {
 		if p.Mut {
 			b.WriteByte('m')
+		}
+		if p.Own {
+			b.WriteByte('o')
 		}
 		b.WriteString(strconv.Itoa(int(p.Type)))
 		b.WriteByte(',')
@@ -398,7 +403,7 @@ func (t *Table) substituteFunc(typ Type, fn *funcType) Type {
 	changed := false
 	params := make([]FuncParam, len(fn.params))
 	for i, p := range fn.params {
-		params[i] = FuncParam{Type: t.Bound(p.Type), Mut: p.Mut}
+		params[i] = FuncParam{Type: t.Bound(p.Type), Mut: p.Mut, Own: p.Own}
 		changed = changed || params[i].Type != p.Type
 	}
 	results := make([]Type, len(fn.results))
@@ -741,7 +746,8 @@ func (t *Table) compositeName(e entry, qualify func(typ Type, name string) strin
 }
 
 // funcName returns the name of the function type fn as NameWith writes
-// it: func, its parameters' types in parentheses, mut before a mut one,
+// it: func, its parameters' types in parentheses, mut before a mut one and
+// own before an own one,
 // and its results, none, one alone, or several in parentheses.
 func (t *Table) funcName(fn *funcType, qualify func(typ Type, name string) string) string {
 	params := make([]string, len(fn.params))
@@ -749,6 +755,9 @@ func (t *Table) funcName(fn *funcType, qualify func(typ Type, name string) strin
 		params[i] = t.NameWith(p.Type, qualify)
 		if p.Mut {
 			params[i] = "mut " + params[i]
+		}
+		if p.Own {
+			params[i] = "own " + params[i]
 		}
 	}
 	name := "func(" + strings.Join(params, ", ") + ")"

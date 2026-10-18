@@ -85,8 +85,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.slice(x)
 	case *ast.Selector:
 		return c.selector(x)
-	case *ast.MutArg:
-		return c.mutElsewhere(x)
+	case *ast.MutArg, *ast.OwnArg:
+		return c.argElsewhere(x)
 	case *ast.ListType:
 		return c.listTypeValue(x)
 	case *ast.MapType:

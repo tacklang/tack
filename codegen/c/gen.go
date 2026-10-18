@@ -961,12 +961,17 @@ func (g *generator) generateLoopBody(body []ast.Stmt, fn *ast.Func) ([]string, [
 
 // block lowers a block of fn, in a deferScope of its own, loop being
 // whether it is a loop's body. It ends in the cleanup chain of the defers
-// it reaches and the owned locals it declares, which falling off its end
-// runs and its exits jump into.
+// it reaches and the owned locals it declares, and, for fn's body, the
+// first block a frame opens, fn's own parameters, which falling off its
+// end runs and its exits jump into.
 func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, []diag.Diagnostic) {
 	sc := &deferScope{loop: loop}
 	g.scopes = append(g.scopes, sc)
 	defer func() { g.scopes = g.scopes[:len(g.scopes)-1] }()
+	if g.frame != nil && g.frame.owner != nil {
+		g.addParamFrees(g.frame.owner)
+		g.frame.owner = nil
+	}
 
 	lines := make([]string, 0)
 	for _, stmt := range body {
@@ -2393,8 +2398,8 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 		return g.elementExpr(x)
 	case *ast.Selector:
 		return g.selectorExpr(x)
-	case *ast.MutArg:
-		return g.mutArg(x)
+	case *ast.MutArg, *ast.OwnArg:
+		return g.argument(x)
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -2464,6 +2469,9 @@ func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 			return g.funcValueRef(def), nil
 		}
 	case *ast.Param:
+		if id.Move {
+			return g.moveValue(def.Type, g.paramRef(def)), nil
+		}
 		return g.paramRef(def), nil
 	case *ast.Var:
 		if id.Move {
@@ -2749,6 +2757,17 @@ func (g *generator) paramRef(param *ast.Param) string {
 		return "(*" + paramName(param.Name) + ")"
 	}
 	return paramName(param.Name)
+}
+
+// argument renders e, a mut argument (see mutArg) or an own one, whose
+// name the checker marked as moving its value, so that it renders as the
+// move: the value taken, the variable emptied.
+func (g *generator) argument(e ast.Expr) (string, []diag.Diagnostic) {
+	if m, ok := e.(*ast.MutArg); ok {
+		return g.mutArg(m)
+	}
+	x := ast.ArgOperand(e)
+	return g.expr(x, ast.TypeOf(x))
 }
 
 // mutArg renders a mut argument as the address of the place it names: a

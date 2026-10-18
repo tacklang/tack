@@ -122,17 +122,22 @@ func (f *Func) Spanned() Span { return f.Span }
 // parameter written args ...T, which only the last parameter may be, is
 // variadic: Variadic is set, EllipsisSpan is the ..., TypeExpr is T, the
 // element type, and the type checker gives it the type of a view of T,
-// []T, which a call fills with the values it passes for it. Any other
-// parameter is an immutable copy of its argument.
+// []T, which a call fills with the values it passes for it. A parameter
+// written own p T takes its argument's value from the caller, who writes
+// own x and cannot use x again: Own is set, and OwnSpan is the own keyword;
+// the function owns the value, an immutable local it frees when it ends.
+// Any other parameter is an immutable copy of its argument.
 type Param struct {
 	TypeExpr     Expr // the type as written, e.g. *Ident{"int64"}; a variadic's element type
 	Name         string
 	NameSpan     Span
 	MutSpan      Span       `json:"-"`
+	OwnSpan      Span       `json:"-"`
 	EllipsisSpan Span       `json:"-"`
-	Span         Span       // mut, if written, or the name, through the end of the type
+	Span         Span       // mut or own, if written, or the name, through the end of the type
 	Type         types.Type // filled in by the type checker, Invalid before
 	Mut          bool       `json:",omitempty"`
+	Own          bool       `json:",omitempty"`
 	Variadic     bool       `json:",omitempty"`
 }
 

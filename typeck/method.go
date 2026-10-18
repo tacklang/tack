@@ -257,6 +257,7 @@ func (c *Checker) funcParams(ps []*ast.Param) []param {
 			name:     p.Name,
 			typ:      p.Type,
 			mut:      p.Mut && !p.Variadic,
+			own:      p.Own && !p.Variadic,
 			variadic: p.Variadic,
 		}
 	}
