@@ -358,7 +358,10 @@ func inserted(tk *lexer.Token) bool {
 // whether the block holding the statement is broken: it stopped at a line
 // that starts a declaration with braces the statement opened still open,
 // so that block's own closing brace is missing too, and its statements
-// end there.
+// end there. Inside those braces a type line stops it only as it stops a
+// block (see atBlockBreak): one with a brace closing them after it, a
+// switch's case edited to type, is the statement's damage, skipped with
+// it, rather than the end of the function.
 func (p *Parser) syncStmt(start int, inClause bool) bool {
 	if p.semiInParens(start) {
 		return false
@@ -450,7 +453,7 @@ func (p *Parser) stmtEnds(start, depth int, inClause bool) (bool, bool) {
 	case tk.Kind() == lexer.EOF:
 		return true, false
 	case depth > 0:
-		return p.index > start && p.atDeclLine(true), true
+		return p.index > start && p.atBlockBreak(), true
 	case tk.Kind() == lexer.RCurl:
 		return p.closesBlock(p.index), false
 	case inClause && (isKeyword(tk, lexer.Case) || isKeyword(tk, lexer.Default)):

@@ -663,6 +663,30 @@ type T1 struct {
 
 var v2 = 3
 `, []string{"a0", "T1", "v2"}},
+	{"a type line where a switch's case goes does not end the function", `package main
+
+func main() {
+    mut hit := 0
+    switch {
+     type  value(1) == 2: //E
+        hit = 7
+    default:
+        hit = 9
+    }
+    mut sum := 0
+    for i := range 10 {
+        switch {
+        case i == 2:
+            continue
+        }
+        sum += i
+    }
+}
+
+func value(n int64) int64 {
+    return n
+}
+`, []string{"main", "value"}},
 }
 
 // TestRecoveryFindings checks each of findingCases.

@@ -1,0 +1,5 @@
+go test fuzz v1
+uint16(117)
+uint16(860)
+byte('O')
+byte('·')
