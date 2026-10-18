@@ -719,6 +719,116 @@ func value(n int64) int64 {
     return n
 }
 `, []string{"main", "value"}},
+	{"an ensures clause with no results still ends an unclosed body", `package main
+
+func a(n int64) {
+    if n > 0 {
+        print("x")
+    }
+
+func nonzero(d int64) ensures d != 0 { //E
+    if d == 0 {
+        exit(1)
+    }
+}
+
+func g() {
+}
+`, []string{"nonzero", "g"}},
+	{"an ensures clause after results still ends an unclosed body", `package main
+
+func a(n int64) {
+    for i := range n {
+        print("x")
+
+func div(a int64, d int64) int64 ensures d != 0 && a >= 0 { //E
+    if d == 0 || a < 0 {
+        exit(1)
+    }
+    return a / d
+}
+
+func g() {
+}
+`, []string{"div", "g"}},
+	{"a method with an ensures clause still ends an unclosed body", `package main
+
+type P struct {
+    x int64
+}
+
+func a() {
+    x := 1
+func (p P) m(d int64) int64 ensures d != 0 { //E
+    if d == 0 {
+        exit(1)
+    }
+    return p.x
+}
+
+func g() {
+}
+`, []string{"P", "m", "g"}},
+	{"an ensures clause over two lines still ends an unclosed body", `package main
+
+func a(n int64) {
+    if n > 0 {
+        print("x")
+
+func both(a int64, b int64) ensures a != 0 && //E
+    b != 0 {
+    if a == 0 || b == 0 {
+        exit(1)
+    }
+}
+
+func g() {
+}
+`, []string{"both", "g"}},
+	{"an extern with an ensures clause still ends an unclosed body", `package main
+
+func a(n int64) {
+    if n > 0 {
+        print("x")
+    }
+
+extern("c_check") func check(d int64) ensures d != 0 //E
+
+func g() {
+}
+`, []string{"check", "g"}},
+	{"an extern with an ensures clause and a body recovers on its own lines", `package main
+
+extern("c_check") func check(d int64) ensures d != 0 { //E
+    x := 1
+}
+
+func g() {
+}
+`, []string{"g"}},
+	{"a damaged ensures clause loses only its function", `package main
+
+func nonzero(d int64) ensures d != { //E
+    if d == 0 {
+        exit(1)
+    }
+}
+
+func g() {
+}
+`, []string{"g"}},
+	{"a damaged second line of an ensures clause loses only its function", `package main
+
+func both(a int64, b int64) ensures a != 0 &&
+    b != ) { //E
+    if a == 0 || b == 0 {
+        exit(1)
+    }
+}
+
+func g() {
+}
+`, []string{"g"}},
 }
 
 // TestRecoveryFindings checks each of findingCases.

@@ -203,7 +203,8 @@ func (p *Parser) closeOnLine(k int, open, closing lexer.TokenKind) (int, bool) {
 // whose name and its parameters' parenthesis follow it (see
 // declShapeAfterFunc), an opening brace comes after the parameters close:
 // the brace of its body, after its results if any, which hold no operator
-// and no literal.
+// and no literal, and after its contract if any, ensures and a condition,
+// which may hold both and go on over more lines (see contractEndsInBody).
 func (p *Parser) bodyAfterParams() bool {
 	end, ok := p.paramsEnd()
 	if !ok {
@@ -212,11 +213,33 @@ func (p *Parser) bodyAfterParams() bool {
 	for k := end + 1; ; k++ {
 		tk := p.peekAt(k)
 		switch {
+		case isKeyword(tk, lexer.Ensures) && !tk.StartsLine():
+			return p.contractEndsInBody(p.index + k)
 		case tk.Kind() == lexer.EOF || tk.StartsLine() || !resultToken(tk):
 			return false
 		case tk.Kind() == lexer.LCurl:
 			return true
 		}
+	}
+}
+
+// contractEndsInBody reports whether the contract of a function's header
+// whose ensures keyword is the token k ends in the brace of the body: the
+// last token of its line is an opening brace, or the line ends with no
+// semicolon inserted, after an operator, as the condition's own lines do,
+// and the next line, which carries it on and starts no declaration, ends
+// so in turn.
+func (p *Parser) contractEndsInBody(k int) bool {
+	for {
+		if p.lastOnLine(k) == lexer.LCurl {
+			return true
+		}
+		next := p.nextLine(k)
+		if tk := &p.tokens[next-1]; tk.Kind() == lexer.Semi && inserted(tk) ||
+			p.tokens[next].Kind() == lexer.EOF || isDeclKeyword(&p.tokens[next]) {
+			return false
+		}
+		k = next
 	}
 }
 
