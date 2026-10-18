@@ -330,10 +330,18 @@ static tack_string tack_12_tack_2dlexer5_lexer4_Name(tack_12_tack_2dlexer5_lexer
     if (p_t.f_kind == tack_12_tack_2dlexer5_lexer6_KindOp) {
         const int64_t tack_r0 = p_t.f_sub;
         const tack_12_tack_2dlexer5_lexer8_spelling v_op = ((tack_r0 >= 0 && tack_r0 <= 47) ? tack_12_tack_2dlexer5_lexer9_operators.e[tack_r0] : (tack_12_tack_2dlexer5_lexer8_spelling){});
+        const bool v_ok = (tack_r0 >= 0 && tack_r0 <= 47);
+        if (!v_ok) {
+            return (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)};
+        }
         return v_op.f_text;
     }
     const int64_t tack_r1 = p_t.f_kind;
     const tack_string v_name = ((tack_r1 >= 0 && tack_r1 <= 8) ? tack_12_tack_2dlexer5_lexer9_kindNames.e[tack_r1] : (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)});
+    const bool v_ok = (tack_r1 >= 0 && tack_r1 <= 8);
+    if (!v_ok) {
+        return (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)};
+    }
     return v_name;
 }
 
@@ -371,6 +379,10 @@ static void tack_12_tack_2dlexer5_lexer4_fail(tack_12_tack_2dlexer5_lexer5_Lexer
 static uint8_t tack_12_tack_2dlexer5_lexer6_byteAt(tack_string p_src, int64_t p_i) {
     const int64_t tack_r2 = p_i;
     const uint8_t v_c = ((tack_r2 >= 0 && tack_r2 < p_src.len) ? p_src.ptr[tack_r2] : 0);
+    const bool v_ok = (tack_r2 >= 0 && tack_r2 < p_src.len);
+    if (!v_ok) {
+        return 0;
+    }
     return v_c;
 }
 
@@ -719,6 +731,10 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
             const int64_t v_i = tack_k20;
             const int64_t tack_r18 = v_i;
             const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r18 >= 0 && tack_r18 <= 63) ? v_lx.f_errs.e[tack_r18] : (tack_12_tack_2dlexer5_lexer5_Error){});
+            const bool v_hasErr = (tack_r18 >= 0 && tack_r18 <= 63);
+            if (!v_hasErr) {
+                break;
+            }
             tack_builtin_print((tack_string){tack_str107, TACK_C_STR_LEN(tack_str107)});
             tack_12_tack_2dlexer3_cmd3_lex8_printInt(v_e.f_start);
             tack_builtin_print((tack_string){tack_str105, TACK_C_STR_LEN(tack_str105)});
@@ -763,7 +779,10 @@ static void tack_12_tack_2dlexer3_cmd3_lex8_printInt(int64_t p_n) {
     }
     const int64_t tack_r22 = v_d;
     const tack_string v_s = ((tack_r22 >= 0 && tack_r22 <= 9) ? tack_12_tack_2dlexer3_cmd3_lex6_digits.e[tack_r22] : (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)});
-    tack_builtin_print(v_s);
+    const bool v_ok = (tack_r22 >= 0 && tack_r22 <= 9);
+    if (v_ok) {
+        tack_builtin_print(v_s);
+    }
 }
 
 static void tack_12_tack_2dlexer3_cmd3_lex11_printQuoted(tack_string p_src, int64_t p_start, int64_t p_end) {
@@ -790,16 +809,23 @@ static void tack_12_tack_2dlexer3_cmd3_lex9_printByte(uint8_t p_c) {
     if ((p_c >= 32) && (p_c <= 126)) {
         const uint8_t tack_r24 = ((uint8_t)((uint64_t)p_c - (uint64_t)32));
         const tack_string v_s = ((tack_r24 <= 94) ? tack_12_tack_2dlexer3_cmd3_lex9_printable.e[tack_r24] : (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)});
-        tack_builtin_print(v_s);
+        const bool v_ok = (tack_r24 <= 94);
+        if (v_ok) {
+            tack_builtin_print(v_s);
+        }
         return;
     }
     tack_builtin_print((tack_string){tack_str181, TACK_C_STR_LEN(tack_str181)});
     const uint8_t tack_r25 = tack_div_uint8(p_c, 16);
     const tack_string v_hi = ((tack_r25 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r25] : (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)});
+    const bool v_okHi = (tack_r25 <= 15);
     const uint8_t tack_r26 = tack_rem_uint8(p_c, 16);
     const tack_string v_lo = ((tack_r26 <= 15) ? tack_12_tack_2dlexer3_cmd3_lex9_hexDigits.e[tack_r26] : (tack_string){tack_str91, TACK_C_STR_LEN(tack_str91)});
-    tack_builtin_print(v_hi);
-    tack_builtin_print(v_lo);
+    const bool v_okLo = (tack_r26 <= 15);
+    if (v_okHi && v_okLo) {
+        tack_builtin_print(v_hi);
+        tack_builtin_print(v_lo);
+    }
 }
 
 int tack_argc_;

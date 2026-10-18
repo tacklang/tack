@@ -89,13 +89,13 @@ func pick(cond bool) map[int64]int64 {
 // by every way out of the function.
 func returned() {
     m := squares(4)
-    v, _ := m[3]
+    v, hasV := m[3]
     ls := lists(4)
     mut n := 0
     for _, l := range ls {
         n += len(l)
     }
-    check(len(m) == 4 && v == 9 && len(ls) == 4 && n == 0 + 1 + 2 + 3, "a map built in a local and returned")
+    check(len(m) == 4 && hasV && v == 9 && len(ls) == 4 && n == 0 + 1 + 2 + 3, "a map built in a local and returned")
     two := pick(true)
     five := pick(false)
     check(len(two) == 2 && len(five) == 5, "one of two maps returned, the other freed")

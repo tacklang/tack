@@ -225,9 +225,9 @@ func files(dir []uint8) {
     }
     mut ok := true
     for i := range 300000 {
-        c, _ := uint8(i % 253)
+        c, fits := uint8(i % 253)
         e := append(mut data, c)
-        if e.code != 0 {
+        if !fits || e.code != 0 {
             ok = false
         }
     }

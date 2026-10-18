@@ -339,9 +339,10 @@ static void tack_4_main5_forms(void) {
     tack_4_main5_check((tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, ((v_x == 2) && v_fine));
     const int64_t tack_r20 = v_i;
     const int64_t v_e = ((tack_r20 >= 0 && tack_r20 <= 2) ? v_a.e[tack_r20] : 0);
+    const bool v_hasE = (tack_r20 >= 0 && tack_r20 <= 2);
     const int64_t tack_r21 = v_e;
     const bool v_fits = (tack_r21 >= 0 && tack_r21 <= 255);
-    tack_4_main5_check((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, ((v_e == 20) && v_fits));
+    tack_4_main5_check((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, ((v_hasE && (v_e == 20)) && v_fits));
     tack_4_main5_calls = 0;
     const int64_t tack_r22 = tack_4_main5_count(8);
     const int64_t tack_r23 = tack_4_main5_count(0);

@@ -13,12 +13,17 @@ func TestAcceptsCompoundAssignment(t *testing.T) {
 			"x *= 3",
 			"x /= 2",
 			"x %= 5",
-			"code, _ := int32(x)",
-			"exit(code)",
+			"code, fits := int32(x)",
+			"if fits { exit(code) }",
 		),
-		mainLines("mut x int64", "x += 1 + 2 * 3", "code, _ := int32(x)", "exit(code)"),
-		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    code, _ := int32(x)\n    exit(code)\n}\n",
-		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    code, _ := int32(total)\n    exit(code)\n}\n",
+		mainLines(
+			"mut x int64",
+			"x += 1 + 2 * 3",
+			"code, fits := int32(x)",
+			"if fits { exit(code) }",
+		),
+		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
 	}
 
 	for _, src := range tests {
@@ -69,12 +74,12 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"string value",
-		mainLines("mut x = 1", "x -= \"s\"", "code, _ := int32(x)", "exit(code)"),
+		mainLines("mut x = 1", "x -= \"s\"", "code, fits := int32(x)", "if fits { exit(code) }"),
 		[]spanned{{"cannot use string as int64 in -=", "\"s\""}},
 	},
 	{
 		"bool value",
-		mainLines("mut x = 1", "x %= 1 < 2", "code, _ := int32(x)", "exit(code)"),
+		mainLines("mut x = 1", "x %= 1 < 2", "code, fits := int32(x)", "if fits { exit(code) }"),
 		[]spanned{{"cannot use bool as int64 in %=", "1 < 2"}},
 	},
 	{
@@ -86,12 +91,17 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"value from a function returning nothing",
-		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x = 1\n    x += f()\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x = 1\n    x += f()\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		[]spanned{{"f returns no value", "f()"}},
 	},
 	{
 		"error inside the value",
-		mainLines("mut x = 1", "x += 1 + \"s\"", "code, _ := int32(x)", "exit(code)"),
+		mainLines(
+			"mut x = 1",
+			"x += 1 + \"s\"",
+			"code, fits := int32(x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"operator + is not defined on string", "\"s\""}},
 	},
 }

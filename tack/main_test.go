@@ -643,7 +643,7 @@ func TestHostileSourceNeverPanics(t *testing.T) {
 		{
 			"deep defers with returns",
 			"package main\nfunc f() int64 {\n" + strings.Repeat("if true {\ndefer { print(\"x\") }\nreturn 1\n", 300) +
-				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
+				strings.Repeat("}\n", 300) + "return 0\n}\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

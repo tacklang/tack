@@ -52,8 +52,8 @@ var deferRuntimeCases = []struct {
 			"if true {",
 			"    defer { a, b = two() }",
 			"}",
-			"code, _ := int32(a + b)",
-			"exit(code)",
+			"code, fits := int32(a + b)",
+			"if fits { exit(code) }",
 		),
 		"",
 		6,
@@ -80,7 +80,7 @@ var deferRuntimeCases = []struct {
 		inMainProgram("type P struct {\n    x int64\n}\n"+
 			"func f() ([2]int64, P) {\n    mut a := [2]int64{1, 2}\n    mut q := P{x: 3}\n"+
 			"    defer {\n        a[0] = 9\n        q.x = 9\n    }\n    return a, q\n}\n",
-			"a, q := f()", "code, _ := int32(a[0] + a[1] + q.x + 2)", "exit(code)"),
+			"a, q := f()", "code, fits := int32(a[0] + a[1] + q.x + 2)", "if fits { exit(code) }"),
 		"", 8,
 	},
 	{
@@ -98,8 +98,8 @@ var deferRuntimeCases = []struct {
 		"a closed block's defers are not run again",
 		inMainProgram(
 			"func f() int64 {\n    if true {\n        defer { print(\"a\") }\n    }\n    return 1\n}\n",
-			"code, _ := int32(f() + 9)",
-			"exit(code)",
+			"code, fits := int32(f() + 9)",
+			"if fits { exit(code) }",
 		),
 		"a",
 		10,
@@ -117,8 +117,8 @@ var deferRuntimeCases = []struct {
 			"    }",
 			"    defer { p(j) }",
 			"}",
-			"code, _ := int32(i + j)",
-			"exit(code)",
+			"code, fits := int32(i + j)",
+			"if fits { exit(code) }",
 		),
 		"00142",
 		9,
@@ -170,7 +170,7 @@ var deferRuntimeCases = []struct {
 			"                if j == 2 {\n                    break\n                }\n                p(j)\n            }\n"+
 			"            p(i)\n        }\n        if true {\n            defer { p(7) }\n"+
 			"            if i == 1 {\n                return 5\n            }\n        }\n    }\n    return 0\n}\n",
-			"code, _ := int32(f())", "exit(code)"),
+			"code, fits := int32(f())", "if fits { exit(code) }"),
 		"700701", 5,
 	},
 	{
@@ -196,7 +196,7 @@ var deferRuntimeCases = []struct {
 		inMainProgram(printer+
 			"func f(n int64) int64 {\n    defer { p(1) }\n    if n > 0 {\n        defer { p(2) }\n        return n\n"+
 			"    } else {\n        return 0 - n\n    }\n}\n",
-			"code, _ := int32(f(3) + f(0 - 4))", "exit(code)"),
+			"code, fits := int32(f(3) + f(0 - 4))", "if fits { exit(code) }"),
 		"211", 7,
 	},
 	{
@@ -204,14 +204,14 @@ var deferRuntimeCases = []struct {
 		inMainProgram(printer+
 			"func f() int64 {\n    mut i := 0\n    for {\n        defer { p(i) }\n        i++\n"+
 			"        if i == 3 {\n            defer { p(9) }\n            return i * 10\n        }\n    }\n}\n",
-			"code, _ := int32(f())", "exit(code)"),
+			"code, fits := int32(f())", "if fits { exit(code) }"),
 		"1293", 30,
 	},
 	{
 		"a return from an inner block when the body has no defer",
 		inMainProgram(printer+
 			"func f(n int64) int64 {\n    if n > 0 {\n        defer { p(n) }\n        return n + 1\n    }\n    return 0\n}\n",
-			"code, _ := int32(f(4) + f(0))", "exit(code)"),
+			"code, fits := int32(f(4) + f(0))", "if fits { exit(code) }"),
 		"4", 5,
 	},
 	{
@@ -296,8 +296,8 @@ func TestDeepDefersUnwindInnermostFirst(t *testing.T) {
 func TestDeferEmitsNoFlags(t *testing.T) {
 	out := generate(t, inMainProgram(
 		"func f(n int64) int64 {\n    if n > 0 {\n        defer { exit(2) }\n    }\n    return n\n}\n",
-		"code, _ := int32(f(1))",
-		"exit(code)",
+		"code, fits := int32(f(1))",
+		"if fits { exit(code) }",
 	))
 	if !strings.Contains(out, "return p_n;") {
 		t.Errorf("return with no defer pending was not plain:\n%s", out)

@@ -56,12 +56,17 @@ var validCharPrograms = []struct{ name, src string }{
 	{"known divisor variable", mainLines("d := 'b' - 'a'", "x := 10 / d", "exit(x)")},
 	{
 		"array length",
-		mainLines("mut a ['c' - 'a']int64", "a[1] = 5", "code, _ := int32(a[1])", "exit(code)"),
+		mainLines(
+			"mut a ['c' - 'a']int64",
+			"a[1] = 5",
+			"code, fits := int32(a[1])",
+			"if fits { exit(code) }",
+		),
 	},
 	{"constant index", mainLines("mut seen [256]bool", "seen['z'] = true", "if seen['z'] {", "}")},
 	{
 		"constant index at the end",
-		mainLines("mut a [98]int64", "code, _ := int32(a['a'])", "exit(code)"),
+		mainLines("mut a [98]int64", "code, fits := int32(a['a'])", "if fits { exit(code) }"),
 	},
 	{
 		"range over a character count",
@@ -70,8 +75,8 @@ var validCharPrograms = []struct{ name, src string }{
 			"for i := range 'c' - 'a' {",
 			"    a[i] = 1",
 			"}",
-			"code, _ := int32(a[0])",
-			"exit(code)",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -95,8 +100,8 @@ var validCharPrograms = []struct{ name, src string }{
 		mainLines(
 			"v, ok := int64('a')",
 			"if ok {",
-			"    code, _ := int32(v)",
-			"    exit(code)",
+			"    code, fits := int32(v)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -163,7 +168,7 @@ var invalidCharPrograms = []struct {
 	},
 	{
 		"constant index out of range",
-		mainLines("mut a [97]int64", "code, _ := int32(a['a'])", "exit(code)"),
+		mainLines("mut a [97]int64", "code, fits := int32(a['a'])", "if fits { exit(code) }"),
 		spanned{"index 97 is out of range for [97]int64", "'a'"},
 	},
 	{

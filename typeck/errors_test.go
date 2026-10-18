@@ -397,7 +397,11 @@ var errorRejectedCases = []struct{ name, src, want string }{
 		errorProgram(
 			`v, mut err := parse("1")`,
 			"a := [1]error{noerror}",
-			"err, _ = a[0]",
+			"mut found := false",
+			"err, found = a[0]",
+			"if !found {",
+			"    return",
+			"}",
 			"if err.code == 0 {",
 			"    use(v)",
 			"}",

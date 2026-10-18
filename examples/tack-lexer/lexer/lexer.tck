@@ -97,7 +97,10 @@ func fail(mut l Lexer, start int64, end int64, msg string) {
 // compiles. Callers that must tell a 0 byte from the end compare the
 // position with len(src) first.
 func byteAt(src string, i int64) uint8 {
-    c, _ := src[i]
+    c, ok := src[i]
+    if !ok {
+        return 0
+    }
     return c
 }
 

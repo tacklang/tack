@@ -94,8 +94,8 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		targetWidth(
 			"n := unsafe_size_t(3)",
 			"a := [n]int64{1, 2, 3}",
-			"code, _ := int32(a[0])",
-			"exit(code)",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -104,8 +104,8 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 			"a := [2]int64{1, 2}",
 			"str := \"tack\"",
 			"if s < len(a) && p < len(str) {",
-			"    code, _ := int32(a[s] + str[p])",
-			"    exit(code)",
+			"    code, fits := int32(a[s] + str[p])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -114,8 +114,8 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		targetWidth(
 			"a := [2]int64{1, 2}",
 			"if p <= int8(1) {",
-			"    code, _ := int32(a[p])",
-			"    exit(code)",
+			"    code, fits := int32(a[p])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -124,12 +124,12 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		targetWidth(
 			"a := [4]int64{1, 2, 3, 4}",
 			"for mut i unsafe_uintptr_t = 3; i >= 1; i-- {",
-			"    code, _ := int32(a[i])",
-			"    exit(code)",
+			"    code, fits := int32(a[i])",
+			"    if fits { exit(code) }",
 			"}",
 			"for mut j unsafe_size_t = 0; j < len(a); j++ {",
-			"    code, _ := int32(a[j])",
-			"    exit(code)",
+			"    code, fits := int32(a[j])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -139,8 +139,8 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 			"a := [2]int64{1, 2}",
 			"v, ok := a[p - 1]",
 			"if ok {",
-			"    code, _ := int32(v)",
-			"    exit(code)",
+			"    code, fits := int32(v)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -292,7 +292,7 @@ var rejectedTargetWidthCases = []struct {
 	},
 	{
 		"unproven index with size",
-		targetWidth("a := [2]int64{1, 2}", "code, _ := int32(a[s])", "exit(code)"),
+		targetWidth("a := [2]int64{1, 2}", "code, fits := int32(a[s])", "if fits { exit(code) }"),
 		spanned{"index s may be out of range; check s < 2 first, or use v, ok := ...[s]", "s"},
 	},
 	{
@@ -300,8 +300,8 @@ var rejectedTargetWidthCases = []struct {
 		targetWidth(
 			"a := [2]int64{1, 2}",
 			"if p <= len(a) {",
-			"    code, _ := int32(a[p])",
-			"    exit(code)",
+			"    code, fits := int32(a[p])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 		spanned{"index p may be out of range; check p < 2 first, or use v, ok := ...[p]", "p"},
@@ -316,7 +316,11 @@ var rejectedTargetWidthCases = []struct {
 	},
 	{
 		"known index out of range",
-		targetWidth("a := [2]int64{1, 2}", "code, _ := int32(a[unsafe_size_t(2)])", "exit(code)"),
+		targetWidth(
+			"a := [2]int64{1, 2}",
+			"code, fits := int32(a[unsafe_size_t(2)])",
+			"if fits { exit(code) }",
+		),
 		spanned{"index 2 is out of range for [2]int64", "unsafe_size_t(2)"},
 	},
 	{

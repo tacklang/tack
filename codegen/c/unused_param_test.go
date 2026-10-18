@@ -102,7 +102,7 @@ func TestIgnoredParamsCompileStrictly(t *testing.T) {
 // gets no (void) cast, and one it never names gets exactly one.
 func TestUsedParamsHaveNoCast(t *testing.T) {
 	got := generate(t, "package main\n\nfunc f(a int64, b int64) int64 {\n    return a\n}\n\n"+
-		"func main() {\n    code, _ := int32(f(1, 2))\n    exit(code)\n}\n")
+		"func main() {\n    code, fits := int32(f(1, 2))\n    if fits { exit(code) }\n}\n")
 	if strings.Contains(got, "(void)p_a;") || strings.Count(got, "(void)p_b;") != 1 {
 		t.Errorf("want one (void) cast, of b alone:\n%s", got)
 	}

@@ -24,8 +24,8 @@ func pair() (int64, int64) {
 
 func main() {
     a, b := pair()
-    code, _ := int32(a + b + origin.x)
-    exit(code)
+    code, fits := int32(a + b + origin.x)
+    if fits { exit(code) }
 }
 `)
 	for _, want := range []string{

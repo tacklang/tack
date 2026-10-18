@@ -298,9 +298,9 @@ func assigns(a any) bool {
     n, ok = a.(int16)
     second := n == 0 && !ok
     _, ok = a.(int8)
-    v, _ := a.(int8)
+    v, isInt8 := a.(int8)
     _, isBool := a.(bool)
-    return first && second && ok && v == -5 && !isBool
+    return first && second && ok && isInt8 && v == -5 && !isBool
 }
 
 // mixed compares a value of one type from a case with a value of

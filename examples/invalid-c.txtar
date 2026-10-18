@@ -19,8 +19,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- c-defines-main/helpers.c --
 int64_t add(int64_t a, int64_t b) {
@@ -45,8 +45,8 @@ type Point struct {
 extern func norm(p Point) int64
 
 func main() {
-    code, _ := int32(norm(Point{x: 40, y: 2}))
-    exit(code)
+    code, fits := int32(norm(Point{x: 40, y: 2}))
+    if fits { exit(code) }
 }
 -- c-redefines-type/helpers.c --
 typedef struct {
@@ -67,8 +67,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- c-syntax-error/helpers.c --
 int64_t add(int64_t a, int64_t b) {
@@ -86,8 +86,8 @@ import util from "calc/util"
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(util.Two(), 40))
-    exit(code)
+    code, fits := int32(add(util.Two(), 40))
+    if fits { exit(code) }
 }
 -- definition-in-another-package/util/util.tck --
 package util
@@ -115,8 +115,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- duplicate-definition/a.c --
 int64_t add(int64_t a, int64_t b) {
@@ -136,8 +136,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- duplicate-helper/a.c --
 int counter = 0;
@@ -157,8 +157,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- empty-c-file/empty.c --
 -- empty-c-file/expected --
@@ -182,8 +182,8 @@ extern func unused()
 
 func main() {
     if flip(false) {
-        code, _ := int32(add(40, 2))
-        exit(code)
+        code, fits := int32(add(40, 2))
+        if fits { exit(code) }
     }
 }
 -- missing-definition/helpers.c --
@@ -216,8 +216,8 @@ package main
 import util from "calc/util"
 
 func main() {
-    code, _ := int32(util.Sum(40, 2))
-    exit(code)
+    code, fits := int32(util.Sum(40, 2))
+    if fits { exit(code) }
 }
 -- missing-in-library/util/util.tck --
 package util
@@ -245,8 +245,8 @@ extern func fill(mut n int64, v int64)
 func main() {
     mut n int64 = 0
     fill(mut n, 42)
-    code, _ := int32(n)
-    exit(code)
+    code, fits := int32(n)
+    if fits { exit(code) }
 }
 -- mut-param-by-value/helpers.c --
 void fill(int64_t n, int64_t v) {
@@ -262,8 +262,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- no-c-files/expected --
 
@@ -281,8 +281,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- signature-mismatch/helpers.c --
 int32_t add(int32_t a) {
@@ -298,8 +298,8 @@ package main
 extern func add(a int64, b int64) int64
 
 func main() {
-    code, _ := int32(add(40, 2))
-    exit(code)
+    code, fits := int32(add(40, 2))
+    if fits { exit(code) }
 }
 -- static-definition/helpers.c --
 static int64_t add(int64_t a, int64_t b) {
@@ -320,8 +320,8 @@ type Point struct {
 extern func origin() Point
 
 func main() {
-    code, _ := int32(origin().x)
-    exit(code)
+    code, fits := int32(origin().x)
+    if fits { exit(code) }
 }
 -- struct-result-mismatch/helpers.c --
 tack_string origin(void) {

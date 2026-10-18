@@ -160,7 +160,7 @@ func TestLoopTermination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			src := "package main\n\nfunc f(n int64) int64 {\n    " + tt.body + "\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n"
+			src := "package main\n\nfunc f(n int64) int64 {\n    " + tt.body + "\n}\n\nfunc main() {\n    code, fits := int32(f(1))\n    if fits { exit(code) }\n}\n"
 			_, diags := checkTree(t, src)
 			if tt.terminates && len(diags) > 0 {
 				t.Errorf("got %v, want no diagnostics", diags)

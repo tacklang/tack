@@ -89,11 +89,17 @@ func TestVariableTypeFlowsIntoUses(t *testing.T) {
 // TestAcceptsValidVariablePrograms lists programs the checker must accept.
 func TestAcceptsValidVariablePrograms(t *testing.T) {
 	tests := []string{
-		mainLines("mut x := 1", "x = 2", "code, _ := int32(x)", "exit(code)"),
-		mainLines("mut x int64", "x = x + 1", "code, _ := int32(x)", "exit(code)"),
+		mainLines("mut x := 1", "x = 2", "code, fits := int32(x)", "if fits { exit(code) }"),
+		mainLines("mut x int64", "x = x + 1", "code, fits := int32(x)", "if fits { exit(code) }"),
 		mainLines("mut s string", "s = \"x\"", "print(s)"),
 		mainLines("mut b bool", "b = 1 < 2", "if b {", "}"),
-		mainLines("x := 1", "mut y = x", "y = x * 2", "code, _ := int32(y)", "exit(code)"),
+		mainLines(
+			"x := 1",
+			"mut y = x",
+			"y = x * 2",
+			"code, fits := int32(y)",
+			"if fits { exit(code) }",
+		),
 	}
 	for _, src := range tests {
 		if _, diags := checkTree(t, src); len(diags) > 0 {
@@ -109,12 +115,13 @@ var invalidVariablePrograms = []struct {
 	want []string
 }{
 	{
-		"immutable without a value", mainLines("var x int64", "code, _ := int32(x)", "exit(code)"),
+		"immutable without a value",
+		mainLines("var x int64", "code, fits := int32(x)", "if fits { exit(code) }"),
 		[]string{"immutable variable x needs a value"},
 	},
 	{
 		"declared type mismatch",
-		mainLines("var x int64 = \"s\"", "code, _ := int32(x)", "exit(code)"),
+		mainLines("var x int64 = \"s\"", "code, fits := int32(x)", "if fits { exit(code) }"),
 		[]string{"cannot use string as int64 in declaration of x"},
 	},
 	{
@@ -144,12 +151,12 @@ var invalidVariablePrograms = []struct {
 	},
 	{
 		"assign a different type",
-		mainLines("mut x := 1", "x = \"s\"", "code, _ := int32(x)", "exit(code)"),
+		mainLines("mut x := 1", "x = \"s\"", "code, fits := int32(x)", "if fits { exit(code) }"),
 		[]string{"cannot use string as int64 in assignment to x"},
 	},
 	{
 		"assign nothing",
-		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x := 1\n    x = f()\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc f() {\n}\n\nfunc main() {\n    mut x := 1\n    x = f()\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		[]string{"f returns no value"},
 	},
 	{

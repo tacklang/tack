@@ -185,9 +185,9 @@ func forms() {
     x, fine = (v / x)
     check("assign division in parentheses", x == 2 && fine)
 
-    e, _ := a[i]
+    e, hasE := a[i]
     _, fits := uint8(e)
-    check("blank discards", e == 20 && fits)
+    check("blank discards", hasE && e == 20 && fits)
 
     calls = 0
     r, nonzero := count(8) / count(0)

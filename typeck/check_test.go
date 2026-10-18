@@ -237,7 +237,7 @@ func TestTypesAParameterReferenceFromItsDeclaration(t *testing.T) {
 	}{
 		{
 			name: "int64 parameter to exit",
-			src:  "func f(x int64) {\n    code, _ := int32(x)\n    exit(code)\n}",
+			src:  "func f(x int64) {\n    code, fits := int32(x)\n    if fits { exit(code) }\n}",
 			ok:   true,
 		},
 		{
@@ -433,7 +433,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 	}{
 		{
 			name: "int64 result into exit",
-			src:  "func seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, _ := int32(seven())\n    exit(code)\n}",
+			src:  "func seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, fits := int32(seven())\n    if fits { exit(code) }\n}",
 		},
 		{
 			name: "string result into print",
@@ -473,7 +473,7 @@ func TestTypesACallByWhatItReturns(t *testing.T) {
 
 func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
 	src := "package main\n\nfunc g() int64 {\n    return 1\n}\n\n" +
-		"func f() int64 {\n    return g()\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n"
+		"func f() int64 {\n    return g()\n}\n\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("returning a call's result was rejected: %+v", diags)
@@ -482,7 +482,7 @@ func TestAcceptsReturningTheResultOfAnotherCall(t *testing.T) {
 
 func TestChecksArgumentsOfANestedCall(t *testing.T) {
 	src := "package main\n\nfunc g(x int64) int64 {\n    return x\n}\n\n" +
-		"func main() {\n    code, _ := int32(g(\"hi\"))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(g(\"hi\"))\n    if fits { exit(code) }\n}\n"
 
 	_, diags := checkFile(t, src)
 	if len(diags) == 0 {
@@ -614,7 +614,7 @@ func TestFibTypechecks(t *testing.T) {
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
-		"func main() {\n    code, _ := int32(fib(10))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(fib(10))\n    if fits { exit(code) }\n}\n"
 
 	if _, diags := checkFile(t, src); len(diags) > 0 {
 		t.Errorf("fib was rejected: %+v", diags)
@@ -627,7 +627,7 @@ func TestBuiltinUsedAsAValueIsReported(t *testing.T) {
 	tests := []string{
 		inMain("exit(print(\"x\"))"),
 		inMain("if print(\"x\") == 1 {\n    }"),
-		"package main\n\nfunc f() int64 {\n    return exit(1)\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
+		"package main\n\nfunc f() int64 {\n    return exit(1)\n}\n\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
 	}
 	for _, src := range tests {
 		diags := check(t, src)
@@ -651,7 +651,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter in arithmetic",
-			"package main\n\nfunc f(x foo) int64 {\n    return x + 1\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x + 1\n}\n\nfunc main() {\n    code, fits := int32(f(1))\n    if fits { exit(code) }\n}\n",
 		},
 		{
 			"parameter as a condition",
@@ -659,7 +659,7 @@ func TestUnknownTypeIsReportedOnce(t *testing.T) {
 		},
 		{
 			"parameter returned",
-			"package main\n\nfunc f(x foo) int64 {\n    return x\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n",
+			"package main\n\nfunc f(x foo) int64 {\n    return x\n}\n\nfunc main() {\n    code, fits := int32(f(1))\n    if fits { exit(code) }\n}\n",
 		},
 		{
 			"result type",

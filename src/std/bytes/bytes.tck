@@ -149,9 +149,13 @@ pub func count(s []uint8, sub []uint8) int64 {
 // 18446744073709551615, or a sign and the nineteen of the smallest
 // int64's magnitude, 9223372036854775808.
 //
-// The divisions are written in the checked form, which needs no proof
-// that base is not zero; the callers pass only 10 and 16.
+// The callers pass only 10 and 16, so the check of base, which proves the
+// divisions by it, and the check of each digit, which proves its index
+// into hex_digits, never fail.
 func append_digits(mut b list[uint8], v uint64, base uint64, neg bool) error {
+    if base < 2 || base > 16 {
+        return error{code: 2, msg: "internal error"}
+    }
     mut digits [21]uint8
     mut x := v
     mut sign := false
@@ -162,10 +166,12 @@ func append_digits(mut b list[uint8], v uint64, base uint64, neg bool) error {
             digits[at] = '-'
             return append(mut b, digits[at:]...)
         }
-        d, _ := x % base
-        c, _ := hex_digits[d]
-        digits[at] = c
-        x, _ = x / base
+        d := x % base
+        if d >= 16 {
+            return error{code: 2, msg: "internal error"}
+        }
+        digits[at] = hex_digits[d]
+        x = x / base
         if x == 0 {
             if !neg {
                 return append(mut b, digits[at:]...)
@@ -197,13 +203,21 @@ pub func append_uint(mut b list[uint8], v uint64) error {
 // error{code: 1, msg: "out of memory"}, the builtin append's, and leaves
 // b exactly as it was.
 pub func append_int(mut b list[uint8], v int64) error {
+    // Neither conversion can fail: v is not negative in the first, and
+    // -(v + 1) is not in the second.
     if v >= 0 {
-        u, _ := uint64(v)
+        u, ok := uint64(v)
+        if !ok {
+            return error{code: 2, msg: "internal error"}
+        }
         return append_digits(mut b, u, 10, false)
     }
     // -(v + 1) is an int64 for every negative v, the smallest included,
     // and one less than v's magnitude.
-    m, _ := uint64(-(v + 1))
+    m, ok := uint64(-(v + 1))
+    if !ok {
+        return error{code: 2, msg: "internal error"}
+    }
     return append_digits(mut b, m + 1, 10, true)
 }
 

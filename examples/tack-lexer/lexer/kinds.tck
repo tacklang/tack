@@ -142,9 +142,15 @@ var operators = [...]spelling{
 // which Lex never makes, names nothing.
 pub func Name(t Token) string {
     if t.kind == KindOp {
-        op, _ := operators[t.sub]
+        op, ok := operators[t.sub]
+        if !ok {
+            return ""
+        }
         return op.text
     }
-    name, _ := kindNames[t.kind]
+    name, ok := kindNames[t.kind]
+    if !ok {
+        return ""
+    }
     return name
 }

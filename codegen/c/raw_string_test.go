@@ -41,8 +41,8 @@ func TestRawStringHoldsEveryByteAtRuntime(t *testing.T) {
 		"    }",
 		"    j++",
 		"}",
-		"code, _ := int32(j - 200)",
-		"exit(code)",
+		"code, fits := int32(j - 200)",
+		"if fits { exit(code) }",
 	)
 	if out, status := runSanitized(t, src); out != "" || status != 54 {
 		t.Errorf("got stdout %q, status %d; want no output, status 54", out, status)

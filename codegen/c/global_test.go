@@ -23,7 +23,7 @@ func TestEmitsGlobalsAsStaticVariables(t *testing.T) {
 		{"var x = 40 + 2", "exit(int32(x))", "static const int64_t tack_4_main1_x = 42;"},
 		{
 			"mut x int64",
-			"code, _ := int32(x)\n    exit(code)",
+			"code, fits := int32(x)\n    if fits { exit(code) }",
 			"static int64_t tack_4_main1_x = 0;",
 		},
 		{
@@ -94,7 +94,7 @@ var globalRuntimeCases = []struct {
 	{
 		"updated across calls",
 		"package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\n" +
-			"func main() {\n    bump()\n    bump()\n    bump()\n    code, _ := int32(count)\n    exit(code)\n}\n", "", 3,
+			"func main() {\n    bump()\n    bump()\n    bump()\n    code, fits := int32(count)\n    if fits { exit(code) }\n}\n", "", 3,
 	},
 	{
 		"string",
@@ -125,7 +125,7 @@ var globalRuntimeCases = []struct {
 	{
 		"global and local together",
 		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total + n\n}\n\n" +
-			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    code, _ := int32(total)\n    exit(code)\n}\n", "", 15,
+			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n", "", 15,
 	},
 }
 

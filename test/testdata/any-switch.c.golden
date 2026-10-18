@@ -509,9 +509,10 @@ static bool tack_4_main7_assigns(tack_any p_a) {
     v_ok = (tack_r36.type == TACK_TYPE_INT8);
     const tack_any tack_r37 = p_a;
     const int8_t v_v = ((tack_r37.type == TACK_TYPE_INT8) ? *(const int8_t *)tack_r37.ptr : 0);
+    const bool v_isInt8 = (tack_r37.type == TACK_TYPE_INT8);
     const tack_any tack_r38 = p_a;
     const bool v_isBool = (tack_r38.type == TACK_TYPE_BOOL);
-    return ((((v_first && v_second) && v_ok) && (v_v == (-5))) && !v_isBool);
+    return (((((v_first && v_second) && v_ok) && v_isInt8) && (v_v == (-5))) && !v_isBool);
 }
 
 static bool tack_4_main5_mixed(tack_any p_a, uint64_t p_limit) {

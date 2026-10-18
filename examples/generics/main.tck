@@ -94,7 +94,10 @@ func (b Buffer) size() int64 {
 
 // at returns the byte b keeps at i, or 0 past its end.
 func (b Buffer) at(i int64) uint8 {
-    v, _ := b.bytes[i]
+    v, ok := b.bytes[i]
+    if !ok {
+        return 0
+    }
     return v
 }
 

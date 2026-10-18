@@ -43,8 +43,10 @@ func printInt(n int64) {
     if d < 0 {
         d = 0 - d
     }
-    s, _ := digits[d]
-    print(s)
+    s, ok := digits[d]
+    if ok {
+        print(s)
+    }
 }
 
 // printQuoted prints src[start:end] between double quotes, a quote or a
@@ -68,13 +70,17 @@ func printByte(c uint8) {
         print("\\")
     }
     if c >= ' ' && c <= '~' {
-        s, _ := printable[c - ' ']
-        print(s)
+        s, ok := printable[c - ' ']
+        if ok {
+            print(s)
+        }
         return
     }
     print("\\x")
-    hi, _ := hexDigits[c / 16]
-    lo, _ := hexDigits[c % 16]
-    print(hi)
-    print(lo)
+    hi, okHi := hexDigits[c / 16]
+    lo, okLo := hexDigits[c % 16]
+    if okHi && okLo {
+        print(hi)
+        print(lo)
+    }
 }

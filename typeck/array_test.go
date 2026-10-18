@@ -8,10 +8,17 @@ import (
 
 // arrayCases are array programs that must check cleanly.
 var arrayCases = []struct{ name, src string }{
-	{"literal", mainLines("a := [3]int64{1, 2, 3}", "code, _ := int32(a[0])", "exit(code)")},
+	{
+		"literal",
+		mainLines("a := [3]int64{1, 2, 3}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
+	},
 	{
 		"inferred length",
-		mainLines("a := [...]int64{1, 2, 3, 4}", "code, _ := int32(a[3] + len(a))", "exit(code)"),
+		mainLines(
+			"a := [...]int64{1, 2, 3, 4}",
+			"code, fits := int32(a[3] + len(a))",
+			"if fits { exit(code) }",
+		),
 	},
 	{"empty", mainLines("a := [0]bool{}", "exit(int32(len(a)))")},
 	{"zero value", mainLines("mut a [4]uint8", "a[3] = 255", "exit(a[3])")},
@@ -20,8 +27,8 @@ var arrayCases = []struct{ name, src string }{
 		mainLines(
 			"var small int8 = 1",
 			"a := [2]int64{small, 300}",
-			"code, _ := int32(a[1])",
-			"exit(code)",
+			"code, fits := int32(a[1])",
+			"if fits { exit(code) }",
 		),
 	},
 	{"constants take the element type", mainLines("a := [2]uint8{0, 255}", "exit(a[1])")},
@@ -33,8 +40,8 @@ var arrayCases = []struct{ name, src string }{
 		"nested with types written",
 		mainLines(
 			"g := [2][1]int64{[1]int64{1}, [1]int64{2}}",
-			"code, _ := int32(g[1][0])",
-			"exit(code)",
+			"code, fits := int32(g[1][0])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -43,8 +50,8 @@ var arrayCases = []struct{ name, src string }{
 			"a := [2]int64{1, 2}",
 			"mut b := a",
 			"b[0] = 5",
-			"code, _ := int32(a[0] + b[0])",
-			"exit(code)",
+			"code, fits := int32(a[0] + b[0])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -65,8 +72,8 @@ var arrayCases = []struct{ name, src string }{
 			"n := 3",
 			"mut a [n]int64",
 			"a[2] = 1",
-			"code, _ := int32(a[n - 1])",
-			"exit(code)",
+			"code, fits := int32(a[n - 1])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -75,8 +82,8 @@ var arrayCases = []struct{ name, src string }{
 			"a := [3]int64{1, 2, 3}",
 			"mut b [len(a) * 2]int64",
 			"b[5] = a[2]",
-			"code, _ := int32(b[5])",
-			"exit(code)",
+			"code, fits := int32(b[5])",
+			"if fits { exit(code) }",
 		),
 	},
 	{"length of a string literal", mainLines("mut a [len(\"tack\")]bool", "if a[3] {", "}")},
@@ -86,8 +93,8 @@ var arrayCases = []struct{ name, src string }{
 		mainLines(
 			"var i uint8 = 1",
 			"a := [2]int64{1, 2}",
-			"code, _ := int32(a[1] + len(a))",
-			"exit(code)",
+			"code, fits := int32(a[1] + len(a))",
+			"if fits { exit(code) }",
 			"if i > 0 {",
 			"}",
 		),
@@ -99,24 +106,24 @@ var arrayCases = []struct{ name, src string }{
 			"a[0] += 5",
 			"a[1]++",
 			"a[1] *= a[0]",
-			"code, _ := int32(a[1])",
-			"exit(code)",
+			"code, fits := int32(a[1])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
 		"element assigned several values",
 		"package main\n\nfunc p() (int64, bool) {\n    return 1, true\n}\n\n" +
-			"func main() {\n    mut a [2]int64\n    mut b [1]bool\n    a[1], b[0] = p()\n    if b[0] {\n        code, _ := int32(a[1])\n        exit(code)\n    }\n}\n",
+			"func main() {\n    mut a [2]int64\n    mut b [1]bool\n    a[1], b[0] = p()\n    if b[0] {\n        code, fits := int32(a[1])\n        if fits { exit(code) }\n    }\n}\n",
 	},
 	{
 		"parameter and result",
 		"package main\n\nfunc rev(v [2]int64) [2]int64 {\n    return [2]int64{v[1], v[0]}\n}\n\n" +
-			"func main() {\n    r := rev([2]int64{1, 2})\n    code, _ := int32(r[0])\n    exit(code)\n}\n",
+			"func main() {\n    r := rev([2]int64{1, 2})\n    code, fits := int32(r[0])\n    if fits { exit(code) }\n}\n",
 	},
 	{
 		"several results",
 		"package main\n\nfunc pair() ([2]int64, bool) {\n    return [2]int64{1, 2}, true\n}\n\n" +
-			"func main() {\n    a, ok := pair()\n    if ok {\n        code, _ := int32(a[1])\n        exit(code)\n    }\n}\n",
+			"func main() {\n    a, ok := pair()\n    if ok {\n        code, fits := int32(a[1])\n        if fits { exit(code) }\n    }\n}\n",
 	},
 	{
 		"global",
@@ -138,7 +145,7 @@ var arrayCases = []struct{ name, src string }{
 	},
 	{
 		"index of a call",
-		"package main\n\nfunc f() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc main() {\n    code, _ := int32(f()[1])\n    exit(code)\n}\n",
+		"package main\n\nfunc f() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc main() {\n    code, fits := int32(f()[1])\n    if fits { exit(code) }\n}\n",
 	},
 }
 
@@ -162,22 +169,22 @@ var arrayErrorCases = []struct {
 }{
 	{
 		"too many elements",
-		mainLines("a := [2]int64{1, 2, 3}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines("a := [2]int64{1, 2, 3}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
 		[]spanned{{"[2]int64 literal has 3 elements, want 2", "[2]int64{1, 2, 3}"}},
 	},
 	{
 		"too few elements",
-		mainLines("a := [3]int64{1}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines("a := [3]int64{1}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
 		[]spanned{{"[3]int64 literal has 1 element, want 3", "[3]int64{1}"}},
 	},
 	{
 		"empty literal of a longer type",
-		mainLines("a := [2]int64{}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines("a := [2]int64{}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
 		[]spanned{{"[2]int64 literal has 0 elements, want 2", "[2]int64{}"}},
 	},
 	{
 		"element of the wrong type",
-		mainLines("a := [2]int64{1, \"x\"}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines("a := [2]int64{1, \"x\"}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
 		[]spanned{{"cannot use string as int64 in array literal", "\"x\""}},
 	},
 	{
@@ -192,37 +199,47 @@ var arrayErrorCases = []struct {
 	},
 	{
 		"literal without a type",
-		mainLines("a := [2]int64{{1}, 2}", "code, _ := int32(a[1])", "exit(code)"),
+		mainLines("a := [2]int64{{1}, 2}", "code, fits := int32(a[1])", "if fits { exit(code) }"),
 		[]spanned{{"a literal without a type needs an array literal around it", "{1}"}},
 	},
 	{
 		"constant index too large",
-		mainLines("a := [3]int64{1, 2, 3}", "code, _ := int32(a[3])", "exit(code)"),
+		mainLines("a := [3]int64{1, 2, 3}", "code, fits := int32(a[3])", "if fits { exit(code) }"),
 		[]spanned{{"index 3 is out of range for [3]int64", "3"}},
 	},
 	{
 		"constant index negative",
-		mainLines("a := [3]int64{1, 2, 3}", "code, _ := int32(a[-1])", "exit(code)"),
+		mainLines("a := [3]int64{1, 2, 3}", "code, fits := int32(a[-1])", "if fits { exit(code) }"),
 		[]spanned{{"index -1 is out of range for [3]int64", "-1"}},
 	},
 	{
 		"constant variable index",
-		mainLines("a := [3]int64{1, 2, 3}", "k := 5", "code, _ := int32(a[k])", "exit(code)"),
+		mainLines(
+			"a := [3]int64{1, 2, 3}",
+			"k := 5",
+			"code, fits := int32(a[k])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"index 5 is out of range for [3]int64", "k"}},
 	},
 	{
 		"index of an empty array",
-		mainLines("a := [0]int64{}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines("a := [0]int64{}", "code, fits := int32(a[0])", "if fits { exit(code) }"),
 		[]spanned{{"index 0 is out of range for [0]int64", "0"}},
 	},
 	{
 		"written index too large",
-		mainLines("mut a [2]int64", "a[2] = 1", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines(
+			"mut a [2]int64",
+			"a[2] = 1",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"index 2 is out of range for [2]int64", "2"}},
 	},
 	{
 		"string index",
-		mainLines("a := [2]int64{1, 2}", "code, _ := int32(a[\"0\"])", "exit(code)"),
+		mainLines("a := [2]int64{1, 2}", "code, fits := int32(a[\"0\"])", "if fits { exit(code) }"),
 		[]spanned{{"index must be an integer, got string", "\"0\""}},
 	},
 	{
@@ -237,7 +254,12 @@ var arrayErrorCases = []struct {
 	},
 	{
 		"immutable element",
-		mainLines("a := [2]int64{1, 2}", "a[0] = 3", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines(
+			"a := [2]int64{1, 2}",
+			"a[0] = 3",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"cannot assign to element of immutable variable a", "a"}},
 	},
 	{
@@ -245,8 +267,8 @@ var arrayErrorCases = []struct {
 		mainLines(
 			"a := [1][1]int64{{1}}",
 			"a[0][0] = 3",
-			"code, _ := int32(a[0][0])",
-			"exit(code)",
+			"code, fits := int32(a[0][0])",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot assign to element of immutable variable a", "a"}},
 	},
@@ -257,7 +279,12 @@ var arrayErrorCases = []struct {
 	},
 	{
 		"element of the wrong type",
-		mainLines("mut a [2]int64", "a[0] = true", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines(
+			"mut a [2]int64",
+			"a[0] = true",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"cannot use bool as int64 in assignment to an element of a", "true"}},
 	},
 	{
@@ -285,8 +312,8 @@ var arrayErrorCases = []struct {
 		mainLines(
 			"mut a [2]int64",
 			"a = [3]int64{1, 2, 3}",
-			"code, _ := int32(a[0])",
-			"exit(code)",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use [3]int64 as [2]int64 in assignment to a", "[3]int64{1, 2, 3}"}},
 	},
@@ -295,8 +322,8 @@ var arrayErrorCases = []struct {
 		mainLines(
 			"small := [1]int8{1}",
 			"var big [1]int64 = small",
-			"code, _ := int32(big[0])",
-			"exit(code)",
+			"code, fits := int32(big[0])",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use [1]int8 as [1]int64 in declaration of big", "small"}},
 	},

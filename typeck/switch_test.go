@@ -18,7 +18,7 @@ func inF(body ...string) string {
 		"type P struct {\n    x int64\n}\n\ntype Q struct {\n    x int64\n}\n\n" +
 		"func f(n int64, d int64, i int64, s string, a [4]int64) int64 {\n    " +
 		strings.Join(body, "\n    ") +
-		"\n}\n\nfunc main() {\n    code, _ := int32(f(1, 1, 1, \"x\", [4]int64{1, 2, 3, 4}))\n    exit(code)\n}\n"
+		"\n}\n\nfunc main() {\n    code, fits := int32(f(1, 1, 1, \"x\", [4]int64{1, 2, 3, 4}))\n    if fits { exit(code) }\n}\n"
 }
 
 // acceptedSwitches must check cleanly: well-typed tags and values, and

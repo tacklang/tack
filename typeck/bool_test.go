@@ -56,17 +56,17 @@ func TestRejectsBoolLiteralsWhereOtherTypesAreWanted(t *testing.T) {
 		},
 		{
 			"int64 variable",
-			mainLines("var x int64 = true", "code, _ := int32(x)", "exit(code)"),
+			mainLines("var x int64 = true", "code, fits := int32(x)", "if fits { exit(code) }"),
 			[]string{"cannot use bool as int64 in declaration of x"},
 		},
 		{
 			"assigned to an int64",
-			mainLines("mut x = 1", "x = false", "code, _ := int32(x)", "exit(code)"),
+			mainLines("mut x = 1", "x = false", "code, fits := int32(x)", "if fits { exit(code) }"),
 			[]string{"cannot use bool as int64 in assignment to x"},
 		},
 		{
 			"returned as an int64",
-			"package main\n\nfunc f() int64 {\n    return true\n}\n\nfunc main() {\n    code, _ := int32(f())\n    exit(code)\n}\n",
+			"package main\n\nfunc f() int64 {\n    return true\n}\n\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
 			[]string{"cannot use bool as int64"},
 		},
 	}

@@ -11,47 +11,47 @@ var compoundRuntimeCases = []struct {
 }{
 	{
 		"+=",
-		"package main\n\nfunc main() {\n    mut x = 40\n    x += 2\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 40\n    x += 2\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		42,
 	},
 	{
 		"-=",
-		"package main\n\nfunc main() {\n    mut x = 50\n    x -= 8\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 50\n    x -= 8\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		42,
 	},
 	{
 		"*=",
-		"package main\n\nfunc main() {\n    mut x = 6\n    x *= 7\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 6\n    x *= 7\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		42,
 	},
 	{
 		"/= truncates",
-		"package main\n\nfunc main() {\n    mut x = 0 - 7\n    x /= 2\n    code, _ := int32(x + 10)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 0 - 7\n    x /= 2\n    code, fits := int32(x + 10)\n    if fits { exit(code) }\n}\n",
 		7,
 	},
 	{
 		"%= takes the dividend's sign",
-		"package main\n\nfunc main() {\n    mut x = 0 - 7\n    x %= 3\n    code, _ := int32(x + 10)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 0 - 7\n    x %= 3\n    code, fits := int32(x + 10)\n    if fits { exit(code) }\n}\n",
 		9,
 	},
 	{
 		"value grouped as a whole",
-		"package main\n\nfunc main() {\n    mut x = 10\n    x -= 2 + 3\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 10\n    x -= 2 + 3\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		5,
 	},
 	{
 		"value uses the target",
-		"package main\n\nfunc main() {\n    mut x = 5\n    x *= x + 1\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 5\n    x *= x + 1\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		30,
 	},
 	{
 		"global from a function",
-		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total += n\n}\n\nfunc main() {\n    add(3)\n    add(4)\n    code, _ := int32(total)\n    exit(code)\n}\n",
+		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total += n\n}\n\nfunc main() {\n    add(3)\n    add(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
 		7,
 	},
 	{
 		"in a loop",
-		"package main\n\nfunc main() {\n    mut i = 0\n    mut sum = 0\n    for i < 5 {\n        i += 1\n        sum += i\n    }\n    code, _ := int32(sum)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut i = 0\n    mut sum = 0\n    for i < 5 {\n        i += 1\n        sum += i\n    }\n    code, fits := int32(sum)\n    if fits { exit(code) }\n}\n",
 		15,
 	},
 }

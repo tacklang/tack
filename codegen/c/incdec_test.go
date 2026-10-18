@@ -11,27 +11,27 @@ var incDecRuntimeCases = []struct {
 }{
 	{
 		"++",
-		"package main\n\nfunc main() {\n    mut x = 41\n    x++\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 41\n    x++\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		42,
 	},
 	{
 		"--",
-		"package main\n\nfunc main() {\n    mut x = 43\n    x--\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 43\n    x--\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		42,
 	},
 	{
 		"through zero",
-		"package main\n\nfunc main() {\n    mut x = 1\n    x--\n    x--\n    code, _ := int32(x + 5)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut x = 1\n    x--\n    x--\n    code, fits := int32(x + 5)\n    if fits { exit(code) }\n}\n",
 		4,
 	},
 	{
 		"counting loop",
-		"package main\n\nfunc main() {\n    mut i = 0\n    mut n = 0\n    for i < 10 {\n        i++\n        n++\n        n++\n    }\n    code, _ := int32(n)\n    exit(code)\n}\n",
+		"package main\n\nfunc main() {\n    mut i = 0\n    mut n = 0\n    for i < 10 {\n        i++\n        n++\n        n++\n    }\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n",
 		20,
 	},
 	{
 		"global",
-		"package main\n\nmut hits int64\n\nfunc hit() {\n    hits++\n}\n\nfunc main() {\n    hit()\n    hit()\n    code, _ := int32(hits)\n    exit(code)\n}\n",
+		"package main\n\nmut hits int64\n\nfunc hit() {\n    hits++\n}\n\nfunc main() {\n    hit()\n    hit()\n    code, fits := int32(hits)\n    if fits { exit(code) }\n}\n",
 		2,
 	},
 }

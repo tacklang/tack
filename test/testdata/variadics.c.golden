@@ -369,6 +369,10 @@ static int64_t tack_4_main13_writeThenRead(tack_array_18 * p_a, tack_view_19 p_v
     (*p_a).e[0] = 100;
     const int64_t tack_r23 = 0;
     const int64_t v_x = ((tack_r23 >= 0 && tack_r23 < p_v.len) ? p_v.ptr[tack_r23] : 0);
+    const bool v_ok = (tack_r23 >= 0 && tack_r23 < p_v.len);
+    if (!v_ok) {
+        return (-1);
+    }
     return v_x;
 }
 
@@ -376,6 +380,10 @@ static int64_t tack_4_main11_changeTable(tack_view_19 p_v) {
     tack_4_main5_table.e[0] = 50;
     const int64_t tack_r24 = 0;
     const int64_t v_x = ((tack_r24 >= 0 && tack_r24 < p_v.len) ? p_v.ptr[tack_r24] : 0);
+    const bool v_ok = (tack_r24 >= 0 && tack_r24 < p_v.len);
+    if (!v_ok) {
+        return (-1);
+    }
     return v_x;
 }
 

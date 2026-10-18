@@ -108,8 +108,8 @@ var provenStringIndexCases = []struct{ name, src string }{
 		stringing(
 			"if 0 <= i && i < len(s) {",
 			"    var x int64 = s[i]",
-			"    code, _ := int32(x)",
-			"    exit(code)",
+			"    code, fits := int32(x)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},

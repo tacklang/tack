@@ -42,12 +42,12 @@ var assertAcceptedCases = []struct{ name, src string }{
 		"}",
 	)},
 	{"blanks and a mutable ok", anyFunc(
-		"v, _ := a.(int64)", "_, ok := a.(bool)", "_, mut more := a.(string)", "more = !more",
-		"one(v)", "one(ok)", "one(more)",
+		"v, isInt := a.(int64)", "_, ok := a.(bool)", "_, mut more := a.(string)", "more = !more",
+		"one(v)", "one(isInt)", "one(ok)", "one(more)",
 	)},
 	{"assigned, widened", anyFunc(
 		"mut n int64 = 0", "mut ok bool = false", "n, ok = a.(int8)", "n, ok = a.(uint32)",
-		"_, ok = a.(string)", "n, _ = a.(int16)", "one(n)", "one(ok)",
+		"_, ok = a.(string)", "n, ok = a.(int16)", "one(n)", "one(ok)",
 	)},
 	{"any locals", anyFunc(
 		"b := a", "c, ok := xs[0]", "for _, x := range xs {", "    one(x)", "}",

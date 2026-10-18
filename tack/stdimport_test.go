@@ -93,7 +93,7 @@ func utilStd() map[string]string {
 // instead when it is not empty.
 func usesUtil(body string) string {
 	if body == "" {
-		body = "    code, _ := int32(text.Total() + util.Sum(0, 0))\n    exit(code)\n"
+		body = "    code, fits := int32(text.Total() + util.Sum(0, 0))\n    if fits { exit(code) }\n"
 	}
 	return "package main\n\nimport text from \"std/text\"\nimport util from \"std/util\"\n\n" +
 		"func main() {\n" + body + "}\n"

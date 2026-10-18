@@ -619,7 +619,7 @@ func build(t *testing.T, src string) string {
 
 func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 	src := "package main\n\n" +
-		"func greet(s string, n int64) {\n    print(s)\n    code, _ := int32(n)\n    exit(code)\n}\n\n" +
+		"func greet(s string, n int64) {\n    print(s)\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n\n" +
 		"func main() {\n    greet(\"hello\", 7)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -641,7 +641,7 @@ func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 func TestParameterSurvivesAnInterveningCall(t *testing.T) {
 	src := "package main\n\n" +
 		"func other() {\n    print(\"side effect\")\n}\n\n" +
-		"func f(n int64) {\n    other()\n    code, _ := int32(n)\n    exit(code)\n}\n\n" +
+		"func f(n int64) {\n    other()\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n\n" +
 		"func main() {\n    f(9)\n}\n"
 
 	out, err := exec.Command(build(t, src)).Output()
@@ -733,7 +733,7 @@ func TestNestedCallsNest(t *testing.T) {
 }
 
 func TestGeneratedProgramReturnsAnIntResult(t *testing.T) {
-	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, _ := int32(seven())\n    exit(code)\n}\n"
+	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, fits := int32(seven())\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -762,7 +762,7 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 	src := "package main\n\n" +
 		"func base() int64 {\n    return 5\n}\n\n" +
 		"func same(n int64) int64 {\n    return n\n}\n\n" +
-		"func main() {\n    code, _ := int32(same(same(base())))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(same(same(base())))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -778,7 +778,7 @@ func TestGeneratesBinaryExpression(t *testing.T) {
 	got := generate(
 		t,
 		"package main\n\nfunc f(a int64, b int64, c int64) int64 {\n    return a + b * c\n}\n\n"+
-			"func main() {\n    code, _ := int32(f(1, 2, 3))\n    exit(code)\n}\n",
+			"func main() {\n    code, fits := int32(f(1, 2, 3))\n    if fits { exit(code) }\n}\n",
 	)
 
 	want := "return ((int64_t)((uint64_t)p_a + (uint64_t)((int64_t)((uint64_t)p_b * (uint64_t)p_c))));"
@@ -842,7 +842,7 @@ func TestGeneratedProgramComputesFib(t *testing.T) {
 		"    if n < 2 {\n        return n\n    }\n" +
 		"    return fib(n - 1) + fib(n - 2)\n" +
 		"}\n\n" +
-		"func main() {\n    code, _ := int32(fib(10))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(fib(10))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -891,7 +891,7 @@ func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
 	src := "package main\n\n" +
 		"func sub(a int64, b int64) int64 {\n    return a - b\n}\n\n" +
 		"func ten() int64 {\n    return 10\n}\n\n" +
-		"func main() {\n    code, _ := int32(sub(ten(), 3) * 10 + sub(20, ten()))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(sub(ten(), 3) * 10 + sub(20, ten()))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -910,7 +910,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 	src := "package main\n\n" +
 		"func seven() int64 {\n    return 7\n}\n\n" +
 		"func two() int64 {\n    return 2\n}\n\n" +
-		"func main() {\n    code, _ := int32((seven() + two()) * 10 + (seven() - two()))\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32((seven() + two()) * 10 + (seven() - two()))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -925,7 +925,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 // An if condition is emitted with one pair of parentheses. Doubled ones make
 // clang warn on every equality test, and the warning reaches the user.
 func TestIfConditionHasOnePairOfParentheses(t *testing.T) {
-	src := "package main\n\nfunc f(n int64) int64 {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n"
+	src := "package main\n\nfunc f(n int64) int64 {\n    if n == 1 {\n        return 2\n    }\n    return 3\n}\n\nfunc main() {\n    code, fits := int32(f(1))\n    if fits { exit(code) }\n}\n"
 
 	if got := generate(t, src); !strings.Contains(got, "if (p_n == 1) {") {
 		t.Errorf("condition not emitted with one pair of parentheses:\n%s", got)

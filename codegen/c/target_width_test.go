@@ -324,8 +324,8 @@ func TestTargetWidthIndexesRunStrictly(t *testing.T) {
 		"        s = 2\n" +
 		"    }\n" +
 		"    if s < len(a) {\n" +
-		"        code, _ := int32(a[s])\n" +
-		"        exit(code)\n" +
+		"        code, fits := int32(a[s])\n" +
+		"        if fits { exit(code) }\n" +
 		"    }\n" +
 		"}\n"
 	if out, status := run(t, src); out != "" || status != 6 {

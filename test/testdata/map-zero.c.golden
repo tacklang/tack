@@ -626,6 +626,7 @@ static void tack_4_main8_returned(void) {
     const int64_t tack_r25 = 3;
     const int64_t tack_r26 = tack_mfind_18(tack_r24, &tack_r25, tack_hash_1(&tack_r25));
     const int64_t v_v = (tack_r26 >= 0 ? tack_r24->entries[tack_r24->slots[tack_r26] - 1].val : 0);
+    const bool v_hasV = tack_r26 >= 0;
     tack_map_19 v_ls = tack_4_main5_lists(4);
     int64_t v_n = 0;
     {
@@ -638,7 +639,7 @@ static void tack_4_main8_returned(void) {
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)((*v_l)).len));
         }
     }
-    tack_4_main5_check((((((v_m).len == 4) && (v_v == 9)) && ((v_ls).len == 4)) && (v_n == 6)), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    tack_4_main5_check(((((((v_m).len == 4) && v_hasV) && (v_v == 9)) && ((v_ls).len == 4)) && (v_n == 6)), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
     tack_map_18 v_two = tack_4_main4_pick(true);
     tack_map_18 v_five = tack_4_main4_pick(false);
     tack_4_main5_check((((v_two).len == 2) && ((v_five).len == 5)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});

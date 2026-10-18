@@ -40,13 +40,17 @@ var knownStringLenCases = []struct{ name, src string }{
 		stringing(
 			"x := \"abc\"",
 			"arr := [len(x)]int64{1, 2, 3}",
-			"code, _ := int32(arr[2])",
-			"exit(code)",
+			"code, fits := int32(arr[2])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
 		"array length of a global",
-		stringing("arr := [len(k)]int64{7}", "code, _ := int32(arr[0])", "exit(code)"),
+		stringing(
+			"arr := [len(k)]int64{7}",
+			"code, fits := int32(arr[0])",
+			"if fits { exit(code) }",
+		),
 	},
 	{"divisor", stringing("x := \"ab\"", "exit(int32(10 / len(x)))")},
 	{"conversion", stringing("x := \"abc\"", "return uint8(len(x))")},
@@ -146,7 +150,7 @@ var unknownStringLenCases = []struct {
 	},
 	{
 		"divisor of an empty string's length",
-		stringing("x := \"\"", "code, _ := int32(10 / len(x))", "exit(code)"),
+		stringing("x := \"\"", "code, fits := int32(10 / len(x))", "if fits { exit(code) }"),
 		spanned{"division by zero", "len(x)"},
 	},
 }

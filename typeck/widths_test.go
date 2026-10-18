@@ -76,7 +76,13 @@ var integerWidthCases = []struct{ name, src string }{
 	},
 	{
 		"compound with a narrower value",
-		withSized("mut a int64 = 0", "a += i8", "a -= u32", "code, _ := int32(a)", "exit(code)"),
+		withSized(
+			"mut a int64 = 0",
+			"a += i8",
+			"a -= u32",
+			"code, fits := int32(a)",
+			"if fits { exit(code) }",
+		),
 	},
 	{
 		"increment any width",
@@ -115,8 +121,8 @@ var integerWidthCases = []struct{ name, src string }{
 			"a, ok := uint64(i64)",
 			"b, fits := int64(u64)",
 			"if ok && fits && a > 0 {",
-			"    code, _ := int32(b)",
-			"    exit(code)",
+			"    code, codeFits := int32(b)",
+			"    if codeFits { exit(code) }",
 			"}",
 		),
 	},
@@ -323,8 +329,8 @@ var widthErrorCases = []struct {
 			"mut a int8 = 0",
 			"mut ok := 0",
 			"a, ok = int8(i64)",
-			"code, _ := int32(a + ok)",
-			"exit(code)",
+			"code, fits := int32(a + ok)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use bool as int64 in assignment to ok", "ok"}},
 	},
@@ -376,8 +382,8 @@ func TestRecordsIntegerTypes(t *testing.T) {
 		"    exit(i)",
 		"}",
 		"if ok {",
-		"    code, _ := int32(b + d + e + f)",
-		"    exit(code)",
+		"    code, fits := int32(b + d + e + f)",
+		"    if fits { exit(code) }",
 		"}",
 	))
 	if len(diags) > 0 {

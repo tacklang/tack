@@ -118,20 +118,20 @@ func TestKnownBitwiseValuesProve(t *testing.T) {
 		mainLines(
 			"a := [4]int64{1, 2, 3, 4}",
 			"k := uint8(7)",
-			"code, _ := int32(a[k & 3])",
-			"exit(code)",
+			"code, fits := int32(a[k & 3])",
+			"if fits { exit(code) }",
 		),
 		mainLines(
 			"a := [9]int64{0, 0, 0, 0, 0, 0, 0, 0, 1}",
 			"k := uint8(1)",
-			"code, _ := int32(a[k << 3])",
-			"exit(code)",
+			"code, fits := int32(a[k << 3])",
+			"if fits { exit(code) }",
 		),
 		mainLines(
 			"a := [9]int64{0, 0, 0, 0, 0, 0, 0, 0, 1}",
 			"k := int64(-16)",
-			"code, _ := int32(a[-(k >> 1)])",
-			"exit(code)",
+			"code, fits := int32(a[-(k >> 1)])",
+			"if fits { exit(code) }",
 		),
 		mainLines("k := uint8(0)", "x := 255 / ^k", "exit(int32(x))"),
 		mainLines("k := int16(-1)", "x := 7 % (^k | 1)", "exit(int32(x))"),
@@ -147,7 +147,12 @@ func TestKnownBitwiseValuesProve(t *testing.T) {
 			"index 4 is out of range for [4]int64",
 		},
 		{
-			mainLines("k := unsafe_size_t(0)", "x := 6 / ^k", "code, _ := int32(x)", "exit(code)"),
+			mainLines(
+				"k := unsafe_size_t(0)",
+				"x := 6 / ^k",
+				"code, fits := int32(x)",
+				"if fits { exit(code) }",
+			),
 			"divisor may be zero; use q, ok := ... / ...",
 		},
 		{
@@ -155,7 +160,11 @@ func TestKnownBitwiseValuesProve(t *testing.T) {
 			"constant expression overflows uint8",
 		},
 		{
-			mainLines("x := unsafe_size_t(1) << 40", "code, _ := int32(x)", "exit(code)"),
+			mainLines(
+				"x := unsafe_size_t(1) << 40",
+				"code, fits := int32(x)",
+				"if fits { exit(code) }",
+			),
 			"constant expression overflows unsafe_size_t",
 		},
 	}

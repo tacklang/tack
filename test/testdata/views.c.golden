@@ -299,6 +299,10 @@ static int64_t tack_4_main6_lastOf(tack_view_22 p_v) {
     }
     const int64_t tack_r15 = ((int64_t)((uint64_t)v_n - (uint64_t)1));
     const int64_t v_x = ((tack_r15 >= 0 && tack_r15 < p_v.len) ? p_v.ptr[tack_r15] : 0);
+    const bool v_ok = (tack_r15 >= 0 && tack_r15 < p_v.len);
+    if (!v_ok) {
+        return 0;
+    }
     return v_x;
 }
 
@@ -311,6 +315,10 @@ static int64_t tack_4_main13_writeThenRead(tack_array_20 * p_a, tack_view_22 p_v
     (*p_a).e[0] = 100;
     const int64_t tack_r16 = 0;
     const int64_t v_x = ((tack_r16 >= 0 && tack_r16 < p_v.len) ? p_v.ptr[tack_r16] : 0);
+    const bool v_ok = (tack_r16 >= 0 && tack_r16 < p_v.len);
+    if (!v_ok) {
+        return (-1);
+    }
     return v_x;
 }
 
@@ -322,6 +330,10 @@ static int64_t tack_4_main8_setFirst(tack_array_20 * p_a, int64_t p_x) {
 static int64_t tack_4_main9_firstPlus(tack_view_22 p_v, int64_t p_n) {
     const int64_t tack_r17 = 0;
     const int64_t v_x = ((tack_r17 >= 0 && tack_r17 < p_v.len) ? p_v.ptr[tack_r17] : 0);
+    const bool v_ok = (tack_r17 >= 0 && tack_r17 < p_v.len);
+    if (!v_ok) {
+        return p_n;
+    }
     return ((int64_t)((uint64_t)v_x + (uint64_t)p_n));
 }
 
@@ -329,6 +341,10 @@ static int64_t tack_4_main11_changeTable(tack_view_22 p_v) {
     tack_4_main5_table.e[0] = 50;
     const int64_t tack_r18 = 0;
     const int64_t v_x = ((tack_r18 >= 0 && tack_r18 < p_v.len) ? p_v.ptr[tack_r18] : 0);
+    const bool v_ok = (tack_r18 >= 0 && tack_r18 < p_v.len);
+    if (!v_ok) {
+        return (-1);
+    }
     return v_x;
 }
 
@@ -371,6 +387,10 @@ static int64_t tack_4_main5_sizes(tack_view_28 p_v) {
             const size_t v_s = tack_r24.ptr[tack_k25];
             const size_t tack_r23 = v_s;
             const int64_t v_k = (((uint64_t)tack_r23 <= 9223372036854775807) ? (int64_t)tack_r23 : 0);
+            const bool v_ok = ((uint64_t)tack_r23 <= 9223372036854775807);
+            if (!v_ok) {
+                return (-1);
+            }
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)v_k));
         }
     }

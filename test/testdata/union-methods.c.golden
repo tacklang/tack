@@ -402,6 +402,10 @@ static tack_string tack_15_union_2dmethods12_Value_2eword(tack_15_union_2dmethod
             const tack_list_22 *const v_ws = &tack_s9->u.c_words;
             const int64_t tack_r10 = p_i;
             const tack_string v_w = ((tack_r10 >= 0 && tack_r10 < (*v_ws).len) ? (*v_ws).ptr[tack_r10] : (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+            const bool v_ok = (tack_r10 >= 0 && tack_r10 < (*v_ws).len);
+            if (!v_ok) {
+                return (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)};
+            }
             return v_w;
         } else {
             return (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)};

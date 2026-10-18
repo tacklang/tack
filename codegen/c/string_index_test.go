@@ -104,7 +104,7 @@ var stringIndexCases = []struct {
 		"sum by range",
 		"package main\n\nfunc sum(s string) int64 {\n    mut n := 0\n    for i := range len(s) {\n" +
 			"        n += s[i]\n    }\n    return n\n}\n\n" +
-			"func main() {\n    if sum(\"\") == 0 && sum(\"abc\") == 294 {\n        code, _ := int32(sum(\"\\n\\n\"))\n        exit(code)\n    }\n}\n",
+			"func main() {\n    if sum(\"\") == 0 && sum(\"abc\") == 294 {\n        code, fits := int32(sum(\"\\n\\n\"))\n        if fits { exit(code) }\n    }\n}\n",
 		"",
 		20,
 	},
@@ -124,8 +124,8 @@ var stringIndexCases = []struct {
 			"if len(s) > 0 {",
 			"    exit(1)",
 			"}",
-			"code, _ := int32(total)",
-			"exit(code)",
+			"code, fits := int32(total)",
+			"if fits { exit(code) }",
 		),
 		"",
 		'y',
@@ -150,8 +150,8 @@ var stringIndexCases = []struct {
 			"    n += v",
 			"    i++",
 			"}",
-			"code, _ := int32(n - 300)",
-			"exit(code)",
+			"code, fits := int32(n - 300)",
+			"if fits { exit(code) }",
 		),
 		// The first pass adds the 'a' v starts at, and the post reads from
 		// s[1], so s[0] is never added.

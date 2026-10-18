@@ -108,8 +108,15 @@ The details:
 - **`=` works too.** `q, ok = a / b`, `v, ok = a[i]` and `v, ok = T(x)`
   assign to existing mutable variables, under the rules for assigning
   several results.
-- **`_` discards either value**, as in `v, _ := a[i]` or
-  `_, fits := uint8(v)`.
+- **`_` discards the value, never the `ok`**, as in
+  `_, fits := uint8(v)`. The `ok` is the check itself, and dropping it
+  would read a zero value standing in for one there is not, so
+  <!-- case: ok-dropped-map-index-define -->`v, _ := m[1]` is
+  <!-- error: ok-dropped-map-index-define -->`the ok m[1] gives cannot be dropped; bind it to a variable instead of _`,
+  and so is `_` in the `ok` of every checked form, with `=` as with `:=`:
+  <!-- error: ok-dropped-division-assign -->`the ok n / d gives cannot be dropped; bind it to a variable instead of _`,
+  <!-- error: ok-dropped-conversion-define -->`the ok uint8(n) gives cannot be dropped; bind it to a variable instead of _`,
+  <!-- error: ok-dropped-pop-define -->`the ok pop(mut l) gives cannot be dropped; bind it to a variable instead of _`.
 - **Exactly two names.** One name is the plain form, which then needs its
   proof. Three or more are an
   error: <!-- error: safety-checked-three-names-division -->`assignment mismatch: 3 variables but a division gives 2 values`,

@@ -61,7 +61,10 @@ func TestImmutableVariableIsAConstLocal(t *testing.T) {
 }
 
 func TestMutableVariableIsAPlainLocal(t *testing.T) {
-	got := generate(t, program("mut x := 7", "x = 8", "code, _ := int32(x)", "exit(code)"))
+	got := generate(
+		t,
+		program("mut x := 7", "x = 8", "code, fits := int32(x)", "if fits { exit(code) }"),
+	)
 
 	if !strings.Contains(got, "int64_t v_x = 7;") || strings.Contains(got, "const int64_t v_x") {
 		t.Errorf("mutable variable not emitted as a plain local:\n%s", got)
@@ -80,10 +83,21 @@ var variableRuntimeCases = []struct {
 }{
 	{"read back", program("x := 42", "exit(int32(x))"), "", 42},
 	{"computed from others", program("a := 6", "b := 7", "c := a * b", "exit(int32(c))"), "", 42},
-	{"reassigned", program("mut x := 1", "x = 41", "code, _ := int32(x)", "exit(code)"), "", 41},
+	{
+		"reassigned",
+		program("mut x := 1", "x = 41", "code, fits := int32(x)", "if fits { exit(code) }"),
+		"",
+		41,
+	},
 	{
 		"updated from itself",
-		program("mut x := 5", "x = x * x", "x = x + 1", "code, _ := int32(x)", "exit(code)"),
+		program(
+			"mut x := 5",
+			"x = x * x",
+			"x = x + 1",
+			"code, fits := int32(x)",
+			"if fits { exit(code) }",
+		),
 		"",
 		26,
 	},
@@ -97,12 +111,24 @@ var variableRuntimeCases = []struct {
 		"",
 		4,
 	},
-	{"zero int64", program("mut n int64", "code, _ := int32(n + 5)", "exit(code)"), "", 5},
+	{
+		"zero int64",
+		program("mut n int64", "code, fits := int32(n + 5)", "if fits { exit(code) }"),
+		"",
+		5,
+	},
 	{"zero string", program("mut s string", "print(s)"), "", 0},
 	{"zero bool", program("mut b bool", "if b {", "    exit(1)", "}", "exit(2)"), "", 2},
 	{
 		"assigned in a branch",
-		program("mut x := 1", "if x < 2 {", "    x = 10", "}", "code, _ := int32(x)", "exit(code)"),
+		program(
+			"mut x := 1",
+			"if x < 2 {",
+			"    x = 10",
+			"}",
+			"code, fits := int32(x)",
+			"if fits { exit(code) }",
+		),
 		"",
 		10,
 	},
@@ -149,7 +175,13 @@ func TestVariablesAtRuntime(t *testing.T) {
 // A variable holds a value computed once. Later changes to what it was
 // computed from do not reach it.
 func TestVariableCopiesItsValue(t *testing.T) {
-	src := program("mut a := 1", "b := a", "a = 2", "code, _ := int32(b * 10 + a)", "exit(code)")
+	src := program(
+		"mut a := 1",
+		"b := a",
+		"a = 2",
+		"code, fits := int32(b * 10 + a)",
+		"if fits { exit(code) }",
+	)
 	if _, status := run(t, src); status != 12 {
 		t.Errorf("status = %d, want 12", status)
 	}
@@ -159,7 +191,7 @@ func TestVariableCopiesItsValue(t *testing.T) {
 func TestVariablesWithParametersAndCalls(t *testing.T) {
 	src := "package main\n\n" +
 		"func square(n int64) int64 {\n    r := n * n\n    return r\n}\n\n" +
-		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    code, _ := int32(total)\n    exit(code)\n}\n"
+		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n"
 	if _, status := run(t, src); status != 25 {
 		t.Errorf("status = %d, want 25", status)
 	}

@@ -531,6 +531,7 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 		blank[i], spans[i] = v.Name == ast.Blank, v.NameSpan
 	}
 	c.checkErrorBinding(m.Value, blank, spans)
+	c.checkOkDropped(m.Value, blank, spans)
 	c.nothingBound(m.Value, blank, m.Span)
 }
 
@@ -561,6 +562,7 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 		blank[i], spans[i] = ast.IsBlank(target), target.Spanned()
 	}
 	c.checkErrorBinding(m.Value, blank, spans)
+	c.checkOkDropped(m.Value, blank, spans)
 	c.nothingBound(m.Value, blank, m.Span)
 	c.checkErrorTargets(m)
 	for _, target := range m.Targets {

@@ -41,7 +41,7 @@ func main() {
         exit(255)
     }
     // Each index is proven below len(lx.toks), which Lex keeps n within,
-    // rather than read with t, _ := lx.toks[i]: that compiles too, but
+    // rather than read with t, ok := lx.toks[i]: that compiles too, but
     // copies the whole array for every token.
     for i := range lexer.Count(mut lx) {
         if i >= len(lx.toks) {
@@ -58,7 +58,10 @@ func main() {
         print("\n")
     }
     for i := range lx.nerr {
-        e, _ := lx.errs[i]
+        e, hasErr := lx.errs[i]
+        if !hasErr {
+            break
+        }
         print("error ")
         printInt(e.start)
         print(" ")

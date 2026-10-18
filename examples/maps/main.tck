@@ -54,8 +54,8 @@ func basics() {
     w, found := m[9]
     check(len(m) == 3 && ok && v == 20 && !found && w == 0, "put and look up")
     e4 := put(mut m, 2, 22)
-    x, _ := m[2]
-    check(e4.code == 0 && len(m) == 3 && x == 22 && order(m) == 123, "a replace keeps the position")
+    x, hasX := m[2]
+    check(e4.code == 0 && len(m) == 3 && hasX && x == 22 && order(m) == 123, "a replace keeps the position")
     d, had := delete(mut m, 1)
     n, none := delete(mut m, 1)
     check(had && d == 10 && !none && n == 0 && len(m) == 2 && order(m) == 23, "delete")
@@ -78,15 +78,20 @@ func stringKeys() {
     mut m := make(map[string]int64, c_allocator)
     words := [5]string{"a", "b", "a", "c", "a"}
     for _, w := range words {
-        n, _ := m[w]
+        // A word not seen yet counts from 0.
+        mut n := 0
+        had, seen := m[w]
+        if seen {
+            n = had
+        }
         err := put(mut m, w, n + 1)
         if err.code != 0 {
             return
         }
     }
-    a, _ := m["a"]
-    c, _ := m["c"]
-    check(len(m) == 3 && a == 3 && c == 1, "string keys")
+    a, hasA := m["a"]
+    c, hasC := m["c"]
+    check(len(m) == 3 && hasA && a == 3 && hasC && c == 1, "string keys")
 }
 
 // textOf returns a Text holding s's bytes, or an empty one on failure.
@@ -257,9 +262,9 @@ func failing(n int64) bool {
         t := textOf("k")
         mut key := text.new(c_allocator)
         e1 := mut key.append(t.bytes())
-        c, _ := uint8(i)
+        c, fits := uint8(i)
         e2 := mut key.append_byte(c)
-        if e1.code == 0 && e2.code == 0 {
+        if fits && e1.code == 0 && e2.code == 0 {
             had := len(byText)
             err2 := put(mut byText, key, count(1))
             ok = ok && (err2.code == 0 && len(byText) == had + 1 || err2.code == 1 && len(byText) == had)

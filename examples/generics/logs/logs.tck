@@ -29,6 +29,9 @@ lib func (l Log) count() int64 {
 
 // Last returns the last word l keeps, or "" when it keeps none.
 pub func (l Log) Last() string {
-    w, _ := l.words[len(l.words) - 1]
+    w, ok := l.words[len(l.words) - 1]
+    if !ok {
+        return ""
+    }
     return w
 }

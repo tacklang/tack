@@ -151,7 +151,10 @@ func (v Value) describe() string {
 func (v Value) word(i int64) string {
     switch v {
     case words(ws):
-        w, _ := ws[i]
+        w, ok := ws[i]
+        if !ok {
+            return ""
+        }
         return w
     default:
         return ""

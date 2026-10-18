@@ -62,7 +62,7 @@ var logicalRuntimeCases = []struct {
 		"stored and returned",
 		"package main\n\nfunc xor(a bool, b bool) bool {\n    return (a || b) && !(a && b)\n}\n\n" +
 			"func main() {\n    mut n = 0\n    if xor(true, false) {\n        n = n + 1\n    }\n    if xor(true, true) {\n        n = n + 10\n    }\n" +
-			"    r := xor(false, false) || xor(false, true)\n    if r {\n        n = n + 100\n    }\n    code, _ := int32(n)\n    exit(code)\n}\n",
+			"    r := xor(false, false) || xor(false, true)\n    if r {\n        n = n + 100\n    }\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n",
 		"", 101,
 	},
 	{

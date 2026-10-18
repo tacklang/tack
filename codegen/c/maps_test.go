@@ -132,8 +132,8 @@ func main() {
     k := digits(3)
     v6, ok6 := lists[k]
     e8 := put(mut lists, digits(3), 33)
-    v7, _ := lists[k]
-    check(e6.code == 0 && e7.code == 0 && ok6 && v6 == 3 && e8.code == 0 && v7 == 33 && len(lists) == 2, "list keys")
+    v7, ok7 := lists[k]
+    check(e6.code == 0 && e7.code == 0 && ok6 && v6 == 3 && e8.code == 0 && ok7 && v7 == 33 && len(lists) == 2, "list keys")
     mut edges := make(map[int64]int64, c_allocator)
     e9 := put(mut edges, -9223372036854775808, 1)
     e10 := put(mut edges, 9223372036854775807, 2)
@@ -143,9 +143,9 @@ func main() {
     check(e9.code == 0 && e10.code == 0 && e11.code == 0 && oka && a == 1 && okb && b == 3, "int64 edges")
     mut bytes := make(map[uint8]bool, c_allocator)
     for i := range 256 {
-        c, _ := uint8(i)
+        c, fits := uint8(i)
         err := put(mut bytes, c, i % 2 == 0)
-        if err.code != 0 {
+        if !fits || err.code != 0 {
             return
         }
     }

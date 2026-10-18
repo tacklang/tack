@@ -27,11 +27,21 @@ const pointDecls = "type Point struct {\n    x int64\n    y int64\n}\n\n" +
 var structCases = []struct{ name, src string }{
 	{
 		"literal",
-		withTypes(pointDecls, "p := Point{x: 1, y: 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: 1, y: 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 	},
 	{
 		"fields in any order",
-		withTypes(pointDecls, "p := Point{y: 2, x: 1}", "code, _ := int32(p.y)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{y: 2, x: 1}",
+			"code, fits := int32(p.y)",
+			"if fits { exit(code) }",
+		),
 	},
 	{
 		"multi-line literal",
@@ -41,8 +51,8 @@ var structCases = []struct{ name, src string }{
 			"    x: 1,",
 			"    y: 2,",
 			"}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -59,8 +69,8 @@ var structCases = []struct{ name, src string }{
 			pointDecls,
 			"var small int8 = 3",
 			"p := Point{x: small, y: 'a'}",
-			"code, _ := int32(p.y)",
-			"exit(code)",
+			"code, fits := int32(p.y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -68,8 +78,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls,
 			"l := Line{a: Point{x: 1, y: 2}, b: Point{x: 3, y: 4}}",
-			"code, _ := int32(l.b.y)",
-			"exit(code)",
+			"code, fits := int32(l.b.y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -77,8 +87,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls,
 			"a := [2]Point{{x: 1, y: 2}, Point{x: 3, y: 4}}",
-			"code, _ := int32(a[1].x)",
-			"exit(code)",
+			"code, fits := int32(a[1].x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -86,8 +96,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls,
 			"a := [1][1]Point{{{x: 1, y: 2}}}",
-			"code, _ := int32(a[0][0].y)",
-			"exit(code)",
+			"code, fits := int32(a[0][0].y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -97,8 +107,8 @@ var structCases = []struct{ name, src string }{
 			"mut p Point",
 			"mut l Line",
 			"mut g Grid",
-			"code, _ := int32(p.x + l.a.y + g.cells[2] + len(g.name))",
-			"exit(code)",
+			"code, fits := int32(p.x + l.a.y + g.cells[2] + len(g.name))",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -108,8 +118,8 @@ var structCases = []struct{ name, src string }{
 			"p := Point{x: 1, y: 2}",
 			"mut q := p",
 			"q.x = 5",
-			"code, _ := int32(p.x + q.x)",
-			"exit(code)",
+			"code, fits := int32(p.x + q.x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -134,8 +144,8 @@ var structCases = []struct{ name, src string }{
 			"l.a.x = 1",
 			"l.b.y += l.a.x",
 			"l.b.y++",
-			"code, _ := int32(l.b.y)",
-			"exit(code)",
+			"code, fits := int32(l.b.y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -145,8 +155,8 @@ var structCases = []struct{ name, src string }{
 			"mut a [2]Point",
 			"a[1].x = 3",
 			"a[0].y--",
-			"code, _ := int32(a[1].x)",
-			"exit(code)",
+			"code, fits := int32(a[1].x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -165,8 +175,8 @@ var structCases = []struct{ name, src string }{
 			pointDecls,
 			"mut l Line",
 			"l.a = Point{x: 1, y: 1}",
-			"code, _ := int32(l.a.x)",
-			"exit(code)",
+			"code, fits := int32(l.a.x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -176,8 +186,8 @@ var structCases = []struct{ name, src string }{
 			"mut g Grid",
 			"g.name = \"ab\"",
 			"print(g.name)",
-			"code, _ := int32(len(g.name))",
-			"exit(code)",
+			"code, fits := int32(len(g.name))",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -195,8 +205,8 @@ var structCases = []struct{ name, src string }{
 		"field of a call",
 		withTypes(
 			pointDecls+"\n\nfunc f() Point {\n    return Point{x: 1, y: 2}\n}",
-			"code, _ := int32(f().y)",
-			"exit(code)",
+			"code, fits := int32(f().y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{"field of a literal", withTypes(pointDecls, "exit(int32(Point{x: 1, y: 2}.y))")},
@@ -205,16 +215,16 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls,
 			"a := [2]Point{{x: 1, y: 2}, {x: 3, y: 4}}",
-			"code, _ := int32(a[1].y)",
-			"exit(code)",
+			"code, fits := int32(a[1].y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
 		"struct parameter and result",
 		withTypes(
 			pointDecls+"\n\nfunc flipped(p Point) Point {\n    return Point{x: p.y, y: p.x}\n}",
-			"code, _ := int32(flipped(Point{x: 1, y: 2}).x)",
-			"exit(code)",
+			"code, fits := int32(flipped(Point{x: 1, y: 2}).x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -222,8 +232,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls+"\n\nfunc two() (Point, Line) {\n    p := Point{x: 1, y: 2}\n    return p, Line{a: p, b: p}\n}",
 			"p, l := two()",
-			"code, _ := int32(p.x + l.b.y)",
-			"exit(code)",
+			"code, fits := int32(p.x + l.b.y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -232,8 +242,8 @@ var structCases = []struct{ name, src string }{
 			pointDecls+"\n\nfunc two() (int64, Point) {\n    return 1, Point{x: 2, y: 3}\n}",
 			"mut l Line",
 			"l.a.x, l.b = two()",
-			"code, _ := int32(l.a.x + l.b.y)",
-			"exit(code)",
+			"code, fits := int32(l.a.x + l.b.y)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -245,8 +255,8 @@ var structCases = []struct{ name, src string }{
 			"for _, p := range a {",
 			"    sum += p.x",
 			"}",
-			"code, _ := int32(sum)",
-			"exit(code)",
+			"code, fits := int32(sum)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -277,8 +287,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			"type E struct {}\n\ntype S struct {\n    e E\n    n int64\n}",
 			"s := S{e: E{}, n: 1}",
-			"code, _ := int32(s.n)",
-			"exit(code)",
+			"code, fits := int32(s.n)",
+			"if fits { exit(code) }",
 		),
 	},
 	{"array of zero structs", withTypes("type E struct {}", "a := [0]E{}", "exit(int32(len(a)))")},
@@ -287,8 +297,8 @@ var structCases = []struct{ name, src string }{
 		withTypes(
 			pointDecls+"\n\nvar origin = Point{x: 0, y: 0}\n\nmut cursor Point",
 			"cursor.x = origin.y + 1",
-			"code, _ := int32(cursor.x)",
-			"exit(code)",
+			"code, fits := int32(cursor.x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -305,8 +315,8 @@ var structCases = []struct{ name, src string }{
 			"mut b B",
 			"b.a[3] = 1",
 			"b.c[1][2] = 1",
-			"code, _ := int32(b.a[3] + len(b.c))",
-			"exit(code)",
+			"code, fits := int32(b.a[3] + len(b.c))",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -322,8 +332,8 @@ var structCases = []struct{ name, src string }{
 			pointDecls,
 			"x := 1",
 			"p := Point{x: x, y: x}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 	},
 	{
@@ -333,8 +343,8 @@ var structCases = []struct{ name, src string }{
 			"p := Point{x: 6, y: 0}",
 			"q, ok := p.x / p.y",
 			"if ok {",
-			"    code, _ := int32(q)",
-			"    exit(code)",
+			"    code, fits := int32(q)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -346,8 +356,8 @@ var structCases = []struct{ name, src string }{
 			"a := [2]int64{1, 2}",
 			"v, ok := a[p.y]",
 			"if ok {",
-			"    code, _ := int32(v)",
-			"    exit(code)",
+			"    code, fits := int32(v)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -358,8 +368,8 @@ var structCases = []struct{ name, src string }{
 			"p := Point{x: 6, y: 2}",
 			"d := p.y",
 			"if d != 0 {",
-			"    code, _ := int32(p.x / d)",
-			"    exit(code)",
+			"    code, fits := int32(p.x / d)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
@@ -413,7 +423,12 @@ var structErrorCases = []struct {
 }{
 	{
 		"positional",
-		withTypes(pointDecls, "p := Point{1, 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{1, 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{
 			{"missing field name in Point literal", "1"},
 			{"missing field name in Point literal", "2"},
@@ -421,17 +436,27 @@ var structErrorCases = []struct {
 	},
 	{
 		"positional and keyed",
-		withTypes(pointDecls, "p := Point{x: 1, 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: 1, 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"missing field name in Point literal", "2"}},
 	},
 	{
 		"missing field",
-		withTypes(pointDecls, "p := Point{x: 1}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: 1}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"Point literal is missing field y", "Point{x: 1}"}},
 	},
 	{
 		"missing fields",
-		withTypes(pointDecls, "p := Point{}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(pointDecls, "p := Point{}", "code, fits := int32(p.x)", "if fits { exit(code) }"),
 		[]spanned{{"Point literal is missing fields x, y", "Point{}"}},
 	},
 	{
@@ -439,8 +464,8 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"p := Point{x: 1, y: 2, x: 3}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"duplicate field x in Point literal", "x"}},
 	},
@@ -449,14 +474,19 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"p := Point{x: 1, y: 2, z: 3}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"Point has no field z", "z"}},
 	},
 	{
 		"unknown field and missing",
-		withTypes(pointDecls, "p := Point{x: 1, z: 3}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: 1, z: 3}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{
 			{"Point has no field z", "z"},
 			{"Point literal is missing field y", "Point{x: 1, z: 3}"},
@@ -464,17 +494,32 @@ var structErrorCases = []struct {
 	},
 	{
 		"key not a name",
-		withTypes(pointDecls, "p := Point{\"x\": 1, y: 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{\"x\": 1, y: 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"invalid field name in Point literal", "\"x\""}},
 	},
 	{
 		"key in parentheses",
-		withTypes(pointDecls, "p := Point{(x): 1, y: 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{(x): 1, y: 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"invalid field name in Point literal", "x"}},
 	},
 	{
 		"key in two pairs of parentheses",
-		withTypes(pointDecls, "p := Point{x: 1, ((y)): 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: 1, ((y)): 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"invalid field name in Point literal", "y"}},
 	},
 	{
@@ -482,14 +527,19 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"a := [1]Point{{(x): 1, y: 2}}",
-			"code, _ := int32(a[0].x)",
-			"exit(code)",
+			"code, fits := int32(a[0].x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"invalid field name in Point literal", "x"}},
 	},
 	{
 		"field of the wrong type",
-		withTypes(pointDecls, "p := Point{x: true, y: 2}", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"p := Point{x: true, y: 2}",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"cannot use bool as int64 in field x of Point literal", "true"}},
 	},
 	{
@@ -506,8 +556,8 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"l := Line{a: Grid{cells: [3]int8{0, 0, 0}, name: \"\"}, b: Point{x: 0, y: 0}}",
-			"code, _ := int32(l.a.x)",
-			"exit(code)",
+			"code, fits := int32(l.a.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{
 			{
@@ -521,19 +571,29 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"l := Line{a: {x: 1, y: 2}, b: Point{x: 0, y: 0}}",
-			"code, _ := int32(l.a.x)",
-			"exit(code)",
+			"code, fits := int32(l.a.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"a literal without a type needs an array literal around it", "{x: 1, y: 2}"}},
 	},
 	{
 		"inner literal without its type, missing a field",
-		withTypes(pointDecls, "a := [1]Point{{x: 1}}", "code, _ := int32(a[0].x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"a := [1]Point{{x: 1}}",
+			"code, fits := int32(a[0].x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"Point literal is missing field y", "{x: 1}"}},
 	},
 	{
 		"inner positional literal",
-		withTypes(pointDecls, "a := [1]Point{{1, 2}}", "code, _ := int32(a[0].x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"a := [1]Point{{1, 2}}",
+			"code, fits := int32(a[0].x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{
 			{"missing field name in Point literal", "1"},
 			{"missing field name in Point literal", "2"},
@@ -541,7 +601,11 @@ var structErrorCases = []struct {
 	},
 	{
 		"key in an array literal",
-		mainLines("a := [2]int64{0: 1, 1: 2}", "code, _ := int32(a[0])", "exit(code)"),
+		mainLines(
+			"a := [2]int64{0: 1, 1: 2}",
+			"code, fits := int32(a[0])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{
 			{"keys are not allowed in an array literal", "0: 1"},
 			{"keys are not allowed in an array literal", "1: 2"},
@@ -549,7 +613,11 @@ var structErrorCases = []struct {
 	},
 	{
 		"key in an inner array literal",
-		mainLines("a := [1][1]int64{{0: 1}}", "code, _ := int32(a[0][0])", "exit(code)"),
+		mainLines(
+			"a := [1][1]int64{{0: 1}}",
+			"code, fits := int32(a[0][0])",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"keys are not allowed in an array literal", "0: 1"}},
 	},
 	{
@@ -569,7 +637,13 @@ var structErrorCases = []struct {
 	},
 	{
 		"no such field written",
-		withTypes(pointDecls, "mut p Point", "p.z = 1", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"mut p Point",
+			"p.z = 1",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"Point has no field z", "z"}},
 	},
 	{
@@ -594,8 +668,8 @@ var structErrorCases = []struct {
 			pointDecls,
 			"p := Point{x: 1, y: 2}",
 			"p.x = 3",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot assign to field of immutable variable p", "p"}},
 	},
@@ -605,8 +679,8 @@ var structErrorCases = []struct {
 			pointDecls,
 			"l := Line{a: Point{x: 1, y: 2}, b: Point{x: 1, y: 2}}",
 			"l.a.x++",
-			"code, _ := int32(l.a.x)",
-			"exit(code)",
+			"code, fits := int32(l.a.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot assign to field of immutable variable l", "l"}},
 	},
@@ -616,8 +690,8 @@ var structErrorCases = []struct {
 			pointDecls,
 			"a := [1]Point{{x: 1, y: 2}}",
 			"a[0].x += 1",
-			"code, _ := int32(a[0].x)",
-			"exit(code)",
+			"code, fits := int32(a[0].x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot assign to element of immutable variable a", "a"}},
 	},
@@ -643,8 +717,8 @@ var structErrorCases = []struct {
 			"a := [1]Point{{x: 1, y: 2}}",
 			"for _, p := range a {",
 			"    p.x = 2",
-			"    code, _ := int32(p.y)",
-			"    exit(code)",
+			"    code, fits := int32(p.y)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 		[]spanned{{"cannot assign to field of immutable variable p", "p"}},
@@ -664,14 +738,20 @@ var structErrorCases = []struct {
 			pointDecls,
 			"mut p Point",
 			"p.x = \"one\"",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use string as int64 in assignment to field x of p", "\"one\""}},
 	},
 	{
 		"increment of a struct field",
-		withTypes(pointDecls, "mut l Line", "l.a++", "code, _ := int32(l.a.x)", "exit(code)"),
+		withTypes(
+			pointDecls,
+			"mut l Line",
+			"l.a++",
+			"code, fits := int32(l.a.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"operator ++ is not defined on Point", "l.a"}},
 	},
 	{
@@ -710,8 +790,8 @@ var structErrorCases = []struct {
 			pointDecls+"\n\ntype Other struct {\n    x int64\n    y int64\n}",
 			"mut p Point",
 			"p = Other{x: 1, y: 2}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use Other as Point in assignment to p", "Other{x: 1, y: 2}"}},
 	},
@@ -757,7 +837,11 @@ var structErrorCases = []struct {
 	},
 	{
 		"immutable global without a value",
-		withTypes(pointDecls+"\n\nvar p Point", "code, _ := int32(p.x)", "exit(code)"),
+		withTypes(
+			pointDecls+"\n\nvar p Point",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
+		),
 		[]spanned{{"immutable variable p needs a value", "p"}},
 	},
 	{
@@ -780,8 +864,8 @@ var structErrorCases = []struct {
 		withTypes(
 			pointDecls,
 			"p := Point{x: 6, y: 2}",
-			"code, _ := int32(p.x / p.y)",
-			"exit(code)",
+			"code, fits := int32(p.x / p.y)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{
 			{"divisor p.y may be zero; check p.y != 0 first, or use q, ok := ... / p.y", "p.y"},
@@ -793,8 +877,8 @@ var structErrorCases = []struct {
 			pointDecls,
 			"mut p := Point{x: 6, y: 2}",
 			"if p.y != 0 {",
-			"    code, _ := int32(p.x / p.y)",
-			"    exit(code)",
+			"    code, fits := int32(p.x / p.y)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 		[]spanned{{"divisor may be zero; use q, ok := ... / ...", "p.y"}},
@@ -807,8 +891,8 @@ var structErrorCases = []struct {
 			"if p.y > 0 {",
 			"    p.x /= p.y",
 			"}",
-			"code, _ := int32(p.x)",
-			"exit(code)",
+			"code, fits := int32(p.x)",
+			"if fits { exit(code) }",
 		),
 		[]spanned{{"divisor may be zero", "p.y"}},
 	},
@@ -819,8 +903,8 @@ var structErrorCases = []struct {
 			"mut p := Point{x: 1, y: 1}",
 			"a := [2]int64{1, 2}",
 			"if p.y >= 0 && p.y < 2 {",
-			"    code, _ := int32(a[p.y])",
-			"    exit(code)",
+			"    code, fits := int32(a[p.y])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 		[]spanned{{"index may be out of range; use v, ok := ...[...]", "p.y"}},
@@ -981,8 +1065,8 @@ func TestRejectsStructsContainingThemselves(t *testing.T) {
 func TestCyclicStructUsedEverywhereStillEnds(t *testing.T) {
 	src := withTypes(
 		"type A struct {\n    b [1]B\n    n int64\n}\n\ntype B struct {\n    a A\n}",
-		"mut a A", "a.n = 1", "if a == a {", "}", "code, _ := int32(a.b[0].a.n)",
-		"exit(code)",
+		"mut a A", "a.n = 1", "if a == a {", "}", "code, fits := int32(a.b[0].a.n)",
+		"if fits { exit(code) }",
 	)
 	_, diags := checkTree(t, src)
 	if len(diags) != 1 || diags[0].Message != "invalid recursive type A" {

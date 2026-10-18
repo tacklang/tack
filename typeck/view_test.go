@@ -26,29 +26,39 @@ var viewProofCases = []struct{ name, src string }{
 		"counting loop",
 		viewing(
 			"for mut j int64 = 0; j < len(v); j++ {",
-			"    code, _ := int32(v[j])",
-			"    exit(code)",
+			"    code, fits := int32(v[j])",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
 	{
 		"range index",
-		viewing("for j := range v {", "    code, _ := int32(v[j])", "    exit(code)", "}"),
+		viewing(
+			"for j := range v {",
+			"    code, fits := int32(v[j])",
+			"    if fits { exit(code) }",
+			"}",
+		),
 	},
 	{
 		"range over a view indexes another by its own length",
 		viewing(
 			"for j := range b {",
 			"    if j < len(v) {",
-			"        code, _ := int32(v[j])",
-			"        exit(code)",
+			"        code, fits := int32(v[j])",
+			"        if fits { exit(code) }",
 			"    }",
 			"}",
 		),
 	},
 	{
 		"guard",
-		viewing("if 0 <= i && i < len(v) {", "    code, _ := int32(v[i])", "    exit(code)", "}"),
+		viewing(
+			"if 0 <= i && i < len(v) {",
+			"    code, fits := int32(v[i])",
+			"    if fits { exit(code) }",
+			"}",
+		),
 	},
 	{
 		"early exit",
@@ -56,33 +66,63 @@ var viewProofCases = []struct{ name, src string }{
 			"if i < 0 || i >= len(v) {",
 			"    return 0",
 			"}",
-			"code, _ := int32(v[i])",
-			"exit(code)",
+			"code, fits := int32(v[i])",
+			"if fits { exit(code) }",
 		),
 	},
 	{
 		"length bound proves a constant index",
-		viewing("if len(v) > 2 {", "    code, _ := int32(v[2])", "    exit(code)", "}"),
+		viewing(
+			"if len(v) > 2 {",
+			"    code, fits := int32(v[2])",
+			"    if fits { exit(code) }",
+			"}",
+		),
 	},
-	{"length fact holds after a call", viewing(
-		"if len(v) < 1 {", "    return 0", "}", "g(v)", "code, _ := int32(v[0])", "exit(code)")},
+	{
+		"length fact holds after a call",
+		viewing(
+			"if len(v) < 1 {",
+			"    return 0",
+			"}",
+			"g(v)",
+			"code, fits := int32(v[0])",
+			"if fits { exit(code) }",
+		),
+	},
 	{
 		"checked form",
-		viewing("x, ok := v[i]", "if ok {", "    code, _ := int32(x)", "    exit(code)", "}"),
+		viewing(
+			"x, ok := v[i]",
+			"if ok {",
+			"    code, fits := int32(x)",
+			"    if fits { exit(code) }",
+			"}",
+		),
 	},
 	{
 		"field of an element carries facts",
 		viewing(
 			"if len(ps) > 0 && ps[0].d != 0 {",
-			"    code, _ := int32(10 / ps[0].d)",
-			"    exit(code)",
+			"    code, fits := int32(10 / ps[0].d)",
+			"    if fits { exit(code) }",
 			"}",
 		),
 	},
-	{"element of an element's array", viewing(
-		"if len(ps) > 0 {", "    code, _ := int32(ps[0].a[1])", "    exit(code)", "}")},
-	{"len is an int64", viewing("var n int64 = len(b)", "code, _ := int32(n)", "exit(code)")},
-	{"passed on", viewing("code, _ := int32(g(v))", "exit(code)")},
+	{
+		"element of an element's array",
+		viewing(
+			"if len(ps) > 0 {",
+			"    code, fits := int32(ps[0].a[1])",
+			"    if fits { exit(code) }",
+			"}",
+		),
+	},
+	{
+		"len is an int64",
+		viewing("var n int64 = len(b)", "code, fits := int32(n)", "if fits { exit(code) }"),
+	},
+	{"passed on", viewing("code, fits := int32(g(v))", "if fits { exit(code) }")},
 	{"byte element", viewing("for j := range b {", "    exit(b[j])", "}")},
 }
 
@@ -102,12 +142,17 @@ func TestAcceptsViewProofs(t *testing.T) {
 var viewErrorCases = []struct{ name, src, want string }{
 	{
 		"index past a length bound",
-		viewing("if len(v) > 2 {", "    code, _ := int32(v[3])", "    exit(code)", "}"),
+		viewing(
+			"if len(v) > 2 {",
+			"    code, fits := int32(v[3])",
+			"    if fits { exit(code) }",
+			"}",
+		),
 		"index 3 may be out of range; check len(v) > 3 first, or use v, ok := ...[3]",
 	},
 	{
 		"negative constant index",
-		viewing("code, _ := int32(v[-1])", "exit(code)"),
+		viewing("code, fits := int32(v[-1])", "if fits { exit(code) }"),
 		"index -1 is out of range for a view",
 	},
 	{
@@ -116,7 +161,12 @@ var viewErrorCases = []struct{ name, src, want string }{
 	},
 	{
 		"bound by another view's length",
-		viewing("if 0 <= i && i < len(b) {", "    code, _ := int32(v[i])", "    exit(code)", "}"),
+		viewing(
+			"if 0 <= i && i < len(b) {",
+			"    code, fits := int32(v[i])",
+			"    if fits { exit(code) }",
+			"}",
+		),
 		"index i may be out of range; check 0 <= i && i < len(v) first, or use v, ok := ...[i]",
 	},
 	{"index into an element", viewing("v[i]++"), "cannot assign to v[i]: v is a read-only view"},
@@ -127,14 +177,20 @@ var viewErrorCases = []struct{ name, src, want string }{
 	},
 	{
 		"multi assign",
-		viewing("mut k int64 = 0", "k, v = 10 / 2", "code, _ := int32(k)", "exit(code)"),
+		viewing(
+			"mut k int64 = 0",
+			"k, v = 10 / 2",
+			"code, fits := int32(k)",
+			"if fits { exit(code) }",
+		),
 		"cannot assign to v: v is a read-only view",
 	},
 	{"conversion of a view", viewing("exit(int64(v))"), "cannot convert []int64 to int64"},
 	{"arithmetic", viewing("exit(len(v) + v)"), "operator + is not defined on []int64"},
 	{"not a bool", viewing("if b {", "}"), "condition must be a bool, got []uint8"},
 	{
-		"view of another element type", viewing("code, _ := int32(g(b))", "exit(code)"),
+		"view of another element type",
+		viewing("code, fits := int32(g(b))", "if fits { exit(code) }"),
 		"cannot use []uint8 as []int64 in argument to g",
 	},
 }

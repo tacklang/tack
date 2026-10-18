@@ -16,7 +16,7 @@ func indexing(lines ...string) string {
 	return "package main\n\nmut g int64 = 1\n\n" +
 		"func f(i int64, u uint8, s int8, n int64) int64 {\n" +
 		"    a := [3]int64{1, 2, 3}\n    mut m [3]int64\n" + body + "    return a[0] + m[0]\n}\n\n" +
-		"func main() {\n    code, _ := int32(f(1, 2, 3, 4) + g)\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(f(1, 2, 3, 4) + g)\n    if fits { exit(code) }\n}\n"
 }
 
 // provenIndexCases are indexes the checker can prove in range, each by one
@@ -67,7 +67,7 @@ var provenIndexCases = []struct{ name, src string }{
 	},
 	{
 		"checked read of a call",
-		"package main\n\nfunc arr() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc f(i int64) int64 {\n    v, ok := arr()[i]\n    if ok {\n        return v\n    }\n    return 0\n}\n\nfunc main() {\n    code, _ := int32(f(1))\n    exit(code)\n}\n",
+		"package main\n\nfunc arr() [2]int64 {\n    return [2]int64{1, 2}\n}\n\nfunc f(i int64) int64 {\n    v, ok := arr()[i]\n    if ok {\n        return v\n    }\n    return 0\n}\n\nfunc main() {\n    code, fits := int32(f(1))\n    if fits { exit(code) }\n}\n",
 	},
 	{"constant from len", indexing("return a[len(a) - 1]")},
 	{

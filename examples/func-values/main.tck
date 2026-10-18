@@ -328,9 +328,7 @@ func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
     }
-    q, _ := a / b
-    r, _ := a % b
-    return q, r
+    return a / b, a % b
 }
 
 // parse returns the digit s holds, or an error when it holds anything

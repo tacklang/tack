@@ -49,7 +49,7 @@ func TestNegation(t *testing.T) {
 	ok := []string{
 		mainLines("x := 5", "exit(int32(-x))"),
 		mainLines("x := 5", "exit(int32(0 - -x + -3))"),
-		"package main\n\nfunc f() int64 {\n    return 2\n}\n\nfunc main() {\n    code, _ := int32(-f())\n    exit(code)\n}\n",
+		"package main\n\nfunc f() int64 {\n    return 2\n}\n\nfunc main() {\n    code, fits := int32(-f())\n    if fits { exit(code) }\n}\n",
 		mainLines("x := -9223372036854775808", "if x < 0 {", "}"),
 	}
 	for _, src := range ok {

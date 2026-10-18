@@ -16,7 +16,7 @@ const orderPrelude = "package main\n\n" +
 	"func bump() int64 {\n    g++\n    return g\n}\n\n" +
 	"func two(a int64, b int64) int64 {\n    return a * 10 + b\n}\n\n" +
 	"func pair() (int64, int64) {\n    return say(\"a\", 1), say(\"b\", 2)\n}\n\n" +
-	"func keep() {\n    if g > 100 {\n        a, b := pair()\n        code, _ := int32(two(a, b) + bump())\n        exit(code)\n    }\n}\n\n"
+	"func keep() {\n    if g > 100 {\n        a, b := pair()\n        code, fits := int32(two(a, b) + bump())\n        if fits { exit(code) }\n    }\n}\n\n"
 
 // orderProgram is orderPrelude and a main holding lines, after a call to
 // keep, which does nothing but use every helper, so the strict build does
@@ -40,8 +40,8 @@ var orderCases = []struct {
 	{
 		"binary operands",
 		orderProgram(
-			"code, _ := int32(say(\"a\", 1) - say(\"b\", 2) * say(\"c\", 3))",
-			"exit(code)",
+			"code, fits := int32(say(\"a\", 1) - say(\"b\", 2) * say(\"c\", 3))",
+			"if fits { exit(code) }",
 		),
 		"abc",
 		251,
@@ -49,13 +49,16 @@ var orderCases = []struct {
 	{"comparison", orderProgram("if say(\"a\", 1) < say(\"b\", 2) {", "    exit(1)", "}"), "ab", 1},
 	{
 		"arguments",
-		orderProgram("code, _ := int32(two(say(\"a\", 1), say(\"b\", 2)))", "exit(code)"),
+		orderProgram(
+			"code, fits := int32(two(say(\"a\", 1), say(\"b\", 2)))",
+			"if fits { exit(code) }",
+		),
 		"ab",
 		12,
 	},
 	{
 		"results",
-		orderProgram("x, y := pair()", "code, _ := int32(two(x, y))", "exit(code)"),
+		orderProgram("x, y := pair()", "code, fits := int32(two(x, y))", "if fits { exit(code) }"),
 		"ab",
 		12,
 	},
@@ -63,8 +66,8 @@ var orderCases = []struct {
 		"array elements",
 		orderProgram(
 			"a := [2]int64{say(\"a\", 1), say(\"b\", 2)}",
-			"code, _ := int32(two(a[0], a[1]))",
-			"exit(code)",
+			"code, fits := int32(two(a[0], a[1]))",
+			"if fits { exit(code) }",
 		),
 		"ab",
 		12,
@@ -73,8 +76,8 @@ var orderCases = []struct {
 		"struct fields as written",
 		orderProgram(
 			"p := P{b: say(\"b\", 2), a: say(\"a\", 1)}",
-			"code, _ := int32(two(p.a, p.b))",
-			"exit(code)",
+			"code, fits := int32(two(p.a, p.b))",
+			"if fits { exit(code) }",
 		),
 		"ba",
 		12,
@@ -91,25 +94,25 @@ var orderCases = []struct {
 	},
 	{
 		"a global read before a call",
-		orderProgram("code, _ := int32(g + bump())", "exit(code)"),
+		orderProgram("code, fits := int32(g + bump())", "if fits { exit(code) }"),
 		"",
 		1,
 	},
 	{
 		"a call before a global read",
-		orderProgram("code, _ := int32(bump() + g)", "exit(code)"),
+		orderProgram("code, fits := int32(bump() + g)", "if fits { exit(code) }"),
 		"",
 		2,
 	},
 	{
 		"a global argument before a call",
-		orderProgram("code, _ := int32(two(g, bump()))", "exit(code)"),
+		orderProgram("code, fits := int32(two(g, bump()))", "if fits { exit(code) }"),
 		"",
 		1,
 	},
 	{
 		"compound assignment of a global",
-		orderProgram("g = 5", "g += bump()", "code, _ := int32(g)", "exit(code)"),
+		orderProgram("g = 5", "g += bump()", "code, fits := int32(g)", "if fits { exit(code) }"),
 		"",
 		11,
 	},
@@ -120,8 +123,8 @@ var orderCases = []struct {
 			"for say(\"a\", 1) < say(\"b\", 2) && n < 2 {",
 			"    n++",
 			"}",
-			"code, _ := int32(n)",
-			"exit(code)",
+			"code, fits := int32(n)",
+			"if fits { exit(code) }",
 		),
 		"ababab",
 		2,
@@ -140,7 +143,7 @@ var orderCases = []struct {
 	{
 		"in a return",
 		orderPrelude + "func f() int64 {\n    return two(say(\"a\", 1), say(\"b\", 2))\n}\n\n" +
-			"func main() {\n    keep()\n    code, _ := int32(f())\n    exit(code)\n}\n",
+			"func main() {\n    keep()\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
 		"ab", 12,
 	},
 }
@@ -173,26 +176,33 @@ func TestHoldsOperandsOnlyWhenOrderShows(t *testing.T) {
 	}{
 		{
 			"two calls",
-			[]string{"code, _ := int32(say(\"a\", 1) + say(\"b\", 2))", "exit(code)"},
+			[]string{
+				"code, fits := int32(say(\"a\", 1) + say(\"b\", 2))",
+				"if fits { exit(code) }",
+			},
 			true,
 		},
 		{
 			"a call and a mutable global",
-			[]string{"code, _ := int32(g + bump())", "exit(code)"},
+			[]string{"code, fits := int32(g + bump())", "if fits { exit(code) }"},
 			true,
 		},
 		{
 			"a call and a local",
-			[]string{"x := 1", "code, _ := int32(x + bump())", "exit(code)"},
+			[]string{"x := 1", "code, fits := int32(x + bump())", "if fits { exit(code) }"},
 			false,
 		},
 		{
 			"a call and a constant",
-			[]string{"code, _ := int32(two(1, bump()))", "exit(code)"},
+			[]string{"code, fits := int32(two(1, bump()))", "if fits { exit(code) }"},
 			false,
 		},
-		{"two mutable globals", []string{"code, _ := int32(g + g)", "exit(code)"}, false},
-		{"one call", []string{"code, _ := int32(bump())", "exit(code)"}, false},
+		{
+			"two mutable globals",
+			[]string{"code, fits := int32(g + g)", "if fits { exit(code) }"},
+			false,
+		},
+		{"one call", []string{"code, fits := int32(bump())", "if fits { exit(code) }"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

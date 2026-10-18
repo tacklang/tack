@@ -235,6 +235,10 @@ static tack_string tack_8_generics4_logs10_Log_2eLast(tack_8_generics4_logs3_Log
     const tack_list_24 tack_r0 = p_l.f_words;
     const int64_t tack_r1 = ((int64_t)((uint64_t)(p_l.f_words).len - (uint64_t)1));
     const tack_string v_w = ((tack_r1 >= 0 && tack_r1 < tack_r0.len) ? tack_r0.ptr[tack_r1] : (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
+    const bool v_ok = (tack_r1 >= 0 && tack_r1 < tack_r0.len);
+    if (!v_ok) {
+        return (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)};
+    }
     return v_w;
 }
 
@@ -300,6 +304,10 @@ static uint8_t tack_8_generics11_Buffer_2eat(tack_8_generics6_Buffer p_b, int64_
     const tack_list_25 tack_r3 = p_b.f_bytes;
     const int64_t tack_r4 = p_i;
     const uint8_t v_v = ((tack_r4 >= 0 && tack_r4 < tack_r3.len) ? tack_r3.ptr[tack_r4] : 0);
+    const bool v_ok = (tack_r4 >= 0 && tack_r4 < tack_r3.len);
+    if (!v_ok) {
+        return 0;
+    }
     return v_v;
 }
 

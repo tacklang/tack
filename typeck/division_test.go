@@ -13,7 +13,7 @@ func divide(lines ...string) string {
 	}
 	return "package main\n\nvar k = 3\n\nmut g int64 = 1\n\n" +
 		"func f(a int64, b int64, x bool) int64 {\n" + body + "    return 0\n}\n\n" +
-		"func main() {\n    code, _ := int32(f(1, 2, true) + k + g)\n    exit(code)\n}\n"
+		"func main() {\n    code, fits := int32(f(1, 2, true) + k + g)\n    if fits { exit(code) }\n}\n"
 }
 
 // provenDivisorCases are divisions whose divisor the checker can prove is

@@ -92,22 +92,22 @@ func plain() {
         m[k] = m[k] + 5
         double(mut m[k])
     }
-    v, _ := m[2]
-    check(got == 20 && v == 50 && len(m) == 2, "read, assign and mut under has")
+    v, hasV := m[2]
+    check(got == 20 && hasV && v == 50 && len(m) == 2, "read, assign and mut under has")
     missing := 9
     check(!has(m, missing) && has(m, 1), "has of a missing key and a present one")
     if has(m, 1) {
         m[1] = 11
     }
-    w, _ := m[1]
-    check(w == 11, "a constant key")
+    w, hasW := m[1]
+    check(hasW && w == 11, "a constant key")
     one := 1
     if !has(m, one) {
         return
     }
     m[one] += 1
-    x, _ := m[1]
-    check(x == 12 && order(m) == 12, "an early exit, and the order kept")
+    x, hasX := m[1]
+    check(hasX && x == 12 && order(m) == 12, "an early exit, and the order kept")
 }
 
 // order returns m's keys in the order a range gives them, as one number,

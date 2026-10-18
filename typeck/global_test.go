@@ -289,7 +289,7 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"assign the wrong type to a global",
-		"package main\n\nmut x = 1\n\nfunc main() {\n    x = \"s\"\n    code, _ := int32(x)\n    exit(code)\n}\n",
+		"package main\n\nmut x = 1\n\nfunc main() {\n    x = \"s\"\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
 		[]string{"cannot use string as int64 in assignment to x"},
 	},
 }
@@ -320,7 +320,7 @@ func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
 
 // A mutable global can be assigned from any function.
 func TestMutableGlobalIsAssignable(t *testing.T) {
-	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    code, _ := int32(count)\n    exit(code)\n}\n"
+	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    code, fits := int32(count)\n    if fits { exit(code) }\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}

@@ -41,6 +41,12 @@ import text from "std/text"
 // the most os.c reads at once.
 var read_size int64 = 65536
 
+// fd_range is the error for a file descriptor the OS gives that an int32
+// cannot hold, which no POSIX open gives, since C's int is 32 bits on
+// every target os builds for; it is there because the conversion's ok
+// is checked, and a descriptor it reports could not be closed.
+var fd_range = error{code: 2, msg: "internal error"}
+
 // nul_path is the error for a path holding a 0 byte.
 var nul_path = error{code: 4, msg: "path contains a NUL byte"}
 
@@ -208,7 +214,10 @@ pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {
     if r < 0 {
         return empty, c_error(-r)
     }
-    fd, _ := int32(r)
+    fd, fits := int32(r)
+    if !fits {
+        return empty, fd_range
+    }
     // A file opened for reading has nothing to flush, so a failed close
     // loses nothing that was read; its errno is not reported.
     defer {
@@ -245,7 +254,10 @@ pub func write_file(path []uint8, data []uint8) error {
     if r < 0 {
         return c_error(-r)
     }
-    fd, _ := int32(r)
+    fd, fits := int32(r)
+    if !fits {
+        return fd_range
+    }
     mut at int64 = 0
     for at < len(data) {
         n := c_write(fd, part(data, at, len(data)))
@@ -364,22 +376,28 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
             mut i := lo
             mut j := mid
             for i < mid || j < hi {
-                a, _ := src[i]
-                b, _ := src[j]
+                // i < mid and j < hi are within src, so the run a name is
+                // taken from always has it: the left only while i < mid,
+                // when hasA, and the right only while j < hi, when hasB.
+                a, hasA := src[i]
+                b, hasB := src[j]
                 // The left run's name goes first unless the right's sorts
                 // strictly before it, which keeps equal names in order.
-                if j >= hi || i < mid && !less(name_at(buf, starts, ends, b), name_at(buf, starts, ends, a)) {
+                left := j >= hi || i < mid && !less(name_at(buf, starts, ends, b), name_at(buf, starts, ends, a))
+                if left && hasA {
                     e := append(mut dst, a)
                     if e.code != 0 {
                         return dst, e
                     }
                     i++
-                } else {
+                } else if hasB {
                     e := append(mut dst, b)
                     if e.code != 0 {
                         return dst, e
                     }
                     j++
+                } else {
+                    break
                 }
             }
             lo = hi

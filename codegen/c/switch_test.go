@@ -116,7 +116,7 @@ var switchRuntimeCases = []struct {
 			"case -9223372036854775808:",
 			"    n++",
 			"}",
-			"code, _ := int32(n + 9)", "exit(code)"),
+			"code, fits := int32(n + 9)", "if fits { exit(code) }"),
 		"", 11,
 	},
 	{
@@ -155,7 +155,7 @@ var switchRuntimeCases = []struct {
 			"    }",
 			"    print(\".\")",
 			"}",
-			"code, _ := int32(i + 7)", "exit(code)"),
+			"code, fits := int32(i + 7)", "if fits { exit(code) }"),
 		"......", 14,
 	},
 	{
@@ -170,7 +170,7 @@ var switchRuntimeCases = []struct {
 			"        n++",
 			"    }",
 			"}",
-			"code, _ := int32(n + 10)", "exit(code)"),
+			"code, fits := int32(n + 10)", "if fits { exit(code) }"),
 		"", 15,
 	},
 	{

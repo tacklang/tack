@@ -224,6 +224,46 @@ func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Sp
 	}
 }
 
+// checkOkDropped reports a binding of value, a checked form, that keeps
+// its value and drops its ok, blank saying which of its two names are _
+// and spans where each is written: a division or a remainder, an index, a
+// slice, a conversion, a type assertion, or pop, remove or delete. The ok
+// is the check the checked form exists for, and dropping it reads a value
+// that may be the zero value standing in for one there is not, as an
+// error cannot be dropped. Binding both to _ is its own error (see
+// nothingBound), and a pop, remove or delete whose element cannot be read
+// until its ok is checked says so instead (see checkOkBinding).
+func (c *Checker) checkOkDropped(value ast.Expr, blank []bool, spans []ast.Span) {
+	if len(blank) != 2 || blank[0] || !blank[1] || !c.isCheckedForm(value) {
+		return
+	}
+	if call, ok := value.(*ast.Call); ok && isTake(call) && !c.table.HasZero(ast.TypeOf(call)) {
+		return
+	}
+	c.errorf(
+		spans[1],
+		"the ok %s gives cannot be dropped; bind it to a variable instead of _",
+		c.text(value.Spanned()),
+	)
+}
+
+// isCheckedForm reports whether value, bound to two names whose results
+// checked as valid, is a checked form, giving a value and an ok: a
+// division or a remainder, an index, a slice, a type assertion, a
+// conversion, or a call to pop, remove or delete.
+func (c *Checker) isCheckedForm(value ast.Expr) bool {
+	switch x := value.(type) {
+	case *ast.Binary:
+		return x.Op == ast.Div || x.Op == ast.Rem
+	case *ast.Index, *ast.Slice, *ast.TypeAssert:
+		return true
+	case *ast.Call:
+		return x.Conv != types.Invalid || isTake(x)
+	default:
+		return false
+	}
+}
+
 // checkOkBinding reports a checked pop or remove, call, calling name,
 // whose binding, blank saying which names are _ and spans where each is
 // written, drops what it should not: an owned element, bound to _, which

@@ -153,15 +153,15 @@ func appends() {
     mut big := text.new(c_allocator)
     mut ok := true
     for i := range 10000 {
-        c, _ := uint8(i % 251)
+        c, fits := uint8(i % 251)
         e := mut big.append_byte(c)
-        if e.code != 0 {
+        if !fits || e.code != 0 {
             ok = false
         }
     }
     for i, x := range big.bytes() {
-        c, _ := uint8(i % 251)
-        if x != c {
+        c, fits := uint8(i % 251)
+        if !fits || x != c {
             ok = false
         }
     }
@@ -233,11 +233,11 @@ func hashes() {
     mut down := text.new(c_allocator)
     mut ok := true
     for i := range 256 {
-        c, _ := uint8(i)
-        d, _ := uint8(255 - i)
+        c, fitsC := uint8(i)
+        d, fitsD := uint8(255 - i)
         e0 := mut up.append_byte(c)
         e1 := mut down.append_byte(d)
-        if e0.code != 0 || e1.code != 0 {
+        if !fitsC || !fitsD || e0.code != 0 || e1.code != 0 {
             ok = false
         }
     }

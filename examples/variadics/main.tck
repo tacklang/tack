@@ -201,17 +201,25 @@ func bumpThenRead(mut n int64, vals ...int64) int64 {
 
 // writeThenRead writes the caller's array through a, then reads v, which
 // the caller spread the same array into: v is a copy taken at the call.
+// It returns -1 when v is empty.
 func writeThenRead(mut a [3]int64, v ...int64) int64 {
     a[0] = 100
-    x, _ := v[0]
+    x, ok := v[0]
+    if !ok {
+        return -1
+    }
     return x
 }
 
 // changeTable changes the global table, then reads v, which the caller
-// spread table into: v is a copy taken at the call.
+// spread table into: v is a copy taken at the call. It returns -1 when
+// v is empty.
 func changeTable(v ...int64) int64 {
     table[0] = 50
-    x, _ := v[0]
+    x, ok := v[0]
+    if !ok {
+        return -1
+    }
     return x
 }
 

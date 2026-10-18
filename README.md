@@ -895,8 +895,9 @@ makes for itself, which has a letter after `tack_`.
   does not, and `ok` says which. An `int8` passed as `any` is not an
   `int64`, so `a.(int64)` is false for it, and an untyped constant, passed
   as an `int64`, is one. It is a checked form, as `q, ok := a / b`, `v, ok
-  := a[i]` and `v, ok := T(x)` are, under the same rules: either name may
-  be `_`, `v, _ := a.(T)`, but not both, each may have its own `mut`, `v, ok
+  := a[i]` and `v, ok := T(x)` are, under the same rules: the value may
+  be `_`, `_, ok := a.(T)`, but not the `ok`, `the ok a.(T) gives cannot
+  be dropped; bind it to a variable instead of _`, each may have its own `mut`, `v, ok
   = a.(T)` assigns existing mutable variables, `T` widening to `v`'s type,
   and it must be the whole value, `the checked form must be the whole
   value: v, ok := a.(int64), then compute v + 1`. There is no one-value
@@ -2390,7 +2391,14 @@ makes for itself, which has a letter after `tack_`.
   divides only when `b` is not zero: `ok` reports whether it was not, and `q`
   is the result, or `0`. The division must be the whole value:
   `q, ok := a / b + 1` is an error that suggests `q, ok := a / b`, then
-  `q + 1`. Both operands are always evaluated. Where the
+  `q + 1`. Both operands are always evaluated. Its `ok` cannot be
+  dropped, as an error cannot: `q, _ := a / b`, or `= a / b`, is `the ok
+  a / b gives cannot be dropped; bind it to a variable instead of _`, and
+  so is `_` in the `ok` of every checked form, an index, `m[k]`, a
+  string's slice, a conversion, a type assertion, `pop`, `remove` and
+  `delete`, each named as written: `the ok m[1] gives cannot be dropped;
+  ...`. The value may be dropped, `_, ok := m[k]`, and both cannot be,
+  `every name is _, so nothing is bound`. Where the
   divisor is proven not zero the two-value form is allowed too, and `ok` is
   always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
   not zero when it is a non-zero constant, an immutable variable holding
