@@ -144,10 +144,18 @@ func (k KeywordType) String() string {
 
 // LookupKeyword returns the keyword ident spells, if it is one.
 func LookupKeyword(ident string) (KeywordType, bool) {
-	for kw, name := range keywordNames {
-		if name == ident {
-			return kw, true
-		}
-	}
-	return InvalidKeyword, false
+	kw, ok := keywordsByName[ident]
+	return kw, ok
 }
+
+// keywordsByName maps each keyword's spelling to the keyword, the reverse
+// of keywordNames, so the lexer looks up each identifier it reads at once
+// rather than by a scan of every keyword. No two keywords share a spelling
+// (see TestKeywordSpellingsAreDistinct).
+var keywordsByName = func() map[string]KeywordType {
+	m := make(map[string]KeywordType, len(keywordNames))
+	for kw, name := range keywordNames {
+		m[name] = kw
+	}
+	return m
+}()

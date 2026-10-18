@@ -23,9 +23,19 @@ type Lexer struct {
 
 // New returns a Lexer over file. The file's line starts are filled in as a
 // side effect of Lex, so the file must not have been lexed before.
+//
+// The token slice starts with room for one token per bytesPerToken bytes of
+// source, which real code rarely outgrows, so a large file's tokens are not
+// copied again and again as the slice grows.
 func New(file *source.File) *Lexer {
-	return &Lexer{file: file, tokens: make([]Token, 0)}
+	return &Lexer{file: file, tokens: make([]Token, 0, len(file.Data)/bytesPerToken+2)}
 }
+
+// bytesPerToken is the bytes of source New allows for each token when it
+// sizes the token slice. The examples average five to six; four leaves room
+// for denser code. A file with more tokens than that still lexes, its slice
+// growing as it would otherwise.
+const bytesPerToken = 4
 
 // Tokens returns the tokens produced by Lex, ending with an EOF token.
 func (l *Lexer) Tokens() []Token {

@@ -2,6 +2,7 @@ package parser_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -222,9 +223,9 @@ func clearBadSpans(file *ast.File) {
 }
 
 // checkCommentActsAsNewlineFast checks the property checkCommentActsAsNewline
-// checks, at offset at in src, but compares the two parses with
-// reflect.DeepEqual on the trees themselves. Because sweepNewline is as long
-// as sweepComment, the trees' spans line up and are compared too. Diagnostics
+// checks, at offset at in src, but compares the two parses deeply on the
+// trees themselves (see sameTree). Because sweepNewline is as long as
+// sweepComment, the trees' spans line up and are compared too. Diagnostics
 // are compared by message only, as in checkCommentActsAsNewline: the
 // semicolon a line ending implies is placed at the comment when there is
 // one, so a diagnostic about it moves with the comment.
@@ -236,8 +237,8 @@ func checkCommentActsAsNewlineFast(t *testing.T, src string, at int) {
 	if withNewline.lexFails || withComment.lexFails {
 		return
 	}
-	if !reflect.DeepEqual(withNewline.file, withComment.file) ||
-		!reflect.DeepEqual(diagMessages(withNewline.diags), diagMessages(withComment.diags)) {
+	if !sameTree(withNewline.file, withComment.file) ||
+		!sameTree(diagMessages(withNewline.diags), diagMessages(withComment.diags)) {
 		t.Errorf("a comment at offset %d parses differently from a newline there\n"+
 			"newline: %v\ncomment: %v\nsource:\n%s",
 			at, diagMessages(withNewline.diags), diagMessages(withComment.diags),
@@ -248,19 +249,32 @@ func checkCommentActsAsNewlineFast(t *testing.T, src string, at int) {
 // TestCommentActsAsNewlineEverywhere writes a comment at every token
 // boundary of every example program, which between them hold every
 // statement and expression form, and checks each parses as a newline there
-// does. The work is one lex and parse per boundary, so it grows with the
-// square of an example's size; each example runs as a parallel subtest to
-// spread that over the available cores.
+// does. The work is one lex and parse of the whole file per boundary, so it
+// grows with the square of an example's size. Each example's boundaries are
+// split into parallel subtests of sweepShard boundaries each, to spread
+// that over the available cores: the largest example alone would otherwise
+// keep one core busy long after the rest of the package is done.
 func TestCommentActsAsNewlineEverywhere(t *testing.T) {
 	for path, src := range examples(t) {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
-			for _, at := range boundaries(src) {
-				checkCommentActsAsNewlineFast(t, src, at)
+			offs := boundaries(src)
+			for from := 0; from < len(offs); from += sweepShard {
+				shard := offs[from:min(from+sweepShard, len(offs))]
+				t.Run(fmt.Sprintf("b%d", from), func(t *testing.T) {
+					t.Parallel()
+					for _, at := range shard {
+						checkCommentActsAsNewlineFast(t, src, at)
+					}
+				})
 			}
 		})
 	}
 }
+
+// sweepShard is how many boundaries of one example a subtest of
+// TestCommentActsAsNewlineEverywhere checks.
+const sweepShard = 500
 
 // FuzzCommentActsAsNewline writes a comment at a token boundary of
 // arbitrary source and checks it parses as a newline there does.
