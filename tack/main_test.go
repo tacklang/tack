@@ -1568,6 +1568,35 @@ func TestBuiltFieldFactsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The exit-leaves example proves divisors, an index, a map's key and a
+// result read beside an error from branches and cases that end in exit,
+// in a loop beside break and continue too, and ends functions with
+// results in exit, in an if and a switch and alone. Each check prints its
+// name and "ok", or "FAIL", and the last call ends the program with
+// status 7 from a function whose body ends in exit.
+func TestBuiltExitLeavesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "exit-leaves")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
+		t.Errorf("exit-leaves exited with %v, want status 7", err)
+	}
+	want := "divide ok\n" +
+		"dividing\n" +
+		"an else ending in exit ok\n" +
+		"an index proven by an exit ok\n" +
+		"a key proven by an exit ok\n" +
+		"a switch ending in exit ends the function ok\n" +
+		"an if ending in exit and return ends the function ok\n" +
+		"a result read after an exit on its error ok\n" +
+		"a divisor proven by an exit in a loop ok\n" +
+		"a case ending in exit ok\n" +
+		"failing\n"
+	if string(out) != want {
+		t.Errorf("exit-leaves printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The mut-exclusive example passes several mut arguments to one call where
 // their places cannot overlap: different fields of a struct and of a mut
 // parameter, elements at known indexes and at indexes facts keep apart,

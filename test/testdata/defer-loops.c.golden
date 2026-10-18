@@ -11,7 +11,7 @@ typedef struct {
 } tack_array_17;
 
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static int64_t tack_4_main3_log = 0;
 

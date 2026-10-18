@@ -41,7 +41,8 @@
 // be written, whether it was moved, and whether it is read, and writes only
 // what Tack accepts: every variable it declares is read; an index, a byte
 // or a divisor is proven by an if that guards a single statement, or read
-// in the checked form; a constant is never the only operand of arithmetic,
+// in the checked form, and a divisor that may be written also by an early
+// exit ending in exit, never taken, since an if before it makes a zero 1; a constant is never the only operand of arithmetic,
 // so the compiler never computes one that overflows; a list or a map is
 // never copied, a list passed as mut or own is named by no other argument,
 // a variable moved by own is never used again and is never moved in a

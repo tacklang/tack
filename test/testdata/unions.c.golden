@@ -258,7 +258,7 @@ static const unsigned char tack_str66[20] = {110, 101, 115, 116, 101, 100, 32, 1
 static const unsigned char tack_str67[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const tack_6_unions5_Token tack_6_unions5_start = {.tag = 2};
 static const tack_array_26 tack_6_unions8_keywords = {{{.tag = 1, .u.c_word = {tack_str12, TACK_C_STR_LEN(tack_str12)}}, {.tag = 0, .u.c_num = (-9223372036854775807 - 1)}, {.tag = 3}}};

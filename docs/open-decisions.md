@@ -352,7 +352,7 @@ rather than decided, and could go another way:
   the conditions every fact comes from, `if`, `else`, an early exit, a
   loop's condition, `&&`, `||`, `!` and `switch`, holding up to the
   first write to `err` that can reach the read; `err == noerror` is not one. `exit`
-  in a branch does not leave, as for any fact. `err.code` carries this
+  in a branch leaves, as for any fact. `err.code` carries this
   fact even for a mutable `err`, though a field of a mutable variable
   carries none for a divisor or an index.
 - A read is a use of the variable as a value, a `mut` argument, or the
@@ -1011,8 +1011,9 @@ go another way:
 - The builtins' C bodies are C files of `std/builtin`, read from
   `$TACK_HOME/src/std`, compiled and linked like a package's, only the
   objects a program needs. Their C names are `tack_builtin_print` and
-  `tack_builtin_exit`. `exit`'s body is not declared `_Noreturn`, as
-  nothing depends on it.
+  `tack_builtin_exit`. `exit`'s body and prototype are declared
+  `_Noreturn`, since a function with a result may end in a call to it; a
+  target that swaps the C files must keep it never returning.
 
 ## Standard library packages
 

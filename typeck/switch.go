@@ -381,14 +381,13 @@ func valueNodes(values []ast.Expr) []ast.Node {
 // it in its block, as the chain of ifs it means does: its first case tried
 // is the if, and the rest of the chain its else. The facts come from that
 // first case, as an early exit, the guard returned, when one side of the
-// chain leaves and the other does not; a call to exit counts as leaving
-// when exits is set (see leavesBy).
-func (c *Checker) switchAfterFactsBy(s *ast.Switch, exits bool) (*guard, []fact) {
+// chain leaves and the other does not.
+func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
 	order := tryOrder(s)
 	if len(order) == 0 || order[0].Default {
 		return nil, nil
 	}
-	firstLeaves, restLeaves := leavesBy(order[0].Body, exits), chainLeavesBy(order[1:], exits)
+	firstLeaves, restLeaves := leaves(order[0].Body), chainLeaves(order[1:])
 	if firstLeaves == restLeaves {
 		return nil, nil
 	}
@@ -408,32 +407,30 @@ func caseSpan(cl *ast.CaseClause) ast.Span {
 	return span
 }
 
-// switchLeavesBy reports whether s always leaves the code around it: its
-// chain of cases does (see chainLeavesBy), or s is a switch on a union
-// whose clauses name every case and whose every clause's body leaves, a
-// call to exit counting as leaving when exits is set.
-func switchLeavesBy(s *ast.Switch, exits bool) bool {
+// switchLeaves reports whether s always leaves the code around it: its
+// chain of cases does (see chainLeaves), or s is a switch on a union
+// whose clauses name every case and whose every clause's body leaves.
+func switchLeaves(s *ast.Switch) bool {
 	if !s.Exhaustive {
-		return chainLeavesBy(tryOrder(s), exits)
+		return chainLeaves(tryOrder(s))
 	}
 	for _, cl := range s.Cases {
-		if !leavesBy(cl.Body, exits) {
+		if !leaves(cl.Body) {
 			return false
 		}
 	}
 	return true
 }
 
-// chainLeavesBy reports whether a chain of cases, in the order tried,
+// chainLeaves reports whether a chain of cases, in the order tried,
 // always leaves the code around it: it ends in a default, and every case's
-// body leaves, a call to exit counting as leaving when exits is set (see
-// leavesBy).
-func chainLeavesBy(order []*ast.CaseClause, exits bool) bool {
+// body leaves (see leaves).
+func chainLeaves(order []*ast.CaseClause) bool {
 	if len(order) == 0 || !order[len(order)-1].Default {
 		return false
 	}
 	for _, cl := range order {
-		if !leavesBy(cl.Body, exits) {
+		if !leaves(cl.Body) {
 			return false
 		}
 	}

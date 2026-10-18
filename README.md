@@ -313,7 +313,9 @@ else, a syntax error included, is reported as a diagnostic in that file.
 
 A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
 `tack_builtin_exit`; the generated C declares each builtin the program
-calls with a prototype, `void tack_builtin_print(tack_string);`. Their
+calls with a prototype, `void tack_builtin_print(tack_string);`, and
+`exit`'s as never returning, `_Noreturn void tack_builtin_exit(int32_t);`,
+as its body is, so a C function with a result may end in a call to it. Their
 bodies are the `.c` files beside `builtin.tck`, one per builtin and named
 after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
 `src/std/include` for `tack_string`. That header is the one definition of
@@ -1321,8 +1323,8 @@ makes for itself, which has a letter after `tack_`.
     branch, a `switch err.code` in its `case 0:`, and `err.code == 0 &&`
     on its right. Like any fact it holds up to the first write to `err`
     that can reach the read, so binding a new error to it ends it for
-    every read after the binding, and a branch ending in `exit` does not
-    leave. A return that passes `v` on beside `err` unchecked, `return
+    every read after the binding, and a branch ending in `exit` leaves,
+    as one ending in `return` does. A return that passes `v` on beside `err` unchecked, `return
     v, err` with `err` the error result, is no read: the caller holds
     `v` beside the same error and checks it there. `v` returned in an
     expression or beside another error is read. Comparing the
@@ -1765,8 +1767,10 @@ makes for itself, which has a letter after `tack_`.
   among them, is reported for that alone. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
-  terminate, or a `for` with no condition that no
-  `break` leaves. The rule is syntactic, so a call that never comes back
+  terminate, a `for` with no condition that no
+  `break` leaves, or a call to `exit`, which never returns: `func fail()
+  int64 { exit(7) }` needs no `return`. The rule is syntactic, so a call
+  to a function that never comes back, one that calls `exit` included,
   does not satisfy it.
 - Switches. `switch x { case 1, 2: ... case y: ... default: ... }` compares
   the tag `x` with each case's values using `==`, under its rules: an
@@ -2472,8 +2476,9 @@ makes for itself, which has a letter after `tack_`.
   one, or a variable a condition covers where it is used:
   - inside `if c { ... }` when `c` being true rules out zero, and in its
     `else` when `c` being false does;
-  - in the statements after an `if` whose branch ends in `return`, `break`
-    or `continue`, by what got past it, as in `if b == 0 { return 0 }`;
+  - in the statements after an `if` whose branch ends in `return`, `break`,
+    `continue` or a call to `exit`, by what got past it, as in `if b == 0 {
+    return 0 }` or `if b == 0 { exit(1) }`;
   - in a loop's body, by its condition, and in a counting loop's body by
     the value its variable starts from (see three-clause loops);
   - in a `switch`, as in the chain of ifs it stands for (see switches),
@@ -2533,12 +2538,13 @@ makes for itself, which has a letter after `tack_`.
   the body assigns the variable anywhere, and a range loop's index bound,
   which holds of what the loop copied when it began, only while the body
   never assigns what it ranges over. A write in a branch that leaves never matters.
-  A call to `exit` does not count as
-  leaving. When a guard says something about a divisor or index it did not
+  A call to `exit` counts as leaving,
+  since it never returns, and so does a branch, a block or a case ending
+  in one; a call to a function that calls `exit` does not. When a guard says something about a divisor or index it did not
   prove, the error comes with notes pointing at the guard and what it
   proves, at the assignment or `mut` argument that ended that proof, or at what the guard
   allows that the operation does not, such as `i == 3` for a `[3]T`, and
-  at a branch ending in `exit`, a counting loop's step that could wrap, or
+  at a counting loop's step that could wrap, or
   a guard on a field of a mutable variable. A mutable global's error suggests only the two-value
   form, with a note at its declaration, since no check proves it. [docs/safety.md](docs/safety.md) gathers these rules, the
   two-value form and every operation they apply to in one place, and
@@ -2811,7 +2817,10 @@ makes for itself, which has a letter after `tack_`.
   adding no newline; a line ends where the string has a `\n`.
 - `exit` takes an `int32`, or an integer that widens to one
   (`int8`, `int16`, `uint8`, `uint16`), and terminates the process with that
-  status, without running any pending defer. Before the process ends,
+  status, without running any pending defer. It never returns, so a call
+  to it ends its block as a `return` does: the facts after an `if` whose
+  branch ends in it, a function's last statement, and what a branch that
+  ends in it moved, which the code after the branch never sees. Before the process ends,
   every allocator frees every buffer it still holds, so every list still
   live in any frame is freed, though no code of the program runs to do
   it. An `int64`, `uint32` or

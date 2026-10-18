@@ -13,7 +13,11 @@ import (
 // builtinPrototype is the C prototype of fn, a builtin extern func, under
 // its C name: void, since no builtin returns a value, and its parameters'
 // C types, unnamed. Its body is in std/builtin, compiled and linked by the
-// driver, so the generated C only declares it.
+// driver, so the generated C only declares it. exit is declared
+// _Noreturn, as its body is: the type checker counts a call to it as
+// leaving, so a C function with a result may end in one, which clang
+// accepts with no -Wreturn-type warning only when it knows the call never
+// returns.
 func (g *generator) builtinPrototype(fn builtin.Func) string {
 	params := make([]string, len(fn.Params))
 	for i, p := range fn.Params {
@@ -22,7 +26,11 @@ func (g *generator) builtinPrototype(fn builtin.Func) string {
 	if len(params) == 0 {
 		params = []string{"void"}
 	}
-	return fmt.Sprintf("void %s(%s);", fn.CName, strings.Join(params, ", "))
+	noReturn := ""
+	if fn.Name == "exit" {
+		noReturn = "_Noreturn "
+	}
+	return fmt.Sprintf("%svoid %s(%s);", noReturn, fn.CName, strings.Join(params, ", "))
 }
 
 // builtinsTake reports whether any of fns has a parameter of type typ.

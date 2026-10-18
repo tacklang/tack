@@ -193,10 +193,6 @@ type Checker struct {
 	pendingSizes []sizeSite
 	sizeChecked  map[types.Type]bool
 
-	// exitCalls keeps the call to exit that ends a branch of each
-	// statement asked about, or nil (see exitCall).
-	exitCalls map[ast.Stmt]*ast.Call
-
 	// typeParams maps each type parameter's type to its declaration, and
 	// standIns holds the stand-in for each interface method called on a
 	// type parameter's values (see typeParamMethod). inference is what
@@ -291,7 +287,6 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		dynamics:   make(map[types.Type]*ast.Func),
 
 		sizeChecked: make(map[types.Type]bool),
-		exitCalls:   make(map[ast.Stmt]*ast.Call),
 	}
 }
 
@@ -460,9 +455,10 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	c.checkBlock(fn.Body, fn)
 	c.appends = nil
 
-	// The rule is syntactic, as it is in Go: a call that never comes back,
-	// like exit, does not satisfy it. A bad statement may have been the
-	// return (see invalid.go).
+	// The rule is syntactic, as it is in Go, but for a call to the builtin
+	// exit, which never returns and so ends a body as a return does (see
+	// terminates); a call to any other function does not. A bad statement
+	// may have been the return (see invalid.go).
 	// A function with no body, which the resolver reported, has none to
 	// end in one.
 	if fn.Results != nil && !blockTerminates(fn.Body) && len(ast.BadStmts(fn.Body)) == 0 &&
@@ -1086,13 +1082,6 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
 		g, facts := c.afterFacts(stmt)
-		if g == nil {
-			// An if whose branch ends in exit gives nothing, but what it
-			// would give is kept, dropped, to explain a missing proof.
-			if g, facts = c.exitAfterFacts(stmt); len(facts) == 0 {
-				g = nil
-			}
-		}
 		if g == nil {
 			g, facts = c.storedFacts(stmt)
 		}
@@ -1938,7 +1927,8 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 }
 
 // terminates reports whether control cannot fall out of the bottom of stmt.
-// An if only terminates when it has an else and both branches do, since
+// A return terminates, and so does a call to exit, which never returns. An
+// if only terminates when it has an else and both branches do, since
 // otherwise the condition being false falls through, and a switch likewise
 // only when it has a default and every case does. A loop only terminates
 // when it has no condition and no break leaves it, following Go.
@@ -1946,6 +1936,8 @@ func terminates(stmt ast.Stmt) bool {
 	switch s := stmt.(type) {
 	case *ast.Return:
 		return true
+	case *ast.ExprStmt:
+		return isExitStmt(s)
 	case *ast.If:
 		return len(s.Else) > 0 && blockTerminates(s.Then) && blockTerminates(s.Else)
 	case *ast.For:

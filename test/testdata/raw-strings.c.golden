@@ -29,7 +29,7 @@ static const unsigned char tack_str9[3] = {195, 169, 0};
 static const unsigned char tack_str10[3] = {92, 116, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const tack_string tack_4_main7_pattern = {tack_str0, TACK_C_STR_LEN(tack_str0)};
 static const tack_string tack_4_main6_banner = {tack_str1, TACK_C_STR_LEN(tack_str1)};

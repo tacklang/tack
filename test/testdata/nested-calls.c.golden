@@ -7,7 +7,7 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static int32_t tack_4_main4_base(void);
 static int32_t tack_4_main4_same(int32_t p_n);

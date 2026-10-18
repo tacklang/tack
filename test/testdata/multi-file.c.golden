@@ -18,7 +18,7 @@ typedef struct {
 static const unsigned char tack_str0[20] = {115, 112, 108, 105, 116, 32, 97, 99, 114, 111, 115, 115, 32, 102, 105, 108, 101, 115, 10, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const int64_t tack_12_multi_2dfile4_unit = 2;
 static tack_array_18 tack_12_multi_2dfile5_cells = {};

@@ -11,7 +11,7 @@ static const unsigned char tack_str1[13] = {110, 111, 110, 45, 110, 101, 103, 97
 static const unsigned char tack_str2[2] = {10, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static int64_t tack_div_int64(int64_t a, int64_t b) {
     return b == -1 ? (int64_t)(0 - (uint64_t)a) : (int64_t)(a / b);

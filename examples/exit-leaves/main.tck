@@ -1,0 +1,150 @@
+package main
+
+// A branch, a block or a case that ends in a call to exit leaves, as one
+// ending in return, break or continue does: exit never returns. So an if
+// whose branch ends in exit proves, for the rest of its block, what got
+// past it, and a function with results may end in exit with no return
+// after it. Every check prints its name and "ok", or "FAIL"; the last ends
+// the program through a function whose body ends in exit, with status 7.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// parse reads s as one decimal digit, with error 3 for anything else.
+func parse(s string) (int64, error) {
+    if len(s) != 1 || s[0] < '0' || s[0] > '9' {
+        return 0, error{code: 3, msg: "not a digit"}
+    }
+    return s[0] - '0', noerror
+}
+
+// divide divides by d once an exit has ruled out zero.
+func divide(n int64, d int64) int64 {
+    if d == 0 {
+        exit(2)
+    }
+    return n / d
+}
+
+// half divides a by b once an else ending in exit has ruled out zero.
+func half(a int64, b int64) int64 {
+    if b != 0 {
+        print("dividing\n")
+    } else {
+        exit(1)
+    }
+    return a / b
+}
+
+// at reads l at i once an exit has ruled out every index past its ends.
+func at(l []int64, i int64) int64 {
+    if i < 0 || i >= len(l) {
+        exit(3)
+    }
+    return l[i]
+}
+
+// value reads m at k once an exit has ruled out a missing key.
+func value(m map[int64]int64, k int64) int64 {
+    if !has(m, k) {
+        exit(4)
+    }
+    return m[k]
+}
+
+// sign classifies d, ending the program on zero: every case leaves, the
+// zero one by exit, so the switch ends the function with no return after.
+func sign(d int64) int64 {
+    switch {
+    case d < 0:
+        return -1
+    case d == 0:
+        exit(5)
+    default:
+        return 1
+    }
+}
+
+// fail ends the program with status 7: a function with a result whose
+// body ends in exit needs no return.
+func fail() int64 {
+    print("failing\n")
+    exit(7)
+}
+
+// both ends in an if whose branches both exit or return.
+func both(k bool) int64 {
+    if k {
+        return 1
+    } else {
+        exit(6)
+    }
+}
+
+// errors reads a result bound beside an error once an exit has ruled the
+// error out.
+func errors() {
+    v, err := parse("8")
+    if err.code != 0 {
+        exit(err.code)
+    }
+    check(v == 8, "a result read after an exit on its error")
+}
+
+// loops exits in a loop's body beside break and continue: what the exit
+// rules out holds for the rest of the body.
+func loops() {
+    mut total int64 = 0
+    for i := range 6 {
+        d := i - 1
+        if i == 1 {
+            continue
+        }
+        if d == 0 {
+            exit(8)
+        }
+        total += 12 / d
+        if i == 4 {
+            break
+        }
+    }
+    check(total == -12 + 12 + 6 + 4, "a divisor proven by an exit in a loop")
+}
+
+// cases exits in one case of a switch: the cases after it, and the code
+// after the switch, know it did not match.
+func cases(d int64) int64 {
+    switch {
+    case d == 0:
+        exit(9)
+    case d > 100:
+        return 0
+    }
+    return 100 / d
+}
+
+func main() {
+    check(divide(12, 4) == 3, "divide")
+    check(half(8, 2) == 4, "an else ending in exit")
+    l := [3]int64{5, 6, 7}
+    check(at(l, 2) == 7, "an index proven by an exit")
+    mut m := make(map[int64]int64, c_allocator)
+    errPut := put(mut m, 4, 40)
+    if errPut.code != 0 {
+        return
+    }
+    check(value(m, 4) == 40, "a key proven by an exit")
+    check(sign(-3) == -1 && sign(3) == 1, "a switch ending in exit ends the function")
+    check(both(true) == 1, "an if ending in exit and return ends the function")
+    errors()
+    loops()
+    check(cases(4) == 25 && cases(200) == 0, "a case ending in exit")
+    check(fail() == 0, "unreachable")
+}

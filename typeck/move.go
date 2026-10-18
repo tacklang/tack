@@ -25,8 +25,8 @@ import (
 // been moved, on every
 // path that reaches the point being checked or on some of them, and where.
 // Control flow is structured: an if and a switch join what their branches
-// leave, a branch that returns, breaks or continues leaving nothing to
-// join; a loop's body is followed twice, the second time from what the
+// leave, a branch that returns, breaks, continues or calls exit, which
+// never returns, leaving nothing to join; a loop's body is followed twice, the second time from what the
 // first pass left joined with what it started from, so a move late in the
 // body is seen by a use early in it, and only the second pass reports.
 // Using a variable that may have been moved is an error: reading it,
@@ -275,9 +275,19 @@ func (m *mover) stmt(stmt ast.Stmt, cur flow) flow {
 	case *ast.Break, *ast.Continue:
 		return m.jump(s, cur)
 	default:
-		m.simpleStmt(stmt, &cur)
-		return cur
+		return m.simpleFlow(stmt, cur)
 	}
+}
+
+// simpleFlow follows a statement that holds no other from cur, and
+// returns what is known after it: nothing, after a call to exit, which
+// never returns, as after a return.
+func (m *mover) simpleFlow(stmt ast.Stmt, cur flow) flow {
+	m.simpleStmt(stmt, &cur)
+	if s, ok := stmt.(*ast.ExprStmt); ok && isExitStmt(s) {
+		return dead()
+	}
+	return cur
 }
 
 // ifStmt follows an if from cur: its condition, then each branch from

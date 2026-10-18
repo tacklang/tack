@@ -114,6 +114,71 @@ func TestNothingLiveAtProcessEndOnEveryPath(t *testing.T) {
 	}
 }
 
+// TestExitEndsFunctionsWithResults builds, with clang's warnings as
+// errors, at -O0 and -O2 and under the sanitizers, programs whose
+// functions with results end in exit, with no return after it, and checks
+// each exits with its status, the deferred code of the block it exits
+// never run, a loop's passes before it having run theirs, and nothing
+// live: a body ending in exit with a list live, an if whose branches
+// return and exit, a switch whose default exits, and an exit nested in
+// a loop with no condition, inside a block holding a list and a defer,
+// and a list moved in a branch that exits, which the code after the
+// branch reads, since the move never reaches it.
+// The C function's result is never reached, which only a declaration of
+// exit as never returning lets clang accept.
+func TestExitEndsFunctionsWithResults(t *testing.T) {
+	csrc := readFile(t, filepath.Join("..", "..", "examples", "exit-frees", "live.c"))
+	const end = "nothing live at process end ok\n"
+	for _, tc := range []struct {
+		name, funcs, main string
+		deferred          int
+		code              int
+	}{
+		{
+			"a body ending in exit", "func f(n int64) int32 {\n    l := numbers(n)\n" +
+				"    defer {\n        print(\"deferred\\n\")\n    }\n" +
+				"    if len(l) == n {\n        exit(3)\n    }\n    exit(4)\n}\n",
+			"    exit(f(5))\n", 0, 3,
+		},
+		{
+			"an if returning and exiting", "func f(k bool) list[int64] {\n" +
+				"    if k {\n        return numbers(2)\n    } else {\n        l := numbers(4)\n" +
+				"        if len(l) == 4 {\n            exit(4)\n        }\n        exit(1)\n    }\n}\n",
+			"    a := f(true)\n    b := f(false)\n    if len(a) + len(b) > 0 {\n        exit(1)\n    }\n", 0, 4,
+		},
+		{
+			"a switch whose default exits", "func f(d int32) int32 {\n    switch d {\n" +
+				"    case 1:\n        return 10\n    default:\n        exit(d)\n    }\n}\n",
+			"    exit(f(1) + f(9))\n", 0, 9,
+		},
+		{
+			"a move in a branch that exits", "func take(own l list[int64]) int64 {\n    return len(l)\n}\n\n" +
+				"func f(k bool) int32 {\n    l := numbers(3)\n    if k {\n        if take(own l) == 3 {\n" +
+				"            exit(6)\n        }\n        exit(1)\n    }\n    if len(l) == 3 {\n        return 2\n    }\n" +
+				"    return 0\n}\n",
+			"    if f(false) == 2 {\n        exit(f(true))\n    }\n", 0, 6,
+		},
+		{
+			"an exit in a loop with no condition", "func f() int32 {\n    mut i int64 = 0\n" +
+				"    for {\n        l := numbers(i)\n        defer {\n            print(\"deferred\\n\")\n" +
+				"        }\n        if len(l) == 3 {\n            exit(2)\n        }\n        i++\n    }\n}\n",
+			"    exit(f())\n", 3, 2,
+		},
+	} {
+		for _, opt := range []string{"-O0", "-O2"} {
+			t.Run(tc.name+"/"+opt, func(t *testing.T) {
+				src := exitPathPrelude + tc.funcs + "\nfunc main() {\n" + tc.main + "}\n"
+				flags := append([]string{opt}, sanitizers[1:]...)
+				out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))
+				want := strings.Repeat("deferred\n", tc.deferred) + end
+				if out != want || code != tc.code {
+					t.Errorf("wrote %q and exited %d, want %q and %d", out, code, want, tc.code)
+				}
+			})
+		}
+	}
+}
+
 // allocatorTest drives c_allocator through std's list functions from C:
 // buffers for elements of every fundamental alignment stay aligned for
 // it through every move realloc makes, keep their elements, and are each

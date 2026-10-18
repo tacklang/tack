@@ -253,11 +253,6 @@ var unprovenDivisorCases = []struct {
 		spanned{"divisor g may be zero; use q, ok := ... / g", "g"},
 	},
 	{
-		"exit does not leave",
-		divide("if b == 0 {", "    exit(1)", "}", "return a / b"),
-		spanned{"divisor b may be zero; check b != 0 first, or use q, ok := ... / b", "b"},
-	},
-	{
 		"checked constants that do not fit the variable",
 		divide(
 			"mut q uint8 = 0",

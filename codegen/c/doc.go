@@ -579,7 +579,11 @@
 // name: tack_builtin_print(s), tack_builtin_exit(x). The generated C only
 // declares them, one prototype for each builtin the program calls, after
 // the string pool: void tack_builtin_print(tack_string);, its parameters'
-// C types unnamed. Their bodies are the C files of std/builtin, which the
+// C types unnamed, exit's declared never returning, _Noreturn void
+// tack_builtin_exit(int32_t);, as its body is, since the type checker
+// counts a call to it as leaving its block, so a C function with a result
+// may end in one with no return after it, which clang accepts only knowing
+// the call never returns. Their bodies are the C files of std/builtin, which the
 // driver compiles with CompileStdCmd and links only when the program calls
 // that builtin, so the generated C includes no hosted header for them, and
 // a program that calls neither compiles with -ffreestanding. A target

@@ -46,6 +46,10 @@ var errorAcceptedCases = []struct{ name, src string }{
 	},
 	{"then branch", errorProgram(`v, err := parse("1")`, "if err.code == 0 {", "    use(v)", "}")},
 	{
+		"early exit ending in exit",
+		errorProgram(`v, err := parse("1")`, "if err.code != 0 {", "    exit(1)", "}", "use(v)"),
+	},
+	{
 		"else branch",
 		errorProgram(`v, err := parse("1")`, "if err.code != 0 {", "} else {", "    use(v)", "}"),
 	},
@@ -285,11 +289,6 @@ var errorRejectedCases = []struct{ name, src, want string }{
 	{
 		"before the check",
 		errorProgram(`v, err := parse("1")`, "if v > 0 && err.code == 0 {", "}"),
-		readBeforeCheck,
-	},
-	{
-		"exit",
-		errorProgram(`v, err := parse("1")`, "if err.code != 0 {", "    exit(1)", "}", "use(v)"),
 		readBeforeCheck,
 	},
 	{
@@ -547,13 +546,6 @@ func TestNotesOnAnUncheckedRead(t *testing.T) {
 		readBeforeCheck,
 		wantNote{"this early exit proves err.code == 0 after it", "if err.code != 0", 9, 5},
 		wantNote{"but err is assigned here, so the proof ends", "err", 14, 12},
-	)
-	expectNotes(
-		t,
-		head+"    v, err := parse()\n    if err.code != 0 {\n        exit(1)\n    }\n    exit(int32(v))\n}\n",
-		readBeforeCheck,
-		wantNote{"this early exit would prove err.code == 0 after it", "if err.code != 0", 9, 5},
-		wantNote{"but its branch ends in exit, not in return, break or continue", "exit(1)", 10, 9},
 	)
 	expectNotes(
 		t,

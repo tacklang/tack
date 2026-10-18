@@ -49,7 +49,7 @@ static bool tack_eq_21(const tack_4_main5_Empty *a, const tack_4_main5_Empty *b)
 
 static const unsigned char tack_str0[5] = {103, 114, 105, 100, 0};
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const tack_4_main5_Point tack_4_main6_origin = {0, 0};
 static const tack_array_23 tack_4_main7_corners = {{{1, 1}, {2, 2}}};

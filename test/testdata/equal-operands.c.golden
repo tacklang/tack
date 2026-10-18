@@ -65,7 +65,7 @@ static bool tack_eq_20(const tack_array_20 *a, const tack_array_20 *b) {
 }
 
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static int64_t tack_4_main5_trace = 0;
 static tack_4_main1_S tack_4_main5_moved = {};

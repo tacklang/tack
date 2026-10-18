@@ -96,8 +96,7 @@ func (g *guard) where() string {
 
 // drop is why a fact does not hold where it is put in force, which a note
 // points at, at: the region assigns name there, or passes it as mut to the
-// function text there, the branch that would have left ends in exit there,
-// or the loop's step there could wrap, which text then explains.
+// function text there, or the loop's step there could wrap, which text then explains.
 type drop struct {
 	name string
 	text string
@@ -112,10 +111,6 @@ const (
 	// dropAssigned is a region assigning the fact's variable, or the
 	// string whose length bounds it.
 	dropAssigned dropKind = iota
-	// dropExit is an if or a switch whose branch ends in a call to exit,
-	// which does not count as leaving the block, so the facts of getting
-	// past it would hold after it only if the branch left.
-	dropExit
 	// dropWraps is a counting loop whose step could wrap past the end of
 	// its variable's type, so the bound it counts from does not hold.
 	dropWraps
@@ -133,8 +128,6 @@ func (d *drop) same(other *drop) bool {
 // note returns the note that points at d's cause.
 func (d *drop) note() diag.Diagnostic {
 	switch d.kind {
-	case dropExit:
-		return note(d.at, "but its branch ends in exit, not in return, break or continue")
 	case dropWraps:
 		return note(d.at, d.text)
 	case dropMut:
@@ -142,15 +135,6 @@ func (d *drop) note() diag.Diagnostic {
 	default:
 		return note(d.at, "but "+d.name+" is assigned here, so the proof ends")
 	}
-}
-
-// proves returns how a note says what a guard's facts, dropped by d, prove:
-// they do, until the assignment, or they would, had the branch left.
-func (d *drop) proves() string {
-	if d.kind == dropExit {
-		return " would prove "
-	}
-	return " proves "
 }
 
 // note returns a note with message msg covering span.
@@ -260,7 +244,7 @@ func dropNotes(dropped []fact, claim func(facts []fact) string) []diag.Diagnosti
 					own = append(own, o)
 				}
 			}
-			notes = append(notes, note(g.span, g.subject()+f.drop.proves()+claim(own)+g.where()))
+			notes = append(notes, note(g.span, g.subject()+" proves "+claim(own)+g.where()))
 		}
 		notes = append(notes, f.drop.note())
 	}
@@ -795,71 +779,6 @@ func (c *Checker) outerIndexNote(ix *ast.Index) []diag.Diagnostic {
 func isLenCall(e ast.Expr) bool {
 	call, ok := e.(*ast.Call)
 	return ok && isLen(call)
-}
-
-// exitAfterFacts returns the facts an if or a switch would give the
-// statements after it if a branch ending in a call to exit left the block,
-// with the guard they come from, each marked as dropped by that call. It
-// returns none when the statement gives the same facts either way.
-func (c *Checker) exitAfterFacts(stmt ast.Stmt) (*guard, []fact) {
-	call := c.exitCall(stmt)
-	if call == nil {
-		return nil, nil
-	}
-	var g *guard
-	var facts []fact
-	switch s := stmt.(type) {
-	case *ast.If:
-		facts = exitFacts(leavesBy(s.Then, true), leavesBy(s.Else, true), func(holds bool) []fact {
-			return c.factsFrom(s.Cond, holds)
-		})
-		g = ifGuard(s)
-	case *ast.Switch:
-		g, facts = c.switchAfterFactsBy(s, true)
-	}
-	why := &drop{kind: dropExit, at: call.Span}
-	for i := range facts {
-		facts[i].drop = why
-	}
-	return g, facts
-}
-
-// exitCall returns the call to exit that ends a branch of stmt, an if or a
-// switch, at any depth, or nil when there is none. Each statement's is
-// found once and kept: every block of a chain of else ifs asks it of the
-// if that block holds, whose answer takes in the rest of the chain, which
-// would make a long chain cost the square of its length.
-func (c *Checker) exitCall(stmt ast.Stmt) *ast.Call {
-	if call, ok := c.exitCalls[stmt]; ok {
-		return call
-	}
-	var call *ast.Call
-	switch s := stmt.(type) {
-	case *ast.ExprStmt:
-		if x, ok := s.X.(*ast.Call); ok && isExit(x) {
-			call = x
-		}
-	case *ast.If:
-		if call = c.lastExit(s.Then); call == nil {
-			call = c.lastExit(s.Else)
-		}
-	case *ast.Switch:
-		for _, cl := range s.Cases {
-			if call = c.lastExit(cl.Body); call != nil {
-				break
-			}
-		}
-	}
-	c.exitCalls[stmt] = call
-	return call
-}
-
-// lastExit returns the call to exit that ends body, at any depth, or nil.
-func (c *Checker) lastExit(body []ast.Stmt) *ast.Call {
-	if len(body) == 0 {
-		return nil
-	}
-	return c.exitCall(body[len(body)-1])
 }
 
 // isExit reports whether call calls the builtin exit, which has a nil

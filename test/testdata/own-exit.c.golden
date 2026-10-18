@@ -21,7 +21,7 @@ static const unsigned char tack_str4[25] = {114, 101, 116, 117, 114, 110, 101, 1
 static const unsigned char tack_str5[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 #define TACK_C_STR(x) #x
 #define TACK_C_XSTR(x) TACK_C_STR(x)

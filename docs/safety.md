@@ -295,7 +295,7 @@ A fact holds in these places:
 |--------------------------------------------|------------------------------------------------------------|
 | the `then` branch, by the condition being true | `if b != 0 { return a / b }`                           |
 | the `else` branch, by it being false       | `if b == 0 { return 0 } else { return a / b }`             |
-| the rest of the block after an `if` whose branch leaves by `return`, `break` or `continue` | `if b == 0 { return 0 }` then `return a / b` |
+| the rest of the block after an `if` whose branch leaves by `return`, `break`, `continue` or `exit` | `if b == 0 { return 0 }` or `if b == 0 { exit(1) }` then `return a / b` |
 | a loop's body, by the loop's condition     | `for ; d != 0; d-- { sum += 12 / d }`                      |
 | a range loop's body, for its index         | `for i := range a { a[i] }`, `for i := range s { s[i] }`   |
 | a counting loop's body, for its variable   | `for mut i := 0; i < len(a); i++ { a[i] }`                 |
@@ -640,7 +640,7 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | a divisor is proven by its own facts only, never by a relation          |
 | <!-- case: mixed-compare-no-lower-bound -->`if i < limit { a[i] }` with `limit := uint64(3)` and `i` an `int64` | a comparison bounds `i` by value, here only above; `i` may be negative |
 | <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
-| <!-- case: safety-no-proof-exit -->`if b == 0 { exit(1) }` before `a / b`       | `exit` is a call, not a way out of the block; the rule is syntactic     |
+| <!-- case: exit-call-not-leaving -->`if b == 0 { die() }` before `a / b`, `die` calling `exit` | only a call to `exit` itself leaves a block; a call to a function that exits does not |
 | <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
 | <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |
 | <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { i++; a[i] }`                    | the body assigns `i` before the use                                     |
@@ -681,8 +681,7 @@ was given does not hold. For
 the error stands alone, though the loop's step could wrap `i` on a 32-bit
 target, because what is missing is a bound below `len(a)`.
 
-Other notes point at a branch that ends in `exit`, which would have left
-the block had it been a `return`; at a counting loop's step that could
+Other notes point at a counting loop's step that could
 wrap; at a guard on a field of a mutable variable, or on the length of
 one, <!-- note: note-field-len-guard -->`this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
 or on a variable used inside a larger divisor or index; and, in `v, ok := m[i][j]`, at the element whose outer index
@@ -1250,9 +1249,17 @@ func describe(s string) string {
 A check that leaves an error possible is not one, and its note says
 what it allows: after `if err.code > 0 { return }`, a code may still be
 negative, <!-- note: error-read-weak-check -->`this early exit allows err.code == -1`.
-A branch ending in `exit` does not leave, as for any fact,
-so <!-- case: error-read-exit -->`if err.code != 0 { exit(1) }` checks
-nothing, <!-- note: error-read-exit -->`but its branch ends in exit, not in return, break or continue`.
+A branch ending in `exit` leaves, as for any fact, since `exit` never
+returns:
+
+<!-- example: exit-leaves -->
+```tack
+    v, err := parse("8")
+    if err.code != 0 {
+        exit(err.code)
+    }
+    check(v == 8, "a result read after an exit on its error")
+```
 
 A check holds up to the first binding of a new error to `err` that can
 reach the read, as a fact about a divisor does, so a read after the

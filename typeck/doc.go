@@ -228,10 +228,12 @@
 // skips it; whether it would have been enough
 // is found by running the proof again with every fact counted. Each fact
 // records the comparison that gave it and its guard, the condition, loop,
-// case or early exit whose region it holds in. Two more kinds of fact are
-// kept dropped only to be explained: what an if or switch whose branch ends
-// in exit would give after it, and the bound a counting loop whose step
-// could wrap would count from. Other notes need no fact: a guard in scope
+// case or early exit whose region it holds in. One more kind of fact is
+// kept dropped only to be explained: the bound a counting loop whose step
+// could wrap would count from. A branch, a block or a case ending in a
+// call to the builtin exit leaves, as one ending in return, break or
+// continue does, since exit never returns (leaves), so an early exit may
+// end in one. Other notes need no fact: a guard in scope
 // comparing a field of a mutable variable, or bounding a variable used in a larger operand; the
 // element whose outer index alone v, ok := covers; the declaration of a
 // mutable global, whose error suggests only the checked form, since no
@@ -612,10 +614,12 @@
 //     inside one already reported is not reported again;
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, a switch
-//     with a default whose cases all terminate, or a loop with no condition
+//     with a default whose cases all terminate, a loop with no condition
 //     and no break that leaves it (a break in a nested loop leaves only that
-//     one, and one in a switch leaves the loop around it). The rule is syntactic, as in Go, so a call
-//     that never comes back, like exit, does not satisfy it.
+//     one, and one in a switch leaves the loop around it), or a call to
+//     the builtin exit, which never returns. The rule is syntactic, as in
+//     Go, so a call to a function that never comes back, one that calls
+//     exit included, does not satisfy it.
 //
 // A list, list[T], is an owned, growable list, checked in list.go: make
 // makes an empty one through an Allocator, c_allocator the one there is,

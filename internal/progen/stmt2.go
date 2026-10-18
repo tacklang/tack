@@ -40,7 +40,8 @@ func (g *Gen) checkedDiv(op string) Stmt {
 }
 
 // guardedDiv returns if d != 0 { obs(a op d) }, d a variable, which the
-// if proves not zero where the division is.
+// if proves not zero where the division is, or, for a writable d, an early
+// exit ending in exit that proves it, then the division (see exitGuard).
 func (g *Gen) guardedDiv(op string) Stmt {
 	d := g.choose(g.visible(func(v *Var) bool { return v.T.Kind == KInt }))
 	if d == nil {
@@ -61,10 +62,28 @@ func (g *Gen) guardedDiv(op string) Stmt {
 			return Value{Bits: arith(ct, op, x, f.get(d).Bits)}
 		},
 	}
+	if g.writable(d) && g.pick(3) == 0 {
+		return seq([]Stmt{exitGuard(d), g.observe(div)})
+	}
 	cond := Expr{Text: d.Name + " != 0", T: boolType, Eval: func(f *frame) Value {
 		return Value{Bool: de.Eval(f).Bits != 0}
 	}}
 	return ifOf(cond, []Stmt{g.observe(div)}, nil, false)
+}
+
+// exitGuard returns if d == 0 { d = 1 } and then if d == 0 { exit(9) }, d
+// a writable integer variable: the second if, an early exit ending in
+// exit, proves d not zero for the statements after it, and is never taken,
+// since the first has made d 1 where it was 0, as the interpreter does.
+func exitGuard(d *Var) Stmt {
+	d.Used = true
+	return simple(func(f *frame) {
+		if v := f.ref(d); v.Bits == 0 {
+			v.Bits = 1
+		}
+	},
+		"if "+d.Name+" == 0 {", "    "+d.Name+" = 1", "}",
+		"if "+d.Name+" == 0 {", "    exit(9)", "}")
 }
 
 // convStmt converts in the checked form, v, ok := T(x), x no constant.

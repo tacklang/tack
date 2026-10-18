@@ -5949,45 +5949,6 @@ error-read-else-of-no-error/main.tck:12:8: note: this guard allows err.code == 1
    |	       ^~~~~~~~~~~~~
 13 |	        print("fine\n")
 
--- error-read-exit/main.tck --
-package main
-
-func parse(s string) (int64, error) {
-    if len(s) == 0 {
-        return 0, error{code: 1, msg: "empty"}
-    }
-    return 1, noerror
-}
-
-func main() {
-    v, err := parse("1")
-    if err.code != 0 {
-        exit(1)
-    }
-    if v > 0 {
-        print("parsed\n")
-    }
-}
--- error-read-exit/expected --
-stage: typeck
----
-
-error-read-exit/main.tck:15:8: error: v cannot be read before err is checked; check err.code == 0 first
-14 |	    }
-15 |	    if v > 0 {
-   |	       ^
-16 |	        print("parsed\n")
-error-read-exit/main.tck:12:5: note: this early exit would prove err.code == 0 after it
-11 |	    v, err := parse("1")
-12 |	    if err.code != 0 {
-   |	    ^~~~~~~~~~~~~~~~
-13 |	        exit(1)
-error-read-exit/main.tck:13:9: note: but its branch ends in exit, not in return, break or continue
-12 |	    if err.code != 0 {
-13 |	        exit(1)
-   |	        ^~~~~~~
-14 |	    }
-
 -- error-read-in-defer/main.tck --
 package main
 
@@ -6460,6 +6421,215 @@ escape-hex-short/main.tck:6:11: error: Invalid escape sequence "\\x7"
    |	          ^~~
 07 |	    exit(c)
 
+-- exit-call-not-leaving/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// die always exits, but only a call to exit itself leaves a block: a call
+// to a function that exits, by name or through a value, does not.
+func die() {
+    exit(1)
+}
+
+func f(d int64, e int64) {
+    if d == 0 {
+        die()
+    }
+    use(10 / d)
+    g := die
+    if e == 0 {
+        g()
+    }
+    use(10 / e)
+}
+
+func main() {
+    f(2, 3)
+}
+-- exit-call-not-leaving/expected --
+stage: typeck
+---
+
+exit-call-not-leaving/main.tck:17:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+16 |	    }
+17 |	    use(10 / d)
+   |	             ^
+18 |	    g := die
+
+exit-call-not-leaving/main.tck:22:14: error: divisor e may be zero; check e != 0 first, or use q, ok := ... / e
+21 |	    }
+22 |	    use(10 / e)
+   |	             ^
+23 |	}
+
+-- exit-case-region/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// The case that falls through writes d after the one that exits.
+func f(mut d int64) {
+    switch {
+    case d == 0:
+        exit(1)
+    default:
+        d = 0
+    }
+    use(10 / d)
+}
+
+func main() {
+    mut d int64 = 1
+    f(mut d)
+}
+-- exit-case-region/expected --
+stage: typeck
+---
+
+exit-case-region/main.tck:15:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+14 |	    }
+15 |	    use(10 / d)
+   |	             ^
+16 |	}
+exit-case-region/main.tck:10:5: note: this early exit proves d != 0 after it
+09 |	    switch {
+10 |	    case d == 0:
+   |	    ^~~~~~~~~~~
+11 |	        exit(1)
+exit-case-region/main.tck:13:9: note: but d is assigned here, so the proof ends
+12 |	    default:
+13 |	        d = 0
+   |	        ^
+14 |	    }
+
+-- exit-fact-then-write/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// A write after an early exit ends what it proved, as it would after a
+// return: a divisor assigned, a key deleted, a list popped.
+func f(mut d int64, mut m map[int64]int64, k int64, mut l list[int64]) {
+    if d == 0 {
+        exit(1)
+    }
+    d = 0
+    use(10 / d)
+    if !has(m, k) {
+        exit(2)
+    }
+    delete(mut m, k)
+    use(m[k])
+    if len(l) == 0 {
+        exit(3)
+    }
+    x := pop(mut l)
+    y := pop(mut l)
+    use(x + y)
+}
+
+func main() {
+}
+-- exit-fact-then-write/expected --
+stage: typeck
+---
+
+exit-fact-then-write/main.tck:14:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+13 |	    d = 0
+14 |	    use(10 / d)
+   |	             ^
+15 |	    if !has(m, k) {
+exit-fact-then-write/main.tck:10:5: note: this early exit proves d != 0 after it
+09 |	func f(mut d int64, mut m map[int64]int64, k int64, mut l list[int64]) {
+10 |	    if d == 0 {
+   |	    ^~~~~~~~~
+11 |	        exit(1)
+exit-fact-then-write/main.tck:13:5: note: but d is assigned here, so the proof ends
+12 |	    }
+13 |	    d = 0
+   |	    ^
+14 |	    use(10 / d)
+
+exit-fact-then-write/main.tck:19:11: error: key k may not be in m; check has(m, k) first, or use v, ok := m[k]
+18 |	    delete(mut m, k)
+19 |	    use(m[k])
+   |	          ^
+20 |	    if len(l) == 0 {
+exit-fact-then-write/main.tck:15:5: note: this early exit proves k is in m after it
+14 |	    use(10 / d)
+15 |	    if !has(m, k) {
+   |	    ^~~~~~~~~~~~~
+16 |	        exit(2)
+exit-fact-then-write/main.tck:18:12: note: but m is passed as mut to delete here, so the proof ends
+17 |	    }
+18 |	    delete(mut m, k)
+   |	           ^~~~~
+19 |	    use(m[k])
+
+exit-fact-then-write/main.tck:24:10: error: pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)
+23 |	    x := pop(mut l)
+24 |	    y := pop(mut l)
+   |	         ^~~~~~~~~~
+25 |	    use(x + y)
+exit-fact-then-write/main.tck:20:5: note: this early exit proves len(l) != 0 after it
+19 |	    use(m[k])
+20 |	    if len(l) == 0 {
+   |	    ^~~~~~~~~~~~~~
+21 |	        exit(3)
+exit-fact-then-write/main.tck:23:14: note: but l is passed as mut to pop here, so the proof ends
+22 |	    }
+23 |	    x := pop(mut l)
+   |	             ^~~~~
+24 |	    y := pop(mut l)
+
+-- exit-in-defer/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// A defer whose code ends in exit runs only when its block ends, so it
+// leaves nothing: the branch holding it falls through, and a function
+// ending in it still needs a return.
+func f(d int64) int64 {
+    if d == 0 {
+        defer {
+            exit(1)
+        }
+    }
+    use(10 / d)
+    defer {
+        exit(2)
+    }
+}
+
+func main() {
+    use(f(1))
+}
+-- exit-in-defer/expected --
+stage: typeck
+---
+
+exit-in-defer/main.tck:10:6: error: f must end in a return
+09 |	// ending in it still needs a return.
+10 |	func f(d int64) int64 {
+   |	     ^
+11 |	    if d == 0 {
+
+exit-in-defer/main.tck:16:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+15 |	    }
+16 |	    use(10 / d)
+   |	             ^
+17 |	    defer {
+
 -- exit-int64-variable/main.tck --
 package main
 
@@ -6477,6 +6647,49 @@ exit-int64-variable/main.tck:6:10: error: cannot use int64 as int32 in argument 
 06 |	    exit(code)
    |	         ^~~~
 07 |	}
+
+-- exit-loop-back-edge/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// The write at the end of one pass reaches the division on the next,
+// past the exit that ruled zero out only before it.
+func f(mut d int64) {
+    if d == 0 {
+        exit(1)
+    }
+    for i := range 3 {
+        use(10 / d + i)
+        d = 0
+    }
+}
+
+func main() {
+    mut d int64 = 1
+    f(mut d)
+}
+-- exit-loop-back-edge/expected --
+stage: typeck
+---
+
+exit-loop-back-edge/main.tck:14:18: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+13 |	    for i := range 3 {
+14 |	        use(10 / d + i)
+   |	                 ^
+15 |	        d = 0
+exit-loop-back-edge/main.tck:10:5: note: this early exit proves d != 0 after it
+09 |	func f(mut d int64) {
+10 |	    if d == 0 {
+   |	    ^~~~~~~~~
+11 |	        exit(1)
+exit-loop-back-edge/main.tck:15:9: note: but d is assigned here, so the proof ends
+14 |	        use(10 / d + i)
+15 |	        d = 0
+   |	        ^
+16 |	    }
 
 -- exit-out-of-range-constant/main.tck --
 package main
@@ -21122,42 +21335,6 @@ note-else-branch-assigned/main.tck:8:9: note: but d is assigned here, so the pro
    |	        ^
 09 |	        code, fits := int32(10 / d)
 
--- note-exit-in-else/main.tck --
-package main
-
-func f(a int64, b int64) int64 {
-    if b != 0 {
-        print("dividing\n")
-    } else {
-        exit(1)
-    }
-    return a / b
-}
-
-func main() {
-    code, fits := int32(f(8, 2))
-    if fits { exit(code) }
-}
--- note-exit-in-else/expected --
-stage: typeck
----
-
-note-exit-in-else/main.tck:9:16: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
-08 |	    }
-09 |	    return a / b
-   |	               ^
-10 |	}
-note-exit-in-else/main.tck:4:5: note: this early exit would prove b != 0 after it
-03 |	func f(a int64, b int64) int64 {
-04 |	    if b != 0 {
-   |	    ^~~~~~~~~
-05 |	        print("dividing\n")
-note-exit-in-else/main.tck:7:9: note: but its branch ends in exit, not in return, break or continue
-06 |	    } else {
-07 |	        exit(1)
-   |	        ^~~~~~~
-08 |	    }
-
 -- note-field-early-exit/main.tck --
 package main
 
@@ -28486,38 +28663,6 @@ safety-no-proof-conversion-guard/main.tck:4:36: error: converting int64 to uint8
 04 |	    if 0 <= x && x <= 255 { return uint8(x) }
    |	                                   ^~~~~~~~
 05 |	    return 0
-
--- safety-no-proof-exit/main.tck --
-package main
-
-func f(a int64, b int64) int64 {
-    if b == 0 { exit(1) }
-    return a / b
-}
-
-func main() {
-    code, fits := int32(f(8, 2))
-    if fits { exit(code) }
-}
--- safety-no-proof-exit/expected --
-stage: typeck
----
-
-safety-no-proof-exit/main.tck:5:16: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
-04 |	    if b == 0 { exit(1) }
-05 |	    return a / b
-   |	               ^
-06 |	}
-safety-no-proof-exit/main.tck:4:5: note: this early exit would prove b != 0 after it
-03 |	func f(a int64, b int64) int64 {
-04 |	    if b == 0 { exit(1) }
-   |	    ^~~~~~~~~
-05 |	    return a / b
-safety-no-proof-exit/main.tck:4:17: note: but its branch ends in exit, not in return, break or continue
-03 |	func f(a int64, b int64) int64 {
-04 |	    if b == 0 { exit(1) }
-   |	                ^~~~~~~
-05 |	    return a / b
 
 -- safety-no-proof-field/main.tck --
 package main

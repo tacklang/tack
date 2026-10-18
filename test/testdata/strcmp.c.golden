@@ -96,7 +96,7 @@ static const unsigned char tack_str28[2] = {100, 0};
 static const unsigned char tack_str29[2] = {120, 0};
 static const unsigned char tack_str30[2] = {121, 0};
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static tack_string tack_4_main8_greeting(bool p_formal);
 static tack_string tack_4_main5_fruit(int64_t p_i);

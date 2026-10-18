@@ -19,7 +19,7 @@ typedef struct {
 } tack_array_19;
 
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const tack_array_17 tack_4_main7_squares = {{0, 1, 4, 9, 16}};
 

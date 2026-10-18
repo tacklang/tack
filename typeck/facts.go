@@ -1330,17 +1330,11 @@ func (c *Checker) throughList(target ast.Expr) bool {
 }
 
 // leaves reports whether a block always leaves the code around it before
-// its end: its last statement is a return, a break or a continue, an if
-// whose branches both leave, or a switch with a default, or on a union
-// with every case named, whose cases all leave. Like the terminating rule, it is syntactic, so a call to exit does
-// not count.
+// its end: its last statement is a return, a break, a continue or a call
+// to exit, which never returns, an if whose branches both leave, or a
+// switch with a default, or on a union with every case named, whose cases
+// all leave. Like the terminating rule, it is syntactic.
 func leaves(body []ast.Stmt) bool {
-	return leavesBy(body, false)
-}
-
-// leavesBy is leaves, except that a call to exit counts as leaving when
-// exits is set, which only explaining a missing proof asks for.
-func leavesBy(body []ast.Stmt, exits bool) bool {
 	if len(body) == 0 {
 		return false
 	}
@@ -1348,15 +1342,21 @@ func leavesBy(body []ast.Stmt, exits bool) bool {
 	case *ast.Return, *ast.Break, *ast.Continue:
 		return true
 	case *ast.If:
-		return leavesBy(s.Then, exits) && leavesBy(s.Else, exits)
+		return leaves(s.Then) && leaves(s.Else)
 	case *ast.Switch:
-		return switchLeavesBy(s, exits)
+		return switchLeaves(s)
 	case *ast.ExprStmt:
-		call, ok := s.X.(*ast.Call)
-		return exits && ok && isExit(call)
+		return isExitStmt(s)
 	default:
 		return false
 	}
+}
+
+// isExitStmt reports whether s is a call to the builtin exit, which never
+// returns.
+func isExitStmt(s *ast.ExprStmt) bool {
+	call, ok := s.X.(*ast.Call)
+	return ok && isExit(call)
 }
 
 // afterFacts returns the facts an if, or a switch, gives the statements
@@ -1374,7 +1374,7 @@ func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 			return c.factsFrom(s.Cond, holds)
 		})
 	case *ast.Switch:
-		return c.switchAfterFactsBy(s, false)
+		return c.switchAfterFacts(s)
 	default:
 		return nil, nil
 	}

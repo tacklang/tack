@@ -318,7 +318,7 @@ func TestRejectsUnsupportedStatement(t *testing.T) {
 func TestGeneratesExitAsACallToItsCBody(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    exit(42)\n}\n")
 
-	if !strings.Contains(got, "\nvoid tack_builtin_exit(int32_t);\n") {
+	if !strings.Contains(got, "\n_Noreturn void tack_builtin_exit(int32_t);\n") {
 		t.Errorf("generated C does not declare tack_builtin_exit:\n%s", got)
 	}
 	if strings.Contains(got, "#include <stdlib.h>") {

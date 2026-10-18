@@ -760,24 +760,6 @@ func inGlobalFile(params, result string, lines ...string) string {
 // fact.
 var otherCauseCases = []noteCase{
 	{
-		"exit as an early exit",
-		inF2("a int64, b int64", "if b == 0 { exit(1) }", "return a / b"),
-		divB,
-		[]wantNote{
-			{"this early exit would prove b != 0 after it", "if b == 0", 4, 5},
-			{"but its branch ends in exit, not in return, break or continue", "exit(1)", 4, 17},
-		},
-	},
-	{
-		"exit in an else",
-		inF2("a int64, b int64", "if b != 0 {", "} else {", "    exit(1)", "}", "return a / b"),
-		divB,
-		[]wantNote{
-			{"this early exit would prove b != 0 after it", "if b != 0", 4, 5},
-			{"but its branch ends in exit, not in return, break or continue", "exit(1)", 6, 9},
-		},
-	},
-	{
 		"a step that could wrap upwards",
 		inF2("a [3]int64",
 			"mut sum int64 = 0",
@@ -1029,11 +1011,10 @@ func TestNoOtherNoteWithoutAGuard(t *testing.T) {
 }
 
 // TestPhantomFactsProveNothing checks that a fact that would hold but for
-// how its region is written, after an if whose branch ends in exit or in a
-// counting loop whose step could wrap, proves nothing.
+// how its region is written, in a counting loop whose step could wrap,
+// proves nothing.
 func TestPhantomFactsProveNothing(t *testing.T) {
 	for _, src := range []string{
-		inF2("a int64, b int64", "if b == 0 { exit(1) }", "return a / b"),
 		inF2("a [3]int64", "for mut i int8 = 2; i < 3; i += 126 {", "    return a[i]", "}"),
 	} {
 		if diags := check(t, src); len(diags) != 1 {

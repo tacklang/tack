@@ -92,7 +92,7 @@ static const unsigned char tack_str21[4] = {97, 100, 97, 0};
 static const unsigned char tack_str22[6] = {110, 97, 109, 101, 115, 0};
 
 void tack_builtin_print(tack_string);
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 typedef struct {
     tack_array_22 r0;

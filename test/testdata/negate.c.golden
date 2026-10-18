@@ -7,7 +7,7 @@ stage: ok
 #include <tack/tack.h>
 
 
-void tack_builtin_exit(int32_t);
+_Noreturn void tack_builtin_exit(int32_t);
 
 static const int64_t tack_4_main8_smallest = (-9223372036854775807 - 1);
 
