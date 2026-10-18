@@ -53,11 +53,11 @@ func checkInvariants(t *testing.T, src string, out lexed) {
 }
 
 // checkCommentSpans fails the test unless every comment token covers its
-// source exactly: it starts with "//" and stops right before a newline, \n
-// or \r\n, or at the end of src, so it neither drops its last byte nor
-// swallows the newline.
-// Every line it covers must start with "//" past its indentation, so a
-// comment never runs across a blank line.
+// source exactly. A line comment starts with "//" and stops right before a
+// newline, \n or \r\n, or at the end of src, so it neither drops its last
+// byte nor swallows the newline, and every line it covers must start with
+// "//" past its indentation, so it never runs across a blank line. A block
+// comment is checked by checkBlockComment.
 func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 	t.Helper()
 
@@ -72,6 +72,10 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 			continue
 		}
 		text := src[start:end]
+		if strings.HasPrefix(text, "/*") {
+			checkBlockComment(t, src, start, end)
+			continue
+		}
 		if !strings.HasPrefix(text, "//") || strings.HasSuffix(text, "\n") {
 			t.Errorf("%q: comment span [%d:%d] covers %q", src, start, end, text)
 		}
@@ -79,6 +83,29 @@ func checkCommentSpans(t *testing.T, src string, toks []lexer.Token) {
 			t.Errorf("%q: comment span [%d:%d] stops before the end of its line", src, start, end)
 		}
 		checkCommentLines(t, src, text)
+	}
+}
+
+// checkBlockComment fails the test unless the block comment src[start:end]
+// ends at the "*/" that closes its first "/*", counting the ones nested in
+// it, or, never closed, runs to the end of src.
+func checkBlockComment(t *testing.T, src string, start, end int) {
+	t.Helper()
+	depth, i := 1, start+2
+	for i < len(src) && depth > 0 {
+		switch {
+		case strings.HasPrefix(src[i:], "/*"):
+			depth++
+			i += 2
+		case strings.HasPrefix(src[i:], "*/"):
+			depth--
+			i += 2
+		default:
+			i++
+		}
+	}
+	if i != end {
+		t.Errorf("%q: block comment span [%d:%d] should end at %d", src, start, end, i)
 	}
 }
 
@@ -425,6 +452,34 @@ var tokenKindCases = []struct {
 	{"comment marker inside a raw string", "`// c` x", "string ident <semi> EOF"},
 	{"written semicolon", "x;", "ident ; EOF"},
 	{"semicolon before a trailing comment", "x // c\n", "ident <semi> comment EOF"},
+	{"block comment on one line is a space", "x /* c */ + y", "ident comment + ident <semi> EOF"},
+	{
+		"block comment on one line before a newline",
+		"x /* c */\ny",
+		"ident comment <semi> ident <semi> EOF",
+	},
+	{
+		"block comment spanning lines is a newline",
+		"x /* a\nb */ y",
+		"ident <semi> comment ident <semi> EOF",
+	},
+	{
+		"block comment spanning lines after an operator",
+		"x + /* a\nb */ y",
+		"ident + comment ident <semi> EOF",
+	},
+	{"block comment at the end", "x /* c */", "ident comment <semi> EOF"},
+	{"nested block comment is one token", "/* a /* b */ c */ x", "comment ident <semi> EOF"},
+	{
+		"block then line comment",
+		"x /* a */ // b\ny",
+		"ident comment <semi> comment ident <semi> EOF",
+	},
+	{
+		"block comment spanning crlf lines",
+		"x /* a\r\nb */ y",
+		"ident <semi> comment ident <semi> EOF",
+	},
 	{"longest operator wins", "<<= <<", "<<= << EOF"},
 	{"and-not assign", "&^=", "&^= EOF"},
 	{"ellipsis then period", "....", "... . EOF"},
@@ -636,8 +691,9 @@ var commentSpanCases = []struct {
 }
 
 // commentValueCases pin the value of the one comment token in each source:
-// every line has its surrounding space trimmed alike, the first as much as
-// the rest.
+// every line of a line comment has its surrounding space trimmed alike,
+// the first as much as the rest, and a block comment is the text inside
+// it, nested comments included, with its surrounding space trimmed.
 var commentValueCases = []struct {
 	src  string
 	want string
@@ -651,6 +707,13 @@ var commentValueCases = []struct {
 	{"//\n//", "\n"},
 	{"// x // y\n// z", "x // y\nz"},
 	{"    // a\n\t//  b \n  //c", "a\nb\nc"},
+	{"/* a */", "a"},
+	{"/**/", ""},
+	{"/*  a\n   b  */", "a\n   b"},
+	{"/* a\r\nb */", "a\nb"},
+	{"/* a /* b */ c */", "a /* b */ c"},
+	{"/* open", "open"},
+	{"/* a // b */", "a // b"},
 }
 
 // commentGroupCases pin every comment token in each source, and the token
@@ -839,13 +902,13 @@ var diagnosticCases = []struct {
 	{"lone backquote", "`", []string{"unterminated string"}},
 	{"backslash does not escape a backquote", "`\\``", []string{"unterminated string"}},
 	{"raw string holds no escapes to report", "`\\q \\\n \\`", nil},
-	{"block comment", "/* c */", []string{"block comments are not supported"}},
-	{"unterminated block comment", "/* c", []string{"block comments are not supported"}},
-	{"lexing goes on after a block comment", "/* c */ @", []string{
-		"block comments are not supported", "invalid character @",
-	}},
-	{"/* between operands", "a/*b", []string{"block comments are not supported"}},
-	{"/* after a division", "4 / /* 2 */ 2", []string{"block comments are not supported"}},
+	{"block comment", "/* c */", nil},
+	{"unterminated block comment", "/* c", []string{"block comment not terminated"}},
+	{"unterminated nested block comment", "/* a /* b */", []string{"block comment not terminated"}},
+	{"star-slash-star opens nothing new", "/*/", []string{"block comment not terminated"}},
+	{"lexing goes on after a block comment", "/* c */ @", []string{"invalid character @"}},
+	{"/* between operands runs to the end", "a/*b", []string{"block comment not terminated"}},
+	{"/* after a division", "4 / /* 2 */ 2", nil},
 	{"/* inside a string is text", `"/* c */"`, nil},
 	{"*/ alone is two operators", "a */ b", nil},
 	{"leading zeros", "007", []string{"integer literal 007 has a leading zero; write 7"}},
@@ -890,11 +953,8 @@ var diagnosticCases = []struct {
 	{"string escape cut off by crlf", "\"a\\\r\nb\"", []string{
 		`Invalid escape sequence "\\"`, "unterminated string", "unterminated string",
 	}},
-	{
-		"crlf inside a block comment",
-		"/* a\r\nb */\r\nx",
-		[]string{"block comments are not supported"},
-	},
+	{"crlf inside a block comment", "/* a\r\nb */\r\nx", nil},
+	{"lone carriage return inside a block comment is text", "/* a\rb */", nil},
 }
 
 // TestDiagnostics pins which inputs are errors, what each error says, and

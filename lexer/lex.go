@@ -596,20 +596,20 @@ func (l *Lexer) checkLeadingZero(text string, start int) {
 	)
 }
 
-// handleComment lexes a line comment. Consecutive lines whose first bytes
+// handleComment lexes a comment: a block comment (see blockComment) or a
+// line comment. Consecutive lines whose first bytes
 // other than spaces and tabs are "//" merge into one Comment token, however
 // each line is indented, and its value joins them with newlines, each line
 // with its surrounding space trimmed. A blank line, empty or holding only
 // spaces and tabs, ends the comment, as it ends a comment group in Go, so
 // comment lines separated by one become separate tokens. A semicolon is inserted before the comment if
 // the preceding token can end a statement; the newlines after it are left to
-// Lex, which inserts none since a comment cannot end a statement. Block
-// comments are not supported: one is reported and skipped.
+// Lex, which inserts none since a comment cannot end a statement.
 func (l *Lexer) handleComment() bool {
 	start, data := l.pos, l.file.Data
 
 	if l.at("/*") {
-		l.skipBlockComment()
+		l.blockComment()
 		return true
 	}
 
@@ -661,30 +661,65 @@ func trimCommentLines(text string) string {
 	return strings.Join(lines, "\n")
 }
 
-// skipBlockComment reports a block comment, which Tack does not support, and
-// skips past its closing "*/", or to the end of the input if it has none. The
-// lines it spans are still recorded, so later positions stay correct.
-func (l *Lexer) skipBlockComment() {
+// blockComment lexes a block comment, from "/*" to the "*/" that closes
+// it, as one Comment token whose value is the text between them with its
+// surrounding space trimmed and each \r\n made \n, as a line comment's
+// value has no carriage return. Block comments nest: each "/*" inside opens
+// one that needs its own "*/", so code holding one can be commented out
+// whole. As in Go, a block comment that spans a line break acts as a
+// newline, so a semicolon is inserted before it when the preceding token
+// can end a statement, and one on a single line acts as a space, inserting
+// nothing. One that is never closed runs to the end of the input and is
+// reported. The lines it spans are recorded, so later positions stay
+// correct.
+func (l *Lexer) blockComment() {
 	start, data := l.pos, l.file.Data
 	l.pos += 2
 
-	for l.pos < len(data) && !l.at("*/") {
-		if data[l.pos] == '\n' {
-			l.file.AddLineStart(l.pos + 1)
+	depth, spansLines := 1, false
+	for l.pos < len(data) && depth > 0 {
+		switch {
+		case l.at("/*"):
+			depth++
+			l.pos += 2
+		case l.at("*/"):
+			depth--
+			l.pos += 2
+		default:
+			if n := l.newlineAt(l.pos); n > 0 {
+				l.pos += n
+				l.file.AddLineStart(l.pos)
+				spansLines = true
+				continue
+			}
+			l.pos++
 		}
-		l.pos++
-	}
-	if l.pos < len(data) {
-		l.pos += 2
 	}
 
-	l.diag("block comments are not supported", start, l.pos)
+	text := data[start+2 : l.pos]
+	if depth == 0 {
+		text = data[start+2 : l.pos-2]
+	}
+	if spansLines {
+		l.addSemi(start)
+	}
+	value := strings.ReplaceAll(string(text), "\r\n", "\n")
+	l.addToken(Comment, strings.TrimSpace(value), start, l.pos)
+	if depth > 0 {
+		l.diag("block comment not terminated", start, l.pos)
+	}
 }
 
-// addSemi inserts an empty semicolon token at pos if the last token can end a
-// statement. This is automatic semicolon insertion, following Go's rule.
+// addSemi inserts an empty semicolon token at pos if the last token other
+// than a comment can end a statement, so a block comment on one line
+// before a newline is passed over as a space is. This is automatic
+// semicolon insertion, following Go's rule.
 func (l *Lexer) addSemi(pos int) {
-	if len(l.tokens) > 0 && endsStatement(&l.tokens[len(l.tokens)-1]) {
+	last := len(l.tokens) - 1
+	for last >= 0 && l.tokens[last].kind == Comment {
+		last--
+	}
+	if last >= 0 && endsStatement(&l.tokens[last]) {
 		l.addToken(Semi, nil, pos, pos)
 	}
 }

@@ -65,7 +65,13 @@
 // never the newline after it, a carriage return before the line feed
 // included. Its value trims each line alike.
 //
-// Block comments ("/* ... */") are not part of the language, and "/*" is
-// reserved: one is reported and skipped, up to its "*/" or the end of the
-// input.
+// A block comment, "/* ... */", is one Comment token, never merged with
+// line comments, whose value is the text between its markers with the
+// surrounding space trimmed. Block comments nest: each "/*" inside one
+// needs its own "*/". As in Go, one that spans a line break acts as a
+// newline, a semicolon going before it when the token before can end a
+// statement, and one on a single line acts as a space; semicolon insertion
+// looks past comments to the last token that is not one. One never closed
+// runs to the end of the input and is reported, "block comment not
+// terminated".
 package lexer

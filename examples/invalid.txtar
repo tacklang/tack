@@ -2575,20 +2575,20 @@ blank-nothing-bound-semicolon/main.tck:8:5: error: every name is _, so nothing i
    |	    ^~~~~~~~~~~~~~
 09 |	}
 
--- block-comment/main.tck --
+-- block-comment-not-terminated/main.tck --
 package main
 
 func main() {
-    exit(4 /* half of 8 */)
+    exit(4 /* half of 8 /* nested */)
 }
--- block-comment/expected --
+-- block-comment-not-terminated/expected --
 stage: lex
 ---
 
-block-comment/main.tck:4:12: error: block comments are not supported
+block-comment-not-terminated/main.tck:4:12: error: block comment not terminated
 03 |	func main() {
-04 |	    exit(4 /* half of 8 */)
-   |	           ^~~~~~~~~~~~~~~
+04 |	    exit(4 /* half of 8 /* nested */)
+   |	           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	}
 
 -- bodyless-func/main.tck --

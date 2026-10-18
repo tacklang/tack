@@ -580,10 +580,13 @@ makes for itself, which has a letter after `tack_`.
   anywhere a line can end: before `package`, between declarations, after a
   statement, or inside an expression, argument list or array literal that
   spans lines. They mean the same as the newline that ends them. Block
-  comments are not part of the language, and `/*` is reserved: anywhere
-  outside a string or comment it is an error, `block comments are not
-  supported`, and the lexer skips to the next `*/`, or the end of the file,
-  before going on.
+  comments, `/* ... */`, can be written anywhere a space can, and nest:
+  each `/*` inside one needs its own `*/`, so code holding one can be
+  commented out whole. As in Go, a block comment that spans a line break
+  means the same as a newline, and one on a single line means the same as
+  a space, so `x := 1 /* one */ + 2` is one statement. One never closed is
+  an error, `block comment not terminated`. `//` inside a block comment,
+  and `/*` inside a line comment, are text.
 - `asm` is not a keyword: it is a name like any other, of a variable, a
   function, a type, a field or a method, and Tack has no inline assembly.
   C reserves it, which matters only for a name C sees as written: an

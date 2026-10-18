@@ -133,16 +133,38 @@ func comment(mut l Lexer) {
     add(mut l, KindComment, 0, start, l.pos, false)
 }
 
-// blockComment reports a block comment, which Tack does not have, and
-// skips past its "*/", or to the end of the source.
+// blockComment lexes a block comment, from "/*" to the "*/" that closes
+// it, as one token. Block comments nest: each "/*" inside needs its own
+// "*/". One that spans a line end acts as one, so a semicolon goes before
+// it if the token before can end a statement; one on a single line acts
+// as a space. One never closed runs to the end of the source and is an
+// error.
 func blockComment(mut l Lexer) {
     start := l.pos
     l.pos += 2
-    for l.pos < len(l.src) && !hasPrefixAt(l.src, l.pos, "*/") {
-        l.pos++
+    mut depth := 1
+    mut lines := false
+    for l.pos < len(l.src) && depth > 0 {
+        n := newlineAt(l.src, l.pos)
+        switch {
+        case hasPrefixAt(l.src, l.pos, "/*"):
+            depth++
+            l.pos += 2
+        case hasPrefixAt(l.src, l.pos, "*/"):
+            depth--
+            l.pos += 2
+        case n > 0:
+            lines = true
+            l.pos += n
+        default:
+            l.pos++
+        }
     }
-    if l.pos < len(l.src) {
-        l.pos += 2
+    if lines {
+        addSemi(mut l, start)
     }
-    fail(mut l, start, l.pos, "block comments are not supported")
+    add(mut l, KindComment, 0, start, l.pos, false)
+    if depth > 0 {
+        fail(mut l, start, l.pos, "block comment not terminated")
+    }
 }

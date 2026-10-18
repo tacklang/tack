@@ -1442,6 +1442,33 @@ func TestBuiltCommentsExits37(t *testing.T) {
 	}
 }
 
+// blockCommentsWant is what examples/block-comments prints when every
+// check passes.
+var blockCommentsWant = "between operands ok\n" +
+	"a comment spanning lines ends a statement ok\n" +
+	"a comment on one line before a newline ok\n" +
+	"a comment spanning lines acts as a newline ok\n" +
+	"inside an argument list ok\n" +
+	"spanning lines after a comma ok\n" +
+	"after a division ok\n" +
+	"slashes inside a block comment ok\n" +
+	"slash-star inside a line comment ok\n" +
+	"empty comments ok\n" +
+	"nested three deep ok\n"
+
+// The block-comments example puts block comments before the package
+// clause, between operands, inside argument lists, after return, nested,
+// spanning lines where they end a statement, on one line before a
+// newline, around commented-out code, and at the end of the file with no
+// newline after it, and checks each leaves the program as written.
+func TestBuiltBlockCommentsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "block-comments")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil || string(out) != blockCommentsWant {
+		t.Errorf("block-comments printed\n%s\nwith %v, want\n%s", out, err, blockCommentsWant)
+	}
+}
+
 // The self-compare example compares a parameter with itself, which is valid
 // Tack and makes clang warn about the generated C. buildWithClang requires
 // a silent build, so this pins that no C warning reaches the user, and the
@@ -2848,6 +2875,7 @@ string 5 10 "\"a\\q\""
 + 11 12 "+"
 + 18 19 "+"
 int 20 23 "007"
+comment 26 33 "/* c */"
 ; 35 35 ""
 string 36 41 "\"open"
 ; 41 41 ""
@@ -2858,7 +2886,6 @@ error 7 9 invalid escape sequence
 error 13 17 too many characters in char literal
 error 20 23 integer literal has a leading zero
 error 24 25 invalid character
-error 26 33 block comments are not supported
 error 34 35 invalid character
 error 36 41 unterminated string
 error 42 46 unterminated string
