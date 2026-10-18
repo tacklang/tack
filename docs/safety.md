@@ -1357,7 +1357,10 @@ an argument, a receiver or the function value called, is an error,
 ```
 
 reports <!-- error: own-in-nested-call -->`cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it`,
-with <!-- note: own-in-nested-call -->`t is passed as own here`. A view
+with <!-- note: own-in-nested-call -->`t is passed as own here`. Within
+one argument, evaluated left to right, a name of `t` after the own one is
+a use after a move, as anywhere: <!-- case: own-moved-twice-in-one-argument -->`use(g(own l) + g(own l))`
+is <!-- error: own-moved-twice-in-one-argument -->`l is used after it was moved`. A view
 a function returns outlives its call, so it cannot point into an own
 parameter, which the call frees,
 <!-- error: own-param-view-returned -->`cannot return a view of l[0:]: l is an own parameter, which is freed when the function returns; a returned view can only point into what a parameter that is not mut holds`.
@@ -1442,6 +1445,9 @@ elements would copy them,
 A range loop's element variable refers to an owned element in place, as
 a union's binding refers to its payload: it is never moved,
 <!-- error: owned-range-binding-moved -->`cannot move x: it refers to an element of l in place, and an element cannot be moved out of a list`,
+and over a map the same is said of a map, or of a key, for a key
+variable of an owned type,
+<!-- error: own-range-map-key -->`cannot move k: it refers to a key of m in place, and a key cannot be moved out of a map`;
 and since it may be any element, the loop's body changes none of them,
 
 <!-- case: owned-range-element-assigned -->

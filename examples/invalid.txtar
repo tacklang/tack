@@ -22157,6 +22157,35 @@ own-moved-in-loop/main.tck:9:18: note: t is moved here, in an earlier iteration 
    |	                 ^
 10 |	    }
 
+-- own-moved-twice-in-one-argument/main.tck --
+package main
+
+func g(own l list[int64]) int64 {
+    return len(l)
+}
+
+func use(n int64) {
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    use(g(own l) + g(own l))
+}
+-- own-moved-twice-in-one-argument/expected --
+stage: typeck
+---
+
+own-moved-twice-in-one-argument/main.tck:12:26: error: l is used after it was moved
+11 |	    l := make(list[int64], c_allocator)
+12 |	    use(g(own l) + g(own l))
+   |	                         ^
+13 |	}
+own-moved-twice-in-one-argument/main.tck:12:15: note: l is moved here
+11 |	    l := make(list[int64], c_allocator)
+12 |	    use(g(own l) + g(own l))
+   |	              ^
+13 |	}
+
 -- own-mut-param/main.tck --
 package main
 
@@ -22216,6 +22245,39 @@ own-mut-param-syntax-reversed/main.tck:3:12: error: a parameter cannot be both m
 03 |	func f(own mut l list[int64]) {
    |	           ^~~
 04 |	}
+
+-- own-nested-call-overlap/main.tck --
+package main
+
+func give(own l list[int64]) list[int64] {
+    return l
+}
+
+func f(a list[int64], b list[int64]) int64 {
+    return len(a) + len(b)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    n := f(give(own l), l)
+    if n != 0 {
+        exit(1)
+    }
+}
+-- own-nested-call-overlap/expected --
+stage: typeck
+---
+
+own-nested-call-overlap/main.tck:13:25: error: cannot use l alongside own l in this call: it is moved into the call, and nothing else in the call may reach it
+12 |	    l := make(list[int64], c_allocator)
+13 |	    n := f(give(own l), l)
+   |	                        ^
+14 |	    if n != 0 {
+own-nested-call-overlap/main.tck:13:17: note: l is passed as own here
+12 |	    l := make(list[int64], c_allocator)
+13 |	    n := f(give(own l), l)
+   |	                ^~~~~
+14 |	    if n != 0 {
 
 -- own-param-assigned/main.tck --
 package main
@@ -22517,6 +22579,93 @@ own-range-element-moved/main.tck:9:18: error: cannot move l: it refers to an ele
 09 |	        sink(own l)
    |	                 ^
 10 |	    }
+
+-- own-range-map-key/main.tck --
+package main
+
+import text from "std/text"
+
+func eat(own t text.Text) int64 {
+    return t.len()
+}
+
+func main() {
+    mut m := make(map[text.Text]int64, c_allocator)
+    err := put(mut m, text.new(c_allocator), 1)
+    if err.code != 0 {
+        return
+    }
+    for k, _ := range m {
+        if eat(own k) != 0 {
+            exit(1)
+        }
+    }
+}
+-- own-range-map-key/expected --
+stage: typeck
+---
+
+own-range-map-key/main.tck:16:20: error: cannot move k: it refers to a key of m in place, and a key cannot be moved out of a map
+15 |	    for k, _ := range m {
+16 |	        if eat(own k) != 0 {
+   |	                   ^
+17 |	            exit(1)
+
+-- own-range-map-value/main.tck --
+package main
+
+func eat(own l list[int64]) int64 {
+    return len(l)
+}
+
+func main() {
+    mut m := make(map[string]list[int64], c_allocator)
+    err := put(mut m, "k", make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    for _, v := range m {
+        if eat(own v) != 0 {
+            exit(1)
+        }
+    }
+}
+-- own-range-map-value/expected --
+stage: typeck
+---
+
+own-range-map-value/main.tck:14:20: error: cannot move v: it refers to an element of m in place, and an element cannot be moved out of a map
+13 |	    for _, v := range m {
+14 |	        if eat(own v) != 0 {
+   |	                   ^
+15 |	            exit(1)
+
+-- own-range-view-element/main.tck --
+package main
+
+func eat(own l list[int64]) int64 {
+    return len(l)
+}
+
+func each(v []list[int64]) int64 {
+    mut n := 0
+    for _, x := range v {
+        n += eat(own x)
+    }
+    return n
+}
+
+func main() {
+}
+-- own-range-view-element/expected --
+stage: typeck
+---
+
+own-range-view-element/main.tck:10:22: error: cannot move x: it refers to an element of v in place, and an element cannot be moved out of a view
+09 |	    for _, x := range v {
+10 |	        n += eat(own x)
+   |	                     ^
+11 |	    }
 
 -- own-ranged-list-moved/main.tck --
 package main

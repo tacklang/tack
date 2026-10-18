@@ -651,7 +651,11 @@ makes for itself, which has a letter after `tack_`.
   `f(mut t, own t)` and `s.take(own s)` are each `cannot use t alongside
   own t in this call: it is moved into the call, and nothing else in the
   call may reach it`, with a note at the own argument, and `f(own t, own
-  t)` is reported at the second. A view a function returns cannot point
+  t)` is reported at the second. Within one argument, which is
+  evaluated left to right, a later name of the variable is a use after
+  a move, as anywhere: `use(g(own t) + g(own t))` and `use(g(own t) +
+  len(t))` are `t is used after it was moved`, while `use(len(t) + g(own
+  t))` reads `t` before it moves. A view a function returns cannot point
   into an own parameter, which is freed as it returns, `cannot return a
   view of l[0:]: l is an own parameter, which is freed when the function
   returns; ...`. In a generic function, `own x T` takes a value of the

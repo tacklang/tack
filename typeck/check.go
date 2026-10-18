@@ -95,9 +95,16 @@ type Checker struct {
 	unionBindings map[*ast.Var]ast.Expr
 
 	// rangeBindings holds the element variables of range loops over a
-	// list or a view of an owned type, each with what its loop ranges
-	// over: they refer to the element in place (see move.go).
+	// list, a view or a map of an owned type, and the key variables of
+	// those over a map of an owned key type, each with what its loop
+	// ranges over: they refer to the element or the key in place (see
+	// move.go).
 	rangeBindings map[*ast.Var]ast.Expr
+
+	// rangeKeys holds the key variables among rangeBindings, of range
+	// loops over a map of an owned key type, which refer to the key in
+	// place.
+	rangeKeys map[*ast.Var]bool
 
 	// ownReported holds the names checkOwnExclusive has reported, so a
 	// call around the one that reported a name does not report it again.
@@ -244,6 +251,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		unionState:    make(map[types.Type]progress),
 		unionBindings: make(map[*ast.Var]ast.Expr),
 		rangeBindings: make(map[*ast.Var]ast.Expr),
+		rangeKeys:     make(map[*ast.Var]bool),
 		ownReported:   make(map[ast.Span]bool),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
 
@@ -930,6 +938,7 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 		loop.Var.Type = index
 		if c.table.IsMap(got) && c.table.Owned(index) {
 			c.rangeBindings[loop.Var] = loop.X
+			c.rangeKeys[loop.Var] = true
 		}
 	}
 	if loop.Elem != nil {

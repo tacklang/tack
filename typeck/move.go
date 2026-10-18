@@ -671,24 +671,25 @@ func (m *mover) ident(id *ast.Ident, ctx useCtx, cur *flow) {
 
 // movesBinding reports id, a name whose value is moved, when it names a
 // union pattern's binding of an owned type, which refers to its payload in
-// place, or a range loop's element variable that refers to an element in
-// place, and so cannot be moved, and returns whether it did.
+// place, or a range loop's element or key variable that refers to an
+// element of a list, a view or a map, or to a map's key, in place, and so
+// cannot be moved, and returns whether it did; the error names which (see
+// rangePart).
 func (m *mover) movesBinding(id *ast.Ident) bool {
 	v, ok := id.Def.(*ast.Var)
 	if !ok || !m.c.table.Owned(v.Type) {
 		return false
 	}
 	if x, inPlace := m.c.rangeBindings[v]; inPlace {
-		holder := "a list"
-		if m.c.table.IsView(ast.TypeOf(x)) {
-			holder = "a view"
-		}
+		part, holder := m.c.rangePart(v, x)
 		m.errorNotes(
 			id.Span,
 			nil,
-			"cannot move %s: it refers to an element of %s in place, and an element cannot be moved out of %s",
+			"cannot move %s: it refers to %s of %s in place, and %s cannot be moved out of %s",
 			id.Name,
+			part,
 			m.c.text(x.Spanned()),
+			part,
 			holder,
 		)
 		return true
@@ -703,6 +704,23 @@ func (m *mover) movesBinding(id *ast.Ident) bool {
 		id.Name,
 	)
 	return true
+}
+
+// rangePart returns what v, a variable of a range loop over x that refers
+// into it in place, refers to, a key or an element, and what x is, a map,
+// a view or a list, as a message names them.
+func (c *Checker) rangePart(v *ast.Var, x ast.Expr) (part, holder string) {
+	typ := ast.TypeOf(x)
+	switch {
+	case c.rangeKeys[v]:
+		return "a key", "a map"
+	case c.table.IsMap(typ):
+		return "an element", "a map"
+	case c.table.IsView(typ):
+		return "an element", "a view"
+	default:
+		return "an element", "a list"
+	}
 }
 
 // use reports id, a name, when it names a variable that may have been

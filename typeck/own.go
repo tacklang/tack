@@ -198,34 +198,54 @@ func (c *Checker) ownElsewhere(o *ast.OwnArg) types.Type {
 }
 
 // checkOwnExclusive reports every name in call, its function, receiver
-// and arguments, at any depth, of a variable that an own argument
-// anywhere in it passes, with a note at that own argument: the variable
+// and arguments, at any depth, of a variable that an own argument in
+// another of them passes, with a note at that own argument: the variable
 // leaves for the callee as its call begins, and a list is never copied
 // for a call, so anything else reading it would read what the callee may
 // grow or free. A variable passed as own twice is reported at the second.
-// A nested call reports first, being checked first, and an enclosing one
-// does not report the same name again.
+// A name and an own argument in the same argument of call, or both in its
+// function, belong to a part of it that is evaluated in order, left to
+// right, such as the two operands of g(own l) + g(own l): that part
+// overlaps nothing in call, and what it does with the name is a use after
+// a move, or not, as for any expression (see move.go), unless both are in
+// one call nested in it, which reports them itself. A nested call reports
+// first, being checked first, and an enclosing one does not report the
+// same name again.
 func (c *Checker) checkOwnExclusive(call *ast.Call) {
 	owns := ownArgsIn(call)
 	if len(owns) == 0 {
 		return
 	}
 	ast.Walk(call, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && id.Def != nil && !c.ownReported[id.Span] {
-			if o := ownedElsewhere(id, owns); o != nil {
-				c.ownReported[id.Span] = true
-				c.errorNotes(
-					id.Span,
-					[]diag.Diagnostic{note(o.Span, id.Name+" is passed as own here")},
-					"cannot use %s alongside %s in this call: it is moved into the call, "+
-						"and nothing else in the call may reach it",
-					id.Name,
-					c.text(o.Span),
-				)
-			}
+		id, ok := n.(*ast.Ident)
+		if !ok || id.Def == nil || c.ownReported[id.Span] {
+			return true
+		}
+		if o := ownedElsewhere(id, owns); o != nil && callPart(call, id) != callPart(call, o.X) {
+			c.ownReported[id.Span] = true
+			c.errorNotes(
+				id.Span,
+				[]diag.Diagnostic{note(o.Span, id.Name+" is passed as own here")},
+				"cannot use %s alongside %s in this call: it is moved into the call, "+
+					"and nothing else in the call may reach it",
+				id.Name,
+				c.text(o.Span),
+			)
 		}
 		return true
 	})
+}
+
+// callPart returns which part of call e is in: 0 for its function, its
+// receiver included, and i+1 for its argument i, or -1 for none.
+func callPart(call *ast.Call, e ast.Expr) int {
+	at := e.Spanned()
+	for i, part := range append([]ast.Expr{call.Fn}, call.Args...) {
+		if span := part.Spanned(); span.Start <= at.Start && at.End <= span.End {
+			return i
+		}
+	}
+	return -1
 }
 
 // ownArgsIn returns every own argument in call, at any depth, whose
