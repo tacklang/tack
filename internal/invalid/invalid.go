@@ -12,6 +12,11 @@ import (
 // tests.
 const Path = "../examples/invalid.txtar"
 
+// WarningsPath is where the cases of programs that compile with warnings
+// live, in the format of Path's, each case's expected output the warnings
+// rendered.
+const WarningsPath = "../examples/warnings.txtar"
+
 // File-name suffixes that make up one case in the archive.
 const (
 	sourceSuffix    = "/main.tck"

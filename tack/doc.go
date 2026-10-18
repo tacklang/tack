@@ -14,13 +14,19 @@
 // typeck). The loader alone can end the run before the resolver, when it
 // builds no program: a file that does not lex, for one (see package
 // loader). Nothing is dumped, generated, compiled or linked when any stage
-// reported anything, and the backend refuses such a program itself (see
-// codegen.Refuse). The diagnostics are reported sorted by file and then
-// by where each starts, at most --max-errors of them, 10 by default,
+// reported an error, and the backend refuses such a program itself (see
+// codegen.Refuse). A warning (diag.Warning) stops nothing: a run whose
+// stages reported only warnings dumps, generates, builds and exits 0 as
+// one with no diagnostic does, writing the warnings to stderr first. The
+// diagnostics are reported sorted by file and then by where each starts,
+// up to where the first error past --max-errors would be, 10 by default,
 // followed, when some were left out, by the line "too many errors:
-// showing the first 10; --max-errors 0 shows them all". The parser reports
-// every syntax error of a file, recovering after each (see package
-// parser), and stops parsing once it has found more than --max-errors.
+// showing the first 10; --max-errors 0 shows them all". Only errors count
+// toward the limit, so a warning never takes an error's place; those
+// among the errors shown are shown, and those after the last are left out
+// with the errors (see renderDiagnostics). The parser reports every syntax
+// error of a file, recovering after each (see package parser), and stops
+// parsing once it has found more than --max-errors.
 //
 // Usage:
 //
@@ -256,7 +262,8 @@
 // directory or the build cache, and it takes no --out or -O flag. It is
 // for a library, an editor or a language server, which want every problem
 // a target has rather than a binary. Its exit status is 0 when it finds no
-// diagnostic and 1 when it finds any.
+// error and 1 when it finds any; warnings are written to stderr either
+// way and change nothing.
 //
 // A target holding a main package is checked as the program a build would
 // compile, with one difference: a main package that declares no main
@@ -279,7 +286,7 @@
 //
 // --check combines with one dump flag, which prints its output for the
 // packages checked, or writes tack.h for --emit-header, when the stages up
-// to it found no problem, together with the diagnostics of any later
+// to it found no error, together with the diagnostics of any later
 // stage: --check --ast on a program with a type error prints the trees on
 // stdout and the type error on stderr, and exits 1. --lex and --ast print
 // what a dump without --check prints, from a load that stops after them,

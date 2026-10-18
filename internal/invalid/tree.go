@@ -12,6 +12,10 @@ import (
 // top-level package directory, as Path is.
 const TreePath = "../examples/invalid-packages.txtar"
 
+// WarningsTreePath is where the cases of several files that compile with
+// warnings live, in the format of TreePath's (see WarningsPath).
+const WarningsTreePath = "../examples/warnings-packages.txtar"
+
 // CPath is where the cases with C files live, in the format of TreePath's
 // archive, relative to a top-level package directory, as Path is. Its
 // cases are built into binaries, which compiles their C files with clang,

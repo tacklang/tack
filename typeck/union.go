@@ -194,7 +194,8 @@ func (c *Checker) checkUnionSwitch(s *ast.Switch, typ types.Type, fn *ast.Func) 
 		}
 		c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
 		if cl.Var != nil && cl.Var.Type != types.Invalid && !reads(cl.Body, cl.Var) {
-			c.errorf(cl.Var.NameSpan, "declared and not used: %s", cl.Var.Name)
+			c.warnf(cl.Var.NameSpan, "declared and not used: %s", cl.Var.Name)
+			cl.Var.Unused = true
 		}
 	}
 }

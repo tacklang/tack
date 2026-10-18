@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -44,13 +45,18 @@ const examplesDir = "../examples"
 const frontEndBackend = "c"
 
 // result is what one pipeline run produced: the stages that reported
-// diagnostics, or the one that ended it, and the rendered output.
+// errors, or the one that ended it, the rendered output, and, for a run
+// that compiled, the warnings rendered.
 type result struct {
 	// stage is ok, codegen, load (for a loader error), or panic, or the
-	// stages that reported diagnostics, in pipeline order, joined by +:
-	// lex, parse, load, resolve, typeck.
+	// stages that reported errors, in pipeline order, joined by +: lex,
+	// parse, load, resolve, typeck.
 	stage  string
 	output string
+
+	// warnings are what the stages warned of, rendered, when the program
+	// compiled; a run that did not shows them in output with its errors.
+	warnings string
 }
 
 func (r result) String() string {
@@ -86,8 +92,8 @@ func singleFile(name string, src []byte) program {
 
 // runPipeline mirrors tack/main.go, minus the flag handling and os.Exit
 // calls: every stage runs, whatever an earlier one reported, and code is
-// generated only when none reported anything. The diagnostics of every
-// stage are rendered together, sorted as the driver sorts them, by file
+// generated only when none reported an error, its warnings rendered with
+// it. The diagnostics of every stage are rendered together, sorted as the driver sorts them, by file
 // and then by position, with no limit on how many. A problem the loader
 // reports as an error rather than as diagnostics, such as a directory
 // with no Tack files, ends the run at the load stage with the error's text
@@ -95,7 +101,10 @@ func singleFile(name string, src []byte) program {
 func runPipeline(backendName string, p program) result {
 	backend, ok := codegen.Get(backendName)
 	if !ok {
-		return result{"codegen", fmt.Sprintf("no backend registered under %q", backendName)}
+		return result{
+			stage:  "codegen",
+			output: fmt.Sprintf("no backend registered under %q", backendName),
+		}
 	}
 
 	l := p.loader()
@@ -107,43 +116,49 @@ func runPipeline(backendName string, p program) result {
 		res, err = l.Dir(p.target)
 	}
 	if err != nil {
-		return result{"load", err.Error() + "\n"}
+		return result{stage: "load", output: err.Error() + "\n"}
 	}
 
 	diags, stages := checkAll(res)
-	if len(diags) > 0 {
-		return result{strings.Join(stages, "+"), renderSorted(res.Files, diags)}
+	if diag.HasErrors(diags) {
+		return result{stage: strings.Join(stages, "+"), output: renderSorted(res.Files, diags)}
 	}
 
-	out, diags := backend.Generate(res.Program, stdtest.MustBuiltins())
-	if len(diags) > 0 {
-		return result{"codegen", diag.RenderAllPretty(res.Files, diags)}
+	out, genDiags := backend.Generate(res.Program, stdtest.MustBuiltins())
+	if len(genDiags) > 0 {
+		return result{stage: "codegen", output: diag.RenderAllPretty(res.Files, genDiags)}
 	}
 
-	return result{"ok", string(out)}
+	r := result{stage: "ok", output: string(out)}
+	if len(diags) > 0 {
+		r.warnings = renderSorted(res.Files, diags)
+	}
+	return r
 }
 
 // checkAll runs the resolver and the type checker on what the loader
 // loaded into res, whatever any stage reported, as the driver does, and
 // returns the diagnostics of every stage, the loader's first, and the
-// stages that reported them, in pipeline order, the loader's named by the
-// first of its stages that reported (see loader.Result.Stage). Neither
-// runs when the loader built no program.
+// stages that reported errors among them, in pipeline order, the loader's
+// named by the first of its stages that reported (see
+// loader.Result.Stage). Neither runs when the loader built no program.
 func checkAll(res *loader.Result) ([]diag.Diagnostic, []string) {
 	diags := slices.Clone(res.Diags)
 	var stages []string
-	if len(res.Diags) > 0 {
+	if diag.HasErrors(res.Diags) {
 		stages = append(stages, string(res.Stage))
 	}
 	prog := res.Program
 	if prog == nil {
 		return diags, stages
 	}
-	if d := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(d) > 0 {
-		diags, stages = append(diags, d...), append(stages, "resolve")
+	d := resolver.New(prog, stdtest.MustBuiltins()).Resolve()
+	if diags = append(diags, d...); diag.HasErrors(d) {
+		stages = append(stages, "resolve")
 	}
-	if d := typeck.New(prog, res.Files, stdtest.MustBuiltins()).Check(); len(d) > 0 {
-		diags, stages = append(diags, d...), append(stages, "typeck")
+	d = typeck.New(prog, res.Files, stdtest.MustBuiltins()).Check()
+	if diags = append(diags, d...); diag.HasErrors(d) {
+		stages = append(stages, "typeck")
 	}
 	return diags, stages
 }
@@ -170,7 +185,7 @@ func run(t *testing.T, backendName string, p program) result {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				ch <- result{"panic", fmt.Sprintf("%v", r)}
+				ch <- result{stage: "panic", output: fmt.Sprintf("%v", r)}
 			}
 		}()
 		ch <- runPipeline(backendName, p)
@@ -513,6 +528,108 @@ func writeTree(t *testing.T, path string, old, comment []byte, cases []invalid.T
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// TestWarnings checks each case of examples/warnings.txtar, a program
+// the compiler accepts with warnings: it compiles, and the warnings it
+// gets, rendered, are the case's expected output.
+func TestWarnings(t *testing.T) {
+	path := filepath.FromSlash(invalid.WarningsPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, cases, err := invalid.Parse(data)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if len(cases) == 0 {
+		t.Fatalf("%s holds no cases", path)
+	}
+	for i := range cases {
+		c := &cases[i]
+		t.Run(c.Name, func(t *testing.T) {
+			got := run(t, frontEndBackend, singleFile(c.Name+"/main.tck", c.Source))
+			c.Expected = checkWarned(t, path, got, c.Expected)
+		})
+	}
+	if *update {
+		writeInvalid(t, path, data, comment, cases)
+	}
+}
+
+// TestWarningsPackages is TestWarnings for the cases of several files, in
+// examples/warnings-packages.txtar, built as TestInvalidPackages builds
+// its own.
+func TestWarningsPackages(t *testing.T) {
+	path := filepath.FromSlash(invalid.WarningsTreePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, cases, err := invalid.ParseTree(data)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if len(cases) == 0 {
+		t.Fatalf("%s holds no cases", path)
+	}
+	for i := range cases {
+		c := &cases[i]
+		t.Run(c.Name, func(t *testing.T) {
+			got := run(t, frontEndBackend, treeProgram(*c))
+			c.Expected = checkWarned(t, path, got, c.Expected)
+		})
+	}
+	if *update {
+		writeTree(t, path, data, comment, cases)
+	}
+}
+
+// checkWarned checks got, the run of a case of the archive at path whose
+// expected output is want: that it compiled with warnings, that they
+// render as want, and that the C generated for it passes clang's checks
+// with every warning an error, as strict builds compile it, so what the
+// front end warned of declares nothing C warns about (see strictC). It
+// returns what the case expects from now on: what got warned, under
+// -update, and want otherwise.
+func checkWarned(t *testing.T, path string, got result, want []byte) []byte {
+	t.Helper()
+	if got.stage != "ok" {
+		t.Fatalf("the program did not compile, at the %s stage:\n%s", got.stage, got.output)
+	}
+	if got.warnings == "" {
+		t.Fatalf("the program compiled with no warning; a warning example must warn")
+	}
+	strictC(t, got.output)
+	switch {
+	case *update:
+		return []byte(got.warnings)
+	case got.warnings != string(want):
+		t.Errorf("warnings differ from %s\n\n--- want ---\n%s\n--- got ---\n%s",
+			path, want, got.warnings)
+	}
+	return want
+}
+
+// strictC checks that src, generated C, passes clang's syntax and
+// semantic checks with -Wall -Wextra -Werror, when clang is on PATH.
+func strictC(t *testing.T, src string) {
+	t.Helper()
+	if _, err := exec.LookPath("clang"); err != nil {
+		return
+	}
+	file := filepath.Join(t.TempDir(), "program.c")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{
+		"-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+		"-I", stdtest.IncludeDir(), file,
+	}
+	if out, err := exec.CommandContext(t.Context(), "clang", args...).CombinedOutput(); err != nil {
+		t.Errorf("clang: %v\n%s", err, out)
 	}
 }
 

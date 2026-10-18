@@ -103,7 +103,7 @@ func (r *pkgResolver) unusedImports() []diag.Diagnostic {
 		for _, imp := range f.Imports {
 			if !r.used[imp] && !r.rejected[imp] {
 				diags = append(diags, diag.Diagnostic{
-					Severity: diag.Error,
+					Severity: diag.Warning,
 					Message:  fmt.Sprintf("imported and not used: %s", imp.Name),
 					Span:     imp.NameSpan,
 				})

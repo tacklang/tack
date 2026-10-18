@@ -2,7 +2,11 @@
 // every invalid example program of one file together with the output the
 // compiler must produce for it, examples/invalid-packages.txtar, which
 // does the same for the invalid programs of several files, and
-// examples/invalid-c.txtar, for those with C files.
+// examples/invalid-c.txtar, for those with C files. examples/warnings.txtar
+// and examples/warnings-packages.txtar, at WarningsPath and
+// WarningsTreePath, are in the formats of invalid.txtar and
+// invalid-packages.txtar, for programs the compiler accepts with
+// warnings, each case's expected section the warnings alone.
 //
 // It is test infrastructure, not part of the compiler: the golden harness in
 // test/ checks each case's expected output and rewrites it under -update, and

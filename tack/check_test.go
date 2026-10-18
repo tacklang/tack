@@ -587,13 +587,13 @@ func TestCheckMissingTargets(t *testing.T) {
 }
 
 // checkCheckCoherent checks that r, a run with --check, is internally
-// consistent: success with nothing on stderr, or failure with something
-// there, whatever is on stdout.
+// consistent: success with nothing but warnings on stderr, or failure
+// with something there, whatever is on stdout.
 func checkCheckCoherent(t *testing.T, r result) {
 	t.Helper()
 	switch {
-	case r.code == exitOK && r.stderr != "":
-		t.Errorf("succeeded but wrote to stderr: %q", r.stderr)
+	case r.code == exitOK && !onlyWarnings(r.stderr):
+		t.Errorf("succeeded but wrote more than warnings to stderr: %q", r.stderr)
 	case r.code == exitFailure && r.stderr == "":
 		t.Errorf("failed with nothing on stderr")
 	case r.code != exitOK && r.code != exitFailure:
@@ -613,7 +613,7 @@ func FuzzRunCheck(f *testing.F) {
 			f.Add(src)
 		}
 	}
-	for _, tc := range invalidCases(f) {
+	for _, tc := range seedCases(f) {
 		f.Add(tc.Source)
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {

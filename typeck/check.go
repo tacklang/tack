@@ -221,6 +221,13 @@ type Checker struct {
 	lostAll     map[*ast.Package]bool
 
 	diags []diag.Diagnostic
+
+	// warnings are what the checker reports that does not stop
+	// compilation, kept apart from diags, so that every count of diags
+	// that decides what to check next, whether a body is checked for
+	// moved values among them, counts errors alone.
+	warnings []diag.Diagnostic
+
 	loops int // how many loops enclose the statement being checked
 
 	// prior is how many errors the stages before the checker reported
@@ -404,7 +411,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 	c.instantiate()
 	c.prog.Errors += len(c.diags)
 	c.table.Errors = c.prog.Errors
-	return c.diags
+	return append(c.diags, c.warnings...)
 }
 
 // checkFunc checks fn once every signature is known: an extern func's C
@@ -463,10 +470,10 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 func (c *Checker) checkBody(fn *ast.Func) {
 	c.body, c.writesByDecl = fn.Body, make(map[ast.Decl][]funcWrite)
 	if hasMethodBinding(fn) {
-		before := len(c.diags)
+		before, warned := len(c.diags), len(c.warnings)
 		c.collectHolds(fn)
 		c.checkBlock(fn.Body, fn)
-		c.diags = c.diags[:before]
+		c.diags, c.warnings = c.diags[:before], c.warnings[:warned]
 		clear(c.knownBinaries)
 		c.appends = nil
 	}
@@ -933,7 +940,7 @@ func onlyValue(e ast.Expr) bool {
 func (c *Checker) unusedValue(e ast.Expr) {
 	before := len(c.diags)
 	if c.expr(e) != types.Invalid && len(c.diags) == before {
-		c.errorf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
+		c.warnf(e.Spanned(), "%s is not used", c.text(e.Spanned()))
 	}
 }
 
@@ -2126,6 +2133,16 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {
 	c.errorNotes(span, nil, format, args...)
+}
+
+// warnf reports a warning at span: something suspicious that does not
+// stop compilation (see warnings).
+func (c *Checker) warnf(span ast.Span, format string, args ...any) {
+	c.warnings = append(c.warnings, diag.Diagnostic{
+		Severity: diag.Warning,
+		Message:  fmt.Sprintf(format, args...),
+		Span:     span,
+	})
 }
 
 // errorNotes reports an error at span, with notes that explain it.

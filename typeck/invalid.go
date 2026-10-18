@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -64,20 +65,33 @@ func (c *Checker) unboundCall(call *ast.Call) bool {
 
 // checkDamagedBody checks the body of fn, which holds bad statements, the
 // first of them first, dropping what is reported in fn after it (see the
-// comment at the top of the file). What checking the body reports outside
-// fn, about a declaration it needed, is kept.
+// comment at the top of the file), errors and warnings alike. What
+// checking the body reports outside fn, about a declaration it needed, is
+// kept.
 func (c *Checker) checkDamagedBody(fn *ast.Func, first *ast.BadStmt) {
-	before := len(c.diags)
+	before, warned := len(c.diags), len(c.warnings)
 	c.checkBody(fn)
-	kept := c.diags[:before]
-	for _, d := range c.diags[before:] {
+	c.diags = keptBefore(c.diags, before, fn, first)
+	c.warnings = keptBefore(c.warnings, warned, fn, first)
+	c.reportBad(first.Span)
+}
+
+// keptBefore returns diags with those from the index from on that are in
+// fn at or after first, its first bad statement, left out.
+func keptBefore(
+	diags []diag.Diagnostic,
+	from int,
+	fn *ast.Func,
+	first *ast.BadStmt,
+) []diag.Diagnostic {
+	kept := diags[:from]
+	for _, d := range diags[from:] {
 		if d.Span.File != first.Span.File || d.Span.Start < first.Span.Start ||
 			d.Span.Start >= fn.Span.End {
 			kept = append(kept, d)
 		}
 	}
-	c.diags = kept
-	c.reportBad(first.Span)
+	return kept
 }
 
 // findLostMethods records the methods each package's bad declarations may

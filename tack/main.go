@@ -146,7 +146,7 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 	switch {
 	case err != nil:
 	case opts.check:
-		err = executeCheck(opts, env, stdout)
+		err = executeCheck(opts, env, stdout, stderr)
 	default:
 		err = execute(ctx, opts, env, stdout, stderr)
 	}
@@ -456,7 +456,7 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 		return err
 	}
 
-	out, err := compile(res, single, backend, lib.builtinSet(), opts.dump, opts.maxErrors)
+	out, err := compileWarned(res, single, backend, lib.builtinSet(), opts, stderr)
 	if err != nil {
 		return err
 	}
@@ -619,10 +619,12 @@ func checkOutPath(outBin, input string) error {
 // stages report nothing more about (see packages resolver and typeck). Only
 // a loader that could not build a program at all, after a file that does
 // not lex for one, ends the run before the resolver. A dump, or code
-// generation, happens only when no stage reported anything; otherwise the
-// run ends with a *diagnosticsError holding at most maxErrors of them when
-// maxErrors is positive (see diagnostics). The backend checks the same
-// itself, refusing a program with errors (see codegen.Refuse).
+// generation, happens only when no stage reported an error, and it
+// returns the warnings the stages reported, which do not stop it;
+// otherwise the run ends with a *diagnosticsError holding the warnings
+// and at most maxErrors errors when maxErrors is positive (see
+// diagnostics). The backend checks the same itself, refusing a program
+// with errors (see codegen.Refuse).
 func compile(
 	res *loader.Result,
 	single bool,
@@ -630,46 +632,95 @@ func compile(
 	builtins *builtin.Set,
 	d dump,
 	maxErrors int,
-) ([]byte, error) {
+) ([]byte, []diag.Diagnostic, error) {
 	diags := slices.Clone(res.Diags)
-	fail := func() error {
-		return diagnostics(res, diags, maxErrors)
-	}
-
+	var out []byte
+	var err error
 	if d == dumpLex || d == dumpAST {
-		if len(diags) > 0 {
-			return nil, fail()
+		if !diag.HasErrors(diags) {
+			out, err = loadedDump(res, single, d)
 		}
-		return loadedDump(res, single, d)
+	} else {
+		out, diags, err = runStages(res, single, backend, builtins, d, diags)
 	}
+	switch {
+	case err != nil:
+		return nil, nil, err
+	case diag.HasErrors(diags):
+		return nil, nil, diagnostics(res, diags, maxErrors)
+	}
+	return out, diags, nil
+}
 
+// runStages is compile past the loader, for any dump but --lex and
+// --ast: it runs the resolver, the type checker and the backend on the
+// program res holds, up to the stage d names, diags being what the loader
+// reported, and returns that stage's output, when no stage reported an
+// error, with every diagnostic so far.
+func runStages(
+	res *loader.Result,
+	single bool,
+	backend codegen.Backend,
+	builtins *builtin.Set,
+	d dump,
+	diags []diag.Diagnostic,
+) ([]byte, []diag.Diagnostic, error) {
 	prog := res.Program
 	if prog == nil {
-		if len(diags) == 0 {
-			return nil, errors.New(
+		if !diag.HasErrors(diags) {
+			return nil, nil, errors.New(
 				"internal error: the loader built no program and reported no error",
 			)
 		}
-		return nil, fail()
+		return nil, diags, nil
 	}
 	diags = append(diags, resolver.New(prog, builtins).Resolve()...)
 	if d == dumpRes {
-		if len(diags) > 0 {
-			return nil, fail()
+		if diag.HasErrors(diags) {
+			return nil, diags, nil
 		}
-		return resolvedDump(prog, single)
+		out, err := resolvedDump(prog, single)
+		return out, diags, err
 	}
-
 	diags = append(diags, typeck.New(prog, res.Files, builtins).Check()...)
-	if len(diags) > 0 {
-		return nil, fail()
+	if diag.HasErrors(diags) {
+		return nil, diags, nil
 	}
 	out, genDiags := backend.Generate(prog, builtins)
-	if len(genDiags) > 0 {
-		diags = genDiags
-		return nil, fail()
+	return out, append(diags, genDiags...), nil
+}
+
+// compileWarned is compile, for the dump opts asks for or a build, with
+// the warnings of a run that succeeded written to stderr (see
+// writeWarnings).
+func compileWarned(
+	res *loader.Result,
+	single bool,
+	backend codegen.Backend,
+	builtins *builtin.Set,
+	opts options,
+	stderr io.Writer,
+) ([]byte, error) {
+	out, warnings, err := compile(res, single, backend, builtins, opts.dump, opts.maxErrors)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	return out, writeWarnings(stderr, res, warnings, opts.maxErrors)
+}
+
+// writeWarnings writes warnings, what the stages of a run that succeeded
+// reported, to stderr, rendered as diagnostics are (see
+// renderDiagnostics), or nothing when there are none.
+func writeWarnings(
+	stderr io.Writer,
+	res *loader.Result,
+	warnings []diag.Diagnostic,
+	maxErrors int,
+) error {
+	if len(warnings) == 0 {
+		return nil
+	}
+	return writeAll(stderr, renderDiagnostics(res, warnings, maxErrors))
 }
 
 // defaultMaxErrors is how many errors the driver reports when
@@ -677,10 +728,19 @@ func compile(
 const defaultMaxErrors = 10
 
 // diagnostics returns the *diagnosticsError that reports diags, problems
-// in the program res holds, sorted by file and then by where each starts,
-// at most maxErrors of them when maxErrors is positive, followed, when
-// that left some out, by a line saying so (see tooManyErrors).
+// in the program res holds (see renderDiagnostics).
 func diagnostics(res *loader.Result, diags []diag.Diagnostic, maxErrors int) error {
+	return &diagnosticsError{rendered: renderDiagnostics(res, diags, maxErrors)}
+}
+
+// renderDiagnostics renders diags, problems in the program res holds,
+// sorted by file and then by where each starts, up to the error past the
+// first maxErrors when maxErrors is positive, followed, when that left
+// some out, by a line saying so (see tooManyErrors). Only errors count
+// toward maxErrors: the warnings among the errors shown are shown too, so
+// warnings never take an error's place, and those after the last error
+// shown are left out with it, as the errors after it are.
+func renderDiagnostics(res *loader.Result, diags []diag.Diagnostic, maxErrors int) string {
 	diags = slices.Clone(diags)
 	slices.SortStableFunc(diags, func(a, b diag.Diagnostic) int {
 		return cmp.Or(
@@ -688,15 +748,24 @@ func diagnostics(res *loader.Result, diags []diag.Diagnostic, maxErrors int) err
 			cmp.Compare(a.Span.Start, b.Span.Start),
 		)
 	})
-	more := maxErrors > 0 && len(diags) > maxErrors
-	if more {
-		diags = diags[:maxErrors]
+	more := false
+	if maxErrors > 0 {
+		errs := 0
+		for i, d := range diags {
+			if d.Severity != diag.Error {
+				continue
+			}
+			if errs++; errs > maxErrors {
+				diags, more = diags[:i], true
+				break
+			}
+		}
 	}
 	rendered := diag.RenderAllPretty(res.Files, diags)
 	if more {
 		rendered += tooManyErrors(maxErrors)
 	}
-	return &diagnosticsError{rendered: rendered}
+	return rendered
 }
 
 // tooManyErrors is the line that ends the report of the first n errors

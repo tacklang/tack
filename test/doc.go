@@ -12,10 +12,12 @@
 // it has one golden, <case>.golden. A program that reaches code generation is
 // pinned once per registered backend, in <case>.<backend>.golden. Each golden
 // records how the run ended, ok or codegen, or the stages that reported
-// diagnostics, joined by +, the loader's named by the first of its stages
+// errors, joined by +, the loader's named by the first of its stages
 // that reported, as parse+typeck, and the output: every stage runs, as in
-// the driver, and the diagnostics of all of them are rendered together,
-// sorted as the driver sorts them.
+// the driver, and the diagnostics of all of them, warnings among them,
+// are rendered together, sorted as the driver sorts them. A program that
+// compiles with warnings records its code, and its warnings are left to
+// TestWarnings.
 //
 // TestInvalid does the same for the malformed programs, which live together
 // in examples/invalid.txtar (format in package internal/invalid): one subtest
@@ -37,6 +39,14 @@
 // naming each file by its path in the archive. A run the loader ends with
 // an error rather than diagnostics, such as a directory with no Tack files,
 // records the load stage and the error's text.
+//
+// TestWarnings and TestWarningsPackages do the same for the programs that
+// compile with warnings, in examples/warnings.txtar and
+// examples/warnings-packages.txtar, in the formats of the invalid ones:
+// each case must compile, warn, and give exactly its expected section,
+// which holds only the warnings rendered; and the C generated for it must
+// pass clang -Wall -Wextra -Werror, when clang is on PATH, so a warning
+// never leaves C a strict build rejects.
 //
 // TestCodegenRefusesEveryInvalidProgram runs the front end on every
 // malformed program and hands what it built straight to the backend, as a

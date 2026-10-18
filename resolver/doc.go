@@ -239,6 +239,12 @@
 // Resolve adds the errors it reports to the program's Errors, which keeps
 // code from being generated from it (see codegen.Refuse).
 //
+// What is reported unused, a local, a global, a type switch's binding or
+// an import, is a warning (diag.Warning), not an error: it stops nothing
+// and is not counted in Errors. A variable warned of is marked
+// ast.Var.Unused, every clause's variable of a binding warned of
+// included, so the backend can declare it as one C need not see read.
+//
 // When the program has no errors, every Ident in the tree used as a
 // value, a callee or an assignment target is bound to a declaration, which
 // the type checker and code generator rely on; a name written as a type is

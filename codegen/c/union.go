@@ -395,6 +395,6 @@ func (g *generator) unionClauseBody(
 	name, _, _ := ast.CasePattern(cl.Values[0])
 	uc, _, _ := g.prog.Types.Case(typ, name.Name)
 	decl := fmt.Sprintf("const %s *const %s = &%s->u.%s;",
-		g.cType(uc.Type), varName(cl.Var.Name), ref, caseMember(uc.Name))
+		g.cType(uc.Type), declName(cl.Var), ref, caseMember(uc.Name))
 	return append([]string{decl}, body...), true, nil
 }

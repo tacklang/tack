@@ -1,0 +1,348 @@
+Example programs the compiler accepts with warnings, one case per
+program, in byte order of name.
+
+Each case is a txtar file pair: <name>/main.tck holds the program and
+<name>/expected the warnings the compiler gives it, with the program's
+path printed as <name>/main.tck. An empty <name>/no-final-newline file
+after the pair means the program's last line has no newline. The format
+is invalid.txtar's, which internal/invalid documents; go test ./test -run
+TestWarnings checks that every case compiles with exactly its warnings,
+and -update rewrites the expected sections.
+
+-- any-switch-unused-binding/main.tck --
+package main
+
+func f(a any) int64 {
+    switch v := a.(type) {
+    case int64:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+}
+-- any-switch-unused-binding/expected --
+
+any-switch-unused-binding/main.tck:4:12: warning: declared and not used: v
+03 |	func f(a any) int64 {
+04 |	    switch v := a.(type) {
+   |	           ^
+05 |	    case int64:
+
+-- func-value-hidden-unused/main.tck --
+package main
+
+func step(x int64) int64 {
+    return x + 1
+}
+
+func run(fs [2]func(int64) int64) int64 {
+    mut v := 0
+    for _, step := range fs {
+        v = step(v)
+    }
+    return v
+}
+
+func main() {
+    if run([2]func(int64) int64{step, step}) == 2 {
+        print("two")
+    }
+}
+-- func-value-hidden-unused/expected --
+
+func-value-hidden-unused/main.tck:9:12: warning: declared and not used: step
+08 |	    mut v := 0
+09 |	    for _, step := range fs {
+   |	           ^~~~
+10 |	        v = step(v)
+func-value-hidden-unused/main.tck:10:13: note: this call calls the function step, not the variable; rename one of them
+09 |	    for _, step := range fs {
+10 |	        v = step(v)
+   |	            ^~~~
+11 |	    }
+
+-- global-unused/main.tck --
+package main
+
+var limit = 10
+
+func main() {
+}
+-- global-unused/expected --
+
+global-unused/main.tck:3:5: warning: declared and not used: limit
+02 |	
+03 |	var limit = 10
+   |	    ^~~~~
+04 |	
+
+-- union-build-unused/main.tck --
+package main
+
+type U union {
+    a int64
+}
+
+func main() {
+    U.a(5)
+}
+-- union-build-unused/expected --
+
+union-build-unused/main.tck:8:5: warning: U.a(5) is not used
+07 |	func main() {
+08 |	    U.a(5)
+   |	    ^~~~~~
+09 |	}
+
+-- union-unused-binding/main.tck --
+package main
+
+type U union {
+    a int64
+    b
+}
+
+func main() {
+    switch U.b {
+    case a(n):
+    case b:
+    }
+}
+-- union-unused-binding/expected --
+
+union-unused-binding/main.tck:10:12: warning: declared and not used: n
+09 |	    switch U.b {
+10 |	    case a(n):
+   |	           ^
+11 |	    case b:
+
+-- unused-stmt-conversion/main.tck --
+package main
+
+func main() {
+    int8(5)
+}
+-- unused-stmt-conversion/expected --
+
+unused-stmt-conversion/main.tck:4:5: warning: int8(5) is not used
+03 |	func main() {
+04 |	    int8(5)
+   |	    ^~~~~~~
+05 |	}
+
+-- unused-stmt-conversion-of-call/main.tck --
+package main
+
+func f() int8 {
+    print("f\n")
+    return 1
+}
+
+func main() {
+    int8(f())
+}
+-- unused-stmt-conversion-of-call/expected --
+
+unused-stmt-conversion-of-call/main.tck:9:5: warning: int8(f()) is not used
+08 |	func main() {
+09 |	    int8(f())
+   |	    ^~~~~~~~~
+10 |	}
+
+-- unused-stmt-conversion-types/main.tck --
+package main
+
+func main() {
+    int64(1)
+    uint64(1)
+    unsafe_size_t(3)
+    unsafe_uintptr_t(3)
+}
+-- unused-stmt-conversion-types/expected --
+
+unused-stmt-conversion-types/main.tck:4:5: warning: int64(1) is not used
+03 |	func main() {
+04 |	    int64(1)
+   |	    ^~~~~~~~
+05 |	    uint64(1)
+
+unused-stmt-conversion-types/main.tck:5:5: warning: uint64(1) is not used
+04 |	    int64(1)
+05 |	    uint64(1)
+   |	    ^~~~~~~~~
+06 |	    unsafe_size_t(3)
+
+unused-stmt-conversion-types/main.tck:6:5: warning: unsafe_size_t(3) is not used
+05 |	    uint64(1)
+06 |	    unsafe_size_t(3)
+   |	    ^~~~~~~~~~~~~~~~
+07 |	    unsafe_uintptr_t(3)
+
+unused-stmt-conversion-types/main.tck:7:5: warning: unsafe_uintptr_t(3) is not used
+06 |	    unsafe_size_t(3)
+07 |	    unsafe_uintptr_t(3)
+   |	    ^~~~~~~~~~~~~~~~~~~
+08 |	}
+
+-- unused-stmt-defer/main.tck --
+package main
+
+func main() {
+    defer {
+        len("abc")
+    }
+}
+-- unused-stmt-defer/expected --
+
+unused-stmt-defer/main.tck:5:9: warning: len("abc") is not used
+04 |	    defer {
+05 |	        len("abc")
+   |	        ^~~~~~~~~~
+06 |	    }
+
+-- unused-stmt-for-clauses/main.tck --
+package main
+
+func main() {
+    for int8(5); false; int8(6) {
+    }
+}
+-- unused-stmt-for-clauses/expected --
+
+unused-stmt-for-clauses/main.tck:4:9: warning: int8(5) is not used
+03 |	func main() {
+04 |	    for int8(5); false; int8(6) {
+   |	        ^~~~~~~
+05 |	    }
+
+unused-stmt-for-clauses/main.tck:4:25: warning: int8(6) is not used
+03 |	func main() {
+04 |	    for int8(5); false; int8(6) {
+   |	                        ^~~~~~~
+05 |	    }
+
+-- unused-stmt-generic/main.tck --
+package main
+
+type Counted interface {
+    count() int32
+}
+
+type S struct {
+    n int32
+}
+
+func (s S) count() int32 {
+    return s.n
+}
+
+func g[C Counted](c C) {
+    int64(c.count())
+}
+
+func main() {
+    g(S{n: 1})
+}
+-- unused-stmt-generic/expected --
+
+unused-stmt-generic/main.tck:16:5: warning: int64(c.count()) is not used
+15 |	func g[C Counted](c C) {
+16 |	    int64(c.count())
+   |	    ^~~~~~~~~~~~~~~~
+17 |	}
+
+-- unused-stmt-len/main.tck --
+package main
+
+func main() {
+    len("abc")
+}
+-- unused-stmt-len/expected --
+
+unused-stmt-len/main.tck:4:5: warning: len("abc") is not used
+03 |	func main() {
+04 |	    len("abc")
+   |	    ^~~~~~~~~~
+05 |	}
+
+-- unused-stmt-len-kinds/main.tck --
+package main
+
+func f() string {
+    return "abc"
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    len(a)
+    len(a[:])
+    mut l := make(list[int64], c_allocator)
+    len(l)
+    len(f())
+}
+-- unused-stmt-len-kinds/expected --
+
+unused-stmt-len-kinds/main.tck:9:5: warning: len(a) is not used
+08 |	    a := [2]int64{1, 2}
+09 |	    len(a)
+   |	    ^~~~~~
+10 |	    len(a[:])
+
+unused-stmt-len-kinds/main.tck:10:5: warning: len(a[:]) is not used
+09 |	    len(a)
+10 |	    len(a[:])
+   |	    ^~~~~~~~~
+11 |	    mut l := make(list[int64], c_allocator)
+
+unused-stmt-len-kinds/main.tck:12:5: warning: len(l) is not used
+11 |	    mut l := make(list[int64], c_allocator)
+12 |	    len(l)
+   |	    ^~~~~~
+13 |	    len(f())
+
+unused-stmt-len-kinds/main.tck:13:5: warning: len(f()) is not used
+12 |	    len(l)
+13 |	    len(f())
+   |	    ^~~~~~~~
+14 |	}
+
+-- unused-stmt-method/main.tck --
+package main
+
+type S struct {
+    x int8
+}
+
+func (s S) m() {
+    int64(s.x)
+}
+
+func main() {
+    s := S{x: 1}
+    s.m()
+}
+-- unused-stmt-method/expected --
+
+unused-stmt-method/main.tck:8:5: warning: int64(s.x) is not used
+07 |	func (s S) m() {
+08 |	    int64(s.x)
+   |	    ^~~~~~~~~~
+09 |	}
+
+-- var-unused/main.tck --
+package main
+
+func main() {
+    x := 1
+}
+-- var-unused/expected --
+
+var-unused/main.tck:4:5: warning: declared and not used: x
+03 |	func main() {
+04 |	    x := 1
+   |	    ^
+05 |	}
+

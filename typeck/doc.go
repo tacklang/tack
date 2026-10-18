@@ -827,4 +827,15 @@
 // as a syntax error. Check adds its own errors to Program.Errors and
 // records the total on the program's types.Table, and a backend generates
 // code only when both are zero (see codegen.Refuse).
+//
+// Two of the checker's reports are warnings, not errors: a statement that
+// only gives a value, x is not used, and a union clause's variable its
+// body never reads, declared and not used, which is marked
+// ast.Var.Unused. Warnings are kept apart from the errors (Checker's
+// warnings, reported by warnf), so every count of what has been reported
+// that decides what is checked next, whether a body is checked for moved
+// values or anything is instantiated among them, counts errors alone,
+// and Program.Errors counts no warning. Check returns both, the errors
+// first. A body checked twice drops the first pass's warnings with its
+// errors, and a damaged body drops both after its first bad statement.
 package typeck

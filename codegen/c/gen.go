@@ -223,7 +223,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	}
 	g.emitPreamble(includes)
 	g.emitTypes()
-	g.emitConstantPool(builtins)
+	g.emitConstantPool(builtins, globals)
 	g.emitGlobals(globals)
 	g.emitResultStructs()
 	g.emitCNameMacro()
@@ -410,11 +410,19 @@ func walkSwitchValues(s *ast.Switch, v ast.Visitor) {
 // helpers. Bytes rather than C
 // string literals so that any byte survives without an escaping scheme,
 // and a trailing zero so an empty literal is still a legal array; the zero
-// is never written out, since every write is length-bounded.
-func (g *generator) emitConstantPool(builtins []builtin.Func) {
+// is never written out, since every write is length-bounded. A string
+// no function's lowered body and no global names, one whose only use is
+// a length the backend computed, len("abc"), is declared
+// __attribute__((unused)), as an unnamed function is (see maybeUnused).
+func (g *generator) emitConstantPool(builtins []builtin.Func, globals []global) {
 	for _, s := range g.strPool {
-		fmt.Fprintf(&g.buf, "static const unsigned char %s[%d] = {%s};\n",
-			s.label, len(s.value)+1, g.toBytes(s.value))
+		named := func(v global) bool { return namesIdent(v.decl, s.label) }
+		unused := "__attribute__((unused)) "
+		if g.namedBy[s.label] != nil || slices.ContainsFunc(globals, named) {
+			unused = ""
+		}
+		fmt.Fprintf(&g.buf, "%sstatic const unsigned char %s[%d] = {%s};\n",
+			unused, s.label, len(s.value)+1, g.toBytes(s.value))
 	}
 
 	g.buf.WriteString("\n")
@@ -1334,7 +1342,7 @@ func (g *generator) generateForRange(
 	n, k := g.temp("n"), g.temp("k")
 	if loop.Var != nil {
 		body = append(
-			[]string{fmt.Sprintf("const %s %s = %s;", typ, varName(loop.Var.Name), k)},
+			[]string{fmt.Sprintf("const %s %s = %s;", typ, declName(loop.Var), k)},
 			body...)
 	}
 	return rangeBlock(fmt.Sprintf("const %s %s = %s;", typ, n, x),
@@ -1381,15 +1389,15 @@ func (g *generator) collectionRange(loop *ast.ForRange, x, addr string, body []s
 
 	var vars []string
 	if loop.Var != nil && loop.Var.Name != ast.Blank {
-		vars = append(vars, fmt.Sprintf("const int64_t %s = %s;", varName(loop.Var.Name), k))
+		vars = append(vars, fmt.Sprintf("const int64_t %s = %s;", declName(loop.Var), k))
 	}
 	switch {
 	case g.bindsInPlace(loop):
 		vars = append(vars, fmt.Sprintf("const %s *const %s = &%s.%s[%s];",
-			g.cType(loop.Elem.Type), varName(loop.Elem.Name), read, field, k))
+			g.cType(loop.Elem.Type), declName(loop.Elem), read, field, k))
 	case bindsElem(loop):
 		vars = append(vars, fmt.Sprintf("const %s %s = %s.%s[%s];",
-			g.cType(loop.Elem.Type), varName(loop.Elem.Name), read, field, k))
+			g.cType(loop.Elem.Type), declName(loop.Elem), read, field, k))
 	}
 
 	if field == "e" && !bindsElem(loop) {
@@ -1806,11 +1814,15 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 	return []string{fmt.Sprintf("%s = %s;", name, arith(op, ast.TypeOf(s.Target), name, "1"))}, nil
 }
 
-// generateExprStmt lowers an expression statement, which can only be a call
-// to a named function or a method today, pop and remove among them, which
-// drop what they take (see dropTake), and replace, which drops the value
-// it moves out (see dropReplace).
+// generateExprStmt lowers an expression statement: a call to a named
+// function or a method, pop and remove among them, which drop what they
+// take (see dropTake), and replace, which drops the value it moves out
+// (see dropReplace); or an expression that only gives a value, which the
+// type checker warns about (see droppedValue).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
+	if onlyValue(stmt.X) {
+		return g.droppedValue(stmt.X)
+	}
 	call, ok := stmt.X.(*ast.Call)
 	if !ok {
 		return nil, []diag.Diagnostic{{
@@ -1847,6 +1859,37 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	return g.generateCall(id.Name, call)
 }
 
+// onlyValue reports whether e, an expression statement, only gives a
+// value, as the type checker reads one (see typeck's onlyValue): a union
+// built, a conversion, or a call of the builtin len.
+func onlyValue(e ast.Expr) bool {
+	if _, _, _, built := ast.Construction(e); built {
+		return true
+	}
+	call, ok := e.(*ast.Call)
+	return ok && (call.Conv != types.Invalid || isBuiltin(call, "len"))
+}
+
+// droppedValue lowers e, an expression statement that only gives a value
+// (see onlyValue): e is evaluated, everything it calls with it, and its
+// value dropped. The type checker rejects dropping an owned value, which
+// nothing would free, so one is an internal error here.
+func (g *generator) droppedValue(e ast.Expr) ([]string, []diag.Diagnostic) {
+	typ := ast.TypeOf(e)
+	if g.owned(typ) {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "internal error: a dropped value owns what it holds",
+			Span:     e.Spanned(),
+		}}
+	}
+	value, diags := g.expr(e, typ)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	return []string{fmt.Sprintf("(void)(%s);", value)}, nil
+}
+
 // generateVar declares a local. An immutable variable becomes a const C
 // local, so the C compiler holds it to the same rule, unless it owns a
 // list, which a move empties and its block's end frees. A variable without a
@@ -1862,7 +1905,7 @@ func (g *generator) generateVar(v *ast.Var) ([]string, []diag.Diagnostic) {
 		value = expr
 	}
 
-	decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), value)
+	decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), declName(v), value)
 	if !v.Mutable && !g.owned(v.Type) {
 		decl = "const " + decl
 	}
@@ -1886,7 +1929,7 @@ func (g *generator) generateMultiVar(m *ast.MultiVar) ([]string, []diag.Diagnost
 		if v.Name == ast.Blank {
 			continue
 		}
-		decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), varName(v.Name), src.field(names, i))
+		decl := fmt.Sprintf("%s %s = %s;", g.cType(v.Type), declName(v), src.field(names, i))
 		if !v.Mutable && !g.owned(v.Type) {
 			decl = "const " + decl
 		}
@@ -2850,6 +2893,17 @@ func (g *generator) varRef(v *ast.Var) string {
 // defines, for the same reason paramName does. The distinct prefix keeps a
 // variable and a parameter apart even if Tack ever let them share a name.
 func varName(name string) string { return "v_" + name }
+
+// declName returns the C name of the local v as its declaration writes
+// it: with __attribute__((unused)) after it when the front end warned
+// that v is never read (see ast.Var.Unused), so a strict C build does not
+// make that warning an error. Every other local is declared as it was.
+func declName(v *ast.Var) string {
+	if v.Unused {
+		return varName(v.Name) + " __attribute__((unused))"
+	}
+	return varName(v.Name)
+}
 
 // funcCName returns the C name of fn: a function's mangled name, and a
 // method's mangled from its receiver type's name and its own joined by a

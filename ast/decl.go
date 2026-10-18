@@ -189,6 +189,11 @@ type Var struct {
 	Type    types.Type // filled in by the type checker, Invalid before
 	Mutable bool       // declared with mut
 	Vis     Visibility `json:",omitempty"`
+
+	// Unused says the resolver or the type checker warned that the
+	// variable is declared and never read, so a backend can tell its own
+	// compiler the declaration may go unused.
+	Unused bool `json:",omitempty"`
 }
 
 // A variable is a declaration so that an Ident can point at it through Def,

@@ -172,7 +172,7 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	}
 
 	diags := r.resolve()
-	r.prog.Errors += len(diags)
+	r.prog.Errors += diag.ErrorCount(diags)
 	return diags
 }
 
@@ -714,8 +714,9 @@ func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
 		if !r.read[v] && !r.excused[v] && !r.damage.mayRead(v) {
+			v.Unused = true
 			d := diag.Diagnostic{
-				Severity: diag.Error,
+				Severity: diag.Warning,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
 				Span:     v.NameSpan,
 			}
@@ -1036,8 +1037,13 @@ func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic 
 		used = used || cl.Var != nil && r.read[cl.Var]
 	}
 	if bound && !used {
+		for _, cl := range s.Cases {
+			if cl.Var != nil {
+				cl.Var.Unused = true
+			}
+		}
 		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Error,
+			Severity: diag.Warning,
 			Message:  fmt.Sprintf("declared and not used: %s", s.Bind.Name),
 			Span:     s.Bind.NameSpan,
 		})

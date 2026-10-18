@@ -162,7 +162,7 @@ func (g *generator) caseBody(
 	if typ := cl.Var.Type; typ != types.Any {
 		value = fmt.Sprintf("*(const %s *)%s.ptr", g.cType(typ), tagRef)
 	}
-	decl := fmt.Sprintf("const %s %s = %s;", g.cType(cl.Var.Type), varName(cl.Var.Name), value)
+	decl := fmt.Sprintf("const %s %s = %s;", g.cType(cl.Var.Type), declName(cl.Var), value)
 	return append([]string{decl}, body...), nil
 }
 

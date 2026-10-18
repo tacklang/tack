@@ -152,7 +152,17 @@
 // no other function's lowered body names, a function of std the program
 // never calls among them, is declared with __attribute__((unused)), so
 // C's unused-function and unused-variable warnings never fire either (see
-// unused.go).
+// unused.go). So is a pooled string no body or global names, one only a
+// length computed here read, len("abc"). A local the front end warned is
+// never read (ast.Var.Unused) is declared v_x __attribute__((unused)), and
+// every other local as it was, so a program with such warnings still
+// compiles warning-free.
+//
+// An expression statement that only gives a value, a union built, a
+// conversion or a len, which the front end warns about, is evaluated,
+// everything it calls with it, and its value cast to void and dropped. The
+// type checker rejects dropping one that owns a list or a map, which
+// nothing would free, and the backend reports one as an internal error.
 //
 // A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
 // variable. Every read and write of it goes through the pointer, (*p_p),

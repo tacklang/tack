@@ -180,7 +180,7 @@ install-std` writes a copy of the runtime header (see "Builtins").
 
 `--check` runs every stage, code generation included, and builds
 nothing: no clang, no `--out`, no `-O` flag. It exits 0 when it finds no
-diagnostic and 1 when it finds any. A target holding a main package is
+error and 1 when it finds any; warnings are printed and fail nothing. A target holding a main package is
 checked as the program a build would compile, but a missing `func main`
 is reported without stopping the stages after the resolver. A directory or
 import path holding another package, or no `.tck` file, is checked as a
@@ -196,11 +196,11 @@ only holds a copy of the builtins' documentation. Named on its own,
 is clean when it matches the builtins built into the compiler, and
 otherwise an error saying to refresh it with `make std-copies`. With a dump flag,
 `--check` prints that stage's output, when the stages up to it found no
-problem, and the diagnostics of any later stage: `--check --ast` prints
+error, and the diagnostics of any later stage: `--check --ast` prints
 the trees on stdout and a type error on stderr, and exits 1; on syntax
 errors it prints the tree the parser recovered, each damaged part a node
 holding its span and, for a declaration, the name it was declaring. `--emit`
-and `--emit-header` produce nothing for a program with any diagnostic;
+and `--emit-header` produce nothing for a program with any error;
 a library's `--emit` is C with no `main`.
 
 ```sh
@@ -210,7 +210,11 @@ tack --check --res cmd/tool    # the resolved tree and every diagnostic
 
 Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when
 the program has errors or the build fails, and 2 when the command line is
-wrong.
+wrong. A warning, `warning:` where an error says `error:`, is something
+suspicious that stops nothing: a variable declared and never read, an
+import never used, a value computed and dropped. A program with only
+warnings builds, dumps and runs as one with none does, its warnings
+printed on stderr and its exit status 0.
 
 ```sh
 tack --emit examples/hello/main.tck > hello.c   # the C the backend emits
@@ -220,11 +224,11 @@ tack --emit examples/hello/main.tck > hello.c   # the C the backend emits
 
 Each stage is a package that takes a data structure and returns one, along with
 any diagnostics. Every stage runs, whatever an earlier one reported, so one
-run reports the syntax errors, the unresolved and unused names and the type
-errors of a program together: a variable declared and not used no longer
-hides every type error in its file. Code is generated only from a program
-no stage reported anything about; the backend checks that itself and
-refuses any other. The one stop is a file that does not lex, or a package
+run reports the syntax errors, the unresolved names, the type errors and
+the warnings of a program together: an error of one stage hides no other
+stage's. Code is generated only from a program no stage reported an error
+about, warnings aside; the backend checks that itself and refuses any
+other. The one stop is a file that does not lex, or a package
 whose files cannot be put together at all (a malformed `tack.mod`, a main
 package whose package clauses are wrong), after which the resolver and the
 type checker do not run.
@@ -242,10 +246,14 @@ parser got that far, and any name of its package when it did not; a bad
 statement hides the names used after it in its function, and, since it may
 have been a return, a guard or an assignment, everything the type checker
 would report after it there. A variable, global or import damaged source
-may have used is not reported unused. The driver reports the errors of a
-run sorted by file and by where each starts, at most 10 of them unless
+may have used is not reported unused. The driver reports the diagnostics
+of a run sorted by file and by where each starts, at most 10 errors unless
 `--max-errors` says otherwise, and then the line `too many errors: showing
-the first 10; --max-errors 0 shows them all` when it left some out.
+the first 10; --max-errors 0 shows them all` when it left some out. Only
+errors count toward the limit: the warnings among the errors shown are
+shown, so a warning never takes an error's place, and the report stops
+where the first error past the limit would be, leaving out what comes
+after it, warnings too.
 
 | Package    | Role                                                          |
 |------------|---------------------------------------------------------------|
@@ -516,7 +524,7 @@ makes for itself, which has a letter after `tack_`.
   capped by its struct's, must be at least as visible, or it is an error,
   `pub function Result exposes hidden, which is not pub` (`which is not
   lib or pub` for `lib`; `variable`, `field kind of Token` and `case
-  binary of Expr` for the others). A `pub` or `lib` global is never reported as
+  binary of Expr` for the others). A `pub` or `lib` global is never warned of as
   unused, since the packages that read it may not be in the program; a
   private one still is. `main` packages cannot be imported, so `pub` and
   `lib` mean nothing there and are errors wherever written, on a
@@ -1004,8 +1012,9 @@ makes for itself, which has a letter after `tack_`.
   switch has no init statement; only a type switch binds a name, as in
   switch v := x.(type)`, and `switch mut v := a.(type)` is `cannot use mut
   on a type switch variable`. `switch a.(type) { ... }` binds nothing. `v`
-  is used if any case reads it, and otherwise is `declared and not used:
-  v` at the binding, since a case that does not need it need not read it.
+  is used if any case reads it, and otherwise is warned of, `declared and
+  not used: v`, at the binding, since a case that does not need it need
+  not read it.
   `v` may reuse no name visible at the switch, as no variable may, so
   `switch a := a.(type)` is `a is already declared`. A case's values are
   types: a type named twice, in one case or two, is `int64 appears twice
@@ -1779,11 +1788,15 @@ makes for itself, which has a letter after `tack_`.
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A call
-  statement must do something: one that only gives a value, a conversion
-  or `len`, as a union built does, is `int8(5) is not used` or
-  `len(s) is not used`, even when an argument is a call, `int8(f())`, as
-  Go reports it; one with an error of its own, a conversion that can fail
-  among them, is reported for that alone. A function that declares a result must end in a terminating
+  statement should do something: one that only gives a value, a
+  conversion or `len`, as a union built does, is warned of, `int8(5) is
+  not used` or `len(s) is not used`, even when an argument is a call,
+  `int8(f())`, which Go makes an error. It still runs: it is evaluated,
+  its arguments' calls with it, and its value dropped. One with an error
+  of its own, a conversion that can fail among them, is reported for that
+  alone, and one whose value holds a list, which nothing would free, is
+  an error, `Value.items returns Value, which holds a list and cannot be
+  dropped; bind it to a variable`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
   terminate, a `for` with no condition that no
@@ -2024,7 +2037,7 @@ makes for itself, which has a letter after `tack_`.
   From another package it is `ast.Expr.int(5)`, its cases exactly as
   visible as the union, `Expr is not pub in package calc/ast`. Nothing
   makes a union of a payload implicitly. A union built as a statement is
-  `Expr.int(5) is not used`. A union has no literal, `Expr cannot be
+  warned of, `Expr.int(5) is not used`. A union has no literal, `Expr cannot be
   written as a literal; only arrays and structs can`, no field, `Expr has
   no field int`, and is no function, `cannot call Expr; it is a type`. A
   case is no method: `e.int(5)` on a value `e` is `Expr has no method
@@ -2052,7 +2065,7 @@ makes for itself, which has a letter after `tack_`.
   range loop reads one. Like any variable it may reuse no name visible at
   the switch, `n is already declared`, `fmt is an imported package and
   cannot be redeclared`, `cannot use int64 as a name; it is a type`, and
-  one its clause never reads is `declared and not used: n`. It cannot be
+  one its clause never reads is warned of, `declared and not used: n`. It cannot be
   assigned, `cannot assign to immutable variable n`, passed as `mut`,
   `cannot pass mut n: n is immutable; declare it with mut`, or moved,
   `cannot move l: it refers to a union's payload in place, and a payload
@@ -2388,8 +2401,10 @@ makes for itself, which has a letter after `tack_`.
   (see size limits).
 - A variable is in scope from its declaration to the end of its block. No
   variable or parameter may reuse the name of another variable or parameter
-  in scope, package-level ones included, and a variable that is never read is
-  an error. Reusing a function's name is allowed.
+  in scope, package-level ones included. A variable that is never read
+  is a warning, `declared and not used: x`, and so is an import no name
+  uses, `imported and not used: fmt`; neither stops the program from
+  building. Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, functions'
   names as values, calls, a call's `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix

@@ -6,6 +6,15 @@
 // into the source, and optionally related diagnostics, such as a note
 // pointing at an earlier declaration a duplicate collides with.
 //
+// A Severity is Error, Warning or Note. An error stops compilation: a
+// program with one is never generated, built or dumped. A warning reports
+// something suspicious that stops nothing, a variable declared and never
+// read, an import never used, a value computed and dropped, and is
+// printed as one; a program with only warnings compiles as one with none
+// does. A note only adds to another diagnostic, among its Related.
+// ErrorCount and HasErrors count the errors of a list, which is what
+// every stage's and the driver's decisions count, warnings aside.
+//
 // Render and RenderAll produce one compact line per diagnostic, which the
 // golden tests pin. RenderPretty and RenderAllPretty add the offending source
 // line with a marker under the span, for the command line: a caret under its

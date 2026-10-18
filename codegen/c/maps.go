@@ -617,7 +617,7 @@ func (g *generator) mapRange(loop *ast.ForRange, x string, body []string) []stri
 				fmt.Sprintf(
 					"const %s *const %s = &%s.%s;",
 					g.cType(v.Type),
-					varName(v.Name),
+					declName(v),
 					entry,
 					member,
 				),
@@ -626,7 +626,7 @@ func (g *generator) mapRange(loop *ast.ForRange, x string, body []string) []stri
 		}
 		vars = append(
 			vars,
-			fmt.Sprintf("const %s %s = %s.%s;", g.cType(v.Type), varName(v.Name), entry, member),
+			fmt.Sprintf("const %s %s = %s.%s;", g.cType(v.Type), declName(v), entry, member),
 		)
 	}
 	bind(loop.Var, "key")

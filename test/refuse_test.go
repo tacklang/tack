@@ -20,8 +20,8 @@ import (
 // the loader built straight to the backend, as a caller that forgot to
 // look at the diagnostics would. It fails t when the front end reported
 // an error and the backend generated code anyway, or when the program's
-// count of its errors is not the number reported. It returns the
-// diagnostics reported.
+// count of its errors is not the number of errors reported, warnings
+// aside. It returns the diagnostics reported.
 func checkRefused(t *testing.T, p program) []diag.Diagnostic {
 	t.Helper()
 	l := p.loader()
@@ -43,13 +43,14 @@ func checkRefused(t *testing.T, p program) []diag.Diagnostic {
 		}
 		return diags
 	}
-	if prog.Errors != len(diags) {
-		t.Errorf("the program counts %d errors; %d were reported", prog.Errors, len(diags))
+	errs := diag.ErrorCount(diags)
+	if prog.Errors != errs {
+		t.Errorf("the program counts %d errors; %d were reported", prog.Errors, errs)
 	}
 	backend, _ := codegen.Get(frontEndBackend)
 	out, refused := backend.Generate(prog, stdtest.MustBuiltins())
-	if len(diags) > 0 && (out != nil || len(refused) == 0) {
-		t.Errorf("code was generated from a program with %d errors", len(diags))
+	if errs > 0 && (out != nil || len(refused) == 0) {
+		t.Errorf("code was generated from a program with %d errors", errs)
 	}
 	return diags
 }
@@ -99,18 +100,17 @@ func TestCodegenRefusesEveryInvalidProgram(t *testing.T) {
 // bad nodes and all, and names an earlier error left bound to nothing.
 // It checks that no stage panics or hangs, that a tree with a bad node
 // came with a syntax error, and that the backend refuses every program
-// with an error (see checkRefused). The seeds are every invalid example.
+// with an error (see checkRefused). The seeds are every invalid example
+// and every example that compiles with warnings.
 func FuzzFrontEndAfterErrors(f *testing.F) {
-	data, err := os.ReadFile(filepath.FromSlash(invalid.Path))
-	if err != nil {
-		f.Fatal(err)
-	}
-	_, cases, err := invalid.Parse(data)
-	if err != nil {
-		f.Fatal(err)
-	}
-	for _, c := range cases {
-		f.Add(c.Source)
+	for _, path := range []string{invalid.Path, invalid.WarningsPath} {
+		cases, err := invalid.Load(filepath.FromSlash(path))
+		if err != nil {
+			f.Fatal(err)
+		}
+		for _, c := range cases {
+			f.Add(c.Source)
+		}
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
 		done := make(chan string, 1)
@@ -122,7 +122,7 @@ func FuzzFrontEndAfterErrors(f *testing.F) {
 			}()
 			p := singleFile("main.tck", src)
 			diags := checkRefused(t, p)
-			if hasBadNode(t, p) && len(diags) == 0 {
+			if hasBadNode(t, p) && !diag.HasErrors(diags) {
 				done <- "a tree with a bad node came with no error"
 				return
 			}

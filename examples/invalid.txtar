@@ -953,30 +953,6 @@ any-switch-type-in-tagless/main.tck:5:10: error: .(type) can only be the tag of 
    |	         ^~~~~~~~
 06 |	    }
 
--- any-switch-unused-binding/main.tck --
-package main
-
-func f(a any) int64 {
-    switch v := a.(type) {
-    case int64:
-        return 1
-    default:
-        return 0
-    }
-}
-
-func main() {
-}
--- any-switch-unused-binding/expected --
-stage: resolve
----
-
-any-switch-unused-binding/main.tck:4:12: error: declared and not used: v
-03 |	func f(a any) int64 {
-04 |	    switch v := a.(type) {
-   |	           ^
-05 |	    case int64:
-
 -- any-switch-var-immutable/main.tck --
 package main
 
@@ -10240,41 +10216,6 @@ func-value-hidden/main.tck:11:12: note: the function value step is declared here
    |	           ^~~~
 12 |	    return step(x)
 
--- func-value-hidden-unused/main.tck --
-package main
-
-func step(x int64) int64 {
-    return x + 1
-}
-
-func run(fs [2]func(int64) int64) int64 {
-    mut v := 0
-    for _, step := range fs {
-        v = step(v)
-    }
-    return v
-}
-
-func main() {
-    if run([2]func(int64) int64{step, step}) == 2 {
-        print("two")
-    }
-}
--- func-value-hidden-unused/expected --
-stage: resolve
----
-
-func-value-hidden-unused/main.tck:9:12: error: declared and not used: step
-08 |	    mut v := 0
-09 |	    for _, step := range fs {
-   |	           ^~~~
-10 |	        v = step(v)
-func-value-hidden-unused/main.tck:10:13: note: this call calls the function step, not the variable; rename one of them
-09 |	    for _, step := range fs {
-10 |	        v = step(v)
-   |	            ^~~~
-11 |	    }
-
 -- func-value-literal/main.tck --
 package main
 
@@ -13289,23 +13230,6 @@ global-type-names-itself/main.tck:3:12: error: initialization cycle: a refers to
    |	           ^
 04 |	
 
--- global-unused/main.tck --
-package main
-
-var limit = 10
-
-func main() {
-}
--- global-unused/expected --
-stage: resolve
----
-
-global-unused/main.tck:3:5: error: declared and not used: limit
-02 |	
-03 |	var limit = 10
-   |	    ^~~~~
-04 |	
-
 -- guard-after-division-and/main.tck --
 package main
 
@@ -15199,7 +15123,7 @@ func main() {
     late := 2
 }
 -- keep-going-bad-stmt-unused-after/expected --
-stage: parse+resolve
+stage: parse
 ---
 
 keep-going-bad-stmt-unused-after/main.tck:5:13: error: expected ';' found 'n'
@@ -15208,7 +15132,7 @@ keep-going-bad-stmt-unused-after/main.tck:5:13: error: expected ';' found 'n'
    |	            ^
 06 |	    late := 2
 
-keep-going-bad-stmt-unused-after/main.tck:6:5: error: declared and not used: late
+keep-going-bad-stmt-unused-after/main.tck:6:5: warning: declared and not used: late
 05 |	    exit(n) n
 06 |	    late := 2
    |	    ^~~~
@@ -15370,10 +15294,10 @@ func main() {
     print(s)
 }
 -- keep-going-unused-and-type/expected --
-stage: resolve+typeck
+stage: typeck
 ---
 
-keep-going-unused-and-type/main.tck:4:5: error: declared and not used: x
+keep-going-unused-and-type/main.tck:4:5: warning: declared and not used: x
 03 |	func main() {
 04 |	    x := 1
    |	    ^
@@ -35023,6 +34947,34 @@ union-build-no-case/main.tck:9:12: error: U has no case none
    |	           ^~~~
 10 |	    if u == v {
 
+-- union-build-owned-dropped/main.tck --
+package main
+
+type Value union {
+    items list[int64]
+    none
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    Value.items(l)
+}
+-- union-build-owned-dropped/expected --
+stage: typeck
+---
+
+union-build-owned-dropped/main.tck:10:5: error: Value.items returns Value, which holds a list and cannot be dropped; bind it to a variable
+09 |	    l := make(list[int64], c_allocator)
+10 |	    Value.items(l)
+   |	    ^~~~~~~~~~~~~~
+11 |	}
+
+union-build-owned-dropped/main.tck:10:5: warning: Value.items(l) is not used
+09 |	    l := make(list[int64], c_allocator)
+10 |	    Value.items(l)
+   |	    ^~~~~~~~~~~~~~
+11 |	}
+
 -- union-build-payload-count/main.tck --
 package main
 
@@ -35114,26 +35066,6 @@ union-build-spread/main.tck:8:18: error: cannot use ... in a call to non-variadi
 07 |	func f(xs ...int64) U {
 08 |	    return U.a(xs...)
    |	                 ^~~
-09 |	}
-
--- union-build-unused/main.tck --
-package main
-
-type U union {
-    a int64
-}
-
-func main() {
-    U.a(5)
-}
--- union-build-unused/expected --
-stage: typeck
----
-
-union-build-unused/main.tck:8:5: error: U.a(5) is not used
-07 |	func main() {
-08 |	    U.a(5)
-   |	    ^~~~~~
 09 |	}
 
 -- union-call-type/main.tck --
@@ -36960,30 +36892,6 @@ union-type-param-switch/main.tck:17:12: error: operator == is not defined on S
    |	           ^
 18 |	    case int(n):
 
--- union-unused-binding/main.tck --
-package main
-
-type U union {
-    a int64
-    b
-}
-
-func main() {
-    switch U.b {
-    case a(n):
-    case b:
-    }
-}
--- union-unused-binding/expected --
-stage: typeck
----
-
-union-unused-binding/main.tck:10:12: error: declared and not used: n
-09 |	    switch U.b {
-10 |	    case a(n):
-   |	           ^
-11 |	    case b:
-
 -- union-view-payload/main.tck --
 package main
 
@@ -37746,22 +37654,6 @@ unterminated-string-eof/main.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~
 
 -- unterminated-string-eof/no-final-newline --
--- unused-stmt-conversion/main.tck --
-package main
-
-func main() {
-    int8(5)
-}
--- unused-stmt-conversion/expected --
-stage: typeck
----
-
-unused-stmt-conversion/main.tck:4:5: error: int8(5) is not used
-03 |	func main() {
-04 |	    int8(5)
-   |	    ^~~~~~~
-05 |	}
-
 -- unused-stmt-conversion-can-fail/main.tck --
 package main
 
@@ -37798,153 +37690,6 @@ unused-stmt-conversion-invalid/main.tck:4:5: error: cannot convert string to int
    |	    ^~~~~~~~~
 05 |	}
 
--- unused-stmt-conversion-of-call/main.tck --
-package main
-
-func f() int8 {
-    print("f\n")
-    return 1
-}
-
-func main() {
-    int8(f())
-}
--- unused-stmt-conversion-of-call/expected --
-stage: typeck
----
-
-unused-stmt-conversion-of-call/main.tck:9:5: error: int8(f()) is not used
-08 |	func main() {
-09 |	    int8(f())
-   |	    ^~~~~~~~~
-10 |	}
-
--- unused-stmt-conversion-types/main.tck --
-package main
-
-func main() {
-    int64(1)
-    uint64(1)
-    unsafe_size_t(3)
-    unsafe_uintptr_t(3)
-}
--- unused-stmt-conversion-types/expected --
-stage: typeck
----
-
-unused-stmt-conversion-types/main.tck:4:5: error: int64(1) is not used
-03 |	func main() {
-04 |	    int64(1)
-   |	    ^~~~~~~~
-05 |	    uint64(1)
-
-unused-stmt-conversion-types/main.tck:5:5: error: uint64(1) is not used
-04 |	    int64(1)
-05 |	    uint64(1)
-   |	    ^~~~~~~~~
-06 |	    unsafe_size_t(3)
-
-unused-stmt-conversion-types/main.tck:6:5: error: unsafe_size_t(3) is not used
-05 |	    uint64(1)
-06 |	    unsafe_size_t(3)
-   |	    ^~~~~~~~~~~~~~~~
-07 |	    unsafe_uintptr_t(3)
-
-unused-stmt-conversion-types/main.tck:7:5: error: unsafe_uintptr_t(3) is not used
-06 |	    unsafe_size_t(3)
-07 |	    unsafe_uintptr_t(3)
-   |	    ^~~~~~~~~~~~~~~~~~~
-08 |	}
-
--- unused-stmt-defer/main.tck --
-package main
-
-func main() {
-    defer {
-        len("abc")
-    }
-}
--- unused-stmt-defer/expected --
-stage: typeck
----
-
-unused-stmt-defer/main.tck:5:9: error: len("abc") is not used
-04 |	    defer {
-05 |	        len("abc")
-   |	        ^~~~~~~~~~
-06 |	    }
-
--- unused-stmt-for-clauses/main.tck --
-package main
-
-func main() {
-    for int8(5); false; int8(6) {
-    }
-}
--- unused-stmt-for-clauses/expected --
-stage: typeck
----
-
-unused-stmt-for-clauses/main.tck:4:9: error: int8(5) is not used
-03 |	func main() {
-04 |	    for int8(5); false; int8(6) {
-   |	        ^~~~~~~
-05 |	    }
-
-unused-stmt-for-clauses/main.tck:4:25: error: int8(6) is not used
-03 |	func main() {
-04 |	    for int8(5); false; int8(6) {
-   |	                        ^~~~~~~
-05 |	    }
-
--- unused-stmt-generic/main.tck --
-package main
-
-type Counted interface {
-    count() int32
-}
-
-type S struct {
-    n int32
-}
-
-func (s S) count() int32 {
-    return s.n
-}
-
-func g[C Counted](c C) {
-    int64(c.count())
-}
-
-func main() {
-    g(S{n: 1})
-}
--- unused-stmt-generic/expected --
-stage: typeck
----
-
-unused-stmt-generic/main.tck:16:5: error: int64(c.count()) is not used
-15 |	func g[C Counted](c C) {
-16 |	    int64(c.count())
-   |	    ^~~~~~~~~~~~~~~~
-17 |	}
-
--- unused-stmt-len/main.tck --
-package main
-
-func main() {
-    len("abc")
-}
--- unused-stmt-len/expected --
-stage: typeck
----
-
-unused-stmt-len/main.tck:4:5: error: len("abc") is not used
-03 |	func main() {
-04 |	    len("abc")
-   |	    ^~~~~~~~~~
-05 |	}
-
 -- unused-stmt-len-invalid/main.tck --
 package main
 
@@ -37960,74 +37705,6 @@ unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a v
 04 |	    len(5)
    |	        ^
 05 |	}
-
--- unused-stmt-len-kinds/main.tck --
-package main
-
-func f() string {
-    return "abc"
-}
-
-func main() {
-    a := [2]int64{1, 2}
-    len(a)
-    len(a[:])
-    mut l := make(list[int64], c_allocator)
-    len(l)
-    len(f())
-}
--- unused-stmt-len-kinds/expected --
-stage: typeck
----
-
-unused-stmt-len-kinds/main.tck:9:5: error: len(a) is not used
-08 |	    a := [2]int64{1, 2}
-09 |	    len(a)
-   |	    ^~~~~~
-10 |	    len(a[:])
-
-unused-stmt-len-kinds/main.tck:10:5: error: len(a[:]) is not used
-09 |	    len(a)
-10 |	    len(a[:])
-   |	    ^~~~~~~~~
-11 |	    mut l := make(list[int64], c_allocator)
-
-unused-stmt-len-kinds/main.tck:12:5: error: len(l) is not used
-11 |	    mut l := make(list[int64], c_allocator)
-12 |	    len(l)
-   |	    ^~~~~~
-13 |	    len(f())
-
-unused-stmt-len-kinds/main.tck:13:5: error: len(f()) is not used
-12 |	    len(l)
-13 |	    len(f())
-   |	    ^~~~~~~~
-14 |	}
-
--- unused-stmt-method/main.tck --
-package main
-
-type S struct {
-    x int8
-}
-
-func (s S) m() {
-    int64(s.x)
-}
-
-func main() {
-    s := S{x: 1}
-    s.m()
-}
--- unused-stmt-method/expected --
-stage: typeck
----
-
-unused-stmt-method/main.tck:8:5: error: int64(s.x) is not used
-07 |	func (s S) m() {
-08 |	    int64(s.x)
-   |	    ^~~~~~~~~~
-09 |	}
 
 -- unused-with-undefined-value/main.tck --
 package main
@@ -38224,22 +37901,6 @@ var-type-mismatch/main.tck:4:19: error: cannot use string as int64 in declaratio
 04 |	    var x int64 = "one"
    |	                  ^~~~~
 05 |	    code, fits := int32(x)
-
--- var-unused/main.tck --
-package main
-
-func main() {
-    x := 1
-}
--- var-unused/expected --
-stage: resolve
----
-
-var-unused/main.tck:4:5: error: declared and not used: x
-03 |	func main() {
-04 |	    x := 1
-   |	    ^
-05 |	}
 
 -- var-use-before-decl/main.tck --
 package main

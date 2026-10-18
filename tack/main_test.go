@@ -166,6 +166,17 @@ func invalidCases(t testing.TB) []invalid.Case {
 	return cases
 }
 
+// seedCases returns the cases in examples/invalid.txtar and
+// examples/warnings.txtar, the fuzzers' seeds besides the examples.
+func seedCases(t testing.TB) []invalid.Case {
+	t.Helper()
+	warned, err := invalid.Load(invalid.WarningsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(invalidCases(t), warned...)
+}
+
 // invalidExample writes the program of the invalid case name to a fresh temp
 // directory and returns its path.
 func invalidExample(t *testing.T, name string) string {
@@ -382,7 +393,7 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := compile(res, single, c.New(), builtins, dumpNone, 0)
+	want, _, err := compile(res, single, c.New(), builtins, dumpNone, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,15 +571,79 @@ func TestMaxErrors(t *testing.T) {
 	}
 }
 
+// TestMaxErrorsCountsOnlyErrors checks that --max-errors counts errors
+// alone: twelve warnings, past the default limit of 10, are all printed,
+// with no line saying some were left out, and the run succeeds; and with
+// errors among them, the report stops at the first error past the limit,
+// the warnings before it printed, so no error is left out for a warning:
+// with a limit of one, the first error and the three warnings before the
+// second, which is left out.
+func TestMaxErrorsCountsOnlyErrors(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc main() {\n")
+	for i := range 12 {
+		b.WriteString("    x" + strconv.Itoa(i) + " := 1\n")
+	}
+	b.WriteString("}\n")
+	warned := runTack(t, "--emit", writeSource(t, []byte(b.String())))
+	if warned.code != exitOK || warned.stdout == "" {
+		t.Fatalf("12 warnings: exit %d, stdout %q, stderr %q",
+			warned.code, warned.stdout, warned.stderr)
+	}
+	if got := strings.Count(warned.stderr, ": warning: declared and not used"); got != 12 {
+		t.Errorf("12 warnings: printed %d warnings:\n%s", got, warned.stderr)
+	}
+	if strings.Contains(warned.stderr, "too many errors") {
+		t.Errorf("12 warnings: the too many errors line printed:\n%s", warned.stderr)
+	}
+
+	// An unused local, a type error, two unused locals, and a type error.
+	src := "package main\n\nfunc main() {\n" +
+		"    a := 1\n    b := 1 + true\n    c := 1\n    d := 1\n    e := 1 + true\n}\n"
+	r := runTack(t, "--max-errors", "1", "--emit", writeSource(t, []byte(src)))
+	assertDiagnostics(t, r)
+	if got := strings.Count(r.stderr, ": error:"); got != 1 {
+		t.Errorf("printed %d errors, want 1:\n%s", got, r.stderr)
+	}
+	for _, w := range []string{"main.tck:4:5: warning", "main.tck:6:5: warning", "main.tck:7:5: warning"} {
+		if !strings.Contains(r.stderr, w) {
+			t.Errorf("stderr lacks %q:\n%s", w, r.stderr)
+		}
+	}
+	more := "too many errors: showing the first 1; --max-errors 0 shows them all\n"
+	if !strings.HasSuffix(r.stderr, more) {
+		t.Errorf("stderr does not end %q:\n%s", more, r.stderr)
+	}
+}
+
+// TestDumpsWithWarnings checks that a dump of a program with warnings is
+// written, --res and --emit alone and with --check, the warnings going
+// to stderr and the run succeeding.
+func TestDumpsWithWarnings(t *testing.T) {
+	path := writeSource(t, []byte("package main\n\nfunc main() {\n    x := 1\n}\n"))
+	for _, args := range [][]string{
+		{"--res"}, {"--emit"}, {"--check", "--res"}, {"--check", "--emit"}, {"--check"},
+	} {
+		r := runTack(t, append(args, path)...)
+		warned := strings.Contains(r.stderr, "main.tck:4:5: warning: declared and not used: x")
+		if r.code != exitOK || !warned {
+			t.Errorf("%q: exit %d, stderr %q", args, r.code, r.stderr)
+		}
+		if (len(args) > 1 || args[0] != "--check") && r.stdout == "" {
+			t.Errorf("%q: no dump", args)
+		}
+	}
+}
+
 // TestLaterStagesRunAfterErrors checks that an error one stage reports
-// does not hide another stage's: a syntax error, a variable declared and
-// not used, which the resolver reports, and a type error, which the type
+// does not hide another stage's: a syntax error, a name that names
+// nothing, which the resolver reports, and a type error, which the type
 // checker does, in three functions of one file are all reported, once
 // each, in the order they appear, with nothing generated.
 func TestLaterStagesRunAfterErrors(t *testing.T) {
 	src := "package main\n\n" +
 		"func a() {\n    x := 1 1\n}\n\n" +
-		"func b() {\n    unused := 1\n}\n\n" +
+		"func b() {\n    print(nowhere)\n}\n\n" +
 		"func c() {\n    var s string = 5\n    print(s)\n}\n\n" +
 		"func main() {\n}\n"
 	path := writeSource(t, []byte(src))
@@ -580,7 +655,7 @@ func TestLaterStagesRunAfterErrors(t *testing.T) {
 		assertDiagnostics(t, r)
 		want := []string{
 			"main.tck:4:12: error:",
-			"main.tck:8:5: error: declared and not used: unused",
+			"main.tck:8:11: error: undefined: nowhere",
 			"main.tck:12:20: error:",
 		}
 		last := -1
@@ -606,11 +681,11 @@ func TestLaterStagesRunAfterErrors(t *testing.T) {
 // together, and none of the type checker's.
 func TestResDumpReportsEveryFrontEndError(t *testing.T) {
 	src := "package main\n\nfunc a() {\n    x := 1 1\n}\n\n" +
-		"func main() {\n    unused := 1\n    var s string = 5\n    print(s)\n}\n"
+		"func main() {\n    print(nowhere)\n    var s string = 5\n    print(s)\n}\n"
 	r := runTack(t, "--res", writeSource(t, []byte(src)))
 	assertDiagnostics(t, r)
 	if !strings.Contains(r.stderr, "main.tck:4:12: error:") ||
-		!strings.Contains(r.stderr, "declared and not used: unused") {
+		!strings.Contains(r.stderr, "error: undefined: nowhere") {
 		t.Errorf("stderr lacks the parser's or the resolver's error:\n%s", r.stderr)
 	}
 	if got := strings.Count(r.stderr, ": error:"); got != 2 {
@@ -925,14 +1000,14 @@ func TestNonUTF8IsRejectedWithDiagnostics(t *testing.T) {
 }
 
 // checkCoherent checks that r is internally consistent for a dump:
-// success with output only on stdout, or failure with output only on
-// stderr.
+// success with output on stdout and nothing but warnings on stderr, or
+// failure with output only on stderr.
 func checkCoherent(t *testing.T, r result) {
 	t.Helper()
 	switch r.code {
 	case exitOK:
-		if r.stderr != "" {
-			t.Errorf("succeeded but wrote to stderr: %q", r.stderr)
+		if !onlyWarnings(r.stderr) {
+			t.Errorf("succeeded but wrote more than warnings to stderr: %q", r.stderr)
 		}
 	case exitFailure:
 		if r.stdout != "" || r.stderr == "" {
@@ -943,9 +1018,19 @@ func checkCoherent(t *testing.T, r result) {
 	}
 }
 
+// onlyWarnings reports whether stderr, what a run that succeeded wrote
+// there, is nothing, or warnings and no error.
+func onlyWarnings(stderr string) bool {
+	if stderr == "" {
+		return true
+	}
+	return strings.Contains(stderr, ": warning: ") && !strings.Contains(stderr, ": error: ")
+}
+
 // FuzzRunEmit runs the driver's --emit on arbitrary source as a single
 // file and checks the result is coherent, never a panic. It is seeded with
-// every Tack file under examples/, each alone, and every invalid case.
+// every Tack file under examples/, each alone, and every case of
+// examples/invalid.txtar and examples/warnings.txtar.
 func FuzzRunEmit(f *testing.F) {
 	paths, _ := filepath.Glob(filepath.Join(examplesDir, "*", "*.tck"))
 	for _, p := range paths {
@@ -953,7 +1038,7 @@ func FuzzRunEmit(f *testing.F) {
 			f.Add(src)
 		}
 	}
-	for _, tc := range invalidCases(f) {
+	for _, tc := range seedCases(f) {
 		f.Add(tc.Source)
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
@@ -1172,6 +1257,50 @@ func buildTargetWithClang(t *testing.T, name, target string) string {
 	}
 	assertEmptyDir(t, tmp)
 	return bin
+}
+
+// The unused-warnings example declares a local it never reads, imports
+// a package it never uses, and drops the value of a call of len. Each is
+// a warning: the build and --check exit 0, print nothing on stdout and
+// the three warnings on stderr, and the program runs.
+func TestBuiltUnusedWarningsRuns(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want := []string{
+		"main.tck:7:8: warning: imported and not used: fmt",
+		"main.tck:11:5: warning: declared and not used: count",
+		"main.tck:12:5: warning: len(l) is not used",
+	}
+	checkWarnings := func(what string, r result) {
+		t.Helper()
+		if r.code != exitOK || r.stdout != "" {
+			t.Fatalf("%s: exit %d, stdout %q, stderr %q", what, r.code, r.stdout, r.stderr)
+		}
+		for _, w := range want {
+			if !strings.Contains(r.stderr, w) {
+				t.Errorf("%s: stderr lacks %q:\n%s", what, w, r.stderr)
+			}
+		}
+		if n := strings.Count(r.stderr, "warning:"); n != len(want) {
+			t.Errorf("%s: %d warnings, want %d:\n%s", what, n, len(want), r.stderr)
+		}
+		if strings.Contains(r.stderr, "error") {
+			t.Errorf("%s: an error among the warnings:\n%s", what, r.stderr)
+		}
+	}
+	checkWarnings("--check", runTack(t, "--check", example("unused-warnings")))
+
+	isolateTemp(t)
+	bin := filepath.Join(t.TempDir(), "unused-warnings")
+	checkWarnings("build", runTack(t, "--out", bin, example("unused-warnings")))
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("unused-warnings exited with %v, want status 0", err)
+	}
+	if string(out) != "ran\n" {
+		t.Errorf("unused-warnings printed %q, want %q", out, "ran\n")
+	}
 }
 
 func TestBuiltFibExits55(t *testing.T) {

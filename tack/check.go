@@ -20,17 +20,18 @@ import (
 // whole pipeline on the target, through code generation, without building
 // or running any toolchain, and reports every diagnostic it finds; with a
 // dump flag, it also prints that dump, or writes tack.h for
-// --emit-header, when the stages up to it found no problem. The dump goes
+// --emit-header, when the stages up to it found no error. The dump goes
 // to stdout and the diagnostics to stderr, both when there is a dump and
-// diagnostics from a later stage, and any diagnostic makes the run fail.
+// diagnostics from a later stage, and any error makes the run fail; a
+// warning is written and does not.
 //
 // A directory or import path holding a package other than main, or no
 // package, is checked as a library (see loader.Loader.Lib), and a single
 // file whose package is not main as a library of one package. A main
 // package with no main function is reported, and checked on all the
 // same. The generated code and tack.h exist only for a program or
-// library with no diagnostic at all.
-func executeCheck(opts options, env environment, stdout io.Writer) error {
+// library with no error.
+func executeCheck(opts options, env environment, stdout, stderr io.Writer) error {
 	// checkCombination has already confirmed the backend exists.
 	backend, _ := codegen.Get(opts.backendName)
 	lib, err := findStd(env)
@@ -63,16 +64,16 @@ func executeCheck(opts options, env environment, stdout io.Writer) error {
 	if err := writeCheckOutput(opts.dump, res.Program, backend, out, diags, stdout); err != nil {
 		return err
 	}
-	if len(diags) > 0 {
+	if diag.HasErrors(diags) {
 		return diagnostics(res, diags, opts.maxErrors)
 	}
-	return nil
+	return writeWarnings(stderr, res, diags, opts.maxErrors)
 }
 
 // writeCheckOutput writes what --check with the dump d produced for prog,
 // checked by backend: out, the dump's output, to stdout, when there is
 // one, or tack.h into the package directories for --emit-header, when the
-// check found no diagnostic, diags.
+// check found no error among diags.
 func writeCheckOutput(
 	d dump,
 	prog *ast.Program,
@@ -82,7 +83,7 @@ func writeCheckOutput(
 	stdout io.Writer,
 ) error {
 	switch {
-	case d == dumpHeader && len(diags) == 0:
+	case d == dumpHeader && !diag.HasErrors(diags):
 		return writeHeaders(prog, backend.Header(prog))
 	case out != nil:
 		return writeAll(stdout, withTrailingNewline(out))
@@ -150,16 +151,17 @@ func loadCheck(
 // checkProgram runs the pipeline on res, a program or library loaded in
 // full, with builtins, through code generation, and returns the
 // diagnostics it found with the output of d, the dump asked for, when
-// the stages up to it found none: the resolved tree for --res, the
+// the stages up to it found no error: the resolved tree for --res, the
 // generated code for --emit, nil otherwise and for every other dump,
 // which executeCheck takes care of. single says the program is a single
 // file. As without --check, every stage runs whatever an earlier one
 // reported, unless the loader built no program. A main package with no
 // main function is reported too, which no stage depends on: it is not
 // counted on the program as an error, so code generation still runs and
-// reports what it finds when nothing else was, but the generated code is
-// dropped, since a program with any diagnostic has none. Any other error
-// keeps code generation from running at all (see codegen.Refuse).
+// reports what it finds when no other error was, but the generated code is
+// dropped, since a program with any error has none. Any other error keeps
+// code generation from running at all (see codegen.Refuse). Warnings stop
+// nothing, and are returned with the rest.
 func checkProgram(
 	res *loader.Result,
 	single bool,
@@ -178,7 +180,7 @@ func checkProgram(
 	r.MainOptional = true
 	diags = append(diags, r.Resolve()...)
 	var out []byte
-	if d == dumpRes && len(diags) == 0 {
+	if d == dumpRes && !diag.HasErrors(diags) {
 		var err error
 		if out, err = resolvedDump(prog, single); err != nil {
 			return nil, nil, err
@@ -186,17 +188,17 @@ func checkProgram(
 	}
 
 	diags = append(diags, typeck.New(prog, res.Files, builtins).Check()...)
-	if len(diags) > 0 {
+	if diag.HasErrors(diags) {
 		return out, append(missing, diags...), nil
 	}
 	generated, genDiags := backend.Generate(prog, builtins)
 	switch {
 	case len(genDiags) > 0 || len(missing) > 0:
-		return out, append(missing, genDiags...), nil
+		return out, append(append(missing, genDiags...), diags...), nil
 	case d == dumpEmit:
 		out = generated
 	}
-	return out, nil, nil
+	return out, diags, nil
 }
 
 // isLibrary reports whether prog is a library, which --check loads: its

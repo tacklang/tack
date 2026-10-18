@@ -1233,7 +1233,7 @@ import-clashes-with-global-in-other-file/b.tck:3:5: note: previous declaration o
    |	    ^~~~~
 04 |	
 
-import-clashes-with-global-in-other-file/b.tck:3:5: error: declared and not used: lexer
+import-clashes-with-global-in-other-file/b.tck:3:5: warning: declared and not used: lexer
 02 |	
 03 |	var lexer int64 = 1
    |	    ^~~~~
@@ -1462,7 +1462,7 @@ func main() {
 stage: resolve
 ---
 
-import-duplicate-name/main.tck:3:8: error: imported and not used: lexer
+import-duplicate-name/main.tck:3:8: warning: imported and not used: lexer
 02 |	
 03 |	import lexer from "calc/lexer"
    |	       ^~~~~
@@ -2137,43 +2137,6 @@ import-unknown-package/main.tck:3:15: error: cannot find package calc/nothing: n
    |	              ^~~~~~~~~~~~~~
 04 |	
 
--- import-unused/tack.mod --
-module calc
--- import-unused/lexer/lexer.tck --
-package lexer
-
-pub type Token struct {
-    pub kind int64
-}
-
-pub var KindNumber int64 = 1
-
-mut Count int64 = 0
-
-pub func First(src string) Token {
-    return Token{kind: KindNumber}
-}
-
-pub func Get() int64 {
-    return Count
-}
--- import-unused/main.tck --
-package main
-
-import lexer from "calc/lexer"
-
-func main() {
-}
--- import-unused/expected --
-stage: resolve
----
-
-import-unused/main.tck:3:8: error: imported and not used: lexer
-02 |	
-03 |	import lexer from "calc/lexer"
-   |	       ^~~~~
-04 |	
-
 -- import-unused-in-one-file/tack.mod --
 module calc
 -- import-unused-in-one-file/lexer/lexer.tck --
@@ -2210,7 +2173,7 @@ import lexer from "calc/lexer"
 func other() {
 }
 -- import-unused-in-one-file/expected --
-stage: resolve+typeck
+stage: typeck
 ---
 
 import-unused-in-one-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
@@ -2219,7 +2182,7 @@ import-unused-in-one-file/a.tck:6:10: error: cannot use int64 as int32 in argume
    |	         ^~~~~~~~~~~~~~~~
 07 |	}
 
-import-unused-in-one-file/b.tck:3:8: error: imported and not used: lexer
+import-unused-in-one-file/b.tck:3:8: warning: imported and not used: lexer
 02 |	
 03 |	import lexer from "calc/lexer"
    |	       ^~~~~
@@ -3462,7 +3425,7 @@ qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it
    |	         ^~~~~~~~~~~
 07 |	    f := lexer.First
 
-qualified-wrong-kind/main.tck:7:5: error: declared and not used: f
+qualified-wrong-kind/main.tck:7:5: warning: declared and not used: f
 06 |	    t := lexer.Token
 07 |	    f := lexer.First
    |	    ^
@@ -4596,27 +4559,6 @@ union-other-package-switch/main.tck:14:23: error: cannot use string as int64 in 
    |	                      ^~~
 15 |	    if x == y {
 
--- unused-global-in-other-file/tack.mod --
-module unused-global-in-other-file
--- unused-global-in-other-file/a.tck --
-package main
-
-func main() {
-}
--- unused-global-in-other-file/b.tck --
-package main
-
-var spare int64 = 3
--- unused-global-in-other-file/expected --
-stage: resolve
----
-
-unused-global-in-other-file/b.tck:3:5: error: declared and not used: spare
-02 |	
-03 |	var spare int64 = 3
-   |	    ^~~~~
-04 |	
-
 -- vis-exposes/tack.mod --
 module calc
 -- vis-exposes/text/text.tck --
@@ -5253,10 +5195,10 @@ func main() {
     exit(lexer.One())
 }
 -- vis-unused-private-global/expected --
-stage: resolve+typeck
+stage: typeck
 ---
 
-vis-unused-private-global/lexer/lexer.tck:3:5: error: declared and not used: hidden
+vis-unused-private-global/lexer/lexer.tck:3:5: warning: declared and not used: hidden
 02 |	
 03 |	var hidden int64 = 1
    |	    ^~~~~~
