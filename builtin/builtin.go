@@ -2,41 +2,54 @@ package builtin
 
 import (
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/types"
 )
 
-// Func is a builtin declared in std/builtin as an extern func: its name,
-// its signature, and the C name its body is defined under. Builtins return
+// Func is a builtin whose body is C, in the runtime built into the
+// compiler (see RuntimeCFiles): its name, its parameters' names and
+// types, and the C name its body is defined under. These builtins return
 // nothing, so parameters are the whole of the signature.
 type Func struct {
 	Name string
-	// CName is the C function a call to the builtin lowers to, as
-	// extern("...") gives it in std/builtin. Its body is C, in a .c file
-	// of std/builtin, which the driver compiles and links.
-	CName  string
-	Params []types.Type
+	// CName is the C function a call to the builtin lowers to, defined in
+	// one of the runtime's C files, which the driver compiles and links.
+	CName      string
+	Params     []types.Type
+	ParamNames []string
 }
 
-// Set is the builtins of one std/builtin directory, as Load read them. It
-// is never changed once loaded, so one Set can be shared by every stage of
-// a compilation, and by compilations running at once. A nil *Set has no
-// builtins: every method treats it as empty.
+// Set is the builtins a compilation uses: those Default returns, which
+// are the same for every compilation. It is never changed, so one Set is
+// shared by every stage and every compilation. A nil *Set has no
+// builtins, as a dump of the tokens or the trees needs none: every method
+// treats it as empty.
 type Set struct {
-	dir    string   // the directory loaded
-	funcs  []Func   // every builtin, in file order and then declaration order
-	cFiles []string // every .c file in dir, by name
+	funcs []Func // every builtin with a C body, in the order Funcs lists them
 }
 
-// Dir returns the directory the builtins were loaded from.
-func (s *Set) Dir() string {
-	if s == nil {
-		return ""
-	}
-	return s.dir
-}
+// defaultSet is the one Set the compiler has, which Default returns.
+var defaultSet = &Set{funcs: []Func{
+	{
+		Name:       "print",
+		CName:      "tack_builtin_print",
+		Params:     []types.Type{types.String},
+		ParamNames: []string{"s"},
+	},
+	{
+		Name:       "exit",
+		CName:      "tack_builtin_exit",
+		Params:     []types.Type{types.Int32},
+		ParamNames: []string{"code"},
+	},
+}}
 
-// Funcs returns every builtin, in the order the files of std/builtin, by
-// name, and then their declarations list them, the same every time.
+// Default returns the builtins the compiler implements. Nothing outside
+// the compiler, no file a user or std holds, adds to them or changes them.
+func Default() *Set { return defaultSet }
+
+// Funcs returns every builtin whose body is C, print and then exit, the
+// same every time.
 func (s *Set) Funcs() []Func {
 	if s == nil {
 		return nil
@@ -44,17 +57,7 @@ func (s *Set) Funcs() []Func {
 	return s.funcs
 }
 
-// CFiles returns the path of every C file directly in the directory the
-// builtins were loaded from, in the byte order of their names: the files
-// that define the builtins' bodies, and whatever those call.
-func (s *Set) CFiles() []string {
-	if s == nil {
-		return nil
-	}
-	return s.cFiles
-}
-
-// Lookup returns the builtin named name.
+// Lookup returns the builtin with a C body named name.
 func (s *Set) Lookup(name string) (Func, bool) {
 	for _, f := range s.Funcs() {
 		if f.Name == name {
@@ -64,47 +67,97 @@ func (s *Set) Lookup(name string) (Func, bool) {
 	return Func{}, false
 }
 
-// Names returns the name of every builtin, the declared ones in Funcs'
-// order and then the generic ones. These are the names a call can bind to
-// without a declaration.
+// Names returns the name of every builtin function, those with a C body
+// in Funcs' order and then the generic ones. These are the names a call
+// can bind to without a declaration.
 func (s *Set) Names() []string {
 	funcs := s.Funcs()
 	names := make([]string, 0, len(funcs)+len(generic))
 	for _, f := range funcs {
 		names = append(names, f.Name)
 	}
-	return append(names, generic...)
+	for _, g := range generic {
+		names = append(names, g.name)
+	}
+	return names
 }
 
-// generic holds the builtins whose parameters no Tack type can describe,
-// so they have no declaration and no Func: len takes any array, view,
-// list or string; make takes a list type; append takes any list and any
-// number of values of its element type, or a view of them spread;
-// reserve takes any list and a count; pop takes any list; remove takes
-// any list and an index; swap takes any list and two indexes; replace takes a place of any type and a value
-// of it; put takes any map, a key and a value; and delete and has take
-// any map and a key. They are part of the compiler, not of
-// std/builtin, and the type checker checks each of them itself.
-var generic = []string{
-	"len",
-	"make",
-	"append",
-	"reserve",
-	"pop",
-	"remove",
-	"swap",
-	"replace",
-	"put",
-	"delete",
-	"has",
+// genericFunc is a builtin the type checker checks itself, since a
+// parameter of it accepts more than one type: its name and its
+// parameters' names, as the builtins' file documents them.
+type genericFunc struct {
+	name   string
+	params []string
 }
 
-// ListSymbols holds the C functions of std/builtin that the generated C of
-// a program with lists calls: the one that grows a list's buffer, through
-// std's TACK_LIST_APPEND, TACK_LIST_APPEND_N and TACK_LIST_RESERVE, and
-// the one that frees it. No builtin declares
-// them, so a program that uses lists needs the std objects that define
-// them linked whether or not it calls a builtin.
+// generic holds the builtins whose parameters no Tack type can describe:
+// len takes any array, view, list or string; make takes a list type;
+// append takes any list and any number of values of its element type, or
+// a view of them spread; reserve takes any list and a count; pop takes
+// any list; remove takes any list and an index; swap takes any list and
+// two indexes; replace takes a place of any type and a value of it; put
+// takes any map, a key and a value; and delete and has take any map and a
+// key. The type checker checks each of them itself, and the C backend
+// lowers each in place.
+var generic = []genericFunc{
+	{"len", []string{"v"}},
+	{"make", []string{"t", "alloc"}},
+	{"append", []string{"l", "elems"}},
+	{"reserve", []string{"l", "n"}},
+	{"pop", []string{"l"}},
+	{"remove", []string{"l", "i"}},
+	{"swap", []string{"l", "i", "j"}},
+	{"replace", []string{"place", "new"}},
+	{"put", []string{"m", "k", "v"}},
+	{"delete", []string{"m", "k"}},
+	{"has", []string{"m", "k"}},
+}
+
+// Generic returns the names of the builtins the type checker checks
+// itself, since a parameter of each accepts more than one type.
+func Generic() []string {
+	names := make([]string, len(generic))
+	for i, g := range generic {
+		names[i] = g.name
+	}
+	return names
+}
+
+// ParamNames returns the names of the parameters of the builtin function
+// named name, as the builtins' file declares them, and whether there is
+// one.
+func ParamNames(name string) ([]string, bool) {
+	if fn, ok := defaultSet.Lookup(name); ok {
+		return fn.ParamNames, true
+	}
+	for _, g := range generic {
+		if g.name == name {
+			return g.params, true
+		}
+	}
+	return nil, false
+}
+
+// Values returns the names of the builtin values, true, false, noerror
+// and c_allocator: keywords, which the lexer reads and the parser takes
+// as literals, so no declaration can take them.
+func Values() []string {
+	return []string{
+		lexer.True.String(), lexer.False.String(), lexer.NoError.String(),
+		lexer.CAllocator.String(),
+	}
+}
+
+// Types returns the names of the builtin types, every type a program
+// names without declaring it.
+func Types() []string { return types.Names() }
+
+// ListSymbols holds the C functions of the runtime that the generated C
+// of a program with lists calls: the one that grows a list's buffer,
+// through tack.h's TACK_LIST_APPEND, TACK_LIST_APPEND_N and
+// TACK_LIST_RESERVE, and the one that frees it. No builtin declares them,
+// so a program that uses lists needs the runtime objects that define them
+// linked whether or not it calls a builtin.
 var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}
 
 // UsesLists reports whether prog, which must have been type-checked, has
@@ -120,8 +173,3 @@ func UsesLists(prog *ast.Program) bool {
 	}
 	return false
 }
-
-// Generic returns the builtins the type checker checks itself, since their
-// parameter accepts more than one type. They are the same whatever
-// std/builtin declares.
-func Generic() []string { return generic }

@@ -10,7 +10,7 @@ import (
 )
 
 // anyIDs maps each type a value can be passed as any with to the macro of
-// std's tack.h that names its type id, which a tack_any holds.
+// the runtime's tack.h that names its type id, which a tack_any holds.
 var anyIDs = map[types.Type]string{
 	types.Bool:          "TACK_TYPE_BOOL",
 	types.Int8:          "TACK_TYPE_INT8",
@@ -26,7 +26,7 @@ var anyIDs = map[types.Type]string{
 	types.String:        "TACK_TYPE_STRING",
 }
 
-// anyID returns the macro of std's tack.h that names the type id of typ,
+// anyID returns the macro of the runtime's tack.h that names the type id of typ,
 // a type the checker lets an any hold: a basic type's, from anyIDs, or a
 // view's, TACK_TYPE_VIEW_ and its element's name, TACK_TYPE_VIEW_UINT8
 // for []uint8, whose id is its element's plus 12 (see viewAnyID).

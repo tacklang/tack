@@ -56,14 +56,14 @@ const (
 	// it holds. Only a value of such a type can be passed as one.
 	Any
 	// Error is error, a code and a message, code 0 meaning no error: in C,
-	// tack_error, defined in std's tack.h. It is a struct whose fields
+	// tack_error, defined in the runtime's tack.h. It is a struct whose fields
 	// are fixed, code, an int32, and msg, a string (see errorFields), so
 	// a Table reports it as a struct, though no declaration gives it.
 	Error
 	// Allocator is Allocator, an opaque handle on an allocator that a
 	// list allocates through and is freed through: in C, tack_allocator,
 	// an index into the allocators the runtime knows and a generation,
-	// defined in std's tack.h. It is copyable, has no zero value, no
+	// defined in the runtime's tack.h. It is copyable, has no zero value, no
 	// order and no ==; c_allocator is its one value today.
 	Allocator
 
@@ -104,6 +104,18 @@ func Lookup(name string) (Type, bool) {
 		}
 	}
 	return Invalid, false
+}
+
+// Names returns the name of every basic type a program can write, in the
+// order of their IDs: the builtin types.
+func Names() []string {
+	var names []string
+	for t := Int64; t < numBasic; t++ {
+		if t != UntypedInt {
+			names = append(names, basicNames[t])
+		}
+	}
+	return names
 }
 
 // InAny reports whether a value of type t can be passed as any: t is one

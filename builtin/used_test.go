@@ -34,53 +34,44 @@ func checked(t *testing.T, src string, builtins *builtin.Set) (*ast.Program, []d
 	return prog, typeck.New(prog, f, builtins).Check()
 }
 
-// The builtins are whatever the std/builtin loaded declares: a builtin
-// declared there is called, checked and found used like print.
-func TestBuiltinsComeFromTheLoadedSet(t *testing.T) {
-	set, err := builtin.Load(writeStd(t, map[string]string{
-		"builtin.tck": "package builtin\n\nextern(\"tack_builtin_twice\") func twice(x int64, s string)\n" +
-			"extern(\"tack_builtin_never\") func never()\n",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+// The builtins with a C body are the compiler's own: print and exit,
+// each found used wherever a call to it is, a defer's block included, and
+// listed once, under its C name.
+func TestDefaultBuiltinsAreUsed(t *testing.T) {
+	set := builtin.Default()
 	prog, diags := checked(
 		t,
-		"package main\n\nfunc main() {\n    twice(1, \"a\")\n    defer {\n        twice(2, \"b\")\n    }\n}\n",
+		"package main\n\nfunc main() {\n    print(\"a\")\n    defer {\n        print(\"b\")\n    }\n}\n",
 		set,
 	)
 	if len(diags) > 0 {
-		t.Fatalf("a call to a loaded builtin was rejected: %+v", diags)
+		t.Fatalf("a call to print was rejected: %+v", diags)
 	}
 	used := set.Used(prog)
-	if len(used) != 1 || used[0].Name != "twice" || used[0].CName != "tack_builtin_twice" {
-		t.Errorf("Used = %+v, want twice once", used)
+	if len(used) != 1 || used[0].Name != "print" || used[0].CName != "tack_builtin_print" {
+		t.Errorf("Used = %+v, want print once", used)
 	}
 }
 
-// A loaded builtin is checked and reserved like print: wrong arguments are
-// rejected, a declaration of its name is too, and print, not declared in
-// the set, is no builtin at all.
-func TestLoadedBuiltinsAreTheOnlyBuiltins(t *testing.T) {
-	set, err := builtin.Load(writeStd(t, map[string]string{
-		"builtin.tck": "package builtin\n\nextern(\"tack_builtin_twice\") func twice(x int64, s string)\n",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, diags := checked(t, "package main\n\nfunc main() {\n    twice(\"a\", 1)\n}\n", set)
+// A builtin is checked and reserved: wrong arguments are rejected, and so
+// is a declaration taking its name, whether the builtin has a C body or is
+// generic; with no builtins, a nil Set, print is no builtin at all.
+func TestBuiltinsAreCheckedAndReserved(t *testing.T) {
+	set := builtin.Default()
+	_, diags := checked(t, "package main\n\nfunc main() {\n    exit(\"a\")\n}\n", set)
 	if len(diags) == 0 {
-		t.Error("twice with its arguments swapped was accepted")
+		t.Error("exit with a string was accepted")
+	}
+	for _, name := range []string{"print", "exit", "len", "has"} {
+		_, diags = checked(t, "package main\n\nfunc "+name+"() {\n}\n\nfunc main() {\n}\n", set)
+		if len(diags) == 0 || !strings.Contains(diags[0].Message, "builtin") {
+			t.Errorf("declaring %s, a builtin, was accepted: %+v", name, diags)
+		}
 	}
 
-	_, diags = checked(t, "package main\n\nfunc main() {\n    print(\"a\")\n}\n", set)
+	_, diags = checked(t, "package main\n\nfunc main() {\n    print(\"a\")\n}\n", nil)
 	if len(diags) == 0 || !strings.Contains(diags[0].Message, "print") {
-		t.Errorf("print, which the set does not declare, resolved: %+v", diags)
-	}
-
-	_, diags = checked(t, "package main\n\nfunc twice() {\n}\n\nfunc main() {\n}\n", set)
-	if len(diags) == 0 || !strings.Contains(diags[0].Message, "builtin") {
-		t.Errorf("declaring twice, a loaded builtin, was accepted: %+v", diags)
+		t.Errorf("print resolved with no builtins: %+v", diags)
 	}
 
 	if len(set.Used(ast.SingleFile(ast.NewFile()))) != 0 {

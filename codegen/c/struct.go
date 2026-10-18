@@ -109,7 +109,7 @@ func (g *generator) parts(typ types.Type) []types.Type {
 // struct or a union,
 // after those of the types it is made of, unless defined says it has been already. typ is marked before
 // its parts are visited, so even a type that held itself could not loop.
-// error's struct, tack_error, is std's tack.h's, so it is never defined
+// error's struct, tack_error, is the runtime's tack.h's, so it is never defined
 // here.
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	table := g.prog.Types
@@ -256,7 +256,7 @@ func (g *generator) equalExpr(typ types.Type, l, r string) string {
 // structName is the name of the C struct a struct type lowers to: the
 // struct's name, mangled as a package-level name is. A struct shares one
 // namespace with functions and package-level variables, so the name is
-// never another declaration's. error's is tack_error, which std's tack.h
+// never another declaration's. error's is tack_error, which the runtime's tack.h
 // defines.
 func (g *generator) structName(typ types.Type) string {
 	typ = g.prog.Types.Bound(typ)
@@ -273,7 +273,7 @@ func (g *generator) structName(typ types.Type) string {
 // lowers to. A declared struct's keeps clear of C's keywords, for the
 // same reason paramName keeps a parameter's name clear: a Tack field may
 // be called int or while, so it is f_ and the name. error's fields are
-// tack_error's members, code and msg, as std's tack.h names them.
+// tack_error's members, code and msg, as the runtime's tack.h names them.
 func memberName(typ types.Type, name string) string {
 	if typ == types.Error {
 		return name

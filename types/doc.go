@@ -38,7 +38,7 @@
 // Adding a basic type moves the first ID a Table hands out, so the IDs of
 // arrays and structs, which the C backend names its types after, all
 // move with it. The IDs are the compiler's own: the type ids C sees in an
-// any are a separate table, fixed for good, in std's tack.h.
+// any are a separate table, fixed for good, in the runtime's tack.h.
 //
 // Composite types get their IDs from the Table of the compilation that uses
 // them. An array type is added the first time it is seen, and found by its

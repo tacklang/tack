@@ -282,7 +282,7 @@ func TestAllocatorTracksEveryBuffer(t *testing.T) {
 	bin := filepath.Join(dir, "alloc")
 	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, sanitizers...)
 	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, main,
-		filepath.Join(stdtest.BuiltinDir(), "list.c"))
+		stdtest.RuntimeCFile("list.c"))
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
 	}

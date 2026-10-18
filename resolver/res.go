@@ -45,7 +45,7 @@ type Resolver struct {
 }
 
 // New returns a Resolver for prog, whose calls can bind to builtins, the
-// builtins std/builtin declares and the generic ones. A nil builtins has
+// builtins with a C body, print and exit, and the generic ones. A nil builtins has
 // only the generic ones.
 func New(prog *ast.Program, builtins *builtin.Set) *Resolver {
 	return &Resolver{

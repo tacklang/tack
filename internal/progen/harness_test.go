@@ -118,7 +118,7 @@ func compileShared(dir, level string, prog *ast.Program, header []byte) ([]strin
 		}
 		objs = append(objs, obj)
 	}
-	for i, src := range stdtest.MustBuiltins().CFiles() {
+	for i, src := range stdtest.RuntimeCFiles() {
 		obj := filepath.Join(dir, fmt.Sprintf("builtin%s-%d.o", level, i))
 		args := append(append([]string{}, sanitize...), level, "-c", "-I", stdtest.IncludeDir(),
 			"-o", obj, src)

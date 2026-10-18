@@ -219,24 +219,6 @@ func TestStdObjectsLinkedForProgramC(t *testing.T) {
 	}
 }
 
-// A program with a list built against a std whose std/builtin defines no
-// list functions fails, naming the first one missing and the directory.
-func TestListsWithoutADefinition(t *testing.T) {
-	if _, err := exec.LookPath("clang"); err != nil {
-		t.Skip("clang not on PATH")
-	}
-	home := writeDir(t, map[string]string{
-		"src/std/builtin/builtin.tck": "package builtin\n\n" +
-			"extern(\"tack_builtin_a\") func a()\n",
-		"src/std/builtin/a.c": "void tack_builtin_a(void) {}\n",
-	})
-	dir := filepath.Join(home, "src", "std", "builtin")
-	r := runTackEnv(t, t.Context(), envAt(t, home), "--out", filepath.Join(t.TempDir(), "bin"),
-		program(t, "    l := make(list[int64], c_allocator)\n    if len(l) == 0 {\n    }\n"))
-	assertFailure(t, r,
-		"lists have no C definition: no C file in "+dir+" defines tack_list_grow_")
-}
-
 // TestBuiltOwnedListsWritesItsOutput builds examples/owned-lists at every
 // optimization level and checks each binary writes exactly
 // examples/owned-lists/output, every check ok: lists of lists, of structs

@@ -1,70 +1,64 @@
-// Package builtin describes the functions Tack provides without a
-// declaration, as the standard library declares them.
+// Package builtin is the compiler's builtins and runtime: the functions,
+// types and values Tack provides without a declaration or an import, the
+// C that some of them and lists run on, and the file that documents them
+// all. Everything here is built into the compiler, so no file a user or
+// std holds can add a builtin, change one, or change the runtime.
 //
-// A Tack program calls print and exit without declaring them, so something
-// has to know their names and signatures. The resolver needs the names, to
-// bind a call to a builtin and to stop a program from declaring a function
-// with a builtin's name; the loader, to stop a package from taking one; the
-// type checker the signatures, to check the number and types of arguments;
-// and the C backend the C names, to lower a call. All of them read one Set,
-// which is what keeps the stages from disagreeing about what the builtins
-// are.
+// # The builtins
 //
-// # Where the builtins come from
+// The resolver needs the builtins' names, to bind a call to one and to
+// stop a program from declaring a function with a builtin's name; the
+// loader, to stop a package from taking one; the type checker their
+// signatures; and the C backend the C names of those with a C body. All of
+// them read one Set, Default, which is what keeps the stages from
+// disagreeing about what the builtins are. A Set is never changed and is
+// passed explicitly to every stage that needs it; a nil *Set has no
+// builtins, as a dump of the tokens or the trees needs none.
 //
-// The compiler holds no list of builtins. Load reads a std/builtin
-// directory, $TACK_HOME/src/std/builtin as the driver finds it: every file
-// directly in it whose name ends in .tck, in the byte order of their names,
-// leaving out names that start with a dot and directories, is lexed and
-// parsed with the compiler's own front end, and every declaration in them
-// must be a builtin:
+// print and exit have a C body, so a Func each: a name, its parameters'
+// names and types, and the C name, tack_builtin_print and
+// tack_builtin_exit, that a call lowers to. Funcs lists them, Lookup finds
+// one by name, Called finds the one a resolved call calls, and Used lists
+// those a resolved program calls anywhere, each once, in Funcs' order.
 //
-//   - an extern func, in a file that is package builtin and imports
-//     nothing; a var, a type, a func with a Tack body, or a method, is an
-//     error;
-//   - with its C name given, extern("tack_builtin_print"): one that is a C
-//     identifier, not a C keyword, and starts tack_, the prefix a user's
-//     extern func may not take, so no C file of a program can mean to
-//     define it by declaring an extern func;
-//   - not pub or lib, returning nothing, and with every parameter of a
-//     basic type, such as int64 or string, but any, which a call to a
-//     builtin could not pass, none mut or variadic;
-//   - not named after a basic type, a generic builtin, main or _, and
-//     declared once, under a C name no other builtin has.
+// len, make, append, reserve, pop, remove, swap, replace, put, delete and
+// has are generic: a parameter of each accepts more than one type, which
+// no Tack declaration describes, so the type checker checks each itself
+// and the C backend lowers each in place. Generic lists them, Names lists
+// every builtin function's name, and ParamNames gives any one's parameter
+// names. Types and Values list the builtin types and values, true, false,
+// noerror and c_allocator, which are keywords.
 //
-// Every problem is reported, at the first stage that has any, as a
-// *DiagnosticsError, diagnostics that point into the std files and render
-// as a program's do. A directory that cannot be read, or holds no .tck
-// file, is an error. Nothing that Load is given makes it panic.
+// # The runtime
 //
-// Load also lists the .c files of the directory, in name order, which
-// CFiles returns: the builtins' C bodies, ordinary non-static functions
-// under their C names, by convention one builtin per file named after it.
-// This package does not read them; the driver compiles them and links the
-// ones a program needs (see command tack).
+// RuntimeCFiles are the runtime's C files: exit.c, list.c and print.c, the
+// bodies of print and exit, ordinary non-static functions under their C
+// names, and the allocators and the grow and free functions of lists,
+// ListSymbols among them. RuntimeHeader is <tack/tack.h>, which every C
+// file of a program and of std includes. The driver writes them to each
+// build's own temporary directory and compiles against that copy, linking
+// the runtime objects a program needs (see command tack); UsesLists says
+// whether a program needs the list functions. make install-std writes a
+// copy of the header to std/include/tack/tack.h, for extern C and editors,
+// which no build reads.
 //
-// # The Set
+// # The documentation
 //
-// A Set is never changed once loaded, and is passed explicitly to every
-// stage that needs it, so one can be shared by stages and compilations
-// alike; nothing here is package-level state that a load changes. A nil
-// *Set has no declared builtins. Funcs lists the declared builtins in file
-// order and then declaration order, Lookup finds one by name, Called finds
-// the one a resolved call calls, and Used lists those a resolved program
-// calls anywhere, each once, in Funcs' order.
+// builtin.tck, built into the compiler, declares every builtin type,
+// value and function, with a doc comment each, the generic functions with
+// stand-in types, Elem, Key, Sized and ListType, which no program can
+// name. It is documentation only: it is never resolved, checked or
+// compiled, and a test keeps it one to one with what the compiler
+// implements. Source returns it, and Doc returns it parsed, once, in the
+// parser's builtin mode (see parser.NewBuiltinParser), the only mode in
+// which a var named by a keyword and a type declared as itself parse, so
+// that an editor can map a builtin's name to its declaration through
+// DocFile.Decl, for its documentation and to go to it. make install-std
+// writes a copy to std/builtin/builtin.tck, and the repository keeps one
+// there too, which a test keeps byte for byte; neither is ever read by the
+// compiler, and the loader never loads std/builtin as a package.
 //
-// Each builtin is a Func: a name, the types of its parameters, and its C
-// name. No builtin returns a value, so a Func has no result.
-//
-// len, make, append, reserve, pop, remove and swap are builtins too, but
-// generic: len takes any array, view, list or string, make a list type,
-// append any list and any number of values of its element type, or a
-// view of them spread, reserve any list and a count, pop any list,
-// remove any list and an index, and swap any list and two indexes, which
-// no Tack declaration can describe, so
-// they are not in std/builtin but part of the compiler, listed apart, and
-// the type checker checks each itself. A list's C, the grow and free
-// functions and c_allocator's, is std/builtin's all the same, in list.c,
-// which the driver links for a program that uses a list. Names lists every builtin's name, generic ones included; Generic
-// lists the generic ones, the same whatever std/builtin declares.
+// PLANNED.md, beside builtin.tck, keeps builtins that are planned and not
+// implemented, out of builtin.tck, which claims only what the compiler
+// does.
 package builtin

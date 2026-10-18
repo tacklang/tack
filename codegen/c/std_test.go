@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/internal/stdtest"
 )
@@ -54,21 +55,14 @@ func TestOnlyStdDefinesTackString(t *testing.T) {
 	checkNoStdCFileDefinesTackString(t)
 }
 
-// checkNoStdCFileDefinesTackString checks no C file of std/builtin defines
-// tack_string: each takes it from std's tack.h.
+// checkNoStdCFileDefinesTackString checks no C file of the runtime built
+// into the compiler defines tack_string: each takes it from the runtime's
+// tack.h.
 func checkNoStdCFileDefinesTackString(t *testing.T) {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(stdtest.BuiltinDir(), "*.c"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if tackStringDef.Match(data) {
-			t.Errorf("%s defines tack_string; only std's tack.h may", f)
+	for _, f := range builtin.RuntimeCFiles() {
+		if tackStringDef.Match(f.Data) {
+			t.Errorf("%s defines tack_string; only the runtime's tack.h may", f.Name)
 		}
 	}
 }

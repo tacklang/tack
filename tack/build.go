@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/codegen"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/loader"
@@ -31,6 +32,7 @@ type builder struct {
 	stderr    io.Writer      // likewise
 	res       *loader.Result // the program, and the files its diagnostics render against
 	std       *std           // the standard library the program was compiled with
+	runtime   string         // where this build wrote the runtime (see writeRuntime)
 	env       environment    // where the build cache is, and how to identify the toolchain
 	opt       codegen.Opt    // the optimization level every C file is compiled at
 	maxErrors int
@@ -71,8 +73,8 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	if outBin, err = filepath.Abs(outBin); err != nil {
 		return fmt.Errorf("cannot find --out %s: %w", outBin, err)
 	}
-	src := filepath.Join(dir, "program"+b.backend.Ext())
-	if err = writeFile(src, out); err != nil {
+	src, err := b.writeSources(dir, out)
+	if err != nil {
 		return err
 	}
 	objs, err := b.compileC(dir)
@@ -91,7 +93,56 @@ func (b *builder) build(out []byte, outBin string) (err error) {
 	for i, o := range objs {
 		paths[i] = o.obj
 	}
-	return b.runTool(b.backend.BuildCmd(src, b.std.includeDir(), paths, outBin, b.opt), "")
+	return b.runTool(b.backend.BuildCmd(src, b.includeDir(), paths, outBin, b.opt), "")
+}
+
+// writeSources writes the runtime to dir (see writeRuntime), recording
+// where in b, and the generated source, out, as program plus the
+// backend's extension, and returns the source's path.
+func (b *builder) writeSources(dir string, out []byte) (string, error) {
+	var err error
+	if b.runtime, err = writeRuntime(dir); err != nil {
+		return "", err
+	}
+	src := filepath.Join(dir, "program"+b.backend.Ext())
+	return src, writeFile(src, out)
+}
+
+// writeRuntime writes the runtime built into the compiler to dir, the
+// build's own temporary directory, and returns where: its header at
+// runtime/include/tack/tack.h, the include directory every C file of the
+// build is compiled against, std's and the program's alike, and its C
+// files in runtime/builtin. Nothing the build compiles is read from
+// $TACK_HOME, so no file there, std's copy of tack.h included, changes it.
+func writeRuntime(dir string) (string, error) {
+	root := filepath.Join(dir, "runtime")
+	header := filepath.Join(root, "include", filepath.FromSlash(builtin.HeaderPath))
+	if err := os.MkdirAll(filepath.Dir(header), 0o750); err != nil {
+		return "", fmt.Errorf("cannot write the runtime: %w", err)
+	}
+	if err := writeFile(header, builtin.RuntimeHeader()); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(root, "builtin"), 0o750); err != nil {
+		return "", fmt.Errorf("cannot write the runtime: %w", err)
+	}
+	for _, f := range builtin.RuntimeCFiles() {
+		if err := writeFile(filepath.Join(root, "builtin", f.Name), f.Data); err != nil {
+			return "", err
+		}
+	}
+	return root, nil
+}
+
+// includeDir returns the include directory every C file of the build is
+// compiled against, where <tack/tack.h> is the runtime header built into
+// the compiler (see writeRuntime).
+func (b *builder) includeDir() string { return filepath.Join(b.runtime, "include") }
+
+// runtimeCFile returns the path writeRuntime wrote the runtime's C file
+// named name to.
+func (b *builder) runtimeCFile(name string) string {
+	return filepath.Join(b.runtime, "builtin", name)
 }
 
 // compileC writes tack.h to dir and compiles every C file of every package
@@ -118,7 +169,7 @@ func (b *builder) compileC(dir string) ([]cObject, error) {
 			return nil, fmt.Errorf("cannot find %s: %w", shown, err)
 		}
 		if err := b.runTool(
-			b.backend.CompileCmd(src, header, b.std.includeDir(), obj, b.opt),
+			b.backend.CompileCmd(src, header, b.includeDir(), obj, b.opt),
 			shown,
 		); err != nil {
 			return nil, err

@@ -158,9 +158,9 @@ funcs, never a standard library package's, replacing
 any `tack.h` there, for an editor such as clangd to find; it prints
 nothing, takes no `--out`, and cannot be combined with a dump. Builds never
 read that copy, so it can be left out of version control. A `tack.h` whose
-extern funcs use strings includes std's `<tack/tack.h>`, so the editor
-needs `-I $TACK_HOME/src/std/include` in its compile flags, as the build
-has.
+extern funcs use strings includes `<tack/tack.h>`, so the editor needs
+`-I $TACK_HOME/src/std/include` in its compile flags, where `make
+install-std` writes a copy of the runtime header (see "Builtins").
 
 | Flag               | Effect                                          |
 |--------------------|-------------------------------------------------|
@@ -191,7 +191,7 @@ package is not main is checked as a library too, and a library with a
 syntax error is still one: the error is reported and its package checked
 past it. `tack --check src/std` checks the standard library, from a
 checkout as well as the installed copy, leaving out `std/builtin`, which
-only declares the builtins. With a dump flag,
+only holds a copy of the builtins' documentation. With a dump flag,
 `--check` prints that stage's output, when the stages up to it found no
 problem, and the diagnostics of any later stage: `--check --ast` prints
 the trees on stdout and a type error on stderr, and exits 1; on syntax
@@ -292,60 +292,70 @@ includes only when a program uses it, and `unsafe_uintptr_t` as
 
 ## Builtins
 
-`print` and `exit` have no declaration in a Tack program. The compiler holds
-no list of them: it reads the `.tck` files of `std/builtin` in the
-installed standard library, `$TACK_HOME/src/std/builtin`, whose source is
-[`src/std/builtin/builtin.tck`](src/std/builtin/builtin.tck), and every
-extern func declared there is a builtin, with the name, signature and C
-name it is declared with:
+The builtins are built into the compiler: no file a user or the standard
+library holds can add one, change one, or override how one works. Every
+builtin type, value and function is documented in
+[`builtin/builtin.tck`](builtin/builtin.tck), in the compiler's own tree,
+which is embedded in the compiler as documentation only: it is never
+compiled, and a test keeps it one to one with what the compiler
+implements. `make install-std` writes a read-only copy to
+`$TACK_HOME/src/std/builtin/builtin.tck`, and the repository keeps one at
+[`src/std/builtin/builtin.tck`](src/std/builtin/builtin.tck), so it is
+found where the standard library is browsed; `make std-copies` refreshes
+the repository's copy, and a test fails while it differs. The compiler
+reads neither copy, and `std/builtin` is no package: `std/builtin
+documents the builtins and cannot be imported`, and `tack --check` leaves
+it out of a library.
 
-```tack
-extern("tack_builtin_print") func print(s string)
-extern("tack_builtin_exit") func exit(code int32)
-```
+The file declares each builtin type as itself, `type int32 int32`, `error`
+as its struct of `code` and `msg`, the values `true`, `false`, `noerror`
+and `c_allocator` as `var`s, and each function without a body, the generic
+ones in real syntax, `func pop[T Elem](mut l list[T]) T`, with stand-in
+types, `Elem`, `Key`, `Sized` and `ListType`, for what no Tack type can
+say. Those forms parse only in that file, which the compiler parses in a
+builtin mode no program can turn on: anywhere else `var true bool` and
+`type int32 int32` stay syntax errors, and a function without a body
+stays `function f has no body; only an extern func is declared without
+one`.
 
-Every declaration there must be such a builtin: an extern func with its C
-name given, starting `tack_`, returning nothing, with parameters of basic
-types, none `mut` or variadic (`parameter xs of builtin p cannot be
-variadic`) and none `any` (`parameter a of builtin p cannot be any`), and not named after a basic type, a generic builtin, `len`, `make`,
-`append`, `reserve`, `pop`, `remove` or `swap`, `main` or `_`. Anything
-else, a syntax error included, is reported as a diagnostic in that file.
+`print` and `exit` have a C body: a call to `print` is a call to
+`tack_builtin_print`, and to `exit` one to `tack_builtin_exit`; the
+generated C declares each builtin the program calls with a prototype,
+`void tack_builtin_print(tack_string);`, and `exit`'s as never returning,
+`_Noreturn void tack_builtin_exit(int32_t);`, as its body is, so a C
+function with a result may end in a call to it. Their bodies, `print.c`
+and `exit.c`, and `list.c`, which holds the functions that grow and free a
+list's buffer, which the generated C calls, and `c_allocator`'s, are the
+runtime's C files, in [`builtin/runtime`](builtin/runtime), embedded in
+the compiler too, beside the runtime header, `<tack/tack.h>`. That header
+is the one definition of what every program's C shares, `tack_string` and
+the string helpers, `tack_error` and the error helpers, `tack_any`, its
+type ids and its unpack helpers, and `tack_allocator`, the list functions
+and the list macros: the generated C includes it, and so does a program's
+`tack.h` when an extern func uses a string, an error, `any`, a list or an
+`Allocator`. Each build writes the runtime to its own temporary directory
+and compiles every C file, the program's, std packages' and the runtime's,
+against that copy of the header, so editing an installed copy changes
+nothing. `make install-std` writes a read-only copy to
+`$TACK_HOME/src/std/include/tack/tack.h`, for extern C and editors, and
+`--emit` output compiles on its own with `-I $TACK_HOME/src/std/include`.
 
-A call to `print` is a call to `tack_builtin_print`, and to `exit` one to
-`tack_builtin_exit`; the generated C declares each builtin the program
-calls with a prototype, `void tack_builtin_print(tack_string);`, and
-`exit`'s as never returning, `_Noreturn void tack_builtin_exit(int32_t);`,
-as its body is, so a C function with a result may end in a call to it. Their
-bodies are the `.c` files beside `builtin.tck`, one per builtin and named
-after it, `print.c` and `exit.c`, which include `<tack/tack.h>` from
-`src/std/include` for `tack_string`. That header is the one definition of
-what every program's C shares, `tack_string` and the string helpers,
-`tack_error` and the error helpers,
-`tack_any`, its type ids and its unpack helpers, and `tack_allocator`, the
-list functions and the list macros: the generated C includes
-it too, and so does a program's `tack.h` when an extern func uses a string,
-an error, `any`, a list or an `Allocator`, so every C file is compiled with
-`-I $TACK_HOME/src/std/include`, and `--emit` output needs that flag to
-compile on its own. The driver compiles them as it
-compiles a program's C files and links only the objects that define a
-builtin the program calls, and those that define what those objects need
-in turn, as a linker takes an archive's members. So the generated C
-includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses
-`unsafe_size_t`, which a freestanding C implementation has, and
-`<tack/tack.h>`, which includes only those three, and a program
-that calls neither builtin, and has no list, links neither body and none
-of the C library they call. A target without a C library needs only different bodies.
+The driver compiles the runtime's C files, or takes their objects from the
+build cache, and links only those that define a builtin the program calls,
+the list functions when it has a list type, a function one of its C files
+calls, and those that define what those objects need in turn, as a linker
+takes an archive's members; `exit` needs `list.c` too, since it has every
+allocator free what it still holds. So the generated C includes only
+`<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses `unsafe_size_t`,
+which a freestanding C implementation has, and `<tack/tack.h>`, which
+includes only those three, and a program that calls neither builtin, and
+has no list, links neither body and none of the C library they call.
 
-`len`, `make`, `append`, `reserve`, `pop`, `remove` and `swap` are generic, so
-no Tack declaration can describe them: the compiler implements them
-itself, and `builtin.tck` describes them in comments. A program with lists also links `list.c`,
-the one C file of `std/builtin` that is no builtin's body: it holds the
-functions that grow and free a list's buffer, which the generated C
-calls, and `c_allocator`'s, and the driver links it for a program with a
-list type, one that calls `exit`, which has every allocator free what it
-still holds, or one of whose C files calls a function std defines.
-Declarations that are wanted but not implemented go in
-`src/std/builtin/PLANNED.md`, which the compiler does not read.
+`len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
+`put`, `delete` and `has` are generic: the type checker checks each
+itself and the C backend lowers each in place. Builtins that are wanted
+but not implemented go in [`builtin/PLANNED.md`](builtin/PLANNED.md),
+beside `builtin.tck`.
 
 ## Code generation backends
 
@@ -358,7 +368,7 @@ type Backend interface {
     Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
     Header(prog *ast.Program) []byte                 // tack.h
     CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-O3", "-c", ..., src}
-    CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for std's C
+    CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for the runtime's C
     BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-O3", "-I", include, "-o", out, src, objs...}
     VersionCmd() []string                            // {"clang", "--version"}
 }
@@ -369,11 +379,12 @@ source, or diagnostics if it meets something it cannot lower. `Ext`,
 `CompileCmd`, `CompileStdCmd` and `BuildCmd` are what keep the driver from
 knowing anything about the target: it writes the bytes to a file with that
 extension in a temporary directory, writes `Header`'s output beside it as
-`tack.h`, compiles each C file of the program with `CompileCmd` and std's
-with `CompileStdCmd`, and links them with `BuildCmd`, each given std's
-include directory, `include`, where `<tack/tack.h>` is. `VersionCmd`'s
-output identifies the toolchain, so an object compiled from std's C is
-reused from the build cache only by the same one.
+`tack.h`, compiles each C file of the program with `CompileCmd` and the
+runtime's with `CompileStdCmd`, and links them with `BuildCmd`, each given
+the include directory the build wrote the runtime header to, `include`,
+where `<tack/tack.h>` is. `VersionCmd`'s output identifies the toolchain,
+so an object compiled from the runtime's C is reused from the build cache
+only by the same one.
 
 Backends register themselves from `init`, so adding one means writing a package
 under `codegen/` and importing it for its side effect in `tack/main.go` and
@@ -565,7 +576,8 @@ makes for itself, which has a letter after `tack_`.
   `cannot import calc/lexer: a package of std can import only std
   packages`. A std path naming no directory is `cannot find package
   std/nosuch: no directory std/nosuch in module std`, and `std/builtin`,
-  which declares the builtins, is not a package programs use: `std/builtin
+  which holds a copy of the builtins' documentation, is not a package
+  programs use: `std/builtin
   documents the builtins and cannot be imported`. A directory inside the
   installed std is in the module std, and so is a copy of std elsewhere,
   through its `tack.mod` (above).
@@ -2977,7 +2989,7 @@ makes for itself, which has a letter after `tack_`.
   than its Tack name. Every `.c` file in a package's directory, or beside
   a single-file target, is compiled and linked with the program, against
   a generated `tack.h` that declares each extern func and the types it
-  uses, and includes std's `<tack/tack.h>`, with `tack_string` and helpers
+  uses, and includes the runtime's `<tack/tack.h>`, with `tack_string` and helpers
   for building strings in C (`TACK_STR`, `TACK_STR_N`, `TACK_C_STR_LEN`),
   when a string crosses; `--emit-header` writes `tack.h` for editors. Every Tack type
   crosses by value, except a `mut` parameter, which C gets as a pointer to
@@ -2995,7 +3007,7 @@ makes for itself, which has a letter after `tack_`.
   reads as `*(const tack_view_int64 *)a.ptr` once `TACK_ANY_IS(a,
   VIEW_INT64)` holds. An error is a `tack_error`, `{int32_t code;
   tack_string msg;}`, by value, which C builds with `TACK_ERROR(code,
-  "literal")`, or `TACK_NO_ERROR` for none, from std's `<tack/tack.h>`;
+  "literal")`, or `TACK_NO_ERROR` for none, from the runtime's `<tack/tack.h>`;
   an extern func that returns one returns it last, in its results struct
   when it has several, and its callers check it as any function's. A
   list crosses only as a `mut` parameter, `tack_list_<T> *`, `{T *ptr;
@@ -3005,7 +3017,7 @@ makes for itself, which has a letter after `tack_`.
   src, n)`, all of `n` elements or none, and `TACK_LIST_RESERVE(lp, n)`,
   and shrinks with `TACK_LIST_POP(lp)` and `TACK_LIST_REMOVE(lp, i)`,
   each giving the element it takes out, at a length or an index C has
-  checked, from std's `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
+  checked, from the runtime's `<tack/tack.h>`, or as a view of its elements; by value, a list, or a
   struct holding one, is `parameter l of extern func f cannot be
   list[int64]: a list crosses to C only as a mut parameter, or as a
   view`, and so is one returned, `extern func f cannot return

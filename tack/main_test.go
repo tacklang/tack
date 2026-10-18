@@ -35,13 +35,13 @@ const (
 	sleepBackend   = "test-sleep"   // toolchain hangs until killed
 	optBackend     = "test-opt"     // "builds" by writing the level to --out
 	objsBackend    = "test-objs"    // "builds" by writing the objects it links to --out
-	includeBackend = "test-include" // "builds" by writing std's include directory to --out
+	includeBackend = "test-include" // "builds" by writing the include directory, and its tack.h, to --out
 )
 
 // fakeToolchain is a backend that generates C with the real c backend but
 // builds with argv instead of clang. In argv, "{src}" and "{out}" are
 // replaced by the build's source and output paths, "{opt}" by its
-// optimization level, "{include}" by std's include directory, and
+// optimization level, "{include}" by the build's include directory, and
 // "{objs}", a whole element, by the paths of the
 // objects it links, one element each. It compiles C files, the program's
 // and std's, with clang, as the c backend does.
@@ -83,7 +83,8 @@ func init() {
 		{name: sleepBackend, argv: []string{"sleep", "30"}},
 		{name: optBackend, argv: []string{"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{opt}", "{out}"}},
 		{name: includeBackend, argv: []string{
-			"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{include}", "{out}",
+			"sh", "-c", `printf '%s\n' "$1" > "$2"; cat "$1/tack/tack.h" >> "$2"`, "sh", "{include}",
+			"{out}",
 		}},
 		{name: objsBackend, argv: []string{
 			"sh", "-c", `out=$1; shift; printf '%s\n' "$@" > "$out"`, "sh", "{out}", "{objs}",
@@ -376,7 +377,7 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	builtins := stdtest.Builtins(t)
-	lib := &std{builtins: builtins, dir: stdtest.Dir()}
+	lib := &std{dir: stdtest.Dir()}
 	res, single, err := load(path, dumpNone, lib, defaultMaxErrors)
 	if err != nil {
 		t.Fatal(err)

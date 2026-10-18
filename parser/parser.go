@@ -78,6 +78,10 @@ type Parser struct {
 	// lostImport is set once an import failed before its name, whose
 	// package a qualified literal may then name (see noteLostImportLit).
 	lostImport bool
+
+	// builtinMode is set only for the file that documents the builtins
+	// (see NewBuiltinParser).
+	builtinMode bool
 }
 
 // maxNesting is how many levels a program may nest one construct inside
@@ -1677,6 +1681,7 @@ func (p *Parser) parseIncDec() (*ast.IncDec, []diag.Diagnostic) {
 }
 
 // parseVarDecl parses a declaration that starts with var or mut: a name,
+// or in builtin mode a keyword naming a builtin value (see parseVarName),
 // then a type, a value after =, or both. mut also allows the short form
 // mut x := value. Whether a declaration without a value is allowed depends on
 // its mutability, which is the type checker's to judge, not the parser's.
@@ -1685,7 +1690,7 @@ func (p *Parser) parseVarDecl() (*ast.Var, []diag.Diagnostic) {
 
 	v := &ast.Var{Span: p.span(kw), Mutable: kw.Value() == lexer.Mut}
 
-	name, nameDiags := p.parseIdent("variable name")
+	name, nameDiags := p.parseVarName()
 	if name == nil {
 		return nil, nameDiags
 	}
@@ -1736,8 +1741,10 @@ func (p *Parser) parseVarTypeAndValue(v *ast.Var) []diag.Diagnostic {
 }
 
 // parseTypeDecl parses a type declaration, type Name struct { ... }, and
-// the semicolon after it. Only struct types can be declared: a name
-// declared as another type, type Celsius int64, is reported.
+// the semicolon after it. Only struct, interface and union types can be
+// declared: a name declared as another type, type Celsius int64, is
+// reported, but for a type declared as itself in builtin mode (see
+// selfNamedType).
 func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
 	kw := p.next() // the type keyword
 
@@ -1746,9 +1753,12 @@ func (p *Parser) parseTypeDecl() (*ast.TypeDecl, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	typ, diags := p.parseDeclaredType()
-	if typ == nil {
-		return nil, diags
+	typ, self := p.selfNamedType(name)
+	if !self {
+		typ, diags = p.parseDeclaredType()
+		if typ == nil {
+			return nil, diags
+		}
 	}
 
 	d := &ast.TypeDecl{

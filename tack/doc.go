@@ -95,9 +95,12 @@
 //
 // # The standard library
 //
-// The builtins, print and exit, are not known to the compiler: they are the
-// extern funcs declared in the standard library's std/builtin, and their C
-// bodies the .c files beside them. The standard library is
+// The builtins and the runtime are built into the compiler (see package
+// builtin): print and exit, with their C names, the generic builtins, the
+// runtime's C files, which define the bodies of print, exit and lists, and
+// the runtime header, <tack/tack.h>. Nothing on disk changes them: std's
+// std/builtin/builtin.tck and std/include/tack/tack.h are copies, for
+// people and editors to read, which no build reads. The standard library is
 // $TACK_HOME/src/std, or ~/.tack/src/std when TACK_HOME is unset or
 // empty; `make install` copies the repository's src/std there. A relative
 // TACK_HOME is taken from the current directory and made absolute. Every
@@ -106,10 +109,7 @@
 // and before the program is read; one that is not there, or is not a
 // directory, ends the run with exit 1 and "tack: cannot find std at
 // <path>; set TACK_HOME or run make install". --help, --backends, --lex and
-// --ast need no builtins and do not look for it. std/builtin is read with
-// builtin.Load: a Tack file there that declares anything but builtins is
-// reported as diagnostics in that file, exit 1, and a std/builtin that
-// cannot be read or holds no .tck file as a "tack:" error.
+// --ast need no builtins and do not look for it.
 //
 // The same directory is the module std, whose packages a program imports:
 // the driver hands it to the loader as loader.Std, so import fmt from
@@ -117,8 +117,8 @@
 // file. A std package's files are named in diagnostics as the program's
 // are, relative to the current directory when below it and absolute
 // otherwise, and its C files are compiled with CompileCmd and checked and
-// linked exactly as a program package's are (Building), not as
-// std/builtin's are.
+// linked exactly as a program package's are (Building), not as the
+// runtime's are.
 //
 // # Building
 //
@@ -134,14 +134,21 @@
 // files and --out, is made absolute first, so that no file named like an
 // option, -fplugin=x.c, is read as one.
 //
+// The runtime built into the compiler is written there first: its header
+// as runtime/include/tack/tack.h, and its C files in runtime/builtin.
+// runtime/include is the include directory every C file of the build is
+// compiled against, the generated source, the program's C files, std
+// packages' and the runtime's own, so <tack/tack.h> is always the
+// compiler's, whatever $TACK_HOME/src/std/include holds.
+//
 // The generated source is written there as program.c. A program with C
 // files, the .c files the loader found in each package's directory, a std
 // package's included, gets
 // the backend's header written there as tack.h, and each C file, in
 // package order and then name order, is compiled to an object there with
-// the backend's CompileCmd, which includes tack.h first and is given std's
-// include directory, $TACK_HOME/src/std/include, absolute, where the
-// <tack/tack.h> that tack.h includes when a signature uses a string is: the file is named
+// the backend's CompileCmd, which includes tack.h first and is given the
+// runtime's include directory, absolute, where the <tack/tack.h> that
+// tack.h includes when a signature uses a string is: the file is named
 // relative to the current directory when it is below it, as clang's
 // messages then show it. A C file that does not compile ends the build,
 // after clang's own errors, with "tack: cannot compile <file>: clang
@@ -150,14 +157,14 @@
 // needed, for the external symbols it defines.
 //
 // When the program calls a builtin, has a list type, whose generated C
-// grows and frees lists through std/builtin's list.c, or has a C file
-// whose object leaves undefined a symbol starting tack_, which only std
-// can define, every .c file of std/builtin, in name
-// order, is compiled there too, to std-<name>.o, with the backend's
-// CompileStdCmd: CompileCmd's flags and level, with std/include, where
-// <tack/tack.h> is, on the include path in place of the program's tack.h.
-// A std file that does not compile ends the build as a program's does, its
-// path shown absolute unless it is below the current directory. Each std
+// grows and frees lists through the runtime's list.c, or has a C file
+// whose object leaves undefined a symbol starting tack_, which only the
+// runtime can define, every C file of the runtime, exit.c, list.c and
+// print.c, is compiled there too, to std-<name>.o, with the backend's
+// CompileStdCmd: CompileCmd's flags and level, with the runtime's include
+// directory on the include path in place of the program's tack.h. Messages
+// name a runtime file <runtime>/<name>, such as <runtime>/print.c, since
+// the path it is written to is a temporary one. Each std
 // object's symbols, defined and undefined, are read the same way, and the
 // objects linked are chosen as a linker takes an archive's members: those
 // defining a builtin the program calls, the list functions of a program
@@ -167,9 +174,9 @@
 // defines, the C library's, is left to the linker. No ar is run and no
 // archive written. A program that needs none of these compiles no std file and
 // links no std object, so it does not link the C library code print and
-// exit call. A builtin the program calls that no std object defines is
-// "tack: builtin print has no C definition: no C file in <dir> defines
-// tack_builtin_print".
+// exit call. A builtin the program calls that no runtime object defines,
+// which only a broken compiler can have, is "tack: builtin print has no C
+// definition: the runtime defines no tack_builtin_print".
 //
 // # The build cache
 //
@@ -182,12 +189,13 @@
 // created when missing: std/keys/<key> holds the hex SHA-256 of an
 // object, which is std/objects/<that hash>.o. A key is the SHA-256 of
 // everything that decides the object: the cache's format, the backend's
-// name, the whole CompileStdCmd with the object's path left out (the C
-// file's and std/include's absolute paths and the optimization level are
-// in it), the standard output of the backend's VersionCmd, clang --version,
-// run once per build, the path and bytes of every file in std/include, the
-// C file's bytes, and the name and bytes of every .h file beside it.
-// Symbolic links are followed, as clang follows them. The C library's
+// name, the whole CompileStdCmd with the paths of the C file, of the
+// include directory and of the object left out, since they are temporary
+// ones (the optimization level is in it), the standard output of the
+// backend's VersionCmd, clang --version, run once per build, the runtime
+// header's bytes, and the C file's name and bytes. Every input but the
+// toolchain is built into the compiler, so nothing on disk, $TACK_HOME
+// included, changes what a key names. The C library's
 // headers are not hashed; the toolchain's identity stands for them. A
 // change to any input is a new key, never a stale hit. On a hit the object
 // is copied into the temporary directory as std-<name>.o, as a compiled
@@ -221,7 +229,7 @@
 // of its own package defines is a diagnostic at its declaration, "extern
 // func write has no C definition in package os", rendered and limited by
 // --max-errors like any other. Last, BuildCmd compiles program.c, with
-// std's include directory, for the <tack/tack.h> every generated source
+// the runtime's include directory, for the <tack/tack.h> every generated source
 // includes, and links the program's objects, then the chosen std objects,
 // into --out.
 //
@@ -235,8 +243,9 @@
 // backend's header, tack.h, into the main package's directory and that of
 // every other package of its module with C files or extern funcs,
 // replacing any there, and prints nothing. A tack.h whose signatures use a
-// string includes std's <tack/tack.h>, which an editor finds only with
-// std's include directory on its include path. A package of another module, a
+// string includes <tack/tack.h>, which an editor finds with an installed
+// std's include directory on its include path, where make install-std
+// writes a copy of the runtime header. A package of another module, a
 // std package, is not written into: it is not the program's. A build never reads those copies: CompileCmd's
 // -include of the fresh one makes a stale one's include guard skip it.
 //

@@ -3,7 +3,12 @@
 # BIN is where `make build` writes the compiler binary.
 BIN := bin/tack
 
-.PHONY: build install install-std test fmt lint
+# BUILTIN_DOC and RUNTIME_HEADER are the files built into the compiler that
+# std keeps copies of: the builtins' documentation and the runtime header.
+BUILTIN_DOC := builtin/builtin.tck
+RUNTIME_HEADER := builtin/runtime/tack/tack.h
+
+.PHONY: build install install-std std-copies test fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -11,15 +16,19 @@ build:
 
 # install compiles the compiler and puts it in Go's install directory: $GOBIN
 # if set, otherwise $GOPATH/bin. That directory needs to be on PATH for
-# `tack` to be runnable by name. It installs the standard library too, which
-# the compiler reads its builtins from.
+# `tack` to be runnable by name. It installs the standard library too, whose
+# packages a program imports.
 install: install-std
 	go install ./tack
 
 # install-std copies the standard library, src/std, to $TACK_HOME/src/std, or
 # to ~/.tack/src/std when TACK_HOME is unset or empty, where the compiler
 # looks for it. What is there is removed first, so a file deleted from
-# src/std does not linger in the installed copy.
+# src/std does not linger in the installed copy. It then writes the files
+# built into the compiler that std keeps copies of, the builtins'
+# documentation, std/builtin/builtin.tck, and the runtime header,
+# std/include/tack/tack.h, from the compiler's tree, read-only: they are
+# for reading, by people and editors, and no build reads them.
 install-std:
 	@home="$${TACK_HOME:-}"; \
 	if [ -z "$$home" ]; then \
@@ -27,7 +36,18 @@ install-std:
 		home="$$HOME/.tack"; \
 	fi; \
 	echo "installing std to $$home/src/std"; \
-	rm -rf "$$home/src/std" && mkdir -p "$$home/src" && cp -R src/std "$$home/src/std"
+	rm -rf "$$home/src/std" && mkdir -p "$$home/src" && cp -R src/std "$$home/src/std" && \
+	mkdir -p "$$home/src/std/builtin" "$$home/src/std/include/tack" && \
+	cp $(BUILTIN_DOC) "$$home/src/std/builtin/builtin.tck" && \
+	cp $(RUNTIME_HEADER) "$$home/src/std/include/tack/tack.h" && \
+	chmod a-w "$$home/src/std/builtin/builtin.tck" "$$home/src/std/include/tack/tack.h"
+
+# std-copies refreshes the repository's copies, in src/std, of the files
+# built into the compiler: the builtins' documentation and the runtime
+# header. A test of package builtin fails while they differ.
+std-copies:
+	cp $(BUILTIN_DOC) src/std/builtin/builtin.tck
+	cp $(RUNTIME_HEADER) src/std/include/tack/tack.h
 
 # test runs every test in the module, including the golden tests and the tests
 # that compile and run generated C, which need clang on PATH.

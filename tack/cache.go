@@ -6,33 +6,37 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"hash"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/tacklang/tack/builtin"
 )
 
 // cacheFormat names the layout of the cache and of its keys. It is the
 // first thing every key hashes, so changing it, as a change to either
 // must, leaves every older entry unused rather than misread.
-const cacheFormat = "tack std object cache 1"
+const cacheFormat = "tack std object cache 2"
 
 // objPlaceholder stands for the object's path in the compile command a
 // key hashes: the path is a fresh temporary one in every build, and where
 // the object is written does not change what it holds.
 const objPlaceholder = "<object>"
 
-// maxTreeDepth bounds how deep hashTree descends, so that a symbolic link
-// to a directory above it ends the walk with an error instead of never.
-const maxTreeDepth = 64
+// srcPlaceholder and includePlaceholder stand for the directories of the
+// runtime's C files and of its header in the compile command a key
+// hashes, which are fresh temporary ones in every build.
+const (
+	srcPlaceholder     = "<runtime>"
+	includePlaceholder = "<runtime>/include"
+)
 
 // objCache is the part of the build cache that holds the objects compiled
-// from std's C files, content-addressed: keys/<key> holds the hex SHA-256
+// from the runtime's C files, content-addressed: keys/<key> holds the hex SHA-256
 // of an object's bytes, and objects/<that hash>.o the object. A key is
 // the hash of everything that decides what the object holds (stdKey), so
 // a change to any of it is a new key, never a stale hit. Every file is
@@ -191,126 +195,31 @@ func (k keyHash) str(s string) { k.field([]byte(s)) }
 // sum returns the hash of the fields added so far, in hex.
 func (k keyHash) sum() string { return hex.EncodeToString(k.h.Sum(nil)) }
 
-// stdKey returns the key of the object the C file of std at src compiles
-// to in this build: the hash of the cache's format, the backend's name, the
-// command CompileStdCmd gives for src, with the object's path left out
-// (which holds src's own absolute path, std's include directory and the
-// optimization level), toolchain, the output of the backend's VersionCmd,
-// include, the hash of std's include directory, the bytes of src, and the
-// name and bytes of every .h file beside it, which an #include "x.h" in
-// it finds. The headers of the C library are not hashed: the toolchain's
-// identity stands for them.
-func (b *builder) stdKey(src string, toolchain, include []byte) (string, error) {
+// stdKey returns the key of the object the runtime's C file f compiles to
+// in this build: the hash of the cache's format, the backend's name, the
+// command CompileStdCmd gives for f, with the paths of f, of the include
+// directory and of the object left out, since each build writes the
+// runtime to a fresh temporary directory, and the optimization level in,
+// toolchain, the output of the backend's VersionCmd, the runtime header,
+// and f's name and bytes. Every input but the toolchain is built into the
+// compiler, so nothing on disk can change an object a key names. The
+// headers of the C library are not hashed: the toolchain's identity stands
+// for them.
+func (b *builder) stdKey(f builtin.RuntimeFile, toolchain []byte) string {
 	k := newKeyHash()
 	k.str(cacheFormat)
 	k.str(b.backend.Name())
-	cmd := b.backend.CompileStdCmd(src, b.std.includeDir(), objPlaceholder, b.opt)
+	cmd := b.backend.CompileStdCmd(srcPlaceholder+"/"+f.Name, includePlaceholder,
+		objPlaceholder, b.opt)
 	k.str(strconv.Itoa(len(cmd)))
 	for _, arg := range cmd {
 		k.str(arg)
 	}
 	k.field(toolchain)
-	k.field(include)
-	data, err := os.ReadFile(src) //nolint:gosec // G304: reading std is the point
-	if err != nil {
-		return "", fmt.Errorf("cannot read %s: %w", src, err)
-	}
-	k.field(data)
-	if err := hashHeaders(k, filepath.Dir(src)); err != nil {
-		return "", fmt.Errorf("cannot read the headers beside %s: %w", src, err)
-	}
-	return k.sum(), nil
-}
-
-// hashHeaders adds to k the name and bytes of every .h file in dir, in
-// name order, following symbolic links as the compiler does.
-func hashHeaders(k keyHash, dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err //nolint:wrapcheck // the caller says what was being read
-	}
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".h") {
-			continue
-		}
-		if err := hashEntry(k, filepath.Join(dir, e.Name()), e.Name(), -1); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// hashTree returns the hash of the tree at root, std's include directory:
-// every file and directory in it, by its path below root, and every
-// file's bytes, following symbolic links as the compiler does. A root that
-// does not exist hashes as an empty tree, as a std without an include
-// directory compiles: there is nothing in it to include.
-func hashTree(root string) ([]byte, error) {
-	k := newKeyHash()
-	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
-		k.str("absent")
-		return k.h.Sum(nil), nil
-	}
-	if err := hashDir(k, root, ".", 0); err != nil {
-		return nil, fmt.Errorf("cannot read std's include directory %s: %w", root, err)
-	}
-	return k.h.Sum(nil), nil
-}
-
-// hashDir adds to k every entry of the directory dir, whose path below the
-// tree's root is rel, in name order, descending into directories, depth
-// levels below the root.
-func hashDir(k keyHash, dir, rel string, depth int) error {
-	if depth > maxTreeDepth {
-		return fmt.Errorf("%s is nested more than %d directories deep, "+
-			"or a symbolic link leads to a directory above it", dir, maxTreeDepth)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err //nolint:wrapcheck // the caller says what was being read
-	}
-	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		if err := hashEntry(
-			k,
-			path,
-			filepath.ToSlash(filepath.Join(rel, e.Name())),
-			depth,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// hashEntry adds to k the entry at path, named name in the hash: a file's
-// bytes, a directory's entries when depth is not negative and its name
-// alone otherwise, and the kind alone of anything else, such as a
-// symbolic link to nothing, which no #include can read.
-func hashEntry(k keyHash, path, name string, depth int) error {
-	info, err := os.Stat(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		k.str("dangling " + name)
-		return nil
-	case err != nil:
-		return err //nolint:wrapcheck // the caller says what was being read
-	case info.Mode().IsRegular():
-		data, err := os.ReadFile(path) //nolint:gosec // G304: reading std is the point
-		if err != nil {
-			return err //nolint:wrapcheck // likewise
-		}
-		k.str("file " + name)
-		k.field(data)
-	case info.IsDir():
-		k.str("dir " + name)
-		if depth >= 0 {
-			return hashDir(k, path, name, depth+1)
-		}
-	default:
-		k.str("other " + name)
-	}
-	return nil
+	k.field(builtin.RuntimeHeader())
+	k.str(f.Name)
+	k.field(f.Data)
+	return k.sum()
 }
 
 // toolchainVersion runs argv, a backend's VersionCmd, and returns its

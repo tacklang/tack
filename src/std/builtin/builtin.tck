@@ -1,164 +1,196 @@
+// Package builtin documents the types, values and functions Tack provides
+// without a declaration or an import. The compiler implements every one of
+// them itself; this file is built into the compiler and is never compiled
+// as code. It exists so editors can show each builtin's documentation and
+// go to its declaration. Changing a copy of it changes nothing.
+//
+// Some builtins take any list, map or type, which no Tack declaration can
+// say exactly. Their declarations below use stand-in types, Elem, Key,
+// Sized and ListType, declared at the end of this file for documentation
+// only; no program can name them.
 package builtin
 
-// The functions Tack provides without a declaration. They are available in
-// every file without an import.
-//
-// The compiler holds no list of them: it reads this directory, every .tck
-// file in it, from $TACK_HOME/src/std/builtin, and each extern func
-// declared here is a builtin. Every declaration in this directory must be
-// one: an extern func, not a method, with its C name given, starting
-// tack_, that returns nothing, and whose parameters are of basic types;
-// anything else is an error naming the file. A call to a builtin is an
-// ordinary call to its C function. Builtins are functions: a method may
-// share a builtin's name, len or append among them, since it is only ever
-// called on a value, x.len(), and a bare len(x), in a method too, is
-// still the builtin.
-//
-// The body of each is C, in a .c file beside this one, named after the
-// builtin and defining its C function: print.c defines tack_builtin_print.
-// The driver compiles each .c file here as it compiles a program's own,
-// and links only those that define a builtin the program calls, and the
-// ones those need in turn, so a program that calls neither print nor exit
-// links no C library code for them. Anything not yet implemented belongs
-// in PLANNED.md instead.
+// Types
+
+// int64 is a signed 64-bit integer, from -9223372036854775808 to
+// 9223372036854775807. An integer constant with nothing to give it a type
+// is an int64.
+type int64 int64
+
+// int32 is a signed 32-bit integer, from -2147483648 to 2147483647.
+type int32 int32
+
+// int16 is a signed 16-bit integer, from -32768 to 32767.
+type int16 int16
+
+// int8 is a signed 8-bit integer, from -128 to 127.
+type int8 int8
+
+// uint64 is an unsigned 64-bit integer, from 0 to 18446744073709551615.
+type uint64 uint64
+
+// uint32 is an unsigned 32-bit integer, from 0 to 4294967295.
+type uint32 uint32
+
+// uint16 is an unsigned 16-bit integer, from 0 to 65535.
+type uint16 uint16
+
+// uint8 is an unsigned 8-bit integer, from 0 to 255: a byte.
+type uint8 uint8
+
+// unsafe_size_t is C's size_t: an unsigned integer as wide as the target
+// makes it, from 32 to 64 bits. Its rules hold whatever its width is.
+type unsafe_size_t unsafe_size_t
+
+// unsafe_uintptr_t is C's uintptr_t: an unsigned integer wide enough to
+// hold an address, from 32 to 64 bits, not necessarily as wide as
+// unsafe_size_t.
+type unsafe_uintptr_t unsafe_uintptr_t
+
+// bool is true or false.
+type bool bool
+
+// string is an immutable string of bytes. Its length is len(s), and s[i]
+// is its byte i, a uint8.
+type string string
+
+// any refers to a value of one of the basic types, which one known only
+// at run time. It can only be the type of a parameter, or the element
+// type of a variadic or view parameter.
+type any any
+
+// error is a returned error: a code and a message, code 0 meaning no
+// error, whatever the message. A function that can fail returns one as its
+// last result, and the results beside it cannot be read until it is
+// checked.
+type error struct {
+    code int32
+    msg  string
+}
+
+// Allocator is an opaque handle on an allocator, which a list grows and is
+// freed through. It is copyable, and has no zero value, no order and no ==.
+type Allocator Allocator
+
+// Values
+
+// true is the bool that holds.
+var true bool
+
+// false is the bool that does not hold.
+var false bool
+
+// noerror is the error with code 0 and an empty message: no error.
+var noerror error
+
+// c_allocator is the Allocator that lowers to C's malloc, realloc and
+// free, the one Allocator there is.
+var c_allocator Allocator
+
+// Functions
 
 // print writes s to standard output exactly as given, adding no newline.
-extern("tack_builtin_print") func print(s string)
+func print(s string)
 
 // exit ends the process immediately with the given status. Pending defers
 // do not run, in the calling function or any other, but before the
 // process ends every allocator frees every buffer it still holds, so no
-// list outlives the program. The status is an
-// int32, which C's exit takes as its int; an int64 status needs a
-// conversion first. Only the low bits of the status reach the operating
-// system, the low 8 on Linux and macOS, so exit(70000) ends with status
-// 112.
-extern("tack_builtin_exit") func exit(code int32)
+// list outlives the program. Only the low bits of the status reach the
+// operating system, the low 8 on Linux and macOS, so exit(70000) ends with
+// status 112.
+func exit(code int32)
 
-// len(v) returns the number of elements of the array, view or list v, or
-// the number of bytes of the string v, as an int64. Its parameter takes
-// any array, view, list or string, which no Tack declaration can say, so
-// the compiler implements it itself and it is described here rather than
-// declared. The length of an array, and of a string literal, is a
-// constant; a view's or a list's is never known.
+// len returns the number of elements of the array, view or list v, or the
+// number of bytes of the string v. The length of an array, and of a string
+// literal, is a constant; a view's or a list's is never known.
+func len(v Sized) int64
 
-// make(list[T], alloc Allocator) list[T] returns an empty list of
-// elements of type T, which grows through the allocator alloc and is
-// freed through it when its owner's block ends. It allocates nothing, so
-// it cannot fail. It takes a type, which no Tack declaration can, so the
-// compiler implements it itself.
+// make returns an empty list of elements of type T, written make(list[T],
+// alloc), which grows through alloc and is freed through it when its
+// owner's block ends. It allocates nothing, so it cannot fail.
+func make(t ListType, alloc Allocator) ListType
 
-// append(mut l list[T], elems ...T) error appends elems to the end of l,
-// in order, growing its buffer through l's allocator when it has no room
-// for them, and returns no error; or, when the allocator cannot grow it,
-// or l's length would overflow an int64, returns error{code: 1, msg:
-// "out of memory"} and leaves l as it was, its length, its capacity and
-// its elements, all or nothing. It takes the values as any variadic
-// does: any number of them, none included, append(mut l, a, b, c), or a
-// view spread whole, append(mut l, v...), what a []T parameter takes, so
-// a string's bytes are []uint8(s)..., and never a view of l itself. Its
-// error cannot be dropped. It takes a list of any element type, which no
-// Tack declaration can say, so the compiler implements it itself.
+// append appends elems to the end of l, in order, growing its buffer
+// through l's allocator when it has no room for them, and returns no
+// error; or, when the allocator cannot grow it, or l's length would
+// overflow an int64, returns error{code: 1, msg: "out of memory"} and
+// leaves l as it was, all or nothing. It takes any number of values, none
+// included, append(mut l, a, b, c), or a view spread whole, append(mut l,
+// v...), never a view of l itself. Its error cannot be dropped.
+func append[T Elem](mut l list[T], elems ...T) error
 
-// reserve(mut l list[T], n int64) error makes room in l for n more
-// elements, so that its capacity is at least its length plus n, growing
-// its buffer through l's allocator as append does, to at least double
-// its capacity, and returns no error; its length and elements never
-// change, and n of 0 does nothing. A constant n must not be negative; a
-// negative n at run time returns error{code: 2, msg: "negative count"},
-// and one the allocator cannot make room for, or that overflows l's
-// length, error{code: 1, msg: "out of memory"}, each leaving l as it
-// was. Its error cannot be dropped. It takes a list of any element type,
-// so the compiler implements it itself.
+// reserve makes room in l for n more elements, so that its capacity is at
+// least its length plus n, and returns no error; its length and elements
+// never change, and n of 0 does nothing. A negative n returns
+// error{code: 2, msg: "negative count"}, and one the allocator cannot make
+// room for error{code: 1, msg: "out of memory"}, each leaving l as it was.
+// Its error cannot be dropped.
+func reserve[T Elem](mut l list[T], n int64) error
 
-// pop(mut l list[T]) T moves the last element of l out of it and returns
-// it, leaving l one element shorter. Nothing is copied, allocated or
-// freed: the element is moved, so an element holding a list is now its
-// new owner's, never l's. Its plain form, x := pop(mut l), needs len(l) >
-// 0 proven where it is written, as an index's range is proven. Its
+// pop moves the last element of l out of it and returns it, leaving l one
+// element shorter; nothing is copied, allocated or freed. Its plain form,
+// x := pop(mut l), needs len(l) > 0 proven where it is written. Its
 // checked form, x, ok := pop(mut l), may be written anywhere: ok is false
-// for an empty list, which is left as it was, and x is then T's zero
-// value, or, for a T with none, a list, a union, an Allocator or
-// anything holding one, cannot be read until ok is checked true, and
-// holds nothing to free. Written as a statement, pop(mut l) needs no
-// proof: it drops the last element when there is one, freeing it when it
-// holds a list, and does nothing to an empty l. It takes a list of any
-// element type, which no Tack declaration can say, so the compiler
-// implements it itself.
+// for an empty list, which is left as it was. Written as a statement,
+// pop(mut l) drops the last element when there is one.
+func pop[T Elem](mut l list[T]) T
 
-// remove(mut l list[T], i int64) T moves element i of l out of it and
-// returns it, moving every element after it down one place, so the rest
-// keep their order, in time proportional to how many follow it. Like
-// pop it copies, allocates and frees nothing. Its plain form, x :=
-// remove(mut l, i), needs i proven in range for l, as an index does;
-// its checked form, x, ok := remove(mut l, i), may be written anywhere,
-// ok being false for an i out of range, l then left as it was and x as
-// pop's is. Written as a statement it needs no proof, as pop's, and drops
-// element i only when i is in range. It takes a list of any element type,
-// so the compiler implements it itself.
+// remove moves element i of l out of it and returns it, moving every
+// element after it down one place, so the rest keep their order. Its plain
+// form needs i proven in range for l; its checked form, x, ok :=
+// remove(mut l, i), may be written anywhere, ok being false for an i out of
+// range. Written as a statement it drops element i only when i is in range.
+func remove[T Elem](mut l list[T], i int64) T
 
-// swap(mut l list[T], i int64, j int64) swaps elements i and j of l in
-// place: what was at i is then at j, and what was at j at i, and i equal
-// to j leaves l as it was. It moves neither element out of l, copies
-// neither and frees nothing, so it takes a list of any element type, a
-// list of lists or of a generic function's type parameter included,
-// which is how generic code reorders owned elements. Both indexes need
-// proofs, as l[i] does, and there is no checked form; it changes no
-// length, so a proof about len(l) holds across it. It gives no value, so
-// it is only ever written as a statement. It takes a list of any element
-// type, so the compiler implements it itself.
+// swap swaps elements i and j of l in place; i equal to j leaves l as it
+// was. It moves, copies and frees nothing, so it reorders lists of owned
+// elements. Both indexes need proofs, as l[i] does, and a proof about
+// len(l) holds across it.
+func swap[T Elem](mut l list[T], i int64, j int64)
 
-// replace(mut place T, new T) T moves the value of place out, as its
-// result, and moves new into place, in one step, so the place never holds
-// no value: a list kept in a struct's field is taken out with old :=
-// replace(mut s.items, make(list[T], alloc)), worked on as a local, and
-// put back with replace(mut s.items, old), which no move can do, since a
-// field cannot be moved out on its own. place is anything a mut argument
-// can be: a mutable local, a mut parameter, a field of one, or an element
-// with its index proven. new is used as T, under assignment's rules, and
-// is moved in when it holds a list; it may read place's old value when it
-// is copyable, replace(mut x, x * 2), but an owned one may not be place
-// itself. The arguments are evaluated left to right, place first, before
-// anything is read or stored. A result holding a list must be bound;
-// written as a statement, replace(mut place, new) is an assignment, which
-// frees the old value. It takes a place of any type, so the compiler
-// implements it itself.
+// replace moves the value of place out, as its result, and moves new into
+// place, in one step, so the place never holds no value: old :=
+// replace(mut s.items, make(list[T], alloc)) takes a list out of a field,
+// which no move can do. place is anything a mut argument can be. Written
+// as a statement, replace(mut place, new) is an assignment, which frees the
+// old value.
+func replace[T Elem](mut place T, new T) T
 
-// put(mut m map[K]V, k K, v V) error puts v under k in m: in place of
-// the value k has, which it frees when it holds a list, keeping k's
-// position in m's order and the key m holds, the k given being freed; or
-// at the end of the order, growing m's buffers through m's allocator,
-// when k is new. When the allocator cannot grow them it returns
-// error{code: 1, msg: "out of memory"}, leaves m exactly as it was, and
-// frees k and v, as append frees the values it cannot add; otherwise it
-// returns no error. k and v are moved in. Its error cannot be dropped. It
-// takes a map of any key and value types, which no Tack declaration can
-// say, so the compiler implements it itself.
+// put puts v under k in m: in place of the value k has, which it frees,
+// keeping k's position in m's order; or at the end of the order when k is
+// new. When the allocator cannot grow m it returns error{code: 1, msg:
+// "out of memory"}, leaves m exactly as it was, and frees k and v. k and v
+// are moved in. Its error cannot be dropped.
+func put[K Key, V Elem](mut m map[K]V, k K, v V) error
 
-// delete(mut m map[K]V, k K) (V, bool) takes the value under k out of m,
-// moving it, and frees the key m held; v, ok := delete(mut m, k) gives
-// the value and true, or, when k is not in m, which is then left as it
-// was, V's zero value and false, and for a V with none, a list, a union,
-// an Allocator or anything holding one, v cannot be read until ok is
-// checked true, as pop's x. Written as a statement, delete(mut m, k)
-// frees the value it takes. It takes a map of any key and value types,
-// so the compiler implements it itself.
+// delete takes the value under k out of m, moving it, and frees the key m
+// held: v, ok := delete(mut m, k) gives the value and true, or, when k is
+// not in m, V's zero value and false. Written as a statement, delete(mut
+// m, k) frees the value it takes.
+func delete[K Key, V Elem](mut m map[K]V, k K) (V, bool)
 
-// has(m map[K]V, k K) bool reports whether k is in m. Tested as a
-// condition, in an if, a loop's condition, or either side of && or ||, it
-// proves k is in m where the condition holds, as i < len(l) proves an
-// index, and m[k] is then a place, as a proven l[i] is: it can be read in
-// place, its fields read, passed as it is or as mut, appended to, have a
-// mut method called on it, be replaced, and be assigned, m[k] = v, which
-// frees the value it held. The proof ends at any write to m that can
-// reach the use, a put, a delete, an assignment or a mut argument, but
-// not at one to a value m holds, which changes none of its keys. m must
-// be a variable or a parameter, or a field or an element of one declared
-// without mut, and k a constant, a variable or parameter declared without
-// mut, or a field or element of one, so nothing changes it. It takes a
-// map of any key and value types, so the compiler implements it itself.
+// has reports whether k is in m. Tested as a condition it proves k is in m
+// where the condition holds, so m[k] is then a place that can be read and
+// assigned in place. The proof ends at any write to m that can reach the
+// use.
+func has[K Key, V Elem](m map[K]V, k K) bool
 
-// c_allocator, a keyword, is the Allocator that lowers to C's malloc,
-// realloc and free, the one Allocator there is. Allocator, a builtin
-// type, is an opaque handle on an allocator, which a list holds; it is
-// copyable, and has no zero value and no ==.
+// Stand-ins, for documentation only
+
+// Elem stands for any type: a list's element, a map's value, a place.
+type Elem interface {
+}
+
+// Key stands for any type a map key can have: one with ==.
+type Key interface {
+}
+
+// Sized stands for any array, view or list, of any element type, or a
+// string.
+type Sized interface {
+}
+
+// ListType stands for a list type written where a value goes, as
+// make(list[int64], c_allocator) does.
+type ListType interface {
+}

@@ -120,7 +120,8 @@
 // says module std, a checkout of std being worked on, is a module named
 // std, and its packages' imports of std/... name its own packages, never
 // the installed std's, so the two copies never mix in one program. In a
-// library, std/builtin, which only declares the builtins, is left out.
+// library, std/builtin, which only holds a copy of the builtins'
+// documentation (see package builtin), is left out.
 // What std's packages may use of each other, lib included, is the
 // resolver's to check, by Module, as for any two packages.
 //

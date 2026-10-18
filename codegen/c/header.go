@@ -19,14 +19,14 @@ const HeaderName = "tack.h"
 // it may be: see reservedNames.
 const guardName = "TACK_H"
 
-// stdGuardName is the macro the include guard of std's tack.h defines.
+// stdGuardName is the macro the include guard of the runtime's tack.h defines.
 // std's header defines tack_string and the string helpers, and tack_any,
 // its type ids and its helpers, and the generated source and a program's
 // tack.h include it, so these names are reserved in tack.h as if it
 // defined them itself.
 const stdGuardName = "TACK_STD_TACK_H"
 
-// stdHeader is the line that includes std's tack.h, which the generated
+// stdHeader is the line that includes the runtime's tack.h, which the generated
 // source always writes and a program's tack.h writes when a signature uses
 // a string or any. clang finds it on the include path, at the standard
 // library's include directory, which CompileCmd and BuildCmd are given.
@@ -63,7 +63,7 @@ type header struct {
 
 	diags []diag.Diagnostic
 
-	std   bool // whether a type std's tack.h defines is used: tack_string, tack_any, tack_error, tack_allocator
+	std   bool // whether a type the runtime's tack.h defines is used: tack_string, tack_any, tack_error, tack_allocator
 	sizes bool // whether size_t is, which <stddef.h> declares
 }
 
@@ -148,7 +148,7 @@ func (h *header) useSignature(fn *ast.Func) {
 // use records that tack.h needs typ, used at site, and every type it is
 // made of, which are defined before it, and the header that declares a
 // basic type's C type when <stdint.h> does not: <stddef.h> for size_t, and
-// std's tack.h for tack_string, tack_any, tack_error and tack_allocator,
+// the runtime's tack.h for tack_string, tack_any, tack_error and tack_allocator,
 // which a list holds too, and whose macros C grows a list with.
 func (h *header) use(typ types.Type, site ast.Span) {
 	table := h.prog.Types
@@ -168,7 +168,7 @@ func (h *header) use(typ types.Type, site ast.Span) {
 	h.order = append(h.order, typ)
 }
 
-// stdTypes holds the basic types whose C types std's tack.h defines.
+// stdTypes holds the basic types whose C types the runtime's tack.h defines.
 var stdTypes = map[types.Type]bool{
 	types.String:    true,
 	types.Any:       true,

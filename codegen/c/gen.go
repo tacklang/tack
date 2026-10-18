@@ -243,7 +243,7 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 // included, and includes, <stddef.h> when a type needs it, follow them; a
 // freestanding C implementation has all three, so the generated C needs
 // no C library. The builtins' bodies, which may, are compiled apart, from
-// std/builtin. Last comes std's <tack/tack.h>, which defines what every
+// the runtime's C files. Last comes the runtime's <tack/tack.h>, which defines what every
 // program shares: tack_string, and TACK_C_STR_LEN, which reads the length
 // of a pooled string off its array, the array's size less the trailing
 // zero emitConstantPool adds, rather than writing it out beside it.
@@ -420,7 +420,7 @@ func (g *generator) emitConstantPool(builtins []builtin.Func) {
 	g.buf.WriteString("\n")
 
 	// Each builtin is declared only when the program calls it, under its C
-	// name; its body is in std/builtin, which the driver links only for a
+	// name; its body is in the runtime, which the driver links only for a
 	// builtin some call needs.
 	for _, fn := range builtins {
 		g.buf.WriteString(g.builtinPrototype(fn) + "\n")
@@ -853,7 +853,7 @@ func (g *generator) emitFunc(sig string, body []string) {
 
 // emitEntryPoint writes C's main, which exists only to call Tack's, once
 // it has stored its argc and argv in tack_argc_ and tack_argv_, the
-// globals std's tack.h declares and this source defines, for std/os to
+// globals the runtime's tack.h declares and this source defines, for std/os to
 // read, and given each global too deep for a C initializer its value (see
 // deepGlobal).
 //

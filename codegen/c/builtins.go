@@ -12,7 +12,7 @@ import (
 
 // builtinPrototype is the C prototype of fn, a builtin extern func, under
 // its C name: void, since no builtin returns a value, and its parameters'
-// C types, unnamed. Its body is in std/builtin, compiled and linked by the
+// C types, unnamed. Its body is in the runtime, compiled and linked by the
 // driver, so the generated C only declares it. exit is declared
 // _Noreturn, as its body is: the type checker counts a call to it as
 // leaving, so a C function with a result may end in one, which clang

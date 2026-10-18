@@ -116,7 +116,7 @@ func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string)
 	}
 	bin := filepath.Join(dir, "prog")
 	args := append(append([]string{}, strict...), "-o", bin, program)
-	args = append(append(args, objs...), stdtest.MustBuiltins().CFiles()...)
+	args = append(append(args, objs...), stdtest.RuntimeCFiles()...)
 	if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang %s: %v\n%s\n%s", strings.Join(args, " "), err, msg, out)
 	}

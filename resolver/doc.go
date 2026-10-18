@@ -70,8 +70,9 @@
 // builtin's name is no value, `cannot use the builtin len as a value;
 // only a declared function can be one`. The names in a function type,
 // func(A) R, are bound as any type's are. The builtins are those of the builtin.Set New
-// is given, which std/builtin declares, and the generic ones, len, make,
-// append, reserve, pop and remove.
+// is given, print and exit, which the compiler implements, and the generic
+// ones, len, make, append, reserve, pop, remove, swap, replace, put,
+// delete and has.
 //
 // Package-level variables and types share one namespace with functions and
 // builtins, and form the outermost scope, enclosing every function, so a

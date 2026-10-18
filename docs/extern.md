@@ -97,7 +97,7 @@ with `divmod`.
   name, with its Tack declaration in a comment beside it. A build writes it
   into its temporary build directory, never into the source tree, and
   compiles every C file with that directory on the include path, then
-  std's, `$TACK_HOME/src/std/include`, and `tack.h` included before the
+  the directory it writes the runtime header to, and `tack.h` included before the
   file's first line. So clang checks every
   definition against its extern func, whether the file includes `tack.h` or
   not; a definition that does not match is clang's `conflicting types`.
@@ -114,12 +114,14 @@ with `divmod`.
   shares, `tack_string` and the string helpers below, `tack_error` and
   the error helpers, and `tack_any`, its
   type ids and its unpack helpers, is defined once, in
-  std's [`tack/tack.h`](../src/std/include/tack/tack.h), which `tack.h`
-  includes as `<tack/tack.h>` when a signature uses a string, an error or `any`, and which the
-  generated C and std's own C files include too. An editor that reads such
-  a `tack.h` needs std's include directory on its include path, as the
-  build has it: `-I $TACK_HOME/src/std/include`, or `~/.tack/src/std/include`
-  without `TACK_HOME`, in whatever compile flags the editor reads.
+  the runtime header, [`tack/tack.h`](../builtin/runtime/tack/tack.h),
+  built into the compiler, which `tack.h` includes as `<tack/tack.h>` when
+  a signature uses a string, an error or `any`, and which the generated C
+  and std's own C files include too. An editor that reads such a `tack.h`
+  needs a copy of it on its include path: `make install-std` writes one to
+  std's include directory, so `-I $TACK_HOME/src/std/include`, or
+  `~/.tack/src/std/include` without `TACK_HOME`, in whatever compile flags
+  the editor reads. A build never reads that copy.
 
 ## The ABI
 
@@ -177,12 +179,12 @@ it is an extern func, and a function value does not cross to C`.
 | a `mut l list[T]` parameter  | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
-signature uses `size_t`, and std's `<tack/tack.h>` when one uses a string,
+signature uses `size_t`, and the runtime's `<tack/tack.h>` when one uses a string,
 an error, `any`, a list or an `Allocator`, and defines every type an extern func's signature uses and every type
 those hold, each before the types that hold it. Its names:
 
 - `tack_string` for `string`, `tack_error` for `error`, and `tack_any`
-  for `any`, which std's `<tack/tack.h>` defines. `[]any`, and so
+  for `any`, which the runtime's `<tack/tack.h>` defines. `[]any`, and so
   `...any`, is `tack_view_any`; `[]error` is `tack_view_error`, and
   `[2]error` `tack_array_2_error`, after error's Tack name, as for any
   basic type.
@@ -208,7 +210,7 @@ those hold, each before the types that hold it. Its names:
   array's is: `list[int64]` is `tack_list_int64` and `list[Point]`
   `tack_list_Point`, reserved as a view's name is: `list type list[int64]
   and type tack_list_int64 of package main are both named tack_list_int64
-  in tack.h`. `Allocator` is `tack_allocator`, which std's `<tack/tack.h>`
+  in tack.h`. `Allocator` is `tack_allocator`, which the runtime's `<tack/tack.h>`
   defines.
 - The results of extern func `f` are `tack_results_f`, after its C name.
 - The prototypes name each parameter in a comment after its type,
@@ -332,7 +334,7 @@ typedef struct {
 } tack_list_int64;
 ```
 
-std's `<tack/tack.h>` gives C five macros for it:
+the runtime's `<tack/tack.h>` gives C five macros for it:
 
 - `TACK_LIST_LEN(l)`, the number of elements of the list `l`, a
   `tack_list_<T>`, not a pointer to one: `TACK_LIST_LEN(*lp)`.
@@ -379,14 +381,14 @@ std's `<tack/tack.h>` gives C five macros for it:
   then `i` once, as Tack's `pop` and `remove` do, which lower to them.
 
 Growing goes through `tack_list_grow_`, and a list's owner frees it
-through `tack_list_free_`, both std's, in `std/builtin`'s `list.c`, which
+through `tack_list_free_`, both the runtime's, in its `list.c`, which
 the driver links for any program with a list type. `tack_list_grow_`
 fails rather than wraps when the buffer's size would not fit a `size_t`
 or a `ptrdiff_t`, when the alignment is more than the allocator gives,
 or when the handle is no allocator's; C never calls either directly.
 
 An `Allocator` is `tack_allocator`, `{uint32_t index; uint32_t gen;}`,
-an opaque handle: the index of one of the allocators std's C keeps and
+an opaque handle: the index of one of the allocators the runtime's C keeps and
 that entry's generation, so a handle to an allocator that has ended can
 be told from one to its successor. `c_allocator` is `TACK_C_ALLOCATOR`,
 index 0, generation 0, which lowers to `malloc`, `realloc` and `free`.
@@ -422,7 +424,7 @@ reserve fail.
 The generated C's `main` is `int main(int argc, char **argv)`. Before it
 calls the Tack `main`, it stores `argc` and `argv` in two globals the
 generated source defines, `int tack_argc_` and `char **tack_argv_`,
-which std's `<tack/tack.h>` declares, so every program has them, whether
+which the runtime's `<tack/tack.h>` declares, so every program has them, whether
 or not it reads them. `std/os`'s C reads its arguments from them, and
 nothing writes them after `main` has: C reads them, never writes them,
 and never writes through `tack_argv_`. No extern func may take either
@@ -434,7 +436,7 @@ A value passed as `any` reaches C as a `tack_any`, by value: `type`, the
 id of the value's type, and `ptr`, a pointer to a copy of the value made
 for the call, or to the caller's variable when nothing in the call can
 change it. The ids are fixed for good, since C is written against them,
-and std's `<tack/tack.h>` names each:
+and the runtime's `<tack/tack.h>` names each:
 
 | id | macro                        | Tack               | `ptr` points at |
 |----|------------------------------|--------------------|-----------------|
@@ -481,7 +483,7 @@ A program that uses no such signature has no such type in its
 and an `int64_t len`. `examples/extern-any` reads a `[]int64` this
 way. 25 to 255 are kept for types to come. Arrays, structs, lists and
 views of any other type cannot be passed as `any` yet. C reads the
-basic types with these, from std's `<tack/tack.h>`:
+basic types with these, from the runtime's `<tack/tack.h>`:
 
 - `TACK_ANY_IS(a, T)` reports whether `a` holds a `T`, where `T` is the
   end of an id's macro: `TACK_ANY_IS(a, STRING)`. Any other `T` does not
@@ -540,7 +542,7 @@ error:
 `examples/extern-errors` uses both. They make a string, not its bytes'
 lifetime: the bytes must still stay valid as the trust boundary below
 says, which a literal's and a static array's do. A future helper follows
-the same rule as these: it is defined once, in std's `<tack/tack.h>` or a
+the same rule as these: it is defined once, in the runtime's `<tack/tack.h>` or a
 std header beside it, reaches a program's C through `tack.h` only when the
 program uses the type it serves, and its names are reserved in `tack.h`.
 
@@ -659,50 +661,48 @@ Mach-O or ELF object file`.
 
 ## The builtins
 
-`print` and `exit` are extern funcs too, declared in
-[`src/std/builtin/builtin.tck`](../src/std/builtin/builtin.tck) as
-`extern("tack_builtin_print") func print(s string)` and
-`extern("tack_builtin_exit") func exit(code int32)`, and available in every
-file without an import. The compiler reads them from the installed copy,
-`$TACK_HOME/src/std/builtin`, or `~/.tack/src/std/builtin` without
-`TACK_HOME`, which `make install` writes; every extern func declared there
-is a builtin, and anything else declared there is an error in that file.
+The builtins are built into the compiler: `print` and `exit`, available in
+every file without an import, with their C names, `tack_builtin_print`
+and `tack_builtin_exit`, and the runtime's C files that define their
+bodies, [`print.c`](../builtin/runtime/print.c) and
+[`exit.c`](../builtin/runtime/exit.c), ordinary non-static functions under
+those names, beside [`list.c`](../builtin/runtime/list.c) and the runtime
+header, [`tack/tack.h`](../builtin/runtime/tack/tack.h). Every builtin is
+documented in [`builtin/builtin.tck`](../builtin/builtin.tck), embedded in
+the compiler as documentation only; `make install-std` writes read-only
+copies of it and of the header into `$TACK_HOME/src/std`, which no build
+reads, so editing them changes nothing.
 
-Their C bodies are the `.c` files beside it,
-[`print.c`](../src/std/builtin/print.c) and
-[`exit.c`](../src/std/builtin/exit.c), ordinary non-static functions under
-the builtins' C names. They include `<tack/tack.h>`, from
-`src/std/include`, the one definition of `tack_string`, which the
-generated C includes too, and nothing program-specific. The generated C
-declares each builtin the program calls with a prototype,
-`void tack_builtin_print(tack_string);`, and includes no hosted header for
-it, so it includes only `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` for
-`size_t`, which every freestanding C implementation has, and
-`<tack/tack.h>`, which includes only those three. The generated C is
-compiled with `-I $TACK_HOME/src/std/include`, so `tack --emit` output
-needs that flag too to compile on its own.
+The runtime's C files include `<tack/tack.h>`, the one definition of
+`tack_string`, which the generated C includes too, and nothing
+program-specific. The generated C declares each builtin the program calls
+with a prototype, `void tack_builtin_print(tack_string);`, and includes no
+hosted header for it, so it includes only `<stdbool.h>` and `<stdint.h>`,
+`<stddef.h>` for `size_t`, which every freestanding C implementation has,
+and `<tack/tack.h>`, which includes only those three. Each build writes
+the runtime to its own temporary directory and compiles the generated C,
+and every other C file, with that directory's copy of the header on the
+include path; `tack --emit` output compiles on its own with `-I
+$TACK_HOME/src/std/include`, where the installed copy is.
 
-A build compiles every `.c` file of `std/builtin`, when the program calls
-any builtin, has a list type, or has a C file whose object leaves a
-`tack_` symbol undefined, as it compiles a package's: with clang, `-w`,
-at the build's `-O` level, with `-I $TACK_HOME/src/std/include` but
-without the program's `tack.h`. It reads each object's symbols, as it
-reads a package's, and links only the objects that define a builtin the
-program calls, the list functions, `tack_list_grow_` and
-`tack_list_free_`, for a program with lists, and a `tack_` symbol one of
-the program's C files leaves undefined, as a C file using std's list
-macros does, and, in turn, those that define a symbol a linked one
-leaves undefined, the way a linker takes members from an archive
-(`exit.c`'s object leaves `tack_allocators_release_all_` undefined, so a
-program calling `exit` links `list.c` too); there
-is no archive, and no tool but clang. A program that calls neither
-builtin and has no list links no std object, and none of the C library
-they call. A builtin no std object defines is an error, `tack: builtin
-print has no C definition: no C file in <dir> defines
-tack_builtin_print`, and so are lists without theirs, `tack: lists have
-no C definition: no C file in <dir> defines tack_list_grow_`. A C file of the program may not define a
-builtin's C name the program calls: with std's linked, that is `tack: two C
-files define tack_builtin_print: helpers.c and <dir>/print.c`.
+A build compiles every C file of the runtime, when the program calls any
+builtin, has a list type, or has a C file whose object leaves a `tack_`
+symbol undefined, as it compiles a package's: with clang, `-w`, at the
+build's `-O` level, with the runtime header's directory on the include
+path but without the program's `tack.h`, or takes the object from the
+build cache. It reads each object's symbols, as it reads a package's, and
+links only the objects that define a builtin the program calls, the list
+functions, `tack_list_grow_` and `tack_list_free_`, for a program with
+lists, and a `tack_` symbol one of the program's C files leaves undefined,
+as a C file using the list macros does, and, in turn, those that define a
+symbol a linked one leaves undefined, the way a linker takes members from
+an archive (`exit.c`'s object leaves `tack_allocators_release_all_`
+undefined, so a program calling `exit` links `list.c` too); there is no
+archive, and no tool but clang. A program that calls neither builtin and
+has no list links no runtime object, and none of the C library they call.
+A C file of the program may not define a builtin's C name the program
+calls: with the runtime's linked, that is `tack: two C files define
+tack_builtin_print: helpers.c and <runtime>/print.c`.
 
 ## A worked example
 

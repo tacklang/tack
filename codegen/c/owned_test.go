@@ -225,7 +225,7 @@ func TestTakeMacros(t *testing.T) {
 	args := []string{
 		"-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
 		"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-		"-I", stdtest.IncludeDir(), "-o", bin, main, filepath.Join(stdtest.BuiltinDir(), "list.c"),
+		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
 	}
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)

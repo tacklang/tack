@@ -489,7 +489,7 @@ rules already there, rather than decided, and could go another way:
   argument must be the only way to reach l during its call`. A `mut`
   argument inside that list, `ll[0] = make_list(grow(mut ll[0]))`, is
   allowed: it cannot move the list's own buffer.
-- The driver links `std/builtin`'s `list.c` for a program with any list
+- The driver links the runtime's `list.c` for a program with any list
   type, and std's objects defining a `tack_` symbol a program's own C
   object leaves undefined, so a C file calling std's list macros links
   what they call.
@@ -1008,9 +1008,9 @@ go another way:
   assumption Tack does not state elsewhere.
 - A string C returns is taken as it is: nothing says who owns its bytes or
   how long they live, which the memory model will have to.
-- The builtins' C bodies are C files of `std/builtin`, read from
-  `$TACK_HOME/src/std`, compiled and linked like a package's, only the
-  objects a program needs. Their C names are `tack_builtin_print` and
+- The builtins' C bodies are the runtime's C files, built into the
+  compiler, compiled and linked like a package's, only the objects a
+  program needs. Their C names are `tack_builtin_print` and
   `tack_builtin_exit`. `exit`'s body and prototype are declared
   `_Noreturn`, since a function with a result may end in a call to it; a
   target that swaps the C files must keep it never returning.
@@ -1022,8 +1022,8 @@ packages follow the rules of any package. Some of what that implies was
 decided by consistency and is open:
 
 - A std package's C files are compiled as a program package's are, with
-  the program's `tack.h` included first, not as `std/builtin`'s are, with
-  `src/std/include` on the include path. So a std C file sees the
+  the program's `tack.h` included first, not as the runtime's are, with
+  only the runtime header's directory on the include path. So a std C file sees the
   program's `tack.h`, and std has two ways of writing C.
 - std's own `tack.mod` is never read: the loader takes the name `std` for
   the directory `$TACK_HOME/src/std` whatever the file says, and only a

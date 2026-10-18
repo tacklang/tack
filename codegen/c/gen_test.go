@@ -157,14 +157,14 @@ func TestVersionCmdIdentifiesClang(t *testing.T) {
 	}
 }
 
-// stdObjects compiles every C file of the repository's std/builtin, as the
+// stdObjects compiles every C file of the runtime built into the compiler, as the
 // driver does, into a fresh directory and returns the objects, for a test
 // that links a generated program itself.
 func stdObjects(t *testing.T) []string {
 	t.Helper()
 	e := c.New()
 	dir := t.TempDir()
-	files := stdtest.MustBuiltins().CFiles()
+	files := stdtest.RuntimeCFiles()
 	objs := make([]string, 0, len(files))
 	for _, src := range files {
 		obj := filepath.Join(dir, filepath.Base(src)+".o")
@@ -586,7 +586,7 @@ func buildWith(t *testing.T, src string, flags ...string) string {
 	// so it is held to the same warnings.
 	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, flags...)
 	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, csrc)
-	cmd := exec.Command("clang", append(args, stdtest.MustBuiltins().CFiles()...)...)
+	cmd := exec.Command("clang", append(args, stdtest.RuntimeCFiles()...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, generate(t, src))
 	}

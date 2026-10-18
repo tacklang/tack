@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/internal/stdtest"
 )
 
@@ -102,11 +103,13 @@ func TestStdFromHomeDirectory(t *testing.T) {
 	)
 }
 
-// The generated source is built with std's include directory on the
-// include path, where it finds <tack/tack.h>, given absolute even for a
-// relative TACK_HOME: the tests run in tack/, whose parent is the
-// repository's root.
-func TestBuildSearchesStdInclude(t *testing.T) {
+// The generated source is built with the runtime header built into the
+// compiler on the include path, where it finds <tack/tack.h>: an absolute
+// directory the build wrote it to, below its own temporary directory and
+// not in TACK_HOME, even for a relative TACK_HOME, whose copy of tack.h is
+// never read. The tests run in tack/, whose parent is the repository's
+// root.
+func TestBuildIncludesTheRuntimeHeader(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "include")
 	r := runTackEnv(t, t.Context(), envAt(t, ".."),
 		"--backend", includeBackend, "--out", out, program(t, ""))
@@ -117,8 +120,13 @@ func TestBuildSearchesStdInclude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := stdtest.IncludeDir(); string(data) != want {
-		t.Errorf("BuildCmd was given include directory %q, want %q", data, want)
+	dir, header, _ := strings.Cut(string(data), "\n")
+	if !filepath.IsAbs(dir) || strings.HasPrefix(dir, stdtest.Home()) ||
+		filepath.Base(filepath.Dir(dir)) != "runtime" {
+		t.Errorf("BuildCmd was given include directory %q, want one the build wrote", dir)
+	}
+	if header != string(builtin.RuntimeHeader()) {
+		t.Errorf("the include directory's tack/tack.h is not the compiler's")
 	}
 }
 
@@ -149,33 +157,6 @@ func TestRelativeTackHome(t *testing.T) {
 			t.Errorf("object %s is not absolute", obj)
 		}
 	}
-}
-
-// A std/builtin that declares something other than builtins is rendered
-// as diagnostics in its own file, exit 1.
-func TestMalformedStd(t *testing.T) {
-	home := writeDir(t, map[string]string{
-		"src/std/builtin/builtin.tck": "package builtin\n\nvar x = 1\n",
-	})
-	r := runTackEnv(t, t.Context(), envAt(t, home), "--emit", program(t, ""))
-	assertDiagnostics(t, r)
-	want := filepath.Join(home, "src", "std", "builtin", "builtin.tck") +
-		":3:5: error: std/builtin declares only builtins, as extern funcs; var x is not one"
-	if !strings.Contains(r.stderr, want) {
-		t.Errorf("stderr = %q, want it to say %q", r.stderr, want)
-	}
-
-	home = writeDir(t, map[string]string{"src/std/builtin/print.c": ""})
-	r = runTackEnv(t, t.Context(), envAt(t, home), "--emit", program(t, ""))
-	assertFailure(t, r, "no .tck files in "+filepath.Join(home, "src", "std", "builtin"))
-
-	home = writeDir(t, map[string]string{"src/std/tack.mod": "module std\n"})
-	r = runTackEnv(t, t.Context(), envAt(t, home), "--emit", program(t, ""))
-	assertFailure(
-		t,
-		r,
-		"cannot read the builtins: open "+filepath.Join(home, "src", "std", "builtin"),
-	)
 }
 
 // linkedObjects returns the objects the objs backend wrote to out, which
@@ -257,129 +238,6 @@ func TestStdObjectsLinkedOnlyWhenUsed(t *testing.T) {
 	}
 }
 
-// The std objects a program links are the ones defining the builtins it
-// calls and, in turn, every std object defining a symbol one of those
-// leaves undefined, as an archive's members are; a symbol no std object
-// defines, such as the C library's, is left to the linker.
-func TestStdObjectsLinkedTransitively(t *testing.T) {
-	if _, err := exec.LookPath("clang"); err != nil {
-		t.Skip("clang not on PATH")
-	}
-	home := writeDir(t, map[string]string{
-		"src/std/builtin/builtin.tck": "package builtin\n\n" +
-			"extern(\"tack_builtin_a\") func a()\n" +
-			"extern(\"tack_builtin_b\") func b()\n",
-		"src/std/builtin/a.c": "void tack_helper(void);\nvoid tack_builtin_a(void) { tack_helper(); }\n",
-		"src/std/builtin/b.c": "void tack_builtin_b(void) {}\n",
-		"src/std/builtin/helper.c": "#include <stdlib.h>\nvoid tack_deeper(void);\n" +
-			"void tack_helper(void) { tack_deeper(); }\n",
-		"src/std/builtin/deeper.c": "#include <stdlib.h>\nvoid tack_deeper(void) { abort(); }\n",
-		"src/std/builtin/unused.c": "void tack_unused(void) {}\n",
-	})
-	for _, tt := range []struct {
-		body string
-		want []string
-	}{
-		{"    a()\n", []string{"std-a.o", "std-deeper.o", "std-helper.o"}},
-		{"    b()\n", []string{"std-b.o"}},
-		{"", nil},
-	} {
-		out := filepath.Join(t.TempDir(), "objs")
-		r := runTackEnv(t, t.Context(), envAt(t, home),
-			"--backend", objsBackend, "--out", out, program(t, tt.body))
-		if r.code != exitOK || r.stderr != "" {
-			t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
-		}
-		if got := linkedNames(t, out); !slices.Equal(got, tt.want) {
-			t.Errorf("%q linked %q, want %q", tt.body, got, tt.want)
-		}
-	}
-}
-
-// A builtin the program calls whose C name no std C file defines is a
-// failure naming the builtin, its C name and the std/builtin directory.
-func TestUsedBuiltinWithoutADefinition(t *testing.T) {
-	if _, err := exec.LookPath("clang"); err != nil {
-		t.Skip("clang not on PATH")
-	}
-	home := writeDir(t, map[string]string{
-		"src/std/builtin/builtin.tck": "package builtin\n\n" +
-			"extern(\"tack_builtin_a\") func a()\nextern(\"tack_builtin_b\") func b()\n",
-		"src/std/builtin/b.c": "void tack_builtin_b(void) {}\nstatic void tack_builtin_a(void) {}\n",
-	})
-	dir := filepath.Join(home, "src", "std", "builtin")
-	tmp := isolateTemp(t)
-	r := runTackEnv(t, t.Context(), envAt(t, home),
-		"--out", filepath.Join(t.TempDir(), "bin"), program(t, "    a()\n"))
-	assertFailure(
-		t,
-		r,
-		"builtin a has no C definition: no C file in "+dir+" defines tack_builtin_a",
-	)
-	assertEmptyDir(t, tmp)
-
-	// Unused, its missing definition is nothing to report.
-	r = runTackEnv(
-		t,
-		t.Context(),
-		envAt(t, home),
-		"--backend",
-		objsBackend,
-		"--out",
-		filepath.Join(t.TempDir(), "objs"),
-		program(t, "    b()\n"),
-	)
-	if r.code != exitOK {
-		t.Errorf("exit %d, stderr %q", r.code, r.stderr)
-	}
-}
-
-// A std C file that does not compile ends the build, as a program's does,
-// named by its path; so does one defining main, and two defining one
-// symbol.
-func TestBrokenStdC(t *testing.T) {
-	if _, err := exec.LookPath("clang"); err != nil {
-		t.Skip("clang not on PATH")
-	}
-	decl := "package builtin\n\nextern(\"tack_builtin_a\") func a()\n"
-	for _, tt := range []struct {
-		name  string
-		files map[string]string
-		want  string
-	}{
-		{
-			"syntax",
-			map[string]string{"a.c": "void tack_builtin_a(void) {"},
-			"cannot compile {dir}/a.c: clang failed",
-		},
-		{
-			"main",
-			map[string]string{"a.c": "void tack_builtin_a(void) {}\nint main(void) { return 0; }\n"},
-			"{dir}/a.c defines main; a Tack program's main is its Tack main, so no C file may define one",
-		},
-		{
-			"twice",
-			map[string]string{"a.c": "void tack_builtin_a(void) {}\n", "b.c": "void tack_builtin_a(void) {}\n"},
-			"two C files define tack_builtin_a: {dir}/a.c and {dir}/b.c",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			files := map[string]string{"src/std/builtin/builtin.tck": decl}
-			for name, src := range tt.files {
-				files["src/std/builtin/"+name] = src
-			}
-			home := writeDir(t, files)
-			dir := filepath.Join(home, "src", "std", "builtin")
-			r := runTackEnv(t, t.Context(), envAt(t, home),
-				"--out", filepath.Join(t.TempDir(), "bin"), program(t, "    a()\n"))
-			if r.code != exitFailure ||
-				!strings.Contains(r.stderr, strings.ReplaceAll(tt.want, "{dir}", dir)) {
-				t.Errorf("exit %d, stderr %q; want %q", r.code, r.stderr, tt.want)
-			}
-		})
-	}
-}
-
 // A C file of the program that defines a builtin's C name is a second
 // definition when the program calls the builtin, which links std's; when it
 // does not, std's is not linked, and nothing clashes.
@@ -393,7 +251,7 @@ func TestUserCDefiningABuiltin(t *testing.T) {
 	})
 	r := runTack(t, "--out", filepath.Join(t.TempDir(), "bin"), filepath.Join(dir, "main.tck"))
 	assertFailure(t, r, "two C files define tack_builtin_print: ")
-	if !strings.Contains(r.stderr, filepath.Join(stdtest.BuiltinDir(), "print.c")) ||
+	if !strings.Contains(r.stderr, "<runtime>/print.c") ||
 		!strings.Contains(r.stderr, "mine.c") {
 		t.Errorf("stderr = %q, want both files named", r.stderr)
 	}

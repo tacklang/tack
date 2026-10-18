@@ -6,7 +6,7 @@ package fmt
 //     import fmt from "std/fmt"
 //
 // and the compiler reads it from $TACK_HOME/src/std/fmt, or
-// ~/.tack/src/std/fmt, as it reads the builtins from std/builtin. println
+// ~/.tack/src/std/fmt, as it does every std package. println
 // is written in Tack on top of the print builtin; printf's formatting is
 // C, in printf.c, and write's output is C, in write.c, which the driver
 // compiles and links with every program that imports fmt, as it does any

@@ -8,14 +8,20 @@ import (
 	"github.com/tacklang/tack/builtin"
 )
 
-// stdObject is a compiled C file of std/builtin and the symbols its object
+// runtimeShown is the directory messages name the runtime's C files in:
+// they are built into the compiler, and the path each build writes them
+// to is a temporary one.
+const runtimeShown = "<runtime>"
+
+// stdObject is a compiled C file of the runtime and the symbols its object
 // defines and leaves undefined.
 type stdObject struct {
 	cObject
 	syms symbols
 }
 
-// linkStd compiles the C files of std/builtin into dir and returns the
+// linkStd compiles the C files of the runtime built into the compiler,
+// which writeRuntime wrote out, into dir and returns the
 // objects among them the program needs, in the order of their files'
 // names: those defining a builtin the program calls, those defining the
 // list functions its generated C calls when it uses lists
@@ -69,8 +75,8 @@ func (b *builder) stdRoots(
 	need := make([]string, 0, len(used)+len(builtin.ListSymbols))
 	for _, fn := range used {
 		if _, ok := definer[fn.CName]; !ok {
-			return nil, fmt.Errorf("builtin %s has no C definition: no C file in %s defines %s",
-				fn.Name, b.std.builtins.Dir(), fn.CName)
+			return nil, fmt.Errorf("builtin %s has no C definition: the runtime defines no %s",
+				fn.Name, fn.CName)
 		}
 		need = append(need, fn.CName)
 	}
@@ -79,8 +85,7 @@ func (b *builder) stdRoots(
 	}
 	for _, sym := range builtin.ListSymbols {
 		if _, ok := definer[sym]; !ok {
-			return nil, fmt.Errorf("lists have no C definition: no C file in %s defines %s",
-				b.std.builtins.Dir(), sym)
+			return nil, fmt.Errorf("lists have no C definition: the runtime defines no %s", sym)
 		}
 		need = append(need, sym)
 	}
@@ -129,7 +134,7 @@ func stdSymbolsNeeded(objs []cObject) ([]string, error) {
 	return need, nil
 }
 
-// compileStd puts the object of every C file of std/builtin into dir, in
+// compileStd puts the object of every C file of the runtime into dir, in
 // name order, and returns them and, for each symbol one defines, the index
 // of that object. Each object comes from the build cache when it holds
 // one for the file as this build would compile it, and is compiled, and
@@ -146,24 +151,15 @@ func (b *builder) compileStd(dir string) ([]stdObject, map[string]int, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot identify the toolchain: %w", err)
 	}
-	include, err := hashTree(b.std.includeDir())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	show := shower()
-	files := b.std.builtins.CFiles()
+	files := builtin.RuntimeCFiles()
 	objs := make([]stdObject, len(files))
 	definer := make(map[string]int)  // the index in objs of the object defining each symbol
 	first := make(map[string]string) // the file first defining each symbol, for checkSymbol
 	for i, f := range files {
-		shown := show(f)
-		obj := filepath.Join(dir, "std-"+strings.TrimSuffix(filepath.Base(f), ".c")+".o")
-		key, err := b.stdKey(f, toolchain, include)
-		if err != nil {
-			return nil, nil, err
-		}
-		syms, err := b.cachedStdObject(cache, key, f, shown, obj)
+		shown := runtimeShown + "/" + f.Name
+		obj := filepath.Join(dir, "std-"+strings.TrimSuffix(f.Name, ".c")+".o")
+		syms, err := b.cachedStdObject(cache, b.stdKey(f, toolchain), b.runtimeCFile(f.Name),
+			shown, obj)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -178,7 +174,8 @@ func (b *builder) compileStd(dir string) ([]stdObject, map[string]int, error) {
 	return objs, definer, nil
 }
 
-// cachedStdObject writes to obj the object of std's C file src, shown as shown,
+// cachedStdObject writes to obj the object of the runtime's C file src,
+// shown as shown,
 // and returns its symbols. The object is copied from cache when it holds
 // a sound one under key, one whose bytes hash to what the key says and
 // whose symbols can be read. Otherwise src is compiled with the backend's
@@ -197,7 +194,7 @@ func (b *builder) cachedStdObject(cache *objCache, key, src, shown, obj string) 
 		// something other than tack; they are compiled again below.
 	}
 	if err = b.runTool(
-		b.backend.CompileStdCmd(src, b.std.includeDir(), obj, b.opt),
+		b.backend.CompileStdCmd(src, b.includeDir(), obj, b.opt),
 		shown,
 	); err != nil {
 		return symbols{}, err

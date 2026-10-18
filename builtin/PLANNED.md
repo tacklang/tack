@@ -2,10 +2,9 @@
 
 None of this is implemented. It is kept here so the intended shape of the
 builtin package is not lost, and kept out of `builtin.tck` so that nothing in
-that file is a claim the compiler cannot honour. The compiler reads every
-`.tck` file in this directory and takes each extern func there as a builtin,
-so those files have to stay true and declare nothing else; this one is not
-read.
+that file is a claim the compiler cannot honour: `builtin.tck` documents
+exactly the builtins the compiler implements, and a test keeps the two one to
+one.
 
 ```tack
 package builtin

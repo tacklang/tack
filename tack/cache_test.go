@@ -223,29 +223,31 @@ type stdChange struct {
 	// the builds after it, env itself when its tackHome is empty.
 	change func(t *testing.T, home string, env environment) (environment, []string)
 	name   string
-	want   []string // the std files the build after it compiles
+	want   []string // the runtime files the build after it compiles, nil for none
 }
 
-// stdChanges is every change to a std object's inputs that must miss the
-// cache.
+// stdChanges is every change to a build that could touch a runtime
+// object's inputs: those that must miss the cache, the optimization level
+// and the toolchain's identity, and those in TACK_HOME, where the runtime
+// once came from, which no key holds and which must hit it, compiling
+// nothing.
 func stdChanges() []stdChange {
 	return []stdChange{
 		{
-			name: "c file",
+			name: "planted c file",
 			change: func(t *testing.T, home string, env environment) (environment, []string) {
-				appendTo(t, filepath.Join(home, "src", "std", "builtin", "print.c"), "\n/* x */\n")
+				writeOrFail(t, filepath.Join(home, "src", "std", "builtin", "print.c"),
+					[]byte("#error planted\n"))
 				return env, nil
 			},
-			want: []string{"print.c"},
 		},
 		{
 			name: "include header",
 			change: func(t *testing.T, home string, env environment) (environment, []string) {
 				appendTo(t, filepath.Join(home, "src", "std", "include", "tack", "tack.h"),
-					"\n/* changed */\n")
+					"\n#error changed\n")
 				return env, nil
 			},
-			want: allStd,
 		},
 		{
 			name: "new include header",
@@ -253,15 +255,13 @@ func stdChanges() []stdChange {
 				writeOrFail(t, filepath.Join(home, "src", "std", "include", "tack", "more.h"), nil)
 				return env, nil
 			},
-			want: allStd,
 		},
 		{
-			name: "header beside the C file",
+			name: "header in std/builtin",
 			change: func(t *testing.T, home string, env environment) (environment, []string) {
 				writeOrFail(t, filepath.Join(home, "src", "std", "builtin", "local.h"), nil)
 				return env, nil
 			},
-			want: allStd,
 		},
 		{
 			name: "opt level",
@@ -286,15 +286,16 @@ func stdChanges() []stdChange {
 				}
 				return cacheEnv(t, moved, env.tackCache, fakeVersion), nil
 			},
-			want: allStd,
 		},
 	}
 }
 
-// Every input of a std object is part of its key: changing the C file,
-// a header in std's include directory, a header beside the C file, the
-// optimization level, the toolchain's identity or where std is misses the
-// cache and compiles what it affects, and a build after it hits again.
+// A runtime object's key holds every input that decides it, the
+// optimization level and the toolchain's identity, so changing either
+// misses the cache and compiles every runtime file, and a build after it
+// hits again; the runtime itself is built into the compiler, so nothing
+// in TACK_HOME, a planted C file, a changed or new header, or std moved,
+// is an input, and a build after any of them compiles nothing.
 func TestStdCacheMisses(t *testing.T) {
 	needClang(t)
 	for _, tt := range stdChanges() {

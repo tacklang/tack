@@ -7,7 +7,7 @@ import (
 )
 
 // reservation is a name tack.h cannot give a type of package main or an
-// extern func, because tack.h, std's tack.h or a standard header tack.h
+// extern func, because tack.h, the runtime's tack.h or a standard header tack.h
 // includes defines it, and what defines it, as a diagnostic describes it.
 type reservation struct {
 	what string
@@ -20,7 +20,7 @@ type reservation struct {
 }
 
 // reservedNames holds every name reserved in tack.h: tack.h's include
-// guard; what std's tack.h defines, its include guard, tack_string and
+// guard; what the runtime's tack.h defines, its include guard, tack_string and
 // the string helpers, tack_error and the error helpers, tack_any, its
 // type ids and its helpers, tack_allocator, TACK_C_ALLOCATOR, the list
 // functions and macros, c_allocator's testing hooks and the globals

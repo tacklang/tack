@@ -24,7 +24,12 @@
 //
 // A function declaration ends in its body, or in nothing, its signature
 // followed by the end of the line, which sets Func.NoBody: whether a
-// function may go without a body is the resolver's to judge. extern before
+// function may go without a body is the resolver's to judge. One file
+// parses in a mode of its own, builtin mode (see NewBuiltinParser): the
+// file that documents the builtins, built into the compiler, in which a
+// var may be named by a keyword that is a builtin value, var true bool,
+// and a type declared as itself, type int32 int32. Both are errors in
+// every other file, and no Tack source can turn the mode on. extern before
 // func declares an extern func, whose body is written in C: it sets
 // Func.Extern, takes the function's name as its C name, Func.CName, or the
 // string literal extern("c_name") gives, recording its span in CNameSpan,

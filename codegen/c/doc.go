@@ -5,16 +5,18 @@
 // refuses, one not checked or with errors, is reported and nothing is
 // generated from it.
 //
-// The unit, and the tack.h of a program's C files, include std's
-// <tack/tack.h>, src/std/include/tack/tack.h, which defines what every
+// The unit, and the tack.h of a program's C files, include the runtime's
+// <tack/tack.h>, built into the compiler (see package builtin), which
+// defines what every
 // program's C shares: tack_string and the string helpers TACK_C_STR_LEN,
 // TACK_STR and TACK_STR_N, tack_error and the error helpers TACK_ERROR and
 // TACK_NO_ERROR, and tack_any, its type ids TACK_TYPE_INVALID
 // through TACK_TYPE_STRING, TACK_ANY_IS and the unpack helpers. Nothing the backend generates defines them, so
 // there is one definition, which std's own C files include as well, and
-// CompileCmd and BuildCmd put std's include directory on the include path
-// for it. --emit output therefore compiles only with that directory on
-// the include path.
+// CompileCmd and BuildCmd put the include directory the driver writes the
+// runtime header to on the include path for it. --emit output therefore
+// compiles only with a directory holding tack/tack.h on the include path,
+// such as an installed std's include directory, which holds a copy.
 //
 // The build runs clang with -w. A warning about the generated C would name a
 // temporary file and code the user never wrote, and a valid program can
@@ -34,7 +36,7 @@
 //
 //   - a preamble: <stdbool.h> and <stdint.h>, and <stddef.h> if the
 //     program uses unsafe_size_t or calls a builtin that takes one, which
-//     a freestanding C implementation has, and std's <tack/tack.h>, for
+//     a freestanding C implementation has, and the runtime's <tack/tack.h>, for
 //     tack_string, TACK_C_STR_LEN, tack_error, tack_any and its type ids,
 //     which includes only those three;
 //   - a C struct for every array, view, list, struct and union type, then
@@ -54,7 +56,7 @@
 //   - a prototype for every Tack function, since Tack lets a function call one
 //     declared later in the file, or in another file, and C does not;
 //   - every Tack function but an extern func, as a static C function;
-//   - the globals tack_argc_ and tack_argv_, which std's tack.h declares,
+//   - the globals tack_argc_ and tack_argv_, which the runtime's tack.h declares,
 //     and a C main, int main(int argc, char **argv), that stores its
 //     arguments in them, for std/os to read, calls the Tack main and
 //     returns 0. A library, a program whose last package is not a main
@@ -287,7 +289,7 @@
 // x, each case comparing its id with each type's; a case's variable, when
 // its body reads it, is declared first in its block, *(const T *)tmp.ptr
 // for a case naming one type and the tack_any itself otherwise. Neither
-// needs a helper: std's tack.h names the ids.
+// needs a helper: the runtime's tack.h names the ids.
 //
 // A slice, x[i:j], is a call to a helper for its type, tack_slice_string
 // or tack_slice_N for the view type N, or tack_slice_from_ either when j is
@@ -339,7 +341,7 @@
 //
 // Header returns tack.h, which the C files are compiled against: an
 // include guard, TACK_H, stdbool.h and stdint.h, stddef.h if a signature
-// uses size_t, std's <tack/tack.h> if a signature uses a string, an error
+// uses size_t, the runtime's <tack/tack.h> if a signature uses a string, an error
 // or any, for tack_string, tack_error, tack_any and their helpers, a definition of every array and struct type an
 // extern signature uses, and of every type those hold, each after its
 // parts, the results struct of every extern func with several results, and
@@ -353,14 +355,14 @@
 // <package name>_<name>, an array tack_array_<length>_<element>, the
 // element's Tack name if basic, a view tack_view_<element>, named the same
 // way, with members ptr and len, so []any is tack_view_any, an any being
-// std's tack_any, and []error tack_view_error, an error being std's
+// the runtime's tack_any, and []error tack_view_error, an error being the runtime's
 // tack_error, and a results struct tack_results_<C
 // name>, with members r0, r1 and on; a struct's members are its fields'
 // Tack names. The generated source declares each extern func with its own
 // types, so a value passes between the two unchanged. Generate reports,
 // before generating anything, a name tack.h would give two things (two
 // types, a type and a results struct or extern func, or one of tack.h's own
-// names, TACK_H, or of std's tack.h, tack_string, its string helpers,
+// names, TACK_H, or of the runtime's tack.h, tack_string, its string helpers,
 // tack_error, its error helpers,
 // tack_any, its type ids and its helpers, and its guard TACK_STD_TACK_H,
 // whether or not tack.h includes it, or a macro the C
@@ -398,10 +400,10 @@
 //
 // A list, list[T], lowers to a C struct per element type, tack_list_ and
 // the type's ID, of its buffer, ptr, its length, len, its capacity, cap,
-// and its allocator, alloc, a tack_allocator from std's tack.h. make is a
+// and its allocator, alloc, a tack_allocator from the runtime's tack.h. make is a
 // compound literal holding only the allocator; append of one value is
 // std's TACK_LIST_APPEND on the address of the list's place, which calls
-// std's tack_list_grow_ when the buffer is full, and append of any other
+// the runtime's tack_list_grow_ when the buffer is full, and append of any other
 // number of values, none included, std's TACK_LIST_APPEND_N given a
 // compound literal array of them, or the pointer and length of a spread
 // view held in a temporary, which grows the buffer once, to the final
@@ -454,7 +456,7 @@
 // lowered like a defer, so frees and defers interleave by position and
 // run at every exit from the block. A call to the builtin exit leaves no
 // block, so neither runs; std's exit has every allocator free each
-// buffer it still holds instead. A free is a call to std's tack_list_free_ per list,
+// buffer it still holds instead. A free is a call to the runtime's tack_list_free_ per list,
 // a struct's last field first, or, for a list whose elements are owned,
 // to its tack_free_, which frees each element, last first, then the
 // buffer. Assigning one, an element of a list included, computes the new value into a
@@ -548,7 +550,7 @@
 // binding is a pointer to the payload, read as (*v_n), declared only when
 // the clause reads it. union.go has the details.
 //
-// An error is the struct no declaration gives: std's tack_error,
+// An error is the struct no declaration gives: the runtime's tack_error,
 // {int32_t code; tack_string msg;}, which the generated source never
 // defines, whose members are code and msg, not f_code and f_msg, and
 // whose equality helper, tack_eq_ and error's ID, is emitted, like any
@@ -573,9 +575,9 @@
 // the loop's block instead, and the post assigns the call to it and then
 // each field, joined with the comma operator.
 //
-// print and exit are extern funcs, declared in src/std/builtin/builtin.tck
-// and read from the installed std/builtin into the builtin.Set Generate is
-// given, and a call to one lowers like a call to any function, to its C
+// print and exit are the builtins with a C body, which the compiler's
+// builtin.Set, the one Generate is given, lists with their C names, and a
+// call to one lowers like a call to any function, to its C
 // name: tack_builtin_print(s), tack_builtin_exit(x). The generated C only
 // declares them, one prototype for each builtin the program calls, after
 // the string pool: void tack_builtin_print(tack_string);, its parameters'
@@ -583,8 +585,8 @@
 // tack_builtin_exit(int32_t);, as its body is, since the type checker
 // counts a call to it as leaving its block, so a C function with a result
 // may end in one with no return after it, which clang accepts only knowing
-// the call never returns. Their bodies are the C files of std/builtin, which the
-// driver compiles with CompileStdCmd and links only when the program calls
+// the call never returns. Their bodies are the runtime's C files, built
+// into the compiler, which the driver compiles with CompileStdCmd and links only when the program calls
 // that builtin, so the generated C includes no hosted header for them, and
 // a program that calls neither compiles with -ffreestanding. A target
 // without a C library swaps those files. Their names start tack_, which no

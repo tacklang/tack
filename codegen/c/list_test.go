@@ -49,7 +49,7 @@ func buildExternWith(t *testing.T, src, csrc string, flags ...string) string {
 		append(append([]string{}, strict...), "-c", "-include", filepath.Join(dir, c.HeaderName),
 			"-o", obj, filepath.Join(dir, "helpers.c")),
 		append(append(append([]string{}, strict...), "-o", bin, filepath.Join(dir, "program.c"), obj),
-			stdtest.MustBuiltins().CFiles()...),
+			stdtest.RuntimeCFiles()...),
 	} {
 		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 			t.Fatalf("clang %s: %v\n%s\n%s", strings.Join(args, " "), err, msg, out)
@@ -458,7 +458,7 @@ func TestListGrowFunction(t *testing.T) {
 	args := []string{
 		"-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
 		"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-		"-I", stdtest.IncludeDir(), "-o", bin, main, filepath.Join(stdtest.BuiltinDir(), "list.c"),
+		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
 	}
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
@@ -499,7 +499,7 @@ func TestListsCompileFor32Bits(t *testing.T) {
 		t.Logf("no C library headers for %s, so std's list.c is not compiled for it: %v", i386, err)
 		return
 	}
-	data, err := os.ReadFile(filepath.Join(stdtest.BuiltinDir(), "list.c"))
+	data, err := os.ReadFile(stdtest.RuntimeCFile("list.c"))
 	if err != nil {
 		t.Fatal(err)
 	}

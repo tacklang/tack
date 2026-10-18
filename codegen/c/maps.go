@@ -41,7 +41,7 @@ import (
 // and the new one would not fit it, and only then, when both succeeded,
 // moves the live entries down over the deleted ones, in order, and fills
 // the new slots: a put that cannot grow leaves the map as it was. Both
-// buffers come from the map's allocator, through std's tack_list_grow_
+// buffers come from the map's allocator, through the runtime's tack_list_grow_
 // and tack_list_free_, as a list's buffer does, so c_allocator counts and
 // releases them.
 //

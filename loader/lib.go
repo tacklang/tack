@@ -18,7 +18,7 @@ import (
 // packages are each listed after those it imports. A directory whose name
 // starts with a dot is left out, with everything below it, as is one
 // holding a tack.mod of its own, another module's root, and std/builtin,
-// which only declares the builtins. A main package is
+// which only holds a copy of the builtins' documentation. A main package is
 // left out too: a library has none, and each one is checked by naming its
 // own directory. files and cFiles are dir's own, already read into res,
 // or nil when dir holds no Tack file.
@@ -37,8 +37,9 @@ func (l *Loader) loadLib(
 	if err != nil {
 		return nil, err
 	}
-	// std/builtin declares the builtins, which the driver reads on its
-	// own; it is no package to check.
+	// std/builtin holds a copy of the builtins' documentation, built
+	// into the compiler, which is never compiled; it is no package to
+	// check.
 	dirs = slices.DeleteFunc(dirs, func(d string) bool { return mod.pathOf(d) == builtinPath })
 	g := newGraph(l, res, mod, nil)
 	loadedAny, sawMain := false, false

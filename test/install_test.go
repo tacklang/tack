@@ -25,7 +25,8 @@ func installStd(t *testing.T, env ...string) {
 
 // make install-std copies src/std to $TACK_HOME/src/std, a path with a
 // space in it included, replacing what is there, so a deleted file does
-// not linger. Every run here writes only to temporary directories, never
+// not linger, and writes the compiler's builtins' documentation and runtime
+// header there read-only. Every run here writes only to temporary directories, never
 // to the real home.
 func TestMakeInstallStd(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
@@ -43,7 +44,7 @@ func TestMakeInstallStd(t *testing.T) {
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("a file not in src/std survived the install: %v", err)
 	}
-	for _, rel := range []string{"tack.mod", "builtin/builtin.tck", "builtin/print.c", "include/tack/tack.h"} {
+	for _, rel := range []string{"tack.mod", "fmt/fmt.tck", "builtin/builtin.tck", "include/tack/tack.h"} {
 		want, err := os.ReadFile(filepath.Join(stdtest.Dir(), filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatal(err)
@@ -53,8 +54,28 @@ func TestMakeInstallStd(t *testing.T) {
 			t.Errorf("installed %s differs from the repository's: %v", rel, err)
 		}
 	}
-	if _, err := builtin.Load(filepath.Join(home, "src", "std", "builtin")); err != nil {
-		t.Errorf("the installed builtins do not load: %v", err)
+	checkCompilerCopies(t, home)
+	// A second install replaces the read-only copies.
+	installStd(t, "TACK_HOME="+home, "HOME="+filepath.Join(t.TempDir(), "unused"))
+}
+
+// checkCompilerCopies checks the copies make install-std wrote to the std
+// of home of the files built into the compiler are the compiler's own,
+// read-only.
+func checkCompilerCopies(t *testing.T, home string) {
+	t.Helper()
+	for rel, want := range map[string][]byte{
+		"builtin/builtin.tck": builtin.Source(),
+		"include/tack/tack.h": builtin.RuntimeHeader(),
+	} {
+		path := filepath.Join(home, "src", "std", filepath.FromSlash(rel))
+		got, err := os.ReadFile(path) //nolint:gosec // the test's own install
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("installed %s is not the compiler's: %v", rel, err)
+		}
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0o222 != 0 {
+			t.Errorf("installed %s is writable: %v", rel, err)
+		}
 	}
 }
 
