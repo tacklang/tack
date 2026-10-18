@@ -78,7 +78,7 @@ func TestErrorsExampleIsSanitizerClean(t *testing.T) {
 	if err != nil {
 		t.Fatalf("errors failed: %v\n%s", err, out)
 	}
-	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 21 {
+	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 23 {
 		t.Errorf("errors printed\n%s", out)
 	}
 }

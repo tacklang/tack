@@ -34,6 +34,10 @@ import (
 // exactly 0: err.code == 0 being true, err.code != 0 being false, or
 // anything else that pins it there.
 //
+// A return may pass v on unchecked, return v, err, when err is the
+// function's error result and v goes out beside it whole: the caller then
+// holds v beside the same error, and checks it before reading v (passOn).
+//
 // The proof is about err's value, and v is read on the strength of it, so
 // err must still hold the error of the call that gave v. So a binding that
 // holds v binds the error and v to local variables, never to a global, a
@@ -522,7 +526,7 @@ func (c *Checker) requireChecked(id *ast.Ident) {
 			)
 			return
 		}
-		if c.noError(errDecl) {
+		if c.noError(errDecl) || c.passedOn[id] == errDecl {
 			continue
 		}
 		name := declName(errDecl)
@@ -530,6 +534,41 @@ func (c *Checker) requireChecked(id *ast.Ident) {
 			"%s cannot be read before %s is checked; check %s.code == 0 first", id.Name, name, name)
 		return
 	}
+}
+
+// passOn returns the values ret, a return of fn with one value for each
+// result, passes on beside the error that holds them, each for that
+// error's variable: when fn's last result is an error and ret returns
+// there a local error variable, each other value that is a variable it
+// holds, returned whole as a result that is not a view. The caller then
+// binds that value beside the same error, so reading it there waits for
+// the check this return skips. An ok holds nothing a return passes on.
+func (c *Checker) passOn(ret *ast.Return, fn *ast.Func) map[*ast.Ident]ast.Decl {
+	last := len(ret.Values) - 1
+	if last < 1 || fn.ResultTypes[last] != types.Error {
+		return nil
+	}
+	errID, ok := ret.Values[last].(*ast.Ident)
+	if !ok || errID.Def == nil || c.holding.oks[errID.Def] != "" {
+		return nil
+	}
+	passed := make(map[*ast.Ident]ast.Decl)
+	for i, v := range ret.Values[:last] {
+		if id, ok := c.heldWhole(v, fn.ResultTypes[i], errID.Def); ok {
+			passed[id] = errID.Def
+		}
+	}
+	return passed
+}
+
+// heldWhole returns v as a variable errDecl holds, when it is one, returned
+// whole as a result of type result that is not a view.
+func (c *Checker) heldWhole(v ast.Expr, result types.Type, errDecl ast.Decl) (*ast.Ident, bool) {
+	id, ok := v.(*ast.Ident)
+	if !ok || id.Def == nil || c.table.IsView(result) {
+		return nil, false
+	}
+	return id, containsDecl(c.holding.heldBy[id.Def], errDecl)
 }
 
 // readHeld reports target, the target of a compound assignment, an

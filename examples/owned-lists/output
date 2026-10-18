@@ -67,6 +67,9 @@ a failed append of two frees both ok
 pop after failures ok
 appends again after failures ok
 failures freed ok
+a list passed on unchecked ok
+a failed list passed on unchecked ok
+passed on freed ok
 an index changes another field ok
 an index reads the list it indexes ok
 a view's index changes another list ok

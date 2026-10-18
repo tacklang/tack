@@ -1313,7 +1313,10 @@ makes for itself, which has a letter after `tack_`.
     on its right. Like any fact it holds up to the first write to `err`
     that can reach the read, so binding a new error to it ends it for
     every read after the binding, and a branch ending in `exit` does not
-    leave. Comparing the
+    leave. A return that passes `v` on beside `err` unchecked, `return
+    v, err` with `err` the error result, is no read: the caller holds
+    `v` beside the same error and checks it there. `v` returned in an
+    expression or beside another error is read. Comparing the
     whole error, `err == noerror`, is no check. So that a check is about
     the error that came with `v`, both are bound to local variables,
     never a parameter, a global, a field or an element, `p.x cannot take

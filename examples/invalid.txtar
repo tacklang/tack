@@ -5678,6 +5678,114 @@ error-ordered/main.tck:5:8: error: operator < is not defined on error
    |	       ^~~~~~~~~~~
 06 |	        print("less\n")
 
+-- error-pass-on-expression/main.tck --
+package main
+
+// parse returns n, or error 1 when n is negative.
+func parse(n int64) (int64, error) {
+    if n < 0 {
+        return 0, error{code: 1, msg: "negative"}
+    }
+    return n, noerror
+}
+
+// v + 1 reads v, so passing the sum on beside err is no pass-through.
+func next(n int64) (int64, error) {
+    v, err := parse(n)
+    return v + 1, err
+}
+
+func main() {
+}
+-- error-pass-on-expression/expected --
+stage: typeck
+---
+
+error-pass-on-expression/main.tck:14:12: error: v cannot be read before err is checked; check err.code == 0 first
+13 |	    v, err := parse(n)
+14 |	    return v + 1, err
+   |	           ^
+15 |	}
+
+-- error-pass-on-noerror/main.tck --
+package main
+
+// parse returns n, or error 1 when n is negative.
+func parse(n int64) (int64, error) {
+    if n < 0 {
+        return 0, error{code: 1, msg: "negative"}
+    }
+    return n, noerror
+}
+
+// noerror is not the error that holds v, so the caller could read v
+// without a check.
+func launder(n int64) (int64, error) {
+    v, err := parse(n)
+    if err.code > 5 {
+        return 0, err
+    }
+    return v, noerror
+}
+
+func main() {
+}
+-- error-pass-on-noerror/expected --
+stage: typeck
+---
+
+error-pass-on-noerror/main.tck:18:12: error: v cannot be read before err is checked; check err.code == 0 first
+17 |	    }
+18 |	    return v, noerror
+   |	           ^
+19 |	}
+error-pass-on-noerror/main.tck:15:8: note: this early exit allows err.code == 1
+14 |	    v, err := parse(n)
+15 |	    if err.code > 5 {
+   |	       ^~~~~~~~~~~~
+16 |	        return 0, err
+
+-- error-pass-on-other-error/main.tck --
+package main
+
+// parse returns n, or error 1 when n is negative.
+func parse(n int64) (int64, error) {
+    if n < 0 {
+        return 0, error{code: 1, msg: "negative"}
+    }
+    return n, noerror
+}
+
+// other is not the error that holds v.
+func pick(n int64) (int64, error) {
+    v, err := parse(n)
+    _, other := parse(1)
+    if other.code != 0 {
+        return 0, other
+    }
+    if err.code > 5 {
+        return 0, err
+    }
+    return v, other
+}
+
+func main() {
+}
+-- error-pass-on-other-error/expected --
+stage: typeck
+---
+
+error-pass-on-other-error/main.tck:21:12: error: v cannot be read before err is checked; check err.code == 0 first
+20 |	    }
+21 |	    return v, other
+   |	           ^
+22 |	}
+error-pass-on-other-error/main.tck:18:8: note: this early exit allows err.code == 1
+17 |	    }
+18 |	    if err.code > 5 {
+   |	       ^~~~~~~~~~~~
+19 |	        return 0, err
+
 -- error-read-after-rebinding/main.tck --
 package main
 

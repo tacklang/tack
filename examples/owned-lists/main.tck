@@ -47,6 +47,14 @@ func word(s string) (list[uint8], error) {
     return w, err
 }
 
+// passed_word passes word's list on beside its error without checking it:
+// the list moves out to the caller, which checks the error before reading
+// it and frees it either way.
+func passed_word(s string) (list[uint8], error) {
+    w, err := word(s)
+    return w, err
+}
+
 // add_word appends a new word holding the bytes of s to words.
 func add_word(mut words list[list[uint8]], s string) error {
     w, err := word(s)
@@ -492,6 +500,24 @@ func test_failures() {
     check(e5.code == 0 && len(words) == 4 && live() == 6, "appends again after failures")
 }
 
+// test_passed takes lists passed on unchecked beside their error, once
+// made and once failed, and frees both.
+func test_passed() {
+    w, err := passed_word("pass")
+    if err.code == 0 {
+        check(is(w, "pass") && live() == 1, "a list passed on unchecked")
+    } else {
+        check(false, "a list passed on unchecked")
+    }
+    fail_after(0)
+    f, ferr := passed_word("fails")
+    fail_after(-1)
+    check(ferr.code == 1, "a failed list passed on unchecked")
+    if ferr.code == 0 {
+        check(len(f) == 0, "a failed list is never read")
+    }
+}
+
 // Pair holds two lists, which are separate places: changing one leaves
 // the other where it is.
 type Pair struct {
@@ -591,6 +617,8 @@ func main() {
     freed("not moved freed")
     test_failures()
     freed("failures freed")
+    test_passed()
+    freed("passed on freed")
     test_index_borrows()
     freed("index borrows freed")
 }

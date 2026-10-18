@@ -29,6 +29,8 @@ var errorsWant = "success ok\n" +
 	"fields assigned ok\n" +
 	"code alone decides ok\n" +
 	"message from a slice ok\n" +
+	"passed on unchecked ok\n" +
+	"passed on with two values ok\n" +
 	"checked together ok\n"
 
 // errorsModuleWant is what examples/errors-module prints when every check
@@ -54,7 +56,8 @@ var externErrorsWant = "no error from C ok\n" +
 // else, in a loop and in a switch on the code, rebinding, a defer after
 // the check, sentinels, a mutable global, errors in structs and arrays,
 // their zero value, assigned fields, a code of 0 with a message, and a
-// message sliced from a string; examples/errors-module, whose errors come
+// message sliced from a string, values passed on unchecked beside their
+// error; examples/errors-module, whose errors come
 // from a function of another package; and examples/extern-errors, whose
 // errors cross to C and back. Each check prints its name and "ok", or
 // "FAIL".

@@ -190,6 +190,19 @@ func both(x string, y string) int64 {
     return -1
 }
 
+// forward passes parse's value and error on together without checking:
+// the caller gets the same pair, so it still checks before reading.
+func forward(s string) (int64, error) {
+    v, err := parse(s)
+    return v, err
+}
+
+// forwardWide passes divide's two values on with its error, unchecked.
+func forwardWide(a int64, b int64) (int64, int64, error) {
+    quo, rem, err := divide(a, b)
+    return quo, rem, err
+}
+
 func main() {
     v, err := parse("42")
     check(err.code == 0 && err == noerror && v == 42, "success")
@@ -261,6 +274,18 @@ func main() {
     word := "parse failed"
     sliced := error{code: 6, msg: word[6:]}
     check(sliced.msg == "failed" && wrap(sliced) == sliced, "message from a slice")
+
+    f, errF := forward("12")
+    _, errG := forward("")
+    if errF.code == 0 {
+        check(f == 12 && errG.code == 1, "passed on unchecked")
+    }
+
+    fq, fr, errW := forwardWide(9, 4)
+    _, _, errW0 := forwardWide(9, 0)
+    if errW.code == 0 {
+        check(fq == 2 && fr == 1 && errW0.code == 5, "passed on with two values")
+    }
 
     check(both("3", "10") == 7 && both("x", "10") == -1, "checked together")
 }

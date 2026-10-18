@@ -160,6 +160,11 @@ type Checker struct {
 	// tie together; see errors.go.
 	holding holding
 
+	// passedOn holds, while a return's values are checked, each value that
+	// return passes on unchecked beside the error that holds it, for that
+	// error's variable; see passOn.
+	passedOn map[*ast.Ident]ast.Decl
+
 	// declPkg holds the package of each package-level declaration, and
 	// structPkg that of each struct type. pkg is the package whose code is
 	// being checked, which a type of another package is named relative to:
@@ -2000,6 +2005,8 @@ func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 	got, want := len(ret.Values), len(fn.Results)
 	if got == want {
+		c.passedOn = c.passOn(ret, fn)
+		defer func() { c.passedOn = nil }()
 		for i, v := range ret.Values {
 			if c.table.IsView(fn.ResultTypes[i]) {
 				c.returnView(v, fn.ResultTypes[i], fn)

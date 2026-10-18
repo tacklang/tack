@@ -1278,6 +1278,26 @@ loop whose check is outside it reaches the read on the next
 pass: <!-- case: error-read-loop-rebinding -->`for i := range 3 { if v > i { ... }; v, err = parse("2") }`
 after the check reports the read.
 
+A return that passes `v` on beside `err`, unchecked, is not a read of
+`v`: the caller binds what it returns beside the same error, and checks
+it before reading the value, so the check moves to the caller. That
+holds when the function's error result is `err`, a local variable, and
+each value it passes on is a variable `err` holds, returned whole as a
+result that is not a view:
+
+<!-- example: errors -->
+```tack
+func forward(s string) (int64, error) {
+    v, err := parse(s)
+    return v, err
+}
+```
+
+Anything else that returns `v` reads it: `v` beside another error,
+<!-- case: error-pass-on-noerror -->`return v, noerror` reports <!-- error: error-pass-on-noerror -->`v cannot be read before err is checked; check err.code == 0 first`,
+as do <!-- case: error-pass-on-other-error -->`return v, other`
+and <!-- case: error-pass-on-expression -->`return v + 1, err`.
+
 The proof is about `err`'s value, and `v` is read on its strength, so
 `err` must still hold the error of the call that gave `v`. Two rules
 keep it so. A binding that takes a result beside an error binds both to
