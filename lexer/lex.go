@@ -203,9 +203,19 @@ func (l *Lexer) diag(msg string, start, end int) {
 	})
 }
 
-// addToken appends a token of kind k covering the bytes [start, end).
+// addToken appends a token of kind k covering the bytes [start, end),
+// starting a line when it is the first token or a newline lies between the
+// last one and it (see Token.StartsLine).
 func (l *Lexer) addToken(k TokenKind, val any, start, end int) {
-	l.tokens = append(l.tokens, Token{kind: k, val: val, offStart: start, offEnd: end})
+	line := len(l.tokens) == 0
+	if !line {
+		prev := l.tokens[len(l.tokens)-1].offEnd
+		line = prev <= start && bytes.IndexByte(l.file.Data[prev:start], '\n') >= 0
+	}
+	l.tokens = append(
+		l.tokens,
+		Token{kind: k, val: val, offStart: start, offEnd: end, startsLine: line},
+	)
 }
 
 // handleSpace skips a run of spaces and tabs.

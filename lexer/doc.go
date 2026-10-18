@@ -29,6 +29,10 @@
 // one of the keywords break, continue, return, true, false, noerror and
 // c_allocator. An inserted Semi covers no bytes. The token stream always ends with an EOF token.
 //
+// Each token records whether it starts a line, no token before it on its
+// line (Token.StartsLine), which the parser's error recovery uses to find
+// where the next declaration starts.
+//
 // Literals carry decoded values: double-quoted string and char literals
 // have their escape sequences resolved, Go's single-letter ones and \x with
 // exactly two hex digits, any other being reported and decoding to 0, and keywords carry their

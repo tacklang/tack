@@ -7,7 +7,13 @@
 // toolchain to link them with it (clang, for the c backend) into a native
 // binary at the path given by --out.
 // The first stage that reports diagnostics ends the run; later stages never
-// see a program an earlier one rejected.
+// see a program an earlier one rejected. Its diagnostics are reported
+// sorted by file and then by where each starts, at most --max-errors of
+// them, 10 by default, followed, when some were left out, by the line
+// "too many errors: showing the first 10; --max-errors 0 shows them all".
+// The parser reports every syntax error of a file, recovering after each
+// (see package parser), and stops parsing once it has found more than
+// --max-errors.
 //
 // Usage:
 //
@@ -41,7 +47,9 @@
 //	--backend <name>  use the code generation backend name (default c)
 //	--backends        list the available backends, one per line, and stop
 //	--out <path>      write the linked binary to path
-//	--max-diags <n>   print at most n diagnostics; 0, the default, prints all
+//	--max-errors <n>  report at most n errors, then a line saying there are
+//	                  more (default 10); 0 reports them all
+//	--max-diags <n>   the old name of --max-errors
 //	-O0 ... -O3, -Os, -Oz
 //	                  optimize the build at that level (default -O3)
 //	-h, --help        print the help text to stdout and exit 0
@@ -66,7 +74,7 @@
 //     run was interrupted.
 //   - 2: the command line was wrong: an unknown or malformed flag, no input
 //     file or more than one, an empty file name, an unknown backend, a
-//     negative --max-diags, more than one dump flag (--emit-header counts
+//     negative --max-errors or --max-diags, more than one dump flag (--emit-header counts
 //     as one), --out missing when building, --out given together with a
 //     dump flag, two -O flags, an -O flag given together with a dump flag,
 //     or --out naming the input file itself.
@@ -202,7 +210,7 @@
 // an error whether or not either is chosen; an extern func whose C name no C file
 // of its own package defines is a diagnostic at its declaration, "extern
 // func write has no C definition in package os", rendered and limited by
-// --max-diags like any other. Last, BuildCmd compiles program.c, with
+// --max-errors like any other. Last, BuildCmd compiles program.c, with
 // std's include directory, for the <tack/tack.h> every generated source
 // includes, and links the program's objects, then the chosen std objects,
 // into --out.

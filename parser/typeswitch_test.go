@@ -217,14 +217,14 @@ func TestRejectsMalformedTypeAssertions(t *testing.T) {
 
 // TestTruncatedTypeSwitchesNeverParse cuts a type switch and an
 // assertion off after every byte and checks each prefix is a parse error,
-// never a panic or a tree.
+// never a panic or a tree without a bad node.
 func TestTruncatedTypeSwitchesNeverParse(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    switch v := a.(type) {\n    case int64, []string:\n" +
 		"        w, ok := v.(bool)\n    default:\n        h()\n    }\n}\n"
 	end := strings.LastIndex(src, "}")
 	for n := strings.Index(src, "switch"); n < end; n++ {
 		file, diags := parse(t, src[:n])
-		if file != nil || len(diags) == 0 {
+		if len(diags) == 0 || file != nil && countBad(file) == 0 {
 			t.Errorf("prefix %q parsed, want an error", src[:n])
 		}
 	}

@@ -210,8 +210,15 @@
 // or continue in a deferred block leaves it, and a defer inside one, are
 // the type checker's to report.
 //
-// The parser stops at the first syntax error and returns that error's
-// diagnostics with a nil file, so a caller never sees a partial tree.
+// After a syntax error the parser records it and recovers (see
+// recover.go): it skips the rest of the statement, to the semicolon at
+// its own depth of braces or the brace that closes its block, or the rest
+// of the declaration, to the next line that starts one, puts an
+// ast.BadStmt or ast.BadDecl in the tree where the skipped text was, and
+// goes on. Parse returns the file and every error, so the tree holds a
+// bad node exactly when there are errors, and a caller that stops at any
+// error never uses one. Only a program nested too deeply gives no tree.
+// Limit makes the parser stop past a number of errors.
 //
 // The parser only checks shape, so it accepts a declaration like var x int64
 // whatever its mutability, and leaves whether it may lack a value to the

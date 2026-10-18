@@ -12,6 +12,9 @@ type Token struct {
 	kind TokenKind
 
 	offStart, offEnd int
+
+	// startsLine says no token comes before this one on its line.
+	startsLine bool
 }
 
 // Kind returns the token's kind.
@@ -34,6 +37,15 @@ func (t *Token) OffsetStart() int {
 // OffsetEnd returns the offset just past the token's last byte.
 func (t *Token) OffsetEnd() int {
 	return t.offEnd
+}
+
+// StartsLine reports whether no token comes before t on its line: it is
+// the file's first, or a newline lies between the previous token and it.
+// A semicolon inserted at a line end is on the line it ends, and so never
+// starts one. The parser recovers from a syntax error to the start of a
+// line (see parser/recover.go).
+func (t *Token) StartsLine() bool {
+	return t.startsLine
 }
 
 // String formats the token for debugging, with offsets padded to two digits.

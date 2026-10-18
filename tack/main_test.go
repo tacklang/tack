@@ -377,7 +377,7 @@ func TestEmitIsExactlyTheGeneratedCode(t *testing.T) {
 	}
 	builtins := stdtest.Builtins(t)
 	lib := &std{builtins: builtins, dir: stdtest.Dir()}
-	res, single, err := load(path, dumpNone, lib)
+	res, single, err := load(path, dumpNone, lib, defaultMaxErrors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,6 +503,82 @@ func TestMaxDiags(t *testing.T) {
 		if got := strings.Count(r.stderr, "error:"); got != tc.want {
 			t.Errorf("--max-diags %s printed %d diagnostics, want %d", tc.arg, got, tc.want)
 		}
+	}
+}
+
+// tooManyLine is the line the driver ends its diagnostics with when it
+// left some out, for a limit of 10.
+const tooManyLine = "too many errors: showing the first 10; --max-errors 0 shows them all\n"
+
+// TestMaxErrors checks that the driver reports at most 10 errors by
+// default, ending with a line saying it stopped, every one with
+// --max-errors 0, n with --max-errors n, and that --max-diags is the same
+// setting under its old name. The program has 15 independent syntax
+// errors, each of which the parser reports once.
+func TestMaxErrors(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc main() {\n")
+	for range 15 {
+		b.WriteString("    x := 1 1\n")
+	}
+	b.WriteString("}\n")
+	path := writeSource(t, []byte(b.String()))
+	for _, tc := range []struct {
+		args []string
+		want int
+		more bool
+	}{
+		{nil, 10, true},
+		{[]string{"--max-errors", "0"}, 15, false},
+		{[]string{"--max-errors", "3"}, 3, true},
+		{[]string{"--max-errors", "15"}, 15, false},
+		{[]string{"--max-errors", "16"}, 15, false},
+		{[]string{"--max-diags", "3"}, 3, true},
+		{[]string{"--max-diags", "0"}, 15, false},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			r := runTack(t, append(tc.args, "--emit", path)...)
+			assertDiagnostics(t, r)
+			if got := strings.Count(r.stderr, ": error:"); got != tc.want {
+				t.Errorf("printed %d errors, want %d:\n%s", got, tc.want, r.stderr)
+			}
+			more := strings.Contains(r.stderr, "too many errors")
+			if more != tc.more {
+				t.Errorf("too many errors line printed: %v, want %v:\n%s", more, tc.more, r.stderr)
+			}
+			if len(tc.args) == 0 && !strings.HasSuffix(r.stderr, tooManyLine) {
+				t.Errorf("stderr ends %q, want it to end %q",
+					r.stderr[max(0, len(r.stderr)-100):], tooManyLine)
+			}
+		})
+	}
+	bad := runTack(t, "--max-errors", "-1", "--emit", path)
+	if bad.code != exitUsage ||
+		!strings.Contains(bad.stderr, "--max-errors must be 0 or more, got -1") {
+		t.Errorf("--max-errors -1: exit %d, stderr %q", bad.code, bad.stderr)
+	}
+}
+
+// TestErrorsSortedByPosition checks that the errors of one file are
+// reported in the order they appear in it.
+func TestErrorsSortedByPosition(t *testing.T) {
+	src := "package main\n\nfunc a() {\n    x := 1 1\n}\n\nfunc (\n\nfunc b() {\n    y := 2 2\n}\n"
+	r := runTack(t, "--max-errors", "0", "--emit", writeSource(t, []byte(src)))
+	assertDiagnostics(t, r)
+	last := 0
+	for _, line := range strings.Split(r.stderr, "\n") {
+		_, rest, ok := strings.Cut(line, "main.tck:")
+		if !ok || !strings.Contains(rest, ": error:") {
+			continue
+		}
+		n, _ := strconv.Atoi(strings.SplitN(rest, ":", 2)[0])
+		if n < last {
+			t.Errorf("error at line %d after one at line %d:\n%s", n, last, r.stderr)
+		}
+		last = n
+	}
+	if last == 0 {
+		t.Fatalf("no errors found in %q", r.stderr)
 	}
 }
 

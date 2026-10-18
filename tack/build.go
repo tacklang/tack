@@ -25,15 +25,15 @@ const headerName = "tack.h"
 // picks the ones the program needs, and links them with the generated
 // source.
 type builder struct {
-	ctx      context.Context
-	backend  codegen.Backend
-	stdout   io.Writer      // where the toolchain's output goes
-	stderr   io.Writer      // likewise
-	res      *loader.Result // the program, and the files its diagnostics render against
-	std      *std           // the standard library the program was compiled with
-	env      environment    // where the build cache is, and how to identify the toolchain
-	opt      codegen.Opt    // the optimization level every C file is compiled at
-	maxDiags int
+	ctx       context.Context
+	backend   codegen.Backend
+	stdout    io.Writer      // where the toolchain's output goes
+	stderr    io.Writer      // likewise
+	res       *loader.Result // the program, and the files its diagnostics render against
+	std       *std           // the standard library the program was compiled with
+	env       environment    // where the build cache is, and how to identify the toolchain
+	opt       codegen.Opt    // the optimization level every C file is compiled at
+	maxErrors int
 }
 
 // cObject is a C file of the program, or of std, and the object file it
@@ -200,7 +200,7 @@ func (b *builder) checkDefinitions(objs []cObject) error {
 		}
 	}
 	if len(diags) > 0 {
-		return diagnostics(b.res, diags, b.maxDiags)
+		return diagnostics(b.res, diags, b.maxErrors)
 	}
 	return nil
 }

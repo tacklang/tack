@@ -198,8 +198,27 @@ func parseDirect(t *testing.T, src string) (out parsed) {
 	out.file, out.diags = parser.NewParser(f.ID, lex.Tokens()).Parse()
 	if out.file != nil {
 		out.file.Comments = nil
+		clearBadSpans(out.file)
 	}
 	return out
+}
+
+// clearBadSpans zeroes the span of every bad node in file. A bad node
+// spans the text skipped after an error, which, like the error, may start
+// at the semicolon a line ending implies, and that semicolon sits at a
+// comment that ends the line, where it sits at the newline otherwise.
+func clearBadSpans(file *ast.File) {
+	for _, d := range file.Decls {
+		ast.Walk(d, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.BadDecl:
+				x.Span = ast.Span{}
+			case *ast.BadStmt:
+				x.Span = ast.Span{}
+			}
+			return true
+		})
+	}
 }
 
 // checkCommentActsAsNewlineFast checks the property checkCommentActsAsNewline

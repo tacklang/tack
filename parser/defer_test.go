@@ -134,13 +134,14 @@ func TestRejectsMalformedDefers(t *testing.T) {
 }
 
 // TestTruncatedDefersNeverParse cuts defers off after every byte and checks
-// each prefix is a parse error, never a panic or a tree.
+// each prefix is a parse error, never a panic or a tree without a bad
+// node.
 func TestTruncatedDefersNeverParse(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    defer { f(1) }\n    defer { x += 2 }\n    defer {\n        for {\n            break\n        }\n        g()\n    }\n}\n"
 	end := strings.LastIndex(src, "}")
 	for n := strings.Index(src, "defer"); n < end; n++ {
 		file, diags := parse(t, src[:n])
-		if file != nil || len(diags) == 0 {
+		if len(diags) == 0 || file != nil && countBad(file) == 0 {
 			t.Errorf("prefix %q parsed, want an error", src[:n])
 		}
 	}

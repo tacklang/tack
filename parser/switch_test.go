@@ -175,13 +175,14 @@ func TestRejectsMalformedSwitches(t *testing.T) {
 }
 
 // TestTruncatedSwitchesNeverParse cuts a switch off after every byte and
-// checks each prefix is a parse error, never a panic or a tree.
+// checks each prefix is a parse error, never a panic or a tree without
+// a bad node.
 func TestTruncatedSwitchesNeverParse(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    switch f(1) {\n    case 1, 2:\n        g()\n    default:\n        h()\n    }\n}\n"
 	end := strings.LastIndex(src, "}")
 	for n := strings.Index(src, "switch"); n < end; n++ {
 		file, diags := parse(t, src[:n])
-		if file != nil || len(diags) == 0 {
+		if len(diags) == 0 || file != nil && countBad(file) == 0 {
 			t.Errorf("prefix %q parsed, want an error", src[:n])
 		}
 	}

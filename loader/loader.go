@@ -66,6 +66,10 @@ type Loader struct {
 	// read only the target's own files, for a dump of the tokens or the
 	// syntax trees.
 	Stop Stage
+
+	// MaxErrors, when positive, is how many syntax errors a file's parse
+	// goes past before it stops (see parser.Parser.Limit).
+	MaxErrors int
 }
 
 // Std is where a Loader finds the standard library: the directory Dir, the
@@ -316,7 +320,9 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 
 	pkg := &ast.Package{Files: make([]*ast.File, 0, len(files))}
 	for i, f := range files {
-		tree, fileDiags := parser.NewParser(f.ID, tokens[i]).Parse()
+		p := parser.NewParser(f.ID, tokens[i])
+		p.Limit(l.MaxErrors)
+		tree, fileDiags := p.Parse()
 		diags = append(diags, fileDiags...)
 		if tree != nil {
 			pkg.Files = append(pkg.Files, tree)

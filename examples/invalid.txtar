@@ -6419,6 +6419,12 @@ extern-as-name/main.tck:4:5: error: expected 'statement' found 'extern'
    |	    ^
 05 |	    exit(extern)
 
+extern-as-name/main.tck:5:10: error: expected 'value' found 'extern'
+04 |	    extern := 1
+05 |	    exit(extern)
+   |	         ^
+06 |	}
+
 -- extern-c-keyword/main.tck --
 package main
 
@@ -7793,6 +7799,12 @@ from-keyword-local/main.tck:4:5: error: expected 'statement' found 'from'
 04 |	    from := 1
    |	    ^
 05 |	    exit(from)
+
+from-keyword-local/main.tck:5:10: error: expected 'value' found 'from'
+04 |	    from := 1
+05 |	    exit(from)
+   |	         ^
+06 |	}
 
 -- from-keyword-package/main.tck --
 package from
@@ -24192,6 +24204,276 @@ param-type-mismatch/main.tck:7:7: error: cannot use string as int64 in argument 
 06 |	func main() {
 07 |	    f("hi")
    |	      ^~~~
+08 |	}
+
+-- parse-recover-declarations/main.tck --
+package main
+
+func ok1() {
+}
+
+func (
+
+func ok2() {
+}
+
+var = 3
+
+type U struct {
+    y
+}
+
+func main() {
+}
+-- parse-recover-declarations/expected --
+stage: parse
+---
+
+parse-recover-declarations/main.tck:8:1: error: expected 'receiver name' found 'func'
+07 |	
+08 |	func ok2() {
+   |	^
+09 |	}
+
+parse-recover-declarations/main.tck:11:5: error: expected 'variable name' found '='
+10 |	
+11 |	var = 3
+   |	    ^
+12 |	
+
+parse-recover-declarations/main.tck:14:5: error: embedded fields are not supported
+13 |	type U struct {
+14 |	    y
+   |	    ^
+15 |	}
+
+-- parse-recover-garbage-between-decls/main.tck --
+package main
+
+func a() {
+}
+
++ - * / ;
+
+func b() {
+}
+
+) ) ]
+
+func main() {
+}
+-- parse-recover-garbage-between-decls/expected --
+stage: parse
+---
+
+parse-recover-garbage-between-decls/main.tck:6:1: error: expected 'func' found '+'
+05 |	
+06 |	+ - * / ;
+   |	^
+07 |	
+
+parse-recover-garbage-between-decls/main.tck:11:1: error: expected 'func' found ')'
+10 |	
+11 |	) ) ]
+   |	^
+12 |	
+
+-- parse-recover-import/main.tck --
+package main
+
+import from "x"
+import fmt from "std/fmt"
+
+func main() {
+    q := 1 1
+}
+-- parse-recover-import/expected --
+stage: parse
+---
+
+parse-recover-import/main.tck:3:8: error: expected 'import name' found 'from'
+02 |	
+03 |	import from "x"
+   |	       ^
+04 |	import fmt from "std/fmt"
+
+parse-recover-import/main.tck:7:12: error: expected ';' found '1'
+06 |	func main() {
+07 |	    q := 1 1
+   |	           ^
+08 |	}
+
+-- parse-recover-nested-blocks/main.tck --
+package main
+
+func main() {
+    if true {
+        x := )
+        for i := range 3 {
+            y := ]
+        }
+    }
+    w := ,
+}
+-- parse-recover-nested-blocks/expected --
+stage: parse
+---
+
+parse-recover-nested-blocks/main.tck:5:14: error: expected 'value' found ')'
+04 |	    if true {
+05 |	        x := )
+   |	             ^
+06 |	        for i := range 3 {
+
+parse-recover-nested-blocks/main.tck:7:18: error: expected 'value' found ']'
+06 |	        for i := range 3 {
+07 |	            y := ]
+   |	                 ^
+08 |	        }
+
+parse-recover-nested-blocks/main.tck:10:10: error: expected 'value' found ','
+09 |	    }
+10 |	    w := ,
+   |	         ^
+11 |	}
+
+-- parse-recover-statements/main.tck --
+package main
+
+func main() {
+    x := 1 1
+    y := 2
+    z := * y
+    print("ok")
+}
+-- parse-recover-statements/expected --
+stage: parse
+---
+
+parse-recover-statements/main.tck:4:12: error: expected ';' found '1'
+03 |	func main() {
+04 |	    x := 1 1
+   |	           ^
+05 |	    y := 2
+
+parse-recover-statements/main.tck:6:10: error: expected 'value' found '*'
+05 |	    y := 2
+06 |	    z := * y
+   |	         ^
+07 |	    print("ok")
+
+-- parse-recover-switch-clauses/main.tck --
+package main
+
+func main() {
+    switch 1 {
+    case 1:
+        x := +
+    case 2:
+        y := 1 1
+    default:
+        print("d")
+    }
+}
+-- parse-recover-switch-clauses/expected --
+stage: parse
+---
+
+parse-recover-switch-clauses/main.tck:6:14: error: expected 'value' found '+'
+05 |	    case 1:
+06 |	        x := +
+   |	             ^
+07 |	    case 2:
+
+parse-recover-switch-clauses/main.tck:8:16: error: expected ';' found '1'
+07 |	    case 2:
+08 |	        y := 1 1
+   |	               ^
+09 |	    default:
+
+-- parse-recover-types/main.tck --
+package main
+
+type A struct {
+    x [3 int64
+}
+
+func f(a list[) {
+}
+
+func g(m map[int64) {
+}
+
+func main() {
+}
+-- parse-recover-types/expected --
+stage: parse
+---
+
+parse-recover-types/main.tck:4:10: error: expected ']' found 'int64'
+03 |	type A struct {
+04 |	    x [3 int64
+   |	         ^
+05 |	}
+
+parse-recover-types/main.tck:7:15: error: expected 'type name' found ')'
+06 |	
+07 |	func f(a list[) {
+   |	              ^
+08 |	}
+
+parse-recover-types/main.tck:10:19: error: expected ']' found ')'
+09 |	
+10 |	func g(m map[int64) {
+   |	                  ^
+11 |	}
+
+-- parse-recover-unclosed-at-eof/main.tck --
+package main
+
+func main() {
+    z := 1 1
+    if true {
+        y := 2
+-- parse-recover-unclosed-at-eof/expected --
+stage: parse
+---
+
+parse-recover-unclosed-at-eof/main.tck:4:12: error: expected ';' found '1'
+03 |	func main() {
+04 |	    z := 1 1
+   |	           ^
+05 |	    if true {
+
+parse-recover-unclosed-at-eof/main.tck:6:15: error: expected '}' found 'EOF'
+05 |	    if true {
+06 |	        y := 2
+   |	              ^
+07 |	
+
+-- parse-recover-unclosed-brace/main.tck --
+package main
+
+func a() {
+    x := 1
+
+func main() {
+    y := 2 2
+}
+-- parse-recover-unclosed-brace/expected --
+stage: parse
+---
+
+parse-recover-unclosed-brace/main.tck:6:1: error: expected '}' found 'func'
+05 |	
+06 |	func main() {
+   |	^
+07 |	    y := 2 2
+
+parse-recover-unclosed-brace/main.tck:7:12: error: expected ';' found '2'
+06 |	func main() {
+07 |	    y := 2 2
+   |	           ^
 08 |	}
 
 -- path-base-string-arg/main.tck --

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -59,7 +61,7 @@ type options struct {
 	backendName  string
 	outBin       string
 	opt          codegen.Opt
-	maxDiags     int
+	maxErrors    int
 	dump         dump
 	listBackends bool
 }
@@ -172,6 +174,7 @@ type flagValues struct {
 	opts         map[codegen.Opt]*bool // -O0 and on, by level
 	backendName  string
 	outBin       string
+	maxErrors    int
 	maxDiags     int
 	lex          bool
 	ast          bool
@@ -202,8 +205,10 @@ func newFlagSet() (*flag.FlagSet, *flagValues) {
 		"list the available code generation backends and stop")
 	fs.StringVar(&v.outBin, "out", "",
 		"write the linked binary to `path` (required unless a dump flag is given)")
-	fs.IntVar(&v.maxDiags, "max-diags", 0,
-		"print at most `n` diagnostics; 0 prints them all")
+	fs.IntVar(&v.maxErrors, "max-errors", defaultMaxErrors,
+		"report at most `n` errors, then say there are more; 0 reports them all")
+	fs.IntVar(&v.maxDiags, "max-diags", defaultMaxErrors,
+		"the old name of --max-errors")
 	v.opts = make(map[codegen.Opt]*bool)
 	for _, opt := range codegen.Opts {
 		v.opts[opt] = fs.Bool("O"+string(opt), false, "optimize at level "+string(opt))
@@ -225,8 +230,17 @@ func parseArgs(fs *flag.FlagSet, v *flagValues, args []string) (options, error) 
 	opts := options{
 		backendName:  v.backendName,
 		outBin:       v.outBin,
-		maxDiags:     v.maxDiags,
+		maxErrors:    v.maxErrors,
 		listBackends: v.listBackends,
+	}
+	limitName := "--max-errors"
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-diags" {
+			opts.maxErrors, limitName = v.maxDiags, "--max-diags"
+		}
+	})
+	if opts.maxErrors < 0 {
+		return options{}, usagef("%s must be 0 or more, got %d", limitName, opts.maxErrors)
 	}
 	if opts.listBackends {
 		// Listing backends needs nothing else from the command line.
@@ -321,8 +335,6 @@ func fileArg(rest []string) (string, error) {
 // meaningless or contradictory together.
 func checkCombination(opts options) error {
 	switch {
-	case opts.maxDiags < 0:
-		return usagef("--max-diags must be 0 or more, got %d", opts.maxDiags)
 	case opts.dump == dumpNone && opts.outBin == "":
 		return usagef("--out is required to build a binary")
 	case opts.dump != dumpNone && opts.outBin != "":
@@ -421,12 +433,12 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 		return err
 	}
 
-	res, single, err := load(opts.file, opts.dump, lib)
+	res, single, err := load(opts.file, opts.dump, lib, opts.maxErrors)
 	if err != nil {
 		return err
 	}
 
-	out, err := compile(res, single, backend, lib.builtinSet(), opts.dump, opts.maxDiags)
+	out, err := compile(res, single, backend, lib.builtinSet(), opts.dump, opts.maxErrors)
 	if err != nil {
 		return err
 	}
@@ -439,7 +451,7 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 		return writeAll(stdout, withTrailingNewline(out))
 	}
 	b := &builder{
-		ctx: ctx, backend: backend, res: res, std: lib, maxDiags: opts.maxDiags, opt: opts.opt,
+		ctx: ctx, backend: backend, res: res, std: lib, maxErrors: opts.maxErrors, opt: opts.opt,
 		env: env, stdout: stdout, stderr: stderr,
 	}
 	return b.build(out, opts.outBin)
@@ -453,8 +465,10 @@ func execute(ctx context.Context, opts options, env environment, stdout, stderr 
 // package may be named after one of lib's builtins, and an import of a
 // std package is read from lib, which is nil only for such a dump. It also
 // reports whether the target is a single file.
-func load(target string, d dump, lib *std) (*loader.Result, bool, error) {
-	l := &loader.Loader{FS: loader.OS{}, Builtins: lib.builtinSet(), Std: lib.loaderStd()}
+func load(target string, d dump, lib *std, maxErrors int) (*loader.Result, bool, error) {
+	l := &loader.Loader{
+		FS: loader.OS{}, Builtins: lib.builtinSet(), Std: lib.loaderStd(), MaxErrors: maxErrors,
+	}
 	switch d {
 	case dumpLex:
 		l.Stop = loader.StageLex
@@ -560,18 +574,18 @@ func checkOutPath(outBin, input string) error {
 // generated source otherwise. single says the program is a single file, whose trees are
 // dumped as that file rather than as a list or a program. The first stage
 // to report diagnostics, loading included, ends the run with a
-// *diagnosticsError holding at most maxDiags of them when maxDiags is
-// positive.
+// *diagnosticsError holding at most maxErrors of them when maxErrors is
+// positive (see diagnostics).
 func compile(
 	res *loader.Result,
 	single bool,
 	backend codegen.Backend,
 	builtins *builtin.Set,
 	d dump,
-	maxDiags int,
+	maxErrors int,
 ) ([]byte, error) {
 	fail := func(diags []diag.Diagnostic) error {
-		return diagnostics(res, diags, maxDiags)
+		return diagnostics(res, diags, maxErrors)
 	}
 
 	if len(res.Diags) > 0 {
@@ -599,14 +613,37 @@ func compile(
 	return out, nil
 }
 
+// defaultMaxErrors is how many errors the driver reports when
+// --max-errors is not given.
+const defaultMaxErrors = 10
+
 // diagnostics returns the *diagnosticsError that reports diags, problems
-// in the program res holds, at most maxDiags of them when maxDiags is
-// positive.
-func diagnostics(res *loader.Result, diags []diag.Diagnostic, maxDiags int) error {
-	if maxDiags > 0 && len(diags) > maxDiags {
-		diags = diags[:maxDiags]
+// in the program res holds, sorted by file and then by where each starts,
+// at most maxErrors of them when maxErrors is positive, followed, when
+// that left some out, by a line saying so (see tooManyErrors).
+func diagnostics(res *loader.Result, diags []diag.Diagnostic, maxErrors int) error {
+	diags = slices.Clone(diags)
+	slices.SortStableFunc(diags, func(a, b diag.Diagnostic) int {
+		return cmp.Or(
+			cmp.Compare(a.Span.File, b.Span.File),
+			cmp.Compare(a.Span.Start, b.Span.Start),
+		)
+	})
+	more := maxErrors > 0 && len(diags) > maxErrors
+	if more {
+		diags = diags[:maxErrors]
 	}
-	return &diagnosticsError{rendered: diag.RenderAllPretty(res.Files, diags)}
+	rendered := diag.RenderAllPretty(res.Files, diags)
+	if more {
+		rendered += tooManyErrors(maxErrors)
+	}
+	return &diagnosticsError{rendered: rendered}
+}
+
+// tooManyErrors is the line that ends the report of the first n errors
+// when there were more.
+func tooManyErrors(n int) string {
+	return fmt.Sprintf("too many errors: showing the first %d; --max-errors 0 shows them all\n", n)
 }
 
 // loadedDump returns the dump d, --lex or --ast, of what res, loaded to

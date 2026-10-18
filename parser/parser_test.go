@@ -562,8 +562,8 @@ func TestErrorsInsideNestedConstructsAreNotLost(t *testing.T) {
 			if diags[0].Message != tt.want {
 				t.Errorf("first diagnostic = %q, want %q", diags[0].Message, tt.want)
 			}
-			if file != nil {
-				t.Errorf("got a tree alongside %d diagnostic(s)", len(diags))
+			if file != nil && countBad(file) == 0 {
+				t.Errorf("got a tree with no bad node alongside %d diagnostic(s)", len(diags))
 			}
 		})
 	}

@@ -6,9 +6,6 @@ import (
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/diag"
-	"github.com/tacklang/tack/lexer"
-	"github.com/tacklang/tack/parser"
-	"github.com/tacklang/tack/source"
 )
 
 // methodDecls are method declarations, each with its name, its
@@ -360,13 +357,13 @@ var methodParseErrors = []struct{ name, src, msg, at string }{
 }
 
 // TestRejectsMalformedMethods checks each malformed method or method call
-// is reported as listed, by the parser, with no tree.
+// is reported as listed, by the parser, alone, a bad node in the tree.
 func TestRejectsMalformedMethods(t *testing.T) {
 	for _, tt := range methodParseErrors {
 		t.Run(tt.name, func(t *testing.T) {
 			src := "package main\n\n" + tt.src
 			file, diags := parse(t, src)
-			if file != nil || len(diags) != 1 {
+			if file == nil || countBad(file) == 0 || len(diags) != 1 {
 				t.Fatalf("got %v, %v", file, diags)
 			}
 			if diags[0].Message != tt.msg {
@@ -445,18 +442,7 @@ func FuzzParseMethods(f *testing.F) {
 		f.Add("package main\n\n" + tt.src)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
-		file := &source.File{ID: "fuzz", Filename: "fuzz.tck", Data: []byte(src)}
-		lex := lexer.New(file)
-		if diags := lex.Lex(); len(diags) > 0 {
-			return
-		}
-		tree, diags := parser.NewParser(file.ID, lex.Tokens()).Parse()
-		if (tree == nil) == (len(diags) == 0) {
-			t.Fatalf("tree %v with %d diagnostics", tree != nil, len(diags))
-		}
-		for _, d := range diags {
-			checkSpan(t, src, d)
-		}
+		checkParse(t, src)
 	})
 }
 

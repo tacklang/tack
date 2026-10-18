@@ -5,9 +5,6 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/ast"
-	"github.com/tacklang/tack/lexer"
-	"github.com/tacklang/tack/parser"
-	"github.com/tacklang/tack/source"
 )
 
 // TestParsesOwnParams checks that own before a parameter's name marks it
@@ -180,17 +177,6 @@ func FuzzParseOwn(f *testing.F) {
 		f.Add(src)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
-		file := &source.File{ID: "fuzz", Filename: "fuzz.tck", Data: []byte(src)}
-		lex := lexer.New(file)
-		if diags := lex.Lex(); len(diags) > 0 {
-			return
-		}
-		tree, diags := parser.NewParser(file.ID, lex.Tokens()).Parse()
-		if (tree == nil) == (len(diags) == 0) {
-			t.Fatalf("tree %v with %d diagnostics", tree != nil, len(diags))
-		}
-		for _, d := range diags {
-			checkSpan(t, src, d)
-		}
+		checkParse(t, src)
 	})
 }

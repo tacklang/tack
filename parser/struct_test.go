@@ -326,13 +326,13 @@ var structParseErrors = []struct{ name, src, msg, at string }{
 }
 
 // TestRejectsMalformedStructs checks each malformed program is reported as
-// listed, by the parser, with no tree.
+// listed, by the parser, alone, a bad node in the tree.
 func TestRejectsMalformedStructs(t *testing.T) {
 	for _, tt := range structParseErrors {
 		t.Run(tt.name, func(t *testing.T) {
 			src := "package main\n\n" + tt.src
 			file, diags := parse(t, src)
-			if file != nil || len(diags) != 1 {
+			if file == nil || countBad(file) == 0 || len(diags) != 1 {
 				t.Fatalf("got %v, %v", file, diags)
 			}
 			if diags[0].Message != tt.msg {

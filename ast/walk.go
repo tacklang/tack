@@ -47,7 +47,8 @@ func walkDecl(d Decl, v Visitor) {
 		}
 	case *TypeDecl:
 		Walk(d.TypeExpr, v)
-	case *Import:
+	case *Import, *BadDecl:
+		// leaves
 	default:
 		walkGenericDecl(d, v)
 	}
@@ -83,7 +84,7 @@ func walkStmt(s Stmt, v Visitor) {
 		walkSwitch(s, v)
 	case *Defer:
 		walkAll(s.Body, v)
-	case *Break, *Continue:
+	case *Break, *Continue, *BadStmt:
 		// leaves
 	default:
 		walkSimpleStmt(s, v)

@@ -11,8 +11,9 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// Parser turns one file's token stream into an AST. It stops at the first
-// syntax error, so a file yields either a tree or diagnostics, never both.
+// Parser turns one file's token stream into an AST. After a syntax error
+// it recovers and goes on (see recover.go), so a file yields a tree and
+// every error it has, the damage marked in the tree by bad nodes.
 type Parser struct {
 	file *ast.File
 
@@ -36,7 +37,13 @@ type Parser struct {
 	fileID   source.FileID
 	tokens   []lexer.Token // every token but the comments
 	comments []lexer.Token // the comment tokens, in source order
-	index    int
+
+	// errs is every error recorded so far, and maxErrors how many the
+	// parse goes past before it stops, or 0 for no limit (see Limit).
+	errs      []diag.Diagnostic
+	maxErrors int
+
+	index int
 
 	// noLit is set while parsing the header of an if, a for or a range
 	// loop, where a name followed by an opening brace is the name and then
@@ -180,8 +187,11 @@ func (p *Parser) lastEnd() int {
 }
 
 // Parse parses the whole file: the package clause, then every top-level
-// declaration up to EOF. On the first syntax error it returns a nil file and
-// that error's diagnostics.
+// declaration up to EOF. It returns the file and every syntax error found,
+// in the order they were found, recovering from each (see recover.go): a
+// part that could not be parsed is a bad node in the tree, so the tree
+// holds one exactly when there are errors. A program nested too deeply
+// gives no tree, and the errors up to it.
 func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	if len(p.tokens) == 0 {
 		panic("token list is empty")
@@ -195,28 +205,12 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 		})
 	}
 
-	keyword, pkg, pkgDiags := p.parsePkg()
-	if len(pkgDiags) > 0 {
-		return nil, pkgDiags
-	}
-
-	p.file.Package = pkg.Name
-	p.file.PackageSpan = pkg.Span
-	p.file.Span = keyword
-
-	for isKeyword(p.peek(), lexer.Import) {
-		imp, diags := p.parseImport()
-		if len(diags) > 0 {
-			return nil, diags
-		}
-		p.file.Imports = append(p.file.Imports, imp)
-		p.imports[imp.Name] = true
-	}
-
-	for p.peek().Kind() != lexer.EOF {
+	p.parseHeader()
+	for p.peek().Kind() != lexer.EOF && !p.halted() {
+		start := p.index
 		dec, decDiags := p.parseDecl()
 		if len(decDiags) > 0 {
-			return nil, decDiags
+			dec = p.badDecl(start, decDiags)
 		}
 		p.file.Decls = append(p.file.Decls, dec)
 	}
@@ -224,11 +218,38 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	// A program nested too deeply has no tree, even where a parse that
 	// went on past the error found nothing else wrong.
 	if p.tooDeep != nil {
-		return nil, []diag.Diagnostic{*p.tooDeep}
+		if !p.recorded(*p.tooDeep) {
+			p.errs = append(p.errs, *p.tooDeep)
+		}
+		return nil, p.errs
 	}
 	p.file.Span.End = p.peek().OffsetEnd()
 
-	return p.file, nil
+	return p.file, p.errs
+}
+
+// parseHeader parses the package clause and the imports, recording each
+// that fails as a bad declaration (see recover.go).
+func (p *Parser) parseHeader() {
+	keyword, pkg, pkgDiags := p.parsePkg()
+	if len(pkgDiags) > 0 {
+		p.file.Decls = append(p.file.Decls, p.badDecl(0, pkgDiags))
+		p.file.Span = p.file.Decls[0].Spanned()
+	} else {
+		p.file.Package = pkg.Name
+		p.file.PackageSpan = pkg.Span
+		p.file.Span = keyword
+	}
+	for isKeyword(p.peek(), lexer.Import) && !p.halted() {
+		start := p.index
+		imp, diags := p.parseImport()
+		if len(diags) > 0 {
+			p.file.Decls = append(p.file.Decls, p.badDecl(start, diags))
+			continue
+		}
+		p.file.Imports = append(p.file.Imports, imp)
+		p.imports[imp.Name] = true
+	}
 }
 
 // parsePkg parses the package clause, and returns the span of its package
@@ -763,12 +784,9 @@ func (p *Parser) parseFuncBody(fn *ast.Func, extern bool) []diag.Diagnostic {
 	}
 	switch p.next().Kind() {
 	case lexer.LCurl:
-		for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
-			stmt, stmtDiags := p.parseStmt()
-			if len(stmtDiags) > 0 {
-				return stmtDiags
-			}
-			fn.Body = append(fn.Body, stmt)
+		fn.Body = append(fn.Body, p.parseStmts(false)...)
+		if p.tooDeep != nil {
+			return []diag.Diagnostic{*p.tooDeep}
 		}
 		if ok, seqDiags := p.expectSequence(lexer.RCurl, lexer.Semi); !ok {
 			return seqDiags
@@ -2022,15 +2040,10 @@ func (p *Parser) parseBlock() ([]ast.Stmt, []diag.Diagnostic) {
 		return nil, lcurlDiags
 	}
 
-	body := make([]ast.Stmt, 0)
-	for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
-		stmt, stmtDiags := p.parseStmt()
-		if stmt == nil {
-			return nil, stmtDiags
-		}
-		body = append(body, stmt)
+	body := p.parseStmts(false)
+	if p.tooDeep != nil {
+		return nil, []diag.Diagnostic{*p.tooDeep}
 	}
-
 	if ok, rcurlDiags := p.expect(lexer.RCurl); !ok {
 		return nil, rcurlDiags
 	}
@@ -2306,12 +2319,9 @@ func (p *Parser) parseCaseClause(typeCases bool) (*ast.CaseClause, []diag.Diagno
 	}
 	cl.Span.End = p.peekPrev().OffsetEnd()
 
-	for !p.atClauseEnd() {
-		stmt, diags := p.parseStmt()
-		if stmt == nil {
-			return nil, diags
-		}
-		cl.Body = append(cl.Body, stmt)
+	cl.Body = p.parseStmts(true)
+	if p.tooDeep != nil {
+		return nil, []diag.Diagnostic{*p.tooDeep}
 	}
 	return cl, nil
 }

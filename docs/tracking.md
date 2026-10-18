@@ -191,8 +191,8 @@ list of its own. Wanted builtins are listed in `src/std/builtin/PLANNED.md`.
 |------------------------------------|---------|----------------------------------------------------------------------------|
 | C backend                          | yes     | Needs `clang` on `PATH`                                                    |
 | Other backends                     | no      | The registry allows them; arm64 was dropped                                |
-| `tack` driver                      | yes     | Build, stage dumps, `--max-diags`, exit codes 0/1/2; a file, a directory or an import path |
-| Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported |
+| `tack` driver                      | yes     | Build, stage dumps, `--max-errors` (default 10, `--max-diags` its old name), errors sorted by file and position, exit codes 0/1/2; a file, a directory or an import path |
+| Diagnostics with source context    | yes     | Stops at the first stage that reports; reports every problem in that stage, each once, and nothing that follows from one reported; the parser recovers after each syntax error, to the end of the statement or the next declaration, marking the damage with bad nodes |
 | Build cache                        | partial | std/builtin's objects, keyed on their inputs and the toolchain, in `$TACK_CACHE` or the user cache directory; the program's C, and std packages' C, are compiled every build; nothing trims it |
 | `make build/install/test/fmt/lint` | yes     |                                                                            |
 | Golden tests                       | yes     | Every program under `examples/`, every case in `examples/invalid.txtar` and `examples/invalid-packages.txtar` |

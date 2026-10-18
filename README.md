@@ -172,7 +172,8 @@ has.
 | `--backend <name>` | select the code generation backend, default `c` |
 | `--backends`       | list the available backends and stop            |
 | `--out <path>`     | compile and link to `<path>`                    |
-| `--max-diags <n>`  | print at most `n` diagnostics; 0 prints all     |
+| `--max-errors <n>` | report at most `n` errors, default 10; 0 reports all |
+| `--max-diags <n>`  | the old name of `--max-errors`                  |
 | `-O0` ... `-O3`, `-Os`, `-Oz` | optimize the build at that clang level, default `-O3` |
 | `-h`, `--help`     | print usage and exit                            |
 
@@ -190,7 +191,13 @@ Each stage is a package that takes a data structure and returns one, along with
 any diagnostics. The first stage to report a diagnostic ends the run. A stage
 reports every problem it finds, each once: an error that follows from one
 already reported, such as an unused variable whose declaration was wrong, is
-not reported.
+not reported. The parser reports every syntax error in a file: after one, it
+skips to the end of the statement, the next line that starts a declaration,
+or the brace that closes the block, and goes on, so each independent error is
+reported once and none that follows from it is. The driver reports the
+errors of a run sorted by file and by where each starts, at most 10 of them
+unless `--max-errors` says otherwise, and then the line `too many errors:
+showing the first 10; --max-errors 0 shows them all` when it left some out.
 
 | Package    | Role                                                          |
 |------------|---------------------------------------------------------------|

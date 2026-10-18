@@ -48,6 +48,8 @@
 // TypeAssert too, whose Type the checker sets to T.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
+// A BadDecl or a BadStmt stands for a declaration or a statement the
+// parser could not parse, which it reported and skipped (see bad.go).
 // A Param written mut p T has Mut set. A call's argument written mut x is
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one

@@ -1124,3 +1124,23 @@ func TestAsmIsAnIdentifier(t *testing.T) {
 		t.Errorf("%q lexed as %v, want asm, {, mov and } as tokens of their own", src, kinds)
 	}
 }
+
+// TestStartsLine checks which tokens start a line: the first, each after
+// a newline, a comment alone on its line included, and none on a line
+// after another
+// token, the semicolon a line end inserts among them, which sits on the
+// line it ends.
+func TestStartsLine(t *testing.T) {
+	src := "package main\n\nfunc f() {\n    x := 1 // c\n    y\n    // d\n}"
+	out := lex(t, src)
+	var starts []string
+	for _, tk := range out.tokens {
+		if tk.StartsLine() {
+			starts = append(starts, src[tk.OffsetStart():tk.OffsetEnd()])
+		}
+	}
+	want := []string{"package", "func", "x", "y", "// d", "}"}
+	if strings.Join(starts, "|") != strings.Join(want, "|") {
+		t.Errorf("tokens starting a line: %q, want %q", starts, want)
+	}
+}
