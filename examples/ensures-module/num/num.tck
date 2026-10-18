@@ -1,0 +1,43 @@
+package num
+
+// Parse reads s as a decimal number: error 1 when s is empty, and error 3
+// when it holds a byte that is not a digit.
+pub func Parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    mut n int64 = 0
+    for i := range s {
+        c := s[i]
+        if c < '0' || c > '9' {
+            return 0, error{code: 3, msg: "not a digit"}
+        }
+        n = n * 10 + (c - '0')
+    }
+    return n, noerror
+}
+
+// Must ends the program with err's code when err is an error, so it
+// returns only when err holds none.
+pub func Must(err error) ensures err.code == 0 {
+    if err.code != 0 {
+        exit(err.code)
+    }
+}
+
+// Clamp moves i into 0 through n - 1, ending the program when n leaves no
+// room.
+pub func Clamp(mut i int64, n int64) ensures 0 <= i && i < n {
+    if n <= 0 {
+        exit(4)
+    }
+    if i < 0 {
+        i = 0
+    }
+    if i >= n {
+        i = n - 1
+    }
+    if i < 0 || i >= n {
+        exit(4)
+    }
+}

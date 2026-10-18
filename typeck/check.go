@@ -193,6 +193,13 @@ type Checker struct {
 	pendingSizes []sizeSite
 	sizeChecked  map[types.Type]bool
 
+	// contracts holds the contract each function's ensures clause gives,
+	// for every function that has one that checked, and defers every
+	// defer in each function whose contract is being proven, found once
+	// (see ensures.go).
+	contracts map[*ast.Func]*contract
+	defers    map[*ast.Func][]*ast.Defer
+
 	// typeParams maps each type parameter's type to its declaration, and
 	// standIns holds the stand-in for each interface method called on a
 	// type parameter's values (see typeParamMethod). inference is what
@@ -236,6 +243,11 @@ type Checker struct {
 	// factGen counts the changes to active: each assume, and each release
 	// that takes facts out of force.
 	factGen int
+
+	// dead is how many blocks around the statement being checked have
+	// left before it, by a return, a break, a continue or a call to exit,
+	// so that it never runs (see ensures.go).
+	dead int
 
 	// inRejectedDefer is whether the statement being checked is inside a
 	// defer already reported as a defer inside a defer, where a further
@@ -287,6 +299,8 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		dynamics:   make(map[types.Type]*ast.Func),
 
 		sizeChecked: make(map[types.Type]bool),
+		contracts:   make(map[*ast.Func]*contract),
+		defers:      make(map[*ast.Func][]*ast.Defer),
 	}
 }
 
@@ -366,6 +380,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
 			c.checkTypeParamsUsed(fn)
+			c.checkContract(fn)
 			restore()
 		}
 	}
@@ -452,7 +467,15 @@ func (c *Checker) checkBody(fn *ast.Func) {
 		c.appends = nil
 	}
 	c.collectHolds(fn)
-	c.checkBlock(fn.Body, fn)
+	m, dead := c.mark(), c.dead
+	c.checkStmts(fn.Body, fn)
+	end, outer := fn.Span, c.at
+	end.Start = end.End - 1
+	c.at = end.End
+	c.proveContract(fn, end, nil)
+	c.at = outer
+	c.release(m)
+	c.dead = dead
 	c.appends = nil
 
 	// The rule is syntactic, as it is in Go, but for a call to the builtin
@@ -1078,7 +1101,18 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 // past it, and a declaration or an assignment the relations of what it
 // stored (see storedFacts).
 func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
-	m := c.mark()
+	m, dead := c.mark(), c.dead
+	c.checkStmts(body, fn)
+	c.release(m)
+	c.dead = dead
+}
+
+// checkStmts checks the statements of a block, putting in force for the
+// rest of it the facts each gives the statements after it, leaving them
+// in force for the caller to release, and counting the block in c.dead
+// once a statement leaves it or ends in exit.
+func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
+	dead := c.dead
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
 		g, facts := c.afterFacts(stmt)
@@ -1088,8 +1122,13 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 		if g != nil {
 			c.assume(g, facts, append(fallsThrough(stmt), stmtNodes(body[i+1:])...))
 		}
+		if g, facts := c.contractFacts(stmt); g != nil {
+			c.assume(g, facts, stmtNodes(body[i+1:]))
+		}
+		if c.dead == dead && (leaves(body[i:i+1]) || terminates(stmt)) {
+			c.dead++
+		}
 	}
-	c.release(m)
 }
 
 // checkGuarded checks a block reached only when facts, which come from g,
@@ -1983,6 +2022,13 @@ func blockTerminates(body []ast.Stmt) bool {
 func (c *Checker) checkReturn(ret *ast.Return, fn *ast.Func) {
 	if c.deferred == 0 {
 		c.checkResults(ret, fn)
+		// The contract must hold once every value is computed, so a write
+		// that takes effect at the return's end, return f(mut d), counts.
+		keyword, outer := ret.Span, c.at
+		keyword.End = keyword.Start + len("return")
+		c.at = ret.Span.End + 1
+		c.proveContract(fn, keyword, ret)
+		c.at = outer
 		return
 	}
 	c.errorf(ret.Span, "cannot return from a defer")

@@ -80,6 +80,7 @@ var keywords = [...]spelling{
     {text: "c_allocator", ends: true},
     {text: "union", ends: false},
     {text: "own", ends: false},
+    {text: "ensures", ends: false},
 }
 
 // operators are every operator and punctuation token, longest first, so

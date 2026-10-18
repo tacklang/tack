@@ -1054,6 +1054,22 @@ func TestOwnKeyword(t *testing.T) {
 	}
 }
 
+// TestEnsuresKeyword pins ensures as a keyword, and that a longer word
+// starting with it, or a name holding it, is an identifier.
+func TestEnsuresKeyword(t *testing.T) {
+	out := lex(t, "ensures")
+	checkInvariants(t, "ensures", out)
+	if out.tokens[0].Kind() != lexer.Keyword || out.tokens[0].Value() != lexer.Ensures {
+		t.Errorf("%q lexed as %s, want keyword ensures", "ensures", out.tokens[0].String())
+	}
+	for _, src := range []string{"ensure", "ensured", "_ensures", "ensures_", "Ensures"} {
+		out := lex(t, src)
+		if out.tokens[0].Kind() != lexer.Ident {
+			t.Errorf("%q lexed as %s, want an identifier", src, out.tokens[0].String())
+		}
+	}
+}
+
 // TestBoolKeywords pins true and false as keywords, and that a longer word
 // starting with one is an identifier.
 func TestBoolKeywords(t *testing.T) {

@@ -1597,6 +1597,66 @@ func TestBuiltExitLeavesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The ensures example calls functions whose ensures clauses prove facts
+// about their arguments: an error checked by a call, as a statement and
+// as a value and in a loop, a divisor, through a plain and a mut
+// argument, the same variable passed as both, and a parameter of the
+// caller, a contract proven by another call's, indexes and a slice's bounds, alone and chained through
+// relations, a list grown through mut, a map's key, and a recursive, a
+// generic, a method's and a deferring callee, a return whose value is a
+// contract's call, a function made generic by an interface parameter, and
+// a mut receiver's method ensuring its other parameter. Each check prints its name
+// and "ok", or "FAIL".
+func TestBuiltEnsuresPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "ensures")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("ensures exited with %v, want status 0", err)
+	}
+	want := "handle ok\n" +
+		"checked as a value ok\n" +
+		"handle in a loop ok\n" +
+		"nonzero ok\n" +
+		"fix through mut ok\n" +
+		"fix leaves a nonzero value ok\n" +
+		"a contract proven by a call's ok\n" +
+		"the same variable as mut and as a copy ok\n" +
+		"a parameter of the caller ok\n" +
+		"inside a list ok\n" +
+		"below a length stored ok\n" +
+		"ordered slice bounds ok\n" +
+		"room, chained through y := x + 1 ok\n" +
+		"grow ok\n" +
+		"grow then pop ok\n" +
+		"need ok\n" +
+		"recursive ok\n" +
+		"generic ok\n" +
+		"method on its receiver ok\n" +
+		"deferred code ran, the fact held ok\n" +
+		"a return's call proves the contract ok\n" +
+		"an interface parameter's function ok\n" +
+		"a mut receiver's method ok\n"
+	if string(out) != want {
+		t.Errorf("ensures printed\n%s\nwant\n%s", out, want)
+	}
+}
+
+// The ensures-module example calls functions of another package whose
+// contracts check an error and prove an index. Each check prints its name
+// and "ok", or "FAIL".
+func TestBuiltEnsuresModulePassesEveryCheck(t *testing.T) {
+	bin := buildTargetWithClang(t, "ensures-module", filepath.Join(examplesDir, "ensures-module"))
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("ensures-module exited with %v, want status 0", err)
+	}
+	want := "a result read after another package's check ok\n" +
+		"an index another package proved ok\n"
+	if string(out) != want {
+		t.Errorf("ensures-module printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The mut-exclusive example passes several mut arguments to one call where
 // their places cannot overlap: different fields of a struct and of a mut
 // parameter, elements at known indexes and at indexes facts keep apart,

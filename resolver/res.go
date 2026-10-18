@@ -258,6 +258,11 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 
 		params, paramDiags := r.paramScope(fn)
 		diags = append(diags, paramDiags...)
+		// The contract sees the parameters and nothing the body declares;
+		// what it may name is the type checker's to judge.
+		if fn.Ensures != nil {
+			diags = append(diags, r.resolveExpr(fn.Ensures, params)...)
+		}
 		r.damage.enterBody(fn.Body)
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
 		r.damage.enterBody(nil)

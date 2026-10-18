@@ -3,7 +3,8 @@
 // consumes, plus diagnostics for anything it could not tokenize.
 //
 // own is a keyword like mut, reserved everywhere, though only a parameter
-// and a call's argument use it.
+// and a call's argument use it. ensures is one too, reserved everywhere,
+// though only a function's contract, after its results, uses it.
 //
 // The lexer works on bytes, not runes. Identifiers are ASCII letters, digits
 // and underscores; any other byte outside a literal or comment is reported as

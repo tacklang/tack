@@ -63,6 +63,10 @@
 // whose value the call moves into the parameter, accepted and reported
 // the same way. The type checker marks the x of an own argument it
 // accepts as moving its value, Ident.Move, as it marks any other move.
+// A Func's contract, func f(d int64) ensures d != 0, is the condition in
+// Func.Ensures, which the type checker proves and gives to callers; it is
+// never evaluated, has no code, and Walk does not visit it.
+//
 // A method, func (b Builder) len(), is a Func with Method set, whose
 // receiver is its first parameter, Params[0] (Func.Recv); the resolver
 // records each method on its type's TypeDecl.Methods, a struct's or a

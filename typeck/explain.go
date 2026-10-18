@@ -59,6 +59,9 @@ const (
 	// to what it was computed from, for the rest of the block (see
 	// storedFacts).
 	guardStore
+	// guardEnsures is a call whose callee's contract gives facts about
+	// its arguments, for the rest of the block (see ensures.go).
+	guardEnsures
 )
 
 // subject returns how a note names g.
@@ -74,6 +77,8 @@ func (g *guard) subject() string {
 		return "this early exit"
 	case guardStore:
 		return "this assignment"
+	case guardEnsures:
+		return "this call"
 	default:
 		return "this guard"
 	}
@@ -87,7 +92,7 @@ func (g *guard) where() string {
 		return " in its else branch"
 	case guardLaterCase:
 		return " in the cases after it"
-	case guardExit, guardStore:
+	case guardExit, guardStore, guardEnsures:
 		return " after it"
 	default:
 		return ""

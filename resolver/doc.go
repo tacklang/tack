@@ -46,7 +46,10 @@
 // in C, may be declared without a body, and a method never may. An extern func can be neither pub
 // nor lib: its package exports a Tack function that calls it. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
-// every parameter and variable reference and assignment target. A call whose
+// every parameter and variable reference and assignment target. A
+// function's contract, Func.Ensures, is resolved first, with the
+// parameters in scope and nothing its body declares; which names it may
+// use is the type checker's to judge. A call whose
 // callee is a type name, such as int8(x), is a conversion: it binds to no
 // declaration, and the resolver records the type in Call.Conv instead. A
 // conversion to a view type, []uint8(s), has the names in its type bound

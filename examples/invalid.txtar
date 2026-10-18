@@ -4898,6 +4898,1503 @@ empty-file/main.tck:1:1: error: expected 'package' found 'EOF'
 01 |	
    |	^
 
+-- ensures-alias-mut-plain/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+// b gets i's value before the call, and the call then changes i through
+// a, so what f ensures about b says nothing of i after it.
+func f(mut a int64, b int64) ensures b != 0 {
+    if b == 0 {
+        exit(1)
+    }
+    a = 0
+}
+
+func main() {
+    mut i int64 = 5
+    f(mut i, i)
+    use(10 / i)
+}
+-- ensures-alias-mut-plain/expected --
+stage: typeck
+---
+
+ensures-alias-mut-plain/main.tck:19:14: error: divisor i may be zero; check i != 0 first, or use q, ok := ... / i
+18 |	    f(mut i, i)
+19 |	    use(10 / i)
+   |	             ^
+20 |	}
+
+-- ensures-arg-not-local/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+type P struct {
+    x int64
+}
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+}
+
+// Only a variable passed by name carries a fact: a field, an element
+// and an expression do not.
+func run(p P, a [2]int64, i int64) {
+    nonzero(p.x)
+    nonzero(a[0])
+    nonzero(i + 0)
+    use(10 / p.x + 10 / a[0] + 10 / i)
+}
+
+func main() {
+    run(P{x: 2}, [2]int64{1, 2}, 4)
+}
+-- ensures-arg-not-local/expected --
+stage: typeck
+---
+
+ensures-arg-not-local/main.tck:23:14: error: divisor p.x may be zero; check p.x != 0 first, or use q, ok := ... / p.x
+22 |	    nonzero(i + 0)
+23 |	    use(10 / p.x + 10 / a[0] + 10 / i)
+   |	             ^~~
+24 |	}
+
+ensures-arg-not-local/main.tck:23:25: error: divisor a[0] may be zero; check a[0] != 0 first, or use q, ok := ... / a[0]
+22 |	    nonzero(i + 0)
+23 |	    use(10 / p.x + 10 / a[0] + 10 / i)
+   |	                        ^~~~
+24 |	}
+
+ensures-arg-not-local/main.tck:23:37: error: divisor i may be zero; check i != 0 first, or use q, ok := ... / i
+22 |	    nonzero(i + 0)
+23 |	    use(10 / p.x + 10 / a[0] + 10 / i)
+   |	                                    ^
+24 |	}
+
+-- ensures-call-in-condition/main.tck --
+package main
+
+// fixb makes d nonzero and reports whether it was zero.
+func fixb(mut d int64) bool ensures d != 0 {
+    was := d == 0
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+    return was
+}
+
+func zero(mut d int64) bool {
+    d = 0
+    return true
+}
+
+func main() {
+    mut d int64 = 0
+    if fixb(mut d) && zero(mut d) {
+        print("div\n")
+        if 10 / d == 0 {
+            print("x\n")
+        }
+    }
+}
+-- ensures-call-in-condition/expected --
+stage: typeck
+---
+
+ensures-call-in-condition/main.tck:24:17: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+23 |	        print("div\n")
+24 |	        if 10 / d == 0 {
+   |	                ^
+25 |	            print("x\n")
+
+-- ensures-call-in-loop-condition/main.tck --
+package main
+
+func fixb(mut d int64) bool ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+    return true
+}
+
+func main() {
+    mut d int64 = 0
+    mut n := 0
+    for fixb(mut d) && n < 2 {
+        n++
+        if 10 / d == 0 {
+            print("x\n")
+        }
+        d = 0
+    }
+}
+-- ensures-call-in-loop-condition/expected --
+stage: typeck
+---
+
+ensures-call-in-loop-condition/main.tck:18:17: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	        n++
+18 |	        if 10 / d == 0 {
+   |	                ^
+19 |	            print("x\n")
+
+-- ensures-call-in-value/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+func nonzero(d int64) int64 ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    return 1
+}
+
+// The facts start after the statement, and only for a call that is its
+// whole value: here the division runs in the same statement.
+func main() {
+    mut d int64 = 2
+    use(nonzero(d) + 10 / d)
+}
+-- ensures-call-in-value/expected --
+stage: typeck
+---
+
+ensures-call-in-value/main.tck:18:27: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	    mut d int64 = 2
+18 |	    use(nonzero(d) + 10 / d)
+   |	                          ^
+19 |	}
+
+-- ensures-call-not-len-has/main.tck --
+package main
+
+func size(x int64) int64 {
+    return x
+}
+
+func f(d int64) ensures size(d) > 0 {
+}
+
+func main() {
+    f(1)
+}
+-- ensures-call-not-len-has/expected --
+stage: typeck
+---
+
+ensures-call-not-len-has/main.tck:7:25: error: an ensures clause can call only len and has, not size
+06 |	
+07 |	func f(d int64) ensures size(d) > 0 {
+   |	                        ^~~~
+08 |	}
+
+-- ensures-caller-defer-after-write/main.tck --
+package main
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(2)
+    }
+}
+
+func main() {
+    mut d int64 = 5
+    if true {
+        nonzero(d)
+        defer {
+            if 10 / d == 0 {
+                print("z\n")
+            }
+        }
+        d = 0
+    }
+    print("end\n")
+}
+-- ensures-caller-defer-after-write/expected --
+stage: typeck
+---
+
+ensures-caller-defer-after-write/main.tck:14:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+13 |	        defer {
+14 |	            if 10 / d == 0 {
+   |	                    ^
+15 |	                print("z\n")
+ensures-caller-defer-after-write/main.tck:12:9: note: this call proves d != 0 after it
+11 |	    if true {
+12 |	        nonzero(d)
+   |	        ^~~~~~~~~~
+13 |	        defer {
+ensures-caller-defer-after-write/main.tck:18:9: note: but d is assigned here, so the proof ends
+17 |	        }
+18 |	        d = 0
+   |	        ^
+19 |	    }
+
+-- ensures-cannot-hold/main.tck --
+package main
+
+func f(d int64) ensures d * 2 > 0 {
+}
+
+func main() {
+    f(1)
+}
+-- ensures-cannot-hold/expected --
+stage: typeck
+---
+
+ensures-cannot-hold/main.tck:3:25: error: an ensures clause cannot hold d * 2; it compares parameters, their fields and elements, constants, len and has, with !, &&, ||, + and -
+02 |	
+03 |	func f(d int64) ensures d * 2 > 0 {
+   |	                        ^~~~~
+04 |	}
+
+-- ensures-compound-target/main.tck --
+package main
+
+// fix makes d nonzero and returns it.
+func fix(mut d int64) int64 ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+    return d
+}
+
+func main() {
+    mut d int64 = 0
+    d -= fix(mut d)
+    print("div\n")
+    if 10 / d == 0 {
+        print("z\n")
+    }
+}
+-- ensures-compound-target/expected --
+stage: typeck
+---
+
+ensures-compound-target/main.tck:18:13: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	    print("div\n")
+18 |	    if 10 / d == 0 {
+   |	            ^
+19 |	        print("z\n")
+
+-- ensures-copied-error/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+
+func handle(err error) ensures err.code == 0 {
+    if err.code != 0 {
+        exit(err.code)
+    }
+}
+
+// handle checks a copy of the error, not the one bound beside v.
+func main() {
+    v, err := parse("1")
+    e2 := err
+    handle(e2)
+    use(v)
+}
+-- ensures-copied-error/expected --
+stage: typeck
+---
+
+ensures-copied-error/main.tck:25:9: error: v cannot be read before err is checked; check err.code == 0 first
+24 |	    handle(e2)
+25 |	    use(v)
+   |	        ^
+26 |	}
+
+-- ensures-defer-assigns/main.tck --
+package main
+
+// Deferred code runs after the function returns, so a write in it undoes
+// what the body proved.
+func f(mut d int64) ensures d != 0 {
+    defer {
+        d = 0
+    }
+    if d == 0 {
+        exit(1)
+    }
+}
+
+func main() {
+    mut d int64 = 1
+    f(mut d)
+}
+-- ensures-defer-assigns/expected --
+stage: typeck
+---
+
+ensures-defer-assigns/main.tck:12:1: error: f ensures d != 0, which may not hold at the end of its body
+11 |	    }
+12 |	}
+   |	^
+13 |	
+ensures-defer-assigns/main.tck:7:9: note: but d is assigned here, in deferred code, which runs after f returns
+06 |	    defer {
+07 |	        d = 0
+   |	        ^
+08 |	    }
+ensures-defer-assigns/main.tck:5:29: note: ensured here
+04 |	// what the body proved.
+05 |	func f(mut d int64) ensures d != 0 {
+   |	                            ^~~~~~
+06 |	    defer {
+
+-- ensures-defer-exit-return/main.tck --
+package main
+
+func f(d int64) ensures d != 0 {
+    defer {
+        exit(1)
+    }
+    return
+}
+
+func main() {
+    mut d int64 = 0
+    f(d)
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+-- ensures-defer-exit-return/expected --
+stage: typeck
+---
+
+ensures-defer-exit-return/main.tck:7:5: error: f ensures d != 0, which may not hold at this return
+06 |	    }
+07 |	    return
+   |	    ^~~~~~
+08 |	}
+ensures-defer-exit-return/main.tck:3:25: note: ensured here
+02 |	
+03 |	func f(d int64) ensures d != 0 {
+   |	                        ^~~~~~
+04 |	    defer {
+
+-- ensures-defer-mut/main.tck --
+package main
+
+func reset(mut d int64) {
+    d = 0
+}
+
+// The return before the defer is proven; the end of the body, which the
+// defer runs after, is not.
+func f(mut d int64, early bool) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    if early {
+        return
+    }
+    defer {
+        reset(mut d)
+    }
+}
+
+func main() {
+    mut d int64 = 1
+    f(mut d, false)
+}
+-- ensures-defer-mut/expected --
+stage: typeck
+---
+
+ensures-defer-mut/main.tck:19:1: error: f ensures d != 0, which may not hold at the end of its body
+18 |	    }
+19 |	}
+   |	^
+20 |	
+ensures-defer-mut/main.tck:17:15: note: but d is passed as mut to reset here, in deferred code, which runs after f returns
+16 |	    defer {
+17 |	        reset(mut d)
+   |	              ^~~~~
+18 |	    }
+ensures-defer-mut/main.tck:9:41: note: ensured here
+08 |	// defer runs after, is not.
+09 |	func f(mut d int64, early bool) ensures d != 0 {
+   |	                                        ^~~~~~
+10 |	    if d == 0 {
+
+-- ensures-delete-in-callee/main.tck --
+package main
+
+func f(mut m map[int64]int64, k int64) ensures has(m, k) {
+    if !has(m, k) {
+        exit(1)
+    }
+    delete(mut m, k)
+}
+
+func main() {
+}
+-- ensures-delete-in-callee/expected --
+stage: typeck
+---
+
+ensures-delete-in-callee/main.tck:8:1: error: f ensures has(m, k), which may not hold at the end of its body
+07 |	    delete(mut m, k)
+08 |	}
+   |	^
+09 |	
+ensures-delete-in-callee/main.tck:3:48: note: ensured here
+02 |	
+03 |	func f(mut m map[int64]int64, k int64) ensures has(m, k) {
+   |	                                               ^~~~~~~~~
+04 |	    if !has(m, k) {
+
+-- ensures-exit-in-loop-body/main.tck --
+package main
+
+// f's exit is inside a loop that runs no times.
+func f(d int64, n int64) ensures d != 0 {
+    if d == 0 {
+        for i := range n {
+            if i >= 0 {
+                exit(1)
+            }
+            exit(1)
+        }
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    f(d, 0)
+    if 10 / d == 0 {
+        print("z\n")
+    }
+}
+-- ensures-exit-in-loop-body/expected --
+stage: typeck
+---
+
+ensures-exit-in-loop-body/main.tck:13:1: error: f ensures d != 0, which may not hold at the end of its body
+12 |	    }
+13 |	}
+   |	^
+14 |	
+ensures-exit-in-loop-body/main.tck:4:34: note: ensured here
+03 |	// f's exit is inside a loop that runs no times.
+04 |	func f(d int64, n int64) ensures d != 0 {
+   |	                                 ^~~~~~
+05 |	    if d == 0 {
+
+-- ensures-exit-in-loop-zero-trips/main.tck --
+package main
+
+func f(d int64, n int64) ensures d != 0 {
+    for i := range n {
+        if d == 0 {
+            exit(1)
+        }
+        if i < 0 {
+            return
+        }
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    f(d, 0)
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+-- ensures-exit-in-loop-zero-trips/expected --
+stage: typeck
+---
+
+ensures-exit-in-loop-zero-trips/main.tck:12:1: error: f ensures d != 0, which may not hold at the end of its body
+11 |	    }
+12 |	}
+   |	^
+13 |	
+ensures-exit-in-loop-zero-trips/main.tck:3:34: note: ensured here
+02 |	
+03 |	func f(d int64, n int64) ensures d != 0 {
+   |	                                 ^~~~~~
+04 |	    for i := range n {
+
+-- ensures-exit-in-partial-switch/main.tck --
+package main
+
+func f(d int64, x int64) ensures d != 0 {
+    if d == 0 {
+        switch x {
+        case 1:
+            exit(1)
+        }
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    f(d, 2)
+    if 10 / d == 0 {
+        print("z\n")
+    }
+}
+-- ensures-exit-in-partial-switch/expected --
+stage: typeck
+---
+
+ensures-exit-in-partial-switch/main.tck:10:1: error: f ensures d != 0, which may not hold at the end of its body
+09 |	    }
+10 |	}
+   |	^
+11 |	
+ensures-exit-in-partial-switch/main.tck:3:34: note: ensured here
+02 |	
+03 |	func f(d int64, x int64) ensures d != 0 {
+   |	                                 ^~~~~~
+04 |	    if d == 0 {
+
+-- ensures-extern/main.tck --
+package main
+
+extern("c_pick") func pick(d int64) ensures d != 0
+
+func main() {
+}
+-- ensures-extern/expected --
+stage: typeck
+---
+
+ensures-extern/main.tck:3:37: error: extern func pick cannot have an ensures clause; its body is written in C, where nothing proves it
+02 |	
+03 |	extern("c_pick") func pick(d int64) ensures d != 0
+   |	                                    ^~~~~~~~~~~~~~
+04 |	
+
+-- ensures-for-init-call/main.tck --
+package main
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(2)
+    }
+}
+
+func main() {
+    mut d int64 = 3
+    mut i := 0
+    for nonzero(d); i < 2; i++ {
+        if 10 / d == 0 {
+            print("z\n")
+        }
+        d = 0
+    }
+}
+-- ensures-for-init-call/expected --
+stage: typeck
+---
+
+ensures-for-init-call/main.tck:13:17: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+12 |	    for nonzero(d); i < 2; i++ {
+13 |	        if 10 / d == 0 {
+   |	                ^
+14 |	            print("z\n")
+
+-- ensures-for-post-call/main.tck --
+package main
+
+func fix(mut d int64) ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    for mut i := 0; i < 2; fix(mut d) {
+        i++
+        if 10 / d == 0 {
+            print("z\n")
+        }
+    }
+}
+-- ensures-for-post-call/expected --
+stage: typeck
+---
+
+ensures-for-post-call/main.tck:16:17: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+15 |	        i++
+16 |	        if 10 / d == 0 {
+   |	                ^
+17 |	            print("z\n")
+
+-- ensures-func-value/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+}
+
+// A function value's type says nothing of a contract, so a call through
+// one gives no facts.
+func main() {
+    mut d int64 = 1
+    g := nonzero
+    g(d)
+    use(10 / d)
+}
+-- ensures-func-value/expected --
+stage: typeck
+---
+
+ensures-func-value/main.tck:19:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+18 |	    g(d)
+19 |	    use(10 / d)
+   |	             ^
+20 |	}
+
+-- ensures-generic-interface-method/main.tck --
+package main
+
+type Checker interface {
+    check(d int64)
+}
+
+type A struct {
+    n int64
+}
+
+type B struct {
+    n int64
+}
+
+func (a A) check(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+}
+
+func (b B) check(d int64) {
+}
+
+func use[T Checker](t T, d int64) {
+    t.check(d)
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+
+func main() {
+    use(A{n: 1}, 5)
+    use(B{n: 1}, 0)
+}
+-- ensures-generic-interface-method/expected --
+stage: typeck
+---
+
+ensures-generic-interface-method/main.tck:26:13: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+25 |	    t.check(d)
+26 |	    if 10 / d == 0 {
+   |	            ^
+27 |	        print("x\n")
+
+-- ensures-global/main.tck --
+package main
+
+var limit int64 = 3
+
+func f(d int64) ensures d < limit {
+}
+
+func main() {
+    f(1)
+}
+-- ensures-global/expected --
+stage: typeck
+---
+
+ensures-global/main.tck:5:29: error: an ensures clause can name only the parameters of f, and limit is not one
+04 |	
+05 |	func f(d int64) ensures d < limit {
+   |	                            ^~~~~
+06 |	}
+
+-- ensures-in-interface/main.tck --
+package main
+
+type Fixer interface {
+    fix(mut d int64) ensures d != 0
+}
+
+type Z struct {
+    n int64
+}
+
+func (z Z) fix(mut d int64) {
+    d = 0
+}
+
+func use[F Fixer](f F) {
+    mut d int64 = 0
+    f.fix(mut d)
+    if 10 / d == 0 {
+        print("z\n")
+    }
+}
+
+func main() {
+    use(Z{n: 1})
+}
+-- ensures-in-interface/expected --
+stage: parse+typeck
+---
+
+ensures-in-interface/main.tck:4:22: error: expected ';' found 'ensures'
+03 |	type Fixer interface {
+04 |	    fix(mut d int64) ensures d != 0
+   |	                     ^
+05 |	}
+
+ensures-in-interface/main.tck:18:13: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	    f.fix(mut d)
+18 |	    if 10 / d == 0 {
+   |	            ^
+19 |	        print("z\n")
+
+-- ensures-infinite-loop-break/main.tck --
+package main
+
+func f(d int64, x bool) ensures d != 0 {
+    for {
+        if x {
+            break
+        }
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    f(d, true)
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+-- ensures-infinite-loop-break/expected --
+stage: typeck
+---
+
+ensures-infinite-loop-break/main.tck:9:1: error: f ensures d != 0, which may not hold at the end of its body
+08 |	    }
+09 |	}
+   |	^
+10 |	
+ensures-infinite-loop-break/main.tck:3:33: note: ensured here
+02 |	
+03 |	func f(d int64, x bool) ensures d != 0 {
+   |	                                ^~~~~~
+04 |	    for {
+
+-- ensures-loop-back-edge/main.tck --
+package main
+
+// The write on one pass reaches the return on the next.
+func f(mut d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    for i := range 3 {
+        if i == 2 {
+            return
+        }
+        d = 0
+    }
+}
+
+func main() {
+}
+-- ensures-loop-back-edge/expected --
+stage: typeck
+---
+
+ensures-loop-back-edge/main.tck:10:13: error: f ensures d != 0, which may not hold at this return
+09 |	        if i == 2 {
+10 |	            return
+   |	            ^~~~~~
+11 |	        }
+ensures-loop-back-edge/main.tck:4:29: note: ensured here
+03 |	// The write on one pass reaches the return on the next.
+04 |	func f(mut d int64) ensures d != 0 {
+   |	                            ^~~~~~
+05 |	    if d == 0 {
+
+ensures-loop-back-edge/main.tck:14:1: error: f ensures d != 0, which may not hold at the end of its body
+13 |	    }
+14 |	}
+   |	^
+15 |	
+ensures-loop-back-edge/main.tck:4:29: note: ensured here
+03 |	// The write on one pass reaches the return on the next.
+04 |	func f(mut d int64) ensures d != 0 {
+   |	                            ^~~~~~
+05 |	    if d == 0 {
+
+-- ensures-loop-defer-callee/main.tck --
+package main
+
+// f's loop body defers d = 0, which runs at the end of the first pass,
+// before the return on the second.
+func f(mut d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    for i := range 2 {
+        if i == 1 {
+            return
+        }
+        defer {
+            d = 0
+        }
+    }
+    exit(2)
+}
+
+func main() {
+    mut d int64 = 5
+    f(mut d)
+    print("div\n")
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+-- ensures-loop-defer-callee/expected --
+stage: typeck
+---
+
+ensures-loop-defer-callee/main.tck:11:13: error: f ensures d != 0, which may not hold at this return
+10 |	        if i == 1 {
+11 |	            return
+   |	            ^~~~~~
+12 |	        }
+ensures-loop-defer-callee/main.tck:5:29: note: ensured here
+04 |	// before the return on the second.
+05 |	func f(mut d int64) ensures d != 0 {
+   |	                            ^~~~~~
+06 |	    if d == 0 {
+
+-- ensures-loop-defer-caller/main.tck --
+package main
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+}
+
+func main() {
+    mut d int64 = 5
+    nonzero(d)
+    for i := range 2 {
+        if i == 1 {
+            print("div\n")
+            if 10 / d == 0 {
+                print("x\n")
+            }
+        }
+        defer {
+            d = 0
+        }
+    }
+}
+-- ensures-loop-defer-caller/expected --
+stage: typeck
+---
+
+ensures-loop-defer-caller/main.tck:15:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+14 |	            print("div\n")
+15 |	            if 10 / d == 0 {
+   |	                    ^
+16 |	                print("x\n")
+ensures-loop-defer-caller/main.tck:11:5: note: this call proves d != 0 after it
+10 |	    mut d int64 = 5
+11 |	    nonzero(d)
+   |	    ^~~~~~~~~~
+12 |	    for i := range 2 {
+ensures-loop-defer-caller/main.tck:20:13: note: but d is assigned here, so the proof ends
+19 |	        defer {
+20 |	            d = 0
+   |	            ^
+21 |	        }
+
+-- ensures-loop-reenter-caller/main.tck --
+package main
+
+func fix(mut d int64) ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    for i := range 3 {
+        if i > 0 {
+            if 10 / d == 0 {
+                print("x\n")
+            }
+        }
+        fix(mut d)
+    }
+}
+-- ensures-loop-reenter-caller/expected --
+stage: typeck
+---
+
+ensures-loop-reenter-caller/main.tck:16:21: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+15 |	        if i > 0 {
+16 |	            if 10 / d == 0 {
+   |	                    ^
+17 |	                print("x\n")
+
+-- ensures-loop-true-break/main.tck --
+package main
+
+func f(d int64, x bool) ensures d != 0 {
+    for true {
+        if x {
+            break
+        }
+    }
+}
+
+func main() {
+    mut d int64 = 0
+    f(d, true)
+    if 10 / d == 0 {
+        print("x\n")
+    }
+}
+-- ensures-loop-true-break/expected --
+stage: typeck
+---
+
+ensures-loop-true-break/main.tck:9:1: error: f ensures d != 0, which may not hold at the end of its body
+08 |	    }
+09 |	}
+   |	^
+10 |	
+ensures-loop-true-break/main.tck:3:33: note: ensured here
+02 |	
+03 |	func f(d int64, x bool) ensures d != 0 {
+   |	                                ^~~~~~
+04 |	    for true {
+
+-- ensures-method-call/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+// A clause calls nothing but len and has, a method of an interface
+// parameter's included.
+func size_of(w Sizer) int64 ensures w.size() > 0 {
+    return 1
+}
+
+func main() {
+}
+-- ensures-method-call/expected --
+stage: typeck
+---
+
+ensures-method-call/main.tck:9:37: error: an ensures clause can call only len and has, not w.size
+08 |	// parameter's included.
+09 |	func size_of(w Sizer) int64 ensures w.size() > 0 {
+   |	                                    ^~~~~~
+10 |	    return 1
+
+-- ensures-mut-receiver-field/main.tck --
+package main
+
+type Stack struct {
+    items list[int64]
+}
+
+func (mut s Stack) push(x int64) ensures len(s.items) > 0 {
+    e := append(mut s.items, x)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+
+func main() {
+    mut st := Stack{items: make(list[int64], c_allocator)}
+    mut st.push(4)
+    if st.items[0] == 4 {
+        print("four\n")
+    }
+}
+-- ensures-mut-receiver-field/expected --
+stage: typeck
+---
+
+ensures-mut-receiver-field/main.tck:7:42: error: len(s.items) > 0 gives no fact; s.items is part of the mut parameter s, and a field or an element of a mut parameter carries no facts
+06 |	
+07 |	func (mut s Stack) push(x int64) ensures len(s.items) > 0 {
+   |	                                         ^~~~~~~~~~~~~~~~
+08 |	    e := append(mut s.items, x)
+
+ensures-mut-receiver-field/main.tck:17:17: error: index 0 may be out of range; use v, ok := ...[0]
+16 |	    mut st.push(4)
+17 |	    if st.items[0] == 4 {
+   |	                ^
+18 |	        print("four\n")
+
+-- ensures-no-fact/main.tck --
+package main
+
+func f(d int64, k int64) ensures d != 3 && d > 0 && (d < 0 || k > 0) {
+}
+
+func main() {
+    f(1, 1)
+}
+-- ensures-no-fact/expected --
+stage: typeck
+---
+
+ensures-no-fact/main.tck:3:34: error: d != 3 gives no fact; an ensures clause states facts an if's condition proves, such as d != 0, 0 <= i && i < len(a), err.code == 0 or has(m, k)
+02 |	
+03 |	func f(d int64, k int64) ensures d != 3 && d > 0 && (d < 0 || k > 0) {
+   |	                                 ^~~~~~
+04 |	}
+
+ensures-no-fact/main.tck:3:54: error: d < 0 || k > 0 gives no fact; an ensures clause states facts an if's condition proves, such as d != 0, 0 <= i && i < len(a), err.code == 0 or has(m, k)
+02 |	
+03 |	func f(d int64, k int64) ensures d != 3 && d > 0 && (d < 0 || k > 0) {
+   |	                                                     ^~~~~~~~~~~~~~
+04 |	}
+
+-- ensures-not-bool/main.tck --
+package main
+
+func f(d int64) ensures d {
+}
+
+func main() {
+    f(1)
+}
+-- ensures-not-bool/expected --
+stage: typeck
+---
+
+ensures-not-bool/main.tck:3:25: error: ensures clause must be a bool, got int64
+02 |	
+03 |	func f(d int64) ensures d {
+   |	                        ^
+04 |	}
+
+-- ensures-own-param/main.tck --
+package main
+
+func f(own l list[int64]) ensures len(l) > 0 {
+    if len(l) == 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- ensures-own-param/expected --
+stage: typeck
+---
+
+ensures-own-param/main.tck:3:39: error: an ensures clause cannot name own parameter l: its argument moves into the call, so nothing it ensures about l reaches the caller
+02 |	
+03 |	func f(own l list[int64]) ensures len(l) > 0 {
+   |	                                      ^
+04 |	    if len(l) == 0 {
+
+-- ensures-pop-in-callee/main.tck --
+package main
+
+func f(mut l list[int64]) ensures len(l) > 0 {
+    if len(l) == 0 {
+        exit(1)
+    }
+    x, ok := pop(mut l)
+    if ok && x == 3 {
+        return
+    }
+}
+
+func main() {
+}
+-- ensures-pop-in-callee/expected --
+stage: typeck
+---
+
+ensures-pop-in-callee/main.tck:9:9: error: f ensures len(l) > 0, which may not hold at this return
+08 |	    if ok && x == 3 {
+09 |	        return
+   |	        ^~~~~~
+10 |	    }
+ensures-pop-in-callee/main.tck:3:35: note: ensured here
+02 |	
+03 |	func f(mut l list[int64]) ensures len(l) > 0 {
+   |	                                  ^~~~~~~~~~
+04 |	    if len(l) == 0 {
+
+ensures-pop-in-callee/main.tck:11:1: error: f ensures len(l) > 0, which may not hold at the end of its body
+10 |	    }
+11 |	}
+   |	^
+12 |	
+ensures-pop-in-callee/main.tck:3:35: note: ensured here
+02 |	
+03 |	func f(mut l list[int64]) ensures len(l) > 0 {
+   |	                                  ^~~~~~~~~~
+04 |	    if len(l) == 0 {
+
+-- ensures-return-writes/main.tck --
+package main
+
+func reset(mut d int64) int64 {
+    d = 0
+    return 1
+}
+
+// The return's value is computed before the function returns.
+func f(mut d int64) int64 ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    return reset(mut d)
+}
+
+func main() {
+}
+-- ensures-return-writes/expected --
+stage: typeck
+---
+
+ensures-return-writes/main.tck:13:5: error: f ensures d != 0, which may not hold at this return
+12 |	    }
+13 |	    return reset(mut d)
+   |	    ^~~~~~
+14 |	}
+ensures-return-writes/main.tck:9:35: note: ensured here
+08 |	// The return's value is computed before the function returns.
+09 |	func f(mut d int64) int64 ensures d != 0 {
+   |	                                  ^~~~~~
+10 |	    if d == 0 {
+
+-- ensures-shorthand-mut-field/main.tck --
+package main
+
+type Writer interface {
+    mut write(b []uint8) error
+}
+
+type Box struct {
+    n int64
+}
+
+// A field of a mut parameter carries no facts, even one only an
+// interface's shorthand makes generic.
+func put_n(mut b Box, mut w Writer) ensures b.n != 0 {
+    e := mut w.write([]uint8("x"))
+    if e.code != 0 || b.n == 0 {
+        exit(1)
+    }
+}
+
+func main() {
+}
+-- ensures-shorthand-mut-field/expected --
+stage: typeck
+---
+
+ensures-shorthand-mut-field/main.tck:13:45: error: b.n != 0 gives no fact; b.n is part of the mut parameter b, and a field or an element of a mut parameter carries no facts
+12 |	// interface's shorthand makes generic.
+13 |	func put_n(mut b Box, mut w Writer) ensures b.n != 0 {
+   |	                                            ^~~~~~~~
+14 |	    e := mut w.write([]uint8("x"))
+
+-- ensures-struct-lit/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func f(p P) ensures p == P{x: 1} {
+}
+
+func main() {
+}
+-- ensures-struct-lit/expected --
+stage: parse
+---
+
+ensures-struct-lit/main.tck:7:27: error: a struct literal in an ensures header must be in parentheses
+06 |	
+07 |	func f(p P) ensures p == P{x: 1} {
+   |	                          ^
+08 |	}
+
+-- ensures-switch-exit-region/main.tck --
+package main
+
+// The case that falls through writes d after the one that exits.
+func f(mut d int64) ensures d != 0 {
+    switch {
+    case d == 0:
+        exit(1)
+    default:
+        d = 0
+    }
+}
+
+func main() {
+}
+-- ensures-switch-exit-region/expected --
+stage: typeck
+---
+
+ensures-switch-exit-region/main.tck:11:1: error: f ensures d != 0, which may not hold at the end of its body
+10 |	    }
+11 |	}
+   |	^
+12 |	
+ensures-switch-exit-region/main.tck:4:29: note: ensured here
+03 |	// The case that falls through writes d after the one that exits.
+04 |	func f(mut d int64) ensures d != 0 {
+   |	                            ^~~~~~
+05 |	    switch {
+
+-- ensures-target-assigned/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+func fixed(d int64) int64 ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+    return 0
+}
+
+func reset(mut d int64) int64 {
+    d = 0
+    return 1
+}
+
+func two(a int64, b int64) ensures a != 0 {
+    if a == 0 {
+        exit(1)
+    }
+}
+
+// The statement assigns d after the call; another argument writes e
+// after the callee was given its value.
+func main() {
+    mut d int64 = 1
+    d = fixed(d)
+    use(10 / d)
+    mut e int64 = 1
+    two(e, reset(mut e))
+    use(10 / e)
+}
+-- ensures-target-assigned/expected --
+stage: typeck
+---
+
+ensures-target-assigned/main.tck:30:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+29 |	    d = fixed(d)
+30 |	    use(10 / d)
+   |	             ^
+31 |	    mut e int64 = 1
+
+ensures-target-assigned/main.tck:33:14: error: divisor e may be zero; check e != 0 first, or use q, ok := ... / e
+32 |	    two(e, reset(mut e))
+33 |	    use(10 / e)
+   |	             ^
+34 |	}
+
+-- ensures-target-index-writes/main.tck --
+package main
+
+// fix makes d nonzero and returns 0.
+func fix(mut d int64) int64 ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+    return 0
+}
+
+// zero sets d to 0 and returns 0.
+func zero(mut d int64) uint8 {
+    d = 0
+    return 0
+}
+
+func main() {
+    mut arr [256]int64
+    mut d int64 = 7
+    arr[zero(mut d)] = fix(mut d)
+    print("div\n")
+    if 10 / d == arr[1] {
+        print("eq\n")
+    }
+}
+-- ensures-target-index-writes/expected --
+stage: typeck
+---
+
+ensures-target-index-writes/main.tck:23:9: error: index may be out of range
+22 |	    mut d int64 = 7
+23 |	    arr[zero(mut d)] = fix(mut d)
+   |	        ^~~~~~~~~~~
+24 |	    print("div\n")
+
+ensures-target-index-writes/main.tck:25:13: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+24 |	    print("div\n")
+25 |	    if 10 / d == arr[1] {
+   |	            ^
+26 |	        print("eq\n")
+
+-- ensures-unproven/main.tck --
+package main
+
+// One path proves the clause, the other does not, and the end of the
+// body is reached without it.
+func f(d int64, k bool) ensures d != 0 {
+    if k {
+        return
+    }
+    if d != 0 {
+        return
+    }
+}
+
+func main() {
+    f(1, true)
+}
+-- ensures-unproven/expected --
+stage: typeck
+---
+
+ensures-unproven/main.tck:7:9: error: f ensures d != 0, which may not hold at this return
+06 |	    if k {
+07 |	        return
+   |	        ^~~~~~
+08 |	    }
+ensures-unproven/main.tck:5:33: note: ensured here
+04 |	// body is reached without it.
+05 |	func f(d int64, k bool) ensures d != 0 {
+   |	                                ^~~~~~
+06 |	    if k {
+
+ensures-unproven/main.tck:12:1: error: f ensures d != 0, which may not hold at the end of its body
+11 |	    }
+12 |	}
+   |	^
+13 |	
+ensures-unproven/main.tck:5:33: note: ensured here
+04 |	// body is reached without it.
+05 |	func f(d int64, k bool) ensures d != 0 {
+   |	                                ^~~~~~
+06 |	    if k {
+
+-- ensures-write-after-call/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+}
+
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(1)
+    }
+}
+
+// A write after the call ends what it proved, as it ends any fact.
+func main() {
+    mut d int64 = 3
+    nonzero(d)
+    d = 0
+    use(10 / d)
+}
+-- ensures-write-after-call/expected --
+stage: typeck
+---
+
+ensures-write-after-call/main.tck:18:14: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+17 |	    d = 0
+18 |	    use(10 / d)
+   |	             ^
+19 |	}
+ensures-write-after-call/main.tck:16:5: note: this call proves d != 0 after it
+15 |	    mut d int64 = 3
+16 |	    nonzero(d)
+   |	    ^~~~~~~~~~
+17 |	    d = 0
+ensures-write-after-call/main.tck:17:5: note: but d is assigned here, so the proof ends
+16 |	    nonzero(d)
+17 |	    d = 0
+   |	    ^
+18 |	    use(10 / d)
+
 -- error-arithmetic/main.tck --
 package main
 

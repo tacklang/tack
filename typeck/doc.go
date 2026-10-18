@@ -26,6 +26,7 @@
 // The third checks the package-level variables, the fourth resolves every
 // function's signature, recording the type each declared parameter and
 // result type denotes on the tree (Param.Type and Func.ResultTypes), and
+// checks its contract, the facts it ensures (ensures.go), and
 // a fifth reports every type a pub or lib declaration exposes that is
 // less visible than it, and the last checks each body, or for an extern
 // func, whose body is in C, its declaration: its C name must be a C
@@ -422,6 +423,33 @@
 // error that assigns every one of them too; anything else that assigns
 // it, a mut argument included, is reported, with a note at the binding
 // that tied them.
+//
+// A function's contract, func f(d int64) ensures d != 0, checked in
+// ensures.go, is facts about its parameters, the receiver included, that
+// hold whenever it returns. The clause is checked with the signature, so
+// a call can use a contract of a function declared after it, in any
+// package: it holds only what an if's condition gives facts through,
+// comparisons of the parameters, their fields and elements, constants,
+// len and has, with !, &&, ||, + and -, each operand of its && giving a
+// fact, names no own parameter and nothing but a parameter, and is a
+// bool; an extern func's is reported. Its facts are those factsFrom gives
+// for it being true. The body proves each at every return, once its
+// values are computed, and at the end of the body when that can be
+// reached (c.dead counts the blocks a leaving statement, one ending in
+// exit included, has made the rest of unreachable), from the facts in
+// force.
+// A defer written before the return that writes a variable a fact names
+// fails it, since deferred code runs after. A call that is a statement,
+// or the whole value of a declaration or an assignment, puts the facts in
+// force for the rest of its block, as an early exit's are, under a guard
+// of its own, each parameter replaced by the caller's local variable or
+// parameter passed for it by name, as mut or as a plain argument nothing
+// else in the call writes, and not assigned by the statement; any other
+// argument drops every fact naming its parameter, as does a write
+// anywhere in the statement's targets, and a call through a function
+// value has no contract. A return whose one value is such a call proves
+// with its facts. No fact is about a field of a mut parameter, so a
+// clause about one, a mut receiver's field included, gives none.
 //
 // Where a value's own bounds fall short of proving an index, a slice's
 // bound or a constant index into a string (never a divisor), the

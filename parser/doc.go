@@ -156,6 +156,11 @@
 //
 // A function's results are one type name, or a parenthesized list of them
 // separated by commas, and a return holds its values in a list the same way.
+// A contract may follow them, ensures and a condition, before the body,
+// parsed into Func.Ensures, the keyword's span in EnsuresSpan; as in an
+// if's header, a name before an opening brace there is not a struct
+// literal, and one written without parentheses is reported. ensures is a
+// keyword, so it is never a name.
 // A parameter is a name and a type, with mut before the name for a mut
 // parameter, mut p T, or own for an own one, own p T, whose span then
 // starts at the keyword, mut and own together, in either order, reported

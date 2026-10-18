@@ -608,7 +608,9 @@ makes for itself, which has a letter after `tack_`.
   one, or several in parentheses, `func divmod(a int64, b int64) (int64, int64)`, and
   `return a / b, a % b` gives one value for each. Results are unnamed. A
   function written with a receiver before its name, `func (b Builder)
-  len() int64`, is a method of a struct type (see methods).
+  len() int64`, is a method of a struct type (see methods). A contract,
+  `ensures` and a condition, may come after the results, before the body,
+  `func handle(err error) ensures err.code == 0 { ... }` (see contracts).
 - Mut parameters. A parameter written `mut p T`, as in `func scale(mut p
   Point, k int64)`, is a mutable reference to the caller's variable for the
   duration of the call: inside, `p`, `p.x` and `p.cells[i]` read and write
@@ -1320,8 +1322,10 @@ makes for itself, which has a letter after `tack_`.
     [docs/safety.md](docs/safety.md#errors)): `if err.code != 0 { return
     0, err }` proves it for the rest of the block, `if err.code == 0 {
     ... }` in its branch, the `else` of `if err.code != 0` in that
-    branch, a `switch err.code` in its `case 0:`, and `err.code == 0 &&`
-    on its right. Like any fact it holds up to the first write to `err`
+    branch, a `switch err.code` in its `case 0:`, `err.code == 0 &&`
+    on its right, and a call to a function whose contract ensures it,
+    `handle(err)` after `func handle(err error) ensures err.code == 0`
+    (see contracts). Like any fact it holds up to the first write to `err`
     that can reach the read, so binding a new error to it ends it for
     every read after the binding, and a branch ending in `exit` leaves,
     as one ending in `return` does. A return that passes `v` on beside `err` unchecked, `return
@@ -2484,7 +2488,9 @@ makes for itself, which has a letter after `tack_`.
   - in a `switch`, as in the chain of ifs it stands for (see switches),
     though a type switch, whose cases are types, proves nothing;
   - on the right of `&&` by its left side being true, and of `||` by its left
-    side being false.
+    side being false;
+  - in the statements after a call whose callee's contract ensures it of
+    the argument passed for it (see contracts).
 
   The conditions that count are `&&` (when true), `||` (when false), `!`, and
   a comparison of the variable with a known value that excludes zero, such
@@ -2550,6 +2556,75 @@ makes for itself, which has a letter after `tack_`.
   two-value form and every operation they apply to in one place, and
   [docs/vet.md](docs/vet.md) the checks a future `tack vet` is to make,
   such as a two-value form whose `ok` is always `true`.
+- Contracts. A function may state, after its results and before its
+  body, facts it ensures about its parameters whenever it returns:
+  `func handle(err error) ensures err.code == 0`, `func nonzero(d int64)
+  ensures d != 0`, `func inside(i int64, l []int64) ensures 0 <= i && i
+  < len(l)`, `func need(m map[int64]int64, k int64) ensures has(m, k)`.
+  `ensures` is a keyword. The clause states what an `if`'s condition
+  proves, joined by `&&`, and nothing more: comparisons of the
+  parameters, a method's receiver included, their fields and elements,
+  constants, `len` and `has`, with `!`, `&&`, `||`, `+` and `-`, so a
+  divisor not zero, bounds and the relations between values and lengths
+  (see division and slicing), an error's code and a key in a map. Each
+  operand of its `&&` must give a fact, or it is `d != 3 gives no fact;
+  an ensures clause states facts an if's condition proves, such as d !=
+  0, 0 <= i && i < len(a), err.code == 0 or has(m, k)`. A name that is not
+  a parameter is `an ensures clause can name only the parameters of f,
+  and limit is not one`, an own parameter, whose argument the call
+  moves, `an ensures clause cannot name own parameter l: its argument
+  moves into the call, so nothing it ensures about l reaches the
+  caller`, a call `an ensures clause can call only len and has, not
+  size`, and anything else, such as `*`, `an ensures clause cannot hold d
+  * 2; it compares parameters, their fields and elements, constants, len
+  and has, with !, &&, ||, + and -`; a clause that is no `bool` is
+  `ensures clause must be a bool, got int64`, and an extern func's,
+  whose body nothing proves, `extern func pick cannot have an ensures
+  clause; its body is written in C, where nothing proves it`. As in an
+  `if`, a struct literal in it must be in parentheses.
+
+  The compiler proves the clause on every path that returns, from the
+  facts in force there: at each `return`, once its values are computed,
+  `f ensures d != 0, which may not hold at this return`, and at the end of
+  the body when it can be reached, `f ensures d != 0, which may not hold
+  at the end of its body`, each with a note at the clause. A branch
+  ending in `exit` leaves, as everywhere, so `if d == 0 { exit(1) }`
+  proves `d != 0` where the function returns, and code after a
+  statement that leaves, or ends in `exit`, never runs. Deferred code runs after the
+  return, so a defer written before it whose code assigns a parameter
+  the clause names, or passes it as `mut`, fails the proof, with a note
+  at the write, `but d is assigned here, in deferred code, which runs
+  after f returns`. The proof follows writes as any fact does, so a `mut`
+  parameter assigned, a list popped or a key deleted after the check,
+  or a write on a loop's next pass, ends it.
+
+  A call that is a statement, or the whole value of a declaration or an
+  assignment, of one value or several, gives the statements after it in
+  its block the facts the contract states, each parameter replaced by the
+  argument passed for it, as an early exit's facts are given. A fact
+  counts only when every parameter it names was passed a local variable
+  or a parameter of the caller by name: as `mut`, which the callee
+  changed in place, or as a plain argument nothing else in the call
+  writes, so `f(mut i, i)` tells nothing of `i` through the plain one. A
+  field, an element, an expression, a constant, a variadic parameter's
+  values, an array passed as a view, a variable the statement assigns,
+  `d = fixed(d)`, and a call through a function value, whose type says
+  nothing of a contract, give none; a path below a variable counts only
+  below an immutable one, or as an error's code. A write anywhere in the
+  statement's targets drops its variable too, `arr[zero(mut d)] = fix(mut
+  d)`. A field or an element of a `mut` parameter carries no facts, so a
+  clause about one is `len(s.items) > 0 gives no fact; s.items is part of
+  the mut parameter s, and a field or an element of a mut parameter
+  carries no facts`: a method with a `mut` receiver ensures nothing about
+  its own fields. A `return` whose one value is a call to a function with
+  a contract, `return fix(mut d)`, proves with that call's facts, and a
+  function made generic by an interface parameter, `func emit(mut w
+  Writer, d int64) ensures d != 0`, has a contract as any other, though a
+  clause calls none of its methods. The facts hold after the
+  whole statement, never inside it, so `use(nonzero(d) + 10 / d)` is not
+  proven, and, as any fact, until a write to the variable can reach the
+  use. Recursion, generic functions and methods, and calls across
+  packages work alike; a contract costs nothing at run time.
 - Nesting limit. A program nests at most 1000 levels deep, counted
   together across expressions, statements and types: a parenthesized
   expression, a `!` or `-` and its operand, `mut` and its argument, a

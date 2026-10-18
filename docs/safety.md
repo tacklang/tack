@@ -1867,6 +1867,105 @@ stores and calls function values with every kind of argument and result,
 makes every allocation fail in turn while appending them to a list, and
 checks that its allocator holds nothing after each group.
 
+## Contracts
+
+A function can state facts about its parameters that hold whenever it
+returns, and its callers then know them, as an `if` would have told
+them. The compiler proves the clause in the function and carries it to
+each call, so a contract is a proof split in two, never a promise:
+
+<!-- example: ensures -->
+```tack
+func handle(err error) ensures err.code == 0 {
+    if err.code != 0 {
+        print(err.msg)
+        exit(err.code)
+    }
+}
+```
+
+<!-- example: ensures -->
+```tack
+    n, err := parse("42")
+    handle(err)
+    check(n == 42, "handle")
+```
+
+**The clause is facts, and only facts.** It holds what an `if`'s
+condition gives facts through, joined by `&&`: comparisons of the
+parameters, their fields and elements, constants, `len` and `has`, with
+`!`, `&&`, `||`, `+` and `-`. Each operand of its `&&` must give one,
+<!-- error: ensures-no-fact -->`d != 3 gives no fact; an ensures clause states facts an if's condition proves, such as d != 0, 0 <= i && i < len(a), err.code == 0 or has(m, k)`,
+and it names nothing but the parameters,
+<!-- error: ensures-global -->`an ensures clause can name only the parameters of f, and limit is not one`.
+An extern func's body is C, where nothing proves a clause,
+<!-- error: ensures-extern -->`extern func pick cannot have an ensures clause; its body is written in C, where nothing proves it`.
+
+**Every path that returns proves it.** Each `return`, once its values
+are computed, and the end of the body, when it can be reached, must
+prove each fact from the facts in force there, under every rule of
+[the guard rule](#the-guard-rule):
+<!-- error: ensures-unproven -->`f ensures d != 0, which may not hold at this return`
+and
+<!-- error: ensures-unproven -->`f ensures d != 0, which may not hold at the end of its body`.
+A branch ending in `exit` leaves, as it does for every fact, so `if d ==
+0 { exit(1) }` proves `d != 0` where the function returns. Code after a statement that leaves its block, or ends in `exit`, never
+runs. A write after the check ends the proof as it ends any fact: a
+`mut` parameter assigned, a value computed by the return itself
+(<!-- case: ensures-return-writes -->), a list popped
+(<!-- case: ensures-pop-in-callee -->), a key deleted
+(<!-- case: ensures-delete-in-callee -->), a write on a loop's next pass
+(<!-- case: ensures-loop-back-edge -->), and a case of a `switch` that
+falls through past one ending in `exit`
+(<!-- case: ensures-switch-exit-region -->). Deferred code runs after
+the return, so a defer written before it that assigns a parameter the
+clause names, or passes it as `mut`, fails the proof:
+
+<!-- case: ensures-defer-assigns -->
+```tack
+func f(mut d int64) ensures d != 0 {
+    defer {
+        d = 0
+    }
+```
+
+reports the error at the end of the body, with
+<!-- note: ensures-defer-assigns -->`but d is assigned here, in deferred code, which runs after f returns`.
+
+**A call gives the facts only about what the callee saw.** The facts
+are put in force after a call that is a statement, or the whole value
+of a declaration or an assignment, for the rest of its block, each
+parameter replaced by the argument passed for it, and only when every
+parameter a fact names was passed a local variable or a parameter of
+the caller by name. A plain argument is a copy, so the fact holds of
+the variable only while nothing else in the call writes it; `f(mut i,
+i)` changes `i` after the callee was given its value
+(<!-- case: ensures-alias-mut-plain -->). A `mut` argument is the place
+the callee changed, so its facts hold of it. A field, an element and an
+expression carry nothing (<!-- case: ensures-arg-not-local -->), nor a
+variable the statement assigns once the call is done, nor a call
+through a function value (<!-- case: ensures-func-value -->), nor an
+own parameter, whose argument moves into the call,
+<!-- error: ensures-own-param -->`an ensures clause cannot name own parameter l: its argument moves into the call, so nothing it ensures about l reaches the caller`.
+The facts hold after the whole statement and never inside it
+(<!-- case: ensures-call-in-value -->), so the rule that a proof ends at
+any write in the statement is kept. An error checked by a call makes
+the values bound beside it readable exactly when the error passed is the
+variable bound beside them; a copy of it is another variable
+(<!-- case: ensures-copied-error -->). A write anywhere in the
+statement's targets drops its variable, as in `arr[zero(mut d)] = fix(mut
+d)` (<!-- case: ensures-target-index-writes -->).
+
+**A mut parameter's fields are out of reach.** No fact is about a field
+or an element of a `mut` parameter, a `mut` receiver included, so a
+method with a `mut` receiver ensures nothing about its own fields,
+<!-- error: ensures-mut-receiver-field -->`len(s.items) > 0 gives no fact; s.items is part of the mut parameter s, and a field or an element of a mut parameter carries no facts`.
+It may ensure facts about its other parameters. A `return` whose one
+value is a call to a function with a contract proves with the facts that
+call gives, so `return fix(mut d)` proves `ensures d != 0`. `examples/ensures` and
+`examples/ensures-module` run every kind of contract, across packages,
+in generic functions and methods, and through recursion.
+
 ## Compile-time errors
 
 The compiler reports, rather than proves or checks, an operation whose

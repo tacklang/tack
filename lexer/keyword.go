@@ -82,6 +82,12 @@ const (
 	// T, and the argument a call moves into one, f(own t). It comes after
 	// Union for the same reason Union comes last.
 	Own
+
+	// Ensures starts a function's contract, written after its results:
+	// func f(d int64) ensures d != 0, facts the compiler proves the
+	// function makes true about its parameters whenever it returns. It
+	// comes after Own for the same reason Own comes after Union.
+	Ensures
 )
 
 var keywordNames = map[KeywordType]string{
@@ -132,6 +138,8 @@ var keywordNames = map[KeywordType]string{
 	CAllocator: "c_allocator",
 
 	Own: "own",
+
+	Ensures: "ensures",
 }
 
 // String returns the keyword as written in source.

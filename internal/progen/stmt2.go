@@ -41,7 +41,8 @@ func (g *Gen) checkedDiv(op string) Stmt {
 
 // guardedDiv returns if d != 0 { obs(a op d) }, d a variable, which the
 // if proves not zero where the division is, or, for a writable d, an early
-// exit ending in exit that proves it, then the division (see exitGuard).
+// exit ending in exit that proves it, or a call whose contract proves it,
+// then the division (see exitGuard and fixStmt).
 func (g *Gen) guardedDiv(op string) Stmt {
 	d := g.choose(g.visible(func(v *Var) bool { return v.T.Kind == KInt }))
 	if d == nil {
@@ -63,7 +64,10 @@ func (g *Gen) guardedDiv(op string) Stmt {
 		},
 	}
 	if g.writable(d) && g.pick(3) == 0 {
-		return seq([]Stmt{exitGuard(d), g.observe(div)})
+		if g.pick(2) == 0 {
+			return seq([]Stmt{exitGuard(d), g.observe(div)})
+		}
+		return seq([]Stmt{g.fixStmt(d), g.observe(div)})
 	}
 	cond := Expr{Text: d.Name + " != 0", T: boolType, Eval: func(f *frame) Value {
 		return Value{Bool: de.Eval(f).Bits != 0}
@@ -170,4 +174,24 @@ func (g *Gen) zeroReturn() Stmt {
 		f.ret = Value{}
 		return cReturn
 	}}
+}
+
+// fixStmt returns pg_fix_T(mut d), d a writable integer variable of type
+// T, a call to a helper whose contract, ensures d != 0, proves d not zero
+// in the statements after it: it makes a zero d 1, as the interpreter
+// does.
+func (g *Gen) fixStmt(d *Var) Stmt {
+	t := d.T.String()
+	name := "pg_fix_" + t
+	g.extra(name, "// "+name+" makes d 1 where it is zero, which its contract says.\n"+
+		"func "+name+"(mut d "+t+") ensures d != 0 {\n"+
+		"    if d != 0 {\n        return\n    }\n"+
+		"    d = 1\n"+
+		"    if d == 0 {\n        exit(9)\n    }\n}\n")
+	d.Used = true
+	return simple(func(f *frame) {
+		if v := f.ref(d); v.Bits == 0 {
+			v.Bits = 1
+		}
+	}, name+"(mut "+d.Name+")")
 }

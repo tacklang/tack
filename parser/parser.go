@@ -623,11 +623,9 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 	}
 	fn.Params = params
 
-	results, resultDiags := p.parseResults()
-	if resultDiags != nil {
-		return nil, resultDiags
+	if diags := p.parseSignatureEnd(fn); diags != nil {
+		return nil, diags
 	}
-	fn.Results = results
 
 	if bodyDiags := p.parseFuncBody(fn, extern); bodyDiags != nil {
 		return nil, bodyDiags
@@ -834,6 +832,41 @@ func (p *Parser) parseParams() ([]*ast.Param, []diag.Diagnostic) {
 		return nil, rparenDiags
 	}
 	return params, nil
+}
+
+// parseSignatureEnd parses what follows fn's parameters before its body:
+// its results, into fn.Results, and its contract, if any.
+func (p *Parser) parseSignatureEnd(fn *ast.Func) []diag.Diagnostic {
+	results, diags := p.parseResults()
+	if diags != nil {
+		return diags
+	}
+	fn.Results = results
+	return p.parseEnsures(fn)
+}
+
+// parseEnsures parses the contract of fn that comes next, if any: the
+// ensures keyword and a condition, into fn.Ensures. The condition is
+// followed by the body, so, as in an if's header, a name before an
+// opening brace is not a struct literal, and one written without
+// parentheses is reported. Whether an extern func may have one, and what
+// the condition may say, is the type checker's to judge.
+func (p *Parser) parseEnsures(fn *ast.Func) []diag.Diagnostic {
+	if !isKeyword(p.peek(), lexer.Ensures) {
+		return nil
+	}
+	kw := p.next()
+	restore := p.allowLits(false)
+	cond, diags := p.parseExpr(1)
+	restore()
+	if cond == nil {
+		return diags
+	}
+	if diags := p.headerLit("an ensures"); diags != nil {
+		return diags
+	}
+	fn.Ensures, fn.EnsuresSpan = cond, p.span(kw)
+	return nil
 }
 
 // parseResults parses a function's result types: one type name, or a

@@ -37,6 +37,16 @@ type Func struct {
 	Results    []Expr       // declared result types as written, empty if none
 	Body       []Stmt
 
+	// Ensures is the function's contract, the condition written after
+	// ensures between its results and its body, func f(d int64) ensures
+	// d != 0, or nil when it has none: facts about its parameters the
+	// type checker proves hold whenever the function returns, and gives
+	// its callers. It is never evaluated, so it has no code, and Walk
+	// does not visit it. EnsuresSpan is the ensures keyword, the zero
+	// Span when there is none.
+	Ensures     Expr `json:",omitempty"`
+	EnsuresSpan Span `json:"-"`
+
 	// ResultTypes holds what each of Results denotes, in order. The type
 	// checker fills it in; before then it is nil, and an entry it could not
 	// determine is Invalid.
