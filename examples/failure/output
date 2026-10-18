@@ -8,6 +8,9 @@ a Failure of noerror ok
 0x00 and 0xff in a detail ok
 a detail from a slice ok
 a detail copied from another ok
+new moves the detail in ok
+cannot open: /y
+new of a temporary Text ok
 nothing left after building ok
 a result beside no failure ok
 a result beside a failure ok

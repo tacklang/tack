@@ -1218,12 +1218,11 @@ useful API and could go another way:
   fields would need accessor methods, and a method cannot share a
   field's name, so they would need names of their own; the fields carry
   no invariant to protect, since any error with any Text is a Failure.
-- There is no `new(err, detail text.Text)`: a parameter borrows its
-  caller's value and cannot be moved, `cannot move detail: it is a
-  parameter, which borrows its caller's value`, so a function cannot
-  take a Text over. The literal does it. A function could take `mut
-  detail` and swap an empty Text in with `replace`, but it would need an
-  `Allocator` only to make that empty Text.
+- `new(err error, own detail text.Text) Failure` takes the Text over
+  through an own parameter, `errors.new(e, own t)`, beside the literal,
+  which stays. Resolved: before own parameters a parameter could only
+  borrow, `cannot move detail: it is a parameter, which borrows its
+  caller's value`, so the literal was the only way to move a Text in.
 - `from_bytes(err, s []uint8, alloc) Failure` copies a view into a new
   detail. When the detail cannot be made it keeps `err` with an empty
   detail, made by `text.new(alloc)`, which allocates nothing, and returns

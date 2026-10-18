@@ -24,9 +24,9 @@ import text from "std/text"
 // copies, has no zero value, and frees its detail when it goes out of
 // scope, a list or a map that holds it included.
 //
-// A Failure is built as a literal, errors.Failure{err: e, detail: t},
-// which moves a Text the caller built in and cannot fail, or by
-// from_bytes, which copies a view's bytes into a new detail; when the detail
+// A Failure is built as a literal, errors.Failure{err: e, detail: t}, or
+// by new, errors.new(e, own t), each of which moves a Text the caller
+// built in and cannot fail, or by from_bytes, which copies a view's bytes into a new detail; when the detail
 // cannot be made it keeps the error and gives an empty detail, having
 // allocated nothing, so a Failure never loses its code for want of
 // memory, and from_bytes returns no error of its own. A detail is grown
@@ -40,6 +40,15 @@ import text from "std/text"
 pub type Failure struct {
     pub err error
     pub detail text.Text
+}
+
+// new returns a Failure of err whose detail is detail, which it takes
+// from the caller: the caller writes own before a variable holding it,
+// errors.new(e, own t), and cannot use that variable again, and passes a
+// Text no variable holds, errors.new(e, text.new(alloc)), as it is. It
+// allocates nothing, so it cannot fail.
+pub func new(err error, own detail text.Text) Failure {
+    return Failure{err: err, detail: detail}
 }
 
 // from_bytes returns a Failure of err whose detail is a copy of the bytes

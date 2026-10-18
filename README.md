@@ -1174,10 +1174,13 @@ makes for itself, which has a letter after `tack_`.
   `pub type Failure struct { pub err error; pub detail text.Text }`
   holds the error beside a detail made at run time, a Text it owns. It
   is owned, as a struct holding a Text is: it moves, has no zero value,
-  is borrowed by a parameter and moved out of one only through `mut`, as
-  by `replace`, may be returned or held by a list or a map, and frees its
+  is borrowed by a plain parameter, taken by an own one, and moved out of
+  a `mut` one only by `replace`, may be returned or held by a list or a map, and frees its
   detail when it goes out of scope. A literal, `errors.Failure{err: e,
-  detail: t}`, moves a Text built beforehand in and cannot fail; `f :=
+  detail: t}`, and `errors.new(e, own t)`, whose detail is an own
+  parameter (see own parameters), each move a Text built beforehand in
+  and cannot fail, `new` taking a Text no variable holds with no `own`,
+  `errors.new(e, text.new(alloc))`; `f :=
   errors.from_bytes(e, s, alloc)` copies the bytes of the `[]uint8`
   view `s` into a new detail made through `alloc`, and when `alloc`
   cannot give it, keeps `e` with an empty detail, having allocated

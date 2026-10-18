@@ -8,8 +8,9 @@ import text from "std/text"
 // std/errors' Failure pairs an error, a code and a literal message, with
 // a detail made at run time, a text.Text it owns: the name that was
 // undefined, the path that could not be opened. A literal,
-// errors.Failure{err: e, detail: t}, moves a Text built beforehand into a
-// Failure, and errors.from_bytes copies a view's bytes into a new one. f.err and f.detail are read as fields, and the
+// errors.Failure{err: e, detail: t}, and errors.new(e, own t) each move
+// a Text built beforehand into a Failure, and errors.from_bytes copies a
+// view's bytes into a new one. f.err and f.detail are read as fields, and the
 // detail written with %s through f.detail.bytes().
 //
 // A Failure is owned, as the Text it holds is: it moves, is passed to a
@@ -74,6 +75,16 @@ func building() {
     check(h.detail.equal([]uint8("bc")), "a detail from a slice")
     i := errors.from_bytes(undefined, f.detail.bytes(), c_allocator)
     check(i.detail.equal(f.detail.bytes()), "a detail copied from another")
+    path, e2 := text.from_bytes([]uint8("/y"), c_allocator)
+    if e2.code != 0 {
+        check(false, "from_bytes for new")
+        return
+    }
+    n := errors.new(cannot_open, own path)
+    check(n.err == cannot_open && n.detail.equal([]uint8("/y")), "new moves the detail in")
+    show(n)
+    blank := errors.new(noerror, text.new(c_allocator))
+    check(blank.err.code == 0 && blank.detail.len() == 0, "new of a temporary Text")
 }
 
 // lookup returns the value of name, 1 for "one", beside a Failure of
@@ -166,6 +177,13 @@ func failing(n int64) bool {
         e := mut g.detail.append([]uint8("/q"))
         ok = ok && g.err == cannot_open
         ok = ok && (e.code == 0 && g.detail.equal([]uint8("/p/q")) || e.code == 1 && g.detail.len() <= 2)
+        t, e3 := text.from_bytes([]uint8("moved in"), c_allocator)
+        if e3.code == 0 {
+            nf := errors.new(undefined, own t)
+            ok = ok && nf.err == undefined && nf.detail.equal([]uint8("moved in"))
+            e4 := append(mut fs, nf)
+            ok = ok && (e4.code == 0 || e4.code == 1)
+        }
         if i % 2 == 0 {
             e2 := append(mut fs, f)
             ok = ok && (e2.code == 0 || e2.code == 1)
