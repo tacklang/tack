@@ -1443,6 +1443,29 @@ func TestBuiltCommentsExits37(t *testing.T) {
 	}
 }
 
+// intLiteralsWant is what examples/int-literals prints when every check
+// passes.
+var intLiteralsWant = "hexadecimal ok\n" +
+	"binary ok\n" +
+	"octal ok\n" +
+	"separators ok\n" +
+	"a typed global ok\n" +
+	"the largest int64 ok\n" +
+	"the smallest int64 ok\n" +
+	"the largest uint64 ok\n" +
+	"zero and a byte ok\n"
+
+// The int-literals example writes integers in hexadecimal, binary and
+// octal, with separators, at the edges of int64 and uint64, and checks
+// each is the value its decimal form is.
+func TestBuiltIntLiteralsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "int-literals")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil || string(out) != intLiteralsWant {
+		t.Errorf("int-literals printed\n%s\nwith %v, want\n%s", out, err, intLiteralsWant)
+	}
+}
+
 // blockCommentsWant is what examples/block-comments prints when every
 // check passes.
 var blockCommentsWant = "between operands ok\n" +
@@ -3101,7 +3124,8 @@ func tackLexerInputs(t *testing.T) map[string][]byte {
 var tackLexerHostileInputs = []string{
 	`"abc`, `"a\`, "\"a\\\nb\"", `"\x4"`, `"\xZZ"`, `"\x41\x4a0"`, `"\'"`, `'\"'`,
 	`'`, `''`, `'ab'`, `'ab`, "'\n", `'\x4'`, `'\''`, "'\u00e9'", "'\xff'",
-	"/* open", "/**/x", "a\rb", "a\x00b", "\xff\xfe", "@#$",
+	"0x1F 0b10 0o7 1_000 0X_f", "0x", "0b_", "0b102", "0o8", "0x1g", "1__0", "1_", "0x1_",
+	"0_7", "12ab", "0xZ", "/* open", "/**/x", "a\rb", "a\x00b", "\xff\xfe", "@#$",
 	"x // a\n  // b\n\n// c\ny", "x // a\r\n\t// b\r\ny", "// end", "x //",
 	"a&^=b<<=c>>=d...e&^f<-g", "x++\ny--\nreturn\nbreak\ncontinue\ntrue\nfalse\n)\n]\n}\n",
 	"00 007 0 10", "`a\nb\r\nc`", "`open\n", "x\n\n\r\n\n",

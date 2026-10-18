@@ -80,17 +80,99 @@ func keyword(src string, start int64, end int64) int64 {
     return -1
 }
 
-// number lexes a decimal integer, reporting one of more than one digit
-// that starts with 0.
+// number lexes an integer literal: decimal, or hexadecimal, binary or
+// octal after a 0x, 0b or 0o prefix in either case, with _ between
+// digits. A prefixed literal takes every letter, digit and _ after its
+// prefix. A prefix with no digit, a digit its base lacks, a _ that
+// separates no digits, and a decimal literal of more than one digit
+// starting with 0 are reported.
 func number(mut l Lexer) {
     start := l.pos
-    for l.pos < len(l.src) && isDigit(byteAt(l.src, l.pos)) {
+    base := prefixBase(l.src, l.pos)
+    if base != 0 {
+        l.pos += 2
+        for l.pos < len(l.src) && (isIdentStart(byteAt(l.src, l.pos)) || isDigit(byteAt(l.src, l.pos))) {
+            l.pos++
+        }
+        mut digits := 0
+        mut bad := -1
+        for mut i := start + 2; i < l.pos; i++ {
+            c := byteAt(l.src, i)
+            if c != '_' {
+                digits++
+                if bad < 0 && digitValue(c) >= base {
+                    bad = i
+                }
+            }
+        }
+        if digits == 0 {
+            fail(mut l, start, l.pos, "integer literal has no digits")
+        } else if bad >= 0 {
+            fail(mut l, bad, bad + 1, "invalid digit in integer literal")
+        } else if !separated(l.src, start, l.pos, start + 2) {
+            fail(mut l, start, l.pos, "_ must separate successive digits")
+        }
+        add(mut l, KindInt, 0, start, l.pos, true)
+        return
+    }
+    for l.pos < len(l.src) && (isDigit(byteAt(l.src, l.pos)) || byteAt(l.src, l.pos) == '_') {
         l.pos++
     }
-    if l.pos - start > 1 && byteAt(l.src, start) == '0' {
+    if !separated(l.src, start, l.pos, start) {
+        fail(mut l, start, l.pos, "_ must separate successive digits")
+    } else if l.pos - start > 1 && byteAt(l.src, start) == '0' {
         fail(mut l, start, l.pos, "integer literal has a leading zero")
     }
     add(mut l, KindInt, 0, start, l.pos, true)
+}
+
+// prefixBase returns the base of the integer literal at pos in src when
+// it starts with a prefix, 0x, 0b or 0o in either case, and 0 otherwise.
+func prefixBase(src string, pos int64) int64 {
+    if byteAt(src, pos) != '0' {
+        return 0
+    }
+    switch byteAt(src, pos + 1) {
+    case 'x', 'X':
+        return 16
+    case 'b', 'B':
+        return 2
+    case 'o', 'O':
+        return 8
+    }
+    return 0
+}
+
+// digitValue returns the value of c as a digit of a base up to 16, or 16
+// when it is none.
+func digitValue(c uint8) int64 {
+    if isDigit(c) {
+        return c - '0'
+    }
+    if c >= 'a' && c <= 'f' {
+        return c - 'a' + 10
+    }
+    if c >= 'A' && c <= 'F' {
+        return c - 'A' + 10
+    }
+    return 16
+}
+
+// separated reports whether every _ in src[start:end], an integer literal
+// whose digits start at first, stands between two digits, or, right after a
+// prefix, before one.
+func separated(src string, start int64, end int64, first int64) bool {
+    for mut i := first; i < end; i++ {
+        if byteAt(src, i) != '_' {
+            continue
+        }
+        before := i > first && byteAt(src, i - 1) != '_' || i == first && first == start + 2
+        after := i + 1 < end && byteAt(src, i + 1) != '_'
+        if !before || !after {
+            return false
+        }
+    }
+    return true
 }
 
 // operator lexes the longest operator the source starts with at the

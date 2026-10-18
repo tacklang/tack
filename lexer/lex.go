@@ -550,31 +550,135 @@ func hexDigit(c byte) (byte, bool) {
 	}
 }
 
-// handleDigit lexes an integer or a float. A float is a run of digits
-// containing a single dot after at least one digit; a second dot ends the
-// number. An integer of more than one digit that starts with 0 is
-// reported, since a decimal literal has no leading zeros, and still gives
-// its token.
+// handleDigit lexes a number: an integer literal, decimal or, after a 0x,
+// 0b or 0o prefix in either case, hexadecimal, binary or octal, with _
+// allowed between digits and after a prefix to group them; or a decimal
+// one with a fraction, which is lexed as a Float. The token's value is the
+// literal as written, which the parser decodes (see constant.Parse). A
+// prefix with no digit after it, a digit its base does not have, and a _
+// that does not separate digits are reported, the literal still a token;
+// a decimal integer starting with 0 is reported by checkLeadingZero. It
+// reports false, consuming nothing, when the current byte is no digit.
 func (l *Lexer) handleDigit() bool {
-	start, k, data := l.pos, Int, l.file.Data
-
-	var val strings.Builder
-	for l.pos < len(data) && ((data[l.pos] >= '0' && data[l.pos] <= '9') || (data[l.pos] == '.' && val.Len() > 0 && k == Int)) {
-		if data[l.pos] == '.' {
-			k = Float
-		}
-		val.WriteByte(data[l.pos])
-		l.pos++
-	}
-
-	if val.Len() == 0 {
+	start, data := l.pos, l.file.Data
+	if !isDigit(data[l.pos]) {
 		return false
 	}
-	text := val.String()
-	if k == Int {
+	if base, name := prefixBase(data[l.pos:]); base != 0 {
+		l.pos += 2
+		l.prefixedInt(start, base, name)
+		return true
+	}
+
+	k := l.decimal()
+	text := string(data[start:l.pos])
+	if k == Int && l.checkSeparators(text, start, 0) {
 		l.checkLeadingZero(text, start)
 	}
 	l.addToken(k, text, start, l.pos)
+	return true
+}
+
+// decimal consumes a decimal number's digits and _ separators, with one
+// fraction point among them, and returns its kind: Float when it had the
+// point, Int otherwise.
+func (l *Lexer) decimal() TokenKind {
+	data, k := l.file.Data, Int
+	for l.pos < len(data) && (isDigit(data[l.pos]) || data[l.pos] == '_' ||
+		(data[l.pos] == '.' && k == Int)) {
+		if data[l.pos] == '.' {
+			k = Float
+		}
+		l.pos++
+	}
+	return k
+}
+
+// prefixBase returns the base and the name of the integer literal whose
+// bytes start b when they start with a prefix, 0x, 0b or 0o in either
+// case, and 0 otherwise.
+func prefixBase(b []byte) (int, string) {
+	if len(b) < 2 || b[0] != '0' {
+		return 0, ""
+	}
+	switch b[1] {
+	case 'x', 'X':
+		return 16, "hexadecimal"
+	case 'b', 'B':
+		return 2, "binary"
+	case 'o', 'O':
+		return 8, "octal"
+	}
+	return 0, ""
+}
+
+// prefixedInt lexes the rest of an integer literal of the given base,
+// named name, whose prefix starts at start and has been consumed: every
+// letter, digit and _ that follows, so a digit the base does not have is
+// part of the literal and reported in it, rather than starting a name.
+func (l *Lexer) prefixedInt(start, base int, name string) {
+	data := l.file.Data
+	for l.pos < len(data) && isIdentByte(data[l.pos]) {
+		l.pos++
+	}
+	text := string(data[start:l.pos])
+	digits := text[2:]
+	switch {
+	case strings.Trim(digits, "_") == "":
+		l.diag(fmt.Sprintf("%s literal %s has no digits", name, text), start, l.pos)
+	default:
+		if bad, at := badDigit(digits, base); bad != 0 {
+			l.diag(fmt.Sprintf("invalid digit %c in %s literal %s", bad, name, text),
+				start+2+at, start+3+at)
+		} else {
+			l.checkSeparators(text, start, 2)
+		}
+	}
+	l.addToken(Int, text, start, l.pos)
+}
+
+// badDigit returns the first byte of digits, the digits of a literal of
+// base, that is neither a digit of the base nor _, and its index, or 0.
+func badDigit(digits string, base int) (byte, int) {
+	for i := range len(digits) {
+		c := digits[i]
+		if c != '_' && digitValue(c) >= base {
+			return c, i
+		}
+	}
+	return 0, 0
+}
+
+// digitValue returns the value of c as a digit of a base up to 16, or 16
+// when it is none.
+func digitValue(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return 16
+}
+
+// checkSeparators reports text, an integer literal starting at start whose
+// digits start at index from, after its prefix if it has one, when a _ in
+// it does not stand between two digits, or, after a prefix, right after
+// the prefix before a digit, and reports whether it found none.
+func (l *Lexer) checkSeparators(text string, start, from int) bool {
+	for i := from; i < len(text); i++ {
+		if text[i] != '_' {
+			continue
+		}
+		before := i > from && text[i-1] != '_' || i == from && from == 2
+		after := i+1 < len(text) && text[i+1] != '_'
+		if !before || !after {
+			l.diag(fmt.Sprintf("_ must separate successive digits in %s", text), start, l.pos)
+			return false
+		}
+	}
 	return true
 }
 
@@ -585,7 +689,7 @@ func (l *Lexer) checkLeadingZero(text string, start int) {
 	if len(text) < 2 || text[0] != '0' {
 		return
 	}
-	digits := strings.TrimLeft(text, "0")
+	digits := strings.TrimLeft(strings.ReplaceAll(text, "_", ""), "0")
 	if digits == "" {
 		digits = "0"
 	}

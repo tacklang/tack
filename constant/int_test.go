@@ -203,6 +203,18 @@ func TestParse(t *testing.T) {
 		{"007", "7", false, true},
 		{"", "", false, false},
 		{"1a", "", false, false},
+		{"0xFF", "255", false, true},
+		{"0XfF", "255", false, true},
+		{"0b1010", "10", false, true},
+		{"0o17", "15", false, true},
+		{"0O7", "7", false, true},
+		{"1_000_000", "1000000", false, true},
+		{"0x_FF_FF", "65535", false, true},
+		{"0xFFFFFFFFFFFFFFFF", "18446744073709551615", false, true},
+		{"0x1_0000_0000_0000_0000", "", false, false},
+		{"0x8000000000000000", "-9223372036854775808", true, true},
+		{"0x8000000000000001", "", true, false},
+		{"0_7", "7", false, true},
 	}
 	for _, tt := range tests {
 		got, ok := constant.Parse(tt.digits, tt.neg)

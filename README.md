@@ -2930,11 +2930,18 @@ makes for itself, which has a letter after `tack_`.
   Every literal, and every step of a constant computation, must lie between
   the smallest `int64` and the largest `uint64`; beyond that is an error
   rather than a larger number. A `-` right before the digits is part of the
-  literal, so the smallest int64 is written `-9223372036854775808`. A
-  literal is decimal and has no leading zeros: `0` is fine, but `007` and
-  `00` are errors, unlike C and Go, where `010` is octal 8. There are no
-  hex, octal or binary literals yet, so `0x10` is `0` followed by the name
-  `x10`.
+  literal, so the smallest int64 is written `-9223372036854775808`, or
+  `-0x8000_0000_0000_0000`. A literal is decimal, `255`; hexadecimal after
+  `0x` or `0X`, `0xFF`, either case of digit; binary after `0b` or `0B`,
+  `0b1111_1111`; or octal after `0o` or `0O`, `0o377`. A `_` may stand
+  between two digits, or right after a prefix, to group them,
+  `1_000_000`, `0x_FF`; anywhere else it is `_ must separate successive
+  digits in 1__0`. A prefix with no digit is `hexadecimal literal 0x has no
+  digits`, and a digit its base lacks `invalid digit 2 in binary literal
+  0b102`; a prefixed literal takes every letter and digit after it, so
+  `0x1g` is one bad literal, not `0x1` and a name. A decimal literal has
+  no leading zeros: `0` is fine, but `007`, `00` and `0_7` are errors,
+  unlike C and Go, where `010` is octal 8, so `0o` is the one octal form.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given: `f expects 2 argument(s), got
   3`, or for a variadic function, which takes any number past its other

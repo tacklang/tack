@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/bits"
 	"strconv"
+	"strings"
 )
 
 // Int is an integer constant between Min and Max, the range every integer
@@ -38,10 +39,29 @@ func FromInt64(v int64) Int {
 // FromUint64 returns v as an Int.
 func FromUint64(v uint64) Int { return Int{mag: v} }
 
-// Parse decodes decimal digits, with a minus sign before them when negative
-// is true, and reports whether the value is in range.
+// Parse decodes an integer literal as the lexer gives it: decimal digits,
+// or hexadecimal, binary or octal ones after a 0x, 0b or 0o prefix in
+// either case, with _ between them, and a minus sign before it when
+// negative is true. It reports whether the value is in range. A decimal
+// literal is always decimal, a leading 0 included, which the lexer
+// reports.
 func Parse(digits string, negative bool) (Int, bool) {
-	mag, err := strconv.ParseUint(digits, 10, 64)
+	base := 10
+	if len(digits) > 2 && digits[0] == '0' {
+		switch digits[1] {
+		case 'x', 'X':
+			base = 16
+		case 'b', 'B':
+			base = 2
+		case 'o', 'O':
+			base = 8
+		}
+	}
+	text := strings.ReplaceAll(digits, "_", "")
+	if base != 10 {
+		text = text[2:]
+	}
+	mag, err := strconv.ParseUint(text, base, 64)
 	if err != nil {
 		return Int{}, false
 	}

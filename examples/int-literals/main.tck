@@ -1,0 +1,32 @@
+package main
+
+// Integer literals: decimal, 0x or 0X hexadecimal, 0b or 0B binary and
+// 0o or 0O octal, with _ between digits, or after the prefix, to group
+// them. Each is the same untyped constant its decimal form is. A decimal
+// literal never starts with 0, so 0o is the only octal form.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+var mask uint32 = 0xFF_00_FF_00
+
+func main() {
+    check(0x1F == 31 && 0X1f == 31 && 0xff == 255, "hexadecimal")
+    check(0b1010 == 10 && 0B1_0000 == 16, "binary")
+    check(0o17 == 15 && 0O777 == 511, "octal")
+    check(1_000_000 == 1000000 && 0x_FF == 255, "separators")
+    check(mask == 4278255360, "a typed global")
+    check(0x7FFF_FFFF_FFFF_FFFF == 9223372036854775807, "the largest int64")
+    check(-0x8000_0000_0000_0000 == -9223372036854775807 - 1, "the smallest int64")
+    var u uint64 = 0xFFFF_FFFF_FFFF_FFFF
+    check(u == 18446744073709551615, "the largest uint64")
+    var b uint8 = 0b1111_1111
+    check(b == 255 && 0 == 0x0 && 0b0 == 0o0, "zero and a byte")
+}

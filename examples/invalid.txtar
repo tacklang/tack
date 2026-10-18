@@ -14260,6 +14260,34 @@ init-names-mutable-global/main.tck:5:19: error: twice must be initialized with a
    |	                  ^~~~~~~~~
 06 |	
 
+-- int-literal-bad-digit/main.tck --
+package main
+
+func main() {
+    exit(0b102 + 0o8 + 0x1g)
+}
+-- int-literal-bad-digit/expected --
+stage: lex
+---
+
+int-literal-bad-digit/main.tck:4:14: error: invalid digit 2 in binary literal 0b102
+03 |	func main() {
+04 |	    exit(0b102 + 0o8 + 0x1g)
+   |	             ^
+05 |	}
+
+int-literal-bad-digit/main.tck:4:20: error: invalid digit 8 in octal literal 0o8
+03 |	func main() {
+04 |	    exit(0b102 + 0o8 + 0x1g)
+   |	                   ^
+05 |	}
+
+int-literal-bad-digit/main.tck:4:27: error: invalid digit g in hexadecimal literal 0x1g
+03 |	func main() {
+04 |	    exit(0b102 + 0o8 + 0x1g)
+   |	                          ^
+05 |	}
+
 -- int-literal-leading-zero/main.tck --
 package main
 
@@ -14280,6 +14308,73 @@ int-literal-leading-zero/main.tck:4:16: error: integer literal 00 has a leading 
 03 |	func main() {
 04 |	    exit(010 + 00)
    |	               ^~
+05 |	}
+
+-- int-literal-no-digits/main.tck --
+package main
+
+func main() {
+    exit(0x + 0b_)
+}
+-- int-literal-no-digits/expected --
+stage: lex
+---
+
+int-literal-no-digits/main.tck:4:10: error: hexadecimal literal 0x has no digits
+03 |	func main() {
+04 |	    exit(0x + 0b_)
+   |	         ^~
+05 |	}
+
+int-literal-no-digits/main.tck:4:15: error: binary literal 0b_ has no digits
+03 |	func main() {
+04 |	    exit(0x + 0b_)
+   |	              ^~~
+05 |	}
+
+-- int-literal-out-of-range-hex/main.tck --
+package main
+
+func main() {
+    x := 0x1_0000_0000_0000_0000
+    print("")
+}
+-- int-literal-out-of-range-hex/expected --
+stage: parse
+---
+
+int-literal-out-of-range-hex/main.tck:4:10: error: integer literal 0x1_0000_0000_0000_0000 is out of range
+03 |	func main() {
+04 |	    x := 0x1_0000_0000_0000_0000
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~
+05 |	    print("")
+
+-- int-literal-separator/main.tck --
+package main
+
+func main() {
+    exit(1__0 + 1_ + 0x1_)
+}
+-- int-literal-separator/expected --
+stage: lex
+---
+
+int-literal-separator/main.tck:4:10: error: _ must separate successive digits in 1__0
+03 |	func main() {
+04 |	    exit(1__0 + 1_ + 0x1_)
+   |	         ^~~~
+05 |	}
+
+int-literal-separator/main.tck:4:17: error: _ must separate successive digits in 1_
+03 |	func main() {
+04 |	    exit(1__0 + 1_ + 0x1_)
+   |	                ^~
+05 |	}
+
+int-literal-separator/main.tck:4:22: error: _ must separate successive digits in 0x1_
+03 |	func main() {
+04 |	    exit(1__0 + 1_ + 0x1_)
+   |	                     ^~~~
 05 |	}
 
 -- int-overflow/main.tck --

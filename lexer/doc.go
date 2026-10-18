@@ -47,10 +47,13 @@
 // such as 'é', is reported, as are an empty literal and one with several
 // characters. Numbers are kept
 // as their source text; converting them, and rejecting out-of-range values, is
-// left to the parser. An integer literal is decimal, and one of more than
-// one digit that starts with 0, such as 007 or 00, is reported here; 0
-// alone is fine. A 0 followed by a letter, as in 0x10, is a 0 and then a
-// name, since hex, octal and binary literals are not lexed.
+// left to the parser (see constant.Parse). An integer literal is decimal,
+// or hexadecimal, binary or octal after a 0x, 0b or 0o prefix in either
+// case, which takes every letter, digit and _ after it, so 0x1g is one
+// literal with a bad digit, reported here. A _ must stand between two
+// digits, or right after a prefix; a prefix needs a digit; and a decimal
+// literal of more than one digit that starts with 0, such as 007, 00 or
+// 0_7, is reported here, 0 alone being fine.
 //
 // The lexer guarantees that tokens appear in source order, never overlap, and
 // never extend past the end of the input. It checks this before returning and
