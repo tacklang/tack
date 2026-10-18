@@ -223,20 +223,21 @@ func (l *Loader) isModuleRoot(fsys FS, d string) (bool, error) {
 
 // clauseName returns the name the first of files, the files of one
 // package, gives in its package clause, lexing and parsing it apart from
-// any Result. It returns false when the file does not lex or parse, which
-// loading the package reports. It lexes a copy of the file, since lexing
-// records the file's line starts, which the real lexing records again.
+// any Result. Errors elsewhere in the file do not hide the clause: the
+// lexer drops what it cannot read and the parser recovers, so a library
+// with a syntax error is still a library, its errors reported when the
+// package is loaded. It returns false when no clause can be found. It
+// lexes a copy of the file, since lexing records the file's line starts,
+// which the real lexing records again.
 func clauseName(files []*source.File) (string, bool) {
 	if len(files) == 0 {
 		return "", false
 	}
 	f := files[0]
 	lex := lexer.New(&source.File{ID: f.ID, Filename: f.Filename, Data: f.Data})
-	if len(lex.Lex()) > 0 {
-		return "", false
-	}
-	tree, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
-	if len(diags) > 0 || tree == nil {
+	lex.Lex()
+	tree, _ := parser.NewParser(f.ID, lex.Tokens()).Parse()
+	if tree == nil || tree.Package == "" {
 		return "", false
 	}
 	return tree.Package, true

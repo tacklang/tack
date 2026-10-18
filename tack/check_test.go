@@ -647,3 +647,35 @@ func TestCheckReportsEveryStage(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckLibraryWithSyntaxError checks a syntax error in a library's
+// first file leaves the package a library: --check reports the error and
+// goes on to check the package, reporting a type error after it, and
+// never calls the package not a main package. A lexical error is reported
+// the same way, without that message.
+func TestCheckLibraryWithSyntaxError(t *testing.T) {
+	for _, tc := range []struct{ name, line string }{
+		{"stray name in a body", "    l\n"},
+		{"stray func between functions", "}\n\nfunc\n\nfunc Other() {\n"},
+		{"lexical error", "    @\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeDir(t, withFiles(libModule, map[string]string{
+				"geom/geom.tck": "package geom\n\n" +
+					"pub func Area(w int64, h int64) int64 {\n" + tc.line +
+					"    return w * h\n}\n\n" +
+					"pub func Wrong() int64 {\n    return \"w\"\n}\n",
+			}))
+			t.Chdir(root)
+			r := runTack(t, "--check", "geom")
+			assertDiagnostics(t, r)
+			if strings.Contains(r.stderr, "not a main package") {
+				t.Errorf("a library with an error was called not a main package:\n%s", r.stderr)
+			}
+			typeErr := "cannot use string as int64 in return from Wrong"
+			if tc.name != "lexical error" && !strings.Contains(r.stderr, typeErr) {
+				t.Errorf("the package was not checked past its syntax error:\n%s", r.stderr)
+			}
+		})
+	}
+}
