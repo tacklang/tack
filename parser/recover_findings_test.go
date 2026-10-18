@@ -82,6 +82,38 @@ func g() {
     }
 }
 `, []string{"check", "g"}},
+	{"an extern's damaged line keeps the vars after it", `package main
+
+extern("c_live") func live() } else { //E
+
+mut seed uint64 = 1
+
+mut flips int64 = 0
+
+func check() {
+}
+`, []string{"seed", "flips", "check"}},
+	{"an extern written with a body skips the body whole", `package main
+
+extern("c_live") func live() int64 { //E
+    mut x := 1
+    var y = 2
+    return x
+}
+
+mut flips int64 = 0
+`, []string{"flips"}},
+	{"a var with func for its keyword keeps the vars after it", `package main
+
+func counts [lexer.MaxTokens]int64 //E
+
+var corner = geom.Corners[1].x
+var far = 2
+
+func size() int64 {
+    return 8
+}
+`, []string{"corner", "far", "size"}},
 	{"a func line holding a composite literal is a statement", `package main
 
 func main() {

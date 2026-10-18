@@ -224,6 +224,17 @@ func (p *Parser) bodyAfterParams() bool {
 // parenthesis closing its parameters is, past its type parameters, and
 // whether they close on its line.
 func (p *Parser) paramsEnd() (int, bool) {
+	k, ok := p.paramsAt()
+	if !ok {
+		return 0, false
+	}
+	return p.closeOnLine(k, lexer.LParen, lexer.RParen)
+}
+
+// paramsAt returns how many places ahead of the func that is next the
+// parenthesis opening its parameters is, after its name or after type
+// parameters closed on its line, and whether it is there.
+func (p *Parser) paramsAt() (int, bool) {
 	k := p.funcNameAt() + 1
 	if p.peekAt(k).Kind() == lexer.LBrack {
 		end, ok := p.closeOnLine(k, lexer.LBrack, lexer.RBrack)
@@ -232,10 +243,7 @@ func (p *Parser) paramsEnd() (int, bool) {
 		}
 		k = end + 1
 	}
-	if p.peekAt(k).Kind() != lexer.LParen {
-		return 0, false
-	}
-	return p.closeOnLine(k, lexer.LParen, lexer.RParen)
+	return k, p.peekAt(k).Kind() == lexer.LParen
 }
 
 // resultToken reports whether tk can be part of a function's results
@@ -294,8 +302,9 @@ func (p *Parser) hasBody(start int) bool {
 // is shaped like its header (see headerLineAt), import func main() {, or
 // that starts with a keyword and a name and is so shaped, mut main() {, a
 // function with func mistyped, or a brace after a function cut off from
-// its body (see afterBodilessFunc). A declaration that starts with var,
-// mut, type, import, extern or package otherwise cannot. One that starts
+// its body (see afterBodilessFunc). An extern func's can only when it is
+// written with a body (see externBodyAt). A declaration that starts with
+// var, mut, type, import or package otherwise cannot. One that starts
 // with anything else can when it starts as a statement does (see
 // stmtLike), or is on a header-shaped line, main() { or 1 main() {.
 func (p *Parser) holdsNoStmts(start int) bool {
@@ -321,6 +330,8 @@ func (p *Parser) holdsNoStmtsAt(start int) bool {
 	k := p.declKeywordIndex(start)
 	tk := &p.tokens[k]
 	switch {
+	case isKeyword(tk, lexer.Extern):
+		return !p.externBodyAt(k)
 	case p.funcOnLine(k) && p.headerLineAt(k), isKeyword(tk, lexer.Func):
 		return false
 	case tk.Kind() == lexer.LCurl && p.afterBodilessFunc():
@@ -329,6 +340,17 @@ func (p *Parser) holdsNoStmtsAt(start int) bool {
 		return !p.funcMistyped(k)
 	}
 	return !p.headerLineAt(k) && !p.stmtLike(k)
+}
+
+// externBodyAt reports whether the extern func whose line starts at the
+// token k is written with a body, an error of its own: its line is shaped
+// like a function's header (see headerLineAt), extern func f() {, with no
+// closing brace on it. An extern has no body to follow its line, so one
+// with a closing brace, extern func f() } else {, is that line's damage,
+// and the lines after it are declarations, not statements.
+func (p *Parser) externBodyAt(k int) bool {
+	return p.headerLineAt(k) &&
+		!p.onLine(k, func(tk *lexer.Token) bool { return tk.Kind() == lexer.RCurl })
 }
 
 // noStmtKeyword reports whether tk is a keyword that starts a declaration
@@ -413,11 +435,18 @@ func (p *Parser) lastDecl() ast.Decl {
 
 // funcShapeAt reports whether the declaration that starts at the token
 // start, pub or lib aside, starts as a function's does, func f( or func
-// (p T) m( (see declShapeAfterFunc), rather than func followed by
-// anything else, which says nothing about where a body would be.
+// (p T) m( (see declShapeAfterFunc), or func f[T Any]( with its type
+// parameters closed on its line (see paramsAt), rather than func
+// followed by anything else, which says nothing about where a body would
+// be. A bracket that no parameters' parenthesis follows, func counts
+// [3]int64, a var's keyword mistyped, starts no function.
 func (p *Parser) funcShapeAt(start int) bool {
 	saved := p.index
 	defer func() { p.index = saved }()
 	p.index = p.declKeywordIndex(start)
-	return p.declShapeAfterFunc()
+	if !p.declShapeAfterFunc() {
+		return false
+	}
+	_, ok := p.paramsAt()
+	return ok
 }
