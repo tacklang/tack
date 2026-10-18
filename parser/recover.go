@@ -34,7 +34,8 @@ import (
 // starting as only a declaration does (see atDeclLine), at any depth, or
 // with var or mut outside every brace, or inside one when the damaged
 // declaration cannot hold statements (see holdsNoStmts). A function's
-// header line counts as opening only its body's brace (see declDepth).
+// header line, or a type's first line, counts as opening only its body's
+// brace (see declDepth).
 //
 // A block stops at the start of a line only a declaration starts too: a
 // block left unclosed, the most common error that would swallow the rest
@@ -479,13 +480,14 @@ func (p *Parser) syncDecl(start int) {
 
 // declDepth returns the depth of braces from the token start, where a
 // damaged declaration starts, to the parser's token, as braceDepth does,
-// but for a function's header line: that line opens one brace, its body's,
-// when it ends in one, and none when it does not, whatever other braces
-// it holds, func f } else { a int64) {, which are its damage. Counting
+// but for a function's header line or a type's first line: that line
+// opens one brace, its body's or its struct's, when it ends in one, and
+// none when it does not, whatever other braces it holds, func f } else {
+// a int64) { or type } else { struct {, which are its damage. Counting
 // them would leave the skip inside braces the body never closes, past
 // every declaration after it but a function's.
 func (p *Parser) declDepth(start int) int {
-	if !p.funcHeaderAt(start) {
+	if !p.funcHeaderAt(start) && !p.typeAt(start) {
 		return p.braceDepth(start)
 	}
 	next, depth := p.nextLine(start), p.headerDepth(start)
@@ -509,16 +511,23 @@ func (p *Parser) funcHeaderAt(start int) bool {
 	return p.hasBody(start) || p.headerLineAt(start) && !p.holdsNoStmts(start)
 }
 
-// headerDepth returns how many braces the header line of the function
-// whose declaration starts at the token start opens: one, its body's,
-// when it is shaped like a header (see headerLineAt) or, for one that
-// starts with func, func f( {, its parameters damaged, ends in a brace,
-// and none otherwise.
+// headerDepth returns how many braces the first line of the function or
+// the type whose declaration starts at the token start opens: one, its
+// body's, when it is shaped like a header (see headerLineAt) or, for one
+// that starts with func or type, func f( { with its parameters damaged or
+// type T struct {, ends in a brace, and none otherwise.
 func (p *Parser) headerDepth(start int) int {
-	if p.headerLineAt(start) || p.hasBody(start) && p.lastOnLine(start) == lexer.LCurl {
+	if p.headerLineAt(start) ||
+		(p.hasBody(start) || p.typeAt(start)) && p.lastOnLine(start) == lexer.LCurl {
 		return 1
 	}
 	return 0
+}
+
+// typeAt reports whether the declaration that starts at the token start,
+// pub or lib aside, starts with type.
+func (p *Parser) typeAt(start int) bool {
+	return isKeyword(p.declTok(start), lexer.Type)
 }
 
 // declStarts reports whether the next token starts the line a declaration

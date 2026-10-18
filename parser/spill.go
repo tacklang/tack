@@ -133,14 +133,18 @@ func (p *Parser) braceIn(start int) bool {
 }
 
 // skipToLine consumes tokens, counting the braces they open and close, up
-// to the end of the file or the first token that starts a line outside
-// every brace consumed and for which stop reports true. It consumes at
-// least one token.
+// to the end of the file, the first token that starts a line outside
+// every brace consumed and for which stop reports true, or one that starts
+// a line inside them where a block's statements stop (see atBlockBreak).
+// A spilled line that opens braces it never closes, A}{{, would otherwise
+// take every declaration after it, unreported; a block it opens stops
+// there too. It consumes at least one token.
 func (p *Parser) skipToLine(stop func() bool) {
 	depth := 0
 	for {
 		depth = max(depth+braceStep(p.next().Kind()), 0)
-		if p.peek().Kind() == lexer.EOF || depth == 0 && p.atLineStart() && stop() {
+		if p.peek().Kind() == lexer.EOF ||
+			p.atLineStart() && (depth == 0 && stop() || depth > 0 && p.atBlockBreak()) {
 			return
 		}
 	}

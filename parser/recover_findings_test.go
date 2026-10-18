@@ -636,6 +636,33 @@ func bump() int64 {
     return 9
 }
 `, []string{"h", "bump"}},
+	{"braces in a damaged type line keep the mut declarations after it", `package main
+
+type  } else {  struct { //E
+    x int64
+}
+
+mut tagCalls int64
+mut valueCalls int64
+
+func f() {
+}
+`, []string{"tagCalls", "valueCalls", "f"}},
+	{"braces a spilled body leaves open keep the declarations after it", `package main
+
+func a0() {
+0 //E
+}
+A}{{
+    x := 1
+}
+
+type T1 struct {
+    x int64
+}
+
+var v2 = 3
+`, []string{"a0", "T1", "v2"}},
 }
 
 // TestRecoveryFindings checks each of findingCases.
