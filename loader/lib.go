@@ -3,6 +3,7 @@ package loader
 import (
 	"fmt"
 	"path"
+	"slices"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/lexer"
@@ -16,7 +17,8 @@ import (
 // not a main package, with everything each imports, as one Program whose
 // packages are each listed after those it imports. A directory whose name
 // starts with a dot is left out, with everything below it, as is one
-// holding a tack.mod of its own, another module's root. A main package is
+// holding a tack.mod of its own, another module's root, and std/builtin,
+// which only declares the builtins. A main package is
 // left out too: a library has none, and each one is checked by naming its
 // own directory. files and cFiles are dir's own, already read into res,
 // or nil when dir holds no Tack file.
@@ -35,6 +37,9 @@ func (l *Loader) loadLib(
 	if err != nil {
 		return nil, err
 	}
+	// std/builtin declares the builtins, which the driver reads on its
+	// own; it is no package to check.
+	dirs = slices.DeleteFunc(dirs, func(d string) bool { return mod.pathOf(d) == builtinPath })
 	g := newGraph(l, res, mod, nil)
 	loadedAny, sawMain := false, false
 	for _, d := range dirs {

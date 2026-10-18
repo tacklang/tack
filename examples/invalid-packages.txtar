@@ -113,21 +113,6 @@ dir-builtin-func-name/print/a.tck:1:9: error: print is not a valid package name:
    |	        ^~~~~
 02 |	
 
--- dir-builtin-name/tack.mod --
-module calc
--- dir-builtin-name/.target --
-builtin
--- dir-builtin-name/builtin/a.tck --
-package builtin
--- dir-builtin-name/expected --
-stage: load
----
-
-dir-builtin-name/builtin/a.tck:1:9: error: builtin is not a valid package name: it is reserved
-01 |	package builtin
-   |	        ^~~~~~~
-02 |	
-
 -- dir-builtin-type-name/tack.mod --
 module calc
 -- dir-builtin-type-name/.target --
@@ -201,21 +186,6 @@ stage: load
 dir-keyword-name/func/a.tck:1:9: error: func is not a valid package name: it is a keyword
 01 |	package fn
    |	        ^~
-02 |	
-
--- dir-reserved-name/tack.mod --
-module calc
--- dir-reserved-name/.target --
-std
--- dir-reserved-name/std/a.tck --
-package std
--- dir-reserved-name/expected --
-stage: load
----
-
-dir-reserved-name/std/a.tck:1:9: error: std is not a valid package name: it is reserved
-01 |	package std
-   |	        ^~~
 02 |	
 
 -- dir-uppercase-name/tack.mod --
@@ -3059,38 +3029,6 @@ stage: load
 mod-odd-byte/tack.mod:1:8: error: invalid module name "ca\x01lc": use lowercase letters, digits, -, . and _
 01 |	module calc
    |	       ^~~~~
-02 |	
-
--- mod-std/tack.mod --
-module std
--- mod-std/main.tck --
-package main
-
-func main() {
-}
--- mod-std/expected --
-stage: load
----
-
-mod-std/tack.mod:1:8: error: module name std is reserved for the standard library
-01 |	module std
-   |	       ^~~
-02 |	
-
--- mod-std-path/tack.mod --
-module std/calc
--- mod-std-path/main.tck --
-package main
-
-func main() {
-}
--- mod-std-path/expected --
-stage: load
----
-
-mod-std-path/tack.mod:1:8: error: module name std/calc starts with std, which is reserved for the standard library
-01 |	module std/calc
-   |	       ^~~~~~~~
 02 |	
 
 -- mod-trailing-dot/tack.mod --

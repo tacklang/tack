@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/tacklang/tack/internal/stdtest"
 )
 
 // libModule is a module with no main package: a root with no Tack files,
@@ -678,4 +680,44 @@ func TestCheckLibraryWithSyntaxError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCheckStd checks --check on the standard library itself: the
+// installed std, TACK_HOME's, and a copy of it elsewhere, a checkout
+// being worked on, which is a module named std whose imports of std
+// resolve in the copy. Both check clean, std/builtin, which only documents
+// the builtins, being skipped as no package.
+func TestCheckStd(t *testing.T) {
+	assertCheckClean(t, runTack(t, "--check", stdtest.Dir()))
+	copied := filepath.Join(copyStd(t), "src", "std")
+	assertCheckClean(t, runTack(t, "--check", copied))
+
+	// An error in the copy is reported in the copy's file, so the copy's
+	// packages, not the installed ones, are the ones checked.
+	appendTo(t, filepath.Join(copied, "errors", "errors.tck"),
+		"\nfunc broken() int64 {\n    return \"b\"\n}\n")
+	r := runTack(t, "--check", copied)
+	assertDiagnostics(t, r)
+	if !strings.Contains(r.stderr, filepath.Join(copied, "errors", "errors.tck")) &&
+		!strings.Contains(r.stderr, "errors/errors.tck") {
+		t.Errorf("the copy's error was not reported:\n%s", r.stderr)
+	}
+}
+
+// TestCheckPackagesNamedBuiltinAndStd checks builtin and std are package
+// names like any other: a module's packages may have them, and a package
+// named builtin declares and calls its own functions beside the builtins.
+func TestCheckPackagesNamedBuiltinAndStd(t *testing.T) {
+	root := writeDir(t, map[string]string{
+		"tack.mod": "module calc\n",
+		"builtin/b.tck": "package builtin\n\n" +
+			"pub func Twice(n int64) int64 {\n    print(\"twice\\n\")\n    return helper(n) * 2\n}\n\n" +
+			"func helper(n int64) int64 {\n    return n + len(\"\")\n}\n",
+		"std/s.tck": "package std\n\npub func Three() int64 {\n    return 3\n}\n",
+		"main.tck": "package main\n\n" +
+			"import b from \"calc/builtin\"\nimport s from \"calc/std\"\n\n" +
+			"func main() {\n    if b.Twice(s.Three()) != 6 {\n        exit(1)\n    }\n}\n",
+	})
+	t.Chdir(root)
+	assertCheckClean(t, runTack(t, "--check", "."))
 }

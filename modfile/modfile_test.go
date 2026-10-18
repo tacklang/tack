@@ -30,6 +30,8 @@ func TestParseAccepts(t *testing.T) {
 		{"module a\n", "a"},
 		{"module 7\n", "7"},
 		{"module stdlib\n", "stdlib"},
+		{"module std\n", "std"},
+		{"module std/x\n", "std/x"},
 		{"module x/std\n", "x/std"},
 		{"module a//b\n", "a"}, // // starts a comment even inside a word
 		{"module " + strings.Repeat("a", 10000) + "\n", strings.Repeat("a", 10000)},
@@ -63,8 +65,6 @@ func TestParseRejects(t *testing.T) {
 		{"odd byte", "module ca\xfflc\n", `invalid module name "ca\xfflc": use lowercase`},
 		{"lone carriage return", "module ca\rlc\n", `invalid module name "ca\rlc"`},
 		{"tilde", "module a~b\n", "use lowercase letters"},
-		{"std", "module std\n", "module name std is reserved for the standard library"},
-		{"std path", "module std/x\n", "module name std/x starts with std, which is reserved"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			mod, diags := parse(tt.src)

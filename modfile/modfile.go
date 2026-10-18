@@ -15,10 +15,6 @@ import (
 // directory.
 const Name = "tack.mod"
 
-// stdModule is the name of the standard library's module, which no other
-// module may take, or start with.
-const stdModule = "std"
-
 // File is what a tack.mod declares.
 type File struct {
 	// Module is the module's name.
@@ -149,21 +145,14 @@ func split(text []byte, base int) []field {
 // CheckModule returns why name cannot be a module's name, or "" if it can.
 // A module name is one or more parts joined by slashes; a part is
 // lowercase ASCII letters, digits, -, . and _, and does not start or end
-// with . or -. The first part may not be std, the standard library's.
+// with . or -. std is a name like any other: the standard library's own
+// tack.mod says module std, and a checkout of it is checked as that module.
 func CheckModule(name string) string {
 	parts := strings.Split(name, "/")
 	for _, part := range parts {
 		if msg := checkPart(part); msg != "" {
 			return fmt.Sprintf("invalid module name %s: %s", show(name), msg)
 		}
-	}
-	switch {
-	case name == stdModule:
-		return "module name std is reserved for the standard library"
-	case parts[0] == stdModule:
-		return fmt.Sprintf(
-			"module name %s starts with std, which is reserved for the standard library",
-			show(name))
 	}
 	return ""
 }

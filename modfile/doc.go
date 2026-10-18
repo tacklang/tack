@@ -30,7 +30,8 @@
 //
 // A module name is one or more parts joined by slashes. A part is lowercase
 // ASCII letters, digits, -, . and _, and neither starts nor ends with . or
-// -. The first part may not be std, which names the standard library. There
+// -. std is a name like any other: the standard library's own tack.mod says
+// module std, and a checkout of it is checked as that module. There
 // is no length limit. A name with a byte that is not printable ASCII is
 // quoted in a diagnostic, so the byte can be seen.
 package modfile

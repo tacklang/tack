@@ -70,8 +70,8 @@
 // that name or main, which may be in any directory: one giving another
 // does not match its directory, and both in one directory are two
 // packages. A name other than main must be a valid package name: lowercase
-// ASCII letters and digits starting with a letter, not a keyword, a
-// builtin type's or function's name, builtin or std. The main package of a
+// ASCII letters and digits starting with a letter, not a keyword or a
+// builtin type's or function's name. The main package of a
 // program must be a main package.
 //
 // An import path starts with a module's name, never with . or /, and its
@@ -108,16 +108,19 @@
 //
 // The standard library is the module std, whose root is the directory
 // Loader.Std names, read through its own FS or the Loader's. An import
-// path whose first part is std always names a package of std, whichever
-// package imports it: std/fmt is the directory fmt below the root, loaded
+// path whose first part is std names a package of std, whichever package
+// imports it, unless the importer's own module is named std or the path
+// is below its name: std/fmt is the directory fmt below the root, loaded
 // as any package is, with Module std, its Dir and CFiles paths in std's
 // FS, and its files added to the Result like the program's, named by
 // Display. A package of std may import only std packages, and an import
-// of std with no Loader.Std is an error. std is never read as a module of
-// the program: its tack.mod is not read, and its name, std, is one modfile
-// gives no other module. A directory to build that is at or below std's
-// root, read through the Loader's own FS, is in the module std; one
-// anywhere else whose tack.mod says module std is an error at that name.
+// of std with no Loader.Std is an error. std's own tack.mod is not read. A
+// directory to build that is at or below std's root, read through the
+// Loader's own FS, is in the module std. One anywhere else whose tack.mod
+// says module std, a checkout of std being worked on, is a module named
+// std, and its packages' imports of std/... name its own packages, never
+// the installed std's, so the two copies never mix in one program. In a
+// library, std/builtin, which only declares the builtins, is left out.
 // What std's packages may use of each other, lib included, is the
 // resolver's to check, by Module, as for any two packages.
 //

@@ -187,7 +187,11 @@ import path holding another package, or no `.tck` file, is checked as a
 library: every package at or below it in its module, with what they
 import, leaving out main packages (check one by naming its directory),
 directories starting with `.`, and nested modules. A single file whose
-package is not main is checked as a library too. With a dump flag,
+package is not main is checked as a library too, and a library with a
+syntax error is still one: the error is reported and its package checked
+past it. `tack --check src/std` checks the standard library, from a
+checkout as well as the installed copy, leaving out `std/builtin`, which
+only declares the builtins. With a dump flag,
 `--check` prints that stage's output, when the stages up to it found no
 problem, and the diagnostics of any later stage: `--check --ast` prints
 the trees on stdout and a type error on stderr, and exits 1; on syntax
@@ -422,9 +426,11 @@ makes for itself, which has a letter after `tack_`.
   calc`, and may hold `//` comments, which run to the end of the line
   wherever they start, and blank lines. A module name is one or more parts
   joined by `/`, each lowercase ASCII letters, digits, `-`, `.` and `_`,
-  not starting or ending with `.` or `-`, as in `example.com/my-tools`; it
-  may not be `std` or start with `std/`, which are the standard library's.
-  Anything else in `tack.mod` is an error at the line it is on: a second
+  not starting or ending with `.` or `-`, as in `example.com/my-tools`.
+  `std` is a name like any other: the standard library's own `tack.mod`
+  says `module std`, so a checkout of it is checked as that module, and in
+  a module named `std` an import of `std/...` names the module's own
+  package, never the installed standard library's. Anything else in `tack.mod` is an error at the line it is on: a second
   `module` line, a `module` without a name or with two, another directive,
   or a bad name. A directory with no `tack.mod` in it or above it is an
   error, `no tack.mod found in dir or any parent directory`; a file
@@ -436,8 +442,8 @@ makes for itself, which has a letter after `tack_`.
   and every file's package clause must say that name, `package lex does not
   match its directory; expected package lexer`, or `main`, which may be in
   any directory. A package name is lowercase ASCII letters and digits,
-  starting with a letter, and is not a keyword, a builtin type's or
-  function's name, `builtin` or `std`: a directory holding a package of
+  starting with a letter, and is not a keyword or a builtin type's or
+  function's name; `builtin` and `std` are names like any other: a directory holding a package of
   another name is an error, such as `my-tools is not a valid package name:
   use lowercase letters and digits`, though it may hold a `main` package,
   and directories below it may hold packages. A program is built from a
@@ -558,9 +564,9 @@ makes for itself, which has a letter after `tack_`.
   packages`. A std path naming no directory is `cannot find package
   std/nosuch: no directory std/nosuch in module std`, and `std/builtin`,
   which declares the builtins, is not a package programs use: `std/builtin
-  documents the builtins and cannot be imported`. No other module may be
-  named `std` or start with `std/` (above); a directory inside std itself
-  is in the module std.
+  documents the builtins and cannot be imported`. A directory inside the
+  installed std is in the module std, and so is a copy of std elsewhere,
+  through its `tack.mod` (above).
 - A package-level variable's initializer may name any immutable global, of
   its own package or an imported one, declared before or after it, and
   select its fields and index it: `var KindPlus = KindNumber + 1`, `var

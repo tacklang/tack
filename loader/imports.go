@@ -10,10 +10,6 @@ import (
 	"github.com/tacklang/tack/diag"
 )
 
-// stdPrefix starts the import path of every package of the standard
-// library, the module std, below its root.
-const stdPrefix = stdName + "/"
-
 // builtinPath is the path of the package that documents the builtins.
 const builtinPath = "std/builtin"
 
@@ -154,14 +150,19 @@ func (g *graph) loadPackage(imp *ast.Import, mod *module) *ast.Package {
 
 // moduleOf returns the module whose package p, imported by the package
 // from, names, or why p cannot be imported, before looking for it. A path
-// whose first part is std is in the standard library; any other is in the
-// main package's module, which a package of std, or a program built from a
-// single file, has none of.
+// in the module being loaded, its name or below it, imported by one of its
+// own packages, is in that module, even one named std, a checkout of the
+// standard library being worked on, so that its packages never mix with
+// the installed std's; any other path whose first part is std is in the
+// standard library; any other is in the main package's module, which a
+// package of std, or a program built from a single file, has none of.
 func (g *graph) moduleOf(from *ast.Package, p string) (*module, string) {
 	switch {
 	case p == builtinPath:
 		return nil, builtinPath + " documents the builtins and cannot be imported"
-	case p == stdName || strings.HasPrefix(p, stdPrefix):
+	case g.mod != nil && from.Module == g.mod.name && under(p, g.mod.name):
+		return g.inModule(p)
+	case under(p, stdName):
 		if g.std == nil {
 			return nil, fmt.Sprintf("cannot import %s: there is no standard library", show(p))
 		}
@@ -176,6 +177,18 @@ func (g *graph) moduleOf(from *ast.Package, p string) (*module, string) {
 		return nil, fmt.Sprintf(
 			"cannot import %s: a single file can import only the standard library", show(p))
 	}
+	return g.inModule(p)
+}
+
+// under reports whether the import path p is the module name mod or below
+// it.
+func under(p, mod string) bool {
+	return p == mod || strings.HasPrefix(p, mod+"/")
+}
+
+// inModule returns g's module as the module of p, or why p names no
+// package in it.
+func (g *graph) inModule(p string) (*module, string) {
 	if msg := checkImportPath(p, g.mod.name); msg != "" {
 		return nil, msg
 	}

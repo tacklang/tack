@@ -263,20 +263,24 @@ func TestStdImportErrors(t *testing.T) {
 }
 
 // TestStdRootIsTheModuleStd checks a directory in std, read through the
-// loader's own FS, is in the module std, whose tack.mod, module std, no
-// other module may have, is not read; its imports of std resolve in it,
-// and its imports of anything else are errors. A copy of std elsewhere is
-// another module, whose tack.mod is rejected.
+// loader's own FS, is in the module std, whose tack.mod is not read; its
+// imports of std resolve in it, and its imports of anything else are
+// errors. A copy of std elsewhere, a checkout being worked on, is a module
+// named std too, whose imports of std resolve in the copy, never in the
+// installed std.
 func TestStdRootIsTheModuleStd(t *testing.T) {
 	fsys := fstest.MapFS{
 		"std/tack.mod": file("module std\n"),
 		"std/tool/main.tck": file(
 			"package main\nimport f from \"std/fmt\"\nfunc main() { f.P() }\n",
 		),
-		"std/fmt/fmt.tck":    file("package fmt\npub func P() {}\n"),
-		"std/bad/main.tck":   file("package main\nimport l from \"calc/lexer\"\nfunc main() {}\n"),
-		"copy/tack.mod":      file("module std\n"),
-		"copy/tool/main.tck": file("package main\nfunc main() {}\n"),
+		"std/fmt/fmt.tck":  file("package fmt\npub func P() {}\n"),
+		"std/bad/main.tck": file("package main\nimport l from \"calc/lexer\"\nfunc main() {}\n"),
+		"copy/tack.mod":    file("module std\n"),
+		"copy/tool/main.tck": file(
+			"package main\nimport f from \"std/fmt\"\nfunc main() { f.OnlyInCopy() }\n",
+		),
+		"copy/fmt/fmt.tck": file("package fmt\npub func OnlyInCopy() {}\n"),
 	}
 	res := loadWithStd(t, fsys, "std", "std/tool")
 	if len(res.Diags) > 0 {
@@ -294,12 +298,16 @@ func TestStdRootIsTheModuleStd(t *testing.T) {
 	}
 
 	res = loadWithStd(t, fsys, "std", "copy/tool")
-	if want := "module name std is reserved for the standard library"; messages(res.Diags) != want {
-		t.Errorf("diagnostics\n%s\nwant\n%s", messages(res.Diags), want)
+	if len(res.Diags) > 0 {
+		t.Fatalf("copy: diagnostics: %v", res.Diags)
+	}
+	if got, want := packages(res), "std/fmt:std:copy/fmt std/tool:std:copy/tool"; got != want {
+		t.Errorf("copy: packages = %s, want %s", got, want)
 	}
 
 	// Read through an FS of its own, std is never the module of a
-	// directory to build, even one at the same path.
+	// directory to build, even one at the same path: the directory is a
+	// module named std, read from its tack.mod.
 	l := &loader.Loader{
 		FS:  loader.FromFS(fsys),
 		Std: &loader.Std{FS: loader.FromFS(fsys), Dir: "std"},
@@ -308,8 +316,8 @@ func TestStdRootIsTheModuleStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "module name std is reserved for the standard library"; messages(res.Diags) != want {
-		t.Errorf("diagnostics\n%s\nwant\n%s", messages(res.Diags), want)
+	if len(res.Diags) > 0 {
+		t.Errorf("own FS: diagnostics: %v", res.Diags)
 	}
 }
 

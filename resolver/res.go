@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	mainPackage    = "main"
-	builtinPackage = "builtin"
+	mainPackage = "main"
+	// builtinPackage labels the builtins in funcRefs. It is empty, which
+	// no package's name is, so a package named builtin keeps its own.
+	builtinPackage = ""
 	mainFunc       = "main"
 )
 
