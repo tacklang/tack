@@ -2,6 +2,7 @@ package c_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -330,6 +331,20 @@ func TestStructsAtRuntime(t *testing.T) {
 				t.Errorf("got stdout %q, status %d; want %q, %d", out, status, tt.stdout, tt.status)
 			}
 		})
+	}
+}
+
+// TestEqualOperandsExampleIsSanitizerClean builds examples/equal-operands
+// with clang's warnings as errors and the address and undefined behavior
+// sanitizers on, every finding fatal, and checks it exits 23, every check
+// passed: an operand of a struct's, an array's or a union's equality that
+// holds calls, which C cannot take the address of as rendered, is read
+// through a temporary, compared rightly, and its calls run once each, in
+// order.
+func TestEqualOperandsExampleIsSanitizerClean(t *testing.T) {
+	src := readFile(t, filepath.Join("..", "..", "examples", "equal-operands", "main.tck"))
+	if _, status := runStatus(t, buildWith(t, src, sanitizers...)); status != 23 {
+		t.Errorf("equal-operands exited %d, want 23", status)
 	}
 }
 

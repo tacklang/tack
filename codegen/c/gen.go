@@ -501,7 +501,8 @@ func divisionIn(n ast.Node) (division, bool) {
 // helper too, so every division looks the same.
 func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
 	t := g.cType(typ)
-	fmt.Fprintf(&g.buf, "static %s %s(%s a, %s b) {\n", t, divisionName(op, typ), t, t)
+	name := divisionName(op, typ)
+	fmt.Fprintf(&g.buf, "%sstatic %s %s(%s a, %s b) {\n", g.maybeUnused(name), t, name, t, t)
 	switch {
 	case types.IsUnsigned(typ) && op == ast.Div:
 		g.buf.WriteString("    return a / b;\n")
@@ -534,7 +535,8 @@ func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
 //	}
 func (g *generator) emitShift(op ast.BinaryOp, typ types.Type) {
 	t := g.cType(typ)
-	fmt.Fprintf(&g.buf, "static %s %s(%s a, uint64_t n) {\n", t, divisionName(op, typ), t)
+	name := divisionName(op, typ)
+	fmt.Fprintf(&g.buf, "%sstatic %s %s(%s a, uint64_t n) {\n", g.maybeUnused(name), t, name, t)
 	switch {
 	case op == ast.Shl:
 		fmt.Fprintf(&g.buf, "    return n >= sizeof (%s) * 8 ? 0 : (%s)((uint64_t)a << n);\n", t, t)
@@ -559,13 +561,21 @@ func divisionName(op ast.BinaryOp, typ types.Type) string {
 	return "tack_" + names[op] + "_" + types.NewTable().Name(typ)
 }
 
+// global is a package-level variable lowered to C: its C name, and its
+// declaration, one line, written without __attribute__((unused)), which
+// is known only once every body is generated (see emitGlobals).
+type global struct {
+	name string
+	decl string
+}
+
 // generateDecls generates every top-level declaration: each global as one
 // line of C, and each function's body, returned alongside the functions'
 // signatures in source order. An extern func's body is in C, and its
 // prototype declares it; a generic function is never generated itself,
 // but once for each of its instances (see generateInstances).
 func (g *generator) generateDecls() (
-	globals []string,
+	globals []global,
 	sigs []string,
 	bodies [][]string,
 	diags []diag.Diagnostic,
@@ -573,11 +583,11 @@ func (g *generator) generateDecls() (
 	for _, decl := range g.decls {
 		switch d := decl.(type) {
 		case *ast.Var:
-			global, diags := g.generateGlobal(d)
+			line, diags := g.generateGlobal(d)
 			if len(diags) > 0 {
 				return nil, nil, nil, diags
 			}
-			globals = append(globals, global)
+			globals = append(globals, global{name: g.mangle(d, d.Name), decl: line})
 
 		case *ast.Func:
 			if !hasBody(d) {
@@ -610,13 +620,18 @@ func hasBody(fn *ast.Func) bool {
 	return !fn.Extern && !fn.Generic()
 }
 
-// emitGlobals writes the package-level variable declarations.
-func (g *generator) emitGlobals(globals []string) {
+// emitGlobals writes the package-level variable declarations, each that
+// no function's lowered body names declared with __attribute__((unused)),
+// as a function is (see maybeUnused): C warns about a static variable
+// nothing names, and one may be named by no C, though Tack reads it, when
+// only another global's value, which is computed, or a function never
+// generated, a generic one with no instance, reads it.
+func (g *generator) emitGlobals(globals []global) {
 	if len(globals) == 0 {
 		return
 	}
-	for _, global := range globals {
-		g.buf.WriteString(global + "\n")
+	for _, v := range globals {
+		g.buf.WriteString(g.maybeUnused(v.name) + v.decl + "\n")
 	}
 	g.buf.WriteString("\n")
 }

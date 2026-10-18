@@ -68,7 +68,7 @@ static size_t tack_rem_unsafe_size_t(size_t a, size_t b) {
 }
 
 static const size_t tack_4_main5_limit = 4294967295;
-static const uint32_t tack_4_main5_small = 7;
+__attribute__((unused)) static const uint32_t tack_4_main5_small = 7;
 static const uintptr_t tack_4_main9_fromSmall = 7;
 static size_t tack_4_main5_grown = 0;
 

@@ -26,7 +26,7 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
 static const int64_t tack_4_calc5_lexer10_KindNumber = 1;
 static const int64_t tack_4_calc5_lexer8_KindPlus = 2;
 static const int64_t tack_4_calc5_lexer9_MaxTokens = 4;
-static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
+__attribute__((unused)) static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
 
 typedef struct {
     int64_t r0;

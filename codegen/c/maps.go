@@ -407,7 +407,14 @@ func (g *generator) writeFrees(indent string, typ types.Type, ref string) {
 func (g *generator) emitMapFree(typ types.Type) {
 	table := g.prog.Types
 	key, value := table.Key(typ), table.Elem(typ)
-	fmt.Fprintf(&g.buf, "static void %s(const %s *m) {\n", g.freeName(typ), g.mapName(typ))
+	free := g.freeName(typ)
+	fmt.Fprintf(
+		&g.buf,
+		"%sstatic void %s(const %s *m) {\n",
+		g.maybeUnused(free),
+		free,
+		g.mapName(typ),
+	)
 	if g.owned(key) || g.owned(value) {
 		g.buf.WriteString(
 			"    for (int64_t i = 0; i < m->used; i++) {\n        if (m->entries[i].live) {\n",

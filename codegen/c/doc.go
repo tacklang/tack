@@ -144,11 +144,13 @@
 // called int or exit. A function whose lowered body never names one of its
 // parameters, which Tack allows, as a callback or a generic function ignoring
 // one does, starts with (void)p_x; for it, so C's unused-parameter
-// warning never fires (see unusedParams). A function, an instance or a map
-// type's has, at, put or take helper that no other function's lowered body
-// names, a function of std the program never calls among them, is declared
-// with __attribute__((unused)), so C's unused-function warning never fires
-// either (see unused.go).
+// warning never fires (see unusedParams). A function, an instance, a map
+// type's has, at, put or take helper, a list's, a map's or a union's free
+// helper, a division, remainder, shift or slice helper, or a global that
+// no other function's lowered body names, a function of std the program
+// never calls among them, is declared with __attribute__((unused)), so
+// C's unused-function and unused-variable warnings never fire either (see
+// unused.go).
 //
 // A mut parameter, mut p T, is a pointer, T *p_p, to the caller's
 // variable. Every read and write of it goes through the pointer, (*p_p),
@@ -536,8 +538,9 @@
 // operand holding a list is a temporary or passed as mut in the other, so
 // the buffers it reads are the operands' own and still allocated. An
 // operand of == that is not a place C can take the address of, such as a
-// call's result, is held in a temporary first, where the comparison
-// evaluates it. A switch on a union is
+// call's result, or a literal whose C runs the calls in it first, (o0 =
+// f(1), o1 = f(2), (S){...}), a comma expression's value, is held in a
+// temporary first, where the comparison evaluates it. A switch on a union is
 // a chain of ifs on its tag, through a pointer to the switched place, or
 // to a copy of a value that is no place or of a mutable global; the last
 // clause of one covering every case is the final else, and one with no

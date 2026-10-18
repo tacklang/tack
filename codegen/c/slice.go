@@ -87,7 +87,15 @@ func (g *generator) emitSliceHelper(h sliceHelper) {
 	if h.from {
 		params, hi = "int64_t lo", "s.len"
 	}
-	fmt.Fprintf(&g.buf, "static %s %s(%s s, %s) {\n", ctype, h.name(), ctype, params)
+	fmt.Fprintf(
+		&g.buf,
+		"%sstatic %s %s(%s s, %s) {\n",
+		g.maybeUnused(h.name()),
+		ctype,
+		h.name(),
+		ctype,
+		params,
+	)
 	fmt.Fprintf(&g.buf, "    return (%s){lo == 0 ? s.ptr : s.ptr + lo, %s - lo};\n}\n\n", ctype, hi)
 }
 

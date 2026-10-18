@@ -31,16 +31,12 @@ const maxFailRuns = 40
 // sanitize are the flags every build of a generated program takes: C11,
 // every warning an error, and the address and undefined behavior
 // sanitizers, stopping at the first report.
-// -Wno-unused-function works around a finding, a map type's free
-// function generated and never called (see
-// TestFindingUnusedMapFreeWarns), and -Wno-tautological-overlap-compare
-// another, a condition always false, as x < 3 && x > 5, written as is in
-// C (see TestFindingOverlapCompareWarns), and -Wno-unused-const-variable
-// a third, a global of a std package the program never reads (see
-// TestFindingUnusedStdConstWarns).
+// -Wno-tautological-overlap-compare works around a finding, a condition
+// always false, as x < 3 && x > 5, written as is in C (see
+// TestFindingOverlapCompareWarns).
 var sanitize = []string{
-	"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
-	"-Wno-tautological-overlap-compare", "-Wno-unused-const-variable",
+	"-std=c11", "-Wall", "-Wextra", "-Werror",
+	"-Wno-tautological-overlap-compare",
 	"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
 }
 

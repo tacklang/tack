@@ -172,10 +172,12 @@ func (g *generator) emitFrees() {
 // list: it frees the lists the payload of the case the union holds holds,
 // and nothing for a case whose payload holds none.
 func (g *generator) emitUnionFree(typ types.Type) {
+	free := g.freeName(typ)
 	fmt.Fprintf(
 		&g.buf,
-		"static void %s(const %s *v) {\n    switch (v->tag) {\n",
-		g.freeName(typ),
+		"%sstatic void %s(const %s *v) {\n    switch (v->tag) {\n",
+		g.maybeUnused(free),
+		free,
 		g.structName(typ),
 	)
 	for i, uc := range g.prog.Types.Cases(typ) {

@@ -61,3 +61,87 @@ func TestUncalledFunctionsCompileStrictly(t *testing.T) {
 		})
 	}
 }
+
+// unnamedHelpers names helpers no emitted C calls: the free helpers of a
+// list, a map and a union type named only by a function nothing calls,
+// whose plain parameters it never frees; the division, remainder, shift
+// and slice helpers of a generic function with no instance; std/sort's
+// insertion_max and division helper, which only sort.by reads, with
+// sort.is_sorted alone called; and a global only another global's value
+// reads, which C never names, since that value is computed. main uses a
+// division helper and a free helper of its own, so a helper marked
+// unused that is called still runs.
+const unnamedHelpers = `package main
+
+import sort from "std/sort"
+
+type Any interface {
+}
+
+type P struct {
+    a int64
+    l list[int64]
+}
+
+type U union {
+    l list[int64]
+    none
+}
+
+var base int64 = 2
+
+var derived int64 = base + 1
+
+func asc(a int64, b int64) bool {
+    return a < b
+}
+
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func alone[T Any](x int64, s string, v []int64, t T) int64 {
+    if len(s) < 1 || len(v) < 1 {
+        return 0
+    }
+    return x / 3 + x % 5 + (x << 2) + (x >> 1) + len(s[1:]) + len(s[0:1]) + len(v[1:]) + len(v[0:1])
+}
+
+func quot(a int64, b int64) int64 {
+    if b == 0 {
+        return 0
+    }
+    return a / b
+}
+
+func never(m map[string]list[P], n map[int64]U, q list[list[int64]], r list[U]) int64 {
+    return len(m) + len(n) + len(q) + len(r)
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    inner := make(list[int64], c_allocator)
+    err := append(mut l, inner)
+    min := -9223372036854775807 - 1
+    sorted := len(l) == 1 && sort.is_sorted(l[0], asc)
+    check(err.code == 0 && sorted && quot(min, -1) == min, "called helpers")
+    check(derived == 3, "a global only a global reads")
+}
+`
+
+// TestUnnamedHelpersCompileStrictly builds unnamedHelpers with every
+// warning an error, at -O0 and -O2, and checks it runs: no helper or
+// global the program's C never names makes C warn, and one it does name
+// still works.
+func TestUnnamedHelpersCompileStrictly(t *testing.T) {
+	for _, opt := range []string{"-O0", "-O2"} {
+		t.Run(opt, func(t *testing.T) {
+			runChecks(t, buildWithStdAndC(t, unnamedHelpers, "", opt), 2)
+		})
+	}
+}

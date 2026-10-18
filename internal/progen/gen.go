@@ -67,11 +67,10 @@ type Gen struct {
 	funcs    []*Func // the functions generated so far, which later ones may call
 	scopes   []*scope
 	names    int
-	depth    int // how deeply blocks nest where generation is
-	loops    int // how many loops enclose where generation is
-	mult     int // how many times, at most, the code being generated runs per call
-	cost     int // the estimated cost of the function being generated
-	noCalls  bool
+	depth    int  // how deeply blocks nest where generation is
+	loops    int  // how many loops enclose where generation is
+	mult     int  // how many times, at most, the code being generated runs per call
+	cost     int  // the estimated cost of the function being generated
 	noLists  bool // no expression may name a list or a map, which is passed as mut
 	inSwitch bool // inside a switch's clause, where break and continue are not made
 	inDefer  bool // inside deferred code, which may not break, continue or return

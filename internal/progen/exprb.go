@@ -138,13 +138,7 @@ func (g *Gen) equalExpr(d int) Expr {
 		return g.stringOrder(v)
 	}
 	l := varExpr(v)
-	// No call in the other side: a struct or array literal holding calls,
-	// compared, lowers to C that does not compile (finding: see
-	// TestFindingEqualLiteralWithCallsDoesNotCompile).
-	saved := g.noCalls
-	g.noCalls = true
 	r := g.valueOf(v.T, d+1)
-	g.noCalls = saved
 	op := "=="
 	if g.pick(2) == 0 {
 		op = "!="

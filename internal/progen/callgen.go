@@ -35,7 +35,7 @@ func (tg target) params() []*Var {
 // affordable reports whether the code being generated can pay for a call
 // costing cost.
 func (g *Gen) affordable(cost int) bool {
-	return !g.noCalls && g.cost+g.mult*cost <= costBudget
+	return g.cost+g.mult*cost <= costBudget
 }
 
 // targets returns every target that keep allows and the code being

@@ -25,9 +25,9 @@ static const unsigned char tack_str5[3] = {97, 98, 0};
 
 void tack_builtin_exit(int32_t);
 
-static const tack_string tack_4_main1_a = {tack_str0, TACK_C_STR_LEN(tack_str0)};
-static const tack_string tack_4_main1_b = {tack_str1, TACK_C_STR_LEN(tack_str1)};
-static const tack_string tack_4_main5_empty = {tack_str2, TACK_C_STR_LEN(tack_str2)};
+__attribute__((unused)) static const tack_string tack_4_main1_a = {tack_str0, TACK_C_STR_LEN(tack_str0)};
+__attribute__((unused)) static const tack_string tack_4_main1_b = {tack_str1, TACK_C_STR_LEN(tack_str1)};
+__attribute__((unused)) static const tack_string tack_4_main5_empty = {tack_str2, TACK_C_STR_LEN(tack_str2)};
 static const bool tack_4_main2_eq = true;
 static const bool tack_4_main2_ne = false;
 static const bool tack_4_main2_lt = true;

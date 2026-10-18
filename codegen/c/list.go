@@ -511,7 +511,14 @@ func (g *generator) frees(typ types.Type, ref string) []string {
 func (g *generator) emitListFree(typ types.Type) {
 	table := g.prog.Types
 	elem := table.Elem(typ)
-	fmt.Fprintf(&g.buf, "static void %s(const %s *v) {\n", g.freeName(typ), g.listName(typ))
+	free := g.freeName(typ)
+	fmt.Fprintf(
+		&g.buf,
+		"%sstatic void %s(const %s *v) {\n",
+		g.maybeUnused(free),
+		free,
+		g.listName(typ),
+	)
 	g.buf.WriteString("    for (int64_t i = v->len; i > 0; i--) {\n")
 	for _, line := range g.frees(elem, "v->ptr[i - 1]") {
 		fmt.Fprintf(&g.buf, "        %s\n", line)

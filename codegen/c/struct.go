@@ -533,9 +533,12 @@ func isNoError(values []any) bool {
 // itself, when it is a place C can take the address of, a variable, a
 // temporary, a field or an element of one, or a compound literal, and
 // otherwise a temporary of typ assigned rendered, which the comparison's
-// own order already evaluates where e is evaluated.
+// own order already evaluates where e is evaluated. An expression that
+// is a place in Tack is not one in C once its rendering runs steps before
+// it, as a literal holding two calls does, (o0 = f(1), o1 = f(2),
+// (S){...}), whose value is a comma expression's (see notPlace).
 func (g *generator) addressOf(e ast.Expr, typ types.Type, rendered string) string {
-	if isCName(rendered) || addressable(e) {
+	if isCName(rendered) || addressable(e) && !notPlace(rendered) {
 		return "&" + rendered
 	}
 	t := g.temp("q")
@@ -564,6 +567,63 @@ func addressable(e ast.Expr) bool {
 	default:
 		return false
 	}
+}
+
+// notPlace reports whether rendered, the C of an expression addressable
+// reports a place, gives its value through an operator whose result C
+// does not count as a place: a comma, a conditional or an assignment,
+// outside every call's arguments, index and initializer, where one is
+// only part of what the place is built from. Grouping parentheses do not
+// hide one, since (a, b) and ((a, b)).f are no more places than a, b is.
+// A character or string literal is skipped whole.
+func notPlace(rendered string) bool {
+	// open holds, for every bracket open around i, innermost last, 1 when
+	// it is not a grouping parenthesis and 0 when it is; enclosed is
+	// their sum, how many of them are not.
+	enclosed, open := 0, []int(nil)
+	for i := 0; i < len(rendered); i++ {
+		switch rendered[i] {
+		case '\'', '"':
+			i = closingQuote(rendered, i)
+		case '(', '[', '{':
+			open = append(open, encloses(rendered, i))
+			enclosed += open[len(open)-1]
+		case ')', ']', '}':
+			if n := len(open); n > 0 {
+				enclosed -= open[n-1]
+				open = open[:n-1]
+			}
+		case ',', '?', '=':
+			if enclosed == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// encloses is 1 when the bracket at i in s opens a call's arguments, an
+// index or an initializer, and 0 when it is a parenthesis that groups or
+// casts: one right after a name or a closing bracket opens a call's
+// arguments, and any other groups or casts.
+func encloses(s string, i int) int {
+	if s[i] != '(' || i > 0 && (isIdentByte(s[i-1]) || s[i-1] == ')' || s[i-1] == ']') {
+		return 1
+	}
+	return 0
+}
+
+// closingQuote returns the index in s of the quote that ends the
+// character or string literal whose opening quote is at i, past every
+// escaped character, or the last index of s when none does.
+func closingQuote(s string, i int) int {
+	quote := s[i]
+	for i++; i < len(s) && s[i] != quote; i++ {
+		if s[i] == '\\' {
+			i++
+		}
+	}
+	return min(i, len(s)-1)
 }
 
 // isCName reports whether s is a C identifier, such as the name of a

@@ -12,7 +12,7 @@ import (
 // The findings the generator has made, each minimized to a program that
 // shows it and kept as a test that fails while the finding stands, so it
 // is skipped; each says what is wrong. Remove the skip once the compiler
-// is fixed.
+// is fixed, and the test stays, so the finding does not come back.
 
 // strictC compiles src through the front end and compiles its C with
 // every warning an error, without linking, and returns clang's complaint,
@@ -36,13 +36,13 @@ func strictC(t *testing.T, src string) string {
 	return ""
 }
 
-// TestFindingUnusedMapFreeWarns: a map type named only in a function
-// nothing calls gets a free function, tack_free_N, that is never called
-// and not marked unused, as a list type's is, so -Wall reports it. The
-// same holds for an arithmetic helper only a std function nothing calls
-// uses, tack_div_int64 in a program calling sort.is_sorted alone.
+// TestFindingUnusedMapFreeWarns, fixed: a map type named only in a
+// function nothing calls gets a free function, tack_free_N, that is never
+// called, and was not marked unused, so -Wall reported it. The same held
+// for an arithmetic helper only a std function nothing calls uses,
+// tack_div_int64 in a program calling sort.is_sorted alone, which
+// TestFindingUnusedStdConstWarns checks.
 func TestFindingUnusedMapFreeWarns(t *testing.T) {
-	t.Skip("finding: unused static tack_free_N for a map type, -Wunused-function")
 	src := "package main\n\nfunc f(m map[int64]int64) int64 {\n    return len(m)\n}\n\n" +
 		"func main() {\n}\n"
 	if msg := strictC(t, src); msg != "" {
@@ -74,13 +74,12 @@ func TestFindingSelfCompareWarns(t *testing.T) {
 	}
 }
 
-// TestFindingEqualLiteralWithCallsDoesNotCompile: a comparison of a
-// struct with a struct literal holding two calls lowers to C that takes
+// TestFindingEqualLiteralWithCallsDoesNotCompile, fixed: a comparison of
+// a struct with a struct literal holding two calls lowered to C that took
 // the address of a comma expression, &(o0 = f(1), o1 = f(2), (S){...}),
-// which C rejects: the compiler accepts the program and the build fails
+// which C rejects: the compiler accepted the program and the build failed
 // in clang.
 func TestFindingEqualLiteralWithCallsDoesNotCompile(t *testing.T) {
-	t.Skip("finding: p == (S{a: f(1), b: f(2)}) lowers to C that does not compile")
 	src := "package main\n\ntype S struct {\n    a int64\n    b int64\n}\n\n" +
 		"func f(x int64) int64 {\n    return x\n}\n\nfunc main() {\n    p := S{a: 1, b: 2}\n" +
 		"    if p == (S{a: f(1), b: f(2)}) {\n        exit(1)\n    }\n}\n"
@@ -101,12 +100,11 @@ func TestFindingOverlapCompareWarns(t *testing.T) {
 	}
 }
 
-// TestFindingUnusedStdConstWarns: a program that imports std/sort and
-// calls sort.is_sorted alone gets std/sort's global insertion_max, which
-// only sort.by reads, as an unused static const, which -Wall reports.
+// TestFindingUnusedStdConstWarns, fixed: a program that imports std/sort
+// and calls sort.is_sorted alone gets std/sort's global insertion_max,
+// which only sort.by reads, as a static const nothing names, and
+// tack_div_int64, which only sort.by calls, and -Wall reported both.
 func TestFindingUnusedStdConstWarns(t *testing.T) {
-	t.Skip("finding: an unread global of a std package is an unused static const, " +
-		"-Wunused-const-variable")
 	src := "package main\n\nimport sort from \"std/sort\"\n\n" +
 		"func asc(a int64, b int64) bool {\n    return a < b\n}\n\nfunc main() {\n" +
 		"    l := make(list[int64], c_allocator)\n    if !sort.is_sorted(l, asc) {\n" +

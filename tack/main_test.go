@@ -1470,6 +1470,21 @@ func TestBuiltStructsExits133(t *testing.T) {
 	}
 }
 
+// The equal-operands example compares structs, arrays and unions with
+// operands that hold calls, a literal of calls on either side or both, a
+// literal nested in one, a union built from one, and a switch case
+// written as one, which the equality helpers read through addresses;
+// the build must be silent, and each check exits with its own status
+// unless the comparison holds and the calls ran once each, in order.
+func TestBuiltEqualOperandsExits23(t *testing.T) {
+	bin := buildWithClang(t, "equal-operands")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
+		t.Errorf("equal-operands exited with %v, want status 23", err)
+	}
+}
+
 // The condition-writes example writes a variable in a condition, or in a
 // branch beside an early exit, where the proof the condition gives still
 // holds: before the comparison that proves it, after the use it guards,

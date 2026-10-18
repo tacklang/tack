@@ -60,11 +60,11 @@ static int64_t tack_rem_int64(int64_t a, int64_t b) {
 
 static const int64_t tack_4_calc5_lexer10_KindNumber = 1;
 static const int64_t tack_4_calc5_lexer8_KindPlus = 2;
-static const int64_t tack_4_calc5_lexer9_MaxTokens = 4;
-static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
+__attribute__((unused)) static const int64_t tack_4_calc5_lexer9_MaxTokens = 4;
+__attribute__((unused)) static const int64_t tack_4_calc5_lexer7_KindEnd = 3;
 static const tack_4_calc4_geom5_Point tack_4_calc4_geom6_Origin = {0, 0};
 static const int64_t tack_4_calc4_geom5_Limit = 20;
-static const tack_array_20 tack_4_calc4_geom7_Corners = {{{0, 0}, {4, 2}}};
+__attribute__((unused)) static const tack_array_20 tack_4_calc4_geom7_Corners = {{{0, 0}, {4, 2}}};
 static tack_array_21 tack_4_calc3_cmd4_calc6_counts = {};
 static const int64_t tack_4_calc3_cmd4_calc6_corner = 4;
 static const int64_t tack_4_calc3_cmd4_calc3_far = 8;
