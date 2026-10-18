@@ -16,21 +16,40 @@ import (
 // was, so the rest of the file is parsed as if the damaged part were
 // absent and each of its own errors is found too.
 //
+// A failed construct that consumed the first token of the next
+// declaration's line, finding its error there, as var a = 1 + before a
+// type line does, is first moved back to that line (see rewindTo), so the
+// declaration is parsed rather than skipped.
+//
 // A statement ends at the semicolon after it at its own depth of braces,
 // counted from where it started, so a statement with blocks of its own is
 // skipped whole, its blocks included; or at the closing brace of the
-// block holding it, which is left for that block. An error inside a
-// nested block is caught by that block, so only the innermost statement
-// it damages is lost. A declaration ends where the next one starts: a
-// line starting with func, type, pub, lib,
-// extern or import, at any depth, since none of them starts a statement,
-// or with var or mut outside every brace.
+// block holding it, which is left for that block, but for one in the
+// middle of its line, a typo for a comma or a parenthesis (see
+// closesBlock). A semicolon inserted before a line that carries on the
+// one before, or written in a header, for i := 0; i < n; i++ {, does not
+// end it (see stmtGoesOn). An error inside a nested block is caught by
+// that block, so only the innermost statement it damages is lost. A
+// declaration ends where the next one starts (see declStarts): a line
+// starting as only a declaration does (see atDeclLine), at any depth, or
+// with var or mut outside every brace, or inside one when the damaged
+// declaration cannot hold statements (see holdsNoStmts). A function's
+// header line counts as opening only its body's brace (see declDepth).
 //
-// A block stops at the start of such a line too, before func, pub, lib,
-// extern or import, which no statement starts with: a block left
-// unclosed, the most common error that would swallow the rest of the
-// file, then reports its missing closing brace there, once, and the
-// declaration after it is parsed as one.
+// A block stops at the start of a line only a declaration starts too: a
+// block left unclosed, the most common error that would swallow the rest
+// of the file, then reports its missing closing brace there, once, and
+// the declaration after it is parsed as one.
+//
+// A brace left out, or one too many, closes a block too soon, and what
+// comes after is a cascade of errors that follow from it: the clauses of
+// a switch closed too soon (see skipStrayClause), a function's body
+// spilled where declarations go (see spill.go), and the closing brace it
+// leaves over. Those are skipped without errors of their own. A cascade
+// only indentation could tell apart is still reported: a brace left out
+// before declarations that read as statements, var x int64 = 1, is found
+// missing at the next line only a declaration starts, and a line edited
+// into a declaration's inside a body, pub var x int64 = 1, ends it there.
 //
 // Each error is reported once. A construct's error is usually one
 // diagnostic, and of the errors that start at one place, as two blocks
@@ -54,6 +73,7 @@ func (p *Parser) record(diags []diag.Diagnostic) {
 			continue
 		}
 		p.errs = append(p.errs, d)
+		p.errAt[ast.Span{File: d.Span.File, Start: d.Span.Start}] = true
 	}
 }
 
@@ -62,12 +82,7 @@ func (p *Parser) record(diags []diag.Diagnostic) {
 // block an earlier error left at the end of the file, follows from the
 // first.
 func (p *Parser) recorded(d diag.Diagnostic) bool {
-	for _, e := range p.errs {
-		if e.Span.File == d.Span.File && e.Span.Start == d.Span.Start {
-			return true
-		}
-	}
-	return false
+	return p.errAt[ast.Span{File: d.Span.File, Start: d.Span.Start}]
 }
 
 // halted reports whether the parse stops: it has recorded more errors than
@@ -82,7 +97,9 @@ func (p *Parser) halted() bool {
 func (p *Parser) badDecl(start int, diags []diag.Diagnostic) *ast.BadDecl {
 	p.record(diags)
 	p.unconsumeEOF()
+	p.rewindTo(start, diags, func(depth int) bool { return p.declStarts(start, depth) })
 	p.syncDecl(start)
+	p.importNamesIn(start)
 	bad := &ast.BadDecl{Span: p.skipped(start)}
 	bad.Name, bad.Method = p.declName(start)
 	return bad
@@ -161,8 +178,67 @@ func (p *Parser) pastParens(open int) int {
 func (p *Parser) badStmt(start int, diags []diag.Diagnostic, inClause bool) (*ast.BadStmt, bool) {
 	p.record(diags)
 	p.unconsumeEOF()
+	p.rewindTo(start, diags, func(int) bool { return p.atDeclLine(true) })
 	broken := p.syncStmt(start, inClause)
 	return &ast.BadStmt{Span: p.skipped(start)}, broken
+}
+
+// importNamesIn records as an import's name each name followed by from
+// and a string among the tokens from the token start to the parser's: the
+// damaged declaration skipped was an import, its keyword mistyped, ! geo
+// from "shapes/geo", and its name is known as a package's from here on,
+// as parseImport records it, so qualified literals of it parse as ones.
+// from starts nothing but an import's path.
+func (p *Parser) importNamesIn(start int) {
+	for i := start; i+2 < p.index; i++ {
+		if p.tokens[i].Kind() == lexer.Ident && isKeyword(&p.tokens[i+1], lexer.From) &&
+			p.tokens[i+2].Kind() == lexer.Str {
+			p.imports[lexer.ValueChecked[string](&p.tokens[i])] = true
+		}
+	}
+}
+
+// rewindTo moves the parser back to the first token after the token start
+// that starts says starts the next construct, given the depth of braces
+// opened since start, when the construct that failed with diags consumed
+// it and its first error is at it: the start of the line of the next
+// declaration, which an error found at the first token of that line,
+// expected 'value' found 'type', consumes. That line is then parsed as
+// the declaration it is rather than skipped as part of the damage. A
+// construct that went on into that line and failed further along it, var
+// a = 6 * then mut b int64, read as 6 * mut b, or a struct's field pub
+// type x, is not moved back: its error is in the line, which stays part
+// of the damage, so the error stays in the bad node.
+func (p *Parser) rewindTo(start int, diags []diag.Diagnostic, starts func(depth int) bool) {
+	if len(diags) == 0 {
+		return
+	}
+	end, depth := p.index, 0
+	first := diags[0].Span.Start
+	for _, d := range diags {
+		first = min(first, d.Span.Start)
+	}
+	for k := start + 1; k < end && p.tokens[k].OffsetStart() <= first; k++ {
+		depth = max(depth+braceStep(p.tokens[k-1].Kind()), 0)
+		p.index = k
+		if p.tokens[k].OffsetStart() == first && p.atLineStart() && starts(depth) {
+			return
+		}
+	}
+	p.index = end
+}
+
+// braceStep returns how a token of kind k changes the depth of braces: up
+// one for {, down one for }, and not at all for anything else.
+func braceStep(k lexer.TokenKind) int {
+	switch k {
+	case lexer.LCurl:
+		return 1
+	case lexer.RCurl:
+		return -1
+	default:
+		return 0
+	}
 }
 
 // unconsumeEOF moves the parser back to the EOF token when the construct
@@ -184,7 +260,9 @@ func (p *Parser) skipped(start int) ast.Span {
 // braceDepth returns the depth of braces from the token start to the
 // token before the parser's, counting each { in and each } out, and moves
 // the parser back to a } that closes the block start is in, should the
-// failed construct have consumed one, so that block still ends there.
+// failed construct have consumed one, so that block still ends there. A }
+// that cannot close a block, with more of its line after it, is taken for
+// part of the damage instead (see closesBlock).
 func (p *Parser) braceDepth(start int) int {
 	depth := 0
 	for i := start; i < p.index; i++ {
@@ -192,14 +270,81 @@ func (p *Parser) braceDepth(start int) int {
 		case lexer.LCurl:
 			depth++
 		case lexer.RCurl:
-			if depth == 0 {
+			if depth > 0 {
+				depth--
+			} else if p.closesBlock(i) {
 				p.index = i
 				return 0
 			}
-			depth--
 		}
 	}
 	return depth
+}
+
+// closesBlock reports whether the } at token i can close the block a
+// damaged construct is in: the rest of its line is nothing, a semicolon,
+// another }, or else, as a block's closing brace's is (see endsItsLine),
+// and it starts
+// its line or closes a { opened earlier on it, a block written on one
+// line, if a { b() }. One followed by more on its line, f(a } b) or a line
+// } ), or ending a line that opened no block, x = }, is a typo for a
+// comma, a parenthesis or a value, and is skipped with the damage around
+// it, rather than ending the block, whose statements on the lines after
+// would each be reported again outside it.
+func (p *Parser) closesBlock(i int) bool {
+	if !p.endsItsLine(i) {
+		return false
+	}
+	return p.tokens[i].StartsLine() || p.opensOnLineBefore(i)
+}
+
+// endsItsLine reports whether what comes after the } at token i on its
+// line is nothing, a semicolon, another }, or else.
+func (p *Parser) endsItsLine(i int) bool {
+	if i+1 >= len(p.tokens) {
+		return true
+	}
+	next := &p.tokens[i+1]
+	switch {
+	case next.Kind() == lexer.EOF, next.StartsLine(), next.Kind() == lexer.RCurl,
+		next.Kind() == lexer.Semi, isKeyword(next, lexer.Else):
+		return true
+	}
+	return false
+}
+
+// opensOnLineBefore reports whether a { that no } closes comes before the
+// token i on its line. A skip asks about each } of a line in turn, so the
+// last } found to have none before it is remembered: none comes before
+// one after it either, but for a { between them, and the scan stops
+// there, which keeps a line of thousands of them linear.
+func (p *Parser) opensOnLineBefore(i int) bool {
+	depth := 0
+	for j := i - 1; j >= 0; j-- {
+		if j == p.noOpenBefore-1 && p.noOpenBefore > 0 {
+			break // none before the remembered one, and none since
+		}
+		switch p.tokens[j].Kind() {
+		case lexer.RCurl:
+			depth++
+		case lexer.LCurl:
+			if depth == 0 {
+				return true
+			}
+			depth--
+		}
+		if p.tokens[j].StartsLine() {
+			break
+		}
+	}
+	p.noOpenBefore = i
+	return false
+}
+
+// inserted reports whether tk, a semicolon, was inserted at a line's end
+// rather than written: an inserted one covers no bytes.
+func inserted(tk *lexer.Token) bool {
+	return tk.OffsetEnd() == tk.OffsetStart()
 }
 
 // syncStmt skips the rest of the statement that started at the token
@@ -222,15 +367,10 @@ func (p *Parser) syncStmt(start int, inClause bool) bool {
 		if stop, broken := p.stmtEnds(start, depth, inClause); stop {
 			return broken
 		}
-		switch p.next().Kind() {
-		case lexer.LCurl:
-			depth++
-		case lexer.RCurl:
-			depth--
-		case lexer.Semi:
-			if depth == 0 {
-				return false
-			}
+		tk := p.next()
+		depth = max(depth+braceStep(tk.Kind()), 0)
+		if tk.Kind() == lexer.Semi && depth == 0 && !p.stmtGoesOn(tk) {
+			return false
 		}
 	}
 }
@@ -267,6 +407,39 @@ func (p *Parser) semiInParens(start int) bool {
 	return false
 }
 
+// stmtGoesOn reports whether the damaged statement being skipped goes on
+// past semi, a semicolon at its own depth: an inserted one, at a line's
+// end, before a line that starts with a token no statement starts with,
+// := or ) or an operator, which carries on the line before, as the second
+// line of a header split in two does; or a written one before the rest of
+// a line ending in an opening brace, which only a for's, an if's or a
+// switch's header has, whose parts written semicolons separate. Each part
+// would otherwise be reported as a statement of its own.
+func (p *Parser) stmtGoesOn(semi *lexer.Token) bool {
+	if inserted(semi) {
+		return continuesLine(p.peek().Kind())
+	}
+	return p.lastOnLine(p.index) == lexer.LCurl
+}
+
+// continuesLine reports whether a line that starts with a token of kind k
+// carries on the line before it: k is an operator other than ! or an
+// assignment's, ) or ], or a comma, a period, a colon or an ellipsis.
+func continuesLine(k lexer.TokenKind) bool {
+	switch {
+	case k >= lexer.Add && k <= lexer.ShiftRightAssign,
+		k >= lexer.Equal && k <= lexer.GreaterEqual:
+		return true
+	}
+	switch k {
+	case lexer.LogicalAnd, lexer.LogicalOr, lexer.Inc, lexer.Dec, lexer.RParen, lexer.RBrack,
+		lexer.Comma, lexer.Period, lexer.Colon, lexer.Ellipsis:
+		return true
+	default:
+		return false
+	}
+}
+
 // stmtEnds reports whether the statement that started at the token start,
 // being skipped with depth braces open, ends before the next token, and
 // whether that leaves the block holding it broken (see syncStmt).
@@ -278,7 +451,7 @@ func (p *Parser) stmtEnds(start, depth int, inClause bool) (bool, bool) {
 	case depth > 0:
 		return p.index > start && p.atDeclLine(true), true
 	case tk.Kind() == lexer.RCurl:
-		return true, false
+		return p.closesBlock(p.index), false
 	case inClause && (isKeyword(tk, lexer.Case) || isKeyword(tk, lexer.Default)):
 		return p.index > start, false
 	default:
@@ -287,106 +460,86 @@ func (p *Parser) stmtEnds(start, depth int, inClause bool) (bool, bool) {
 }
 
 // syncDecl skips the rest of the declaration that started at the token
-// start, to the start of a line that starts the next one, or the end of
-// the file. It always consumes at least one token, unless the file ends.
+// start, to the start of a line that starts the next one (see
+// declStarts), or the end of the file, or, for a function's body spilled
+// where declarations go, to the closing brace that starts a line outside
+// the braces skipped, which skipStrayBraces then takes (see stmtLike). It
+// always consumes at least one token, unless the file ends.
 func (p *Parser) syncDecl(start int) {
-	depth := p.braceDepth(start)
+	depth := p.declDepth(start)
 	p.index = max(p.index, start)
-	for p.peek().Kind() != lexer.EOF && (p.index <= start || !p.declStarts(depth)) {
-		switch p.next().Kind() {
-		case lexer.LCurl:
-			depth++
-		case lexer.RCurl:
-			depth = max(depth-1, 0)
+	spill := p.stmtLike(start)
+	for p.peek().Kind() != lexer.EOF && (p.index <= start || !p.declStarts(start, depth)) {
+		if spill && p.index > start && depth == 0 && p.atBraceLine() {
+			return
 		}
+		depth = max(depth+braceStep(p.next().Kind()), 0)
 	}
 }
 
+// declDepth returns the depth of braces from the token start, where a
+// damaged declaration starts, to the parser's token, as braceDepth does,
+// but for a function's header line: that line opens one brace, its body's,
+// when it ends in one, and none when it does not, whatever other braces
+// it holds, func f } else { a int64) {, which are its damage. Counting
+// them would leave the skip inside braces the body never closes, past
+// every declaration after it but a function's.
+func (p *Parser) declDepth(start int) int {
+	if !p.funcHeaderAt(start) {
+		return p.braceDepth(start)
+	}
+	next, depth := p.nextLine(start), p.headerDepth(start)
+	if p.index <= next {
+		// The failed header did not get past its own line, the rest of
+		// which is skipped here, as its braces are counted.
+		p.index = next
+		return depth
+	}
+	for i := next; i < p.index; i++ {
+		depth = max(depth+braceStep(p.tokens[i].Kind()), 0)
+	}
+	return depth
+}
+
+// funcHeaderAt reports whether the damaged declaration that starts at the
+// token start is a function's: it starts with func, or its line is shaped
+// like a function's header and it may hold statements (see holdsNoStmts),
+// import func main() { or } else { check(c bool) {, func mistyped.
+func (p *Parser) funcHeaderAt(start int) bool {
+	return p.hasBody(start) || p.headerLineAt(start) && !p.holdsNoStmts(start)
+}
+
+// headerDepth returns how many braces the header line of the function
+// whose declaration starts at the token start opens: one, its body's,
+// when it is shaped like a header (see headerLineAt) or, for one that
+// starts with func, func f( {, its parameters damaged, ends in a brace,
+// and none otherwise.
+func (p *Parser) headerDepth(start int) int {
+	if p.headerLineAt(start) || p.hasBody(start) && p.lastOnLine(start) == lexer.LCurl {
+		return 1
+	}
+	return 0
+}
+
 // declStarts reports whether the next token starts the line a declaration
-// does, with depth braces open: a var or a mut one outside every brace, or
-// one only a declaration starts (see atDeclLine).
-func (p *Parser) declStarts(depth int) bool {
+// does, with depth braces open since the damaged declaration that started
+// at the token start: a var or a mut one outside every brace, or one only
+// a declaration starts (see atDeclLine). Inside braces, a var line starts
+// one too when the damaged declaration cannot hold statements (see
+// holdsNoStmts), which a var line could be; so does a mut line when it is
+// not a type's either, whose interface's methods may be mut ones.
+func (p *Parser) declStarts(start, depth int) bool {
 	if !p.atLineStart() {
 		return false
 	}
 	tk := p.peek()
-	if depth == 0 && (isKeyword(tk, lexer.Var) || isKeyword(tk, lexer.Mut)) {
-		return true
+	switch {
+	case isKeyword(tk, lexer.Var):
+		return depth == 0 || p.holdsNoStmts(start)
+	case isKeyword(tk, lexer.Mut):
+		return depth == 0 || p.holdsNoStmts(start) && !isKeyword(p.declTok(start), lexer.Type)
 	}
 	return p.atDeclLine(depth > 0)
-}
-
-// atLineStart reports whether the next token starts a line: no token
-// comes before it on its line (see lexer.Token.StartsLine).
-func (p *Parser) atLineStart() bool {
-	return p.peek().StartsLine()
-}
-
-// atDeclLine reports whether the next tokens start a line the way only a
-// top-level declaration does: func and a name or a receiver's
-// parenthesis, type and a name, pub or lib and func, var, mut, type or
-// extern, extern and func or the parenthesis of its C name, or import and
-// a name. A keyword misused as a name, extern := 1, starts no such line,
-// and is left to the statement it is in to report. inside says the line
-// is inside braces, where a func line counts only when it opens a body on
-// the same line, as a function's declaration does and an interface's
-// method, func f(), written by mistake, does not.
-func (p *Parser) atDeclLine(inside bool) bool {
-	tk, next := p.peek(), p.peekAt(1)
-	if !p.atLineStart() || tk.Kind() != lexer.Keyword {
-		return false
-	}
-	switch tk.Value() {
-	case lexer.Func:
-		return p.funcDeclLine(next, inside)
-	case lexer.Type, lexer.Import:
-		return next.Kind() == lexer.Ident
-	case lexer.Pub, lexer.Lib:
-		return visibleDeclKeyword(next)
-	case lexer.Extern:
-		return isKeyword(next, lexer.Func) || next.Kind() == lexer.LParen
-	default:
-		return false
-	}
-}
-
-// funcDeclLine reports whether func, with next after it, starts a line as
-// a function's declaration does: a name or a receiver's parenthesis next,
-// and, inside braces, a body opened on the same line (see atDeclLine).
-func (p *Parser) funcDeclLine(next *lexer.Token, inside bool) bool {
-	if next.Kind() != lexer.Ident && next.Kind() != lexer.LParen {
-		return false
-	}
-	return !inside || p.opensBodyOnLine()
-}
-
-// visibleDeclKeyword reports whether tk, after pub or lib, is a keyword a
-// declaration they make visible starts with: func, var, mut, type or
-// extern.
-func visibleDeclKeyword(tk *lexer.Token) bool {
-	if tk.Kind() != lexer.Keyword {
-		return false
-	}
-	switch tk.Value() {
-	case lexer.Func, lexer.Var, lexer.Mut, lexer.Type, lexer.Extern:
-		return true
-	default:
-		return false
-	}
-}
-
-// opensBodyOnLine reports whether an opening brace comes after the next
-// token before the line it starts ends.
-func (p *Parser) opensBodyOnLine() bool {
-	for k := 1; ; k++ {
-		tk := p.peekAt(k)
-		switch {
-		case tk.Kind() == lexer.EOF || tk.StartsLine():
-			return false
-		case tk.Kind() == lexer.LCurl:
-			return true
-		}
-	}
 }
 
 // atBlockBreak reports whether a block's statements stop before the next
@@ -407,7 +560,7 @@ func (p *Parser) atBlockBreak() bool {
 // unclosedBefore reports whether, from the next token, the start of a
 // declaration's line, no closing brace that would close the block holding
 // it comes before the next line that starts with a keyword only a
-// declaration starts with (see declKeywordAt), or the end of the file.
+// declaration starts with (see isDeclKeyword), or the end of the file.
 func (p *Parser) unclosedBefore() bool {
 	depth := 0
 	for k := 1; ; k++ {
@@ -422,25 +575,9 @@ func (p *Parser) unclosedBefore() bool {
 				return false
 			}
 			depth--
-		case depth == 0 && tk.StartsLine() && p.declKeywordAt(k):
+		case depth == 0 && tk.StartsLine() && isDeclKeyword(tk):
 			return true
 		}
-	}
-}
-
-// declKeywordAt reports whether the token k places ahead is one only a
-// package-level declaration starts with: func, type, pub, lib, extern or
-// import, not var or mut, which a statement starts with too.
-func (p *Parser) declKeywordAt(k int) bool {
-	tk := p.peekAt(k)
-	if tk.Kind() != lexer.Keyword {
-		return false
-	}
-	switch tk.Value() {
-	case lexer.Func, lexer.Type, lexer.Pub, lexer.Lib, lexer.Extern, lexer.Import:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -452,6 +589,9 @@ func (p *Parser) declKeywordAt(k int) bool {
 func (p *Parser) parseStmts(inClause bool) []ast.Stmt {
 	body := make([]ast.Stmt, 0)
 	for !p.halted() && !p.atBlockBreak() && !p.atStmtsEnd(inClause) {
+		if !inClause && p.skipStrayClause() {
+			continue
+		}
 		start := p.index
 		stmt, diags := p.parseStmt()
 		if len(diags) == 0 {
@@ -479,4 +619,35 @@ func (p *Parser) atStmtsEnd(inClause bool) bool {
 	}
 	kind := p.peek().Kind()
 	return kind == lexer.RCurl || kind == lexer.EOF
+}
+
+// skipStrayClause skips a case or a default clause's header, through its
+// colon or the end of its line, that starts a line where a statement is
+// expected, outside any switch, after an error in the same top-level
+// declaration, and reports whether it did. Such a clause is left over from
+// a switch an earlier error closed too soon, a block's opening brace left
+// out, whose closing brace then closed the switch: the error that did it
+// is reported, and each clause after it would only repeat that. A clause
+// with no earlier error is left to the statement to report.
+func (p *Parser) skipStrayClause() bool {
+	tk := p.peek()
+	if !p.strayAfterError() || !isKeyword(tk, lexer.Case) && !isKeyword(tk, lexer.Default) {
+		return false
+	}
+	for p.next(); ; p.next() {
+		if tk := p.peek(); tk.Kind() == lexer.EOF || tk.Kind() == lexer.RCurl || tk.StartsLine() {
+			return true
+		}
+		if p.peek().Kind() == lexer.Colon {
+			p.next()
+			return true
+		}
+	}
+}
+
+// strayAfterError reports whether the next token starts a line and an
+// error has been recorded since the top-level declaration being parsed,
+// or the one just parsed, began.
+func (p *Parser) strayAfterError() bool {
+	return p.atLineStart() && len(p.errs) > p.declErrs
 }

@@ -27,12 +27,17 @@ type Parser struct {
 	// before every other declaration, so they are all known by the time a
 	// body is parsed, and an import's name can never be redeclared, so a
 	// name of one followed by a period and a name is always a qualified
-	// name, never a field. See atQualified.
+	// name, never a field. See atQualified. After an import that lost its
+	// name, recovery adds the names its literals use (see lostImport).
 	imports map[string]bool
 
 	// tooDeep is the error for nesting past maxNesting, once a program
 	// has, after which nothing nests further (see nest).
 	tooDeep *diag.Diagnostic
+
+	// errAt holds where each error of errs starts, as a span with no
+	// end, so a second one there is found at once (see recorded).
+	errAt map[ast.Span]bool
 
 	fileID   source.FileID
 	tokens   []lexer.Token // every token but the comments
@@ -43,7 +48,21 @@ type Parser struct {
 	errs      []diag.Diagnostic
 	maxErrors int
 
+	// lineMemo, noStmtsMemo and noOpenBefore remember what recovery last
+	// read of a line, so that reading it again for each token of a long
+	// one stays linear (see lastOnLine, holdsNoStmts, opensOnLineBefore).
+	lineMemo     lineMemo
+	noStmtsMemo  startMemo
+	noOpenBefore int
+	// declErrs is how many errors were recorded before the top-level
+	// declaration being parsed began (see strayAfterError).
+	declErrs int
+
 	index int
+
+	// depth is how many levels of nesting the construct being parsed is
+	// inside (see nest).
+	depth int
 
 	// noLit is set while parsing the header of an if, a for or a range
 	// loop, where a name followed by an opening brace is the name and then
@@ -52,9 +71,13 @@ type Parser struct {
 	// clears it. See allowLits.
 	noLit bool
 
-	// depth is how many levels of nesting the construct being parsed is
-	// inside (see nest).
-	depth int
+	// spilling is whether the lines being parsed may be a function's body
+	// spilled where declarations go (see noteSpill).
+	spilling bool
+
+	// lostImport is set once an import failed before its name, whose
+	// package a qualified literal may then name (see noteLostImportLit).
+	lostImport bool
 }
 
 // maxNesting is how many levels a program may nest one construct inside
@@ -123,6 +146,7 @@ func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
 		tokens:  make([]lexer.Token, 0, len(tokens)),
 		parens:  make(map[ast.Expr]ast.Span),
 		imports: make(map[string]bool),
+		errAt:   make(map[ast.Span]bool),
 	}
 	for _, tk := range tokens {
 		if tk.Kind() == lexer.Comment {
@@ -207,12 +231,7 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 
 	p.parseHeader()
 	for p.peek().Kind() != lexer.EOF && !p.halted() {
-		start := p.index
-		dec, decDiags := p.parseDecl()
-		if len(decDiags) > 0 {
-			dec = p.badDecl(start, decDiags)
-		}
-		p.file.Decls = append(p.file.Decls, dec)
+		p.parseTopLevel()
 	}
 
 	// A program nested too deeply has no tree, even where a parse that
@@ -228,6 +247,37 @@ func (p *Parser) Parse() (*ast.File, []diag.Diagnostic) {
 	return p.file, p.errs
 }
 
+// parseTopLevel parses what comes next where declarations go: a
+// declaration, recording one that fails as a bad declaration (see
+// recover.go), or, after damage, the imports damage alone came before,
+// or what a function's body spilled there, skipped (see spill.go).
+func (p *Parser) parseTopLevel() {
+	if p.spilling && p.atLineStart() && p.endsSpill() {
+		p.spilling = false
+	}
+	if p.skipStrayBraces() || p.skipSpill() {
+		return
+	}
+	if isKeyword(p.peek(), lexer.Import) && p.onlyBadDecls() {
+		// Only damaged declarations came before: the header goes on.
+		p.parseImports()
+		return
+	}
+	start := p.index
+	p.declErrs = len(p.errs)
+	dec, decDiags := p.parseDecl()
+	if len(decDiags) > 0 {
+		stmt := p.stmtLike(start)
+		p.file.Decls = append(p.file.Decls, p.badDecl(start, decDiags))
+		p.skipUnopenedBody(start)
+		p.noteSpill(stmt)
+		return
+	}
+	p.file.Decls = append(p.file.Decls, dec)
+	_, isFunc := dec.(*ast.Func)
+	p.noteSpill(isFunc)
+}
+
 // parseHeader parses the package clause and the imports, recording each
 // that fails as a bad declaration (see recover.go).
 func (p *Parser) parseHeader() {
@@ -240,15 +290,67 @@ func (p *Parser) parseHeader() {
 		p.file.PackageSpan = pkg.Span
 		p.file.Span = keyword
 	}
-	for isKeyword(p.peek(), lexer.Import) && !p.halted() {
+	p.parseImports()
+}
+
+// parseImports parses the imports of the header, recording each that
+// fails, and a line that reads as an import with its keyword damaged, as
+// a bad declaration.
+func (p *Parser) parseImports() {
+	for !p.halted() {
 		start := p.index
-		imp, diags := p.parseImport()
-		if len(diags) > 0 {
+		switch {
+		case isKeyword(p.peek(), lexer.Import):
+			imp, diags := p.parseImport()
+			if len(diags) > 0 {
+				p.file.Decls = append(p.file.Decls, p.badDecl(start, diags))
+				continue
+			}
+			p.file.Imports = append(p.file.Imports, imp)
+		case p.importShapedLine():
+			// An import whose keyword is damaged, bytes from "std/bytes":
+			// it fails as a declaration, and the imports after it are
+			// still in the header rather than each out of place.
+			dec, diags := p.parseDecl()
+			if len(diags) == 0 {
+				p.file.Decls = append(p.file.Decls, dec)
+				return
+			}
 			p.file.Decls = append(p.file.Decls, p.badDecl(start, diags))
-			continue
+		default:
+			return
 		}
-		p.file.Imports = append(p.file.Imports, imp)
-		p.imports[imp.Name] = true
+	}
+}
+
+// onlyBadDecls reports whether every top-level declaration parsed so far
+// is a damaged one, so that an import after them is still in the header:
+// one that comes after a declaration is out of place, but one that comes
+// after damage alone, a stray line before the imports, is not, and would
+// otherwise be reported, as each import after it would.
+func (p *Parser) onlyBadDecls() bool {
+	for _, d := range p.file.Decls {
+		if _, bad := d.(*ast.BadDecl); !bad {
+			return false
+		}
+	}
+	return true
+}
+
+// importShapedLine reports whether the next token starts a line holding
+// from and then a string, which only an import holds.
+func (p *Parser) importShapedLine() bool {
+	if !p.atLineStart() {
+		return false
+	}
+	for k := 0; ; k++ {
+		tk := p.peekAt(k)
+		if tk.Kind() == lexer.EOF || k > 0 && tk.StartsLine() {
+			return false
+		}
+		if isKeyword(tk, lexer.From) && p.peekAt(k+1).Kind() == lexer.Str {
+			return true
+		}
 	}
 }
 
@@ -309,6 +411,9 @@ func (p *Parser) expectSequence(kinds ...lexer.TokenKind) (bool, []diag.Diagnost
 // only an import gives a meaning, so it may still name anything else.
 func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
 	kw := p.next()
+	if p.peek().Kind() != lexer.Ident {
+		p.lostImport = true
+	}
 	switch tk := p.peek(); tk.Kind() {
 	case lexer.LParen:
 		return nil, []diag.Diagnostic{{
@@ -327,6 +432,10 @@ func (p *Parser) parseImport() (*ast.Import, []diag.Diagnostic) {
 	if name == nil {
 		return nil, diags
 	}
+	// The name is known from here on, whatever goes wrong after it, so a
+	// qualified literal of the package, geo.Rect{...}, is still parsed as
+	// one and gives no error of its own.
+	p.imports[name.Name] = true
 	if tk := p.peek(); !isKeyword(tk, lexer.From) {
 		return nil, []diag.Diagnostic{p.diagInvalidToken(lexer.From.String(), tk)}
 	}
@@ -1322,22 +1431,63 @@ func (p *Parser) parseCallStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 
 // afterGroup returns how many places ahead the token after the group that
 // open opens k places ahead is, matching the opens and closes nested in
-// it, or where EOF is if the group never closes.
+// it, or, if the group does not close within the statement it starts in,
+// where the statement ends: a semicolon outside any brace the group
+// opens, a closing brace of a block around it, the start of a line only a
+// declaration starts with, or EOF. No group spans statements, so stopping
+// there loses nothing a valid program holds, keeps a statement whose
+// bracket is never closed from being read as one that ends in another
+// function, and keeps the lookahead of each such statement to its own
+// tokens, so a file of them is parsed in linear time.
 func (p *Parser) afterGroup(k int, open, closing lexer.TokenKind) int {
-	depth := 0
-	for {
-		switch p.peekAt(k).Kind() {
+	depth, braces := 0, 0
+	for first := true; ; first = false {
+		tk := p.peekAt(k)
+		if groupStops(tk, braces, first) {
+			return k
+		}
+		switch tk.Kind() {
 		case open:
 			depth++
 		case closing:
 			depth--
-		case lexer.EOF:
-			return k
 		}
+		braces += braceStep(tk.Kind())
 		k++
 		if depth == 0 {
 			return k
 		}
+	}
+}
+
+// groupStops reports whether a group afterGroup scans, with braces of its
+// own open, stops before tk, the end of the statement it starts in: a
+// semicolon or a closing brace outside every brace it opened, EOF, or,
+// but for the group's first token, one that starts a line only a
+// declaration starts.
+func groupStops(tk *lexer.Token, braces int, first bool) bool {
+	switch tk.Kind() {
+	case lexer.EOF:
+		return true
+	case lexer.Semi, lexer.RCurl:
+		if braces == 0 {
+			return true
+		}
+	}
+	return !first && tk.StartsLine() && isDeclKeyword(tk)
+}
+
+// isDeclKeyword reports whether tk is a keyword only a package-level
+// declaration starts with: func, type, pub, lib, extern or import.
+func isDeclKeyword(tk *lexer.Token) bool {
+	if tk.Kind() != lexer.Keyword {
+		return false
+	}
+	switch tk.Value() {
+	case lexer.Func, lexer.Type, lexer.Pub, lexer.Lib, lexer.Extern, lexer.Import:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -2869,6 +3019,7 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return p.parseCompositeLit()
 	}
 
+	p.noteLostImportLit()
 	n := p.nameEnd()
 	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LCurl && !p.noLit {
 		return p.parseStructLit()
@@ -2885,6 +3036,19 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return p.parseQualified(), nil
 	}
 	return p.parseLiteral()
+}
+
+// noteLostImportLit records the name that starts the next tokens as an
+// import's, after an import that lost its name (see lostImport), when
+// they read as a literal of a package, geo.Rect{...}, which only a
+// qualified name before a brace is outside a header, so that each such
+// literal is parsed as one rather than reported where it is.
+func (p *Parser) noteLostImportLit() {
+	if p.lostImport && !p.noLit && p.peek().Kind() == lexer.Ident &&
+		p.peekAt(1).Kind() == lexer.Period && p.peekAt(2).Kind() == lexer.Ident &&
+		p.peekAt(3).Kind() == lexer.LCurl {
+		p.imports[lexer.ValueChecked[string](p.peek())] = true
+	}
 }
 
 // parseCallOperand parses a call, which the caller has seen is next, as

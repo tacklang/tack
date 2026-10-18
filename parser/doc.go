@@ -223,6 +223,21 @@
 // packages). Only a program nested too deeply gives no tree.
 // Limit makes the parser stop past a number of errors.
 //
+// Recovery reads what a line starts as, without reading past it, to keep
+// the damage to the construct an error is in: a declaration line the
+// failed construct consumed is given back, a } or a ; inside a damaged
+// line is part of the damage rather than its end, and a brace left out
+// or one too many, which closes a block too soon, is reported once, its
+// switch's clauses, its function's spilled body and its leftover brace
+// skipped with no errors of their own (see spill.go). What only
+// indentation tells apart is reported as it parses: a brace left out
+// before declarations that read as statements, var x int64 = 1, is
+// reported missing at the next line only a declaration starts, those
+// declarations taken for the block's statements, and a body's line that
+// reads as a declaration, pub var x int64 = 1, ends the body there. A
+// lookahead for a closing bracket stops at the end of its statement, so a
+// file of unclosed brackets parses in linear time.
+//
 // The parser only checks shape, so it accepts a declaration like var x int64
 // whatever its mutability, and leaves whether it may lack a value to the
 // type checker. Names are left unbound (every Ident.Def is nil) and types
