@@ -40,6 +40,12 @@ func (r *pkgResolver) declareImports() []diag.Diagnostic {
 			}
 			sc.names[imp.Name] = imp
 			paths[imp.Path] = imp
+			if imp.Package == nil {
+				// The loader reported why the package could not be
+				// loaded; what the import would name follows from that.
+				r.rejected[imp] = true
+				sc.reject(imp.Name)
+			}
 		}
 	}
 	return diags
@@ -85,10 +91,15 @@ func (r *pkgResolver) importClash(
 }
 
 // unusedImports reports every import of every file that no qualified name
-// in the file used, unless its declaration was reported.
+// in the file used, unless its declaration was reported, or its package
+// could not be loaded, or the file has damaged source, which may have
+// used it (see invalid.go).
 func (r *pkgResolver) unusedImports() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, f := range r.pkg.Files {
+		if r.damage.files[f.Span.File] {
+			continue
+		}
 		for _, imp := range f.Imports {
 			if !r.used[imp] && !r.rejected[imp] {
 				diags = append(diags, diag.Diagnostic{
@@ -160,8 +171,9 @@ func (r *pkgResolver) member(name string) (ast.Decl, bool) {
 // declares no name, or the name is not visible from this package.
 func (r *pkgResolver) qualified(id *ast.Ident, sc *scope) (ast.Decl, []diag.Diagnostic) {
 	if r.rejectedImport(id.Pkg, sc) {
-		// The import's declaration was reported; what it would have
-		// named follows from that.
+		// The import's declaration was reported, or its package could not
+		// be loaded; what it would have named follows from that.
+		id.Def = ast.Unbound
 		return nil, nil
 	}
 	decl, visible := sc.lookup(id.Pkg)

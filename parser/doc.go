@@ -215,9 +215,12 @@
 // its own depth of braces or the brace that closes its block, or the rest
 // of the declaration, to the next line that starts one, puts an
 // ast.BadStmt or ast.BadDecl in the tree where the skipped text was, and
-// goes on. Parse returns the file and every error, so the tree holds a
-// bad node exactly when there are errors, and a caller that stops at any
-// error never uses one. Only a program nested too deeply gives no tree.
+// goes on. A BadDecl records the name the declaration was declaring, and
+// whether it was a method's, when the parser got as far as the name. Parse
+// returns the file and every error, so the tree holds a bad node exactly
+// when there are errors; the resolver and the type checker run on it all
+// the same, and report nothing about what the bad nodes hide (see their
+// packages). Only a program nested too deeply gives no tree.
 // Limit makes the parser stop past a number of errors.
 //
 // The parser only checks shape, so it accepts a declaration like var x int64

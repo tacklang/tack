@@ -15,6 +15,14 @@
 // command. Nothing above this package knows what any particular backend
 // emits.
 //
+// The front end goes on past errors, so a program with errors may still
+// be a whole tree, holding bad nodes and names bound to ast.Unbound. Refuse
+// says whether a program may be lowered: only one the type checker has
+// checked, with no error counted on it or on its type table. Every
+// backend's Generate calls it first and generates nothing from a program
+// it refuses, so no caller can lower an invalid program by forgetting to
+// look at the diagnostics.
+//
 // Backends live in sub-packages and register themselves from init by calling
 // Register, so plugging one in is a new package plus a blank import in the
 // driver. Registering two backends under one name panics, since that is a

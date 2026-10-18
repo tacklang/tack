@@ -49,7 +49,12 @@
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A BadDecl or a BadStmt stands for a declaration or a statement the
-// parser could not parse, which it reported and skipped (see bad.go).
+// parser could not parse, which it reported and skipped (see bad.go); a
+// BadDecl keeps the name it was declaring, when the parser got that far.
+// Later stages run on trees holding them. The resolver binds a name that
+// names nothing because of an error already known to Unbound, which the
+// type checker gives no type and reports nothing more about. A Program
+// counts in Errors the errors every stage that ran reported about it.
 // A Param written mut p T has Mut set. A call's argument written mut x is
 // a MutArg holding x, the place the parameter refers to; the parser
 // accepts one before any operand, and the type checker reports one

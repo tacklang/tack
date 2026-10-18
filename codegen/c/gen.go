@@ -84,8 +84,12 @@ func compileCmd(src, obj string, opt codegen.Opt, extra ...string) []string {
 }
 
 // Generate lowers prog, which must have been type-checked with builtins,
-// to one C translation unit.
+// to one C translation unit. A program codegen.Refuse refuses, one not
+// checked or with errors, is reported and nothing generated.
 func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic) {
+	if refused := codegen.Refuse(prog); refused != nil {
+		return nil, refused
+	}
 	g := &generator{
 		prog:     prog,
 		builtins: builtins,

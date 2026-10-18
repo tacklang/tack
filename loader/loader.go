@@ -87,10 +87,13 @@ type Std struct {
 	Dir string
 }
 
-// Result is a loaded program, or the diagnostics that stopped it loading.
+// Result is a loaded program, or the diagnostics that stopped it loading,
+// or both: a program loaded with syntax errors or imports that could not
+// be loaded, with the diagnostics saying so.
 type Result struct {
-	// Program is the program loaded. It is nil when Diags is not empty,
-	// and when loading stopped early at Stop.
+	// Program is the program loaded, which may hold bad nodes and imports
+	// bound to no package when Diags is not empty (see Diags). It is nil
+	// when loading could not go on, and when it stopped early at Stop.
 	Program *ast.Program
 
 	// Files holds every file read, for rendering diagnostics.
@@ -104,12 +107,30 @@ type Result struct {
 	Tokens  [][]lexer.Token
 	Trees   []*ast.File
 
-	// Stage is the stage that reported Diags, empty when there are none.
+	// Stage is the first stage that reported any of Diags, empty when
+	// there are none.
 	Stage Stage
 
-	// Diags are the problems found in the source. Loading stops at the
-	// first stage that reports any.
+	// Diags are the problems found in the source. Loading goes on past a
+	// syntax error, which leaves a bad node in the tree (see package
+	// parser), and past an import that cannot be loaded, which is bound
+	// to no package, so the program is still built and later stages can
+	// report their own problems with it. It stops, with no program, at a
+	// file that does not lex, or that nests too deeply to be parsed, and
+	// at a malformed tack.mod or a main package whose package clauses are
+	// wrong, after which nothing more can be known about the program.
 	Diags []diag.Diagnostic
+}
+
+// report records diags, found at stage, in res.
+func (res *Result) report(stage Stage, diags []diag.Diagnostic) {
+	if len(diags) == 0 {
+		return
+	}
+	if res.Stage == "" {
+		res.Stage = stage
+	}
+	res.Diags = append(res.Diags, diags...)
 }
 
 // File loads the program the one file name makes on its own: a package
@@ -228,7 +249,7 @@ func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Re
 		}}
 	}
 	if len(diags) > 0 {
-		res.Stage, res.Diags = StageLoad, diags
+		res.report(StageLoad, diags)
 		return res, nil
 	}
 	pkg.Path, pkg.Module, pkg.Dir, pkg.CFiles = importPath, mod.name, dir, cFiles
@@ -297,10 +318,16 @@ func (l *Loader) display(name string) string {
 
 // parsePackage lexes and then parses files, the files of one package, and
 // returns the package they make. Every file is lexed, and then every file
-// parsed, so one run reports the problems of every file at the first stage
-// that has any; it then records them in res and returns false. It also
-// returns false, having recorded what was asked for, when l.Stop says to
-// stop after lexing or parsing.
+// parsed, so one run reports the problems of every file. A lexing error
+// stops it before parsing, recorded in res, and it returns false: the
+// lexer drops what it cannot read, so the tokens left would only make
+// syntax errors that follow from it. Syntax errors are recorded in res
+// and the package returned all the same, its files holding bad nodes
+// where the errors were, unless a file nests too deeply to have a tree,
+// or has a package clause that could not be parsed, which leaves the
+// package unknown: either stops it as a lexing error does. It also returns false, having
+// recorded what was asked for, when l.Stop says to stop after lexing or
+// parsing.
 func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, bool) {
 	tokens := make([][]lexer.Token, len(files))
 	var diags []diag.Diagnostic
@@ -310,7 +337,7 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		tokens[i] = lex.Tokens()
 	}
 	if len(diags) > 0 {
-		res.Stage, res.Diags = StageLex, diags
+		res.report(StageLex, diags)
 		return nil, false
 	}
 	if l.Stop == StageLex {
@@ -318,7 +345,29 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		return nil, false
 	}
 
+	pkg, whole, diags := l.parseFiles(files, tokens)
+	res.report(StageParse, diags)
+	if l.Stop == StageParse {
+		res.Sources, res.Trees = files, pkg.Files
+		return nil, false
+	}
+	if !whole || len(pkg.Files) == 0 {
+		return nil, false
+	}
+	pkg.Name = pkg.Files[0].Package
+	return pkg, true
+}
+
+// parseFiles parses files, the files of one package, from their tokens,
+// and returns the package of the trees it got, whether it got a tree with
+// a package clause for every file, and every syntax error.
+func (l *Loader) parseFiles(
+	files []*source.File,
+	tokens [][]lexer.Token,
+) (*ast.Package, bool, []diag.Diagnostic) {
 	pkg := &ast.Package{Files: make([]*ast.File, 0, len(files))}
+	whole := true
+	var diags []diag.Diagnostic
 	for i, f := range files {
 		p := parser.NewParser(f.ID, tokens[i])
 		p.Limit(l.MaxErrors)
@@ -327,17 +376,9 @@ func (l *Loader) parsePackage(res *Result, files []*source.File) (*ast.Package, 
 		if tree != nil {
 			pkg.Files = append(pkg.Files, tree)
 		}
+		whole = whole && tree != nil && tree.Package != ""
 	}
-	if len(diags) > 0 {
-		res.Stage, res.Diags = StageParse, diags
-		return nil, false
-	}
-	if l.Stop == StageParse {
-		res.Sources, res.Trees = files, pkg.Files
-		return nil, false
-	}
-	pkg.Name = pkg.Files[0].Package
-	return pkg, true
+	return pkg, whole, diags
 }
 
 // checkClauses reports files of the directory dir, the package whose

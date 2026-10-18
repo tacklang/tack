@@ -350,8 +350,14 @@ func grow(size int64) int64 {
     return size + 1
 }
 -- dup-param-across-files/expected --
-stage: resolve
+stage: resolve+typeck
 ---
+
+dup-param-across-files/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(grow(size))
+   |	         ^~~~~~~~~~
+07 |	}
 
 dup-param-across-files/b.tck:3:11: error: size is already declared
 02 |	
@@ -1302,7 +1308,7 @@ func main() {
     exit(a.F())
 }
 -- import-cycle-self/expected --
-stage: load
+stage: load+resolve
 ---
 
 import-cycle-self/a/a.tck:3:15: error: import cycle: calc/a imports calc/a
@@ -1310,6 +1316,12 @@ import-cycle-self/a/a.tck:3:15: error: import cycle: calc/a imports calc/a
 03 |	import a from "calc/a"
    |	              ^~~~~~~~
 04 |	
+
+import-cycle-self/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
 
 -- import-cycle-three/tack.mod --
 module calc
@@ -1346,14 +1358,32 @@ func main() {
     exit(a.F())
 }
 -- import-cycle-three/expected --
-stage: load
+stage: load+resolve
 ---
+
+import-cycle-three/a/a.tck:6:12: error: F is not pub in package calc/b
+05 |	func F() int64 {
+06 |	    return b.F()
+   |	           ^~~
+07 |	}
+
+import-cycle-three/b/b.tck:6:12: error: F is not pub in package calc/c
+05 |	func F() int64 {
+06 |	    return c.F()
+   |	           ^~~
+07 |	}
 
 import-cycle-three/c/c.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/c imports calc/a
 02 |	
 03 |	import a from "calc/a"
    |	              ^~~~~~~~
 04 |	
+
+import-cycle-three/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
 
 -- import-cycle-two/tack.mod --
 module calc
@@ -1382,14 +1412,26 @@ func main() {
     exit(a.F())
 }
 -- import-cycle-two/expected --
-stage: load
+stage: load+resolve
 ---
+
+import-cycle-two/a/a.tck:6:12: error: G is not pub in package calc/b
+05 |	func F() int64 {
+06 |	    return b.G()
+   |	           ^~~
+07 |	}
 
 import-cycle-two/b/b.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/a
 02 |	
 03 |	import a from "calc/a"
    |	              ^~~~~~~~
 04 |	
+
+import-cycle-two/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
 
 -- import-dir-without-tck/tack.mod --
 module calc
@@ -1450,18 +1492,18 @@ func main() {
 stage: resolve
 ---
 
+import-duplicate-name/main.tck:3:8: error: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	import lexer from "calc/parser"
+
 import-duplicate-name/main.tck:4:8: error: lexer is already declared
 03 |	import lexer from "calc/lexer"
 04 |	import lexer from "calc/parser"
    |	       ^~~~~
 05 |	
 import-duplicate-name/main.tck:3:8: note: previous declaration of lexer
-02 |	
-03 |	import lexer from "calc/lexer"
-   |	       ^~~~~
-04 |	import lexer from "calc/parser"
-
-import-duplicate-name/main.tck:3:8: error: imported and not used: lexer
 02 |	
 03 |	import lexer from "calc/lexer"
    |	       ^~~~~
@@ -1617,7 +1659,7 @@ func main() {
     a.F()
 }
 -- import-main-from-library/expected --
-stage: load
+stage: load+resolve
 ---
 
 import-main-from-library/a/a.tck:3:18: error: cannot import calc: it is a main package
@@ -1625,6 +1667,12 @@ import-main-from-library/a/a.tck:3:18: error: cannot import calc: it is a main p
 03 |	import root from "calc"
    |	                 ^~~~~~
 04 |	
+
+import-main-from-library/main.tck:6:5: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    a.F()
+   |	    ^~~
+07 |	}
 
 -- import-main-package/tack.mod --
 module calc
@@ -1767,8 +1815,14 @@ func other() int64 {
     return lexer.KindNumber
 }
 -- import-per-file/expected --
-stage: resolve
+stage: resolve+typeck
 ---
+
+import-per-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.KindNumber + other())
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
 
 import-per-file/b.tck:4:12: error: undefined: lexer
 03 |	func other() int64 {
@@ -1848,7 +1902,7 @@ func main() {
     exit(f(1) + lexer.KindNumber)
 }
 -- import-shadowed-by-param/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 import-shadowed-by-param/main.tck:5:8: error: lexer is an imported package and cannot be redeclared
@@ -1856,6 +1910,12 @@ import-shadowed-by-param/main.tck:5:8: error: lexer is an imported package and c
 05 |	func f(lexer int64) int64 {
    |	       ^~~~~
 06 |	    return lexer
+
+import-shadowed-by-param/main.tck:10:10: error: cannot use int64 as int32 in argument to exit
+09 |	func main() {
+10 |	    exit(f(1) + lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~
+11 |	}
 
 -- import-shadowed-in-loop/tack.mod --
 module calc
@@ -1889,7 +1949,7 @@ func main() {
     exit(lexer.KindNumber)
 }
 -- import-shadowed-in-loop/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 import-shadowed-in-loop/main.tck:6:9: error: lexer is an imported package and cannot be redeclared
@@ -1897,6 +1957,12 @@ import-shadowed-in-loop/main.tck:6:9: error: lexer is an imported package and ca
 06 |	    for lexer := range 3 {
    |	        ^~~~~
 07 |	        exit(lexer)
+
+import-shadowed-in-loop/main.tck:9:10: error: cannot use int64 as int32 in argument to exit
+08 |	    }
+09 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+10 |	}
 
 -- import-std/tack.mod --
 module calc
@@ -2174,8 +2240,14 @@ import lexer from "calc/lexer"
 func other() {
 }
 -- import-unused-in-one-file/expected --
-stage: resolve
+stage: resolve+typeck
 ---
+
+import-unused-in-one-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+07 |	}
 
 import-unused-in-one-file/b.tck:3:8: error: imported and not used: lexer
 02 |	
@@ -2214,7 +2286,7 @@ func main() {
     exit(x)
 }
 -- imported-mutable-in-initializer/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 imported-mutable-in-initializer/main.tck:5:15: error: Count is not pub in package calc/lexer
@@ -2222,6 +2294,12 @@ imported-mutable-in-initializer/main.tck:5:15: error: Count is not pub in packag
 05 |	var x int64 = lexer.Count + 1
    |	              ^~~~~~~~~~~
 06 |	
+
+imported-mutable-in-initializer/main.tck:8:10: error: cannot use int64 as int32 in argument to exit
+07 |	func main() {
+08 |	    exit(x)
+   |	         ^
+09 |	}
 
 -- init-selects-hidden-field/tack.mod --
 module calc
@@ -2397,6 +2475,46 @@ interface-pub-exposes/geo/geo.tck:12:12: error: pub interface Maker exposes secr
    |	           ^~~~~~
 13 |	}
 
+-- keep-going-bad-decl-in-import/tack.mod --
+module calc
+-- keep-going-bad-decl-in-import/lexer/lexer.tck --
+package lexer
+
+pub func Count( int64 {
+    return 1
+}
+
+pub func Size() int64 {
+    return 2
+}
+-- keep-going-bad-decl-in-import/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    n := lexer.Count() + lexer.Size()
+    var s string = lexer.Size()
+    if n == 3 {
+        print(s)
+    }
+}
+-- keep-going-bad-decl-in-import/expected --
+stage: parse+typeck
+---
+
+keep-going-bad-decl-in-import/lexer/lexer.tck:3:23: error: expected 'type name' found '{'
+02 |	
+03 |	pub func Count( int64 {
+   |	                      ^
+04 |	    return 1
+
+keep-going-bad-decl-in-import/main.tck:7:20: error: cannot use int64 as string in declaration of s
+06 |	    n := lexer.Count() + lexer.Size()
+07 |	    var s string = lexer.Size()
+   |	                   ^~~~~~~~~~~~
+08 |	    if n == 3 {
+
 -- lex-errors-in-two-files/tack.mod --
 module lex-errors-in-two-files
 -- lex-errors-in-two-files/a.tck --
@@ -2492,7 +2610,7 @@ func main() {
     exit(b.N + d.F())
 }
 -- main-in-library/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 main-in-library/a/a.tck:3:6: error: func main is allowed only in package main
@@ -2518,6 +2636,12 @@ main-in-library/d/d.tck:3:5: error: mut main is allowed only in package main
 03 |	mut main int64 = 1
    |	    ^~~~
 04 |	
+
+main-in-library/main.tck:11:10: error: cannot use int64 as int32 in argument to exit
+10 |	    c.F()
+11 |	    exit(b.N + d.F())
+   |	         ^~~~~~~~~~~
+12 |	}
 
 -- main-missing-across-files/tack.mod --
 module main-missing-across-files
@@ -3123,7 +3247,7 @@ func main() {
     exit(lexer.KindNumber)
 }
 -- package-misused/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 package-misused/main.tck:6:10: error: lexer is a package, not a value
@@ -3131,6 +3255,12 @@ package-misused/main.tck:6:10: error: lexer is a package, not a value
 06 |	    x := lexer
    |	         ^~~~~
 07 |	    var y lexer
+
+package-misused/main.tck:7:9: error: immutable variable y needs a value
+06 |	    x := lexer
+07 |	    var y lexer
+   |	        ^
+08 |	    lexer()
 
 package-misused/main.tck:7:11: error: lexer is a package, not a type
 06 |	    x := lexer
@@ -3149,6 +3279,12 @@ package-misused/main.tck:9:5: error: lexer is a package, not a variable
 09 |	    lexer = 1
    |	    ^~~~~
 10 |	    exit(lexer.KindNumber)
+
+package-misused/main.tck:10:10: error: cannot use int64 as int32 in argument to exit
+09 |	    lexer = 1
+10 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+11 |	}
 
 -- parse-errors-in-two-files/tack.mod --
 module parse-errors-in-two-files
@@ -3310,7 +3446,7 @@ func main() {
     lexer.Absent = 1
 }
 -- qualified-undefined/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 qualified-undefined/main.tck:6:10: error: undefined: lexer.Nothing
@@ -3324,6 +3460,12 @@ qualified-undefined/main.tck:7:5: error: undefined: lexer.Missing
 07 |	    lexer.Missing()
    |	    ^~~~~~~~~~~~~
 08 |	    var t lexer.Gone
+
+qualified-undefined/main.tck:8:9: error: immutable variable t needs a value
+07 |	    lexer.Missing()
+08 |	    var t lexer.Gone
+   |	        ^
+09 |	    lexer.Absent = 1
 
 qualified-undefined/main.tck:8:11: error: undefined: lexer.Gone
 07 |	    lexer.Missing()
@@ -3372,7 +3514,7 @@ func main() {
     lexer.First = 1
 }
 -- qualified-wrong-kind/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it is a type
@@ -3380,6 +3522,18 @@ qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it
 06 |	    t := lexer.Token
    |	         ^~~~~~~~~~~
 07 |	    f := lexer.First
+
+qualified-wrong-kind/main.tck:7:5: error: declared and not used: f
+06 |	    t := lexer.Token
+07 |	    f := lexer.First
+   |	    ^
+08 |	    var x lexer.First
+
+qualified-wrong-kind/main.tck:8:9: error: immutable variable x needs a value
+07 |	    f := lexer.First
+08 |	    var x lexer.First
+   |	        ^
+09 |	    lexer.Token()
 
 qualified-wrong-kind/main.tck:8:11: error: lexer.First is not a type
 07 |	    f := lexer.First
@@ -3411,12 +3565,6 @@ qualified-wrong-kind/main.tck:12:5: error: undefined: lexer.First
    |	    ^~~~~~~~~~~
 13 |	}
 
-qualified-wrong-kind/main.tck:7:5: error: declared and not used: f
-06 |	    t := lexer.Token
-07 |	    f := lexer.First
-   |	    ^
-08 |	    var x lexer.First
-
 -- qualifier-not-a-package/tack.mod --
 module calc
 -- qualifier-not-a-package/main.tck --
@@ -3430,8 +3578,14 @@ func main() {
     exit(p)
 }
 -- qualifier-not-a-package/expected --
-stage: resolve
+stage: resolve+typeck
 ---
+
+qualifier-not-a-package/main.tck:6:9: error: immutable variable a needs a value
+05 |	func main() {
+06 |	    var a p.T
+   |	        ^
+07 |	    var b q.T
 
 qualifier-not-a-package/main.tck:6:11: error: p is not a package
 05 |	func main() {
@@ -3439,11 +3593,23 @@ qualifier-not-a-package/main.tck:6:11: error: p is not a package
    |	          ^
 07 |	    var b q.T
 
+qualifier-not-a-package/main.tck:7:9: error: immutable variable b needs a value
+06 |	    var a p.T
+07 |	    var b q.T
+   |	        ^
+08 |	    exit(p)
+
 qualifier-not-a-package/main.tck:7:11: error: undefined: q
 06 |	    var a p.T
 07 |	    var b q.T
    |	          ^
 08 |	    exit(p)
+
+qualifier-not-a-package/main.tck:8:10: error: cannot use int64 as int32 in argument to exit
+07 |	    var b q.T
+08 |	    exit(p)
+   |	         ^
+09 |	}
 
 -- root-package-invalid-name/tack.mod --
 module example.com/my-tools
@@ -3565,7 +3731,7 @@ func main() {
     exit(util.Twice(1))
 }
 -- std-imports-user-module/expected --
-stage: load
+stage: load+typeck
 ---
 
 std-imports-user-module/.std/util/util.tck:3:19: error: cannot import calc/lexer: a package of std can import only std packages
@@ -3579,6 +3745,12 @@ std-imports-user-module/.std/util/util.tck:4:19: error: cannot import ./lexer: a
 04 |	import local from "./lexer"
    |	                  ^~~~~~~~~
 05 |	
+
+std-imports-user-module/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(util.Twice(1))
+   |	         ^~~~~~~~~~~~~
+07 |	}
 
 -- std-lib-field-from-file/.target --
 main.tck
@@ -3883,7 +4055,7 @@ func main() {
     exit(util.Count)
 }
 -- std-package-rules/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 std-package-rules/.std/util/util.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
@@ -3909,6 +4081,12 @@ std-package-rules/.std/util/util.tck:7:1: error: an extern func cannot be lib; e
 07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
    |	^~~
 08 |	
+
+std-package-rules/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(util.Count)
+   |	         ^~~~~~~~~~
+07 |	}
 
 -- tck-directory-is-skipped/tack.mod --
 module tck-directory-is-skipped
@@ -4874,7 +5052,7 @@ pub func main() {
     exit(helper())
 }
 -- vis-in-main/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 vis-in-main/main.tck:3:1: error: pub has no effect in package main, which no package can import
@@ -4912,6 +5090,12 @@ vis-in-main/main.tck:15:1: error: pub has no effect in package main, which no pa
 15 |	pub func main() {
    |	^~~
 16 |	    exit(helper())
+
+vis-in-main/main.tck:16:10: error: cannot use int64 as int32 in argument to exit
+15 |	pub func main() {
+16 |	    exit(helper())
+   |	         ^~~~~~~~
+17 |	}
 
 -- vis-literal/tack.mod --
 module calc
@@ -4986,7 +5170,7 @@ func main() {
     exit(lexer.Count() + lexer.limit)
 }
 -- vis-mut-exported/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 vis-mut-exported/lexer/lexer.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
@@ -5000,6 +5184,12 @@ vis-mut-exported/lexer/lexer.tck:4:1: error: a mut variable cannot be lib; expor
 04 |	lib mut total int64
    |	^~~
 05 |	pub var limit int64 = 3
+
+vis-mut-exported/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.Count() + lexer.limit)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
 
 -- vis-private-global-in-initializer/tack.mod --
 module calc
@@ -5124,7 +5314,7 @@ func main() {
     exit(lexer.One())
 }
 -- vis-unused-private-global/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 vis-unused-private-global/lexer/lexer.tck:3:5: error: declared and not used: hidden
@@ -5132,4 +5322,10 @@ vis-unused-private-global/lexer/lexer.tck:3:5: error: declared and not used: hid
 03 |	var hidden int64 = 1
    |	    ^~~~~~
 04 |	pub var Shown int64 = 2
+
+vis-unused-private-global/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.One())
+   |	         ^~~~~~~~~~~
+07 |	}
 

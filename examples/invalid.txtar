@@ -2520,7 +2520,7 @@ func main() {
     exit(a)
 }
 -- blank-mut/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 blank-mut/main.tck:8:8: error: cannot use mut on _
@@ -2528,6 +2528,12 @@ blank-mut/main.tck:8:8: error: cannot use mut on _
 08 |	    a, mut _ := pair()
    |	       ^~~~~
 09 |	    exit(a)
+
+blank-mut/main.tck:9:10: error: cannot use int64 as int32 in argument to exit
+08 |	    a, mut _ := pair()
+09 |	    exit(a)
+   |	         ^
+10 |	}
 
 -- blank-nothing-bound/main.tck --
 package main
@@ -2612,7 +2618,7 @@ func main() {
     exit(f())
 }
 -- bodyless-func-with-result/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 bodyless-func-with-result/main.tck:3:6: error: function f has no body; only an extern func is declared without one
@@ -2620,6 +2626,12 @@ bodyless-func-with-result/main.tck:3:6: error: function f has no body; only an e
 03 |	func f() int64
    |	     ^
 04 |	
+
+bodyless-func-with-result/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(f())
+   |	         ^~~
+07 |	}
 
 -- bool-arithmetic/main.tck --
 package main
@@ -4608,7 +4620,7 @@ func main() {
     exit(n)
 }
 -- defer-later-variable/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 defer-later-variable/main.tck:4:18: error: undefined: n
@@ -4616,6 +4628,12 @@ defer-later-variable/main.tck:4:18: error: undefined: n
 04 |	    defer { exit(n) }
    |	                 ^
 05 |	    n := 3
+
+defer-later-variable/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	    n := 3
+06 |	    exit(n)
+   |	         ^
+07 |	}
 
 -- defer-return/main.tck --
 package main
@@ -8309,8 +8327,14 @@ func main() {
     }
 }
 -- func-value-generic-brackets/expected --
-stage: resolve
+stage: resolve+typeck
 ---
+
+func-value-generic-brackets/main.tck:20:10: error: cannot use measure as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+19 |	func main() {
+20 |	    f := measure[Box]
+   |	         ^~~~~~~
+21 |	    if f(Box{n: 1}) == 1 {
 
 func-value-generic-brackets/main.tck:20:18: error: cannot use Box as a value; it is a type
 19 |	func main() {
@@ -10844,10 +10868,16 @@ func f[int64 Sizer](s int64) {
 func main() {
 }
 -- generic-type-param-basic-name/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 generic-type-param-basic-name/main.tck:7:8: error: cannot use int64 as a name; it is a type
+06 |	
+07 |	func f[int64 Sizer](s int64) {
+   |	       ^~~~~
+08 |	}
+
+generic-type-param-basic-name/main.tck:7:8: error: int64 appears in no parameter of f, so no call can infer it
 06 |	
 07 |	func f[int64 Sizer](s int64) {
    |	       ^~~~~
@@ -12867,6 +12897,466 @@ invalid-func-syntax-1/main.tck:4:11: error: expected ')' found 'EOF'
    |	          ^
 
 -- invalid-func-syntax-1/no-final-newline --
+-- keep-going-bad-decl-func/main.tck --
+package main
+
+func helper( {
+}
+
+func main() {
+    x := helper() + 1
+    if x == 2 {
+        print("two")
+    }
+}
+-- keep-going-bad-decl-func/expected --
+stage: parse
+---
+
+keep-going-bad-decl-func/main.tck:3:14: error: expected 'parameter name' found '{'
+02 |	
+03 |	func helper( {
+   |	             ^
+04 |	}
+
+-- keep-going-bad-decl-interface-method/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size( int64 {
+    return b.n
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    if measure(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- keep-going-bad-decl-interface-method/expected --
+stage: parse
+---
+
+keep-going-bad-decl-interface-method/main.tck:11:26: error: expected 'type name' found '{'
+10 |	
+11 |	func (b Box) size( int64 {
+   |	                         ^
+12 |	    return b.n
+
+-- keep-going-bad-decl-method/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size( int64 {
+    return b.n
+}
+
+func main() {
+    b := Box{n: 1}
+    if b.size() == 1 {
+        print("one")
+    }
+}
+-- keep-going-bad-decl-method/expected --
+stage: parse
+---
+
+keep-going-bad-decl-method/main.tck:7:26: error: expected 'type name' found '{'
+06 |	
+07 |	func (b Box) size( int64 {
+   |	                         ^
+08 |	    return b.n
+
+-- keep-going-bad-decl-type/main.tck --
+package main
+
+type Box struct {
+    n int64 int64
+}
+
+func size(b Box) int64 {
+    return b.n
+}
+
+func main() {
+    b := Box{n: 1}
+    if size(b) == 1 {
+        print("one")
+    }
+}
+-- keep-going-bad-decl-type/expected --
+stage: parse
+---
+
+keep-going-bad-decl-type/main.tck:4:13: error: expected ';' found 'int64'
+03 |	type Box struct {
+04 |	    n int64 int64
+   |	            ^
+05 |	}
+
+-- keep-going-bad-decl-unnamed/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func (
+
+func main() {
+    if helper() == 1 {
+        print("one")
+    }
+}
+-- keep-going-bad-decl-unnamed/expected --
+stage: parse
+---
+
+keep-going-bad-decl-unnamed/main.tck:7:1: error: expected 'receiver name' found 'func'
+06 |	
+07 |	func main() {
+   |	^
+08 |	    if helper() == 1 {
+
+-- keep-going-bad-global/main.tck --
+package main
+
+var limit int64 = (3 +
+
+func main() {
+    if limit + 1 == 4 {
+        print("four")
+    }
+}
+-- keep-going-bad-global/expected --
+stage: parse
+---
+
+keep-going-bad-global/main.tck:5:1: error: function literals are not supported; declare the function and use its name as a value
+04 |	
+05 |	func main() {
+   |	^~~~
+06 |	    if limit + 1 == 4 {
+
+-- keep-going-bad-import/main.tck --
+package main
+
+import nope from "std/nope"
+
+func main() {
+    x := nope.value() + 1
+    if x == 2 {
+        print("two")
+    }
+}
+-- keep-going-bad-import/expected --
+stage: load
+---
+
+keep-going-bad-import/main.tck:3:18: error: cannot find package std/nope: no directory std/nope in module std
+02 |	
+03 |	import nope from "std/nope"
+   |	                 ^~~~~~~~~~
+04 |	
+
+-- keep-going-bad-stmt-after-type-error/main.tck --
+package main
+
+func main() {
+    var s string = 5
+    x := (1 +;
+    print(s)
+}
+-- keep-going-bad-stmt-after-type-error/expected --
+stage: parse+typeck
+---
+
+keep-going-bad-stmt-after-type-error/main.tck:4:20: error: cannot use int64 as string in declaration of s
+03 |	func main() {
+04 |	    var s string = 5
+   |	                   ^
+05 |	    x := (1 +;
+
+keep-going-bad-stmt-after-type-error/main.tck:5:14: error: expected 'value' found ';'
+04 |	    var s string = 5
+05 |	    x := (1 +;
+   |	             ^
+06 |	    print(s)
+
+-- keep-going-bad-stmt-decl/main.tck --
+package main
+
+func main() {
+    x := (1 +;
+    y := x + 1
+    if y == 2 {
+        print("two")
+    }
+}
+-- keep-going-bad-stmt-decl/expected --
+stage: parse
+---
+
+keep-going-bad-stmt-decl/main.tck:4:14: error: expected 'value' found ';'
+03 |	func main() {
+04 |	    x := (1 +;
+   |	             ^
+05 |	    y := x + 1
+
+-- keep-going-bad-stmt-guard/main.tck --
+package main
+
+func at(xs []int64, i int64) int64 {
+    if i < 0 || i >= len(xs) + {
+        return 0
+    }
+    return xs[i]
+}
+
+func main() {
+    xs := [3]int64{1, 2, 3}
+    if at(xs[:], 1) == 2 {
+        print("two")
+    }
+}
+-- keep-going-bad-stmt-guard/expected --
+stage: parse
+---
+
+keep-going-bad-stmt-guard/main.tck:4:32: error: expected 'value' found '{'
+03 |	func at(xs []int64, i int64) int64 {
+04 |	    if i < 0 || i >= len(xs) + {
+   |	                               ^
+05 |	        return 0
+
+-- keep-going-bad-stmt-return/main.tck --
+package main
+
+func f() int64 {
+    return 1 +;
+}
+
+func main() {
+    if f() == 1 {
+        print("one")
+    }
+}
+-- keep-going-bad-stmt-return/expected --
+stage: parse
+---
+
+keep-going-bad-stmt-return/main.tck:4:15: error: expected 'value' found ';'
+03 |	func f() int64 {
+04 |	    return 1 +;
+   |	              ^
+05 |	}
+
+-- keep-going-bad-stmt-unused-after/main.tck --
+package main
+
+func main() {
+    n := 1
+    exit(n) n
+    late := 2
+}
+-- keep-going-bad-stmt-unused-after/expected --
+stage: parse+resolve
+---
+
+keep-going-bad-stmt-unused-after/main.tck:5:13: error: expected ';' found 'n'
+04 |	    n := 1
+05 |	    exit(n) n
+   |	            ^
+06 |	    late := 2
+
+keep-going-bad-stmt-unused-after/main.tck:6:5: error: declared and not used: late
+05 |	    exit(n) n
+06 |	    late := 2
+   |	    ^~~~
+07 |	}
+
+-- keep-going-bad-stmt-use/main.tck --
+package main
+
+func main() {
+    n := 1
+    print(n +;
+}
+-- keep-going-bad-stmt-use/expected --
+stage: parse
+---
+
+keep-going-bad-stmt-use/main.tck:5:14: error: expected 'value' found ';'
+04 |	    n := 1
+05 |	    print(n +;
+   |	             ^
+06 |	}
+
+-- keep-going-rejected-shadow/main.tck --
+package main
+
+func f(n int64) int64 {
+    n := "two"
+    return n
+}
+
+func main() {
+    if f(1) == 1 {
+        print("one")
+    }
+}
+-- keep-going-rejected-shadow/expected --
+stage: resolve
+---
+
+keep-going-rejected-shadow/main.tck:4:5: error: n is already declared
+03 |	func f(n int64) int64 {
+04 |	    n := "two"
+   |	    ^
+05 |	    return n
+keep-going-rejected-shadow/main.tck:3:8: note: previous declaration of n
+02 |	
+03 |	func f(n int64) int64 {
+   |	       ^
+04 |	    n := "two"
+
+-- keep-going-syntax-and-type/main.tck --
+package main
+
+func a() {
+    x := 1 1
+}
+
+func b() {
+    var s string = 5
+    print(s)
+}
+
+func main() {
+}
+-- keep-going-syntax-and-type/expected --
+stage: parse+typeck
+---
+
+keep-going-syntax-and-type/main.tck:4:12: error: expected ';' found '1'
+03 |	func a() {
+04 |	    x := 1 1
+   |	           ^
+05 |	}
+
+keep-going-syntax-and-type/main.tck:8:20: error: cannot use int64 as string in declaration of s
+07 |	func b() {
+08 |	    var s string = 5
+   |	                   ^
+09 |	    print(s)
+
+-- keep-going-undefined-in-expr/main.tck --
+package main
+
+func main() {
+    x := nope + 1
+    var y int64 = nope
+    z := nope() * 2
+    w := nope.field
+    v := nope[0] + x + y + z + w
+    if v == 2 {
+        print("two")
+    }
+}
+-- keep-going-undefined-in-expr/expected --
+stage: resolve
+---
+
+keep-going-undefined-in-expr/main.tck:4:10: error: undefined: nope
+03 |	func main() {
+04 |	    x := nope + 1
+   |	         ^~~~
+05 |	    var y int64 = nope
+
+keep-going-undefined-in-expr/main.tck:5:19: error: undefined: nope
+04 |	    x := nope + 1
+05 |	    var y int64 = nope
+   |	                  ^~~~
+06 |	    z := nope() * 2
+
+keep-going-undefined-in-expr/main.tck:6:10: error: undefined: nope
+05 |	    var y int64 = nope
+06 |	    z := nope() * 2
+   |	         ^~~~
+07 |	    w := nope.field
+
+keep-going-undefined-in-expr/main.tck:7:10: error: undefined: nope
+06 |	    z := nope() * 2
+07 |	    w := nope.field
+   |	         ^~~~
+08 |	    v := nope[0] + x + y + z + w
+
+keep-going-undefined-in-expr/main.tck:8:10: error: undefined: nope
+07 |	    w := nope.field
+08 |	    v := nope[0] + x + y + z + w
+   |	         ^~~~
+09 |	    if v == 2 {
+
+-- keep-going-undefined-type/main.tck --
+package main
+
+func f(n int64) int64 {
+    return n
+}
+
+func main() {
+    mut b Nope
+    b.n = 1
+    var s string = b
+    if f(b.n) == 1 && f(b) == 1 {
+        print(s)
+    }
+}
+-- keep-going-undefined-type/expected --
+stage: typeck
+---
+
+keep-going-undefined-type/main.tck:8:11: error: unknown type: Nope
+07 |	func main() {
+08 |	    mut b Nope
+   |	          ^~~~
+09 |	    b.n = 1
+
+-- keep-going-unused-and-type/main.tck --
+package main
+
+func main() {
+    x := 1
+    var s string = 5
+    print(s)
+}
+-- keep-going-unused-and-type/expected --
+stage: resolve+typeck
+---
+
+keep-going-unused-and-type/main.tck:4:5: error: declared and not used: x
+03 |	func main() {
+04 |	    x := 1
+   |	    ^
+05 |	    var s string = 5
+
+keep-going-unused-and-type/main.tck:5:20: error: cannot use int64 as string in declaration of s
+04 |	    x := 1
+05 |	    var s string = 5
+   |	                   ^
+06 |	    print(s)
+
 -- len-of-integer/main.tck --
 package main
 
@@ -13677,12 +14167,6 @@ func main() {
 stage: typeck
 ---
 
-list-eq-alongside-mut/main.tck:14:19: error: index may be out of range; use v, ok := ...[...]
-13 |	    lists := make(list[list[uint8]], c_allocator)
-14 |	    if a == lists[first(mut a)] {
-   |	                  ^~~~~~~~~~~~
-15 |	        exit(1)
-
 list-eq-alongside-mut/main.tck:14:8: error: cannot compare a alongside mut a in the other operand: a list is not copied to be compared, and a mut argument must be the only way to reach a during its call
 13 |	    lists := make(list[list[uint8]], c_allocator)
 14 |	    if a == lists[first(mut a)] {
@@ -13692,6 +14176,12 @@ list-eq-alongside-mut/main.tck:14:25: note: passed as mut here
 13 |	    lists := make(list[list[uint8]], c_allocator)
 14 |	    if a == lists[first(mut a)] {
    |	                        ^~~~~
+15 |	        exit(1)
+
+list-eq-alongside-mut/main.tck:14:19: error: index may be out of range; use v, ok := ...[...]
+13 |	    lists := make(list[list[uint8]], c_allocator)
+14 |	    if a == lists[first(mut a)] {
+   |	                  ^~~~~~~~~~~~
 15 |	        exit(1)
 
 -- list-eq-element-not-comparable/main.tck --
@@ -15886,16 +16376,16 @@ method-arity/main.tck:21:11: error: cannot use string as int64 in argument to P.
    |	          ^~~
 22 |	    xs := [2]int64{1, 2}
 
-method-arity/main.tck:23:23: error: cannot use ... in a call to non-variadic P.digits
-22 |	    xs := [2]int64{1, 2}
-23 |	    use(p.digits(xs[:]...))
-   |	                      ^~~
-24 |	}
-
 method-arity/main.tck:23:18: error: xs[:] is a view, []int64, which can only be passed to a view parameter or to len
 22 |	    xs := [2]int64{1, 2}
 23 |	    use(p.digits(xs[:]...))
    |	                 ^~~~~
+24 |	}
+
+method-arity/main.tck:23:23: error: cannot use ... in a call to non-variadic P.digits
+22 |	    xs := [2]int64{1, 2}
+23 |	    use(p.digits(xs[:]...))
+   |	                      ^~~
 24 |	}
 
 -- method-defer-moves/main.tck --
@@ -34930,7 +35420,7 @@ func main() {
     exit(b.unsafe_size_t)
 }
 -- unsafe-name-field/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 unsafe-name-field/main.tck:4:5: error: cannot use unsafe_size_t as a name; it is a type
@@ -34938,6 +35428,18 @@ unsafe-name-field/main.tck:4:5: error: cannot use unsafe_size_t as a name; it is
 04 |	    unsafe_size_t uint64
    |	    ^~~~~~~~~~~~~
 05 |	}
+
+unsafe-name-field/main.tck:8:10: error: Buffer literal is missing field unsafe_size_t
+07 |	func main() {
+08 |	    b := Buffer{}
+   |	         ^~~~~~~~
+09 |	    exit(b.unsafe_size_t)
+
+unsafe-name-field/main.tck:9:10: error: cannot use uint64 as int32 in argument to exit
+08 |	    b := Buffer{}
+09 |	    exit(b.unsafe_size_t)
+   |	         ^~~~~~~~~~~~~~~
+10 |	}
 
 -- unsafe-name-struct/main.tck --
 package main
@@ -35698,7 +36200,7 @@ func main() {
     exit(x)
 }
 -- var-use-before-decl/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 var-use-before-decl/main.tck:4:10: error: undefined: x
@@ -35706,6 +36208,12 @@ var-use-before-decl/main.tck:4:10: error: undefined: x
 04 |	    exit(x)
    |	         ^
 05 |	    x := 1
+
+var-use-before-decl/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	    x := 1
+06 |	    exit(x)
+   |	         ^
+07 |	}
 
 -- variadic-array-elem/main.tck --
 package main
@@ -37291,16 +37799,16 @@ func main() {
 stage: typeck
 ---
 
-view-result-assign/main.tck:8:9: error: whole(v) is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
-07 |	func f(v []uint8) {
-08 |	    v = whole(v)
-   |	        ^~~~~~~~
-09 |	}
-
 view-result-assign/main.tck:8:5: error: cannot assign to v: v is a read-only view
 07 |	func f(v []uint8) {
 08 |	    v = whole(v)
    |	    ^
+09 |	}
+
+view-result-assign/main.tck:8:9: error: whole(v) is a view, []uint8, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+07 |	func f(v []uint8) {
+08 |	    v = whole(v)
+   |	        ^~~~~~~~
 09 |	}
 
 -- view-result-bad-element/main.tck --
@@ -38688,8 +39196,13 @@ package main
 
 func f(v []uint8) []
 -- view-result-truncated/expected --
-stage: parse
+stage: parse+resolve
 ---
+
+view-result-truncated/main.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
 
 view-result-truncated/main.tck:3:21: error: expected 'type name' found ';'
 02 |	
@@ -39009,7 +39522,7 @@ func main() {
     exit(helper())
 }
 -- vis-in-main-file/expected --
-stage: resolve
+stage: resolve+typeck
 ---
 
 vis-in-main-file/main.tck:3:1: error: pub has no effect in package main, which no package can import
@@ -39047,6 +39560,12 @@ vis-in-main-file/main.tck:11:1: error: lib has no effect in package main, which 
 11 |	lib func helper() int64 {
    |	^~~
 12 |	    count++
+
+vis-in-main-file/main.tck:17:10: error: cannot use int64 as int32 in argument to exit
+16 |	func main() {
+17 |	    exit(helper())
+   |	         ^~~~~~~~
+18 |	}
 
 -- vis-local/main.tck --
 package main

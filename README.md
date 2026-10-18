@@ -188,16 +188,33 @@ tack --emit examples/hello/main.tck > hello.c   # the C the backend emits
 ## How it works
 
 Each stage is a package that takes a data structure and returns one, along with
-any diagnostics. The first stage to report a diagnostic ends the run. A stage
-reports every problem it finds, each once: an error that follows from one
-already reported, such as an unused variable whose declaration was wrong, is
-not reported. The parser reports every syntax error in a file: after one, it
-skips to the end of the statement, the next line that starts a declaration,
-or the brace that closes the block, and goes on, so each independent error is
-reported once and none that follows from it is. The driver reports the
-errors of a run sorted by file and by where each starts, at most 10 of them
-unless `--max-errors` says otherwise, and then the line `too many errors:
-showing the first 10; --max-errors 0 shows them all` when it left some out.
+any diagnostics. Every stage runs, whatever an earlier one reported, so one
+run reports the syntax errors, the unresolved and unused names and the type
+errors of a program together: a variable declared and not used no longer
+hides every type error in its file. Code is generated only from a program
+no stage reported anything about; the backend checks that itself and
+refuses any other. The one stop is a file that does not lex, or a package
+whose files cannot be put together at all (a malformed `tack.mod`, a main
+package whose package clauses are wrong), after which the resolver and the
+type checker do not run.
+
+Each error is reported once, at its cause: an error that follows from one
+already reported is not reported. The parser reports every syntax error in a
+file: after one, it skips to the end of the statement, the next line that
+starts a declaration, or the brace that closes the block, puts a bad node in
+the tree where the skipped text was, and goes on. A name the resolver could
+not bind because of an error already known, its declaration reported, its
+import not loaded, or a bad node that may have declared it, is invalid, and
+nothing that uses it is reported: no `undefined`, no mismatch against its
+type. A bad declaration hides only the name it was declaring, when the
+parser got that far, and any name of its package when it did not; a bad
+statement hides the names used after it in its function, and, since it may
+have been a return, a guard or an assignment, everything the type checker
+would report after it there. A variable, global or import damaged source
+may have used is not reported unused. The driver reports the errors of a
+run sorted by file and by where each starts, at most 10 of them unless
+`--max-errors` says otherwise, and then the line `too many errors: showing
+the first 10; --max-errors 0 shows them all` when it left some out.
 
 | Package    | Role                                                          |
 |------------|---------------------------------------------------------------|
@@ -373,9 +390,9 @@ makes for itself, which has a letter after `tack_`.
   global read only in another file is used. A global's type may name a
   global declared after it, in its file or a later one, as in `mut cells
   [size]int64`; one that needs itself is `initialization cycle: a refers to
-  itself`. Every file is lexed, and then every file parsed, before the
-  first stage with errors stops the run, so each file's problems are
-  reported. A file compiled on its own is the whole package.
+  itself`. Every file is lexed, and then every file parsed, so each
+  file's problems are reported. A file compiled on its own is the whole
+  package.
 - A directory is compiled in its module. A module is a directory tree
   whose root holds a `tack.mod`, which names it in one line, `module
   calc`, and may hold `//` comments, which run to the end of the line

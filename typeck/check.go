@@ -205,8 +205,20 @@ type Checker struct {
 	// function type (see dynamicFunc).
 	dynamics map[types.Type]*ast.Func
 
+	// lostMethods holds, for each package, the names of the methods its
+	// bad declarations were declaring, and lostAll the packages with a
+	// bad declaration that got no name, which could have been any method
+	// (see invalid.go).
+	lostMethods map[*ast.Package]map[string]bool
+	lostAll     map[*ast.Package]bool
+
 	diags []diag.Diagnostic
 	loops int // how many loops enclose the statement being checked
+
+	// prior is how many errors the stages before the checker reported
+	// about the program, which let it report nothing about a name bound
+	// to ast.Unbound or about damaged source (see invalid.go).
+	prior int
 
 	// at is where checking has reached, for the facts in force to be
 	// judged at (see reaches): the end of the innermost expression or
@@ -326,6 +338,8 @@ func (c *Checker) Check() []diag.Diagnostic {
 	for _, f := range c.prog.Files() {
 		f.Types = c.table
 	}
+	c.prior = c.prog.Errors
+	c.findLostMethods()
 	decls := c.prog.Decls()
 
 	// Every struct type exists before anything is checked, so any type can
@@ -359,25 +373,40 @@ func (c *Checker) Check() []diag.Diagnostic {
 	c.checkCNames(decls)
 
 	for _, decl := range decls {
-		fn, ok := decl.(*ast.Func)
-		if !ok {
-			continue
+		if fn, ok := decl.(*ast.Func); ok {
+			restore := c.enter(fn)
+			c.checkFunc(fn)
+			restore()
 		}
-		restore := c.enter(fn)
-		if fn.Extern {
-			c.checkExtern(fn)
-		} else {
-			before := len(c.diags)
-			c.checkBody(fn)
-			if len(c.diags) == before {
-				c.checkMoves(fn)
-			}
-		}
-		restore()
 	}
 
+	c.checkBadDecls()
 	c.instantiate()
+	c.prog.Errors += len(c.diags)
+	c.table.Errors = c.prog.Errors
 	return c.diags
+}
+
+// checkFunc checks fn once every signature is known: an extern func's C
+// side, or any other's body, and then that no moved value is used in it,
+// when the body had nothing else reported. An extern method, which the
+// resolver reported, is not checked, and a body with bad statements is
+// checked as checkDamagedBody says.
+func (c *Checker) checkFunc(fn *ast.Func) {
+	switch bad := ast.BadStmts(fn.Body); {
+	case fn.Extern && fn.Method && c.prior > 0:
+		// The resolver reported it: a method is never extern.
+	case fn.Extern:
+		c.checkExtern(fn)
+	case len(bad) > 0:
+		c.checkDamagedBody(fn, bad[0])
+	default:
+		before := len(c.diags)
+		c.checkBody(fn)
+		if len(c.diags) == before {
+			c.checkMoves(fn)
+		}
+	}
 }
 
 // checkGlobals records which of decls are package-level variables, then
@@ -426,8 +455,12 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	c.appends = nil
 
 	// The rule is syntactic, as it is in Go: a call that never comes back,
-	// like exit, does not satisfy it.
-	if fn.Results != nil && !blockTerminates(fn.Body) {
+	// like exit, does not satisfy it. A bad statement may have been the
+	// return (see invalid.go).
+	// A function with no body, which the resolver reported, has none to
+	// end in one.
+	if fn.Results != nil && !blockTerminates(fn.Body) && len(ast.BadStmts(fn.Body)) == 0 &&
+		(!fn.NoBody || c.prior == 0) {
 		c.errorf(fn.NameSpan, "%s must end in a return", c.displayName(fn))
 	}
 }
@@ -1207,9 +1240,13 @@ func (c *Checker) badGlobalType(v *ast.Var) bool {
 }
 
 // namesFailedGlobal reports whether e names an immutable global with no
-// computed value, whose initializer has been reported, so that e having no
-// value either is not reported again.
+// computed value, whose initializer has been reported, or a name bound to
+// ast.Unbound, whose problem has been, so that e having no value either is
+// not reported again.
 func (c *Checker) namesFailedGlobal(e ast.Expr) bool {
+	if c.namesUnbound(e) {
+		return true
+	}
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {
 		if id, ok := n.(*ast.Ident); ok {
@@ -1222,9 +1259,27 @@ func (c *Checker) namesFailedGlobal(e ast.Expr) bool {
 	return found
 }
 
+// namesUnbound reports whether e names something bound to ast.Unbound,
+// whose problem has been reported: whether e would be constant is
+// unknown.
+func (c *Checker) namesUnbound(e ast.Expr) bool {
+	found := false
+	ast.Walk(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Def == ast.Unbound {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
 // notConstant reports that the initializer of the global v is not a
-// constant expression.
+// constant expression, unless it names something bound to ast.Unbound,
+// which was reported, and might have made it one.
 func (c *Checker) notConstant(v *ast.Var) {
+	if c.namesUnbound(v.Value) {
+		return
+	}
 	c.errorf(v.Value.Spanned(), "%s must be initialized with a constant expression", v.Name)
 }
 
@@ -1681,7 +1736,7 @@ func (c *Checker) notAssignable(target ast.Expr) {
 		c.notPlace(target.Spanned(), "assign to "+c.text(target.Spanned()))
 		return
 	}
-	c.errorf(target.Spanned(), "cannot assign to this expression")
+	c.notATarget(target)
 }
 
 // elementTarget checks an element being assigned, x[i]: x must be a
@@ -1700,7 +1755,7 @@ func (c *Checker) elementTarget(ix *ast.Index) (types.Type, bool) {
 		c.notPlace(ix.Span, "assign to "+c.text(ix.Span))
 		return types.Invalid, false
 	default:
-		c.errorf(ix.X.Spanned(), "cannot assign to this expression")
+		c.notATarget(ix.X)
 		return types.Invalid, false
 	}
 
@@ -1741,8 +1796,17 @@ func (c *Checker) containerTarget(x ast.Expr, what string) (types.Type, bool) {
 	case *ast.Selector:
 		return c.fieldTarget(x)
 	default:
-		c.errorf(x.Spanned(), "cannot assign to this expression")
+		c.notATarget(x)
 		return types.Invalid, false
+	}
+}
+
+// notATarget reports target, which is no variable, element, field or
+// slice, as no place an assignment can write, as the resolver does: after
+// it has run, which an earlier error says, it has reported this one.
+func (c *Checker) notATarget(target ast.Expr) {
+	if c.prior == 0 {
+		c.errorf(target.Spanned(), "cannot assign to this expression")
 	}
 }
 
@@ -1831,6 +1895,9 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 
 	if typ, declared := c.namedType(id); declared {
 		return typ
+	}
+	if c.unbound(id) {
+		return types.Invalid
 	}
 	typ, known := types.Lookup(id.Name)
 	if !known || id.Pkg != "" {
@@ -1995,7 +2062,13 @@ func (c *Checker) resolveResultTypes(fn *ast.Func) {
 // parameter whose type is unknown keeps types.Invalid, which every later check
 // reports rather than silently accepting.
 func (c *Checker) resolveParamTypes(fn *ast.Func) {
-	for _, param := range fn.Params {
+	for i, param := range fn.Params {
+		if i == 0 && fn.Method && fn.RecvType == nil && c.prior > 0 {
+			// The resolver reported the receiver's type, as no type the
+			// method can belong to; it is not reported again.
+			param.Type = types.Invalid
+			continue
+		}
 		param.Type = c.paramType(param)
 	}
 	c.ownReceiver(fn)

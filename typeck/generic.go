@@ -131,6 +131,9 @@ func (c *Checker) constraint(tp *ast.TypeParam) *ast.TypeDecl {
 		if td, ok := id.Def.(*ast.TypeDecl); ok && td.Interface() != nil {
 			return td
 		}
+		if c.unbound(id) {
+			return nil
+		}
 		if _, isBasic := types.Lookup(id.Name); !isBasic && id.Def == nil {
 			c.errorf(id.Span, "unknown type: %s", id.Qualified())
 			return nil
@@ -404,25 +407,41 @@ func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, 
 	}
 	for _, want := range iface.Interface().Methods {
 		have, owner, why, here := c.methodFor(typ, tp, want.Name)
+		if why != "" && c.lostMethodOf(typ, want.Name) {
+			// A bad declaration may have been the method; whether it
+			// would satisfy want is unknown, and nothing is reported.
+			return "", false
+		}
 		if why != "" {
 			return why, here
 		}
-		wanted := c.ifaceName(iface) + "'s " + want.Name
-		switch {
-		case have.mut && !want.Mut:
-			return fmt.Sprintf("%s takes its receiver as mut, and %s does not",
-				owner, wanted), false
-		case !have.mut && want.Mut:
-			return fmt.Sprintf("%s does not take its receiver as mut, and %s does",
-				owner, wanted), false
-		}
-		wantSig := methodSig{params: want.Params, results: want.ResultTypes, mut: want.Mut}
-		if !sameSig(have, wantSig) {
-			return fmt.Sprintf("%s is %s, and %s is %s",
-				owner, c.sigText(have), wanted, c.sigText(wantSig)), false
+		if why := c.methodMismatch(have, owner, want, iface); why != "" {
+			return why, false
 		}
 	}
 	return "", false
+}
+
+// methodMismatch returns why have, the method owner names, does not
+// satisfy want, iface's method of its name: one takes its receiver as mut
+// and the other does not, or their signatures differ. It returns "" when
+// it does.
+func (c *Checker) methodMismatch(have methodSig, owner string, want *ast.IfaceMethod,
+	iface *ast.TypeDecl,
+) string {
+	wanted := c.ifaceName(iface) + "'s " + want.Name
+	switch {
+	case have.mut && !want.Mut:
+		return fmt.Sprintf("%s takes its receiver as mut, and %s does not", owner, wanted)
+	case !have.mut && want.Mut:
+		return fmt.Sprintf("%s does not take its receiver as mut, and %s does", owner, wanted)
+	}
+	wantSig := methodSig{params: want.Params, results: want.ResultTypes, mut: want.Mut}
+	if !sameSig(have, wantSig) {
+		return fmt.Sprintf("%s is %s, and %s is %s",
+			owner, c.sigText(have), wanted, c.sigText(wantSig))
+	}
+	return ""
 }
 
 // methodFor returns the method named name that typ, a struct or union

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/fs"
 	"path"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -38,17 +39,39 @@ func treeFromBytes(data []byte) (fstest.MapFS, string) {
 	return fsys, target
 }
 
-// compileLoaded runs the rest of the pipeline on a loaded program, up to
-// the first stage that reports anything, so a fuzzed program reaches every
-// stage it can.
-func compileLoaded(res *loader.Result) {
-	if len(resolver.New(res.Program, stdtest.MustBuiltins()).Resolve()) > 0 {
+// checkResult checks what FuzzLoad says of res, a Result the loader
+// returned with no error: a program, diagnostics or both, a program
+// counting its diagnostics, and a program compiled on as compileLoaded
+// does.
+func checkResult(t *testing.T, res *loader.Result) {
+	t.Helper()
+	if res.Program == nil && len(res.Diags) == 0 {
+		t.Fatalf("no program and no diagnostics")
+	}
+	if res.Program == nil {
 		return
 	}
-	if len(typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()) > 0 {
-		return
+	if res.Program.Errors != len(res.Diags) {
+		t.Fatalf("program counts %d errors with %d diagnostics",
+			res.Program.Errors, len(res.Diags))
 	}
-	_, _ = c.New().Generate(res.Program, stdtest.MustBuiltins())
+	compileLoaded(t, res)
+}
+
+// compileLoaded runs the rest of the pipeline on a loaded program as the
+// driver does: the resolver and the type checker whatever was reported
+// before them, so a fuzzed program reaches every stage, and then code
+// generation, which must refuse a program any stage reported an error
+// about, giving no code and saying why.
+func compileLoaded(t *testing.T, res *loader.Result) {
+	t.Helper()
+	diags := slices.Clone(res.Diags)
+	diags = append(diags, resolver.New(res.Program, stdtest.MustBuiltins()).Resolve()...)
+	diags = append(diags, typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()...)
+	out, genDiags := c.New().Generate(res.Program, stdtest.MustBuiltins())
+	if len(diags) > 0 && (out != nil || len(genDiags) == 0) {
+		t.Fatalf("code generated from a program with %d errors", len(diags))
+	}
 }
 
 // loadSeeds are the file trees FuzzLoad starts from, in treeFromBytes's
@@ -195,10 +218,11 @@ var loadSeeds = []string{
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports
 // and cycles of them, tack.mod files anywhere, and a standard library in
 // the tree's directory std, which a target may be in, and checks the loader
-// never panics, and either fails with an error or gives a program exactly
-// when it gives no diagnostic, with every diagnostic's span in a file it
-// read. A program it gives is compiled on, through code generation, which
-// must not panic either.
+// never panics, and either fails with an error or gives a program, a
+// diagnostic, or both, a program counting its diagnostics in its Errors,
+// with every diagnostic's span in a file it read. A program it gives is
+// compiled on, through code generation, which must not panic either, and
+// must refuse a program with errors (see compileLoaded).
 func FuzzLoad(f *testing.F) {
 	for _, seed := range loadSeeds {
 		f.Add([]byte(seed))
@@ -214,12 +238,7 @@ func FuzzLoad(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if (res.Program == nil) == (len(res.Diags) == 0) {
-			t.Fatalf("program %v with %d diagnostics", res.Program, len(res.Diags))
-		}
-		if res.Program != nil {
-			compileLoaded(res)
-		}
+		checkResult(t, res)
 		for _, d := range res.Diags {
 			file := res.Files.Lookup(d.Span.File)
 			if file == nil || d.Span.Start < 0 || d.Span.End > len(file.Data) {

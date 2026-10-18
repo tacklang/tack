@@ -572,10 +572,19 @@ func checkOutPath(outBin, input string) error {
 // stage d names, or through code generation when d is dumpNone, and
 // returns what that stage produced: the formatted dump for a dump, the
 // generated source otherwise. single says the program is a single file, whose trees are
-// dumped as that file rather than as a list or a program. The first stage
-// to report diagnostics, loading included, ends the run with a
-// *diagnosticsError holding at most maxErrors of them when maxErrors is
-// positive (see diagnostics).
+// dumped as that file rather than as a list or a program.
+//
+// Every stage up to the one asked for runs, whatever an earlier one
+// reported, and the problems all of them found are reported together: the
+// loader's, the resolver's and, through code generation, the type
+// checker's. A name or a type that failed is left invalid, which later
+// stages report nothing more about (see packages resolver and typeck). Only
+// a loader that could not build a program at all, after a file that does
+// not lex for one, ends the run before the resolver. A dump, or code
+// generation, happens only when no stage reported anything; otherwise the
+// run ends with a *diagnosticsError holding at most maxErrors of them when
+// maxErrors is positive (see diagnostics). The backend checks the same
+// itself, refusing a program with errors (see codegen.Refuse).
 func compile(
 	res *loader.Result,
 	single bool,
@@ -584,31 +593,43 @@ func compile(
 	d dump,
 	maxErrors int,
 ) ([]byte, error) {
-	fail := func(diags []diag.Diagnostic) error {
+	diags := slices.Clone(res.Diags)
+	fail := func() error {
 		return diagnostics(res, diags, maxErrors)
 	}
 
-	if len(res.Diags) > 0 {
-		return nil, fail(res.Diags)
-	}
 	if d == dumpLex || d == dumpAST {
+		if len(diags) > 0 {
+			return nil, fail()
+		}
 		return loadedDump(res, single, d)
 	}
 
 	prog := res.Program
-	if diags := resolver.New(prog, builtins).Resolve(); len(diags) > 0 {
-		return nil, fail(diags)
+	if prog == nil {
+		if len(diags) == 0 {
+			return nil, errors.New(
+				"internal error: the loader built no program and reported no error",
+			)
+		}
+		return nil, fail()
 	}
+	diags = append(diags, resolver.New(prog, builtins).Resolve()...)
 	if d == dumpRes {
+		if len(diags) > 0 {
+			return nil, fail()
+		}
 		return resolvedDump(prog, single)
 	}
 
-	if diags := typeck.New(prog, res.Files, builtins).Check(); len(diags) > 0 {
-		return nil, fail(diags)
+	diags = append(diags, typeck.New(prog, res.Files, builtins).Check()...)
+	if len(diags) > 0 {
+		return nil, fail()
 	}
 	out, genDiags := backend.Generate(prog, builtins)
 	if len(genDiags) > 0 {
-		return nil, fail(genDiags)
+		diags = genDiags
+		return nil, fail()
 	}
 	return out, nil
 }

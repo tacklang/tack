@@ -83,7 +83,74 @@ func (p *Parser) badDecl(start int, diags []diag.Diagnostic) *ast.BadDecl {
 	p.record(diags)
 	p.unconsumeEOF()
 	p.syncDecl(start)
-	return &ast.BadDecl{Span: p.skipped(start)}
+	bad := &ast.BadDecl{Span: p.skipped(start)}
+	bad.Name, bad.Method = p.declName(start)
+	return bad
+}
+
+// declName returns the name the declaration skipped from the token start
+// to the parser's was declaring, when it got that far, and whether it is
+// a method's: the name after func, after a method's receiver, after type,
+// var or mut, or after import, past any pub, lib or extern before them
+// and an extern's C name. It returns "" when the tokens skipped hold no
+// such name.
+func (p *Parser) declName(start int) (string, bool) {
+	i := p.pastModifiers(start)
+	if i >= p.index || p.tokens[i].Kind() != lexer.Keyword {
+		return "", false
+	}
+	method := false
+	switch p.tokens[i].Value() {
+	case lexer.Func:
+		i++
+		if i < p.index && p.tokens[i].Kind() == lexer.LParen {
+			i, method = p.pastParens(i), true
+		}
+	case lexer.Type, lexer.Var, lexer.Mut, lexer.Import:
+		i++
+	default:
+		return "", false
+	}
+	if i >= p.index || p.tokens[i].Kind() != lexer.Ident {
+		return "", false
+	}
+	return lexer.ValueChecked[string](&p.tokens[i]), method
+}
+
+// pastModifiers returns the index of the first token from start, below the
+// parser's index, that is none of the words a declaration may start with
+// before its keyword: pub, lib, and extern with its C name, if written.
+func (p *Parser) pastModifiers(start int) int {
+	i := start
+	for i < p.index && (isKeyword(&p.tokens[i], lexer.Pub) || isKeyword(&p.tokens[i], lexer.Lib)) {
+		i++
+	}
+	if i < p.index && isKeyword(&p.tokens[i], lexer.Extern) {
+		i++
+		if i < p.index && p.tokens[i].Kind() == lexer.LParen {
+			i = p.pastParens(i)
+		}
+	}
+	return i
+}
+
+// pastParens returns the index of the token after the parenthesis that
+// closes the one at the token open, or the parser's index when it is
+// not closed before it.
+func (p *Parser) pastParens(open int) int {
+	depth := 0
+	for i := open; i < p.index; i++ {
+		switch p.tokens[i].Kind() {
+		case lexer.LParen:
+			depth++
+		case lexer.RParen:
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return p.index
 }
 
 // badStmt records diags, the errors of the statement that started at the

@@ -460,3 +460,51 @@ func parseWithin(
 		return nil, nil
 	}
 }
+
+// TestBadDeclNames checks the name a bad declaration records, the one it
+// was declaring when its error was found, past pub, lib, extern and an
+// extern's C name, and a method's past its receiver, and none when the
+// error came before the name.
+func TestBadDeclNames(t *testing.T) {
+	for _, tc := range []struct {
+		decl   string
+		name   string
+		method bool
+	}{
+		{"func f( {\n}", "f", false},
+		{"pub func f(x int64 {\n}", "f", false},
+		{"lib func f(x int64 {\n}", "f", false},
+		{"extern(\"c_f\") func f(x int64", "f", false},
+		{"pub extern func f(x int64", "f", false},
+		{"func (b Box) size( int64 {\n}", "size", true},
+		{"func (b Box size() {\n}", "", false},
+		{"type T struct {\n    n int64 int64\n}", "T", false},
+		{"var limit int64 = (3 +", "limit", false},
+		{"mut count = ]", "count", false},
+		{"func (", "", false},
+		{"func 1f() {\n}", "", false},
+		{"type = 3", "", false},
+	} {
+		t.Run(tc.decl, func(t *testing.T) {
+			src := "package main\n\n" + tc.decl + "\n\nfunc main() {\n}\n"
+			f := &source.File{ID: "test", Filename: "case.tck", Data: []byte(src)}
+			lex := lexer.New(f)
+			if diags := lex.Lex(); len(diags) > 0 {
+				t.Fatalf("lex: %v", diags)
+			}
+			tree, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
+			if len(diags) == 0 || tree == nil {
+				t.Fatalf("parsed with %d errors, tree %v; want an error and a tree",
+					len(diags), tree)
+			}
+			bad, ok := tree.Decls[0].(*ast.BadDecl)
+			if !ok {
+				t.Fatalf("first declaration is %T, want *ast.BadDecl", tree.Decls[0])
+			}
+			if bad.Name != tc.name || bad.Method != tc.method {
+				t.Errorf("Name %q, Method %v; want %q, %v",
+					bad.Name, bad.Method, tc.name, tc.method)
+			}
+		})
+	}
+}

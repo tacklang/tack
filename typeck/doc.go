@@ -7,9 +7,10 @@
 // order, and the program has one types.Table, recorded on the Program and
 // on every file. The source text notes quote is found through a
 // source.Files, by the file a span points into. Running after the resolver
-// means every name it sees is known to be defined. Running before code
-// generation means a backend never has to decide what a badly typed program
-// should emit.
+// means every name it sees is bound, to a declaration or, after an error,
+// to ast.Unbound. It runs whatever the stages before it reported (see
+// After errors below). Running before code generation means a backend
+// never has to decide what a badly typed program should emit.
 //
 // Checking happens in passes. The first gives every type declaration its
 // struct or union type, with no fields or cases yet, recorded in
@@ -755,4 +756,35 @@
 // still gives the facts it states, so the proof it was written to give is
 // not reported missing. A Checker is single-use: create one with New and call Check
 // once.
+//
+// # After errors
+//
+// The checker runs even when the loader or the resolver reported errors,
+// so a run reports a program's type errors along with its syntax and
+// naming errors, and must report nothing that follows from those (see
+// invalid.go). A name the resolver bound to ast.Unbound, because what it
+// names was reported or may have been declared by damaged source, has
+// types.Invalid, so nothing that uses it is reported: a call to it checks
+// its arguments on their own and gives no value, a type written with it
+// is invalid, and a global initialized from it is not reported as not
+// constant. Bad nodes are skipped. In a function whose body holds a bad
+// statement only what is reported before the first one is kept, and it is
+// not reported for not ending in a return, nor checked for moved values,
+// since the bad statement may have been a return, a guard, a declaration
+// or an assignment. A method its type does not have is not reported
+// missing, as a call, a field or an interface's method, when a bad
+// declaration of its package may have been it. Nor is anything the
+// resolver already reported about a declaration reported again: a
+// function without a body does not end in a return, an extern method is
+// not checked as an extern func, the receiver of a method on no type the
+// package can give methods to has no type, two functions of one name do
+// not clash in C, the main function, extern, is not named main in C, and
+// a target the resolver called unassignable is not reported again.
+//
+// None of this lets an invalid program through. It applies only when an
+// earlier stage reported an error, counted in Program.Errors; without
+// one, a name bound to ast.Unbound is reported as undefined and a bad node
+// as a syntax error. Check adds its own errors to Program.Errors and
+// records the total on the program's types.Table, and a backend generates
+// code only when both are zero (see codegen.Refuse).
 package typeck

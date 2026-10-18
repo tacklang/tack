@@ -78,7 +78,7 @@ func (l *Loader) parseModule(res *Result, root, name string, data []byte) *modul
 	f := l.addFile(res, name, data)
 	mf, diags := modfile.Parse(f)
 	if len(diags) > 0 {
-		res.Stage, res.Diags = StageLoad, diags
+		res.report(StageLoad, diags)
 		return nil
 	}
 	return &module{root: root, name: mf.Module, fsys: l.FS}

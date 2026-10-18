@@ -6,14 +6,21 @@
 // the C files of the program's packages there, and runs the backend's
 // toolchain to link them with it (clang, for the c backend) into a native
 // binary at the path given by --out.
-// The first stage that reports diagnostics ends the run; later stages never
-// see a program an earlier one rejected. Its diagnostics are reported
-// sorted by file and then by where each starts, at most --max-errors of
-// them, 10 by default, followed, when some were left out, by the line
-// "too many errors: showing the first 10; --max-errors 0 shows them all".
-// The parser reports every syntax error of a file, recovering after each
-// (see package parser), and stops parsing once it has found more than
-// --max-errors.
+// Every stage up to the one a dump asks for runs whatever an earlier one
+// reported, and the diagnostics of all of them are reported together: the
+// loader's syntax and import errors, the resolver's and, through code
+// generation, the type checker's. A name or a type an earlier error leaves
+// invalid is reported nothing more about (see packages resolver and
+// typeck). The loader alone can end the run before the resolver, when it
+// builds no program: a file that does not lex, for one (see package
+// loader). Nothing is dumped, generated, compiled or linked when any stage
+// reported anything, and the backend refuses such a program itself (see
+// codegen.Refuse). The diagnostics are reported sorted by file and then
+// by where each starts, at most --max-errors of them, 10 by default,
+// followed, when some were left out, by the line "too many errors:
+// showing the first 10; --max-errors 0 shows them all". The parser reports
+// every syntax error of a file, recovering after each (see package
+// parser), and stops parsing once it has found more than --max-errors.
 //
 // Usage:
 //
@@ -34,7 +41,7 @@
 // -- <file> --, --ast prints the list of the files' trees, and --res the
 // whole program; for a file, both print that file's tree, as before
 // directories were targets. Every file of a directory is lexed, and every
-// file parsed, before the run stops, so a problem in each is reported.
+// file parsed, so a problem in each is reported.
 //
 // Flags must come before the target; "--" ends the flags, for a file name that
 // starts with a dash. Each flag can be spelled with one dash or two.

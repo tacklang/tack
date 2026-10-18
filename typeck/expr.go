@@ -61,6 +61,9 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 		c.errorf(id.Span, "undefined: %s", id.Qualified())
 		return types.Invalid
 	}
+	if c.unbound(id) {
+		return types.Invalid
+	}
 	if fn, ok := id.Def.(*ast.Func); ok {
 		return c.funcValue(id, fn)
 	}
@@ -132,14 +135,8 @@ func literalType(e ast.Expr) types.Type {
 func (c *Checker) callValue(call *ast.Call) types.Type {
 	viewOK := c.viewCall == call
 	c.viewCall = nil
-	if _, _, _, built := ast.Construction(call); built {
-		return c.construction(call)
-	}
-	if isViewConversion(call) {
-		return c.viewConversionElsewhere(call)
-	}
-	if call.Conv != types.Invalid {
-		return c.conversion(call)
+	if typ, special := c.specialCallValue(call); special {
+		return typ
 	}
 	if generic := c.genericCall(call); generic != nil {
 		return generic(call)
@@ -160,6 +157,24 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 	}
 	c.errorf(call.Spanned(), "%s", notOneValue(fn, name))
 	return types.Invalid
+}
+
+// specialCallValue checks call when it calls no function: when it builds a
+// union, converts a value, to a view type or another, or calls a name
+// bound to ast.Unbound (see unboundCall). It returns the call's type, and
+// whether call was one of those.
+func (c *Checker) specialCallValue(call *ast.Call) (types.Type, bool) {
+	switch _, _, _, built := ast.Construction(call); {
+	case built:
+		return c.construction(call), true
+	case isViewConversion(call):
+		return c.viewConversionElsewhere(call), true
+	case call.Conv != types.Invalid:
+		return c.conversion(call), true
+	case c.unboundCall(call):
+		return types.Invalid, true
+	}
+	return types.Invalid, false
 }
 
 // isLen reports whether call calls the builtin len, which has a nil
@@ -201,10 +216,18 @@ func (c *Checker) checkCall(call *ast.Call) {
 		c.errorf(call.Spanned(), "cannot call %T", call.Fn)
 		return
 	}
-	if isValueCall(call) {
+	switch {
+	case c.unboundCall(call):
+	case isValueCall(call):
 		c.dynamicCall(call, id)
-		return
+	default:
+		c.checkNamedCall(call, id)
 	}
+}
+
+// checkNamedCall checks call, a call to a function or a builtin named id,
+// as checkCall says.
+func (c *Checker) checkNamedCall(call *ast.Call, id *ast.Ident) {
 	c.hiddenValue(id)
 
 	params := c.calleeParams(id)

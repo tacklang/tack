@@ -20,7 +20,8 @@ type Backend interface {
 	// Generate turns a type-checked program into target source. builtins
 	// are the builtins prog was resolved and checked with, whose C names
 	// its calls to them lower to. A non-empty diagnostic slice means
-	// generation failed and the bytes are unusable.
+	// generation failed and the bytes are unusable. A program Refuse
+	// refuses, one not checked or with errors, is never lowered.
 	Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
 
 	// Header returns the C header, tack.h, that declares every extern func
@@ -104,4 +105,31 @@ func Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Refuse returns the error a backend reports, before lowering anything,
+// for a program that must never have code generated from it: one the type
+// checker has not checked, or one any stage reported an error about,
+// counted in prog.Errors and in its type table's Errors. It returns nil
+// for a program the front end accepted. Every backend's Generate calls it
+// first: the front end goes on past errors to report as many as it can, so
+// a tree that reached the backend may hold names bound to nothing and
+// types that failed to check, and only this check keeps them from being
+// lowered. Reaching it is a bug in the caller, never the program's fault.
+func Refuse(prog *ast.Program) []diag.Diagnostic {
+	var msg string
+	switch {
+	case prog == nil:
+		msg = "internal error: no program to generate code from"
+	case prog.Types == nil:
+		msg = "internal error: code generation was given a program the type checker has not checked"
+	case prog.Errors > 0 || prog.Types.Errors > 0:
+		msg = fmt.Sprintf(
+			"internal error: code generation was given a program with %d errors",
+			max(prog.Errors, prog.Types.Errors),
+		)
+	default:
+		return nil
+	}
+	return []diag.Diagnostic{{Severity: diag.Error, Message: msg}}
 }

@@ -77,7 +77,7 @@ func (r *pkgResolver) bindUnionName(x ast.Expr, sc *scope) (bool, []diag.Diagnos
 	if td, isType := decl.(*ast.TypeDecl); isType {
 		id.Def = td
 	}
-	return true, diags
+	return true, r.settle(id, diags, sc)
 }
 
 // qualifiedUnion reports whether the qualified name id names a union type

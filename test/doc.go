@@ -11,7 +11,11 @@
 // before code generation gives the same diagnostic whatever the backend, so
 // it has one golden, <case>.golden. A program that reaches code generation is
 // pinned once per registered backend, in <case>.<backend>.golden. Each golden
-// records the stage that ended the run and that stage's output.
+// records how the run ended, ok or codegen, or the stages that reported
+// diagnostics, joined by +, the loader's named by the first of its stages
+// that reported, as parse+typeck, and the output: every stage runs, as in
+// the driver, and the diagnostics of all of them are rendered together,
+// sorted as the driver sorts them.
 //
 // TestInvalid does the same for the malformed programs, which live together
 // in examples/invalid.txtar (format in package internal/invalid): one subtest
@@ -33,6 +37,13 @@
 // naming each file by its path in the archive. A run the loader ends with
 // an error rather than diagnostics, such as a directory with no Tack files,
 // records the load stage and the error's text.
+//
+// TestCodegenRefusesEveryInvalidProgram runs the front end on every
+// malformed program and hands what it built straight to the backend, as a
+// caller that ignored the diagnostics would, checking the backend refuses
+// it and the program counts the errors reported; FuzzFrontEndAfterErrors
+// does the same for random files, checking too that no stage panics or
+// hangs on the partial trees the parser recovers.
 //
 // FuzzFileOrder checks that the order of a package's files changes nothing
 // the front end reports but positions: it loads and resolves the same files

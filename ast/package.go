@@ -56,6 +56,13 @@ type Program struct {
 	// calls, each once, recorded by the type checker in the order it
 	// found them; nil before then, and left out of the JSON dump.
 	Instances []*Instance `json:"-"`
+
+	// Errors counts the errors the stages that have run reported about
+	// the program: the loader sets it, and the resolver and the type
+	// checker add theirs. A program with errors is checked as far as it
+	// can be, but never has code generated from it (see types.Table's
+	// Errors). Left out of the JSON dump.
+	Errors int `json:"-"`
 }
 
 // Main returns the package being built: the last one. It returns nil for a

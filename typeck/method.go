@@ -165,7 +165,9 @@ func (c *Checker) methodOf(typ types.Type, sel *ast.Selector) *ast.Func {
 				sel.Name, c.typeName(typ))
 			return nil
 		}
-		c.errorf(sel.NameSpan, "%s has no method %s", c.typeName(typ), sel.Name)
+		if !c.lostMethodOf(typ, sel.Name) {
+			c.errorf(sel.NameSpan, "%s has no method %s", c.typeName(typ), sel.Name)
+		}
 		return nil
 	}
 	if msg := c.hiddenMethod(fn); msg != "" {

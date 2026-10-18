@@ -1,7 +1,9 @@
 // Package c is the C backend. It translates a resolved, type-checked Tack
 // program, every file of every package of it, into a single C translation
 // unit, which clang compiles and links into an executable. It registers
-// itself with codegen under the name "c".
+// itself with codegen under the name "c". A program codegen.Refuse
+// refuses, one not checked or with errors, is reported and nothing is
+// generated from it.
 //
 // The unit, and the tack.h of a program's C files, include std's
 // <tack/tack.h>, src/std/include/tack/tack.h, which defines what every

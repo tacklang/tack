@@ -77,8 +77,13 @@
 // import whose path is malformed, is in another module, names no
 // directory, or names one holding no Tack files or a package whose clauses
 // are wrong, is reported at the import's path, and loading goes on with
-// the next, so one run reports every such import. A package that fails to
-// lex or parse stops loading there, with its diagnostics.
+// the next, so one run reports every such import; its Package is left nil,
+// and the program is built without it, for the resolver, which reports
+// nothing about what the import would have named. A package that fails to
+// lex, has a file nested too deeply to be parsed, or has a package clause
+// that could not be parsed stops loading there, with its diagnostics and
+// no program; one with syntax errors is loaded, its trees holding bad
+// nodes where the errors were (see package parser).
 //
 // # The standard library
 //
@@ -101,12 +106,18 @@
 //
 // Every file of a package is lexed before any is parsed, and every file is
 // parsed before the package is checked as a whole, so one run reports the
-// problems of every file at the first stage that finds any. A Result
-// carries those diagnostics with the Stage that found them: StageLex,
-// StageParse, or StageLoad for problems with how files fit together, such
-// as files of one directory whose package clauses disagree. Loader.Stop
-// asks for a dump of the tokens or the syntax trees of the target's own
-// files instead of a program.
+// problems of every file. Loading goes on past syntax errors and imports
+// that cannot be loaded, so that the resolver and the type checker can
+// report their own problems with the rest of the program; it stops, with
+// no program, after a lexing error, since the lexer drops what it cannot
+// read and parsing what is left would only report errors that follow from
+// it, and after a malformed tack.mod or a main package whose package
+// clauses are wrong. A Result carries every diagnostic found, with the
+// first Stage that found any: StageLex, StageParse, or StageLoad for
+// problems with how files fit together, such as files of one directory
+// whose package clauses disagree. Loader.Stop asks for a dump of the
+// tokens or the syntax trees of the target's own files instead of a
+// program.
 //
 // # Names
 //
@@ -124,8 +135,11 @@
 //
 // # Invariants
 //
-// A Result has a Program exactly when it has no diagnostics and loading
-// was not stopped early. Every package of the Program has at least one
-// file, and every file of a package has the package's name in its package
-// clause. The main package, the one being built, is the last.
+// A Result has a Program, or diagnostics, or both, unless loading was
+// stopped early at Loader.Stop. A Program's Errors is the number of the
+// Result's diagnostics, which the resolver and the type checker add theirs
+// to; code is generated only from a program with none. Every package of
+// the Program has at least one file, and every file of a package has a
+// package clause that parsed. An import's Package is nil exactly when it
+// was reported. The main package, the one being built, is the last.
 package loader

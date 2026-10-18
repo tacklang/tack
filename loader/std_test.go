@@ -229,7 +229,8 @@ var stdImportCases = []stdImportCase{
 }
 
 // TestStdImportErrors checks every way an import of, or from, std fails,
-// each reported at the import's path.
+// each reported at the import's path, with the program still built, the
+// import bound to no package and the error counted on it.
 func TestStdImportErrors(t *testing.T) {
 	for _, tc := range stdImportCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -248,8 +249,8 @@ func TestStdImportErrors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Program != nil || res.Stage != loader.StageLoad ||
-				messages(res.Diags) != tc.want {
+			if res.Program == nil || res.Program.Errors != len(res.Diags) ||
+				res.Stage != loader.StageLoad || messages(res.Diags) != tc.want {
 				t.Errorf(
 					"stage %q, diagnostics\n%s\nwant\n%s",
 					res.Stage,

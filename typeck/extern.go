@@ -31,6 +31,12 @@ func (c *Checker) checkExtern(fn *ast.Func) {
 		c.checkExternUnions(fn)
 		c.checkExternOwnedElems(fn)
 	}
+	c.checkCName(fn)
+}
+
+// checkCName reports the C name of fn, an extern func, when C cannot
+// declare it, or the generated C or std uses it (see checkExtern).
+func (c *Checker) checkCName(fn *ast.Func) {
 	at := fn.NameSpan
 	if fn.CNameSpan != (ast.Span{}) {
 		at = fn.CNameSpan
@@ -42,7 +48,7 @@ func (c *Checker) checkExtern(fn *ast.Func) {
 			fn.Name, strconv.Quote(name))
 	case cname.IsKeyword(name):
 		c.errorf(at, "extern func %s cannot be named %s in C: it is a C keyword", fn.Name, name)
-	case name == "main":
+	case name == "main" && !c.externMain(fn):
 		c.errorf(
 			at,
 			"extern func %s cannot be named main in C: the program's C main is the one that runs Tack's",
@@ -231,6 +237,9 @@ func (c *Checker) checkCNames(decls []ast.Decl) {
 			first[fn.CName] = fn
 			continue
 		}
+		if c.declaredTwice(prev, fn) {
+			continue
+		}
 		at := fn.NameSpan
 		if fn.CNameSpan != (ast.Span{}) {
 			at = fn.CNameSpan
@@ -241,6 +250,23 @@ func (c *Checker) checkCNames(decls []ast.Decl) {
 			Span:     prev.NameSpan,
 		}}, "extern funcs %s and %s both have the C name %s", c.funcName(fn), c.funcName(prev), fn.CName)
 	}
+}
+
+// declaredTwice reports whether fn and prev, two extern funcs of one C
+// name, are two functions of one name in one package, which the resolver
+// reported as declared twice, after it has run, which an earlier error
+// says.
+func (c *Checker) declaredTwice(prev, fn *ast.Func) bool {
+	return c.prior > 0 && prev.Name == fn.Name && !prev.Method && !fn.Method &&
+		c.declPkg[prev] == c.declPkg[fn]
+}
+
+// externMain reports whether fn is the main function of package main,
+// declared extern, which the resolver reported, after it has run, which
+// an earlier error says.
+func (c *Checker) externMain(fn *ast.Func) bool {
+	pkg := c.declPkg[fn]
+	return c.prior > 0 && fn.Name == "main" && !fn.Method && pkg != nil && pkg.Name == "main"
 }
 
 // funcName names fn in a diagnostic about extern funcs that may be in

@@ -43,7 +43,7 @@ type graph struct {
 	stack    []string                // the import paths being loaded, outermost first
 	order    []*ast.Package          // the packages loaded, each after what it imports
 	diags    []diag.Diagnostic
-	stopped  bool // a package failed to lex or parse; res holds why
+	stopped  bool // a package failed to lex, or had a file with no tree; res holds why
 }
 
 // newGraph returns a graph for the program whose main package is main, in
@@ -61,17 +61,20 @@ func newGraph(l *Loader, res *Result, mod *module, main *ast.Package) *graph {
 }
 
 // finish loads everything the main package imports and returns res, with
-// the program or the diagnostics that stopped it.
+// the program, the diagnostics found loading it, or both. An import that
+// could not be loaded is reported and bound to no package, and the
+// program built without it; one whose package did not lex stops loading,
+// with no program.
 func (g *graph) finish() *Result {
 	g.state[g.main.Path] = loading
 	g.stack = append(g.stack, g.main.Path)
 	g.loadImports(g.main)
-	switch {
-	case g.stopped:
-	case len(g.diags) > 0:
-		g.res.Stage, g.res.Diags = StageLoad, g.diags
-	default:
-		g.res.Program = &ast.Program{Packages: append(g.order, g.main)}
+	g.res.report(StageLoad, g.diags)
+	if !g.stopped {
+		g.res.Program = &ast.Program{
+			Packages: append(g.order, g.main),
+			Errors:   len(g.res.Diags),
+		}
 	}
 	return g.res
 }

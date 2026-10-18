@@ -559,6 +559,64 @@ func TestMaxErrors(t *testing.T) {
 	}
 }
 
+// TestLaterStagesRunAfterErrors checks that an error one stage reports
+// does not hide another stage's: a syntax error, a variable declared and
+// not used, which the resolver reports, and a type error, which the type
+// checker does, in three functions of one file are all reported, once
+// each, in the order they appear, with nothing generated.
+func TestLaterStagesRunAfterErrors(t *testing.T) {
+	src := "package main\n\n" +
+		"func a() {\n    x := 1 1\n}\n\n" +
+		"func b() {\n    unused := 1\n}\n\n" +
+		"func c() {\n    var s string = 5\n    print(s)\n}\n\n" +
+		"func main() {\n}\n"
+	path := writeSource(t, []byte(src))
+	for _, args := range [][]string{
+		{"--emit", path},
+		{"--out", filepath.Join(t.TempDir(), "bin"), path},
+	} {
+		r := runTack(t, args...)
+		assertDiagnostics(t, r)
+		want := []string{
+			"main.tck:4:12: error:",
+			"main.tck:8:5: error: declared and not used: unused",
+			"main.tck:12:20: error:",
+		}
+		last := -1
+		for _, w := range want {
+			at := strings.Index(r.stderr, w)
+			if at < 0 {
+				t.Errorf("%q: stderr lacks %q:\n%s", args, w, r.stderr)
+				continue
+			}
+			if at < last {
+				t.Errorf("%q: %q is out of order:\n%s", args, w, r.stderr)
+			}
+			last = at
+		}
+		if got := strings.Count(r.stderr, ": error:"); got != len(want) {
+			t.Errorf("%q: %d errors, want %d:\n%s", args, got, len(want), r.stderr)
+		}
+	}
+}
+
+// TestResDumpReportsEveryFrontEndError checks that --res, which stops
+// after the resolver, reports the parser's errors and the resolver's
+// together, and none of the type checker's.
+func TestResDumpReportsEveryFrontEndError(t *testing.T) {
+	src := "package main\n\nfunc a() {\n    x := 1 1\n}\n\n" +
+		"func main() {\n    unused := 1\n    var s string = 5\n    print(s)\n}\n"
+	r := runTack(t, "--res", writeSource(t, []byte(src)))
+	assertDiagnostics(t, r)
+	if !strings.Contains(r.stderr, "main.tck:4:12: error:") ||
+		!strings.Contains(r.stderr, "declared and not used: unused") {
+		t.Errorf("stderr lacks the parser's or the resolver's error:\n%s", r.stderr)
+	}
+	if got := strings.Count(r.stderr, ": error:"); got != 2 {
+		t.Errorf("%d errors, want 2, the type checker's left out:\n%s", got, r.stderr)
+	}
+}
+
 // TestErrorsSortedByPosition checks that the errors of one file are
 // reported in the order they appear in it.
 func TestErrorsSortedByPosition(t *testing.T) {

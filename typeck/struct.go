@@ -274,12 +274,7 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 		return types.Invalid
 	}
 	if !ok {
-		if td := c.typeDecl(base); td != nil && td.Method(sel.Name) != nil {
-			c.errorf(sel.NameSpan, "%s is a method of %s, not a field; a method can only be called",
-				sel.Name, c.typeName(base))
-			return types.Invalid
-		}
-		c.errorf(sel.NameSpan, "%s has no field %s", c.typeName(base), sel.Name)
+		c.noField(sel, base)
 		return types.Invalid
 	}
 	if msg := c.hiddenField(base, i, sel.Name); msg != "" {
@@ -287,6 +282,21 @@ func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
 		return types.Invalid
 	}
 	return f.Type
+}
+
+// noField reports sel, a field base, a struct type, does not have: a
+// method of base, named as a field, or no member of it at all, unless a
+// bad declaration may have been a method of that name (see
+// lostMethodOf).
+func (c *Checker) noField(sel *ast.Selector, base types.Type) {
+	if td := c.typeDecl(base); td != nil && td.Method(sel.Name) != nil {
+		c.errorf(sel.NameSpan, "%s is a method of %s, not a field; a method can only be called",
+			sel.Name, c.typeName(base))
+		return
+	}
+	if !c.lostMethodOf(base, sel.Name) {
+		c.errorf(sel.NameSpan, "%s has no field %s", c.typeName(base), sel.Name)
+	}
 }
 
 // fieldTarget checks a field being assigned, x.f: x must be a mutable

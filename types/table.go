@@ -49,6 +49,12 @@ type Table struct {
 	sizes map[Type]Size
 
 	entries []entry // the type with ID numBasic + i, at i
+
+	// Errors counts the errors of the compilation the table was made for,
+	// as the type checker left them when it was done: the ones reported
+	// before it ran and its own. A backend generates code only from a
+	// table with none.
+	Errors int
 }
 
 // entry is one type a Table added: an array, with its shape, a view or a

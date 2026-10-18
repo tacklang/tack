@@ -199,15 +199,44 @@
 // Every name it reports as undefined gets its own diagnostic, so one run
 // lists them all. An error that follows from one already reported is not
 // reported, as in the type checker: a use or assignment of a name whose
-// declaration was rejected, being reserved or already declared, which
-// refers to that declaration, is not reported where it would be an error,
-// and a variable whose declaration had an error, or that was named where a
-// type was expected, is not reported as unused. When Resolve returns no
-// diagnostics, every Ident in the tree used as a value, a callee or an
-// assignment target is bound, which
+// declaration was rejected, being reserved or already declared, is not
+// reported, and a variable whose declaration had an error, or that was
+// named where a type was expected, is not reported as unused.
+//
+// # After errors
+//
+// The resolver runs whatever the loader reported, on trees the parser
+// recovered from syntax errors in, with bad nodes (ast.BadDecl,
+// ast.BadStmt) where the damaged source was, and imports the loader could
+// not load bound to no package; a bad node is skipped. A name that names
+// nothing usable because of an error already known is invalid: it is bound
+// to ast.Unbound, and the type checker reports nothing more about it or
+// anything that uses it. That is a name it reported, such as an undefined
+// one or a type used as a value; a use of a name whose declaration was
+// rejected, in the scope of the use or any scope out to the declaration it
+// would otherwise find, since which one it means is unknown, the
+// declaration found counting as read; a qualified name through an import
+// that was rejected or not loaded, which is not reported unused either; a
+// call by the name of a builtin the package tried to redeclare; and, not
+// reported, a name damaged source may have declared: the name a bad
+// declaration of the package was declaring, any name when one got to no
+// name, the name of an import a bad declaration may have been, and any
+// name used after a bad statement of its function. A name written as a
+// type that names nothing is left for the type checker to report unless
+// damaged source may have declared it, when it is bound to ast.Unbound.
+// Damaged source may also have used what it names: no import of a file
+// with a bad node, no global of a package with one, and no variable
+// declared before a bad statement of its function is reported unused, and
+// a missing main is not reported when a bad declaration may have been it.
+// Resolve adds the errors it reports to the program's Errors, which keeps
+// code from being generated from it (see codegen.Refuse).
+//
+// When the program has no errors, every Ident in the tree used as a
+// value, a callee or an assignment target is bound to a declaration, which
 // the type checker and code generator rely on; a name written as a type is
 // bound unless it is a basic type's, or names nothing, which the type
-// checker reports.
+// checker reports. Only a program with errors has names bound to
+// ast.Unbound.
 //
 // An else branch that is a single if, as an else if is, opens no scope,
 // since it declares nothing: a chain of else ifs is resolved in a loop,

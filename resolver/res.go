@@ -61,9 +61,17 @@ type pkgResolver struct {
 	// the global scope and enclosing every function of the file.
 	files map[source.FileID]*scope
 	// used holds the imports a qualified name has used, and rejected
-	// those whose declaration was reported, which are not reported unused.
+	// those whose declaration was reported, or whose package could not be
+	// loaded, which are not reported unused.
 	used     map[*ast.Import]bool
 	rejected map[*ast.Import]bool
+
+	// shadowed holds the builtins' names the package declared a function
+	// under, which was reported: a call by one is bound to ast.Unbound.
+	shadowed map[string]bool
+
+	// damage is what the package's bad nodes hide (see invalid.go).
+	damage damage
 }
 
 // newPkgResolver returns a pkgResolver for pkg, a package of r's program.
@@ -76,6 +84,8 @@ func (r *Resolver) newPkgResolver(pkg *ast.Package) *pkgResolver {
 		files:    make(map[source.FileID]*scope),
 		used:     make(map[*ast.Import]bool),
 		rejected: make(map[*ast.Import]bool),
+		damage:   newDamage(pkg),
+		shadowed: make(map[string]bool),
 	}
 }
 
@@ -96,7 +106,7 @@ func newScope(parent *scope) *scope {
 
 // reject records that a declaration of name in this scope was reported, so
 // that a use of name from here on, which refers to it, is not reported
-// again (see unrejected).
+// again (see settle).
 func (s *scope) reject(name string) {
 	s.rejected[name] = true
 }
@@ -112,20 +122,25 @@ func (s *scope) isRejected(name string) bool {
 	return false
 }
 
-// unrejected returns diags, the problems found with a use of name, unless
-// a declaration of name visible here was reported: the use refers to that
-// declaration, so what is wrong with it follows from what was reported.
-func unrejected(diags []diag.Diagnostic, name string, sc *scope) []diag.Diagnostic {
-	if len(diags) > 0 && sc.isRejected(name) {
-		return nil
-	}
-	return diags
-}
-
 // excuse records that the variable v is not to be reported as unused,
 // since its declaration, or a use of it, was reported already.
 func (r *pkgResolver) excuse(v *ast.Var) {
 	r.excused[v] = true
+}
+
+// lookupUse finds name as a use of it here sees it: the declaration lookup
+// finds, if any, and whether a declaration of name was reported in a
+// scope from this one out to the one holding that declaration, both
+// included, which the use may have meant instead (see settle).
+func (s *scope) lookupUse(name string) (ast.Decl, bool, bool) {
+	rejected := false
+	for sc := s; sc != nil; sc = sc.parent {
+		rejected = rejected || sc.rejected[name]
+		if decl, ok := sc.names[name]; ok {
+			return decl, true, rejected
+		}
+	}
+	return nil, false, rejected
 }
 
 // lookup finds name in this scope or any enclosing one.
@@ -146,6 +161,13 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 		panic("program is nil or empty")
 	}
 
+	diags := r.resolve()
+	r.prog.Errors += len(diags)
+	return diags
+}
+
+// resolve does Resolve's work, returning every problem found.
+func (r *Resolver) resolve() []diag.Diagnostic {
 	main := r.prog.Main()
 	if main.Name != mainPackage {
 		return []diag.Diagnostic{{
@@ -167,10 +189,11 @@ func (r *Resolver) Resolve() []diag.Diagnostic {
 	// A global is reported unused only once every package has been
 	// resolved, so a read from any of them counts. One that is pub or lib
 	// is there for other packages, which may not read it, so it is never
-	// reported.
+	// reported, nor is any of a package with damaged source, which may
+	// have read it (see invalid.go).
 	for _, pr := range resolvers {
 		for _, v := range pr.globals.vars {
-			if v.Vis != ast.Private {
+			if v.Vis != ast.Private || pr.damage.damaged() {
 				pr.excuse(v)
 			}
 		}
@@ -225,7 +248,9 @@ func (r *pkgResolver) resolve() []diag.Diagnostic {
 
 		params, paramDiags := r.paramScope(fn)
 		diags = append(diags, paramDiags...)
+		r.damage.enterBody(fn.Body)
 		diags = append(diags, r.resolveBlock(fn.Body, params)...)
+		r.damage.enterBody(nil)
 	}
 	// Every receiver's type is bound by now, so each method can be found
 	// a type to belong to.
@@ -437,6 +462,7 @@ func (r *pkgResolver) declareFuncs() []diag.Diagnostic {
 					Message:  "duplicate declaration of builtin function",
 					Span:     fn.NameSpan,
 				})
+				r.shadowed[fn.Name] = true
 				continue
 			}
 
@@ -486,6 +512,9 @@ func (r *pkgResolver) checkBodies() []diag.Diagnostic {
 // reported separately, so a main with both gets both diagnostics.
 func (r *pkgResolver) checkMain() []diag.Diagnostic {
 	mainFn, mainDefined := r.funcRefs[r.refLabel(mainFunc, mainFunc)]
+	if !mainDefined && r.damage.mayDeclare(mainFunc, ast.Span{}) {
+		return nil
+	}
 	if !mainDefined {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -627,13 +656,16 @@ func elseIf(s *ast.If) (*ast.If, bool) {
 func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
-		if !r.read[v] && !r.excused[v] {
+		if !r.read[v] && !r.excused[v] && !r.damage.mayRead(v) {
 			d := diag.Diagnostic{
 				Severity: diag.Error,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
 				Span:     v.NameSpan,
 			}
 			if callee := r.hiddenBy[v]; callee != nil {
+				// The note says what the type checker would say of the
+				// call, which is not said twice.
+				callee.Hidden = nil
 				d.Related = []diag.Diagnostic{{
 					Severity: diag.Note,
 					Message: fmt.Sprintf(
@@ -823,9 +855,9 @@ func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnosti
 }
 
 // resolveTargetName binds the variable an assignment target names. A name
-// whose declaration was rejected is not reported again (unrejected).
+// whose declaration was rejected is not reported again (see settle).
 func (r *pkgResolver) resolveTargetName(target *ast.Ident, sc *scope) []diag.Diagnostic {
-	return unrejected(r.bindTargetName(target, sc), target.Qualified(), sc)
+	return r.settle(target, r.bindTargetName(target, sc), sc)
 }
 
 // bindTargetName does resolveTargetName's work, reporting every problem
@@ -846,7 +878,11 @@ func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagno
 			Span:     target.Span,
 		}}
 	}
-	decl, visible := sc.lookup(target.Name)
+	decl, visible, rejected := sc.lookupUse(target.Name)
+	if rejected {
+		target.Def = ast.Unbound
+		return nil
+	}
 	if !visible {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -1275,16 +1311,27 @@ func typeParts(typ ast.Expr) []ast.Expr {
 }
 
 // resolveTypeName binds a name written as a type to the type declaration it
-// names.
+// names (see settle).
 func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if id.Pkg != "" {
-		return r.bindQualifiedType(id, sc)
+		return r.settle(id, r.bindQualifiedType(id, sc), sc)
 	}
+	return r.settle(id, r.bindTypeName(id, sc), sc)
+}
+
+// bindTypeName does resolveTypeName's work for an unqualified name,
+// reporting every problem with it.
+func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if _, isBasic := types.Lookup(id.Name); isBasic {
 		return nil
 	}
-	decl, visible := sc.lookup(id.Name)
+	decl, visible, rejected := sc.lookupUse(id.Name)
+	if rejected {
+		id.Def = ast.Unbound
+		return nil
+	}
 	if !visible {
+		r.lostType(id)
 		return nil
 	}
 	if _, isImport := decl.(*ast.Import); isImport {
@@ -1314,7 +1361,14 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	switch fn := call.Fn.(type) {
 	case *ast.Ident:
-		diags = r.bindCallee(fn, call, sc)
+		if fn.Pkg == "" && r.shadowed[fn.Name] {
+			// The call is to the function the package declared under a
+			// builtin's name, reported, or to the builtin, which the
+			// package meant to replace: which is unknown.
+			fn.Def = ast.Unbound
+			break
+		}
+		diags = r.settle(fn, r.bindCallee(fn, call, sc), sc)
 	case *ast.ViewType:
 		diags = r.resolveType(fn, sc)
 	case *ast.Selector:
@@ -1422,9 +1476,9 @@ func localValue(name string, sc *scope) ast.Decl {
 // names, or to the function it names when no parameter or variable has
 // the name there, and marks a variable as read. A builtin's name is not a
 // value. A name whose declaration was rejected is not reported again
-// (unrejected).
+// (see settle).
 func (r *pkgResolver) resolveIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
-	return unrejected(r.bindIdent(id, sc), id.Qualified(), sc)
+	return r.settle(id, r.bindIdent(id, sc), sc)
 }
 
 // bindIdent does resolveIdent's work, reporting every problem with the use.
@@ -1444,7 +1498,10 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 			Span:     id.Span,
 		}}
 	}
-	decl, visible := sc.lookup(id.Name)
+	decl, visible, rejected := sc.lookupUse(id.Name)
+	if rejected {
+		return r.rejectedUse(id, decl)
+	}
 	if !visible {
 		return r.bindFuncValue(id)
 	}

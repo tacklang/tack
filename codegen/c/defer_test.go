@@ -8,6 +8,7 @@ import (
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/codegen/c"
 	"github.com/tacklang/tack/internal/stdtest"
+	"github.com/tacklang/tack/types"
 )
 
 // printer declares p, which prints its argument's digit, so a program can
@@ -369,10 +370,13 @@ func TestNestedDeferLoopsGrowLinearly(t *testing.T) {
 }
 
 // A defer in a deferred block, which the type checker would have rejected,
-// handed to the backend anyway, is reported rather than lowered.
+// handed to the backend anyway, is reported rather than lowered. The tree
+// is given an empty type table, as if checked with no error, so that it
+// gets past codegen.Refuse to the backend's own check.
 func TestDeferInADeferIsReported(t *testing.T) {
 	inner := &ast.Defer{Body: []ast.Stmt{}}
 	file := &ast.File{
+		Types:   types.NewTable(),
 		Package: "main",
 		Decls: []ast.Decl{
 			&ast.Func{Name: "main", Body: []ast.Stmt{

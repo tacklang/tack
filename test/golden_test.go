@@ -2,11 +2,13 @@ package compilertest
 
 import (
 	"bytes"
+	"cmp"
 	"flag"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -41,10 +43,13 @@ const examplesDir = "../examples"
 // even reaches code generation. Any registered backend would answer the same.
 const frontEndBackend = "c"
 
-// result is what one pipeline run produced: the stage that ended it, and that
-// stage's rendered output.
+// result is what one pipeline run produced: the stages that reported
+// diagnostics, or the one that ended it, and the rendered output.
 type result struct {
-	stage  string // lex, parse, load, resolve, typeck, codegen, ok, or panic
+	// stage is ok, codegen, load (for a loader error), or panic, or the
+	// stages that reported diagnostics, in pipeline order, joined by +:
+	// lex, parse, load, resolve, typeck.
+	stage  string
 	output string
 }
 
@@ -79,10 +84,14 @@ func singleFile(name string, src []byte) program {
 	return program{files: fstest.MapFS{name: {Data: src}}, target: name, single: true}
 }
 
-// runPipeline mirrors tack/main.go, minus the flag handling and os.Exit calls.
-// A problem the loader reports as an error rather than as diagnostics, such
-// as a directory with no Tack files, ends the run at the load stage with
-// the error's text as its output.
+// runPipeline mirrors tack/main.go, minus the flag handling and os.Exit
+// calls: every stage runs, whatever an earlier one reported, and code is
+// generated only when none reported anything. The diagnostics of every
+// stage are rendered together, sorted as the driver sorts them, by file
+// and then by position, with no limit on how many. A problem the loader
+// reports as an error rather than as diagnostics, such as a directory
+// with no Tack files, ends the run at the load stage with the error's text
+// as its output.
 func runPipeline(backendName string, p program) result {
 	backend, ok := codegen.Get(backendName)
 	if !ok {
@@ -100,28 +109,56 @@ func runPipeline(backendName string, p program) result {
 	if err != nil {
 		return result{"load", err.Error() + "\n"}
 	}
-	if len(res.Diags) > 0 {
-		return result{string(res.Stage), diag.RenderAllPretty(res.Files, res.Diags)}
+
+	diags, stages := checkAll(res)
+	if len(diags) > 0 {
+		return result{strings.Join(stages, "+"), renderSorted(res.Files, diags)}
 	}
 
-	prog := res.Program
-	if resDiags := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(resDiags) > 0 {
-		return result{"resolve", diag.RenderAllPretty(res.Files, resDiags)}
-	}
-
-	if checkDiags := typeck.New(prog, res.Files, stdtest.MustBuiltins()).
-		Check(); len(
-		checkDiags,
-	) > 0 {
-		return result{"typeck", diag.RenderAllPretty(res.Files, checkDiags)}
-	}
-
-	out, diags := backend.Generate(prog, stdtest.MustBuiltins())
+	out, diags := backend.Generate(res.Program, stdtest.MustBuiltins())
 	if len(diags) > 0 {
 		return result{"codegen", diag.RenderAllPretty(res.Files, diags)}
 	}
 
 	return result{"ok", string(out)}
+}
+
+// checkAll runs the resolver and the type checker on what the loader
+// loaded into res, whatever any stage reported, as the driver does, and
+// returns the diagnostics of every stage, the loader's first, and the
+// stages that reported them, in pipeline order, the loader's named by the
+// first of its stages that reported (see loader.Result.Stage). Neither
+// runs when the loader built no program.
+func checkAll(res *loader.Result) ([]diag.Diagnostic, []string) {
+	diags := slices.Clone(res.Diags)
+	var stages []string
+	if len(res.Diags) > 0 {
+		stages = append(stages, string(res.Stage))
+	}
+	prog := res.Program
+	if prog == nil {
+		return diags, stages
+	}
+	if d := resolver.New(prog, stdtest.MustBuiltins()).Resolve(); len(d) > 0 {
+		diags, stages = append(diags, d...), append(stages, "resolve")
+	}
+	if d := typeck.New(prog, res.Files, stdtest.MustBuiltins()).Check(); len(d) > 0 {
+		diags, stages = append(diags, d...), append(stages, "typeck")
+	}
+	return diags, stages
+}
+
+// renderSorted renders diags, problems in files, sorted as the driver
+// sorts them: by file, then by where each starts.
+func renderSorted(files source.Files, diags []diag.Diagnostic) string {
+	diags = slices.Clone(diags)
+	slices.SortStableFunc(diags, func(a, b diag.Diagnostic) int {
+		return cmp.Or(
+			cmp.Compare(a.Span.File, b.Span.File),
+			cmp.Compare(a.Span.Start, b.Span.Start),
+		)
+	})
+	return diag.RenderAllPretty(files, diags)
 }
 
 // run executes runPipeline under a timeout, converting hangs and panics into

@@ -18,7 +18,9 @@ import (
 // the package; any other type, a type of another package, an interface, a
 // basic type, an array, a view or a list, is reported. An extern method
 // is reported too: its body would be C's, which a method leaves to an
-// extern func it calls. A method whose receiver type is unknown has been,
+// extern func it calls; it is still recorded on its type, so that a call
+// to it is not reported as a call to no method, and the type checker
+// checks nothing more of it. A method whose receiver type is unknown has been,
 // or will be, reported where the type is written.
 func (r *pkgResolver) declareMethods() []diag.Diagnostic {
 	var diags []diag.Diagnostic
@@ -33,7 +35,6 @@ func (r *pkgResolver) declareMethods() []diag.Diagnostic {
 				Message:  "a method cannot be extern; declare an extern func and call it from the method",
 				Span:     fn.ExternSpan,
 			})
-			continue
 		}
 		td, recvDiags := r.receiverType(fn)
 		diags = append(diags, recvDiags...)
