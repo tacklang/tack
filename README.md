@@ -2183,10 +2183,17 @@ makes for itself, which has a letter after `tack_`.
   its methods name as a function does, `pub interface Maker exposes
   secret, which is not pub`. An interface is no type a value can have,
   since there are no interface values: it only constrains a type
-  parameter (see generic functions), and written as any other type, a
-  local's, a parameter's, a result's, a field's, a global's, an element's,
-  or in a literal, it is `Writer is an interface; it can only constrain a
-  type parameter`, `sink.Sink is an interface; ...` from another package.
+  parameter (see generic functions). As the whole type of a function's
+  parameter it is shorthand for one: `func emit(mut w Writer, s string)`
+  is `func emit[W Writer](mut w W, s string)`, each such parameter a type
+  parameter of its own, so `both(mut a Writer, mut b Writer)` may be
+  passed two types, and the function is generic in every way, `cannot
+  use emit as a value: it is generic, ...`. Written as any other type, a
+  local's, a method's or an extern func's parameter's, a variadic
+  parameter's elements, a result's, a field's, a global's, an element's,
+  a function type's parameter, or in a literal, it is `Writer is an
+  interface; it can only constrain a type parameter`, `sink.Sink is an
+  interface; ...` from another package.
   It cannot have methods declared on it, `cannot declare a method on
   Writer: only a struct or union type declared in this package can have
   methods`, nor be called, `cannot call Writer; it is a type`. A struct or

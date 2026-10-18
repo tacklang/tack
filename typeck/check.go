@@ -366,6 +366,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {
 			restore := c.enter(fn)
+			implicitTypeParams(fn)
 			c.resolveTypeParams(fn)
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)

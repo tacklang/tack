@@ -12911,27 +12911,142 @@ interface-method-declared/main.tck:7:9: error: cannot declare a method on Sizer:
    |	        ^~~~~
 08 |	    return 0
 
--- interface-param/main.tck --
+-- interface-param-func-type/main.tck --
 package main
 
 type Sizer interface {
     size() int64
 }
 
-func f(s Sizer) {
+func apply(f func(Sizer) int64) int64 {
+    return 0
 }
 
 func main() {
 }
--- interface-param/expected --
+-- interface-param-func-type/expected --
 stage: typeck
 ---
 
-interface-param/main.tck:7:10: error: Sizer is an interface; it can only constrain a type parameter
+interface-param-func-type/main.tck:7:19: error: Sizer is an interface; it can only constrain a type parameter
 06 |	
-07 |	func f(s Sizer) {
-   |	         ^~~~~
-08 |	}
+07 |	func apply(f func(Sizer) int64) int64 {
+   |	                  ^~~~~
+08 |	    return 0
+
+-- interface-param-method/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) fits(s Sizer) bool {
+    return true
+}
+
+func main() {
+}
+-- interface-param-method/expected --
+stage: typeck
+---
+
+interface-param-method/main.tck:11:21: error: Sizer is an interface; it can only constrain a type parameter
+10 |	
+11 |	func (b Box) fits(s Sizer) bool {
+   |	                    ^~~~~
+12 |	    return true
+
+-- interface-param-not-satisfied/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func total(s Sizer) int64 {
+    return s.size()
+}
+
+func main() {
+    if total(5) > 0 {
+        print("big\n")
+    }
+}
+-- interface-param-not-satisfied/expected --
+stage: typeck
+---
+
+interface-param-not-satisfied/main.tck:12:14: error: int64 does not satisfy Sizer: int64 has no method size
+11 |	func main() {
+12 |	    if total(5) > 0 {
+   |	             ^
+13 |	        print("big\n")
+
+-- interface-param-value/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func total(s Sizer) int64 {
+    return s.size()
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func apply(f func(Box) int64) int64 {
+    return f(Box{n: 1})
+}
+
+func main() {
+    if apply(total) > 0 {
+        print("big\n")
+    }
+}
+-- interface-param-value/expected --
+stage: typeck
+---
+
+interface-param-value/main.tck:24:14: error: cannot use total as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+23 |	func main() {
+24 |	    if apply(total) > 0 {
+   |	             ^~~~~
+25 |	        print("big\n")
+
+-- interface-param-variadic/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func sum(ss ...Sizer) int64 {
+    return 0
+}
+
+func main() {
+}
+-- interface-param-variadic/expected --
+stage: typeck
+---
+
+interface-param-variadic/main.tck:7:16: error: Sizer is an interface; it can only constrain a type parameter
+06 |	
+07 |	func sum(ss ...Sizer) int64 {
+   |	               ^~~~~
+08 |	    return 0
 
 -- interface-pub-method/main.tck --
 package main

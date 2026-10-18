@@ -1,0 +1,129 @@
+package main
+
+// An interface written as a parameter's whole type is shorthand for a type
+// parameter constrained by it: func total(s shapes.Shape) means func
+// total[S shapes.Shape](s S), and each such parameter is a type parameter
+// of its own. A call infers it from the argument, as for any generic
+// function.
+
+import shapes from "ifparams/shapes"
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Counter is a Writer that counts what is written to it.
+type Counter struct {
+    n int64
+}
+
+// Writer is what bytes can be written to.
+type Writer interface {
+    mut write(b []uint8) error
+    size() int64
+}
+
+// write counts b's bytes.
+func (mut c Counter) write(b []uint8) error {
+    c.n += len(b)
+    return noerror
+}
+
+// size returns how many bytes were written.
+func (c Counter) size() int64 {
+    return c.n
+}
+
+// Tally is another Writer, counting writes rather than bytes.
+type Tally struct {
+    writes int64
+}
+
+// write counts one write.
+func (mut t Tally) write(b []uint8) error {
+    t.writes++
+    return noerror
+}
+
+// size returns how many writes there were.
+func (t Tally) size() int64 {
+    return t.writes
+}
+
+// Rect is a Shape of this package.
+type Rect struct {
+    w int64
+    h int64
+}
+
+// area returns the rectangle's area.
+func (r Rect) area() int64 {
+    return r.w * r.h
+}
+
+// emit writes s to w, whatever Writer w is.
+func emit(mut w Writer, s string) error {
+    return mut w.write([]uint8(s))
+}
+
+// both writes s to two Writers, each of its own type.
+func both(mut a Writer, mut b Writer, s string) int64 {
+    ea := mut a.write([]uint8(s))
+    eb := mut b.write([]uint8(s))
+    if ea.code != 0 || eb.code != 0 {
+        return -1
+    }
+    return a.size() + b.size()
+}
+
+// area returns the area of a shape of another package's interface.
+func area(s shapes.Shape) int64 {
+    return s.area()
+}
+
+// sum adds the areas of two shapes, of different types, and an explicit
+// type parameter's.
+func sum[T shapes.Shape](a shapes.Shape, b T, c shapes.Shape) int64 {
+    return a.area() + b.area() + c.area()
+}
+
+// Bag is a Shape that owns a list: its area is how many items it holds.
+type Bag struct {
+    items list[int64]
+}
+
+// area returns how many items the bag holds.
+func (b Bag) area() int64 {
+    return len(b.items)
+}
+
+// keep takes a shape it owns and returns its area.
+func keep(own s shapes.Shape) int64 {
+    return s.area()
+}
+
+func main() {
+    mut c := Counter{n: 0}
+    e := emit(mut c, "hello")
+    check(e.code == 0 && c.size() == 5, "a mut interface parameter")
+
+    mut t := Tally{writes: 0}
+    check(both(mut c, mut t, "ab") == 8, "two parameters of one interface, two types")
+
+    check(area(shapes.Square{side: 3}) == 9, "an interface of another package")
+    check(area(Rect{w: 2, h: 5}) == 10, "the same function, another type")
+
+    sq := shapes.Square{side: 2}
+    check(sum(sq, Rect{w: 1, h: 3}, Rect{w: 2, h: 2}) == 11, "beside an explicit type parameter")
+
+    mut items := make(list[int64], c_allocator)
+    err := append(mut items, 1, 2, 3)
+    bag := Bag{items: items}
+    check(err.code == 0 && keep(own bag) == 3, "an own interface parameter")
+}

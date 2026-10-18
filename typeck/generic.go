@@ -10,8 +10,10 @@ import (
 
 // Interfaces and generic functions. An interface, type Writer interface {
 // mut write(b []uint8) error; size() int64 }, lists methods, and is only
-// ever a type parameter's constraint: written as any other type, a
-// variable's, a parameter's, a field's or an element's, it is reported.
+// ever a type parameter's constraint: as the whole type of a function's
+// parameter it is shorthand for a type parameter of its own (see
+// implicitTypeParams), and written as any other type, a variable's, a
+// method's parameter's, a field's or an element's, it is reported.
 //
 // A generic function, func render[W Writer](mut w W, s string) error,
 // declares type parameters, each a type of its own in the table (see
@@ -106,6 +108,41 @@ func (c *Checker) resolveInterfaces(decls []ast.Decl) {
 			}
 		}
 		restore()
+	}
+}
+
+// implicitTypeParams turns each parameter of fn whose whole type is an
+// interface, s Shape, into one of a type parameter of its own constrained
+// by it, appended to fn's type parameters: func area(s Shape) is shorthand
+// for func area[S Shape](s S), and everything after this, inference,
+// instances and code generation, sees an ordinary generic function. Two
+// such parameters are two type parameters, so a call may pass each a
+// different type. A method or an extern func cannot be generic, and a
+// variadic parameter's elements would all share one type, so their
+// interface parameters are left as written, to be reported as an
+// interface used as a type, as an interface inside another type, a
+// list's element or a function type's parameter, and a result, are.
+func implicitTypeParams(fn *ast.Func) {
+	if fn.Method || fn.Extern {
+		return
+	}
+	for _, p := range fn.Params {
+		id, ok := p.TypeExpr.(*ast.Ident)
+		if !ok || p.Variadic {
+			continue
+		}
+		if td, ok := id.Def.(*ast.TypeDecl); !ok || td.Interface() == nil {
+			continue
+		}
+		tp := &ast.TypeParam{
+			Constraint: id,
+			Name:       id.Qualified(),
+			NameSpan:   id.Span,
+			Span:       id.Span,
+			Implicit:   true,
+		}
+		fn.TypeParams = append(fn.TypeParams, tp)
+		p.TypeExpr = &ast.Ident{Def: tp, Name: tp.Name, Span: id.Span}
 	}
 }
 

@@ -24,6 +24,13 @@ type TypeParam struct {
 	// Type is the type the parameter stands for in its function, one of
 	// its own in the type table, set by the type checker; Invalid before.
 	Type types.Type
+
+	// Implicit is set on a type parameter no one wrote: the type checker
+	// makes one for a parameter whose whole type is an interface, func
+	// area(s Shape) being shorthand for func area[S Shape](s S). Its Name
+	// is the interface's as written, and its spans are the parameter
+	// type's.
+	Implicit bool `json:",omitempty"`
 }
 
 var _ Decl = (*TypeParam)(nil)

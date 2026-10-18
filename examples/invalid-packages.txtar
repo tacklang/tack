@@ -2337,7 +2337,8 @@ package main
 
 import sink from "calc/sink"
 
-func use(s sink.Sink) {
+type Holder struct {
+    s sink.Sink
 }
 
 func main() {
@@ -2346,11 +2347,11 @@ func main() {
 stage: typeck
 ---
 
-interface-foreign-as-type/main.tck:5:12: error: sink.Sink is an interface; it can only constrain a type parameter
-04 |	
-05 |	func use(s sink.Sink) {
-   |	           ^~~~~~~~~
-06 |	}
+interface-foreign-as-type/main.tck:6:7: error: sink.Sink is an interface; it can only constrain a type parameter
+05 |	type Holder struct {
+06 |	    s sink.Sink
+   |	      ^~~~~~~~~
+07 |	}
 
 -- interface-foreign-hidden-constraint/tack.mod --
 module calc

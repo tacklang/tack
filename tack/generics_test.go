@@ -54,3 +54,39 @@ func TestBuiltGenericsPassesEveryCheck(t *testing.T) {
 		})
 	}
 }
+
+// interfaceParamsWant is what examples/interface-params prints when every
+// check passes.
+var interfaceParamsWant = strings.Join([]string{
+	"a mut interface parameter",
+	"two parameters of one interface, two types",
+	"an interface of another package",
+	"the same function, another type",
+	"beside an explicit type parameter",
+	"an own interface parameter",
+}, " ok\n") + " ok\n"
+
+// TestBuiltInterfaceParamsPassesEveryCheck builds examples/interface-params
+// at every optimization level and checks the binary passes every check: an
+// interface as a parameter's whole type, shorthand for a type parameter,
+// mut, own, two of one interface bound to two types, one of another
+// package, and beside an explicit type parameter.
+func TestBuiltInterfaceParamsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	target := filepath.Join(examplesDir, "interface-params")
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "interface-params")
+			r := runTack(t, "-O"+string(opt), "--out", bin, target)
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != interfaceParamsWant || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0",
+					out, code, interfaceParamsWant)
+			}
+		})
+	}
+}

@@ -1,0 +1,17 @@
+package shapes
+
+// Shape has an area: an interface of another package, named as
+// shapes.Shape where it is used.
+pub type Shape interface {
+    area() int64
+}
+
+// Square is a Shape with a side.
+pub type Square struct {
+    pub side int64
+}
+
+// area returns the square's area.
+pub func (s Square) area() int64 {
+    return s.side * s.side
+}
