@@ -9,8 +9,9 @@ import (
 // Error recovery. A construct that hits a syntax error returns its
 // diagnostics, as it always has, and stops where it is. Three places catch
 // them and go on: the package clause and each import, each top-level
-// declaration, and each statement of a block, a function's body, an if's
-// or a loop's block, a defer's or a case clause's body. There the error is
+// declaration, each statement of a block, a function's body, an if's or
+// a loop's block, a defer's or a case clause's body, and each clause's
+// header in a switch (see recoverclause.go). There the error is
 // recorded (see record), the damaged text skipped (syncDecl, syncStmt),
 // and a bad node, ast.BadDecl or ast.BadStmt, put in the tree where it
 // was, so the rest of the file is parsed as if the damaged part were
@@ -624,10 +625,11 @@ func (p *Parser) parseStmts(inClause bool) []ast.Stmt {
 
 // atStmtsEnd reports whether the next token ends a block's statements:
 // its closing brace or the end of the file, or, in a case clause's body,
-// the next case or default too (see atClauseEnd).
+// the next case or default too (see atClauseEnd), or a line that can only
+// be a damaged clause header (see atDamagedHeader).
 func (p *Parser) atStmtsEnd(inClause bool) bool {
 	if inClause {
-		return p.atClauseEnd()
+		return p.atClauseEnd() || p.atDamagedHeader()
 	}
 	kind := p.peek().Kind()
 	return kind == lexer.RCurl || kind == lexer.EOF

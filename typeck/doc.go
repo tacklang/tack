@@ -799,7 +799,10 @@
 // types.Invalid, so nothing that uses it is reported: a call to it checks
 // its arguments on their own and gives no value, a type written with it
 // is invalid, and a global initialized from it is not reported as not
-// constant. Bad nodes are skipped. In a function whose body holds a bad
+// constant. Bad nodes are skipped. A switch on a union with a bad clause,
+// which may have named any case or been the default, is not reported for
+// missing cases, and a type switch's bad clause gives its variable no
+// type. In a function whose body holds a bad
 // statement only what is reported before the first one is kept, and it is
 // not reported for not ending in a return, nor checked for moved values,
 // since the bad statement may have been a return, a guard, a declaration

@@ -226,7 +226,11 @@
 // of the declaration, to the next line that starts one, puts an
 // ast.BadStmt or ast.BadDecl in the tree where the skipped text was, and
 // goes on. A BadDecl records the name the declaration was declaring, and
-// whether it was a method's, when the parser got as far as the name. Parse
+// whether it was a method's, when the parser got as far as the name. A
+// switch's clause whose header fails, or a second default, is a bad
+// clause in the switch, an ast.CaseClause with Bad set whose body starts
+// with a BadStmt for the header and holds the statements after it, so the
+// switch's other clauses are kept (see recoverclause.go). Parse
 // returns the file and every error, so the tree holds a bad node exactly
 // when there are errors; the resolver and the type checker run on it all
 // the same, and report nothing about what the bad nodes hide (see their

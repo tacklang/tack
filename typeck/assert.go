@@ -185,10 +185,11 @@ func (c *Checker) checkCaseTypes(cl *ast.CaseClause, seen map[types.Type]ast.Exp
 // caseVarType returns the type of the variable a case of a type switch
 // declares: the case's type, when it names one, and otherwise any, the
 // type of the tag's operand, or types.Invalid when that operand, isAny
-// says, was reported.
+// says, was reported, or the case is a bad clause, whose types are
+// unknown.
 func caseVarType(cl *ast.CaseClause, isAny bool) types.Type {
 	switch {
-	case !isAny:
+	case !isAny || cl.Bad:
 		return types.Invalid
 	case !cl.Default && len(cl.Types) == 1:
 		return cl.Types[0]

@@ -375,9 +375,11 @@ func reads(body []ast.Stmt, v *ast.Var) bool {
 // checkCoverage reports s, a switch on the union typ, when its patterns
 // neither cover every case nor does it have a default, listing the cases
 // it misses, at its header, before anything in its clauses is reported.
-// It records on s whether it covers every case without a default, and
-// reports whether its patterns cover every case, which makes a default
-// one that never runs, reported at the default.
+// A switch with a bad clause is not reported: that clause may have named
+// the cases missing, or been the default (see ast.CaseClause). It records
+// on s whether it covers every case without a default, and reports
+// whether its patterns cover every case, which makes a default one that
+// never runs, reported at the default.
 func (c *Checker) checkCoverage(s *ast.Switch, typ types.Type) bool {
 	named := make(map[string]bool)
 	for _, cl := range s.Cases {
@@ -396,17 +398,27 @@ func (c *Checker) checkCoverage(s *ast.Switch, typ types.Type) bool {
 	switch {
 	case s.Default() != nil:
 	case len(missing) > 0:
-		header := ast.Span{File: s.Span.File, Start: s.Span.Start, End: s.Tag.Spanned().End}
-		pronoun := "it"
-		if len(missing) > 1 {
-			pronoun = "them"
-		}
-		c.errorf(header, "switch on %s misses %s %s; cover %s or add a default",
-			c.typeName(typ), plural(len(missing), "case"), strings.Join(missing, ", "), pronoun)
+		c.reportUncovered(s, typ, missing)
 	default:
 		s.Exhaustive = true
 	}
 	return len(missing) == 0
+}
+
+// reportUncovered reports s, a switch on the union typ with no default, for
+// not naming the cases missing, at its header, unless it has a bad
+// clause, which may have named them or been the default.
+func (c *Checker) reportUncovered(s *ast.Switch, typ types.Type, missing []string) {
+	if hasBadClause(s) {
+		return
+	}
+	header := ast.Span{File: s.Span.File, Start: s.Span.Start, End: s.Tag.Spanned().End}
+	pronoun := "it"
+	if len(missing) > 1 {
+		pronoun = "them"
+	}
+	c.errorf(header, "switch on %s misses %s %s; cover %s or add a default",
+		c.typeName(typ), plural(len(missing), "case"), strings.Join(missing, ", "), pronoun)
 }
 
 // unresolvedCase reports v, a value of a case of an expression switch

@@ -2435,29 +2435,24 @@ func (p *Parser) parseCases(stmt *ast.Switch) []diag.Diagnostic {
 }
 
 // parseCaseList parses stmt's cases in braces, as parseCases does once it
-// has entered their level of nesting.
+// has entered their level of nesting. A clause whose header fails, or a
+// second default, becomes a bad clause, and the clauses after it are
+// parsed as ever (see badClause); a failure only the whole switch can
+// stand for is returned, for the block holding the switch to recover
+// from.
 func (p *Parser) parseCaseList(stmt *ast.Switch) []diag.Diagnostic {
 	if ok, diags := p.expect(lexer.LCurl); !ok {
 		return diags
 	}
 
 	var first *ast.CaseClause
-	for p.peek().Kind() != lexer.RCurl && p.peek().Kind() != lexer.EOF {
-		cl, diags := p.parseCaseClause(stmt.IsTypeSwitch())
+	for !p.halted() && !p.atStmtsEnd(false) {
+		cl, diags := p.parseClauseOrBad(stmt.IsTypeSwitch())
 		if cl == nil {
 			return diags
 		}
 		if cl.Default && first != nil {
-			return []diag.Diagnostic{{
-				Severity: diag.Error,
-				Message:  "multiple defaults in switch",
-				Span:     cl.Span,
-				Related: []diag.Diagnostic{{
-					Severity: diag.Note,
-					Message:  "first default here",
-					Span:     first.Span,
-				}},
-			}}
+			p.rejectClause(cl, multipleDefaults(cl, first))
 		}
 		if cl.Default {
 			first = cl
@@ -2472,6 +2467,33 @@ func (p *Parser) parseCaseList(stmt *ast.Switch) []diag.Diagnostic {
 		return diags
 	}
 	return nil
+}
+
+// parseClauseOrBad parses one clause of a switch, as parseCaseClause
+// does, or a bad clause in its place when its header fails (see
+// badClause). It returns nil, and the errors, when neither can be had.
+func (p *Parser) parseClauseOrBad(typeCases bool) (*ast.CaseClause, []diag.Diagnostic) {
+	start := p.index
+	cl, diags := p.parseCaseClause(typeCases)
+	if cl == nil {
+		cl = p.badClause(start, diags)
+	}
+	return cl, diags
+}
+
+// multipleDefaults reports cl, a switch's second default, with a note at
+// first, its first.
+func multipleDefaults(cl, first *ast.CaseClause) []diag.Diagnostic {
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  "multiple defaults in switch",
+		Span:     cl.Span,
+		Related: []diag.Diagnostic{{
+			Severity: diag.Note,
+			Message:  "first default here",
+			Span:     first.Span,
+		}},
+	}}
 }
 
 // parseCaseClause parses one clause of a switch: case, one or more values

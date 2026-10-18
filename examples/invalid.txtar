@@ -33707,6 +33707,96 @@ switch-bad-clause/main.tck:6:5: error: expected 'case or default' found 'exit'
    |	    ^
 07 |	    }
 
+-- switch-bad-clause-checks-others/main.tck --
+package main
+
+func main() {
+    n := 3
+    switch n {
+    case 1:
+        exit(missing)
+    case 2 3:
+        exit(2)
+    default:
+        exit(3)
+    }
+}
+-- switch-bad-clause-checks-others/expected --
+stage: parse+resolve
+---
+
+switch-bad-clause-checks-others/main.tck:7:14: error: undefined: missing
+06 |	    case 1:
+07 |	        exit(missing)
+   |	             ^~~~~~~
+08 |	    case 2 3:
+
+switch-bad-clause-checks-others/main.tck:8:12: error: expected ':' found '3'
+07 |	        exit(missing)
+08 |	    case 2 3:
+   |	           ^
+09 |	        exit(2)
+
+-- switch-bad-clause-type-switch/main.tck --
+package main
+
+func show(x any) {
+    switch v := x.(type) {
+    case int64:
+        print("int")
+    type string:
+        print(v)
+    }
+}
+
+func main() {
+    show(1)
+}
+-- switch-bad-clause-type-switch/expected --
+stage: parse
+---
+
+switch-bad-clause-type-switch/main.tck:7:5: error: expected 'case or default' found 'type'
+06 |	        print("int")
+07 |	    type string:
+   |	    ^
+08 |	        print(v)
+
+-- switch-bad-clause-union/main.tck --
+package main
+
+type Shape union {
+    circle int64
+    square int64
+    dot
+}
+
+func area(s Shape) int64 {
+    switch s {
+    case circle(r):
+        return r * r * 3
+    csae square(w):
+        return w * w
+    case dot:
+        return 0
+    }
+}
+
+func main() {
+    if area(Shape.dot) != 0 {
+        exit(1)
+    }
+}
+-- switch-bad-clause-union/expected --
+stage: parse
+---
+
+switch-bad-clause-union/main.tck:13:5: error: expected 'case or default' found 'csae'
+12 |	        return r * r * 3
+13 |	    csae square(w):
+   |	    ^
+14 |	        return w * w
+
 -- switch-break-missing-return/main.tck --
 package main
 

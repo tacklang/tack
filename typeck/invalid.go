@@ -9,7 +9,9 @@ import (
 // before it reported errors, so the tree it is given may hold names the
 // resolver bound to ast.Unbound, because what they name was reported or
 // may have been declared by source the parser could not parse, and bad
-// nodes, ast.BadDecl and ast.BadStmt, where that source was. A name bound
+// nodes, ast.BadDecl and ast.BadStmt, where that source was, and bad
+// clauses, a switch's clauses whose header could not be parsed, each
+// starting its body with a BadStmt (see ast.CaseClause). A name bound
 // to ast.Unbound has types.Invalid, which every check passes over as
 // already reported, so a use of it reports nothing. A bad node is skipped.
 //
@@ -137,4 +139,15 @@ func (c *Checker) reportBad(span ast.Span) {
 	if c.prior == 0 {
 		c.errorf(span, "syntax error: this code could not be parsed")
 	}
+}
+
+// hasBadClause reports whether s has a clause the parser could not parse,
+// which may have been any case or the default (see ast.CaseClause).
+func hasBadClause(s *ast.Switch) bool {
+	for _, cl := range s.Cases {
+		if cl.Bad {
+			return true
+		}
+	}
+	return false
 }

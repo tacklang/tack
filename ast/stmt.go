@@ -315,13 +315,24 @@ func (s *Switch) IsTypeSwitch() bool {
 // Var is nil in every other case. In a type switch,
 // Types holds the type each value names, in order, set by the type
 // checker, since a type as written has no type of its own to record.
+//
+// Bad is set for a clause the parser could not parse the header of, case
+// or default and its values through the colon, or that it rejected, a
+// second default: it reported the error, skipped the header, and parsed
+// the statements after it as the clause's body, so the switch's other
+// clauses are kept. Its Values is empty, Default is not set, Span covers
+// the header skipped, and Body starts with a BadStmt standing for that
+// header, so a stage that passes over a body after its first bad
+// statement passes over this one too. Whatever the header named is
+// unknown: a bad clause may have been any case or the default.
 type CaseClause struct {
 	Values  []Expr
 	Types   []types.Type `json:",omitempty"`
 	Var     *Var
 	Body    []Stmt
-	Span    Span // 'case' or 'default' keyword through the colon
+	Span    Span // 'case' or 'default' keyword through the colon, or a bad clause's header
 	Default bool
+	Bad     bool `json:",omitempty"`
 }
 
 // Defer registers Body to run when the block holding the defer is left,

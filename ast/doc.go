@@ -51,7 +51,9 @@
 // A BadDecl or a BadStmt stands for a declaration or a statement the
 // parser could not parse, which it reported and skipped (see bad.go); a
 // BadDecl keeps the name it was declaring, when the parser got that far.
-// Later stages run on trees holding them. The resolver binds a name that
+// A CaseClause with Bad set is a switch's clause whose header the parser
+// could not parse, or rejected: its body starts with a BadStmt for the
+// header, and its values are unknown. Later stages run on trees holding them. The resolver binds a name that
 // names nothing because of an error already known to Unbound, which the
 // type checker gives no type and reports nothing more about. A Program
 // counts in Errors the errors every stage that ran reported about it.
