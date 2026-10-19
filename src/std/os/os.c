@@ -24,7 +24,12 @@
 // it. The one thing here the C library may allocate for itself is
 // tack_os_spawn's posix_spawn_file_actions_t, which it destroys on every
 // path.
-#define _POSIX_C_SOURCE 200809L
+//
+// The calls are POSIX.1-2008's, which the C library declares in the mode
+// the driver compiles every C file in, clang's default. The file cannot
+// ask for them itself with a feature-test macro: the program's tack.h is
+// included before its first line, and its headers have already settled
+// what the C library declares.
 
 #include <dirent.h>
 #include <errno.h>

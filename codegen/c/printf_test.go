@@ -93,12 +93,16 @@ func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string)
 	strict := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"},
 		flags...)
 	strict = append(strict, "-I", stdtest.IncludeDir())
+	// A C file sees the C library the driver gives it: clang's default
+	// mode declares POSIX's names beside C11's, as _DEFAULT_SOURCE does
+	// for glibc under -std=c11, and std/os's C calls them.
+	cflags := append(append([]string{}, strict...), "-D_DEFAULT_SOURCE")
 	objs := []string{}
 	if csrc != "" {
 		cfile := filepath.Join(dir, "program_c.c")
 		writeFile(t, cfile, csrc)
 		obj := filepath.Join(dir, "program_c.o")
-		args := append(append([]string{}, strict...),
+		args := append(append([]string{}, cflags...),
 			"-c", "-I", dir, "-include", header, "-o", obj, cfile)
 		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 			t.Fatalf("clang %s: %v\n%s", strings.Join(args, " "), err, msg)
@@ -108,7 +112,7 @@ func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string)
 	for _, pkg := range prog.Packages {
 		for i, f := range pkg.CFiles {
 			obj := filepath.Join(dir, fmt.Sprintf("%s%d.o", pkg.Name, i))
-			args := append(append([]string{}, strict...),
+			args := append(append([]string{}, cflags...),
 				"-c", "-I", dir, "-include", header, "-o", obj, filepath.Join(stdtest.Home(), f))
 			if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 				t.Fatalf("clang %s: %v\n%s", strings.Join(args, " "), err, msg)
