@@ -149,3 +149,23 @@ func (x Float) Float32() (float32, bool) {
 func (x Float) String() string {
 	return new(big.Float).SetPrec(64).SetRat(x.rat()).Text('g', 10)
 }
+
+// IsInteger reports whether x is an integer, whatever its size.
+func (x Float) IsInteger() bool { return x.rat().IsInt() }
+
+// Int returns x as an Int, and whether x is an integer an Int can hold,
+// from the smallest int64 to the largest uint64.
+func (x Float) Int() (Int, bool) {
+	r := x.rat()
+	if !r.IsInt() {
+		return Int{}, false
+	}
+	n := r.Num()
+	if n.IsUint64() {
+		return Int{mag: n.Uint64()}, true
+	}
+	if n.IsInt64() {
+		return FromInt64(n.Int64()), true
+	}
+	return Int{}, false
+}

@@ -151,9 +151,16 @@
 // infinity or NaN. A float is never a subject (see subjectKey, keyOf) and
 // never a known value (knownValue), so floats carry no facts, cannot be an
 // index or a length, and cannot be a map key, alone or held in a struct,
-// an array or a union (holdsFloat). Conversions to and from floats, a
-// float passed as any and a float crossing to C are rejected until they
-// are supported.
+// an array or a union (holdsFloat). An integer converts to a float, and a
+// float to the other float type, in the plain form, which never fails
+// (floatConversion); a float converts to an integer only in the checked
+// form, v, ok := T(f), since no fact can prove it in range, the backend
+// testing the range at run time. A constant converts exactly or is
+// reported: to a float it must round to a finite value, and a float
+// constant to an integer must be one, of the integer type
+// (constConversion), and its value is recorded on the call. A float
+// passed as any and a float crossing to C are rejected until they are
+// supported.
 // Typed integers combine through lossless widening (types.Widens): a value of
 // one type can be used where a type it widens to is expected, and an
 // arithmetic operator on two integer types works in the one the other

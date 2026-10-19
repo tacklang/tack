@@ -1,0 +1,23 @@
+int64 and int8 to float64, rounding to nearest ok
+the largest uint64 rounds up to 2^64 ok
+to float32 ok
+a target-width integer ok
+a float64 too large for float32 is an infinity ok
+past float32's largest, half an ulp rounds to infinity ok
+float64 to float32 rounds ok
+NaN and infinity carry over ok
+truncation toward zero ok
+NaN and the infinities fail ok
+2^63 and the float64 below it ok
+-2^63 and the float64 below it ok
+2^64 and the float64 below it, as a uint64 ok
+uint64 below zero ok
+int8 edges ok
+uint8 edges ok
+int32 edges from float32 ok
+int64 edges from float32 ok
+uint64 edges from float32 ok
+a target-width integer from a float ok
+constants convert exactly ok
+the checked form of a constant ok
+the checked form of a conversion that cannot fail ok

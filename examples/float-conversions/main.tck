@@ -1,0 +1,139 @@
+package main
+
+// Float conversions. An integer converts to a float, and a float to the
+// other float type, in the plain form, float64(i), which never fails but
+// may round: to the nearest value of the float type, ties to even, and a
+// float64 too large for a float32 to an infinity. A float converts to an
+// integer only in the checked form, v, ok := int64(f), which truncates
+// toward zero, and gives 0 and false for NaN, an infinity, or a value
+// whose truncation the integer type cannot hold. A constant converts
+// exactly or not at all. Each check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// toI64 converts f to an int64, in the checked form.
+func toI64(f float64) (int64, bool) {
+    v, ok := int64(f)
+    return v, ok
+}
+
+// is reports whether converting f to an int64 gives want, with ok.
+func is(f float64, want int64) bool {
+    v, ok := toI64(f)
+    return ok && v == want
+}
+
+// fails reports whether converting f to an int64 fails, giving 0.
+func fails(f float64) bool {
+    v, ok := toI64(f)
+    return !ok && v == 0
+}
+
+// u64 converts f to a uint64 and reports whether that gives want, with ok,
+// or fails, with 0, when want is not ok.
+func u64(f float64, want uint64, wantOK bool) bool {
+    v, ok := uint64(f)
+    return ok == wantOK && v == want
+}
+
+// f32to32 converts f to an int32 and reports whether that gives want, with
+// ok, or fails, with 0, when want is not ok.
+func f32to32(f float32, want int32, wantOK bool) bool {
+    v, ok := int32(f)
+    return ok == wantOK && v == want
+}
+
+// f32to64 converts f to an int64 and reports whether that gives want, with
+// ok, or fails, with 0, when want is not ok.
+func f32to64(f float32, want int64, wantOK bool) bool {
+    v, ok := int64(f)
+    return ok == wantOK && v == want
+}
+
+// f32tou64 converts f to a uint64 and reports whether that gives want,
+// with ok, or fails, with 0, when want is not ok.
+func f32tou64(f float32, want uint64, wantOK bool) bool {
+    v, ok := uint64(f)
+    return ok == wantOK && v == want
+}
+
+func main() {
+    var i int64 = 9007199254740993
+    var small int8 = -5
+    var u uint64 = 18446744073709551615
+    var w int32 = 16777217
+    check(float64(i) == 9007199254740992.0 && float64(small) == -5.0, "int64 and int8 to float64, rounding to nearest")
+    check(float64(u) == 18446744073709551616.0, "the largest uint64 rounds up to 2^64")
+    check(float32(w) == 16777216.0 && float32(i) == 9007199254740992.0, "to float32")
+    var size unsafe_size_t = 4096
+    check(float64(size) == 4096.0, "a target-width integer")
+
+    zero := 0.0
+    inf := 1.0 / zero
+    nan := zero / zero
+    var zero32 float32 = 0.0
+    inf32 := 1.0 / zero32
+    big := 1e300
+    check(float32(big) == inf32 && float32(-big) == -inf32, "a float64 too large for float32 is an infinity")
+    max32 := 340282346638528859811704183484516925440.0
+    mid := 340282356779733661637539395458142568448.0
+    below := 340282356779733623858607532500980858880.0
+    check(float32(mid) == inf32 && float32(below) == float32(max32) && float32(max32) < inf32,
+        "past float32's largest, half an ulp rounds to infinity")
+    tenth := 0.1
+    var tenth32 float32 = 0.1
+    check(float32(tenth) == tenth32 && float64(tenth32) != tenth, "float64 to float32 rounds")
+    check(float32(nan) != float32(nan) && float64(inf32) == inf, "NaN and infinity carry over")
+
+    check(is(2.9, 2) && is(-2.9, -2) && is(0.5, 0) && is(-0.5, 0) && is(-zero, 0), "truncation toward zero")
+    check(fails(nan) && fails(inf) && fails(-inf), "NaN and the infinities fail")
+    check(fails(9223372036854775808.0) && is(9223372036854774784.0, 9223372036854774784), "2^63 and the float64 below it")
+    check(is(-9223372036854775808.0, -9223372036854775807 - 1) && fails(-9223372036854777856.0),
+        "-2^63 and the float64 below it")
+    check(u64(18446744073709551616.0, 0, false) && u64(18446744073709549568.0, 18446744073709549568, true),
+        "2^64 and the float64 below it, as a uint64")
+    check(u64(-0.99, 0, true) && u64(-1.0, 0, false) && u64(nan, 0, false), "uint64 below zero")
+
+    a, okA := int8(127.9 + zero)
+    b, okB := int8(128.0 + zero)
+    c, okC := int8(-128.9 + zero)
+    d, okD := int8(-129.0 + zero)
+    check(okA && a == 127 && !okB && b == 0 && okC && c == -128 && !okD && d == 0, "int8 edges")
+    e, okE := uint8(255.9 + zero)
+    g, okG := uint8(256.0 + zero)
+    check(okE && e == 255 && !okG && g == 0, "uint8 edges")
+
+    var two31 float32 = 2147483648.0
+    var below31 float32 = 2147483520.0
+    var neg31 float32 = -2147483648.0
+    var under31 float32 = -2147483904.0
+    check(f32to32(two31, 0, false) && f32to32(below31, 2147483520, true) && f32to32(neg31, -2147483647 - 1, true) &&
+        f32to32(under31, 0, false), "int32 edges from float32")
+    var two63 float32 = 9223372036854775808.0
+    var below63 float32 = 9223371487098961920.0
+    check(f32to64(two63, 0, false) && f32to64(below63, 9223371487098961920, true) && f32to64(-two63, -9223372036854775807 - 1, true),
+        "int64 edges from float32")
+    var two64 float32 = 18446744073709551616.0
+    var below64 float32 = 18446742974197923840.0
+    check(f32tou64(two64, 0, false) && f32tou64(below64, 18446742974197923840, true), "uint64 edges from float32")
+
+    s, okS := unsafe_size_t(4096.5 + zero)
+    t, okT := unsafe_size_t(-1.0 + zero)
+    x, okX := unsafe_size_t(1e30 + zero)
+    check(okS && s == 4096 && !okT && t == 0 && !okX && x == 0, "a target-width integer from a float")
+
+    check(float64(3) == 3.0 && int64(2.0) == 2 && int32(1e9) == 1000000000 && float32(16777217) == 16777216.0,
+        "constants convert exactly")
+    n, okN := int64(1e18)
+    check(okN && n == 1000000000000000000, "the checked form of a constant")
+    f, okF := float64(i)
+    check(okF && f == 9007199254740992.0, "the checked form of a conversion that cannot fail")
+}

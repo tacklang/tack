@@ -9340,6 +9340,40 @@ float-checked-division/main.tck:6:5: error: dividing floats cannot fail, so it h
    |	    ^~~~~~~~~~~~~~
 07 |	    if ok && q > 0.0 {
 
+-- float-constant-conversion-overflows/main.tck --
+package main
+
+func main() {
+    b := int8(300.0)
+    exit(int32(b))
+}
+-- float-constant-conversion-overflows/expected --
+stage: typeck
+---
+
+float-constant-conversion-overflows/main.tck:4:15: error: constant 300 overflows int8
+03 |	func main() {
+04 |	    b := int8(300.0)
+   |	              ^~~~~
+05 |	    exit(int32(b))
+
+-- float-constant-conversion-truncates/main.tck --
+package main
+
+func main() {
+    i := int64(2.5)
+    exit(int32(i))
+}
+-- float-constant-conversion-truncates/expected --
+stage: typeck
+---
+
+float-constant-conversion-truncates/main.tck:4:10: error: cannot convert constant 2.5 to int64: it is not an integer
+03 |	func main() {
+04 |	    i := int64(2.5)
+   |	         ^~~~~~~~~~
+05 |	    exit(int32(i))
+
 -- float-constant-division-by-zero/main.tck --
 package main
 
@@ -9359,45 +9393,61 @@ float-constant-division-by-zero/main.tck:4:10: error: division by zero in consta
    |	         ^~~~~~~~~
 05 |	    if f > 0.0 {
 
--- float-conversion-from-int/main.tck --
+-- float-conversion-from-bool/main.tck --
 package main
 
 func main() {
-    i := 3
-    f := float64(i)
+    f := float64(true)
     if f > 0.0 {
         exit(1)
     }
 }
--- float-conversion-from-int/expected --
+-- float-conversion-from-bool/expected --
 stage: typeck
 ---
 
-float-conversion-from-int/main.tck:5:10: error: cannot convert int64 to float64: conversions to and from floats are not supported yet
-04 |	    i := 3
-05 |	    f := float64(i)
-   |	         ^~~~~~~~~~
-06 |	    if f > 0.0 {
+float-conversion-from-bool/main.tck:4:10: error: cannot convert bool to float64
+03 |	func main() {
+04 |	    f := float64(true)
+   |	         ^~~~~~~~~~~~~
+05 |	    if f > 0.0 {
 
--- float-conversion-to-int/main.tck --
+-- float-conversion-plain-to-int/main.tck --
 package main
 
 func main() {
     f := 3.5
-    i, ok := int64(f)
-    if ok && i > 0 {
-        exit(1)
-    }
+    i := int64(f)
+    exit(int32(i))
 }
--- float-conversion-to-int/expected --
+-- float-conversion-plain-to-int/expected --
 stage: typeck
 ---
 
-float-conversion-to-int/main.tck:5:14: error: cannot convert float64 to int64: conversions to and from floats are not supported yet
+float-conversion-plain-to-int/main.tck:5:10: error: converting float64 to int64 can fail; use v, ok := int64(...)
 04 |	    f := 3.5
-05 |	    i, ok := int64(f)
-   |	             ^~~~~~~~
-06 |	    if ok && i > 0 {
+05 |	    i := int64(f)
+   |	         ^~~~~~~~
+06 |	    exit(int32(i))
+
+-- float-conversion-to-bool/main.tck --
+package main
+
+func main() {
+    f := 1.5
+    if bool(f) {
+        exit(1)
+    }
+}
+-- float-conversion-to-bool/expected --
+stage: typeck
+---
+
+float-conversion-to-bool/main.tck:5:8: error: cannot convert float64 to bool
+04 |	    f := 1.5
+05 |	    if bool(f) {
+   |	       ^~~~~~~
+06 |	        exit(1)
 
 -- float-exponent-no-digits/main.tck --
 package main

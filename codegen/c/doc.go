@@ -96,6 +96,18 @@
 // fuses a multiply and an add into one rounding, and every optimization
 // level computes the same result.
 //
+// A conversion to a float is a cast, which rounds to nearest, as clang
+// does, but for a float64 to a float32, which goes through
+// tack_f32_of_f64, emitted when a program converts one: C leaves a value
+// outside float's range undefined, so one at or past the midpoint
+// between float's largest value and 2^128 is given the infinity IEEE 754
+// rounds it to, and only the rest is cast (emitFloatNarrowing). A float's
+// checked conversion to an integer, v, ok := T(f), casts only after a test
+// against bounds that are values of the float type exactly, so no
+// out-of-range value, NaN or infinity ever reaches a cast, which C leaves
+// undefined (floatFitsExpr). A constant conversion is written as the value
+// the checker computed.
+//
 // Two integers of any types compare by their values (compare.go), where
 // C's usual arithmetic conversions would make -1 < 0u false. Two operands
 // of one type compare as they are; two of different types are each cast,

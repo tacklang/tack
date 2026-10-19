@@ -461,6 +461,9 @@ func (g *generator) emitConstantPool(builtins []builtin.Func, globals []global) 
 			g.emitDivision(use.op, use.typ)
 		}
 	}
+	if g.narrowsFloats() {
+		g.emitFloatNarrowing()
+	}
 
 	// Each slice helper is emitted only when the program slices its type,
 	// with or without a high bound.
@@ -474,6 +477,51 @@ func (g *generator) emitConstantPool(builtins []builtin.Func, globals []global) 
 type division struct {
 	op  ast.BinaryOp
 	typ types.Type
+}
+
+// narrowsFloats reports whether the program converts a float64 to a
+// float32 at run time, which emitFloatNarrowing writes the helper for.
+func (g *generator) narrowsFloats() bool {
+	found := false
+	g.walk(func(n ast.Node) bool {
+		if call, ok := n.(*ast.Call); ok && narrowing(call) {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// narrowing reports whether call converts a float64 to a float32 at run
+// time: a conversion to float32 of a float64 that is no constant.
+func narrowing(call *ast.Call) bool {
+	return call.Conv == types.Float32 && call.Const == nil && len(call.Args) == 1 &&
+		ast.TypeOf(call.Args[0]) == types.Float64
+}
+
+// floatNarrowing is the name of the helper that converts a float64 to a
+// float32.
+const floatNarrowing = "tack_f32_of_f64"
+
+// emitFloatNarrowing writes the helper that converts a float64 to a
+// float32, rounding to the nearest float32, ties to even, as IEEE 754
+// does. C leaves converting a value outside float's range undefined, so
+// one at or past the midpoint between float's largest value and 2^128,
+// 0x1.ffffffp+127, which rounds to an infinity, ties to even included, is
+// given the infinity outright, and only a value C can convert is cast; NaN
+// is in range, and casts to NaN.
+func (g *generator) emitFloatNarrowing() {
+	fmt.Fprintf(
+		&g.buf,
+		"%sstatic float %s(double d) {\n",
+		g.maybeUnused(floatNarrowing),
+		floatNarrowing,
+	)
+	g.buf.WriteString("    if (d >= 0x1.ffffffp+127) {\n        return __builtin_inff();\n    }\n")
+	g.buf.WriteString(
+		"    if (d <= -0x1.ffffffp+127) {\n        return -__builtin_inff();\n    }\n",
+	)
+	g.buf.WriteString("    return (float)d;\n}\n\n")
 }
 
 // divisions lists each division, remainder and shift the program does, by
@@ -2163,18 +2211,7 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	}
 
 	if c.Conv != types.Invalid {
-		arg, diags := g.expr(c.Args[0], types.Invalid)
-		from, to := ast.TypeOf(c.Args[0]), c.Conv
-		return multiSource{
-			temps: []multiTemp{{typ: g.cType(from), init: arg}},
-			field: func(tmps []string, i int) string {
-				fits := fitsExpr(from, to, tmps[0])
-				if i == 1 {
-					return fits
-				}
-				return fmt.Sprintf("(%s ? (%s)%s : 0)", fits, g.cType(to), tmps[0])
-			},
-		}, diags
+		return g.conversionValues(c)
 	}
 
 	return g.callValues(c)
@@ -2260,14 +2297,92 @@ func (g *generator) constantDivisionValues(bin *ast.Binary) (multiSource, []diag
 	}, nil
 }
 
+// conversionValues lowers v, ok := T(x). A constant's is its value and
+// true. Otherwise x is held in a temporary, and the value is T's cast of
+// it when it fits T, and 0 when it does not, so a cast is only ever made
+// of a value T holds: C leaves converting a float outside an integer
+// type's range undefined.
+func (g *generator) conversionValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
+	if c.Const != nil {
+		v, _ := typedConstLiteral(c.Const, c.Conv)
+		return multiSource{field: func(_ []string, i int) string {
+			if i == 1 {
+				return "true"
+			}
+			return v
+		}}, nil
+	}
+	arg, diags := g.expr(c.Args[0], types.Invalid)
+	from, to := ast.TypeOf(c.Args[0]), c.Conv
+	return multiSource{
+		temps: []multiTemp{{typ: g.cType(from), init: arg}},
+		field: func(tmps []string, i int) string {
+			fits := fitsExpr(from, to, tmps[0])
+			if i == 1 {
+				return fits
+			}
+			cast := fmt.Sprintf("(%s)%s", g.cType(to), tmps[0])
+			if from == types.Float64 && to == types.Float32 {
+				cast = g.convert(from, to, tmps[0])
+			}
+			return fmt.Sprintf("(%s ? %s : 0)", fits, cast)
+		},
+	}, diags
+}
+
 // fitsExpr renders a C test of whether v, of the integer type from, is also
-// a value of the integer type to.
+// a value of the integer type to; or, of a float type, truncates to one
+// (see floatFitsExpr). Anything converts to a float.
 func fitsExpr(from, to types.Type, v string) string {
+	switch {
+	case types.IsFloat(to):
+		return "true"
+	case types.IsFloat(from):
+		return floatFitsExpr(from, to, v)
+	}
 	if types.TargetWidth(from) || types.TargetWidth(to) {
 		return targetFitsExpr(from, to, v)
 	}
 	lo, hi := bounds(to)
 	return withinExpr(from, v, lo, hi)
+}
+
+// floatFitsExpr renders a C test of whether v, of the float type from,
+// truncates toward zero to a value of the integer type to, comparing v
+// with bounds that are values of from exactly, so the test is exact: NaN
+// fails every comparison, and an infinity one of them. An unsigned n-bit
+// to takes -1 < v < 2^n. A signed one takes v < 2^(n-1) above, and below
+// v > -2^(n-1) - 1 when from holds that value, and v >= -2^(n-1) when it
+// does not, as int64 from a float64 or int32 from a float32: from then has
+// no value between the two, -2^(n-1) being a power of two whose next value
+// down is further from it than 1. A target-width to's bound is 2^n of its
+// real width n, computed in C as (F)(SIZE_MAX / 2 + 1) * 2, both steps
+// exact.
+func floatFitsExpr(from, to types.Type, v string) string {
+	lit := func(x float64) string {
+		if from == types.Float32 {
+			return floatLiteral(float32(x))
+		}
+		return floatLiteral(x)
+	}
+	if types.TargetWidth(to) {
+		return fmt.Sprintf("(%s > %s && %s < (%s)(%s / 2 + 1) * %s)",
+			v, lit(-1), v, basicCType(from), maxMacros[to], lit(2))
+	}
+	n := types.Bits(to)
+	if types.IsUnsigned(to) {
+		return fmt.Sprintf("(%s > %s && %s < %s)", v, lit(-1), v, lit(math.Ldexp(1, n)))
+	}
+	half := math.Ldexp(1, n-1)
+	precision := 53
+	if from == types.Float32 {
+		precision = 24
+	}
+	lower := fmt.Sprintf("%s >= %s", v, lit(-half))
+	if n <= precision {
+		lower = fmt.Sprintf("%s > %s", v, lit(-half-1))
+	}
+	return fmt.Sprintf("(%s && %s < %s)", lower, v, lit(half))
 }
 
 // targetFitsExpr is fitsExpr when from or to is a target-width type, whose
@@ -2766,13 +2881,7 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 		return g.constructionValue(call)
 	}
 	if call.Conv != types.Invalid {
-		// The checker allows a single-value conversion only where it
-		// cannot lose anything, so a C cast does the whole job.
-		arg, diags := g.expr(call.Args[0], types.Invalid)
-		if len(diags) > 0 {
-			return "", diags
-		}
-		return fmt.Sprintf("((%s)%s)", g.cType(call.Conv), arg), nil
+		return g.conversionValue(call)
 	}
 	if call.Receiver() != nil {
 		return g.callExpr("", call)
@@ -2798,6 +2907,35 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 		}}
 	}
 	return g.callExpr(id.Name, call)
+}
+
+// conversionValue renders a conversion whose single value is used. One
+// of a constant, to or from a float, is written as the value the checker
+// computed. Any other the checker allows here cannot fail: an integer one
+// cannot lose anything, and one to a float rounds, so a C cast does the
+// whole job, but for a float64 to a float32, which goes through the
+// helper that keeps the cast within float's range (see
+// emitFloatNarrowing).
+func (g *generator) conversionValue(call *ast.Call) (string, []diag.Diagnostic) {
+	if call.Const != nil {
+		v, _ := typedConstLiteral(call.Const, call.Conv)
+		return v, nil
+	}
+	arg, diags := g.expr(call.Args[0], types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return g.convert(ast.TypeOf(call.Args[0]), call.Conv, arg), nil
+}
+
+// convert renders the C conversion of v, of type from, to the type to,
+// which the checker has found cannot fail or has tested: a cast, or the
+// narrowing helper for a float64 to a float32.
+func (g *generator) convert(from, to types.Type, v string) string {
+	if from == types.Float64 && to == types.Float32 {
+		return floatNarrowing + "(" + v + ")"
+	}
+	return fmt.Sprintf("((%s)%s)", g.cType(to), v)
 }
 
 // genericValue returns what renders a call to the generic builtin named

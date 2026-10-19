@@ -1140,6 +1140,15 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	to := call.Conv
+	if types.IsFloat(from) || types.IsFloat(to) {
+		return c.floatConversion(call, from, to)
+	}
+	return c.intConversion(call, from, to)
+}
+
+// intConversion is conversion of an integer, of type from, to the integer
+// type to.
+func (c *Checker) intConversion(call *ast.Call, from, to types.Type) types.Type {
 	arg := call.Args[0]
 	switch {
 	case from == types.UntypedInt:
@@ -1164,6 +1173,71 @@ func (c *Checker) conversion(call *ast.Call) types.Type {
 	return to
 }
 
+// floatConversion checks a conversion whose single value is used, call, to
+// or from a float, from from to to, and returns to. An integer converts to
+// a float, and a float to the other float type, in this form: it never
+// fails, rounding to the nearest value of to, ties to even, and a float64
+// too large for a float32 to an infinity. A constant converts exactly (see
+// constConversion). A float converts to an integer only in the checked
+// form, v, ok := T(f), since floats carry no facts that would prove it in
+// range, and here is reported as needing it.
+func (c *Checker) floatConversion(call *ast.Call, from, to types.Type) types.Type {
+	switch {
+	case types.IsUntyped(from):
+		if !c.constConversion(call, from, to) {
+			return types.Invalid
+		}
+	case types.IsInteger(to):
+		c.errorf(
+			call.Span,
+			"converting %s to %s can fail; use v, ok := %s(...)",
+			c.typeName(from),
+			c.typeName(to),
+			c.typeName(to),
+		)
+		return types.Invalid
+	}
+	return to
+}
+
+// constConversion checks the conversion call, to or from a float, of an
+// untyped constant, of type from, to the type to, and records its value
+// on call, exactly, for the backend to write out: to a float, the
+// constant's exact value, which must round to a finite value of to; to an
+// integer, from a float constant, its value, which must be an integer, as
+// in Go, int64(2.0), and a value of to. It reports whether the conversion
+// is valid.
+func (c *Checker) constConversion(call *ast.Call, from, to types.Type) bool {
+	arg := call.Args[0]
+	value, _ := floatValue(arg)
+	if types.IsFloat(to) {
+		if !c.settleFloat(arg, to) {
+			return false
+		}
+		call.Const = value
+		return true
+	}
+	n, isInt := value.Int()
+	switch {
+	case !isInt && !value.IsInteger():
+		c.errorf(call.Span, "cannot convert constant %s to %s: it is not an integer",
+			value, c.typeName(to))
+		return false
+	case !isInt || !fitsPortably(n, to):
+		c.errorf(
+			arg.Spanned(),
+			"constant %s overflows %s%s",
+			value,
+			c.typeName(to),
+			widthNote(n, to),
+		)
+		return false
+	}
+	c.valueOf(arg, from)
+	call.Const = n
+	return true
+}
+
 // knownFits reports whether v, the known value of e, is a value of the
 // integer type typ on every target, and reports e as overflowing typ when
 // it is not, as settle reports an untyped constant.
@@ -1184,8 +1258,8 @@ func fitsSomewhere(v constant.Int, typ types.Type) bool {
 }
 
 // conversionOperand checks what every conversion requires, whether its
-// value is used alone or with ok: one argument, an integer type to convert
-// to, and an integer to convert. It returns the argument's type, and false
+// value is used alone or with ok: one argument, an integer or a float type
+// to convert to, and an integer or a float to convert. It returns the argument's type, and false
 // if anything was reported.
 func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 	to := call.Conv
@@ -1201,18 +1275,7 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 	if from == types.Invalid {
 		return types.Invalid, false
 	}
-	if types.IsFloat(to) || types.IsFloat(from) {
-		if from = c.valueOf(call.Args[0], from); from != types.Invalid {
-			c.errorf(
-				call.Span,
-				"cannot convert %s to %s: conversions to and from floats are not supported yet",
-				c.typeName(from),
-				name,
-			)
-		}
-		return types.Invalid, false
-	}
-	if !types.IsInteger(to) || !types.IsInteger(from) {
+	if !types.IsNumeric(to) || !types.IsNumeric(from) {
 		from = c.valueOf(call.Args[0], from)
 		if from != types.Invalid {
 			c.errorf(call.Span, "cannot convert %s to %s", c.typeName(from), name)
@@ -1223,9 +1286,10 @@ func (c *Checker) conversionOperand(call *ast.Call) (types.Type, bool) {
 }
 
 // checkedConversion checks a conversion in its two-value form,
-// v, ok := T(x), which is for conversions that can fail, and is allowed for
-// one that cannot, from an untyped constant, a known value that fits T, or
-// a type that widens to T, when ok is always true. Only a constant or known
+// v, ok := T(x), which is for conversions that can fail, a float's to an
+// integer among them, and is allowed for
+// one that cannot, from an untyped constant, a known value that fits T, a
+// type that widens to T, or anything to a float, when ok is always true. Only a constant or known
 // value that does not fit, which always fails, is reported; a known value
 // that fits a target-width T on some targets only is checked at run time.
 // It reports whether the conversion is valid in this form.
@@ -1237,6 +1301,8 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 	to := call.Conv
 	arg := call.Args[0]
 	switch {
+	case types.IsFloat(from) || types.IsFloat(to):
+		return c.checkedFloatConversion(call, from, to)
 	case types.Widens(from, to):
 		return true
 	case from == types.UntypedInt:
@@ -1244,6 +1310,17 @@ func (c *Checker) checkedConversion(call *ast.Call) bool {
 	}
 	if v, known := c.knownValue(arg); known && !fitsSomewhere(v, to) {
 		return c.knownFits(arg, v, to)
+	}
+	return true
+}
+
+// checkedFloatConversion is checkedConversion to or from a float: a
+// constant's is checked as in the plain form (see constConversion), and
+// anything else is valid, a float's to an integer being tested at run
+// time and anything to a float never failing.
+func (c *Checker) checkedFloatConversion(call *ast.Call, from, to types.Type) bool {
+	if types.IsUntyped(from) {
+		return c.constConversion(call, from, to)
 	}
 	return true
 }

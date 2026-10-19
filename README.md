@@ -3008,11 +3008,26 @@ makes for itself, which has a letter after `tack_`.
   map key: `cannot use float64 as a map key: a float is not a key`. Floats
   may be fields, elements, payloads, list and map elements, parameters,
   results and globals; a global's initializer must be a constant
-  expression. Not yet: conversions, `float64(i)` and `v, ok := int64(f)`,
-  are `cannot convert int64 to float64: conversions to and from floats are
-  not supported yet`; a float cannot be passed as `any`, so `fmt.printf`
-  cannot print one; and a float does not cross to C, `parameter x of
-  extern func scale cannot be float64: a float does not cross to C yet`.
+  expression. An integer of any type converts to a float, and a float to
+  the other float type, in the plain form, `float64(i)`, `float32(d)`,
+  which never fails but may round: to the nearest value, ties to even, as
+  clang does, so `float64(9007199254740993)` is `9007199254740992.0`, and
+  a `float64` too large for a `float32` becomes an infinity. A float
+  converts to an integer only in the checked form, `v, ok := int64(f)`,
+  which truncates toward zero, `2.9` giving `2` and `-2.9` giving `-2`,
+  and gives `0` and `false` for NaN, an infinity, or a value whose
+  truncation the integer type cannot hold; floats carry no facts that
+  could prove the plain form, so `int64(f)` is `converting float64 to
+  int64 can fail; use v, ok := int64(...)`. The test is exact at every
+  edge: `int64(9223372036854775808.0)` fails, the float64 below it
+  converts, and `-9223372036854775808.0` converts. A constant converts
+  exactly or not at all, as in Go: `int64(2.0)` is `2`, `int64(2.5)` is
+  `cannot convert constant 2.5 to int64: it is not an integer`, and
+  `int8(300.0)` is `constant 300 overflows int8`. Neither a float nor a
+  bool converts to the other. Not yet: a float cannot be passed as `any`,
+  so `fmt.printf` cannot print one; and a float does not cross to C,
+  `parameter x of extern func scale cannot be float64: a float does not
+  cross to C yet`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given: `f expects 2 argument(s), got
   3`, or for a variadic function, which takes any number past its other

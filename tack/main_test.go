@@ -2188,6 +2188,38 @@ func TestBuiltFloatsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltFloatConversionsPassesEveryCheck builds examples/float-conversions
+// at every optimization level and checks each binary writes exactly its
+// output, every check ok: integers to floats rounding to nearest, float64
+// to float32 rounding to an infinity past half an ulp beyond float32's
+// largest, and the checked float to integer form at NaN, the infinities,
+// zero of either sign, truncation toward zero, and each integer type's
+// edges, 2^63 and 2^64 and the float values beside them included.
+func TestBuiltFloatConversionsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "float-conversions", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/float-conversions/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "float-conversions")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("float-conversions"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltTextPassesEveryCheck builds examples/text, which imports
 // std/text, a std package written in Tack alone, at every optimization
 // level and checks each binary writes exactly examples/text/output, every

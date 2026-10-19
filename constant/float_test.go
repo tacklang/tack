@@ -99,3 +99,33 @@ func TestFloatStaysBounded(t *testing.T) {
 		t.Error("squaring 1e300 100 times stayed within MaxBits")
 	}
 }
+
+// TestFloatInt checks a float constant's integer value: an integer from
+// the smallest int64 to the largest uint64 has one, and a fraction, or an
+// integer past that range, has none.
+func TestFloatInt(t *testing.T) {
+	for _, tc := range []struct {
+		text, want string
+		ok         bool
+	}{
+		{"2.0", "2", true},
+		{"1e18", "1000000000000000000", true},
+		{"18446744073709551615.0", "18446744073709551615", true},
+		{"18446744073709551616.0", "", false},
+		{"2.5", "", false},
+		{"0.0", "0", true},
+	} {
+		f, _ := constant.ParseFloat(tc.text)
+		n, ok := f.Int()
+		if ok != tc.ok || ok && n.String() != tc.want {
+			t.Errorf("%s: %s, %v; want %s, %v", tc.text, n, ok, tc.want, tc.ok)
+		}
+	}
+	f, _ := constant.ParseFloat("9223372036854775808.0")
+	if n, ok := f.Neg().Int(); !ok || n.Cmp(constant.Min()) != 0 {
+		t.Errorf("-2^63 is %s, %v", n, ok)
+	}
+	if f, _ := constant.ParseFloat("1e30"); !f.IsInteger() {
+		t.Error("1e30 is not an integer")
+	}
+}
