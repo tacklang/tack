@@ -60,6 +60,8 @@ func firstArg(t *testing.T, src string) ast.Expr {
 	return args[0]
 }
 
+// An integer literal argument parses to an IntLit of its value, up to the
+// largest int64.
 func TestParsesIntegerLiteralArgument(t *testing.T) {
 	tests := []struct {
 		src  string
@@ -124,6 +126,8 @@ func TestParsesIntegerLiteralsAcrossTheRange(t *testing.T) {
 	}
 }
 
+// A string literal argument parses to a StrLit of its contents, next to
+// the integer literals above.
 func TestStillParsesStringLiteralArgument(t *testing.T) {
 	arg := firstArg(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
@@ -136,6 +140,8 @@ func TestStillParsesStringLiteralArgument(t *testing.T) {
 	}
 }
 
+// Arguments separated by commas each parse, in order, whatever kind of
+// literal each one is.
 func TestParsesCommaSeparatedArguments(t *testing.T) {
 	args := callArgs(t, "package main\n\nfunc main() {\n    f(1, \"hi\", 2)\n}\n")
 
@@ -178,6 +184,8 @@ func TestParsesIdentifierArgument(t *testing.T) {
 	}
 }
 
+// Two arguments with no comma between them are an error, never read as
+// two arguments.
 func TestRejectsArgumentsWithoutASeparatingComma(t *testing.T) {
 	_, diags := parse(t, "package main\n\nfunc main() {\n    f(1 2)\n}\n")
 
@@ -213,6 +221,7 @@ func TestParsesParameterList(t *testing.T) {
 	}
 }
 
+// A function with empty parentheses has no parameters.
 func TestParsesEmptyParameterList(t *testing.T) {
 	file, diags := parse(t, "package main\n\nfunc main() {\n}\n")
 	if len(diags) > 0 {
@@ -224,6 +233,8 @@ func TestParsesEmptyParameterList(t *testing.T) {
 	}
 }
 
+// A type between the parameters and the body is the function's result
+// type.
 func TestParsesResultType(t *testing.T) {
 	file, diags := parse(
 		t,
@@ -246,6 +257,8 @@ func TestParsesResultType(t *testing.T) {
 	}
 }
 
+// A function with nothing between its parameters and its body has no
+// result types.
 func TestFunctionWithoutResultTypeHasNone(t *testing.T) {
 	file, diags := parse(t, "package main\n\nfunc main() {\n}\n")
 	if len(diags) > 0 {
@@ -257,6 +270,8 @@ func TestFunctionWithoutResultTypeHasNone(t *testing.T) {
 	}
 }
 
+// A return with an expression after it holds that expression as its
+// value.
 func TestParsesReturnWithAValue(t *testing.T) {
 	file, diags := parse(
 		t,
@@ -280,6 +295,8 @@ func TestParsesReturnWithAValue(t *testing.T) {
 	}
 }
 
+// A return alone on its line holds no values: the semicolon inserted at
+// the line end ends it.
 func TestParsesBareReturn(t *testing.T) {
 	file, diags := parse(t, "package main\n\nfunc f() {\n    return\n}\n\nfunc main() {\n}\n")
 	if len(diags) > 0 {
@@ -310,6 +327,8 @@ func TestParsesCallAsAnArgument(t *testing.T) {
 	}
 }
 
+// A call can be the argument of a call that is itself an argument, as in
+// f(g(h())).
 func TestParsesNestedCallArguments(t *testing.T) {
 	arg := firstArg(t, "package main\n\nfunc main() {\n    f(g(h()))\n}\n")
 
@@ -325,6 +344,8 @@ func TestParsesNestedCallArguments(t *testing.T) {
 	}
 }
 
+// A call can sit among literal arguments, each argument parsed in its
+// place.
 func TestParsesCallMixedWithOtherArguments(t *testing.T) {
 	args := callArgs(t, "package main\n\nfunc main() {\n    f(1, g(), \"hi\")\n}\n")
 
@@ -336,7 +357,7 @@ func TestParsesCallMixedWithOtherArguments(t *testing.T) {
 	}
 }
 
-// binOp returns the sole argument of main's sole call as a binary expression.
+// binArg returns the sole argument of main's sole call as a binary expression.
 func binArg(t *testing.T, expr string) *ast.Binary {
 	t.Helper()
 
@@ -348,6 +369,8 @@ func binArg(t *testing.T, expr string) *ast.Binary {
 	return bin
 }
 
+// Each arithmetic and comparison operator parses to its own binary
+// operator.
 func TestParsesBinaryOperators(t *testing.T) {
 	tests := []struct {
 		expr string
@@ -375,6 +398,8 @@ func TestParsesBinaryOperators(t *testing.T) {
 	}
 }
 
+// Multiplication binds tighter than addition, so 1 + 2 * 3 is
+// 1 + (2 * 3).
 func TestMultiplicationBindsTighterThanAddition(t *testing.T) {
 	bin := binArg(t, "1 + 2 * 3")
 
@@ -387,6 +412,8 @@ func TestMultiplicationBindsTighterThanAddition(t *testing.T) {
 	}
 }
 
+// A comparison binds looser than arithmetic, so 1 + 2 < 4 is
+// (1 + 2) < 4.
 func TestComparisonBindsLooserThanArithmetic(t *testing.T) {
 	bin := binArg(t, "1 + 2 < 4")
 
@@ -398,6 +425,8 @@ func TestComparisonBindsLooserThanArithmetic(t *testing.T) {
 	}
 }
 
+// Subtraction groups to the left, so 1 - 2 - 3 is (1 - 2) - 3, not
+// 1 - (2 - 3).
 func TestSubtractionIsLeftAssociative(t *testing.T) {
 	bin := binArg(t, "1 - 2 - 3")
 
@@ -413,6 +442,8 @@ func TestSubtractionIsLeftAssociative(t *testing.T) {
 	}
 }
 
+// Parentheses group against precedence, so (1 + 2) * 3 multiplies the
+// sum.
 func TestParenthesesOverridePrecedence(t *testing.T) {
 	bin := binArg(t, "(1 + 2) * 3")
 
@@ -424,6 +455,8 @@ func TestParenthesesOverridePrecedence(t *testing.T) {
 	}
 }
 
+// Calls are operands of arithmetic, as a recursive function returning
+// fib(n - 1) + fib(n - 2) needs.
 func TestParsesCallsWithinArithmetic(t *testing.T) {
 	src := "package main\n\nfunc fib(n int64) int64 {\n    return fib(n - 1) + fib(n - 2)\n}\n\nfunc main() {\n}\n"
 
@@ -448,6 +481,8 @@ func TestParsesCallsWithinArithmetic(t *testing.T) {
 	}
 }
 
+// ifStmt parses body as main's body and returns its first statement as an
+// if, failing the test on any error or on any other kind of statement.
 func ifStmt(t *testing.T, body string) *ast.If {
 	t.Helper()
 
@@ -464,6 +499,7 @@ func ifStmt(t *testing.T, body string) *ast.If {
 	return got
 }
 
+// An if with no else has its condition and its block, and no else branch.
 func TestParsesIfWithoutElse(t *testing.T) {
 	got := ifStmt(t, "    if 1 < 2 {\n        print(\"yes\")\n    }")
 
@@ -478,6 +514,7 @@ func TestParsesIfWithoutElse(t *testing.T) {
 	}
 }
 
+// An if's else block is its else branch.
 func TestParsesIfElse(t *testing.T) {
 	got := ifStmt(
 		t,
@@ -511,6 +548,8 @@ func TestParsesElseIfChain(t *testing.T) {
 	}
 }
 
+// A return can sit inside an if's block, before more statements of the
+// function.
 func TestParsesReturnInsideAnIf(t *testing.T) {
 	src := "package main\n\nfunc f(n int64) int64 {\n    if n < 2 {\n        return n\n    }\n    return 0\n}\n\nfunc main() {\n}\n"
 

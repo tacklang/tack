@@ -14,12 +14,14 @@ type clauseWant struct {
 	bad, def     bool
 }
 
-// bad, cased and def build a clauseWant for a bad clause, a case and a
-// default, each with body statements.
+// bad builds a clauseWant for a bad clause with body statements.
 func bad(body int) clauseWant { return clauseWant{bad: true, body: body} }
 
+// cased builds a clauseWant for a case with values values and body
+// statements.
 func cased(values, body int) clauseWant { return clauseWant{values: values, body: body} }
 
+// def builds a clauseWant for a default with body statements.
 func def(body int) clauseWant { return clauseWant{def: true, body: body} }
 
 // switchCases are switches with a damaged clause header: a line marked //E

@@ -168,6 +168,10 @@ func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
 	return p
 }
 
+// next consumes the next token and returns it, counting it as a step (see
+// steps), or returns nil, counting nothing, once the parse is past the
+// final EOF token. A construct that fails can consume the EOF, after which
+// recovery moves back to it (see unconsumeEOF).
 func (p *Parser) next() *lexer.Token {
 	if p.index >= len(p.tokens) {
 		return nil
@@ -185,6 +189,9 @@ func (p *Parser) tok(i int) *lexer.Token {
 	return &p.tokens[i]
 }
 
+// peek returns the next token without consuming it, counting it as a
+// step, or nil, counting nothing, once the parse is past the final EOF
+// token (see next). Unlike peekAt, it gives no EOF in place of nil.
 func (p *Parser) peek() *lexer.Token {
 	if p.index >= len(p.tokens) {
 		return nil
@@ -193,6 +200,10 @@ func (p *Parser) peek() *lexer.Token {
 	return &p.tokens[p.index]
 }
 
+// peekNext returns the token after the next one without consuming
+// anything, counting it as a step, or nil, counting nothing, when the next
+// token is the final EOF or the parse is past it. peekAt(1) is the same
+// look ahead, with the EOF in place of nil.
 func (p *Parser) peekNext() *lexer.Token {
 	if p.index+1 >= len(p.tokens) {
 		return nil
@@ -211,6 +222,8 @@ func (p *Parser) peekAt(n int) *lexer.Token {
 	return &p.tokens[p.index+n]
 }
 
+// peekPrev returns the last token consumed, counting it as a step, or nil,
+// counting nothing, before any has been.
 func (p *Parser) peekPrev() *lexer.Token {
 	if p.index <= 0 {
 		return nil
@@ -397,6 +410,10 @@ func (p *Parser) parsePkg() (ast.Span, *ast.Ident, []diag.Diagnostic) {
 	}
 }
 
+// parseIdent consumes the next token if it is a name and returns it as an
+// Ident spanning that token. Otherwise it consumes nothing and reports the
+// token found where expected, the wording for what should be there, was
+// wanted (see diagInvalidToken).
 func (p *Parser) parseIdent(expected string) (*ast.Ident, []diag.Diagnostic) {
 	if tk := p.peek(); tk.Kind() != lexer.Ident {
 		return nil, []diag.Diagnostic{p.diagInvalidToken(expected, tk)}
@@ -405,6 +422,9 @@ func (p *Parser) parseIdent(expected string) (*ast.Ident, []diag.Diagnostic) {
 	return &ast.Ident{Name: lexer.ValueChecked[string](tk), Span: p.span(tk)}, nil
 }
 
+// expect consumes the next token if it is of kind, and reports true.
+// Otherwise it consumes nothing, reports false and returns the error
+// expected '<kind>' found '<token>' (see diagInvalidToken).
 func (p *Parser) expect(kind lexer.TokenKind) (bool, []diag.Diagnostic) {
 	if tk := p.peek(); tk.Kind() != kind {
 		return false, []diag.Diagnostic{p.diagInvalidToken(kind.String(), tk)}
@@ -413,12 +433,18 @@ func (p *Parser) expect(kind lexer.TokenKind) (bool, []diag.Diagnostic) {
 	return true, nil
 }
 
+// optional consumes the next token if it is of kind, and does nothing
+// otherwise.
 func (p *Parser) optional(kind lexer.TokenKind) {
 	if p.peek().Kind() == kind {
 		p.next()
 	}
 }
 
+// expectSequence expects each of kinds in turn (see expect) and reports
+// true once all are consumed. At the first token that is not the kind
+// wanted it stops, with the tokens before it consumed, and reports false
+// and that token's error.
 func (p *Parser) expectSequence(kinds ...lexer.TokenKind) (bool, []diag.Diagnostic) {
 	for _, kind := range kinds {
 		if ok, diags := p.expect(kind); !ok {
@@ -2261,6 +2287,12 @@ func (p *Parser) parseBlock() ([]ast.Stmt, []diag.Diagnostic) {
 	return body, nil
 }
 
+// parseIf parses an if statement with its whole else if chain, through
+// the semicolon that ends it, which may be left out before a closing
+// brace. It returns the first if, each later if of the chain the sole
+// statement of the else branch before it, and every if of the chain
+// spanning to the end of the chain. When any part fails it returns nil and
+// that part's errors.
 func (p *Parser) parseIf() (*ast.If, []diag.Diagnostic) {
 	first, diags := p.parseIfBranch()
 	if first == nil {
@@ -2880,6 +2912,11 @@ func (p *Parser) parseJump(stmt ast.Stmt) (ast.Stmt, []diag.Diagnostic) {
 	return stmt, nil
 }
 
+// parseReturn parses a return statement, from its keyword through the
+// semicolon that ends it, which may be left out before a closing brace:
+// a bare return, or the values it returns, separated by commas. The
+// statement spans from the keyword to the end of its last value, leaving
+// out the semicolon (see lastEnd).
 func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 	tk := p.next() // the return keyword
 
@@ -3785,6 +3822,12 @@ func (p *Parser) keywordLiteral(tk *lexer.Token) ast.Expr {
 	}
 }
 
+// diagInvalidToken returns the error expected '<expected>' found '<tk>',
+// naming tk by its value, the text of a name or number, the contents of a
+// literal or the keyword it is, or by its kind when it has none. The error
+// is an empty span where tk starts, or, when tk or the next token is the
+// EOF, where the token before it ends, so that an error at the end of the
+// file is placed just after the last token written, not at the EOF.
 func (p *Parser) diagInvalidToken(expected string, tk *lexer.Token) diag.Diagnostic {
 	found := tk.Kind().String()
 	if val, ok := tk.Value().(string); ok {
@@ -3807,6 +3850,8 @@ func (p *Parser) diagInvalidToken(expected string, tk *lexer.Token) diag.Diagnos
 	return p.diag(diag.Error, msg, at, at)
 }
 
+// diag returns a diagnostic of severity sev saying msg, spanning offStart
+// to offEnd in the parser's file.
 func (p *Parser) diag(sev diag.Severity, msg string, offStart, offEnd int) diag.Diagnostic {
 	return diag.Diagnostic{
 		Severity: sev,
@@ -3815,6 +3860,7 @@ func (p *Parser) diag(sev diag.Severity, msg string, offStart, offEnd int) diag.
 	}
 }
 
+// span returns the span of the token tk in the parser's file.
 func (p *Parser) span(tk *lexer.Token) ast.Span {
 	return ast.Span{File: p.fileID, Start: tk.OffsetStart(), End: tk.OffsetEnd()}
 }

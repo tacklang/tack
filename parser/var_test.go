@@ -111,6 +111,8 @@ func TestDeclarationSpans(t *testing.T) {
 	}
 }
 
+// An assignment to a declared name parses to an Assign of its target and
+// value.
 func TestParsesAssignment(t *testing.T) {
 	body := mainBody(t, "    mut x := 1\n    x = x + 1")
 	if len(body) != 2 {
