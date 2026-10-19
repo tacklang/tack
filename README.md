@@ -994,7 +994,7 @@ makes for itself, which has a letter after `tack_`.
   else, a declaration, an argument, a condition, is `a type assertion needs
   two results; write v, ok := a.(int64)`, and three names are `assignment
   mismatch: 3 variables but a type assertion gives 2 values`. `T` is one
-  of the twelve basic types an `any` can hold; any other, a struct, an
+  of the fourteen basic types an `any` can hold; any other, a struct, an
   array, a view of another type, a list, `error`, `Allocator` or `any`,
   is `an any never holds Point: only the builtin types and views of them
   can be passed as any for now`, and an operand that is not an `any` is
@@ -3035,10 +3035,15 @@ makes for itself, which has a letter after `tack_`.
   exactly or not at all, as in Go: `int64(2.0)` is `2`, `int64(2.5)` is
   `cannot convert constant 2.5 to int64: it is not an integer`, and
   `int8(300.0)` is `constant 300 overflows int8`. Neither a float nor a
-  bool converts to the other. Not yet: a float cannot be passed as `any`,
-  so `fmt.printf` cannot print one; and a float does not cross to C,
-  `parameter x of extern func scale cannot be float64: a float does not
-  cross to C yet`.
+  bool converts to the other. A float can be passed as `any`, with type
+  ids of its own, 25 for `float32` and 26 for `float64`, and so can a view
+  of one, 27 and 28, and a type switch or a type assertion on an `any`
+  matches `float32` and `float64`. A float crosses to C as C's `float` or
+  `double`, by value, alone or in a struct, an array or a view, and as a
+  pointer for a `mut` parameter, and what C gives back may be NaN or an
+  infinity, which Tack's floats hold as IEEE 754 says. Not yet:
+  `fmt.printf` has no float verbs, so `printf verb %v does not take
+  float64 yet: printf has no float verbs yet`.
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given: `f expects 2 argument(s), got
   3`, or for a variadic function, which takes any number past its other

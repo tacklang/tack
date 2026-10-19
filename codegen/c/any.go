@@ -24,12 +24,14 @@ var anyIDs = map[types.Type]string{
 	types.UnsafeSize:    "TACK_TYPE_UNSAFE_SIZE_T",
 	types.UnsafeUintptr: "TACK_TYPE_UNSAFE_UINTPTR_T",
 	types.String:        "TACK_TYPE_STRING",
+	types.Float32:       "TACK_TYPE_FLOAT32",
+	types.Float64:       "TACK_TYPE_FLOAT64",
 }
 
 // anyID returns the macro of the runtime's tack.h that names the type id of typ,
 // a type the checker lets an any hold: a basic type's, from anyIDs, or a
 // view's, TACK_TYPE_VIEW_ and its element's name, TACK_TYPE_VIEW_UINT8
-// for []uint8, whose id is its element's plus 12 (see viewAnyID).
+// for []uint8 (see viewAnyID).
 func (g *generator) anyID(typ types.Type) string {
 	if g.prog.Types.IsView(typ) {
 		return viewAnyID(g.prog.Types.Elem(typ))

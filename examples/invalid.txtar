@@ -9465,31 +9465,6 @@ field-fact-weak-guard/main.tck:8:8: note: this guard bounds p.i only above; p.i 
    |	       ^~~~~~~
 09 |	        return a[p.i]
 
--- float-any/main.tck --
-package main
-
-import fmt from "std/fmt"
-
-func main() {
-    f := 1.5
-    fmt.printf("%v\n", f)
-}
--- float-any/expected --
-stage: typeck
----
-
-float-any/main.tck:7:24: error: cannot pass float64 as any: only the builtin types and views of them can be passed as any for now
-06 |	    f := 1.5
-07 |	    fmt.printf("%v\n", f)
-   |	                       ^
-08 |	}
-
-float-any/main.tck:7:24: error: printf verb %v does not take float64
-06 |	    f := 1.5
-07 |	    fmt.printf("%v\n", f)
-   |	                       ^
-08 |	}
-
 -- float-array-length/main.tck --
 package main
 
@@ -9653,44 +9628,6 @@ float-exponent-no-digits/main.tck:4:10: error: exponent has no digits in 1e
    |	         ^~
 05 |	}
 
--- float-extern-param/main.tck --
-package main
-
-extern("c_scale") func scale(x float64)
-
-func main() {
-    scale(1.0)
-}
--- float-extern-param/expected --
-stage: typeck
----
-
-float-extern-param/main.tck:3:32: error: parameter x of extern func scale cannot be float64: a float does not cross to C yet
-02 |	
-03 |	extern("c_scale") func scale(x float64)
-   |	                               ^~~~~~~
-04 |	
-
--- float-extern-result/main.tck --
-package main
-
-extern("c_half") func half() float32
-
-func main() {
-    if half() > 0.0 {
-        exit(1)
-    }
-}
--- float-extern-result/expected --
-stage: typeck
----
-
-float-extern-result/main.tck:3:30: error: extern func half cannot return float32: a float does not cross to C yet
-02 |	
-03 |	extern("c_half") func half() float32
-   |	                             ^~~~~~~
-04 |	
-
 -- float-increment/main.tck --
 package main
 
@@ -9827,6 +9764,25 @@ float-overflows-float32/main.tck:4:21: error: constant 1e+39 overflows float32
 04 |	    var f float32 = 1e39
    |	                    ^~~~
 05 |	    if f > 0.0 {
+
+-- float-printf/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    f := 1.5
+    fmt.printf("%v\n", f)
+}
+-- float-printf/expected --
+stage: typeck
+---
+
+float-printf/main.tck:7:24: error: printf verb %v does not take float64 yet: printf has no float verbs yet
+06 |	    f := 1.5
+07 |	    fmt.printf("%v\n", f)
+   |	                       ^
+08 |	}
 
 -- float-remainder/main.tck --
 package main

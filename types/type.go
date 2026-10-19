@@ -133,12 +133,12 @@ func Names() []string {
 }
 
 // InAny reports whether a value of type t can be passed as any: t is one
-// of the twelve basic types a value can have, every integer type, bool
-// and string. An array, a view, a list, a struct, error, Allocator, any
-// itself and an untyped constant cannot; an untyped constant is given
-// int64 first.
+// of the fourteen basic types a value can have, every integer type, bool,
+// string, float32 and float64. An array, a view, a list, a struct, error,
+// Allocator, any itself and an untyped constant cannot; an untyped
+// constant is given int64, or float64, first.
 func InAny(t Type) bool {
-	return t >= Int64 && t < UntypedInt
+	return t >= Int64 && t < UntypedInt || t == Float32 || t == Float64
 }
 
 // IsUntyped reports whether t is the type of an untyped constant,

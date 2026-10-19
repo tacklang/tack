@@ -79,8 +79,12 @@ static const char *type_name(uint32_t id) {
         [TACK_TYPE_VIEW_UNSAFE_SIZE_T] = "[]unsafe_size_t",
         [TACK_TYPE_VIEW_UNSAFE_UINTPTR_T] = "[]unsafe_uintptr_t",
         [TACK_TYPE_VIEW_STRING] = "[]string",
+        [TACK_TYPE_FLOAT32] = "float32",
+        [TACK_TYPE_FLOAT64] = "float64",
+        [TACK_TYPE_VIEW_FLOAT32] = "[]float32",
+        [TACK_TYPE_VIEW_FLOAT64] = "[]float64",
     };
-    if (id == TACK_TYPE_INVALID || id > TACK_TYPE_VIEW_STRING) {
+    if (id == TACK_TYPE_INVALID || id > TACK_TYPE_VIEW_FLOAT64) {
         return "invalid";
     }
     return names[id];

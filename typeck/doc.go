@@ -158,9 +158,9 @@
 // testing the range at run time. A constant converts exactly or is
 // reported: to a float it must round to a finite value, and a float
 // constant to an integer must be one, of the integer type
-// (constConversion), and its value is recorded on the call. A float
-// passed as any and a float crossing to C are rejected until they are
-// supported.
+// (constConversion), and its value is recorded on the call. A float, or
+// a view of one, can be passed as any, and a float crosses to C, as any
+// other basic type does; printf takes no float yet (verbProblem).
 // Typed integers combine through lossless widening (types.Widens): a value of
 // one type can be used where a type it widens to is expected, and an
 // arithmetic operator on two integer types works in the one the other

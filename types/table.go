@@ -523,8 +523,8 @@ func (t *Table) IsView(typ Type) bool {
 }
 
 // InAny reports whether a value of type typ can be passed as any: one of
-// the twelve basic types the package-level InAny accepts, or a view of
-// one of them, []uint8 or []string, which an any refers to as it does a
+// the fourteen basic types the package-level InAny accepts, or a view of
+// one of them, []uint8, []string or []float64, which an any refers to as it does a
 // basic value. A view of any other type cannot.
 func (t *Table) InAny(typ Type) bool {
 	return InAny(typ) || t.IsView(typ) && InAny(t.Elem(typ))

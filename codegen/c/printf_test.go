@@ -419,7 +419,8 @@ const harnessHeader = "#include <tack/tack.h>\n" +
 // are no type's, zero, past the last view's and far past it, a zeroed
 // format and view, whose pointers are null, and views as anys: a []uint8
 // of no bytes, whose pointer is null, and a []int64, which no verb
-// takes. Each must be written as a marker, or as no bytes, never read
+// takes; and floats, which no verb takes yet, though a Tack program can
+// pass one through an any variable. Each must be written as a marker, or as no bytes, never read
 // past.
 func TestPrintfCHandlesWhatTackNeverPasses(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
@@ -442,10 +443,14 @@ int main(void) {
     int64_t xs[2] = {1, 2};
     struct { const int64_t *ptr; int64_t len; } nums = {xs, 2};
     tack_any views[4] = {
-        {TACK_TYPE_VIEW_UINT8, &none}, {TACK_TYPE_VIEW_INT64, &nums}, {25, &n}, {TACK_TYPE_VIEW_UINT8, &none},
+        {TACK_TYPE_VIEW_UINT8, &none}, {TACK_TYPE_VIEW_INT64, &nums}, {29, &n}, {TACK_TYPE_VIEW_UINT8, &none},
     };
     tack_fmt_printf(TACK_STR("|[%s] [%v] %v %v"), (tack_view_any){views, 3});
     tack_fmt_printf(TACK_STR("|"), (tack_view_any){views, 4});
+    float f = 0.5f;
+    double d = 1.5;
+    tack_any floats[2] = {{TACK_TYPE_FLOAT64, &d}, {TACK_TYPE_FLOAT32, &f}};
+    tack_fmt_printf(TACK_STR("|%v %d"), (tack_view_any){floats, 2});
     return 0;
 }
 `)
@@ -468,7 +473,8 @@ int main(void) {
 		"%!(EXTRA int64=5)" +
 		"%!d(MISSING)" +
 		"|[] [%!v([]int64)] %!v(invalid) %!v(MISSING)" +
-		"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)"
+		"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)" +
+		"|%!v(float64) %!d(float32)"
 	if string(out) != want {
 		t.Errorf("got %q, want %q", out, want)
 	}

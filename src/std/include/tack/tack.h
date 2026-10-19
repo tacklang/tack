@@ -88,11 +88,13 @@ typedef struct {
 
 // The type ids an any can hold, one for each type a value can be passed
 // as any with, fixed for good: C is written against them. 0 is no type,
-// so a zeroed tack_any is recognisably empty; 25 to 255 are kept for
+// so a zeroed tack_any is recognisably empty; 29 to 255 are kept for
 // types to come. Each names the C type ptr points to: bool, int8_t
 // through uint64_t, size_t for unsafe_size_t, uintptr_t for
-// unsafe_uintptr_t, and tack_string; and, from 13, a view of each of
-// them, its id 12 more than its element's, ptr pointing at the view
+// unsafe_uintptr_t, tack_string, and, at 25 and 26, float for float32
+// and double for float64; and a view of each of them, from 13 for the
+// first twelve, its id 12 more than its element's, and at 27 and 28 for
+// float32 and float64, ptr pointing at the view
 // itself, a struct of a const pointer to its first element, ptr, and
 // their number, len, an int64_t: tack_view_uint8 for TACK_TYPE_VIEW_UINT8,
 // with a tack_view_ name, as the program's tack.h declares it when an
@@ -126,6 +128,10 @@ typedef struct {
 #define TACK_TYPE_VIEW_UNSAFE_SIZE_T 22
 #define TACK_TYPE_VIEW_UNSAFE_UINTPTR_T 23
 #define TACK_TYPE_VIEW_STRING 24
+#define TACK_TYPE_FLOAT32 25
+#define TACK_TYPE_FLOAT64 26
+#define TACK_TYPE_VIEW_FLOAT32 27
+#define TACK_TYPE_VIEW_FLOAT64 28
 
 // TACK_ANY_IS(a, T) reports whether the tack_any a holds a T, where T is
 // the end of one of the ids above: TACK_ANY_IS(a, INT64). Any other T
@@ -223,6 +229,22 @@ static inline bool tack_any_unsafe_uintptr_t(tack_any a, uintptr_t *v) {
         return false;
     }
     *v = *(const uintptr_t *)a.ptr;
+    return true;
+}
+
+static inline bool tack_any_float32(tack_any a, float *v) {
+    if (a.type != TACK_TYPE_FLOAT32) {
+        return false;
+    }
+    *v = *(const float *)a.ptr;
+    return true;
+}
+
+static inline bool tack_any_float64(tack_any a, double *v) {
+    if (a.type != TACK_TYPE_FLOAT64) {
+        return false;
+    }
+    *v = *(const double *)a.ptr;
     return true;
 }
 

@@ -19,8 +19,8 @@
 // IsUntyped describe them. Any, any, is a reference to a value of
 // some other type known only at run time; it widens to and from nothing
 // but itself, and InAny says which types a value of can be passed as one:
-// the twelve above, the integers, String and Bool, to which a Table's
-// InAny adds a view of any of the twelve. Error, error, is a
+// the fourteen above, the integers, String, Bool, Float32 and Float64, to
+// which a Table's InAny adds a view of any of the fourteen. Error, error, is a
 // struct no declaration gives, of a code, an Int32, and a message, a
 // String: a Table reports it as a struct with those fields, fixed, in
 // that order, though it never adds it, so it has no entry and no

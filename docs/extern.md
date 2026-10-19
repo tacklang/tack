@@ -163,6 +163,7 @@ it is an extern func, and a function value does not cross to C`.
 | `unsafe_size_t`              | `size_t`, from `<stddef.h>`, as wide as the target's                                |
 | `unsafe_uintptr_t`           | `uintptr_t`, from `<stdint.h>`, as wide as the target's                             |
 | `bool`                       | `bool`, from `<stdbool.h>`                                                          |
+| `float32`, `float64`         | `float`, `double`: IEEE 754's binary32 and binary64; NaN and infinities cross too   |
 | `string`                     | `tack_string`: `const unsigned char *ptr; int64_t len;`, by value                   |
 | `error`                      | `tack_error`: `int32_t code; tack_string msg;`, by value; code 0 is no error        |
 | a struct                     | a C struct with a member per field, under the field's Tack name, in order; `char unused;` if it has none |
@@ -230,9 +231,8 @@ A name `tack.h` cannot give is an error whatever is built:
   for a type or an extern func's C name: `extern func wrap of package main
   cannot be named TACK_STR_N in tack.h: that is a tack.h string helper`.
   So are `tack_any`, `tack.h's any type`, `TACK_TYPE_INVALID` through
-  `TACK_TYPE_STRING` and `TACK_TYPE_VIEW_BOOL` through
-  `TACK_TYPE_VIEW_STRING`, each `a tack.h any type id`, and `TACK_ANY_IS`, the
-  twelve `tack_any_<type>` unpack helpers, `tack_any_signed` and
+  `TACK_TYPE_VIEW_FLOAT64`, each `a tack.h any type id`, and `TACK_ANY_IS`, the
+  fourteen `tack_any_<type>` unpack helpers, `tack_any_signed` and
   `tack_any_unsigned`, each `a tack.h any helper`: `type tack_any of
   package main cannot be named tack_any in tack.h: that is tack.h's any
   type`. So are `tack_error`, `tack.h's error type`, and `TACK_ERROR`
@@ -454,15 +454,20 @@ and the runtime's `<tack/tack.h>` names each:
 | 11 | `TACK_TYPE_UNSAFE_UINTPTR_T` | `unsafe_uintptr_t` | `uintptr_t`     |
 | 12 | `TACK_TYPE_STRING`           | `string`           | `tack_string`   |
 | 13 to 24 | `TACK_TYPE_VIEW_BOOL` through `TACK_TYPE_VIEW_STRING` | `[]bool` through `[]string` | `tack_view_<T>` |
+| 25 | `TACK_TYPE_FLOAT32`          | `float32`          | `float`         |
+| 26 | `TACK_TYPE_FLOAT64`          | `float64`          | `double`        |
+| 27 | `TACK_TYPE_VIEW_FLOAT32`     | `[]float32`        | `tack_view_float32` |
+| 28 | `TACK_TYPE_VIEW_FLOAT64`     | `[]float64`        | `tack_view_float64` |
 
 0 is no type, so a zeroed `tack_any` is recognisably empty: it is the
 `any` an index out of range gives, `v, ok := args[i]`, which Tack code
 can pass on, so C may get one, with a null `ptr`, and every helper below
-refuses it. A view of each of the twelve basic types has an id of its
-own, its element's plus 12, named `TACK_TYPE_VIEW_` and the end of its
-element's macro: 13 is `TACK_TYPE_VIEW_BOOL`, `[]bool`, 18
-`TACK_TYPE_VIEW_UINT8`, `[]uint8`, and 24 `TACK_TYPE_VIEW_STRING`,
-`[]string`. `ptr` points at the view itself, a struct of a `const`
+refuses it. A view of each of the fourteen basic types has an id of its
+own, named `TACK_TYPE_VIEW_` and the end of its element's macro: for the
+first twelve, its element's plus 12, 13 being `TACK_TYPE_VIEW_BOOL`,
+`[]bool`, 18 `TACK_TYPE_VIEW_UINT8`, `[]uint8`, and 24
+`TACK_TYPE_VIEW_STRING`, `[]string`; for the floats, which came later,
+27, `TACK_TYPE_VIEW_FLOAT32`, and 28, `TACK_TYPE_VIEW_FLOAT64`. `ptr` points at the view itself, a struct of a `const`
 pointer to its first element, `ptr`, and their number, `len`, an
 `int64_t`, the layout of every view (see the table above), whose
 elements are the caller's, as `const`, and for as long, as the view.
@@ -481,7 +486,7 @@ if (TACK_ANY_IS(a, VIEW_INT64)) {
 A program that uses no such signature has no such type in its
 `tack.h`, and C declares its own with the same members, a `const T *ptr`
 and an `int64_t len`. `examples/extern-any` reads a `[]int64` this
-way. 25 to 255 are kept for types to come. Arrays, structs, lists and
+way. 29 to 255 are kept for types to come. Arrays, structs, lists and
 views of any other type cannot be passed as `any` yet. C reads the
 basic types with these, from the runtime's `<tack/tack.h>`:
 

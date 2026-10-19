@@ -11,7 +11,7 @@
 // program's C shares: tack_string and the string helpers TACK_C_STR_LEN,
 // TACK_STR and TACK_STR_N, tack_error and the error helpers TACK_ERROR and
 // TACK_NO_ERROR, and tack_any, its type ids TACK_TYPE_INVALID
-// through TACK_TYPE_STRING, TACK_ANY_IS and the unpack helpers. Nothing the backend generates defines them, so
+// through TACK_TYPE_VIEW_FLOAT64, TACK_ANY_IS and the unpack helpers. Nothing the backend generates defines them, so
 // there is one definition, which std's own C files include as well, and
 // CompileCmd and BuildCmd put the include directory the driver writes the
 // runtime header to on the include path for it. --emit output therefore

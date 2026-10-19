@@ -490,6 +490,38 @@ func TestBuiltExternAnyPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltExternFloatsPassesEveryCheck builds examples/extern-floats,
+// whose extern funcs pass float32 and float64 to C and back, alone, in
+// structs, arrays and views, through a mut parameter and held by an any,
+// at every optimization level, and checks each binary writes exactly its
+// output, every check ok: C's float work, NaN and infinities from C, the
+// layout of a float32 between other fields, the floats' type ids and
+// unpack helpers, and a type switch matching floats.
+func TestBuiltExternFloatsPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "extern-floats", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/extern-floats/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "extern-floats")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("extern-floats"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("printed\n%s\nand exited %d, want\n%s\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltAtEveryOptLevel builds examples/extern-strings, generated
 // source and a C file both, at every optimization level, and checks each
 // binary passes every check: a level must not change what a program does.

@@ -156,8 +156,8 @@ func formatVerbs(format string) (verbs []string, lone bool) {
 
 // verbProblem returns the mistake in verb, the format's verb number value,
 // given a value of type typ, and whether there is one: a verb printf does
-// not know, or one that does not take typ. types.Invalid and types.Any
-// match every verb. bytes says which type is []uint8.
+// not know, or one that does not take typ, which no verb does for a float
+// yet. types.Invalid and types.Any match every verb. bytes says which type is []uint8.
 func verbProblem(
 	verb string,
 	value int,
@@ -169,6 +169,16 @@ func verbProblem(
 	switch {
 	case !known:
 		return formatProblem{message: "unknown printf verb " + showVerb(verb), value: -1}, true
+	case types.IsFloat(typ):
+		return formatProblem{
+			message: fmt.Sprintf(
+				"printf verb %%%s does not take %s yet: printf has no float verbs yet",
+				verb,
+				name(typ),
+			),
+			value:  value,
+			values: 1,
+		}, true
 	case typ == types.Invalid || typ == types.Any || accepts(typ):
 		return formatProblem{}, false
 	default:

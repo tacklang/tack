@@ -21,22 +21,33 @@ var floatSanitizers = []string{
 	"-fsanitize=address,undefined,float-cast-overflow", "-fno-sanitize-recover=all",
 }
 
-// TestFloatExamplesAreSanitizerClean builds examples/floats and
-// examples/float-conversions with clang's warnings as errors and
-// floatSanitizers, at -O0 and -O2, and checks each writes exactly its
-// output, every check ok: no float operation, and no conversion between
-// floats and integers at any edge, is one C leaves undefined.
+// TestFloatExamplesAreSanitizerClean builds examples/floats,
+// examples/float-conversions and examples/extern-floats, with its C file,
+// with clang's warnings as errors and floatSanitizers, at -O0 and -O2, and
+// checks each writes exactly its output, every check ok: no float
+// operation, no conversion between floats and integers at any edge, and
+// no float crossing to C or held by an any, is one C leaves undefined.
 func TestFloatExamplesAreSanitizerClean(t *testing.T) {
-	for _, name := range []string{"floats", "float-conversions"} {
-		dir := filepath.Join("..", "..", "examples", name)
+	for _, ex := range []struct{ name, cfile string }{
+		{"floats", ""}, {"float-conversions", ""}, {"extern-floats", "floats.c"},
+	} {
+		dir := filepath.Join("..", "..", "examples", ex.name)
 		src := readFile(t, filepath.Join(dir, "main.tck"))
 		want := readFile(t, filepath.Join(dir, "output"))
 		if strings.Contains(want, "FAIL") {
-			t.Fatalf("examples/%s/output expects a check to fail", name)
+			t.Fatalf("examples/%s/output expects a check to fail", ex.name)
+		}
+		csrc := ""
+		if ex.cfile != "" {
+			csrc = readFile(t, filepath.Join(dir, ex.cfile))
 		}
 		for _, level := range []string{"-O0", "-O2"} {
-			t.Run(name+level, func(t *testing.T) {
-				bin := buildWithStd(t, src, append([]string{level}, floatSanitizers...)...)
+			t.Run(ex.name+level, func(t *testing.T) {
+				bin := buildWithStdAndC(
+					t,
+					src,
+					csrc,
+					append([]string{level}, floatSanitizers...)...)
 				checkWrites(t, bin, want)
 			})
 		}
