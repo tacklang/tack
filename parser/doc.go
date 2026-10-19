@@ -285,4 +285,10 @@
 // alone, as in the source's meaning, but a chain of them is parsed in a
 // loop, not by recursion, so a chain flat in the source costs no stack
 // however long it is; every if of the chain spans to the chain's end.
+//
+// The parser counts the tokens it looks at (Parser.steps): each consumed
+// or peeked at, and each recovery reads where it scans the tokens, through
+// tok. The count changes nothing it parses; the tests read it to bound how
+// parsing grows with its input, which, unlike a time, does not depend on
+// the machine's load.
 package parser

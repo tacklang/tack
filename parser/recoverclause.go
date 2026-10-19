@@ -136,7 +136,7 @@ func (p *Parser) atDamagedHeader() bool {
 	end := p.nextLine(p.index)
 	depth, last, lastDepth := 0, lexer.EOF, 0
 	for i := p.index; i < end; i++ {
-		tk := &p.tokens[i]
+		tk := p.tok(i)
 		if tk.Kind() == lexer.Semi && inserted(tk) {
 			continue
 		}

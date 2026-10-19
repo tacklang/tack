@@ -115,14 +115,14 @@ func (p *Parser) badDecl(start int, diags []diag.Diagnostic) *ast.BadDecl {
 // such name.
 func (p *Parser) declName(start int) (string, bool) {
 	i := p.pastModifiers(start)
-	if i >= p.index || p.tokens[i].Kind() != lexer.Keyword {
+	if i >= p.index || p.tok(i).Kind() != lexer.Keyword {
 		return "", false
 	}
 	method := false
-	switch p.tokens[i].Value() {
+	switch p.tok(i).Value() {
 	case lexer.Func:
 		i++
-		if i < p.index && p.tokens[i].Kind() == lexer.LParen {
+		if i < p.index && p.tok(i).Kind() == lexer.LParen {
 			i, method = p.pastParens(i), true
 		}
 	case lexer.Type, lexer.Var, lexer.Mut, lexer.Import:
@@ -130,10 +130,10 @@ func (p *Parser) declName(start int) (string, bool) {
 	default:
 		return "", false
 	}
-	if i >= p.index || p.tokens[i].Kind() != lexer.Ident {
+	if i >= p.index || p.tok(i).Kind() != lexer.Ident {
 		return "", false
 	}
-	return lexer.ValueChecked[string](&p.tokens[i]), method
+	return lexer.ValueChecked[string](p.tok(i)), method
 }
 
 // pastModifiers returns the index of the first token from start, below the
@@ -141,12 +141,12 @@ func (p *Parser) declName(start int) (string, bool) {
 // before its keyword: pub, lib, and extern with its C name, if written.
 func (p *Parser) pastModifiers(start int) int {
 	i := start
-	for i < p.index && (isKeyword(&p.tokens[i], lexer.Pub) || isKeyword(&p.tokens[i], lexer.Lib)) {
+	for i < p.index && (isKeyword(p.tok(i), lexer.Pub) || isKeyword(p.tok(i), lexer.Lib)) {
 		i++
 	}
-	if i < p.index && isKeyword(&p.tokens[i], lexer.Extern) {
+	if i < p.index && isKeyword(p.tok(i), lexer.Extern) {
 		i++
-		if i < p.index && p.tokens[i].Kind() == lexer.LParen {
+		if i < p.index && p.tok(i).Kind() == lexer.LParen {
 			i = p.pastParens(i)
 		}
 	}
@@ -159,7 +159,7 @@ func (p *Parser) pastModifiers(start int) int {
 func (p *Parser) pastParens(open int) int {
 	depth := 0
 	for i := open; i < p.index; i++ {
-		switch p.tokens[i].Kind() {
+		switch p.tok(i).Kind() {
 		case lexer.LParen:
 			depth++
 		case lexer.RParen:
@@ -193,9 +193,9 @@ func (p *Parser) badStmt(start int, diags []diag.Diagnostic, inClause bool) (*as
 // from starts nothing but an import's path.
 func (p *Parser) importNamesIn(start int) {
 	for i := start; i+2 < p.index; i++ {
-		if p.tokens[i].Kind() == lexer.Ident && isKeyword(&p.tokens[i+1], lexer.From) &&
-			p.tokens[i+2].Kind() == lexer.Str {
-			p.imports[lexer.ValueChecked[string](&p.tokens[i])] = true
+		if p.tok(i).Kind() == lexer.Ident && isKeyword(p.tok(i+1), lexer.From) &&
+			p.tok(i+2).Kind() == lexer.Str {
+			p.imports[lexer.ValueChecked[string](p.tok(i))] = true
 		}
 	}
 }
@@ -220,10 +220,10 @@ func (p *Parser) rewindTo(start int, diags []diag.Diagnostic, starts func(depth 
 	for _, d := range diags {
 		first = min(first, d.Span.Start)
 	}
-	for k := start + 1; k < end && p.tokens[k].OffsetStart() <= first; k++ {
-		depth = max(depth+braceStep(p.tokens[k-1].Kind()), 0)
+	for k := start + 1; k < end && p.tok(k).OffsetStart() <= first; k++ {
+		depth = max(depth+braceStep(p.tok(k-1).Kind()), 0)
 		p.index = k
-		if p.tokens[k].OffsetStart() == first && p.atLineStart() && starts(depth) {
+		if p.tok(k).OffsetStart() == first && p.atLineStart() && starts(depth) {
 			return
 		}
 	}
@@ -252,7 +252,7 @@ func (p *Parser) unconsumeEOF() {
 // skipped returns the span from the token start through the last token
 // consumed since, or the empty span at start's token when none was.
 func (p *Parser) skipped(start int) ast.Span {
-	first := &p.tokens[min(start, len(p.tokens)-1)]
+	first := p.tok(min(start, len(p.tokens)-1))
 	if p.index <= start {
 		return ast.Span{File: p.fileID, Start: first.OffsetStart(), End: first.OffsetStart()}
 	}
@@ -268,7 +268,7 @@ func (p *Parser) skipped(start int) ast.Span {
 func (p *Parser) braceDepth(start int) int {
 	depth := 0
 	for i := start; i < p.index; i++ {
-		switch p.tokens[i].Kind() {
+		switch p.tok(i).Kind() {
 		case lexer.LCurl:
 			depth++
 		case lexer.RCurl:
@@ -297,7 +297,7 @@ func (p *Parser) closesBlock(i int) bool {
 	if !p.endsItsLine(i) {
 		return false
 	}
-	return p.tokens[i].StartsLine() || p.opensOnLineBefore(i)
+	return p.tok(i).StartsLine() || p.opensOnLineBefore(i)
 }
 
 // endsItsLine reports whether what comes after the } at token i on its
@@ -306,7 +306,7 @@ func (p *Parser) endsItsLine(i int) bool {
 	if i+1 >= len(p.tokens) {
 		return true
 	}
-	next := &p.tokens[i+1]
+	next := p.tok(i + 1)
 	switch {
 	case next.Kind() == lexer.EOF, next.StartsLine(), next.Kind() == lexer.RCurl,
 		next.Kind() == lexer.Semi, isKeyword(next, lexer.Else):
@@ -326,7 +326,7 @@ func (p *Parser) opensOnLineBefore(i int) bool {
 		if j == p.noOpenBefore-1 && p.noOpenBefore > 0 {
 			break // none before the remembered one, and none since
 		}
-		switch p.tokens[j].Kind() {
+		switch p.tok(j).Kind() {
 		case lexer.RCurl:
 			depth++
 		case lexer.LCurl:
@@ -335,7 +335,7 @@ func (p *Parser) opensOnLineBefore(i int) bool {
 			}
 			depth--
 		}
-		if p.tokens[j].StartsLine() {
+		if p.tok(j).StartsLine() {
 			break
 		}
 	}
@@ -390,7 +390,7 @@ func (p *Parser) syncStmt(start int, inClause bool) bool {
 func (p *Parser) semiInParens(start int) bool {
 	parens, braces := 0, 0
 	for i := start; i < p.index; i++ {
-		switch p.tokens[i].Kind() {
+		switch p.tok(i).Kind() {
 		case lexer.LParen, lexer.LBrack:
 			parens++
 		case lexer.RParen, lexer.RBrack:
@@ -502,7 +502,7 @@ func (p *Parser) declDepth(start int) int {
 		return depth
 	}
 	for i := next; i < p.index; i++ {
-		depth = max(depth+braceStep(p.tokens[i].Kind()), 0)
+		depth = max(depth+braceStep(p.tok(i).Kind()), 0)
 	}
 	return depth
 }

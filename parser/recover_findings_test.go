@@ -1,13 +1,9 @@
 package parser_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/tacklang/tack/lexer"
-	"github.com/tacklang/tack/parser"
-	"github.com/tacklang/tack/source"
 )
 
 // findingCases are the inputs on which recovery once went wrong, each
@@ -867,60 +863,51 @@ func TestBodiesClosedAfterAStatementParse(t *testing.T) {
 
 // TestLongDamagedLinesParseInLinearTime checks that one damaged line of
 // tens of thousands of tokens, which recovery reads token by token, is
-// parsed in time in proportion to its length, with no limit on errors:
-// what recovery reads of a line is remembered rather than read again for
-// each of its tokens.
+// parsed in steps in proportion to its length (see checkStepGrowth), with
+// no limit on errors: what recovery reads of a line is remembered rather
+// than read again for each of its tokens.
 func TestLongDamagedLinesParseInLinearTime(t *testing.T) {
-	const n = 50000
-	for _, line := range []string{
-		"A[" + strings.Repeat(";", n),
-		"x := " + strings.Repeat("}", n),
-		"x := (" + strings.Repeat("} ", n) + ")",
-		"A[A" + strings.Repeat("!0000.A00", n/10),
-		"A.A.A>A.A." + strings.Repeat(";", n),
-		"x := 1 " + strings.Repeat("; y", n) + " {",
+	const n = 12500
+	for _, line := range []func(n int) string{
+		func(n int) string { return "A[" + strings.Repeat(";", n) },
+		func(n int) string { return "x := " + strings.Repeat("}", n) },
+		func(n int) string { return "x := (" + strings.Repeat("} ", n) + ")" },
+		func(n int) string { return "A[A" + strings.Repeat("!0000.A00", n/10) },
+		func(n int) string { return "A.A.A>A.A." + strings.Repeat(";", n) },
+		func(n int) string { return "x := 1 " + strings.Repeat("; y", n) + " {" },
 	} {
-		src := "package main\n\nfunc a0() {\n" + line + "\n}\n\nvar v = 1\n"
-		f := &source.File{ID: "long", Filename: "long.tck", Data: []byte(src)}
-		lex := lexer.New(f)
-		if diags := lex.Lex(); len(diags) > 0 {
-			t.Fatal(diags)
+		src := func(n int) string {
+			return "package main\n\nfunc a0() {\n" + line(n) + "\n}\n\nvar v = 1\n"
 		}
-		start := time.Now()
-		_, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
-		if elapsed := time.Since(start); elapsed > 10*time.Second {
-			t.Errorf("parsing a line of %d bytes took %v", len(line), elapsed)
-		}
+		diags, small := parseSteps(t, src(n))
 		if len(diags) == 0 {
-			t.Errorf("no error for %.20q...", line)
+			t.Errorf("no error for %.20q...", line(n))
 		}
+		_, grown := parseSteps(t, src(4*n))
+		checkStepGrowth(t, fmt.Sprintf("%.20q...", line(n)), small, grown)
 	}
 }
 
 // TestUnclosedIndexesParseInLinearTime checks that statements each
-// opening a bracket they never close, with no limit on errors, take time
-// in proportion to their number: a lookahead for the closing bracket stops
-// at the end of the statement rather than scanning to the end of the file
-// for each one.
+// opening a bracket they never close, with no limit on errors, take steps
+// in proportion to their number (see checkStepGrowth): a lookahead for the
+// closing bracket stops at the end of the statement rather than scanning
+// to the end of the file for each one.
 func TestUnclosedIndexesParseInLinearTime(t *testing.T) {
-	const n = 50000
-	var b strings.Builder
-	b.WriteString("package main\n\nfunc main() {\n")
-	for range n {
-		b.WriteString("    x[ = 1\n")
+	const n = 12500
+	src := func(n int) string {
+		var b strings.Builder
+		b.WriteString("package main\n\nfunc main() {\n")
+		for range n {
+			b.WriteString("    x[ = 1\n")
+		}
+		b.WriteString("}\n")
+		return b.String()
 	}
-	b.WriteString("}\n")
-	f := &source.File{ID: "lin", Filename: "lin.tck", Data: []byte(b.String())}
-	lex := lexer.New(f)
-	if diags := lex.Lex(); len(diags) > 0 {
-		t.Fatal(diags)
-	}
-	start := time.Now()
-	_, diags := parser.NewParser(f.ID, lex.Tokens()).Parse()
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Errorf("parsing %d unclosed indexes took %v", n, elapsed)
-	}
+	diags, small := parseSteps(t, src(n))
 	if len(diags) != n {
 		t.Errorf("got %d errors, want %d", len(diags), n)
 	}
+	_, grown := parseSteps(t, src(4*n))
+	checkStepGrowth(t, "unclosed indexes", small, grown)
 }

@@ -507,7 +507,8 @@ func TestDeepExpressionsRun(t *testing.T) {
 // TestDeepExpressionsStayShallow checks the C written for deepProgram's
 // program, at bigSizes, nests no expression deeper than a bound well
 // within what C promises, while its source nests them thousands of levels
-// deep, and that writing it stays quick.
+// deep, and that writing it ends: the time is bounded only against a hang,
+// generously, so a loaded machine does not fail it.
 func TestDeepExpressionsStayShallow(t *testing.T) {
 	prog := bigDeepProgram(t)
 	start := time.Now()
@@ -517,7 +518,7 @@ func TestDeepExpressionsStayShallow(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 	t.Logf("generated in %v", elapsed)
-	if elapsed > 10*time.Second {
+	if elapsed > 60*time.Second {
 		t.Errorf("generating took %v", elapsed)
 	}
 	if depth, line := deepestLine(string(out)); depth > 48 {

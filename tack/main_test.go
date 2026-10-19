@@ -80,7 +80,7 @@ func init() {
 			"sh", "-c", "echo toolchain-says-no >&2; exit 3", "sh", "{src}", "{out}",
 		}},
 		{name: missingBackend, argv: []string{"/nonexistent/tack-test-cc", "{src}", "{out}"}},
-		{name: sleepBackend, argv: []string{"sleep", "30"}},
+		{name: sleepBackend, argv: []string{"sleep", "300"}},
 		{name: optBackend, argv: []string{"sh", "-c", `printf %s "$1" > "$2"`, "sh", "{opt}", "{out}"}},
 		{name: includeBackend, argv: []string{
 			"sh", "-c", `printf '%s\n' "$1" > "$2"; cat "$1/tack/tack.h" >> "$2"`, "sh", "{include}",
@@ -1196,7 +1196,8 @@ func TestMissingToolchainFailsAndCleansUp(t *testing.T) {
 
 // TestCancelledBuildKillsToolchainAndCleansUp cancels a build while its
 // toolchain hangs and checks the toolchain is killed and the temp dir
-// removed. The program calls no builtin, so the hanging toolchain is the
+// removed. The toolchain sleeps 300 seconds, so a run that ends within 60
+// is one that killed it, however loaded the machine is. The program calls no builtin, so the hanging toolchain is the
 // build's first command: with one that called a builtin, compiling std's C
 // into an empty cache could outlast the 200ms deadline on a loaded
 // machine, and the cancellation would kill clang instead.
@@ -1214,7 +1215,7 @@ func TestCancelledBuildKillsToolchainAndCleansUp(t *testing.T) {
 		filepath.Join(t.TempDir(), "bin"),
 		example("empty"),
 	)
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
+	if elapsed := time.Since(start); elapsed > 60*time.Second {
 		t.Errorf("run took %s after cancellation; the toolchain was not killed", elapsed)
 	}
 	assertFailure(t, r, "sleep failed")

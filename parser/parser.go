@@ -60,6 +60,12 @@ type Parser struct {
 
 	index int
 
+	// steps counts the tokens the parse looks at: each one consumed or
+	// peeked at, and each one recovery reads where it scans the tokens
+	// (see tok). It counts work, not time, so a test can bound how
+	// parsing grows with its input, whatever else the machine is doing.
+	steps int
+
 	// depth is how many levels of nesting the construct being parsed is
 	// inside (see nest).
 	depth int
@@ -166,15 +172,24 @@ func (p *Parser) next() *lexer.Token {
 	if p.index >= len(p.tokens) {
 		return nil
 	}
+	p.steps++
 	t := &p.tokens[p.index]
 	p.index++
 	return t
+}
+
+// tok returns the token at index i, counting it as a step (see steps):
+// how recovery reads the tokens it scans.
+func (p *Parser) tok(i int) *lexer.Token {
+	p.steps++
+	return &p.tokens[i]
 }
 
 func (p *Parser) peek() *lexer.Token {
 	if p.index >= len(p.tokens) {
 		return nil
 	}
+	p.steps++
 	return &p.tokens[p.index]
 }
 
@@ -182,12 +197,14 @@ func (p *Parser) peekNext() *lexer.Token {
 	if p.index+1 >= len(p.tokens) {
 		return nil
 	}
+	p.steps++
 	return &p.tokens[p.index+1]
 }
 
 // peekAt returns the token n places ahead without consuming anything, or
 // the final EOF token if that runs past the end.
 func (p *Parser) peekAt(n int) *lexer.Token {
+	p.steps++
 	if p.index+n >= len(p.tokens) {
 		return &p.tokens[len(p.tokens)-1]
 	}
@@ -198,6 +215,7 @@ func (p *Parser) peekPrev() *lexer.Token {
 	if p.index <= 0 {
 		return nil
 	}
+	p.steps++
 	return &p.tokens[p.index-1]
 }
 

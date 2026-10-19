@@ -314,6 +314,7 @@ func (c *Checker) knownVar(id *ast.Ident) (constant.Int, bool) {
 	if r, seen := c.knownVars[v]; seen {
 		return r.value, r.ok
 	}
+	c.work.locals++
 	value, known := c.knownValue(v.Value)
 	c.knownVars[v] = knownResult{value, known}
 	return value, known
@@ -551,6 +552,7 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 	if facts, ok := c.chain.of(cond, holds); ok {
 		return facts
 	}
+	c.work.conditions++
 	switch x := cond.(type) {
 	case *ast.Ident:
 		return c.boolFact(x, holds)
@@ -1077,6 +1079,7 @@ func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 	idx := make(writeIndex)
 	var loops []ast.Span
 	visit := func(n ast.Node) bool {
+		c.work.walked++
 		span := n.Spanned()
 		for len(loops) > 0 && span.Start >= loops[len(loops)-1].End {
 			loops = loops[:len(loops)-1]

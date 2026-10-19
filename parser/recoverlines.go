@@ -26,7 +26,7 @@ func (p *Parser) atBraceLine() bool {
 // starts a line, or of the EOF token.
 func (p *Parser) nextLine(k int) int {
 	next := k + 1
-	for next < len(p.tokens) && !p.tokens[next].StartsLine() && p.tokens[next].Kind() != lexer.EOF {
+	for next < len(p.tokens) && !p.tok(next).StartsLine() && p.tok(next).Kind() != lexer.EOF {
 		next++
 	}
 	return min(next, len(p.tokens)-1)
@@ -42,7 +42,7 @@ func (p *Parser) lastOnLine(k int) lexer.TokenKind {
 	if !m.ok || k < m.from || k >= m.end {
 		*m = lineMemo{from: k, end: p.nextLine(k), lastAt: -1, ok: true}
 		for i := k; i < m.end; i++ {
-			if tk := &p.tokens[i]; tk.Kind() != lexer.Semi || !inserted(tk) {
+			if tk := p.tok(i); tk.Kind() != lexer.Semi || !inserted(tk) {
 				m.lastAt = i
 			}
 		}
@@ -50,7 +50,7 @@ func (p *Parser) lastOnLine(k int) lexer.TokenKind {
 	if m.lastAt < k {
 		return lexer.EOF
 	}
-	return p.tokens[m.lastAt].Kind()
+	return p.tok(m.lastAt).Kind()
 }
 
 // lineMemo is the line lastOnLine last scanned: from the token from to
@@ -79,7 +79,7 @@ func (p *Parser) funcOnLine(k int) bool {
 // is on, from k on.
 func (p *Parser) onLine(k int, match func(*lexer.Token) bool) bool {
 	for i, end := k, p.nextLine(k); i < end; i++ {
-		if match(&p.tokens[i]) {
+		if match(p.tok(i)) {
 			return true
 		}
 	}
@@ -235,8 +235,8 @@ func (p *Parser) contractEndsInBody(k int) bool {
 			return true
 		}
 		next := p.nextLine(k)
-		if tk := &p.tokens[next-1]; tk.Kind() == lexer.Semi && inserted(tk) ||
-			p.tokens[next].Kind() == lexer.EOF || isDeclKeyword(&p.tokens[next]) {
+		if tk := p.tok(next - 1); tk.Kind() == lexer.Semi && inserted(tk) ||
+			p.tok(next).Kind() == lexer.EOF || isDeclKeyword(p.tok(next)) {
 			return false
 		}
 		k = next
@@ -301,13 +301,13 @@ func visibleDeclKeyword(tk *lexer.Token) bool {
 // the token start declares: its first, or, after pub or lib, its second.
 func (p *Parser) declTok(start int) *lexer.Token {
 	k := p.declKeywordIndex(start)
-	return &p.tokens[k]
+	return p.tok(k)
 }
 
 // declKeywordIndex returns the index of the token declTok returns.
 func (p *Parser) declKeywordIndex(start int) int {
 	k := min(start, len(p.tokens)-1)
-	if isKeyword(&p.tokens[k], lexer.Pub) || isKeyword(&p.tokens[k], lexer.Lib) {
+	if isKeyword(p.tok(k), lexer.Pub) || isKeyword(p.tok(k), lexer.Lib) {
 		k = min(k+1, len(p.tokens)-1)
 	}
 	return k
@@ -351,7 +351,7 @@ type startMemo struct {
 // holdsNoStmtsAt is holdsNoStmts, worked out.
 func (p *Parser) holdsNoStmtsAt(start int) bool {
 	k := p.declKeywordIndex(start)
-	tk := &p.tokens[k]
+	tk := p.tok(k)
 	switch {
 	case isKeyword(tk, lexer.Extern):
 		return !p.externBodyAt(k)
@@ -395,8 +395,8 @@ func noStmtKeyword(tk *lexer.Token) bool {
 // a parenthesis after it, and the shape of a header, mut main() {, not
 // var x = f(a) {, a damaged var.
 func (p *Parser) funcMistyped(k int) bool {
-	return p.tokens[min(k+1, len(p.tokens)-1)].Kind() == lexer.Ident &&
-		p.tokens[min(k+2, len(p.tokens)-1)].Kind() == lexer.LParen && p.headerLineAt(k)
+	return p.tok(min(k+1, len(p.tokens)-1)).Kind() == lexer.Ident &&
+		p.tok(min(k+2, len(p.tokens)-1)).Kind() == lexer.LParen && p.headerLineAt(k)
 }
 
 // stmtLike reports whether the damaged top-level declaration that starts
@@ -415,13 +415,13 @@ func (p *Parser) stmtLike(start int) bool {
 // statement does: a keyword only a statement starts with, var x := or mut
 // x :=, or a name not on a line shaped like a function's header.
 func (p *Parser) stmtStartsAt(i int) bool {
-	tk := &p.tokens[i]
+	tk := p.tok(i)
 	switch {
 	case tk.Kind() == lexer.Ident:
 		return !p.headerLineAt(i)
 	case isKeyword(tk, lexer.Var) || isKeyword(tk, lexer.Mut):
 		// var x := and mut x := declare only in a body.
-		return p.tokens[min(i+2, len(p.tokens)-1)].Kind() == lexer.Define
+		return p.tok(min(i+2, len(p.tokens)-1)).Kind() == lexer.Define
 	case tk.Kind() == lexer.Keyword:
 		switch tk.Value() {
 		case lexer.For, lexer.If, lexer.Return, lexer.Switch, lexer.Defer, lexer.Break,

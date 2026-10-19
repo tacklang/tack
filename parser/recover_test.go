@@ -405,8 +405,9 @@ func isTokens(s string) bool {
 }
 
 // parseDeadline is how long checkParse lets one parse run before it calls
-// the parser stuck: far longer than any input a fuzzer makes takes.
-const parseDeadline = 10 * time.Second
+// the parser stuck: far longer than any input a fuzzer makes takes, even
+// on a loaded machine, so only a hang fails it.
+const parseDeadline = 60 * time.Second
 
 // checkParse lexes src, and, when it lexes, parses it, checking what any
 // input must give: the parse ends within parseDeadline and never panics,

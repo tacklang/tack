@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // tooDeep is the error for a program nested past the parser's limit.
@@ -238,22 +237,24 @@ func TestFlatChainsDoNotNest(t *testing.T) {
 	}
 }
 
-// TestHugeNestingFailsFast parses a million nested parentheses and checks
-// the error comes quickly, the parser going no deeper than its limit,
-// once.
+// TestHugeNestingFailsFast parses nested parentheses past the parser's
+// limit and checks the error comes in steps in proportion to them (see
+// checkStepGrowth), 5000 and 20000 of them, and that for a million the
+// parser goes no deeper than its limit, once.
 func TestHugeNestingFailsFast(t *testing.T) {
-	src := inFunc(
-		fmt.Sprintf("    x := %s1%s\n", strings.Repeat("(", 1000000), strings.Repeat(")", 1000000)),
-	)
-	start := time.Now()
-	_, diags := parse(t, src)
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Errorf("took %v", elapsed)
+	src := func(n int) string {
+		open, closing := strings.Repeat("(", n), strings.Repeat(")", n)
+		return inFunc(fmt.Sprintf("    x := %s1%s\n", open, closing))
 	}
+	_, small := parseSteps(t, src(5000))
+	_, grown := parseSteps(t, src(20000))
+	checkStepGrowth(t, "nested parentheses", small, grown)
+	diags, _ := parseSteps(t, src(1000000))
 	if len(diags) != 1 || diags[0].Message != tooDeep {
 		t.Fatalf("got %v, want the one error %q", diags, tooDeep)
 	}
-	if want := strings.Index(src, "x := (") + len("x := ") + 1000; diags[0].Span.Start != want {
+	want := strings.Index(src(1000000), "x := (") + len("x := ") + 1000
+	if diags[0].Span.Start != want {
 		t.Errorf("reported at %d, want the 1001st parenthesis, at %d", diags[0].Span.Start, want)
 	}
 }

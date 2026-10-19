@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // overflowMsg is the message for typed arithmetic on known values that
@@ -235,26 +234,33 @@ func TestAcceptsRuntimeArithmetic(t *testing.T) {
 }
 
 // TestKnownValuesOfALongChainAreFast checks a chain of immutable locals,
-// each using the one before twice, is checked in time linear in its
-// length: knownVar remembers each answer rather than computing it again
-// for every use.
+// each using the one before twice, is checked in steps linear in its
+// length (see checkGrowth): knownVar and knownArithmetic remember each
+// answer rather than computing it again for every use, which would take
+// steps doubling with each local. The chains are short, 5 and 20 locals,
+// so that a regression fails with a count rather than running for ever.
 func TestKnownValuesOfALongChainAreFast(t *testing.T) {
+	const n = 5
+	diags, small := checkWork(t, mainLines(knownChain(n)...))
+	if len(diags) > 0 {
+		t.Fatalf("got %v, want no diagnostics", diags)
+	}
+	_, grown := checkWork(t, mainLines(knownChain(4*n)...))
+	checkGrowth(t, "known values of locals worked out", small.Locals, grown.Locals)
+	checkGrowth(t, "known values worked out", small.Arithmetic, grown.Arithmetic)
+}
+
+// knownChain returns the lines of a chain of n immutable locals after x0,
+// each the one before added to itself, and a use of the last.
+func knownChain(n int) []string {
 	lines := []string{"x0 := 'a' - 'a'"}
-	for i := 1; i <= 200; i++ {
+	for i := 1; i <= n; i++ {
 		lines = append(
 			lines,
 			"x"+strconv.Itoa(i)+" := x"+strconv.Itoa(i-1)+" + x"+strconv.Itoa(i-1),
 		)
 	}
-	lines = append(lines, "exit(x200)")
-
-	start := time.Now()
-	if _, diags := checkTree(t, mainLines(lines...)); len(diags) > 0 {
-		t.Fatalf("got %v, want no diagnostics", diags)
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Errorf("checking took %s", elapsed)
-	}
+	return append(lines, "exit(x"+strconv.Itoa(n)+")")
 }
 
 // TestKnownValuesOfLongExpressionsAreFast checks expressions of

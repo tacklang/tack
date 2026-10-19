@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/types"
@@ -556,20 +555,30 @@ func TestSettlesCaseValuesToTheTagsType(t *testing.T) {
 }
 
 // TestHugeSwitchChecksQuickly checks a switch on a variable with thousands
-// of cases, each giving a fact the rest must carry, stays fast.
+// of cases, each giving a fact the rest must carry, is checked in steps
+// linear in its cases (see checkGrowth): the facts read, the conditions
+// whose facts are worked out, and the nodes whose writes are indexed,
+// which a region of every later case walked for each case would make
+// quadratic.
 func TestHugeSwitchChecksQuickly(t *testing.T) {
-	const n = 5000
+	const n = 1250
+	diags, small := checkWork(t, inF(hugeSwitch(n)...))
+	if len(diags) > 0 {
+		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+	}
+	_, grown := checkWork(t, inF(hugeSwitch(4*n)...))
+	checkGrowth(t, "facts read", small.Scanned, grown.Scanned)
+	checkGrowth(t, "conditions worked out", small.Conditions, grown.Conditions)
+	checkGrowth(t, "nodes walked for writes", small.Walked, grown.Walked)
+}
+
+// hugeSwitch returns the lines of a switch on d with n cases, each
+// dividing by d, which every case proves not zero.
+func hugeSwitch(n int) []string {
 	lines := make([]string, 0, 2*n+3)
 	lines = append(lines, "switch d {")
 	for i := range n {
 		lines = append(lines, "case "+strconv.Itoa(i+1)+":", "    return n / d")
 	}
-	lines = append(lines, "}", "return 0")
-	start := time.Now()
-	if _, diags := checkTree(t, inF(lines...)); len(diags) > 0 {
-		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Errorf("checking took %v", elapsed)
-	}
+	return append(lines, "}", "return 0")
 }

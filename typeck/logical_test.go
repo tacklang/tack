@@ -3,7 +3,6 @@ package typeck_test
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tacklang/tack/types"
 )
@@ -179,19 +178,21 @@ func chainProgram(op string, n int) string {
 
 // TestLongLogicalChainsCheckQuickly checks that conditions of thousands
 // of terms joined by && or ||, each carrying the facts of the terms before
-// it into the next, some of them ended by a mut argument, stay fast:
-// each term's facts are found once, not again at every operator above it.
+// it into the next, some of them ended by a mut argument, are checked in
+// steps linear in their terms (see checkGrowth): each term's facts are
+// found once, not again at every operator above it, and each right side's
+// writes are indexed once.
 func TestLongLogicalChainsCheckQuickly(t *testing.T) {
+	const n = 1000
 	for _, op := range []string{"&&", "||"} {
 		t.Run(op, func(t *testing.T) {
-			src := chainProgram(op, 4000)
-			start := time.Now()
-			if _, diags := checkTree(t, src); len(diags) > 0 {
+			diags, small := checkWork(t, chainProgram(op, n))
+			if len(diags) > 0 {
 				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
 			}
-			if elapsed := time.Since(start); elapsed > 5*time.Second {
-				t.Errorf("checking took %v", elapsed)
-			}
+			_, grown := checkWork(t, chainProgram(op, 4*n))
+			checkGrowth(t, "conditions worked out", small.Conditions, grown.Conditions)
+			checkGrowth(t, "nodes walked for writes", small.Walked, grown.Walked)
 		})
 	}
 }

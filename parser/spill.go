@@ -42,7 +42,7 @@ func (p *Parser) noteSpill(suspect bool) {
 func (p *Parser) orphanBraceAhead() bool {
 	depth, sawStmt := 0, false
 	for i := p.index; i < len(p.tokens); i++ {
-		tk := &p.tokens[i]
+		tk := p.tok(i)
 		switch {
 		case tk.Kind() == lexer.EOF || depth == 0 && p.declOnlyLineAt(i):
 			return false
@@ -61,7 +61,7 @@ func (p *Parser) orphanBraceAhead() bool {
 // a keyword only a declaration starts with, func, type, extern or import,
 // pub and lib aside, which a damaged statement may start with too.
 func (p *Parser) declOnlyLineAt(i int) bool {
-	tk := &p.tokens[i]
+	tk := p.tok(i)
 	return tk.StartsLine() && isDeclKeyword(tk) && !isKeyword(tk, lexer.Pub) &&
 		!isKeyword(tk, lexer.Lib)
 }
@@ -125,7 +125,7 @@ func (p *Parser) skipUnopenedBody(start int) {
 // token start to the parser's.
 func (p *Parser) braceIn(start int) bool {
 	for i := start; i < p.index; i++ {
-		if p.tokens[i].Kind() == lexer.LCurl {
+		if p.tok(i).Kind() == lexer.LCurl {
 			return true
 		}
 	}
