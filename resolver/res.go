@@ -31,6 +31,12 @@ type Resolver struct {
 	// callee, which a report of the variable as unused points at.
 	hiddenBy map[*ast.Var]*ast.Ident
 
+	// bound holds the local variables a call or a binding of several
+	// names gave a value, declaring or assigning them: one may hold an
+	// error or an ok, so whether it is unused is left to the type checker
+	// (see unused).
+	bound map[*ast.Var]bool
+
 	// packages holds each package's resolver once its package-level names
 	// are declared, which is before any package importing it is resolved.
 	packages map[*ast.Package]*pkgResolver
@@ -54,6 +60,7 @@ func New(prog *ast.Program, builtins *builtin.Set) *Resolver {
 		read:     make(map[*ast.Var]bool),
 		excused:  make(map[*ast.Var]bool),
 		hiddenBy: make(map[*ast.Var]*ast.Ident),
+		bound:    make(map[*ast.Var]bool),
 		packages: make(map[*ast.Package]*pkgResolver),
 	}
 }
@@ -709,12 +716,23 @@ func elseIf(s *ast.If) (*ast.If, bool) {
 
 // unused reports every variable a scope declared and never read, unless it
 // is excused. One a call by its name passed over, to call the function or
-// builtin of that name, gets a note at the call saying so.
+// builtin of that name, gets a note at the call saying so. One a call or
+// a binding of several names gave a value is marked
+// ast.Var.UnusedDeferred and left to the type checker, which reports it
+// as an error when it holds an error or an ok, never checked, and as
+// unused otherwise.
 func (r *pkgResolver) unused(sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, v := range sc.vars {
 		if !r.read[v] && !r.excused[v] && !r.damage.mayRead(v) {
 			v.Unused = true
+			if r.bound[v] {
+				v.UnusedDeferred, v.HiddenCall = true, r.hiddenBy[v]
+				if v.HiddenCall != nil {
+					v.HiddenCall.Hidden = nil
+				}
+				continue
+			}
 			d := diag.Diagnostic{
 				Severity: diag.Warning,
 				Message:  fmt.Sprintf("declared and not used: %s", v.Name),
@@ -796,6 +814,7 @@ func (r *pkgResolver) declareMultiVar(m *ast.MultiVar, sc *scope) []diag.Diagnos
 	for _, v := range m.Vars {
 		if v.Name != ast.Blank {
 			diags = append(diags, r.declareVar(v, sc)...)
+			r.bound[v] = true
 			continue
 		}
 		blanks++
@@ -826,6 +845,7 @@ func (r *pkgResolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.D
 			continue
 		}
 		diags = append(diags, r.resolveTarget(target, sc)...)
+		r.noteBound(target)
 	}
 	if blanks == len(m.Targets) && !returnsError(m.Value) {
 		diags = append(diags, nothingBound(m.Span))
@@ -881,7 +901,21 @@ func nothingBound(span ast.Span) diag.Diagnostic {
 // resolves its value. Assigning does not count as reading the variable.
 func (r *pkgResolver) resolveAssign(a *ast.Assign, sc *scope) []diag.Diagnostic {
 	diags := r.resolveExpr(a.Value, sc)
-	return append(diags, r.resolveTarget(a.Target, sc)...)
+	diags = append(diags, r.resolveTarget(a.Target, sc)...)
+	if _, ok := a.Value.(*ast.Call); ok {
+		r.noteBound(a.Target)
+	}
+	return diags
+}
+
+// noteBound records target, an assignment's, as bound (see bound) when
+// it is a variable's name.
+func (r *pkgResolver) noteBound(target ast.Expr) {
+	if id, ok := target.(*ast.Ident); ok {
+		if v, isVar := id.Def.(*ast.Var); isVar {
+			r.bound[v] = true
+		}
+	}
 }
 
 // resolveTarget binds the target of an assignment, increment or decrement:
@@ -1205,6 +1239,9 @@ func (r *pkgResolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnos
 	case *ast.ExprStmt:
 		return r.resolveExpr(s.X, sc)
 	case *ast.Var:
+		if _, ok := s.Value.(*ast.Call); ok {
+			r.bound[s] = true
+		}
 		return r.declareVar(s, sc)
 	case *ast.Assign:
 		return r.resolveAssign(s, sc)

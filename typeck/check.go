@@ -227,6 +227,10 @@ type Checker struct {
 
 	diags []diag.Diagnostic
 
+	// holders holds, for each variable the resolver left to be reported
+	// that holds an error or an ok, what it holds (see unread.go).
+	holders map[*ast.Var]string
+
 	// warnings are what the checker reports that does not stop
 	// compilation, kept apart from diags, so that every count of diags
 	// that decides what to check next, whether a body is checked for
@@ -309,6 +313,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		knownVars:     make(map[*ast.Var]knownResult),
 		knownBinaries: make(map[*ast.Binary]knownBinary),
+		holders:       make(map[*ast.Var]string),
 
 		declPkg:   declPackages(prog),
 		structPkg: make(map[types.Type]*ast.Package),
@@ -489,6 +494,7 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	c.collectHolds(fn)
 	m, dead := c.mark(), c.dead
 	c.checkStmts(fn.Body, fn)
+	c.reportUnread(fn.Body)
 	end, outer := fn.Span, c.at
 	end.Start = end.End - 1
 	c.at = end.End
@@ -611,6 +617,7 @@ func (c *Checker) checkMultiVar(m *ast.MultiVar) {
 	c.checkErrorBinding(m.Value, blank, spans)
 	c.checkOkDropped(m.Value, blank, spans)
 	c.nothingBound(m.Value, blank, m.Span)
+	c.noteHolder(m.Vars[len(m.Vars)-1], m.Value, len(m.Vars))
 }
 
 // checkMultiAssign checks an assignment of several values, given as a
@@ -642,6 +649,7 @@ func (c *Checker) checkMultiAssign(m *ast.MultiAssign) {
 	c.checkErrorBinding(m.Value, blank, spans)
 	c.checkOkDropped(m.Value, blank, spans)
 	c.nothingBound(m.Value, blank, m.Span)
+	c.noteTargetHolder(m.Targets[len(m.Targets)-1], m.Value, len(m.Targets))
 	c.checkErrorTargets(m)
 	for _, target := range m.Targets {
 		if !ast.IsBlank(target) {
@@ -1207,6 +1215,7 @@ func (c *Checker) checkVar(v *ast.Var) {
 	}
 
 	got := c.expr(v.Value)
+	c.noteHolder(v, v.Value, 1)
 	if v.TypeExpr == nil {
 		v.Type = c.valueOf(v.Value, got)
 		c.recordAppend(v)
@@ -1779,6 +1788,7 @@ func (c *Checker) checkAssign(a *ast.Assign) {
 	if ok {
 		c.use(a.Value, got, typ, "in assignment to "+targetName(a.Target))
 	}
+	c.noteTargetHolder(a.Target, a.Value, 1)
 	c.checkErrorAssign(a, a.Target)
 }
 

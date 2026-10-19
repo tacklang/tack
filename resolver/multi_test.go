@@ -51,21 +51,6 @@ var badMultiVarNameCases = []struct {
 		[]string{"undefined: a"},
 	},
 	{
-		"one name never read",
-		pair + "func main() {\n    a, b := pair(1)\n    exit(a)\n}\n",
-		[]string{"declared and not used: b"},
-	},
-	{
-		"neither name read",
-		pair + "func main() {\n    a, b := pair(1)\n}\n",
-		[]string{"declared and not used: a", "declared and not used: b"},
-	},
-	{
-		"assigned but never read",
-		pair + "func main() {\n    a, mut b := pair(1)\n    b = 2\n    exit(a)\n}\n",
-		[]string{"declared and not used: b"},
-	},
-	{
 		"reuses a parameter",
 		pair + "func f(a int64) {\n    a, b := pair(1)\n    exit(a + b)\n}\n\nfunc main() {\n}\n",
 		[]string{"a is already declared"},
@@ -93,7 +78,8 @@ var badMultiVarNameCases = []struct {
 }
 
 // TestRejectsBadMultiVarNames checks the scoping rules hold for each name of
-// a MultiVar as they do for a single declaration.
+// a MultiVar as they do for a single declaration. A name never read is
+// left to the type checker (see TestDefersUnreadBoundNames).
 func TestRejectsBadMultiVarNames(t *testing.T) {
 	for _, tt := range badMultiVarNameCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,6 +87,46 @@ func TestRejectsBadMultiVarNames(t *testing.T) {
 			got := messagesOf(diags)
 			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
 				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDefersUnreadBoundNames checks that a variable never read is left to
+// the type checker, marked unused and deferred with no warning of the
+// resolver's, when a call or a binding of several names gave it a value,
+// declaring or assigning it, since it may hold an error or an ok; and that
+// any other is reported here, as before.
+func TestDefersUnreadBoundNames(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		deferred   bool
+	}{
+		{"one name of several", "a, b := pair(1)\n    exit(a)", true},
+		{"assigned after", "a, mut b := pair(1)\n    b = 2\n    exit(a)", true},
+		{"a call's value", "b := pair2(1)", true},
+		{"assigned a call's value", "mut b := 1\n    b = pair2(1)", true},
+		{"a value no call gives", "b := 1", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			file, diags := resolveTree(t, "package main\n\n"+pair+
+				"func pair2(n int64) int64 {\n    return n\n}\n\nfunc main() {\n    "+
+				tt.body+"\n}\n")
+			var b *ast.Var
+			for _, stmt := range file.Decls[2].(*ast.Func).Body {
+				ast.Walk(stmt, func(n ast.Node) bool {
+					if v, ok := n.(*ast.Var); ok && v.Name == "b" {
+						b = v
+					}
+					return true
+				})
+			}
+			if b == nil || !b.Unused || b.UnusedDeferred != tt.deferred {
+				t.Fatalf("b = %+v, want unused, deferred %v", b, tt.deferred)
+			}
+			reported := strings.Join(messagesOf(diags), "\n") == "declared and not used: b"
+			if reported == tt.deferred {
+				t.Errorf("got %q with b deferred %v", messagesOf(diags), tt.deferred)
 			}
 		})
 	}
@@ -128,16 +154,21 @@ func TestMainWithSeveralResultsIsRejected(t *testing.T) {
 }
 
 // A MultiAssign binds each target to the variable it names, and writing to
-// a variable that way does not count as reading it.
+// a variable that way does not count as reading it: b, never read, is
+// left to the type checker to report (see TestDefersUnreadBoundNames).
 func TestResolvesMultiAssign(t *testing.T) {
 	file, diags := resolveTree(t, "package main\n\n"+pair+
 		"func main() {\n    mut a, mut b := pair(1)\n    a, b = pair(2)\n    exit(a)\n}\n")
-	if got := messagesOf(diags); strings.Join(got, "\n") != "declared and not used: b" {
-		t.Fatalf("got %q, want only b unused", got)
+	if len(diags) > 0 {
+		t.Fatalf("got %q, want nothing", messagesOf(diags))
 	}
 
 	body := file.Decls[1].(*ast.Func).Body
 	decl, assign := body[0].(*ast.MultiVar), body[1].(*ast.MultiAssign)
+	if b := decl.Vars[1]; !b.Unused || !b.UnusedDeferred || decl.Vars[0].Unused {
+		t.Errorf("a unused %v, b unused %v and deferred %v, want only b, deferred",
+			decl.Vars[0].Unused, b.Unused, b.UnusedDeferred)
+	}
 	for i, target := range assign.Targets {
 		if target.(*ast.Ident).Def != decl.Vars[i] {
 			t.Errorf("target %s is not bound to its declaration", target.(*ast.Ident).Name)

@@ -242,7 +242,11 @@
 // What is reported unused, a local, a global, a type switch's binding or
 // an import, is a warning (diag.Warning), not an error: it stops nothing
 // and is not counted in Errors; each is marked diag.Diagnostic.Unused, its
-// span the name, which an editor may dim. A variable warned of is marked
+// span the name, which an editor may dim. A local never read that a call
+// or a binding of several names gave a value, declaring or assigning it,
+// is not reported here but marked ast.Var.UnusedDeferred: it may hold an
+// error or an ok, which never read is an error, and only the type checker
+// knows; it reports that, or the warning (see package typeck). A variable warned of is marked
 // ast.Var.Unused, every clause's variable of a binding warned of
 // included, so the backend can declare it as one C need not see read.
 //

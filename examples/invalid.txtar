@@ -7863,6 +7863,194 @@ error-two-errors/main.tck:3:11: error: error must be the last result of f
    |	          ^~~~~
 04 |	    return noerror, noerror
 
+-- error-unread-append/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 7)
+    if len(l) > 0 {
+        print("x")
+    }
+}
+-- error-unread-append/expected --
+stage: typeck
+---
+
+error-unread-append/main.tck:5:5: error: the error append returns is never checked: err is not read
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, 7)
+   |	    ^~~
+06 |	    if len(l) > 0 {
+
+-- error-unread-append-index/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 7)
+    x := l[0]
+    if x == 7 {
+        print("seven")
+    }
+}
+-- error-unread-append-index/expected --
+stage: typeck
+---
+
+error-unread-append-index/main.tck:5:5: error: the error append returns is never checked: err is not read
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := append(mut l, 7)
+   |	    ^~~
+06 |	    x := l[0]
+
+error-unread-append-index/main.tck:6:12: error: index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]
+05 |	    err := append(mut l, 7)
+06 |	    x := l[0]
+   |	           ^
+07 |	    if x == 7 {
+
+-- error-unread-assigned/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut err := append(mut l, 1)
+    err = append(mut l, 2)
+    if len(l) > 0 {
+        print("x")
+    }
+}
+-- error-unread-assigned/expected --
+stage: typeck
+---
+
+error-unread-assigned/main.tck:5:9: error: the error append returns is never checked: err is not read
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    mut err := append(mut l, 1)
+   |	        ^~~
+06 |	    err = append(mut l, 2)
+
+-- error-unread-call/main.tck --
+package main
+
+func open(n int64) error {
+    if n > 1 {
+        return error{code: 1, msg: "big"}
+    }
+    return noerror
+}
+
+func main() {
+    err := open(2)
+    print("x")
+}
+-- error-unread-call/expected --
+stage: typeck
+---
+
+error-unread-call/main.tck:11:5: error: the error open returns is never checked: err is not read
+10 |	func main() {
+11 |	    err := open(2)
+   |	    ^~~
+12 |	    print("x")
+
+-- error-unread-method/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+}
+
+func (mut b Bag) add(x int64) error {
+    return append(mut b.items, x)
+}
+
+func main() {
+    mut b := Bag{items: make(list[int64], c_allocator)}
+    err := mut b.add(1)
+    print("x")
+}
+-- error-unread-method/expected --
+stage: typeck
+---
+
+error-unread-method/main.tck:13:5: error: the error Bag.add returns is never checked: err is not read
+12 |	    mut b := Bag{items: make(list[int64], c_allocator)}
+13 |	    err := mut b.add(1)
+   |	    ^~~
+14 |	    print("x")
+
+-- error-unread-put/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    err := put(mut m, 1, 7)
+    if len(m) > 0 {
+        print("x")
+    }
+}
+-- error-unread-put/expected --
+stage: typeck
+---
+
+error-unread-put/main.tck:5:5: error: the error put returns is never checked: err is not read
+04 |	    mut m := make(map[int64]int64, c_allocator)
+05 |	    err := put(mut m, 1, 7)
+   |	    ^~~
+06 |	    if len(m) > 0 {
+
+-- error-unread-reserve/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := reserve(mut l, 4)
+    if len(l) == 0 {
+        print("x")
+    }
+}
+-- error-unread-reserve/expected --
+stage: typeck
+---
+
+error-unread-reserve/main.tck:5:5: error: the error reserve returns is never checked: err is not read
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    err := reserve(mut l, 4)
+   |	    ^~~
+06 |	    if len(l) == 0 {
+
+-- error-unread-results/main.tck --
+package main
+
+func parse(n int64) (int64, error) {
+    if n > 1 {
+        return 0, error{code: 1, msg: "big"}
+    }
+    return n, noerror
+}
+
+func main() {
+    v, err := parse(2)
+    print("x")
+}
+-- error-unread-results/expected --
+stage: typeck
+---
+
+error-unread-results/main.tck:11:5: warning: declared and not used: v
+10 |	func main() {
+11 |	    v, err := parse(2)
+   |	    ^
+12 |	    print("x")
+
+error-unread-results/main.tck:11:8: error: the error parse returns is never checked: err is not read
+10 |	func main() {
+11 |	    v, err := parse(2)
+   |	       ^~~
+12 |	    print("x")
+
 -- escape-hex-short/main.tck --
 package main
 
@@ -24587,6 +24775,140 @@ ok-dropped-string-slice-define/main.tck:12:8: error: the ok s[i:] gives cannot b
 12 |	    v, _ := s[i:]
    |	       ^
 13 |	    use(v)
+
+-- ok-unread-assert/main.tck --
+package main
+
+func f(a any) int64 {
+    n, ok := a.(int64)
+    return n
+}
+
+func main() {
+    if f(true) == 0 {
+        print("x")
+    }
+}
+-- ok-unread-assert/expected --
+stage: typeck
+---
+
+ok-unread-assert/main.tck:4:8: error: the ok a.(int64) gives is never checked: ok is not read
+03 |	func f(a any) int64 {
+04 |	    n, ok := a.(int64)
+   |	       ^~
+05 |	    return n
+
+-- ok-unread-forms/main.tck --
+package main
+
+func f(a int64, b int64, m map[int64]int64, s string) int64 {
+    q, ok1 := a / b
+    r, ok2 := a % b
+    n, ok3 := uint8(a)
+    v, ok4 := m[a]
+    t, ok5 := s[1:]
+    return q + r + int64(n) + v + len(t)
+}
+
+func main() {
+    m := make(map[int64]int64, c_allocator)
+    if f(1, 0, m, "") == 0 {
+        print("x")
+    }
+}
+-- ok-unread-forms/expected --
+stage: typeck
+---
+
+ok-unread-forms/main.tck:4:8: error: the ok a / b gives is never checked: ok1 is not read
+03 |	func f(a int64, b int64, m map[int64]int64, s string) int64 {
+04 |	    q, ok1 := a / b
+   |	       ^~~
+05 |	    r, ok2 := a % b
+
+ok-unread-forms/main.tck:5:8: error: the ok a % b gives is never checked: ok2 is not read
+04 |	    q, ok1 := a / b
+05 |	    r, ok2 := a % b
+   |	       ^~~
+06 |	    n, ok3 := uint8(a)
+
+ok-unread-forms/main.tck:6:8: error: the ok uint8(a) gives is never checked: ok3 is not read
+05 |	    r, ok2 := a % b
+06 |	    n, ok3 := uint8(a)
+   |	       ^~~
+07 |	    v, ok4 := m[a]
+
+ok-unread-forms/main.tck:7:8: error: the ok m[a] gives is never checked: ok4 is not read
+06 |	    n, ok3 := uint8(a)
+07 |	    v, ok4 := m[a]
+   |	       ^~~
+08 |	    t, ok5 := s[1:]
+
+ok-unread-forms/main.tck:8:8: error: the ok s[1:] gives is never checked: ok5 is not read
+07 |	    v, ok4 := m[a]
+08 |	    t, ok5 := s[1:]
+   |	       ^~~
+09 |	    return q + r + int64(n) + v + len(t)
+
+-- ok-unread-index/main.tck --
+package main
+
+func f(l []int64, i int64) int64 {
+    x, ok := l[i]
+    return x
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    if f(a[:], 5) == 0 {
+        print("x")
+    }
+}
+-- ok-unread-index/expected --
+stage: typeck
+---
+
+ok-unread-index/main.tck:4:8: error: the ok l[i] gives is never checked: ok is not read
+03 |	func f(l []int64, i int64) int64 {
+04 |	    x, ok := l[i]
+   |	       ^~
+05 |	    return x
+
+-- ok-unread-take/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    v, ok := pop(mut l)
+    w, ok2 := remove(mut l, 0)
+    mut m := make(map[int64]int64, c_allocator)
+    d, ok3 := delete(mut m, 1)
+    if v + w + d == 0 {
+        print("x")
+    }
+}
+-- ok-unread-take/expected --
+stage: typeck
+---
+
+ok-unread-take/main.tck:5:8: error: the ok pop returns is never checked: ok is not read
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    v, ok := pop(mut l)
+   |	       ^~
+06 |	    w, ok2 := remove(mut l, 0)
+
+ok-unread-take/main.tck:6:8: error: the ok remove returns is never checked: ok2 is not read
+05 |	    v, ok := pop(mut l)
+06 |	    w, ok2 := remove(mut l, 0)
+   |	       ^~~
+07 |	    mut m := make(map[int64]int64, c_allocator)
+
+ok-unread-take/main.tck:8:8: error: the ok delete returns is never checked: ok3 is not read
+07 |	    mut m := make(map[int64]int64, c_allocator)
+08 |	    d, ok3 := delete(mut m, 1)
+   |	       ^~~
+09 |	    if v + w + d == 0 {
 
 -- operator-on-two-wrong-operands/main.tck --
 package main

@@ -851,6 +851,13 @@
 // records the total on the program's types.Table, and a backend generates
 // code only when both are zero (see codegen.Refuse).
 //
+// A variable that holds an error a call returned or an ok a checked form
+// gave, and that nothing reads, is an error, the error f returns is never
+// checked: err is not read, as binding it to _ is (see unread.go); the
+// resolver leaves every variable a call or a binding of several names gave
+// a value to the checker for that reason (ast.Var.UnusedDeferred), and the
+// checker warns of one that holds neither as unused.
+//
 // The checker's warnings, not errors, are: a statement that only gives a
 // value, x is not used; a union clause's variable its body never reads,
 // declared and not used, which is marked ast.Var.Unused; and, in a

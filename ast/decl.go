@@ -170,6 +170,9 @@ type Var struct {
 	TypeExpr Expr // the declared type as written, nil if inferred from Value
 	Value    Expr // the initial value, nil if the variable starts at its zero value
 
+	// HiddenCall: see UnusedDeferred.
+	HiddenCall *Ident `json:"-"`
+
 	// Const is a package-level variable's initial value, computed by the
 	// type checker: a constant.Int, a string, a bool, or, for an array or
 	// a struct, a []any of its elements' or fields' values in order. It is
@@ -194,6 +197,14 @@ type Var struct {
 	// variable is declared and never read, so a backend can tell its own
 	// compiler the declaration may go unused.
 	Unused bool `json:",omitempty"`
+
+	// UnusedDeferred says the resolver found the variable never read and
+	// left the report to the type checker, which knows whether it holds
+	// an error or an ok that is then never checked: a variable a call or
+	// a binding of several names gave a value. HiddenCall is then the
+	// call by its name that passed over it, which a warning that it is
+	// unused points at, or nil.
+	UnusedDeferred bool `json:"-"`
 }
 
 // A variable is a declaration so that an Ident can point at it through Def,

@@ -1338,7 +1338,14 @@ makes for itself, which has a letter after `tack_`.
     rather than `_`, `x`, `y` and `z` in order, then `x4` and on: `bind it,
     as in x, err := bytes.repeat(...)`. `_` where the
     error goes, a binding of nothing but `_` included, is `the error f
-    returns cannot be dropped; bind it to a variable instead of _`. A call
+    returns cannot be dropped; bind it to a variable instead of _`, and a
+    variable holding it that nothing ever reads drops it as surely: after
+    `err := f()`, `v, err := f()` or `err = f()`, and the same for append,
+    reserve and put, an `err` never read is `the error f returns is never
+    checked: err is not read`, at its name, not the warning that it is
+    unused. Reading it is what checks it: its `code` or its `msg`, or the
+    error itself passed on or returned. Only a variable never read at all
+    is reported, not one assigned again before its first value was read. A call
     returning an error alone is a value like any other, so it may be
     passed, returned or compared, `if check() == noerror`.
   - The results bound beside the error cannot be read until it is
@@ -2406,7 +2413,8 @@ makes for itself, which has a letter after `tack_`.
 - A variable is in scope from its declaration to the end of its block. No
   variable or parameter may reuse the name of another variable or parameter
   in scope, package-level ones included. A variable that is never read
-  is a warning, `declared and not used: x`, and so is an import no name
+  is a warning, `declared and not used: x`, but for one holding an error
+  or an ok, which is an error (see errors and the checked forms); and so is an import no name
   uses, `imported and not used: fmt`; neither stops the program from
   building. So is, in a program with no error, a parameter its function
   never reads, `declared and not used: by`, and a private function,
@@ -2523,7 +2531,9 @@ makes for itself, which has a letter after `tack_`.
   so is `_` in the `ok` of every checked form, an index, `m[k]`, a
   string's slice, a conversion, a type assertion, `pop`, `remove` and
   `delete`, each named as written: `the ok m[1] gives cannot be dropped;
-  ...`. The value may be dropped, `_, ok := m[k]`, and both cannot be,
+  ...`; an `ok` bound to a variable nothing ever reads is too, `the ok
+  m[1] gives is never checked: ok is not read`, or for `pop`, `remove`
+  and `delete`, `the ok pop returns is never checked: ok is not read`. The value may be dropped, `_, ok := m[k]`, and both cannot be,
   `every name is _, so nothing is bound`. Where the
   divisor is proven not zero the two-value form is allowed too, and `ok` is
   always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
