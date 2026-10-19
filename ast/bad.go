@@ -22,8 +22,10 @@ type BadDecl struct {
 
 var _ Decl = (*BadDecl)(nil)
 
+// declKey marks BadDecl as a Decl, sealing Decl to this package's types.
 func (b *BadDecl) declKey() declKey { return _declKey }
 
+// astNode marks BadDecl as a Node, sealing Node to this package's types.
 func (b *BadDecl) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the damaged declaration.
@@ -40,8 +42,10 @@ type BadStmt struct {
 
 var _ Stmt = (*BadStmt)(nil)
 
+// stmtKey marks BadStmt as a Stmt, sealing Stmt to this package's types.
 func (b *BadStmt) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks BadStmt as a Node, sealing Node to this package's types.
 func (b *BadStmt) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the damaged statement.

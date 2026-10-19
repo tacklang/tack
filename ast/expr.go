@@ -8,6 +8,8 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
+// exprKey is the type exprKey returns, the method that seals Expr: an empty
+// struct, of no use but as the marker's result, whose one value is _exprKey.
 type exprKey struct{}
 
 var _exprKey exprKey
@@ -94,8 +96,10 @@ type Call struct {
 
 var _ Expr = (*Call)(nil)
 
+// exprKey marks Call as an Expr, sealing Expr to this package's types.
 func (c *Call) exprKey() exprKey { return _exprKey }
 
+// astNode marks Call as a Node, sealing Node to this package's types.
 func (c *Call) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the callee through the closing
@@ -188,8 +192,10 @@ func (i *Ident) Qualified() string {
 
 var _ Expr = (*Ident)(nil)
 
+// exprKey marks Ident as an Expr, sealing Expr to this package's types.
 func (i *Ident) exprKey() exprKey { return _exprKey }
 
+// astNode marks Ident as a Node, sealing Node to this package's types.
 func (i *Ident) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the name.
@@ -278,8 +284,10 @@ type StrLit struct {
 
 var _ Expr = (*StrLit)(nil)
 
+// exprKey marks StrLit as an Expr, sealing Expr to this package's types.
 func (s *StrLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks StrLit as a Node, sealing Node to this package's types.
 func (s *StrLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the literal, quotes included.
@@ -300,8 +308,10 @@ type FloatLit struct {
 
 var _ Expr = (*FloatLit)(nil)
 
+// exprKey marks FloatLit as an Expr, sealing Expr to this package's types.
 func (f *FloatLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks FloatLit as a Node, sealing Node to this package's types.
 func (f *FloatLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the literal.
@@ -323,8 +333,10 @@ type IntLit struct {
 
 var _ Expr = (*IntLit)(nil)
 
+// exprKey marks IntLit as an Expr, sealing Expr to this package's types.
 func (i *IntLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks IntLit as a Node, sealing Node to this package's types.
 func (i *IntLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the literal.
@@ -340,8 +352,10 @@ type CharLit struct {
 
 var _ Expr = (*CharLit)(nil)
 
+// exprKey marks CharLit as an Expr, sealing Expr to this package's types.
 func (c *CharLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks CharLit as a Node, sealing Node to this package's types.
 func (c *CharLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the literal, quotes included.
@@ -355,8 +369,10 @@ type BoolLit struct {
 
 var _ Expr = (*BoolLit)(nil)
 
+// exprKey marks BoolLit as an Expr, sealing Expr to this package's types.
 func (b *BoolLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks BoolLit as a Node, sealing Node to this package's types.
 func (b *BoolLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the keyword.
@@ -370,8 +386,10 @@ type NoErrorLit struct {
 
 var _ Expr = (*NoErrorLit)(nil)
 
+// exprKey marks NoErrorLit as an Expr, sealing Expr to this package's types.
 func (n *NoErrorLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks NoErrorLit as a Node, sealing Node to this package's types.
 func (n *NoErrorLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the keyword.
@@ -385,8 +403,10 @@ type CAllocatorLit struct {
 
 var _ Expr = (*CAllocatorLit)(nil)
 
+// exprKey marks CAllocatorLit as an Expr, sealing Expr to this package's types.
 func (c *CAllocatorLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks CAllocatorLit as a Node, sealing Node to this package's types.
 func (c *CAllocatorLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the keyword.
@@ -512,8 +532,10 @@ type Binary struct {
 
 var _ Expr = (*Binary)(nil)
 
+// exprKey marks Binary as an Expr, sealing Expr to this package's types.
 func (b *Binary) exprKey() exprKey { return _exprKey }
 
+// astNode marks Binary as a Node, sealing Node to this package's types.
 func (b *Binary) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the end of Y.
@@ -565,8 +587,10 @@ type Unary struct {
 
 var _ Expr = (*Unary)(nil)
 
+// exprKey marks Unary as an Expr, sealing Expr to this package's types.
 func (u *Unary) exprKey() exprKey { return _exprKey }
 
+// astNode marks Unary as a Node, sealing Node to this package's types.
 func (u *Unary) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the operator through the end of X.
@@ -720,8 +744,10 @@ type TypeAssert struct {
 
 var _ Expr = (*TypeAssert)(nil)
 
+// exprKey marks TypeAssert as an Expr, sealing Expr to this package's types.
 func (t *TypeAssert) exprKey() exprKey { return _exprKey }
 
+// astNode marks TypeAssert as a Node, sealing Node to this package's types.
 func (t *TypeAssert) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the
@@ -739,8 +765,10 @@ type ArrayType struct {
 
 var _ Expr = (*ArrayType)(nil)
 
+// exprKey marks ArrayType as an Expr, sealing Expr to this package's types.
 func (a *ArrayType) exprKey() exprKey { return _exprKey }
 
+// astNode marks ArrayType as a Node, sealing Node to this package's types.
 func (a *ArrayType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the opening bracket through the end
@@ -760,8 +788,10 @@ type ViewType struct {
 
 var _ Expr = (*ViewType)(nil)
 
+// exprKey marks ViewType as an Expr, sealing Expr to this package's types.
 func (v *ViewType) exprKey() exprKey { return _exprKey }
 
+// astNode marks ViewType as a Node, sealing Node to this package's types.
 func (v *ViewType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the opening bracket through the
@@ -780,8 +810,10 @@ type ListType struct {
 
 var _ Expr = (*ListType)(nil)
 
+// exprKey marks ListType as an Expr, sealing Expr to this package's types.
 func (l *ListType) exprKey() exprKey { return _exprKey }
 
+// astNode marks ListType as a Node, sealing Node to this package's types.
 func (l *ListType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the keyword list through the
@@ -801,8 +833,10 @@ type MapType struct {
 
 var _ Expr = (*MapType)(nil)
 
+// exprKey marks MapType as an Expr, sealing Expr to this package's types.
 func (m *MapType) exprKey() exprKey { return _exprKey }
 
+// astNode marks MapType as a Node, sealing Node to this package's types.
 func (m *MapType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the keyword map through the end
@@ -824,8 +858,10 @@ type FuncType struct {
 
 var _ Expr = (*FuncType)(nil)
 
+// exprKey marks FuncType as an Expr, sealing Expr to this package's types.
 func (f *FuncType) exprKey() exprKey { return _exprKey }
 
+// astNode marks FuncType as a Node, sealing Node to this package's types.
 func (f *FuncType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the keyword func through the end
@@ -851,8 +887,10 @@ type CompositeLit struct {
 
 var _ Expr = (*CompositeLit)(nil)
 
+// exprKey marks CompositeLit as an Expr, sealing Expr to this package's types.
 func (c *CompositeLit) exprKey() exprKey { return _exprKey }
 
+// astNode marks CompositeLit as a Node, sealing Node to this package's types.
 func (c *CompositeLit) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the type, or the opening brace,
@@ -872,8 +910,10 @@ type Index struct {
 
 var _ Expr = (*Index)(nil)
 
+// exprKey marks Index as an Expr, sealing Expr to this package's types.
 func (i *Index) exprKey() exprKey { return _exprKey }
 
+// astNode marks Index as a Node, sealing Node to this package's types.
 func (i *Index) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the closing
@@ -901,8 +941,10 @@ type Slice struct {
 
 var _ Expr = (*Slice)(nil)
 
+// exprKey marks Slice as an Expr, sealing Expr to this package's types.
 func (s *Slice) exprKey() exprKey { return _exprKey }
 
+// astNode marks Slice as a Node, sealing Node to this package's types.
 func (s *Slice) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the closing
@@ -958,8 +1000,10 @@ type StructType struct {
 
 var _ Expr = (*StructType)(nil)
 
+// exprKey marks StructType as an Expr, sealing Expr to this package's types.
 func (s *StructType) exprKey() exprKey { return _exprKey }
 
+// astNode marks StructType as a Node, sealing Node to this package's types.
 func (s *StructType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'struct' keyword through the
@@ -1002,8 +1046,10 @@ type Selector struct {
 
 var _ Expr = (*Selector)(nil)
 
+// exprKey marks Selector as an Expr, sealing Expr to this package's types.
 func (s *Selector) exprKey() exprKey { return _exprKey }
 
+// astNode marks Selector as a Node, sealing Node to this package's types.
 func (s *Selector) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the field
@@ -1025,8 +1071,10 @@ type KeyValue struct {
 
 var _ Expr = (*KeyValue)(nil)
 
+// exprKey marks KeyValue as an Expr, sealing Expr to this package's types.
 func (k *KeyValue) exprKey() exprKey { return _exprKey }
 
+// astNode marks KeyValue as a Node, sealing Node to this package's types.
 func (k *KeyValue) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of the key through the
@@ -1045,8 +1093,10 @@ type MutArg struct {
 
 var _ Expr = (*MutArg)(nil)
 
+// exprKey marks MutArg as an Expr, sealing Expr to this package's types.
 func (m *MutArg) exprKey() exprKey { return _exprKey }
 
+// astNode marks MutArg as a Node, sealing Node to this package's types.
 func (m *MutArg) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the mut keyword through the end of
@@ -1065,8 +1115,10 @@ type OwnArg struct {
 
 var _ Expr = (*OwnArg)(nil)
 
+// exprKey marks OwnArg as an Expr, sealing Expr to this package's types.
 func (o *OwnArg) exprKey() exprKey { return _exprKey }
 
+// astNode marks OwnArg as a Node, sealing Node to this package's types.
 func (o *OwnArg) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the own keyword through the end of

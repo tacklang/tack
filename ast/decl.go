@@ -2,6 +2,8 @@ package ast
 
 import "github.com/tacklang/tack/types"
 
+// declKey is the type declKey returns, the method that seals Decl: an empty
+// struct, of no use but as the marker's result, whose one value is _declKey.
 type declKey struct{}
 
 var _declKey declKey
@@ -118,8 +120,10 @@ func (f *Func) Recv() *Param {
 	return f.Params[0]
 }
 
+// declKey marks Func as a Decl, sealing Decl to this package's types.
 func (f *Func) declKey() declKey { return _declKey }
 
+// astNode marks Func as a Node, sealing Node to this package's types.
 func (f *Func) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'func' keyword, or the
@@ -155,8 +159,10 @@ type Param struct {
 // it through the same Def field a call uses for a function.
 var _ Decl = (*Param)(nil)
 
+// declKey marks Param as a Decl, sealing Decl to this package's types.
 func (p *Param) declKey() declKey { return _declKey }
 
+// astNode marks Param as a Node, sealing Node to this package's types.
 func (p *Param) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the parameter's name and type.
@@ -214,10 +220,13 @@ var (
 	_ Stmt = (*Var)(nil)
 )
 
+// declKey marks Var as a Decl, sealing Decl to this package's types.
 func (v *Var) declKey() declKey { return _declKey }
 
+// stmtKey marks Var as a Stmt, sealing Stmt to this package's types.
 func (v *Var) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Var as a Node, sealing Node to this package's types.
 func (v *Var) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the whole declaration.
@@ -242,8 +251,10 @@ type Import struct {
 
 var _ Decl = (*Import)(nil)
 
+// declKey marks Import as a Decl, sealing Decl to this package's types.
 func (i *Import) declKey() declKey { return _declKey }
 
+// astNode marks Import as a Node, sealing Node to this package's types.
 func (i *Import) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'import' keyword through the
@@ -290,8 +301,10 @@ func (d *TypeDecl) Method(name string) *Func {
 
 var _ Decl = (*TypeDecl)(nil)
 
+// declKey marks TypeDecl as a Decl, sealing Decl to this package's types.
 func (d *TypeDecl) declKey() declKey { return _declKey }
 
+// astNode marks TypeDecl as a Node, sealing Node to this package's types.
 func (d *TypeDecl) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'type' keyword, or the

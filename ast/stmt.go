@@ -2,6 +2,8 @@ package ast
 
 import "github.com/tacklang/tack/types"
 
+// stmtKey is the type stmtKey returns, the method that seals Stmt: an empty
+// struct, of no use but as the marker's result, whose one value is _stmtKey.
 type stmtKey struct{}
 
 var _stmtKey stmtKey
@@ -22,8 +24,10 @@ type ExprStmt struct {
 
 var _ Stmt = (*ExprStmt)(nil)
 
+// stmtKey marks ExprStmt as a Stmt, sealing Stmt to this package's types.
 func (s *ExprStmt) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks ExprStmt as a Node, sealing Node to this package's types.
 func (s *ExprStmt) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the start of X through the
@@ -40,8 +44,10 @@ type Return struct {
 
 var _ Stmt = (*Return)(nil)
 
+// stmtKey marks Return as a Stmt, sealing Stmt to this package's types.
 func (r *Return) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Return as a Node, sealing Node to this package's types.
 func (r *Return) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'return' keyword through the
@@ -59,8 +65,10 @@ type If struct {
 
 var _ Stmt = (*If)(nil)
 
+// stmtKey marks If as a Stmt, sealing Stmt to this package's types.
 func (i *If) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks If as a Node, sealing Node to this package's types.
 func (i *If) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the whole statement, else branch
@@ -79,8 +87,10 @@ type Assign struct {
 
 var _ Stmt = (*Assign)(nil)
 
+// stmtKey marks Assign as a Stmt, sealing Stmt to this package's types.
 func (a *Assign) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Assign as a Node, sealing Node to this package's types.
 func (a *Assign) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the target through the terminating
@@ -103,8 +113,10 @@ type For struct {
 
 var _ Stmt = (*For)(nil)
 
+// stmtKey marks For as a Stmt, sealing Stmt to this package's types.
 func (f *For) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks For as a Node, sealing Node to this package's types.
 func (f *For) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'for' keyword through the
@@ -118,8 +130,10 @@ type Break struct {
 
 var _ Stmt = (*Break)(nil)
 
+// stmtKey marks Break as a Stmt, sealing Stmt to this package's types.
 func (b *Break) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Break as a Node, sealing Node to this package's types.
 func (b *Break) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the 'break' keyword.
@@ -132,8 +146,10 @@ type Continue struct {
 
 var _ Stmt = (*Continue)(nil)
 
+// stmtKey marks Continue as a Stmt, sealing Stmt to this package's types.
 func (c *Continue) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Continue as a Node, sealing Node to this package's types.
 func (c *Continue) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the 'continue' keyword.
@@ -149,8 +165,10 @@ type IncDec struct {
 
 var _ Stmt = (*IncDec)(nil)
 
+// stmtKey marks IncDec as a Stmt, sealing Stmt to this package's types.
 func (s *IncDec) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks IncDec as a Node, sealing Node to this package's types.
 func (s *IncDec) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the target through the operator.
@@ -176,8 +194,10 @@ type MultiVar struct {
 
 var _ Stmt = (*MultiVar)(nil)
 
+// stmtKey marks MultiVar as a Stmt, sealing Stmt to this package's types.
 func (m *MultiVar) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks MultiVar as a Node, sealing Node to this package's types.
 func (m *MultiVar) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the first name through the end of
@@ -194,8 +214,10 @@ type MultiAssign struct {
 
 var _ Stmt = (*MultiAssign)(nil)
 
+// stmtKey marks MultiAssign as a Stmt, sealing Stmt to this package's types.
 func (m *MultiAssign) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks MultiAssign as a Node, sealing Node to this package's types.
 func (m *MultiAssign) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the first target through the end of
@@ -224,8 +246,10 @@ type ForRange struct {
 
 var _ Stmt = (*ForRange)(nil)
 
+// stmtKey marks ForRange as a Stmt, sealing Stmt to this package's types.
 func (f *ForRange) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks ForRange as a Node, sealing Node to this package's types.
 func (f *ForRange) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'for' keyword through the
@@ -273,8 +297,10 @@ type Switch struct {
 
 var _ Stmt = (*Switch)(nil)
 
+// stmtKey marks Switch as a Stmt, sealing Stmt to this package's types.
 func (s *Switch) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Switch as a Node, sealing Node to this package's types.
 func (s *Switch) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'switch' keyword through the
@@ -353,8 +379,10 @@ type Defer struct {
 
 var _ Stmt = (*Defer)(nil)
 
+// stmtKey marks Defer as a Stmt, sealing Stmt to this package's types.
 func (d *Defer) stmtKey() stmtKey { return _stmtKey }
 
+// astNode marks Defer as a Node, sealing Node to this package's types.
 func (d *Defer) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'defer' keyword through the

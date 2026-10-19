@@ -35,8 +35,10 @@ type TypeParam struct {
 
 var _ Decl = (*TypeParam)(nil)
 
+// declKey marks TypeParam as a Decl, sealing Decl to this package's types.
 func (p *TypeParam) declKey() declKey { return _declKey }
 
+// astNode marks TypeParam as a Node, sealing Node to this package's types.
 func (p *TypeParam) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the parameter's name and
@@ -54,8 +56,10 @@ type InterfaceType struct {
 
 var _ Expr = (*InterfaceType)(nil)
 
+// exprKey marks InterfaceType as an Expr, sealing Expr to this package's types.
 func (t *InterfaceType) exprKey() exprKey { return _exprKey }
 
+// astNode marks InterfaceType as a Node, sealing Node to this package's types.
 func (t *InterfaceType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'interface' keyword through
@@ -94,8 +98,10 @@ type IfaceMethod struct {
 
 var _ Decl = (*IfaceMethod)(nil)
 
+// declKey marks IfaceMethod as a Decl, sealing Decl to this package's types.
 func (m *IfaceMethod) declKey() declKey { return _declKey }
 
+// astNode marks IfaceMethod as a Node, sealing Node to this package's types.
 func (m *IfaceMethod) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the method's declaration.

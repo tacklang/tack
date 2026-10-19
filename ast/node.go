@@ -1,5 +1,7 @@
 package ast
 
+// nodeKey is the type astNode returns, the method that seals Node: an empty
+// struct, of no use but as the marker's result, whose one value is _nodeKey.
 type nodeKey struct{}
 
 var _nodeKey nodeKey

@@ -37,6 +37,7 @@ func NewFile() *File {
 	return &File{Imports: make([]*Import, 0), Decls: make([]Decl, 0), Comments: make([]Comment, 0)}
 }
 
+// astNode marks File as a Node, sealing Node to this package's types.
 func (f *File) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range of the whole file.

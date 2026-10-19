@@ -12,8 +12,10 @@ type UnionType struct {
 
 var _ Expr = (*UnionType)(nil)
 
+// exprKey marks UnionType as an Expr, sealing Expr to this package's types.
 func (u *UnionType) exprKey() exprKey { return _exprKey }
 
+// astNode marks UnionType as a Node, sealing Node to this package's types.
 func (u *UnionType) astNode() nodeKey { return _nodeKey }
 
 // Spanned returns the source range from the 'union' keyword through the
