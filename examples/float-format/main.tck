@@ -1,0 +1,101 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+
+// Floats as text. printf writes a float with %v or %g as the shortest
+// decimal that reads back as the same float, switching to an exponent
+// when its decimal exponent is below -4 or 6 or more, as 1e-05 and 1e+06
+// are; with %e as one digit, a point, six more and
+// an exponent; and with %f as six digits after the point. NaN is NaN,
+// the infinities +Inf and -Inf, and negative zero -0, as Go writes them.
+// std/conv's append_float writes the same, as Go's strconv.AppendFloat
+// does, and parse_float reads a float as Go's strconv.ParseFloat does,
+// correctly rounded, with error{code: 7, msg: "value out of range"} past
+// the largest float, beside an infinity no caller can read before the
+// error is checked, and error{code: 6, msg: "invalid
+// syntax"} for anything that is no float. The lines below are what Go's
+// fmt writes for the same values; each check prints its name and "ok", or
+// "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// show writes f with each float verb.
+func show(f float64) {
+    fmt.printf("%v %g %e %f\n", f, f, f, f)
+}
+
+// formats reports whether conv.append_float writes f, in the format
+// fmt with precision prec and bit size bits, as want.
+func formats(f float64, format uint8, prec int64, bits int64, want string) bool {
+    mut b := make(list[uint8], c_allocator)
+    e := conv.append_float(mut b, f, format, prec, bits)
+    return e.code == 0 && bytes.equal(b[:], []uint8(want))
+}
+
+// parses reports whether conv.parse_float reads s, in bit size bits, as
+// want, with no error.
+func parses(s string, bits int64, want float64) bool {
+    v, e := conv.parse_float([]uint8(s), bits)
+    return e.code == 0 && v == want
+}
+
+// fails reports whether conv.parse_float refuses s with the error code
+// code.
+func fails(s string, code int32) bool {
+    _, e := conv.parse_float([]uint8(s), 64)
+    return e.code == code
+}
+
+func main() {
+    zero := 0.0
+    show(0.1)
+    show(1.5)
+    show(-zero)
+    show(1.0 / 3.0)
+    show(123456789.0)
+    show(1e20)
+    show(1e21)
+    show(0.0001)
+    show(0.00001)
+    show(5e-324)
+    show(1.7976931348623157e308)
+    show(zero / zero)
+    show(1.0 / zero)
+    show(-1.0 / zero)
+    var h float32 = 0.1
+    var third float32 = 1.0 / 3.0
+    fmt.printf("%v %g %e %f\n", h, third, h, third)
+
+    check(formats(0.1, 'g', -1, 64, "0.1") && formats(0.1, 'g', -1, 32, "0.1") &&
+        formats(1e21, 'g', -1, 64, "1e+21") && formats(-zero, 'g', -1, 64, "-0"),
+        "append_float, shortest")
+    check(formats(3.14159, 'f', 2, 64, "3.14") && formats(2.5, 'f', 0, 64, "2") &&
+        formats(1234.5678, 'e', 3, 64, "1.235e+03") && formats(0.000123, 'g', 2, 64, "0.00012"),
+        "append_float, with a precision")
+    check(formats(zero / zero, 'g', -1, 64, "NaN") && formats(1.0 / zero, 'f', 3, 64, "+Inf"),
+        "append_float, NaN and infinity")
+    check(parses("1.5e3", 64, 1500.0) && parses("-0.25", 64, -0.25) && parses(".5", 64, 0.5) &&
+        parses("1_000.5", 64, 1000.5) && parses("0x1p-2", 64, 0.25) && parses("0X1.8P1", 64, 3.0),
+        "parse_float")
+    check(parses("0.1", 64, 0.1) && parses("2.2250738585072011e-308", 64, 2.2250738585072011e-308) &&
+        parses("4.9406564584124654e-324", 64, 5e-324) && parses("2.4703282292062328e-324", 64, 5e-324),
+        "parse_float rounds correctly")
+    check(parses("16777217", 32, 16777216.0) && parses("0.1", 32, 0.100000001490116119384765625),
+        "parse_float in bit size 32")
+    check(fails("1e400", 7) && fails("-1e400", 7) && fails("0x1p1024", 7), "out of range is infinity and an error")
+    n, e2 := conv.parse_float([]uint8("NaN"), 64)
+    i2, e3 := conv.parse_float([]uint8("-Infinity"), 64)
+    check(e2.code == 0 && n != n && e3.code == 0 && i2 < -1e308, "NaN and infinity")
+    check(fails("", 6) && fails("1x", 6) && fails("1e", 6) && fails("0x1", 6) && fails("infx", 6) &&
+        fails("1__0", 6) && fails("+nan", 6), "bad syntax")
+}

@@ -2221,6 +2221,36 @@ func TestBuiltFloatConversionsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestBuiltFloatFormatPassesEveryCheck builds examples/float-format at
+// every optimization level and checks each binary writes exactly its
+// output, which is what Go's fmt writes for the same floats: printf's %v,
+// %g, %e and %f, std/conv's append_float and parse_float, NaN, the
+// infinities, negative zero, subnormals and float32.
+func TestBuiltFloatFormatPassesEveryCheck(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "float-format", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(want), "FAIL") {
+		t.Fatal("examples/float-format/output expects a check to fail")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "float-format")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("float-format"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			if out, code := runBuilt(t, bin); out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
 // TestBuiltTextPassesEveryCheck builds examples/text, which imports
 // std/text, a std package written in Tack alone, at every optimization
 // level and checks each binary writes exactly examples/text/output, every

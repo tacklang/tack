@@ -1,13 +1,16 @@
 package conv
 
-// Package conv converts between integers and their text, as Go's strconv
-// package does. A program imports it as
+// Package conv converts between integers and floats and their text, as
+// Go's strconv package does: parse_int, parse_uint and parse_float read
+// one, and append_float writes a float (see the comment at the top of
+// float.tck). A program imports it as
 //
 //     import conv from "std/conv"
 //
 // and the compiler reads it from $TACK_HOME/src/std/conv, or
 // ~/.tack/src/std/conv, as it reads std/bytes. It is written in Tack
-// alone, with no C, allocates nothing and cannot fail but by its input.
+// alone, with no C, allocates nothing but what append_float appends, and
+// cannot fail but by its input.
 //
 // parse_int and parse_uint follow Go's strconv.ParseInt and ParseUint
 // exactly, ported from Go's internal/strconv/atoi.go, the function that

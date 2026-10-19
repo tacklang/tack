@@ -576,7 +576,7 @@ makes for itself, which has a letter after `tack_`.
   system and runs programs (see os), and
   [`path`](src/std/path/path.tck), which cleans, splits and joins paths
   (see path), [`conv`](src/std/conv/conv.tck), which parses
-  integers (see conv), [`errors`](src/std/errors/errors.tck), whose
+  integers and floats and writes floats (see conv), [`errors`](src/std/errors/errors.tck), whose
   `Failure` carries a message made at run time beside an error (see
   errors), and [`sort`](src/std/sort/sort.tck), which sorts lists
   (see sort).
@@ -1258,7 +1258,24 @@ makes for itself, which has a letter after `tack_`.
   is the nearest `bit_size` holds, and 0 beside any other, as in Go,
   though, as for every result beside an error, it cannot be read
   before the error is checked. Go's own quirk comes too: in bit size 1,
-  `parse_int("-2", 10, 1)` is -1 and no error.
+  `parse_int("-2", 10, 1)` is -1 and no error. `v, err :=
+  conv.parse_float(s, bit_size)` reads a float as Go's
+  `strconv.ParseFloat` does, correctly rounded to the nearest `float32`
+  for a `bit_size` of 32 and the nearest `float64` otherwise: a decimal or
+  hexadecimal float as a Go literal writes one, `1.5e-3`, `0x1p-2`, with a
+  sign and `_` between digits, or `inf`, `infinity` or `nan` in either
+  case, `+Inf` and `-inf` included. Bad syntax is `error{code: 6, msg:
+  "invalid syntax"}` and a value past the largest float `error{code: 7,
+  msg: "value out of range"}`, beside an infinity, as in Go; a value too
+  small rounds to zero or a subnormal with no error.
+  `conv.append_float(mut b, f, format, prec, bit_size)` appends `f` to `b`
+  as Go's `strconv.AppendFloat` does, `format` being `'e'`, `'E'`, `'f'`,
+  `'g'` or `'G'` and `prec` the digits after the point, or in all for
+  `g`, `-1` meaning the fewest that read back as `f`; it gives no error,
+  or `error{code: 1, msg: "out of memory"}` leaving `b` as it was. Both
+  work exactly on a decimal of up to 800 digits, as Go's slow path does,
+  in Tack alone, and printf's C uses the same algorithm; the tests check
+  both against Go and against each other.
 - errors. `std/errors` is written in Tack alone, with no C. An error's
   message is a literal, so what only the run knows, the name that was
   undefined or the path that could not be opened, cannot be in it;
@@ -3041,9 +3058,14 @@ makes for itself, which has a letter after `tack_`.
   matches `float32` and `float64`. A float crosses to C as C's `float` or
   `double`, by value, alone or in a struct, an array or a view, and as a
   pointer for a `mut` parameter, and what C gives back may be NaN or an
-  infinity, which Tack's floats hold as IEEE 754 says. Not yet:
-  `fmt.printf` has no float verbs, so `printf verb %v does not take
-  float64 yet: printf has no float verbs yet`.
+  infinity, which Tack's floats hold as IEEE 754 says. `fmt.printf`
+  writes a float as Go's `fmt` does: `%v` and `%g` as the shortest decimal
+  that reads back as the same float, with an exponent when its decimal
+  exponent is below -4 or 6 or more, `0.1`, `1e+06`, `5e-324`; `%e` with
+  six digits after the point, `1.000000e-01`; `%f` with six, `0.100000`;
+  NaN as `NaN`, the infinities as `+Inf` and `-Inf`, and negative zero as
+  `-0`. The digits are worked out exactly, with no C library and no
+  locale (see conv).
 - Passing the wrong number or type of arguments is a type error, so a call
   cannot silently discard what it was given: `f expects 2 argument(s), got
   3`, or for a variadic function, which takes any number past its other

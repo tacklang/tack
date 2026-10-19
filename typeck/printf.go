@@ -156,8 +156,8 @@ func formatVerbs(format string) (verbs []string, lone bool) {
 
 // verbProblem returns the mistake in verb, the format's verb number value,
 // given a value of type typ, and whether there is one: a verb printf does
-// not know, or one that does not take typ, which no verb does for a float
-// yet. types.Invalid and types.Any match every verb. bytes says which type is []uint8.
+// not know, or one that does not take typ. types.Invalid and types.Any
+// match every verb. bytes says which type is []uint8.
 func verbProblem(
 	verb string,
 	value int,
@@ -169,16 +169,6 @@ func verbProblem(
 	switch {
 	case !known:
 		return formatProblem{message: "unknown printf verb " + showVerb(verb), value: -1}, true
-	case types.IsFloat(typ):
-		return formatProblem{
-			message: fmt.Sprintf(
-				"printf verb %%%s does not take %s yet: printf has no float verbs yet",
-				verb,
-				name(typ),
-			),
-			value:  value,
-			values: 1,
-		}, true
 	case typ == types.Invalid || typ == types.Any || accepts(typ):
 		return formatProblem{}, false
 	default:
@@ -211,8 +201,9 @@ func verbLen(b byte, n int) int {
 
 // verbTakes returns which types the printf verb accepts a value of, and
 // whether it is a verb at all: %d and %x an integer, %s a string or a
-// []uint8, which bytes says a type is, %t a bool, %c a uint8 and %v any
-// basic type a value of can be passed as any, or a []uint8.
+// []uint8, which bytes says a type is, %t a bool, %c a uint8, %e, %f and
+// %g a float, and %v any basic type a value of can be passed as any, or a
+// []uint8.
 func verbTakes(verb string, bytes func(types.Type) bool) (func(types.Type) bool, bool) {
 	switch verb {
 	case "d", "x":
@@ -223,6 +214,8 @@ func verbTakes(verb string, bytes func(types.Type) bool) (func(types.Type) bool,
 		return func(t types.Type) bool { return t == types.Bool }, true
 	case "c":
 		return func(t types.Type) bool { return t == types.Uint8 }, true
+	case "e", "f", "g":
+		return types.IsFloat, true
 	case "v":
 		return func(t types.Type) bool { return types.InAny(t) || bytes(t) }, true
 	default:

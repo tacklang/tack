@@ -22,14 +22,15 @@ var floatSanitizers = []string{
 }
 
 // TestFloatExamplesAreSanitizerClean builds examples/floats,
-// examples/float-conversions and examples/extern-floats, with its C file,
+// examples/float-conversions, examples/extern-floats, with its C file, and
+// examples/float-format,
 // with clang's warnings as errors and floatSanitizers, at -O0 and -O2, and
 // checks each writes exactly its output, every check ok: no float
 // operation, no conversion between floats and integers at any edge, and
 // no float crossing to C or held by an any, is one C leaves undefined.
 func TestFloatExamplesAreSanitizerClean(t *testing.T) {
 	for _, ex := range []struct{ name, cfile string }{
-		{"floats", ""}, {"float-conversions", ""}, {"extern-floats", "floats.c"},
+		{"floats", ""}, {"float-conversions", ""}, {"extern-floats", "floats.c"}, {"float-format", ""},
 	} {
 		dir := filepath.Join("..", "..", "examples", ex.name)
 		src := readFile(t, filepath.Join(dir, "main.tck"))

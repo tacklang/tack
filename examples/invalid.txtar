@@ -9765,22 +9765,41 @@ float-overflows-float32/main.tck:4:21: error: constant 1e+39 overflows float32
    |	                    ^~~~
 05 |	    if f > 0.0 {
 
--- float-printf/main.tck --
+-- float-printf-integer-verb/main.tck --
 package main
 
 import fmt from "std/fmt"
 
 func main() {
     f := 1.5
-    fmt.printf("%v\n", f)
+    fmt.printf("%d\n", f)
 }
--- float-printf/expected --
+-- float-printf-integer-verb/expected --
 stage: typeck
 ---
 
-float-printf/main.tck:7:24: error: printf verb %v does not take float64 yet: printf has no float verbs yet
+float-printf-integer-verb/main.tck:7:24: error: printf verb %d does not take float64
 06 |	    f := 1.5
-07 |	    fmt.printf("%v\n", f)
+07 |	    fmt.printf("%d\n", f)
+   |	                       ^
+08 |	}
+
+-- float-printf-verb-on-integer/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    n := 3
+    fmt.printf("%f\n", n)
+}
+-- float-printf-verb-on-integer/expected --
+stage: typeck
+---
+
+float-printf-verb-on-integer/main.tck:7:24: error: printf verb %f does not take int64
+06 |	    n := 3
+07 |	    fmt.printf("%f\n", n)
    |	                       ^
 08 |	}
 

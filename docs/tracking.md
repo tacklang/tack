@@ -34,7 +34,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Block comments              | no    | no      | no      | no      | Not part of the language; `/*` is reserved and reported                                                          |
 | Decimal integer literals    | yes   | yes     | yes     | yes     | Smallest `int64` to largest `uint64`; beyond is a parse error; no leading zeros: `007`, `00` are errors          |
 | Hex, octal, binary literals | no    | no      | no      | no      |                                                                                                                  |
-| Float literals              | yes   | no      | no      | no      |                                                                                                                  |
+| Float literals              | yes   | yes     | yes     | yes     | Decimal as in Go, `1.5` `.5` `1.` `1e9`, `_` between digits; no hex floats; exact untyped constants, `float64` by default; written to C as exact hex floats |
 | Char literals               | yes   | yes     | yes     | yes     | A typed `uint8` constant; one byte, escapes as in strings; `'é'` is an error                                     |
 | String literals             | yes   | yes     | yes     | yes     | Bytes, not runes, everywhere; escapes `\a \b \f \v \n \t \r \\ \"` and `\xHH`; no newline                          |
 | Raw string literals         | yes   | yes     | yes     | yes     | Raw, as in Go: no escapes, may span lines, no backquote inside; carriage returns dropped                         |
@@ -147,7 +147,7 @@ valid but says more than it needs to, are in [vet.md](vet.md).
 | Lossless widening                  | yes     | yes | Implicit wherever a value is used, when it holds on every target; not needed to compare two integers; no `int` |
 | `string`                           | yes     | yes | Pointer and length, `tack_string` by value; immutable bytes; all six comparisons, by unsigned bytes |
 | `bool`                             | yes     | yes | Compared with `==` `!=`; combined with `&&` `\|\|` `!`            |
-| Float types                        | no      | no  |                                                                   |
+| Float types                        | yes     | yes | `float32` `float64`, C's `float` and `double`, IEEE 754 with no fast-math or contraction; `+ - * /`, six comparisons; no implicit conversion; a zero divisor gives an infinity or NaN; no facts, no index, no map key; checked conversion to integers; in `any` and across C; printf's `%v` `%g` `%e` `%f` and std/conv's `parse_float` and `append_float`, as Go's |
 | Arrays `[n]T`                      | yes     | yes | Values, a C struct each; `==` element by element; constant length; at most 2^31 bytes, as is any value; a program's globals together at most 2^30 |
 | Structs                            | yes     | yes | Values, a C struct each; `==` field by field; no embedding        |
 | Views `[]T`                        | yes     | yes | Parameters and a function's only result, read-only; a pointer to const elements and a length by value; no `==` |

@@ -423,8 +423,8 @@ const harnessHeader = "#include <tack/tack.h>\n" +
 // are no type's, zero, past the last view's and far past it, a zeroed
 // format and view, whose pointers are null, and views as anys: a []uint8
 // of no bytes, whose pointer is null, and a []int64, which no verb
-// takes; and floats, which no verb takes yet, though a Tack program can
-// pass one through an any variable. Each must be written as a marker, or as no bytes, never read
+// takes; and floats, which %v writes and %d does not take, written with
+// their value, as Go writes them. Each must be written as a marker, or as no bytes, never read
 // past.
 func TestPrintfCHandlesWhatTackNeverPasses(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
@@ -478,7 +478,7 @@ int main(void) {
 		"%!d(MISSING)" +
 		"|[] [%!v([]int64)] %!v(invalid) %!v(MISSING)" +
 		"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)" +
-		"|%!v(float64) %!d(float32)"
+		"|1.5 %!d(float32=0.5)"
 	if string(out) != want {
 		t.Errorf("got %q, want %q", out, want)
 	}

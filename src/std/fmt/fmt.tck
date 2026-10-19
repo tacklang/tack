@@ -32,11 +32,21 @@ pub func println(s string) {
 //         way: printf("undefined: %s\n", name.bytes())
 //     %t  a bool, true or false
 //     %c  a uint8, the byte itself
+//     %g  a float32 or a float64, as the shortest decimal that reads back
+//         as it, with an exponent when its decimal exponent is below -4
+//         or 6 or more: 0.1, 1e+06, 5e-324
+//     %e  a float, with six digits after the point and an exponent:
+//         1.000000e-01
+//     %f  a float, with six digits after the point: 0.100000
 //     %v  a value of any type above, as its own verb writes it: %d for an
-//         integer, %s for a string or a []uint8, %t for a bool
+//         integer, %s for a string or a []uint8, %t for a bool, %g for a
+//         float
 //     %%  a %, taking no argument
 //
-// There are no widths, precisions or flags. An untyped constant argument
+// A float is written as Go's fmt writes it, NaN as NaN, the infinities as
+// +Inf and -Inf, and negative zero with its sign, -0; std/conv's
+// append_float writes the same, with any precision. There are no widths,
+// precisions or flags. An untyped constant argument
 // is an int64, and a character literal a uint8. No verb takes a view of
 // any other type, a []int64 or a []string, though one can be passed: it
 // is written as a verb given a value it does not take, %!v([]int64),
