@@ -330,10 +330,6 @@ func (c *Checker) storedTarget(stmt ast.Stmt) (linTerm, ast.Expr, bool) {
 	}
 }
 
-// keys returns the subjects f names besides its own, about: the length
-// that bounds it, the subject a relation bounds it by, the map it is a key
-// of, and a difference bound's two nodes. A write to any of them can end
-// f.
 // allKeys writes into buf every subject f names, its own first, then
 // those keys gives, and returns the part of buf written, so that a caller
 // asking about each fact of a long chain allocates nothing for it.
@@ -346,6 +342,11 @@ func (f fact) allKeys(buf *[7]factKey) []factKey {
 	return buf[:7]
 }
 
+// keys returns the subjects f names besides its own, about: the length
+// that bounds it, the subject a relation bounds it by, the map it is a key
+// of, and a difference bound's two nodes. A write to any of them can end
+// f. A subject f does not have is the zero factKey, kept in its place, as
+// allKeys keeps it.
 func (f fact) keys() []factKey {
 	keys := []factKey{f.lenOf, f.atMostLen, f.atMost, f.inMap}
 	if f.diff != nil {

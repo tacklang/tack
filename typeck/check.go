@@ -2098,6 +2098,9 @@ func breaks(body []ast.Stmt) bool {
 	return false
 }
 
+// blockTerminates reports whether control cannot fall out of the bottom of
+// body: whether its last statement terminates (see terminates). An empty
+// body falls out.
 func blockTerminates(body []ast.Stmt) bool {
 	return len(body) > 0 && terminates(body[len(body)-1])
 }
@@ -2206,6 +2209,8 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 	c.ownReceiver(fn)
 }
 
+// errorf reports an error at span, its message format and args as
+// fmt.Sprintf formats them, with no notes (see errorNotes).
 func (c *Checker) errorf(span ast.Span, format string, args ...any) {
 	c.errorNotes(span, nil, format, args...)
 }
