@@ -722,6 +722,35 @@ func TestCheckPackagesNamedBuiltinAndStd(t *testing.T) {
 	assertCheckClean(t, runTack(t, "--check", "."))
 }
 
+// TestCheckBuiltinDocThroughSymlinks checks that std/builtin/builtin.tck,
+// reached through a symbolic link to its directory or to the file, as an
+// editor may open it, is still the builtins' documentation, clean when it
+// matches them, rather than code with errors in every builtin's form; and
+// that a stale copy reached so still says how to refresh it, by the name
+// it was reached by.
+func TestCheckBuiltinDocThroughSymlinks(t *testing.T) {
+	links := t.TempDir()
+	copied := filepath.Join(copyStd(t), "src", "std", "builtin")
+	dirLink, fileLink := filepath.Join(links, "builtin"), filepath.Join(links, "doc.tck")
+	if err := os.Symlink(copied, dirLink); err != nil {
+		t.Skipf("cannot make a symbolic link: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(copied, "builtin.tck"), fileLink); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{dirLink, filepath.Join(dirLink, "builtin.tck"), fileLink} {
+		assertCheckClean(t, runTack(t, "--check", target))
+	}
+
+	appendTo(t, filepath.Join(copied, "builtin.tck"), "\n// edited\n")
+	target := filepath.Join(dirLink, "builtin.tck")
+	r := runTack(t, "--check", target)
+	if r.code != exitFailure || !strings.Contains(r.stderr, "make std-copies") ||
+		!strings.Contains(r.stderr, target) {
+		t.Errorf("--check %s on a stale copy: exit %d, stderr %q", target, r.code, r.stderr)
+	}
+}
+
 // TestCheckBuiltinDoc checks --check on std/builtin/builtin.tck, the copy
 // of the builtins' documentation, which no parser but the compiler's own
 // builtin mode reads: named as a file or by its directory, in the

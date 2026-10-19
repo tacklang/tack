@@ -212,7 +212,8 @@ func isLibrary(prog *ast.Program) bool {
 const builtinDocName = "builtin.tck"
 
 // checkBuiltinDoc checks target when it is std/builtin/builtin.tck, or
-// the directory std/builtin, and reports whether it was: that file is a
+// the directory std/builtin, directly or through a symbolic link, and
+// reports whether it was: that file is a
 // copy of the documentation of the builtins the compiler builds in (see
 // builtin.Source), written in forms only the compiler's builtin mode
 // parses, so it is never checked as code. It is clean when it matches
@@ -223,6 +224,12 @@ func checkBuiltinDoc(target string, lib *std) (bool, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return false, nil //nolint:nilerr // the loader reports the target
+	}
+	// A symbolic link to the directory or to the file, as an editor may
+	// open it through, is what it links to: the copy is found by where it
+	// is, and named in an error by the name it was reached by.
+	if resolved, linkErr := filepath.EvalSymlinks(abs); linkErr == nil {
+		abs = resolved
 	}
 	info, err := os.Stat(abs)
 	if err != nil {

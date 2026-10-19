@@ -192,7 +192,8 @@ syntax error is still one: the error is reported and its package checked
 past it. `tack --check src/std` checks the standard library, from a
 checkout as well as the installed copy, leaving out `std/builtin`, which
 only holds a copy of the builtins' documentation. Named on its own,
-`tack --check src/std/builtin/builtin.tck`, or by its directory, that copy
+`tack --check src/std/builtin/builtin.tck`, or by its directory, either
+directly or through a symbolic link, that copy
 is clean when it matches the builtins built into the compiler, and
 otherwise an error saying to refresh it with `make std-copies`. With a dump flag,
 `--check` prints that stage's output, when the stages up to it found no
