@@ -68,6 +68,8 @@ var rangeRuntimeCases = []struct {
 	},
 }
 
+// Each of rangeRuntimeCases, built with clang's warnings as errors (see
+// run), prints and exits as the case says.
 func TestRangeLoopsAtRuntime(t *testing.T) {
 	for _, tt := range rangeRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

@@ -17,15 +17,24 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
+// init registers the C backend with codegen, where the driver finds it
+// by name.
 func init() { codegen.Register(New()) }
 
+// backend is the C code generation backend: it lowers a checked program to
+// one C translation unit and gives the clang commands that build it. It
+// holds no state, so one value serves every build.
 type backend struct{}
 
 // New returns the C code generation backend.
 func New() codegen.Backend { return backend{} }
 
+// Name returns c, the name the driver's --backend flag selects this
+// backend by.
 func (backend) Name() string { return "c" }
 
+// Ext returns .c, the extension of the file the generated C is written
+// to.
 func (backend) Ext() string { return ".c" }
 
 // BuildCmd runs clang with its warnings off, compiling src and linking it
@@ -125,6 +134,11 @@ type str struct {
 	value string
 }
 
+// generator is the state of lowering one program to C: the program and
+// the builtins it was checked with, what is known of its declarations
+// before any is lowered, the string pool, what lowering one body notes for
+// the rest, and the buffer the translation unit is written to. Generate
+// makes one for each program and uses it once.
 type generator struct {
 	prog     *ast.Program
 	builtins *builtin.Set                 // the builtins a call can name
@@ -178,6 +192,14 @@ type generator struct {
 	deferring bool
 }
 
+// generate lowers the program to its C translation unit. It first rejects
+// a program whose types tack.h could not name, notes the globals and fills
+// the string pool, then lowers every declaration and generic instance
+// before it writes anything, so a construct it cannot lower gives
+// diagnostics and no output. Only then does it write the file, in C's
+// order of declaration: the preamble, the types, the pooled constants and
+// the globals, the result structs, the prototypes and thunks, the
+// functions, and the entry point (see emitEntryPoint).
 func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	// tack.h is written only for a build with C files, but a name it
 	// cannot give is a problem with the program whatever is built.
@@ -3230,6 +3252,7 @@ func mangledPart(c string) string {
 	return strconv.Itoa(e.Len()) + "_" + e.String()
 }
 
+// seenStr reports whether the string pool already holds s.
 func (g *generator) seenStr(s string) bool {
 	for _, x := range g.strPool {
 		if x.value == s {
@@ -3239,6 +3262,9 @@ func (g *generator) seenStr(s string) bool {
 	return false
 }
 
+// addStr adds s to the string pool, under the next label, tack_str0 then
+// tack_str1 and on, unless the pool holds it already: each distinct
+// string is pooled once, however often the program uses it.
 func (g *generator) addStr(s string) {
 	if g.seenStr(s) {
 		return
@@ -3246,6 +3272,10 @@ func (g *generator) addStr(s string) {
 	g.strPool = append(g.strPool, str{fmt.Sprintf("tack_str%d", len(g.strPool)), s})
 }
 
+// strLabel returns the label of s in the string pool, or the empty string
+// when s was never pooled. collectStrings pools every string a body can
+// use before any is lowered, so an empty label is a string it missed, and
+// the C written with it does not compile.
 func (g *generator) strLabel(s string) string {
 	for _, x := range g.strPool {
 		if x.value == s {

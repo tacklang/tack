@@ -55,6 +55,8 @@ var negateRuntimeCases = []struct {
 	},
 }
 
+// Each of negateRuntimeCases, built with clang's warnings as errors (see
+// run), prints nothing and exits as the case says.
 func TestNegationAtRuntime(t *testing.T) {
 	for _, tt := range negateRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

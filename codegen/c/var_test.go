@@ -49,6 +49,8 @@ func program(lines ...string) string {
 	return "package main\n\nfunc main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
 
+// A variable declared without mut is a const C local, and a read of it
+// names that local.
 func TestImmutableVariableIsAConstLocal(t *testing.T) {
 	got := generate(t, program("x := 7", "exit(int32(x))"))
 
@@ -60,6 +62,8 @@ func TestImmutableVariableIsAConstLocal(t *testing.T) {
 	}
 }
 
+// A variable declared with mut is a C local without const, and an
+// assignment to it is a C assignment.
 func TestMutableVariableIsAPlainLocal(t *testing.T) {
 	got := generate(
 		t,

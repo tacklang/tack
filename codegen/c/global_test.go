@@ -129,6 +129,8 @@ var globalRuntimeCases = []struct {
 	},
 }
 
+// Each of globalRuntimeCases, built with clang's warnings as errors (see
+// run), prints and exits as the case says.
 func TestGlobalsAtRuntime(t *testing.T) {
 	for _, tt := range globalRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

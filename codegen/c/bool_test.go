@@ -85,6 +85,8 @@ var boolRuntimeCases = []struct {
 	},
 }
 
+// Each of boolRuntimeCases, built with clang's warnings as errors (see
+// run), prints and exits as the case says.
 func TestBoolLiteralsAtRuntime(t *testing.T) {
 	for _, tt := range boolRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

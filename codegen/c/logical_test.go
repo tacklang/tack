@@ -73,6 +73,8 @@ var logicalRuntimeCases = []struct {
 	},
 }
 
+// Each of logicalRuntimeCases, built with clang's warnings as errors (see
+// run), prints and exits as the case says.
 func TestLogicalOperatorsAtRuntime(t *testing.T) {
 	for _, tt := range logicalRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

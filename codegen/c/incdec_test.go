@@ -36,6 +36,8 @@ var incDecRuntimeCases = []struct {
 	},
 }
 
+// Each of incDecRuntimeCases, built with clang's warnings as errors (see
+// run), prints nothing and exits as the case says.
 func TestIncDecAtRuntime(t *testing.T) {
 	for _, tt := range incDecRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

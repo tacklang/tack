@@ -72,6 +72,8 @@ var clauseRuntimeCases = []struct {
 	},
 }
 
+// Each of clauseRuntimeCases, built with clang's warnings as errors (see
+// run), prints and exits as the case says.
 func TestThreeClauseLoopsAtRuntime(t *testing.T) {
 	for _, tt := range clauseRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {

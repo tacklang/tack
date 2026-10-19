@@ -66,6 +66,8 @@ func generate(t *testing.T, src string) string {
 	return string(out)
 }
 
+// The backend answers to the name c, which --backend selects, and writes
+// files ending in .c.
 func TestBackendIdentity(t *testing.T) {
 	e := c.New()
 	if e.Name() != "c" {
@@ -208,6 +210,9 @@ func TestBuildCmdStillReportsErrors(t *testing.T) {
 	}
 }
 
+// C's main stores argc and argv where the runtime reads them, calls Tack's
+// main under its mangled name, and returns 0, so a program that ends
+// without calling exit exits 0.
 func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n}\n")
 
@@ -224,6 +229,8 @@ func TestGeneratesEntryPointCallingTackMain(t *testing.T) {
 	}
 }
 
+// A Tack function is a static C function under its mangled name, and a
+// call of it is a call of that name.
 func TestGeneratesCallBetweenTackFunctions(t *testing.T) {
 	got := generate(t, "package main\n\nfunc greet() {\n}\n\nfunc main() {\n    greet()\n}\n")
 
@@ -289,6 +296,8 @@ func TestPoolsNothingWhenNoStringIsUsed(t *testing.T) {
 	}
 }
 
+// A statement the backend cannot lower is reported as an error rather
+// than lowered.
 func TestRejectsUnsupportedStatement(t *testing.T) {
 	// No Tack source can express a bare identifier statement today, so the
 	// tree is built by hand. It pins what the backend does when the front end
@@ -422,6 +431,8 @@ func TestGeneratedSourceIncludesTackString(t *testing.T) {
 	}
 }
 
+// A string literal is a tack_string of its pooled array and that array's
+// length.
 func TestStringLiteralBecomesAStringValue(t *testing.T) {
 	got := generate(t, "package main\n\nfunc main() {\n    print(\"hi\")\n}\n")
 
@@ -433,6 +444,8 @@ func TestStringLiteralBecomesAStringValue(t *testing.T) {
 	}
 }
 
+// Each parameter keeps its order and C type, under its prefixed name, in
+// both the prototype and the definition.
 func TestGeneratesParameterisedSignature(t *testing.T) {
 	got := generate(t, "package main\n\nfunc f(x int64, s string) {\n}\n\nfunc main() {\n}\n")
 
@@ -456,6 +469,7 @@ func TestParameterNamesCannotCollideWithGeneratedNames(t *testing.T) {
 	}
 }
 
+// A call passes each argument, as a C expression, in its own place.
 func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 	got := generate(
 		t,
@@ -470,6 +484,8 @@ func TestPassesArgumentsAtTheCallSite(t *testing.T) {
 	}
 }
 
+// A builtin takes a parameter as it takes a literal, naming the
+// parameter's C name.
 func TestLowersBuiltinsAppliedToParameters(t *testing.T) {
 	got := generate(
 		t,
@@ -615,6 +631,8 @@ func build(t *testing.T, src string) string {
 	return bin
 }
 
+// Arguments of two types reach the function called, as its output and
+// exit status show.
 func TestGeneratedProgramPassesArgumentsAtRuntime(t *testing.T) {
 	src := "package main\n\n" +
 		"func greet(s string, n int64) {\n    print(s)\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n\n" +
@@ -659,6 +677,7 @@ func TestParameterSurvivesAnInterveningCall(t *testing.T) {
 	}
 }
 
+// A parameter passed on as an argument reaches the function called next.
 func TestGeneratedProgramForwardsAParameter(t *testing.T) {
 	src := "package main\n\n" +
 		"func g(s string) {\n    print(s)\n}\n\n" +
@@ -674,6 +693,8 @@ func TestGeneratedProgramForwardsAParameter(t *testing.T) {
 	}
 }
 
+// A function's result type is the C return type of its signature, for an
+// integer and a string alike.
 func TestGeneratesResultTypeInSignature(t *testing.T) {
 	got := generate(
 		t,
@@ -690,6 +711,7 @@ func TestGeneratesResultTypeInSignature(t *testing.T) {
 	}
 }
 
+// A return with a value is a C return of it.
 func TestGeneratesReturnStatement(t *testing.T) {
 	got := generate(
 		t,
@@ -701,6 +723,7 @@ func TestGeneratesReturnStatement(t *testing.T) {
 	}
 }
 
+// A bare return is a C return with no value.
 func TestGeneratesBareReturn(t *testing.T) {
 	got := generate(t, "package main\n\nfunc f() {\n    return\n}\n\nfunc main() {\n}\n")
 
@@ -709,6 +732,7 @@ func TestGeneratesBareReturn(t *testing.T) {
 	}
 }
 
+// A call used as an argument is written inline as a C call expression.
 func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 	got := generate(
 		t,
@@ -720,6 +744,7 @@ func TestCallInArgumentPositionIsACExpression(t *testing.T) {
 	}
 }
 
+// Calls nested as arguments are nested C calls.
 func TestNestedCallsNest(t *testing.T) {
 	src := "package main\n\nfunc g(x int32) int32 {\n    return x\n}\n\n" +
 		"func h() int32 {\n    return 3\n}\n\nfunc main() {\n    exit(g(h()))\n}\n"
@@ -730,6 +755,8 @@ func TestNestedCallsNest(t *testing.T) {
 	}
 }
 
+// A function's integer result reaches its caller, as the exit status
+// shows.
 func TestGeneratedProgramReturnsAnIntResult(t *testing.T) {
 	src := "package main\n\nfunc seven() int64 {\n    return 7\n}\n\nfunc main() {\n    code, fits := int32(seven())\n    if fits { exit(code) }\n}\n"
 
@@ -743,6 +770,8 @@ func TestGeneratedProgramReturnsAnIntResult(t *testing.T) {
 	}
 }
 
+// A function's string result reaches its caller whole, as its output
+// shows.
 func TestGeneratedProgramReturnsAStringResult(t *testing.T) {
 	src := "package main\n\nfunc greeting() string {\n    return \"hello from a result\"\n}\n\n" +
 		"func main() {\n    print(greeting())\n}\n"
@@ -756,6 +785,8 @@ func TestGeneratedProgramReturnsAStringResult(t *testing.T) {
 	}
 }
 
+// A value returned by one call and passed to the next survives each of
+// them.
 func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 	src := "package main\n\n" +
 		"func base() int64 {\n    return 5\n}\n\n" +
@@ -772,6 +803,9 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 	}
 }
 
+// Arithmetic keeps its grouping in the C, every operation parenthesized
+// and done on uint64_t, where a C overflow is defined, and cast back to
+// int64_t.
 func TestGeneratesBinaryExpression(t *testing.T) {
 	got := generate(
 		t,
@@ -799,6 +833,7 @@ func TestGeneratesConstantExpressionAsItsValue(t *testing.T) {
 	}
 }
 
+// bool is C's bool, from stdbool.h, as a parameter's type and a result's.
 func TestGeneratesBoolInSignature(t *testing.T) {
 	got := generate(
 		t,
@@ -813,6 +848,7 @@ func TestGeneratesBoolInSignature(t *testing.T) {
 	}
 }
 
+// An if with an else is a C if on its condition, with an else.
 func TestGeneratesIfElse(t *testing.T) {
 	src := "package main\n\nfunc f(n int64) {\n    if n < 2 {\n        print(\"yes\")\n    } else {\n        print(\"no\")\n    }\n}\n\n" +
 		"func main() {\n    f(1)\n}\n"
@@ -825,6 +861,7 @@ func TestGeneratesIfElse(t *testing.T) {
 	}
 }
 
+// A branch's statements are indented one level inside its if.
 func TestNestsStatementsInsideBranches(t *testing.T) {
 	src := "package main\n\nfunc main() {\n    if 1 < 2 {\n        print(\"yes\")\n    }\n}\n"
 
@@ -834,6 +871,8 @@ func TestNestsStatementsInsideBranches(t *testing.T) {
 	}
 }
 
+// Recursion, an if and arithmetic together compute fib(10), 55, as the
+// exit status shows.
 func TestGeneratedProgramComputesFib(t *testing.T) {
 	src := "package main\n\n" +
 		"func fib(n int64) int64 {\n" +
@@ -852,6 +891,8 @@ func TestGeneratedProgramComputesFib(t *testing.T) {
 	}
 }
 
+// An if runs its then branch when its condition holds and its else branch
+// when it does not, as the output of one call of each shows.
 func TestGeneratedProgramTakesTheElseBranch(t *testing.T) {
 	src := "package main\n\n" +
 		"func classify(n int64) string {\n" +
@@ -868,6 +909,11 @@ func TestGeneratedProgramTakesTheElseBranch(t *testing.T) {
 	}
 }
 
+// The five arithmetic operators, in one expression, give the exit status
+// Tack's precedence says. The expression is all literals, so the checker
+// computes it and the C holds only its value (see
+// TestGeneratesConstantExpressionAsItsValue): this pins the result, not
+// the C each operator lowers to.
 func TestGeneratedProgramEvaluatesEveryOperator(t *testing.T) {
 	// (((7 + 3) - 2) * 3) / 2 % 7 == 12 % 7 == 5
 	src := "package main\n\nfunc main() {\n    exit(((7 + 3) - 2) * 3 / 2 % 7)\n}\n"

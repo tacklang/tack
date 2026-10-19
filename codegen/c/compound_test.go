@@ -56,6 +56,8 @@ var compoundRuntimeCases = []struct {
 	},
 }
 
+// Each of compoundRuntimeCases, built with clang's warnings as errors (see
+// run), prints nothing and exits as the case says.
 func TestCompoundAssignmentAtRuntime(t *testing.T) {
 	for _, tt := range compoundRuntimeCases {
 		t.Run(tt.name, func(t *testing.T) {
