@@ -45,7 +45,10 @@ static tack_results_6_ensmod3_num5_Parse tack_6_ensmod3_num5_Parse(tack_string p
     int64_t v_n = 0;
     {
         const tack_string tack_r0 = p_s;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             const uint8_t v_c = p_s.ptr[v_i];
             if ((v_c < 48) || (v_c > 57)) {

@@ -1495,6 +1495,135 @@ func TestBuiltLoopsTicksAndExits29(t *testing.T) {
 	}
 }
 
+// endlessCases are the cases of examples/endless-loops whose loops never
+// end; see that example for what each one runs.
+var endlessCases = []string{
+	"clause", "clause-continue", "cond", "cond-call", "bare", "bare-break",
+	"range-int", "range-array", "range-string", "range-view", "range-list",
+	"range-map", "nested-inner", "nested-outer", "defer", "global",
+	"exit-inside", "exit-before", "generic", "guarded",
+}
+
+// endlessGrace is how long a case of examples/endless-loops must still be
+// running for. A loop the C compiler assumed to end is deleted, so the
+// case returns, or reads out of range, at once.
+const endlessGrace = 500 * time.Millisecond
+
+// TestBuiltEndlessLoopsNeverEnd builds examples/endless-loops at every
+// optimization level and runs each of its cases at once, all of them
+// together: every case whose loop never ends must still be running, with
+// nothing printed, when endlessGrace has passed, and the control case,
+// whose loop ends, must print "ended" and exit 0. A loop the generated C
+// lets the C compiler assume ends, one whose body does nothing observable
+// and whose controlling expression is not a constant, is deleted at -O1
+// and above, and the code after it runs, or, when the loop was the only
+// way on, whatever code comes next.
+func TestBuiltEndlessLoopsNeverEnd(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "endless-loops")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("endless-loops"))
+			if r.code != exitOK || r.stdout != "" || r.stderr != "" {
+				t.Fatalf("build: exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+			}
+			running := make([]*endlessRun, len(endlessCases))
+			for i, name := range endlessCases {
+				running[i] = startEndless(t, bin, name)
+			}
+			time.Sleep(endlessGrace)
+			for _, run := range running {
+				run.requireRunning(t)
+			}
+			if out, code := runBuiltArgs(t, bin, "ends"); out != "ended\n" || code != 0 {
+				t.Errorf("ends printed %q and exited %d, want %q and 0", out, code, "ended\n")
+			}
+		})
+	}
+}
+
+// endlessRun is one case of examples/endless-loops started by
+// startEndless: its name, the process, what it printed, and a channel
+// that receives the process's end.
+type endlessRun struct {
+	cmd  *exec.Cmd
+	out  *bytes.Buffer
+	done chan error
+	name string
+}
+
+// startEndless starts the binary bin on the case name, with its standard
+// output and error collected together, and waits for its end in the
+// background.
+func startEndless(t *testing.T, bin, name string) *endlessRun {
+	t.Helper()
+	run := &endlessRun{
+		name: name,
+		cmd:  exec.CommandContext(t.Context(), bin, name),
+		out:  &bytes.Buffer{},
+		done: make(chan error, 1),
+	}
+	run.cmd.Stdout, run.cmd.Stderr = run.out, run.out
+	if err := run.cmd.Start(); err != nil {
+		t.Fatalf("starting %s: %v", name, err)
+	}
+	go func() { run.done <- run.cmd.Wait() }()
+	return run
+}
+
+// requireRunning fails the test when the case has ended, and otherwise
+// kills it, fails the test when it ended some other way than by that
+// kill, in the moment between the check and the kill, and fails it when
+// it printed anything, which only code after its loop does.
+func (run *endlessRun) requireRunning(t *testing.T) {
+	t.Helper()
+	select {
+	case err := <-run.done:
+		t.Errorf("%s ended with %v and printed %q, want it still running", run.name, err, run.out)
+		return
+	default:
+	}
+	if err := run.cmd.Process.Kill(); err != nil {
+		t.Fatalf("killing %s: %v", run.name, err)
+	}
+	var exitErr *exec.ExitError
+	if err := <-run.done; !errors.As(err, &exitErr) || exitErr.ExitCode() != -1 {
+		t.Errorf("%s ended with %v, want it killed", run.name, err)
+	}
+	if run.out.Len() != 0 {
+		t.Errorf("%s printed %q, want nothing", run.name, run.out)
+	}
+}
+
+// endedLimit bounds the run of a case of examples/endless-loops whose loop
+// must end, so a loop that does not fails the test instead of hanging it.
+const endedLimit = 5 * time.Second
+
+// runBuiltArgs runs the binary bin with the arguments args and returns
+// what it printed on standard output and its exit status. It kills the
+// binary and fails the test when it is still running after endedLimit.
+func runBuiltArgs(t *testing.T, bin string, args ...string) (string, int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), endedLimit)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, args...).Output()
+	var exitErr *exec.ExitError
+	switch {
+	case ctx.Err() == context.DeadlineExceeded:
+		t.Fatalf("%s %v was still running after %v, want it to end", bin, args, endedLimit)
+		return "", 0
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exitErr):
+		return string(out), exitErr.ExitCode()
+	default:
+		t.Fatalf("running %s: %v", bin, err)
+		return "", 0
+	}
+}
+
 // The compound example applies every compound assignment, then ++ and --,
 // so its status pins what each one computes in a real build.
 func TestBuiltCompoundExits14(t *testing.T) {

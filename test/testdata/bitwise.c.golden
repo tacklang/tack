@@ -202,7 +202,10 @@ static uint64_t tack_4_main3_fnv(tack_string p_s) {
     uint64_t v_h = 14695981039346656037u;
     {
         const tack_string tack_r0 = p_s;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const uint8_t v_c = tack_r0.ptr[tack_k1];
             v_h = ((uint64_t)((uint64_t)v_h ^ (uint64_t)((uint64_t)v_c)));
             v_h = ((uint64_t)((uint64_t)v_h * (uint64_t)1099511628211));

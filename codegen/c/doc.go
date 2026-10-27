@@ -655,26 +655,47 @@
 // one of two constants, which the checker has computed, is written as its
 // value and true, with no temporary. Every other division has a divisor the checker proved not zero. A compound assignment x op= v is written out as
 // x = x op v the same way, the way Tack defines it, and x++ and x-- as
-// x = x + 1 and x = x - 1. A loop lowers
-// to a C while, or to for (;;) when it has no condition, with its condition
+// x = x + 1 and x = x - 1.
+//
+// No loop lowered from Tack has a C controlling expression. C11 6.8.5p6
+// lets a C compiler assume that an iteration statement whose controlling
+// expression is not a constant, and whose body does no I/O, no volatile
+// access and no synchronization, ends; clang does, deleting such a loop
+// that never ends, or treating the way into it as unreachable and
+// folding away the checks before it, so a Tack loop that should run
+// forever would return, or run whatever code comes next, an out-of-range
+// read included. So every loop lowers to a C for whose controlling
+// expression is left out, a constant, which C never assumes ends, and
+// tests its condition at the top of every pass instead, if (!(cond))
+// { break; }, evaluated when, and as often as, a C while's would be. A
+// loop lowers to for (;;), with its condition so tested when it has one,
 // parenthesised as an if's is; break and continue lower to C's own. A
-// three-clause loop lowers to a C block holding its init statement and a C
-// for whose post expression is its post statement, so that continue runs it.
-// A range loop lowers to a C block that evaluates the count once into a
-// temporary and counts up to it, declaring the loop variable as a fresh const
-// each iteration. Over an array or a string, the block copies the value into
-// a const temporary first, so the body assigning the array it came from
-// changes nothing the loop reads, and counts up to the array's constant
-// length or the copy's len; each iteration declares the index and the
-// element, read from the copy, as consts, and a _ gets no C variable. An
-// array that is a place the body never assigns, increments, decrements or
-// passes as mut in any part, and, for a mutable global, in a body that
-// calls no function, cannot change while the loop runs, so the block holds
-// a pointer to it instead and reads each element through it: the same
-// values a copy gives, without the copy. Over an array with no element
-// variable nothing reads the copy, so the value is only evaluated, cast to
-// void. Temporaries are named tack_ followed by a letter and a
-// number, which no mangled Tack name can be.
+// three-clause loop lowers to a C block holding its init statement and a
+// C for (;; post) whose post expression is its post statement, so that
+// continue runs it before the condition is tested again. A range loop
+// lowers to a C block that evaluates the count once into a temporary and
+// counts up to it, for (k = 0;; k++) testing k below the count at the top
+// of each pass, so that a body that never ends does not let the C
+// compiler assume the loop does, and declares the loop variable as a
+// fresh const each iteration. Over an array or a string, the block copies
+// the value into a const temporary first, so the body assigning the array
+// it came from changes nothing the loop reads, and counts up to the
+// array's constant length or the copy's len; each iteration declares the
+// index and the element, read from the copy, as consts, and a _ gets no C
+// variable. An array that is a place the body never assigns, increments,
+// decrements or passes as mut in any part, and, for a mutable global, in
+// a body that calls no function, cannot change while the loop runs, so
+// the block holds a pointer to it instead and reads each element through
+// it: the same values a copy gives, without the copy. Over an array with
+// no element variable nothing reads the copy, so the value is only
+// evaluated, cast to void. Temporaries are named tack_ followed by a
+// letter and a number, which no mangled Tack name can be.
+//
+// Recursion needs no such care: clang marks a C function as one that must
+// make progress only in C++. The loops of the helpers the backend writes,
+// of the runtime and of std's C keep their controlling expressions: each
+// is bounded by a length or a count, or by an invariant of the map it
+// probes, and ends on any input.
 //
 // A switch lowers to a chain of C ifs, never a C switch, whose break would
 // leave the switch where Tack's leaves the loop around it, and which cannot

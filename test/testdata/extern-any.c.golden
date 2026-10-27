@@ -186,7 +186,10 @@ static void tack_4_main4_main(void) {
     tack_4_main5_order = 0;
     tack_4_main5_check((((tack_o21 = tack_4_main4_step(1), tack_o22 = tack_4_main5_order, tack_o23 = tack_4_main4_step(2), tack_o24 = tack_4_main5_order, tack_4_main9_sumSigned((tack_view_20){(const tack_any[4]){(tack_any){TACK_TYPE_INT64, &tack_o21}, (tack_any){TACK_TYPE_INT64, &tack_o22}, (tack_any){TACK_TYPE_INT64, &tack_o23}, (tack_any){TACK_TYPE_INT64, &tack_o24}}, 4})) == 16) && (tack_4_main5_order == 12)), (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     int64_t v_i = 0;
-    while (tack_4_main10_holdsInt64((tack_a25 = ((int64_t)((uint64_t)v_i + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a25})) && (tack_4_main9_sumSigned((tack_view_20){(const tack_any[2]){(tack_a26 = ((int64_t)((uint64_t)v_i * (uint64_t)2)), (tack_any){TACK_TYPE_INT64, &tack_a26}), (tack_a27 = tack_4_main4_step(3), (tack_any){TACK_TYPE_INT64, &tack_a27})}, 2}) < 10)) {
+    for (;;) {
+        if (!(tack_4_main10_holdsInt64((tack_a25 = ((int64_t)((uint64_t)v_i + (uint64_t)1)), (tack_any){TACK_TYPE_INT64, &tack_a25})) && (tack_4_main9_sumSigned((tack_view_20){(const tack_any[2]){(tack_a26 = ((int64_t)((uint64_t)v_i * (uint64_t)2)), (tack_any){TACK_TYPE_INT64, &tack_a26}), (tack_a27 = tack_4_main4_step(3), (tack_any){TACK_TYPE_INT64, &tack_a27})}, 2}) < 10))) {
+            break;
+        }
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     tack_4_main5_check((v_i == 4), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});

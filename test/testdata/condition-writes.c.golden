@@ -60,7 +60,10 @@ static tack_list_20 tack_4_main5_count(int64_t p_n) {
     tack_list_20 v_l = ((tack_list_20){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n2 = p_n;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, v_i) ? (tack_error){} : (tack_error){1, {tack_str10, TACK_C_STR_LEN(tack_str10)}});
             if (v_err.code != 0) {
@@ -168,7 +171,10 @@ static int64_t tack_4_main13_inLeavingCase(int64_t p_n) {
 static int64_t tack_4_main11_loopDivisor(void) {
     int64_t v_d = 8;
     int64_t v_sum = 0;
-    while (tack_4_main5_halve(&v_d) && (v_d != 0)) {
+    for (;;) {
+        if (!(tack_4_main5_halve(&v_d) && (v_d != 0))) {
+            break;
+        }
         v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)tack_div_int64(64, v_d)));
     }
     return v_sum;

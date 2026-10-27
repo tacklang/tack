@@ -673,7 +673,10 @@ static int64_t tack_4_main3_ors(int64_t p_x) {
 static int64_t tack_4_main6_looped(int64_t p_x) {
     int64_t tack_d408;
     int64_t v_i = 0;
-    while ((tack_d408 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)p_x + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)), (((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_d408 + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)v_i)) < 64))) {
+    for (;;) {
+        if (!((tack_d408 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)p_x + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)), (((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_d408 + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)v_i)) < 64)))) {
+            break;
+        }
         v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
     }
     return v_i;
@@ -683,7 +686,10 @@ static int64_t tack_4_main6_ticked(int64_t p_x) {
     int64_t tack_d409;
     int64_t v_c = 0;
     int64_t v_n = 0;
-    while ((tack_d409 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_tick(&v_c) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)), (((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_d409 + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) < 65))) {
+    for (;;) {
+        if (!((tack_d409 = ((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_4_main4_tick(&v_c) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)), (((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)((int64_t)((uint64_t)tack_d409 + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) + (uint64_t)p_x)) < 65)))) {
+            break;
+        }
         v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
     }
     return ((int64_t)((uint64_t)((int64_t)((uint64_t)v_n * (uint64_t)100)) + (uint64_t)v_c));
@@ -717,7 +723,10 @@ static int64_t tack_4_main7_indexed(uint8_t p_x) {
     tack_array_21 v_a = (tack_array_21){};
     {
         (void)v_a;
-        for (int64_t tack_k416 = 0; tack_k416 < 256; tack_k416++) {
+        for (int64_t tack_k416 = 0;; tack_k416++) {
+            if (!(tack_k416 < 256)) {
+                break;
+            }
             const int64_t v_i = tack_k416;
             v_a.e[v_i] = ((int64_t)((uint64_t)v_i * (uint64_t)2));
         }

@@ -303,11 +303,11 @@ func TestCollectionRangeLowering(t *testing.T) {
 	))
 	for _, want := range []string{
 		" tack_r0 = v_a;",
-		"tack_k1 < 3;",
+		"if (!(tack_k1 < 3)) {",
 		"const int64_t v_i = tack_k1;",
 		"const int64_t v_x = tack_r0.e[tack_k1];",
 		" tack_r2 = (tack_string){",
-		"tack_k3 < tack_r2.len;",
+		"if (!(tack_k3 < tack_r2.len)) {",
 		"const uint8_t v_b = tack_r2.ptr[tack_k3];",
 		"(void)v_a;",
 	} {

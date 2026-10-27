@@ -64,7 +64,10 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_4_main8_smallest() == (-9223372036854775807 - 1)), (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, 9);
     {
         const int64_t tack_n0 = 5;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_n0)) {
+                break;
+            }
             tack_4_main5_count();
         }
     }

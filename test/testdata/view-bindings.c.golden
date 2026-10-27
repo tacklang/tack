@@ -168,7 +168,10 @@ static bool tack_4_main4_same(tack_view_25 p_v, tack_string p_s) {
     }
     {
         const tack_view_25 tack_r1 = p_v;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_r1.len; tack_k2++) {
+        for (int64_t tack_k2 = 0;; tack_k2++) {
+            if (!(tack_k2 < tack_r1.len)) {
+                break;
+            }
             const int64_t v_i = tack_k2;
             const uint8_t v_c = tack_r1.ptr[tack_k2];
             const int64_t tack_r0 = v_i;
@@ -215,7 +218,10 @@ static tack_view_25 tack_4_main11_Expr_2etext(tack_4_main4_Expr p_e) {
 static tack_view_25 tack_4_main9_firstLong(tack_list_26 p_ws, tack_view_25 p_or) {
     {
         const tack_list_26 tack_r7 = p_ws;
-        for (int64_t tack_k8 = 0; tack_k8 < tack_r7.len; tack_k8++) {
+        for (int64_t tack_k8 = 0;; tack_k8++) {
+            if (!(tack_k8 < tack_r7.len)) {
+                break;
+            }
             const tack_list_23 *const v_w = &tack_r7.ptr[tack_k8];
             if (((*v_w)).len > 2) {
                 return (tack_view_25){(*v_w).ptr, (*v_w).len};
@@ -228,7 +234,10 @@ static tack_view_25 tack_4_main9_firstLong(tack_list_26 p_ws, tack_view_25 p_or)
 static tack_view_25 tack_4_main9_firstName(tack_view_27 p_es, tack_view_25 p_or) {
     {
         const tack_view_27 tack_r10 = p_es;
-        for (int64_t tack_k11 = 0; tack_k11 < tack_r10.len; tack_k11++) {
+        for (int64_t tack_k11 = 0;; tack_k11++) {
+            if (!(tack_k11 < tack_r10.len)) {
+                break;
+            }
             const tack_4_main4_Expr *const v_e = &tack_r10.ptr[tack_k11];
             {
                 const tack_4_main4_Expr *const tack_s9 = &(*v_e);
@@ -246,7 +255,10 @@ static tack_view_25 tack_4_main9_firstName(tack_view_27 p_es, tack_view_25 p_or)
 static tack_view_25 tack_4_main8_firstArr(tack_view_28 p_cs, tack_view_25 p_or) {
     {
         const tack_view_28 tack_r13 = p_cs;
-        for (int64_t tack_k14 = 0; tack_k14 < tack_r13.len; tack_k14++) {
+        for (int64_t tack_k14 = 0;; tack_k14++) {
+            if (!(tack_k14 < tack_r13.len)) {
+                break;
+            }
             const tack_4_main4_Cell *const v_c = &tack_r13.ptr[tack_k14];
             {
                 const tack_4_main4_Cell *const tack_s12 = &(*v_c);

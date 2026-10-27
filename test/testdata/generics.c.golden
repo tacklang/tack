@@ -435,7 +435,10 @@ static void tack_8_generics8_packages(void) {
 static tack_error tack_8_generics4_sink33_Feed_5bgenerics_2fsink_2eTally_5d(tack_8_generics4_sink5_Tally * p_s, tack_view_32 p_words) {
     {
         const tack_view_32 tack_r13 = p_words;
-        for (int64_t tack_k14 = 0; tack_k14 < tack_r13.len; tack_k14++) {
+        for (int64_t tack_k14 = 0;; tack_k14++) {
+            if (!(tack_k14 < tack_r13.len)) {
+                break;
+            }
             const tack_string v_w = tack_r13.ptr[tack_k14];
             const tack_error v_err = tack_8_generics4_sink11_Tally_2eput(p_s, v_w);
             if (v_err.code != 0) {
@@ -565,7 +568,10 @@ static tack_error tack_8_generics28_both_5bgenerics_2eCounter_5d(tack_8_generics
 static tack_error tack_8_generics4_sink31_Feed_5bgenerics_2flogs_2eLog_5d(tack_8_generics4_logs3_Log * p_s, tack_view_32 p_words) {
     {
         const tack_view_32 tack_r23 = p_words;
-        for (int64_t tack_k24 = 0; tack_k24 < tack_r23.len; tack_k24++) {
+        for (int64_t tack_k24 = 0;; tack_k24++) {
+            if (!(tack_k24 < tack_r23.len)) {
+                break;
+            }
             const tack_string v_w = tack_r23.ptr[tack_k24];
             const tack_error v_err = tack_8_generics4_logs9_Log_2eput(p_s, v_w);
             if (v_err.code != 0) {
@@ -583,7 +589,10 @@ static int64_t tack_8_generics34_countOf_5bgenerics_2flogs_2eLog_5d(tack_8_gener
 static tack_error tack_8_generics4_sink26_Feed_5bgenerics_2eWords_5d(tack_8_generics5_Words * p_s, tack_view_32 p_words) {
     {
         const tack_view_32 tack_r25 = p_words;
-        for (int64_t tack_k26 = 0; tack_k26 < tack_r25.len; tack_k26++) {
+        for (int64_t tack_k26 = 0;; tack_k26++) {
+            if (!(tack_k26 < tack_r25.len)) {
+                break;
+            }
             const tack_string v_w = tack_r25.ptr[tack_k26];
             const tack_error v_err = tack_8_generics11_Words_2eput(p_s, v_w);
             if (v_err.code != 0) {

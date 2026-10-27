@@ -191,7 +191,10 @@ static tack_results_4_main5_parse tack_4_main5_parse(tack_string p_s) {
     int64_t v_n = 0;
     {
         const tack_string tack_r0 = p_s;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             const uint8_t v_c = p_s.ptr[v_i];
             if ((v_c < 48) || (v_c > 57)) {
@@ -278,7 +281,10 @@ static tack_results_4_main6_sumAll tack_4_main6_sumAll(tack_array_21 p_words) {
     int64_t v_bad = 0;
     {
         const tack_array_21 *const tack_r8 = &p_words;
-        for (int64_t tack_k9 = 0; tack_k9 < 5; tack_k9++) {
+        for (int64_t tack_k9 = 0;; tack_k9++) {
+            if (!(tack_k9 < 5)) {
+                break;
+            }
             const tack_string v_w = (*tack_r8).e[tack_k9];
             const tack_results_4_main5_parse tack_r7 = tack_4_main5_parse(v_w);
             const int64_t v_v = tack_r7.r0;

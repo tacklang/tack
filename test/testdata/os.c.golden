@@ -446,7 +446,10 @@ static bool tack_3_std5_bytes5_equal(tack_view_22 p_a, tack_view_22 p_b) {
     }
     {
         const tack_view_22 tack_r1 = p_a;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_r1.len; tack_k2++) {
+        for (int64_t tack_k2 = 0;; tack_k2++) {
+            if (!(tack_k2 < tack_r1.len)) {
+                break;
+            }
             const int64_t v_i = tack_k2;
             const uint8_t v_x = tack_r1.ptr[tack_k2];
             const int64_t tack_r0 = v_i;
@@ -466,7 +469,10 @@ static bool tack_3_std5_bytes10_match_5fat(tack_view_22 p_s, tack_view_22 p_sub,
     }
     {
         const tack_view_22 tack_r4 = p_sub;
-        for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < tack_r4.len)) {
+                break;
+            }
             const int64_t v_j = tack_k5;
             const uint8_t v_x = tack_r4.ptr[tack_k5];
             const int64_t tack_r3 = ((int64_t)((uint64_t)p_i + (uint64_t)v_j));
@@ -486,7 +492,10 @@ static int64_t tack_3_std5_bytes5_index(tack_view_22 p_s, tack_view_22 p_sub) {
     }
     {
         const int64_t tack_n6 = ((int64_t)((uint64_t)((int64_t)((uint64_t)(p_s).len - (uint64_t)(p_sub).len)) + (uint64_t)1));
-        for (int64_t tack_k7 = 0; tack_k7 < tack_n6; tack_k7++) {
+        for (int64_t tack_k7 = 0;; tack_k7++) {
+            if (!(tack_k7 < tack_n6)) {
+                break;
+            }
             const int64_t v_i = tack_k7;
             if (tack_3_std5_bytes10_match_5fat(p_s, p_sub, v_i)) {
                 return v_i;
@@ -499,7 +508,10 @@ static int64_t tack_3_std5_bytes5_index(tack_view_22 p_s, tack_view_22 p_sub) {
 static int64_t tack_3_std5_bytes12_index_5fbyte(tack_view_22 p_s, uint8_t p_c) {
     {
         const tack_view_22 tack_r8 = p_s;
-        for (int64_t tack_k9 = 0; tack_k9 < tack_r8.len; tack_k9++) {
+        for (int64_t tack_k9 = 0;; tack_k9++) {
+            if (!(tack_k9 < tack_r8.len)) {
+                break;
+            }
             const int64_t v_i = tack_k9;
             const uint8_t v_x = tack_r8.ptr[tack_k9];
             if (v_x == p_c) {
@@ -524,7 +536,10 @@ static int64_t tack_3_std5_bytes5_count(tack_view_22 p_s, tack_view_22 p_sub) {
     }
     int64_t v_n = 0;
     int64_t v_i = 0;
-    while (v_i <= ((int64_t)((uint64_t)(p_s).len - (uint64_t)(p_sub).len))) {
+    for (;;) {
+        if (!(v_i <= ((int64_t)((uint64_t)(p_s).len - (uint64_t)(p_sub).len)))) {
+            break;
+        }
         if (tack_3_std5_bytes10_match_5fat(p_s, p_sub, v_i)) {
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
             v_i = ((int64_t)((uint64_t)v_i + (uint64_t)(p_sub).len));
@@ -547,7 +562,10 @@ static tack_error tack_3_std5_bytes15_append_5fdigits(tack_list_21 * p_b, uint64
     bool v_sign = false;
     {
         int64_t v_at = 20;
-        for (; v_at >= 0; v_at = ((int64_t)((uint64_t)v_at - (uint64_t)1))) {
+        for (;; v_at = ((int64_t)((uint64_t)v_at - (uint64_t)1))) {
+            if (!(v_at >= 0)) {
+                break;
+            }
             if (v_sign) {
                 v_digits.e[v_at] = 45;
                 return ((tack_v10 = tack_slice_from_22((tack_view_22){v_digits.e, 21}, (int64_t)v_at), TACK_LIST_APPEND_N(p_b, tack_v10.ptr, tack_v10.len)) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
@@ -626,7 +644,10 @@ static tack_results_3_std5_bytes6_repeat tack_3_std5_bytes6_repeat(tack_view_22 
     }
     {
         const int64_t tack_n22 = p_n;
-        for (int64_t tack_k23 = 0; tack_k23 < tack_n22; tack_k23++) {
+        for (int64_t tack_k23 = 0;; tack_k23++) {
+            if (!(tack_k23 < tack_n22)) {
+                break;
+            }
             const tack_error v_e = ((tack_v20 = p_s, TACK_LIST_APPEND_N(&v_out, tack_v20.ptr, tack_v20.len)) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
             if (v_e.code != 0) {
                 tack_ret16 = (tack_results_3_std5_bytes6_repeat){(tack_o21 = v_out, v_out = (tack_list_21){}, tack_o21), v_e};
@@ -683,7 +704,10 @@ static uint64_t tack_3_std4_text11_Text_2ehash(tack_3_std4_text4_Text p_t) {
     uint64_t v_h = tack_3_std4_text12_fnv_5foffset;
     {
         const tack_list_21 tack_r28 = p_t.f_b;
-        for (int64_t tack_k29 = 0; tack_k29 < tack_r28.len; tack_k29++) {
+        for (int64_t tack_k29 = 0;; tack_k29++) {
+            if (!(tack_k29 < tack_r28.len)) {
+                break;
+            }
             const uint8_t v_c = tack_r28.ptr[tack_k29];
             v_h = ((uint64_t)((uint64_t)((uint64_t)((uint64_t)v_h ^ (uint64_t)((uint64_t)v_c))) * (uint64_t)tack_3_std4_text11_fnv_5fprime));
         }
@@ -730,7 +754,10 @@ static tack_results_3_std2_os4_args tack_3_std2_os4_args(tack_allocator p_alloc)
     tack_list_25 v_out = ((tack_list_25){.alloc = p_alloc});
     {
         const int64_t tack_n41 = tack_3_std2_os8_c_5fargc();
-        for (int64_t tack_k42 = 0; tack_k42 < tack_n41; tack_k42++) {
+        for (int64_t tack_k42 = 0;; tack_k42++) {
+            if (!(tack_k42 < tack_n41)) {
+                break;
+            }
             const int64_t v_i = tack_k42;
             tack_list_21 v_b = ((tack_list_21){.alloc = p_alloc});
             const int64_t v_r = tack_3_std2_os7_c_5farg(v_i, &v_b);
@@ -874,7 +901,10 @@ static tack_error tack_3_std2_os12_write_5ffile(tack_view_22 p_path, tack_view_2
         return tack_3_std2_os10_fd_5frange;
     }
     int64_t v_at = 0;
-    while (v_at < (p_data).len) {
+    for (;;) {
+        if (!(v_at < (p_data).len)) {
+            break;
+        }
         const int64_t v_n = tack_3_std2_os9_c_5fwrite(v_fd, tack_3_std2_os4_part(p_data, v_at, (p_data).len));
         if ((v_n <= 0) && (((int64_t)(0 - (uint64_t)v_n)) != tack_3_std2_os9_c_5feintr())) {
             tack_3_std2_os9_c_5fclose(v_fd);
@@ -920,7 +950,10 @@ static bool tack_3_std2_os8_is_5fdot(tack_view_22 p_name) {
 static bool tack_3_std2_os4_less(tack_view_22 p_a, tack_view_22 p_b) {
     {
         const tack_view_22 tack_r63 = p_a;
-        for (int64_t tack_k64 = 0; tack_k64 < tack_r63.len; tack_k64++) {
+        for (int64_t tack_k64 = 0;; tack_k64++) {
+            if (!(tack_k64 < tack_r63.len)) {
+                break;
+            }
             const int64_t v_i = tack_k64;
             const uint8_t v_x = tack_r63.ptr[tack_k64];
             const int64_t tack_r62 = v_i;
@@ -972,7 +1005,10 @@ static tack_results_3_std2_os12_sort_5fnames tack_3_std2_os12_sort_5fnames(tack_
     }
     {
         const int64_t tack_n70 = v_n;
-        for (int64_t tack_k71 = 0; tack_k71 < tack_n70; tack_k71++) {
+        for (int64_t tack_k71 = 0;; tack_k71++) {
+            if (!(tack_k71 < tack_n70)) {
+                break;
+            }
             const int64_t v_i = tack_k71;
             const tack_error v_e = (TACK_LIST_APPEND(&v_src, v_i) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
             if (v_e.code != 0) {
@@ -982,7 +1018,10 @@ static tack_results_3_std2_os12_sort_5fnames tack_3_std2_os12_sort_5fnames(tack_
         }
     }
     int64_t v_width = 1;
-    while (v_width < v_n) {
+    for (;;) {
+        if (!(v_width < v_n)) {
+            break;
+        }
         tack_list_27 v_dst = ((tack_list_27){.alloc = p_alloc});
         const tack_error v_e1 = (v_n < 0 ? (tack_error){2, {tack_str2, TACK_C_STR_LEN(tack_str2)}} : TACK_LIST_RESERVE(&v_dst, v_n) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
         if (v_e1.code != 0) {
@@ -991,7 +1030,10 @@ static tack_results_3_std2_os12_sort_5fnames tack_3_std2_os12_sort_5fnames(tack_
             goto tack_defer7_1;
         }
         int64_t v_lo = 0;
-        while (v_lo < v_n) {
+        for (;;) {
+            if (!(v_lo < v_n)) {
+                break;
+            }
             int64_t v_mid = ((int64_t)((uint64_t)v_lo + (uint64_t)v_width));
             if (v_mid > v_n) {
                 v_mid = v_n;
@@ -1002,7 +1044,10 @@ static tack_results_3_std2_os12_sort_5fnames tack_3_std2_os12_sort_5fnames(tack_
             }
             int64_t v_i = v_lo;
             int64_t v_j = v_mid;
-            while ((v_i < v_mid) || (v_j < v_hi)) {
+            for (;;) {
+                if (!((v_i < v_mid) || (v_j < v_hi))) {
+                    break;
+                }
                 const int64_t tack_r74 = v_i;
                 const int64_t v_a = ((tack_r74 >= 0 && tack_r74 < v_src.len) ? v_src.ptr[tack_r74] : 0);
                 const bool v_hasA = (tack_r74 >= 0 && tack_r74 < v_src.len);
@@ -1079,7 +1124,10 @@ static tack_results_3_std2_os10_list_5fdir tack_3_std2_os10_list_5fdir(tack_view
     int64_t v_start = 0;
     {
         const tack_list_21 tack_r89 = v_buf;
-        for (int64_t tack_k90 = 0; tack_k90 < tack_r89.len; tack_k90++) {
+        for (int64_t tack_k90 = 0;; tack_k90++) {
+            if (!(tack_k90 < tack_r89.len)) {
+                break;
+            }
             const int64_t v_i = tack_k90;
             const uint8_t v_c = tack_r89.ptr[tack_k90];
             if (v_c == 0) {
@@ -1110,7 +1158,10 @@ static tack_results_3_std2_os10_list_5fdir tack_3_std2_os10_list_5fdir(tack_view
     }
     {
         const tack_list_27 tack_r100 = v_order;
-        for (int64_t tack_k101 = 0; tack_k101 < tack_r100.len; tack_k101++) {
+        for (int64_t tack_k101 = 0;; tack_k101++) {
+            if (!(tack_k101 < tack_r100.len)) {
+                break;
+            }
             const int64_t v_k = tack_r100.ptr[tack_k101];
             const tack_results_3_std4_text12_from_5fbytes tack_r94 = tack_3_std4_text12_from_5fbytes(tack_3_std2_os9_name_5fat((tack_view_22){v_buf.ptr, v_buf.len}, (tack_view_26){v_starts.ptr, v_starts.len}, (tack_view_26){v_ends.ptr, v_ends.len}, v_k), p_alloc);
             tack_3_std4_text4_Text v_t = tack_r94.r0;
@@ -1155,7 +1206,10 @@ static tack_error tack_3_std2_os20_append_5ftemp_5fbase(tack_list_21 * p_tmpl, t
         return ((tack_v103 = (tack_view_22){tack_str10, TACK_C_STR_LEN(tack_str10)}, TACK_LIST_APPEND_N(p_tmpl, tack_v103.ptr, tack_v103.len)) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     }
     int64_t v_n = (p_dir).len;
-    while (v_n > 1) {
+    for (;;) {
+        if (!(v_n > 1)) {
+            break;
+        }
         const int64_t tack_r104 = ((int64_t)((uint64_t)v_n - (uint64_t)1));
         const uint8_t v_c = ((tack_r104 >= 0 && tack_r104 < p_dir.len) ? p_dir.ptr[tack_r104] : 0);
         const bool v_ok = (tack_r104 >= 0 && tack_r104 < p_dir.len);
@@ -1256,7 +1310,10 @@ static tack_results_3_std2_os3_run tack_3_std2_os3_run(tack_view_28 p_argv, tack
     tack_list_21 v_flat = ((tack_list_21){.alloc = p_alloc});
     {
         const tack_view_28 tack_r115 = p_argv;
-        for (int64_t tack_k116 = 0; tack_k116 < tack_r115.len; tack_k116++) {
+        for (int64_t tack_k116 = 0;; tack_k116++) {
+            if (!(tack_k116 < tack_r115.len)) {
+                break;
+            }
             const tack_3_std4_text4_Text *const v_a = &tack_r115.ptr[tack_k116];
             if (tack_3_std2_os9_has_5fnul(tack_3_std4_text12_Text_2ebytes((*v_a)))) {
                 tack_ret113 = (tack_results_3_std2_os3_run){(-1), tack_3_std2_os9_nul_5farg};
@@ -1302,7 +1359,10 @@ static tack_results_3_std2_os3_run tack_3_std2_os3_run(tack_view_28 p_argv, tack
     tack_list_21 v_got_out = ((tack_list_21){.alloc = p_alloc});
     tack_list_21 v_got_err = ((tack_list_21){.alloc = p_alloc});
     tack_error v_failure = (tack_error){};
-    while ((v_a >= 0) || (v_b >= 0)) {
+    for (;;) {
+        if (!((v_a >= 0) || (v_b >= 0))) {
+            break;
+        }
         const int64_t v_m = tack_3_std2_os9_c_5fpoll2(v_a, v_b);
         if (v_m < 0) {
             if (((int64_t)(0 - (uint64_t)v_m)) == tack_3_std2_os9_c_5feintr()) {
@@ -1511,7 +1571,10 @@ static void tack_4_main9_arguments(void) {
     tack_4_main5_check(((v_a).len == 4), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
     {
         const tack_list_25 tack_r138 = v_a;
-        for (int64_t tack_k139 = 0; tack_k139 < tack_r138.len; tack_k139++) {
+        for (int64_t tack_k139 = 0;; tack_k139++) {
+            if (!(tack_k139 < tack_r138.len)) {
+                break;
+            }
             const int64_t v_i = tack_k139;
             const tack_3_std4_text4_Text *const v_s = &tack_r138.ptr[tack_k139];
             if (v_i > 0) {
@@ -1524,7 +1587,10 @@ static void tack_4_main9_arguments(void) {
     bool v_ok = true;
     {
         const tack_list_25 tack_r140 = v_a;
-        for (int64_t tack_k141 = 0; tack_k141 < tack_r140.len; tack_k141++) {
+        for (int64_t tack_k141 = 0;; tack_k141++) {
+            if (!(tack_k141 < tack_r140.len)) {
+                break;
+            }
             const int64_t v_i = tack_k141;
             const tack_3_std4_text4_Text *const v_s = &tack_r140.ptr[tack_k141];
             if ((v_i == 0) && (tack_3_std4_text10_Text_2elen((*v_s)) == 0)) {
@@ -1637,7 +1703,10 @@ static void tack_4_main5_files(tack_view_22 p_dir) {
     bool v_ok = true;
     {
         const int64_t tack_n152 = 300000;
-        for (int64_t tack_k153 = 0; tack_k153 < tack_n152; tack_k153++) {
+        for (int64_t tack_k153 = 0;; tack_k153++) {
+            if (!(tack_k153 < tack_n152)) {
+                break;
+            }
             const int64_t v_i = tack_k153;
             const int64_t tack_r151 = tack_rem_int64(v_i, 253);
             const uint8_t v_c = ((tack_r151 >= 0 && tack_r151 <= 255) ? (uint8_t)tack_r151 : 0);
@@ -1713,7 +1782,10 @@ static void tack_4_main4_dirs(tack_view_22 p_dir) {
     tack_builtin_print((tack_string){tack_str66, TACK_C_STR_LEN(tack_str66)});
     {
         const tack_list_25 tack_r159 = v_names;
-        for (int64_t tack_k160 = 0; tack_k160 < tack_r159.len; tack_k160++) {
+        for (int64_t tack_k160 = 0;; tack_k160++) {
+            if (!(tack_k160 < tack_r159.len)) {
+                break;
+            }
             const tack_3_std4_text4_Text *const v_n = &tack_r159.ptr[tack_k160];
             tack_builtin_print((tack_string){tack_str67, TACK_C_STR_LEN(tack_str67)});
             tack_3_std3_fmt5_write(tack_3_std4_text12_Text_2ebytes((*v_n)));
@@ -1724,7 +1796,10 @@ static void tack_4_main4_dirs(tack_view_22 p_dir) {
     bool v_ok = true;
     {
         const tack_list_25 tack_r161 = v_names;
-        for (int64_t tack_k162 = 0; tack_k162 < tack_r161.len; tack_k162++) {
+        for (int64_t tack_k162 = 0;; tack_k162++) {
+            if (!(tack_k162 < tack_r161.len)) {
+                break;
+            }
             const int64_t v_i = tack_k162;
             const tack_3_std4_text4_Text *const v_n = &tack_r161.ptr[tack_k162];
             if ((((((v_i == 0) && !tack_3_std4_text12_Text_2eequal((*v_n), (tack_view_22){tack_str61, TACK_C_STR_LEN(tack_str61)})) || ((v_i == 1) && !tack_3_std4_text12_Text_2eequal((*v_n), (tack_view_22){tack_str41, TACK_C_STR_LEN(tack_str41)}))) || ((v_i == 2) && !tack_3_std4_text12_Text_2eequal((*v_n), (tack_view_22){tack_str47, TACK_C_STR_LEN(tack_str47)}))) || ((v_i == 3) && !tack_3_std4_text12_Text_2eequal((*v_n), (tack_view_22){tack_str50, TACK_C_STR_LEN(tack_str50)}))) || ((v_i == 4) && !tack_3_std4_text12_Text_2eequal((*v_n), (tack_view_22){tack_str56, TACK_C_STR_LEN(tack_str56)}))) {
@@ -1817,7 +1892,10 @@ static void tack_4_main9_shortages(tack_view_22 p_dir) {
     tack_4_main5_check((v_e6.code == 0), (tack_string){tack_str94, TACK_C_STR_LEN(tack_str94)});
     {
         const int64_t tack_n168 = 30;
-        for (int64_t tack_k169 = 0; tack_k169 < tack_n168; tack_k169++) {
+        for (int64_t tack_k169 = 0;; tack_k169++) {
+            if (!(tack_k169 < tack_n168)) {
+                break;
+            }
             const int64_t v_n = tack_k169;
             tack_4_main9_failAfter(v_n);
             const tack_error v_e7 = tack_4_main7_listErr(p_dir);
@@ -1844,7 +1922,10 @@ static void tack_4_main11_descriptors(tack_view_22 p_dir) {
     bool v_ok = true;
     {
         const int64_t tack_n171 = 1000;
-        for (int64_t tack_k172 = 0; tack_k172 < tack_n171; tack_k172++) {
+        for (int64_t tack_k172 = 0;; tack_k172++) {
+            if (!(tack_k172 < tack_n171)) {
+                break;
+            }
             const tack_error v_e1 = tack_3_std2_os12_write_5ffile((tack_view_22){v_a.ptr, v_a.len}, (tack_view_22){tack_str45, TACK_C_STR_LEN(tack_str45)});
             const tack_error v_e2 = tack_4_main7_readErr((tack_view_22){v_a.ptr, v_a.len});
             const tack_error v_e3 = tack_4_main7_listErr(p_dir);
@@ -1870,7 +1951,10 @@ static tack_results_4_main7_command tack_4_main7_command(tack_view_29 p_parts) {
     tack_list_25 v_l = ((tack_list_25){.alloc = TACK_C_ALLOCATOR});
     {
         const tack_view_29 tack_r180 = p_parts;
-        for (int64_t tack_k181 = 0; tack_k181 < tack_r180.len; tack_k181++) {
+        for (int64_t tack_k181 = 0;; tack_k181++) {
+            if (!(tack_k181 < tack_r180.len)) {
+                break;
+            }
             const tack_string v_p = tack_r180.ptr[tack_k181];
             const tack_results_3_std4_text12_from_5fbytes tack_r173 = tack_3_std4_text12_from_5fbytes((tack_view_22){v_p.ptr, v_p.len}, TACK_C_ALLOCATOR);
             tack_3_std4_text4_Text v_t = tack_r173.r0;
@@ -2029,7 +2113,10 @@ static void tack_4_main15_processFailures(void) {
     bool v_ok = true;
     {
         const int64_t tack_n207 = 12;
-        for (int64_t tack_k208 = 0; tack_k208 < tack_n207; tack_k208++) {
+        for (int64_t tack_k208 = 0;; tack_k208++) {
+            if (!(tack_k208 < tack_n207)) {
+                break;
+            }
             const int64_t v_n = tack_k208;
             tack_4_main9_failAfter(v_n);
             const tack_results_3_std2_os3_run tack_r206 = tack_3_std2_os3_run((tack_view_28){v_c12.ptr, v_c12.len}, &v_out, &v_errOut, TACK_C_ALLOCATOR);
@@ -2064,7 +2151,10 @@ static void tack_4_main16_childDescriptors(void) {
     bool v_ok = true;
     {
         const int64_t tack_n213 = 100;
-        for (int64_t tack_k214 = 0; tack_k214 < tack_n213; tack_k214++) {
+        for (int64_t tack_k214 = 0;; tack_k214++) {
+            if (!(tack_k214 < tack_n213)) {
+                break;
+            }
             const tack_results_4_main5_runSh tack_r209 = tack_4_main5_runSh((tack_string){tack_str144, TACK_C_STR_LEN(tack_str144)}, &v_out, &v_errOut);
             const int64_t v_s = tack_r209.r0;
             const tack_error v_e = tack_r209.r1;
@@ -2100,7 +2190,10 @@ static void tack_4_main7_cleanup(tack_view_22 p_dir) {
     bool v_ok = true;
     {
         const tack_array_31 tack_r216 = (tack_array_31){{(tack_string){tack_str41, TACK_C_STR_LEN(tack_str41)}, (tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)}, (tack_string){tack_str50, TACK_C_STR_LEN(tack_str50)}, (tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)}, (tack_string){tack_str61, TACK_C_STR_LEN(tack_str61)}}};
-        for (int64_t tack_k217 = 0; tack_k217 < 5; tack_k217++) {
+        for (int64_t tack_k217 = 0;; tack_k217++) {
+            if (!(tack_k217 < 5)) {
+                break;
+            }
             const tack_string v_name = tack_r216.e[tack_k217];
             const tack_results_4_main4_join tack_r215 = tack_4_main4_join(p_dir, v_name);
             tack_list_21 v_p = tack_r215.r0;

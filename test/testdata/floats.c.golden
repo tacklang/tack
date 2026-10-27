@@ -116,7 +116,10 @@ static void tack_4_main4_main(void) {
     double v_sum = 0x0p+00;
     {
         const int64_t tack_n0 = 3;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_n0)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             v_sum = (v_sum + v_arr.e[v_i]);
         }

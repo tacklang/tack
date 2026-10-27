@@ -306,7 +306,10 @@ static tack_results_4_main5_parse tack_4_main5_parse(tack_string p_s) {
     int64_t v_n = 0;
     {
         const tack_string tack_r0 = p_s;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             const uint8_t v_c = p_s.ptr[v_i];
             if ((v_c < 48) || (v_c > 57)) {
@@ -471,7 +474,10 @@ static void tack_4_main6_errors(void) {
     int64_t v_total = 0;
     {
         const tack_array_30 tack_r5 = (tack_array_30){{(tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}}};
-        for (int64_t tack_k6 = 0; tack_k6 < 3; tack_k6++) {
+        for (int64_t tack_k6 = 0;; tack_k6++) {
+            if (!(tack_k6 < 3)) {
+                break;
+            }
             const tack_string v_s = tack_r5.e[tack_k6];
             const tack_results_4_main5_parse tack_r4 = tack_4_main5_parse(v_s);
             const int64_t v_v = tack_r4.r0;
@@ -506,7 +512,10 @@ static void tack_4_main7_indexes(void) {
     tack_list_23 v_l = ((tack_list_23){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n7 = 5;
-        for (int64_t tack_k8 = 0; tack_k8 < tack_n7; tack_k8++) {
+        for (int64_t tack_k8 = 0;; tack_k8++) {
+            if (!(tack_k8 < tack_n7)) {
+                break;
+            }
             const int64_t v_k = tack_k8;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, ((int64_t)((uint64_t)v_k * (uint64_t)v_k))) ? (tack_error){} : (tack_error){1, {tack_str35, TACK_C_STR_LEN(tack_str35)}});
             if (v_err.code != 0) {

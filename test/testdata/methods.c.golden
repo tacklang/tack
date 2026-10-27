@@ -327,7 +327,10 @@ static tack_error tack_7_methods16_Builder_2eappend(tack_7_methods7_Builder * p_
 static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b, tack_string p_s) {
     {
         const tack_string tack_r2 = p_s;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_r2.len; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_r2.len)) {
+                break;
+            }
             const uint8_t v_c = tack_r2.ptr[tack_k3];
             const tack_error v_err = tack_7_methods16_Builder_2eappend(p_b, v_c);
             if (v_err.code != 0) {
@@ -341,7 +344,10 @@ static tack_error tack_7_methods15_Builder_2ewrite(tack_7_methods7_Builder * p_b
 static tack_error tack_7_methods18_Builder_2ewriteAll(tack_7_methods7_Builder * p_b, tack_view_32 p_parts) {
     {
         const tack_view_32 tack_r4 = p_parts;
-        for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < tack_r4.len)) {
+                break;
+            }
             const tack_string v_p = tack_r4.ptr[tack_k5];
             const tack_error v_err = tack_7_methods15_Builder_2ewrite(p_b, v_p);
             if (v_err.code != 0) {
@@ -406,7 +412,10 @@ static int64_t tack_7_methods5_count(tack_string p_s, uint8_t p_c) {
     int64_t v_n = 0;
     {
         const tack_string tack_r13 = p_s;
-        for (int64_t tack_k14 = 0; tack_k14 < tack_r13.len; tack_k14++) {
+        for (int64_t tack_k14 = 0;; tack_k14++) {
+            if (!(tack_k14 < tack_r13.len)) {
+                break;
+            }
             const uint8_t v_x = tack_r13.ptr[tack_k14];
             if (v_x == p_c) {
                 v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
@@ -422,7 +431,10 @@ static bool tack_7_methods16_Builder_2eequals(tack_7_methods7_Builder p_b, tack_
     }
     {
         const tack_string tack_r17 = p_s;
-        for (int64_t tack_k18 = 0; tack_k18 < tack_r17.len; tack_k18++) {
+        for (int64_t tack_k18 = 0;; tack_k18++) {
+            if (!(tack_k18 < tack_r17.len)) {
+                break;
+            }
             const int64_t v_i = tack_k18;
             const uint8_t v_c = tack_r17.ptr[tack_k18];
             const tack_list_28 tack_r15 = p_b.f_buf;
@@ -632,7 +644,10 @@ static void tack_7_methods6_points(void) {
     tack_array_34 v_ps = (tack_o32 = tack_7_methods9_makePoint(1, 2), tack_o33 = tack_7_methods9_makePoint(3, 4), tack_o34 = tack_7_methods9_makePoint(5, 6), (tack_array_34){{tack_o32, tack_o33, tack_o34}});
     {
         (void)v_ps;
-        for (int64_t tack_k36 = 0; tack_k36 < 3; tack_k36++) {
+        for (int64_t tack_k36 = 0;; tack_k36++) {
+            if (!(tack_k36 < 3)) {
+                break;
+            }
             const int64_t v_i = tack_k36;
             tack_7_methods13_Point_2escale(&v_ps.e[v_i], 2);
         }

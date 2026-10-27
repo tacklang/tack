@@ -91,7 +91,10 @@ static tack_list_21 tack_4_main5_count(int64_t p_n) {
     tack_list_21 v_l = ((tack_list_21){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n1 = p_n;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_n1; tack_k2++) {
+        for (int64_t tack_k2 = 0;; tack_k2++) {
+            if (!(tack_k2 < tack_n1)) {
+                break;
+            }
             const int64_t v_i = tack_k2;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, v_i) ? (tack_error){} : (tack_error){1, {tack_str16, TACK_C_STR_LEN(tack_str16)}});
             if (v_err.code != 0) {
@@ -111,7 +114,10 @@ static int64_t tack_4_main3_sum(tack_view_22 p_v) {
     int64_t v_s = 0;
     {
         const tack_view_22 tack_r4 = p_v;
-        for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < tack_r4.len)) {
+                break;
+            }
             const int64_t v_x = tack_r4.ptr[tack_k5];
             v_s = ((int64_t)((uint64_t)v_s + (uint64_t)v_x));
         }
@@ -131,7 +137,10 @@ static int64_t tack_4_main12_Stack_2egrow(tack_4_main5_Stack * p_s, int64_t p_n)
     tack_list_21 v_frames = (tack_o6 = &(*p_s).f_frames, tack_o7 = ((tack_list_21){.alloc = TACK_C_ALLOCATOR}), tack_o8 = *tack_o6, *tack_o6 = tack_o7, tack_o8);
     {
         const int64_t tack_n9 = p_n;
-        for (int64_t tack_k10 = 0; tack_k10 < tack_n9; tack_k10++) {
+        for (int64_t tack_k10 = 0;; tack_k10++) {
+            if (!(tack_k10 < tack_n9)) {
+                break;
+            }
             const int64_t v_i = tack_k10;
             const tack_error v_err = (TACK_LIST_APPEND(&v_frames, v_i) ? (tack_error){} : (tack_error){1, {tack_str16, TACK_C_STR_LEN(tack_str16)}});
             if (v_err.code != 0) {

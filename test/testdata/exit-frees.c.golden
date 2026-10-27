@@ -138,7 +138,10 @@ static tack_results_4_main7_numbers tack_4_main7_numbers(int64_t p_n) {
     tack_list_22 v_l = ((tack_list_22){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n2 = p_n;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, ((int64_t)((uint64_t)v_i + (uint64_t)1))) ? (tack_error){} : (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}});
             if (v_err.code != 0) {
@@ -157,7 +160,10 @@ static tack_results_4_main7_numbers tack_4_main7_numbers(int64_t p_n) {
 static tack_error tack_4_main4_fill(tack_list_22 * p_l, int64_t p_n) {
     {
         const int64_t tack_n5 = p_n;
-        for (int64_t tack_k6 = 0; tack_k6 < tack_n5; tack_k6++) {
+        for (int64_t tack_k6 = 0;; tack_k6++) {
+            if (!(tack_k6 < tack_n5)) {
+                break;
+            }
             const int64_t v_i = tack_k6;
             const tack_error v_err = (TACK_LIST_APPEND(p_l, ((int64_t)((uint64_t)v_i + (uint64_t)1))) ? (tack_error){} : (tack_error){1, {tack_str18, TACK_C_STR_LEN(tack_str18)}});
             if (v_err.code != 0) {
@@ -203,12 +209,18 @@ static void tack_4_main4_main(void) {
     tack_list_24 v_cube = ((tack_list_24){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n16 = 2;
-        for (int64_t tack_k17 = 0; tack_k17 < tack_n16; tack_k17++) {
+        for (int64_t tack_k17 = 0;; tack_k17++) {
+            if (!(tack_k17 < tack_n16)) {
+                break;
+            }
             const int64_t v_p = tack_k17;
             tack_list_23 v_plane = ((tack_list_23){.alloc = TACK_C_ALLOCATOR});
             {
                 const int64_t tack_n12 = 3;
-                for (int64_t tack_k13 = 0; tack_k13 < tack_n12; tack_k13++) {
+                for (int64_t tack_k13 = 0;; tack_k13++) {
+                    if (!(tack_k13 < tack_n12)) {
+                        break;
+                    }
                     const int64_t v_r = tack_k13;
                     const tack_results_4_main7_numbers tack_r8 = tack_4_main7_numbers(((int64_t)((uint64_t)((int64_t)((uint64_t)v_p + (uint64_t)v_r)) + (uint64_t)1)));
                     tack_list_22 v_row = tack_r8.r0;

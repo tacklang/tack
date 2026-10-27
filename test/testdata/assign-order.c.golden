@@ -148,7 +148,10 @@ static void tack_4_main4_post(void) {
     tack_array_21 v_a = (tack_array_21){};
     int64_t v_n = 0;
     {
-        for (; v_n < 2; tack_o11 = tack_4_main1_g, v_a.e[tack_o11] = tack_4_main4_bump()) {
+        for (;; tack_o11 = tack_4_main1_g, v_a.e[tack_o11] = tack_4_main4_bump()) {
+            if (!(v_n < 2)) {
+                break;
+            }
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
         }
     }

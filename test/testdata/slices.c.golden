@@ -186,7 +186,10 @@ static int64_t tack_4_main3_sum(tack_view_24 p_v) {
     int64_t v_total = 0;
     {
         const tack_view_24 tack_r0 = p_v;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const int64_t v_x = tack_r0.ptr[tack_k1];
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)v_x));
         }
@@ -208,7 +211,10 @@ static int64_t tack_4_main5_count(tack_view_25 p_b, uint8_t p_c) {
     int64_t v_n = 0;
     {
         const tack_view_25 tack_r3 = p_b;
-        for (int64_t tack_k4 = 0; tack_k4 < tack_r3.len; tack_k4++) {
+        for (int64_t tack_k4 = 0;; tack_k4++) {
+            if (!(tack_k4 < tack_r3.len)) {
+                break;
+            }
             const uint8_t v_x = tack_r3.ptr[tack_k4];
             if (v_x == p_c) {
                 v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
@@ -284,7 +290,10 @@ static int64_t tack_4_main10_prefixSums(tack_view_24 p_v) {
     int64_t v_total = 0;
     {
         int64_t v_i = 0;
-        for (; v_i < (p_v).len; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i < (p_v).len)) {
+                break;
+            }
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)tack_4_main3_sum(tack_slice_24(p_v, 0, (int64_t)v_i))));
         }
     }
@@ -295,7 +304,10 @@ static int64_t tack_4_main10_suffixSums(tack_view_24 p_v) {
     int64_t v_total = 0;
     {
         const tack_view_24 tack_r15 = p_v;
-        for (int64_t tack_k16 = 0; tack_k16 < tack_r15.len; tack_k16++) {
+        for (int64_t tack_k16 = 0;; tack_k16++) {
+            if (!(tack_k16 < tack_r15.len)) {
+                break;
+            }
             const int64_t v_i = tack_k16;
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)tack_4_main3_sum(tack_slice_from_24(p_v, (int64_t)v_i))));
         }

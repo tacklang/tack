@@ -291,7 +291,10 @@ static void tack_4_main5_loops(void) {
     int64_t v_total = 0;
     {
         const int64_t tack_n1 = 6;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_n1; tack_k2++) {
+        for (int64_t tack_k2 = 0;; tack_k2++) {
+            if (!(tack_k2 < tack_n1)) {
+                break;
+            }
             const int64_t v_i = tack_k2;
             const int64_t v_d = ((int64_t)((uint64_t)v_i - (uint64_t)1));
             if (v_i == 1) {

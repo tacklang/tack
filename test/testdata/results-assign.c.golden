@@ -45,7 +45,10 @@ static void tack_4_main4_main(void) {
         int64_t v_a = tack_r2.r0;
         int64_t v_b = tack_r2.r1;
         tack_results_4_main6_divmod tack_r3;
-        for (; v_a > 1; tack_r3 = tack_4_main6_divmod(v_a, 2), v_a = tack_r3.r0, v_b = tack_r3.r1) {
+        for (;; tack_r3 = tack_4_main6_divmod(v_a, 2), v_a = tack_r3.r0, v_b = tack_r3.r1) {
+            if (!(v_a > 1)) {
+                break;
+            }
             v_steps = ((int64_t)((uint64_t)v_steps + (uint64_t)((int64_t)((uint64_t)1 + (uint64_t)v_b))));
         }
     }

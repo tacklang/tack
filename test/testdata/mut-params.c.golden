@@ -141,7 +141,10 @@ static void tack_4_main4_grow(tack_4_main3_Box * p_b) {
     tack_4_main4_bump(&(*p_b).f_hi.f_x);
     {
         (void)(*p_b).f_cells;
-        for (int64_t tack_k1 = 0; tack_k1 < 4; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < 4)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             tack_4_main4_bump(&(*p_b).f_cells.e[v_i]);
         }
@@ -264,7 +267,10 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check((tack_eq_24(&v_cells, &(tack_array_24){{0, 0, 1, 1}})), (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
     {
         (void)v_cells;
-        for (int64_t tack_k4 = 0; tack_k4 < 4; tack_k4++) {
+        for (int64_t tack_k4 = 0;; tack_k4++) {
+            if (!(tack_k4 < 4)) {
+                break;
+            }
             const int64_t v_j = tack_k4;
             tack_4_main4_bump(&v_cells.e[v_j]);
         }

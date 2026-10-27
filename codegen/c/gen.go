@@ -1299,8 +1299,8 @@ func parenthesised(e ast.Expr) bool {
 	return ok && b.Const == nil && b.Op != ast.Div && b.Op != ast.Rem && !b.Op.IsShift()
 }
 
-// condHeader writes the opening line of an if or while whose condition is
-// cond, rendered from e. A binary expression is already parenthesised, and a
+// condHeader writes the opening line of an if whose condition is cond,
+// rendered from e. A binary expression is already parenthesised, and a
 // second pair makes clang warn about an equality test, so it only gets the
 // statement's own.
 func condHeader(keyword string, e ast.Expr, cond string) string {
@@ -1310,22 +1310,39 @@ func condHeader(keyword string, e ast.Expr, cond string) string {
 	return fmt.Sprintf("%s (%s) {", keyword, cond)
 }
 
-// generateFor lowers a loop to a C while, or to for (;;) when it has no
-// condition. Tack's break and continue mean what C's do, so they lower
-// directly. A loop with an init or post statement takes generateClauseFor's
-// form instead.
+// generateFor lowers a loop to a C for (;;) that tests the loop's
+// condition, when it has one, at the top of every pass and breaks when it
+// does not hold:
+//
+//	for (;;) {
+//	    if (!(cond)) {
+//	        break;
+//	    }
+//	    body
+//	}
+//
+// The C loop's controlling expression is always omitted, so it is a
+// constant: C11 6.8.5p6 lets a C compiler assume that a loop whose
+// controlling expression is not a constant, and whose body does no I/O,
+// no volatile access and no synchronization, ends, and clang deletes such
+// a loop that never does, or treats the way into it as unreachable. A
+// Tack loop runs for as long as its condition holds, forever if it always
+// does, so none of its C loops may carry that assumption. The condition
+// is evaluated exactly when, and as often as, a while's would be. Tack's
+// break and continue mean what C's do, so they lower directly. A loop
+// with an init or post statement takes generateClauseFor's form instead.
 func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	if loop.Init != nil || loop.Post != nil {
 		return g.generateClauseFor(loop, fn)
 	}
 
-	header := "for (;;) {"
+	var test []string
 	if loop.Cond != nil {
 		cond, diags := g.expr(loop.Cond, types.Bool)
 		if len(diags) > 0 {
 			return nil, diags
 		}
-		header = condHeader("while", loop.Cond, cond)
+		test = breakUnless(loop.Cond, cond)
 	}
 
 	body, diags := g.generateLoopBody(loop.Body, fn)
@@ -1333,26 +1350,62 @@ func (g *generator) generateFor(loop *ast.For, fn *ast.Func) ([]string, []diag.D
 		return nil, diags
 	}
 
-	lines := append([]string{header}, indent(body)...)
-	return append(lines, "}"), nil
+	return loopFor("", test, body), nil
+}
+
+// loopFor returns the C for of a lowered loop, which has no controlling
+// expression (see generateFor): for (;;), or for (;; post) when post is
+// not empty, around test, the lines that test the loop's condition, and
+// then body.
+func loopFor(post string, test, body []string) []string {
+	header := "for (;;) {"
+	if post != "" {
+		header = fmt.Sprintf("for (;; %s) {", post)
+	}
+	pass := make([]string, 0, len(test)+len(body))
+	pass = append(append(pass, test...), body...)
+	lines := append([]string{header}, indent(pass)...)
+	return append(lines, "}")
+}
+
+// breakUnless returns the lines a lowered loop begins every pass with
+// when it has a condition: an if that leaves the loop with break unless
+// cond, rendered from e, holds. It stands in for the controlling
+// expression the C loop does without; see generateFor. A binary
+// expression is already parenthesised, so it gets no second pair.
+func breakUnless(e ast.Expr, cond string) []string {
+	if !parenthesised(e) {
+		cond = "(" + cond + ")"
+	}
+	return []string{"if (!" + cond + ") {", "    break;", "}"}
 }
 
 // generateClauseFor lowers a three-clause loop to a C block holding the init
-// statement and a C for whose post expression is the post statement:
+// statement and a C for whose post expression is the post statement, and
+// which tests the condition at the top of every pass, as generateFor's
+// loop does, rather than in its controlling expression, which it leaves
+// out so that the C compiler cannot assume the loop ends:
 //
 //	{
 //	    init;
-//	    for (; cond; post) {
+//	    for (;; post) {
+//	        if (!(cond)) {
+//	            break;
+//	        }
 //	        body
 //	    }
 //	}
 //
+// The order is a C for's with the condition in it: the init statement,
+// then the condition, then, each time it holds, the body and the post
+// statement, then the condition again.
 // The block scopes a variable the init declares to the loop, as Tack does,
 // and ends in the chain that frees one that owns a list.
 // Keeping the post in the for, rather than at the end of the body, is what
 // makes continue run it. The post's lines are joined with the comma
 // operator, so the post stays one C expression even if its Tack statement
-// lowers to more than one C statement.
+// lowers to more than one C statement. A loop with no condition has no
+// test, and one with no post statement is for (;;).
 func (g *generator) generateClauseFor(loop *ast.For, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	// The block holding the loop is a scope of its own, whose chain frees
 	// a list the init statement declares once the loop is done.
@@ -1389,13 +1442,13 @@ func (g *generator) clauseFor(loop *ast.For, fn *ast.Func) ([]string, []string, 
 		init = lines
 	}
 
-	cond := ""
+	var test []string
 	if loop.Cond != nil {
 		c, diags := g.expr(loop.Cond, types.Bool)
 		if len(diags) > 0 {
 			return nil, nil, diags
 		}
-		cond = stripParens(loop.Cond, c)
+		test = breakUnless(loop.Cond, c)
 	}
 
 	post := ""
@@ -1419,8 +1472,7 @@ func (g *generator) clauseFor(loop *ast.For, fn *ast.Func) ([]string, []string, 
 		return nil, nil, diags
 	}
 
-	inner := append([]string{fmt.Sprintf("for (; %s; %s) {", cond, post)}, indent(body)...)
-	return init, append(inner, "}"), nil
+	return init, loopFor(post, test, body), nil
 }
 
 // generateForRange lowers a range loop to a C block that evaluates the
@@ -1430,12 +1482,19 @@ func (g *generator) clauseFor(loop *ast.For, fn *ast.Func) ([]string, []string, 
 //
 //	{
 //	    const int64_t tack_n0 = count;
-//	    for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+//	    for (int64_t tack_k1 = 0;; tack_k1++) {
+//	        if (!(tack_k1 < tack_n0)) {
+//	            break;
+//	        }
 //	        const int64_t v_i = tack_k1;
 //	        body
 //	    }
 //	}
 //
+// The counter is tested at the top of each pass, not in the for's
+// controlling expression, for the reason generateFor gives: the count
+// bounds the loop, but a body that never ends would let the C compiler
+// assume it does.
 // The loop variable is a fresh const each iteration, as Tack's is immutable.
 // The counter never overflows, since it is only incremented while below the
 // count. The temporaries' names start with tack_ and have one underscore,
@@ -1476,8 +1535,7 @@ func (g *generator) generateForRange(
 			[]string{fmt.Sprintf("const %s %s = %s;", typ, declName(loop.Var), k)},
 			body...)
 	}
-	return rangeBlock(fmt.Sprintf("const %s %s = %s;", typ, n, x),
-		fmt.Sprintf("for (%s %s = 0; %s < %s; %s++) {", typ, k, k, n, k), body), nil
+	return rangeBlock(fmt.Sprintf("const %s %s = %s;", typ, n, x), typ, k, n, body), nil
 }
 
 // collectionRange lowers a range loop over an array or a string, whose
@@ -1487,7 +1545,10 @@ func (g *generator) generateForRange(
 //
 //	{
 //	    const tack_array_3 tack_r0 = a;
-//	    for (int64_t tack_k1 = 0; tack_k1 < 4; tack_k1++) {
+//	    for (int64_t tack_k1 = 0;; tack_k1++) {
+//	        if (!(tack_k1 < 4)) {
+//	            break;
+//	        }
 //	        const int64_t v_i = tack_k1;
 //	        const int64_t v_x = tack_r0.e[tack_k1];
 //	        body
@@ -1534,8 +1595,7 @@ func (g *generator) collectionRange(loop *ast.ForRange, x, addr string, body []s
 	if field == "e" && !bindsElem(loop) {
 		eval = fmt.Sprintf("(void)%s;", x)
 	}
-	return rangeBlock(eval,
-		fmt.Sprintf("for (int64_t %s = 0; %s < %s; %s++) {", k, k, n, k), append(vars, body...))
+	return rangeBlock(eval, "int64_t", k, n, append(vars, body...))
 }
 
 // bindsInPlace reports whether a range loop binds its element to a
@@ -1615,10 +1675,17 @@ func stmtCallsFunc(stmt ast.Stmt) bool {
 }
 
 // rangeBlock assembles a lowered range loop: a C block holding eval, which
-// evaluates what the loop ranges over, then a for with the header header
-// around body.
-func rangeBlock(eval, header string, body []string) []string {
-	inner := append([]string{header}, indent(body)...)
+// evaluates what the loop ranges over, then a for that counts k, of the C
+// type typ, up from 0 and runs body for as long as k is below n. The for
+// has no controlling expression and tests k at the top of every pass, as
+// generateFor's loop tests its condition, so that a body that never ends
+// does not let the C compiler assume the loop does.
+func rangeBlock(eval, typ, k, n string, body []string) []string {
+	header := fmt.Sprintf("for (%s %s = 0;; %s++) {", typ, k, k)
+	pass := make([]string, 0, 3+len(body))
+	pass = append(pass, fmt.Sprintf("if (!(%s < %s)) {", k, n), "    break;", "}")
+	pass = append(pass, body...)
+	inner := append([]string{header}, indent(pass)...)
 	inner = append(inner, "}")
 	lines := append([]string{"{", "    " + eval}, indent(inner)...)
 	return append(lines, "}")
@@ -1633,8 +1700,8 @@ func (g *generator) temp(prefix string) string {
 }
 
 // stripParens removes the parentheses a binary expression is rendered with,
-// for a condition in a C for header, where a second pair would make clang
-// warn on an equality test.
+// for a condition placed where a second pair would make clang warn on an
+// equality test, such as a switch case's test.
 func stripParens(e ast.Expr, rendered string) string {
 	if parenthesised(e) {
 		return rendered[1 : len(rendered)-1]

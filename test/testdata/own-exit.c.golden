@@ -50,7 +50,10 @@ static tack_list_20 tack_4_main7_numbers(int64_t p_n) {
     tack_list_20 v_l = ((tack_list_20){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n2 = p_n;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, ((int64_t)((uint64_t)v_i + (uint64_t)1))) ? (tack_error){} : (tack_error){1, {tack_str5, TACK_C_STR_LEN(tack_str5)}});
             if (v_err.code != 0) {

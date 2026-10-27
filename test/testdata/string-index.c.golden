@@ -27,7 +27,10 @@ static int64_t tack_4_main5_count(tack_string p_s, uint8_t p_c) {
     int64_t v_n = 0;
     {
         const int64_t tack_n0 = (p_s).len;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_n0)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             if (p_s.ptr[v_i] == p_c) {
                 v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));

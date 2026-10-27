@@ -585,11 +585,15 @@ func (g *generator) mapKeySource(m, key ast.Expr, mut bool) (multiSource, []diag
 // lowered body body. The map is copied into a const temporary, which
 // shares its buffers, and which every pass reads; the type checker keeps
 // the body from changing the map while it runs, so neither buffer moves.
-// The loop walks the used entries in order and skips those not live:
+// The loop walks the used entries in order and skips those not live,
+// testing its counter at the top of every pass as rangeBlock's loops do:
 //
 //	{
 //	    const tack_map_9 tack_r0 = v_m;
-//	    for (int64_t tack_k1 = 0; tack_k1 < tack_r0.used; tack_k1++) {
+//	    for (int64_t tack_k1 = 0;; tack_k1++) {
+//	        if (!(tack_k1 < tack_r0.used)) {
+//	            break;
+//	        }
 //	        if (!tack_r0.entries[tack_k1].live) {
 //	            continue;
 //	        }
@@ -633,13 +637,9 @@ func (g *generator) mapRange(loop *ast.ForRange, x string, body []string) []stri
 	bind(loop.Elem, "val")
 	return rangeBlock(
 		fmt.Sprintf("const %s %s = %s;", g.mapName(xType), r, x),
-		fmt.Sprintf(
-			"for (int64_t %s = 0; %s < %s.used; %s++) {",
-			k,
-			k,
-			r,
-			k,
-		),
+		"int64_t",
+		k,
+		r+".used",
 		append(vars, body...),
 	)
 }

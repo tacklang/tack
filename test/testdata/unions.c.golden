@@ -436,7 +436,10 @@ static void tack_6_unions10_testTokens(void) {
     int64_t v_words = 0;
     {
         const tack_array_32 *const tack_r4 = &v_toks;
-        for (int64_t tack_k5 = 0; tack_k5 < 4; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < 4)) {
+                break;
+            }
             const tack_6_unions5_Token v_t = (*tack_r4).e[tack_k5];
             if (!tack_eq_23(&v_t, &((tack_6_unions5_Token){.tag = 3}))) {
                 v_words = ((int64_t)((uint64_t)v_words + (uint64_t)1));
@@ -478,7 +481,10 @@ static void tack_6_unions11_testClauses(void) {
     int64_t v_sum = 0;
     {
         const tack_array_33 *const tack_r8 = &v_toks;
-        for (int64_t tack_k9 = 0; tack_k9 < 5; tack_k9++) {
+        for (int64_t tack_k9 = 0;; tack_k9++) {
+            if (!(tack_k9 < 5)) {
+                break;
+            }
             const tack_6_unions5_Token v_t = (*tack_r8).e[tack_k9];
             {
                 const tack_6_unions5_Token *const tack_s7 = &v_t;
@@ -498,7 +504,10 @@ static void tack_6_unions11_testClauses(void) {
     int64_t v_words = 0;
     {
         const tack_array_33 *const tack_r11 = &v_toks;
-        for (int64_t tack_k12 = 0; tack_k12 < 5; tack_k12++) {
+        for (int64_t tack_k12 = 0;; tack_k12++) {
+            if (!(tack_k12 < 5)) {
+                break;
+            }
             const tack_6_unions5_Token v_t = (*tack_r11).e[tack_k12];
             {
                 const tack_6_unions5_Token *const tack_s10 = &v_t;
@@ -563,7 +572,10 @@ static tack_list_28 tack_6_unions6_listOf(int64_t p_n) {
     tack_list_28 v_l = ((tack_list_28){.alloc = TACK_C_ALLOCATOR});
     {
         const int64_t tack_n19 = p_n;
-        for (int64_t tack_k20 = 0; tack_k20 < tack_n19; tack_k20++) {
+        for (int64_t tack_k20 = 0;; tack_k20++) {
+            if (!(tack_k20 < tack_n19)) {
+                break;
+            }
             const int64_t v_i = tack_k20;
             const tack_error v_err = (TACK_LIST_APPEND(&v_l, v_i) ? (tack_error){} : (tack_error){1, {tack_str67, TACK_C_STR_LEN(tack_str67)}});
             if (v_err.code != 0) {
@@ -589,7 +601,10 @@ static int64_t tack_6_unions5_total(tack_6_unions5_Value p_v) {
             int64_t v_s = 0;
             {
                 const tack_list_28 tack_r24 = (*v_l);
-                for (int64_t tack_k25 = 0; tack_k25 < tack_r24.len; tack_k25++) {
+                for (int64_t tack_k25 = 0;; tack_k25++) {
+                    if (!(tack_k25 < tack_r24.len)) {
+                        break;
+                    }
                     const int64_t v_x = tack_r24.ptr[tack_k25];
                     v_s = ((int64_t)((uint64_t)v_s + (uint64_t)v_x));
                 }
@@ -647,7 +662,10 @@ static void tack_6_unions9_testLoops(void) {
     int64_t v_sum = 0;
     {
         const int64_t tack_n31 = 10;
-        for (int64_t tack_k32 = 0; tack_k32 < tack_n31; tack_k32++) {
+        for (int64_t tack_k32 = 0;; tack_k32++) {
+            if (!(tack_k32 < tack_n31)) {
+                break;
+            }
             const int64_t v_i = tack_k32;
             tack_o30 = ((tack_6_unions5_Value){.tag = 1, .u.c_items = tack_6_unions6_listOf(v_i)});
             tack_free_25(&v_v);
@@ -658,7 +676,10 @@ static void tack_6_unions9_testLoops(void) {
     tack_6_unions5_check((v_sum == 120), (tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)});
     {
         const int64_t tack_n33 = 5;
-        for (int64_t tack_k34 = 0; tack_k34 < tack_n33; tack_k34++) {
+        for (int64_t tack_k34 = 0;; tack_k34++) {
+            if (!(tack_k34 < tack_n33)) {
+                break;
+            }
             const int64_t v_i = tack_k34;
             tack_6_unions5_Value v_inner = ((tack_6_unions5_Value){.tag = 1, .u.c_items = tack_6_unions6_listOf(v_i)});
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)tack_6_unions5_total(v_inner)));

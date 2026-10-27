@@ -319,7 +319,10 @@ static void tack_4_main4_main(void) {
     int64_t v_sum = 0;
     {
         const int64_t tack_n11 = 10;
-        for (int64_t tack_k12 = 0; tack_k12 < tack_n11; tack_k12++) {
+        for (int64_t tack_k12 = 0;; tack_k12++) {
+            if (!(tack_k12 < tack_n11)) {
+                break;
+            }
             const int64_t v_i = tack_k12;
             if (v_i == 2) {
                 continue;
@@ -333,7 +336,10 @@ static void tack_4_main4_main(void) {
         tack_builtin_exit(14);
     }
     int64_t v_n = 0;
-    while (v_n < 100) {
+    for (;;) {
+        if (!(v_n < 100)) {
+            break;
+        }
         v_n = ((int64_t)((uint64_t)v_n + (uint64_t)1));
         {
             const int64_t tack_s13 = v_n;
@@ -358,7 +364,10 @@ static void tack_4_main4_main(void) {
     int64_t v_total = 0;
     {
         const tack_array_23 *const tack_r15 = &v_words;
-        for (int64_t tack_k16 = 0; tack_k16 < 6; tack_k16++) {
+        for (int64_t tack_k16 = 0;; tack_k16++) {
+            if (!(tack_k16 < 6)) {
+                break;
+            }
             const tack_string v_w = (*tack_r15).e[tack_k16];
             {
                 const int64_t tack_s14 = tack_4_main4_word(v_w);

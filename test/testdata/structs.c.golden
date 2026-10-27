@@ -107,7 +107,10 @@ static void tack_4_main4_main(void) {
     v_pts.e[1].f_y = 20;
     {
         (void)v_pts;
-        for (int64_t tack_k3 = 0; tack_k3 < 2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < 2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             v_pts.e[v_i].f_x = ((int64_t)((uint64_t)v_pts.e[v_i].f_x * (uint64_t)3));
         }
@@ -115,7 +118,10 @@ static void tack_4_main4_main(void) {
     int64_t v_sum = 0;
     {
         const tack_array_26 *const tack_r4 = &v_pts;
-        for (int64_t tack_k5 = 0; tack_k5 < 2; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < 2)) {
+                break;
+            }
             const tack_4_main5_Point v_pt = (*tack_r4).e[tack_k5];
             v_sum = ((int64_t)((uint64_t)v_sum + (uint64_t)((int64_t)((uint64_t)v_pt.f_x + (uint64_t)v_pt.f_y))));
         }
@@ -128,7 +134,10 @@ static void tack_4_main4_main(void) {
     v_g.f_name = (tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)};
     {
         (void)v_g.f_cells;
-        for (int64_t tack_k7 = 0; tack_k7 < 3; tack_k7++) {
+        for (int64_t tack_k7 = 0;; tack_k7++) {
+            if (!(tack_k7 < 3)) {
+                break;
+            }
             const int64_t v_i = tack_k7;
             v_g.f_cells.e[v_i] = ((int64_t)((uint64_t)v_g.f_cells.e[v_i] + (uint64_t)1));
         }

@@ -41,7 +41,10 @@ static int64_t tack_4_main3_sum(tack_string p_s) {
     int64_t v_n = 0;
     {
         const tack_string tack_r0 = p_s;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const uint8_t v_b = tack_r0.ptr[tack_k1];
             v_n = ((int64_t)((uint64_t)v_n + (uint64_t)((int64_t)v_b)));
         }

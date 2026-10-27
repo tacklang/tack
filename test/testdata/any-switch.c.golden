@@ -264,7 +264,10 @@ static int64_t tack_4_main7_sumInts(tack_view_20 p_args) {
     int64_t v_total = 0;
     {
         const tack_view_20 tack_r4 = p_args;
-        for (int64_t tack_k5 = 0; tack_k5 < tack_r4.len; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < tack_r4.len)) {
+                break;
+            }
             const tack_any v_a = tack_r4.ptr[tack_k5];
             {
                 const tack_any tack_s3 = v_a;
@@ -289,7 +292,10 @@ static int64_t tack_4_main7_sumInts(tack_view_20 p_args) {
 static tack_results_4_main8_firstInt tack_4_main8_firstInt(tack_view_20 p_args) {
     {
         int64_t v_i = 0;
-        for (; v_i <= (p_args).len; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i <= (p_args).len)) {
+                break;
+            }
             const int64_t tack_r6 = v_i;
             const tack_any v_a = ((tack_r6 >= 0 && tack_r6 < p_args.len) ? p_args.ptr[tack_r6] : (tack_any){});
             const bool v_ok = (tack_r6 >= 0 && tack_r6 < p_args.len);
@@ -379,7 +385,10 @@ static void tack_4_main4_many(tack_view_20 p_args) {
     int64_t tack_a16;
     {
         const tack_view_20 tack_r14 = p_args;
-        for (int64_t tack_k15 = 0; tack_k15 < tack_r14.len; tack_k15++) {
+        for (int64_t tack_k15 = 0;; tack_k15++) {
+            if (!(tack_k15 < tack_r14.len)) {
+                break;
+            }
             const int64_t v_i = tack_k15;
             const tack_any v_a = tack_r14.ptr[tack_k15];
             const tack_any v_b = v_a;
@@ -440,7 +449,10 @@ static int64_t tack_4_main7_strings(tack_view_20 p_args) {
     int64_t v_n = 0;
     {
         int64_t v_i = 0;
-        for (; v_i < (p_args).len; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i < (p_args).len)) {
+                break;
+            }
             {
                 const tack_any tack_s21 = p_args.ptr[v_i];
                 if (tack_s21.type == TACK_TYPE_STRING) {

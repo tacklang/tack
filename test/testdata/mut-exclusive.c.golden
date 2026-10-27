@@ -142,7 +142,10 @@ static void tack_4_main4_main(void) {
     tack_4_main5_check(((v_s.f_grid.e[0].e[1] == 2) && (v_s.f_grid.e[1].e[0] == 1)), (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     {
         (void)v_s.f_pts;
-        for (int64_t tack_k1 = 0; tack_k1 < 2; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < 2)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             tack_4_main8_exchange(&v_s.f_pts.e[v_i].f_x, &v_s.f_pts.e[1].f_y);
         }

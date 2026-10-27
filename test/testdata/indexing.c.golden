@@ -31,7 +31,10 @@ static int64_t tack_4_main3_sum(tack_array_20 p_v) {
     int64_t v_total = 0;
     {
         const int64_t tack_n0 = ((void)p_v, (int64_t)5);
-        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_n0)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)p_v.e[v_i]));
         }
@@ -50,7 +53,10 @@ static void tack_4_main4_main(void) {
     tack_array_21 v_counts = (tack_array_21){};
     {
         const int64_t tack_n2 = 4;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             v_counts.e[v_i] = ((int64_t)((uint64_t)v_i * (uint64_t)10));
         }

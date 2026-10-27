@@ -254,7 +254,10 @@ static int64_t tack_4_main10_byteBefore(tack_string p_s, int64_t p_j) {
 static int64_t tack_4_main4_find(tack_view_21 p_a, int64_t p_x) {
     int64_t v_lo = 0;
     int64_t v_hi = (p_a).len;
-    while (((0 <= v_lo) && (v_lo < v_hi)) && (v_hi <= (p_a).len)) {
+    for (;;) {
+        if (!(((0 <= v_lo) && (v_lo < v_hi)) && (v_hi <= (p_a).len))) {
+            break;
+        }
         const int64_t v_mid = ((int64_t)((uint64_t)v_lo + (uint64_t)tack_div_int64(((int64_t)((uint64_t)v_hi - (uint64_t)v_lo)), 2)));
         if ((v_lo <= v_mid) && (v_mid < v_hi)) {
             if (p_a.ptr[v_mid] < p_x) {
@@ -272,7 +275,10 @@ static int64_t tack_4_main4_find(tack_view_21 p_a, int64_t p_x) {
 static bool tack_4_main10_palindrome(tack_view_21 p_a) {
     int64_t v_i = 0;
     int64_t v_j = ((int64_t)((uint64_t)(p_a).len - (uint64_t)1));
-    while (((0 <= v_i) && (v_i < v_j)) && (v_j < (p_a).len)) {
+    for (;;) {
+        if (!(((0 <= v_i) && (v_i < v_j)) && (v_j < (p_a).len))) {
+            break;
+        }
         if (p_a.ptr[v_i] != p_a.ptr[v_j]) {
             return false;
         }

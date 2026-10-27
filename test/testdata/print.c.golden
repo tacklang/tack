@@ -21,7 +21,10 @@ static void tack_4_main4_main(void);
 static void tack_4_main3_row(int64_t p_n) {
     {
         const int64_t tack_n0 = p_n;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_n0; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_n0)) {
+                break;
+            }
             tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
         }
     }
@@ -35,7 +38,10 @@ static void tack_4_main4_main(void) {
     tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
     {
         const int64_t tack_n2 = 3;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             tack_4_main3_row(((int64_t)((uint64_t)v_i + (uint64_t)1)));
         }

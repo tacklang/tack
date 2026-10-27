@@ -80,7 +80,10 @@ static int64_t tack_4_main5_early(int64_t p_n) {
     int tack_next1 = 0;
     {
         const int64_t tack_n2 = 3;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_n2; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_n2)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             if (v_i == p_n) {
                 tack_ret0 = v_i;

@@ -99,7 +99,10 @@ static void tack_4_main5_fromC(void) {
     bool v_good = true;
     {
         const tack_list_21 tack_r0 = v_l;
-        for (int64_t tack_k1 = 0; tack_k1 < tack_r0.len; tack_k1++) {
+        for (int64_t tack_k1 = 0;; tack_k1++) {
+            if (!(tack_k1 < tack_r0.len)) {
+                break;
+            }
             const int64_t v_i = tack_k1;
             const int64_t v_x = tack_r0.ptr[tack_k1];
             if (v_x != ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
@@ -136,7 +139,10 @@ static void tack_4_main9_bulkFromC(void) {
     bool v_good = (tack_4_main5_capOf(&v_l) == 10);
     {
         const tack_list_21 tack_r2 = v_l;
-        for (int64_t tack_k3 = 0; tack_k3 < tack_r2.len; tack_k3++) {
+        for (int64_t tack_k3 = 0;; tack_k3++) {
+            if (!(tack_k3 < tack_r2.len)) {
+                break;
+            }
             const int64_t v_i = tack_k3;
             const int64_t v_x = tack_r2.ptr[tack_k3];
             if (v_x != ((int64_t)((uint64_t)v_i + (uint64_t)1))) {

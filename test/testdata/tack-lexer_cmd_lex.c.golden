@@ -369,7 +369,10 @@ static void tack_12_tack_2dlexer5_lexer3_add(tack_12_tack_2dlexer5_lexer5_Lexer 
 
 static void tack_12_tack_2dlexer5_lexer7_addSemi(tack_12_tack_2dlexer5_lexer5_Lexer * p_l, int64_t p_pos) {
     int64_t v_last = ((int64_t)((uint64_t)(*p_l).f_n - (uint64_t)1));
-    while (((v_last >= 0) && (v_last < ((void)(*p_l).f_toks, (int64_t)4096))) && ((*p_l).f_toks.e[v_last].f_kind == tack_12_tack_2dlexer5_lexer11_KindComment)) {
+    for (;;) {
+        if (!(((v_last >= 0) && (v_last < ((void)(*p_l).f_toks, (int64_t)4096))) && ((*p_l).f_toks.e[v_last].f_kind == tack_12_tack_2dlexer5_lexer11_KindComment))) {
+            break;
+        }
         v_last = ((int64_t)((uint64_t)v_last - (uint64_t)1));
     }
     if (((v_last >= 0) && (v_last < ((void)(*p_l).f_toks, (int64_t)4096))) && (*p_l).f_toks.e[v_last].f_ends) {
@@ -407,7 +410,10 @@ static bool tack_12_tack_2dlexer5_lexer6_spanIs(tack_string p_src, int64_t p_sta
 static bool tack_12_tack_2dlexer5_lexer11_hasPrefixAt(tack_string p_src, int64_t p_pos, tack_string p_word) {
     {
         const int64_t tack_n4 = (p_word).len;
-        for (int64_t tack_k5 = 0; tack_k5 < tack_n4; tack_k5++) {
+        for (int64_t tack_k5 = 0;; tack_k5++) {
+            if (!(tack_k5 < tack_n4)) {
+                break;
+            }
             const int64_t v_i = tack_k5;
             const int64_t tack_r3 = ((int64_t)((uint64_t)p_pos + (uint64_t)v_i));
             const uint8_t v_c = ((tack_r3 >= 0 && tack_r3 < p_src.len) ? p_src.ptr[tack_r3] : 0);
@@ -452,7 +458,10 @@ static void tack_12_tack_2dlexer5_lexer6_quoted(tack_12_tack_2dlexer5_lexer5_Lex
     const int64_t v_start = (*p_l).f_pos;
     (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
     bool v_closed = false;
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos) == 0)) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos) == 0))) {
+            break;
+        }
         const uint8_t v_c = tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos);
         if (v_c == 34) {
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
@@ -474,7 +483,10 @@ static void tack_12_tack_2dlexer5_lexer6_quoted(tack_12_tack_2dlexer5_lexer5_Lex
 static void tack_12_tack_2dlexer5_lexer3_raw(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     const int64_t v_start = (*p_l).f_pos;
     (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) != 96)) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) != 96))) {
+            break;
+        }
         (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
     }
     const bool v_closed = ((*p_l).f_pos < ((*p_l).f_src).len);
@@ -517,7 +529,10 @@ static void tack_12_tack_2dlexer5_lexer4_char(tack_12_tack_2dlexer5_lexer5_Lexer
 }
 
 static void tack_12_tack_2dlexer5_lexer7_tooLong(tack_12_tack_2dlexer5_lexer5_Lexer * p_l, int64_t p_start) {
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos) == 0)) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos) == 0))) {
+            break;
+        }
         const uint8_t v_c = tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos);
         (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
         if (v_c == 39) {
@@ -546,7 +561,10 @@ static void tack_12_tack_2dlexer5_lexer6_escape(tack_12_tack_2dlexer5_lexer5_Lex
         } else if (tack_s7 == 120) {
             {
                 const int64_t tack_n8 = 2;
-                for (int64_t tack_k9 = 0; tack_k9 < tack_n8; tack_k9++) {
+                for (int64_t tack_k9 = 0;; tack_k9++) {
+                    if (!(tack_k9 < tack_n8)) {
+                        break;
+                    }
                     if (((*p_l).f_pos >= ((*p_l).f_src).len) || !tack_12_tack_2dlexer5_lexer5_isHex(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos))) {
                         break;
                     }
@@ -569,7 +587,10 @@ static void tack_12_tack_2dlexer5_lexer3_Lex(tack_12_tack_2dlexer5_lexer5_Lexer 
     (*p_l).f_overflow = false;
     (*p_l).f_nerr = 0;
     (*p_l).f_dropped = 0;
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && !(*p_l).f_overflow) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && !(*p_l).f_overflow)) {
+            break;
+        }
         const uint8_t v_c = tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos);
         const uint8_t v_next = tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1)));
         if ((v_c == 32) || (v_c == 9)) {
@@ -604,7 +625,10 @@ static void tack_12_tack_2dlexer5_lexer8_newlines(tack_12_tack_2dlexer5_lexer5_L
     const int64_t v_first = (*p_l).f_pos;
     {
         int64_t v_n = tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos);
-        for (; v_n > 0; v_n = tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos)) {
+        for (;; v_n = tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos)) {
+            if (!(v_n > 0)) {
+                break;
+            }
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)v_n));
         }
     }
@@ -613,7 +637,10 @@ static void tack_12_tack_2dlexer5_lexer8_newlines(tack_12_tack_2dlexer5_lexer5_L
 
 static void tack_12_tack_2dlexer5_lexer5_ident(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     const int64_t v_start = (*p_l).f_pos;
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer12_isIdentStart(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)))) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer12_isIdentStart(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos))))) {
+            break;
+        }
         (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
     }
     const int64_t v_k = tack_12_tack_2dlexer5_lexer7_keyword((*p_l).f_src, v_start, (*p_l).f_pos);
@@ -630,7 +657,10 @@ static void tack_12_tack_2dlexer5_lexer5_ident(tack_12_tack_2dlexer5_lexer5_Lexe
 static int64_t tack_12_tack_2dlexer5_lexer7_keyword(tack_string p_src, int64_t p_start, int64_t p_end) {
     {
         const tack_array_27 *const tack_r11 = &tack_12_tack_2dlexer5_lexer8_keywords;
-        for (int64_t tack_k12 = 0; tack_k12 < 36; tack_k12++) {
+        for (int64_t tack_k12 = 0;; tack_k12++) {
+            if (!(tack_k12 < 36)) {
+                break;
+            }
             const int64_t v_i = tack_k12;
             const tack_12_tack_2dlexer5_lexer8_spelling v_w = (*tack_r11).e[tack_k12];
             if (tack_12_tack_2dlexer5_lexer6_spanIs(p_src, p_start, p_end, v_w.f_text)) {
@@ -646,14 +676,20 @@ static void tack_12_tack_2dlexer5_lexer6_number(tack_12_tack_2dlexer5_lexer5_Lex
     const int64_t v_base = tack_12_tack_2dlexer5_lexer10_prefixBase((*p_l).f_src, (*p_l).f_pos);
     if (v_base != 0) {
         (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)2));
-        while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer12_isIdentStart(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)))) {
+        for (;;) {
+            if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer12_isIdentStart(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos))))) {
+                break;
+            }
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
         }
         int64_t v_digits = 0;
         int64_t v_bad = (-1);
         {
             int64_t v_i = ((int64_t)((uint64_t)v_start + (uint64_t)2));
-            for (; v_i < (*p_l).f_pos; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+                if (!(v_i < (*p_l).f_pos)) {
+                    break;
+                }
                 const uint8_t v_c = tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, v_i);
                 if (v_c != 95) {
                     v_digits = ((int64_t)((uint64_t)v_digits + (uint64_t)1));
@@ -674,7 +710,10 @@ static void tack_12_tack_2dlexer5_lexer6_number(tack_12_tack_2dlexer5_lexer5_Lex
         return;
     }
     bool v_isFloat = false;
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && ((tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 95)) || ((tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 46) && !v_isFloat))) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && ((tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 95)) || ((tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 46) && !v_isFloat)))) {
+            break;
+        }
         if (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 46) {
             v_isFloat = true;
         }
@@ -688,7 +727,10 @@ static void tack_12_tack_2dlexer5_lexer6_number(tack_12_tack_2dlexer5_lexer5_Lex
         if ((tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 43) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 45)) {
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
         }
-        while (((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 95))) {
+        for (;;) {
+            if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos)) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos) == 95)))) {
+                break;
+            }
             if (tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, (*p_l).f_pos))) {
                 v_expDigits = true;
             }
@@ -716,7 +758,10 @@ static void tack_12_tack_2dlexer5_lexer6_number(tack_12_tack_2dlexer5_lexer5_Lex
 static bool tack_12_tack_2dlexer5_lexer14_floatSeparated(tack_string p_src, int64_t p_start, int64_t p_end) {
     {
         int64_t v_i = p_start;
-        for (; v_i < p_end; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i < p_end)) {
+                break;
+            }
             if ((tack_12_tack_2dlexer5_lexer6_byteAt(p_src, v_i) == 95) && ((((v_i == p_start) || !tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt(p_src, ((int64_t)((uint64_t)v_i - (uint64_t)1))))) || (((int64_t)((uint64_t)v_i + (uint64_t)1)) == p_end)) || !tack_12_tack_2dlexer5_lexer7_isDigit(tack_12_tack_2dlexer5_lexer6_byteAt(p_src, ((int64_t)((uint64_t)v_i + (uint64_t)1)))))) {
                 return false;
             }
@@ -758,7 +803,10 @@ static int64_t tack_12_tack_2dlexer5_lexer10_digitValue(uint8_t p_c) {
 static bool tack_12_tack_2dlexer5_lexer9_separated(tack_string p_src, int64_t p_start, int64_t p_end, int64_t p_first) {
     {
         int64_t v_i = p_first;
-        for (; v_i < p_end; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i < p_end)) {
+                break;
+            }
             if (tack_12_tack_2dlexer5_lexer6_byteAt(p_src, v_i) != 95) {
                 continue;
             }
@@ -775,7 +823,10 @@ static bool tack_12_tack_2dlexer5_lexer9_separated(tack_string p_src, int64_t p_
 static bool tack_12_tack_2dlexer5_lexer8_operator(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     {
         const tack_array_28 *const tack_r14 = &tack_12_tack_2dlexer5_lexer9_operators;
-        for (int64_t tack_k15 = 0; tack_k15 < 48; tack_k15++) {
+        for (int64_t tack_k15 = 0;; tack_k15++) {
+            if (!(tack_k15 < 48)) {
+                break;
+            }
             const int64_t v_i = tack_k15;
             const tack_12_tack_2dlexer5_lexer8_spelling v_op = (*tack_r14).e[tack_k15];
             if (tack_12_tack_2dlexer5_lexer11_hasPrefixAt((*p_l).f_src, (*p_l).f_pos, v_op.f_text)) {
@@ -791,14 +842,20 @@ static bool tack_12_tack_2dlexer5_lexer8_operator(tack_12_tack_2dlexer5_lexer5_L
 static void tack_12_tack_2dlexer5_lexer7_comment(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     const int64_t v_start = (*p_l).f_pos;
     (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)2));
-    while ((*p_l).f_pos < ((*p_l).f_src).len) {
+    for (;;) {
+        if (!((*p_l).f_pos < ((*p_l).f_src).len)) {
+            break;
+        }
         const int64_t v_n = tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos);
         if (v_n == 0) {
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
             continue;
         }
         int64_t v_next = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)v_n));
-        while ((tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, v_next) == 32) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, v_next) == 9)) {
+        for (;;) {
+            if (!((tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, v_next) == 32) || (tack_12_tack_2dlexer5_lexer6_byteAt((*p_l).f_src, v_next) == 9))) {
+                break;
+            }
             v_next = ((int64_t)((uint64_t)v_next + (uint64_t)1));
         }
         if (!tack_12_tack_2dlexer5_lexer11_hasPrefixAt((*p_l).f_src, v_next, (tack_string){tack_str105, TACK_C_STR_LEN(tack_str105)})) {
@@ -815,7 +872,10 @@ static void tack_12_tack_2dlexer5_lexer12_blockComment(tack_12_tack_2dlexer5_lex
     (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)2));
     int64_t v_depth = 1;
     bool v_lines = false;
-    while (((*p_l).f_pos < ((*p_l).f_src).len) && (v_depth > 0)) {
+    for (;;) {
+        if (!(((*p_l).f_pos < ((*p_l).f_src).len) && (v_depth > 0))) {
+            break;
+        }
         const int64_t v_n = tack_12_tack_2dlexer5_lexer9_newlineAt((*p_l).f_src, (*p_l).f_pos);
         if (tack_12_tack_2dlexer5_lexer11_hasPrefixAt((*p_l).f_src, (*p_l).f_pos, (tack_string){tack_str106, TACK_C_STR_LEN(tack_str106)})) {
             v_depth = ((int64_t)((uint64_t)v_depth + (uint64_t)1));
@@ -857,7 +917,10 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
     }
     {
         const int64_t tack_n17 = tack_12_tack_2dlexer5_lexer5_Count(&v_lx);
-        for (int64_t tack_k18 = 0; tack_k18 < tack_n17; tack_k18++) {
+        for (int64_t tack_k18 = 0;; tack_k18++) {
+            if (!(tack_k18 < tack_n17)) {
+                break;
+            }
             const int64_t v_i = tack_k18;
             if (v_i >= ((void)v_lx.f_toks, (int64_t)4096)) {
                 break;
@@ -875,7 +938,10 @@ static void tack_12_tack_2dlexer3_cmd3_lex4_main(void) {
     }
     {
         const int64_t tack_n20 = v_lx.f_nerr;
-        for (int64_t tack_k21 = 0; tack_k21 < tack_n20; tack_k21++) {
+        for (int64_t tack_k21 = 0;; tack_k21++) {
+            if (!(tack_k21 < tack_n20)) {
+                break;
+            }
             const int64_t v_i = tack_k21;
             const int64_t tack_r19 = v_i;
             const tack_12_tack_2dlexer5_lexer5_Error v_e = ((tack_r19 >= 0 && tack_r19 <= 63) ? v_lx.f_errs.e[tack_r19] : (tack_12_tack_2dlexer5_lexer5_Error){});
@@ -937,7 +1003,10 @@ static void tack_12_tack_2dlexer3_cmd3_lex11_printQuoted(tack_string p_src, int6
     tack_builtin_print((tack_string){tack_str133, TACK_C_STR_LEN(tack_str133)});
     {
         int64_t v_i = p_start;
-        for (; v_i < p_end; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+        for (;; v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1))) {
+            if (!(v_i < p_end)) {
+                break;
+            }
             const int64_t tack_r24 = v_i;
             const uint8_t v_c = ((tack_r24 >= 0 && tack_r24 < p_src.len) ? p_src.ptr[tack_r24] : 0);
             const bool v_ok = (tack_r24 >= 0 && tack_r24 < p_src.len);

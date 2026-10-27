@@ -117,7 +117,10 @@ static void tack_4_main4_bump(int64_t * p_i) {
 
 static void tack_4_main8_percents(tack_view_20 p_fmt, tack_list_21 * p_out) {
     int64_t v_i = 0;
-    while ((0 <= v_i) && (v_i < (p_fmt).len)) {
+    for (;;) {
+        if (!((0 <= v_i) && (v_i < (p_fmt).len))) {
+            break;
+        }
         if (p_fmt.ptr[v_i] != 37) {
             v_i = ((int64_t)((uint64_t)v_i + (uint64_t)1));
             continue;
@@ -133,7 +136,10 @@ static void tack_4_main8_percents(tack_view_20 p_fmt, tack_list_21 * p_out) {
 static int64_t tack_4_main13_untilNegative(tack_view_22 p_a) {
     int64_t v_i = 0;
     int64_t v_total = 0;
-    while ((0 <= v_i) && (v_i < (p_a).len)) {
+    for (;;) {
+        if (!((0 <= v_i) && (v_i < (p_a).len))) {
+            break;
+        }
         if (p_a.ptr[v_i] < 0) {
             v_i = (-1);
             break;
@@ -217,7 +223,10 @@ static int64_t tack_4_main7_tagless(tack_view_22 p_a, int64_t p_at, int64_t p_mo
 static int64_t tack_4_main6_digits(tack_view_20 p_s) {
     int64_t v_i = 0;
     int64_t v_n = 0;
-    while ((0 <= v_i) && (v_i < (p_s).len)) {
+    for (;;) {
+        if (!((0 <= v_i) && (v_i < (p_s).len))) {
+            break;
+        }
         {
             const uint8_t tack_s0 = p_s.ptr[v_i];
             if (tack_s0 == 32) {
@@ -271,7 +280,10 @@ static int64_t tack_4_main10_breaksLoop(tack_view_22 p_a, int64_t p_at) {
     int64_t v_total = 0;
     {
         const int64_t tack_n1 = 3;
-        for (int64_t tack_k2 = 0; tack_k2 < tack_n1; tack_k2++) {
+        for (int64_t tack_k2 = 0;; tack_k2++) {
+            if (!(tack_k2 < tack_n1)) {
+                break;
+            }
             const int64_t v_n = tack_k2;
             if (v_n == 2) {
                 v_i = (-5);
@@ -291,7 +303,10 @@ static int64_t tack_4_main11_beforeBreak(tack_view_22 p_a, int64_t p_at) {
     int64_t v_total = 0;
     {
         const int64_t tack_n3 = 3;
-        for (int64_t tack_k4 = 0; tack_k4 < tack_n3; tack_k4++) {
+        for (int64_t tack_k4 = 0;; tack_k4++) {
+            if (!(tack_k4 < tack_n3)) {
+                break;
+            }
             const int64_t v_n = tack_k4;
             v_total = ((int64_t)((uint64_t)v_total + (uint64_t)p_a.ptr[v_i]));
             if (v_n == 1) {
@@ -311,7 +326,10 @@ static int64_t tack_4_main13_returnsInLoop(tack_view_22 p_a, int64_t p_at, int64
     int64_t v_total = 0;
     {
         const int64_t tack_n5 = 3;
-        for (int64_t tack_k6 = 0; tack_k6 < tack_n5; tack_k6++) {
+        for (int64_t tack_k6 = 0;; tack_k6++) {
+            if (!(tack_k6 < tack_n5)) {
+                break;
+            }
             const int64_t v_n = tack_k6;
             if (p_k == v_n) {
                 v_total = 0;
@@ -330,7 +348,10 @@ static void tack_4_main9_keepTight(int64_t * p_i, tack_view_22 p_a, bool p_k) {
     }
     {
         const int64_t tack_n7 = 3;
-        for (int64_t tack_k8 = 0; tack_k8 < tack_n7; tack_k8++) {
+        for (int64_t tack_k8 = 0;; tack_k8++) {
+            if (!(tack_k8 < tack_n7)) {
+                break;
+            }
             if (p_k) {
                 (*p_i) = (-1);
                 break;
@@ -347,7 +368,10 @@ static void tack_4_main10_keepSpaced(int64_t * p_i, tack_view_22 p_a, bool p_k) 
     }
     {
         const int64_t tack_n9 = 3;
-        for (int64_t tack_k10 = 0; tack_k10 < tack_n9; tack_k10++) {
+        for (int64_t tack_k10 = 0;; tack_k10++) {
+            if (!(tack_k10 < tack_n9)) {
+                break;
+            }
             if (p_k) {
                 (*p_i) = (-1);
                 break;
@@ -374,7 +398,10 @@ static void tack_4_main10_keepSemiIf(int64_t * p_i, tack_view_22 p_a, bool p_k) 
     }
     {
         const int64_t tack_n11 = 3;
-        for (int64_t tack_k12 = 0; tack_k12 < tack_n11; tack_k12++) {
+        for (int64_t tack_k12 = 0;; tack_k12++) {
+            if (!(tack_k12 < tack_n11)) {
+                break;
+            }
             if (p_k) {
                 return;
                 if (p_k) {
@@ -393,7 +420,10 @@ static void tack_4_main10_keepLineIf(int64_t * p_i, tack_view_22 p_a, bool p_k) 
     }
     {
         const int64_t tack_n13 = 3;
-        for (int64_t tack_k14 = 0; tack_k14 < tack_n13; tack_k14++) {
+        for (int64_t tack_k14 = 0;; tack_k14++) {
+            if (!(tack_k14 < tack_n13)) {
+                break;
+            }
             if (p_k) {
                 return;
                 if (p_k) {
@@ -414,7 +444,10 @@ static void tack_4_main12_keepSemiLoop(int64_t * p_i, tack_view_22 p_a, bool p_k
         return;
         {
             const int64_t tack_n15 = 3;
-            for (int64_t tack_k16 = 0; tack_k16 < tack_n15; tack_k16++) {
+            for (int64_t tack_k16 = 0;; tack_k16++) {
+                if (!(tack_k16 < tack_n15)) {
+                    break;
+                }
                 (*p_i) = (-1);
             }
         }
@@ -430,7 +463,10 @@ static void tack_4_main12_keepLineLoop(int64_t * p_i, tack_view_22 p_a, bool p_k
         return;
         {
             const int64_t tack_n17 = 3;
-            for (int64_t tack_k18 = 0; tack_k18 < tack_n17; tack_k18++) {
+            for (int64_t tack_k18 = 0;; tack_k18++) {
+                if (!(tack_k18 < tack_n17)) {
+                    break;
+                }
                 (*p_i) = (-1);
             }
         }
@@ -462,11 +498,17 @@ static int64_t tack_4_main15_continueInBreak(tack_view_22 p_a, int64_t p_at, int
     if (p_k == 1) {
         {
             const int64_t tack_n21 = 3;
-            for (int64_t tack_k22 = 0; tack_k22 < tack_n21; tack_k22++) {
+            for (int64_t tack_k22 = 0;; tack_k22++) {
+                if (!(tack_k22 < tack_n21)) {
+                    break;
+                }
                 if (p_z) {
                     {
                         const int64_t tack_n19 = 3;
-                        for (int64_t tack_k20 = 0; tack_k20 < tack_n19; tack_k20++) {
+                        for (int64_t tack_k20 = 0;; tack_k20++) {
+                            if (!(tack_k20 < tack_n19)) {
+                                break;
+                            }
                             if (p_k == 2) {
                                 v_i = (-1);
                                 continue;
@@ -490,7 +532,10 @@ static int64_t tack_4_main17_afterReturnInLoop(tack_view_22 p_a, int64_t p_at, b
     }
     {
         const int64_t tack_n23 = 3;
-        for (int64_t tack_k24 = 0; tack_k24 < tack_n23; tack_k24++) {
+        for (int64_t tack_k24 = 0;; tack_k24++) {
+            if (!(tack_k24 < tack_n23)) {
+                break;
+            }
             if (p_z) {
                 v_i = (-1);
                 return 0;
