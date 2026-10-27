@@ -33,7 +33,9 @@ const maxFailRuns = 40
 // sanitizers, stopping at the first report.
 // -Wno-tautological-overlap-compare works around a finding, a condition
 // always false, as x < 3 && x > 5, written as is in C (see
-// TestFindingOverlapCompareWarns).
+// TestFindingOverlapCompareWarns). -fno-finite-loops, which every build
+// the driver runs passes, is left out on purpose, so these builds check
+// the C backend's loop lowering on its own.
 var sanitize = []string{
 	"-std=c11", "-Wall", "-Wextra", "-Werror",
 	"-Wno-tautological-overlap-compare",

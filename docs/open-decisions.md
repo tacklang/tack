@@ -988,8 +988,10 @@ go another way:
   package. `--emit-header` writes it into the target's directory and into
   every package directory of its module with C files or extern funcs; a
   std package with C gets none.
-- C files are compiled with `-w`, as the generated C is, so clang's
-  warnings about the user's own C are not shown; its errors are. There is
+- C files are compiled with `-w` and `-fno-finite-loops`, as the
+  generated C is, so clang's warnings about a package's own C are not
+  shown, and clang never assumes one of its loops ends; its errors are
+  shown. There is
   no way yet to pass a C file other flags, or to link a library.
 - tack.h's prototypes leave out the parameters' names, which could be C
   keywords or clash with a type's name; the Tack declaration is in a

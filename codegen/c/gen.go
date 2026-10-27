@@ -37,22 +37,33 @@ func (backend) Name() string { return "c" }
 // to.
 func (backend) Ext() string { return ".c" }
 
-// BuildCmd runs clang with its warnings off, compiling src and linking it
-// with objs. A warning about generated C names a temporary file and code
-// the user never wrote, and a valid program, such as one comparing a
-// variable with itself, can cause one. Errors are still reported. The
-// backend's own tests compile with -Wall -Wextra -Werror instead, so a
-// warning the backend causes is caught there. opt becomes clang's -O
-// flag. include, the standard library's include directory, is searched,
-// with -I, for the <tack/tack.h> the generated source includes.
+// BuildCmd runs clang with clangFlags, its warnings off, compiling src
+// and linking it with objs. A warning about generated C names a temporary
+// file and code whoever runs tack never wrote, and a valid program, such
+// as one comparing a variable with itself, can cause one. Errors are still
+// reported. The backend's own tests compile with -Wall -Wextra -Werror
+// instead, so a warning the backend causes is caught there. opt becomes
+// clang's -O flag. include, the standard library's include directory, is
+// searched, with -I, for the <tack/tack.h> the generated source includes.
 func (backend) BuildCmd(src, include string, objs []string, out string, opt codegen.Opt) []string {
-	return append(
-		[]string{"clang", "-w", "-O" + string(opt), "-I", include, "-o", out, src},
-		objs...)
+	cmd := append([]string{"clang"}, clangFlags(opt)...)
+	cmd = append(cmd, "-I", include, "-o", out, src)
+	return append(cmd, objs...)
 }
 
-// CompileCmd runs clang as BuildCmd does, with its warnings off, to
-// compile src, a C file of the program's, to the object obj. The header is
+// clangFlags returns the flags every clang command of the backend that
+// compiles C starts with: -w, warnings off (see BuildCmd);
+// -fno-finite-loops, so clang marks no loop mustprogress and never
+// assumes, as C11 6.8.5p6 lets it, that a loop ends, which keeps a loop
+// that never ends in the generated C, the runtime's, std's and a
+// package's own (clang marks no C function mustprogress with or without
+// the flag; it does so only in C++); and -O at opt.
+func clangFlags(opt codegen.Opt) []string {
+	return []string{"-w", "-fno-finite-loops", "-O" + string(opt)}
+}
+
+// CompileCmd runs clang as BuildCmd does, with clangFlags, to compile
+// src, a C file of the program's, to the object obj. The header is
 // included before the file's first line, with -include, so every
 // definition is checked against its extern func's prototype whether the
 // file includes tack.h or not, and a stale tack.h beside the file, which
@@ -84,10 +95,11 @@ func (backend) CompileStdCmd(src, include, obj string, opt codegen.Opt) []string
 func (backend) VersionCmd() []string { return []string{"clang", "--version"} }
 
 // compileCmd is the clang command that compiles src to the object obj at
-// opt, with its warnings off, as BuildCmd builds, and the flags extra
-// before the output.
+// opt, with clangFlags, as BuildCmd builds, and the flags extra before
+// the output.
 func compileCmd(src, obj string, opt codegen.Opt, extra ...string) []string {
-	cmd := []string{"clang", "-w", "-O" + string(opt), "-c"}
+	cmd := append([]string{"clang"}, clangFlags(opt)...)
+	cmd = append(cmd, "-c")
 	cmd = append(cmd, extra...)
 	return append(cmd, "-o", obj, src)
 }

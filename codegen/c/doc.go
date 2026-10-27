@@ -23,7 +23,8 @@
 // cause one: x == x makes clang warn that the comparison always holds.
 // clang's errors still reach the user. The package's own tests compile with
 // -Wall -Wextra -Werror, so the backend is still held to warning-free C for
-// what it controls.
+// what it controls. Every compile also passes -fno-finite-loops, so clang
+// never assumes a loop ends (see the loop lowering below).
 //
 // VersionCmd is clang --version, whose output names clang's version, its
 // default target and the directory it is installed in; the driver reuses a
@@ -691,11 +692,24 @@
 // evaluated, cast to void. Temporaries are named tack_ followed by a
 // letter and a number, which no mangled Tack name can be.
 //
-// Recursion needs no such care: clang marks a C function as one that must
-// make progress only in C++. The loops of the helpers the backend writes,
-// of the runtime and of std's C keep their controlling expressions: each
-// is bounded by a length or a count, or by an invariant of the map it
-// probes, and ends on any input.
+// Every clang command the backend gives, BuildCmd, CompileCmd and
+// CompileStdCmd, also passes -fno-finite-loops (clangFlags), a second
+// layer under the lowering above: with it clang marks no loop
+// mustprogress, so it assumes no loop ends, in the generated C, in the
+// helpers the backend writes, in the runtime, in std's C or in a
+// package's own C files. clang marks no C function mustprogress, with
+// the flag or without it; it does that only in C++. At -O1 and above the
+// IR can still say mustprogress in two places, neither an assumption
+// about a loop: on the declarations of LLVM's own intrinsics, such as
+// llvm.memset and llvm.lifetime.start, which LLVM declares mustprogress
+// and willreturn, and on a function LLVM's attribute inference has
+// proved returns, which it marks willreturn and mustprogress together.
+// clang 21, the minimum toolchain, takes the flag.
+// The lowering stays, so the generated C keeps its meaning when compiled
+// without the flag, as --emit output may be. The loops of the helpers,
+// the runtime and std's C keep their controlling expressions: each is
+// bounded by a length or a count, or by an invariant of the map it
+// probes, and ends on any input, and the flag covers them besides.
 //
 // A switch lowers to a chain of C ifs, never a C switch, whose break would
 // leave the switch where Tack's leaves the loop around it, and which cannot

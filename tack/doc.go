@@ -197,7 +197,9 @@
 // everything that decides the object: the cache's format, the backend's
 // name, the whole CompileStdCmd with the paths of the C file, of the
 // include directory and of the object left out, since they are temporary
-// ones (the optimization level is in it), the standard output of the
+// ones (the optimization level and every flag, -fno-finite-loops
+// included, are in it, so an object compiled with other flags is never
+// reused), the standard output of the
 // backend's VersionCmd, clang --version, run once per build, the runtime
 // header's bytes, and the C file's name and bytes. Every input but the
 // toolchain is built into the compiler, so nothing on disk, $TACK_HOME

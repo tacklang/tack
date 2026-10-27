@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1510,38 +1511,87 @@ var endlessCases = []string{
 const endlessGrace = 500 * time.Millisecond
 
 // TestBuiltEndlessLoopsNeverEnd builds examples/endless-loops at every
-// optimization level and runs each of its cases at once, all of them
-// together: every case whose loop never ends must still be running, with
-// nothing printed, when endlessGrace has passed, and the control case,
-// whose loop ends, must print "ended" and exit 0. A loop the generated C
-// lets the C compiler assume ends, one whose body does nothing observable
-// and whose controlling expression is not a constant, is deleted at -O1
-// and above, and the code after it runs, or, when the loop was the only
-// way on, whatever code comes next.
+// optimization level twice, and runs each case of both builds at once,
+// all of them together: every case whose loop never ends must still be
+// running, with nothing printed, when endlessGrace has passed, and the
+// control case, whose loop ends, must print "ended" and exit 0. A loop the
+// generated C lets the C compiler assume ends, one whose body does nothing
+// observable and whose controlling expression is not a constant, is
+// deleted at -O1 and above, and the code after it runs, or, when the loop
+// was the only way on, whatever code comes next. The first build is the
+// driver's own, with -fno-finite-loops. The second runs every clang
+// through a shim that drops that flag, so the loop lowering, the first
+// layer, is checked at run time on its own, and a regression in it is not
+// hidden by the flag.
 func TestBuiltEndlessLoopsNeverEnd(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
 	}
 	for _, opt := range codegen.Opts {
 		t.Run(string(opt), func(t *testing.T) {
-			bin := filepath.Join(t.TempDir(), "endless-loops")
-			r := runTack(t, "-O"+string(opt), "--out", bin, example("endless-loops"))
-			if r.code != exitOK || r.stdout != "" || r.stderr != "" {
-				t.Fatalf("build: exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
-			}
-			running := make([]*endlessRun, len(endlessCases))
-			for i, name := range endlessCases {
-				running[i] = startEndless(t, bin, name)
-			}
+			withFlag := buildEndless(t, opt)
+			withoutFlag := buildEndlessWithoutFlag(t, opt)
+			running := append(
+				startEndlessAll(t, "with -fno-finite-loops", withFlag),
+				startEndlessAll(t, "without -fno-finite-loops", withoutFlag)...)
 			time.Sleep(endlessGrace)
 			for _, run := range running {
 				run.requireRunning(t)
 			}
-			if out, code := runBuiltArgs(t, bin, "ends"); out != "ended\n" || code != 0 {
-				t.Errorf("ends printed %q and exited %d, want %q and 0", out, code, "ended\n")
+			for _, bin := range []string{withFlag, withoutFlag} {
+				if out, code := runBuiltArgs(t, bin, "ends"); out != "ended\n" || code != 0 {
+					t.Errorf("%s ends printed %q and exited %d, want %q and 0",
+						bin, out, code, "ended\n")
+				}
 			}
 		})
 	}
+}
+
+// buildEndlessWithoutFlag is buildEndless with every clang run through a
+// shim that drops -fno-finite-loops, for the rest of t, and checks clang
+// ran through it, never with the flag, and that one of those runs was the
+// link, the step that compiles the generated C.
+func buildEndlessWithoutFlag(t *testing.T, opt codegen.Opt) string {
+	t.Helper()
+	ran := shimClang(t, "-fno-finite-loops")
+	bin := buildEndless(t, opt)
+	linked := false
+	for _, argv := range ran() {
+		if slices.Contains(argv, "-fno-finite-loops") {
+			t.Fatalf("the shim left -fno-finite-loops in clang %q", argv)
+		}
+		linked = linked || clangRunKind(argv) == "link"
+	}
+	if !linked {
+		t.Fatal("the build without -fno-finite-loops ran no link through the shim")
+	}
+	return bin
+}
+
+// startEndlessAll starts bin on every case of endlessCases, each named
+// for messages by label and the case.
+func startEndlessAll(t *testing.T, label, bin string) []*endlessRun {
+	t.Helper()
+	running := make([]*endlessRun, len(endlessCases))
+	for i, name := range endlessCases {
+		running[i] = startEndless(t, bin, name)
+		running[i].name = label + ": " + name
+	}
+	return running
+}
+
+// buildEndless builds examples/endless-loops at opt into a fresh
+// directory, with whatever clang is first on PATH, and returns the
+// binary's path.
+func buildEndless(t *testing.T, opt codegen.Opt) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "endless-loops")
+	r := runTack(t, "-O"+string(opt), "--out", bin, example("endless-loops"))
+	if r.code != exitOK || r.stdout != "" || r.stderr != "" {
+		t.Fatalf("build: exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+	}
+	return bin
 }
 
 // endlessRun is one case of examples/endless-loops started by

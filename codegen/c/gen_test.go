@@ -87,7 +87,9 @@ func TestBackendIdentity(t *testing.T) {
 // <tack/tack.h>.
 func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 	got := c.New().BuildCmd("in.c", "/std/include", nil, "prog", "3")
-	want := []string{"clang", "-w", "-O3", "-I", "/std/include", "-o", "prog", "in.c"}
+	want := []string{
+		"clang", "-w", "-fno-finite-loops", "-O3", "-I", "/std/include", "-o", "prog", "in.c",
+	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
 	}
@@ -99,7 +101,8 @@ func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 func TestBuildCmdLinksObjects(t *testing.T) {
 	got := c.New().BuildCmd("in.c", "/std/include", []string{"a.o", "b.o"}, "prog", "0")
 	want := []string{
-		"clang", "-w", "-O0", "-I", "/std/include", "-o", "prog", "in.c", "a.o", "b.o",
+		"clang", "-w", "-fno-finite-loops", "-O0", "-I", "/std/include", "-o", "prog", "in.c",
+		"a.o", "b.o",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
@@ -117,6 +120,7 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 	want := []string{
 		"clang",
 		"-w",
+		"-fno-finite-loops",
 		"-Os",
 		"-c",
 		"-I",
@@ -140,11 +144,121 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 func TestCompileStdCmdSearchesStdHeaders(t *testing.T) {
 	got := c.New().CompileStdCmd("/std/builtin/print.c", "/std/include", "/tmp/b/std-print.o", "1")
 	want := []string{
-		"clang", "-w", "-O1", "-c", "-I", "/std/include", "-o", "/tmp/b/std-print.o",
-		"/std/builtin/print.c",
+		"clang", "-w", "-fno-finite-loops", "-O1", "-c", "-I", "/std/include", "-o",
+		"/tmp/b/std-print.o", "/std/builtin/print.c",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("CompileStdCmd = %q, want %q", got, want)
+	}
+}
+
+// TestEveryCompileAssumesNoLoopEnds checks that every command the backend
+// gives that compiles C, BuildCmd for the generated source, CompileCmd for
+// a package's C files and CompileStdCmd for the runtime's, passes
+// -fno-finite-loops at every level. Without it clang may assume, as C11
+// 6.8.5p6 lets it, that a loop with a non-constant condition ends, and
+// delete one that never does.
+func TestEveryCompileAssumesNoLoopEnds(t *testing.T) {
+	e := c.New()
+	for _, opt := range codegen.Opts {
+		for name, cmd := range map[string][]string{
+			"BuildCmd":      e.BuildCmd("/b/in.c", "/std/include", []string{"/b/a.o"}, "/b/prog", opt),
+			"CompileCmd":    e.CompileCmd("/p/a.c", "/b/tack.h", "/std/include", "/b/c0.o", opt),
+			"CompileStdCmd": e.CompileStdCmd("/std/builtin/print.c", "/std/include", "/b/p.o", opt),
+		} {
+			if !slices.Contains(cmd, "-fno-finite-loops") {
+				t.Errorf("-O%s: %s = %q, want -fno-finite-loops", opt, name, cmd)
+			}
+		}
+	}
+}
+
+// compareStrings is a program whose generated C holds the helper
+// tack_compare_strings, a loop with a controlling expression, which clang
+// marks llvm.loop.mustprogress without -fno-finite-loops.
+const compareStrings = "package main\n\n" +
+	"func less(a string, b string) bool {\n    return a < b\n}\n\n" +
+	"func main() {\n    if less(\"a\", \"b\") {\n        exit(1)\n    }\n}\n"
+
+// emitIR runs argv, a clang command of the backend, with -S -emit-llvm
+// appended, so it writes LLVM IR to the output path in argv, and returns
+// that IR read from out.
+func emitIR(t *testing.T, argv []string, out string) string {
+	t.Helper()
+	argv = append(slices.Clone(argv), "-S", "-emit-llvm")
+	if msg, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+		t.Fatalf("%q: %v\n%s", argv, err, msg)
+	}
+	ir, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(ir)
+}
+
+// writeCompareStrings writes compareStrings' generated C to prog.c in dir,
+// checking it holds tack_compare_strings, and returns its path.
+func writeCompareStrings(t *testing.T, dir string) string {
+	t.Helper()
+	gen := filepath.Join(dir, "prog.c")
+	csrc := generate(t, compareStrings)
+	if !strings.Contains(csrc, "tack_compare_strings(") {
+		t.Fatalf("generated C has no tack_compare_strings:\n%s", csrc)
+	}
+	if err := os.WriteFile(gen, []byte(csrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return gen
+}
+
+// runtimeCFile returns the path of the runtime's C file named name.
+func runtimeCFile(t *testing.T, name string) string {
+	t.Helper()
+	for _, f := range stdtest.RuntimeCFiles() {
+		if filepath.Base(f) == name {
+			return f
+		}
+	}
+	t.Fatalf("the runtime has no %s", name)
+	return ""
+}
+
+// TestDriverFlagsLeaveNoLoopMustProgress checks the effect of
+// -fno-finite-loops, not only its presence: the generated C of a program
+// comparing strings, compiled with BuildCmd's flags, and the runtime's
+// list.c, compiled with CompileStdCmd's, both hold a loop with a
+// controlling expression, and their IR marks no loop
+// llvm.loop.mustprogress at any level. The same commands without the
+// flag do mark one at -O0, so the check can fail.
+func TestDriverFlagsLeaveNoLoopMustProgress(t *testing.T) {
+	e := c.New()
+	if _, err := exec.LookPath(e.BuildCmd("", "", nil, "", codegen.DefaultOpt)[0]); err != nil {
+		t.Skipf("%v", err)
+	}
+	dir := t.TempDir()
+	gen := writeCompareStrings(t, dir)
+	list := runtimeCFile(t, "list.c")
+	out := filepath.Join(dir, "out.ll")
+	cmds := func(opt codegen.Opt) map[string][]string {
+		return map[string][]string{
+			"BuildCmd":      e.BuildCmd(gen, stdtest.IncludeDir(), nil, out, opt),
+			"CompileStdCmd": e.CompileStdCmd(list, stdtest.IncludeDir(), out, opt),
+		}
+	}
+	const mark = "llvm.loop.mustprogress"
+	for _, opt := range codegen.Opts {
+		for name, argv := range cmds(opt) {
+			if ir := emitIR(t, argv, out); strings.Contains(ir, mark) {
+				t.Errorf("-O%s: %s's IR marks a loop %s", opt, name, mark)
+			}
+		}
+	}
+	for name, argv := range cmds("0") {
+		argv = slices.DeleteFunc(argv, func(a string) bool { return a == "-fno-finite-loops" })
+		if ir := emitIR(t, argv, out); !strings.Contains(ir, mark) {
+			t.Errorf("-O0: %s's IR without -fno-finite-loops marks no loop %s; "+
+				"the test no longer shows the flag's effect", name, mark)
+		}
 	}
 }
 
@@ -597,7 +711,10 @@ func buildWith(t *testing.T, src string, flags ...string) string {
 	}
 
 	// std's C is compiled with the program's flags, sanitizers included,
-	// so it is held to the same warnings.
+	// so it is held to the same warnings. -fno-finite-loops, which every
+	// driver compile passes (clangFlags), is left out on purpose: these
+	// builds run the generated C as it runs compiled without the flag, as
+	// --emit output may be, on the loop lowering alone.
 	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, flags...)
 	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, csrc)
 	cmd := exec.Command("clang", append(args, stdtest.RuntimeCFiles()...)...)

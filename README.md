@@ -70,7 +70,10 @@ the global goes away. `std/os` does not have one yet, so `exit` stays.
 ## Requirements
 
 - Go 1.27.1 or newer
-- `clang` on `PATH`, used to compile and link
+- `clang` 21 or newer on `PATH`, used to compile and link; 21 is the
+  version the project is tested with. On macOS this means LLVM clang 21
+  or newer: Apple clang numbers its releases its own way, and its
+  version number is not LLVM's
 
 ## Building
 
@@ -383,9 +386,9 @@ type Backend interface {
     Ext() string                                     // ".c"
     Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
     Header(prog *ast.Program) []byte                 // tack.h
-    CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-O3", "-c", ..., src}
+    CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-O3", "-c", ..., src}
     CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for the runtime's C
-    BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-O3", "-I", include, "-o", out, src, objs...}
+    BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-O3", "-I", include, "-o", out, src, objs...}
     VersionCmd() []string                            // {"clang", "--version"}
 }
 ```

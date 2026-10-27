@@ -86,11 +86,13 @@ with `divmod`.
 - A C file whose name starts with `-` is an error: `tack: file -x.c in dir
   starts with -, which clang could read as an option; rename it`. Every
   path the driver hands clang is absolute, so none is read as an option.
-- Each C file is compiled on its own with `clang -w -O3 -c`, the generated
-  C's flags: at the build's optimization level, `-O3` unless an `-O` flag
-  says otherwise, and with warnings off, so clang's warnings about the C
-  are not shown; its errors are, and then `tack: cannot compile helpers.c: clang failed:
-  exit status 1`. There is no way yet to pass a C file other flags, or to
+- Each C file is compiled on its own with
+  `clang -w -fno-finite-loops -O3 -c`, the generated C's flags: at the
+  build's optimization level, `-O3` unless an `-O` flag says otherwise,
+  with warnings off, so clang's warnings about the C are not shown, and
+  with `-fno-finite-loops`, so clang never assumes a loop ends; its
+  errors are shown, and then `tack: cannot compile helpers.c: clang
+  failed: exit status 1`. There is no way yet to pass a C file other flags, or to
   link a library.
 - The compiler generates `tack.h` for the program: the types the extern
   funcs' signatures use and a prototype for each extern func, under its C
@@ -692,8 +694,9 @@ $TACK_HOME/src/std/include`, where the installed copy is.
 
 A build compiles every C file of the runtime, when the program calls any
 builtin, has a list type, or has a C file whose object leaves a `tack_`
-symbol undefined, as it compiles a package's: with clang, `-w`, at the
-build's `-O` level, with the runtime header's directory on the include
+symbol undefined, as it compiles a package's: with clang, `-w` and
+`-fno-finite-loops`, at the build's `-O` level, with the runtime header's
+directory on the include
 path but without the program's `tack.h`, or takes the object from the
 build cache. It reads each object's symbols, as it reads a package's, and
 links only the objects that define a builtin the program calls, the list
