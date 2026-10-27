@@ -31,9 +31,17 @@ import (
 //     the use, a call's mut argument at the end of the call and an
 //     assignment's target at the end of the statement, so the call or
 //     assignment the fact is for does not end it; one in a loop inside the
-//     region that holds the use too; and, for a use in deferred code, or
-//     in a switch's default written before other cases, one that runs
-//     before that code although written after it. A counting loop's start,
+//     region that holds the use too; but neither when it is in a branch or
+//     a case that leaves (one ending in a switch only when the switch has
+//     a default, see leavesBody), and the use is outside that if or
+//     switch, before it or after it, and checked at or before the point a
+//     break or continue out of the branch can reach code past: the end of
+//     the loop in the region it breaks out of, when that is the outermost
+//     one, and otherwise the start of the outermost loop in the region
+//     holding the if or switch, whose next pass it can reach (see keep and
+//     leftBefore); and, for a use in deferred
+//     code, or in a switch's default written before other cases, one that
+//     runs before that code although written after it. A counting loop's start,
 //     and a range loop's bounds, which hold of what the loop began with,
 //     end at any write in their region. The region is everything that can
 //     run after the comparison and before the use: the rest of the
@@ -1019,6 +1027,303 @@ func (idx writeIndex) assigned(f fact) *drop {
 	return nil
 }
 
+// keep is a branch of an if, or a case's body, in a fact's region, that
+// leaves (see leaves): end is where its last statement ends, and whole
+// is the if or switch it is part of. A write in it cannot fall out of it:
+// every path on from the write ends at a return or a call to exit, which
+// reach nothing after (deferred code aside, see reaches), or at a break
+// or continue that leaves it. One whose loop is outside the region leaves
+// the region too, and comes back to it only through the guard that put
+// the fact in force, which proves it again (see assume). One whose loop
+// is in the region lands there, and from that point on the write can
+// reach any code past resume: the end of that loop, after a break out of
+// the outermost loop in the region holding the if, and otherwise the
+// start of that outermost loop, whose next pass the landing point can
+// reach. resume is math.MaxInt when no break or continue in it lands in
+// the region. So a write in it reaches no code outside whole whose check
+// point is at or before resume (see leftBefore).
+//
+// The keeps holding a node form a chain through parent, innermost first,
+// which every write in the same branch shares rather than copies. Each
+// keep's whole holds the wholes of the keeps inside it, since an inner
+// if or switch is in the outer one's branch.
+//
+// skip is the nearest keep out along parent whose resume is greater than
+// this one's, or nil. leftBefore steps from one keep to its skip, so a
+// walk takes one step for each distinct resume on the chain, not one for
+// each keep (see leftBefore).
+type keep struct {
+	parent, skip *keep
+	whole        ast.Span
+	end, resume  int
+}
+
+// link puts k in force inside parent, the keep around it or nil, setting
+// k's skip (see keep): out from parent, each keep whose resume is at most
+// k's is passed, with the run its own skip passes, until one with a
+// greater resume. Each step lands on a greater resume than the last, so
+// it takes one step for each distinct resume out from parent, each counted
+// in work (see proverWork).
+func (k *keep) link(parent *keep, work *int) {
+	k.parent = parent
+	s := parent
+	for s != nil && s.resume <= k.resume {
+		*work++
+		s = s.skip
+	}
+	k.skip = s
+}
+
+// keepWalk finds, as indexWrites walks a region, the chain of keeps that
+// holds each node (see keep). An if or a switch records each of its
+// branches or cases that leaves in pending, under the branch's first
+// statement; the walk pushes the keep when it reaches that statement,
+// and pops it once past the branch's end. leaves and jumps remember what
+// each if, switch and defer in the region gives, so a chain of else ifs,
+// each the last statement of the one before, is looked at once in all,
+// not once for every link. work counts each statement looked at to find
+// them (see proverWork).
+type keepWalk struct {
+	top     *keep
+	pending map[ast.Stmt]keep
+	leaves  map[ast.Stmt]bool
+	jumps   map[ast.Stmt]jumpsOut
+	work    *int
+}
+
+// jumpsOut says whether a statement holds a break, and whether it holds
+// a continue, that acts on a loop around it: one at any depth but inside
+// a loop in it, which acts on that loop. A break or continue in a switch
+// acts on the loop around the switch, so a switch is searched.
+type jumpsOut struct {
+	breaks, continues bool
+}
+
+// newKeepWalk returns a keepWalk with nothing in force, counting its work
+// in work.
+func newKeepWalk(work *int) *keepWalk {
+	return &keepWalk{
+		pending: make(map[ast.Stmt]keep),
+		leaves:  make(map[ast.Stmt]bool),
+		jumps:   make(map[ast.Stmt]jumpsOut),
+		work:    work,
+	}
+}
+
+// visit moves the walk to n, whose span is span, held by loops, every
+// loop in the region holding it, outermost first, and returns the chain
+// of keeps holding n: it pops every keep whose branch ends before n,
+// pushes the one whose branch n starts, if any, and records the branches
+// of n, an if, or the cases of n, a switch, that leave. A keep is pushed
+// only once the walk is in its branch, so every keep in the chain holds
+// n.
+func (w *keepWalk) visit(n ast.Node, span ast.Span, loops []ast.Span) *keep {
+	for w.top != nil && span.Start >= w.top.end {
+		w.top = w.top.parent
+	}
+	if stmt, ok := n.(ast.Stmt); ok {
+		if k, ok := w.pending[stmt]; ok {
+			delete(w.pending, stmt)
+			k.link(w.top, w.work)
+			w.top = &k
+		}
+	}
+	switch s := n.(type) {
+	case *ast.If:
+		w.record(s, s.Then, loops)
+		w.record(s, s.Else, loops)
+	case *ast.Switch:
+		for _, cl := range s.Cases {
+			w.record(s, cl.Body, loops)
+		}
+	}
+	return w.top
+}
+
+// record makes body, a branch or a case of n held by loops, pending as a
+// keep when it leaves, to be pushed when the walk reaches its first
+// statement.
+func (w *keepWalk) record(n ast.Stmt, body []ast.Stmt, loops []ast.Span) {
+	if !w.leavesBody(body) {
+		return
+	}
+	w.pending[body[0]] = keep{
+		whole:  n.Spanned(),
+		end:    body[len(body)-1].Spanned().End,
+		resume: w.resumeFrom(body, loops),
+	}
+}
+
+// leavesBody reports what leaves does for body, remembering it for each
+// if and switch it looks at, whose own branches it asks about in turn,
+// with one difference: a switch leaves only as a chain of cases ending
+// in a default does (see chainLeaves), never as a switch on a union
+// naming every case. Whether a switch names every case is known only once
+// it is checked (see Switch.Exhaustive), and a region is indexed before
+// the code in it is checked, except when a function is checked twice (see
+// checkBody), so asking would make whether a program compiles depend on
+// that. Without a default, a switch is taken to fall out of the bottom,
+// which only ever counts a write as reaching more code than it can, so it
+// rejects programs but accepts none it should not.
+func (w *keepWalk) leavesBody(body []ast.Stmt) bool {
+	if len(body) == 0 {
+		return false
+	}
+	last := body[len(body)-1]
+	switch last.(type) {
+	case *ast.If, *ast.Switch:
+	default:
+		return leaves(body)
+	}
+	if v, ok := w.leaves[last]; ok {
+		return v
+	}
+	*w.work++
+	var v bool
+	switch s := last.(type) {
+	case *ast.If:
+		v = w.leavesBody(s.Then) && w.leavesBody(s.Else)
+	case *ast.Switch:
+		v = chainLeavesBy(tryOrder(s), w.leavesBody)
+	}
+	w.leaves[last] = v
+	return v
+}
+
+// resumeFrom returns a keep's resume for body, a branch or case that
+// leaves, held by loops, every loop in the region around it, outermost
+// first: math.MaxInt when no loop in the region holds body, or no break
+// or continue leaves body; the end of the outermost loop when every one
+// that does is a break and that loop is the only one; and its start
+// otherwise.
+func (w *keepWalk) resumeFrom(body []ast.Stmt, loops []ast.Span) int {
+	if len(loops) == 0 {
+		return math.MaxInt
+	}
+	j := w.jumpsIn(body)
+	switch {
+	case j.continues || j.breaks && len(loops) > 1:
+		return loops[0].Start
+	case j.breaks:
+		return loops[0].End
+	default:
+		return math.MaxInt
+	}
+}
+
+// or returns the jumpsOut of two statements together.
+func (j jumpsOut) or(k jumpsOut) jumpsOut {
+	return jumpsOut{breaks: j.breaks || k.breaks, continues: j.continues || k.continues}
+}
+
+// jumpsIn returns the jumpsOut of the statements of body together.
+func (w *keepWalk) jumpsIn(body []ast.Stmt) jumpsOut {
+	var j jumpsOut
+	for _, stmt := range body {
+		j = j.or(w.jumpsOf(stmt))
+	}
+	return j
+}
+
+// jumpsOf returns the jumpsOut of stmt, remembering it for an if, a
+// switch or a defer, the statements that hold others a break or continue
+// acting outside them may be in (see heldJumps). A loop holds none that
+// act outside it.
+func (w *keepWalk) jumpsOf(stmt ast.Stmt) jumpsOut {
+	*w.work++
+	switch stmt.(type) {
+	case *ast.Break:
+		return jumpsOut{breaks: true}
+	case *ast.Continue:
+		return jumpsOut{continues: true}
+	case *ast.If, *ast.Switch, *ast.Defer:
+		if j, ok := w.jumps[stmt]; ok {
+			return j
+		}
+		j := w.heldJumps(stmt)
+		w.jumps[stmt] = j
+		return j
+	default:
+		return jumpsOut{}
+	}
+}
+
+// heldJumps returns the jumpsOut of the statements stmt, an if, a switch
+// or a defer, holds: an if's branches, a switch's cases' bodies, or a
+// defer's body.
+func (w *keepWalk) heldJumps(stmt ast.Stmt) jumpsOut {
+	switch s := stmt.(type) {
+	case *ast.If:
+		return w.jumpsIn(s.Then).or(w.jumpsIn(s.Else))
+	case *ast.Switch:
+		var j jumpsOut
+		for _, cl := range s.Cases {
+			j = j.or(w.jumpsIn(cl.Body))
+		}
+		return j
+	case *ast.Defer:
+		return w.jumpsIn(s.Body)
+	default:
+		return jumpsOut{}
+	}
+}
+
+// leftBefore reports whether e cannot reach c.at by falling through: a
+// branch or case that holds it and leaves does not hold c.at, nor does
+// the if or switch it is part of, and c.at comes before the point any
+// break or continue out of it can reach code from (see keep).
+//
+// c.at at a keep's resume counts as before it, so that whether a program
+// compiles does not depend on where it puts a brace: a return's contract
+// is checked at the return's end plus one (see checkReturn), which is a
+// loop's end exactly when the return is written right against the loop's
+// closing brace. That is sound. A resume is math.MaxInt, which c.at never
+// is, or a loop's start or end. A write in a loop reaches this test only
+// for a c.at past its own position or inside the outermost loop in the
+// region holding it (see reaches), and that loop's start is neither, so
+// c.at is never a loop's start here. A loop's end is a resume only when
+// every break or continue out of the branch is a break out of that loop,
+// the outermost in the region, so the write can reach only what runs
+// after the loop. Every node after the loop ends past its end, and so do
+// a return after it, plus one, and the function's closing brace, one past
+// it at the least, when written right against the loop's (so a resume of
+// one past the end would not be sound, see leave-write-ensures-end-braces
+// in examples/invalid.txtar); every
+// statement holding the loop ends at a closing brace of its own past the
+// loop's. So a c.at at the loop's end belongs to the loop itself or to
+// code inside it, none of which runs again after a break out of it.
+//
+// Asked keep by keep, innermost first, the answer is no at the first
+// keep whose whole holds c.at, since every keep outside it then holds
+// c.at too and the write may reach it; yes at the first, before that,
+// that c.at is at or before the resume of; and no when no keep is
+// either. The walk asks the same in fewer steps. At a keep k that is
+// neither, c.at is past k.resume, so past the resume of every keep k.skip
+// passes, each at most k's: none of them can answer yes, so each of them
+// either answers no, when its whole holds c.at, or passes the question
+// on. When k.skip is a keep, its whole holds every whole the walk
+// skipped, since they nest, so a skipped keep answering no means k.skip
+// answers no too, and asking k.skip next gives the same answer. When
+// k.skip is nil, the skipped keeps can only answer no or pass the
+// question to the end of the chain, which answers no. So the walk asks
+// k and goes on at k.skip, whose resume is greater. Along one chain the
+// outermost loop in the region around each if or switch is the same
+// loop, or none further out, so there are at most three distinct
+// resumes, its start, its end and math.MaxInt, and at most three steps.
+// Each keep looked at counts as work (see proverWork).
+func (c *Checker) leftBefore(e ending) bool {
+	for k := e.kept; k != nil; k = k.skip {
+		c.work.judged++
+		if inSpan(c.at, k.whole) {
+			return false
+		}
+		if c.at <= k.resume {
+			return true
+		}
+	}
+	return false
+}
+
 // ending is a write in a fact's region that ends the fact for the code it
 // can reach: drop says what it is, and at where it takes effect, the end
 // of the call it passes the variable as mut to, or of the assignment
@@ -1027,9 +1332,12 @@ func (idx writeIndex) assigned(f fact) *drop {
 // them, come before it assigns its mut arguments, and an assignment's
 // value, and every check in it, before its target is stored to. loop is
 // the outermost loop in the region that holds the write, through whose
-// back edge it can reach code before it, or the zero span.
+// back edge it can reach code before it, or the zero span. kept is the
+// chain of every branch or case in the region that holds the write and
+// leaves (see keep), each of which bounds the code it can reach, or nil.
 type ending struct {
 	drop *drop
+	kept *keep
 	loop ast.Span
 	at   int
 }
@@ -1058,7 +1366,7 @@ func (idx writeIndex) endings(f fact) []ending {
 			if len(w.loops) > 0 {
 				loop = w.loops[0]
 			}
-			ends = append(ends, ending{drop: w.drop, loop: loop, at: w.at})
+			ends = append(ends, ending{drop: w.drop, kept: w.kept, loop: loop, at: w.at})
 		}
 	}
 	return ends
@@ -1078,6 +1386,7 @@ type writeIndex map[ast.Decl][]write
 func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 	idx := make(writeIndex)
 	var loops []ast.Span
+	keeps := newKeepWalk(&c.work.leaving)
 	visit := func(n ast.Node) bool {
 		c.work.walked++
 		span := n.Spanned()
@@ -1087,11 +1396,12 @@ func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 		if isLoop(n) {
 			loops = append(loops[:len(loops):len(loops)], span)
 		}
-		c.indexNode(idx, n, write{loops: loops, at: span.End})
+		kept := keeps.visit(n, span, loops)
+		c.indexNode(idx, n, write{kept: kept, loops: loops, at: span.End})
 		return true
 	}
 	for _, n := range region {
-		loops = nil
+		loops, keeps.top = nil, nil
 		ast.Walk(n, visit)
 	}
 	return idx
@@ -1156,12 +1466,13 @@ func (c *Checker) writeDrop(w write, decl ast.Decl) *drop {
 // write is a write to a variable that eachWrite found: shown, what a note
 // about it underlines, the target or the mut argument; call, the call it
 // is a mut argument of, or nil; at, where it takes effect, as an
-// ending's at; and loops, every loop the walk passed that holds it,
-// outermost first.
+// ending's at; loops, every loop the walk passed that holds it,
+// outermost first; and, in a writeIndex, kept, as an ending's kept.
 type write struct {
 	shown ast.Node
 	call  *ast.Call
 	drop  *drop // why the write ends a fact, set only in a writeIndex
+	kept  *keep // the branches that leave holding it, set only in a writeIndex
 	loops []ast.Span
 	at    int
 }
@@ -1232,26 +1543,28 @@ func isLoop(n ast.Node) bool {
 // reaches reports whether e, a write in the region of a fact, can run
 // after the fact became true and before the check at c.at, the end of
 // the expression or statement being checked, without the fact being
-// proved again: it takes effect before c.at; or it is in a loop inside
-// the region that c.at is in too, whose next pass reaches c.at; or c.at
-// is in deferred code, which runs when its block is left, and e is
-// outside it; or c.at is in a switch's default written before cases
-// whose values are tried before it runs, and e is in that switch outside
-// the default (see lateDefault); or c.at is in the targets of an
-// assignment and e is anywhere in that assignment, its value or its
-// targets (see storing).
+// proved again: c.at is in deferred code, which runs when its block is
+// left, by a return too, and e is outside it; or c.at is in a switch's
+// default written before cases whose values are tried before it runs,
+// and e is in that switch outside the default (see lateDefault); or c.at
+// is in the targets of an assignment and e is anywhere in that
+// assignment, its value or its targets (see storing); or else e takes
+// effect before c.at, or is in a loop inside the region that c.at is in
+// too, whose next pass reaches c.at, and in either case is not in a
+// branch or case that leaves before reaching c.at (see leftBefore).
 func (c *Checker) reaches(e ending) bool {
 	switch {
-	case e.at < c.at:
-		return true
-	case e.loop.Start < c.at && c.at <= e.loop.End:
-		return true
 	case c.deferSpan != nil && !inSpan(e.at, *c.deferSpan):
 		return true
 	case c.storing != nil && inSpan(e.at, *c.storing):
 		return true
+	case c.beforeLateDefault(e):
+		return true
+	case e.at < c.at, e.loop.Start < c.at && c.at <= e.loop.End:
+		return !c.leftBefore(e)
+	default:
+		return false
 	}
-	return c.beforeLateDefault(e)
 }
 
 // beforeLateDefault reports whether e is in a switch whose default,

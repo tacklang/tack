@@ -614,6 +614,56 @@ start holds only while its condition assigns nothing
 either: <!-- case: cond-write-counting-loop -->`for mut i := 0; neg(mut i) && i < 3; i++ { use(a[i]) }`
 proves only `i < 3`.
 
+A write in any other branch or case in the region that leaves, by
+`return`, `break`, `continue` or `exit`, or by a `switch` with a
+`default` whose every case leaves, never reaches code outside its
+`if` or `switch` either, after it or before it, since only the paths that
+did not take it run there, short of where a `break` or `continue` in it
+lands (below). So the loop's condition still proves `fmt[i]` below a branch that
+moves `i` on and starts the next pass, which proves it again:
+
+<!-- example: leaving-writes -->
+```tack
+for 0 <= i && i < len(fmt) {
+    if fmt[i] != '%' {
+        i++
+        continue
+    }
+    err := append(mut out, fmt[i])
+```
+
+A branch that falls through is still in the region, whatever its
+neighbours do: <!-- case: leave-write-both-sides -->`if k { i = 98; return -2 } else { i = 99 }`
+before `a[i]` reports <!-- note: leave-write-both-sides -->`but i is assigned here, so the proof ends`
+at `i = 99`. A `break` or `continue` that lands in a loop inside the
+region lets the write reach whatever that loop reaches from there: the
+code after the loop, for a `break`
+out of <!-- case: leave-write-break-after-loop -->`for n := range 3 { if n == 2 { i = -5; break } }`
+before `a[i]`, though not the loop's own body, which that `break`
+leaves; and the next pass of the outermost loop in the region, and so
+all of it, for a <!-- case: leave-write-continue-loop -->`continue`,
+or for a `break` out of a loop inside another loop in the
+region (<!-- case: leave-write-break-inner-loop -->`for range 2 { for n := range 3 { if n == 1 { i = -5; break } } ... }`). A `return`
+still runs deferred code, so a write before it ends what that code
+relies on: <!-- case: leave-write-defer-return -->`defer { use(a[i]) }`
+then `if k { i = 99; return }` reports the index.
+
+A branch that ends in a `switch` on a union naming every case, with no
+`default`, does not count as leaving here, even when every case returns:
+whether the cases name every case is known only once the `switch` is
+checked, which is after the region it is in is looked at, so
+<!-- case: leave-write-union-switch -->`if k { i = 99; switch u { case p: return 1 case q: return 2 } }`
+before `a[i]` reports the index, the same in every function. A
+`default` that leaves makes such a branch leave.
+
+None of this applies to what a counting loop's start or a range loop's
+bound proves. Neither is proven again before the next pass, so a write
+anywhere in the loop's body ends it, in a branch that leaves too:
+<!-- case: leave-write-counting-loop -->`for mut i := 0; i < len(a); i++ { if k == 1 { i = -5; continue } ... }`
+before `a[i]` reports <!-- note: leave-write-counting-loop -->`but i is assigned here, so the proof ends`,
+and so does <!-- case: leave-write-range-string -->`for i := range s`
+over a string `s` that a branch assigns before its `continue`.
+
 A fact that names a string through `len(s)` also needs the
 region to leave `s` unassigned; `s` may be `mut` as long as the region does
 not change it. Assigning a whole array does not affect proofs about its

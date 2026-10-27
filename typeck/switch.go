@@ -426,11 +426,18 @@ func switchLeaves(s *ast.Switch) bool {
 // always leaves the code around it: it ends in a default, and every case's
 // body leaves (see leaves).
 func chainLeaves(order []*ast.CaseClause) bool {
+	return chainLeavesBy(order, leaves)
+}
+
+// chainLeavesBy is chainLeaves with bodyLeaves deciding whether each
+// case's body leaves, as leaves does, which a caller remembering what it
+// found for a long chain passes (see keepWalk).
+func chainLeavesBy(order []*ast.CaseClause, bodyLeaves func([]ast.Stmt) bool) bool {
 	if len(order) == 0 || !order[len(order)-1].Default {
 		return false
 	}
 	for _, cl := range order {
-		if !leaves(cl.Body) {
+		if !bodyLeaves(cl.Body) {
 			return false
 		}
 	}

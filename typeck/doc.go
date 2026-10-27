@@ -207,7 +207,13 @@
 // case whose value writes; or when the use is in an assignment's target
 // and the write anywhere in that assignment, its value or another
 // target, so l[i] = bump(mut i) and i, l[i] = two() end the proof of i
-// (see storing). Every write in the region is kept with the
+// (see storing). A write in a branch or a case in the region that leaves
+// (one ending in a switch only when the switch has a default, whatever
+// the order checking runs in; see leavesBody) reaches no use outside its
+// if or switch, but for one its break or
+// continue can reach from the loop in the region that it lands in, and
+// for deferred code, which a return still runs (see keep and
+// leftBefore). Every write in the region is kept with the
 // fact, and judged at c.at, where checking has reached (see reaches). A
 // counting loop's start and a range loop's bound are not proven again on
 // a later pass, so any write in their region ends them. A successful

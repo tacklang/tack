@@ -1,0 +1,525 @@
+package main
+
+// A write in a branch, or a case, that leaves never reaches the code after
+// it: the branch ends in continue, break, return or a call to exit before
+// anything after it runs. So a proof made before the branch still holds
+// after it, for the paths that did not take it. Every check prints its
+// name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// bump adds one to i.
+func bump(mut i int64) {
+    i++
+}
+
+// percents appends every % byte of fmt to out, skipping the others with a
+// branch that writes i and continues, and reads fmt[i] after it.
+func percents(fmt []uint8, mut out list[uint8]) {
+    mut i := 0
+    for 0 <= i && i < len(fmt) {
+        if fmt[i] != '%' {
+            i++
+            continue
+        }
+        err := append(mut out, fmt[i])
+        if err.code != 0 {
+            exit(err.code)
+        }
+        i++
+    }
+}
+
+// untilNegative sums a up to its first negative element, leaving the loop
+// through a branch that writes i and breaks.
+func untilNegative(a []int64) int64 {
+    mut i := 0
+    mut total int64 = 0
+    for 0 <= i && i < len(a) {
+        if a[i] < 0 {
+            i = -1
+            break
+        }
+        total += a[i]
+        i++
+    }
+    return total
+}
+
+// returns reads a at at, past a branch that writes the index and returns.
+func returns(a []int64, at int64, skip bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if skip {
+        i = -7
+        return -2
+    }
+    return a[i]
+}
+
+// exits reads a at at, past a branch that writes the index and exits.
+func exits(a []int64, at int64, stop bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if stop {
+        i = -7
+        exit(3)
+    }
+    return a[i]
+}
+
+// elseLeaves reads a at at, past an if whose then branch reads it and
+// whose else branch writes the index and returns.
+func elseLeaves(a []int64, at int64, keep bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut first int64 = 0
+    if keep {
+        first = a[i]
+    } else {
+        i = 99
+        return -3
+    }
+    return first + a[i]
+}
+
+// nested reads a at at, past an if that writes the index only in an inner
+// branch that returns.
+func nested(a []int64, at int64, outer bool, inner bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut extra int64 = 0
+    if outer {
+        if inner {
+            i = 99
+            return -4
+        }
+        extra = 100
+    }
+    return extra + a[i]
+}
+
+// tagless reads a at at, past a tagless switch whose cases write the index
+// and return or exit.
+func tagless(a []int64, at int64, mode int64) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    switch {
+    case mode == 1:
+        i = 99
+        return -5
+    case mode == 2:
+        i = -1
+        exit(4)
+    }
+    return a[i]
+}
+
+// digits counts the digits of s before its first '!', in a switch on s[i]
+// whose cases write i and continue or break, and reads s[i] after it.
+func digits(s []uint8) int64 {
+    mut i := 0
+    mut n int64 = 0
+    for 0 <= i && i < len(s) {
+        switch s[i] {
+        case ' ':
+            i++
+            continue
+        case '!':
+            i = len(s)
+            break
+        }
+        if s[i] >= '0' && s[i] <= '9' {
+            n++
+        }
+        i++
+    }
+    return n
+}
+
+// passesMut reads a at at, past a branch that passes the index as mut and
+// returns.
+func passesMut(a []int64, at int64, skip bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if skip {
+        bump(mut i)
+        return -6
+    }
+    return a[i]
+}
+
+// grows reads l at at, past a branch that appends to l and returns, so the
+// length the early exit proved still bounds the index.
+func grows(mut l list[int64], at int64, more bool) int64 {
+    i := at
+    if i < 0 || i >= len(l) {
+        return -1
+    }
+    if more {
+        err := append(mut l, 7)
+        if err.code != 0 {
+            return -8
+        }
+        return -9
+    }
+    return l[i]
+}
+
+// breaksLoop reads a at at in a loop after the early exit that proves the
+// index, past a branch that writes the index and breaks out of the loop.
+func breaksLoop(a []int64, at int64) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut total int64 = 0
+    for n := range 3 {
+        if n == 2 {
+            i = -5
+            break
+        }
+        total += a[i]
+    }
+    return total
+}
+
+// beforeBreak reads a at at in a loop, before a branch that writes the
+// index and breaks out of that loop: the next pass, which reads it again,
+// never follows the write.
+func beforeBreak(a []int64, at int64) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut total int64 = 0
+    for n := range 3 {
+        total += a[i]
+        if n == 1 {
+            i = 99
+            break
+        }
+    }
+    return total
+}
+
+// returnsInLoop reads a at at in a loop after the early exit that proves
+// the index, past a branch that writes the index after another statement
+// and returns, which no later pass follows.
+func returnsInLoop(a []int64, at int64, k int64) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut total int64 = 0
+    for n := range 3 {
+        if k == n {
+            total = 0
+            i = 99
+            return -10
+        }
+        total += a[i]
+    }
+    return total
+}
+
+// keepTight and keepSpaced end a loop's body in a return, written right
+// against the loop's closing brace in the one and on its own line in the
+// other, past a branch that writes i and breaks out of the loop: no path
+// from the write reaches the return, so its contract holds in both.
+func keepTight(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    for range 3 {
+        if k {
+            i = -1
+            break
+        }
+        return}
+    exit(2)
+}
+
+// keepSpaced is keepTight with the loop's closing brace on its own line.
+func keepSpaced(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    for range 3 {
+        if k {
+            i = -1
+            break
+        }
+        return
+    }
+    exit(2)
+}
+
+// keepIfTight ends in an if whose branch writes i and exits, with the
+// function's closing brace right against the if's: the end of the body,
+// where the contract is checked, is past the if, which no path from the
+// write reaches.
+func keepIfTight(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    if k {
+        i = -1
+        exit(3)
+    }}
+
+// keepSemiIf returns, then, after a semicolon, starts an if whose branch
+// writes i and breaks out of the loop: the return's contract is checked
+// right where the if starts, and no path from the write reaches it.
+func keepSemiIf(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    for range 3 {
+        if k {
+            return;if k {
+                i = -1
+                break
+            }
+        }
+    }
+    exit(2)
+}
+
+// keepLineIf is keepSemiIf with the if on its own line.
+func keepLineIf(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    for range 3 {
+        if k {
+            return
+            if k {
+                i = -1
+                break
+            }
+        }
+    }
+    exit(2)
+}
+
+// keepSemiLoop returns, then, after a semicolon, starts a loop that writes
+// i: the return's contract is checked right where the loop starts, and
+// the loop runs only after it.
+func keepSemiLoop(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    if k {
+        return;for range 3 {
+            i = -1
+        }
+        exit(2)
+    }
+}
+
+// keepLineLoop is keepSemiLoop with the loop on its own line.
+func keepLineLoop(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
+    if i < 0 || i >= len(a) {
+        exit(1)
+    }
+    if k {
+        return
+        for range 3 {
+            i = -1
+        }
+        exit(2)
+    }
+}
+
+// innerReturns reads a at at in a branch, after a branch inside it that
+// writes the index and returns.
+func innerReturns(a []int64, at int64, k int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if k == 1 {
+        if z {
+            i = -1
+            return 0
+        }
+        return a[i]
+    }
+    return 2
+}
+
+// continueInBreak reads a at at in a loop inside a branch that returns,
+// past a branch that breaks out of that loop, which holds a loop whose
+// branch writes the index and continues.
+func continueInBreak(a []int64, at int64, k int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    mut total int64 = 0
+    if k == 1 {
+        for range 3 {
+            if z {
+                for range 3 {
+                    if k == 2 {
+                        i = -1
+                        continue
+                    }
+                }
+                break
+            }
+            total += a[i]
+        }
+        return total
+    }
+    return 2
+}
+
+// afterReturnInLoop reads a at at after a loop whose branch writes the
+// index and returns.
+func afterReturnInLoop(a []int64, at int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    for range 3 {
+        if z {
+            i = -1
+            return 0
+        }
+    }
+    return a[i]
+}
+
+// tailIfLeaves reads a at at past a branch whose write is followed by an
+// if both of whose branches return, with an else that returns too.
+func tailIfLeaves(a []int64, at int64, k int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if z {
+        if k == 1 {
+            i = -1
+            if k == 2 {
+                return 0
+            } else {
+                return 1
+            }
+        } else {
+            return 2
+        }
+    }
+    return a[i]
+}
+
+// tailIfLeavesInside is tailIfLeaves with no else around the write's
+// branch, which leaves while the branch around it does not.
+func tailIfLeavesInside(a []int64, at int64, k int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if z {
+        if k == 1 {
+            i = -1
+            if k == 2 {
+                return 0
+            } else {
+                return 1
+            }
+        }
+    }
+    return a[i]
+}
+
+// defaultFirst reads a at at past a branch that writes the index and
+// ends in a switch whose default, written first, and whose case both
+// return.
+func defaultFirst(a []int64, at int64, k int64, z bool) int64 {
+    mut i := at
+    if i < 0 || i >= len(a) {
+        return -1
+    }
+    if z {
+        i = -1
+        switch k {
+        default:
+            return 0
+        case 1:
+            return 1
+        }
+    }
+    return a[i]
+}
+
+func main() {
+    mut out := make(list[uint8], c_allocator)
+    text := [6]uint8{'a', '%', 'b', '%', '%', 'c'}
+    percents(text, mut out)
+    check(len(out) == 3, "a branch that writes and continues")
+    a := [4]int64{10, 20, -1, 40}
+    check(untilNegative(a) == 30, "a branch that writes and breaks")
+    check(returns(a, 1, false) == 20 && returns(a, 1, true) == -2, "a branch that writes and returns")
+    check(exits(a, 3, false) == 40, "a branch that writes and exits")
+    check(elseLeaves(a, 1, true) == 40 && elseLeaves(a, 1, false) == -3, "an else that writes and returns")
+    check(nested(a, 0, true, false) == 110 && nested(a, 0, false, true) == 10 && nested(a, 0, true, true) == -4, "a nested branch that writes and returns")
+    check(tagless(a, 3, 0) == 40 && tagless(a, 3, 1) == -5, "cases that write and leave")
+    line := [8]uint8{'1', ' ', '2', 'a', '3', '!', '4', '5'}
+    check(digits(line) == 3, "a switch on a byte whose cases write and leave")
+    check(passesMut(a, 0, false) == 10 && passesMut(a, 0, true) == -6, "a branch that passes mut and returns")
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 5, 6)
+    if err.code != 0 {
+        return
+    }
+    check(grows(mut l, 1, false) == 6 && grows(mut l, 1, true) == -9 && len(l) == 3, "a branch that appends and returns")
+    check(breaksLoop(a, 1) == 40, "a branch that writes and breaks a loop after the early exit")
+    check(beforeBreak(a, 1) == 40, "a branch that writes and breaks after the read")
+    check(returnsInLoop(a, 1, 5) == 60 && returnsInLoop(a, 1, 1) == -10, "a branch in a loop that writes and returns")
+    mut tight int64 = 2
+    keepTight(mut tight, a, false)
+    mut spaced int64 = 2
+    keepSpaced(mut spaced, a, false)
+    check(tight == 2 && spaced == 2, "a return against a loop's brace past a branch that breaks")
+    mut ifTight int64 = 3
+    keepIfTight(mut ifTight, a, false)
+    check(ifTight == 3, "a body's end against the brace of an if whose branch exits")
+    mut semiIf int64 = 1
+    keepSemiIf(mut semiIf, a, true)
+    mut lineIf int64 = 1
+    keepLineIf(mut lineIf, a, true)
+    mut semiLoop int64 = 1
+    keepSemiLoop(mut semiLoop, a, true)
+    mut lineLoop int64 = 1
+    keepLineLoop(mut lineLoop, a, true)
+    check(semiIf == 1 && lineIf == 1 && semiLoop == 1 && lineLoop == 1, "a return right before an if or a loop that writes")
+    check(innerReturns(a, 1, 1, false) == 20 && innerReturns(a, 1, 1, true) == 0, "a use past an inner branch that returns")
+    check(continueInBreak(a, 0, 1, false) == 30 && continueInBreak(a, 0, 1, true) == 0, "a use in a loop past a branch that breaks around one that continues")
+    check(afterReturnInLoop(a, 3, false) == 40 && afterReturnInLoop(a, 3, true) == 0, "a use after a loop whose branch returns")
+    check(tailIfLeaves(a, 1, 1, false) == 20 && tailIfLeaves(a, 1, 1, true) == 1, "a use past a branch ending in an if that leaves")
+    check(tailIfLeavesInside(a, 1, 0, true) == 20 && tailIfLeavesInside(a, 1, 1, true) == 1, "a use past an inner branch ending in an if that leaves")
+    check(defaultFirst(a, 0, 1, false) == 10 && defaultFirst(a, 0, 1, true) == 1, "a use past a branch ending in a switch with its default first")
+    check(exits(a, 0, true) == 0, "unreachable")
+}

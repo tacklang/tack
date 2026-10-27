@@ -1751,6 +1751,46 @@ func TestBuiltExitLeavesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The leaving-writes example writes an index, or the list it indexes, in
+// a branch or a case that leaves, by continue, break, return or exit, and
+// reads with it after that branch, where the proof made before the branch
+// still holds. Each check prints its name and "ok", or "FAIL", taking the
+// leaving branch and not, and the last call takes the branch that exits,
+// with status 3.
+func TestBuiltLeavingWritesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "leaving-writes")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 {
+		t.Errorf("leaving-writes exited with %v, want status 3", err)
+	}
+	want := "a branch that writes and continues ok\n" +
+		"a branch that writes and breaks ok\n" +
+		"a branch that writes and returns ok\n" +
+		"a branch that writes and exits ok\n" +
+		"an else that writes and returns ok\n" +
+		"a nested branch that writes and returns ok\n" +
+		"cases that write and leave ok\n" +
+		"a switch on a byte whose cases write and leave ok\n" +
+		"a branch that passes mut and returns ok\n" +
+		"a branch that appends and returns ok\n" +
+		"a branch that writes and breaks a loop after the early exit ok\n" +
+		"a branch that writes and breaks after the read ok\n" +
+		"a branch in a loop that writes and returns ok\n" +
+		"a return against a loop's brace past a branch that breaks ok\n" +
+		"a body's end against the brace of an if whose branch exits ok\n" +
+		"a return right before an if or a loop that writes ok\n" +
+		"a use past an inner branch that returns ok\n" +
+		"a use in a loop past a branch that breaks around one that continues ok\n" +
+		"a use after a loop whose branch returns ok\n" +
+		"a use past a branch ending in an if that leaves ok\n" +
+		"a use past an inner branch ending in an if that leaves ok\n" +
+		"a use past a branch ending in a switch with its default first ok\n"
+	if string(out) != want {
+		t.Errorf("leaving-writes printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The ensures example calls functions whose ensures clauses prove facts
 // about their arguments: an error checked by a call, as a statement and
 // as a value and in a loop, a divisor, through a plain and a mut

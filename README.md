@@ -2622,7 +2622,27 @@ makes for itself, which has a letter after `tack_`.
   while neither the condition, which runs again before every pass, nor
   the body assigns the variable anywhere, and a range loop's index bound,
   which holds of what the loop copied when it began, only while the body
-  never assigns what it ranges over. A write in a branch that leaves never matters.
+  never assigns what it ranges over. A write in a branch or a case that
+  leaves (one ending in a `switch` leaves here only when the `switch` has
+  a `default` and every case leaves: a `switch` on a union naming every
+  case, which leaves as an early exit, does not count, since whether it
+  names every case is known only once it is checked), anywhere in the
+  region, never reaches code outside that `if`
+  or `switch`, after it or before it, since only paths that did not take
+  it run there: in `for 0 <= i && i < len(s)`, a branch that writes `i`
+  and ends in `continue` leaves the condition's proof of `s[i]` standing
+  below it. A `break` or `continue` in it that lands in a loop inside the
+  region, though, lets the write reach everything from where it lands
+  on: the code after that loop, for a `break` out of the outermost loop
+  in the region, so `for range 3 { use(a[i]); if k == 1 { i = 99; break } }`
+  keeps its proof of `a[i]` but an `a[i]` after the loop does not; and
+  that outermost loop's next pass, and so all of it, otherwise. A
+  `return` still runs deferred code, so a write before it ends a proof
+  that deferred code relies on. This does not
+  apply to a counting loop's start or a range loop's bound: a write in
+  the body ends them wherever it is, in a branch that leaves too, as
+  `if k == 1 { i = -5; continue }` in `for mut i := 0; i < len(a); i++`
+  ends the proof of `i >= 0`.
   A call to `exit` counts as leaving,
   since it never returns, and so does a branch, a block or a case ending
   in one; a call to a function that calls `exit` does not. When a guard says something about a divisor or index it did not
