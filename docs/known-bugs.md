@@ -34,3 +34,23 @@ guarantee. Today such a function ends in a `return` that never runs, as
 The fix is to prove more paths end, or an `unreachable` statement the
 compiler must prove unreachable, rejecting it otherwise; both wait for a
 stronger prover.
+
+## A statement and a case on one line after a clause header fails to parse
+
+A clause whose header ends its line cannot have a statement followed by the
+next case on the following line. In a `switch`, `case 1:` on its own line
+followed by `exit(3); case 2:` on the next is `expected 'case or default'
+found 'exit'`, pointing at `exit`, and a `default:` header does the same.
+The same clauses written on one line, `case 1: exit(3); case 2: exit(4)`,
+parse.
+
+## Checking writes before uses grows with writes times uses
+
+Deciding whether a write reaches a use scans every recorded write for each
+use, so a function with many writes and many uses of the same variable is
+checked in time that grows with their product. A `switch` with N cases that
+each write the variable and then return, followed by N uses, takes about 7
+seconds at N = 16000. Since leaving branches stopped ending facts, shapes
+the checker used to reject early pay this cost too: N leaving cases that
+each write inside a loop, followed by N uses, take about 11 seconds at
+N = 16000. Ordinary programs are far below these sizes.

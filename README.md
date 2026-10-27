@@ -2985,7 +2985,7 @@ makes for itself, which has a letter after `tack_`.
   cannot fail the two-value form is allowed too, and `ok` is always `true`;
   a constant or known value that does not fit is an error in either form.
   A guard never makes `T(x)` compile; see
-  [docs/safety.md](docs/safety.md). Strings and bools cannot be converted. `true` and `false` are keywords, so neither can be
+  [docs/safety.md](docs/safety.md). Strings and bools cannot be converted to or from a number; a string's only conversion is `[]uint8(s)`, a view of its bytes (see views). `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions, as is `noerror`, a
   keyword too (see errors).
 - `print` takes one string and writes exactly its bytes to standard output,
