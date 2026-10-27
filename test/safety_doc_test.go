@@ -24,13 +24,15 @@ const safetyCasePrefix = "safety-"
 var htmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
 
 // annotation matches one annotation and what directly follows it: either a
-// fenced tack block on the next line (group 3) or, after nothing but white
+// fenced tack block on a following line (group 3) or, after nothing but white
 // space, a code span (group 4). Group 1 is the kind and group 2 the name it
 // refers to. White space, a line break included, may separate a comment from
 // its code span because a comment that starts a line in Markdown is an HTML
-// block, which would swallow a code span on the same line.
+// block, which would swallow a code span on the same line. Blank lines may
+// separate a comment from its fenced block, as Markdown formatters insert
+// one after an HTML block.
 var annotation = regexp.MustCompile("<!-- (case|error|note|example): ([^ ]+) -->" +
-	"(?:\n```tack\n((?s:.*?\n))```|\\s*`([^`]+)`)?")
+	"(?:\n(?:[ \t]*\n)*```tack\n((?s:.*?\n))```|\\s*`([^`]+)`)?")
 
 // docAnnotation is one annotation on the safety page.
 type docAnnotation struct {

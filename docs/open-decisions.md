@@ -282,7 +282,6 @@ choice consistent with the rules around it, and could go another way:
   it. printf's C reads a `[]uint8` as `tack_view_uint8`, which std/fmt's
   own `write` makes every program's `tack.h` declare.
 
-
 ## Type assertions and type switches
 
 `v, ok := a.(T)` and `switch v := a.(type)` follow the decisions recorded
@@ -319,6 +318,7 @@ consistency with the rules around them, and could go another way:
 - `a.(T) = 1` is parsed as an assignment to the assertion, which the
   resolver reports as `cannot assign to this expression`, and a statement
   that is an assertion alone is `expected 'statement'`.
+
 ## Errors
 
 Errors follow the decisions recorded in the README: a returned value, a
@@ -977,8 +977,8 @@ go another way:
 
 - `extern` is a keyword reserved everywhere, as `from` is, rather than a
   word that means something only before `func`.
-- An extern func whose C name C cannot define is an error: a C keyword
-  (C23's, with `asm` and `typeof`), and `main`, which the generated C
+- An extern func whose C name C cannot define is an error: a C keyword (C23's, with `asm` and `typeof`), and `main`,
+  which the generated C
   defines. A name a C header declares, such as `printf` or `int64_t`, is
   not checked; it clashes only with what a C file declares.
 - A missing C definition is found when building, from the compiled
@@ -1260,16 +1260,16 @@ go another way:
   list.
 - The algorithm is heapsort, with an insertion sort for lists of at most
   12 elements: no recursion, a fixed set of locals, no allocation, so no
-  error result, and O(n log n) comparisons in the worst case. An
+  error result, and O (n log n) comparisons in the worst case. An
   introsort or pdqsort would be faster on average, but needs a bounded
   explicit stack and a fallback; heapsort is the simplest that meets the
   bound.
 - It is not stable, as Go's `slices.SortFunc` is not. A stable sort
-  without allocation is O(n log^2 n) and Go's is recursive (insertion
+  without allocation is O (n log^2 n) and Go's is recursive (insertion
   blocks then SymMerge); a stable one, or one taking an `Allocator` for a
   merge buffer, is left open.
 - A less function that is not a strict weak ordering is allowed: every
-  loop is bounded by indexes alone, so the sort still ends after O(n log
+  loop is bounded by indexes alone, so the sort still ends after O (n log
   n) calls, reads no element out of range and keeps every element, in an
   order the package does not specify. Nothing detects such a function.
 - There is no `sort.reverse`, no key function, no binary search and no

@@ -41,21 +41,21 @@ and diagnostic to check that the two still agree.
 
 ## The operations
 
-| Operation                          | Fails when                       | Plain form compiles when                        | Checked form          |
-|------------------------------------|----------------------------------|-------------------------------------------------|-----------------------|
-| `a / b`, `a % b`                   | `b` is zero                      | `b` is proven not zero                          | `q, ok := a / b`      |
-| `x /= b`, `x %= b`                 | `b` is zero                      | `b` is proven not zero                          | none                  |
-| `a[i]`, reading an array element   | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                  | `v, ok := a[i]`       |
-| `a[i] = v`, writing one            | as above                         | as above                                        | none                  |
-| `s[i]`, reading a string's byte    | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                  | `v, ok := s[i]`       |
-| `s[i] = v`                         | always an error                  | never: strings are immutable                    | none                  |
-| `v[i]`, reading a view's element   | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                  | `x, ok := v[i]`       |
-| `v[i] = x`                         | always an error                  | never: views are read-only                      | none                  |
-| `l[i]`, reading a list's element   | `i < 0` or `i >= len(l)`         | `i` is proven in `[0, len(l))`                  | `x, ok := l[i]`       |
-| `l[i] = x`, writing one            | as above                         | as above, and `l` is mutable                    | none                  |
-| `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven | `t, ok := s[i:j]`, a string's only |
-| `x[i:j] = v`                       | always an error                  | never: a slice is not a place                   | none                  |
-| `T(x)`, integer conversion         | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)` |
+| Operation                                                 | Fails when                       | Plain form compiles when                                                  | Checked form                       |
+|-----------------------------------------------------------|----------------------------------|---------------------------------------------------------------------------|------------------------------------|
+| `a / b`, `a % b`                                          | `b` is zero                      | `b` is proven not zero                                                    | `q, ok := a / b`                   |
+| `x /= b`, `x %= b`                                        | `b` is zero                      | `b` is proven not zero                                                    | none                               |
+| `a[i]`, reading an array element                          | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                                            | `v, ok := a[i]`                    |
+| `a[i] = v`, writing one                                   | as above                         | as above                                                                  | none                               |
+| `s[i]`, reading a string's byte                           | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                                            | `v, ok := s[i]`                    |
+| `s[i] = v`                                                | always an error                  | never: strings are immutable                                              | none                               |
+| `v[i]`, reading a view's element                          | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                                            | `x, ok := v[i]`                    |
+| `v[i] = x`                                                | always an error                  | never: views are read-only                                                | none                               |
+| `l[i]`, reading a list's element                          | `i < 0` or `i >= len(l)`         | `i` is proven in `[0, len(l))`                                            | `x, ok := l[i]`                    |
+| `l[i] = x`, writing one                                   | as above                         | as above, and `l` is mutable                                              | none                               |
+| `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven                           | `t, ok := s[i:j]`, a string's only |
+| `x[i:j] = v`                                              | always an error                  | never: a slice is not a place                                             | none                               |
+| `T(x)`, integer conversion                                | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)`                    |
 
 A write to an element covers every way of writing one: `a[i] = v`,
 `a[i] += v`, `a[i]++`, and targets that mix fields and indexes, such as
@@ -119,16 +119,20 @@ The details:
   <!-- error: ok-dropped-pop-define -->`the ok pop(mut l) gives cannot be dropped; bind it to a variable instead of _`.
 - **Exactly two names.** One name is the plain form, which then needs its
   proof. Three or more are an
-  error: <!-- error: safety-checked-three-names-division -->`assignment mismatch: 3 variables but a division gives 2 values`,
+  error: <!-- error: safety-checked-three-names-division -->
+  `assignment mismatch: 3 variables but a division gives 2 values`,
   and
-  likewise <!-- error: safety-checked-three-names-index -->`assignment mismatch: 3 variables but an index gives 2 values`
-  and <!-- error: safety-checked-three-names-conversion -->`assignment mismatch: 3 variables but a conversion gives 2 values`,
+  likewise <!-- error: safety-checked-three-names-index -->
+  `assignment mismatch: 3 variables but an index gives 2 values`
+  and <!-- error: safety-checked-three-names-conversion -->
+  `assignment mismatch: 3 variables but a conversion gives 2 values`,
   and <!-- error: slice-checked-mismatch -->`assignment mismatch: 3 variables but a slice gives 2 values`.
 - **The operation must be the whole value.** Parentheses around it are fine,
   `q, ok := (a / b)`,
   but <!-- case: safety-checked-not-whole -->`q, ok := a / b + 1` is not a
   checked division. It is one
-  error, <!-- error: safety-checked-not-whole -->`the checked form must be the whole value: q, ok := a / b, then compute q + 1`,
+  error, <!-- error: safety-checked-not-whole -->
+  `the checked form must be the whole value: q, ok := a / b, then compute q + 1`,
   covering the whole value, which names the first division, remainder or
   index in it outside a call, and the rest of the value computed from the
   first name. That operation needs no proof of its own; any other in the
@@ -145,6 +149,7 @@ The details:
   these out; [vet.md](vet.md) lists the checks.
 
 <!-- example: safety -->
+
 ```tack
 mut n int64 = 9
 q, ok := n / 3              // q == 3, ok == true
@@ -159,8 +164,8 @@ var small uint8 = 7
 e, widens := int64(small)   // e == 7, widens == true
 ```
 
-  The quotient of two untyped constants takes the type of the variable it
-  is assigned to, as any constant does, and is an `int64` in a declaration.
+The quotient of two untyped constants takes the type of the variable it
+is assigned to, as any constant does, and is an `int64` in a declaration.
 
 - **A failure known at compile time is still an error.** The checked form
   does not accept an operation that always fails: `q, ok := a % 0`
@@ -168,7 +173,8 @@ e, widens := int64(small)   // e == 7, widens == true
   `v, ok := a[5]` on a `[3]int64`
   reports <!-- error: safety-checked-array-index-known-out-of-range -->`index 5 is out of range for [3]int64`,
   `v, ok := "tack"[4]`
-  reports <!-- error: safety-checked-string-literal-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`,
+  reports <!-- error: safety-checked-string-literal-index-out-of-range -->
+  `index 4 is out of range for a string of 4 bytes`,
   `v, ok := s[-1]`
   reports <!-- error: safety-checked-string-index-negative -->`index -1 is out of range for a string`,
   `t, ok := s[1:5]` after `s := "abc"`
@@ -183,12 +189,12 @@ e, widens := int64(small)   // e == 7, widens == true
 
 ### What must be proven
 
-| Operation        | Proof needed                                                                                     |
-|------------------|--------------------------------------------------------------------------------------------------|
-| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                       |
-| `a[i]` on `[n]T` | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                           |
-| `s[i]`           | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself |
-| `x[i:j]`         | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)` |
+| Operation                    | Proof needed                                                                                                                                                                               |
+|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                                                                                                                            |
+| `a[i]` on `[n]T`             | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                                                                                                                      |
+| `s[i]`                       | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself                                                                 |
+| `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)` |
 
 A proof is about a **name**, the divisor or index written as a variable or
 parameter, or a **field or element of an immutable variable or
@@ -233,6 +239,7 @@ still needs a proof. An immutable one is known, so its bytes are indexed
 as a literal's are:
 
 <!-- example: safety -->
+
 ```tack
 word := "tack"
 same := word
@@ -252,6 +259,7 @@ unsigned variable is never negative and a `uint8` index into a `[256]T`
 needs nothing.
 
 <!-- example: field-facts -->
+
 ```tack
 func divide(n int64, p P) int64 {
     if p.d != 0 {
@@ -291,18 +299,18 @@ The conditions that give facts are:
 
 A fact holds in these places:
 
-| Where                                      | Example                                                    |
-|--------------------------------------------|------------------------------------------------------------|
-| the `then` branch, by the condition being true | `if b != 0 { return a / b }`                           |
-| the `else` branch, by it being false       | `if b == 0 { return 0 } else { return a / b }`             |
+| Where                                                                                              | Example                                                                 |
+|----------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| the `then` branch, by the condition being true                                                     | `if b != 0 { return a / b }`                                            |
+| the `else` branch, by it being false                                                               | `if b == 0 { return 0 } else { return a / b }`                          |
 | the rest of the block after an `if` whose branch leaves by `return`, `break`, `continue` or `exit` | `if b == 0 { return 0 }` or `if b == 0 { exit(1) }` then `return a / b` |
-| a loop's body, by the loop's condition     | `for ; d != 0; d-- { sum += 12 / d }`                      |
-| a range loop's body, for its index         | `for i := range a { a[i] }`, `for i := range s { s[i] }`   |
-| a counting loop's body, for its variable   | `for mut i := 0; i < len(a); i++ { a[i] }`                 |
-| the right side of `&&`, by the left being true | `b != 0 && a / b > 1`                                 |
-| the right side of `\|\|`, by the left being false | `b == 0 \|\| a / b > 1`                            |
-| a `switch` case, as in the chain of ifs it stands for | `switch b { case 0: return 0 }` then `a / b`    |
-| deferred code, with the facts in force at its `defer` | `if b == 0 { return 0 }` then `defer { 12 / b }` |
+| a loop's body, by the loop's condition                                                             | `for ; d != 0; d-- { sum += 12 / d }`                                   |
+| a range loop's body, for its index                                                                 | `for i := range a { a[i] }`, `for i := range s { s[i] }`                |
+| a counting loop's body, for its variable                                                           | `for mut i := 0; i < len(a); i++ { a[i] }`                              |
+| the right side of `&&`, by the left being true                                                     | `b != 0 && a / b > 1`                                                   |
+| the right side of `\|\|`, by the left being false                                                  | `b == 0 \|\| a / b > 1`                                                 |
+| a `switch` case, as in the chain of ifs it stands for                                              | `switch b { case 0: return 0 }` then `a / b`                            |
+| deferred code, with the facts in force at its `defer`                                              | `if b == 0 { return 0 }` then `defer { 12 / b }`                        |
 
 A range loop's index is at least 0 and at most its count less one, when the
 count is a known value, or the length of the array it ranges over less one,
@@ -311,8 +319,8 @@ so it proves an index into any array at least as long.
 `i` by `len(s)`; over a known string, by its length. Over a view, `i` is
 bounded by `len(v)`.
 
-A three-clause loop's body knows what its condition says, and a
-*counting* loop's body knows one thing more: the value its variable
+A three-clause loop's body knows what its condition says, and a *counting* loop's body knows one thing more: the value
+its variable
 starts from. A loop counts when
 
 - its init declares the variable with a known value, `mut i := c` (or
@@ -330,6 +338,7 @@ The body then knows that `i` is at least `c` counting up, or at most `c`
 counting down, along with what the condition says:
 
 <!-- example: safety -->
+
 ```tack
 func total(a [3]int64) int64 {
     mut sum int64 = 0
@@ -372,6 +381,7 @@ case's `v` is a variable like any other, so a check on it inside the case
 proves what that check proves.
 
 <!-- example: safety -->
+
 ```tack
 func split(a int64, b int64) int64 {
     if b < 0 || b > 0 {
@@ -403,6 +413,7 @@ and after `n := len(a)`, `n` is `len(a)`. A relation ends where a fact
 does, at a write to either of its values that can reach the use.
 
 <!-- example: relations -->
+
 ```tack
 func chain(a []int64, i int64, n int64) int64 {
     if 0 <= i && i < n && n <= len(a) {
@@ -413,6 +424,7 @@ func chain(a []int64, i int64, n int64) int64 {
 ```
 
 <!-- example: relations -->
+
 ```tack
 func back(a []int64, j int64) int64 {
     if 0 < j && j < len(a) {
@@ -429,11 +441,13 @@ facts in force prove that it does. `i + 1 < len(a)` holds for the largest
 `int64`, whose `i + 1` is the smallest, so on its own it relates nothing:
 <!-- case: relation-overflow -->`if 0 <= i && i + 1 < len(a) { a[i] }`
 is reported, with
-the note <!-- note: relation-overflow -->`a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too`.
+the note <!-- note: relation-overflow -->
+`a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too`.
 `i < len(a)` alongside it, before or after, rules the wrap out for an
 `int64`, since no length is past the largest `int64`:
 
 <!-- example: relations -->
+
 ```tack
 func next(a []int64, i int64) int64 {
     if 0 <= i && i < len(a) && i + 1 < len(a) {
@@ -462,6 +476,7 @@ its condition says on each pass, so a loop that moves its bounds must
 restate them in its condition, as a binary search over `lo` and `hi` does:
 
 <!-- example: relations -->
+
 ```tack
     for 0 <= lo && lo < hi && hi <= len(a) {
         mid := lo + (hi - lo) / 2
@@ -469,8 +484,8 @@ restate them in its condition, as a binary search over `lo` and `hi` does:
 ```
 
 A query follows at most 64 related values from the two it is about, so a
-chain longer than that proves nothing past it, and the error says so
-(<!-- case: relation-cap -->a chain of 70 values). When one link is missing from a
+chain longer than that proves nothing past it, and the error says so (<!-- case: relation-cap -->a chain of 70 values).
+When one link is missing from a
 chain that would prove an index, a note names it:
 <!-- case: relation-missing-link -->`if 0 <= i && i < n { a[i] }` gets
 <!-- note: relation-missing-link -->`i < n holds here; check n <= len(a) too`.
@@ -484,6 +499,7 @@ several targets, or a call that passes the variable, or a part of it, as
 fact there:
 
 <!-- case: safety-region-assigned-before -->
+
 ```tack
 mut d int64 = 2
 mut x int64 = 0
@@ -494,7 +510,8 @@ if d != 0 {
 ```
 
 The division
-reports <!-- error: safety-region-assigned-before -->`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
+reports <!-- error: safety-region-assigned-before -->
+`divisor d may be zero; check d != 0 first, or use q, ok := ... / d`.
 
 A write that runs after the use, on every path, does not end it. A call
 assigns its `mut` arguments only after every argument is evaluated and
@@ -517,7 +534,8 @@ another's index needs, in either order. A value that writes the index is
 computed into a variable first, and the index proven after it. A second
 use after that write needs a
 proof of its own: in <!-- case: cond-write-pop-twice -->`if len(l) > 0 && pop(mut l) > 0 && pop(mut l) > 0`
-the second `pop` reports <!-- error: cond-write-pop-twice -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
+the second `pop` reports <!-- error: cond-write-pop-twice -->
+`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
 with <!-- note: cond-write-pop-twice -->`but l is passed as mut to pop here, so the proof ends`
 at the first. A write later in a loop's body reaches the next pass's use
 only through the loop's back edge, and when the fact comes from the
@@ -527,6 +545,7 @@ loop that lies inside the fact's region does reach every use in that
 loop, before or after it, since the next pass starts with no check:
 
 <!-- case: proof-ends-on-back-edge -->
+
 ```tack
 if len(l) > 0 {
     for range 2 {
@@ -560,6 +579,7 @@ the comparison that gave the fact, so a call later in the same condition
 ends it:
 
 <!-- case: cond-write-and-ends-fact -->
+
 ```tack
 mut l := six()
 if len(l) > 5 && shrink(mut l) {
@@ -567,7 +587,8 @@ if len(l) > 5 && shrink(mut l) {
 }
 ```
 
-reports <!-- error: cond-write-and-ends-fact -->`index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]`,
+reports <!-- error: cond-write-and-ends-fact -->
+`index 5 may be out of range; check len(l) > 5 first, or use v, ok := ...[5]`,
 with <!-- note: cond-write-and-ends-fact -->`but l is passed as mut to shrink here, so the proof ends`.
 The same holds on the right of `&&` or `||` inside the condition, as
 in <!-- case: cond-write-and-chain -->`len(l) > 0 && shrink(mut l) && l[0] == 0`,
@@ -586,7 +607,8 @@ proves: <!-- case: cond-write-case-later-value -->`case len(l) <= 5: return` the
 evaluated once, before any value, and compared as it was then, so what a
 case proves about the tag's variable also needs every value tried up to
 that case to leave it
-unassigned: <!-- case: cond-write-tag-switch-earlier-value -->`switch d { case five(mut d): ... case 0: return; default: use(100 / d) }`
+unassigned: <!-- case: cond-write-tag-switch-earlier-value -->
+`switch d { case five(mut d): ... case 0: return; default: use(100 / d) }`
 reports the division. A counting loop's
 start holds only while its condition assigns nothing
 either: <!-- case: cond-write-counting-loop -->`for mut i := 0; neg(mut i) && i < 3; i++ { use(a[i]) }`
@@ -601,7 +623,8 @@ A **mutable global** never has a fact, since any call can change it, so
 its error suggests only the checked
 form, <!-- error: safety-no-proof-mutable-global -->`divisor g may be zero; use q, ok := ... / g`,
 with a note at its
-declaration: <!-- note: safety-no-proof-mutable-global -->`g is a mutable global, so no check proves it; copy it into a local first`.
+declaration: <!-- note: safety-no-proof-mutable-global -->
+`g is a mutable global, so no check proves it; copy it into a local first`.
 So does an index into a mutable global string, whose length no check
 proves: <!-- error: note-global-string-indexed -->`index 1 may be out of range; use v, ok := ...[1]`.
 An **immutable** global always has a known value, since its initializer
@@ -613,6 +636,7 @@ block, which is where the deferred code runs, so assigning the variable
 after the `defer` drops the fact:
 
 <!-- case: safety-defer-assigned-after -->
+
 ```tack
 mut b int64 = 3
 if b == 0 {
@@ -631,23 +655,23 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 
 ### What does not count
 
-| Not a proof                                  | Why                                                                     |
-|----------------------------------------------|-------------------------------------------------------------------------|
-| <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
-| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`        | only a name, or a field or element of an immutable variable, is proven  |
-| <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable | an element in a path is proven only at a known index or an immutable name's |
-| <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known      | a comparison with a variable that is not a known value only relates the two; nothing relates `n` to 3 |
-| <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                         | a divisor is proven by its own facts only, never by a relation          |
-| <!-- case: mixed-compare-no-lower-bound -->`if i < limit { a[i] }` with `limit := uint64(3)` and `i` an `int64` | a comparison bounds `i` by value, here only above; `i` may be negative |
-| <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                     | comparing strings says nothing about the length                         |
-| <!-- case: exit-call-not-leaving -->`if b == 0 { die() }` before `a / b`, `die` calling `exit` | only a call to `exit` itself leaves a block; a call to a function that exits does not |
-| <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`              | only one side says anything about `b`                                   |
-| <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`               | the case allows `i == 3`                                                |
-| <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { i++; a[i] }`                    | the body assigns `i` before the use                                     |
-| <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }` | a mutable global never has a fact                                      |
-| <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a` | the index bound is `len(b) - 1`                                 |
-| <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())` | only a string variable's length can carry a fact                    |
-| <!-- case: safety-no-proof-conversion-guard -->any guard around `uint8(x)`                  | conversions follow the type rule only                                  |
+| Not a proof                                                                                                     | Why                                                                                                    |
+|-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable            | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
+| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`                                  | only a name, or a field or element of an immutable variable, is proven                                 |
+| <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable                         | an element in a path is proven only at a known index or an immutable name's                            |
+| <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known                             | a comparison with a variable that is not a known value only relates the two; nothing relates `n` to 3  |
+| <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                                          | a divisor is proven by its own facts only, never by a relation                                         |
+| <!-- case: mixed-compare-no-lower-bound -->`if i < limit { a[i] }` with `limit := uint64(3)` and `i` an `int64` | a comparison bounds `i` by value, here only above; `i` may be negative                                 |
+| <!-- case: safety-no-proof-string-equality -->`if s == "abc" { s[0] }`                                          | comparing strings says nothing about the length                                                        |
+| <!-- case: exit-call-not-leaving -->`if b == 0 { die() }` before `a / b`, `die` calling `exit`                  | only a call to `exit` itself leaves a block; a call to a function that exits does not                  |
+| <!-- case: safety-no-proof-or-one-side -->`if b < 0 \|\| c > 0 { a / b }`                                       | only one side says anything about `b`                                                                  |
+| <!-- case: safety-no-proof-multi-value-case-out-of-range -->`switch i { case 0, 3: a[i] }`                      | the case allows `i == 3`                                                                               |
+| <!-- case: safety-no-proof-loop-assigns -->`for i < 3 { i++; a[i] }`                                            | the body assigns `i` before the use                                                                    |
+| <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }`                      | a mutable global never has a fact                                                                      |
+| <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a`                 | the index bound is `len(b) - 1`                                                                        |
+| <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())`                      | only a string variable's length can carry a fact                                                       |
+| <!-- case: safety-no-proof-conversion-guard -->any guard around `uint8(x)`                                      | conversions follow the type rule only                                                                  |
 
 ### Notes on a missing proof
 
@@ -683,7 +707,8 @@ target, because what is missing is a bound below `len(a)`.
 
 Other notes point at a counting loop's step that could
 wrap; at a guard on a field of a mutable variable, or on the length of
-one, <!-- note: note-field-len-guard -->`this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
+one, <!-- note: note-field-len-guard -->
+`this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
 or on a variable used inside a larger divisor or index; and, in `v, ok := m[i][j]`, at the element whose outer index
 alone the checked form covers. One does not need a guard: the declaration of
 a mutable global. An unproven unsigned index into a string is told to
@@ -702,6 +727,7 @@ after `error: `.
 ### Division and remainder
 
 <!-- case: divisor-may-be-zero -->
+
 ```tack
 func half(a int64, b int64) int64 {
     return a / b
@@ -718,6 +744,7 @@ as in `a / (b + 1)`.
 Guarded:
 
 <!-- example: safety -->
+
 ```tack
 func half(a int64, b int64) int64 {
     if b == 0 {
@@ -730,6 +757,7 @@ func half(a int64, b int64) int64 {
 Checked:
 
 <!-- example: safety -->
+
 ```tack
 mut b int64 = 0
 q, ok := 8 / b      // q == 0, ok == false
@@ -747,6 +775,7 @@ in a function as at package level.
 ### Compound division
 
 <!-- case: safety-compound-div-unguarded -->
+
 ```tack
 func f(b int64) int64 {
     mut x int64 = 100
@@ -763,6 +792,7 @@ name, as in
 Guarded:
 
 <!-- example: safety -->
+
 ```tack
 mut x int64 = 100
 if b != 0 {
@@ -775,6 +805,7 @@ There is no checked form; write `q, ok := x / b` and assign `q`.
 ### Reading an array element
 
 <!-- case: safety-index-read-unguarded -->
+
 ```tack
 func get(a [3]int64, i int64) int64 {
     return a[i]
@@ -791,6 +822,7 @@ as in `a[i + 1]`.
 Guarded:
 
 <!-- example: safety -->
+
 ```tack
 func get(a [3]int64, i int64) int64 {
     if 0 <= i && i < len(a) {
@@ -803,6 +835,7 @@ func get(a [3]int64, i int64) int64 {
 Checked:
 
 <!-- example: safety -->
+
 ```tack
 a := [3]int64{10, 20, 30}
 mut i int64 = 5
@@ -817,6 +850,7 @@ is <!-- error: safety-index-read-negative -->`index -1 is out of range for [3]in
 ### Writing an array element
 
 <!-- case: safety-index-write-unguarded -->
+
 ```tack
 func set(i int64) int64 {
     mut a [3]int64
@@ -833,6 +867,7 @@ that is not a name, as in
 Guarded:
 
 <!-- example: safety -->
+
 ```tack
 mut a [3]int64
 if i < 0 || i >= 3 {
@@ -846,6 +881,7 @@ There is no checked form.
 ### Reading a string's byte
 
 <!-- case: safety-string-index-unguarded -->
+
 ```tack
 func at(s string, i int64) uint8 {
     return s[i]
@@ -856,7 +892,8 @@ func at(s string, i int64) uint8 {
 `index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]`
 
 A constant index into a string variable
-gets <!-- error: string-constant-index-unguarded -->`index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]`.
+gets <!-- error: string-constant-index-unguarded -->
+`index 0 may be out of range; check len(s) > 0 first, or use v, ok := ...[0]`.
 An index into a string that is neither a variable nor a literal, such as a
 call's result,
 gets <!-- error: string-index-of-call -->`index i may be out of range; use v, ok := ...[i]`,
@@ -865,6 +902,7 @@ since only the checked form can help.
 Guarded:
 
 <!-- example: safety -->
+
 ```tack
 func at(s string, i int64) uint8 {
     if 0 <= i && i < len(s) {
@@ -885,6 +923,7 @@ An unsigned index needs only the upper bound, and a `uint64` one compares
 with `len(s)` by value like any other:
 
 <!-- example: mixed-compare -->
+
 ```tack
 func at(s string, u uint64) uint8 {
     if u < len(s) {
@@ -901,6 +940,7 @@ width. A counting loop over one proves its index by its condition, here
 target, since the condition is tested on every entry to the body:
 
 <!-- example: unsafe-sizes -->
+
 ```tack
 mut bytes int64 = 0
 for mut i unsafe_size_t = 0; i < len(str); i++ {
@@ -911,6 +951,7 @@ for mut i unsafe_size_t = 0; i < len(str); i++ {
 Checked:
 
 <!-- example: safety -->
+
 ```tack
 s := "abc"
 mut i int64 = 9
@@ -934,6 +975,7 @@ A view, `[]T`, is a parameter whose length is never known, so its index is
 proven exactly as one into a string parameter is, against `len(v)`:
 
 <!-- case: view-unproven-index -->
+
 ```tack
 func at(v []int64, i int64) int64 {
     return v[i]
@@ -944,13 +986,15 @@ func at(v []int64, i int64) int64 {
 `index i may be out of range; check 0 <= i && i < len(v) first, or use v, ok := ...[i]`
 
 A constant index
-gets <!-- error: view-unproven-constant -->`index 0 may be out of range; check len(v) > 0 first, or use v, ok := ...[0]`,
+gets <!-- error: view-unproven-constant -->
+`index 0 may be out of range; check len(v) > 0 first, or use v, ok := ...[0]`,
 and a negative one is always an
 error, <!-- error: view-index-negative -->`index -1 is out of range for a view`.
 
 Guarded, by a check, a counting loop or a range loop:
 
 <!-- example: views -->
+
 ```tack
 func guarded(v []int64, i int64) int64 {
     if 0 <= i && i < len(v) {
@@ -961,6 +1005,7 @@ func guarded(v []int64, i int64) int64 {
 ```
 
 <!-- example: views -->
+
 ```tack
 for mut i int64 = 0; i < len(v); i++ {
     total += v[i]
@@ -968,6 +1013,7 @@ for mut i int64 = 0; i < len(v); i++ {
 ```
 
 <!-- example: views -->
+
 ```tack
 for i := range v {
     total += v[i]
@@ -980,6 +1026,7 @@ call could otherwise change. So a fact about `len(v)` holds for the rest of
 the function, calls and all:
 
 <!-- example: views -->
+
 ```tack
 func firstTwo(v []int64) int64 {
     if len(v) < 2 {
@@ -992,6 +1039,7 @@ func firstTwo(v []int64) int64 {
 Checked:
 
 <!-- example: views -->
+
 ```tack
 func at(v []int64, i int64) int64 {
     x, ok := v[i]
@@ -1012,6 +1060,7 @@ that calls it too:
 It is read checked:
 
 <!-- example: view-results -->
+
 ```tack
 c, ok := t.bytes()[1]
 check(ok && c == 'e', "checked index in range")
@@ -1025,10 +1074,12 @@ A variadic parameter, `nums ...int64`, is a view, `[]int64`, inside its
 function, so its index is proven or checked the same way, whatever values a
 call passes, since the body is checked once for every caller. Unproven,
 `nums[0]`
-is <!-- error: variadic-index-unproven -->`index 0 may be out of range; check len(nums) > 0 first, or use v, ok := ...[0]`;
+is <!-- error: variadic-index-unproven -->
+`index 0 may be out of range; check len(nums) > 0 first, or use v, ok := ...[0]`;
 guarded:
 
 <!-- example: variadics -->
+
 ```tack
 func firstTwo(nums ...int64) int64 {
     if len(nums) < 2 {
@@ -1049,6 +1100,7 @@ only a slice uses, `j <= len(x)` and `i <= j`. Unproven, the error names
 what is missing, and only that:
 
 <!-- case: slice-unproven-all -->
+
 ```tack
 func cut(s string, i int64, j int64) string {
     return s[i:j]
@@ -1059,21 +1111,26 @@ func cut(s string, i int64, j int64) string {
 `slice bounds i:j may be out of range; check 0 <= i && i <= j && j <= len(s) first, or use v, ok := ...[i:j]`
 
 With `0 <= i && j <= len(s)` checked, what is left
-is <!-- error: slice-unproven-order -->`slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]`;
+is <!-- error: slice-unproven-order -->
+`slice bounds i:j may be out of range; check i <= j first, or use v, ok := ...[i:j]`;
 with `i <= len(s)` alone, before `s[i:]`, it
 is <!-- error: slice-unproven-lower -->`slice bound i may be out of range; check 0 <= i first, or use v, ok := ...[i:]`,
 with the note <!-- note: slice-unproven-lower -->`this guard bounds i only above; i may be negative`.
 A known bound needs the length checked, as a known index
-does, <!-- error: slice-unproven-known-bound -->`slice bound 1 may be out of range; check len(s) >= 1 first, or use v, ok := ...[1:]`.
+does, <!-- error: slice-unproven-known-bound -->
+`slice bound 1 may be out of range; check len(s) >= 1 first, or use v, ok := ...[1:]`.
 An array's length is known, so the check names it, here for a `[3]int64`
-after `if 0 <= j && j <= 4`, <!-- error: slice-unproven-high-past-array -->`slice bound j may be out of range; check j <= 3 first`,
+after `if 0 <= j && j <= 4`, <!-- error: slice-unproven-high-past-array -->
+`slice bound j may be out of range; check j <= 3 first`,
 with <!-- note: slice-unproven-high-past-array -->`this guard allows j == 4, and a has 3 elements`.
 A view's slice, and an array's, have no checked form, so their error
-suggests only the check, <!-- error: slice-unproven-view -->`slice bound i may be out of range; check 0 <= i && i <= len(v) first`.
+suggests only the check, <!-- error: slice-unproven-view -->
+`slice bound i may be out of range; check 0 <= i && i <= len(v) first`.
 
 Guarded, by a check, a counting loop or a range loop:
 
 <!-- example: slices -->
+
 ```tack
 func between(s string, i int64, j int64) string {
     if 0 <= i && i <= j && j <= len(s) {
@@ -1084,6 +1141,7 @@ func between(s string, i int64, j int64) string {
 ```
 
 <!-- example: slices -->
+
 ```tack
 for mut i := 0; i < len(v); i++ {
     total += sum(v[:i])
@@ -1091,6 +1149,7 @@ for mut i := 0; i < len(v); i++ {
 ```
 
 <!-- example: slices -->
+
 ```tack
 for i := range v {
     total += sum(v[i:])
@@ -1101,6 +1160,7 @@ Checked, for a string's slice only, which gives `""` and `false` when the
 bounds are out of range, whatever their types:
 
 <!-- example: slices -->
+
 ```tack
 func checked(s string, i int64, j int64) (string, bool) {
     t, ok := s[i:j]
@@ -1117,6 +1177,7 @@ assigning one is <!-- error: slice-assign -->`cannot assign to s[0:1]: a slice i
 ### Conversions
 
 <!-- case: safety-conversion-unchecked -->
+
 ```tack
 func low(x int64) uint8 {
     return uint8(x)
@@ -1132,6 +1193,7 @@ type widens to `T`, as `int64(b)` for a `uint8` `b`. A guard does not help,
 so this is the same error:
 
 <!-- case: safety-conversion-guarded -->
+
 ```tack
 func low(x int64) uint8 {
     if 0 <= x && x < 256 {
@@ -1144,6 +1206,7 @@ func low(x int64) uint8 {
 A known value is converted as a constant is, whatever its type:
 
 <!-- example: safety -->
+
 ```tack
 x := 5
 small := uint8(x)   // small == 5
@@ -1156,6 +1219,7 @@ is <!-- error: safety-conversion-known-overflow -->`constant 300 overflows uint8
 Checked:
 
 <!-- example: safety -->
+
 ```tack
 mut x int64 = 300
 v, ok := uint8(x)   // v == 0, ok == false
@@ -1172,10 +1236,12 @@ is <!-- error: safety-conversion-string -->`cannot convert string to int64`.
 A value fits a target-width type, `unsafe_size_t` or `unsafe_uintptr_t`,
 on every target only from 0 to 4294967295, and that is what `T(x)` takes
 from a constant or known value. A constant past it is an error in either
-form, <!-- error: unsafe-const-overflow -->`constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
+form, <!-- error: unsafe-const-overflow -->
+`constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
 A known value past it, but within 64 bits, fits on some targets only, so
 `T(x)` is the error a value not known gets, as for `unsafe_size_t(x)`
-after `x := uint64(5000000000)`, <!-- error: unsafe-conversion-known-past-32-bits -->`converting uint64 to unsafe_size_t can fail; use v, ok := unsafe_size_t(...)`,
+after `x := uint64(5000000000)`, <!-- error: unsafe-conversion-known-past-32-bits -->
+`converting uint64 to unsafe_size_t can fail; use v, ok := unsafe_size_t(...)`,
 and the checked form tests it against the target's real largest value at
 run time, as it does a value not known. The two target-width types do not
 widen to each other, since one may be narrower than the other, so
@@ -1197,6 +1263,7 @@ of `v`, as a value, a `mut` argument, or the target of a compound
 assignment, `++` or `--`, needs a check of `err`:
 
 <!-- case: error-read-unchecked -->
+
 ```tack
 v, err := parse("1")
 print(err.msg)
@@ -1207,6 +1274,7 @@ reports <!-- error: error-read-unchecked -->`v cannot be read before err is chec
 Checked, by an early exit:
 
 <!-- example: errors -->
+
 ```tack
 func double(s string) (int64, error) {
     v, err := parse(s)
@@ -1229,6 +1297,7 @@ though a field of a mutable variable carries none for any other proof.
 Comparing `err` itself, `err == noerror`, is not a check.
 
 <!-- example: errors -->
+
 ```tack
 func describe(s string) string {
     v, err := parse(s)
@@ -1253,6 +1322,7 @@ A branch ending in `exit` leaves, as for any fact, since `exit` never
 returns:
 
 <!-- example: exit-leaves -->
+
 ```tack
     v, err := parse("8")
     if err.code != 0 {
@@ -1266,6 +1336,7 @@ reach the read, as a fact about a divisor does, so a read after the
 rebinding needs a check of its own:
 
 <!-- case: error-read-after-rebinding -->
+
 ```tack
 mut v, mut err := parse("1")
 if err.code != 0 {
@@ -1293,6 +1364,7 @@ each value it passes on is a variable `err` holds, returned whole as a
 result that is not a view:
 
 <!-- example: errors -->
+
 ```tack
 func forward(s string) (int64, error) {
     v, err := parse(s)
@@ -1309,7 +1381,8 @@ The proof is about `err`'s value, and `v` is read on its strength, so
 `err` must still hold the error of the call that gave `v`. Two rules
 keep it so. A binding that takes a result beside an error binds both to
 local variables, never to a parameter, a global, a field or an
-element: <!-- error: error-bind-field -->`p.x cannot take a result of parse beside its error; bind it to a local variable`,
+element: <!-- error: error-bind-field -->
+`p.x cannot take a result of parse beside its error; bind it to a local variable`,
 and <!-- error: error-bind-global-error -->`last cannot take the error of parse beside v; bind it to a local variable`.
 And an error that holds variables is assigned only by a binding that
 assigns all of them with it. Anything else, an assignment, to it or to
@@ -1318,6 +1391,7 @@ them out, could make it no error while `v` keeps the failed call's
 value:
 
 <!-- case: error-assign-alone -->
+
 ```tack
 v, mut err := parse("")
 err = noerror
@@ -1326,7 +1400,8 @@ if err.code != 0 {
 }
 ```
 
-reports <!-- error: error-assign-alone -->`err holds the error that came with v, so only a binding that also assigns v can assign it`,
+reports <!-- error: error-assign-alone -->
+`err holds the error that came with v, so only a binding that also assigns v can assign it`,
 with <!-- note: error-assign-alone -->`err is bound beside v here`.
 A variable bound beside two errors, at two bindings, needs both checked.
 
@@ -1336,7 +1411,8 @@ is <!-- error: error-dropped-call -->`the error parse returns cannot be dropped;
 naming a result that cannot be dropped either, as a list cannot, in place of its `_`,
 <!-- error: bytes-repeat-dropped -->`the error bytes.repeat returns cannot be dropped; bind it, as in x, err := bytes.repeat(...)`,
 and `_` in its
-place <!-- error: error-dropped-blank -->`the error parse returns cannot be dropped; bind it to a variable instead of _`.
+place <!-- error: error-dropped-blank -->
+`the error parse returns cannot be dropped; bind it to a variable instead of _`.
 A function's error is its last
 result: <!-- error: error-not-last -->`error must be the last result of f`.
 
@@ -1365,16 +1441,19 @@ does, so <!-- case: proof-append-then-pop -->`err := append(mut l, 1)`,
 checked, then two pops, reports the
 second, <!-- error: proof-append-then-pop -->`pop may find l empty; check len(l) > 0 first, or use x, ok := pop(mut l)`,
 and a defer reading `l[0]` that runs after a pop
-reports <!-- error: proof-ends-before-defer-runs -->`index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]`.
+reports <!-- error: proof-ends-before-defer-runs -->
+`index 0 may be out of range; check len(l) > 0 first, or use v, ok := ...[0]`.
 The append's proof is its own, and does not add to a guard's:
 
 <!-- case: list-len-dropped-by-append -->
+
 ```tack
 if len(l) > 0 {
     err := append(mut l, 1)
 ```
 
-proves `len(l) >= 1` after the check, not 2, and reports the read of `l[1]` after it with <!-- note: list-len-dropped-by-append -->`but l is passed as mut to append here, so the proof ends`.
+proves `len(l) >= 1` after the check, not 2, and reports the read of `l[1]` after it
+with <!-- note: list-len-dropped-by-append -->`but l is passed as mut to append here, so the proof ends`.
 Writing an element, `l[i] = v`, changes no list's length, so it ends no
 fact, and a write needs its index proven as a read does, with no checked
 form: <!-- error: list-index-write-unproven -->`index i may be out of range; check 0 <= i && i < len(l) first`.
@@ -1389,6 +1468,7 @@ literal's field moves it, and the variable it came from cannot be used
 again until it is assigned. Every use of a moved list is an error,
 
 <!-- case: move-declare-then-use -->
+
 ```tack
 m := l
 print("x")
@@ -1402,7 +1482,8 @@ moved on some paths only is unusable after them,
 A move in a loop's body is seen by the next iteration, unless the body
 assigns the variable first: <!-- note: move-in-loop -->`l is moved here, in an earlier iteration of the loop`.
 A parameter borrows its list, and a `mut` parameter refers to its
-caller's, so neither is moved, <!-- error: move-borrowed-param -->`cannot move l: it is a parameter, which borrows its caller's value`,
+caller's, so neither is moved, <!-- error: move-borrowed-param -->
+`cannot move l: it is a parameter, which borrows its caller's value`,
 and a field is never moved on its own,
 <!-- error: move-field -->`cannot move s.items out of s: a field cannot be moved on its own`;
 `old := replace(mut s.items, new)` takes it out with `new` left in its
@@ -1424,6 +1505,7 @@ returns, breaks, continues, conditional moves and reassignments
 included.
 
 <!-- example: lists -->
+
 ```tack
 func conditional(move bool) {
     mut l := make(list[int64], c_allocator)
@@ -1453,6 +1535,7 @@ frees the list on the path that kept it and nothing on the one that
 moved it on:
 
 <!-- example: own-params -->
+
 ```tack
 func maybe_pass(own l list[int64], c bool) int64 {
     if c {
@@ -1476,11 +1559,13 @@ other name of it in the call, an argument, one nested in a call inside
 an argument, a receiver or the function value called, is an error,
 
 <!-- case: own-in-nested-call -->
+
 ```tack
     f(t, g(own t))
 ```
 
-reports <!-- error: own-in-nested-call -->`cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it`,
+reports <!-- error: own-in-nested-call -->
+`cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it`,
 with <!-- note: own-in-nested-call -->`t is passed as own here`. Within
 one argument, evaluated left to right, a name of `t` after the own one is
 a use after a move, as anywhere: <!-- case: own-moved-twice-in-one-argument -->`use(g(own l) + g(own l))`
@@ -1490,10 +1575,12 @@ parameter, which the call frees,
 <!-- error: own-param-view-returned -->`cannot return a view of l[0:]: l is an own parameter, which is freed when the function returns; a returned view can only point into what a parameter that is not mut holds`.
 `own` is part of a function's type, so a function that frees what it is
 given is never called through a type whose callers keep and free it
-too, <!-- error: own-func-value-drops-own -->`cannot use func(own list[int64]) as func(list[int64]) in declaration of g`,
+too, <!-- error: own-func-value-drops-own -->
+`cannot use func(own list[int64]) as func(list[int64]) in declaration of g`,
 and a method satisfies an interface's only when they agree on it. C is
 not held to free what it is given, so no extern func takes an own
-parameter, <!-- error: own-extern-param -->`parameter l of extern func take cannot be own: C is not held to free what it is given`.
+parameter, <!-- error: own-extern-param -->
+`parameter l of extern func take cannot be own: C is not held to free what it is given`.
 `examples/own-params` returns, stores, moves on, rebinds, borrows and
 frees values given by own parameters, through generic functions, an
 interface's method and function values, makes every allocation fail in
@@ -1575,12 +1662,14 @@ variable of an owned type,
 and since it may be any element, the loop's body changes none of them,
 
 <!-- case: owned-range-element-assigned -->
+
 ```tack
 for i, x := range l {
     l[i] = make(list[int64], c_allocator)
 ```
 
-reports <!-- error: owned-range-element-assigned -->`l is being ranged over, and x refers into it, so this loop cannot assign l[i]`,
+reports <!-- error: owned-range-element-assigned -->
+`l is being ranged over, and x refers into it, so this loop cannot assign l[i]`,
 so a fact about `len(x)` holds for the body as a fact about an
 immutable variable does. An array's and a variadic's elements are
 copied when read, so they stay copyable,
@@ -1601,6 +1690,7 @@ writes: `if len(l) > 0 { x := pop(mut l) }` compiles, while a second pop
 in the same branch
 
 <!-- case: pop-guard-ends-at-pop -->
+
 ```tack
 if len(l) > 0 {
     x := pop(mut l)
@@ -1638,6 +1728,7 @@ deep, reassigned and made to fail part way, and checks the count is
 back to zero after each.
 
 <!-- example: owned-lists -->
+
 ```tack
     w, ok := pop(mut words)
     if ok {
@@ -1707,6 +1798,7 @@ and while it refers into the switched place its clause cannot assign
 that place, or anything holding it, pass either as `mut`, or move it:
 
 <!-- case: union-mut-matched -->
+
 ```tack
 switch u {
 case items(l):
@@ -1714,10 +1806,12 @@ case items(l):
 ```
 
 reports <!-- error: union-mut-matched -->`u is being matched, and l refers into it, so this case cannot pass mut u`,
-and assigning it is <!-- error: union-assign-matched -->`u is being matched, and n refers into it, so this case cannot assign u`.
+and assigning it is <!-- error: union-assign-matched -->
+`u is being matched, and n refers into it, so this case cannot assign u`.
 A `mut` method called on the place is a `mut` argument of it too, so in
 such a clause of a switch on `e`, binding `n`, `mut e.set()`
-reports <!-- error: union-method-mut-matched -->`e is being matched, and n refers into it, so this case cannot pass mut e`,
+reports <!-- error: union-method-mut-matched -->
+`e is being matched, and n refers into it, so this case cannot pass mut e`,
 while a plain method call, which only reads the place, may be made,
 the binding passed to it included. Inside a `mut` method, the receiver
 is a place like any other, so a switch on it binding a payload keeps
@@ -1733,6 +1827,7 @@ free a union's list and unions holding lists pass through generic
 functions.
 
 <!-- example: unions -->
+
 ```tack
 func testLoops() {
     mut v := Value.none
@@ -1770,8 +1865,7 @@ of any key, an assignment, or `m` passed as `mut`; each can take the key
 out, or move the entries a value lives in, so each ends the proof,
 <!-- error: map-has-write-between -->`key k may not be in m; check has(m, k) first, or use v, ok := m[k]`,
 <!-- note: map-has-write-between -->`but m is passed as mut to put here, so the proof ends`,
-a delete of another key included
-(<!-- case: map-has-other-key -->), and so does one that reaches the use
+a delete of another key included (<!-- case: map-has-other-key -->), and so does one that reaches the use
 through a loop's back edge (<!-- case: map-has-back-edge -->) or runs
 before deferred code (<!-- case: map-has-defer -->). Writing a value `m`
 holds, `m[k] = v` or `append(mut m[k], x)` for a proven key, changes no
@@ -1805,7 +1899,8 @@ map, <!-- error: map-range-put -->`m is being ranged over, so this loop cannot p
 nor assign a value a binding may refer to,
 <!-- error: map-has-range-assign -->`m is being ranged over, and v refers into it, so this loop cannot assign m[k]`,
 and a lookup whose key passes the map as mut
-is <!-- error: map-index-borrow -->`cannot index m alongside mut m in its index: a map is not copied to be indexed, and a mut argument must be the only way to reach m during its call`.
+is <!-- error: map-index-borrow -->
+`cannot index m alongside mut m in its index: a map is not copied to be indexed, and a mut argument must be the only way to reach m during its call`.
 
 Keys are compared with `==`, so a key type must have one,
 <!-- error: map-key-map -->`cannot use map[int64]int64 as a map key: it has no ==`,
@@ -1849,14 +1944,12 @@ checked against them exactly as a call to a function of that signature
 is: `mut` arguments, which end every proof about their places and never
 overlap (<!-- case: func-value-mut-overlap -->), views, a list never
 read and passed as `mut` at once, moves, owned results that cannot be
-dropped, and errors that cannot be either
-(<!-- case: func-value-dropped-error -->). No proof depends on which
+dropped, and errors that cannot be either (<!-- case: func-value-dropped-error -->). No proof depends on which
 function a call calls, only on what its arguments let it change, so
 nothing the checker proves is lost to a call through a value. A function
 type says no more than its values can be called with, so a generic
 function, an extern func, a method and a function with a variadic or
-`any` parameter or a view result are no values
-(<!-- case: generic-func-value -->). A call by a bare name calls the
+`any` parameter or a view result are no values (<!-- case: generic-func-value -->). A call by a bare name calls the
 function of that name, so a local or parameter holding a value under
 that name is
 <!-- error: func-value-hidden -->`step calls the function step, not the function value of that name; rename one of them`.
@@ -1875,6 +1968,7 @@ them. The compiler proves the clause in the function and carries it to
 each call, so a contract is a proof split in two, never a promise:
 
 <!-- example: ensures -->
+
 ```tack
 func handle(err error) ensures err.code == 0 {
     if err.code != 0 {
@@ -1885,6 +1979,7 @@ func handle(err error) ensures err.code == 0 {
 ```
 
 <!-- example: ensures -->
+
 ```tack
     n, err := parse("42")
     handle(err)
@@ -1909,19 +2004,19 @@ prove each fact from the facts in force there, under every rule of
 and
 <!-- error: ensures-unproven -->`f ensures d != 0, which may not hold at the end of its body`.
 A branch ending in `exit` leaves, as it does for every fact, so `if d ==
-0 { exit(1) }` proves `d != 0` where the function returns. Code after a statement that leaves its block, or ends in `exit`, never
+0 { exit(1) }` proves `d != 0` where the function returns. Code after a statement that leaves its block, or ends in
+`exit`, never
 runs. A write after the check ends the proof as it ends any fact: a
-`mut` parameter assigned, a value computed by the return itself
-(<!-- case: ensures-return-writes -->), a list popped
-(<!-- case: ensures-pop-in-callee -->), a key deleted
-(<!-- case: ensures-delete-in-callee -->), a write on a loop's next pass
-(<!-- case: ensures-loop-back-edge -->), and a case of a `switch` that
+`mut` parameter assigned, a value computed by the return itself (<!-- case: ensures-return-writes -->), a list popped
+(<!-- case: ensures-pop-in-callee -->), a key deleted (<!-- case: ensures-delete-in-callee -->), a write on a loop's
+next pass (<!-- case: ensures-loop-back-edge -->), and a case of a `switch` that
 falls through past one ending in `exit`
 (<!-- case: ensures-switch-exit-region -->). Deferred code runs after
 the return, so a defer written before it that assigns a parameter the
 clause names, or passes it as `mut`, fails the proof:
 
 <!-- case: ensures-defer-assigns -->
+
 ```tack
 func f(mut d int64) ensures d != 0 {
     defer {
@@ -1939,20 +2034,20 @@ parameter replaced by the argument passed for it, and only when every
 parameter a fact names was passed a local variable or a parameter of
 the caller by name. A plain argument is a copy, so the fact holds of
 the variable only while nothing else in the call writes it; `f(mut i,
-i)` changes `i` after the callee was given its value
-(<!-- case: ensures-alias-mut-plain -->). A `mut` argument is the place
+i)` changes `i` after the callee was given its value (<!-- case: ensures-alias-mut-plain -->). A `mut` argument is the
+place
 the callee changed, so its facts hold of it. A field, an element and an
 expression carry nothing (<!-- case: ensures-arg-not-local -->), nor a
 variable the statement assigns once the call is done, nor a call
 through a function value (<!-- case: ensures-func-value -->), nor an
 own parameter, whose argument moves into the call,
 <!-- error: ensures-own-param -->`an ensures clause cannot name own parameter l: its argument moves into the call, so nothing it ensures about l reaches the caller`.
-The facts hold after the whole statement and never inside it
-(<!-- case: ensures-call-in-value -->), so the rule that a proof ends at
+The facts hold after the whole statement and never inside it (<!-- case: ensures-call-in-value -->), so the rule that a
+proof ends at
 any write in the statement is kept. An error checked by a call makes
 the values bound beside it readable exactly when the error passed is the
-variable bound beside them; a copy of it is another variable
-(<!-- case: ensures-copied-error -->). A write anywhere in the
+variable bound beside them; a copy of it is another variable (<!-- case: ensures-copied-error -->). A write anywhere in
+the
 statement's targets drops its variable, as in `arr[zero(mut d)] = fix(mut
 d)` (<!-- case: ensures-target-index-writes -->).
 
@@ -1971,21 +2066,21 @@ in generic functions and methods, and through recursion.
 The compiler reports, rather than proves or checks, an operation whose
 failure it can see from known values:
 
-| Case                                      | Example                               | Diagnostic                                          |
-|-------------------------------------------|---------------------------------------|-----------------------------------------------------|
-| known zero divisor                        | `a / 0`                               | <!-- error: safety-div-known-zero -->`division by zero` |
-| zero divisor between untyped constants    | `x := 1 / 0`                          | <!-- error: safety-div-constant-zero -->`division by zero in constant expression` |
-| known index out of range, array           | `a[3]` on `[3]int64`                  | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64` |
-| known index out of range, known string   | `"tack"[4]`, `s[5]` after `s := "abc"` | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes` |
-| negative known index, any string          | `s[-1]`                               | <!-- error: string-index-negative -->`index -1 is out of range for a string` |
-| known slice bound past a known length     | `a[1:4]` on `[3]int64`, `"abc"[4:]`  | <!-- error: slice-bound-past-array -->`slice bound 4 is out of range for [3]int64` |
-| negative known slice bound                | `a[-1:]`                              | <!-- error: slice-bound-negative -->`slice bound -1 is out of range for [3]int64` |
-| known slice bounds out of order           | `s[3:1]`                              | <!-- error: slice-bounds-out-of-order -->`slice bounds 3:1 are out of order` |
-| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300` | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8` |
-| arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128` | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m` |
-| a value of more than 2^31 bytes           | `[2147483649]uint8`, a struct whose fields add up past it | <!-- error: size-array-boundary -->`array type [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the 2^31 a value may hold`, or <!-- error: size-struct -->`type Halves is too large: it holds 2147483656 bytes, more than the 2^31 a value may hold` |
-| globals of more than 2^30 bytes together  | three `[536870912]uint8` globals      | <!-- error: size-globals-cap -->`global c makes this program's globals hold 1610612736 bytes, more than the 2^30 a program's globals may hold` |
-| nesting deeper than 1000 levels            | 1001 parentheses, or a mix of blocks, calls, literals and types that adds up to it | <!-- error: nesting-too-deep -->`expression nested too deeply: more than 1000 levels` |
+| Case                                      | Example                                                                            | Diagnostic                                                                                                                                                                                                                                                               |
+|-------------------------------------------|------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| known zero divisor                        | `a / 0`                                                                            | <!-- error: safety-div-known-zero -->`division by zero`                                                                                                                                                                                                                  |
+| zero divisor between untyped constants    | `x := 1 / 0`                                                                       | <!-- error: safety-div-constant-zero -->`division by zero in constant expression`                                                                                                                                                                                        |
+| known index out of range, array           | `a[3]` on `[3]int64`                                                               | <!-- error: array-index-out-of-range -->`index 3 is out of range for [3]int64`                                                                                                                                                                                           |
+| known index out of range, known string    | `"tack"[4]`, `s[5]` after `s := "abc"`                                             | <!-- error: string-index-out-of-range -->`index 4 is out of range for a string of 4 bytes`                                                                                                                                                                               |
+| negative known index, any string          | `s[-1]`                                                                            | <!-- error: string-index-negative -->`index -1 is out of range for a string`                                                                                                                                                                                             |
+| known slice bound past a known length     | `a[1:4]` on `[3]int64`, `"abc"[4:]`                                                | <!-- error: slice-bound-past-array -->`slice bound 4 is out of range for [3]int64`                                                                                                                                                                                       |
+| negative known slice bound                | `a[-1:]`                                                                           | <!-- error: slice-bound-negative -->`slice bound -1 is out of range for [3]int64`                                                                                                                                                                                        |
+| known slice bounds out of order           | `s[3:1]`                                                                           | <!-- error: slice-bounds-out-of-order -->`slice bounds 3:1 are out of order`                                                                                                                                                                                             |
+| constant that does not fit its type       | `var b uint8 = 256`, `uint8(256)`, `uint8(x)` after `x := 300`                     | <!-- error: safety-conversion-constant-overflow -->`constant 256 overflows uint8`                                                                                                                                                                                        |
+| arithmetic on known values that overflows | `'a' * 3`; `-m`, `m - 1`, `m / -1` with `var m int8 = -128`                        | <!-- error: const-overflow-mul -->`constant expression overflows uint8`, or <!-- error: safety-const-overflow-int8 -->`constant expression overflows int8` for `m`                                                                                                       |
+| a value of more than 2^31 bytes           | `[2147483649]uint8`, a struct whose fields add up past it                          | <!-- error: size-array-boundary -->`array type [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the 2^31 a value may hold`, or <!-- error: size-struct -->`type Halves is too large: it holds 2147483656 bytes, more than the 2^31 a value may hold` |
+| globals of more than 2^30 bytes together  | three `[536870912]uint8` globals                                                   | <!-- error: size-globals-cap -->`global c makes this program's globals hold 1610612736 bytes, more than the 2^30 a program's globals may hold`                                                                                                                           |
+| nesting deeper than 1000 levels           | 1001 parentheses, or a mix of blocks, calls, literals and types that adds up to it | <!-- error: nesting-too-deep -->`expression nested too deeply: more than 1000 levels`                                                                                                                                                                                    |
 
 Arithmetic on values the compiler does not know wraps at runtime instead:
 for a `mut` `int8` `m` holding `-128`, `m / -1` is `-128` and `m % -1` is

@@ -156,28 +156,28 @@ value does not cross to C`, since nothing would check what C's pointer
 points to, and an extern func is no value, `cannot use now as a value:
 it is an extern func, and a function value does not cross to C`.
 
-| Tack                         | C                                                                                   |
-|------------------------------|-------------------------------------------------------------------------------------|
-| `int8` ... `int64`           | `int8_t` ... `int64_t`                                                              |
-| `uint8` ... `uint64`         | `uint8_t` ... `uint64_t`                                                            |
-| `unsafe_size_t`              | `size_t`, from `<stddef.h>`, as wide as the target's                                |
-| `unsafe_uintptr_t`           | `uintptr_t`, from `<stdint.h>`, as wide as the target's                             |
-| `bool`                       | `bool`, from `<stdbool.h>`                                                          |
-| `float32`, `float64`         | `float`, `double`: IEEE 754's binary32 and binary64; NaN and infinities cross too   |
-| `string`                     | `tack_string`: `const unsigned char *ptr; int64_t len;`, by value                   |
-| `error`                      | `tack_error`: `int32_t code; tack_string msg;`, by value; code 0 is no error        |
-| a struct                     | a C struct with a member per field, under the field's Tack name, in order; `char unused;` if it has none |
-| `[N]T`                       | a struct holding one C array, `T e[N]`, of at least one element                     |
-| no result                    | `void`                                                                              |
-| one result                   | that result's C type                                                                |
-| several results              | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on; an error, always the last result, in the last member |
-| a `mut p T` parameter        | `T *`, a pointer to the caller's variable, valid only during the call; never null   |
-| a `v []T` parameter          | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements |
-| an `args ...T` parameter     | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values |
-| an `a any` parameter         | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, a view's struct for a view, valid only during the call |
-| an `args ...any` parameter   | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is |
-| `Allocator`                  | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle      |
-| a `mut l list[T]` parameter  | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call |
+| Tack                        | C                                                                                                                                                                                    |
+|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `int8` ... `int64`          | `int8_t` ... `int64_t`                                                                                                                                                               |
+| `uint8` ... `uint64`        | `uint8_t` ... `uint64_t`                                                                                                                                                             |
+| `unsafe_size_t`             | `size_t`, from `<stddef.h>`, as wide as the target's                                                                                                                                 |
+| `unsafe_uintptr_t`          | `uintptr_t`, from `<stdint.h>`, as wide as the target's                                                                                                                              |
+| `bool`                      | `bool`, from `<stdbool.h>`                                                                                                                                                           |
+| `float32`, `float64`        | `float`, `double`: IEEE 754's binary32 and binary64; NaN and infinities cross too                                                                                                    |
+| `string`                    | `tack_string`: `const unsigned char *ptr; int64_t len;`, by value                                                                                                                    |
+| `error`                     | `tack_error`: `int32_t code; tack_string msg;`, by value; code 0 is no error                                                                                                         |
+| a struct                    | a C struct with a member per field, under the field's Tack name, in order; `char unused;` if it has none                                                                             |
+| `[N]T`                      | a struct holding one C array, `T e[N]`, of at least one element                                                                                                                      |
+| no result                   | `void`                                                                                                                                                                               |
+| one result                  | that result's C type                                                                                                                                                                 |
+| several results             | one returned struct, `tack_results_<C name>`, with members `r0`, `r1`, and on; an error, always the last result, in the last member                                                  |
+| a `mut p T` parameter       | `T *`, a pointer to the caller's variable, valid only during the call; never null                                                                                                    |
+| a `v []T` parameter         | `tack_view_<T>`: `const T *ptr; int64_t len;`, by value; `ptr` valid only during the call, for `len` elements                                                                        |
+| an `args ...T` parameter    | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values                                                     |
+| an `a any` parameter        | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, a view's struct for a view, valid only during the call |
+| an `args ...any` parameter  | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is                                                                                                 |
+| `Allocator`                 | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle                                                                                                        |
+| a `mut l list[T]` parameter | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call                                             |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
 signature uses `size_t`, and the runtime's `<tack/tack.h>` when one uses a string,
@@ -438,26 +438,26 @@ for the call, or to the caller's variable when nothing in the call can
 change it. The ids are fixed for good, since C is written against them,
 and the runtime's `<tack/tack.h>` names each:
 
-| id | macro                        | Tack               | `ptr` points at |
-|----|------------------------------|--------------------|-----------------|
-| 0  | `TACK_TYPE_INVALID`          | none               | nothing         |
-| 1  | `TACK_TYPE_BOOL`             | `bool`             | `bool`          |
-| 2  | `TACK_TYPE_INT8`             | `int8`             | `int8_t`        |
-| 3  | `TACK_TYPE_INT16`            | `int16`            | `int16_t`       |
-| 4  | `TACK_TYPE_INT32`            | `int32`            | `int32_t`       |
-| 5  | `TACK_TYPE_INT64`            | `int64`            | `int64_t`       |
-| 6  | `TACK_TYPE_UINT8`            | `uint8`            | `uint8_t`       |
-| 7  | `TACK_TYPE_UINT16`           | `uint16`           | `uint16_t`      |
-| 8  | `TACK_TYPE_UINT32`           | `uint32`           | `uint32_t`      |
-| 9  | `TACK_TYPE_UINT64`           | `uint64`           | `uint64_t`      |
-| 10 | `TACK_TYPE_UNSAFE_SIZE_T`    | `unsafe_size_t`    | `size_t`        |
-| 11 | `TACK_TYPE_UNSAFE_UINTPTR_T` | `unsafe_uintptr_t` | `uintptr_t`     |
-| 12 | `TACK_TYPE_STRING`           | `string`           | `tack_string`   |
-| 13 to 24 | `TACK_TYPE_VIEW_BOOL` through `TACK_TYPE_VIEW_STRING` | `[]bool` through `[]string` | `tack_view_<T>` |
-| 25 | `TACK_TYPE_FLOAT32`          | `float32`          | `float`         |
-| 26 | `TACK_TYPE_FLOAT64`          | `float64`          | `double`        |
-| 27 | `TACK_TYPE_VIEW_FLOAT32`     | `[]float32`        | `tack_view_float32` |
-| 28 | `TACK_TYPE_VIEW_FLOAT64`     | `[]float64`        | `tack_view_float64` |
+| id       | macro                                                 | Tack                        | `ptr` points at     |
+|----------|-------------------------------------------------------|-----------------------------|---------------------|
+| 0        | `TACK_TYPE_INVALID`                                   | none                        | nothing             |
+| 1        | `TACK_TYPE_BOOL`                                      | `bool`                      | `bool`              |
+| 2        | `TACK_TYPE_INT8`                                      | `int8`                      | `int8_t`            |
+| 3        | `TACK_TYPE_INT16`                                     | `int16`                     | `int16_t`           |
+| 4        | `TACK_TYPE_INT32`                                     | `int32`                     | `int32_t`           |
+| 5        | `TACK_TYPE_INT64`                                     | `int64`                     | `int64_t`           |
+| 6        | `TACK_TYPE_UINT8`                                     | `uint8`                     | `uint8_t`           |
+| 7        | `TACK_TYPE_UINT16`                                    | `uint16`                    | `uint16_t`          |
+| 8        | `TACK_TYPE_UINT32`                                    | `uint32`                    | `uint32_t`          |
+| 9        | `TACK_TYPE_UINT64`                                    | `uint64`                    | `uint64_t`          |
+| 10       | `TACK_TYPE_UNSAFE_SIZE_T`                             | `unsafe_size_t`             | `size_t`            |
+| 11       | `TACK_TYPE_UNSAFE_UINTPTR_T`                          | `unsafe_uintptr_t`          | `uintptr_t`         |
+| 12       | `TACK_TYPE_STRING`                                    | `string`                    | `tack_string`       |
+| 13 to 24 | `TACK_TYPE_VIEW_BOOL` through `TACK_TYPE_VIEW_STRING` | `[]bool` through `[]string` | `tack_view_<T>`     |
+| 25       | `TACK_TYPE_FLOAT32`                                   | `float32`                   | `float`             |
+| 26       | `TACK_TYPE_FLOAT64`                                   | `float64`                   | `double`            |
+| 27       | `TACK_TYPE_VIEW_FLOAT32`                              | `[]float32`                 | `tack_view_float32` |
+| 28       | `TACK_TYPE_VIEW_FLOAT64`                              | `[]float64`                 | `tack_view_float64` |
 
 0 is no type, so a zeroed `tack_any` is recognisably empty: it is the
 `any` an index out of range gives, `v, ok := args[i]`, which Tack code
