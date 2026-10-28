@@ -12,28 +12,514 @@ proven safe, and the checked forms `v, ok := ...`, belong in [Safety and
 proofs](10-safety.md); what passing `mut` or `own` does to the argument
 belongs in [Ownership and memory](08-ownership.md).
 
-Status: skeleton. The sections below are planned.
-
 ## Operands
+
+An operand is one of:
+
+- a literal: an integer, float, character, string or raw string literal
+  ([Source and lexical elements](02-lexical.md));
+- one of the keywords `true`, `false`, `noerror` and `c_allocator`;
+- the name of a local variable, a parameter or a package-level
+  variable, which gives its value;
+- the name of a function, which gives the function as a value
+  ([Function values](#function-values));
+- a qualified name ([Qualified names](#qualified-names));
+- a composite literal ([Composite literals](#composite-literals));
+- an expression in parentheses, `(x)`, whose value is `x`'s.
+
+What a name refers to is decided by the scope rules of [Declarations and
+scope](05-declarations.md). A name that refers to nothing is `undefined:
+z`. A type's name is not an operand, `cannot use Point as a value; it is
+a type`, outside a conversion `T(x)` and a union's construction
+`Expr.int(5)`; an import's name is not one either, `fmt is a package,
+not a value`, outside a qualified name. `_` is not an operand.
+
+There is no unary `+`: `+x` is a syntax error.
 
 ## Qualified names
 
+A qualified name, `pkg.Name`, names the package-level name `Name` of the
+package imported as `pkg` in the file ([Packages, modules and
+programs](12-packages.md)). It may name a function, `lexer.First`, which
+is called or is a value as an unqualified function's name is; a global,
+`lexer.KindNumber`, which is read, and may be assigned under the rules
+for any global, though a mutable global is never visible to another
+package; or a type, `lexer.Token`, written wherever a type may be, and
+in a struct literal, `lexer.Token{kind: 1}`, or a union's construction,
+`ast.Expr.int(5)`. A qualified name that names nothing is
+`undefined: lexer.Nothing`, and one the importing package cannot see is
+an error under the visibility rules of [Declarations and
+scope](05-declarations.md).
+
+```tack run exit=0
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.println("hi")
+}
+```
+
+```output
+hi
+```
+
 ## Composite literals
+
+A composite literal builds a value of an array or a struct type from
+its parts. Unions, lists and maps have no literals: a union is built
+from one of its cases, below, a list or a map by `make`
+([Builtins](13-builtins.md)), and `Expr{}` is `Expr cannot be written as
+a literal; only arrays and structs can`.
+
+An array literal, `[3]int64{1, 2, 3}`, gives the array's type and lists
+its elements in order, exactly one for each element of the array.
+`[...]int64{1, 2, 3}` takes the array's length from the number of its
+elements. Elements have no keys: `[3]int64{0: 1}` is an error.
+
+A struct literal, `Point{x: 1, y: 2}`, names every field of the struct
+exactly once, each with its value, in any order. A literal without field
+names, `Point{1, 2}`, a field listed twice, a field the struct does not
+have, a field name in parentheses and a field left out are each an
+error. A struct with a field the literal's package cannot see cannot be
+written as a literal there ([Declarations and
+scope](05-declarations.md)).
+
+Each element's or field's value is used as a value of the element's or
+field's type, under the assignability rules of [Types](04-types.md): an
+untyped constant takes that type and must fit it, and a narrower integer
+widens to it. Inside an array literal, an element that is itself an
+array or struct literal may leave out its type, `[2][2]bool{{true,
+false}, {false, true}}` and `[2]Point{{x: 1, y: 2}, {x: 3, y: 4}}`; a
+field's value may not.
+
+In the header of an `if`, a `for`, a range clause or a `switch`, a
+struct literal must be in parentheses, `if p == (Point{x: 1, y: 2}) {`,
+since its brace would otherwise open the body. Inside a call, an index
+or another literal it needs none.
+
+```tack run exit=10
+package main
+
+type Point struct {
+    x int32
+    y int32
+}
+
+func main() {
+    ps := [...]Point{{x: 1, y: 2}, {y: 4, x: 3}}
+    if ps[1] == (Point{x: 3, y: 4}) {
+        exit(ps[0].x + ps[0].y + ps[1].x + ps[1].y)
+    }
+}
+```
+
+A union value is built from one of its cases, named through the union's
+type: `Expr.int(5)` builds the case `int` with the payload 5, and
+`Expr.eof` the case `eof`, which has no payload. The payload is used as
+an argument to a parameter of the case's type: an untyped constant
+takes the type, a narrower integer widens to it, and exactly one payload
+is given. A case with no payload is named without parentheses:
+`Expr.eof()` is `Expr.eof has no payload; write Expr.eof`. A case with
+one is not named alone, `Expr.int needs its int64 payload, as in
+Expr.int(...)`, and a case the union lacks is `Expr has no case nope`.
+Nothing makes a union of a payload implicitly. A union of another
+package is built through its qualified name, `ast.Expr.int(5)`.
 
 ## Selectors
 
+A selector `x.f` reads the field `f` of `x`, a value of a struct type: a
+variable, a parameter, an element, another field or a call's result,
+`f().x`. An `error` is a struct of the fields `code` and `msg`
+([Errors](09-errors.md)). A selector of a field is a place when `x` is
+one, so a field may be assigned when its variable is mutable
+([Statements](07-statements.md)). Selecting a field the struct does not
+have, or any field of a union, `Expr has no field int`, is an error, as
+is selecting a field another package cannot see.
+
+A selector followed by arguments, `x.m(args)`, calls the method `m` of
+`x`'s type, found from that type, whatever its package. `x` may be any
+value of the type: a variable, a parameter, a field, `w.out.len()`, an
+element, `rows[i].len()`, or a temporary, `makePoint(3, 4).norm()`. A
+type with no such method is `Builder has no method nope`.
+
+A method whose receiver is `mut` is called with `mut` before the
+selector, `mut b.write(s)`, as a statement or as a value, `err := mut
+b.write(s)`. The `mut` covers what comes before the last `.name(`, so
+`mut w.out.write(s)` passes `w.out` as the receiver. The receiver is then
+a `mut` argument of the call, under every rule of one, below. Leaving
+`mut` out for a `mut` receiver is `Builder.write takes its receiver as
+mut; call mut b.write(s)`, and writing it for a plain receiver is
+`Builder.len does not take its receiver as mut; call b.len()`.
+
+There are no method values and no method expressions: `b.write` without
+a call is `write is a method of Builder, not a field; a method can only
+be called`, and `Builder.write(b, s)` is `cannot use Builder as a value;
+it is a type`. A field called as a method is `n is a field of Builder,
+not a method; a field cannot be called`, and a field holding a function
+value is called through a local, `run is a field of Op holding a
+function value, not a method; call it through a local, as in f :=
+op.run, then f(...)`. The builtins are functions, not methods: there is
+no `l.len()`.
+
 ## Index expressions
+
+An index expression `x[i]` reads one element of `x`:
+
+| `x` is         | `i` is               | `x[i]` is                              |
+|----------------|----------------------|----------------------------------------|
+| an array `[n]T` | an integer of any type | the element at `i`, a `T`            |
+| a string       | an integer of any type | the byte at `i`, a `uint8`            |
+| a view `[]T`   | an integer of any type | the element at `i`, a `T`             |
+| a list `list[T]` | an integer of any type | the element at `i`, a `T`           |
+| a map `map[K]V` | a value of type `K`  | the value under the key `i`, a `V`     |
+
+Elements are numbered from 0. Anything else indexed is an error. An
+index into an array, a string, a view or a list compiles only where the
+compiler proves it in range, and a map's key only where it proves the
+key is in the map; elsewhere the checked form `v, ok := x[i]` reads it.
+Both are described in [Safety and proofs](10-safety.md). An index
+expression of an array, a list, or a map's value is a place when `x` is
+one; a string's byte is never a place, since strings are immutable, and
+a view's element is not one either, since a view is read-only.
+
+A constant index into a known string is computed at compile time, so
+`"tack"[1]` is 97.
+
+```tack run exit=7
+package main
+
+func main() {
+    a := [3]int32{5, 6, 7}
+    s := "tack"
+    if s[1] == 'a' {
+        exit(a[2])
+    }
+}
+```
 
 ## Slice expressions
 
+A slice expression `x[i:j]` is the bytes of the string `x`, or the
+elements of the array, view or list `x`, from index `i` up to but not
+including `j`. `x[:j]` starts at 0, `x[i:]` runs to `len(x)`, and `x[:]`
+is all of it. There is no three-index form: `x[i:j:k]` is `a slice has
+at most two bounds, x[i:j]; there is no three-index form`. A bound is
+an integer of any type, `slice bound must be an integer, got bool`, and
+anything else sliced is `cannot slice int64`.
+
+A string's slice is a `string` that shares the bytes it was cut from,
+never copying them, and is a value like any other string. A string
+slices by bytes, so a slice may cut through a multi-byte UTF-8 sequence.
+An array's, a view's or a list's slice is a view, `[]T` of its element
+type, under the rules for views of [Ownership and
+memory](08-ownership.md): it may be passed to a view parameter, spread
+into a variadic one, given to `len`, sliced again, or returned from a
+function returning a view, and nothing else. An array or a list that is
+sliced must be a place: `cannot slice a temporary array; store it in a
+variable first`. A slice is never a place: `cannot assign to s[0:1]: a
+slice is not a place`.
+
+The bounds must be proven, as an index is, or a string's slice bound
+with ok, `t, ok := s[i:j]`; [Safety and proofs](10-safety.md) describes
+both.
+
+```tack run exit=3
+package main
+
+func count(v []int64) int64 {
+    return len(v)
+}
+
+func main() {
+    a := [5]int64{1, 2, 3, 4, 5}
+    s := "abcdef"[1:4]
+    if count(a[1:4]) == 3 && s == "bcd" {
+        exit(3)
+    }
+}
+```
+
 ## Calls
+
+A call `f(args)` calls a function with a list of arguments, separated by
+commas, with no comma after the last. `f` is the name of a function or a
+builtin, a qualified name, a local variable or a parameter holding a
+function value, or a selector naming a method. Calling anything else is
+`cannot call n: it is int64, not a function`. The same form, with a type
+in place of the function, is a conversion `T(x)`, which [Constants and
+arithmetic](03-arithmetic.md) describes for numbers and [Ownership and
+memory](08-ownership.md) for `[]uint8(s)`, and with a union's case, a
+union's construction (above).
+
+A call passes one argument for each parameter, and for a variadic
+parameter, the last, any number of values, or a view spread whole with
+`...` after the last argument. The wrong number is `f expects 2
+argument(s), got 3`, or for a variadic function `f expects at least 1
+argument(s), got 0`. Each argument is used as a value of its parameter's
+type under the assignability rules of [Types](04-types.md), or it is an
+error, `cannot use string as int64 in argument to f`.
+
+An argument to a `mut` parameter is written `mut x`, and `x` must be a
+place the caller may change. An argument to an `own` parameter that is a
+variable is written `own x`. `mut` and `own` are written only there:
+leaving `mut` out is `scale takes p as mut; pass mut b`, writing it for
+a plain parameter is `count does not take t as mut; pass t`, and `mut x`
+anywhere but as a call's argument is `mut x can only be passed to a mut
+parameter`; the same holds for `own`. What such an argument may be and
+what passing it does is described in [Ownership and
+memory](08-ownership.md). A spread, `f(v...)`, is the whole of the
+variadic parameter: `cannot use ... in a call with other values for
+nums`, and in a call to a function that is not variadic `cannot use ...
+in a call to non-variadic f`.
+
+A call's value is its function's result. A call of a function with no
+result has no value, and is a statement only. A call of a function with
+several results is not a value: it is bound by a declaration or an
+assignment of as many names, `q, r := divmod(7, 2)`, or made as a
+statement ([Statements](07-statements.md)); used as one value, passed
+to another call or returned whole, it is an error, `two returns 2
+values`. A call returning a view gives a view that may be used only
+inside the expression that consumes it ([Ownership and
+memory](08-ownership.md)).
+
+A call by a bare name calls the function or builtin of that name before
+any local of the name ([Function values](#function-values)).
+
+```tack error
+package main
+
+func id(n int32) int32 {
+    return n
+}
+
+func main() {
+    n := 3
+    exit(n(2) + id(1, 2))
+}
+```
+
+```diagnostics
+main.tck:9:10: error: cannot call n: it is int64, not a function
+main.tck:9:17: error: id expects 1 argument(s), got 2
+```
 
 ## Function values
 
+A function's name used anywhere but as a call's callee, `double` or
+`bytes.equal`, is a value of its function type, written as a signature
+is, with the parameters' types alone, `mut` and `own` before the
+parameters that have them, and the results: `func(int64) int64`,
+`func([]uint8, mut list[int64]) (int64, error)`, `func()`. Two functions
+of one signature have one type; nothing else is assignable to it. A
+function value is called through a local or a parameter holding it,
+`f(x)`, under every rule a call by name has for its arguments.
+
+A generic function, an extern func, a method and a builtin are not
+values: `cannot use measure as a value: it is generic, and a generic
+function is only called, its type arguments inferred from the call`,
+`cannot use now as a value: it is an extern func, and a function value
+does not cross to C`, `cannot use the builtin len as a value; only a
+declared function can be one`. Nor is a function whose signature no
+function type can have: one with a variadic parameter, `cannot use sum
+as a value: its parameter xs is variadic, which no function type's can
+be`, one with an `any` parameter, `cannot use show as a value: its
+parameter v is an any, which no function type's can be`, and one that
+returns a view, `cannot use head as a value: it returns a view, which
+no function type can`. There are no function literals and no closures: `function
+literals are not supported; declare the function and use its name as a
+value`. A call by a bare name calls the function or builtin of that
+name, never a local holding a function value under that name, so such a
+local is `step calls the function step, not the function value of that
+name; rename one of them` where it is called. What a function type
+holds, and that it has no zero value and no `==`, is described in
+[Types](04-types.md).
+
+```tack run exit=8
+package main
+
+func double(n int32) int32 {
+    return n * 2
+}
+
+func twice(f func(int32) int32, n int32) int32 {
+    return f(f(n))
+}
+
+func main() {
+    g := double
+    exit(twice(g, 2))
+}
+```
+
 ## Operators and precedence
+
+Tack has these operators:
+
+| Kind       | Operators                               |
+|------------|-----------------------------------------|
+| prefix     | `!` `-` `^`                             |
+| arithmetic | `+` `-` `*` `/` `%`                     |
+| bitwise    | `&` `\|` `^` `&^` `<<` `>>`             |
+| comparison | `==` `!=` `<` `<=` `>` `>=`             |
+| logical    | `&&` `\|\|`                             |
+
+The prefix operators bind tightest. The binary operators have five
+levels of precedence, from tightest to loosest:
+
+| Precedence | Operators                       |
+|------------|---------------------------------|
+| 5          | `*` `/` `%` `<<` `>>` `&` `&^`  |
+| 4          | `+` `-` `\|` `^`                |
+| 3          | `==` `!=` `<` `<=` `>` `>=`     |
+| 2          | `&&`                            |
+| 1          | `\|\|`                          |
+
+Binary operators of one level associate to the left, so `1 + 2 << 3` is
+17, `6 & 3 * 2` is 4 and `a - b - c` is `(a - b) - c`. Parentheses group
+explicitly.
+
+`-x` negates a signed integer or a float, and `^x` flips every bit of
+an integer; `!x` is described below. The arithmetic and bitwise
+operators take two integers, or for `+ - * /` two floats, and give
+their common type; what each computes, which operand types it accepts,
+and the shifts' rules for their count are described in [Constants and
+arithmetic](03-arithmetic.md). A comparison gives a `bool`. Two
+integers of any types compare by their values, as [Constants and
+arithmetic](03-arithmetic.md) describes, as do two floats of one type;
+which other types compare, and what `==` computes on them, is described
+in [Types](04-types.md), and comparing errors in [Errors](09-errors.md).
+`/` and `%` on integers need a divisor proven not zero ([Safety and
+proofs](10-safety.md)).
+
+```tack run exit=21
+package main
+
+func main() {
+    a := 1 + 2 << 3
+    b := 6 & 3 * 2
+    exit(int32(a + b))
+}
+```
 
 ## Logical operators
 
+`&&`, `||` and `!` take `bool` operands and give a `bool`. `!x` is true
+when `x` is false. `a && b` is true when both are, and `a || b` when
+either is. `&&` and `||` short-circuit: the right operand is evaluated
+only when the left does not decide the result, so `n != 0 && 10 / n > 1`
+never divides by zero. In a package-level variable's initializer both
+operands are computed, so an error on either side is reported
+([Declarations and scope](05-declarations.md)). What a condition built
+with these operators proves is described in [Safety and
+proofs](10-safety.md).
+
+```tack run exit=4
+package main
+
+mut calls int32 = 0
+
+func touch() bool {
+    calls = calls + 1
+    return true
+}
+
+func main() {
+    a := false && touch()
+    b := true || touch()
+    c := true && touch()
+    if !a && b && c {
+        exit(calls + 3)
+    }
+}
+```
+
 ## Type assertions
 
+A type assertion `a.(T)` asks whether the `any` `a` holds a value of
+type `T`, exactly: an `int8` passed as `any` is not an `int64`. It has
+only the checked form, `v, ok := a.(T)`, or `v, ok = a.(T)`, in which
+`v` is the value when `a` holds a `T` and `T`'s zero value when it does
+not, and `ok` says which. The rules every checked form follows, that it
+is the whole value bound and that `ok` is not dropped, are described in
+[Safety and proofs](10-safety.md). Anywhere else, an assertion is `a
+type assertion needs two results; write v, ok := a.(int64)`.
+
+`T` is one of the basic types an `any` can hold ([Types](04-types.md));
+any other is `an any never holds Point: only the builtin types and views
+of them can be passed as any for now`, and a view an `any` holds is asked
+for only with a type switch ([Statements](07-statements.md)). An operand
+that is not an `any` is `cannot assert on x: it is int64, not any`.
+
+```tack run exit=6
+package main
+
+func small(a any) int32 {
+    v, ok := a.(int8)
+    if ok {
+        return int32(v)
+    }
+    return 0
+}
+
+func main() {
+    var x int8 = 6
+    exit(small(x) + small(5))
+}
+```
+
 ## Order of evaluation
+
+Wherever Tack evaluates several operands, it evaluates them left to
+right, each once: the two sides of a binary operator, subject to
+short-circuiting; a call's arguments; a method call's receiver before
+its arguments; a function value before the arguments of a call through
+it; a return's values; an array literal's elements; a struct literal's
+values, in the order they are written; an indexed value before its
+index; a sliced value before its low bound, and the low bound before the
+high; and a switch's tag before its case values. The statements that
+evaluate several operands, and the order an assignment follows, are
+described in [Statements](07-statements.md).
+
+The order shows only through calls, which can print, exit, assign a
+mutable global that another operand reads, or change a variable that
+another operand reads through a `mut` argument. A plain argument is
+evaluated before the call begins and passed as a copy, so it keeps the
+value it had then. A `mut` argument stands for its place, not a value
+read from it: the callee sees the variable as it is when the call
+begins, after every argument has been evaluated.
+
+```tack run exit=3
+package main
+
+func next(mut k int32) int32 {
+    k = k + 1
+    return k
+}
+
+func three(a int32, b int32, c int32) int32 {
+    print("called\n")
+    return a * 100 + b * 10 + c
+}
+
+func say(s string, v int32) int32 {
+    print(s)
+    return v
+}
+
+func main() {
+    mut k int32 = 0
+    n := three(next(mut k), k, next(mut k))
+    m := say("left\n", 1) + say("right\n", 2)
+    if n == 112 {
+        exit(m)
+    }
+}
+```
+
+```output
+called
+left
+right
+```
