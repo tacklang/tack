@@ -281,12 +281,22 @@ var widthErrorCases = []struct {
 	{
 		"conversion that can fail",
 		withSized("a := int8(i64)", "exit(a)"),
-		[]spanned{{"converting int64 to int8 can fail; use v, ok := int8(...)", "int8(i64)"}},
+		[]spanned{
+			{
+				"converting int64 to int8 can fail; check -128 <= i64 && i64 <= 127 first, or use v, ok := int8(...)",
+				"int8(i64)",
+			},
+		},
 	},
 	{
 		"conversion across signs can fail",
 		withSized("a := uint64(i8)", "if a > 0 {", "}"),
-		[]spanned{{"converting int8 to uint64 can fail; use v, ok := uint64(...)", "uint64(i8)"}},
+		[]spanned{
+			{
+				"converting int8 to uint64 can fail; check i8 >= 0 first, or use v, ok := uint64(...)",
+				"uint64(i8)",
+			},
+		},
 	},
 	{
 		"constant conversion too large",

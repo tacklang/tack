@@ -1970,6 +1970,49 @@ func TestBuiltLeavingWritesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The conversion-facts example converts integers in the plain form T(x)
+// where the facts in force prove x a value of T: a guard, an early exit,
+// a counting loop, a range, switch cases, a contract, a relation, a field
+// of an immutable parameter, a branch that writes and continues, deferred
+// code, and the target-width types, each tried at the edges of what the
+// facts allow and just past them, and binds the checked form where the
+// plain one is proven. Each check prints its name and "ok", or "FAIL", and
+// the last call ends the program with status 4 from a contract's exit.
+func TestBuiltConversionFactsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "conversion-facts")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 4 {
+		t.Errorf("conversion-facts exited with %v, want status 4", err)
+	}
+	want := "int64 to uint64 under v > 0 ok\n" +
+		"int64 to uint64 past an early exit ok\n" +
+		"uint64 to int64 ok\n" +
+		"int64 to int32 ok\n" +
+		"int64 to int8 ok\n" +
+		"int64 to uint8 ok\n" +
+		"uint64 to uint32 ok\n" +
+		"int32 to uint32 ok\n" +
+		"uint32 to int32 ok\n" +
+		"int8 to uint8 and back ok\n" +
+		"a counting loop ok\n" +
+		"a range over 256 ok\n" +
+		"a range over a string ok\n" +
+		"switch cases ok\n" +
+		"a default after a case that leaves ok\n" +
+		"a contract ok\n" +
+		"a relation ok\n" +
+		"a field of an immutable parameter ok\n" +
+		"a branch that writes and continues ok\n" +
+		"deferred code ok\n" +
+		"the checked form where the plain one is proven ok\n" +
+		"int64 to unsafe_size_t ok\n" +
+		"unsafe_size_t to uint32 and unsafe_uintptr_t ok\n"
+	if string(out) != want {
+		t.Errorf("conversion-facts printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The ensures example calls functions whose ensures clauses prove facts
 // about their arguments: an error checked by a call, as a statement and
 // as a value and in a loop, a divisor, through a plain and a mut

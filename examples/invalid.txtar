@@ -4448,11 +4448,1004 @@ func main() {
 stage: typeck
 ---
 
-conversion-can-fail/main.tck:5:14: error: converting int64 to int8 can fail; use v, ok := int8(...)
+conversion-can-fail/main.tck:5:14: error: converting int64 to int8 can fail; check -128 <= wide && wide <= 127 first, or use v, ok := int8(...)
 04 |	    mut wide int64 = 300
 05 |	    small := int8(wide)
    |	             ^~~~~~~~~~
 06 |	    exit(small)
+
+-- conversion-fact-assigned/main.tck --
+package main
+
+func f(v int64) uint64 {
+    mut w := v
+    if w >= 0 {
+        w = -1
+        return uint64(w)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-assigned/expected --
+stage: typeck
+---
+
+conversion-fact-assigned/main.tck:7:16: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+06 |	        w = -1
+07 |	        return uint64(w)
+   |	               ^~~~~~~~~
+08 |	    }
+conversion-fact-assigned/main.tck:5:8: note: this guard proves w >= 0
+04 |	    mut w := v
+05 |	    if w >= 0 {
+   |	       ^~~~~~
+06 |	        w = -1
+conversion-fact-assigned/main.tck:6:9: note: but w is assigned here, so the proof ends
+05 |	    if w >= 0 {
+06 |	        w = -1
+   |	        ^
+07 |	        return uint64(w)
+
+-- conversion-fact-branch-does-not-leave/main.tck --
+package main
+
+func f(v int64, z bool) uint64 {
+    mut w := v
+    if w < 0 {
+        return 0
+    }
+    if z {
+        w = -1
+    }
+    return uint64(w)
+}
+
+func main() {
+    if f(1, true) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-branch-does-not-leave/expected --
+stage: typeck
+---
+
+conversion-fact-branch-does-not-leave/main.tck:11:12: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+10 |	    }
+11 |	    return uint64(w)
+   |	           ^~~~~~~~~
+12 |	}
+conversion-fact-branch-does-not-leave/main.tck:5:5: note: this early exit proves w >= 0 after it
+04 |	    mut w := v
+05 |	    if w < 0 {
+   |	    ^~~~~~~~
+06 |	        return 0
+conversion-fact-branch-does-not-leave/main.tck:9:9: note: but w is assigned here, so the proof ends
+08 |	    if z {
+09 |	        w = -1
+   |	        ^
+10 |	    }
+
+-- conversion-fact-counting-loop-write/main.tck --
+package main
+
+func f(z bool) int64 {
+    mut total int64 = 0
+    for mut i := 0; i < 10; i++ {
+        if z {
+            i = -5
+        }
+        total += int64(uint8(i))
+    }
+    return total
+}
+
+func main() {
+    if f(false) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-counting-loop-write/expected --
+stage: typeck
+---
+
+conversion-fact-counting-loop-write/main.tck:9:24: error: converting int64 to uint8 can fail; check 0 <= i && i <= 255 first, or use v, ok := uint8(...)
+08 |	        }
+09 |	        total += int64(uint8(i))
+   |	                       ^~~~~~~~
+10 |	    }
+conversion-fact-counting-loop-write/main.tck:5:9: note: counting from this start proves i >= 0
+04 |	    mut total int64 = 0
+05 |	    for mut i := 0; i < 10; i++ {
+   |	        ^~~~~~~~~~
+06 |	        if z {
+conversion-fact-counting-loop-write/main.tck:5:21: note: this guard proves i < 10
+04 |	    mut total int64 = 0
+05 |	    for mut i := 0; i < 10; i++ {
+   |	                    ^~~~~~
+06 |	        if z {
+conversion-fact-counting-loop-write/main.tck:7:13: note: but i is assigned here, so the proof ends
+06 |	        if z {
+07 |	            i = -5
+   |	            ^
+08 |	        }
+
+-- conversion-fact-defer-later-write/main.tck --
+package main
+
+func f(v int64) {
+    mut w := v
+    if w >= 0 {
+        defer {
+            if uint64(w) == 0 {
+                print("zero\n")
+            }
+        }
+        w = -1
+    }
+}
+
+func main() {
+    f(1)
+}
+-- conversion-fact-defer-later-write/expected --
+stage: typeck
+---
+
+conversion-fact-defer-later-write/main.tck:7:16: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+06 |	        defer {
+07 |	            if uint64(w) == 0 {
+   |	               ^~~~~~~~~
+08 |	                print("zero\n")
+conversion-fact-defer-later-write/main.tck:5:8: note: this guard proves w >= 0
+04 |	    mut w := v
+05 |	    if w >= 0 {
+   |	       ^~~~~~
+06 |	        defer {
+conversion-fact-defer-later-write/main.tck:11:9: note: but w is assigned here, so the proof ends
+10 |	        }
+11 |	        w = -1
+   |	        ^
+12 |	    }
+
+-- conversion-fact-ensures-too-weak/main.tck --
+package main
+
+func at_least(v int64) ensures v >= -1 {
+    if v < -1 {
+        exit(2)
+    }
+}
+
+func f(v int64) uint64 {
+    at_least(v)
+    return uint64(v)
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-ensures-too-weak/expected --
+stage: typeck
+---
+
+conversion-fact-ensures-too-weak/main.tck:11:12: error: converting int64 to uint64 can fail; check v >= 0 first, or use v, ok := uint64(...)
+10 |	    at_least(v)
+11 |	    return uint64(v)
+   |	           ^~~~~~~~~
+12 |	}
+conversion-fact-ensures-too-weak/main.tck:10:5: note: this call allows v == -1
+09 |	func f(v int64) uint64 {
+10 |	    at_least(v)
+   |	    ^~~~~~~~~~~
+11 |	    return uint64(v)
+
+-- conversion-fact-expression/main.tck --
+package main
+
+func f(v int64) uint64 {
+    if v < 0 {
+        return uint64(-(v + 1))
+    }
+    return 0
+}
+
+func main() {
+    if f(-1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-expression/expected --
+stage: typeck
+---
+
+conversion-fact-expression/main.tck:5:16: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+04 |	    if v < 0 {
+05 |	        return uint64(-(v + 1))
+   |	               ^~~~~~~~~~~~~~~~
+06 |	    }
+conversion-fact-expression/main.tck:4:8: note: this guard bounds v, not -(v + 1); only a name, or a field or element of an immutable variable, is proven, so copy -(v + 1) into a variable and check it
+03 |	func f(v int64) uint64 {
+04 |	    if v < 0 {
+   |	       ^~~~~
+05 |	        return uint64(-(v + 1))
+
+-- conversion-fact-int32-above/main.tck --
+package main
+
+func f(v int64) int32 {
+    if v > 2147483647 {
+        return int32(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(f(1))
+}
+-- conversion-fact-int32-above/expected --
+stage: typeck
+---
+
+conversion-fact-int32-above/main.tck:5:16: error: converting int64 to int32 can fail; check -2147483648 <= v && v <= 2147483647 first, or use v, ok := int32(...)
+04 |	    if v > 2147483647 {
+05 |	        return int32(v)
+   |	               ^~~~~~~~
+06 |	    }
+conversion-fact-int32-above/main.tck:4:8: note: this guard bounds v only below; v may be above 2147483647
+03 |	func f(v int64) int32 {
+04 |	    if v > 2147483647 {
+   |	       ^~~~~~~~~~~~~~
+05 |	        return int32(v)
+
+-- conversion-fact-int32-off-by-one-high/main.tck --
+package main
+
+func f(v int64) int32 {
+    if v >= -2147483648 && v <= 2147483648 {
+        return int32(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(f(1))
+}
+-- conversion-fact-int32-off-by-one-high/expected --
+stage: typeck
+---
+
+conversion-fact-int32-off-by-one-high/main.tck:5:16: error: converting int64 to int32 can fail; check -2147483648 <= v && v <= 2147483647 first, or use v, ok := int32(...)
+04 |	    if v >= -2147483648 && v <= 2147483648 {
+05 |	        return int32(v)
+   |	               ^~~~~~~~
+06 |	    }
+conversion-fact-int32-off-by-one-high/main.tck:4:28: note: this guard allows v == 2147483648
+03 |	func f(v int64) int32 {
+04 |	    if v >= -2147483648 && v <= 2147483648 {
+   |	                           ^~~~~~~~~~~~~~~
+05 |	        return int32(v)
+
+-- conversion-fact-int32-off-by-one-low/main.tck --
+package main
+
+func f(v int64) int32 {
+    if v > -2147483650 && v < 2147483648 {
+        return int32(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(f(1))
+}
+-- conversion-fact-int32-off-by-one-low/expected --
+stage: typeck
+---
+
+conversion-fact-int32-off-by-one-low/main.tck:5:16: error: converting int64 to int32 can fail; check -2147483648 <= v && v <= 2147483647 first, or use v, ok := int32(...)
+04 |	    if v > -2147483650 && v < 2147483648 {
+05 |	        return int32(v)
+   |	               ^~~~~~~~
+06 |	    }
+conversion-fact-int32-off-by-one-low/main.tck:4:8: note: this guard allows v == -2147483649
+03 |	func f(v int64) int32 {
+04 |	    if v > -2147483650 && v < 2147483648 {
+   |	       ^~~~~~~~~~~~~~~
+05 |	        return int32(v)
+
+-- conversion-fact-int8-off-by-one/main.tck --
+package main
+
+func f(v int64) int8 {
+    if -129 < v && v <= 128 {
+        return int8(v)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-int8-off-by-one/expected --
+stage: typeck
+---
+
+conversion-fact-int8-off-by-one/main.tck:5:16: error: converting int64 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+04 |	    if -129 < v && v <= 128 {
+05 |	        return int8(v)
+   |	               ^~~~~~~
+06 |	    }
+conversion-fact-int8-off-by-one/main.tck:4:20: note: this guard allows v == 128
+03 |	func f(v int64) int8 {
+04 |	    if -129 < v && v <= 128 {
+   |	                   ^~~~~~~~
+05 |	        return int8(v)
+
+-- conversion-fact-int8-one-side/main.tck --
+package main
+
+func f(v int32) int8 {
+    if v < 100 {
+        return int8(v)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-int8-one-side/expected --
+stage: typeck
+---
+
+conversion-fact-int8-one-side/main.tck:5:16: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+04 |	    if v < 100 {
+05 |	        return int8(v)
+   |	               ^~~~~~~
+06 |	    }
+conversion-fact-int8-one-side/main.tck:4:8: note: this guard bounds v only above; v may be below -128
+03 |	func f(v int32) int8 {
+04 |	    if v < 100 {
+   |	       ^~~~~~~
+05 |	        return int8(v)
+
+-- conversion-fact-irrelevant-drop/main.tck --
+package main
+
+func f(v int64) uint64 {
+    mut w := v
+    if w < 10 {
+        w = -1
+        return uint64(w)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-irrelevant-drop/expected --
+stage: typeck
+---
+
+conversion-fact-irrelevant-drop/main.tck:7:16: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+06 |	        w = -1
+07 |	        return uint64(w)
+   |	               ^~~~~~~~~
+08 |	    }
+conversion-fact-irrelevant-drop/main.tck:5:8: note: this guard bounds w only above; w may be below 0
+04 |	    mut w := v
+05 |	    if w < 10 {
+   |	       ^~~~~~
+06 |	        w = -1
+
+-- conversion-fact-later-case/main.tck --
+package main
+
+func f(v int64) uint8 {
+    switch {
+    case v < 0:
+        return 0
+    case v > 300:
+        return 1
+    default:
+        return uint8(v)
+    }
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-later-case/expected --
+stage: typeck
+---
+
+conversion-fact-later-case/main.tck:10:16: error: converting int64 to uint8 can fail; check 0 <= v && v <= 255 first, or use v, ok := uint8(...)
+09 |	    default:
+10 |	        return uint8(v)
+   |	               ^~~~~~~~
+11 |	    }
+conversion-fact-later-case/main.tck:7:10: note: this case allows v == 300
+06 |	        return 0
+07 |	    case v > 300:
+   |	         ^~~~~~~
+08 |	        return 1
+
+-- conversion-fact-length/main.tck --
+package main
+
+func f(s string) uint8 {
+    if len(s) <= 255 {
+        return uint8(len(s))
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-length/expected --
+stage: typeck
+---
+
+conversion-fact-length/main.tck:5:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+04 |	    if len(s) <= 255 {
+05 |	        return uint8(len(s))
+   |	               ^~~~~~~~~~~~~
+06 |	    }
+conversion-fact-length/main.tck:4:8: note: this guard bounds s, not len(s); only a name, or a field or element of an immutable variable, is proven, so copy len(s) into a variable and check it
+03 |	func f(s string) uint8 {
+04 |	    if len(s) <= 255 {
+   |	       ^~~~~~~~~~~~~
+05 |	        return uint8(len(s))
+
+-- conversion-fact-length-relation/main.tck --
+package main
+
+func f(s string, n int64) uint8 {
+    if len(s) <= n && n <= 255 {
+        return uint8(len(s))
+    }
+    return 0
+}
+
+func main() {
+    if f("ab", 5) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-length-relation/expected --
+stage: typeck
+---
+
+conversion-fact-length-relation/main.tck:5:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+04 |	    if len(s) <= n && n <= 255 {
+05 |	        return uint8(len(s))
+   |	               ^~~~~~~~~~~~~
+06 |	    }
+
+-- conversion-fact-length-unsigned/main.tck --
+package main
+
+func f(s string) uint64 {
+    return uint64(len(s))
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-length-unsigned/expected --
+stage: typeck
+---
+
+conversion-fact-length-unsigned/main.tck:4:12: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+03 |	func f(s string) uint64 {
+04 |	    return uint64(len(s))
+   |	           ^~~~~~~~~~~~~~
+05 |	}
+
+-- conversion-fact-loop-write/main.tck --
+package main
+
+func f(v int64) uint64 {
+    mut w := v
+    mut total uint64 = 0
+    if w >= 0 {
+        for range 3 {
+            total += uint64(w)
+            w = -1
+        }
+    }
+    return total
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-loop-write/expected --
+stage: typeck
+---
+
+conversion-fact-loop-write/main.tck:8:22: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+07 |	        for range 3 {
+08 |	            total += uint64(w)
+   |	                     ^~~~~~~~~
+09 |	            w = -1
+conversion-fact-loop-write/main.tck:6:8: note: this guard proves w >= 0
+05 |	    mut total uint64 = 0
+06 |	    if w >= 0 {
+   |	       ^~~~~~
+07 |	        for range 3 {
+conversion-fact-loop-write/main.tck:9:13: note: but w is assigned here, so the proof ends
+08 |	            total += uint64(w)
+09 |	            w = -1
+   |	            ^
+10 |	        }
+
+-- conversion-fact-mut-arg/main.tck --
+package main
+
+func lower(mut v int64) {
+    v = -1
+}
+
+func f(v int64) uint64 {
+    mut w := v
+    if w >= 0 {
+        lower(mut w)
+        return uint64(w)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-mut-arg/expected --
+stage: typeck
+---
+
+conversion-fact-mut-arg/main.tck:11:16: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+10 |	        lower(mut w)
+11 |	        return uint64(w)
+   |	               ^~~~~~~~~
+12 |	    }
+conversion-fact-mut-arg/main.tck:9:8: note: this guard proves w >= 0
+08 |	    mut w := v
+09 |	    if w >= 0 {
+   |	       ^~~~~~
+10 |	        lower(mut w)
+conversion-fact-mut-arg/main.tck:10:15: note: but w is passed as mut to lower here, so the proof ends
+09 |	    if w >= 0 {
+10 |	        lower(mut w)
+   |	              ^~~~~
+11 |	        return uint64(w)
+
+-- conversion-fact-mut-field/main.tck --
+package main
+
+type P struct {
+    a int64
+}
+
+func f(v int64) uint8 {
+    mut p := P{a: v}
+    if p.a >= 0 && p.a <= 255 {
+        return uint8(p.a)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-mut-field/expected --
+stage: typeck
+---
+
+conversion-fact-mut-field/main.tck:10:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+09 |	    if p.a >= 0 && p.a <= 255 {
+10 |	        return uint8(p.a)
+   |	               ^~~~~~~~~~
+11 |	    }
+conversion-fact-mut-field/main.tck:9:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.a into a variable first
+08 |	    mut p := P{a: v}
+09 |	    if p.a >= 0 && p.a <= 255 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~
+10 |	        return uint8(p.a)
+
+-- conversion-fact-mut-global/main.tck --
+package main
+
+mut g int64 = 1
+
+func f() uint64 {
+    if g >= 0 {
+        return uint64(g)
+    }
+    return 0
+}
+
+func main() {
+    if f() == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-mut-global/expected --
+stage: typeck
+---
+
+conversion-fact-mut-global/main.tck:7:16: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+06 |	    if g >= 0 {
+07 |	        return uint64(g)
+   |	               ^~~~~~~~~
+08 |	    }
+conversion-fact-mut-global/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut g int64 = 1
+   |	    ^
+04 |	
+
+-- conversion-fact-mut-param-field/main.tck --
+package main
+
+type P struct {
+    a int64
+}
+
+func f(mut p P) uint64 {
+    if p.a >= 0 {
+        return uint64(p.a)
+    }
+    return 0
+}
+
+func main() {
+    mut p := P{a: 1}
+    if f(mut p) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-mut-param-field/expected --
+stage: typeck
+---
+
+conversion-fact-mut-param-field/main.tck:9:16: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+08 |	    if p.a >= 0 {
+09 |	        return uint64(p.a)
+   |	               ^~~~~~~~~~~
+10 |	    }
+conversion-fact-mut-param-field/main.tck:8:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.a into a variable first
+07 |	func f(mut p P) uint64 {
+08 |	    if p.a >= 0 {
+   |	       ^~~~~~~~
+09 |	        return uint64(p.a)
+
+-- conversion-fact-or-too-weak/main.tck --
+package main
+
+func f(v int64) uint64 {
+    if v >= 0 || v == -1 {
+        return uint64(v)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-or-too-weak/expected --
+stage: typeck
+---
+
+conversion-fact-or-too-weak/main.tck:5:16: error: converting int64 to uint64 can fail; check v >= 0 first, or use v, ok := uint64(...)
+04 |	    if v >= 0 || v == -1 {
+05 |	        return uint64(v)
+   |	               ^~~~~~~~~
+06 |	    }
+conversion-fact-or-too-weak/main.tck:4:8: note: this guard allows v == -1
+03 |	func f(v int64) uint64 {
+04 |	    if v >= 0 || v == -1 {
+   |	       ^~~~~~~~~~~~~~~~~
+05 |	        return uint64(v)
+
+-- conversion-fact-range-past/main.tck --
+package main
+
+func f() int64 {
+    mut total int64 = 0
+    for i := range 257 {
+        total += int64(uint8(i))
+    }
+    return total
+}
+
+func main() {
+    if f() == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-range-past/expected --
+stage: typeck
+---
+
+conversion-fact-range-past/main.tck:6:24: error: converting int64 to uint8 can fail; check 0 <= i && i <= 255 first, or use v, ok := uint8(...)
+05 |	    for i := range 257 {
+06 |	        total += int64(uint8(i))
+   |	                       ^~~~~~~~
+07 |	    }
+conversion-fact-range-past/main.tck:5:5: note: this loop allows i == 256
+04 |	    mut total int64 = 0
+05 |	    for i := range 257 {
+   |	    ^~~~~~~~~~~~~~~~~~
+06 |	        total += int64(uint8(i))
+
+-- conversion-fact-relation-no-lower/main.tck --
+package main
+
+func f(i int64, j int64) uint8 {
+    if i <= j && j < 10 {
+        return uint8(i)
+    }
+    return 0
+}
+
+func main() {
+    if f(1, 2) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-relation-no-lower/expected --
+stage: typeck
+---
+
+conversion-fact-relation-no-lower/main.tck:5:16: error: converting int64 to uint8 can fail; check 0 <= i && i <= 255 first, or use v, ok := uint8(...)
+04 |	    if i <= j && j < 10 {
+05 |	        return uint8(i)
+   |	               ^~~~~~~~
+06 |	    }
+conversion-fact-relation-no-lower/main.tck:4:8: note: this guard bounds i only above; i may be below 0
+03 |	func f(i int64, j int64) uint8 {
+04 |	    if i <= j && j < 10 {
+   |	       ^~~~~~
+05 |	        return uint8(i)
+
+-- conversion-fact-relation-too-weak/main.tck --
+package main
+
+func f(i int64, j int64) uint8 {
+    if 0 <= i && i <= j && j <= 256 {
+        return uint8(i)
+    }
+    return 0
+}
+
+func main() {
+    if f(1, 2) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-relation-too-weak/expected --
+stage: typeck
+---
+
+conversion-fact-relation-too-weak/main.tck:5:16: error: converting int64 to uint8 can fail; check 0 <= i && i <= 255 first, or use v, ok := uint8(...)
+04 |	    if 0 <= i && i <= j && j <= 256 {
+05 |	        return uint8(i)
+   |	               ^~~~~~~~
+06 |	    }
+
+-- conversion-fact-size-to-int64/main.tck --
+package main
+
+func f(s unsafe_size_t) int64 {
+    return int64(s)
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-size-to-int64/expected --
+stage: typeck
+---
+
+conversion-fact-size-to-int64/main.tck:4:12: error: converting unsafe_size_t to int64 can fail; check s <= 4294967295 first, or use v, ok := int64(...)
+03 |	func f(s unsafe_size_t) int64 {
+04 |	    return int64(s)
+   |	           ^~~~~~~~
+05 |	}
+
+-- conversion-fact-target-width-off-by-one/main.tck --
+package main
+
+func f(x uint64) unsafe_size_t {
+    if x <= 4294967296 {
+        return unsafe_size_t(x)
+    }
+    return 0
+}
+
+func main() {
+    var w uint64 = f(1)
+    if w == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-target-width-off-by-one/expected --
+stage: typeck
+---
+
+conversion-fact-target-width-off-by-one/main.tck:5:16: error: converting uint64 to unsafe_size_t can fail; check x <= 4294967295 first, or use v, ok := unsafe_size_t(...)
+04 |	    if x <= 4294967296 {
+05 |	        return unsafe_size_t(x)
+   |	               ^~~~~~~~~~~~~~~~
+06 |	    }
+conversion-fact-target-width-off-by-one/main.tck:4:8: note: this guard allows x == 4294967296
+03 |	func f(x uint64) unsafe_size_t {
+04 |	    if x <= 4294967296 {
+   |	       ^~~~~~~~~~~~~~~
+05 |	        return unsafe_size_t(x)
+
+-- conversion-fact-uint64-off-by-one/main.tck --
+package main
+
+func f(u uint64) int64 {
+    if u <= 9223372036854775808 {
+        return int64(u)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-uint64-off-by-one/expected --
+stage: typeck
+---
+
+conversion-fact-uint64-off-by-one/main.tck:5:16: error: converting uint64 to int64 can fail; check u <= 9223372036854775807 first, or use v, ok := int64(...)
+04 |	    if u <= 9223372036854775808 {
+05 |	        return int64(u)
+   |	               ^~~~~~~~
+06 |	    }
+conversion-fact-uint64-off-by-one/main.tck:4:8: note: this guard allows u == 9223372036854775808
+03 |	func f(u uint64) int64 {
+04 |	    if u <= 9223372036854775808 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return int64(u)
+
+-- conversion-fact-unsigned-minus-one/main.tck --
+package main
+
+func f(v int64) uint64 {
+    if v >= -1 {
+        return uint64(v)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-unsigned-minus-one/expected --
+stage: typeck
+---
+
+conversion-fact-unsigned-minus-one/main.tck:5:16: error: converting int64 to uint64 can fail; check v >= 0 first, or use v, ok := uint64(...)
+04 |	    if v >= -1 {
+05 |	        return uint64(v)
+   |	               ^~~~~~~~~
+06 |	    }
+conversion-fact-unsigned-minus-one/main.tck:4:8: note: this guard allows v == -1
+03 |	func f(v int64) uint64 {
+04 |	    if v >= -1 {
+   |	       ^~~~~~~
+05 |	        return uint64(v)
+
+-- conversion-fact-unsigned-to-int8/main.tck --
+package main
+
+func f(u uint8) int8 {
+    if u <= 128 {
+        return int8(u)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-unsigned-to-int8/expected --
+stage: typeck
+---
+
+conversion-fact-unsigned-to-int8/main.tck:5:16: error: converting uint8 to int8 can fail; check u <= 127 first, or use v, ok := int8(...)
+04 |	    if u <= 128 {
+05 |	        return int8(u)
+   |	               ^~~~~~~
+06 |	    }
+conversion-fact-unsigned-to-int8/main.tck:4:8: note: this guard allows u == 128
+03 |	func f(u uint8) int8 {
+04 |	    if u <= 128 {
+   |	       ^~~~~~~~
+05 |	        return int8(u)
+
+-- conversion-fact-would-allow/main.tck --
+package main
+
+func f(v int64) uint64 {
+    mut w := v
+    if w >= -1 {
+        w = 5
+        return uint64(w)
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 0 {
+        exit(1)
+    }
+}
+-- conversion-fact-would-allow/expected --
+stage: typeck
+---
+
+conversion-fact-would-allow/main.tck:7:16: error: converting int64 to uint64 can fail; check w >= 0 first, or use v, ok := uint64(...)
+06 |	        w = 5
+07 |	        return uint64(w)
+   |	               ^~~~~~~~~
+08 |	    }
+conversion-fact-would-allow/main.tck:5:8: note: this guard proves w >= -1
+04 |	    mut w := v
+05 |	    if w >= -1 {
+   |	       ^~~~~~~
+06 |	        w = 5
+conversion-fact-would-allow/main.tck:6:9: note: but w is assigned here, so the proof ends
+05 |	    if w >= -1 {
+06 |	        w = 5
+   |	        ^
+07 |	        return uint64(w)
+conversion-fact-would-allow/main.tck:5:8: note: this guard would allow w == -1
+04 |	    mut w := v
+05 |	    if w >= -1 {
+   |	       ^~~~~~~
+06 |	        w = 5
 
 -- defer-assign/main.tck --
 package main
@@ -33164,29 +34157,6 @@ safety-conversion-constant-overflow/main.tck:5:20: error: constant 256 overflows
    |	                   ^~~
 06 |	}
 
--- safety-conversion-guarded/main.tck --
-package main
-
-func low(x int64) uint8 {
-    if 0 <= x && x < 256 {
-        return uint8(x)
-    }
-    return 0
-}
-
-func main() {
-    exit(low(7))
-}
--- safety-conversion-guarded/expected --
-stage: typeck
----
-
-safety-conversion-guarded/main.tck:5:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
-04 |	    if 0 <= x && x < 256 {
-05 |	        return uint8(x)
-   |	               ^~~~~~~~
-06 |	    }
-
 -- safety-conversion-known-overflow/main.tck --
 package main
 
@@ -33234,7 +34204,7 @@ func main() {
 stage: typeck
 ---
 
-safety-conversion-unchecked/main.tck:4:12: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+safety-conversion-unchecked/main.tck:4:12: error: converting int64 to uint8 can fail; check 0 <= x && x <= 255 first, or use v, ok := uint8(...)
 03 |	func low(x int64) uint8 {
 04 |	    return uint8(x)
    |	           ^~~~~~~~
@@ -33571,27 +34541,6 @@ safety-no-proof-call-length/main.tck:9:23: error: index i may be out of range; u
 09 |	        return name()[i]
    |	                      ^
 10 |	    }
-
--- safety-no-proof-conversion-guard/main.tck --
-package main
-
-func f(x int64) uint8 {
-    if 0 <= x && x <= 255 { return uint8(x) }
-    return 0
-}
-
-func main() {
-    exit(f(7))
-}
--- safety-no-proof-conversion-guard/expected --
-stage: typeck
----
-
-safety-no-proof-conversion-guard/main.tck:4:36: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
-03 |	func f(x int64) uint8 {
-04 |	    if 0 <= x && x <= 255 { return uint8(x) }
-   |	                                   ^~~~~~~~
-05 |	    return 0
 
 -- safety-no-proof-field/main.tck --
 package main
@@ -40459,7 +41408,7 @@ func main() {
 stage: typeck
 ---
 
-unsafe-conversion-between/main.tck:4:12: error: converting unsafe_size_t to unsafe_uintptr_t can fail; use v, ok := unsafe_uintptr_t(...)
+unsafe-conversion-between/main.tck:4:12: error: converting unsafe_size_t to unsafe_uintptr_t can fail; check s <= 4294967295 first, or use v, ok := unsafe_uintptr_t(...)
 03 |	func addr(s unsafe_size_t) unsafe_uintptr_t {
 04 |	    return unsafe_uintptr_t(s)
    |	           ^~~~~~~~~~~~~~~~~~~
@@ -40480,7 +41429,7 @@ func main() {
 stage: typeck
 ---
 
-unsafe-conversion-can-fail/main.tck:4:12: error: converting unsafe_size_t to uint32 can fail; use v, ok := uint32(...)
+unsafe-conversion-can-fail/main.tck:4:12: error: converting unsafe_size_t to uint32 can fail; check s <= 4294967295 first, or use v, ok := uint32(...)
 03 |	func low(s unsafe_size_t) uint32 {
 04 |	    return uint32(s)
    |	           ^~~~~~~~~
@@ -41081,7 +42030,7 @@ func main() {
 stage: typeck
 ---
 
-unused-stmt-conversion-can-fail/main.tck:4:5: error: converting int64 to int8 can fail; use v, ok := int8(...)
+unused-stmt-conversion-can-fail/main.tck:4:5: error: converting int64 to int8 can fail; check -128 <= x && x <= 127 first, or use v, ok := int8(...)
 03 |	func f(x int64) {
 04 |	    int8(x)
    |	    ^~~~~~~

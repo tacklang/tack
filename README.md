@@ -2652,7 +2652,7 @@ section remains the description of the language.
   ends the proof of `i >= 0`.
   A call to `exit` counts as leaving,
   since it never returns, and so does a branch, a block or a case ending
-  in one; a call to a function that calls `exit` does not. When a guard says something about a divisor or index it did not
+  in one; a call to a function that calls `exit` does not. When a guard says something about a divisor, index or converted value it did not
   prove, the error comes with notes pointing at the guard and what it
   proves, at the assignment or `mut` argument that ended that proof, or at what the guard
   allows that the operation does not, such as `i == 3` for a `[3]T`, and
@@ -2980,19 +2980,30 @@ section remains the description of the language.
 - Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
   allowed only where it cannot fail: `x` is a constant, or a known value (see
   division), that is a value of `T`, as `uint8(x)` after `x := 5` or
-  `int8('a')`, or `x` is of a type that widens to `T`. A constant or known
+  `int8('a')`, `x` is of a type that widens to `T`, or `x` is a name, or a
+  field or element of an immutable variable, that the facts in force keep
+  within `T`'s range, as an index's are kept within a length:
+  `uint64(v)` under `if v >= 0`, `int32(v)` under
+  `if -2147483648 <= v && v <= 2147483647`, `int64(u)` for a `uint64` `u`
+  under `if u <= 9223372036854775807`. The facts come from the same guards,
+  early exits, loops, cases, contracts and relations as an index's, and
+  the same writes end them; a field of a mutable variable has none, and
+  an operand written as arithmetic is not read through, so
+  `uint64(-(v + 1))` is not proven under `v < 0`. Unproven, `T(x)` of a
+  name is `converting int64 to uint64 can fail; check v >= 0 first, or
+  use v, ok := uint64(...)`. A constant or known
   value that is not a value of `T` is an error, as `uint8(x)` after
   `x := 300`. For a target-width `T`, a value of `T` is one from 0 to
-  4294967295, a value on every target; a known value past that but
-  within 64 bits fits on some targets only, so converting it is like
-  converting a value not known. Every other conversion is written
+  4294967295, a value on every target, for a known value and for facts
+  alike; a known value past that but
+  within 64 bits fits on some targets only, so converting it needs the
+  two-value form, which no fact changes. Every other conversion is written
   `v, ok := T(x)` (or `v, ok = T(x)`): `ok` reports whether `x` is a value of
   `T`, and `v` is that value, or `0` when it is not; for a target-width `T`,
   whether it is one on the target the program runs on. Where the conversion
   cannot fail the two-value form is allowed too, and `ok` is always `true`;
   a constant or known value that does not fit is an error in either form.
-  A guard never makes `T(x)` compile; see
-  [docs/safety.md](docs/safety.md). Strings and bools cannot be converted to or from a number; a string's only conversion is `[]uint8(s)`, a view of its bytes (see views). `true` and `false` are keywords, so neither can be
+  See [docs/safety.md](docs/safety.md). Strings and bools cannot be converted to or from a number; a string's only conversion is `[]uint8(s)`, a view of its bytes (see views). `true` and `false` are keywords, so neither can be
   used as a name, and both are constant expressions, as is `noerror`, a
   keyword too (see errors).
 - `print` takes one string and writes exactly its bytes to standard output,

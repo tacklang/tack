@@ -27,11 +27,17 @@ import (
 // that prove the index again, loops whose condition proves it again, and
 // the two kinds of loop whose facts any write in them ends: a counting
 // loop over len(a), whose variable a branch may set, and a range over a
-// string a branch may assign.
+// string a branch may assign. Some uses are written as a conversion
+// instead of an index: uint64(i), which needs i's lower bound, and
+// int8(q), for a uint64 q its type keeps at or above 0, which needs only
+// the upper bound q <= 3 the early exits prove; and some writes set q to
+// 200 rather than i to -1, so the same shapes check the facts a
+// conversion is proven by, from below and from above (see lConv).
 //
 // The oracle runs each program on concrete values. a is [0, 1, 2, 3];
 // i starts at 0, 1, 2 or 3, in range, and a write to it puts it out of
-// range, where nothing puts it back; s, a local string, starts as "abcd"
+// range, at -1, where nothing puts it back, and so does a write to q,
+// which starts at or below 3, at 200; s, a local string, starts as "abcd"
 // and a write to it empties it; a counting loop's variable may be set to
 // -5. The inputs take every combination of i's start, k in 0 to 3, so
 // that a k some test of k == 0, 1 or 2 matches and one none matches are
@@ -65,13 +71,13 @@ type lKind int
 
 // The kinds of generated statement.
 const (
-	lUse      lKind = iota // use(a[i]), a check
+	lUse      lKind = iota // use(a[i]), useU(uint64(i)) or useI8(int8(q)) (see lConv), a check
 	lUseN                  // use(a[n]), n a counting loop's variable over len(a), a check
 	lUseS                  // use(s[n]), n a range over s's variable, a check
 	lWrite                 // a write putting i out of range
 	lWriteN                // n = -5, n a counting loop's variable over len(a)
 	lWriteS                // s = "", emptying s
-	lProve                 // if i < 0 || i >= len(a) { continue } or { exit(5) }
+	lProve                 // if i < 0 || i >= len(a) || q > 3 { continue } or { exit(5) }
 	lReturn                // return, a check of the contract
 	lExit                  // exit(3)
 	lBreak                 // break
@@ -208,9 +214,28 @@ type lStmt struct {
 	loop   lLoopKind
 	tag    lTag
 	id     int
+	conv   lConv
 	inLoop bool
 	hasEls bool
+	high   bool
 }
+
+// lConv is how a use is written: as an index, a[i], the default, or as
+// a conversion, uint64(i), which needs only i >= 0, or int8(q), which
+// needs only q <= 127, q being a uint64. A write is to i, setting it to
+// -1, or, when high, to q, setting it to 200. The generator picks a use's
+// form by its id, and a write's target by how many writes came before
+// it, so neither takes a value from the generator's source, and every
+// seed's program is the one it was apart from how its uses and writes
+// are written; a program written by hand keeps indexes and writes to i.
+type lConv int
+
+// The ways a use is written.
+const (
+	convIndex lConv = iota // a[i]
+	convU64                // uint64(i)
+	convI8                 // int8(q)
+)
 
 // lScope is what a generated statement may refer to: the variables of
 // the loops around it, those of counting loops over len(a) and of ranges
@@ -226,6 +251,7 @@ type lGen struct {
 	rng    *rand.Rand
 	checks int
 	budget int
+	writes int
 }
 
 // check returns the number of a new check.
@@ -316,18 +342,22 @@ func (g *lGen) pickVar(vars []string) string {
 // assignment or by a call passing it as mut, or one setting a counting
 // loop's variable or emptying s.
 func (g *lGen) write(sc lScope) lStmt {
+	var s lStmt
 	switch r := g.rng.IntN(10); {
 	case r < 4:
-		return lStmt{kind: lWrite, write: "i = -1"}
+		s = lStmt{kind: lWrite, write: "i = -1"}
 	case r < 7:
-		return lStmt{kind: lWrite, write: "g(mut i)"}
+		s = lStmt{kind: lWrite, write: "g(mut i)"}
 	case r < 9 && len(sc.lenVars) > 0:
 		return lStmt{kind: lWriteN, v: g.pickVar(sc.lenVars)}
 	case r == 9:
 		return lStmt{kind: lWriteS}
 	default:
-		return lStmt{kind: lWrite, write: "i = -1"}
+		s = lStmt{kind: lWrite, write: "i = -1"}
 	}
+	g.writes++
+	s.high = g.writes%2 == 0
+	return s
 }
 
 // use returns a check of an index: a[i], or a[n] or s[n] for the
@@ -339,7 +369,8 @@ func (g *lGen) use(sc lScope) lStmt {
 	case r == 1 && len(sc.sVars) > 0:
 		return lStmt{kind: lUseS, v: g.pickVar(sc.sVars), id: g.check()}
 	default:
-		return lStmt{kind: lUse, id: g.check()}
+		id := g.check()
+		return lStmt{kind: lUse, id: id, conv: []lConv{convU64, convIndex, convI8, convIndex}[id%4]}
 	}
 }
 
@@ -566,6 +597,7 @@ type lRun struct {
 	steps int
 	sLen  int
 	iOK   bool
+	qOK   bool
 	z     bool
 }
 
@@ -664,6 +696,9 @@ func (r *lRun) use(s lStmt) {
 	switch s.kind {
 	case lUse:
 		ok = r.iOK
+		if s.conv == convI8 {
+			ok = r.qOK
+		}
 	case lUseN:
 		ok = 0 <= r.env[s.v] && r.env[s.v] < lenA
 	default:
@@ -678,7 +713,11 @@ func (r *lRun) use(s lStmt) {
 func (r *lRun) write(s lStmt) {
 	switch s.kind {
 	case lWrite:
-		r.iOK = false
+		if s.high {
+			r.qOK = false
+		} else {
+			r.iOK = false
+		}
 	case lWriteN:
 		r.env[s.v] = -5
 	default:
@@ -690,7 +729,7 @@ func (r *lRun) write(s lStmt) {
 // an exit outside one.
 func (r *lRun) prove(s lStmt) lFlow {
 	switch {
-	case r.iOK:
+	case r.iOK && r.qOK:
 		return flowNormal
 	case s.inLoop:
 		return flowContinue
@@ -852,6 +891,7 @@ func leavingViolations(body []lStmt) map[int]bool {
 						u:    u,
 						sLen: 4,
 						iOK:  true,
+						qOK:  true,
 					}
 					switch r.block(body) {
 					case flowReturn:
@@ -888,13 +928,14 @@ type lText struct {
 func render(body []lStmt, style lStyle) *lText {
 	t := &lText{at: map[int]int{}}
 	t.src.WriteString("package main\n\ntype U union {\n    p\n    q\n    r\n}\n\n" +
-		"func use(v int64) {\n}\n\nfunc g(mut i int64) {\n    i = -1\n}\n\n" +
+		"func use(v int64) {\n}\n\nfunc useU(v uint64) {\n}\n\nfunc useI8(v int8) {\n}\n\n" +
+		"func g(mut i int64) {\n    i = -1\n}\n\nfunc h(mut q uint64) {\n    q = 200\n}\n\n" +
 		"func two() (int64, int64) {\n    return 1, 2\n}\n\n" +
-		"func f(mut i int64, a []int64, k int64, z bool, u U) ensures 0 <= i && i < len(a) {\n")
+		"func f(mut i int64, mut q uint64, a []int64, k int64, z bool, u U) ensures 0 <= i && i < len(a) {\n")
 	if style.bound {
 		t.src.WriteString("    fv := two\n    x, y := fv()\n    use(x + y)\n")
 	}
-	t.src.WriteString("    if i < 0 || i >= len(a) {\n        exit(1)\n    }\n" +
+	t.src.WriteString("    if i < 0 || i >= len(a) || q > 3 {\n        exit(1)\n    }\n" +
 		"    mut s := \"abcd\"\n    use(len(s))\n    ")
 	t.stmts(body, 1, style)
 	if !style.tight {
@@ -1004,13 +1045,30 @@ func (t *lText) write(s lStmt) {
 		t.src.WriteString(s.v + " = -5")
 	case lWriteS:
 		t.src.WriteString(`s = ""`)
+	case lWrite:
+		w := s.write
+		if s.high {
+			w = strings.NewReplacer("i = -1", "q = 200", "g(mut i)", "h(mut q)").Replace(w)
+		}
+		t.src.WriteString(w)
 	default:
 		t.src.WriteString(s.write)
 	}
 }
 
-// use writes s, an index, as an argument of use.
+// use writes s, an index or a conversion of i (see lConv), as an
+// argument of use, useU or useI8.
 func (t *lText) use(s lStmt) {
+	if s.kind == lUse && s.conv != convIndex {
+		sink, conv := "useU(", "uint64(i))"
+		if s.conv == convI8 {
+			sink, conv = "useI8(", "int8(q))"
+		}
+		t.src.WriteString(sink)
+		t.at[s.id] = t.src.Len()
+		t.src.WriteString(conv)
+		return
+	}
 	t.src.WriteString("use(")
 	switch s.kind {
 	case lUse:
@@ -1025,7 +1083,7 @@ func (t *lText) use(s lStmt) {
 
 // prove writes s, an early exit unless i is in range.
 func (t *lText) prove(s lStmt, ind int, style lStyle) {
-	t.src.WriteString("if i < 0 || i >= len(a) ")
+	t.src.WriteString("if i < 0 || i >= len(a) || q > 3 ")
 	out := lStmt{kind: lRaw, write: "exit(5)"}
 	if s.inLoop {
 		out = lStmt{kind: lContinue}
@@ -1316,6 +1374,7 @@ func rejectedChecks(t *testing.T, text *lText, diags []diag.Diagnostic, src stri
 	for _, d := range diags {
 		id, ok := byOffset[d.Span.Start]
 		proof := strings.HasPrefix(d.Message, "index ") ||
+			strings.HasPrefix(d.Message, "converting ") ||
 			strings.HasPrefix(d.Message, "f ensures ")
 		if !ok || !proof {
 			t.Fatalf(

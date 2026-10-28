@@ -23,9 +23,36 @@ func targetWidth(lines ...string) string {
 // acceptedTargetWidthCases are uses of the target-width types that must
 // check cleanly: widening into and out of them, their common types,
 // constants up to the largest every target holds, known values, the
-// checked conversions that can fail, and indexes proven as a uint64's are,
-// or checked.
+// checked conversions that can fail, conversions the facts in force prove
+// within the range every target holds, and indexes proven as a uint64's
+// are, or checked.
 var acceptedTargetWidthCases = []struct{ name, src string }{
+	{
+		"size proven to uint32",
+		targetWidth(
+			"if s <= 4294967295 {",
+			"    a := uint32(s)",
+			"    if a == u32 {",
+			"    }",
+			"}",
+		),
+	},
+	{"uintptr proven to size", targetWidth(
+		"if p <= 4294967295 {", "    a := unsafe_size_t(p)", "    if a == s {", "    }", "}")},
+	{
+		"int64 proven to size",
+		targetWidth(
+			"if 0 <= i64 && i64 <= 4294967295 {",
+			"    a := unsafe_size_t(i64)",
+			"    if a == s {",
+			"    }",
+			"}",
+		),
+	},
+	{"size proven to int32", targetWidth(
+		"if s < 2147483648 {", "    a := int32(s)", "    if a == i32 {", "    }", "}")},
+	{"size proven to int64 by the check its error suggests", targetWidth(
+		"if s <= 4294967295 {", "    a := int64(s)", "    if a == i64 {", "    }", "}")},
 	{"narrow unsigned widen in", targetWidth(
 		"var a unsafe_size_t = u8", "var b unsafe_uintptr_t = u32", "if a == s && b == p {", "}")},
 	{
@@ -212,7 +239,7 @@ var rejectedTargetWidthCases = []struct {
 		"size to uint32",
 		targetWidth("a := uint32(s)", "if a == u32 {", "}"),
 		spanned{
-			"converting unsafe_size_t to uint32 can fail; use v, ok := uint32(...)",
+			"converting unsafe_size_t to uint32 can fail; check s <= 4294967295 first, or use v, ok := uint32(...)",
 			"uint32(s)",
 		},
 	},
@@ -220,8 +247,57 @@ var rejectedTargetWidthCases = []struct {
 		"uintptr to size",
 		targetWidth("a := unsafe_size_t(p)", "if a == s {", "}"),
 		spanned{
-			"converting unsafe_uintptr_t to unsafe_size_t can fail; use v, ok := unsafe_size_t(...)",
+			"converting unsafe_uintptr_t to unsafe_size_t can fail; check p <= 4294967295 first, " +
+				"or use v, ok := unsafe_size_t(...)",
 			"unsafe_size_t(p)",
+		},
+	},
+	{
+		"size to int64, the check capped at what a size constant can be",
+		targetWidth("a := int64(s)", "if a == i64 {", "}"),
+		spanned{
+			"converting unsafe_size_t to int64 can fail; check s <= 4294967295 first, " +
+				"or use v, ok := int64(...)",
+			"int64(s)",
+		},
+	},
+	{
+		"uintptr to int32, the check not capped",
+		targetWidth("a := int32(p)", "if a == i32 {", "}"),
+		spanned{
+			"converting unsafe_uintptr_t to int32 can fail; check p <= 2147483647 first, " +
+				"or use v, ok := int32(...)",
+			"int32(p)",
+		},
+	},
+	{
+		"int64 to size guarded only by the 64-bit width",
+		targetWidth(
+			"if 0 <= i64 && i64 <= 4294967296 {",
+			"    a := unsafe_size_t(i64)",
+			"    if a == s {",
+			"    }",
+			"}",
+		),
+		spanned{
+			"converting int64 to unsafe_size_t can fail; check 0 <= i64 && i64 <= 4294967295 first, " +
+				"or use v, ok := unsafe_size_t(...)",
+			"unsafe_size_t(i64)",
+		},
+	},
+	{
+		"uint64 to size guarded by the largest uint64",
+		targetWidth(
+			"if u64 <= 18446744073709551615 {",
+			"    a := unsafe_size_t(u64)",
+			"    if a == s {",
+			"    }",
+			"}",
+		),
+		spanned{
+			"converting uint64 to unsafe_size_t can fail; check u64 <= 4294967295 first, " +
+				"or use v, ok := unsafe_size_t(...)",
+			"unsafe_size_t(u64)",
 		},
 	},
 	{

@@ -126,7 +126,10 @@ var rejectedConversionCases = []struct {
 	{
 		"mutable local",
 		converting("mut n int64 = 5", "return uint8(n)"),
-		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(n)"},
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= n && n <= 255 first, or use v, ok := uint8(...)",
+			"uint8(n)",
+		},
 	},
 	{
 		"mutable global",
@@ -136,23 +139,102 @@ var rejectedConversionCases = []struct {
 	{
 		"parameter",
 		converting("return uint8(x)"),
-		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(x)"},
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= x && x <= 255 first, or use v, ok := uint8(...)",
+			"uint8(x)",
+		},
 	},
 	{
 		"immutable local from a parameter",
 		converting("n := x", "return uint8(n)"),
-		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(n)"},
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= n && n <= 255 first, or use v, ok := uint8(...)",
+			"uint8(n)",
+		},
 	},
 	{
-		"guarded parameter",
-		converting("if 0 <= x && x < 256 {", "    return uint8(x)", "}"),
-		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(x)"},
+		"parameter guarded one past the top",
+		converting("if 0 <= x && x <= 256 {", "    return uint8(x)", "}"),
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= x && x <= 255 first, or use v, ok := uint8(...)",
+			"uint8(x)",
+		},
 	},
+	{
+		"parameter guarded one past the bottom",
+		converting("if -1 <= x && x < 256 {", "    return uint8(x)", "}"),
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= x && x <= 255 first, or use v, ok := uint8(...)",
+			"uint8(x)",
+		},
+	},
+	{
+		"mutable local guarded then assigned",
+		converting(
+			"mut n := x",
+			"if 0 <= n && n < 256 {",
+			"    n = 300",
+			"    return uint8(n)",
+			"}",
+		),
+		spanned{
+			"converting int64 to uint8 can fail; check 0 <= n && n <= 255 first, or use v, ok := uint8(...)",
+			"uint8(n)",
+		},
+	},
+	{
+		"guarded mutable global",
+		converting("if 0 <= g && g < 256 {", "    return uint8(g)", "}"),
+		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(g)"},
+	},
+	{
+		"guarded parameter plus one",
+		converting("if 0 <= x && x < 255 {", "    return uint8(x + 1)", "}"),
+		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(x + 1)"},
+	},
+}
+
+// provenConversionCases are conversions of a value no constant gives,
+// which the facts in force prove a value of the type converted to.
+var provenConversionCases = []struct{ name, src string }{
+	{"guarded parameter", converting("if 0 <= x && x < 256 {", "    return uint8(x)", "}")},
 	{
 		"parameter compared equal to a constant",
 		converting("if x == 5 {", "    return uint8(x)", "}"),
-		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(x)"},
 	},
+	{"guarded at both edges", converting("if x >= 0 && x <= 255 {", "    return uint8(x)", "}")},
+	{"early exit", converting("if x < 0 || x > 255 {", "    return 0", "}", "return uint8(x)")},
+	{
+		"else branch",
+		converting("if x < 0 || x > 255 {", "    return 0", "} else {", "    return uint8(x)", "}"),
+	},
+	{
+		"mutable local guarded",
+		converting("mut n := x", "if 0 <= n && n < 256 {", "    return uint8(n)", "}", "n = 1"),
+	},
+	{
+		"checked form where the plain one is proven",
+		converting(
+			"if 0 <= x && x < 256 {",
+			"    v, ok := uint8(x)",
+			"    if ok {",
+			"        return v",
+			"    }",
+			"}",
+		),
+	},
+}
+
+// TestAcceptsProvenConversions checks that each of provenConversionCases
+// compiles.
+func TestAcceptsProvenConversions(t *testing.T) {
+	for _, tt := range provenConversionCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, diags := checkTree(t, tt.src); len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %v", diags)
+			}
+		})
+	}
 }
 
 // TestRejectsConversionsOfUnknownOrUnfitValues checks each of

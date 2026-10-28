@@ -41,30 +41,31 @@ and diagnostic to check that the two still agree.
 
 ## The operations
 
-| Operation                                                 | Fails when                       | Plain form compiles when                                                  | Checked form                       |
-|-----------------------------------------------------------|----------------------------------|---------------------------------------------------------------------------|------------------------------------|
-| `a / b`, `a % b`                                          | `b` is zero                      | `b` is proven not zero                                                    | `q, ok := a / b`                   |
-| `x /= b`, `x %= b`                                        | `b` is zero                      | `b` is proven not zero                                                    | none                               |
-| `a[i]`, reading an array element                          | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                                            | `v, ok := a[i]`                    |
-| `a[i] = v`, writing one                                   | as above                         | as above                                                                  | none                               |
-| `s[i]`, reading a string's byte                           | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                                            | `v, ok := s[i]`                    |
-| `s[i] = v`                                                | always an error                  | never: strings are immutable                                              | none                               |
-| `v[i]`, reading a view's element                          | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                                            | `x, ok := v[i]`                    |
-| `v[i] = x`                                                | always an error                  | never: views are read-only                                                | none                               |
-| `l[i]`, reading a list's element                          | `i < 0` or `i >= len(l)`         | `i` is proven in `[0, len(l))`                                            | `x, ok := l[i]`                    |
-| `l[i] = x`, writing one                                   | as above                         | as above, and `l` is mutable                                              | none                               |
-| `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven                           | `t, ok := s[i:j]`, a string's only |
-| `x[i:j] = v`                                              | always an error                  | never: a slice is not a place                                             | none                               |
-| `T(x)`, integer conversion                                | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, or its type widens to `T` | `v, ok := T(x)`                    |
+| Operation                                                 | Fails when                       | Plain form compiles when                                                                                | Checked form                       |
+|-----------------------------------------------------------|----------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------|
+| `a / b`, `a % b`                                          | `b` is zero                      | `b` is proven not zero                                                                                  | `q, ok := a / b`                   |
+| `x /= b`, `x %= b`                                        | `b` is zero                      | `b` is proven not zero                                                                                  | none                               |
+| `a[i]`, reading an array element                          | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                                                                          | `v, ok := a[i]`                    |
+| `a[i] = v`, writing one                                   | as above                         | as above                                                                                                | none                               |
+| `s[i]`, reading a string's byte                           | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                                                                          | `v, ok := s[i]`                    |
+| `s[i] = v`                                                | always an error                  | never: strings are immutable                                                                            | none                               |
+| `v[i]`, reading a view's element                          | `i < 0` or `i >= len(v)`         | `i` is proven in `[0, len(v))`                                                                          | `x, ok := v[i]`                    |
+| `v[i] = x`                                                | always an error                  | never: views are read-only                                                                              | none                               |
+| `l[i]`, reading a list's element                          | `i < 0` or `i >= len(l)`         | `i` is proven in `[0, len(l))`                                                                          | `x, ok := l[i]`                    |
+| `l[i] = x`, writing one                                   | as above                         | as above, and `l` is mutable                                                                            | none                               |
+| `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven                                                         | `t, ok := s[i:j]`, a string's only |
+| `x[i:j] = v`                                              | always an error                  | never: a slice is not a place                                                                           | none                               |
+| `T(x)`, integer conversion                                | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, its type widens to `T`, or `x` is proven in `T`'s range | `v, ok := T(x)`                    |
 
 A write to an element covers every way of writing one: `a[i] = v`,
 `a[i] += v`, `a[i]++`, and targets that mix fields and indexes, such as
 `p.cells[i] = v` or `a[i].x = v`. Every index in such a target needs a
 proof.
 
-Conversions are the odd one out: no guard or fact makes `T(x)` compile
-when `x`'s type does not widen to `T`, only a known value that fits `T`
-(see [Conversions](#conversions)).
+A conversion is proven as an index is: the facts in force must keep `x`
+at or above `T`'s smallest value and at or below its largest, where `x`'s
+type does not already, so `uint64(v)` of an `int64` `v` needs `v >= 0`,
+and `int32(v)` needs both bounds (see [Conversions](#conversions)).
 
 A shift, `x << n` or `x >> n`, never fails, so it is not in the table: a
 count at or past `x`'s width shifts every bit out, giving 0, or -1 for
@@ -143,9 +144,9 @@ The details:
 - **An ok the compiler does not need is allowed.** Where the operation
   cannot fail, because the divisor or index is a known value or proven,
   both operands of a division are untyped constants, or a conversion's
-  operand is a constant, a known value that fits, or of a type that widens
-  to `T`, the checked form still compiles: the first value is the
-  operation's, and `ok` is always `true`. A future `tack vet` is to point
+  operand is a constant, a known value that fits, of a type that widens
+  to `T`, or proven in `T`'s range, the checked form still compiles: the
+  first value is the operation's, and `ok` is always `true`. A future `tack vet` is to point
   these out; [vet.md](vet.md) lists the checks.
 
 <!-- example: safety -->
@@ -189,19 +190,21 @@ is assigned to, as any constant does, and is an `int64` in a declaration.
 
 ### What must be proven
 
-| Operation                    | Proof needed                                                                                                                                                                               |
-|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                                                                                                                            |
-| `a[i]` on `[n]T`             | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                                                                                                                      |
-| `s[i]`                       | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself                                                                 |
-| `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)` |
+| Operation                    | Proof needed                                                                                                                                                                                               |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                                                                                                                                            |
+| `a[i]` on `[n]T`             | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                                                                                                                                      |
+| `s[i]`                       | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself                                                                                 |
+| `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)`                 |
+| `T(x)`, `x` an integer       | `x` at or above `T`'s smallest value and at or below its largest, each only where `x`'s type does not already keep it there; a target-width `T`'s range is 0 to 4294967295, the one it has on every target |
 
-A proof is about a **name**, the divisor or index written as a variable or
-parameter, or a **field or element of an immutable variable or
-parameter**, such as `p.d`, `p.inner.d`, `p.a[1]` or `p.a[k]` with `k`
+A proof is about a **name**, the divisor, index or converted value written
+as a variable or parameter, or a **field or element of an immutable
+variable or parameter**, such as `p.d`, `p.inner.d`, `p.a[1]` or `p.a[k]` with `k`
 immutable. Anything else, such as `b + 1`, `i + 1`, `-i`, or a field of a
 mutable variable or a `mut` parameter, is proven only when it is a known
-value.
+value: <!-- case: conversion-fact-expression -->`uint64(-(v + 1))` under
+`v < 0` is not proven, though its value is never negative.
 
 ### Known values
 
@@ -721,12 +724,13 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | <!-- case: safety-no-proof-mutable-global -->`mut g int64` (global), `if g != 0 { x / g }`                      | a mutable global never has a fact                                                                      |
 | <!-- case: safety-no-proof-range-longer -->`for i := range b { a[i] }` with `b` longer than `a`                 | the index bound is `len(b) - 1`                                                                        |
 | <!-- case: safety-no-proof-call-length -->`name()[i]` after `if 0 <= i && i < len(name())`                      | only a string variable's length can carry a fact                                                       |
-| <!-- case: safety-no-proof-conversion-guard -->any guard around `uint8(x)`                                      | conversions follow the type rule only                                                                  |
+| <!-- case: conversion-fact-int32-off-by-one-high -->`int32(v)` after `if -2147483648 <= v && v <= 2147483648`   | the guard allows `v == 2147483648`, one past the largest `int32`                                       |
 
 ### Notes on a missing proof
 
-When a guard in scope says something about a divisor or index it did not
-prove, the error comes with notes that say why. Each note points at the
+When a guard in scope says something about a divisor, index or converted
+value it did not prove, the error comes with notes that say why. Each
+note points at the
 code it is about, so its text never repeats a position:
 
 - a guard whose fact the region dropped says what it proves, and the next
@@ -747,6 +751,14 @@ then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the 
 under the `i` of `i++`,
 and <!-- note: safety-no-proof-loop-assigns -->`this guard would bound i only above; i may be negative`.
 An operation no guard mentions keeps its error alone.
+
+A conversion's notes say the same of the range it must stay within: for
+`int8(v)` under `if -129 < v && v <= 128` the error,
+<!-- error: conversion-fact-int8-off-by-one -->
+`converting int64 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)`,
+is followed by <!-- note: conversion-fact-int8-off-by-one -->`this guard allows v == 128`,
+and under `if v < 100` alone, for an `int32` `v`, by
+<!-- note: conversion-fact-int8-one-side -->`this guard bounds v only above; v may be below -128`.
 
 An unsigned index is never negative, so no note explains a lower bound on
 it: not that a guard bounds it only above, and not that a lower bound it
@@ -1235,23 +1247,32 @@ func low(x int64) uint8 {
 ```
 
 <!-- error: safety-conversion-unchecked -->
-`converting int64 to uint8 can fail; use v, ok := uint8(...)`
+`converting int64 to uint8 can fail; check 0 <= x && x <= 255 first, or use v, ok := uint8(...)`
 
-There is no guarded version. `T(x)` compiles only when `x` is an untyped
-constant or a [known value](#known-values) that is a value of `T`, or `x`'s
-type widens to `T`, as `int64(b)` for a `uint8` `b`. A guard does not help,
-so this is the same error:
+`T(x)` compiles when `x` is an untyped constant or a
+[known value](#known-values) that is a value of `T`, when `x`'s type
+widens to `T`, as `int64(b)` for a `uint8` `b`, and when the facts in
+force prove `x` within `T`'s range, as they prove an index in range:
 
-<!-- case: safety-conversion-guarded -->
+<!-- example: conversion-facts -->
 
 ```tack
-func low(x int64) uint8 {
+func low(x int64) int64 {
     if 0 <= x && x < 256 {
-        return uint8(x)
+        return int64(uint8(x))
     }
-    return 0
+    return -1
 }
 ```
+
+The facts are the ones an index's proof uses, from guards, early exits,
+loop conditions, counting loops and ranges, switch cases, contracts and
+relations, and they end at the same writes, a `mut` argument's included.
+Only the side `x`'s type leaves open needs a fact: a `uint64` `u` needs
+only `u <= 9223372036854775807` for `int64(u)`. A guard one past the edge
+proves nothing, as
+<!-- case: conversion-fact-uint64-off-by-one -->`if u <= 9223372036854775808`
+shows, and neither does a guard on an expression, which is not a name.
 
 A known value is converted as a constant is, whatever its type:
 
@@ -1288,15 +1309,24 @@ on every target only from 0 to 4294967295, and that is what `T(x)` takes
 from a constant or known value. A constant past it is an error in either
 form, <!-- error: unsafe-const-overflow -->
 `constant 4294967296 overflows unsafe_size_t: its width is unknown, so a constant must be at most 4294967295`.
-A known value past it, but within 64 bits, fits on some targets only, so
-`T(x)` is the error a value not known gets, as for `unsafe_size_t(x)`
-after `x := uint64(5000000000)`, <!-- error: unsafe-conversion-known-past-32-bits -->
+Facts prove a conversion to one against the same range, so
+`unsafe_size_t(x)` for a `uint64` `x` needs `x <= 4294967295`,
+<!-- error: conversion-fact-target-width-off-by-one -->
+`converting uint64 to unsafe_size_t can fail; check x <= 4294967295 first, or use v, ok := unsafe_size_t(...)`.
+Converting from one, the check an error suggests stops at the same
+4294967295, the largest constant of the type, though a larger bound
+would do on a 64-bit target: `int64(s)` for an `unsafe_size_t` `s`
+reports <!-- error: conversion-fact-size-to-int64 -->
+`converting unsafe_size_t to int64 can fail; check s <= 4294967295 first, or use v, ok := int64(...)`.
+A known value past it, but within 64 bits, fits on some targets only, and
+no fact changes a known value, so `T(x)` needs the checked form, as for
+`unsafe_size_t(x)` after `x := uint64(5000000000)`, <!-- error: unsafe-conversion-known-past-32-bits -->
 `converting uint64 to unsafe_size_t can fail; use v, ok := unsafe_size_t(...)`,
 and the checked form tests it against the target's real largest value at
 run time, as it does a value not known. The two target-width types do not
 widen to each other, since one may be narrower than the other, so
-`unsafe_uintptr_t(s)` for an `unsafe_size_t` `s` needs the checked form
-too.
+`unsafe_uintptr_t(s)` for an `unsafe_size_t` `s` needs `s <= 4294967295`
+proven, or the checked form.
 
 ## Errors
 

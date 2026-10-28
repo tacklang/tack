@@ -9,7 +9,8 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// The checker proves a divisor is not zero, and an index in range, from
+// The checker proves a divisor is not zero, an index in range, and a
+// conversion's operand a value of its type (see convfacts.go), from
 // facts: what is known about a variable's value within some region of the
 // program, that it is not zero, or bounds on it. A fact comes from a
 // condition that has just been tested, or from a range loop, whose index

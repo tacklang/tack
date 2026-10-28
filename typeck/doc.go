@@ -180,7 +180,8 @@
 // time; one below 0 wraps on every target and is an overflow error, as for
 // any unsigned type (knownOverflow). T(x) of a known value past
 // types.PortableMax but within 64 bits is reported as a conversion that
-// can fail, and checked at run time in the two-value form (fitsSomewhere).
+// can fail, and checked at run time in the two-value form (fitsSomewhere);
+// facts never prove it, since they do not change a known value.
 // For proofs a target-width type is bounded by its widest values, 0 to the
 // largest 64-bit unsigned value (typeBounds), but a counting loop's step
 // must stay at or below types.PortableMax not to wrap (stepBounds). An
@@ -246,7 +247,9 @@
 // something about the operand (explain.go): the guard whose fact a region
 // dropped, with the assignment that dropped it, and what the facts would
 // still have lacked, or the guard whose fact holds but falls short, an
-// index bounded only above or allowed past the end, and a note on the
+// index bounded only above or allowed past the end, a conversion's
+// operand bounded on one side only or allowed past its type's range
+// (conversionProof), and a note on the
 // relations in force when they fall short (relationNotes). An unsigned index is
 // never negative, so a note never explains a lower bound on one, whether
 // missing or dropped. Every note's span is the code it is about, so its
@@ -625,11 +628,20 @@
 //     type of the variable it is assigned, or int64 where there is none;
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant or a known value, as knownValue
-//     computes it, that fits T, or a type that widens to T. A constant or
-//     known value that does not fit T is reported as overflowing it. Any
-//     other is v, ok := T(x), which is also allowed where the conversion
-//     cannot fail, and reports a constant or known value that does not fit
-//     T as T(x) does; no fact makes a conversion compile;
+//     computes it, that fits T, a type that widens to T, or a subject, a
+//     variable or a path below an immutable one, that the facts in force
+//     keep within T's range on every target, 0 to types.PortableMax for
+//     a target-width T, by its own bounds or through the relations in
+//     force (factsFit, convfacts.go). The facts are an index's, from the
+//     same places and ended by the same writes; an operand written as
+//     arithmetic is not read through, so uint64(-(v + 1)) is not proven.
+//     A constant or known value that does not fit T is reported as
+//     overflowing it. Any other conversion is reported, with the check
+//     that would prove a subject, as an index's is, and notes on the facts
+//     that fall short (conversionError), unless it is written
+//     v, ok := T(x), which is also allowed where the conversion cannot
+//     fail, and reports a constant or known value that does not fit T as
+//     T(x) does;
 //   - a variable's value is usable as its declared type, and a variable
 //     declared without a type takes its value's;
 //   - only a mutable variable may be declared without a value, and only a

@@ -1129,11 +1129,13 @@ func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
 // conversion checks a conversion whose single value is used, T(x), and
 // returns T. It must convert an integer to an integer type, and be one that
 // cannot fail: an untyped constant that fits T, a value of a type that
-// widens to T, or a known value, as knownValue computes it, that is a value
-// of T on every target. A constant or known value that is not one of T's
-// is reported as overflowing T, and any other conversion as needing the
-// two-value form v, ok := T(x), a known value that is one of a
-// target-width T's on some targets only among them.
+// widens to T, a known value, as knownValue computes it, that is a value
+// of T on every target, or a subject the facts in force prove one (see
+// factsFit). A constant or known value that is not one of T's is reported
+// as overflowing T, a known value that is one of a target-width T's on
+// some targets only as needing the two-value form v, ok := T(x), since no
+// fact changes a known value, and any other conversion as needing a check
+// or that form (see conversionError).
 func (c *Checker) conversion(call *ast.Call) types.Type {
 	from, ok := c.conversionOperand(call)
 	if !ok {
@@ -1158,7 +1160,8 @@ func (c *Checker) intConversion(call *ast.Call, from, to types.Type) types.Type 
 	case types.Widens(from, to):
 	default:
 		v, known := c.knownValue(arg)
-		if !known || fitsSomewhere(v, to) {
+		switch {
+		case known && fitsSomewhere(v, to):
 			c.errorf(
 				call.Span,
 				"converting %s to %s can fail; use v, ok := %s(...)",
@@ -1166,8 +1169,12 @@ func (c *Checker) intConversion(call *ast.Call, from, to types.Type) types.Type 
 				c.typeName(to),
 				c.typeName(to),
 			)
-		} else if !c.knownFits(arg, v, to) {
-			return types.Invalid
+		case known:
+			if !c.knownFits(arg, v, to) {
+				return types.Invalid
+			}
+		case !c.factsFit(arg, to):
+			c.conversionError(call, from, to)
 		}
 	}
 	return to
