@@ -432,6 +432,10 @@ makes for itself, which has a letter after `tack_`.
 
 ## The language today
 
+A topic-organized specification is being assembled in
+[docs/spec/](docs/spec/README.md); until its chapters are filled in, this
+section remains the description of the language.
+
 - Every file starts with a `package` clause, before any declaration. A
   file compiled on its own must be `package main`; a package of a module
   is named as described below.

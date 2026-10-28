@@ -18,7 +18,9 @@ Open questions about how a feature should behave are in
 conversions from failing at runtime, proofs and the `v, ok :=` form, are in
 [safety.md](safety.md), and extern C, Tack's unsafe, is in
 [extern.md](extern.md). Checks for a future `tack vet`, for code that is
-valid but says more than it needs to, are in [vet.md](vet.md).
+valid but says more than it needs to, are in [vet.md](vet.md). A
+topic-organized language specification is being assembled in
+[spec/](spec/README.md).
 
 ## Today
 

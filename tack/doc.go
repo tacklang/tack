@@ -317,6 +317,29 @@
 // code. Nothing below main exits the
 // process, reads the environment or touches package-level state, so tests
 // drive run in process, each with the std and the cache it names.
+// TestSpecExamples drives it so for every tack block of the language
+// specification in docs/spec: it checks each program with --check, and
+// builds and runs it too when the block's info string says to (see
+// docs/spec/README.md). TestSpecDialectRejects, TestSpecDialectAccepts
+// and TestSpecBadInfoOpensBlock check the reader of the spec's Markdown.
+// TestSpecCheckerCatches, TestSpecCheckerPasses,
+// TestSpecCheckerWithoutClang, TestSpecCheckerTimesOut, TestSpecCheckDir,
+// TestSpecCheckDirLogs, TestSpecCheckDirTimesOut,
+// TestSpecCheckDirWithoutClang, TestSpecCheckerLateOutput, TestReportSpec,
+// TestSpecRunLimits, TestSpecRunBinaryLateOutput, TestSpecRunBinaryHeldPipe,
+// TestSpecRunBinaryCancelled, TestSpecRunBinaryNotRun,
+// TestSpecRunBinaryDeadline, TestSpecRunBinaryLeavesNothing,
+// TestSpecRunBinaryEscapedPipe, TestSpecRunBinaryKillsHard,
+// TestSpecRunBinaryReaped, TestSpecRunBinaryLeaderLeftGroup,
+// TestSpecTestDies, TestSpecHelperDiesFirst, TestSpecHelperSpacedDir,
+// TestSpecGroupsUntracked, TestSpecNoStartWhileHeld,
+// TestSpecKilledBeforeUntracked, TestSpecScriptPaths and the
+// TestSpecJudge tests check the checker of its examples, on spec
+// directories, chapters and results written for them; the process tests
+// run TestSpecHelperLoop, which does nothing on its own, in a test binary
+// of their own. TestSpecIndexProblems, TestSpecIndexOutcome,
+// TestSpecIndexLinks and TestSpecIndexTitles check TestSpecIndex's check
+// of the directory.
 // Errors flow back to run, which turns them into output and an exit code in
 // one place (report): a *usageError for exit 2, a *diagnosticsError whose
 // rendered text is printed as is, and any other error as a "tack:" line.
