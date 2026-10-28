@@ -75,13 +75,45 @@ It is one built only from:
   from a case whose payload is a constant expression, or that has none;
 - a field of a constant expression, an element of one at a constant
   index, and a byte of a constant string at a constant index;
+- a slice of a constant string at constant bounds, `s[1:3]`;
 - `len` of a constant expression, and `len` of any array, a mutable one
   included, when computing it calls nothing;
-- a conversion `T(x)` of a constant expression;
+- a conversion `T(x)` of a constant expression to an integer type;
 - the arithmetic, bitwise and shift operators, the comparisons, and
   `&&`, `||` and `!`, on constant expressions, with one exception: `^x`
   of a target-width type is not a constant expression, since its value
   depends on the target.
+
+A value of a float type is constant only as an untyped float constant
+given that type, a name of an immutable package-level variable, or a
+field or an element of a constant expression. A conversion to a float
+type, and an operator or a comparison with an operand of a float type
+that is not an untyped constant, are not constant expressions: with `a`
+a `float64` global and `f` a `float32` one, `-a`, `a + a`, `a < 2.0`,
+`float64(3) + 1.0` and `float64(f)` are each rejected as a
+package-level variable's initializer, `... must be initialized with a
+constant expression`.
+
+```tack error
+package main
+
+var s = "hello"
+var t = s[1:3]
+var a float64 = 1.5
+var half float64 = 0.5 + 0.25
+var b = -a
+
+func main() {
+    if t == "el" && half == 0.75 {
+        exit(0)
+    }
+}
+```
+
+```diagnostics
+main.tck:7:5: warning: declared and not used: b
+main.tck:7:9: error: b must be initialized with a constant expression
+```
 
 A package-level variable's initializer must be a constant expression
 (see [Declarations and scope](05-declarations.md)).
