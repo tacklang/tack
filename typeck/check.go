@@ -286,6 +286,11 @@ type Checker struct {
 	// sizesKnown is whether every struct's and union's size can be
 	// known; see pendingSizes.
 	sizesKnown bool
+
+	// everyBodyTwice makes checkBody check every body twice, not only one
+	// that needs it, for a test to compare with checking each once (see
+	// findCallees).
+	everyBodyTwice bool
 }
 
 // New returns a Checker for prog, which must already have been resolved,
@@ -479,18 +484,14 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 // calls a method found only once its receiver is checked, and one of a
 // call through a function value returns what the value's type, known
 // once the value is checked, says. So a body with either is checked
-// twice: first to find what each such call calls, with what it reports
-// dropped, and then for good, with every tie known.
+// twice: first to find what each such call calls (see findCallees), and
+// then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
-	c.body, c.writesByDecl = fn.Body, make(map[ast.Decl][]funcWrite)
-	if hasMethodBinding(fn) {
-		before, warned := len(c.diags), len(c.warnings)
-		c.collectHolds(fn)
-		c.checkBlock(fn.Body, fn)
-		c.diags, c.warnings = c.diags[:before], c.warnings[:warned]
-		clear(c.knownBinaries)
-		c.appends = nil
+	c.body = fn.Body
+	if c.everyBodyTwice || hasMethodBinding(fn) {
+		c.findCallees(fn)
 	}
+	c.writesByDecl = make(map[ast.Decl][]funcWrite)
 	c.collectHolds(fn)
 	m, dead := c.mark(), c.dead
 	c.checkStmts(fn.Body, fn)

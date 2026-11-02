@@ -322,11 +322,17 @@
 // named without a call, b.write, is reported, as there are no method
 // values. Whether a binding of a call's results ties them to an error is
 // collected before a body is checked (errors.go), but a method call's
-// method is known only once its receiver is, so a body binding a method
-// call's results is checked twice: once to find every method, with what
-// it reports dropped, and then with every tie known. A binding of nothing
-// but _ of a method call that returns no error is reported here, as the
-// resolver reports one of a function's call. A pub or lib method exposes
+// method is known only once its receiver is, and what a function value
+// returns only once the value is, so a body binding the results of
+// either is checked twice: once to find every callee, and then with
+// every tie known. The first pass leaves no trace but what it exists to
+// find (findCallees, in firstpass.go): what it reports is dropped, and
+// every record of what has been reported or found, a name reported
+// alongside an own of it or a type checked for its size among them, is
+// set aside while it runs and put back after it, so the second pass
+// reports exactly what checking the body once would. A binding of
+// nothing but _ of a method call that returns no error is reported here,
+// as the resolver reports one of a function's call. A pub or lib method exposes
 // only types as visible as it, capped by its type's, its receiver's
 // included, as a function does.
 //

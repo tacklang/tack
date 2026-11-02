@@ -30233,6 +30233,78 @@ own-alongside-mut/main.tck:8:14: note: t is passed as own here
    |	             ^~~~~
 09 |	}
 
+-- own-alongside-mut-beside-func-value-binding/main.tck --
+package main
+
+func two() (int64, int64) {
+    return 1, 2
+}
+
+func f(mut b list[int64], own a list[int64]) {
+}
+
+func main() {
+    mut t := make(list[int64], c_allocator)
+    f(mut t, own t)
+    g := two
+    x, y := g()
+    if x + y == 3 {
+        print("3\n")
+    }
+}
+-- own-alongside-mut-beside-func-value-binding/expected --
+stage: typeck
+---
+
+own-alongside-mut-beside-func-value-binding/main.tck:12:11: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+11 |	    mut t := make(list[int64], c_allocator)
+12 |	    f(mut t, own t)
+   |	          ^
+13 |	    g := two
+own-alongside-mut-beside-func-value-binding/main.tck:12:14: note: t is passed as own here
+11 |	    mut t := make(list[int64], c_allocator)
+12 |	    f(mut t, own t)
+   |	             ^~~~~
+13 |	    g := two
+
+-- own-alongside-mut-beside-method-binding/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (b B) two() (int64, int64) {
+    return b.n, 2
+}
+
+func f(mut b list[int64], own a list[int64]) {
+}
+
+func main() {
+    mut t := make(list[int64], c_allocator)
+    f(mut t, own t)
+    b := B{n: 1}
+    x, y := b.two()
+    if x + y == 3 {
+        print("3\n")
+    }
+}
+-- own-alongside-mut-beside-method-binding/expected --
+stage: typeck
+---
+
+own-alongside-mut-beside-method-binding/main.tck:16:11: error: cannot use t alongside own t in this call: it is moved into the call, and nothing else in the call may reach it
+15 |	    mut t := make(list[int64], c_allocator)
+16 |	    f(mut t, own t)
+   |	          ^
+17 |	    b := B{n: 1}
+own-alongside-mut-beside-method-binding/main.tck:16:14: note: t is passed as own here
+15 |	    mut t := make(list[int64], c_allocator)
+16 |	    f(mut t, own t)
+   |	             ^~~~~
+17 |	    b := B{n: 1}
+
 -- own-alongside-receiver/main.tck --
 package main
 
@@ -36494,6 +36566,37 @@ size-array-local/main.tck:4:11: error: array type [1152921504606846976]int64 is 
 04 |	    mut a [1152921504606846976]int64
    |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	    a[5] = 1
+
+-- size-array-local-beside-method-binding/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (b B) two() (int64, int64) {
+    return b.n, 2
+}
+
+func main() {
+    mut a [1152921504606846976]int64
+    a[5] = 1
+    b := B{n: 1}
+    x, y := b.two()
+    z, ok := a[5]
+    if ok && x + y + z == 4 {
+        print("survived\n")
+    }
+}
+-- size-array-local-beside-method-binding/expected --
+stage: typeck
+---
+
+size-array-local-beside-method-binding/main.tck:12:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+11 |	func main() {
+12 |	    mut a [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	    a[5] = 1
 
 -- size-array-nested/main.tck --
 package main

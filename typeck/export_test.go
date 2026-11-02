@@ -21,3 +21,10 @@ func (c *Checker) ProverWork() ProverWork {
 		w.ranged,
 	}
 }
+
+// CheckEveryBodyTwice makes c check every function body twice, as it
+// checks one that binds a method call's or a function value's results,
+// so a test can show the first pass leaves no trace (see findCallees).
+func (c *Checker) CheckEveryBodyTwice() {
+	c.everyBodyTwice = true
+}
