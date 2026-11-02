@@ -66,3 +66,22 @@ seconds at N = 16000. Since leaving branches stopped ending facts, shapes
 the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
+
+## A note says a copied index may be negative when it is not
+
+A guard on a variable copied from another one can get a note that says
+the copy may be negative though its source was checked. In `if j >= 0 {
+k := j; if k < len(t) { return s[k] } }`, with `s` a `[4]int64`, the error
+on `s[k]` is right, since `k < len(t)` does not bound `k` by 4, but the
+note `this guard bounds k only above; k may be negative` is false: `k >=
+0` holds from `j >= 0`.
+
+## A function with a syntax error hides a size error in a later function
+
+When a function's body fails to parse, an array type in it that is too
+large stops the same type being reported in a later function. A file
+whose first function holds `y := )` and then `mut a
+[1152921504606846976]int64`, and whose `main` declares `mut b
+[1152921504606846976]int64`, reports only the syntax error, without
+`array type ... is too large` for `b`. The file is still rejected, by the
+syntax error, so no program runs with the type.
