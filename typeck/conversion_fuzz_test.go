@@ -20,7 +20,8 @@ import (
 // first case leaves, a switch on the converted parameter, or a call to a
 // function whose ensures clause is the guard. Then perhaps a variable k is
 // stored from the converted parameter plus or minus a known value, and
-// converted in its place; or the parameter is copied into a mutable m,
+// converted in its place, or that arithmetic is converted itself, inline,
+// with no k, whose value is k's; or the parameter is copied into a mutable m,
 // which the guard is about, and m is assigned, or passed as mut to a
 // function that assigns it, before the conversion, ending its facts, or
 // after it, ending nothing. The conversion is of the parameter, k or m,
@@ -237,9 +238,10 @@ const (
 
 // convProgram is a generated function: its guard, cond, written as form,
 // the conversion of the parameter subject to the type to, or of k when
-// stored, k being the term k, or of m when write is set, a copy of the
-// parameter that cond is about in its place, which the write sets to
-// wval, before the conversion or, when after, after it.
+// stored, k being the term k, written in k's place when inline, or of m
+// when write is set, a copy of the parameter that cond is about in its
+// place, which the write sets to wval, before the conversion or, when
+// after, after it.
 type convProgram struct {
 	cond    *convCond
 	wval    *big.Int
@@ -249,6 +251,7 @@ type convProgram struct {
 	form    int
 	write   int
 	stored  bool
+	inline  bool
 	after   bool
 }
 
@@ -338,6 +341,9 @@ func readConvProgram(data []byte) convProgram {
 		p.stored = true
 		p.k = r.term()
 		p.k.v = p.subject
+		// Chosen by the reader's position, as negateJoin chooses, so the
+		// seeds keep their meaning.
+		p.inline = r.at%2 == 0
 	case (p.form == formIf || p.form == formExit) && r.next(2) == 0:
 		p.write = writeAssign + r.next(2)
 		edges := convEdges(p.to)
@@ -412,9 +418,12 @@ func (p convProgram) condText(c *convCond) string {
 	return "(" + p.condText(c.a) + ") || (" + p.condText(c.b) + ")"
 }
 
-// convertedName returns what p converts: k, m or the parameter.
+// convertedName returns what p converts: k, the arithmetic k would hold
+// when inline, m or the parameter.
 func (p convProgram) convertedName() string {
 	switch {
+	case p.inline:
+		return p.text(p.k)
 	case p.stored:
 		return "k"
 	case p.write != writeNone:
@@ -471,12 +480,13 @@ func (p convProgram) source() (string, int) {
 	return out[:at] + out[at+1:], at
 }
 
-// bodyLines returns the statements the guard guards: k stored, the write
+// bodyLines returns the statements the guard guards: k stored, unless
+// its arithmetic is converted inline, the write
 // to m before or after the conversion, and the conversion, its type
 // marked with @, where source finds its offset.
 func (p convProgram) bodyLines() []string {
 	var body []string
-	if p.stored {
+	if p.stored && !p.inline {
 		body = append(body, "k := "+p.text(p.k))
 	}
 	write := ""
@@ -1146,10 +1156,11 @@ func TestConversionFactsAreSound(t *testing.T) {
 
 // convTally counts what TestConversionFactsAreSound found: the programs
 // checked as a whole, the conversions accepted, those accepted by their
-// guard, by the form it is written in, and those with a write.
+// guard, by the form it is written in, those with a write, and those of
+// inline arithmetic.
 type convTally struct {
-	checked, accepted, byGuard, byWrite atomic.Int64
-	byForm                              [convForms]atomic.Int64
+	checked, accepted, byGuard, byWrite, byInline atomic.Int64
+	byForm                                        [convForms]atomic.Int64
 }
 
 // add counts p, of which checking found v.
@@ -1168,17 +1179,21 @@ func (c *convTally) add(p convProgram, v convVerdict) {
 	if p.write != writeNone {
 		c.byWrite.Add(1)
 	}
+	if p.inline {
+		c.byInline.Add(1)
+	}
 }
 
 // report fails t unless some conversion was accepted by its guard in
-// every form, one with a write among them, and some rejected, and logs
-// the counts.
+// every form, one with a write among them and one of inline arithmetic,
+// and some rejected, and logs the counts.
 func (c *convTally) report(t *testing.T) {
 	t.Helper()
 	all, ok, guarded, writes := c.checked.Load(), c.accepted.Load(), c.byGuard.Load(), c.byWrite.Load()
-	if guarded == 0 || ok == all || writes == 0 {
-		t.Fatalf("accepted %d of %d conversions, %d by their guard, %d with a write; "+
-			"the programs prove nothing either way", ok, all, guarded, writes)
+	inline := c.byInline.Load()
+	if guarded == 0 || ok == all || writes == 0 || inline == 0 {
+		t.Fatalf("accepted %d of %d conversions, %d by their guard, %d with a write, %d inline; "+
+			"the programs prove nothing either way", ok, all, guarded, writes, inline)
 	}
 	forms := make([]int64, convForms)
 	for form := range c.byForm {
@@ -1187,8 +1202,15 @@ func (c *convTally) report(t *testing.T) {
 			t.Fatalf("no conversion is accepted by a guard written as form %d", form)
 		}
 	}
-	t.Logf("accepted %d of %d conversions, %d by their guard, by form %v, %d with a write",
-		ok, all, guarded, forms, writes)
+	t.Logf(
+		"accepted %d of %d conversions, %d by their guard, by form %v, %d with a write, %d inline",
+		ok,
+		all,
+		guarded,
+		forms,
+		writes,
+		inline,
+	)
 }
 
 // FuzzConversionFactsAreSound checks the program its input makes (see

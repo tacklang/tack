@@ -26,6 +26,7 @@ var provenIndexCases = []struct{ name, src string }{
 	{"range over a smaller count", indexing("for k := range 2 {", "    m[k] = a[k]", "}")},
 	{"range over an empty count", indexing("for k := range 0 {", "    m[k] = a[k]", "}")},
 	{"guard", indexing("if 0 <= i && i < len(a) {", "    return a[i]", "}")},
+	{"an expression", indexing("if 0 <= i && i < 2 {", "    return a[i + 1]", "}")},
 	{"guard with constants", indexing("if i >= 0 && i < 3 {", "    return a[i]", "}")},
 	{"guard by greater and at most", indexing("if i > -1 && i <= 2 {", "    return a[i]", "}")},
 	{"equal to a constant", indexing("if i == 1 {", "    return a[i]", "}")},
@@ -125,8 +126,8 @@ var unprovenIndexCases = []struct {
 		spanned{"index i may be out of range; check 0 <= i && i < 3 first", "i"},
 	},
 	{
-		"an expression",
-		indexing("if 0 <= i && i < 2 {", "    return a[i + 1]", "}"),
+		"an expression past the end",
+		indexing("if 0 <= i && i < 3 {", "    return a[i + 1]", "}"),
 		spanned{"index may be out of range; use v, ok := ...[...]", "i + 1"},
 	},
 	{

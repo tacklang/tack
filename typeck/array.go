@@ -379,7 +379,7 @@ func (c *Checker) indexError(
 	bound string,
 	explain func(i ast.Expr) []diag.Diagnostic,
 ) (string, []diag.Diagnostic) {
-	msg, notes := "index may be out of range", c.operandNotes(ix.Index)
+	msg, notes := "index may be out of range", c.operandNotes(ix.Index, false)
 	isSubject := c.isSubject(ix.Index)
 	name := c.nameOf(ix.Index)
 	switch v, isGlobal := c.mutableGlobal(ix.Index); {

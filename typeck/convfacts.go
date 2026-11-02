@@ -13,34 +13,36 @@ import (
 // A conversion T(x) of an integer that is neither a constant, nor a known
 // value, nor of a type that widens to T compiles in its plain form when
 // the facts in force where it is written prove x a value of T: x is a
-// subject, a variable or a path below an immutable one, as an index or a
-// divisor must be to be proven, and its type and the facts about it keep
-// it within T's range, or the relations in force do, for a bound they do
-// not give (see factsFit). The facts are the ones an index's proof asks
-// about, from the same places, and ended by the same writes. Nothing reads
-// through arithmetic here: uint64(v + 1) is not a subject's conversion,
-// and needs the two-value form v, ok := T(x).
+// subject, a variable or a path below an immutable one, or arithmetic on
+// such values (see arith.go), as an index or a divisor must be to be
+// proven, and its type and the facts about it keep it within T's range,
+// or the relations in force do, for a bound they do not give (see
+// factsFit). The facts are the ones an index's proof asks about, from the
+// same places, and ended by the same writes. Arithmetic is bounded only
+// where it cannot wrap: under v < 0, uint64(-(v + 1)) is proven, and
+// uint64(-v) is not, since -v wraps when v is the least int64.
 //
 // A target-width T's range is the one it has on every target, from 0 to
 // types.PortableMax, as for a known value (see fitsPortably). A
 // target-width x's own type bounds it at its widest, a 64-bit target's
 // (see typeInterval), so a proof holds whatever its width.
 
-// factsFit reports whether the facts in force prove x, a subject of an
-// integer type, a value of the integer type to on every target: at or
-// above to's smallest value and at or below its largest one there (see
-// portableBounds), by the bounds x's type and the facts about it give, or
-// by the relations in force (see atLeastBy and atMostOf).
+// factsFit reports whether the facts in force prove x, a subject or
+// arithmetic of an integer type, a value of the integer type to on every
+// target: at or above to's smallest value and at or below its largest one
+// there (see portableBounds), by the bounds x's type and the facts give
+// it (see operandRange), or, for a query's term, by the relations in
+// force (see atLeastBy and atMostOf).
 func (c *Checker) factsFit(x ast.Expr, to types.Type) bool {
-	if !c.isSubject(x) {
-		return false
-	}
-	term, ok := c.queryTerm(x)
+	known, ok := c.operandRange(x)
 	if !ok {
 		return false
 	}
 	lo, hi := portableBounds(to)
-	known := c.intervalOf(x)
+	term, ok := c.queryTerm(x)
+	if !ok {
+		return known.hasLo && known.lo.Cmp(lo) >= 0 && known.hasHi && known.hi.Cmp(hi) <= 0
+	}
 	return c.atLeastBy(known, term, lo) && c.atMostOf(known, term, hi)
 }
 
@@ -77,7 +79,7 @@ func (c *Checker) conversionError(call *ast.Call, from, to types.Type) {
 		notes = c.explain(c.conversionProof(arg, to))
 	default:
 		msg += orUse(form, false)
-		notes = c.operandNotes(arg)
+		notes = c.operandNotes(arg, false)
 	}
 	c.errorNotes(call.Span, notes, "%s", msg)
 }

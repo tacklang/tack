@@ -886,27 +886,56 @@ var otherCauseCases = []noteCase{
 	},
 	{
 		"an index that is not a name",
-		inF2("a [3]int64, i int64", "if 0 <= i && i < 2 {", "    return a[i + 1]", "}"),
+		inF2("a [3]int64, i int64", "if 0 <= i && i < 3 {", "    return a[i + 1]", "}"),
 		"index may be out of range; use v, ok := ...[...]",
 		[]wantNote{
 			{
-				"this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, " +
-					"so copy i + 1 into a variable and check it",
-				"0 <= i && i < 2",
+				"this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, " +
+					"or let a step of it wrap, so copy i + 1 into a variable and check it",
+				"0 <= i && i < 3",
 				4,
 				8,
 			},
 		},
 	},
 	{
+		"an index past a named known value",
+		inF2("a [3]int64, i int64", "k := 1", "if 0 <= i && i < 3 {", "    return a[i + k]", "}"),
+		"index may be out of range; use v, ok := ...[...]",
+		[]wantNote{
+			{
+				"this guard bounds i, not i + k; the bounds of its operands do not prove i + k, " +
+					"or let a step of it wrap, so copy i + k into a variable and check it",
+				"0 <= i && i < 3",
+				5,
+				8,
+			},
+		},
+	},
+	{
 		"a divisor that is not a name",
-		inF2("a int64, b int64", "if b > 1 {", "    return a / (b - 1)", "}"),
+		inF2("a int64, b int64", "if b > 0 {", "    return a / (b - 1)", "}"),
 		"divisor may be zero; use q, ok := ... / ...",
 		[]wantNote{
 			{
-				"this guard bounds b, not b - 1; only a name, or a field or element of an immutable variable, is proven, " +
-					"so copy b - 1 into a variable and check it",
-				"b > 1",
+				"this guard bounds b, not b - 1; the bounds of its operands do not prove b - 1, " +
+					"or let a step of it wrap, so copy b - 1 into a variable and check it",
+				"b > 0",
+				4,
+				8,
+			},
+		},
+	},
+	{
+		"an index no arithmetic reads",
+		inF2("a [3]int64, i int64", "if 0 <= i && i < 3 {", "    return a[i / 2 + 1]", "}"),
+		"index may be out of range; use v, ok := ...[...]",
+		[]wantNote{
+			{
+				"this guard bounds i, not i / 2 + 1; only a known value, a name, a field or element of an " +
+					"immutable variable, or +, -, * or unary - on those or on len of a string, view or list " +
+					"one, is proven, so copy i / 2 + 1 into a variable and check it",
+				"0 <= i && i < 3",
 				4,
 				8,
 			},
@@ -917,7 +946,7 @@ var otherCauseCases = []noteCase{
 		inF2(
 			"i int64",
 			"mut a [3]int64",
-			"if 0 <= i && i < 2 {",
+			"if 0 <= i && i < 3 {",
 			"    a[i + 1] = 1",
 			"}",
 			"return a[0]",
@@ -925,9 +954,9 @@ var otherCauseCases = []noteCase{
 		"index may be out of range",
 		[]wantNote{
 			{
-				"this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, " +
-					"so copy i + 1 into a variable and check it",
-				"0 <= i && i < 2",
+				"this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, " +
+					"or let a step of it wrap, so copy i + 1 into a variable and check it",
+				"0 <= i && i < 3",
 				5,
 				8,
 			},
@@ -1007,6 +1036,114 @@ func TestNoOtherNoteWithoutAGuard(t *testing.T) {
 		if len(diags) != 1 || len(diags[0].Related) != 0 {
 			t.Errorf("%q: got %v, want one error with no notes", src, diags)
 		}
+	}
+}
+
+// unprovenLengths are programs whose one error is a length of a string, a
+// view or a list that is not proven, alone or in arithmetic, as a
+// divisor, a slice's bound or bounds, an index or a converted value,
+// whatever guards bound it.
+var unprovenLengths = []string{
+	inF2("t string, s string", "if len(s) < 5 {", "    print(t[:len(s)])", "}"),
+	inF2("t string, s string", "if len(s) < 5 {", "    print(t[len(s):])", "}"),
+	inF2("w string", "if len(w) <= 4 {", "    print(\"abc\"[:len(w)])", "}"),
+	inF2("w string", "if len(w) >= 1 {", "    print(\"abc\"[:len(w)])", "}"),
+	inF2("s string, t string", "mut v := s", "if len(v) > 0 {", "    return 1", "}", "v = t",
+		"if len(v) < 10 {", "    return 10 / len(v)", "}"),
+	inF2("s string, t0 string", "mut t := t0", "if len(s) < 5 {", "    t = \"x\"",
+		"    print(t[:len(s)])", "}"),
+	inF2(
+		"s string, mut l list[int64]",
+		"if len(s) < 5 {",
+		"    pop(mut l)",
+		"    return total(l[:len(s)])",
+		"}",
+	) + "\nfunc total(v []int64) int64 {\n    return 0\n}\n",
+	inF2(
+		"s string, t string, u string",
+		"if len(s) <= len(t) {",
+		"    if len(u) < 5 && len(u) <= len(t) {",
+		"        print(t[len(s):len(u)])",
+		"    }",
+		"}",
+	),
+	inF2("s string, u string", "if len(u) <= len(s) {", "    if len(u) < 5 {",
+		"        print(s[len(s):len(u)])", "    }", "}"),
+	inF2(
+		"s string",
+		"a := [4]int64{1, 2, 3, 4}",
+		"if len(s) < 3 {",
+		"    return a[len(s) * 2]",
+		"}",
+	),
+	"package main\n\nfunc cap4(mut l list[int64]) ensures len(l) <= 4 {\n" +
+		"    if len(l) > 4 {\n        exit(1)\n    }\n}\n\n" +
+		"func f() {\n    mut l := make(list[int64], c_allocator)\n    cap4(mut l)\n" +
+		"    print(\"abc\"[:len(l)])\n}\n\nfunc main() {\n}\n",
+	inF2(
+		"t string, s string, u string",
+		"if len(s) < 5 {",
+		"    if len(u) < 5 && len(u) <= len(t) {",
+		"        print(t[len(s):len(u)])",
+		"    }",
+		"}",
+	),
+	inF2("t string, s string, u string", "if len(s) < 5 && len(u) < 5 && len(u) <= len(t) {",
+		"    print(t[len(s):len(u)])", "}"),
+	inF2(
+		"s string",
+		"if len(s) > 0 {",
+		"    return 1",
+		"} else {",
+		"    return 10 / len(s)",
+		"}",
+	),
+	inF2("a [3]int64, s string", "if len(s) < 3 {", "    return a[len(s)]", "}"),
+	inF2("s string", "if len(s) < 10 {", "    return 10 / len(s)", "}"),
+	inF2("s string", "if len(s) <= -1 {", "    return 10 / len(s)", "}"),
+	inF2("s string, u string", "if len(s) > 5 && len(s) < 2 && len(u) < 5 {",
+		"    print(\"abcde\"[len(s):len(u)])", "}"),
+	inF2("w string", "if len(w) <= 4 && len(w) >= 10 {", "    print(\"abc\"[:len(w)])", "}"),
+	inF2("s string", "a := [4]int64{1, 2, 3, 4}", "if len(s) > 5 && len(s) < 2 {",
+		"    return a[len(s) * -1]", "}"),
+	inF2("s string, t0 string", "mut t := t0", "if len(s) < 5 && len(s) <= len(t) {",
+		"    t = \"x\"", "    print(t[:len(s)])", "}"),
+	inF2("s string", "mut t := s", "if len(t) < 10 {", "    t = s", "    return 10 / len(t)", "}"),
+	inF2("s string", "if s == \"abc\" {", "    return 10 / len(s)", "}"),
+	inF2("t string, s string", "mut v := t", "if len(s) < 5 && len(s) <= len(v) {",
+		"    v = \"\"", "    print(v[:len(s)])", "}"),
+	inF2("t string, s string, u string", "mut a := s",
+		"if len(a) < 5 && len(u) < 5 && len(u) <= len(t) && len(a) <= len(u) {",
+		"    a = \"zzzzzz\"", "    print(t[len(a):len(u)])", "}"),
+	inF2("t string, w string", "mut v := w", "if len(v) <= 9 {", "    v = t",
+		"    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
+	inF2("t string, s string", "mut v := t", "if len(s) < 5 && len(v) > 9 {",
+		"    v = \"\"", "    print(v[:len(s)])", "}"),
+	inF2("t string, s string", "mut v := t", "if len(v) <= len(s) && len(s) < 5 {",
+		"    v = \"\"", "    print(v[:len(s)])", "}"),
+	inF2("t string, w string", "mut v := w", "if len(v) <= 3 {",
+		"    v = t", "    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
+}
+
+// TestUnprovenLengthsGetNoNote checks that a length that is not proven
+// keeps its error alone, and that a slice of a mutable global past a
+// length gets only the global's note.
+func TestUnprovenLengthsGetNoNote(t *testing.T) {
+	for _, src := range unprovenLengths {
+		diags := check(t, src)
+		if len(diags) != 1 || len(diags[0].Related) != 0 {
+			t.Errorf("%q: got %v, want one error with no notes", src, diags)
+		}
+	}
+	// A slice of a mutable global past a length, which no check of the
+	// length proves, gets only the global's note, which says why.
+	src := "package main\n\nmut g = \"abcdef\"\n\n" +
+		"func f(s string) {\n    if len(s) < 5 {\n        print(g[:len(s)])\n    }\n}\n\n" +
+		"func main() {\n}\n"
+	diags := check(t, src)
+	if len(diags) != 1 || len(diags[0].Related) != 1 ||
+		!strings.HasPrefix(diags[0].Related[0].Message, "g is a mutable global") {
+		t.Errorf("%q: got %v, want one error with only the global's note", src, diags)
 	}
 }
 

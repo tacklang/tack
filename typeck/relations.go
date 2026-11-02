@@ -356,8 +356,10 @@ func (f fact) keys() []factKey {
 }
 
 // queryTerm returns e as a query's term: a known value, a subject of an
-// integer type, or the length of a string, view or list subject. Unlike
-// linear it reads no arithmetic, which a query has no condition for.
+// integer type, the length of a string, view or list subject, or
+// arithmetic that adds a known amount to one of those last two, with the
+// conditions that it does not wrap that its own bound does not prove
+// (see arithTerm), which a query proves before it counts (see relates).
 func (c *Checker) queryTerm(e ast.Expr) (linTerm, bool) {
 	if v, ok := c.knownValue(e); ok {
 		return linTerm{off: v}, true
@@ -368,7 +370,7 @@ func (c *Checker) queryTerm(e ast.Expr) (linTerm, bool) {
 	if k, ok := c.subjectKey(e); ok && types.IsInteger(ast.TypeOf(e)) {
 		return linTerm{node: k}, true
 	}
-	return linTerm{}, false
+	return c.arithTerm(e)
 }
 
 // lenTerm returns the length of s, a string, view or list subject, as a
@@ -379,16 +381,19 @@ func (c *Checker) lenTerm(s ast.Expr) (linTerm, bool) {
 }
 
 // relates reports whether the relations in force prove x - y <= w, x and
-// y each a query's term: whether the graph proves x.node - y.node <=
-// w - x.off + y.off.
+// y each a query's term: whether the graph proves each term's conditions,
+// that it is its node plus its offset, unwrapped (see arithTerm), and
+// x.node - y.node <= w - x.off + y.off.
 func (c *Checker) relates(x, y linTerm, w constant.Int) bool {
 	g, w, ok := c.query(x, y, w)
-	return ok && g != nil && g.proves(x.node, y.node, w)
+	return ok && g != nil && g.holdsAll(x.conds) && g.holdsAll(y.conds) &&
+		g.proves(x.node, y.node, w)
 }
 
 // query returns the graph for proving x - y <= w, and the bound the graph
 // must prove on x's node less y's for it, or false when no bound can
-// prove it.
+// prove it. Two terms of the same node with no conditions need no facts:
+// the graph of that node alone proves their difference.
 func (c *Checker) query(x, y linTerm, w constant.Int) (*relGraph, constant.Int, bool) {
 	w, ok := w.Sub(x.off)
 	if ok {
@@ -397,7 +402,7 @@ func (c *Checker) query(x, y linTerm, w constant.Int) (*relGraph, constant.Int, 
 	if !ok {
 		return nil, w, false
 	}
-	if x.node == y.node {
+	if x.node == y.node && len(x.conds) == 0 && len(y.conds) == 0 {
 		g := &relGraph{index: make(map[factKey]int)}
 		g.found(x.node)
 		g.admit(nil)

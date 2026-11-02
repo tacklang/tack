@@ -29,6 +29,10 @@ func stringing(lines ...string) string {
 var provenStringIndexCases = []struct{ name, src string }{
 	{"range over len", stringing("for j := range len(s) {", "    return s[j]", "}")},
 	{
+		"an expression",
+		stringing("if 0 <= i && i < len(s) - 1 {", "    return s[i + 1]", "}"),
+	},
+	{
 		"range over len of a mutable string",
 		stringing("for j := range len(t) {", "    return t[j]", "}"),
 	},
@@ -210,8 +214,8 @@ var unprovenStringIndexCases = []struct {
 		},
 	},
 	{
-		"an expression",
-		stringing("if 0 <= i && i < len(s) - 1 {", "    return s[i + 1]", "}"),
+		"an expression that may reach the length",
+		stringing("if 0 <= i && i < len(s) {", "    return s[i + 1]", "}"),
 		spanned{"index may be out of range; use v, ok := ...[...]", "i + 1"},
 	},
 	{

@@ -198,13 +198,16 @@ is assigned to, as any constant does, and is an `int64` in a declaration.
 | `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)`                 |
 | `T(x)`, `x` an integer       | `x` at or above `T`'s smallest value and at or below its largest, each only where `x`'s type does not already keep it there; a target-width `T`'s range is 0 to 4294967295, the one it has on every target |
 
-A proof is about a **name**, the divisor, index or converted value written
-as a variable or parameter, or a **field or element of an immutable
-variable or parameter**, such as `p.d`, `p.inner.d`, `p.a[1]` or `p.a[k]` with `k`
-immutable. Anything else, such as `b + 1`, `i + 1`, `-i`, or a field of a
-mutable variable or a `mut` parameter, is proven only when it is a known
-value: <!-- case: conversion-fact-expression -->`uint64(-(v + 1))` under
-`v < 0` is not proven, though its value is never negative.
+A proof is about a **name**, the divisor, index, slice bound or converted
+value written as a variable or parameter, a **field or element of an
+immutable variable or parameter**, such as `p.d`, `p.inner.d`, `p.a[1]`
+or `p.a[k]` with `k` immutable, or **arithmetic** on those, `+`, `-` and
+`*` on two integers and unary `-` on one (see [Arithmetic](#arithmetic)).
+Anything else, such as a call, `i / 2`, `i << 1`, or a field of a mutable
+variable or a `mut` parameter, is proven only when it is a known value.
+Arithmetic that could wrap is not proven:
+<!-- case: conversion-fact-expression -->`uint64(-v)` under `v < 0` is
+not, since `-v` wraps for the least `int64`.
 
 ### Known values
 
@@ -472,7 +475,8 @@ is never negative, so `i < len(a) - 1` needs nothing more.
 
 A relation is a value less another, so a product is none: the heap's
 child index, <!-- case: relation-multiply -->`c := 2 * r + 1`, relates `c`
-to nothing. Nor does `||` keep relations: of
+to nothing, and gives `c` no bound either, though `2 * r + 1` written
+at the use is bounded as arithmetic (see [Arithmetic](#arithmetic)). Nor does `||` keep relations: of
 <!-- case: relation-or -->`if 0 <= i && (i < n || i < 2) && n <= len(a)`
 only what both sides say of one value is kept. A loop proves only what
 its condition says on each pass, so a loop that moves its bounds must
@@ -492,6 +496,124 @@ When one link is missing from a
 chain that would prove an index, a note names it:
 <!-- case: relation-missing-link -->`if 0 <= i && i < n { a[i] }` gets
 <!-- note: relation-missing-link -->`i < n holds here; check n <= len(a) too`.
+
+### Arithmetic
+
+A divisor, an index, a slice's bound or a converted value may be
+arithmetic: `+`, `-` or `*` on two integers, or unary `-` on one, each
+operand a known value, a name or a field or element of an immutable
+variable or parameter, `len` of a string, view or list one, or such
+arithmetic itself. Its bound is worked out exactly from its operands'
+bounds, which are what their types and the facts in force give them, as
+for a name, and `len(s)`'s, from the least length the facts give `s` to
+the greatest, or the largest `int64` when they give none: a sum from the two lowest values to the two
+highest, a difference from the lowest of one less the highest of the
+other, a product from the least to the greatest product of the two
+operands' ends, and a negation from the highest negated to the lowest
+negated.
+
+<!-- example: arithmetic-ranges -->
+
+```tack
+func negated(v int64) uint64 {
+    if v < 0 {
+        return uint64(-(v + 1))
+    }
+    return 0
+}
+```
+
+<!-- example: arithmetic-ranges -->
+
+```tack
+func sum(i int64, j int64) int64 {
+    a := [7]int64{0, 1, 2, 3, 4, 5, 6}
+    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+        return a[i + j]
+    }
+    return -1
+}
+```
+
+A divisor is proven when its bound rules out zero: it lies wholly above
+or below 0, or it is a product of two values, or a negation of one, that
+the facts keep away from zero:
+
+<!-- example: arithmetic-ranges -->
+
+```tack
+func over(x int64) int64 {
+    if x > 5 {
+        return 100 / (x - 5)
+    }
+    return -1
+}
+```
+
+Arithmetic wraps at its type's width, so the bound counts only where the
+operation cannot wrap: when any values its operands' bounds allow give a
+result outside its type, the operation has no bound at all, and nor
+does any arithmetic holding it. Under `v >= 0`,
+<!-- case: arith-range-int64-add-wraps -->`uint64(v + 1)` is not proven,
+since `v + 1` wraps for the largest `int64`; for a `uint8` `u`,
+<!-- case: arith-range-uint8-add-wraps-top -->`100 / (u + 1)` is not,
+since `u + 1` wraps to 0 at 255; and for an `int8` `b` from 1 to 64,
+<!-- case: arith-range-int8-mul-wraps-inside -->`uint8(b * 2 - 1)` is
+not, though `- 1` would wrap `b * 2` back into range, since `b * 2`
+wraps on its way there. An operation of a target-width type counts only
+where it cannot wrap on a 32-bit target, so for an `unsafe_size_t` `n`
+<!-- case: arith-range-size-past-portable -->`uint32(n + 1)` under
+`n <= 4294967295` is not proven. An operation whose bound does not prove
+the use can still be one whose type keeps every value in range, wrapped
+or not: a `uint8` `u + 1` indexes a `[256]T`, as `u` does.
+
+Each operand is bounded on its own, so the same name read twice is two
+values each anywhere in its bound: under `0 <= x && x < 3`,
+<!-- case: arith-range-self-difference -->`a[x - x]` is not proven, since
+`x - x` is bounded from -2 to 2, and for a `uint64` `u`, `u * 3 - u * 2`
+is not proven to be `u`
+(<!-- case: arith-range-two-reads-apart -->`int64(u * 3 - u * 2)`). Any
+operand that is not a known value, a name, a path or a length gives no
+bound, and nor does the arithmetic holding it: a call,
+<!-- case: arith-range-call-inside -->`a[i + one()]`, a conversion,
+`/`, <!-- case: arith-range-division-inside -->`a[i / 1 + 1]`, `%`, a
+shift and a bitwise operator. The facts are the ones a name's proof
+uses, ended by the same writes: <!-- case: arith-range-write-ends-fact -->`j = 5`
+before `a[j + 1]`, or <!-- case: arith-range-mut-ends-fact -->`bump(mut j)`,
+ends the guard's bound on `j`, and a field of a mutable variable has
+none (<!-- case: arith-range-mutable-field -->`a[p.n + 1]`).
+
+Arithmetic that adds a known amount to one value, `i + 1`, `len(a) - 1`
+or `i - 2 + 5`, is that value plus an offset, and the relations in force
+bound it as they bound a name (see [Relations](#relations)), where each
+step of it cannot wrap: its own bound proves that, or else the
+relations in force do. So `0 <= i && i < len(a) - 1` proves `a[i + 1]`
+of a view, `len(s) > 0` proves `s[len(s) - 1]`, and under
+`0 <= i && i < len(s)`, `s[i : i + 1]` is proven, `i` being at most
+`i + 1` and `i + 1` at most `len(s)`:
+
+<!-- example: arithmetic-ranges -->
+
+```tack
+func one(s string, i int64) string {
+    if 0 <= i && i < len(s) {
+        return s[i : i + 1]
+    }
+    return "-"
+}
+```
+
+<!-- case: arith-range-relation-may-wrap -->`if 0 <= i && i + 1 < len(a) { a[i + 1] }`
+is not proven, as `i + 1` may wrap. A product is no value plus an
+offset, so it is never related to another value, only bounded.
+
+An unproven operand that is arithmetic gets the error of an operand that
+is not a name, as in <!-- error: arith-range-sum-reaches-end -->`index may be out of range; use v, ok := ...[...]`,
+and a guard that bounds one of its names is pointed at by
+<!-- note: arith-range-sum-reaches-end -->`this guard bounds i, not i + j; the bounds of its operands do not prove i + j, or let a step of it wrap, so copy i + j into a variable and check it`.
+An operand the checker does not read through, as one holding a call, a
+`/` or a `^`, gets
+<!-- note: arith-range-call-inside -->`this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i + one() into a variable and check it`.
 
 ### Where a fact holds
 
@@ -711,7 +833,10 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 | Not a proof                                                                                                     | Why                                                                                                    |
 |-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
 | <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable            | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
-| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` after `if 0 <= i && i < 2`                                  | only a name, or a field or element of an immutable variable, is proven                                 |
+| <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` on a `[3]T` after `if 0 <= i && i < 3`                      | the guard allows `i == 2`, so `i + 1` may be 3                                                         |
+| <!-- case: conversion-fact-expression -->`uint64(-v)` after `if v < 0`                                          | `-v` wraps for the least `int64`, so it has no bound                                                   |
+| <!-- case: arith-range-self-difference -->`a[x - x]` after `if 0 <= x && x < 3`                                 | each read of `x` is bounded on its own, so `x - x` lies from -2 to 2                                   |
+| <!-- case: arith-range-relation-may-wrap -->`a[i + 1]` after `if 0 <= i && i + 1 < len(a)`                      | `i + 1` may wrap, so the relation holds of nothing                                                     |
 | <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable                         | an element in a path is proven only at a known index or an immutable name's                            |
 | <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known                             | a comparison with a variable that is not a known value only relates the two; nothing relates `n` to 3  |
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                                          | a divisor is proven by its own facts only, never by a relation                                         |
@@ -799,9 +924,9 @@ func half(a int64, b int64) int64 {
 <!-- error: divisor-may-be-zero -->
 `divisor b may be zero; check b != 0 first, or use q, ok := ... / b`
 
-A divisor that is not a name
-gets <!-- error: safety-div-not-a-name -->`divisor may be zero; use q, ok := ... / ...`,
-as in `a / (b + 1)`.
+A divisor that is neither a name nor arithmetic whose bound rules out
+zero gets <!-- error: safety-div-not-a-name -->`divisor may be zero; use q, ok := ... / ...`,
+as in `a / (b + 1)` with nothing known of `b`.
 
 Guarded:
 
@@ -877,9 +1002,9 @@ func get(a [3]int64, i int64) int64 {
 <!-- error: safety-index-read-unguarded -->
 `index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]`
 
-An index that is not a name
+An index that is neither a name nor arithmetic whose bound is in range
 gets <!-- error: safety-index-read-not-a-name -->`index may be out of range; use v, ok := ...[...]`,
-as in `a[i + 1]`.
+as in `a[i + 1]` with nothing known of `i`.
 
 Guarded:
 
@@ -923,7 +1048,7 @@ func set(i int64) int64 {
 
 <!-- error: safety-index-write-unguarded -->
 `index i may be out of range; check 0 <= i && i < 3 first`, and for an index
-that is not a name, as in
+that is not a name, nor proven arithmetic, as in
 `a[i + 1] = 1`, <!-- error: safety-index-write-not-a-name -->`index may be out of range`.
 
 Guarded:
@@ -1158,8 +1283,11 @@ A slice, `x[i:j]`, needs three things proven: `0 <= i`, `i <= j` and
 `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)`; `x[:]` needs
 nothing. Each of the three is proven as an index's bounds are, by known
 values, a variable's type, and the facts in force, with the two relations
-only a slice uses, `j <= len(x)` and `i <= j`. Unproven, the error names
-what is missing, and only that:
+only a slice uses, `j <= len(x)` and `i <= j`. A bound may be arithmetic,
+or the length of another string, view or list, bounded as an operand of
+arithmetic is: `t[:len(s)]` is proven under `len(s) <= len(t)`, as
+`t[:len(s) + 0]` is. Unproven, the error names what is missing, and only
+that:
 
 <!-- case: slice-unproven-all -->
 
@@ -1272,7 +1400,9 @@ Only the side `x`'s type leaves open needs a fact: a `uint64` `u` needs
 only `u <= 9223372036854775807` for `int64(u)`. A guard one past the edge
 proves nothing, as
 <!-- case: conversion-fact-uint64-off-by-one -->`if u <= 9223372036854775808`
-shows, and neither does a guard on an expression, which is not a name.
+shows. A guard on a name bounds arithmetic on it too (see
+[Arithmetic](#arithmetic)), so `uint64(-(v + 1))` is proven under
+`v < 0`, but a guard on an expression bounds nothing.
 
 A known value is converted as a constant is, whatever its type:
 

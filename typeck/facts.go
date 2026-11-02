@@ -17,8 +17,10 @@ import (
 // runs from 0 to its count, or the length of what it ranges over, less one.
 // It holds inside an if's branches, a loop's body, and the right side of &&
 // and ||, according to whether the condition was true there, and in the
-// rest of a block after an if whose branch leaves it. A switch's cases are
-// that if's chain; see switch.go. Deferred code is checked with the facts
+// rest of a block after an if whose branch leaves it. The operand proven
+// may also be arithmetic on subjects, bounded from what the facts say of
+// each (see arith.go). A switch's cases are that if's chain; see
+// switch.go. Deferred code is checked with the facts
 // in force at its defer, since the region a fact holds in takes in the rest
 // of the defer's block, where the code runs; see defer.go. The rules are
 // syntactic, so any reader can follow them:
@@ -170,8 +172,9 @@ type interval struct {
 // nonzero reports whether e is known not to be zero where it is checked: a
 // constant other than zero, an immutable variable whose value is one, a
 // subject, a variable or a path below an immutable one, the facts in force
-// keep away from zero, or len(s) of a string, list or view subject whose
-// length they keep at 1 or more (see minLen).
+// keep away from zero, len(s) of a string, list or view subject whose
+// length they keep at 1 or more (see minLen), or arithmetic whose bound
+// keeps it away from zero (see rangeOf).
 func (c *Checker) nonzero(e ast.Expr) bool {
 	if v, ok := c.knownValue(e); ok {
 		return !v.IsZero()
@@ -179,21 +182,20 @@ func (c *Checker) nonzero(e ast.Expr) bool {
 	if _, ok := c.stringLen(e); ok {
 		return c.minLen(e.(*ast.Call).Args[0]).Cmp(constant.FromInt64(1)) >= 0
 	}
-	if !c.isSubject(e) {
-		return false
-	}
-	return c.intervalOf(e).excludesZero()
+	known, ok := c.operandRange(e)
+	return ok && known.excludesZero()
 }
 
-// inRange reports whether a subject used as an index, a variable or a path
-// below an immutable one, is known to lie in [0, n) where it is used, by
-// its type and the facts in force, or, for a bound they do not give, by
-// the relations in force (see relates).
+// inRange reports whether an index that is a subject, a variable or a
+// path below an immutable one, or arithmetic (see isArithmetic), is known
+// to lie in [0, n) where it is used, by what its type and the facts in
+// force say of it (see operandRange), or, for a bound that does not give,
+// by the relations in force (see relates).
 func (c *Checker) inRange(index ast.Expr, n int64) bool {
-	if !c.isSubject(index) || n == 0 {
+	known, ok := c.operandRange(index)
+	if !ok || n == 0 {
 		return false
 	}
-	known := c.intervalOf(index)
 	last := constant.FromInt64(n - 1)
 	return (known.hasLo && !known.lo.IsNegative() || c.atLeast(index)) &&
 		(known.hasHi && known.hi.Cmp(last) <= 0 || c.atMostBy(index, nil, last))

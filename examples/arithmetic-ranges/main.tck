@@ -1,0 +1,225 @@
+package main
+
+// The checker bounds an arithmetic expression from the bounds of its
+// operands: through +, - and * on two operands, and unary -, each
+// operand a known value, a variable or a path below an immutable one,
+// the length of a string, view or list, or such arithmetic itself. The
+// bound proves an index, a slice's bound, a divisor or a conversion, as
+// a variable's own bounds do. Arithmetic wraps at its type's width, so
+// an operation that could wrap, given what its operands may hold, has no
+// bound at all. An expression that adds a known amount to one value,
+// i + 1 or len(a) - 1, is related to other values by the relations in
+// force too, where they keep it from wrapping.
+//
+// Every check prints its name and "ok", or "FAIL", and runs each function
+// at the edges of what the facts allow and just past them, where a bound
+// that ignored wrapping would read out of range or divide by zero.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Span holds a start and a count, a path below an immutable parameter
+// bounding arithmetic as a variable does.
+type Span struct {
+    start int64
+    count int64
+}
+
+// negated converts -(v + 1) to uint64 when v is negative: v + 1 lies
+// from the least int64 plus one to 0, so its negation lies from 0 to the
+// largest int64, and neither step wraps.
+func negated(v int64) uint64 {
+    if v < 0 {
+        return uint64(-(v + 1))
+    }
+    return 0
+}
+
+// after reads a[i + 1] of an array when i is from 0 to 2.
+func after(i int64) int64 {
+    a := [4]int64{10, 20, 30, 40}
+    if 0 <= i && i < len(a) - 1 {
+        return a[i + 1]
+    }
+    return -1
+}
+
+// following reads a[i + 1] of a view when i < len(a) - 1, which relates
+// i + 1 to len(a): len(a) - 1 never wraps, and i below it keeps i + 1
+// from wrapping.
+func following(a []int64, i int64) int64 {
+    if 0 <= i && i < len(a) - 1 {
+        return a[i + 1]
+    }
+    return -1
+}
+
+// doubled reads a[2*i] and a[2*i + 1] when i is from 0 to 3.
+func doubled(i int64) int64 {
+    a := [8]int64{1, 2, 3, 4, 5, 6, 7, 8}
+    if 0 <= i && i < 4 {
+        return a[2*i] * 10 + a[2*i + 1]
+    }
+    return -1
+}
+
+// over divides by x - 5 when x > 5, which keeps it at 1 or more.
+func over(x int64) int64 {
+    if x > 5 {
+        return 100 / (x - 5)
+    }
+    return -1
+}
+
+// sum reads a[i + j] when i and j are each from 0 to 3.
+func sum(i int64, j int64) int64 {
+    a := [7]int64{0, 1, 2, 3, 4, 5, 6}
+    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+        return a[i + j]
+    }
+    return -1
+}
+
+// last reads the last byte of s when it is not empty.
+func last(s string) int64 {
+    if len(s) > 0 {
+        return int64(s[len(s) - 1])
+    }
+    return -1
+}
+
+// one slices the byte at i out of s, s[i : i + 1], when i < len(s): i is
+// below len(s), which is at most the largest int64, so i + 1 does not
+// wrap and is at most len(s), and i is at most i + 1.
+func one(s string, i int64) string {
+    if 0 <= i && i < len(s) {
+        return s[i : i + 1]
+    }
+    return "-"
+}
+
+// spanned reads a[p.start + p.count - 1] when the start is from 0 to 2
+// and the count from 1 to 3, so the last index is at most 4.
+func spanned(a [5]int64, p Span) int64 {
+    if 0 <= p.start && p.start < 3 && 0 < p.count && p.count <= 3 {
+        return a[p.start + p.count - 1]
+    }
+    return -1
+}
+
+// down reads a[u - 1] for a uint64 u from 1 to 4, where u - 1 cannot
+// wrap at 0.
+func down(u uint64) int64 {
+    a := [4]int64{10, 20, 30, 40}
+    if 0 < u && u <= 4 {
+        return a[u - 1]
+    }
+    return -1
+}
+
+// narrow converts b * 2 - 1 to int8 when the int16 b is from 1 to 64.
+func narrow(b int16) int64 {
+    if 1 <= b && b <= 64 {
+        return int64(int8(b * 2 - 1))
+    }
+    return 1000
+}
+
+// sized converts n * 4 to unsafe_size_t when n is from 0 to 1000: the
+// product is far below the largest value a 32-bit target holds.
+func sized(n int64) uint64 {
+    if 0 <= n && n <= 1000 {
+        return unsafe_size_t(n * 4)
+    }
+    return 9
+}
+
+// prefix slices t to the length of another string s, t[:len(s)], when
+// len(s) <= len(t) relates the two lengths.
+func prefix(t string, s string) string {
+    if len(s) <= len(t) {
+        return t[:len(s)]
+    }
+    return "-"
+}
+
+// upto slices "abc" to the length of w, "abc"[:len(w)], when len(w) <= 3
+// bounds that length by the literal's.
+func upto(w string) string {
+    if len(w) <= 3 {
+        return "abc"[:len(w)]
+    }
+    return "-"
+}
+
+// mirrored reads a[-(i - 3)] when i is from 0 to 3.
+func mirrored(i int64) int64 {
+    a := [4]int64{10, 20, 30, 40}
+    if 0 <= i && i <= 3 {
+        return a[-(i - 3)]
+    }
+    return -1
+}
+
+func main() {
+    max := 9223372036854775807
+    min := -9223372036854775807 - 1
+    arr := [4]int64{10, 20, 30, 40}
+
+    check(negated(-1) == 0 && negated(-2) == 1 && negated(min) == 9223372036854775807 &&
+        negated(0) == 0 && negated(max) == 0,
+        "-(v + 1) to uint64 under v < 0")
+    check(after(0) == 20 && after(2) == 40 && after(3) == -1 && after(-1) == -1 &&
+        after(max) == -1 && after(min) == -1,
+        "a[i + 1] of an array")
+    check(following(arr[:], 0) == 20 && following(arr[:], 2) == 40 &&
+        following(arr[:], 3) == -1 && following(arr[:], -1) == -1 &&
+        following(arr[0:0], 0) == -1 && following(arr[:], max) == -1,
+        "a[i + 1] of a view under i < len(a) - 1")
+    check(doubled(0) == 12 && doubled(3) == 78 && doubled(4) == -1 && doubled(-1) == -1 &&
+        doubled(max) == -1,
+        "a[2*i] and a[2*i + 1]")
+    check(over(6) == 100 && over(105) == 1 && over(max) == 0 && over(5) == -1 &&
+        over(min) == -1,
+        "a divisor x - 5 under x > 5")
+    check(sum(0, 0) == 0 && sum(3, 3) == 6 && sum(1, 2) == 3 && sum(4, 0) == -1 &&
+        sum(0, 4) == -1 && sum(-1, 1) == -1 && sum(max, max) == -1,
+        "a[i + j] under bounds on both")
+    check(last("abc") == 99 && last("z") == 122 && last("") == -1,
+        "s[len(s) - 1] under len(s) > 0")
+    check(one("abc", 0) == "a" && one("abc", 2) == "c" && one("abc", 3) == "-" &&
+        one("", 0) == "-" && one("abc", max) == "-" && one("abc", -1) == "-",
+        "s[i : i + 1] under i < len(s)")
+    five := [5]int64{1, 2, 3, 4, 5}
+    check(spanned(five, Span{start: 0, count: 1}) == 1 &&
+        spanned(five, Span{start: 2, count: 3}) == 5 &&
+        spanned(five, Span{start: 1, count: 2}) == 3 &&
+        spanned(five, Span{start: 3, count: 1}) == -1 &&
+        spanned(five, Span{start: 0, count: 0}) == -1 &&
+        spanned(five, Span{start: 0, count: 4}) == -1 &&
+        spanned(five, Span{start: max, count: max}) == -1,
+        "fields of an immutable parameter")
+    check(down(1) == 10 && down(4) == 40 && down(0) == -1 && down(5) == -1 &&
+        down(18446744073709551615) == -1,
+        "a[u - 1] of a uint64")
+    check(narrow(1) == 1 && narrow(64) == 127 && narrow(0) == 1000 && narrow(65) == 1000 &&
+        narrow(-32768) == 1000,
+        "b * 2 - 1 to int8")
+    check(sized(0) == 0 && sized(1000) == 4000 && sized(1001) == 9 && sized(-1) == 9,
+        "n * 4 to unsafe_size_t")
+    check(mirrored(0) == 40 && mirrored(3) == 10 && mirrored(4) == -1 && mirrored(-1) == -1,
+        "a[-(i - 3)]")
+    check(prefix("abcdef", "xyz") == "abc" && prefix("abc", "xyz") == "abc" &&
+        prefix("ab", "xyz") == "-" && prefix("abc", "") == "" && prefix("", "") == "" &&
+        prefix("", "a") == "-",
+        "t[:len(s)] under len(s) <= len(t)")
+    check(upto("") == "" && upto("x") == "a" && upto("xyz") == "abc" && upto("wxyz") == "-",
+        "\"abc\"[:len(w)] under len(w) <= 3")
+}

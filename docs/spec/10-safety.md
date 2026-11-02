@@ -110,10 +110,11 @@ a conversion's proof, the range it has on every target.
 
 A proof is about a *subject*: a name, a parameter or a variable, or a
 field or element of an immutable variable or parameter, such as `p.d`,
-`p.inner.d`, `p.a[1]` or `p.a[k]` with `k` immutable. An operand that is
-not a subject, such as `b + 1`, `i + 1`, `-i`, a call's result, or a
-field of a mutable variable or a `mut` parameter, is proven only when it
-is a known value.
+`p.inner.d`, `p.a[1]` or `p.a[k]` with `k` immutable, or about
+arithmetic on subjects, `+`, `-` and `*` on two integers and unary `-` on
+one (see [Arithmetic](#arithmetic)). Any other operand, such as a call's
+result, `i / 2`, `^i`, or a field of a mutable variable or a `mut`
+parameter, is proven only when it is a known value.
 
 ```tack run exit=4
 package main
@@ -224,6 +225,69 @@ A fact about the length of a string, a view or a list proves that length
 as a divisor too: where `len(l) > 0` holds, `10 / len(l)` needs nothing
 more.
 
+### Arithmetic
+
+A divisor, an index, a slice's bound or a converted value may be
+arithmetic: `+`, `-` or `*` on two integers, or unary `-` on one, each
+operand a known value, a subject, the length of a string, view or list
+subject, or such arithmetic itself. Its bound is worked out exactly from
+the bounds of its operands: a subject's from its type and the facts in
+force, a length's from the least length the facts give it to the
+greatest, or the largest `int64` when they give none. A sum runs from the sum of the two lowest values to the sum of
+the two highest, a difference from the lowest of one less the highest of
+the other to the highest of one less the lowest of the other, a product
+from the least to the greatest product of the operands' ends, and a
+negation from the highest negated to the lowest negated. A product of two
+values the facts keep from zero, and a negation of one, is not zero
+either. So under `0 <= i && i < 4 && 0 <= j && j < 4`, `i + j` lies from
+0 to 6, and under `x > 5`, `x - 5` is never zero.
+
+Arithmetic wraps (see [Constants and arithmetic](03-arithmetic.md)), so
+an operation is bounded only when every value its operands' bounds allow
+gives a result within its type; otherwise it has no bound, and nor does
+any arithmetic holding it. An operation of a target-width type is bounded
+only when its result is within the type on a 32-bit target. Each operand
+is bounded on its own, so the same subject read twice is two values,
+each anywhere in its bound: `x - x` is not known to be 0. Any other
+operand, a call, a conversion, `/`, `%`, a shift or a bitwise operator,
+gives no bound to the arithmetic holding it. Arithmetic with no bound of
+its own still lies within its type's range, wrapped or not, which proves
+what that range proves, as a `uint8`'s does for a `[256]T`.
+
+```tack run exit=7
+package main
+
+func negated(v int64) uint64 {
+    if v < 0 {
+        return uint64(-(v + 1))
+    }
+    return 0
+}
+
+func pair(i int64, j int64) int64 {
+    a := [7]int64{0, 1, 2, 3, 4, 5, 6}
+    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+        return a[i + j]
+    }
+    return -1
+}
+
+func over(x int64) int64 {
+    if x > 5 {
+        return 100 / (x - 5)
+    }
+    return -1
+}
+
+func main() {
+    if negated(-9223372036854775808) == 9223372036854775807 && pair(3, 3) == 6 &&
+        pair(4, 0) == -1 && over(6) == 100 && over(5) == -1 {
+        exit(7)
+    }
+    exit(1)
+}
+```
+
 ## Relations
 
 A comparison of two values that are not both known, each a subject, a
@@ -263,6 +327,15 @@ i && i + 1 < len(a)` relates nothing, since `i + 1` wraps for the largest
 `len(a)`. `len(x) - c` never wraps. A product is no relation, `||` keeps
 none, and a query follows at most 64 related values from the two it is
 about.
+
+Arithmetic that adds or subtracts known amounts to one subject or
+length, `i + 1` or `len(a) - 1`, is that value plus an offset, and the
+relations in force bound it as they bound the value itself, where none
+of its steps can wrap: its own bound (see [Arithmetic](#arithmetic))
+shows that, or else the relations in force do. So `0 <= i && i < len(a) -
+1` proves `a[i + 1]`, `len(s) > 0` proves `s[len(s) - 1]`, and `0 <= i &&
+i < len(s)` proves `s[i : i + 1]`, while `0 <= i && i + 1 < len(a)`
+proves no `a[i + 1]`, since `i + 1` may wrap.
 
 ## Where a fact holds
 
@@ -421,8 +494,14 @@ None of these proves anything:
 
 - a guard on a field of a mutable variable or a `mut` parameter, or on
   the length of one;
-- a guard on an operand that is not a subject, such as `a[i + 1]` after
-  `if 0 <= i && i < 2`;
+- a guard on an operand that is neither a subject nor arithmetic on
+  subjects, such as `a[i / 2]` after `if 0 <= i && i < 4`;
+- a guard whose bounds let arithmetic reach past what its use allows,
+  such as `a[i + 1]` on a `[3]T` after `if 0 <= i && i < 3`, or let a step
+  of it wrap, such as `uint64(-v)` after `if v < 0`, whose `-v` wraps for
+  the smallest `int64`;
+- two reads of one subject taken as one value: `a[x - x]` after `if 0 <=
+  x && x < 3` is not proven, since `x - x` is bounded from -2 to 2;
 - an element in a path at an index that is not known and not an
   immutable name's;
 - a comparison with a value that is not known, for a divisor, which
@@ -646,7 +725,8 @@ A float division cannot fail, so it has no checked form.
 ### Division and remainder
 
 `a / b`, `a % b`, `x /= b` and `x %= b` need `b != 0`. A divisor is
-proven by known values and by its own facts, never by a relation.
+proven by known values, by its own facts, and, for arithmetic, by the
+bounds of its operands, never by a relation.
 Unproven, the error names the divisor: `divisor b may be zero; check b
 != 0 first, or use q, ok := ... / b`, or `divisor may be zero; use q, ok
 := ... / ...` for a divisor that is not a subject.
@@ -682,7 +762,11 @@ evaluated (see [Ownership and memory](08-ownership.md#exclusive-access)).
 ### Slicing
 
 `x[i:j]` needs `0 <= i`, `i <= j` and `j <= len(x)`, each proven as an
-index's bound is, with the relations `i <= j` and `j <= len(x)`. Unproven,
+index's bound is, with the relations `i <= j` and `j <= len(x)`. A bound
+may also be the length of another string, view or list, bounded as an
+operand of arithmetic is (see [Arithmetic](#arithmetic)), so
+`t[:len(s)]` is proven under `len(s) <= len(t)`, as `t[:len(s) + 0]`
+is. Unproven,
 the error names only what is missing: `slice bounds i:j may be out of
 range; check i <= j first, or use v, ok := ...[i:j]`. Only a string's
 slice has the checked form, which gives `""` and `false` when the bounds

@@ -500,8 +500,8 @@ holds:
   widening](04-types.md#implicit-widening)), as `int64(b)` for a `uint8`
   `b`;
 - the facts in force prove `x` a value of `T`, as `uint64(v)` under `if
-  v >= 0`. What such a proof needs is described in [Safety and
-  proofs](10-safety.md#facts).
+  v >= 0`, or `uint64(-(v + 1))` under `if v < 0`. What such a proof
+  needs is described in [Safety and proofs](10-safety.md#facts).
 
 A constant or known value that is not a value of `T` is an error, as
 `uint8(x)` is after `x := 300`, `constant 300 overflows uint8`. Any other

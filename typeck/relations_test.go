@@ -24,6 +24,10 @@ func relating(lines ...string) string {
 // nothing else does.
 var acceptedRelationCases = []struct{ name, src string }{
 	{"chain", relating("if 0 <= i && i < n && n <= len(a) {", "    return a[i]", "}")},
+	{
+		"an index that is no name",
+		relating("if 0 <= i && i < len(a) - 1 {", "    return a[i + 1]", "}"),
+	},
 	{"chain reversed", relating("if i >= 0 && n > i && len(a) >= n {", "    return a[i]", "}")},
 	{
 		"chain of three",
@@ -388,8 +392,8 @@ var rejectedRelationCases = []struct {
 		},
 	},
 	{
-		"an index that is no name",
-		relating("if 0 <= i && i < len(a) - 1 {", "    return a[i + 1]", "}"),
+		"an index that is no name and may wrap",
+		relating("if 0 <= i && i + 1 < len(a) {", "    return a[i + 1]", "}"),
 		spanned{
 			"index may be out of range; use v, ok := ...[...]", "i + 1",
 		},

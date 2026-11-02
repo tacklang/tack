@@ -15,7 +15,8 @@ package typeck
 // and the breaks and continues out of them, and each keep a branch's
 // keep passes as it is linked (see keepWalk and keep.link); and judged
 // each such branch a write in one is judged against at a use (see
-// leftBefore). They count work,
+// leftBefore); and ranged each operator or operand an arithmetic
+// expression's bound reads (see rangeOf). They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
 type proverWork struct {
@@ -28,4 +29,5 @@ type proverWork struct {
 	walked     int
 	leaving    int
 	judged     int
+	ranged     int
 }

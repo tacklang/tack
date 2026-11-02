@@ -802,7 +802,7 @@ func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 		return "divisor " + name + " may be zero; check " + name + " != 0 first",
 			c.explain(c.divisorProof(divisor))
 	}
-	return "divisor may be zero", c.operandNotes(divisor)
+	return "divisor may be zero", c.operandNotes(divisor, true)
 }
 
 // operandName returns how an error names a divisor or an index: by its

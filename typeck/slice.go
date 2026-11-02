@@ -280,7 +280,8 @@ func (c *Checker) notNegative(b ast.Expr) bool {
 
 // lowest returns the least value the bound b can have where it is used,
 // when there is one: its known value, 0 for a len, and otherwise what its
-// type, and for a subject the facts in force, give it.
+// type, and for a subject or arithmetic the facts in force, give it (see
+// operandRange).
 func (c *Checker) lowest(b ast.Expr) (constant.Int, bool) {
 	if v, ok := c.knownValue(b); ok {
 		return v, true
@@ -289,32 +290,39 @@ func (c *Checker) lowest(b ast.Expr) (constant.Int, bool) {
 		return constant.Int{}, true
 	}
 	known := typeInterval(b)
-	if c.isSubject(b) {
-		known = c.intervalOf(b)
+	if r, ok := c.operandRange(b); ok {
+		known = r
 	}
 	return known.lo, known.hasLo
 }
 
 // highest returns the greatest value the bound b can have where it is
 // used, when there is one: its known value, and otherwise what its type,
-// and for a subject the facts in force, give it.
+// and for a subject, arithmetic or a length the facts in force, give it
+// (see operandRange and leafRange).
 func (c *Checker) highest(b ast.Expr) (constant.Int, bool) {
 	if v, ok := c.knownValue(b); ok {
 		return v, true
 	}
 	known := typeInterval(b)
-	if c.isSubject(b) {
-		known = c.intervalOf(b)
+	if r, ok := c.operandRange(b); ok {
+		known = r
+	}
+	if _, isLen := c.stringLen(b); isLen {
+		known, _ = c.leafRange(b)
 	}
 	return known.hi, known.hasHi
 }
 
 // withinLen reports whether the bound b is known to be at most the length
-// of x, which s slices: a known value or a subject's upper bound at most a
-// known length, or at most the least length the facts give x, when x is a
-// subject; len(x) itself; or a subject a fact in force bounds by len(x),
-// below it or at most it, or the relations in force do, at most len(x),
-// or a known length.
+// of x, which s slices: a known value, or the upper bound of a subject or
+// of arithmetic (see operandRange), at most a known length, or at most
+// the least length the facts give x, when x is a subject; len(x) itself;
+// or a subject a fact in force bounds by len(x), below it or at most it,
+// or a subject, arithmetic or the length of a string, view or list
+// subject the relations in force put at most len(x), or a known length.
+// Such a length is bounded as an operand of arithmetic is (see
+// leafRange), so len(s) is proven wherever len(s) + 0 is.
 func (c *Checker) withinLen(b, x ast.Expr) bool {
 	limit := c.minLen(x)
 	if n, ok := c.extentOf(x); ok {
@@ -326,10 +334,14 @@ func (c *Checker) withinLen(b, x ast.Expr) bool {
 	if c.isLenOf(b, x) {
 		return true
 	}
-	if !c.isSubject(b) {
+	known, ok := c.operandRange(b)
+	if _, isLen := c.stringLen(b); isLen {
+		known, ok = c.leafRange(b)
+	}
+	if !ok {
 		return false
 	}
-	if known := c.intervalOf(b); known.hasHi && known.hi.Cmp(limit) <= 0 {
+	if known.hasHi && known.hi.Cmp(limit) <= 0 {
 		return true
 	}
 	return c.belowLen(b, x) ||
@@ -639,7 +651,7 @@ func (c *Checker) boundNotes(s *ast.Slice, b ast.Expr, lower bool) []diag.Diagno
 	if _, isKnown := c.knownValue(b); isKnown && !lower && c.isSubject(s.X) {
 		return c.explain(c.lengthProof(s.X, func() bool { return c.withinLen(b, s.X) }))
 	}
-	return c.operandNotes(b)
+	return c.operandNotes(b, true)
 }
 
 // uniqueNotes returns notes without repeats, the first of each kept: a

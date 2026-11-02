@@ -3,6 +3,18 @@
 Bugs found and not yet fixed. Each is fixed in its own change, with a failing
 test first, and removed from this list when it lands.
 
+## A length that is not proven gets no note
+
+A length of a string, view or list, `len(s)`, used as a divisor, a
+slice's bound, an index or a converted value, alone or in arithmetic,
+gets its error with no note when it is not proven, whatever guards bound
+it: `10 / len(s)` under `if len(s) < 10` and `t[:len(s)]` under
+`if len(s) < 5` report the error alone. A length alone is also no index
+or converted value the facts prove, though the same length in
+arithmetic is: under `len(s) < len(t)`, `t[len(s)]` is rejected while
+`t[len(s) - 0]` is accepted, and under `len(s) <= 255`,
+`uint8(len(s))` is rejected while `uint8(len(s) + 0)` is accepted.
+
 ## A diagnostic at an implied semicolon points at a trailing comment
 
 When a line ends in a comment, a parse error about the semicolon that the

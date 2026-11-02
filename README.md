@@ -2563,7 +2563,8 @@ section remains the description of the language.
   divisor is proven not zero the two-value form is allowed too, and `ok` is
   always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
   not zero when it is a non-zero constant, an immutable variable holding
-  one, or a variable a condition covers where it is used:
+  one, arithmetic whose bound rules out zero, as `x - 5` under `x > 5`
+  (see indexing), or a variable a condition covers where it is used:
   - inside `if c { ... }` when `c` being true rules out zero, and in its
     `else` when `c` being false does;
   - in the statements after an `if` whose branch ends in `return`, `break`,
@@ -2889,8 +2890,24 @@ section remains the description of the language.
   len(a)` relates `i + 1` to `len(a)`; for an `int8` `i`, it takes a
   bound like `i < 100`. `len(a) - c` never wraps. `||` keeps no
   relation, a product such as `2 * i + 1` is none, and a query follows
-  at most 64 related values. Only a name is proven; an index like
-  `i + 1` needs the two-value form, or `j := i + 1` and a proof of `j`.
+  at most 64 related values. Arithmetic is proven too: an index, a
+  divisor, a slice's bound or a conversion's operand that is `+`, `-` or
+  `*` on two integers, or unary `-` on one, each operand a known value, a
+  variable, a field or element of an immutable variable, `len` of a
+  string, view or list variable, or such arithmetic itself, is bounded
+  by its operands' bounds, worked out exactly: under `0 <= i && i < 4 &&
+  0 <= j && j < 4`, `a[i + j]` of a `[7]T` and `a[2*i + 1]` of an `[8]T`
+  compile. Arithmetic wraps, so an operation that could wrap in its
+  type, for some values its operands' bounds allow, gives no bound, nor
+  does any arithmetic holding it: under `v >= 0`, `v + 1` has none, as
+  it wraps for the largest `int64`, and an operation of a target-width
+  type counts only where it cannot wrap at 32 bits. Each operand is
+  bounded on its own, so `x - x` is not known to be 0. Any other
+  operand, a call, a conversion, `/`, `%`, a shift or a bitwise
+  operator, gives no bound. Arithmetic that adds a known amount to one
+  value, as `i + 1` or `len(a) - 1`, is related to other values too,
+  where the facts keep it from wrapping: `0 <= i && i < len(a) - 1`
+  proves `a[i + 1]` of a view, and `len(s) > 0` proves `s[len(s) - 1]`.
   See [docs/safety.md](docs/safety.md) for every proof and diagnostic.
 - Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
   the same rules: it compiles only where `i` is proven in range, and
@@ -2942,7 +2959,11 @@ section remains the description of the language.
   one included. The bounds must be proven, as an index is: `0 <= i`, `i <=
   j` and `j <= len(x)`, from known values, a variable's type, guards and
   loops, with two more relations a slice's guard may give, `j <= len(x)`
-  and `i <= j`; a bound left out needs nothing of its own, so `x[:j]` needs
+  and `i <= j`, and a bound may be arithmetic, as an index may, so
+  `s[i : i + 1]` compiles under `0 <= i && i < len(s)`, or the length of
+  another string, view or list, proven wherever that length plus 0 is,
+  so `t[:len(s)]` compiles under `len(s) <= len(t)`; a bound left out
+  needs nothing of its own, so `x[:j]` needs
   `0 <= j <= len(x)` and `x[i:]` `0 <= i <= len(x)`. Unproven, the error
   names what is missing, `slice bounds i:j may be out of range; check i <=
   j first, or use v, ok := ...[i:j]`. A string's slice may instead be
@@ -2980,16 +3001,18 @@ section remains the description of the language.
 - Conversions. `T(x)` converts the integer `x` to the integer type `T`, and is
   allowed only where it cannot fail: `x` is a constant, or a known value (see
   division), that is a value of `T`, as `uint8(x)` after `x := 5` or
-  `int8('a')`, `x` is of a type that widens to `T`, or `x` is a name, or a
-  field or element of an immutable variable, that the facts in force keep
-  within `T`'s range, as an index's are kept within a length:
+  `int8('a')`, `x` is of a type that widens to `T`, or `x` is a name, a
+  field or element of an immutable variable, or arithmetic on those (see
+  indexing), that the facts in force keep within `T`'s range, as an
+  index's are kept within a length:
   `uint64(v)` under `if v >= 0`, `int32(v)` under
   `if -2147483648 <= v && v <= 2147483647`, `int64(u)` for a `uint64` `u`
   under `if u <= 9223372036854775807`. The facts come from the same guards,
   early exits, loops, cases, contracts and relations as an index's, and
-  the same writes end them; a field of a mutable variable has none, and
-  an operand written as arithmetic is not read through, so
-  `uint64(-(v + 1))` is not proven under `v < 0`. Unproven, `T(x)` of a
+  the same writes end them; a field of a mutable variable has none.
+  Arithmetic is bounded as an index's is, so `uint64(-(v + 1))` is
+  proven under `v < 0`, while `uint64(-v)` is not, as `-v` wraps for the
+  least `int64`. Unproven, `T(x)` of a
   name is `converting int64 to uint64 can fail; check v >= 0 first, or
   use v, ok := uint64(...)`. A constant or known
   value that is not a value of `T` is an error, as `uint8(x)` after

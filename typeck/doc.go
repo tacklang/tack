@@ -481,6 +481,31 @@
 // with its facts. No fact is about a field of a mut parameter, so a
 // clause about one, a mut receiver's field included, gives none.
 //
+// An index, a slice's bound, a divisor or a conversion's operand may be
+// arithmetic, not only a subject (arith.go): +, - or * on two integers,
+// or unary - on one, each operand a known value, a subject, the length of
+// a string, view or list subject, or such arithmetic, is bounded by
+// working its operation out exactly on its operands' bounds, each from
+// its type and the facts in force (intervalOf) or, for a length, from
+// minLen to maxLen, or the largest int64 when the facts give no upper
+// bound (rangeOf). Arithmetic wraps at run time, so
+// an operation whose exact bound leaves its type's range on some target
+// (portableBounds: a target-width type's top is types.PortableMax) has no
+// bound, nor has arithmetic holding it, and any other operand, a call, a
+// conversion, / or %, a shift or a bitwise operator, gives none.
+// Arithmetic with no bound of its own is still within its type's bounds
+// (operandRange), which may be enough, as a uint8 index's are for 256
+// elements. A product of two values the facts keep from zero, or the
+// negation of one, is not zero either. Each operand is bounded on its
+// own, so x - x is not 0. No operand can call anything that writes, so
+// every leaf is read inside the use, before c.at, and any write in the
+// use ends the facts about what it writes. Arithmetic that adds a known
+// amount to one node (linear) is also a query's term (arithTerm), so the
+// relations in force bound it as they bound a subject, with the
+// conditions that its steps do not wrap dropped where its own bound
+// proves them and proven by the graph otherwise (relates). The work of
+// rangeOf grows with the arithmetic it reads, once per use.
+//
 // Where a value's own bounds fall short of proving an index, a slice's
 // bound or a constant index into a string (never a divisor), the
 // relations in force are asked (relations.go): difference bounds x - y <=
@@ -509,8 +534,9 @@
 // subject reads, through an index of the facts in force by subject once
 // more than a few are (factindex.go), each local's known value worked
 // out, each condition whose facts are worked out rather than taken from
-// the && or || chain kept, and each node a region's writes are indexed
-// from. The counts change nothing it checks;
+// the && or || chain kept, each node a region's writes are indexed
+// from, and each operator or operand an arithmetic bound reads. The
+// counts change nothing it checks;
 // the tests read them to bound how checking grows with a program, which,
 // unlike a time, does not depend on the machine's load.
 //
@@ -523,7 +549,10 @@
 // checked form's value included. Its bounds must
 // be proven, 0 <= i, i <= j and j <= len(x), a bound left out being 0 or
 // len(x), by known values, types and facts, and by the relations in force
-// (see below and relations.go). An error names exactly the comparisons missing, and
+// (see below and relations.go); a bound that is the length of a string,
+// view or list subject is bounded as an operand of arithmetic is
+// (leafRange), so len(s) is proven wherever len(s) + 0 is. An error names
+// exactly the comparisons missing, and
 // notes explain a bound that is a subject as an index's are. A known bound
 // negative, past a known length (extentOf: an array's, a known string's,
 // or a slice's at known bounds), or past the other is always reported. A
@@ -632,9 +661,10 @@
 //     variable or a path below an immutable one, that the facts in force
 //     keep within T's range on every target, 0 to types.PortableMax for
 //     a target-width T, by its own bounds or through the relations in
-//     force (factsFit, convfacts.go). The facts are an index's, from the
-//     same places and ended by the same writes; an operand written as
-//     arithmetic is not read through, so uint64(-(v + 1)) is not proven.
+//     force (factsFit, convfacts.go), or arithmetic on those whose bound
+//     keeps it so (arith.go). The facts are an index's, from the same
+//     places and ended by the same writes; uint64(-(v + 1)) is proven
+//     under v < 0, and uint64(-v) is not, -v wrapping at the least int64.
 //     A constant or known value that does not fit T is reported as
 //     overflowing it. Any other conversion is reported, with the check
 //     that would prove a subject, as an index's is, and notes on the facts

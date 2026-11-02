@@ -1315,6 +1315,1324 @@ arg-count/main.tck:7:5: error: f expects 0 argument(s), got 1
    |	    ^~~~~~~~~~~~
 08 |	}
 
+-- arith-range-at-least-length/main.tck --
+package main
+
+func f(v []int64, i int64) int64 {
+    if len(v) >= 3 && 0 <= i && i <= 1 {
+        return v[i + 2]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-at-least-length/expected --
+stage: typeck
+---
+
+arith-range-at-least-length/main.tck:5:18: error: index may be out of range; use v, ok := ...[...]
+04 |	    if len(v) >= 3 && 0 <= i && i <= 1 {
+05 |	        return v[i + 2]
+   |	                 ^~~~~
+06 |	    }
+arith-range-at-least-length/main.tck:4:8: note: this guard bounds i, not i + 2; the bounds of its operands do not prove i + 2, or let a step of it wrap, so copy i + 2 into a variable and check it
+03 |	func f(v []int64, i int64) int64 {
+04 |	    if len(v) >= 3 && 0 <= i && i <= 1 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return v[i + 2]
+
+-- arith-range-call-inside/main.tck --
+package main
+
+func one() int64 {
+    return 1
+}
+
+func f(i int64) int64 {
+    a := [3]int64{1, 2, 3}
+    if 0 <= i && i < 2 {
+        return a[i + one()]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-call-inside/expected --
+stage: typeck
+---
+
+arith-range-call-inside/main.tck:10:18: error: index may be out of range; use v, ok := ...[...]
+09 |	    if 0 <= i && i < 2 {
+10 |	        return a[i + one()]
+   |	                 ^~~~~~~~~
+11 |	    }
+arith-range-call-inside/main.tck:9:8: note: this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i + one() into a variable and check it
+08 |	    a := [3]int64{1, 2, 3}
+09 |	    if 0 <= i && i < 2 {
+   |	       ^~~~~~~~~~~~~~~
+10 |	        return a[i + one()]
+
+-- arith-range-call-times-zero/main.tck --
+package main
+
+func one() int64 {
+    return 1
+}
+
+func f(i int64) int64 {
+    a := [1]int64{7}
+    return a[one() * 0]
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-call-times-zero/expected --
+stage: typeck
+---
+
+arith-range-call-times-zero/main.tck:9:14: error: index may be out of range; use v, ok := ...[...]
+08 |	    a := [1]int64{7}
+09 |	    return a[one() * 0]
+   |	             ^~~~~~~~~
+10 |	    return 0
+
+-- arith-range-complement/main.tck --
+package main
+
+func f(i int64) int64 {
+    a := [4]int64{1, 2, 3, 4}
+    if -3 <= i && i <= 0 {
+        return a[^i]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-complement/expected --
+stage: typeck
+---
+
+arith-range-complement/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if -3 <= i && i <= 0 {
+06 |	        return a[^i]
+   |	                 ^~
+07 |	    }
+arith-range-complement/main.tck:5:8: note: this guard bounds i, not ^i; only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy ^i into a variable and check it
+04 |	    a := [4]int64{1, 2, 3, 4}
+05 |	    if -3 <= i && i <= 0 {
+   |	       ^~~~~~~~~~~~~~~~~
+06 |	        return a[^i]
+
+-- arith-range-division-inside/main.tck --
+package main
+
+func f(i int64) int64 {
+    a := [3]int64{1, 2, 3}
+    if 0 <= i && i < 2 {
+        return a[i / 1 + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-division-inside/expected --
+stage: typeck
+---
+
+arith-range-division-inside/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if 0 <= i && i < 2 {
+06 |	        return a[i / 1 + 1]
+   |	                 ^~~~~~~~~
+07 |	    }
+arith-range-division-inside/main.tck:5:8: note: this guard bounds i, not i / 1 + 1; only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i / 1 + 1 into a variable and check it
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    if 0 <= i && i < 2 {
+   |	       ^~~~~~~~~~~~~~~
+06 |	        return a[i / 1 + 1]
+
+-- arith-range-int32-mul-wraps/main.tck --
+package main
+
+func f(x int32) int64 {
+    if 0 <= x && x <= 50000 {
+        return int64(uint32(x * 50000))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int32-mul-wraps/expected --
+stage: typeck
+---
+
+arith-range-int32-mul-wraps/main.tck:5:22: error: converting int32 to uint32 can fail; use v, ok := uint32(...)
+04 |	    if 0 <= x && x <= 50000 {
+05 |	        return int64(uint32(x * 50000))
+   |	                     ^~~~~~~~~~~~~~~~~
+06 |	    }
+arith-range-int32-mul-wraps/main.tck:4:8: note: this guard bounds x, not x * 50000; the bounds of its operands do not prove x * 50000, or let a step of it wrap, so copy x * 50000 into a variable and check it
+03 |	func f(x int32) int64 {
+04 |	    if 0 <= x && x <= 50000 {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+05 |	        return int64(uint32(x * 50000))
+
+-- arith-range-int64-add-wraps/main.tck --
+package main
+
+func sink(v uint64) {
+}
+
+func f(v int64) int64 {
+    if v >= 0 {
+        sink(uint64(v + 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int64-add-wraps/expected --
+stage: typeck
+---
+
+arith-range-int64-add-wraps/main.tck:8:14: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+07 |	    if v >= 0 {
+08 |	        sink(uint64(v + 1))
+   |	             ^~~~~~~~~~~~~
+09 |	    }
+arith-range-int64-add-wraps/main.tck:7:8: note: this guard bounds v, not v + 1; the bounds of its operands do not prove v + 1, or let a step of it wrap, so copy v + 1 into a variable and check it
+06 |	func f(v int64) int64 {
+07 |	    if v >= 0 {
+   |	       ^~~~~~
+08 |	        sink(uint64(v + 1))
+
+-- arith-range-int64-mul-past-edge/main.tck --
+package main
+
+func sink(v uint64) {
+}
+
+func f(v int64) int64 {
+    if v >= 0 && v <= 4611686018427387904 {
+        sink(uint64(v * 2 + 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int64-mul-past-edge/expected --
+stage: typeck
+---
+
+arith-range-int64-mul-past-edge/main.tck:8:14: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+07 |	    if v >= 0 && v <= 4611686018427387904 {
+08 |	        sink(uint64(v * 2 + 1))
+   |	             ^~~~~~~~~~~~~~~~~
+09 |	    }
+arith-range-int64-mul-past-edge/main.tck:7:8: note: this guard bounds v, not v * 2 + 1; the bounds of its operands do not prove v * 2 + 1, or let a step of it wrap, so copy v * 2 + 1 into a variable and check it
+06 |	func f(v int64) int64 {
+07 |	    if v >= 0 && v <= 4611686018427387904 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	        sink(uint64(v * 2 + 1))
+
+-- arith-range-int64-negate-least/main.tck --
+package main
+
+func sink(v uint64) {
+}
+
+func f(v int64) int64 {
+    if v < 0 {
+        sink(uint64(-v))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int64-negate-least/expected --
+stage: typeck
+---
+
+arith-range-int64-negate-least/main.tck:8:14: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+07 |	    if v < 0 {
+08 |	        sink(uint64(-v))
+   |	             ^~~~~~~~~~
+09 |	    }
+arith-range-int64-negate-least/main.tck:7:8: note: this guard bounds v, not -v; the bounds of its operands do not prove -v, or let a step of it wrap, so copy -v into a variable and check it
+06 |	func f(v int64) int64 {
+07 |	    if v < 0 {
+   |	       ^~~~~
+08 |	        sink(uint64(-v))
+
+-- arith-range-int8-chain-may-wrap/main.tck --
+package main
+
+func f(a []int64, b int8, n int64) int64 {
+    if 0 <= b && b < n && n <= len(a) {
+        return a[b + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int8-chain-may-wrap/expected --
+stage: typeck
+---
+
+arith-range-int8-chain-may-wrap/main.tck:5:18: error: index may be out of range; use v, ok := ...[...]
+04 |	    if 0 <= b && b < n && n <= len(a) {
+05 |	        return a[b + 1]
+   |	                 ^~~~~
+06 |	    }
+arith-range-int8-chain-may-wrap/main.tck:4:8: note: this guard bounds b, not b + 1; the bounds of its operands do not prove b + 1, or let a step of it wrap, so copy b + 1 into a variable and check it
+03 |	func f(a []int64, b int8, n int64) int64 {
+04 |	    if 0 <= b && b < n && n <= len(a) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return a[b + 1]
+
+-- arith-range-int8-mul-wraps-inside/main.tck --
+package main
+
+func f(b int8) int64 {
+    if 1 <= b && b <= 64 {
+        return int64(uint8(b * 2 - 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int8-mul-wraps-inside/expected --
+stage: typeck
+---
+
+arith-range-int8-mul-wraps-inside/main.tck:5:22: error: converting int8 to uint8 can fail; use v, ok := uint8(...)
+04 |	    if 1 <= b && b <= 64 {
+05 |	        return int64(uint8(b * 2 - 1))
+   |	                     ^~~~~~~~~~~~~~~~
+06 |	    }
+arith-range-int8-mul-wraps-inside/main.tck:4:8: note: this guard bounds b, not b * 2 - 1; the bounds of its operands do not prove b * 2 - 1, or let a step of it wrap, so copy b * 2 - 1 into a variable and check it
+03 |	func f(b int8) int64 {
+04 |	    if 1 <= b && b <= 64 {
+   |	       ^~~~~~~~~~~~~~~~~
+05 |	        return int64(uint8(b * 2 - 1))
+
+-- arith-range-int8-negate-least/main.tck --
+package main
+
+func f(b int8) int64 {
+    if b < 0 {
+        return int64(uint8(-b))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int8-negate-least/expected --
+stage: typeck
+---
+
+arith-range-int8-negate-least/main.tck:5:22: error: converting int8 to uint8 can fail; use v, ok := uint8(...)
+04 |	    if b < 0 {
+05 |	        return int64(uint8(-b))
+   |	                     ^~~~~~~~~
+06 |	    }
+arith-range-int8-negate-least/main.tck:4:8: note: this guard bounds b, not -b; the bounds of its operands do not prove -b, or let a step of it wrap, so copy -b into a variable and check it
+03 |	func f(b int8) int64 {
+04 |	    if b < 0 {
+   |	       ^~~~~
+05 |	        return int64(uint8(-b))
+
+-- arith-range-int8-relation-may-wrap/main.tck --
+package main
+
+func f(b int8, n int8) int64 {
+    if 0 <= n && n <= b {
+        return int64(uint8(b + 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-int8-relation-may-wrap/expected --
+stage: typeck
+---
+
+arith-range-int8-relation-may-wrap/main.tck:5:22: error: converting int8 to uint8 can fail; use v, ok := uint8(...)
+04 |	    if 0 <= n && n <= b {
+05 |	        return int64(uint8(b + 1))
+   |	                     ^~~~~~~~~~~~
+06 |	    }
+
+-- arith-range-known-string-past-end/main.tck --
+package main
+
+func f(i int64, j int64) int64 {
+    s := "abc"
+    if 0 <= i && i <= j && j <= 2 {
+        return int64(s[i + 1])
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-known-string-past-end/expected --
+stage: typeck
+---
+
+arith-range-known-string-past-end/main.tck:6:24: error: index may be out of range; use v, ok := ...[...]
+05 |	    if 0 <= i && i <= j && j <= 2 {
+06 |	        return int64(s[i + 1])
+   |	                       ^~~~~
+07 |	    }
+arith-range-known-string-past-end/main.tck:5:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
+04 |	    s := "abc"
+05 |	    if 0 <= i && i <= j && j <= 2 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        return int64(s[i + 1])
+
+-- arith-range-leaving-write-reaches/main.tck --
+package main
+
+func f(i int64, c bool) int64 {
+    mut j = i
+    a := [3]int64{1, 2, 3}
+    if 0 <= j && j < 2 {
+        for k := range 2 {
+            if c {
+                j = 7
+                continue
+            }
+            print("")
+            if a[j + 1] == k {
+                return 1
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-leaving-write-reaches/expected --
+stage: typeck
+---
+
+arith-range-leaving-write-reaches/main.tck:13:18: error: index may be out of range; use v, ok := ...[...]
+12 |	            print("")
+13 |	            if a[j + 1] == k {
+   |	                 ^~~~~
+14 |	                return 1
+
+-- arith-range-length-dead/main.tck --
+package main
+
+func f(w string) {
+    if len(w) <= 4 && len(w) >= 10 {
+        print("abc"[:len(w)])
+    }
+}
+
+func main() {
+}
+-- arith-range-length-dead/expected --
+stage: typeck
+---
+
+arith-range-length-dead/main.tck:5:21: error: slice bound ... may be out of range; use v, ok := ...[:...]
+04 |	    if len(w) <= 4 && len(w) >= 10 {
+05 |	        print("abc"[:len(w)])
+   |	                    ^~~~~~~
+06 |	    }
+
+-- arith-range-length-divisor/main.tck --
+package main
+
+func f(s string) int64 {
+    if len(s) < 10 {
+        return 10 / len(s)
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-length-divisor/expected --
+stage: typeck
+---
+
+arith-range-length-divisor/main.tck:5:21: error: divisor may be zero; use q, ok := ... / ...
+04 |	    if len(s) < 10 {
+05 |	        return 10 / len(s)
+   |	                    ^~~~~~
+06 |	    }
+
+-- arith-range-length-divisor-dead/main.tck --
+package main
+
+func f(s string) int64 {
+    if len(s) <= -1 {
+        return 10 / len(s)
+    }
+    return 0
+}
+
+func main() {
+}
+-- arith-range-length-divisor-dead/expected --
+stage: typeck
+---
+
+arith-range-length-divisor-dead/main.tck:5:21: error: divisor may be zero; use q, ok := ... / ...
+04 |	    if len(s) <= -1 {
+05 |	        return 10 / len(s)
+   |	                    ^~~~~~
+06 |	    }
+
+-- arith-range-length-divisor-zero/main.tck --
+package main
+
+func f(s string) int64 {
+    if len(s) > 0 {
+        return 1
+    } else {
+        return 10 / len(s)
+    }
+}
+
+func main() {
+}
+-- arith-range-length-divisor-zero/expected --
+stage: typeck
+---
+
+arith-range-length-divisor-zero/main.tck:7:21: error: divisor may be zero; use q, ok := ... / ...
+06 |	    } else {
+07 |	        return 10 / len(s)
+   |	                    ^~~~~~
+08 |	    }
+
+-- arith-range-length-past-known/main.tck --
+package main
+
+func f(w string) {
+    if len(w) <= 4 {
+        print("abc"[:len(w)])
+    }
+}
+
+func main() {
+}
+-- arith-range-length-past-known/expected --
+stage: typeck
+---
+
+arith-range-length-past-known/main.tck:5:21: error: slice bound ... may be out of range; use v, ok := ...[:...]
+04 |	    if len(w) <= 4 {
+05 |	        print("abc"[:len(w)])
+   |	                    ^~~~~~~
+06 |	    }
+
+-- arith-range-length-plus-one/main.tck --
+package main
+
+func f(s string) int64 {
+    if uint64(len(s) + 1) == 0 {
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-length-plus-one/expected --
+stage: typeck
+---
+
+arith-range-length-plus-one/main.tck:4:8: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+03 |	func f(s string) int64 {
+04 |	    if uint64(len(s) + 1) == 0 {
+   |	       ^~~~~~~~~~~~~~~~~~
+05 |	        return 1
+
+-- arith-range-length-slice-bound/main.tck --
+package main
+
+func f(t string, s string) {
+    if len(s) < 5 {
+        print(t[:len(s)])
+    }
+}
+
+func main() {
+}
+-- arith-range-length-slice-bound/expected --
+stage: typeck
+---
+
+arith-range-length-slice-bound/main.tck:5:17: error: slice bound ... may be out of range; use v, ok := ...[:...]
+04 |	    if len(s) < 5 {
+05 |	        print(t[:len(s)])
+   |	                ^~~~~~~
+06 |	    }
+
+-- arith-range-length-top/main.tck --
+package main
+
+func f(s string) int64 {
+    a := [2]int64{1, 2}
+    if len(s) >= 2147483647 {
+        return a[len(s) - 2147483647]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-length-top/expected --
+stage: typeck
+---
+
+arith-range-length-top/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if len(s) >= 2147483647 {
+06 |	        return a[len(s) - 2147483647]
+   |	                 ^~~~~~~~~~~~~~~~~~~
+07 |	    }
+
+-- arith-range-length-write-between/main.tck --
+package main
+
+func f(s string, t0 string) {
+    mut t := t0
+    if len(s) < 5 {
+        t = "x"
+        print(t[:len(s)])
+    }
+}
+
+func main() {
+}
+-- arith-range-length-write-between/expected --
+stage: typeck
+---
+
+arith-range-length-write-between/main.tck:7:17: error: slice bound ... may be out of range; use v, ok := ...[:...]
+06 |	        t = "x"
+07 |	        print(t[:len(s)])
+   |	                ^~~~~~~
+08 |	    }
+
+-- arith-range-lengths-order-high-guard/main.tck --
+package main
+
+func f(s string, u string) {
+    if len(u) <= len(s) {
+        if len(u) < 5 {
+            print(s[len(s):len(u)])
+        }
+    }
+}
+
+func main() {
+}
+-- arith-range-lengths-order-high-guard/expected --
+stage: typeck
+---
+
+arith-range-lengths-order-high-guard/main.tck:6:21: error: slice bounds ...:... may be out of range; use v, ok := ...[...:...]
+05 |	        if len(u) < 5 {
+06 |	            print(s[len(s):len(u)])
+   |	                    ^~~~~~~~~~~~~
+07 |	        }
+
+-- arith-range-lengths-out-of-order/main.tck --
+package main
+
+func f(t string, s string, u string) {
+    if len(s) < 5 && len(u) < 5 && len(u) <= len(t) {
+        print(t[len(s):len(u)])
+    }
+}
+
+func main() {
+}
+-- arith-range-lengths-out-of-order/expected --
+stage: typeck
+---
+
+arith-range-lengths-out-of-order/main.tck:5:17: error: slice bounds ...:... may be out of range; use v, ok := ...[...:...]
+04 |	    if len(s) < 5 && len(u) < 5 && len(u) <= len(t) {
+05 |	        print(t[len(s):len(u)])
+   |	                ^~~~~~~~~~~~~
+06 |	    }
+
+-- arith-range-literal-past-end/main.tck --
+package main
+
+func f(i int64, j int64) int64 {
+    if 0 <= i && i <= j && j <= 2 {
+        return int64("abc"[i + 1])
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-literal-past-end/expected --
+stage: typeck
+---
+
+arith-range-literal-past-end/main.tck:5:28: error: index may be out of range; use v, ok := ...[...]
+04 |	    if 0 <= i && i <= j && j <= 2 {
+05 |	        return int64("abc"[i + 1])
+   |	                           ^~~~~
+06 |	    }
+arith-range-literal-past-end/main.tck:4:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
+03 |	func f(i int64, j int64) int64 {
+04 |	    if 0 <= i && i <= j && j <= 2 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return int64("abc"[i + 1])
+
+-- arith-range-mixed-signs-past-end/main.tck --
+package main
+
+func f(i int64, j int64) int64 {
+    a := [3]int64{1, 2, 3}
+    if -1 <= i && i <= 1 && -2 <= j && j <= 2 {
+        return a[i * j + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-mixed-signs-past-end/expected --
+stage: typeck
+---
+
+arith-range-mixed-signs-past-end/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if -1 <= i && i <= 1 && -2 <= j && j <= 2 {
+06 |	        return a[i * j + 1]
+   |	                 ^~~~~~~~~
+07 |	    }
+arith-range-mixed-signs-past-end/main.tck:5:8: note: this guard bounds i, not i * j + 1; the bounds of its operands do not prove i * j + 1, or let a step of it wrap, so copy i * j + 1 into a variable and check it
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    if -1 <= i && i <= 1 && -2 <= j && j <= 2 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        return a[i * j + 1]
+arith-range-mixed-signs-past-end/main.tck:5:8: note: this guard bounds j, not i * j + 1; the bounds of its operands do not prove i * j + 1, or let a step of it wrap, so copy i * j + 1 into a variable and check it
+04 |	    a := [3]int64{1, 2, 3}
+05 |	    if -1 <= i && i <= 1 && -2 <= j && j <= 2 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        return a[i * j + 1]
+
+-- arith-range-mixed-signs-past-int64/main.tck --
+package main
+
+func sink(v uint64) {
+}
+
+func f(i int64, j int64) int64 {
+    if 0 <= i && i <= 3037000500 && -3037000500 <= j && j <= 0 {
+        sink(uint64(-(i * j)))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-mixed-signs-past-int64/expected --
+stage: typeck
+---
+
+arith-range-mixed-signs-past-int64/main.tck:8:14: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
+07 |	    if 0 <= i && i <= 3037000500 && -3037000500 <= j && j <= 0 {
+08 |	        sink(uint64(-(i * j)))
+   |	             ^~~~~~~~~~~~~~~~
+09 |	    }
+arith-range-mixed-signs-past-int64/main.tck:7:8: note: this guard bounds i, not -(i * j); the bounds of its operands do not prove -(i * j), or let a step of it wrap, so copy -(i * j) into a variable and check it
+06 |	func f(i int64, j int64) int64 {
+07 |	    if 0 <= i && i <= 3037000500 && -3037000500 <= j && j <= 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	        sink(uint64(-(i * j)))
+arith-range-mixed-signs-past-int64/main.tck:7:8: note: this guard bounds j, not -(i * j); the bounds of its operands do not prove -(i * j), or let a step of it wrap, so copy -(i * j) into a variable and check it
+06 |	func f(i int64, j int64) int64 {
+07 |	    if 0 <= i && i <= 3037000500 && -3037000500 <= j && j <= 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	        sink(uint64(-(i * j)))
+
+-- arith-range-mut-ends-fact/main.tck --
+package main
+
+func bump(mut n int64) {
+    n = 9
+}
+
+func f(i int64) int64 {
+    mut j = i
+    a := [3]int64{1, 2, 3}
+    if 0 <= j && j < 2 {
+        bump(mut j)
+        return a[j + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-mut-ends-fact/expected --
+stage: typeck
+---
+
+arith-range-mut-ends-fact/main.tck:12:18: error: index may be out of range; use v, ok := ...[...]
+11 |	        bump(mut j)
+12 |	        return a[j + 1]
+   |	                 ^~~~~
+13 |	    }
+
+-- arith-range-mutable-field/main.tck --
+package main
+
+type P struct {
+    n int64
+}
+
+func f(q P) int64 {
+    mut p = q
+    a := [3]int64{1, 2, 3}
+    if 0 <= p.n && p.n < 2 {
+        p.n = 7
+        return a[p.n + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-mutable-field/expected --
+stage: typeck
+---
+
+arith-range-mutable-field/main.tck:12:18: error: index may be out of range; use v, ok := ...[...]
+11 |	        p.n = 7
+12 |	        return a[p.n + 1]
+   |	                 ^~~~~~~
+13 |	    }
+
+-- arith-range-named-known/main.tck --
+package main
+
+func f(i int64) int64 {
+    a := [3]int64{1, 2, 3}
+    k := 1
+    if 0 <= i && i < 3 {
+        return a[i + k]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-named-known/expected --
+stage: typeck
+---
+
+arith-range-named-known/main.tck:7:18: error: index may be out of range; use v, ok := ...[...]
+06 |	    if 0 <= i && i < 3 {
+07 |	        return a[i + k]
+   |	                 ^~~~~
+08 |	    }
+arith-range-named-known/main.tck:6:8: note: this guard bounds i, not i + k; the bounds of its operands do not prove i + k, or let a step of it wrap, so copy i + k into a variable and check it
+05 |	    k := 1
+06 |	    if 0 <= i && i < 3 {
+   |	       ^~~~~~~~~~~~~~~
+07 |	        return a[i + k]
+
+-- arith-range-negation-may-be-zero/main.tck --
+package main
+
+func f(x int64) int64 {
+    if -5 < x && x < 2 {
+        return 100 / -x
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-negation-may-be-zero/expected --
+stage: typeck
+---
+
+arith-range-negation-may-be-zero/main.tck:5:22: error: divisor may be zero; use q, ok := ... / ...
+04 |	    if -5 < x && x < 2 {
+05 |	        return 100 / -x
+   |	                     ^~
+06 |	    }
+arith-range-negation-may-be-zero/main.tck:4:8: note: this guard bounds x, not -x; the bounds of its operands do not prove -x, or let a step of it wrap, so copy -x into a variable and check it
+03 |	func f(x int64) int64 {
+04 |	    if -5 < x && x < 2 {
+   |	       ^~~~~~~~~~~~~~~
+05 |	        return 100 / -x
+
+-- arith-range-product-may-be-zero/main.tck --
+package main
+
+func f(x int64, y int64) int64 {
+    if x != 0 && -5 < x && x < 5 && -5 < y && y < 5 {
+        return 100 / (x * y)
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-product-may-be-zero/expected --
+stage: typeck
+---
+
+arith-range-product-may-be-zero/main.tck:5:23: error: divisor may be zero; use q, ok := ... / ...
+04 |	    if x != 0 && -5 < x && x < 5 && -5 < y && y < 5 {
+05 |	        return 100 / (x * y)
+   |	                      ^~~~~
+06 |	    }
+arith-range-product-may-be-zero/main.tck:4:8: note: this guard bounds x, not x * y; the bounds of its operands do not prove x * y, or let a step of it wrap, so copy x * y into a variable and check it
+03 |	func f(x int64, y int64) int64 {
+04 |	    if x != 0 && -5 < x && x < 5 && -5 < y && y < 5 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return 100 / (x * y)
+arith-range-product-may-be-zero/main.tck:4:8: note: this guard bounds y, not x * y; the bounds of its operands do not prove x * y, or let a step of it wrap, so copy x * y into a variable and check it
+03 |	func f(x int64, y int64) int64 {
+04 |	    if x != 0 && -5 < x && x < 5 && -5 < y && y < 5 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return 100 / (x * y)
+
+-- arith-range-relation-may-wrap/main.tck --
+package main
+
+func f(a []int64, i int64) int64 {
+    if 0 <= i && i + 1 < len(a) {
+        return a[i + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-relation-may-wrap/expected --
+stage: typeck
+---
+
+arith-range-relation-may-wrap/main.tck:5:18: error: index may be out of range; use v, ok := ...[...]
+04 |	    if 0 <= i && i + 1 < len(a) {
+05 |	        return a[i + 1]
+   |	                 ^~~~~
+06 |	    }
+arith-range-relation-may-wrap/main.tck:4:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
+03 |	func f(a []int64, i int64) int64 {
+04 |	    if 0 <= i && i + 1 < len(a) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return a[i + 1]
+
+-- arith-range-self-difference/main.tck --
+package main
+
+func f(x int64) int64 {
+    a := [1]int64{7}
+    if 0 <= x && x < 3 {
+        return a[x - x]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-self-difference/expected --
+stage: typeck
+---
+
+arith-range-self-difference/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if 0 <= x && x < 3 {
+06 |	        return a[x - x]
+   |	                 ^~~~~
+07 |	    }
+arith-range-self-difference/main.tck:5:8: note: this guard bounds x, not x - x; the bounds of its operands do not prove x - x, or let a step of it wrap, so copy x - x into a variable and check it
+04 |	    a := [1]int64{7}
+05 |	    if 0 <= x && x < 3 {
+   |	       ^~~~~~~~~~~~~~~
+06 |	        return a[x - x]
+
+-- arith-range-size-no-upper-bound/main.tck --
+package main
+
+func f(n unsafe_size_t) int64 {
+    if n >= 1 {
+        return int64(uint32(n - 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-size-no-upper-bound/expected --
+stage: typeck
+---
+
+arith-range-size-no-upper-bound/main.tck:5:22: error: converting unsafe_size_t to uint32 can fail; use v, ok := uint32(...)
+04 |	    if n >= 1 {
+05 |	        return int64(uint32(n - 1))
+   |	                     ^~~~~~~~~~~~~
+06 |	    }
+arith-range-size-no-upper-bound/main.tck:4:8: note: this guard bounds n, not n - 1; the bounds of its operands do not prove n - 1, or let a step of it wrap, so copy n - 1 into a variable and check it
+03 |	func f(n unsafe_size_t) int64 {
+04 |	    if n >= 1 {
+   |	       ^~~~~~
+05 |	        return int64(uint32(n - 1))
+
+-- arith-range-size-past-portable/main.tck --
+package main
+
+func f(n unsafe_size_t) int64 {
+    if n <= 4294967295 {
+        return int64(uint32(n + 1))
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-size-past-portable/expected --
+stage: typeck
+---
+
+arith-range-size-past-portable/main.tck:5:22: error: converting unsafe_size_t to uint32 can fail; use v, ok := uint32(...)
+04 |	    if n <= 4294967295 {
+05 |	        return int64(uint32(n + 1))
+   |	                     ^~~~~~~~~~~~~
+06 |	    }
+arith-range-size-past-portable/main.tck:4:8: note: this guard bounds n, not n + 1; the bounds of its operands do not prove n + 1, or let a step of it wrap, so copy n + 1 into a variable and check it
+03 |	func f(n unsafe_size_t) int64 {
+04 |	    if n <= 4294967295 {
+   |	       ^~~~~~~~~~~~~~~
+05 |	        return int64(uint32(n + 1))
+
+-- arith-range-slice-out-of-order/main.tck --
+package main
+
+func f(s string, i int64) int64 {
+    if 0 <= i && i < len(s) {
+        print(s[i + 1 : i])
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-slice-out-of-order/expected --
+stage: typeck
+---
+
+arith-range-slice-out-of-order/main.tck:5:17: error: slice bounds ...:i may be out of range; use v, ok := ...[...:i]
+04 |	    if 0 <= i && i < len(s) {
+05 |	        print(s[i + 1 : i])
+   |	                ^~~~~~~~~
+06 |	    }
+
+-- arith-range-string-last-unguarded/main.tck --
+package main
+
+func f(s string) int64 {
+    return int64(s[len(s) - 1])
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-string-last-unguarded/expected --
+stage: typeck
+---
+
+arith-range-string-last-unguarded/main.tck:4:20: error: index may be out of range; use v, ok := ...[...]
+03 |	func f(s string) int64 {
+04 |	    return int64(s[len(s) - 1])
+   |	                   ^~~~~~~~~~
+05 |	    return 0
+
+-- arith-range-subject-at-least-length/main.tck --
+package main
+
+func f(v []int64, i int64) int64 {
+    if len(v) >= 3 && 0 <= i && i <= 3 {
+        return v[i]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-subject-at-least-length/expected --
+stage: typeck
+---
+
+arith-range-subject-at-least-length/main.tck:5:18: error: index i may be out of range; check 0 <= i && i < len(v) first, or use v, ok := ...[i]
+04 |	    if len(v) >= 3 && 0 <= i && i <= 3 {
+05 |	        return v[i]
+   |	                 ^
+06 |	    }
+
+-- arith-range-sum-reaches-end/main.tck --
+package main
+
+func f(i int64, j int64) int64 {
+    a := [6]int64{1, 2, 3, 4, 5, 6}
+    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+        return a[i + j]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-sum-reaches-end/expected --
+stage: typeck
+---
+
+arith-range-sum-reaches-end/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+06 |	        return a[i + j]
+   |	                 ^~~~~
+07 |	    }
+arith-range-sum-reaches-end/main.tck:5:8: note: this guard bounds i, not i + j; the bounds of its operands do not prove i + j, or let a step of it wrap, so copy i + j into a variable and check it
+04 |	    a := [6]int64{1, 2, 3, 4, 5, 6}
+05 |	    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        return a[i + j]
+arith-range-sum-reaches-end/main.tck:5:8: note: this guard bounds j, not i + j; the bounds of its operands do not prove i + j, or let a step of it wrap, so copy i + j into a variable and check it
+04 |	    a := [6]int64{1, 2, 3, 4, 5, 6}
+05 |	    if 0 <= i && i < 4 && 0 <= j && j < 4 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	        return a[i + j]
+
+-- arith-range-times-zero-divisor/main.tck --
+package main
+
+func f(x int64) int64 {
+    return 100 / (x * 0)
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-times-zero-divisor/expected --
+stage: typeck
+---
+
+arith-range-times-zero-divisor/main.tck:4:19: error: divisor may be zero; use q, ok := ... / ...
+03 |	func f(x int64) int64 {
+04 |	    return 100 / (x * 0)
+   |	                  ^~~~~
+05 |	    return 0
+
+-- arith-range-two-reads-apart/main.tck --
+package main
+
+func f(u uint64) int64 {
+    if u <= 6148914691236517205 {
+        return int64(u * 3 - u * 2)
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-two-reads-apart/expected --
+stage: typeck
+---
+
+arith-range-two-reads-apart/main.tck:5:16: error: converting uint64 to int64 can fail; use v, ok := int64(...)
+04 |	    if u <= 6148914691236517205 {
+05 |	        return int64(u * 3 - u * 2)
+   |	               ^~~~~~~~~~~~~~~~~~~~
+06 |	    }
+arith-range-two-reads-apart/main.tck:4:8: note: this guard bounds u, not u * 3 - u * 2; the bounds of its operands do not prove u * 3 - u * 2, or let a step of it wrap, so copy u * 3 - u * 2 into a variable and check it
+03 |	func f(u uint64) int64 {
+04 |	    if u <= 6148914691236517205 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~
+05 |	        return int64(u * 3 - u * 2)
+
+-- arith-range-uint64-mul-wraps-zero/main.tck --
+package main
+
+func f(u uint64) int64 {
+    if u > 0 && 100 / (u * 2) == 0 {
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-uint64-mul-wraps-zero/expected --
+stage: typeck
+---
+
+arith-range-uint64-mul-wraps-zero/main.tck:4:24: error: divisor may be zero; use q, ok := ... / ...
+03 |	func f(u uint64) int64 {
+04 |	    if u > 0 && 100 / (u * 2) == 0 {
+   |	                       ^~~~~
+05 |	        return 1
+arith-range-uint64-mul-wraps-zero/main.tck:4:8: note: this guard bounds u, not u * 2; the bounds of its operands do not prove u * 2, or let a step of it wrap, so copy u * 2 into a variable and check it
+03 |	func f(u uint64) int64 {
+04 |	    if u > 0 && 100 / (u * 2) == 0 {
+   |	       ^~~~~
+05 |	        return 1
+
+-- arith-range-uint64-sub-wraps-zero/main.tck --
+package main
+
+func f(u uint64) int64 {
+    a := [4]int64{1, 2, 3, 4}
+    if u <= 4 {
+        return a[u - 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-uint64-sub-wraps-zero/expected --
+stage: typeck
+---
+
+arith-range-uint64-sub-wraps-zero/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if u <= 4 {
+06 |	        return a[u - 1]
+   |	                 ^~~~~
+07 |	    }
+arith-range-uint64-sub-wraps-zero/main.tck:5:8: note: this guard bounds u, not u - 1; the bounds of its operands do not prove u - 1, or let a step of it wrap, so copy u - 1 into a variable and check it
+04 |	    a := [4]int64{1, 2, 3, 4}
+05 |	    if u <= 4 {
+   |	       ^~~~~~
+06 |	        return a[u - 1]
+
+-- arith-range-uint8-add-wraps-top/main.tck --
+package main
+
+func f(u uint8) int64 {
+    return int64(100 / (u + 1))
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-uint8-add-wraps-top/expected --
+stage: typeck
+---
+
+arith-range-uint8-add-wraps-top/main.tck:4:25: error: divisor may be zero; use q, ok := ... / ...
+03 |	func f(u uint8) int64 {
+04 |	    return int64(100 / (u + 1))
+   |	                        ^~~~~
+05 |	    return 0
+
+-- arith-range-view-last-unguarded/main.tck --
+package main
+
+func f(v []int64) int64 {
+    return v[len(v) - 1]
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-view-last-unguarded/expected --
+stage: typeck
+---
+
+arith-range-view-last-unguarded/main.tck:4:14: error: index may be out of range; use v, ok := ...[...]
+03 |	func f(v []int64) int64 {
+04 |	    return v[len(v) - 1]
+   |	             ^~~~~~~~~~
+05 |	    return 0
+
+-- arith-range-write-ends-fact/main.tck --
+package main
+
+func f(i int64) int64 {
+    mut j = i
+    a := [3]int64{1, 2, 3}
+    if 0 <= j && j < 2 {
+        j = 5
+        return a[j + 1]
+    }
+    return 0
+}
+
+func main() {
+    print("")
+}
+-- arith-range-write-ends-fact/expected --
+stage: typeck
+---
+
+arith-range-write-ends-fact/main.tck:8:18: error: index may be out of range; use v, ok := ...[...]
+07 |	        j = 5
+08 |	        return a[j + 1]
+   |	                 ^~~~~
+09 |	    }
+
 -- array-compare-lengths/main.tck --
 package main
 
@@ -4651,7 +5969,7 @@ package main
 
 func f(v int64) uint64 {
     if v < 0 {
-        return uint64(-(v + 1))
+        return uint64(-v)
     }
     return 0
 }
@@ -4667,14 +5985,14 @@ stage: typeck
 
 conversion-fact-expression/main.tck:5:16: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
 04 |	    if v < 0 {
-05 |	        return uint64(-(v + 1))
-   |	               ^~~~~~~~~~~~~~~~
+05 |	        return uint64(-v)
+   |	               ^~~~~~~~~~
 06 |	    }
-conversion-fact-expression/main.tck:4:8: note: this guard bounds v, not -(v + 1); only a name, or a field or element of an immutable variable, is proven, so copy -(v + 1) into a variable and check it
+conversion-fact-expression/main.tck:4:8: note: this guard bounds v, not -v; the bounds of its operands do not prove -v, or let a step of it wrap, so copy -v into a variable and check it
 03 |	func f(v int64) uint64 {
 04 |	    if v < 0 {
    |	       ^~~~~
-05 |	        return uint64(-(v + 1))
+05 |	        return uint64(-v)
 
 -- conversion-fact-int32-above/main.tck --
 package main
@@ -4910,11 +6228,6 @@ conversion-fact-length/main.tck:5:16: error: converting int64 to uint8 can fail;
 05 |	        return uint8(len(s))
    |	               ^~~~~~~~~~~~~
 06 |	    }
-conversion-fact-length/main.tck:4:8: note: this guard bounds s, not len(s); only a name, or a field or element of an immutable variable, is proven, so copy len(s) into a variable and check it
-03 |	func f(s string) uint8 {
-04 |	    if len(s) <= 255 {
-   |	       ^~~~~~~~~~~~~
-05 |	        return uint8(len(s))
 
 -- conversion-fact-length-relation/main.tck --
 package main
@@ -10400,7 +11713,7 @@ field-fact-mutable-index/main.tck:10:20: error: divisor may be zero; use q, ok :
 10 |	        return n / p.a[j]
    |	                   ^~~~~~
 11 |	    }
-field-fact-mutable-index/main.tck:9:8: note: this guard bounds j, not p.a[j]; only a name, or a field or element of an immutable variable, is proven, so copy p.a[j] into a variable and check it
+field-fact-mutable-index/main.tck:9:8: note: this guard bounds j, not p.a[j]; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy p.a[j] into a variable and check it
 08 |	    mut j int64 = 1
 09 |	    if 0 <= j && j < 3 && p.a[j] != 0 {
    |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -27540,7 +28853,7 @@ note-nested-block/main.tck:7:13: note: but d is assigned here, so the proof ends
 package main
 
 func f(a int64, b int64) int64 {
-    if b > 1 {
+    if b > 0 {
         return a / (b - 1)
     }
     return 0
@@ -27555,13 +28868,13 @@ stage: typeck
 ---
 
 note-not-a-name-divisor/main.tck:5:21: error: divisor may be zero; use q, ok := ... / ...
-04 |	    if b > 1 {
+04 |	    if b > 0 {
 05 |	        return a / (b - 1)
    |	                    ^~~~~
 06 |	    }
-note-not-a-name-divisor/main.tck:4:8: note: this guard bounds b, not b - 1; only a name, or a field or element of an immutable variable, is proven, so copy b - 1 into a variable and check it
+note-not-a-name-divisor/main.tck:4:8: note: this guard bounds b, not b - 1; the bounds of its operands do not prove b - 1, or let a step of it wrap, so copy b - 1 into a variable and check it
 03 |	func f(a int64, b int64) int64 {
-04 |	    if b > 1 {
+04 |	    if b > 0 {
    |	       ^~~~~
 05 |	        return a / (b - 1)
 
@@ -32805,10 +34118,10 @@ relation-mut-call/main.tck:12:18: error: index i may be out of range; check 0 <=
 -- relation-not-a-name/main.tck --
 package main
 
-// The relations prove i + 1 below len(a), but only a name is proven as
-// an index: copy i + 1 into a variable.
+// i + 1 < len(a) relates i to len(a) only where i + 1 cannot wrap, which
+// nothing here proves: i may be the largest int64.
 func pair(a []int64, i int64) int64 {
-    if 0 <= i && i < len(a) - 1 {
+    if 0 <= i && i + 1 < len(a) {
         return a[i + 1]
     }
     return -1
@@ -32821,13 +34134,13 @@ stage: typeck
 ---
 
 relation-not-a-name/main.tck:7:18: error: index may be out of range; use v, ok := ...[...]
-06 |	    if 0 <= i && i < len(a) - 1 {
+06 |	    if 0 <= i && i + 1 < len(a) {
 07 |	        return a[i + 1]
    |	                 ^~~~~
 08 |	    }
-relation-not-a-name/main.tck:6:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
+relation-not-a-name/main.tck:6:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
 05 |	func pair(a []int64, i int64) int64 {
-06 |	    if 0 <= i && i < len(a) - 1 {
+06 |	    if 0 <= i && i + 1 < len(a) {
    |	       ^~~~~~~~~~~~~~~~~~~~~~~~
 07 |	        return a[i + 1]
 
@@ -34671,7 +35984,7 @@ safety-no-proof-mutable-global/main.tck:3:5: note: g is a mutable global, so no 
 package main
 
 func f(a [3]int64, i int64) int64 {
-    if 0 <= i && i < 2 {
+    if 0 <= i && i < 3 {
         return a[i + 1]
     }
     return 0
@@ -34686,13 +35999,13 @@ stage: typeck
 ---
 
 safety-no-proof-not-a-name/main.tck:5:18: error: index may be out of range; use v, ok := ...[...]
-04 |	    if 0 <= i && i < 2 {
+04 |	    if 0 <= i && i < 3 {
 05 |	        return a[i + 1]
    |	                 ^~~~~
 06 |	    }
-safety-no-proof-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
+safety-no-proof-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
 03 |	func f(a [3]int64, i int64) int64 {
-04 |	    if 0 <= i && i < 2 {
+04 |	    if 0 <= i && i < 3 {
    |	       ^~~~~~~~~~~~~~~
 05 |	        return a[i + 1]
 
@@ -36212,7 +37525,7 @@ slice-unproven-mutable-global/main.tck:3:5: note: word is a mutable global, so n
 package main
 
 func after(s string, i int64) string {
-    if 0 <= i && i < len(s) {
+    if 0 <= i && i <= len(s) {
         return s[i + 1:]
     }
     return ""
@@ -36226,14 +37539,14 @@ stage: typeck
 ---
 
 slice-unproven-not-a-name/main.tck:5:18: error: slice bound ... may be out of range; use v, ok := ...[...:]
-04 |	    if 0 <= i && i < len(s) {
+04 |	    if 0 <= i && i <= len(s) {
 05 |	        return s[i + 1:]
    |	                 ^~~~~~
 06 |	    }
-slice-unproven-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; only a name, or a field or element of an immutable variable, is proven, so copy i + 1 into a variable and check it
+slice-unproven-not-a-name/main.tck:4:8: note: this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, or let a step of it wrap, so copy i + 1 into a variable and check it
 03 |	func after(s string, i int64) string {
-04 |	    if 0 <= i && i < len(s) {
-   |	       ^~~~~~~~~~~~~~~~~~~~
+04 |	    if 0 <= i && i <= len(s) {
+   |	       ^~~~~~~~~~~~~~~~~~~~~
 05 |	        return s[i + 1:]
 
 -- slice-unproven-order/main.tck --

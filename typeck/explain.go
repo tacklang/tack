@@ -665,18 +665,24 @@ func globalNote(v *ast.Var) []diag.Diagnostic {
 		v.Name+" is a mutable global, so no check proves it; copy it into a local first")}
 }
 
-// operandNotes explains why operand, a divisor or an index that is not a
-// subject, is not proven: a field of a mutable variable a guard in scope
-// compares, which never carries a fact, or an expression using a variable
-// a guard bounds, when only a plain name or a path below an immutable one
-// is proven.
-func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
+// operandNotes explains why operand, a divisor, an index, a slice's bound
+// or a converted value that is not a subject, is not proven, lenAlone
+// saying whether its use proves the length of a string, view or list
+// subject on its own, as a divisor's and a slice bound's does: a field of
+// a mutable variable a guard in scope compares, which never carries a
+// fact, or an expression using a variable a guard bounds. Arithmetic the
+// checker reads through (see arithmeticShape) gets a note that its
+// operands' bounds fall short or let a step wrap; anything else gets one
+// that lists what is proven for its use (see provenList). A length gets
+// no note, alone or in arithmetic (see nameNote).
+func (c *Checker) operandNotes(operand ast.Expr, lenAlone bool) []diag.Diagnostic {
 	if _, ok := operand.(*ast.Selector); ok {
 		return c.fieldNotes(operand)
 	}
 	if _, known := c.knownValue(operand); known {
 		return nil
 	}
+	readable := c.arithmeticShape(operand)
 	var notes []diag.Diagnostic
 	var seen []ast.Decl
 	ast.Walk(operand, func(n ast.Node) bool {
@@ -692,16 +698,50 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 			},
 		)
 		if bounded {
-			expr := c.text(operand.Spanned())
-			notes = append(
-				notes,
-				note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+", not "+expr+
-					"; only a name, or a field or element of an immutable variable, is proven, so copy "+expr+" into a variable and check it"),
-			)
+			notes = append(notes, c.nameNote(f, id, operand, readable, lenAlone)...)
 		}
 		return true
 	})
 	return notes
+}
+
+// nameNote returns the note at f's guard, which bounds id, a name in
+// operand, saying that it bounds id and not operand: operand's bounds
+// fall short or let a step wrap, when readable says operand is arithmetic
+// the checker reads through, or else only what provenList lists for its
+// use is proven. A fact about a string, a view or a list is about its
+// length, which gets no note.
+func (c *Checker) nameNote(
+	f fact,
+	id *ast.Ident,
+	operand ast.Expr,
+	readable, lenAlone bool,
+) []diag.Diagnostic {
+	if _, isLen := c.stringVar(id); isLen {
+		return nil
+	}
+	expr := c.text(operand.Spanned())
+	why := "; only " + provenList(lenAlone) + ", is proven, so copy "
+	if readable {
+		why = "; the bounds of its operands do not prove " + expr +
+			", or let a step of it wrap, so copy "
+	}
+	return []diag.Diagnostic{note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+
+		", not "+expr+why+expr+" into a variable and check it")}
+}
+
+// provenList returns what a note lists as proven for an operand: a known
+// value, a name, a path below an immutable one, and arithmetic on those
+// or on the length of a string, view or list one, and, when lenAlone says
+// the use proves such a length on its own, as a divisor and a slice's
+// bound do, that length alone too.
+func provenList(lenAlone bool) string {
+	if lenAlone {
+		return "a known value, a name, a field or element of an immutable variable, " +
+			"len of a string, view or list one, or +, -, * or unary - on those"
+	}
+	return "a known value, a name, a field or element of an immutable variable, " +
+		"or +, -, * or unary - on those or on len of a string, view or list one"
 }
 
 // fieldNotes returns the note for the field path, such as p.d, of a

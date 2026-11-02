@@ -188,8 +188,8 @@ var rejectedConversionCases = []struct {
 		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(g)"},
 	},
 	{
-		"guarded parameter plus one",
-		converting("if 0 <= x && x < 255 {", "    return uint8(x + 1)", "}"),
+		"guarded parameter plus one, past the type",
+		converting("if 0 <= x && x < 256 {", "    return uint8(x + 1)", "}"),
 		spanned{"converting int64 to uint8 can fail; use v, ok := uint8(...)", "uint8(x + 1)"},
 	},
 }
@@ -198,6 +198,10 @@ var rejectedConversionCases = []struct {
 // which the facts in force prove a value of the type converted to.
 var provenConversionCases = []struct{ name, src string }{
 	{"guarded parameter", converting("if 0 <= x && x < 256 {", "    return uint8(x)", "}")},
+	{
+		"guarded parameter plus one",
+		converting("if 0 <= x && x < 255 {", "    return uint8(x + 1)", "}"),
+	},
 	{
 		"parameter compared equal to a constant",
 		converting("if x == 5 {", "    return uint8(x)", "}"),

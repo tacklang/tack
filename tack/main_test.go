@@ -2013,6 +2013,39 @@ func TestBuiltConversionFactsPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The arithmetic-ranges example indexes, slices, divides and converts by
+// arithmetic on bounded values, +, -, * and unary -, with no checked
+// form: a conversion of -(v + 1), indexes i + 1, 2*i, i + j, u - 1 and
+// -(i - 3), len(s) - 1, a slice s[i : i + 1], a divisor x - 5, and
+// arithmetic on fields, each run at the edges of what its guard allows
+// and just past them, the type's extremes included. Each check prints
+// its name and "ok", or "FAIL".
+func TestBuiltArithmeticRangesPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "arithmetic-ranges")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("arithmetic-ranges exited with %v, want status 0", err)
+	}
+	want := "-(v + 1) to uint64 under v < 0 ok\n" +
+		"a[i + 1] of an array ok\n" +
+		"a[i + 1] of a view under i < len(a) - 1 ok\n" +
+		"a[2*i] and a[2*i + 1] ok\n" +
+		"a divisor x - 5 under x > 5 ok\n" +
+		"a[i + j] under bounds on both ok\n" +
+		"s[len(s) - 1] under len(s) > 0 ok\n" +
+		"s[i : i + 1] under i < len(s) ok\n" +
+		"fields of an immutable parameter ok\n" +
+		"a[u - 1] of a uint64 ok\n" +
+		"b * 2 - 1 to int8 ok\n" +
+		"n * 4 to unsafe_size_t ok\n" +
+		"a[-(i - 3)] ok\n" +
+		"t[:len(s)] under len(s) <= len(t) ok\n" +
+		"\"abc\"[:len(w)] under len(w) <= 3 ok\n"
+	if string(out) != want {
+		t.Errorf("arithmetic-ranges printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The ensures example calls functions whose ensures clauses prove facts
 // about their arguments: an error checked by a call, as a statement and
 // as a value and in a loop, a divisor, through a plain and a mut

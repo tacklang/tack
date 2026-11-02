@@ -77,9 +77,10 @@ func (c *Checker) reportOutside(ix *ast.Index, v constant.Int) {
 // range for the string s where it is used: a constant below a known
 // string's length, or below the least length the facts in force give s, or
 // the relations in force do (see relates); or a subject, a variable or a
-// path below an immutable one, at least 0, by its bounds or the relations,
-// that is below a known string's length, below the least length of s, or
-// below len(s) itself by a fact or the relations.
+// path below an immutable one, or arithmetic (see operandRange), at least
+// 0, by its bounds or the relations, that is below a known string's
+// length, below the least length of s, or below len(s) itself by a fact
+// or the relations.
 func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 	if v, ok := c.knownValue(ix.Index); ok {
 		if n, isKnown := c.extentOf(ix.X); isKnown {
@@ -87,20 +88,21 @@ func (c *Checker) stringIndexProven(ix *ast.Index) bool {
 		}
 		return !v.IsNegative() && (v.Cmp(c.minLen(ix.X)) < 0 || c.lenAbove(ix.X, v))
 	}
-	if !c.isSubject(ix.Index) {
+	known, ok := c.operandRange(ix.Index)
+	if !ok {
 		return false
 	}
-	known := c.intervalOf(ix.Index)
 	if (!known.hasLo || known.lo.IsNegative()) && !c.atLeast(ix.Index) {
 		return false
 	}
 	return c.belowStringLen(ix.Index, known, ix.X)
 }
 
-// belowStringLen reports whether the subject i, of which known is what the
-// facts say, is below the length of the string s: a known string's
-// constant length, the least length the facts give s, or len(s) itself,
-// by its bounds, a fact or the relations in force.
+// belowStringLen reports whether the index i, a subject or arithmetic, of
+// which known is what the facts say (see operandRange), is below the
+// length of the string s: a known string's constant length, the least
+// length the facts give s, or len(s) itself, by its bounds, a fact or the
+// relations in force.
 func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
 	if n, isKnown := c.extentOf(s); isKnown {
 		return known.hasHi && known.hi.Cmp(constant.FromInt64(n)) < 0 ||
@@ -112,7 +114,8 @@ func (c *Checker) belowStringLen(i ast.Expr, known interval, s ast.Expr) bool {
 	return c.belowLen(i, s) || c.belowLenBy(i, s)
 }
 
-// belowLenBy reports whether the relations in force put the subject i
+// belowLenBy reports whether the relations in force put the index i, a
+// subject or arithmetic that adds a known amount to one (see queryTerm),
 // below the length of s, a string, view or list subject.
 func (c *Checker) belowLenBy(i, s ast.Expr) bool {
 	ti, okI := c.queryTerm(i)
@@ -160,6 +163,24 @@ func (c *Checker) minLen(s ast.Expr) constant.Int {
 	default:
 		return constant.Int{}
 	}
+}
+
+// maxLen returns the greatest length the facts in force give the string
+// s, or the list or view, when s is a subject, a variable or a path below
+// an immutable one, and false when they give none: an upper bound on
+// len(s), from the same facts minLen reads, ended by the same writes.
+func (c *Checker) maxLen(s ast.Expr) (constant.Int, bool) {
+	k, ok := c.subjectKey(s)
+	if !ok {
+		return constant.Int{}, false
+	}
+	var most interval
+	for f := range c.factsAbout(k) {
+		if c.holds(f) {
+			most = most.narrow(f)
+		}
+	}
+	return most.hi, most.hasHi
 }
 
 // belowLen reports whether a fact in force says the subject i is below the
