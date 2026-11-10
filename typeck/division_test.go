@@ -5,14 +5,16 @@ import (
 )
 
 // divide wraps statements in a function that takes a dividend a, a divisor
-// b and a flag x, and returns an int64, ending in return 0.
+// b and a flag x, and returns an int64, ending in return 0. a is an int32,
+// which widens to b's int64 and is never the smallest int64, so no a / b
+// needs more than its divisor proven: the cases are about the divisor.
 func divide(lines ...string) string {
 	body := ""
 	for _, l := range lines {
 		body += "    " + l + "\n"
 	}
 	return "package main\n\nvar k = 3\n\nmut g int64 = 1\n\n" +
-		"func f(a int64, b int64, x bool) int64 {\n" + body + "    return 0\n}\n\n" +
+		"func f(a int32, b int64, x bool) int64 {\n" + body + "    return 0\n}\n\n" +
 		"func main() {\n    code, fits := int32(f(1, 2, true) +% k +% g)\n    if fits { exit(code) }\n}\n"
 }
 
@@ -90,7 +92,7 @@ var provenDivisorCases = []struct{ name, src string }{
 		"mutable but not changed",
 		divide("mut d := b", "if d != 0 {", "    return a / d", "}", "d = 0", "return d"),
 	},
-	{"compound guarded", divide("mut c := a", "if b != 0 {", "    c /= b", "}", "return c")},
+	{"compound guarded", divide("mut c := int64(a)", "if b != 0 {", "    c /= b", "}", "return c")},
 	{"narrow divisor", divide("var n int8 = 5", "if n != 0 {", "    return a / n", "}")},
 	{"checked division", divide("q, ok := a / b", "if ok {", "    return q", "}")},
 	{"checked remainder", divide("r, ok := a % (b +% 1)", "if ok {", "    return r", "}")},
@@ -181,12 +183,12 @@ var unprovenDivisorCases = []struct {
 	{"constant zero local", divide("z := 0", "return a / z"), spanned{"division by zero", "z"}},
 	{
 		"compound literal zero",
-		divide("mut c := a", "c /= 0", "return c"),
+		divide("mut c := int64(a)", "c /= 0", "return c"),
 		spanned{"division by zero", "0"},
 	},
 	{
 		"compound unguarded",
-		divide("mut c := a", "c %= b", "return c"),
+		divide("mut c := int64(a)", "c %= b", "return c"),
 		spanned{"divisor b may be zero; check b != 0 first", "b"},
 	},
 	{

@@ -15,7 +15,7 @@ func errorProgram(lines ...string) string {
 	return "package main\n\n" +
 		"func parse(s string) (int64, error) {\n    if len(s) == 0 {\n" +
 		"        return 0, error{code: 1, msg: \"empty\"}\n    }\n    return 1, noerror\n}\n\n" +
-		"func divide(a int64, b int64) (int64, int64, error) {\n    if b == 0 {\n" +
+		"func divide(a int64, b int64) (int64, int64, error) {\n    if b == 0 || b == -1 {\n" +
 		"        return 0, 0, error{code: 2, msg: \"zero\"}\n    }\n    return a / b, a % b, noerror\n}\n\n" +
 		"func ready() error {\n    return noerror\n}\n\n" +
 		"func bump(mut n int64) {\n    n +%= 1\n}\n\n" +

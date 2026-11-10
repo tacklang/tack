@@ -367,7 +367,7 @@ var structCases = []struct{ name, src string }{
 			pointDecls,
 			"p := Point{x: 6, y: 2}",
 			"d := p.y",
-			"if d != 0 {",
+			"if d > 0 {",
 			"    code, fits := int32(p.x / d)",
 			"    if fits { exit(code) }",
 			"}",

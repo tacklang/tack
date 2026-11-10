@@ -3676,7 +3676,11 @@ func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
     }
-    return a / b, a % b
+    q, ok := a / b
+    if !ok {
+        return 0, 0
+    }
+    return q, a % b
 }
 
 func main() {
@@ -3687,11 +3691,11 @@ func main() {
 stage: typeck
 ---
 
-assignment-mismatch-count/main.tck:11:5: error: assignment mismatch: 3 variables but divmod returns 2 values
-10 |	func main() {
-11 |	    q, r, s := divmod(7, 2)
+assignment-mismatch-count/main.tck:15:5: error: assignment mismatch: 3 variables but divmod returns 2 values
+14 |	func main() {
+15 |	    q, r, s := divmod(7, 2)
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
-12 |	    exit(q + r + s)
+16 |	    exit(q + r + s)
 
 -- assignment-mismatch-no-value/main.tck --
 package main
@@ -7564,6 +7568,187 @@ division-by-zero/main.tck:5:10: error: division by zero
    |	         ^
 06 |	    code, fits := int32(n)
 
+-- division-overflow-compound/main.tck --
+package main
+
+func f(x int64, b int64) int64 {
+    mut y := x
+    if b != 0 {
+        y /= b
+    }
+    return y
+}
+
+func main() {
+    if f(8, 2) == 4 {
+        exit(1)
+    }
+}
+-- division-overflow-compound/expected --
+stage: typeck
+---
+
+division-overflow-compound/main.tck:6:9: error: y /= b may overflow int64; check b != -1 first, or use q, ok := y / b and y = q when ok
+05 |	    if b != 0 {
+06 |	        y /= b
+   |	        ^~~~~~
+07 |	    }
+
+-- division-overflow-compound-known/main.tck --
+package main
+
+func f(x int64) int64 {
+    mut y := x
+    y /= -1
+    return y
+}
+
+func main() {
+    if f(8) == -8 {
+        exit(1)
+    }
+}
+-- division-overflow-compound-known/expected --
+stage: typeck
+---
+
+division-overflow-compound-known/main.tck:5:5: error: y /= -1 may overflow int64; check y > -9223372036854775808 first, or use q, ok := y / -1 and y = q when ok
+04 |	    mut y := x
+05 |	    y /= -1
+   |	    ^~~~~~~
+06 |	    return y
+
+-- division-overflow-ended-by-write/main.tck --
+package main
+
+func g() int8 {
+    return -128
+}
+
+func f(x int8, b int8) int8 {
+    mut a := x
+    if b != 0 && a != -128 {
+        a = g()
+        return a / b
+    }
+    return 0
+}
+
+func main() {
+    if f(8, 2) == 4 {
+        exit(1)
+    }
+}
+-- division-overflow-ended-by-write/expected --
+stage: typeck
+---
+
+division-overflow-ended-by-write/main.tck:11:16: error: a / b may overflow int8; check b != -1 first, or use q, ok := a / b
+10 |	        a = g()
+11 |	        return a / b
+   |	               ^~~~~
+12 |	    }
+
+-- division-overflow-guard-zero-only/main.tck --
+package main
+
+func f(a int64, b int64) int64 {
+    if b != 0 {
+        return a / b
+    }
+    return 0
+}
+
+func main() {
+    if f(8, 2) == 4 {
+        exit(1)
+    }
+}
+-- division-overflow-guard-zero-only/expected --
+stage: typeck
+---
+
+division-overflow-guard-zero-only/main.tck:5:16: error: a / b may overflow int64; check b != -1 first, or use q, ok := a / b
+04 |	    if b != 0 {
+05 |	        return a / b
+   |	               ^~~~~
+06 |	    }
+
+-- division-overflow-known-divisor/main.tck --
+package main
+
+func f(a int16) int16 {
+    return a / -1
+}
+
+func main() {
+    if f(8) == -8 {
+        exit(1)
+    }
+}
+-- division-overflow-known-divisor/expected --
+stage: typeck
+---
+
+division-overflow-known-divisor/main.tck:4:12: error: a / -1 may overflow int16; check a > -32768 first, or use q, ok := a / -1
+03 |	func f(a int16) int16 {
+04 |	    return a / -1
+   |	           ^~~~~~
+05 |	}
+
+-- division-overflow-loop/main.tck --
+package main
+
+func f(a int64) int64 {
+    mut total int64 = 0
+    for mut i int64 = -3; i < 3; i++ {
+        if i != 0 {
+            total +%= a / i
+        }
+    }
+    return total
+}
+
+func main() {
+    if f(6) == 0 {
+        exit(1)
+    }
+}
+-- division-overflow-loop/expected --
+stage: typeck
+---
+
+division-overflow-loop/main.tck:7:23: error: a / i may overflow int64; check i != -1 first, or use q, ok := a / i
+06 |	        if i != 0 {
+07 |	            total +%= a / i
+   |	                      ^~~~~
+08 |	        }
+
+-- division-overflow-unproven/main.tck --
+package main
+
+func f(a int32, b int32) int32 {
+    if b < 0 {
+        return a / b
+    }
+    return 0
+}
+
+func main() {
+    if f(8, -2) == -4 {
+        exit(1)
+    }
+}
+-- division-overflow-unproven/expected --
+stage: typeck
+---
+
+division-overflow-unproven/main.tck:5:16: error: a / b may overflow int32; check b != -1 first, or use q, ok := a / b
+04 |	    if b < 0 {
+05 |	        return a / b
+   |	               ^~~~~
+06 |	    }
+
 -- divisor-changed-in-guard/main.tck --
 package main
 
@@ -10507,7 +10692,11 @@ func divide(a int64, b int64) (int64, int64, error) {
     if b == 0 {
         return 0, 0, error{code: 5, msg: "division by zero"}
     }
-    return a / b, a % b, noerror
+    q, ok := a / b
+    if !ok {
+        return 0, 0, error{code: 5, msg: "division overflows"}
+    }
+    return q, a % b, noerror
 }
 
 func main() {
@@ -10526,11 +10715,11 @@ func main() {
 stage: typeck
 ---
 
-error-read-three-results/main.tck:12:8: error: r cannot be read before err is checked; check err.code == 0 first
-11 |	    q, r, err := divide(7, 2)
-12 |	    if r > 0 {
+error-read-three-results/main.tck:16:8: error: r cannot be read before err is checked; check err.code == 0 first
+15 |	    q, r, err := divide(7, 2)
+16 |	    if r > 0 {
    |	       ^
-13 |	        print("remainder\n")
+17 |	        print("remainder\n")
 
 -- error-read-unchecked/main.tck --
 package main
@@ -28020,7 +28209,11 @@ func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
     }
-    return a / b, a % b
+    q, ok := a / b
+    if !ok {
+        return 0, 0
+    }
+    return q, a % b
 }
 
 func main() {
@@ -28030,11 +28223,11 @@ func main() {
 stage: typeck
 ---
 
-multi-value-as-value/main.tck:11:10: error: divmod returns 2 values
-10 |	func main() {
-11 |	    exit(divmod(7, 2))
+multi-value-as-value/main.tck:15:10: error: divmod returns 2 values
+14 |	func main() {
+15 |	    exit(divmod(7, 2))
    |	         ^~~~~~~~~~~~
-12 |	}
+16 |	}
 
 -- multi-var-in-post/main.tck --
 package main
@@ -37810,7 +38003,11 @@ func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
     }
-    return a / b
+    q, ok := a / b
+    if !ok {
+        return 0, 0
+    }
+    return q
 }
 
 func main() {
@@ -37820,11 +38017,11 @@ func main() {
 stage: typeck
 ---
 
-return-not-enough/main.tck:7:5: error: not enough return values: divmod returns 2, got 1
-06 |	    }
-07 |	    return a / b
-   |	    ^~~~~~~~~~~~
-08 |	}
+return-not-enough/main.tck:11:5: error: not enough return values: divmod returns 2, got 1
+10 |	    }
+11 |	    return q
+   |	    ^~~~~~~~
+12 |	}
 
 -- return-too-many/main.tck --
 package main

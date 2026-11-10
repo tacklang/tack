@@ -44,7 +44,8 @@
 // be written, whether it was moved, and whether it is read, and writes only
 // what Tack accepts: every variable it declares is read; an index, a byte
 // or a divisor is proven by an if that guards a single statement, or read
-// in the checked form, and a divisor that may be written also by an early
+// in the checked form, a signed /'s divisor proven not -1 as well, and a
+// divisor that may be written also by an early
 // exit ending in exit, never taken, since an if before it makes a zero 1, or by a call to a
 // helper, pg_fix_T(mut d), whose contract, ensures d != 0, the compiler
 // proves in its body and gives the division after the call; a constant is never the only operand of arithmetic,

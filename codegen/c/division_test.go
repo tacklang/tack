@@ -39,13 +39,13 @@ var checkedDivisionCases = []struct {
 		1,
 	},
 	{
-		"smallest value by -1 wraps",
+		"smallest value by -1 fails, and its remainder is 0",
 		program(
 			"mut m int8 = -128",
 			"mut d int8 = -1",
 			"q, ok := m / d",
 			"r, okR := m % d",
-			"if ok && okR && q == -128 && r == 0 {",
+			"if !ok && okR && q == 0 && r == 0 {",
 			"    exit(1)",
 			"}",
 		),

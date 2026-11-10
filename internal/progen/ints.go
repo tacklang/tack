@@ -70,9 +70,9 @@ func fits(t *IntType, bits uint64, to *IntType) bool {
 // arith applies the arithmetic or bitwise operator op to a and b, values
 // of t, as Tack does at run time: + - and * and their wrapping forms +%
 // -% and *% wrapping at t's width, which a plain one, proven not to
-// overflow, never does, the smallest signed value divided by -1 being
-// itself, remainder 0. Division by zero is never asked for; the generator
-// proves or checks every divisor.
+// overflow, never does, the smallest signed value % -1 being 0. Division
+// by zero, and the smallest signed value divided by -1, are never asked
+// for; the generator proves or checks every division (see overflowsDiv).
 func arith(t *IntType, op string, a, b uint64) uint64 {
 	switch op {
 	case "+", "+%":
@@ -93,6 +93,13 @@ func arith(t *IntType, op string, a, b uint64) uint64 {
 		return divide(t, op, a, b)
 	}
 	panic("progen: unknown operator " + op)
+}
+
+// overflowsDiv reports whether a / b, values of t, is t's smallest value
+// divided by -1, which overflows a signed t.
+func overflowsDiv(t *IntType, a, b uint64) bool {
+	least := int64(-1) << (t.Bits - 1)
+	return t.Signed && int64(b) == -1 && int64(a) == least //nolint:gosec // two's complement on purpose
 }
 
 // divide is arith for / and %.

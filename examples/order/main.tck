@@ -96,8 +96,8 @@ func main() {
     check(v == 8 && inRange)
 
     print("division: ")
-    q, nonzero := say("a ", 9) / say("b ", 3)
-    check(q == 3 && nonzero)
+    q, ok := say("a ", 9) / say("b ", 3)
+    check(q == 3 && ok)
 
     print("a global read before a call: ")
     count = 0

@@ -568,11 +568,19 @@ func (c *Checker) intArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 	if typ == types.Invalid {
 		return types.Invalid
 	}
-	if (bin.Op == ast.Div || bin.Op == ast.Rem) && c.checkedDivision != bin {
-		c.requireNonzero(bin.Y, true)
+	checked := c.checkedDivision == bin
+	nonzero := true
+	if (bin.Op == ast.Div || bin.Op == ast.Rem) && !checked {
+		nonzero = c.requireNonzero(bin.Y, true)
 	}
 	if c.knownOverflow(bin, typ) {
 		return types.Invalid
+	}
+	if bin.Op == ast.Div && !checked && nonzero {
+		// The proof reads bin's type, which its check records only once
+		// it returns it.
+		bin.Type = typ
+		c.requireNoQuotientOverflow(bin, typ, nil)
 	}
 	if isPlainArith(bin) {
 		c.requireNoOverflow(bin, typ)
@@ -776,22 +784,25 @@ func (c *Checker) typedArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 // requireNonzero reports a divisor that is not proven non-zero where it is
 // used: a constant zero, or anything else no fact covers. withOk says
 // whether the division could be written q, ok := a / b instead, which a
-// compound assignment cannot.
-func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) {
+// compound assignment cannot. It returns whether the divisor is proven,
+// and so was not reported.
+func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) bool {
 	if v, ok := c.knownValue(divisor); ok {
 		if v.IsZero() {
 			c.errorf(divisor.Spanned(), "division by zero")
+			return false
 		}
-		return
+		return true
 	}
 	if c.nonzero(divisor) {
-		return
+		return true
 	}
 	msg, notes := c.divisorError(divisor)
 	if withOk {
 		msg += orUse("q, ok := ... / "+c.operandName(divisor), strings.HasSuffix(msg, " first"))
 	}
 	c.errorNotes(divisor.Spanned(), notes, "%s", msg)
+	return false
 }
 
 // divisorError returns the error for a divisor no fact proves not zero,

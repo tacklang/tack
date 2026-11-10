@@ -9,7 +9,9 @@ import (
 // acceptedDefers must check cleanly: deferred statements of every kind,
 // loops inside deferred blocks that break and continue on their own, and
 // divisions and indexes proven by facts that hold wherever the deferred
-// code can run.
+// code can run. A divisor's proof is mostly tested through %, which needs
+// nothing of its dividend, where n / d would also need n, an int64, kept
+// from being the smallest value divided by -1.
 var acceptedDefers = []struct {
 	name string
 	src  string
@@ -76,14 +78,14 @@ var acceptedDefers = []struct {
 		inF(
 			"if d != 0 {",
 			"    defer { report() }",
-			"    defer { f(n / d, d, i, s, a) }",
+			"    defer { f(n % d, d, i, s, a) }",
 			"}",
 			"return 0",
 		),
 	},
 	{
 		"proven by an if before it",
-		inF("if d == 0 {", "    return 0", "}", "defer { f(n / d, d, i, s, a) }", "return 1"),
+		inF("if d == 0 {", "    return 0", "}", "defer { f(n % d, d, i, s, a) }", "return 1"),
 	},
 	{
 		"proven by a range loop",
@@ -102,7 +104,7 @@ var acceptedDefers = []struct {
 			"mut e := d",
 			"defer {",
 			"    if e != 0 {",
-			"        f(n / e, d, i, s, a)",
+			"        f(n % e, d, i, s, a)",
 			"    }",
 			"}",
 			"e = 0",
@@ -124,7 +126,7 @@ var acceptedDefers = []struct {
 			"if e != 0 {",
 			"    defer {",
 			"        report()",
-			"        e = n / e",
+			"        e = n % e",
 			"    }",
 			"}",
 			"return 0",

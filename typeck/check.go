@@ -2021,7 +2021,8 @@ func targetName(target ast.Expr) string {
 // target must be an integer variable it can update, or, for += -= *= and
 // /=, a float one, and the value usable as the target's type, or, for <<=
 // and >>=, a shift's count (see shiftCount). A float's /= needs no proof
-// that its divisor is not zero.
+// that its divisor is not zero; a signed integer's needs one that it is
+// not the smallest value divided by -1 (see requireNoQuotientOverflow).
 func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 	op := a.Op.String() + "="
 	outer := c.storeTo(a.Span)
@@ -2035,8 +2036,10 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 			return
 		}
 		usable := c.use(a.Value, got, typ, "in "+op)
-		if usable && (a.Op == ast.Div || a.Op == ast.Rem) && !types.IsFloat(typ) {
-			c.requireNonzero(a.Value, false)
+		if usable && (a.Op == ast.Div || a.Op == ast.Rem) && !types.IsFloat(typ) &&
+			c.requireNonzero(a.Value, false) && a.Op == ast.Div {
+			bin := &ast.Binary{X: a.Target, Op: ast.Div, Y: a.Value, Type: typ, Span: a.Span}
+			c.requireNoQuotientOverflow(bin, typ, a)
 		}
 		if usable && (a.Op == ast.Add || a.Op == ast.Sub || a.Op == ast.Mul) {
 			c.requireStepNoOverflow(a, typ)

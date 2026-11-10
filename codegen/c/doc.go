@@ -652,14 +652,19 @@
 // operation when ok, or 0 (arithValues). So are & | ^ &^ and
 // unary ^, on the two's complement bits a conversion to uint64_t keeps. /
 // and % call a helper per operator and type, such as tack_div_int8, emitted
-// only when used, which gives the smallest signed value divided by -1 as
-// itself and its remainder as 0, and so do << and >>, tack_shl_int8 and
+// only when used, which never reaches C's division by -1, undefined for
+// the smallest signed value: it gives a quotient by -1 as the negation,
+// on uint64_t, and a remainder by -1 as 0, though the checker keeps every
+// plain division from the smallest value divided by -1; and so do << and
+// >>, tack_shl_int8 and
 // tack_shr_int8, which take the count as a uint64_t and give 0, or -1 for
 // >> of a negative value, for a count at or past the width, where C's
 // shift is undefined: << shifts on uint64_t, and a signed >> shifts a
 // negative value's complement and flips it back, an arithmetic shift that
 // never shifts a negative value in C (see emitShift). q, ok := a / b holds both operands in temporaries, the dividend
-// first, and divides only when the divisor is not zero, giving 0 otherwise;
+// first, and divides only when the divisor is not zero and, for a signed
+// division, the dividend is not its type's smallest value or the divisor
+// not -1, giving 0 and false otherwise (divisionOk);
 // one of two constants, which the checker has computed, is written as its
 // value and true, with no temporary. Every other division has a divisor the checker proved not zero. A compound assignment x op= v is written out as
 // x = x op v the same way, the way Tack defines it, and x++ and x-- as

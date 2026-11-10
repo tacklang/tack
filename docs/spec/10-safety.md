@@ -56,7 +56,10 @@ These operations can fail, and Tack has no runtime error for any of
 them:
 
 - a division or remainder, `a / b`, `a % b`, `x /= b` and `x %= b`, when
-  the divisor `b` is zero;
+  the divisor `b` is zero, and a signed division, `a / b` and `x /= b`,
+  when `a` is its type's smallest value and `b` is -1, whose quotient
+  overflows (see [Constants and
+  arithmetic](03-arithmetic.md#division-and-remainder));
 - an index, read or written, into an array, `a[i]`, a string, `s[i]`, a
   view, `v[i]`, or a list, `l[i]`, when `i < 0` or `i >= len(x)`;
 - a slice, `x[i:j]`, of a string, an array, a view or a list, when
@@ -97,6 +100,7 @@ where it is written, to be ones for which it cannot fail:
 | Operation                    | Proof needed                                                                 |
 |------------------------------|------------------------------------------------------------------------------|
 | `a / b`, `a % b`, `/=`, `%=` | `b != 0`                                                                     |
+| signed `a / b`, `x /= b`     | also `b != -1`, or `a` (`x`) above its type's smallest value                 |
 | `a[i]` on `[n]T`             | `0 <= i` and `i <= n - 1`                                                    |
 | `s[i]`, `v[i]`, `l[i]`       | `0 <= i` and `i < len(x)`                                                    |
 | `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`                                         |
@@ -128,6 +132,9 @@ package main
 func half(a int64, b int64) int64 {
     if b == 0 {
         return 0
+    }
+    if b == -1 {
+        return -%a
     }
     return a / b
 }
@@ -485,7 +492,7 @@ A write that runs only after the use does not end the fact. A call
 assigns its `mut` arguments only once they are all evaluated, and an
 assignment stores to its target only once its value is computed, so the
 call or the assignment a fact is for may write the subject: `if len(l) >
-0 { x := pop(mut l) }` and `if d != 0 { d = n / d }` compile. A proof
+0 { x := pop(mut l) }` and `if d > 0 { d = n / d }` compile. A proof
 that an assignment's target needs holds through the whole statement, so
 a write in the value, or, in an assignment of several, to another
 target, ends it. A write later in a loop's body that reaches the next
@@ -745,7 +752,10 @@ array of zero values. For a type with no zero value, the checked index and
 lookup are errors, and the value `pop`, `remove` or `delete`
 gives cannot be read until `ok` is checked true. The second value, `ok`,
 is a `bool`, `true` when the operation succeeded. For a division, `ok`
-says only that the divisor was not zero. For arithmetic, `ok` says
+says that the divisor was not zero and, for a signed one, that the
+division was not the smallest value of its type divided by -1, which
+overflows; for a remainder, only that the divisor was not zero. For
+arithmetic, `ok` says
 whether the exact result is a value of the type, and the first value is
 that result, or 0. Both operands of a checked division, and of checked
 arithmetic, are always evaluated, the left first.
@@ -863,6 +873,40 @@ bounds of its operands, never by a relation.
 Unproven, the error names the divisor: `divisor b may be zero; check b
 != 0 first, or use q, ok := ... / b`, or `divisor may be zero; use q, ok
 := ... / ...` for a divisor that is not a subject.
+
+A signed `a / b` and `x /= b` need, besides, that the division is not
+the smallest value of its type divided by -1: a known value, the bounds,
+or a fact of either operand rules out `b` being -1, as `b != -1` or `b >
+0` does, or `a` being that value, as `a > -128` does for an `int8`. `b
+!= -1`, or `b !=` the smallest value of a signed width, such as `-128`,
+only rules that value out, counts for this proof alone, and no note
+describes it. Once
+the divisor is proven not zero, an unproven one is `a / b may overflow
+int64; check b != -1 first, or use q, ok := a / b`, with a check on the
+dividend, `a > -9223372036854775808`, where the divisor is not a subject
+or is known, and none where neither is; for `x /= b` it is `x /= b may
+overflow int64; check b != -1 first, or use q, ok := x / b and x = q
+when ok`. An unsigned division, and any remainder, never overflows.
+
+```tack error
+package main
+
+func ratio(a int64, b int64) int64 {
+    if b != 0 {
+        return a / b
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(ratio(8, 2))
+    if fits { exit(code) }
+}
+```
+
+```diagnostics
+main.tck:5:16: error: a / b may overflow int64; check b != -1 first, or use q, ok := a / b
+```
 
 ```tack error
 package main

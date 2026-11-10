@@ -76,12 +76,17 @@ func quadruple(s string) (int64, error) {
 }
 
 // divide gives the quotient and remainder, and an error for a zero
-// divisor: three results, the error last.
+// divisor, or for the smallest int64 divided by -1, which overflows:
+// three results, the error last.
 func divide(a int64, b int64) (int64, int64, error) {
     if b == 0 {
         return 0, 0, error{code: 5, msg: "division by zero"}
     }
-    return a / b, a % b, noerror
+    q, ok := a / b
+    if !ok {
+        return 0, 0, error{code: 5, msg: "division overflows"}
+    }
+    return q, a % b, noerror
 }
 
 // find looks key up in a table of two, returning the sentinel notFound
@@ -234,6 +239,8 @@ func main() {
     if errDiv.code == 0 {
         check(quo == 3 && rem == 1 && errZero.code == 5, "three results")
     }
+    _, _, errOver := divide(-9223372036854775807 - 1, -1)
+    check(errOver.code == 5 && errOver.msg == "division overflows", "the smallest int64 divided by -1")
 
     total, skipped := sumAll([5]string{"1", "x", "20", "", "300"})
     check(total == 321 && skipped == 2, "loop")

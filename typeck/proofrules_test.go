@@ -457,7 +457,7 @@ func TestWritesAfterTheUseKeepAProof(t *testing.T) {
 		{"a divisor's own assignment", proofProgram("mut d int64",
 			"if d != 0 {", "    d = 10 / d", "}")},
 		{"a compound assignment's own divisor", proofProgram("mut d int64",
-			"if d != 0 {", "    d /= d", "}")},
+			"if d > 0 {", "    d /= d", "}")},
 		{"a pop in its own condition", proofProgram("mut l list[int64]",
 			"if len(l) > 0 && pop(mut l) > 0 {", "}")},
 		{"an index read before a pop in the same call", proofProgram("mut l list[int64]",

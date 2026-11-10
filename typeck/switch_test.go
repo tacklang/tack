@@ -21,7 +21,9 @@ func inF(body ...string) string {
 }
 
 // acceptedSwitches must check cleanly: well-typed tags and values, and
-// divisions and indexes the cases prove.
+// divisions and indexes the cases prove. A divisor's proof is mostly
+// tested through %, which needs nothing of its dividend, where n / d would
+// also need n, an int64, kept from being the smallest value divided by -1.
 var acceptedSwitches = []struct {
 	name string
 	src  string
@@ -69,15 +71,15 @@ var acceptedSwitches = []struct {
 	},
 	{
 		"case sees its condition",
-		inF("switch {", "case d != 0:", "    return n / d", "}", "return 0"),
+		inF("switch {", "case d != 0:", "    return n % d", "}", "return 0"),
 	},
 	{
 		"default sees every condition false",
-		inF("switch {", "case d == 0:", "    return 0", "default:", "    return n / d", "}"),
+		inF("switch {", "case d == 0:", "    return 0", "default:", "    return n % d", "}"),
 	},
 	{
 		"default in the middle",
-		inF("switch {", "default:", "    return n / d", "case d == 0:", "    return 0", "}"),
+		inF("switch {", "default:", "    return n % d", "case d == 0:", "    return 0", "}"),
 	},
 	{
 		"later case sees earlier false",
@@ -98,24 +100,24 @@ var acceptedSwitches = []struct {
 			"case d == 0, n == 0:",
 			"    return 0",
 			"default:",
-			"    return n / d +% 1 / n",
+			"    return n % d +% 1 / n",
 			"}",
 		),
 	},
 	{
 		"a value sees those before it false",
-		inF("switch {", "case d == 0, n / d > 1:", "}", "return 0"),
+		inF("switch {", "case d == 0, n % d > 1:", "}", "return 0"),
 	},
 	{
 		"expression switch default",
-		inF("switch d {", "case 0:", "    return 0", "default:", "    return n / d", "}"),
+		inF("switch d {", "case 0:", "    return 0", "default:", "    return n % d", "}"),
 	},
 	{"expression switch case", inF("switch d {", "case 3:", "    return n / d", "}", "return 0")},
-	{"expression switch value", inF("switch d {", "case 0, n / d:", "}", "return 0")},
-	{"after a switch", inF("switch d {", "case 0:", "    return 0", "}", "return n / d")},
+	{"expression switch value", inF("switch d {", "case 0, n % d:", "}", "return 0")},
+	{"after a switch", inF("switch d {", "case 0:", "    return 0", "}", "return n % d")},
 	{
 		"after a tagless switch",
-		inF("switch {", "case d == 0:", "    return 0", "case n > 0:", "}", "return n / d"),
+		inF("switch {", "case d == 0:", "    return 0", "case n > 0:", "}", "return n % d"),
 	},
 	{
 		"after a break in a loop",
@@ -125,7 +127,7 @@ var acceptedSwitches = []struct {
 			"    case d == 0:",
 			"        break",
 			"    }",
-			"    return n / d",
+			"    return n % d",
 			"}",
 			"return 0",
 		),

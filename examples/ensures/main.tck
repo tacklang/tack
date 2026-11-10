@@ -91,9 +91,13 @@ func settle(mut a int64, b int64) ensures a != 0 {
     }
 }
 
-// divide divides n by d, a parameter a call proves not zero.
+// divide divides n by d, a parameter a call proves not zero, and an
+// early return not -1, for which it negates n, wrapping, as n / -1 did.
 func divide(n int64, d int64) int64 {
     nonzero(d)
+    if d == -1 {
+        return -%n
+    }
     return n / d
 }
 

@@ -67,6 +67,15 @@ the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
 
+## A switch case that leaves on -1 proves nothing after the switch
+
+A switch whose `case -1:` returns does not prove `d != -1` in the code
+after it, though a returning `case 0:` proves `d != 0` there, and the
+later cases and the default of the same switch do see `d != -1`. So
+`switch d { case 0: return 0; case -1: return -%n }` followed by `n / d`
+is rejected as a division that may overflow; an `if d == -1 { return
+-%n }` before the division is accepted.
+
 ## A note ignores a bound that comes through a relation
 
 A note about what a guard allows names the guard's own bound and misses

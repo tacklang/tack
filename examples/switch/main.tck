@@ -108,11 +108,14 @@ func firstOver(limit int64) int64 {
     return n
 }
 
-// safeDiv divides in the default, which sees b == 0 false.
+// safeDiv divides in the default, which sees b == 0 and b == -1 false; a
+// b of -1 negates a, wrapping, as a / -1 did.
 func safeDiv(a int64, b int64) int64 {
     switch {
     case b == 0:
         return 0
+    case b == -1:
+        return -%a
     default:
         return a / b
     }
@@ -132,8 +135,12 @@ func pick(a [4]int64, i int64) int64 {
 }
 
 // after divides after a switch whose first case returns, which proves
-// d != 0 for the statements that follow it, as an if would.
+// d != 0 for the statements that follow it, as an if would, and an early
+// return on d == -1, which negates n, wrapping, as n / -1 did.
 func after(n int64, d int64) int64 {
+    if d == -1 {
+        return -%n
+    }
     switch {
     case d == 0:
         return 0

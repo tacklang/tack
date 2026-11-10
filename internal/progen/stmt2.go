@@ -1,7 +1,9 @@
 package progen
 
 // divStmt divides: in the checked form, q, ok := a / b, or with the
-// divisor, a variable, proven not zero by an if around the division.
+// divisor, a variable, proven not zero by an if around the division, and,
+// for a signed /, not -1, so the division is never the smallest value
+// divided by -1.
 func (g *Gen) divStmt() Stmt {
 	op := []string{"/", "%"}[g.pick(2)]
 	if g.pick(2) == 0 {
@@ -10,7 +12,8 @@ func (g *Gen) divStmt() Stmt {
 	return g.guardedDiv(op)
 }
 
-// checkedDiv returns q, ok := a op b, b no constant.
+// checkedDiv returns q, ok := a op b, b no constant, whose ok is false for
+// a zero b, and for a signed / of the smallest value by -1.
 func (g *Gen) checkedDiv(op string) Stmt {
 	b, ok := g.nonConst(intTypes[g.pick(len(intTypes))])
 	if !ok {
@@ -29,7 +32,7 @@ func (g *Gen) checkedDiv(op string) Stmt {
 	return simple(func(f *frame) {
 		x := ae(f).Bits
 		y := be(f).Bits
-		if y == 0 {
+		if y == 0 || op == "/" && overflowsDiv(ct, x, y) {
 			f.set(q, Value{})
 			f.set(okv, Value{Bool: false})
 			return
@@ -42,7 +45,9 @@ func (g *Gen) checkedDiv(op string) Stmt {
 // guardedDiv returns if d != 0 { obs(a op d) }, d a variable, which the
 // if proves not zero where the division is, or, for a writable d, an early
 // exit ending in exit that proves it, or a call whose contract proves it,
-// then the division (see exitGuard and fixStmt).
+// then the division (see exitGuard and fixStmt). A signed / needs d not
+// -1 too: the if is d != 0 && d != -1, and the early exit rules out both,
+// while no contract can say d != -1, so the call is not used for one.
 func (g *Gen) guardedDiv(op string) Stmt {
 	d := g.choose(g.visible(func(v *Var) bool { return v.T.Kind == KInt }))
 	if d == nil {
@@ -63,15 +68,22 @@ func (g *Gen) guardedDiv(op string) Stmt {
 			return Value{Bits: arith(ct, op, x, f.get(d).Bits)}
 		},
 	}
+	minusOne := op == "/" && ct.Signed
 	if g.writable(d) && g.pick(3) == 0 {
-		if g.pick(2) == 0 {
-			return seq([]Stmt{exitGuard(d), g.observe(div)})
+		if g.pick(2) == 0 || minusOne {
+			return seq([]Stmt{exitGuard(d, minusOne), g.observe(div)})
 		}
 		return seq([]Stmt{g.fixStmt(d), g.observe(div)})
 	}
 	cond := Expr{Text: d.Name + " != 0", T: boolType, Eval: func(f *frame) Value {
 		return Value{Bool: de.Eval(f).Bits != 0}
 	}}
+	if minusOne {
+		cond = Expr{Text: d.Name + " != 0 && " + d.Name + " != -1", T: boolType, Eval: func(f *frame) Value {
+			b := de.Eval(f).Bits
+			return Value{Bool: b != 0 && int64(b) != -1} //nolint:gosec // two's complement on purpose
+		}}
+	}
 	return ifOf(cond, []Stmt{g.observe(div)}, nil, false)
 }
 
@@ -79,15 +91,21 @@ func (g *Gen) guardedDiv(op string) Stmt {
 // a writable integer variable: the second if, an early exit ending in
 // exit, proves d not zero for the statements after it, and is never taken,
 // since the first has made d 1 where it was 0, as the interpreter does.
-func exitGuard(d *Var) Stmt {
+// With minusOne, each if tests d == 0 || d == -1 instead, which a signed
+// d of a signed division must not be either.
+func exitGuard(d *Var, minusOne bool) Stmt {
 	d.Used = true
+	test := d.Name + " == 0"
+	if minusOne {
+		test += " || " + d.Name + " == -1"
+	}
 	return simple(func(f *frame) {
-		if v := f.ref(d); v.Bits == 0 {
+		if v := f.ref(d); v.Bits == 0 || minusOne && int64(v.Bits) == -1 { //nolint:gosec // two's complement
 			v.Bits = 1
 		}
 	},
-		"if "+d.Name+" == 0 {", "    "+d.Name+" = 1", "}",
-		"if "+d.Name+" == 0 {", "    exit(9)", "}")
+		"if "+test+" {", "    "+d.Name+" = 1", "}",
+		"if "+test+" {", "    exit(9)", "}")
 }
 
 // convStmt converts in the checked form, v, ok := T(x), x no constant.

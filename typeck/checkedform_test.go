@@ -137,7 +137,7 @@ var outermostCheckedCases = []struct {
 	},
 	{
 		"a proven division plus one",
-		inF2("a int64, b int64", "if b != 0 {", "    q, ok := a / b + 1", "    if ok {", "        return q", "    }", "}"),
+		inF2("a int64, b int64", "if b > 0 {", "    q, ok := a / b + 1", "    if ok {", "        return q", "    }", "}"),
 		nil,
 	},
 	{

@@ -484,8 +484,9 @@ func (g *generator) emitConstantPool(builtins []builtin.Func, globals []global) 
 	}
 
 	// Division and remainder by -1 are written out, since the smallest int
-	// divided by -1 overflows and C leaves that undefined: the quotient wraps
-	// to the smallest int, and the remainder is 0. A shift's count is
+	// divided by -1 overflows and C leaves that undefined: the remainder is
+	// 0, and the quotient, which the checker keeps from that one value, is
+	// the negation. A shift's count is
 	// tested against the width, which C leaves undefined at or past it.
 	// Each helper is emitted only when the program uses its operator.
 	for _, use := range g.divisions() {
@@ -598,9 +599,12 @@ func divisionIn(n ast.Node) (division, bool) {
 
 // emitDivision writes the helper for op in typ. A signed division by -1 is
 // written out, since the type's smallest value divided by -1 overflows and C
-// leaves that undefined: the quotient wraps to the smallest value, and the
-// remainder is 0. An unsigned division cannot overflow, but goes through a
-// helper too, so every division looks the same.
+// leaves that undefined, for the remainder too, which is 0. A program that
+// compiles never divides the smallest value by -1, which the checker
+// proves or the checked form tests first, but the quotient still does not
+// reach C's division by -1: it is the negation, on uint64_t. An unsigned
+// division cannot overflow, but goes through a helper too, so every
+// division looks the same.
 func (g *generator) emitDivision(op ast.BinaryOp, typ types.Type) {
 	t := g.cType(typ)
 	name := divisionName(op, typ)
@@ -2353,7 +2357,9 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 
 // divisionValues lowers q, ok := a / b (or a % b). Both operands are
 // evaluated, the dividend first, whatever the divisor turns out to be, so a
-// call in either always runs.
+// call in either always runs. ok is false for a zero divisor, and, for a
+// signed division, for the smallest value of its type divided by -1,
+// which overflows; q is then 0. A remainder by -1 is 0, and does not fail.
 func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
 	if bin.Const != nil {
 		return g.constantValues(bin)
@@ -2370,16 +2376,25 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 	return multiSource{
 		temps: []multiTemp{{typ: t, init: a}, {typ: t, init: b}},
 		field: func(tmps []string, i int) string {
+			ok := divisionOk(bin, tmps[0], tmps[1])
 			if i == 1 {
-				return fmt.Sprintf("(%s != 0)", tmps[1])
+				return ok
 			}
-			return fmt.Sprintf(
-				"(%s != 0 ? %s : 0)",
-				tmps[1],
-				arith(bin.Op, bin.Type, tmps[0], tmps[1]),
-			)
+			return fmt.Sprintf("(%s ? %s : 0)", ok, arith(bin.Op, bin.Type, tmps[0], tmps[1]))
 		},
 	}, nil
+}
+
+// divisionOk returns the C condition under which bin, a checked division
+// or remainder of the dividend a by the divisor b, both held in
+// temporaries, succeeds: b is not zero, and, for a signed division, a is
+// not its type's smallest value or b is not -1.
+func divisionOk(bin *ast.Binary, a, b string) string {
+	if bin.Op != ast.Div || types.IsUnsigned(bin.Type) {
+		return fmt.Sprintf("(%s != 0)", b)
+	}
+	least := constant.FromInt64(math.MinInt64 >> (64 - types.MaxBits(bin.Type)))
+	return fmt.Sprintf("(%s != 0 && (%s != -1 || %s != %s))", b, b, a, intLiteral(least))
 }
 
 // arithValues lowers v, ok := a + b, a - b, a * b or -a on integers, and

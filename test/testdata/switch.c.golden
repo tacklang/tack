@@ -180,6 +180,8 @@ static int64_t tack_4_main9_firstOver(int64_t p_limit) {
 static int64_t tack_4_main7_safeDiv(int64_t p_a, int64_t p_b) {
     if (p_b == 0) {
         return 0;
+    } else if (p_b == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_a));
     } else {
         return tack_div_int64(p_a, p_b);
     }
@@ -196,6 +198,9 @@ static int64_t tack_4_main4_pick(tack_array_21 p_a, int64_t p_i) {
 }
 
 static int64_t tack_4_main5_after(int64_t p_n, int64_t p_d) {
+    if (p_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     if (p_d == 0) {
         return 0;
     } else if (p_n < 0) {

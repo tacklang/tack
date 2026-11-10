@@ -30,6 +30,9 @@ static tack_results_4_main6_divmod tack_4_main6_divmod(int64_t p_a, int64_t p_b)
     if (p_b == 0) {
         return (tack_results_4_main6_divmod){0, 0};
     }
+    if (p_b == (-1)) {
+        return (tack_results_4_main6_divmod){((int64_t)(0 - (uint64_t)p_a)), 0};
+    }
     return (tack_results_4_main6_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
 }
 
@@ -47,12 +50,12 @@ static void tack_4_main4_main(void) {
     int64_t v_zero = 0;
     const int64_t tack_r1 = 10;
     const int64_t tack_r2 = v_zero;
-    const int64_t v_v = (tack_r2 != 0 ? tack_div_int64(tack_r1, tack_r2) : 0);
-    const bool v_ok = (tack_r2 != 0);
+    const int64_t v_v = ((tack_r2 != 0 && (tack_r2 != -1 || tack_r1 != (-9223372036854775807 - 1))) ? tack_div_int64(tack_r1, tack_r2) : 0);
+    const bool v_ok = (tack_r2 != 0 && (tack_r2 != -1 || tack_r1 != (-9223372036854775807 - 1)));
     const int64_t tack_r3 = 10;
     const int64_t tack_r4 = v_q;
-    const int64_t v_w = (tack_r4 != 0 ? tack_div_int64(tack_r3, tack_r4) : 0);
-    const bool v_fine = (tack_r4 != 0);
+    const int64_t v_w = ((tack_r4 != 0 && (tack_r4 != -1 || tack_r3 != (-9223372036854775807 - 1))) ? tack_div_int64(tack_r3, tack_r4) : 0);
+    const bool v_fine = (tack_r4 != 0 && (tack_r4 != -1 || tack_r3 != (-9223372036854775807 - 1)));
     if ((v_ok || !v_fine) || (v_v != 0)) {
         tack_builtin_exit(1);
     }

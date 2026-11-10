@@ -28,6 +28,9 @@ func half(a int64, b int64) int64 {
     if b == 0 {
         return 0
     }
+    if b == -1 {
+        return -%a
+    }
     return a / b
 }
 
@@ -138,6 +141,9 @@ func reversed(a [3]int64) int64 {
 }
 
 func split(a int64, b int64) int64 {
+    if b == -1 {
+        return -%a
+    }
     if b < 0 || b > 0 {
         return a / b
     }
@@ -169,8 +175,8 @@ func forms() {
     mut m int8 = -128
     mut d int8 = -1
     q, ok := m / d
-    check("int8 min / -1 wraps", q == -128 && ok)
-    check("int8 min % -1", m % -1 == 0 && m / -1 == -128)
+    check("int8 min / -1 fails", q == 0 && !ok)
+    check("int8 min % -1", m % -1 == 0)
 
     a := [3]int64{10, 20, 30}
     mut i int64 = 1

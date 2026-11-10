@@ -14,12 +14,13 @@ func noTail(src string) string {
 // TestExitLeaves checks that a branch, a block or a case ending in a call
 // to exit leaves, as one ending in return does: an early exit proves what
 // got past it, and a function with a result may end in exit, alone or in
-// an if or a switch whose every branch leaves.
+// an if or a switch whose every branch leaves. A dividend is an int32,
+// never the smallest int64, so only the divisor needs the exit's proof.
 func TestExitLeaves(t *testing.T) {
 	for _, src := range []string{
-		inF2("a int64, b int64", "if b == 0 { exit(1) }", "return a / b"),
-		inF2("a int64, b int64", "if b != 0 {", "} else {", "    exit(1)", "}", "return a / b"),
-		inF2("a int64, b int64", "switch {", "case b == 0:", "    exit(1)", "}", "return a / b"),
+		inF2("a int32, b int64", "if b == 0 { exit(1) }", "return a / b"),
+		inF2("a int32, b int64", "if b != 0 {", "} else {", "    exit(1)", "}", "return a / b"),
+		inF2("a int32, b int64", "switch {", "case b == 0:", "    exit(1)", "}", "return a / b"),
 		noTail(inF2("a int64", "exit(1)")),
 		noTail(inF2("a int64", "if a > 0 {", "    return a", "} else {", "    exit(1)", "}")),
 		noTail(inF2("a int64", "switch a {", "case 0:", "    exit(1)", "default:", "    return a", "}")),

@@ -43,8 +43,8 @@ and diagnostic to check that the two still agree.
 
 | Operation                                                 | Fails when                       | Plain form compiles when                                                                                | Checked form                       |
 |-----------------------------------------------------------|----------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------|
-| `a / b`, `a % b`                                          | `b` is zero                      | `b` is proven not zero                                                                                  | `q, ok := a / b`                   |
-| `x /= b`, `x %= b`                                        | `b` is zero                      | `b` is proven not zero                                                                                  | none                               |
+| `a / b`, `a % b`                                          | `b` is zero, or, for a signed `a / b`, `a` is its type's smallest value and `b` is -1 | `b` is proven not zero, and, for a signed `a / b`, `b` not -1 or `a` not the smallest value | `q, ok := a / b`                   |
+| `x /= b`, `x %= b`                                        | as above, `x` for `a`            | as above                                                                                                | none                               |
 | `a[i]`, reading an array element                          | `i < 0` or `i >= len(a)`         | `i` is proven in `[0, len(a))`                                                                          | `v, ok := a[i]`                    |
 | `a[i] = v`, writing one                                   | as above                         | as above                                                                                                | none                               |
 | `s[i]`, reading a string's byte                           | `i < 0` or `i >= len(s)`         | `i` is proven in `[0, len(s))`                                                                          | `v, ok := s[i]`                    |
@@ -102,10 +102,12 @@ string's byte; the element type's zero value for an array or a view, so `0`, `""
 and for `pop` and `remove`, the element type's zero value, or, for a
 type with none, nothing that can be read until the second value is
 checked true (see [lists](#lists)). The second is a `bool`, `true`
-when the operation succeeded. For a division `ok` says only that the
-divisor was not zero: `m / d` with `m` an `int8` holding `-128` and `d`
-holding `-1` gives `-128` and `true`, since that division wraps rather than
-fails. Both operands of a checked division are always evaluated.
+when the operation succeeded. A signed division fails at one more
+quotient, the smallest value of its type divided by -1, which overflows:
+`m / d` with `m` an `int8` holding `-128` and `d` holding `-1` gives `0`
+and `false`. A remainder's `ok` says only that the divisor was not zero:
+`m % d` there gives `0` and `true`, since the smallest value `% -1` is
+`0`. Both operands of a checked division are always evaluated.
 
 The details:
 
@@ -195,7 +197,7 @@ is assigned to, as any constant does, and is an `int64` in a declaration.
 
 | Operation                    | Proof needed                                                                                                                                                                                               |
 |------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero                                                                                                                                                                                            |
+| `a / b`, `a % b`, `/=`, `%=` | `b` is not zero; for a signed `a / b` or `x /= b`, also `b` not -1, or `a` (`x`) not its type's smallest value                                                                                              |
 | `a[i]` on `[n]T`             | `0 <= i` and `i <= n - 1`; an unsigned `i` needs only the upper bound                                                                                                                                      |
 | `s[i]`                       | `0 <= i` and `i` below the length of `s`: a known string's length, a bound the facts give `len(s)`, or `i < len(s)` itself                                                                                 |
 | `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`, each as an index's bound is proven, `len(x)` itself or `j <= len(x)` included; `x[:j]` needs `0 <= j <= len(x)` and `x[i:]` needs `0 <= i <= len(x)`                 |
@@ -272,6 +274,9 @@ needs nothing.
 
 ```tack
 func divide(n int64, p P) int64 {
+    if p.d == -1 {
+        return -%n
+    }
     if p.d != 0 {
         return n / p.d
     }
@@ -286,7 +291,12 @@ The conditions that give facts are:
   `i <= len(a) - 1` (for an array, whose length is known). The known
   value may be of any integer type, since two integers compare by their
   values: `i < uint64(3)` bounds an `int64` `i` at 2, and says nothing of
-  its lower bound, so it may still be negative;
+  its lower bound, so it may still be negative. `b != -1`, and `b != k`
+  for `k` the smallest value of a signed width, such as `-128`, rule out
+  that one value, which only a signed division's proof counts (see [Division and
+  remainder](#division-and-remainder)): it moves no bound, so after `b >=
+  -1 && b != -1`, `b` is still not known to be at or above 0, and no `||`
+  keeps it;
 - for a string variable `s`: `len(s)` compared with a known value, which
   bounds the length (`len(s) > 0`, `len(s) >= 2`, `len(s) != 0`, and
   `len(s) == 0` being false), and `i < len(s)`, which bounds `i` by it,
@@ -484,6 +494,9 @@ proves what that check proves.
 
 ```tack
 func split(a int64, b int64) int64 {
+    if b == -1 {
+        return -%a
+    }
     if b < 0 || b > 0 {
         return a / b
     }
@@ -741,7 +754,7 @@ the call has begun, and an assignment stores to its target only after
 its value is computed, so the call or the assignment a fact is for may
 write the variable itself: `if len(l) > 0 { x := pop(mut l) }`,
 `if 0 <= i && i < len(l) { x := remove(mut l, i) }` and
-`if d != 0 { d = n / d }` compile. A proof the target itself needs is
+`if d > 0 { d = n / d }` compile. A proof the target itself needs is
 held to the whole statement: a write in the value, a `mut` argument
 included, or, in an assignment of several, to another target, ends it.
 <!-- case: assign-index-mut-value -->`if 0 <= i && i < len(l) { l[i] = bump(mut i) }`
@@ -1046,6 +1059,21 @@ A divisor that is neither a name nor arithmetic whose bound rules out
 zero gets <!-- error: safety-div-not-a-name -->`divisor may be zero; use q, ok := ... / ...`,
 as in `a / (b + 1)` with nothing known of `b`.
 
+A signed `a / b` must also be proven not to be the smallest value of its
+type divided by -1, which overflows: from a fact that rules out either
+side, `b != -1`, `b > 0`, `b >= 0` with `b != 0`, `a != -128` or `a >
+-128` for an `int8` `a`, or a known value of either other than that one,
+as in `a / 2` or `-1 / b`, or bounds that leave it out, as `int16(v)` of
+an `int8` `v` never is the smallest `int16`. A divisor not proven not zero
+is reported for that alone, since `b > 0` proves both. Then, under `if b
+!= 0`, <!-- case: division-overflow-guard-zero-only -->`a / b` is
+<!-- error: division-overflow-guard-zero-only -->`a / b may overflow int64; check b != -1 first, or use q, ok := a / b`,
+and a divisor that is a known -1, or not a subject, suggests a check on the
+dividend instead, as
+<!-- error: division-overflow-known-divisor -->`a / -1 may overflow int16; check a > -32768 first, or use q, ok := a / -1`
+does. An unsigned division never overflows, and nor does a remainder:
+the smallest value `% -1` is `0`.
+
 Guarded:
 
 <!-- example: safety -->
@@ -1054,6 +1082,9 @@ Guarded:
 func half(a int64, b int64) int64 {
     if b == 0 {
         return 0
+    }
+    if b == -1 {
+        return -%a
     }
     return a / b
 }
@@ -1093,6 +1124,11 @@ func f(b int64) int64 {
 `divisor b may be zero; check b != 0 first`, and for a divisor that is not a
 name, as in
 `x %= b + 1`, <!-- error: safety-compound-rem-not-a-name -->`divisor may be zero`.
+A signed `x /= b` needs the proof `a / b` does, of `x` and `b`, and,
+under `if b != 0`, is
+<!-- error: division-overflow-compound -->`y /= b may overflow int64; check b != -1 first, or use q, ok := y / b and y = q when ok`
+for a `mut y` holding a parameter; below, `x` holds 100, which proves
+it.
 
 Guarded:
 
@@ -2435,6 +2471,8 @@ failure it can see from known values:
 
 Arithmetic on values the compiler does not know is proven not to
 overflow, or written to wrap, `+%`, `-%`, `*%` and `-%x`, or checked
-(see [Arithmetic overflow](#arithmetic-overflow)). A division is the one
-operation that wraps unasked: for a `mut` `int8` `m` holding `-128`, `m /
--1` is `-128` and `m % -1` is `0`.
+(see [Arithmetic overflow](#arithmetic-overflow)), and a signed division
+is proven not to be the smallest value divided by -1, or checked (see
+[Division and remainder](#division-and-remainder)). Nothing wraps
+unasked: for a `mut` `int8` `m` holding `-128`, `m % -1` is `0`, and `m /
+-1` needs `m > -128`, which does not hold.

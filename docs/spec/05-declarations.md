@@ -124,6 +124,9 @@ func divmod(a int32, b int32) (int32, int32) {
     if b == 0 {
         return 0, 0
     }
+    if b == -1 {
+        return -%a, 0
+    }
     return a / b, a % b
 }
 
@@ -443,6 +446,9 @@ package main
 func divmod(a int32, b int32) (int32, int32) {
     if b == 0 {
         return 0, 0
+    }
+    if b == -1 {
+        return -%a, 0
     }
     return a / b, a % b
 }

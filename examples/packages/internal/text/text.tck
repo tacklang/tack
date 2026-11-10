@@ -7,10 +7,15 @@ lib func isDigit(c uint8) bool {
     return c >= '0' && c <= '9'
 }
 
-// divmod returns two results, bound by an importer.
+// divmod returns two results, bound by an importer: a divided by b and
+// the remainder, or 0 and 0 for a b of 0, with a b of -1 written out as
+// -%a, since the smallest int64 divided by -1 overflows.
 lib func divmod(a int64, b int64) (int64, int64) {
     if b == 0 {
         return 0, 0
+    }
+    if b == -1 {
+        return -%a, 0
     }
     return a / b, a % b
 }

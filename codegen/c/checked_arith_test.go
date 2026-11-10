@@ -57,3 +57,13 @@ func TestWrappingArithmeticExampleIsSanitizerClean(t *testing.T) {
 func TestOverflowFixesExampleIsSanitizerClean(t *testing.T) {
 	runArithmeticExample(t, "overflow-fixes")
 }
+
+// TestDivisionOverflowExampleIsSanitizerClean runs
+// examples/division-overflow: q, ok := a / b at the smallest value of
+// int8, int16, int32 and int64 divided by -1, giving 0 and false, the
+// smallest value % -1 giving 0, and divisions proven under each kind of
+// guard on either operand. The sanitizer stops the program if a division
+// reaches C's undefined smallest value divided by -1, or its remainder.
+func TestDivisionOverflowExampleIsSanitizerClean(t *testing.T) {
+	runArithmeticExample(t, "division-overflow")
+}

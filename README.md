@@ -2509,8 +2509,9 @@ section remains the description of the language.
   smallest signed value is itself, and an unsigned `0 -% 1` is the
   largest; two untyped constants are an error, `200 +% 100 wraps at its
   type's width, but both operands are untyped constants; give one a type,
-  as in int64(200) +% 100`. The smallest signed value divided by -1 is
-  itself at run time, with remainder 0. Arithmetic whose operands are all
+  as in int64(200) +% 100`. The smallest signed value divided by -1
+  overflows, so a signed division needs a proof too (see division), and
+  its remainder by -1 is 0. Arithmetic whose operands are all
   known values (a constant, a character literal, an immutable variable
   holding one, `len` of an array or of a known string, a field or element
   of an immutable global, or arithmetic on those; see division) is
@@ -2577,11 +2578,23 @@ section remains the description of the language.
   package-level variable's initializer, a comparison of known strings, or
   of arrays or structs holding them, is computed at compile time, so `var
   x = "a" == "a"` is `true`.
-- Division never divides by zero. `a / b`, `a % b`, `x /= b` and `x %= b`
-  compile only where the compiler can prove `b` is not zero; a constant zero
-  is an error. Elsewhere, `q, ok := a / b` (or `%`, or `q, ok = a / b`)
-  divides only when `b` is not zero: `ok` reports whether it was not, and `q`
-  is the result, or `0`. The division must be the whole value:
+- Division never divides by zero, and never overflows. `a / b`, `a % b`,
+  `x /= b` and `x %= b` compile only where the compiler can prove `b` is
+  not zero; a constant zero is an error. A signed `a / b` and `x /= b`
+  also need a proof that the division is not the smallest value of its
+  type divided by -1, one past its largest: a known value, the bounds, or
+  a fact of either operand ruling out `b` being -1, as `b != -1` or `b >
+  0`, or `a` being that value, as `a > -128` for an `int8`. `b != -1`, or
+  `b !=` the smallest value of a signed width, such as `-128`, rules that
+  one value out, and counts for this proof alone. Once `b` is proven not zero, an unproven
+  one is `a / b may overflow int64; check b != -1 first, or use q, ok :=
+  a / b`, or for `x /= b`, `x /= b may overflow int64; check b != -1
+  first, or use q, ok := x / b and x = q when ok`; on known values it is
+  `constant expression overflows int8`. An unsigned division, and any
+  remainder, never overflows: the smallest value `% -1` is 0. Elsewhere,
+  `q, ok := a / b` (or `%`, or `q, ok = a / b`) divides only when `b` is
+  not zero and, for a signed division, the division does not overflow:
+  `ok` reports whether it divided, and `q` is the result, or `0`. The division must be the whole value:
   `q, ok := a / b + 1` is an error that suggests `q, ok := a / b`, then
   `q + 1`. Both operands are always evaluated. Its `ok` cannot be
   dropped, as an error cannot: `q, _ := a / b`, or `= a / b`, is `the ok
@@ -2637,7 +2650,7 @@ section remains the description of the language.
   does not end the fact. That includes the call or the assignment the fact
   is for, since a call assigns its `mut` arguments only once they are all
   evaluated, and an assignment stores to its target only once its value
-  is computed: `if d != 0 { d = n / d }` and `if len(l) > 0 { x := pop(mut
+  is computed: `if d > 0 { d = n / d }` and `if len(l) > 0 { x := pop(mut
   l) }` compile, while a second `pop` after the first needs a check of its
   own. A proof an assignment's target needs must hold through the whole
   statement, so a write in the value, or, in an assignment of several, to

@@ -113,7 +113,7 @@ func alone[T Any](x int64, s string, v []int64, t T) int64 {
 }
 
 func quot(a int64, b int64) int64 {
-    if b == 0 {
+    if b == 0 || b == -1 {
         return 0
     }
     return a / b
@@ -129,7 +129,7 @@ func main() {
     err := append(mut l, inner)
     min := -9223372036854775807 - 1
     sorted := len(l) == 1 && sort.is_sorted(l[0], asc)
-    check(err.code == 0 && sorted && quot(min, -1) == min, "called helpers")
+    check(err.code == 0 && sorted && quot(min, -2) == 4611686018427387904, "called helpers")
     check(derived == 3, "a global only a global reads")
 }
 `

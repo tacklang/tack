@@ -24,8 +24,12 @@ func check(cond bool, name string) {
     }
 }
 
-// divide divides n by p.d, guarded by a field of an immutable parameter.
+// divide divides n by p.d, guarded by a field of an immutable parameter,
+// after an early return for -1, which negates n, wrapping, as n / -1 did.
 func divide(n int64, p P) int64 {
+    if p.d == -1 {
+        return -%n
+    }
     if p.d != 0 {
         return n / p.d
     }
@@ -45,6 +49,9 @@ func nested(n int64, p P) int64 {
     if p.inner.d == 0 {
         return -1
     }
+    if p.inner.d == -1 {
+        return -%n
+    }
     return n / p.inner.d
 }
 
@@ -54,9 +61,17 @@ func element(n int64, p P, k int64) int64 {
     if p.a[1] == 0 {
         return -1
     }
+    if p.a[1] == -1 {
+        return -%n
+    }
     q := n / p.a[1]
-    if 0 <= k && k < 3 && p.a[k] != 0 {
-        return q +% n / p.a[k]
+    if 0 <= k && k < 3 {
+        if p.a[k] == -1 {
+            return q +% -%n
+        }
+        if p.a[k] != 0 {
+            return q +% n / p.a[k]
+        }
     }
     return q
 }
@@ -84,20 +99,29 @@ func sum(p P) int64 {
     return total
 }
 
-// cases divides by a field after a switch that returns on zero.
+// cases divides by a field after a switch that returns on zero, and an
+// early return on -1 with n negated, wrapping, as n / -1 did.
 func cases(n int64, p P) int64 {
     switch p.d {
     case 0:
         return -1
     }
+    if p.d == -1 {
+        return -%n
+    }
     return n / p.d
 }
 
 // deferred sets the caller's out to n / p.d in a defer, after an early
-// exit on p.d being zero, whose fact holds in deferred code too.
+// exit on p.d being zero, and one on -1 setting out to n negated,
+// wrapping, as n / -1 did, whose facts hold in deferred code too.
 func deferred(mut out int64, n int64, p P) {
     if p.d == 0 {
         out = -1
+        return
+    }
+    if p.d == -1 {
+        out = -%n
         return
     }
     defer {

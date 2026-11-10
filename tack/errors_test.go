@@ -16,6 +16,7 @@ var errorsWant = "success ok\n" +
 	"propagated ok\n" +
 	"nested ok\n" +
 	"three results ok\n" +
+	"the smallest int64 divided by -1 ok\n" +
 	"loop ok\n" +
 	"switch on code ok\n" +
 	"switch default ok\n" +

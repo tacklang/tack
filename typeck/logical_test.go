@@ -169,7 +169,9 @@ func chainProgram(op string, n int) string {
 	terms := make([]string, 0, n)
 	terms = append(terms, first)
 	for i := 1; i < n; i++ {
-		terms = append(terms, []string{kept, test, call, divide}[i%4])
+		// The comparison of n comes first, so the bound it gives n keeps
+		// every n / d from being the smallest int64 divided by -1.
+		terms = append(terms, []string{test, kept, call, divide}[i%4])
 	}
 	return "package main\n\nfunc bump(mut k int64) bool {\n    k +%= 1\n    return true\n}\n\n" +
 		"func f(n int64, d int64, mut k int64) int64 {\n    if " + strings.Join(terms, " "+op+" ") +

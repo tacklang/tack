@@ -33,7 +33,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int8, b int8",
 			"-128, -1",
-			"return b != 0 && a / b == a && a % b == 0 && a / 2 == -64",
+			"q, ok := a / b\nreturn b != 0 && !ok && q == 0 && a % b == 0 && a / 2 == -64",
 		),
 	},
 	{
@@ -57,18 +57,18 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int32, b int32",
 			"-2147483648, -1",
-			"return b != 0 && a / b == a && a *% b == a && a -% 1 == 2147483647",
+			"q, ok := a / b\nreturn !ok && q == 0 && a *% b == a && a -% 1 == 2147483647",
 		),
 	},
 	{
-		"the smallest of each narrow width divided by -1",
+		"the smallest of each narrow width divided by -1 fails, its remainder 0",
 		widthProgram(
 			"a int32, b int16, c int8, m int8",
 			"-2147483648, -32768, -128, -1",
-			"if m == 0 {\n    return false\n}\nmut x := a\nx /= m\nmut y := b\ny %= m\n"+
-				"q, ok := c / m\nr, okR := c % m\n"+
-				"return a / m == a && a % m == 0 && b / m == b && b % m == 0 && c / m == c && c % m == 0 &&\n"+
-				"    x == a && y == 0 && ok && q == c && okR && r == 0",
+			"if m == 0 {\n    return false\n}\nmut y := b\ny %= m\n"+
+				"qa, okA := a / m\nqb, okB := b / m\nq, ok := c / m\nr, okR := c % m\n"+
+				"return !okA && qa == 0 && a % m == 0 && !okB && qb == 0 && b % m == 0 && c % m == 0 &&\n"+
+				"    y == 0 && !ok && q == 0 && okR && r == 0",
 		),
 	},
 	{
@@ -191,8 +191,8 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int8, b uint16",
 			"120, 65000",
-			"mut x int8 = a\nx +%= 10\nmut y uint16 = b\ny *%= 2\nmut z int8 = -128\nz /= -1\nmut w uint8 = 0\nw -%= 1\n"+
-				"return x == -126 && y == 64464 && z == -128 && w == 255",
+			"mut x int8 = a\nx +%= 10\nmut y uint16 = b\ny *%= 2\nmut z int8 = -127\nz /= -1\nmut w uint8 = 0\nw -%= 1\n"+
+				"return x == -126 && y == 64464 && z == 127 && w == 255",
 		),
 	},
 }

@@ -175,7 +175,7 @@ static bool tack_4_main15_knownPast32Bits(void) {
 static bool tack_4_main7_divides(size_t p_n, size_t p_d) {
     const size_t tack_r8 = p_n;
     const size_t tack_r9 = p_d;
-    const size_t v_q = (tack_r9 != 0 ? tack_div_unsafe_size_t(tack_r8, tack_r9) : 0);
+    const size_t v_q = ((tack_r9 != 0) ? tack_div_unsafe_size_t(tack_r8, tack_r9) : 0);
     const bool v_ok = (tack_r9 != 0);
     if (p_d == 0) {
         return false;

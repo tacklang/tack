@@ -228,6 +228,9 @@ static int64_t tack_4_main6_divide(int64_t p_n, int64_t p_d) {
     if (p_d == 0) {
         tack_builtin_exit(2);
     }
+    if (p_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     return tack_div_int64(p_n, p_d);
 }
 
@@ -236,6 +239,9 @@ static int64_t tack_4_main4_half(int64_t p_a, int64_t p_b) {
         tack_builtin_print((tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)});
     } else {
         tack_builtin_exit(1);
+    }
+    if (p_b == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_a));
     }
     return tack_div_int64(p_a, p_b);
 }

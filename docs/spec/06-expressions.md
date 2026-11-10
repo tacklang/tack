@@ -396,7 +396,8 @@ integers of any types compare by their values, as [Constants and
 arithmetic](03-arithmetic.md) describes, as do two floats of one type;
 which other types compare, and what `==` computes on them, is described
 in [Types](04-types.md), and comparing errors in [Errors](09-errors.md).
-`/` and `%` on integers need a divisor proven not zero ([Safety and
+`/` and `%` on integers need a divisor proven not zero, and a signed `/`
+a proof that it is not the smallest value divided by -1 ([Safety and
 proofs](10-safety.md)).
 
 ```tack run exit=21

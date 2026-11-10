@@ -290,7 +290,8 @@
 // check proves it. Notes quote source text, so New takes the program's
 // source.Files.
 // q, ok := a / b needs no proof, and is allowed where one exists, ok then
-// always being true; only a divisor known to be zero is reported. A fact is
+// always being true; only a divisor known to be zero, and the smallest
+// value divided by -1 on known values, are reported. A fact is
 // about a subject (subject.go): a variable, or a path below an immutable
 // variable or parameter, a field, p.x, an element at a known index or an
 // immutable name's, p.a[1] or p.a[k], or a chain of those, which nothing
@@ -700,6 +701,15 @@
 //   - a divisor is proven not zero, or the division is bound with ok, and
 //     the quotient of two untyped constants bound with ok settles to the
 //     type of the variable it is assigned, or int64 where there is none;
+//   - a signed a / b, and x /= b, whose divisor is proven not zero, is
+//     proven not to be its type's smallest value divided by -1: a fact,
+//     a known value or the bounds of either operand rules out the divisor
+//     being -1 or the dividend being that smallest value (quotientProven,
+//     excludes), b != -1 among the facts, which only this proof counts;
+//     or it is reported with the check that would prove it, b != -1 or
+//     a > the smallest value, and the checked form, with no notes
+//     (requireNoQuotientOverflow). q, ok := a / b then gives 0 and false
+//     at that quotient too;
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant or a known value, as knownValue
 //     computes it, that fits T, a type that widens to T, or a subject, a

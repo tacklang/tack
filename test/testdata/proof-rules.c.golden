@@ -168,7 +168,9 @@ static int64_t tack_4_main6_takeOr(tack_list_21 * p_l, int64_t p_i, int64_t p_or
 }
 
 static void tack_4_main8_divideBy(int64_t p_n, int64_t * p_d) {
-    if ((*p_d) != 0) {
+    if ((*p_d) == (-1)) {
+        (*p_d) = ((int64_t)(0 - (uint64_t)p_n));
+    } else if ((*p_d) != 0) {
         (*p_d) = tack_div_int64(p_n, (*p_d));
     }
 }

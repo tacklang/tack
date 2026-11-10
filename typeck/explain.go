@@ -189,7 +189,10 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
 	kept := c.keptBounds(p.about)
 	for f := range c.factsAbout(p.about) {
-		if f.relational() && !p.relations || f.diff != nil || f.guard != nil && f.guard.kind == guardValue {
+		// A value ruled out, b != -1, takes part in no proof a note
+		// explains, so no note describes it.
+		if f.relational() && !p.relations || f.diff != nil || f.hasNe ||
+			f.guard != nil && f.guard.kind == guardValue {
 			continue
 		}
 		f.drop = c.dropOf(f)

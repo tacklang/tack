@@ -59,9 +59,14 @@ import (
 //     one is never negative. Integers of any two types compare by their
 //     values, so the known value, whatever its type, bounds the variable's
 //     value, which no comparison wraps: after i < uint64(3), an int64 i
-//     is at most 2 and may still be negative. || when true and && when false give what
+//     is at most 2 and may still be negative. b != k for a known k that
+//     is -1 or a signed width's smallest value rules that one value out,
+//     which only a signed division's proof asks about (see
+//     quotientProven, divisionEdge), and no note describes; no
+//     other proof counts it, so after b >= -1 && b != -1, b is not known
+//     to be at or above 0. || when true and && when false give what
 //     both sides agree on, the union of their facts, for each variable
-//     both sides constrain;
+//     both sides constrain, a value ruled out not among them;
 //   - has(m, k) true gives the relation that k is in the map m, for a map
 //     that is a subject and a key that is a constant or a name nothing
 //     assigns, or a path below one (see memberOf); it ends at any write
@@ -84,7 +89,9 @@ import (
 //     && unite, as a bound by a length is.
 
 // fact is something known about a subject's value in a region, about: that
-// it is not zero, or that it lies at or above lo, or at or below hi, or
+// it is not zero, or that it is not ne, -1 or a signed width's smallest
+// value (see divisionEdge), or that
+// it lies at or above lo, or at or below hi, or
 // below the length of the string subject lenOf, or at or below the length
 // of the string subject atMostLen, or at or below the integer subject
 // atMost, below it when strict, or that it is a key in the map subject
@@ -117,8 +124,9 @@ type fact struct {
 	diff         *diffBound
 	known        string
 	ends         []ending
-	lo, hi       constant.Int
+	lo, hi, ne   constant.Int
 	hasLo, hasHi bool
+	hasNe        bool
 	nonzero      bool
 	strict       bool
 }
@@ -146,9 +154,10 @@ func (c *Checker) dropOf(f fact) *drop {
 }
 
 // empty reports whether f says nothing about its variable: no bound, not
-// nonzero, no length bounding it, and no relation.
+// nonzero, no other value ruled out, no length bounding it, and no
+// relation.
 func (f fact) empty() bool {
-	return !f.hasLo && !f.hasHi && !f.nonzero && f.lenOf.isZero() && !f.relational()
+	return !f.hasLo && !f.hasHi && !f.nonzero && !f.hasNe && f.lenOf.isZero() && !f.relational()
 }
 
 // relational reports whether f is a relation: one a slice's bounds need,
@@ -863,6 +872,7 @@ func bound(about factKey, op ast.BinaryOp, k constant.Int) fact {
 		f.lo, f.hi, f.hasLo, f.hasHi = k, k, true, true
 	case ast.Ne:
 		f.nonzero = k.IsZero()
+		f.ne, f.hasNe = k, divisionEdge(k)
 	case ast.Lt:
 		f.hi, f.hasHi = k.Sub(one)
 	case ast.Le:
@@ -873,6 +883,23 @@ func bound(about factKey, op ast.BinaryOp, k constant.Int) fact {
 		f.lo, f.hasLo = k, true
 	}
 	return f
+}
+
+// divisionEdge reports whether k is a value a signed division's proof
+// asks to rule out (see quotientProven): -1, or the smallest value of a
+// signed width. A comparison b != k with any other k but 0 gives
+// no fact, as it never proves anything, so a long chain of them, as an
+// else-if chain over many values makes, puts nothing in force.
+func divisionEdge(k constant.Int) bool {
+	if k.Cmp(constant.FromInt64(-1)) == 0 {
+		return true
+	}
+	for _, bits := range []uint{8, 16, 32, 64} {
+		if k.Cmp(constant.FromInt64(math.MinInt64>>(64-bits))) == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // canHoldFact reports whether decl can have a fact: a parameter, or a

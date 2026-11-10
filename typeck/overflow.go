@@ -341,8 +341,9 @@ func (c *Checker) operandBounds(e ast.Expr) interval {
 //   - a / k, for a known k above 0, from a's bounds each divided by k,
 //     since truncating toward zero keeps their order;
 //   - a / b otherwise, from -m to m, m the larger of a's bounds' sizes:
-//     the quotient is never larger in size than a, the smallest value
-//     divided by -1 included, which is itself;
+//     the quotient is never larger in size than a, since a plain
+//     division is proven not to be the smallest value divided by -1, and
+//     a checked one gives 0 there;
 //   - a % b, between 0 and a's bound on each side, since the remainder has
 //     a's sign and is no larger in size, and, for a known b, less in size
 //     than b;
@@ -855,4 +856,113 @@ func arithNoun(value ast.Expr) string {
 		}
 	}
 	return "a negation"
+}
+
+// A signed division can overflow too, at one quotient: the smallest value
+// of its type divided by -1 is one past its largest. So a / b and x /= b
+// on a signed integer type compile only where the checker proves, besides
+// a divisor that is not zero, that the division is not that one: the
+// divisor is not -1, or the dividend is not the smallest value (see
+// quotientProven). Anything else is an error that suggests the check that
+// would prove it, and the checked form, q, ok := a / b, which gives 0 and
+// false at that quotient as for a zero divisor. A division whose divisor
+// is not proven not zero is reported for that alone, as an operation is
+// whose operand is not proven (see operandUnproven), since a check that
+// fixes it, b > 0, may fix both. An unsigned division cannot overflow,
+// and nor can a remainder: the smallest value % -1 is 0.
+
+// isSigned reports whether typ is a typed signed integer type, one whose
+// division can overflow.
+func isSigned(typ types.Type) bool {
+	return types.IsInteger(typ) && !types.IsUnsigned(typ) && typ != types.UntypedInt
+}
+
+// requireNoQuotientOverflow reports bin, a / b of the integer type typ,
+// unless typ is unsigned, the division is proven not to be the smallest
+// value of typ divided by -1 (see quotientProven), or an operand of it is
+// plain arithmetic not proven, which is reported on its own. stmt is the
+// compound assignment bin stands for, x /= b, when there is one, which
+// the error names instead.
+func (c *Checker) requireNoQuotientOverflow(bin *ast.Binary, typ types.Type, stmt *ast.Assign) {
+	if !isSigned(typ) || c.quotientProven(bin, typ) || c.operandUnproven(bin) {
+		return
+	}
+	if stmt != nil {
+		c.errorf(stmt.Span, "%s", c.quotientMessage(bin, typ, stmt))
+		return
+	}
+	c.errorf(bin.Span, "%s", c.quotientMessage(bin, typ, nil))
+}
+
+// quotientProven reports whether bin, a / b of the signed integer type
+// typ, is proven not to be typ's smallest value divided by -1: the
+// divisor is ruled out being -1, or the dividend being that smallest
+// value (see excludes).
+func (c *Checker) quotientProven(bin *ast.Binary, typ types.Type) bool {
+	least, _ := typeBounds(typ)
+	return c.excludes(bin.Y, constant.FromInt64(-1)) || c.excludes(bin.X, least)
+}
+
+// excludes reports whether e, an integer operand, is known not to be v
+// where it is used: its known value is another, its bounds leave v out
+// (see operandBounds), or, for a subject, a fact in force rules v out,
+// e != v.
+func (c *Checker) excludes(e ast.Expr, v constant.Int) bool {
+	if k, ok := c.knownValue(e); ok {
+		return k.Cmp(v) != 0
+	}
+	known := c.operandBounds(e)
+	if known.lo.Cmp(v) > 0 || known.hi.Cmp(v) < 0 {
+		return true
+	}
+	k, ok := c.subjectKey(e)
+	if !ok {
+		return false
+	}
+	for f := range c.factsAbout(k) {
+		if f.hasNe && f.ne.Cmp(v) == 0 && c.holds(f) {
+			return true
+		}
+	}
+	return false
+}
+
+// quotientMessage returns the error for bin, a / b of the signed integer
+// type typ, not proven not to overflow: what may happen, the check that
+// would prove it when the divisor, or else the dividend, is a subject
+// whose value is not known, b != -1 or a > the smallest value, then the
+// checked form. For stmt, x /= b, it names the statement and suggests the
+// checked form of x / b, followed by storing its value when ok is true.
+func (c *Checker) quotientMessage(bin *ast.Binary, typ types.Type, stmt *ast.Assign) string {
+	text := c.text(bin.Span)
+	tail := "use q, ok := " + text
+	if stmt != nil {
+		target := c.text(bin.X.Spanned())
+		amount := c.valueText(stmt)
+		operand := amount
+		if _, isBin := stmt.Value.(*ast.Binary); isBin && amount == c.text(stmt.Value.Spanned()) {
+			operand = "(" + amount + ")"
+		}
+		text = target + " /= " + amount
+		tail = "use q, ok := " + target + " / " + operand + " and " + target + " = q when ok"
+	}
+	msg := text + " may overflow " + c.typeName(typ) + "; "
+	switch {
+	case c.unknownSubject(bin.Y):
+		msg += "check " + c.nameOf(bin.Y) + " != -1 first, or "
+	case c.unknownSubject(bin.X):
+		least, _ := typeBounds(typ)
+		msg += "check " + c.nameOf(bin.X) + " > " + least.String() + " first, or "
+	}
+	return msg + tail
+}
+
+// unknownSubject reports whether e is a subject a check gives a fact
+// about (see checkSubject) whose value is not known, so that a check on
+// it can prove something.
+func (c *Checker) unknownSubject(e ast.Expr) bool {
+	if _, known := c.knownValue(e); known {
+		return false
+	}
+	return c.checkSubject(e)
 }

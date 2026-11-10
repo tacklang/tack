@@ -214,7 +214,9 @@ and what fixes it: `a + b may overflow int64; bound a and b first, or
 use v, ok := a + b, or a +% b to wrap`, `a - b may go below 0 in
 uint64; check a >= b first, or use v, ok := a - b, or a -% b to wrap`,
 `x++ may overflow int64; use x +%= 1 to wrap, or v, ok := x + 1 and x =
-v when ok`.
+v when ok`. A signed `/` can overflow at one quotient, the smallest value
+of its type divided by -1, and needs a proof of its own (see [Division
+and remainder](#division-and-remainder)); `%` never overflows.
 
 ```tack run exit=0
 package main
@@ -360,12 +362,12 @@ of the dividend, so that `a == (a / b) * b + a % b` holds for every `a`
 and every non-zero `b`, as in Go and C: `-7 / 2` is -3, not -4, and
 `-7 % 2` is -1; `7 / -2` is -3, and `7 % -2` is 1. Constants and known
 values divide the same way: they truncate toward zero, and the remainder
-takes the dividend's sign. At run time, the smallest value of a signed
-type divided by -1 is itself, and its remainder by -1 is 0 (see [Integer
-overflow](#integer-overflow)). On known values the same division
-overflows its type and is an error, `constant expression overflows
-int64`, while the remainder is 0. A division is the one arithmetic
-operation that wraps without being written to, at that one quotient.
+takes the dividend's sign. The smallest value of a signed type divided
+by -1 is one past its largest, so that division overflows, and no
+division wraps: on known values it is an error, `constant expression
+overflows int64`, and anywhere else a signed division must be proven not
+to be that one, or written in its checked form (see below). Its
+remainder by -1 is 0, and every remainder is a value of its type.
 
 ```tack run exit=0
 package main
@@ -373,6 +375,9 @@ package main
 func quo(a int64, b int64) int64 {
     if b == 0 {
         return 0
+    }
+    if b == -1 {
+        return -%a
     }
     return a / b
 }
@@ -398,6 +403,11 @@ func main() {
     if m % -1 != 0 {
         exit(4)
     }
+    mut d int8 = -1
+    q, ok := m / d
+    if ok || q != 0 {
+        exit(5)
+    }
     exit(0)
 }
 ```
@@ -407,9 +417,20 @@ is a known zero is an error, `division by zero`, or `division by zero in
 constant expression` between two untyped constants. Any other divisor
 must be proven not zero, or the division written in its checked form,
 `q, ok := a / b`, which gives 0 and `false` for a zero divisor; both are
-described in [Safety and proofs](10-safety.md). `x /= b` and `x %= b`
-compute `x / b` and `x % b` and need the same proof of `b`; they have no
-checked form.
+described in [Safety and proofs](10-safety.md). A signed `a / b` must
+also be proven not to be the smallest value of its type divided by -1:
+by a fact, a known value or bounds that rule out `b` being -1 or `a`
+being that value, as `b != -1`, `b > 0`, `a / 2`, or `a > -128` for an
+`int8` `a`. Its checked form gives 0 and `false` there too. Anything
+else is an error, `a / b may overflow int64; check b != -1 first, or use
+q, ok := a / b`, reported once the divisor is proven not zero, and a
+divisor that is a known -1 suggests a check on the dividend instead, `a
+/ -1 may overflow int16; check a > -32768 first, or use q, ok := a /
+-1`. An unsigned division never overflows. `x /= b` and `x %= b`
+compute `x / b` and `x % b` and need the same proofs, of `b` and, for a
+signed `x /= b`, of `x`, `x /= b may overflow int64; check b != -1
+first, or use q, ok := x / b and x = q when ok`; they have no checked
+form.
 
 ```tack error
 package main
@@ -427,6 +448,13 @@ func least() int8 {
     return m / -1
 }
 
+func signed(a int64, b int64) int64 {
+    if b != 0 {
+        return a / b
+    }
+    return 0
+}
+
 func main() {
     exit(0)
 }
@@ -436,6 +464,7 @@ func main() {
 main.tck:4:16: error: division by zero
 main.tck:8:12: error: division by zero in constant expression
 main.tck:13:12: error: constant expression overflows int8
+main.tck:18:16: error: a / b may overflow int64; check b != -1 first, or use q, ok := a / b
 ```
 
 Float division is described under [Floats](#floats).

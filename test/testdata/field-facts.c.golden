@@ -90,6 +90,9 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
 }
 
 static int64_t tack_4_main6_divide(int64_t p_n, tack_4_main1_P p_p) {
+    if (p_p.f_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     if (p_p.f_d != 0) {
         return tack_div_int64(p_n, p_p.f_d);
     }
@@ -107,6 +110,9 @@ static int64_t tack_4_main6_nested(int64_t p_n, tack_4_main1_P p_p) {
     if (p_p.f_inner.f_d == 0) {
         return (-1);
     }
+    if (p_p.f_inner.f_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     return tack_div_int64(p_n, p_p.f_inner.f_d);
 }
 
@@ -114,9 +120,17 @@ static int64_t tack_4_main7_element(int64_t p_n, tack_4_main1_P p_p, int64_t p_k
     if (p_p.f_a.e[1] == 0) {
         return (-1);
     }
+    if (p_p.f_a.e[1] == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     const int64_t v_q = tack_div_int64(p_n, p_p.f_a.e[1]);
-    if (((0 <= p_k) && (p_k < 3)) && (p_p.f_a.e[p_k] != 0)) {
-        return ((int64_t)((uint64_t)v_q + (uint64_t)tack_div_int64(p_n, p_p.f_a.e[p_k])));
+    if ((0 <= p_k) && (p_k < 3)) {
+        if (p_p.f_a.e[p_k] == (-1)) {
+            return ((int64_t)((uint64_t)v_q + (uint64_t)((int64_t)(0 - (uint64_t)p_n))));
+        }
+        if (p_p.f_a.e[p_k] != 0) {
+            return ((int64_t)((uint64_t)v_q + (uint64_t)tack_div_int64(p_n, p_p.f_a.e[p_k])));
+        }
     }
     return v_q;
 }
@@ -162,12 +176,19 @@ static int64_t tack_4_main5_cases(int64_t p_n, tack_4_main1_P p_p) {
             return (-1);
         }
     }
+    if (p_p.f_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     return tack_div_int64(p_n, p_p.f_d);
 }
 
 static void tack_4_main8_deferred(int64_t * p_out, int64_t p_n, tack_4_main1_P p_p) {
     if (p_p.f_d == 0) {
         (*p_out) = (-1);
+        return;
+    }
+    if (p_p.f_d == (-1)) {
+        (*p_out) = ((int64_t)(0 - (uint64_t)p_n));
         return;
     }
     (*p_out) = 0;

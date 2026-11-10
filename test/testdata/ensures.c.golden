@@ -368,6 +368,9 @@ static void tack_4_main6_settle(int64_t * p_a, int64_t p_b) {
 
 static int64_t tack_4_main6_divide(int64_t p_n, int64_t p_d) {
     tack_4_main7_nonzero(p_d);
+    if (p_d == (-1)) {
+        return ((int64_t)(0 - (uint64_t)p_n));
+    }
     return tack_div_int64(p_n, p_d);
 }
 

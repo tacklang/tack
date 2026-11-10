@@ -2,6 +2,7 @@ package typeck_test
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"math/rand/v2"
 	"strings"
@@ -12,9 +13,12 @@ import (
 // overflow: a function of two parameters x and y of one integer type T
 // guards, with an if, either a value computed from them, + - * on two
 // operands and unary - on a signed one, nested up to three deep over x, y
-// and known values, or a step of a mutable copy of x, m++, m--, or m +=,
-// -= or *= of y or a known value. The guard is a conjunction of
-// comparisons of x and y with known values and with each other.
+// and known values, and sometimes divided by, or dividing, more of it, or
+// a step of a mutable copy of x, m++, m--, or m +=, -=, *= or /= of y or
+// a known value. The guard is a conjunction of comparisons of x and y
+// with known values and with each other. A division fails as overflowing
+// does when its divisor is zero, and when it is T's smallest value
+// divided by -1.
 //
 // The oracle is exact because it tries every value the guard can allow.
 // The guard begins with a window on each parameter of a type wider than
@@ -48,8 +52,8 @@ var overflowConsts = bigs(
 )
 
 // ovExpr is arithmetic over x and y: a parameter, v 0 or 1, when op is
-// 'x'; the known value c when op is 'k'; a and b combined by op, + - or
-// *; or a negated when op is 'n'.
+// 'x'; the known value c when op is 'k'; a and b combined by op, + - * or
+// /; or a negated when op is 'n'.
 type ovExpr struct {
 	a, b *ovExpr
 	c    *big.Int
@@ -70,6 +74,10 @@ type ovCmp struct {
 // parameter that has one, the rest of the guard, and the use, e, or, for
 // a step, the operator step applies to m, x's copy, by amount, y or a
 // known value.
+//
+// Choices that make a division are read after every other choice, and
+// only a byte that is not 0 makes one, so input that ran out before them
+// makes the program it made before division was among them.
 type ovProgram struct {
 	typ      string
 	windowed [2]bool
@@ -201,6 +209,9 @@ func readOverflowProgram(data []byte) ovProgram {
 			if r.next(2) == 0 {
 				p.amount = &ovExpr{op: 'k', c: ovPick(r, overflowConsts, p.typ)}
 			}
+			if r.next(4) == 1 {
+				p.step = "/="
+			}
 		}
 		return p
 	}
@@ -223,7 +234,22 @@ func readOverflowProgram(data []byte) ovProgram {
 		return p
 	}
 	p.e = ovExprOf(r, p.typ, 3)
+	switch r.next(4) {
+	case 1:
+		p.e = &ovExpr{op: '/', a: p.e, b: ovDivisor(r, p.typ)}
+	case 2:
+		p.e = &ovExpr{op: '/', a: ovDivisor(r, p.typ), b: p.e}
+	}
 	return p
+}
+
+// ovDivisor reads the other operand of a division: a parameter, a known
+// value, or arithmetic one level deep.
+func ovDivisor(r *convReader, typ string) *ovExpr {
+	if r.next(3) == 1 {
+		return &ovExpr{op: 'k', c: ovPick(r, overflowConsts, typ)}
+	}
+	return ovExprOf(r, typ, 1)
 }
 
 // ovName names parameter v.
@@ -373,6 +399,11 @@ func (p ovProgram) eval(e *ovExpr, xy [2]*big.Int, width int) (*big.Int, bool) {
 			v = new(big.Int).Add(a, b)
 		case '-':
 			v = new(big.Int).Sub(a, b)
+		case '/':
+			if b.Sign() == 0 {
+				return nil, false
+			}
+			v = new(big.Int).Quo(a, b)
 		default:
 			v = new(big.Int).Mul(a, b)
 		}
@@ -486,11 +517,13 @@ func (p ovProgram) loopCounterexample(widths []int) string {
 }
 
 // ovError reports whether msg is an error an unproven use may get: an
-// overflow, or a constant one between known values.
+// overflow, or a constant one between known values, or a divisor that may
+// be zero, or is.
 func ovError(msg string) bool {
 	return strings.Contains(msg, " may overflow ") || strings.Contains(msg, " may go below 0 in ") ||
 		strings.HasPrefix(msg, "constant expression overflows") ||
-		strings.HasPrefix(msg, "constant ") && strings.Contains(msg, " overflows ")
+		strings.HasPrefix(msg, "constant ") && strings.Contains(msg, " overflows ") ||
+		strings.HasPrefix(msg, "divisor ") || strings.HasPrefix(msg, "division by zero")
 }
 
 // checkOverflowProgram checks p and fails t when the checker accepts it
@@ -533,6 +566,23 @@ func TestOverflowOracleFindsOverflows(t *testing.T) {
 			e:  &ovExpr{op: '*', a: x, b: k(2)},
 		}},
 		{"uint8 m-- at 0", ovProgram{typ: "uint8", step: "--"}},
+		{"int8 x / y at min / -1", ovProgram{
+			typ: "int8", cmps: []ovCmp{{op: "!=", l: 1, r: -1, k: big.NewInt(0)}},
+			e: &ovExpr{op: '/', a: x, b: y},
+		}},
+		{"int16 x / y with y only negative", ovProgram{
+			typ: "int16", windowed: [2]bool{true, true},
+			lo: [2]*big.Int{big.NewInt(-32768), big.NewInt(-12)},
+			hi: [2]*big.Int{big.NewInt(-32760), big.NewInt(-1)},
+			e:  &ovExpr{op: '/', a: x, b: y},
+		}},
+		{"int64 m /= -1 near the smallest", ovProgram{
+			typ: "int64", windowed: [2]bool{true, true},
+			lo:   [2]*big.Int{big.NewInt(math.MinInt64), big.NewInt(0)},
+			hi:   [2]*big.Int{big.NewInt(math.MinInt64 + 3), big.NewInt(0)},
+			step: "/=", amount: k(-1),
+		}},
+		{"uint8 x / y at y == 0", ovProgram{typ: "uint8", e: &ovExpr{op: '/', a: x, b: y}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.p.counterexample() == "" {
@@ -572,6 +622,29 @@ func TestOverflowOracleCallsSafeUsesSafe(t *testing.T) {
 			hi: [2]*big.Int{big.NewInt(3037000499), big.NewInt(-3037000490)},
 			e:  &ovExpr{op: '*', a: x, b: y},
 		}},
+		{"int8 x / y under y > 0", ovProgram{
+			typ: "int8", cmps: []ovCmp{{op: ">", l: 1, r: -1, k: big.NewInt(0)}},
+			e: &ovExpr{op: '/', a: x, b: y},
+		}},
+		{"int8 x / y under y != 0 && y != -1", ovProgram{
+			typ: "int8", cmps: []ovCmp{
+				{op: "!=", l: 1, r: -1, k: big.NewInt(0)}, {op: "!=", l: 1, r: -1, k: big.NewInt(-1)},
+			},
+			e: &ovExpr{op: '/', a: x, b: y},
+		}},
+		{"int8 x / y under x > -128 && y != 0", ovProgram{
+			typ: "int8", cmps: []ovCmp{
+				{op: ">", l: 0, r: -1, k: big.NewInt(-128)}, {op: "!=", l: 1, r: -1, k: big.NewInt(0)},
+			},
+			e: &ovExpr{op: '/', a: x, b: y},
+		}},
+		{"int8 (x - 1) / y under 0 <= x && y < 0", ovProgram{
+			typ: "int8", cmps: []ovCmp{
+				{op: ">=", l: 0, r: -1, k: big.NewInt(0)}, {op: "<", l: 1, r: -1, k: big.NewInt(0)},
+			},
+			e: &ovExpr{op: '/', a: &ovExpr{op: '-', a: x, b: k(1)}, b: y},
+		}},
+		{"int8 m /= -2", ovProgram{typ: "int8", step: "/=", amount: k(-2)}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if bad := tt.p.counterexample(); bad != "" {

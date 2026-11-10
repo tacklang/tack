@@ -39,6 +39,9 @@ static tack_results_4_main6_divmod tack_4_main6_divmod(int64_t p_a, int64_t p_b)
     if (p_b == 0) {
         return (tack_results_4_main6_divmod){0, 0};
     }
+    if (p_b == (-1)) {
+        return (tack_results_4_main6_divmod){((int64_t)(0 - (uint64_t)p_a)), 0};
+    }
     return (tack_results_4_main6_divmod){tack_div_int64(p_a, p_b), tack_rem_int64(p_a, p_b)};
 }
 

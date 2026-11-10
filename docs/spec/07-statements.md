@@ -149,7 +149,8 @@ before `v` is evaluated:
 `x` is a place, as for an assignment, and `v` a value its operator
 accepts with `x` ([Constants and arithmetic](03-arithmetic.md)); for
 `<<=` and `>>=`, `v` is a shift's count. `x /= v` and `x %= v` of
-integers need the divisor `v` proven not zero ([Safety and
+integers need the divisor `v` proven not zero, and a signed `x /= v`
+needs `x / v` proven not the smallest value divided by -1 ([Safety and
 proofs](10-safety.md)). Like a plain assignment, a compound assignment
 does not count as reading `x`.
 
@@ -215,6 +216,9 @@ package main
 func divmod(a int32, b int32) (int32, int32) {
     if b == 0 {
         return 0, 0
+    }
+    if b == -1 {
+        return -%a, 0
     }
     return a / b, a % b
 }

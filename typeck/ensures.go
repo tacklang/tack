@@ -125,7 +125,9 @@ func (c *Checker) checkClauseType(clause ast.Expr) {
 func (c *Checker) leafFacts(leaf ast.Expr, facts []clauseFact) []clauseFact {
 	n := len(facts)
 	for _, f := range c.factsFrom(leaf, true) {
-		if !f.empty() || !f.inMap.isZero() {
+		// A value ruled out, r != -1, is a fact no clause gives: only a
+		// division's proof asks about one.
+		if !f.empty() && !f.hasNe || !f.inMap.isZero() {
 			f.src = nil
 			base, isLen := c.baseOf(leaf, f.about)
 			facts = append(facts, clauseFact{leaf: leaf, fact: f, base: base, isLen: isLen})

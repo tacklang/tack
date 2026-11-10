@@ -195,9 +195,9 @@ static void tack_4_main4_main(void) {
     tack_builtin_print((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
     const int64_t tack_r29 = tack_4_main3_say((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)}, 9);
     const int64_t tack_r30 = tack_4_main3_say((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, 3);
-    const int64_t v_q = (tack_r30 != 0 ? tack_div_int64(tack_r29, tack_r30) : 0);
-    const bool v_nonzero = (tack_r30 != 0);
-    tack_4_main5_check(((v_q == 3) && v_nonzero));
+    const int64_t v_q = ((tack_r30 != 0 && (tack_r30 != -1 || tack_r29 != (-9223372036854775807 - 1))) ? tack_div_int64(tack_r29, tack_r30) : 0);
+    const bool v_ok = (tack_r30 != 0 && (tack_r30 != -1 || tack_r29 != (-9223372036854775807 - 1)));
+    tack_4_main5_check(((v_q == 3) && v_ok));
     tack_builtin_print((tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
     tack_4_main5_count = 0;
     tack_4_main5_check(((tack_o31 = tack_4_main5_count, tack_o32 = tack_4_main4_bump(), ((int64_t)((uint64_t)tack_o31 + (uint64_t)tack_o32))) == 1));

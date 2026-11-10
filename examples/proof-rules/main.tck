@@ -59,9 +59,12 @@ func takeOr(mut l list[int64], i int64, or int64) int64 {
 }
 
 // divideBy replaces d with n / d when d is not zero: the assignment's
-// target is written after the division it guards.
+// target is written after the division it guards. A d of -1 is written
+// out as n negated, wrapping, as n / -1 did.
 func divideBy(n int64, mut d int64) {
-    if d != 0 {
+    if d == -1 {
+        d = -%n
+    } else if d != 0 {
         d = n / d
     }
 }
