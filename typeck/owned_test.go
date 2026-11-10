@@ -35,7 +35,7 @@ func owning(lines ...string) string {
 var ownedAcceptCases = []struct{ name, src string }{
 	{
 		"borrowed in place",
-		owning("if 0 <= i && i < len(l) {", "    use(read(l[i]) + len(l[i]))", "}"),
+		owning("if 0 <= i && i < len(l) {", "    use(read(l[i]) +% len(l[i]))", "}"),
 	},
 	{"viewed in place", owning("if len(l) > 0 {", "    use(view(l[0]))", "}")},
 	{
@@ -73,7 +73,7 @@ var ownedAcceptCases = []struct{ name, src string }{
 		owning(
 			"if len(bags) > 0 {",
 			"    err := mut bags[0].add(1)",
-			"    use(bags[0].total() + int64(err.code))",
+			"    use(bags[0].total() +% int64(err.code))",
 			"}",
 		),
 	},
@@ -128,7 +128,7 @@ var ownedAcceptCases = []struct{ name, src string }{
 			"    mut x := fresh()",
 			"    e := append(mut x, j)",
 			"    err := append(mut m, x)",
-			"    use(int64(err.code + e.code))",
+			"    use(int64(err.code +% e.code))",
 			"}",
 		),
 	},
@@ -221,7 +221,7 @@ func TestRecordsTakes(t *testing.T) {
 		"y, ok := pop(mut m)",
 		"z, ok2 := remove(mut bags, i)",
 		"if ok && ok2 {",
-		"    use(len(y) + z.n)",
+		"    use(len(y) +% z.n)",
 		"}",
 	)
 	file, diags := checkTree(t, src)
@@ -265,7 +265,7 @@ func TestMethodsMayBeNamedPopAndRemove(t *testing.T) {
 		"func (mut s Stack) pop() (int64, bool) {\n    x, ok := pop(mut s.items)\n    return x, ok\n}\n\n" +
 		"func (s Stack) remove() int64 {\n    return len(s.items)\n}\n\n" +
 		"func main() {\n    mut s := Stack{items: make(list[int64], c_allocator)}\n" +
-		"    x, ok := mut s.pop()\n    if ok && x + s.remove() > 0 {\n        print(\"y\")\n    }\n}\n"
+		"    x, ok := mut s.pop()\n    if ok && x +% s.remove() > 0 {\n        print(\"y\")\n    }\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}

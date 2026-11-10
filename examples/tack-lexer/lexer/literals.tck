@@ -6,12 +6,12 @@ package lexer
 // value, only its span.
 func quoted(mut l Lexer) {
     start := l.pos
-    l.pos++
+    l.pos +%= 1
     mut closed := false
     for l.pos < len(l.src) && newlineAt(l.src, l.pos) == 0 {
         c := byteAt(l.src, l.pos)
         if c == '"' {
-            l.pos++
+            l.pos +%= 1
             closed = true
             break
         }
@@ -19,7 +19,7 @@ func quoted(mut l Lexer) {
             escape(mut l, '"')
             continue
         }
-        l.pos++
+        l.pos +%= 1
     }
     add(mut l, KindString, 0, start, l.pos, true)
     if !closed {
@@ -31,13 +31,13 @@ func quoted(mut l Lexer) {
 // up to the next backquote as it is.
 func raw(mut l Lexer) {
     start := l.pos
-    l.pos++
+    l.pos +%= 1
     for l.pos < len(l.src) && byteAt(l.src, l.pos) != '`' {
-        l.pos++
+        l.pos +%= 1
     }
     closed := l.pos < len(l.src)
     if closed {
-        l.pos++
+        l.pos +%= 1
     }
     add(mut l, KindString, 0, start, l.pos, true)
     if !closed {
@@ -49,20 +49,20 @@ func raw(mut l Lexer) {
 // quotes. A malformed one gives an error and no token.
 func char(mut l Lexer) {
     start := l.pos
-    l.pos++
+    l.pos +%= 1
     if l.pos >= len(l.src) || newlineAt(l.src, l.pos) > 0 {
         fail(mut l, start, l.pos, "unterminated char literal")
         return
     }
     if byteAt(l.src, l.pos) == '\'' {
-        l.pos++
+        l.pos +%= 1
         fail(mut l, start, l.pos, "empty char literal")
         return
     }
     if byteAt(l.src, l.pos) == '\\' {
         escape(mut l, '\'')
     } else {
-        l.pos++
+        l.pos +%= 1
     }
     if l.pos >= len(l.src) || newlineAt(l.src, l.pos) > 0 {
         fail(mut l, start, l.pos, "unterminated char literal")
@@ -72,7 +72,7 @@ func char(mut l Lexer) {
         tooLong(mut l, start)
         return
     }
-    l.pos++
+    l.pos +%= 1
     add(mut l, KindChar, 0, start, l.pos, true)
 }
 
@@ -82,7 +82,7 @@ func char(mut l Lexer) {
 func tooLong(mut l Lexer, start int64) {
     for l.pos < len(l.src) && newlineAt(l.src, l.pos) == 0 {
         c := byteAt(l.src, l.pos)
-        l.pos++
+        l.pos +%= 1
         if c == '\'' {
             break
         }
@@ -97,7 +97,7 @@ func tooLong(mut l Lexer, start int64) {
 // the source is left to the literal, which is unterminated.
 func escape(mut l Lexer, quote uint8) {
     start := l.pos
-    l.pos++
+    l.pos +%= 1
     if l.pos >= len(l.src) {
         return
     }
@@ -106,7 +106,7 @@ func escape(mut l Lexer, quote uint8) {
         return
     }
     c := byteAt(l.src, l.pos)
-    l.pos++
+    l.pos +%= 1
     switch c {
     case 'a', 'b', 'f', 'v', 'n', 't', 'r', '\\', quote:
         return
@@ -115,12 +115,17 @@ func escape(mut l Lexer, quote uint8) {
             if l.pos >= len(l.src) || !isHex(byteAt(l.src, l.pos)) {
                 break
             }
-            l.pos++
+            l.pos +%= 1
         }
-        if l.pos - start < 4 {
+        if l.pos -% start < 4 {
             fail(mut l, start, l.pos, "invalid escape sequence")
         }
         return
     }
     fail(mut l, start, l.pos, "invalid escape sequence")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

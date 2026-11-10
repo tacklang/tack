@@ -42,8 +42,9 @@ import (
 // guard can hold for is in its window, or the 8-bit type, and the oracle
 // runs the guard and the use on each of them, on a target whose
 // target-width types are 32 bits wide and on one where they are 64,
-// computing each operation as Tack does: exactly, then wrapped to T's
-// width at that target. A run the guard holds for whose use is out of
+// computing each operation exactly, then wrapped to T's width at that
+// target, as +% would: a program the checker accepts has no operation
+// that overflows, which it must prove or reject, so those are its values. A run the guard holds for whose use is out of
 // range is a counterexample, and the checker must reject every use that
 // has one. It may reject a use that has none, which is conservatism.
 
@@ -815,15 +816,18 @@ func mustArith(p arithProgram) string {
 }
 
 // arithVerdict is what checking one program found: whether it was
-// checked as a whole, with no error but its use's, and whether its use
-// was accepted.
+// checked as a whole, with no error but its use's or an overflow's, and
+// whether its use was accepted.
 type arithVerdict struct {
 	checked, accepted bool
 }
 
 // checkArith checks the program p and fails t when the checker accepts
 // its use although the oracle finds a counterexample, or reports an error
-// at the use other than the one an unproven use gets.
+// other than the one an unproven use gets, at the use, or one saying
+// arithmetic in the guard or the use may overflow, which rejects the
+// program too: a program accepted has no operation that wraps, so the
+// oracle's wrapped values are its exact ones.
 func checkArith(t *testing.T, p arithProgram) arithVerdict {
 	t.Helper()
 	src, at, end := p.source()
@@ -833,7 +837,8 @@ func checkArith(t *testing.T, p arithProgram) arithVerdict {
 	}[p.use]
 	v := arithVerdict{checked: true, accepted: true}
 	for _, d := range diags {
-		if d.Span.Start < at || d.Span.End > end || !strings.HasPrefix(d.Message, prefix) {
+		overflow := strings.Contains(d.Message, " may overflow ") || strings.Contains(d.Message, " may go below 0 in ")
+		if !overflow && (d.Span.Start < at || d.Span.End > end || !strings.HasPrefix(d.Message, prefix)) {
 			return arithVerdict{}
 		}
 		v.accepted = false

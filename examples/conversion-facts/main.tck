@@ -114,7 +114,7 @@ func counted(n int64) int64 {
     }
     mut total int64 = 0
     for mut i := 0; i < 256 && i < n; i++ {
-        total += int64(uint8(i))
+        total +%= int64(uint8(i))
     }
     return total
 }
@@ -124,7 +124,7 @@ func counted(n int64) int64 {
 func ranged() int64 {
     mut total int64 = 0
     for i := range 256 {
-        total += int64(uint8(i))
+        total +%= int64(uint8(i))
     }
     return total
 }
@@ -137,7 +137,7 @@ func indexes(s string) int64 {
     }
     mut total int64 = 0
     for i := range s {
-        total += int64(uint32(i))
+        total +%= int64(uint32(i))
     }
     return total
 }
@@ -216,7 +216,7 @@ func skipped(a [4]int64) uint64 {
             v = 0
             continue
         }
-        total += uint64(v)
+        total +%= uint64(v)
     }
     return total
 }
@@ -226,7 +226,7 @@ func skipped(a [4]int64) uint64 {
 func deferred(v int64, mut out uint64) {
     if v >= 0 {
         defer {
-            out += uint64(v)
+            out +%= uint64(v)
         }
     }
 }
@@ -324,3 +324,8 @@ func main() {
     contracted(-1)
     check(false, "contracted(-1) returned")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -42,7 +42,7 @@ type C struct {
 }
 
 func (mut c C) write(b []uint8) error {
-    c.n += len(b)
+    c.n +%= len(b)
     return noerror
 }
 
@@ -75,7 +75,7 @@ func render[W Writer](mut w W, s string) int64 {
 }
 
 func pair[A Sizer, B Sizer](a A, b B) int64 {
-    return a.size() + b.size()
+    return a.size() +% b.size()
 }
 
 func use(n int64) {
@@ -86,7 +86,7 @@ func use(n int64) {
 // every way the rules allow, each in a program of its own.
 func TestAcceptsGenericCode(t *testing.T) {
 	for _, tt := range []struct{ name, decls, body string }{
-		{"two calls of one instance", "", "c := C{n: 1}\n    use(measure(c) + measure(c))"},
+		{"two calls of one instance", "", "c := C{n: 1}\n    use(measure(c) +% measure(c))"},
 		{
 			"one type parameter given one type twice", "func same[S Sizer](a S, b S) int64 {\n    return a.size()\n}\n",
 			"c := C{n: 1}\n    use(same(c, C{n: 2}))",
@@ -97,7 +97,7 @@ func TestAcceptsGenericCode(t *testing.T) {
 		},
 		{
 			"a generic call nested in another's arguments", "",
-			"mut c := C{n: 1}\n    l := L{l: make(list[int64], c_allocator)}\n    use(render(mut c, \"x\") + pair(c, l) + measure(l))",
+			"mut c := C{n: 1}\n    l := L{l: make(list[int64], c_allocator)}\n    use(render(mut c, \"x\") +% pair(c, l) +% measure(l))",
 		},
 		{
 			"a type holding a list moved after a call", "",
@@ -114,7 +114,7 @@ func TestAcceptsGenericCode(t *testing.T) {
 			"W()\n    use(f(P{x: 1}))",
 		},
 		{
-			"recursion swapping type arguments", "func flip[A Sizer, B Sizer](a A, b B, n int64) int64 {\n    if n == 0 {\n        return a.size()\n    }\n    return flip(b, a, n - 1)\n}\n",
+			"recursion swapping type arguments", "func flip[A Sizer, B Sizer](a A, b B, n int64) int64 {\n    if n == 0 {\n        return a.size()\n    }\n    return flip(b, a, n -% 1)\n}\n",
 			"use(flip(P{x: 1}, C{n: 2}, 3))",
 		},
 		{"an uncalled generic function", "func never[S Sizer](s S) int64 {\n    return s.size()\n}\n", "use(1)"},
@@ -153,7 +153,7 @@ func flip[A Sizer, B Sizer](a A, b B, n int64) int64 {
     if n == 0 {
         return pair(a, b)
     }
-    return flip(b, a, n - 1)
+    return flip(b, a, n -% 1)
 }
 
 func never[S Sizer](s S) int64 {
@@ -162,7 +162,7 @@ func never[S Sizer](s S) int64 {
 
 func main() {
     mut c := C{n: 1}
-    use(render(mut c, "x") + measure(c) + measure(c))
+    use(render(mut c, "x") +% measure(c) +% measure(c))
     use(flip(c, P{x: 1}, 3))
 }
 `
@@ -191,7 +191,7 @@ func again[S Sizer](s S) int64 {
 }
 
 func main() {
-    use(sized(P{x: 1}) + again(P{x: 2}))
+    use(sized(P{x: 1}) +% again(P{x: 2}))
 }
 `
 	file, diags := checkFile(t, src)
@@ -223,7 +223,7 @@ func TestChecksAGenericBodyOnce(t *testing.T) {
 	for _, body := range []string{
 		"use(1)",
 		"use(bad(P{x: 1}))",
-		"use(bad(P{x: 1}) + bad(C{n: 1}) + bad(P{x: 2}))",
+		"use(bad(P{x: 1}) +% bad(C{n: 1}) +% bad(P{x: 2}))",
 	} {
 		src := "package main\n\n" + genericDecls + "\n" + bad + "\nfunc main() {\n    " + body + "\n}\n"
 		diags := check(t, src)

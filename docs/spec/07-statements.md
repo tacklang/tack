@@ -122,17 +122,17 @@ of Tack.
 package main
 
 type Point struct {
-    x int32
-    y int32
+    x int8
+    y int8
 }
 
 func main() {
     mut p Point
-    mut a [3]int32
+    mut a [3]int8
     p.x = 4
-    a[2] = p.x + 1
+    a[2] = 5
     p.y = a[2]
-    exit(p.x + p.y)
+    exit(int32(p.x) + int32(p.y))
 }
 ```
 
@@ -223,7 +223,9 @@ func main() {
     q, mut r := divmod(17, 5)
     mut s int32 = 0
     r, s = divmod(r, 2)
-    exit(q * 2 + r + s - 1)
+    if q == 3 && r == 1 && s == 0 {
+        exit(6)
+    }
 }
 ```
 
@@ -247,7 +249,7 @@ In the condition, a struct literal is in parentheses ([Expressions](06-expressio
 ```tack run exit=2
 package main
 
-func sign(n int32) int32 {
+func sign(n int32) int8 {
     if n > 0 {
         return 1
     } else if n < 0 {
@@ -258,7 +260,7 @@ func sign(n int32) int32 {
 }
 
 func main() {
-    exit(sign(5) - sign(-1) + sign(0))
+    exit(int32(sign(5)) - int32(sign(-1)) + int32(sign(0)))
 }
 ```
 
@@ -309,7 +311,7 @@ case proves is described in [Safety and proofs](10-safety.md).
 ```tack run exit=6
 package main
 
-func kind(n int32) int32 {
+func kind(n int32) int8 {
     switch n {
     case 1, 2:
         return 10
@@ -321,7 +323,7 @@ func kind(n int32) int32 {
 }
 
 func main() {
-    mut total int32 = 0
+    mut last int64 = -1
     for i := range 5 {
         switch {
         case i == 1:
@@ -329,11 +331,11 @@ func main() {
         case i == 3:
             break
         }
-        total += 1
+        last = i
     }
-    switch total {
+    switch last {
     case 2:
-        exit(kind(3) - kind(1) - 4)
+        exit(int32(kind(3)) - int32(kind(1)) - 4)
     }
 }
 ```
@@ -390,7 +392,9 @@ func size(a any) int32 {
 func main() {
     var b int8 = 7
     var w int32 = 2
-    exit(size(w) + size("x") + size(b) + size(true))
+    if size(w) == 2 && size("x") == 2 && size(b) == 1 && size(true) == 0 {
+        exit(5)
+    }
 }
 ```
 
@@ -440,24 +444,26 @@ when its tag is a union; in any other switch they are values.
 package main
 
 type Shape union {
-    circle int32
-    square int32
+    circle int8
+    square int8
     empty
 }
 
 func area(s Shape) int32 {
     switch s {
     case circle(r):
-        return 3 * r * r
+        return 3 * int32(r) * int32(r)
     case square(w):
-        return w * w
+        return int32(w) * int32(w)
     case empty:
         return 0
     }
 }
 
 func main() {
-    exit(area(Shape.circle(1)) + area(Shape.square(2)) + area(Shape.empty) + 4)
+    if area(Shape.circle(1)) == 3 && area(Shape.square(2)) == 4 && area(Shape.empty) == 0 {
+        exit(11)
+    }
 }
 ```
 
@@ -468,17 +474,17 @@ error:
 package main
 
 type Shape union {
-    circle int32
-    square int32
+    circle int8
+    square int8
     empty
 }
 
 func area(s Shape) int32 {
     switch s {
     case circle(r):
-        return 3 * r * r
+        return 3 * int32(r) * int32(r)
     case square(w):
-        return w * w
+        return int32(w) * int32(w)
     }
     return 0
 }
@@ -519,13 +525,17 @@ variable in its body is described in [Safety and proofs](10-safety.md).
 A range clause is a loop's header too, below. A struct literal in a
 loop's header is in parentheses.
 
+A running total is written with `+%=` here and below, since nothing
+bounds how far a loop adds to it; `+=` would need a proof that it fits
+(see [Integer overflow](03-arithmetic.md#integer-overflow)).
+
 ```tack run exit=10
 package main
 
 func main() {
     mut total int32 = 0
     for mut i int32 = 1; i <= 4; i++ {
-        total += i
+        total +%= i
     }
     mut n int32 = total
     for n > 5 {
@@ -536,7 +546,7 @@ func main() {
             break
         }
     }
-    exit(total + n - 5)
+    exit(total +% n -% 5)
 }
 ```
 
@@ -597,15 +607,15 @@ package main
 func main() {
     mut total int32 = 0
     for i := range 3 {
-        total += int32(i)
+        total +%= int32(i)
     }
     a := [3]int32{1, 2, 3}
     for _, x := range a {
-        total += x
+        total +%= x
     }
     for i, c := range "ab" {
         if c == 'b' {
-            total += int32(i)
+            total +%= int32(i)
         }
     }
     mut l := make(list[int32], c_allocator)
@@ -614,7 +624,7 @@ func main() {
         exit(1)
     }
     for _, x := range l {
-        total += x
+        total +%= x
     }
     exit(total)
 }
@@ -761,7 +771,7 @@ An `if` without an `else` does not terminate, whatever its branches do:
 ```tack error
 package main
 
-func sign(n int32) int32 {
+func sign(n int32) int8 {
     if n > 0 {
         return 1
     } else if n < 0 {

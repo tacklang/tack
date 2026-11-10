@@ -80,13 +80,13 @@ func sum(v V) int64 {
     case items(l):
         mut s := 0
         for _, x := range l {
-            s += x
+            s +%= x
         }
         return s
     case bag(b):
         mut s := b.n
         for i := range len(b.items) {
-            s += b.items[i]
+            s +%= b.items[i]
         }
         return s
     case none:
@@ -99,7 +99,7 @@ func outerSum(o Outer) int64 {
     case v(inner):
         return sum(inner)
     case pair(p):
-        return p[0] + p[1]
+        return p[0] +% p[1]
     case leaf:
         return -1
     }
@@ -138,7 +138,7 @@ func nested() {
     o = Outer.v(V.items(listOf(2)))
     check(outerSum(o) == 3 && live() == 1, "a union in a union reassigned")
     h := Holder{v: V.items(listOf(1)), o: o}
-    check(sum(h.v) + outerSum(h.o) == 4, "unions in a struct")
+    check(sum(h.v) +% outerSum(h.o) == 4, "unions in a struct")
 }
 
 func deferred(mut out int64) {
@@ -148,7 +148,7 @@ func deferred(mut out int64) {
     }
     w := V.bag(Bag{items: listOf(2), n: 0})
     defer {
-        out += sum(w)
+        out +%= sum(w)
     }
 }
 
@@ -164,7 +164,7 @@ func inList() {
     for i := range len(vs) {
         switch vs[i] {
         case pair(p):
-            s += p[0] + p[1]
+            s +%= p[0] +% p[1]
         default:
         }
     }
@@ -180,7 +180,7 @@ func ranging() int64 {
             if l[i] != x {
                 exit(4)
             }
-            s += x
+            s +%= x
         }
     default:
     }
@@ -251,11 +251,11 @@ func manyCases(n int) string {
 	b.WriteString(`    mut bad := 0
     for i, m := range all {
         if which(m) != i {
-            bad++
+            bad +%= 1
         }
         for j := range len(all) {
             if (all[j] == m) != (i == j) {
-                bad++
+                bad +%= 1
             }
         }
     }
@@ -366,24 +366,24 @@ func main() {
     s := S{u: U.n(3), us: [2]U{U.none, U.n(4)}}
     mut bad := 0
     if get(local) != 2 || get(s.u) != 3 || get(s.us[1]) != 4 || get(s.us[0]) != -1 {
-        bad++
+        bad +%= 1
     }
     switch g {
     case n(x):
         setG()
         if x != 1 || g != U.s("changed") {
-            bad++
+            bad +%= 1
         }
     default:
-        bad++
+        bad +%= 1
     }
     switch s.us[1] {
     case n(x):
         if x != 4 {
-            bad++
+            bad +%= 1
         }
     default:
-        bad++
+        bad +%= 1
     }
     if bad == 0 {
         print("ok\n")
@@ -481,9 +481,9 @@ func describe(m M) int64 {
     case alloc:
         return -1
     case names(ns):
-        return len(ns[0]) + len(ns[1]) + len(ns[2])
+        return len(ns[0]) +% len(ns[1]) +% len(ns[2])
     case pair(p):
-        return p.n + len(p.names[1])
+        return p.n +% len(p.names[1])
     case small(s):
         return s
     case flag:
@@ -522,38 +522,38 @@ type Box struct {
 func main() {
     mut bad := 0
     if describe(M.err(error{code: 5, msg: "x"})) != 5 || describe(M.alloc(c_allocator)) != -1 {
-        bad++
+        bad +%= 1
     }
     if describe(M.names([3]string{"a", "bc", "def"})) != 6 {
-        bad++
+        bad +%= 1
     }
     if describe(M.pair(Pair{names: [2]string{"", "four"}, n: -2})) != 2 {
-        bad++
+        bad +%= 1
     }
     m, err := make_m(-1)
     if err.code != 7 {
-        bad++
+        bad +%= 1
     }
     if err.code == 0 && describe(m) != 0 {
-        bad++
+        bad +%= 1
     }
     m2, err2 := make_m(250)
     if err2.code != 0 || describe(m2) != 50 {
-        bad++
+        bad +%= 1
     }
     mut f := M.flag
     flip(mut f)
     if describe(f) != 3 {
-        bad++
+        bad +%= 1
     }
     flip(mut f)
     if describe(f) != 0 {
-        bad++
+        bad +%= 1
     }
     mut b := Box{m: M.small(1), id: 1}
     b.m = M.small(9)
     if describe(b.m) != 9 || b.id != 1 {
-        bad++
+        bad +%= 1
     }
     mut total := 0
     for i := range 6 {
@@ -569,13 +569,13 @@ func main() {
             if s == 5 {
                 break
             }
-            total += s
+            total +%= s
         default:
-            total += 100
+            total +%= 100
         }
     }
     if total != 106 {
-        bad++
+        bad +%= 1
     }
     mut seen := 0
     if total > 0 {
@@ -589,7 +589,7 @@ func main() {
         }
     }
     if seen != 1 {
-        bad++
+        bad +%= 1
     }
     if bad == 0 {
         print("ok\n")

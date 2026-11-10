@@ -1,0 +1,123 @@
+package main
+
+// Each fix an overflow error suggests, applied, compiles and does what it
+// says. Each check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// seed is a wrapping product of two known values, computed at compile
+// time by wrapping at 64 bits: 0x9e3779b97f4a7c15 *% 3.
+var golden uint64 = 11400714819323198485
+var seed uint64 = golden *% 3
+
+// small is uint8(200) +% 100, the form the error on 200 +% 100 suggests.
+var small = uint8(200) +% 100
+
+// wide is the suggestion for a pair of untyped constants, int64(200) +%
+// 100, which wraps at 64 bits and so is 300.
+var wide = int64(200) +% 100
+
+// negative is the suggestion for -%5, -%int64(5).
+var negative = -%int64(5)
+
+// lower applies "check x >= b first" to an unsigned x -= b.
+func lower(x uint64, b uint64) uint64 {
+    mut y := x
+    if y >= b {
+        y -= b
+    }
+    return y
+}
+
+// step applies "v, ok := x + 1 and x = v when ok" to x++.
+func step(x int64) int64 {
+    mut y := x
+    v, ok := y + 1
+    if ok {
+        y = v
+    }
+    return y
+}
+
+// below applies "check a >= b first" to an unsigned a - b.
+func below(a uint64, b uint64) uint64 {
+    if a >= b {
+        return a - b
+    }
+    return 0
+}
+
+// least applies "check a > -9223372036854775808 first" to -a.
+func least(a int64) int64 {
+    if a > -9223372036854775808 {
+        return -a
+    }
+    return 0
+}
+
+// down applies "check i > 0 first" to a loop's post i--, as its
+// condition.
+func down(n uint8) uint8 {
+    mut last uint8 = n
+    for mut i uint8 = n; i > 0; i-- {
+        last = i
+    }
+    return last
+}
+
+// decrement applies "check x > 0 first" to x--.
+func decrement(x uint8) uint8 {
+    mut y := x
+    if y > 0 {
+        y--
+    }
+    return y
+}
+
+// bounded applies "bound a and b first" to a + b.
+func bounded(a int64, b int64) int64 {
+    if a < 1000 && a > -1000 && b < 1000 && b > -1000 {
+        return a + b
+    }
+    return 0
+}
+
+// next reads the element after u, wrapping to 0 past 255: a uint8 +% 1
+// is a uint8, which indexes 256 elements by its type.
+func next(a [256]uint8, u uint8) uint8 {
+    return a[u +% 1]
+}
+
+// wrapped applies "use x +%= b to wrap" to x += b.
+func wrapped(x int8, b int8) int8 {
+    mut y := x
+    y +%= b
+    return y
+}
+
+func main() {
+    check(seed == 15755400384260043839, "a wrapping product of known globals")
+    check(small == 44, "uint8(200) +% 100")
+    check(wide == 300, "int64(200) +% 100")
+    check(step(9223372036854775807) == 9223372036854775807 && step(1) == 2, "v, ok := x + 1, x = v when ok")
+    check(below(3, 5) == 0 && below(5, 3) == 2, "a - b after a >= b")
+    check(least(-9223372036854775808) == 0 && least(5) == -5, "-a after a > min")
+    check(down(3) == 1 && down(0) == 0, "i-- in a loop under i > 0")
+    check(decrement(0) == 0 && decrement(9) == 8, "x-- after x > 0")
+    check(bounded(999, -999) == 0 && bounded(5, 6) == 11, "a + b after bounds on both")
+    check(wrapped(127, 1) == -128 && wrapped(-1, 2) == 1, "x +%= b")
+    check(negative == -5, "-%int64(5)")
+    mut table [256]uint8
+    table[0] = 7
+    table[200] = 9
+    check(next(table, 255) == 7 && next(table, 199) == 9, "a[u +% 1] proven by u's type")
+    check(lower(5, 3) == 2 && lower(3, 5) == 3, "x -= b after x >= b")
+}

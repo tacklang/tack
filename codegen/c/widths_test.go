@@ -22,11 +22,11 @@ func widthProgram(params, args, cond string) string {
 var widthCases = []struct{ name, src string }{
 	{
 		"int8 wraps",
-		widthProgram("a int8, b int8", "127, -128", "return a + 1 == b && b - 1 == a && -b == b"),
+		widthProgram("a int8, b int8", "127, -128", "return a +% 1 == b && b -% 1 == a && -%b == b"),
 	},
 	{
 		"int8 multiplies in its own width",
-		widthProgram("a int8, b int8", "100, 100", "return a * b == 16"),
+		widthProgram("a int8, b int8", "100, 100", "return a *% b == 16"),
 	},
 	{
 		"int8 divides",
@@ -38,7 +38,7 @@ var widthCases = []struct{ name, src string }{
 	},
 	{
 		"uint8 wraps",
-		widthProgram("a uint8, b uint8", "0, 255", "return a - 1 == b && b + 1 == a && b * b == 1"),
+		widthProgram("a uint8, b uint8", "0, 255", "return a -% 1 == b && b +% 1 == a && b *% b == 1"),
 	},
 	{
 		"uint8 divides",
@@ -46,18 +46,18 @@ var widthCases = []struct{ name, src string }{
 	},
 	{
 		"int16 wraps",
-		widthProgram("a int16, b int16", "32767, 2", "return a * b == -2 && a + a == -2"),
+		widthProgram("a int16, b int16", "32767, 2", "return a *% b == -2 && a +% a == -2"),
 	},
 	{
 		"uint16 multiplies past int",
-		widthProgram("a uint16, b uint16", "65535, 65535", "return a * b == 1"),
+		widthProgram("a uint16, b uint16", "65535, 65535", "return a *% b == 1"),
 	},
 	{
 		"int32 wraps",
 		widthProgram(
 			"a int32, b int32",
 			"-2147483648, -1",
-			"return b != 0 && a / b == a && a * b == a && a - 1 == 2147483647",
+			"return b != 0 && a / b == a && a *% b == a && a -% 1 == 2147483647",
 		),
 	},
 	{
@@ -76,7 +76,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a uint32, b uint32",
 			"4294967295, 2",
-			"return a + b == 1 && a * b == 4294967294",
+			"return a +% b == 1 && a *% b == 4294967294",
 		),
 	},
 	{
@@ -84,7 +84,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a uint64, b uint64",
 			"18446744073709551615, 1",
-			"return a + b == 0 && 0 - a == 1",
+			"return a +% b == 0 && 0 -% a == 1",
 		),
 	},
 	{
@@ -97,14 +97,14 @@ var widthCases = []struct{ name, src string }{
 	},
 	{
 		"mixed arithmetic in the wider type",
-		widthProgram("a int8, b int32", "100, 100", "return a + b == 200 && a * b == 10000"),
+		widthProgram("a int8, b int32", "100, 100", "return a +% b == 200 && a *% b == 10000"),
 	},
 	{
 		"checked conversions",
 		widthProgram(
 			"big int64, neg int64, max uint64",
 			"300, -1, 18446744073709551615",
-			"a, okA := int8(big)\nb, okB := uint64(neg)\nc, okC := int64(max)\nd, okD := uint8(big - 45)\n"+
+			"a, okA := int8(big)\nb, okB := uint64(neg)\nc, okC := int64(max)\nd, okD := uint8(big -% 45)\n"+
 				"e, okE := int8(neg)\nf, okF := uint64(big)\n"+
 				"return !okA && a == 0 && !okB && b == 0 && !okC && c == 0 && okD && d == 255 && okE && e == -1 && okF && f == 300",
 		),
@@ -129,14 +129,14 @@ var widthCases = []struct{ name, src string }{
 		"checked conversion assigned in a loop post",
 		widthProgram("start int64", "250",
 			"mut n int64 = start\nmut small uint8 = 0\nmut ok := true\nmut count := 0\n"+
-				"for ; ok; small, ok = uint8(n) {\n    count++\n    n++\n}\nreturn count == 6 && small == 0 && n == 256"),
+				"for ; ok; small, ok = uint8(n) {\n    count +%= 1\n    n +%= 1\n}\nreturn count == 6 && small == 0 && n == 256"),
 	},
 	{
 		"range over a sized count",
 		widthProgram(
 			"n uint8, m int8",
 			"255, -3",
-			"mut total uint64 = 0\nfor i := range n {\n    total += i\n}\nfor range m {\n    return false\n}\nreturn total == 32385",
+			"mut total uint64 = 0\nfor i := range n {\n    total +%= i\n}\nfor range m {\n    return false\n}\nreturn total == 32385",
 		),
 	},
 	{
@@ -152,7 +152,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a unsafe_size_t, b uint32, p unsafe_uintptr_t",
 			"0, 1, 0",
-			"m := a - b\nq := p - b\nreturn m + 1 == 0 && m * m == 1 && m / 2 + 1 > m / 2 && q + 1 == 0 && m % 2 == 1",
+			"m := a -% b\nq := p -% b\nreturn m +% 1 == 0 && m *% m == 1 && m / 2 +% 1 > m / 2 && q +% 1 == 0 && m % 2 == 1",
 		),
 	},
 	{
@@ -161,7 +161,7 @@ var widthCases = []struct{ name, src string }{
 			"a uint8, b uint16, c uint32, s unsafe_size_t, p unsafe_uintptr_t",
 			"255, 65535, 4294967295, 7, 9",
 			"var x unsafe_size_t = a\nvar y unsafe_uintptr_t = b\nvar z unsafe_size_t = c\n"+
-				"var w uint64 = s + c\nvar v uint64 = p\n"+
+				"var w uint64 = s +% c\nvar v uint64 = p\n"+
 				"return x == 255 && y == 65535 && z == 4294967295 && w == 4294967302 && v == 9 && c > s && a > p",
 		),
 	},
@@ -182,8 +182,8 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"s unsafe_size_t, c uint32",
 			"7, 8",
-			"mut x unsafe_size_t = s\nx -= c\nmut y := x\nx++\ny *= 2\nmut z unsafe_uintptr_t = 5\nz %= 3\n"+
-				"return x == 0 && y + 2 == 0 && z == 2",
+			"mut x unsafe_size_t = s\nx -%= c\nmut y := x\nx +%= 1\ny *%= 2\nmut z unsafe_uintptr_t = 5\nz %= 3\n"+
+				"return x == 0 && y +% 2 == 0 && z == 2",
 		),
 	},
 	{
@@ -191,7 +191,7 @@ var widthCases = []struct{ name, src string }{
 		widthProgram(
 			"a int8, b uint16",
 			"120, 65000",
-			"mut x int8 = a\nx += 10\nmut y uint16 = b\ny *= 2\nmut z int8 = -128\nz /= -1\nmut w uint8 = 0\nw--\n"+
+			"mut x int8 = a\nx +%= 10\nmut y uint16 = b\ny *%= 2\nmut z int8 = -128\nz /= -1\nmut w uint8 = 0\nw -%= 1\n"+
 				"return x == -126 && y == 64464 && z == -128 && w == 255",
 		),
 	},

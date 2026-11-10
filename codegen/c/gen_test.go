@@ -521,7 +521,7 @@ func TestExitOfAnInt64PastInt32(t *testing.T) {
 	src := program(
 		"mut x int64 = 3000000000", "x++",
 		"v, ok := int32(x)", "if ok {", "    exit(1)", "}",
-		"exit(v + 2)",
+		"exit(v +% 2)",
 	)
 	if _, status := run(t, src); status != 2 {
 		t.Errorf("status %d, want 2", status)
@@ -926,7 +926,7 @@ func TestGeneratedProgramThreadsAValueThroughSeveralCalls(t *testing.T) {
 func TestGeneratesBinaryExpression(t *testing.T) {
 	got := generate(
 		t,
-		"package main\n\nfunc f(a int64, b int64, c int64) int64 {\n    return a + b * c\n}\n\n"+
+		"package main\n\nfunc f(a int64, b int64, c int64) int64 {\n    if 0 <= a && a < 100 && 0 <= b && b < 100 && 0 <= c && c < 100 {\n        return a + b * c\n    }\n    return 0\n}\n\n"+
 			"func main() {\n    code, fits := int32(f(1, 2, 3))\n    if fits { exit(code) }\n}\n",
 	)
 
@@ -994,7 +994,7 @@ func TestGeneratedProgramComputesFib(t *testing.T) {
 	src := "package main\n\n" +
 		"func fib(n int64) int64 {\n" +
 		"    if n < 2 {\n        return n\n    }\n" +
-		"    return fib(n - 1) + fib(n - 2)\n" +
+		"    return fib(n - 1) +% fib(n - 2)\n" +
 		"}\n\n" +
 		"func main() {\n    code, fits := int32(fib(10))\n    if fits { exit(code) }\n}\n"
 
@@ -1050,9 +1050,9 @@ func TestGeneratedProgramEvaluatesEveryOperator(t *testing.T) {
 func TestGeneratedProgramMixesCallAndLiteralArguments(t *testing.T) {
 	// sub(10, 3) * 10 + sub(20, 10) == 7 * 10 + 10 == 80
 	src := "package main\n\n" +
-		"func sub(a int64, b int64) int64 {\n    return a - b\n}\n\n" +
+		"func sub(a int64, b int64) int64 {\n    return a -% b\n}\n\n" +
 		"func ten() int64 {\n    return 10\n}\n\n" +
-		"func main() {\n    code, fits := int32(sub(ten(), 3) * 10 + sub(20, ten()))\n    if fits { exit(code) }\n}\n"
+		"func main() {\n    code, fits := int32(sub(ten(), 3) *% 10 +% sub(20, ten()))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError
@@ -1071,7 +1071,7 @@ func TestGeneratedProgramCombinesTwoCallResults(t *testing.T) {
 	src := "package main\n\n" +
 		"func seven() int64 {\n    return 7\n}\n\n" +
 		"func two() int64 {\n    return 2\n}\n\n" +
-		"func main() {\n    code, fits := int32((seven() + two()) * 10 + (seven() - two()))\n    if fits { exit(code) }\n}\n"
+		"func main() {\n    code, fits := int32((seven() +% two()) *% 10 +% (seven() -% two()))\n    if fits { exit(code) }\n}\n"
 
 	err := exec.Command(build(t, src)).Run()
 	var exit *exec.ExitError

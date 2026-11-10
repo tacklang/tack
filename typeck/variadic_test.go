@@ -18,7 +18,7 @@ func calling(lines ...string) string {
 		"func b(xs ...uint8) {\n}\n\n" +
 		"func ps(xs ...P) {\n}\n\n" +
 		"func v(xs []int64) {\n}\n\n" +
-		"func m(mut x int64, xs ...int64) {\n    x++\n}\n\n" +
+		"func m(mut x int64, xs ...int64) {\n    x +%= 1\n}\n\n" +
 		"func mk() [2]int64 {\n    return [2]int64{1, 2}\n}\n\n" +
 		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
@@ -50,7 +50,7 @@ var variadicCallCases = []struct{ name, src string }{
 	{
 		"extern func",
 		"package main\n\nextern func g(s string, n ...int64) int64\n\nfunc main() {\n" +
-			"    a := [1]int64{1}\n    x := g(\"\", 1, 2) + g(\"\") + g(\"\", a...)\n" +
+			"    a := [1]int64{1}\n    x := g(\"\", 1, 2) +% g(\"\") +% g(\"\", a...)\n" +
 			"    if x == 0 {\n        exit(1)\n    }\n}\n",
 	},
 }

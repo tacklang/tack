@@ -73,11 +73,11 @@ pub type Rect struct {
 }
 
 pub func Area(r Rect) int64 {
-    return r.w * r.h
+    return r.w *% r.h
 }
 
 func spare(r Rect) int64 {
-    return r.w + r.h
+    return r.w +% r.h
 }
 
 type hidden struct {
@@ -99,7 +99,7 @@ unused-private-in-library/geo/geo.tck:12:6: warning: declared and not used: spar
 11 |	
 12 |	func spare(r Rect) int64 {
    |	     ^~~~~
-13 |	    return r.w + r.h
+13 |	    return r.w +% r.h
 
 unused-private-in-library/geo/geo.tck:16:6: warning: declared and not used: hidden
 15 |	

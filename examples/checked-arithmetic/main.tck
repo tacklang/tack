@@ -1,0 +1,612 @@
+package main
+
+// Checked integer arithmetic. Plain + - *, unary -, ++ -- += -= and *= on
+// integers compile only where the compiler proves they cannot overflow,
+// for every width, signed and unsigned, an unsigned value going below 0
+// included. Elsewhere v, ok := a + b (or -, *, or -x) computes the result
+// only when it fits: ok reports whether it did, and v is the result, or
+// 0. Floats are unaffected, and << is a bit operation, left as it was.
+// Each check prints its name and "ok", or "FAIL".
+//
+// The helpers take parameters so that no operand is a known value: a
+// known overflow is a compile error, not a run-time failure.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// add_i8, sub_i8, mul_i8 and neg_i8 are the checked int8 operations.
+func add_i8(a int8, b int8) (int8, bool) {
+    v, ok := a + b
+    return v, ok
+}
+
+func sub_i8(a int8, b int8) (int8, bool) {
+    v, ok := a - b
+    return v, ok
+}
+
+func mul_i8(a int8, b int8) (int8, bool) {
+    v, ok := a * b
+    return v, ok
+}
+
+func neg_i8(a int8) (int8, bool) {
+    v, ok := -a
+    return v, ok
+}
+
+// add_u8, sub_u8 and mul_u8 are the checked uint8 operations.
+func add_u8(a uint8, b uint8) (uint8, bool) {
+    v, ok := a + b
+    return v, ok
+}
+
+func sub_u8(a uint8, b uint8) (uint8, bool) {
+    v, ok := a - b
+    return v, ok
+}
+
+func mul_u8(a uint8, b uint8) (uint8, bool) {
+    v, ok := a * b
+    return v, ok
+}
+
+// add_i32, sub_i32, mul_i32 and neg_i32 are the checked int32 operations.
+func add_i32(a int32, b int32) (int32, bool) {
+    v, ok := a + b
+    return v, ok
+}
+
+func sub_i32(a int32, b int32) (int32, bool) {
+    v, ok := a - b
+    return v, ok
+}
+
+func mul_i32(a int32, b int32) (int32, bool) {
+    v, ok := a * b
+    return v, ok
+}
+
+func neg_i32(a int32) (int32, bool) {
+    v, ok := -a
+    return v, ok
+}
+
+// add_i64, sub_i64, mul_i64 and neg_i64 are the checked int64 operations.
+func add_i64(a int64, b int64) (int64, bool) {
+    v, ok := a + b
+    return v, ok
+}
+
+func sub_i64(a int64, b int64) (int64, bool) {
+    v, ok := a - b
+    return v, ok
+}
+
+func mul_i64(a int64, b int64) (int64, bool) {
+    v, ok := a * b
+    return v, ok
+}
+
+func neg_i64(a int64) (int64, bool) {
+    v, ok := -a
+    return v, ok
+}
+
+// add_u64, sub_u64 and mul_u64 are the checked uint64 operations.
+func add_u64(a uint64, b uint64) (uint64, bool) {
+    v, ok := a + b
+    return v, ok
+}
+
+func sub_u64(a uint64, b uint64) (uint64, bool) {
+    v, ok := a - b
+    return v, ok
+}
+
+func mul_u64(a uint64, b uint64) (uint64, bool) {
+    v, ok := a * b
+    return v, ok
+}
+
+// int8_edges checks the checked int8 operations at -128 and 127.
+func int8_edges() {
+    mut v, mut ok := add_i8(127, 1)
+    check(!ok && v == 0, "int8 max + 1 fails")
+    v, ok = add_i8(127, 0)
+    check(ok && v == 127, "int8 max + 0")
+    v, ok = add_i8(100, 100)
+    check(!ok && v == 0, "int8 100 + 100 fails, v is 0 and not the wrapped -56")
+    v, ok = add_i8(-128, -1)
+    check(!ok && v == 0, "int8 min + -1 fails")
+    v, ok = add_i8(-128, 127)
+    check(ok && v == -1, "int8 min + max")
+    v, ok = add_i8(-128, -128)
+    check(!ok && v == 0, "int8 min + min fails")
+
+    v, ok = sub_i8(-128, 1)
+    check(!ok && v == 0, "int8 min - 1 fails")
+    v, ok = sub_i8(127, -1)
+    check(!ok && v == 0, "int8 max - -1 fails")
+    v, ok = sub_i8(-128, -128)
+    check(ok && v == 0, "int8 min - min is 0, and ok")
+    v, ok = sub_i8(-1, 127)
+    check(ok && v == -128, "int8 -1 - max is min")
+    v, ok = sub_i8(0, -128)
+    check(!ok && v == 0, "int8 0 - min fails")
+    v, ok = sub_i8(-1, -128)
+    check(ok && v == 127, "int8 -1 - min is max")
+
+    v, ok = mul_i8(-128, -1)
+    check(!ok && v == 0, "int8 min * -1 fails")
+    v, ok = mul_i8(-1, -128)
+    check(!ok && v == 0, "int8 -1 * min fails")
+    v, ok = mul_i8(-128, 1)
+    check(ok && v == -128, "int8 min * 1")
+    v, ok = mul_i8(127, -1)
+    check(ok && v == -127, "int8 max * -1")
+    v, ok = mul_i8(-64, 2)
+    check(ok && v == -128, "int8 -64 * 2 is min")
+    v, ok = mul_i8(64, 2)
+    check(!ok && v == 0, "int8 64 * 2 fails")
+    v, ok = mul_i8(0, -128)
+    check(ok && v == 0, "int8 0 * min")
+    v, ok = mul_i8(16, 16)
+    check(!ok && v == 0, "int8 16 * 16 fails, v is 0 and not the wrapped 0")
+
+    v, ok = neg_i8(-128)
+    check(!ok && v == 0, "int8 -min fails")
+    v, ok = neg_i8(127)
+    check(ok && v == -127, "int8 -max")
+    v, ok = neg_i8(0)
+    check(ok && v == 0, "int8 -0")
+}
+
+// uint8_edges checks the checked uint8 operations at 0 and 255.
+func uint8_edges() {
+    mut v, mut ok := add_u8(255, 1)
+    check(!ok && v == 0, "uint8 max + 1 fails")
+    v, ok = add_u8(254, 1)
+    check(ok && v == 255, "uint8 254 + 1 is max")
+    v, ok = sub_u8(0, 1)
+    check(!ok && v == 0, "uint8 0 - 1 fails")
+    v, ok = sub_u8(0, 0)
+    check(ok && v == 0, "uint8 0 - 0")
+    v, ok = sub_u8(255, 255)
+    check(ok && v == 0, "uint8 max - max")
+    v, ok = sub_u8(5, 6)
+    check(!ok && v == 0, "uint8 5 - 6 fails")
+    v, ok = mul_u8(16, 16)
+    check(!ok && v == 0, "uint8 16 * 16 fails")
+    v, ok = mul_u8(15, 17)
+    check(ok && v == 255, "uint8 15 * 17 is max")
+    v, ok = mul_u8(255, 0)
+    check(ok && v == 0, "uint8 max * 0")
+}
+
+// int32_edges checks the checked int32 operations at its bounds.
+func int32_edges() {
+    mut v, mut ok := add_i32(2147483647, 1)
+    check(!ok && v == 0, "int32 max + 1 fails")
+    v, ok = add_i32(-2147483648, -1)
+    check(!ok && v == 0, "int32 min + -1 fails")
+    v, ok = add_i32(-2147483648, 2147483647)
+    check(ok && v == -1, "int32 min + max")
+    v, ok = sub_i32(-2147483648, 1)
+    check(!ok && v == 0, "int32 min - 1 fails")
+    v, ok = sub_i32(2147483647, -1)
+    check(!ok && v == 0, "int32 max - -1 fails")
+    v, ok = sub_i32(-1, 2147483647)
+    check(ok && v == -2147483648, "int32 -1 - max is min")
+    v, ok = mul_i32(-2147483648, -1)
+    check(!ok && v == 0, "int32 min * -1 fails")
+    v, ok = mul_i32(65536, 32768)
+    check(!ok && v == 0, "int32 65536 * 32768 fails")
+    v, ok = mul_i32(-65536, 32768)
+    check(ok && v == -2147483648, "int32 -65536 * 32768 is min")
+    v, ok = mul_i32(46341, 46341)
+    check(!ok && v == 0, "int32 46341 * 46341 fails")
+    v, ok = mul_i32(46340, 46340)
+    check(ok && v == 2147395600, "int32 46340 * 46340")
+    v, ok = neg_i32(-2147483648)
+    check(!ok && v == 0, "int32 -min fails")
+    v, ok = neg_i32(2147483647)
+    check(ok && v == -2147483647, "int32 -max")
+}
+
+// int64_edges checks the checked int64 operations at its bounds.
+func int64_edges() {
+    mut v, mut ok := add_i64(9223372036854775807, 1)
+    check(!ok && v == 0, "int64 max + 1 fails")
+    v, ok = add_i64(-9223372036854775808, -1)
+    check(!ok && v == 0, "int64 min + -1 fails")
+    v, ok = add_i64(9223372036854775807, 9223372036854775807)
+    check(!ok && v == 0, "int64 max + max fails")
+    v, ok = add_i64(-9223372036854775808, 9223372036854775807)
+    check(ok && v == -1, "int64 min + max")
+    v, ok = sub_i64(-9223372036854775808, 1)
+    check(!ok && v == 0, "int64 min - 1 fails")
+    v, ok = sub_i64(9223372036854775807, -1)
+    check(!ok && v == 0, "int64 max - -1 fails")
+    v, ok = sub_i64(0, -9223372036854775808)
+    check(!ok && v == 0, "int64 0 - min fails")
+    v, ok = sub_i64(-9223372036854775808, -9223372036854775808)
+    check(ok && v == 0, "int64 min - min is 0, and ok")
+    v, ok = mul_i64(-9223372036854775808, -1)
+    check(!ok && v == 0, "int64 min * -1 fails")
+    v, ok = mul_i64(-1, -9223372036854775808)
+    check(!ok && v == 0, "int64 -1 * min fails")
+    v, ok = mul_i64(4294967296, 2147483648)
+    check(!ok && v == 0, "int64 2^32 * 2^31 fails")
+    v, ok = mul_i64(-4294967296, 2147483648)
+    check(ok && v == -9223372036854775808, "int64 -2^32 * 2^31 is min")
+    v, ok = mul_i64(3037000500, 3037000500)
+    check(!ok && v == 0, "int64 3037000500 squared fails")
+    v, ok = mul_i64(3037000499, 3037000499)
+    check(ok && v == 9223372030926249001, "int64 3037000499 squared")
+    v, ok = mul_i64(4294967296, 4294967296)
+    check(!ok && v == 0, "int64 2^32 * 2^32 fails, v is 0 and not the wrapped 0")
+    v, ok = neg_i64(-9223372036854775808)
+    check(!ok && v == 0, "int64 -min fails")
+    v, ok = neg_i64(9223372036854775807)
+    check(ok && v == -9223372036854775807, "int64 -max")
+}
+
+// uint64_edges checks the checked uint64 operations at 0 and its max.
+func uint64_edges() {
+    mut v, mut ok := add_u64(18446744073709551615, 1)
+    check(!ok && v == 0, "uint64 max + 1 fails")
+    v, ok = add_u64(18446744073709551614, 1)
+    check(ok && v == 18446744073709551615, "uint64 max - 1 + 1 is max")
+    v, ok = sub_u64(0, 1)
+    check(!ok && v == 0, "uint64 0 - 1 fails")
+    v, ok = sub_u64(18446744073709551615, 18446744073709551615)
+    check(ok && v == 0, "uint64 max - max")
+    v, ok = sub_u64(1, 18446744073709551615)
+    check(!ok && v == 0, "uint64 1 - max fails")
+    v, ok = mul_u64(18446744073709551615, 2)
+    check(!ok && v == 0, "uint64 max * 2 fails")
+    v, ok = mul_u64(4294967296, 4294967296)
+    check(!ok && v == 0, "uint64 2^32 * 2^32 fails")
+    v, ok = mul_u64(4294967295, 4294967297)
+    check(ok && v == 18446744073709551615, "uint64 (2^32 - 1) * (2^32 + 1) is max")
+    v, ok = mul_u64(18446744073709551615, 1)
+    check(ok && v == 18446744073709551615, "uint64 max * 1")
+}
+
+// every_int8 checks every pair of int8 values against the same
+// operation on int64, which cannot overflow there: ok must say whether
+// the exact result fits an int8, and v must be it, or 0.
+func every_int8() {
+    mut all := true
+    for x := range 256 {
+        a, fa := int8(x - 128)
+        for y := range 256 {
+            b, fb := int8(y - 128)
+            wa := int64(a)
+            wb := int64(b)
+            sum, sok := a + b
+            wsum, wsok := wa + wb
+            diff, dok := a - b
+            wdiff, wdok := wa - wb
+            prod, pok := a * b
+            wprod, wpok := wa * wb
+            all = all && fa && fb && wsok && wdok && wpok
+            all = all && sok == (-128 <= wsum && wsum <= 127)
+            all = all && (sok && int64(sum) == wsum || !sok && sum == 0)
+            all = all && dok == (-128 <= wdiff && wdiff <= 127)
+            all = all && (dok && int64(diff) == wdiff || !dok && diff == 0)
+            all = all && pok == (-128 <= wprod && wprod <= 127)
+            all = all && (pok && int64(prod) == wprod || !pok && prod == 0)
+        }
+        neg, nok := -a
+        wneg, wnok := -int64(a)
+        all = all && wnok && nok == (a != -128) && (nok && int64(neg) == wneg || !nok && neg == 0)
+    }
+    check(all, "every int8 pair against int64")
+}
+
+// every_uint8 does what every_int8 does for every pair of uint8 values.
+func every_uint8() {
+    mut all := true
+    for x := range 256 {
+        a, fa := uint8(x)
+        for y := range 256 {
+            b, fb := uint8(y)
+            wa := int64(a)
+            wb := int64(b)
+            sum, sok := a + b
+            wsum, wsok := wa + wb
+            diff, dok := a - b
+            wdiff, wdok := wa - wb
+            prod, pok := a * b
+            wprod, wpok := wa * wb
+            all = all && fa && fb && wsok && wdok && wpok
+            all = all && sok == (wsum <= 255)
+            all = all && (sok && int64(sum) == wsum || !sok && sum == 0)
+            all = all && dok == (wdiff >= 0)
+            all = all && (dok && int64(diff) == wdiff || !dok && diff == 0)
+            all = all && pok == (wprod <= 255)
+            all = all && (pok && int64(prod) == wprod || !pok && prod == 0)
+        }
+    }
+    check(all, "every uint8 pair against int64")
+}
+
+// say prints s and returns n, so a check can see when an operand runs.
+func say(s string, n int64) int64 {
+    print(s)
+    return n
+}
+
+// forms checks the shapes the checked form takes.
+func forms() {
+    // Both operands are evaluated, left first, even when the sum fails.
+    v, ok := say("a", 9223372036854775807) + say("b", 1)
+    print("\n")
+    check(!ok && v == 0, "both operands evaluated, left first")
+
+    // Assumption: the checked form assigns with = too, as division's does.
+    mut w int64 = 7
+    mut fits := true
+    w, fits = add_i64(1, 1)
+    check(fits && w == 2, "a call's two results")
+    w, fits = say("", 9223372036854775807) * say("", 2)
+    check(!fits && w == 0, "assigned with =")
+
+    // Assumption: parentheses around the operation are fine, as for division.
+    p, pok := (say("", -9223372036854775808) - say("", 1))
+    check(!pok && p == 0, "in parentheses")
+
+    // Assumption: where the operation cannot fail the checked form still
+    // compiles, and ok is true.
+    c, cok := 2 + 3
+    check(cok && c == 5, "on constants, ok is true")
+
+    // Mixed widths take the common type, as arithmetic does: int8 + int64
+    // is an int64 sum.
+    mut small int8 = 127
+    mut wide int64 = 9223372036854775807
+    mut m, mut mok := small + wide
+    check(!mok && m == 0, "int8 + int64 overflows int64")
+    small = -128
+    m, mok = small + wide
+    check(mok && m == 9223372036854775679, "int8 + int64 fits")
+}
+
+// above_max returns x + 1 for any x below the largest int64: the guard
+// proves the sum fits.
+func above_max(x int64) int64 {
+    if x < 9223372036854775807 {
+        return x + 1
+    }
+    return x
+}
+
+// below_min returns x - 1 for any x above the smallest int64.
+func below_min(x int64) int64 {
+    if x > -9223372036854775808 {
+        return x - 1
+    }
+    return x
+}
+
+// negated returns -x where the guard rules out the smallest int64.
+func negated(x int64) int64 {
+    if x > -9223372036854775808 {
+        return -x
+    }
+    return 0
+}
+
+// distance returns how far apart a and b are: a >= b proves a - b, and
+// its else, a < b, proves b - a.
+func distance(a uint64, b uint64) uint64 {
+    if a >= b {
+        return a - b
+    }
+    return b - a
+}
+
+// bounded_sum adds two values the guard keeps between -1000 and 1000.
+// Assumption: a fact's range reaches through + and - on two variables.
+func bounded_sum(a int64, b int64) (int64, int64) {
+    if -1000 <= a && a <= 1000 && -1000 <= b && b <= 1000 {
+        return a + b, a - b
+    }
+    return 0, 0
+}
+
+// square multiplies two values the guard keeps at most 3037000499 in
+// size, whose product fits an int64. Assumption: a fact's range reaches
+// through * on two variables, signs mixed.
+func square(a int64, b int64) int64 {
+    if -3037000499 <= a && a <= 3037000499 && -3037000499 <= b && b <= 3037000499 {
+        return a * b
+    }
+    return 0
+}
+
+// widened adds a uint8 to an int64 the guard bounds: the uint8's type
+// bounds it. Assumption: a type's range counts as a fact for arithmetic,
+// as it does for an index.
+func widened(u uint8, n int64) int64 {
+    if 0 <= n && n <= 1000 {
+        return u + n
+    }
+    return 0
+}
+
+// next returns i + 1, proven by i < n, since n is at most the largest
+// int64. Assumption: a relation and a type's bound together prove a sum.
+func next(i int64, n int64) int64 {
+    if i < n {
+        return i + 1
+    }
+    return i
+}
+
+// facts checks arithmetic the compiler proves cannot overflow.
+func facts() {
+    check(above_max(9223372036854775806) == 9223372036854775807 &&
+        above_max(9223372036854775807) == 9223372036854775807 &&
+        above_max(-9223372036854775808) == -9223372036854775807, "x + 1 under x < max")
+    check(below_min(-9223372036854775807) == -9223372036854775808 &&
+        below_min(-9223372036854775808) == -9223372036854775808, "x - 1 under x > min")
+    check(negated(-9223372036854775807) == 9223372036854775807 &&
+        negated(-9223372036854775808) == 0, "-x under x > min")
+    check(distance(3, 10) == 7 && distance(10, 3) == 7 && distance(0, 18446744073709551615) == 18446744073709551615 &&
+        distance(5, 5) == 0, "unsigned a - b under a >= b, and b - a in its else")
+    mut s, mut d := bounded_sum(1000, -1000)
+    check(s == 0 && d == 2000, "a + b and a - b under bounds on both")
+    s, d = bounded_sum(-1000, 1000)
+    check(s == 0 && d == -2000, "a + b and a - b at the other bounds")
+    check(square(3037000499, 3037000499) == 9223372030926249001 &&
+        square(-3037000499, 3037000499) == -9223372030926249001 &&
+        square(-3037000499, -3037000499) == 9223372030926249001, "a * b under bounds on both")
+    check(widened(255, 1000) == 1255 && widened(0, 0) == 0, "a uint8's type bounds it")
+    check(next(9223372036854775806, 9223372036854775807) == 9223372036854775807 &&
+        next(-9223372036854775808, -9223372036854775807) == -9223372036854775807, "i + 1 under i < n")
+}
+
+// steps checks ++ -- += -= and *= where a guard proves them, each at the
+// edge its guard allows. A mut variable's value is never known, so each
+// step needs its guard.
+func steps() {
+    mut x int8 = 126
+    if x < 127 {
+        x++
+    }
+    mut y int8 = 100
+    if y <= 100 {
+        y += 27
+    }
+    mut z int8 = -127
+    if z > -128 {
+        z--
+    }
+    mut w int8 = -100
+    if w >= -100 {
+        w -= 28
+    }
+    mut p int8 = 63
+    if -64 <= p && p <= 63 {
+        p *= 2
+    }
+    mut m int8 = -64
+    if -64 <= m && m <= 63 {
+        m *= 2
+    }
+    check(x == 127 && y == 127 && z == -128 && w == -128 && p == 126 && m == -128,
+        "int8 steps under guards, at the bounds")
+    mut q uint8 = 1
+    if q > 0 {
+        q--
+    }
+    mut r uint8 = 10
+    if r >= 10 {
+        r -= 10
+    }
+    mut big uint64 = 18446744073709551614
+    if big < 18446744073709551615 {
+        big++
+    }
+    check(q == 0 && r == 0 && big == 18446744073709551615, "unsigned steps under guards, at the bounds")
+}
+
+// loops checks arithmetic that a loop's facts prove.
+func loops() {
+    squares := [10]int64{0, 1, 4, 9, 16, 25, 36, 49, 64, 81}
+
+    // Assumption: a counting loop's post, i++, is proven by its condition,
+    // i < len(squares), which held for the pass the post follows, and a
+    // fact's range reaches through i * i.
+    mut all := true
+    for mut i := 0; i < len(squares); i++ {
+        all = all && i * i == squares[i]
+    }
+    check(all, "a counting loop up, i * i in its body")
+
+    // Assumption: i-- in the post is proven by i >= 0.
+    mut seen := -1
+    for mut i := 9; i >= 0; i-- {
+        all = all && i * i == squares[i]
+        seen = i
+    }
+    check(all && seen == 0, "a counting loop down")
+
+    // An unsigned loop down to 1: i > 0 proves both i-- and i - 1.
+    mut lowest uint8 = 255
+    for mut i uint8 = 255; i > 0; i-- {
+        lowest = i - 1
+    }
+    check(lowest == 0, "an unsigned loop down, i - 1 in its body")
+
+    // A range loop's index is at most 99, so i + 1 and 2 * i fit.
+    // Assumption: a fact's range reaches through a sum of products.
+    mut last := 0
+    for i := range 100 {
+        last = i + 1 + 2 * i
+    }
+    check(last == 298, "a range loop's index")
+
+    // A loop's condition proves the step in its body.
+    mut n int8 = -128
+    for n < 127 {
+        n++
+    }
+    check(n == 127, "a while loop's condition proves n++")
+
+    // An accumulator the facts cannot bound uses the checked form, and it
+    // fails exactly at the step that would pass the largest int64.
+    mut total int64 = 0
+    mut failed_at := -1
+    for i := range 65 {
+        t, tok := total + 144115188075855871
+        if tok {
+            total = t
+        } else {
+            failed_at = i
+        }
+    }
+    check(total == 9223372036854775744 && failed_at == 64, "an accumulator under the checked form")
+}
+
+// others checks that floats and shifts need no proof.
+func others() {
+    mut f float64 = 1e308
+    f = f * 10.0
+    f += 1.0
+    check(f > 1e308 && -f < -1e308, "float arithmetic needs no proof and overflows to infinity")
+    mut g float32 = 3.0
+    g = -g - 1.5
+    check(g == -4.5, "float32 unary minus and subtraction")
+    mut s int8 = 64
+    s = s << 1
+    check(s == -128, "<< is a bit operation and wraps at the width")
+    mut t uint8 = 255
+    t <<= 4
+    check(t == 240, "<<= on an unsigned value")
+}
+
+func main() {
+    int8_edges()
+    uint8_edges()
+    int32_edges()
+    int64_edges()
+    uint64_edges()
+    every_int8()
+    every_uint8()
+    forms()
+    facts()
+    steps()
+    loops()
+    others()
+}

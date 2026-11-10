@@ -83,7 +83,7 @@ var validCharPrograms = []struct{ name, src string }{
 		"uint8 variable index",
 		mainLines("mut seen [256]bool", "c := 'q'", "seen[c] = true", "if seen[c] {", "}"),
 	},
-	{"a mutable variable wraps", mainLines("mut x = 'a'", "x *= 3", "exit(x)")},
+	{"a mutable variable wraps", mainLines("mut x = 'a'", "x *%= 3", "exit(x)")},
 	{"compared with a uint8", mainLines("var b uint8 = 97", "if b == 'a' {", "}")},
 	{"compared with an int64", mainLines("n := 97", "if n == 'a' {", "}")},
 	{
@@ -93,7 +93,7 @@ var validCharPrograms = []struct{ name, src string }{
 	{"known conversion", mainLines("v := int8('a')", "exit(v)")},
 	{
 		"parameter and result",
-		"package main\n\nfunc up(c uint8) uint8 {\n    return c - 'a' + 'A'\n}\n\nfunc main() {\n    exit(up('b'))\n}\n",
+		"package main\n\nfunc up(c uint8) uint8 {\n    return c -% 'a' +% 'A'\n}\n\nfunc main() {\n    exit(up('b'))\n}\n",
 	},
 	{
 		"conversion that cannot fail with ok",

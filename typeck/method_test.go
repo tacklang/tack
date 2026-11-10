@@ -32,7 +32,7 @@ func (b B) pair() (int64, error) {
 }
 
 func (mut b B) bump() {
-    b.n++
+    b.n +%= 1
 }
 
 func (b B) sum(v []int64, xs ...int64) int64 {
@@ -71,12 +71,12 @@ var methodCases = []struct{ name, src string }{
 		"mut err := noerror", "for range 2 {", "    if err.code == 0 {", "        use(n)",
 		"    }", "    n, err = b.pair()", "}")},
 	{"through a field", withTypes(builderDecls, "mut w := W{b: newB(), bs: [2]P{P{x: 1}, P{x: 2}}}",
-		"mut w.b.bump()", "mut w.bs[1].set(3)", "use(w.b.len() + w.bs[0].get())")},
+		"mut w.b.bump()", "mut w.bs[1].set(3)", "use(w.b.len() +% w.bs[0].get())")},
 	{"element at a proven index", withTypes(builderDecls, "mut ps := [2]P{P{x: 1}, P{x: 2}}",
 		"for i := range ps {", "    mut ps[i].set(i)", "}")},
 	{"temporary plain receiver", withTypes(builderDecls, "use(P{x: 1}.get())")},
 	{"view and variadic", withTypes(builderDecls, "b := newB()", "a := [2]int64{1, 2}",
-		"use(b.sum(a, 1, 2) + b.sum(b.buf) + b.sum(a, a[:]...))")},
+		"use(b.sum(a, 1, 2) +% b.sum(b.buf) +% b.sum(a, a[:]...))")},
 	{"plain argument reading a mut receiver", withTypes(builderDecls,
 		"mut p := P{x: 1}", "mut p.set(p.get())")},
 	{"two fields of one struct", withTypes(builderDecls,
@@ -90,7 +90,7 @@ var methodCases = []struct{ name, src string }{
 	{"receiver inside a defer", withTypes(builderDecls, "mut b := newB()", "defer {",
 		"    mut b.bump()", "}")},
 	{"methods calling methods declared later", withTypes(
-		"type T struct {\n    n int64\n}\n\nfunc (t T) a() int64 {\n    return t.b() + 1\n}\n\n"+
+		"type T struct {\n    n int64\n}\n\nfunc (t T) a() int64 {\n    return t.b() +% 1\n}\n\n"+
 			"func (t T) b() int64 {\n    if t.n > 0 {\n        return 0\n    }\n    return t.a()\n}\n\n"+
 			"func use(n int64) {\n}",
 		"t := T{n: 1}", "use(t.a())")},

@@ -16,7 +16,7 @@ func anyCalling(lines ...string) string {
 		"func one(a any) {\n}\n\n" +
 		"func many(xs ...any) {\n}\n\n" +
 		"func view(v []any) {\n}\n\n" +
-		"func both(mut x int64, a any) {\n    x++\n}\n\n" +
+		"func both(mut x int64, a any) {\n    x +%= 1\n}\n\n" +
 		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
 
@@ -30,7 +30,7 @@ var anyAcceptedCases = []struct{ name, src string }{
 	)},
 	{"one of each", anyCalling("one(1)", "one(\"s\")", "one(false)", "one(-9223372036854775808)")},
 	{"no values", anyCalling("many()")},
-	{"call results and expressions", anyCalling("x := 2", "many(x + 1, x < 2, len(\"ab\"))")},
+	{"call results and expressions", anyCalling("x := 2", "many(x +% 1, x < 2, len(\"ab\"))")},
 	{"copy alongside mut", anyCalling("mut x int64 = 1", "both(mut x, x)")},
 	{
 		"passed on",
@@ -56,7 +56,7 @@ var anyAcceptedCases = []struct{ name, src string }{
 	},
 	{
 		"recursion",
-		"package main\n\nfunc down(n int64, a any) {\n    if n > 0 {\n        down(n - 1, a)\n    }\n}\n\n" +
+		"package main\n\nfunc down(n int64, a any) {\n    if n > 0 {\n        down(n -% 1, a)\n    }\n}\n\n" +
 			"func main() {\n    down(3, \"x\")\n}\n",
 	},
 }

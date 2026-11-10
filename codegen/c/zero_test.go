@@ -98,7 +98,7 @@ func main() {
     s := zero_s()
     r := one()
     p, n := two()
-    if len(l) + int64(s.n) + len(r) + len(p) + n == 0 {
+    if len(l) + int64(s.n) + len(r) + len(p) +% n == 0 {
         print("never\n")
     }
 }

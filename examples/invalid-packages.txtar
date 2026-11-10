@@ -430,7 +430,7 @@ type lexer_Token struct {
 extern func mine(t lexer_Token)
 
 func main() {
-    code, fits := int32(first.Kind() + second.Kind())
+    code, fits := int32(first.Kind() +% second.Kind())
     if fits { exit(code) }
 }
 -- extern-same-package-names/a/lexer/lexer.tck --
@@ -580,7 +580,7 @@ module calc
 package geo
 
 pub func Area(w int64, h int64) int64 {
-    return w * h
+    return w *% h
 }
 
 func secret(n int64) int64 {
@@ -631,7 +631,7 @@ pub func NewTally() Tally {
 }
 
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -690,7 +690,7 @@ pub func NewTally() Tally {
 }
 
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -767,8 +767,8 @@ import words from "calc/words"
 
 func main() {
     p := util.Pair{a: 1}
-    n := util.Counts(p) + util.CountOf(words.New())
-    if n + util.CountOf(p) > 0 {
+    n := util.Counts(p) +% util.CountOf(words.New())
+    if n +% util.CountOf(p) > 0 {
         exit(1)
     }
 }
@@ -776,10 +776,10 @@ func main() {
 stage: typeck
 ---
 
-generic-lib-method-other-module/main.tck:9:25: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
-08 |	    n := util.Counts(p) + util.CountOf(words.New())
-09 |	    if n + util.CountOf(p) > 0 {
-   |	                        ^
+generic-lib-method-other-module/main.tck:9:26: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
+08 |	    n := util.Counts(p) +% util.CountOf(words.New())
+09 |	    if n +% util.CountOf(p) > 0 {
+   |	                         ^
 10 |	        exit(1)
 
 -- generic-private-method-passed-on/tack.mod --
@@ -805,7 +805,7 @@ pub func NewTally() Tally {
 }
 
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -908,7 +908,7 @@ pub func NewTally() Tally {
 }
 
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -928,7 +928,7 @@ pub func New() Bag {
 
 // put is private to words.
 func (mut b Bag) put(word string) error {
-    b.n++
+    b.n +%= 1
     return noerror
 }
 
@@ -1776,7 +1776,7 @@ package main
 import lexer from "calc/lexer"
 
 func main() {
-    exit(lexer.KindNumber + other())
+    exit(lexer.KindNumber +% other())
 }
 -- import-per-file/b.tck --
 package main
@@ -1790,8 +1790,8 @@ stage: resolve+typeck
 
 import-per-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
 05 |	func main() {
-06 |	    exit(lexer.KindNumber + other())
-   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	    exit(lexer.KindNumber +% other())
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
 07 |	}
 
 import-per-file/b.tck:4:12: error: undefined: lexer
@@ -1869,7 +1869,7 @@ func f(lexer int64) int64 {
 }
 
 func main() {
-    exit(f(1) + lexer.KindNumber)
+    exit(f(1) +% lexer.KindNumber)
 }
 -- import-shadowed-by-param/expected --
 stage: resolve+typeck
@@ -1883,8 +1883,8 @@ import-shadowed-by-param/main.tck:5:8: error: lexer is an imported package and c
 
 import-shadowed-by-param/main.tck:10:10: error: cannot use int64 as int32 in argument to exit
 09 |	func main() {
-10 |	    exit(f(1) + lexer.KindNumber)
-   |	         ^~~~~~~~~~~~~~~~~~~~~~~
+10 |	    exit(f(1) +% lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~
 11 |	}
 
 -- import-shadowed-in-loop/tack.mod --
@@ -2288,7 +2288,7 @@ pub func NewTally() Tally {
 }
 
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -2541,7 +2541,7 @@ import d from "calc/d"
 func main() {
     a.F()
     c.F()
-    exit(b.N + d.F())
+    exit(b.N +% d.F())
 }
 -- main-in-library/expected --
 stage: resolve+typeck
@@ -2573,8 +2573,8 @@ main-in-library/d/d.tck:3:5: error: mut main is allowed only in package main
 
 main-in-library/main.tck:11:10: error: cannot use int64 as int32 in argument to exit
 10 |	    c.F()
-11 |	    exit(b.N + d.F())
-   |	         ^~~~~~~~~~~
+11 |	    exit(b.N +% d.F())
+   |	         ^~~~~~~~~~~~
 12 |	}
 
 -- main-missing-across-files/tack.mod --
@@ -2835,7 +2835,7 @@ func use(n int64) {
 
 func main() {
     t := lexer.Make()
-    use(t.Kind() + t.Mid())
+    use(t.Kind() +% t.Mid())
     use(t.hidden())
     h := lexer.Half{n: 2}
     use(h.Get())
@@ -2848,7 +2848,7 @@ stage: typeck
 ---
 
 method-visibility/main.tck:11:11: error: hidden is not pub in lexer.Token
-10 |	    use(t.Kind() + t.Mid())
+10 |	    use(t.Kind() +% t.Mid())
 11 |	    use(t.hidden())
    |	          ^~~~~~
 12 |	    h := lexer.Half{n: 2}
@@ -3291,7 +3291,7 @@ import lexer from "calc/lexer"
 func main() {
     var x int64 = lexer.First("1")
     var a [2]lexer.Token = 1
-    code, fits := int32(x + a[0].kind)
+    code, fits := int32(x +% a[0].kind)
     if fits { exit(code) }
 }
 -- qualified-type-in-message/expected --
@@ -3314,7 +3314,7 @@ qualified-type-in-message/main.tck:7:28: error: cannot use int64 as [2]lexer.Tok
 06 |	    var x int64 = lexer.First("1")
 07 |	    var a [2]lexer.Token = 1
    |	                           ^
-08 |	    code, fits := int32(x + a[0].kind)
+08 |	    code, fits := int32(x +% a[0].kind)
 
 -- qualified-undefined/tack.mod --
 module calc
@@ -3555,7 +3555,7 @@ mut last uint8
 mut over uint8
 
 func main() {
-    last = table.First() + table.Second()
+    last = table.First() +% table.Second()
     over = last
     if over == 3 {
         print("three\n")
@@ -3673,7 +3673,7 @@ pub func Make() Pair {
 
 // Twice is pub.
 pub func Twice(x int64) int64 {
-    return secret(x) + secret(x)
+    return secret(x) +% secret(x)
 }
 
 // secret is lib: std's packages may call it, no other module's.
@@ -3739,7 +3739,7 @@ pub func Make() Pair {
 
 // Twice is pub.
 pub func Twice(x int64) int64 {
-    return secret(x) + secret(x)
+    return secret(x) +% secret(x)
 }
 
 // secret is lib: std's packages may call it, no other module's.
@@ -3805,7 +3805,7 @@ pub func Make() Pair {
 
 // Twice is pub.
 pub func Twice(x int64) int64 {
-    return secret(x) + secret(x)
+    return secret(x) +% secret(x)
 }
 
 // secret is lib: std's packages may call it, no other module's.
@@ -3869,7 +3869,7 @@ pub func Make() Pair {
 
 // Twice is pub.
 pub func Twice(x int64) int64 {
-    return secret(x) + secret(x)
+    return secret(x) +% secret(x)
 }
 
 // secret is lib: std's packages may call it, no other module's.
@@ -4834,22 +4834,22 @@ import lexer from "calc/lexer"
 
 func main() {
     t := lexer.First()
-    exit(t.kind + t.start + t.end + lexer.First().end)
+    exit(t.kind +% t.start + t.end + lexer.First().end)
 }
 -- vis-field-read/expected --
 stage: typeck
 ---
 
-vis-field-read/main.tck:7:31: error: end is not pub in lexer.Token
+vis-field-read/main.tck:7:32: error: end is not pub in lexer.Token
 06 |	    t := lexer.First()
-07 |	    exit(t.kind + t.start + t.end + lexer.First().end)
-   |	                              ^~~
+07 |	    exit(t.kind +% t.start + t.end + lexer.First().end)
+   |	                               ^~~
 08 |	}
 
-vis-field-read/main.tck:7:51: error: end is not pub in lexer.Token
+vis-field-read/main.tck:7:52: error: end is not pub in lexer.Token
 06 |	    t := lexer.First()
-07 |	    exit(t.kind + t.start + t.end + lexer.First().end)
-   |	                                                  ^~~
+07 |	    exit(t.kind +% t.start + t.end + lexer.First().end)
+   |	                                                   ^~~
 08 |	}
 
 -- vis-field-write/tack.mod --
@@ -4875,7 +4875,7 @@ func main() {
     t.end++
     t.end--
     a[0].end = 2
-    code, fits := int32(t.kind + a[1].kind)
+    code, fits := int32(t.kind +% a[1].kind)
     if fits { exit(code) }
 }
 -- vis-field-write/expected --
@@ -4910,7 +4910,7 @@ vis-field-write/main.tck:13:10: error: end is not pub in lexer.Token
 12 |	    t.end--
 13 |	    a[0].end = 2
    |	         ^~~
-14 |	    code, fits := int32(t.kind + a[1].kind)
+14 |	    code, fits := int32(t.kind +% a[1].kind)
 
 -- vis-in-main/tack.mod --
 module calc
@@ -5003,7 +5003,7 @@ func main() {
     u := lexer.Token{kind: 1}
     p := lexer.Pos{line: 1, col: 2}
     a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
-    code, fits := int32(t.kind + u.kind + p.line + a[0].kind)
+    code, fits := int32(t.kind +% u.kind +% p.line +% a[0].kind)
     if fits { exit(code) }
 }
 -- vis-literal/expected --
@@ -5026,7 +5026,7 @@ vis-literal/main.tck:9:25: error: cannot write a lexer.Token literal outside pac
 08 |	    p := lexer.Pos{line: 1, col: 2}
 09 |	    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
    |	                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
-10 |	    code, fits := int32(t.kind + u.kind + p.line + a[0].kind)
+10 |	    code, fits := int32(t.kind +% u.kind +% p.line +% a[0].kind)
 
 -- vis-mut-exported/tack.mod --
 module calc
@@ -5038,9 +5038,9 @@ lib mut total int64
 pub var limit int64 = 3
 
 pub func Count() int64 {
-    counter++
-    total++
-    return counter + total
+    counter +%= 1
+    total +%= 1
+    return counter +% total
 }
 -- vis-mut-exported/main.tck --
 package main
@@ -5048,7 +5048,7 @@ package main
 import lexer from "calc/lexer"
 
 func main() {
-    exit(lexer.Count() + lexer.limit)
+    exit(lexer.Count() +% lexer.limit)
 }
 -- vis-mut-exported/expected --
 stage: resolve+typeck
@@ -5068,8 +5068,8 @@ vis-mut-exported/lexer/lexer.tck:4:1: error: a mut variable cannot be lib; expor
 
 vis-mut-exported/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
 05 |	func main() {
-06 |	    exit(lexer.Count() + lexer.limit)
-   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+06 |	    exit(lexer.Count() +% lexer.limit)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
 07 |	}
 
 -- vis-private-global-in-initializer/tack.mod --
@@ -5118,8 +5118,8 @@ var count int64 = 1
 mut state int64 = 0
 
 func lex() int64 {
-    state++
-    return count + state
+    state +%= 1
+    return count +% state
 }
 
 pub func Lex() int64 {

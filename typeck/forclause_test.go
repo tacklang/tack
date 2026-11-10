@@ -16,7 +16,7 @@ var invalidClauseCases = []struct {
 	},
 	{
 		"int64 condition",
-		inMain("for mut i := 0; i; i++ {\n    }"),
+		inMain("for mut i := 0; i; i +%= 1 {\n    }"),
 		[]spanned{{"condition must be a bool, got int64", "i"}},
 	},
 	{
@@ -51,7 +51,7 @@ func TestThreeClauseLoops(t *testing.T) {
 			"if fits { exit(code) }",
 		),
 		inMain("for ;; {\n        break\n    }"),
-		"package main\n\nfunc f() int64 {\n    for mut i := 0; ; i++ {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
+		"package main\n\nfunc f() int64 {\n    for mut i := 0; ; i +%= 1 {\n        if i > 3 {\n            return i\n        }\n    }\n}\n\nfunc main() {\n    code, fits := int32(f())\n    if fits { exit(code) }\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {

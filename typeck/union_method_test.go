@@ -49,7 +49,7 @@ func (mut e E) bump() {
     mut next := e
     switch e {
     case int(n):
-        next = E.int(n + 1)
+        next = E.int(n +% 1)
     case eof:
         e = E.int(0)
         return
@@ -93,7 +93,7 @@ func measure[S Sizer](s S) int64 {
 }
 
 func pair[A Sizer, B Sizer](a A, b B) int64 {
-    return a.size() + b.size()
+    return a.size() +% b.size()
 }
 
 func wipe[R Resetter](mut r R) {
@@ -109,21 +109,21 @@ func use(n int64) {
 func TestAcceptsUnionMethods(t *testing.T) {
 	for _, tc := range []struct{ name, src string }{
 		{"plain and mut methods", withTypes(unionMethodDecls, "mut e := E.int(1)", "mut e.bump()",
-			"mut e.reset()", "use(e.size() + e.len())")},
-		{"methods on built unions", withTypes(unionMethodDecls, "use(E.int(2).size() + E.eof.len())")},
+			"mut e.reset()", "use(e.size() +% e.len())")},
+		{"methods on built unions", withTypes(unionMethodDecls, "use(E.int(2).size() +% E.eof.len())")},
 		{"a builtin-named mut method", withTypes(unionMethodDecls,
 			"mut v := V.items(make(list[int64], c_allocator))", "err := mut v.append(1)",
-			"use(err.code + v.size())")},
+			"use(err.code +% v.size())")},
 		{"a plain call with a binding inside its clause", withTypes(unionMethodDecls,
 			"mut e := E.int(1)", "switch e {", "case int(n):", "    use(e.read(n))", "default:",
 			"    mut e.reset()", "}")},
 		{"methods on a field and an element", withTypes(unionMethodDecls+
 			"\n\ntype H struct {\n    e E\n}",
 			"mut s := H{e: E.eof}", "mut es := [2]E{E.eof, E.int(1)}", "mut s.e.bump()",
-			"mut es[1].reset()", "use(s.e.size() + es[0].size())")},
+			"mut es[1].reset()", "use(s.e.size() +% es[0].size())")},
 		{"unions and a struct through one generic function", withTypes(unionMethodDecls,
-			"v := V.none", "use(measure(E.int(1)) + measure(v) + measure(P{x: 1}))",
-			"use(pair(E.eof, v) + pair(v, P{x: 2}))")},
+			"v := V.none", "use(measure(E.int(1)) +% measure(v) +% measure(P{x: 1}))",
+			"use(pair(E.eof, v) +% pair(v, P{x: 2}))")},
 		{"a union's mut method through a generic function", withTypes(unionMethodDecls,
 			"mut e := E.int(1)", "mut v := V.none", "wipe(mut e)", "wipe(mut v)", "use(e.size())")},
 	} {
@@ -140,7 +140,7 @@ func TestAcceptsUnionMethods(t *testing.T) {
 // recorded beside a struct's, once each.
 func TestRecordsUnionMethodCalls(t *testing.T) {
 	file, diags := checkFile(t, withTypes(unionMethodDecls, "e := E.int(1)", "use(e.size())",
-		"use(measure(e) + measure(P{x: 1}) + measure(E.eof) + pair(e, P{x: 2}))"))
+		"use(measure(e) +% measure(P{x: 1}) +% measure(E.eof) +% pair(e, P{x: 2}))"))
 	if len(diags) > 0 {
 		t.Fatalf("reported %v", diags)
 	}

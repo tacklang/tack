@@ -13,7 +13,7 @@ pub func First(src string) Token {
 // Width returns how many bytes t covers, reading its private end for the
 // module's other packages.
 lib func Width(t Token) int64 {
-    return t.end - t.start
+    return t.end -% t.start
 }
 
 // size shares its name with text.size.
@@ -23,5 +23,10 @@ func size() int64 {
 
 // Size reports size, so main can tell the two apart.
 pub func Size() int64 {
-    return size() + text.size()
+    return size() +% text.size()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

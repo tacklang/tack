@@ -65,6 +65,12 @@ const (
 	// guardInvariant is a loop keeping a bound on a variable it writes,
 	// for the whole loop (see invariant.go).
 	guardInvariant
+	// guardValue is a statement storing in a variable a known value, or a
+	// value of known bounds, for the rest of the block (see storedFacts
+	// and steppedFacts). Notes never describe its facts, and a subject
+	// one holds about gets no note on what the facts allow, such as that
+	// it may be negative (see heldValue).
+	guardValue
 )
 
 // subject returns how a note names g.
@@ -176,10 +182,14 @@ type proof struct {
 // difference bound is left out: what relations fall short of is a note of
 // its own (see relationNotes).
 func (c *Checker) explain(p proof) []diag.Diagnostic {
+	// A stored value's fact is never described, so where one holds about
+	// the subject, no note says what the facts allow, which would have to
+	// count it; the notes on which guard's proof a write ended stay.
+	held := c.heldValue(p.about)
 	var facts, dropped []fact
 	kept := c.keptBounds(p.about)
 	for f := range c.factsAbout(p.about) {
-		if f.relational() && !p.relations || f.diff != nil {
+		if f.relational() && !p.relations || f.diff != nil || f.guard != nil && f.guard.kind == guardValue {
 			continue
 		}
 		f.drop = c.dropOf(f)
@@ -193,11 +203,16 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 	}
 	dropped = relevantDrops(dropped, p.relevant)
 	if len(dropped) == 0 {
+		if held {
+			return nil
+		}
 		return p.weak(facts, false)
 	}
 	notes := dropNotes(dropped, p.claim)
 	if !c.supposing(p.proven) {
-		notes = append(notes, p.weak(facts, true)...)
+		if !held {
+			notes = append(notes, p.weak(facts, true)...)
+		}
 	}
 	return notes
 }
@@ -253,6 +268,19 @@ func relevantDrops(dropped []fact, relevant func(f fact) bool) []fact {
 	return kept
 }
 
+// heldValue reports whether a fact a stored value gives, its bounds (see
+// guardValue) or its relation to what it was computed from (guardStore),
+// holds about k where checking has reached: a note on what the facts
+// allow k, which counts neither, is then left out.
+func (c *Checker) heldValue(k factKey) bool {
+	for f := range c.factsAbout(k) {
+		if f.guard != nil && (f.guard.kind == guardValue || f.guard.kind == guardStore) && c.holds(f) {
+			return true
+		}
+	}
+	return false
+}
+
 // supposing runs proven with every fact in force counted, dropped ones
 // included, and puts the facts back as they were before returning what it
 // reported.
@@ -260,7 +288,11 @@ func (c *Checker) supposing(proven func() bool) bool {
 	saved := c.active
 	c.active = slices.Clone(saved)
 	for i := range c.active {
-		c.active[i].drop, c.active[i].ends = nil, nil
+		// A stored value's bounds stay as they are: notes never name
+		// them, so a note must not rest on one held where it is not.
+		if g := c.active[i].guard; g == nil || g.kind != guardValue {
+			c.active[i].drop, c.active[i].ends = nil, nil
+		}
 	}
 	defer func() { c.active = saved }()
 	return proven()
@@ -720,9 +752,10 @@ func globalNote(v *ast.Var) []diag.Diagnostic {
 // a mutable variable a guard in scope compares, which never carries a
 // fact, or an expression using a variable a guard bounds. Arithmetic the
 // checker reads through (see arithmeticShape) gets a note that its
-// operands' bounds fall short or let a step wrap; anything else gets one
+// operands' bounds fall short or let a step overflow; anything else gets one
 // that lists what is proven for its use (see provenList). A length gets
-// no note, alone or in arithmetic (see nameNote).
+// no note, alone or in arithmetic (see nameNote), and a stored value's
+// fact (see guardValue) is never the one a note names.
 func (c *Checker) operandNotes(operand ast.Expr, lenAlone bool) []diag.Diagnostic {
 	if _, ok := operand.(*ast.Selector); ok {
 		return c.fieldNotes(operand)
@@ -742,7 +775,8 @@ func (c *Checker) operandNotes(operand ast.Expr, lenAlone bool) []diag.Diagnosti
 		f, bounded := setting(
 			c.active,
 			func(f fact) bool {
-				return f.about == declKey(id.Def) && c.holds(f) && !f.relational()
+				return f.about == declKey(id.Def) && c.holds(f) && !f.relational() &&
+					(f.guard == nil || f.guard.kind != guardValue)
 			},
 		)
 		if bounded {
@@ -772,7 +806,7 @@ func (c *Checker) nameNote(
 	why := "; only " + provenList(lenAlone) + ", is proven, so copy "
 	if readable {
 		why = "; the bounds of its operands do not prove " + expr +
-			", or let a step of it wrap, so copy "
+			", or let a step of it overflow, so copy "
 	}
 	return []diag.Diagnostic{note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+
 		", not "+expr+why+expr+" into a variable and check it")}

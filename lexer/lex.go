@@ -51,9 +51,9 @@ type operator struct {
 // operators lists, for each byte that can start a punctuation token, the
 // tokens it can start, longest first, so the first match is the longest one.
 var operators = map[byte][]operator{
-	'+': {{"++", Inc}, {"+=", AddAssign}, {"+", Add}},
-	'-': {{"--", Dec}, {"-=", SubAssign}, {"-", Sub}},
-	'*': {{"*=", MulAssign}, {"*", Mul}},
+	'+': {{"+%=", AddWrapAssign}, {"++", Inc}, {"+=", AddAssign}, {"+%", AddWrap}, {"+", Add}},
+	'-': {{"-%=", SubWrapAssign}, {"--", Dec}, {"-=", SubAssign}, {"-%", SubWrap}, {"-", Sub}},
+	'*': {{"*%=", MulWrapAssign}, {"*=", MulAssign}, {"*%", MulWrap}, {"*", Mul}},
 	'/': {{"/=", DivAssign}, {"/", Div}},
 	'%': {{"%=", ModAssign}, {"%", Mod}},
 	'&': {

@@ -47,15 +47,32 @@ func isArithmetic(e ast.Expr) bool {
 	}
 }
 
+// isWrapping reports whether e is a wrapping operator on integers, +% -%
+// *% or -%x, whose value is always one of its type's.
+func isWrapping(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.Binary:
+		return x.Op.IsWrapping() && types.IsInteger(x.Type)
+	case *ast.Unary:
+		return x.Op == ast.NegWrap && types.IsInteger(x.Type)
+	default:
+		return false
+	}
+}
+
 // operandRange returns what is known about the value of e where it is
-// used, when e is a subject or arithmetic (see isArithmetic), and false
-// for anything else: a subject's interval (see intervalOf), arithmetic's
-// bound (see rangeOf), or, for arithmetic with none, its type's bounds,
+// used, when e is a subject, arithmetic (see isArithmetic) or a wrapping
+// operator, and false for anything else: a subject's interval (see
+// intervalOf), arithmetic's bound (see rangeOf), or, for a wrapping
+// operator and for arithmetic with none, its type's bounds,
 // which every value of it lies within, wrapped or not, so that the
 // relations in force may still prove more.
 func (c *Checker) operandRange(e ast.Expr) (interval, bool) {
 	if c.isSubject(e) {
 		return c.intervalOf(e), true
+	}
+	if isWrapping(e) {
+		return typeInterval(e), true
 	}
 	if !isArithmetic(e) {
 		return interval{}, false

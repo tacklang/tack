@@ -16,13 +16,13 @@ var multipleResultsCases = []struct {
 	{
 		"in order",
 		"package main\n\nfunc pair() (int64, int64) {\n    return 4, 7\n}\n\n" +
-			"func main() {\n    a, b := pair()\n    code, fits := int32(a * 10 + b)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    a, b := pair()\n    code, fits := int32(a *% 10 +% b)\n    if fits { exit(code) }\n}\n",
 		"", 47,
 	},
 	{
 		"call runs once",
 		"package main\n\nfunc noisy() (int64, int64) {\n    print(\"call\")\n    return 1, 2\n}\n\n" +
-			"func main() {\n    a, b := noisy()\n    code, fits := int32(a + b)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    a, b := noisy()\n    code, fits := int32(a +% b)\n    if fits { exit(code) }\n}\n",
 		"call",
 		3,
 	},
@@ -43,41 +43,41 @@ var multipleResultsCases = []struct {
 	{
 		"mutable one",
 		"package main\n\nfunc pair() (int64, int64) {\n    return 4, 7\n}\n\n" +
-			"func main() {\n    a, mut b := pair()\n    b += a\n    b++\n    code, fits := int32(b)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    a, mut b := pair()\n    b +%= a\n    b +%= 1\n    code, fits := int32(b)\n    if fits { exit(code) }\n}\n",
 		"", 12,
 	},
 	{
 		"recursion",
 		"package main\n\nfunc fib(n int64) (int64, int64) {\n    if n == 0 {\n        return 0, 1\n    }\n" +
-			"    a, b := fib(n - 1)\n    return b, a + b\n}\n\n" +
-			"func main() {\n    x, y := fib(10)\n    code, fits := int32(x + y)\n    if fits { exit(code) }\n}\n",
+			"    a, b := fib(n -% 1)\n    return b, a +% b\n}\n\n" +
+			"func main() {\n    x, y := fib(10)\n    code, fits := int32(x +% y)\n    if fits { exit(code) }\n}\n",
 		"",
 		144,
 	},
 	{
 		"declared after its caller",
-		"package main\n\nfunc main() {\n    a, b := later(5)\n    code, fits := int32(a - b)\n    if fits { exit(code) }\n}\n\n" +
-			"func later(n int64) (int64, int64) {\n    return n * 3, n\n}\n",
+		"package main\n\nfunc main() {\n    a, b := later(5)\n    code, fits := int32(a -% b)\n    if fits { exit(code) }\n}\n\n" +
+			"func later(n int64) (int64, int64) {\n    return n *% 3, n\n}\n",
 		"",
 		10,
 	},
 	{
 		"loop init",
 		"package main\n\nfunc pair() (int64, int64) {\n    return 2, 5\n}\n\n" +
-			"func main() {\n    mut sum := 0\n    for step, mut n := pair(); n > 0; n-- {\n        sum += step\n    }\n    code, fits := int32(sum)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    mut sum := 0\n    for step, mut n := pair(); n > 0; n-- {\n        sum +%= step\n    }\n    code, fits := int32(sum)\n    if fits { exit(code) }\n}\n",
 		"", 10,
 	},
 	{
 		"extremes",
 		"package main\n\nfunc ends() (int64, int64) {\n    return -9223372036854775808, 9223372036854775807\n}\n\n" +
-			"func main() {\n    lo, hi := ends()\n    if lo + 1 == 0 - hi {\n        exit(8)\n    }\n}\n",
+			"func main() {\n    lo, hi := ends()\n    if lo +% 1 == 0 -% hi {\n        exit(8)\n    }\n}\n",
 		"",
 		8,
 	},
 	{
 		"eight results",
 		"package main\n\nfunc many() (int64, int64, int64, int64, int64, int64, int64, int64) {\n    return 1, 2, 3, 4, 5, 6, 7, 8\n}\n\n" +
-			"func main() {\n    a, b, c, d, e, f, g, h := many()\n    code, fits := int32(a + b * 2 + c + d + e + f + g + h * 10)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    a, b, c, d, e, f, g, h := many()\n    code, fits := int32(a +% b *% 2 +% c +% d +% e +% f +% g +% h *% 10)\n    if fits { exit(code) }\n}\n",
 		"",
 		110,
 	},
@@ -85,13 +85,13 @@ var multipleResultsCases = []struct {
 		"names the C side uses",
 		"package main\n\nfunc results() (int64, int64) {\n    return 1, 2\n}\n\n" +
 			"func tack_r0() (int64, int64) {\n    return 3, 4\n}\n\n" +
-			"func main() {\n    r0, r1 := results()\n    tack_r1, int := tack_r0()\n    code, fits := int32(r0 + r1 + tack_r1 + int)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    r0, r1 := results()\n    tack_r1, int := tack_r0()\n    code, fits := int32(r0 +% r1 +% tack_r1 +% int)\n    if fits { exit(code) }\n}\n",
 		"", 10,
 	},
 	{
 		"string results from both branches",
 		"package main\n\nfunc sign(n int64) (string, int64) {\n    if n < 0 {\n        return \"neg\", -1\n    }\n    return \"pos\", 1\n}\n\n" +
-			"func main() {\n    a, x := sign(-5)\n    b, y := sign(5)\n    print(a)\n    print(b)\n    code, fits := int32(x + y + 3)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    a, x := sign(-5)\n    b, y := sign(5)\n    print(a)\n    print(b)\n    code, fits := int32(x +% y +% 3)\n    if fits { exit(code) }\n}\n",
 		"negpos",
 		3,
 	},
@@ -153,13 +153,13 @@ var multiAssignCases = []struct {
 	{
 		"arguments read before any target is written",
 		"package main\n\nfunc exchange(a int64, b int64) (int64, int64) {\n    return b, a\n}\n\n" +
-			"func main() {\n    mut x, mut y := exchange(1, 2)\n    x, y = exchange(x, y)\n    code, fits := int32(x * 10 + y)\n    if fits { exit(code) }\n}\n",
+			"func main() {\n    mut x, mut y := exchange(1, 2)\n    x, y = exchange(x, y)\n    code, fits := int32(x *% 10 +% y)\n    if fits { exit(code) }\n}\n",
 		"", 12,
 	},
 	{
 		"post runs the call once per iteration",
-		"package main\n\nfunc step(n int64) (int64, int64) {\n    print(\"s\")\n    return n - 1, n\n}\n\n" +
-			"func main() {\n    mut total := 0\n    for mut n, mut last := step(4); n > 0; n, last = step(n) {\n        total += last\n    }\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nfunc step(n int64) (int64, int64) {\n    print(\"s\")\n    return n -% 1, n\n}\n\n" +
+			"func main() {\n    mut total := 0\n    for mut n, mut last := step(4); n > 0; n, last = step(n) {\n        total +%= last\n    }\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
 		"ssss",
 		9,
 	},
@@ -167,8 +167,8 @@ var multiAssignCases = []struct {
 		// even describes the n before the post ran, so it skips 1, 3, 5, 7
 		// and 9 and counts the other four.
 		"post with continue",
-		"package main\n\nfunc next(n int64) (int64, bool) {\n    return n + 1, n % 2 == 0\n}\n\n" +
-			"func main() {\n    mut odd := 0\n    for mut n, mut even := next(0); n < 10; n, even = next(n) {\n        if even {\n            continue\n        }\n        odd++\n    }\n    code, fits := int32(odd)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nfunc next(n int64) (int64, bool) {\n    return n +% 1, n % 2 == 0\n}\n\n" +
+			"func main() {\n    mut odd := 0\n    for mut n, mut even := next(0); n < 10; n, even = next(n) {\n        if even {\n            continue\n        }\n        odd +%= 1\n    }\n    code, fits := int32(odd)\n    if fits { exit(code) }\n}\n",
 		"", 4,
 	},
 	{
@@ -198,7 +198,7 @@ func TestMultiAssignAtRuntime(t *testing.T) {
 func TestBlankAtRuntime(t *testing.T) {
 	out, status := run(
 		t,
-		"package main\n\nfunc noisy(n int64) (int64, int64) {\n    print(\"c\")\n    return n - 1, n\n}\n\n"+
+		"package main\n\nfunc noisy(n int64) (int64, int64) {\n    print(\"c\")\n    return n -% 1, n\n}\n\n"+
 			"func main() {\n    _, top := noisy(3)\n    mut n := top\n    for n > 0 {\n        n, _ = noisy(n)\n    }\n"+
 			"    for mut i := 0; i < 2; i, _ = noisy(i + 2) {\n    }\n    code, fits := int32(top)\n    if fits { exit(code) }\n}\n",
 	)

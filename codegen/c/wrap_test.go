@@ -15,22 +15,23 @@ func wrapProgram(cond string) string {
 		"func main() {\n    if check(9223372036854775807, -9223372036854775808) {\n        exit(1)\n    }\n    exit(2)\n}\n"
 }
 
-// wrapCases are identities that hold when int arithmetic wraps on overflow,
-// as Tack defines it.
+// wrapCases are identities that hold for the wrapping operators +% -% *%
+// and -%x, which wrap on overflow as Tack defines them, and for the
+// division of the smallest value by -1, which wraps too.
 var wrapCases = []struct{ name, src string }{
-	{"max + 1", wrapProgram("max + 1 == min")},
-	{"min - 1", wrapProgram("min - 1 == max")},
-	{"max * 2", wrapProgram("max * 2 == -2")},
-	{"min * -1", wrapProgram("min * -1 == min")},
-	{"-min", wrapProgram("-min == min")},
+	{"max +% 1", wrapProgram("max +% 1 == min")},
+	{"min -% 1", wrapProgram("min -% 1 == max")},
+	{"max *% 2", wrapProgram("max *% 2 == -2")},
+	{"min *% -1", wrapProgram("min *% -1 == min")},
+	{"-%min", wrapProgram("-%min == min")},
 	{"min / -1", wrapProgram("min / -1 == min")},
 	{"min % -1", wrapProgram("min % -1 == 0")},
-	{"max + max", wrapProgram("max + max == -2")},
-	{"min + min", wrapProgram("min + min == 0")},
+	{"max +% max", wrapProgram("max +% max == -2")},
+	{"min +% min", wrapProgram("min +% min == 0")},
 	{
-		"compound and increment",
-		"package main\n\nfunc check(max int64, min int64) bool {\n    mut a := max\n    a += 1\n    mut b := min\n    b--\n" +
-			"    mut c := max\n    c++\n    mut d := min\n    d *= -1\n    mut e := min\n    e /= -1\n    mut f := min\n    f %= -1\n" +
+		"compound assignments",
+		"package main\n\nfunc check(max int64, min int64) bool {\n    mut a := max\n    a +%= 1\n    mut b := min\n    b -%= 1\n" +
+			"    mut c := max\n    c +%= 1\n    mut d := min\n    d *%= -1\n    mut e := min\n    e /= -1\n    mut f := min\n    f %= -1\n" +
 			"    return a == min && b == max && c == min && d == min && e == min && f == 0\n}\n\n" +
 			"func main() {\n    if check(9223372036854775807, -9223372036854775808) {\n        exit(1)\n    }\n    exit(2)\n}\n",
 	},

@@ -170,14 +170,19 @@ func clean_into(mut out list[uint8], p []uint8) error {
         r = 1
         dotdot = 1
     }
+    // Each branch runs only when the ones before it did not, so r is
+    // still below n in every condition, which the checker does not follow
+    // past the first branch's step: r +% 1 is at most n there, and r +% 2
+    // is read only once at(p, r +% 1) is '.', a byte of p, so r + 1 is
+    // below n and r + 2 at most n. None of them wraps.
     for r < n {
         c := at(p, r)
         if c == '/' {
             r++
-        } else if c == '.' && (r + 1 == n || at(p, r + 1) == '/') {
-            r++
-        } else if c == '.' && at(p, r + 1) == '.' && (r + 2 == n || at(p, r + 2) == '/') {
-            r += 2
+        } else if c == '.' && (r +% 1 == n || at(p, r +% 1) == '/') {
+            r +%= 1
+        } else if c == '.' && at(p, r +% 1) == '.' && (r +% 2 == n || at(p, r +% 2) == '/') {
+            r +%= 2
             if len(out) > dotdot {
                 back(mut out, dotdot)
             } else if !rooted {

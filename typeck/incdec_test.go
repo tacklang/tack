@@ -29,6 +29,11 @@ var invalidIncDecCases = []struct {
 		mainLines("mut s = \"a\"", "s--", "print(s)"),
 		[]spanned{{"operator -- is not defined on string", "s"}},
 	},
+	{
+		"mutable global, which no fact bounds",
+		"package main\n\nmut n int64\n\nfunc main() {\n    n++\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n",
+		[]spanned{{"n++ may overflow int64; use n +%= 1 to wrap, or v, ok := n + 1 and n = v when ok", "n++"}},
+	},
 }
 
 // TestIncDec checks ++ and -- need a mutable int variable.
@@ -42,7 +47,7 @@ func TestIncDec(t *testing.T) {
 			"code, fits := int32(x)",
 			"if fits { exit(code) }",
 		),
-		"package main\n\nmut n int64\n\nfunc main() {\n    n++\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nmut n int64\n\nfunc main() {\n    n +%= 1\n    code, fits := int32(n)\n    if fits { exit(code) }\n}\n",
 	}
 	for _, src := range ok {
 		if _, diags := checkTree(t, src); len(diags) > 0 {

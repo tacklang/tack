@@ -26,7 +26,7 @@ func chainProgram(n int) string {
 	var b strings.Builder
 	b.WriteString("package main\n\nmut evals int64\n\n")
 	b.WriteString(
-		"func probe(v int64, want int64) bool {\n    evals++\n    return v == want\n}\n\n",
+		"func probe(v int64, want int64) bool {\n    evals +%= 1\n    return v == want\n}\n\n",
 	)
 	b.WriteString("func check(cond bool, name string) {\n    print(name)\n    if cond {\n" +
 		"        print(\" ok\\n\")\n    } else {\n        print(\" FAIL\\n\")\n    }\n}\n\n")
@@ -90,7 +90,7 @@ func writeWalk(b *strings.Builder, n int) {
 		case 5:
 			b.WriteString("        } else if i == 5 {\n            break\n")
 		default:
-			fmt.Fprintf(b, "        } else if i == %d {\n            sum += %d\n", i, i)
+			fmt.Fprintf(b, "        } else if i == %d {\n            sum +%%= %d\n", i, i)
 		}
 	}
 	b.WriteString("        }\n    }\n    return sum\n}\n\n")

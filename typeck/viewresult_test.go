@@ -32,7 +32,7 @@ var viewResultAcceptCases = []struct{ name, src string }{
 	{"dropped as a statement", returning("", "t.bytes()")},
 	{
 		"passed to a view parameter",
-		returning("", "n := use(t.bytes()) + use(whole(v))", "if n == 0 {", "}"),
+		returning("", "n := use(t.bytes()) +% use(whole(v))", "if n == 0 {", "}"),
 	},
 	{"len", returning("", "if len(t.bytes()) == len(whole(a)) {", "}")},
 	{
@@ -40,7 +40,7 @@ var viewResultAcceptCases = []struct{ name, src string }{
 		returning("", "c, ok := t.bytes()[touch(mut m)]", "if ok && c == 0 {", "}"),
 	},
 	{"checked index", returning("", "c, ok := t.bytes()[0]", "if ok && c == 0 {", "}")},
-	{"whole slice", returning("", "if use(t.bytes()[:]) + use(whole(v)[0:0]) == 0 {", "}")},
+	{"whole slice", returning("", "if use(t.bytes()[:]) +% use(whole(v)[0:0]) == 0 {", "}")},
 	{
 		"range",
 		returning("", "for i, c := range t.bytes() {", "    if i == 0 && c == 0 {", "    }", "}"),

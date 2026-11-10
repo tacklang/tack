@@ -113,7 +113,7 @@ func main() {
     mut rising := 0
     for _, w := range sorted {
         if w > prev {
-            rising++
+            rising +%= 1
         }
         prev = w
     }
@@ -124,7 +124,7 @@ func main() {
     // A loop condition.
     mut i := 0
     for fruit(i) < "b" {
-        i++
+        i +%= 1
     }
     if i != 2 {
         exit(18)
@@ -136,3 +136,8 @@ func main() {
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

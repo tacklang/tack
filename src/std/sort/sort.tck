@@ -71,7 +71,15 @@ pub func by[T Any](mut l list[T], less func(T, T) bool) {
 func sift_down[T Any](mut l list[T], less func(T, T) bool, root int64, end int64) {
     mut r := root
     for 0 <= r && r < len(l) && r < end {
-        child := larger(l, less, 2 * r + 1, end)
+        // 2 * r + 1 passes an int64 only for an r at or past 2^62,
+        // whose children no list holds, which ends the sift as a child
+        // past the heap does.
+        twice, fits := 2 * r
+        left, fits2 := twice + 1
+        if !fits || !fits2 {
+            return
+        }
+        child := larger(l, less, left, end)
         if child < 0 || child >= len(l) || child >= end || !less(l[r], l[child]) {
             return
         }

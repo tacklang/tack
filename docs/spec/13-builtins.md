@@ -123,7 +123,7 @@ func main() {
     if err.code != 0 {
         exit(1)
     }
-    if len(a) + len("abc") + len(l) == 8 {
+    if len(a) == 3 && len("abc") == 3 && len(l) == 2 {
         exit(8)
     }
 }
@@ -265,7 +265,7 @@ func main() {
     }
     if len(l) > 0 {
         z := pop(mut l)
-        if x + y + z == 8 && len(l) == 1 {
+        if x == 4 && y == 1 && z == 3 && len(l) == 1 {
             exit(6)
         }
     }
@@ -324,7 +324,7 @@ func main() {
     }
     mut x := 4
     old := replace(mut x, 5)
-    if len(l) == 3 && l[0] == 3 && l[2] == 1 && old + x == 9 {
+    if len(l) == 3 && l[0] == 3 && l[2] == 1 && old == 4 && x == 5 {
         exit(9)
     }
 }
@@ -376,7 +376,7 @@ func main() {
     if !ok || has(m, "b") || len(m) != 1 {
         exit(3)
     }
-    if has(m, "a") && m["a"] + v == 5 {
+    if has(m, "a") && m["a"] == 2 && v == 3 {
         exit(5)
     }
 }

@@ -13,10 +13,10 @@ const orderPrelude = "package main\n\n" +
 	"type P struct {\n    a int64\n    b int64\n}\n\n" +
 	"mut g int64\n\n" +
 	"func say(s string, n int64) int64 {\n    print(s)\n    return n\n}\n\n" +
-	"func bump() int64 {\n    g++\n    return g\n}\n\n" +
-	"func two(a int64, b int64) int64 {\n    return a * 10 + b\n}\n\n" +
+	"func bump() int64 {\n    g +%= 1\n    return g\n}\n\n" +
+	"func two(a int64, b int64) int64 {\n    return a *% 10 +% b\n}\n\n" +
 	"func pair() (int64, int64) {\n    return say(\"a\", 1), say(\"b\", 2)\n}\n\n" +
-	"func keep() {\n    if g > 100 {\n        a, b := pair()\n        code, fits := int32(two(a, b) + bump())\n        if fits { exit(code) }\n    }\n}\n\n"
+	"func keep() {\n    if g > 100 {\n        a, b := pair()\n        code, fits := int32(two(a, b) +% bump())\n        if fits { exit(code) }\n    }\n}\n\n"
 
 // orderProgram is orderPrelude and a main holding lines, after a call to
 // keep, which does nothing but use every helper, so the strict build does
@@ -40,7 +40,7 @@ var orderCases = []struct {
 	{
 		"binary operands",
 		orderProgram(
-			"code, fits := int32(say(\"a\", 1) - say(\"b\", 2) * say(\"c\", 3))",
+			"code, fits := int32(say(\"a\", 1) -% say(\"b\", 2) *% say(\"c\", 3))",
 			"if fits { exit(code) }",
 		),
 		"abc",
@@ -94,13 +94,13 @@ var orderCases = []struct {
 	},
 	{
 		"a global read before a call",
-		orderProgram("code, fits := int32(g + bump())", "if fits { exit(code) }"),
+		orderProgram("code, fits := int32(g +% bump())", "if fits { exit(code) }"),
 		"",
 		1,
 	},
 	{
 		"a call before a global read",
-		orderProgram("code, fits := int32(bump() + g)", "if fits { exit(code) }"),
+		orderProgram("code, fits := int32(bump() +% g)", "if fits { exit(code) }"),
 		"",
 		2,
 	},
@@ -112,7 +112,7 @@ var orderCases = []struct {
 	},
 	{
 		"compound assignment of a global",
-		orderProgram("g = 5", "g += bump()", "code, fits := int32(g)", "if fits { exit(code) }"),
+		orderProgram("g = 5", "g +%= bump()", "code, fits := int32(g)", "if fits { exit(code) }"),
 		"",
 		11,
 	},
@@ -177,19 +177,19 @@ func TestHoldsOperandsOnlyWhenOrderShows(t *testing.T) {
 		{
 			"two calls",
 			[]string{
-				"code, fits := int32(say(\"a\", 1) + say(\"b\", 2))",
+				"code, fits := int32(say(\"a\", 1) +% say(\"b\", 2))",
 				"if fits { exit(code) }",
 			},
 			true,
 		},
 		{
 			"a call and a mutable global",
-			[]string{"code, fits := int32(g + bump())", "if fits { exit(code) }"},
+			[]string{"code, fits := int32(g +% bump())", "if fits { exit(code) }"},
 			true,
 		},
 		{
 			"a call and a local",
-			[]string{"x := 1", "code, fits := int32(x + bump())", "if fits { exit(code) }"},
+			[]string{"x := 1", "code, fits := int32(x +% bump())", "if fits { exit(code) }"},
 			false,
 		},
 		{
@@ -199,7 +199,7 @@ func TestHoldsOperandsOnlyWhenOrderShows(t *testing.T) {
 		},
 		{
 			"two mutable globals",
-			[]string{"code, fits := int32(g + g)", "if fits { exit(code) }"},
+			[]string{"code, fits := int32(g +% g)", "if fits { exit(code) }"},
 			false,
 		},
 		{"one call", []string{"code, fits := int32(bump())", "if fits { exit(code) }"}, false},
@@ -245,7 +245,7 @@ func TestAssignOrderExampleRunsAtEveryLevel(t *testing.T) {
 // 256 with no proof, a call that moves it, and a local array to store in.
 const assignOrderPrelude = "package main\n\n" +
 	"mut g uint8 = 1\n\n" +
-	"func bump() int64 {\n    g++\n    return 9\n}\n\n" +
+	"func bump() int64 {\n    g +%= 1\n    return 9\n}\n\n" +
 	"func main() {\n    mut a [256]int64\n    "
 
 // TestHoldsTargetIndexesOnlyWhenOrderShows checks an assignment's target
@@ -261,7 +261,7 @@ func TestHoldsTargetIndexesOnlyWhenOrderShows(t *testing.T) {
 		held  bool
 	}{
 		{"a global index and a call", []string{"a[g] = bump()"}, true},
-		{"a compound assignment", []string{"a[g] += bump()"}, true},
+		{"a compound assignment", []string{"a[g] +%= bump()"}, true},
 		{"a constant index and a call", []string{"a[3] = bump()"}, false},
 		{"a local index and a call", []string{"i := g", "a[i] = bump()"}, false},
 		{"a global index and no call", []string{"a[g] = 5"}, false},

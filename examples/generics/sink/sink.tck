@@ -26,7 +26,7 @@ pub func Feed[S Sink](mut s S, words ...string) error {
 // Total returns how many words a and b hold together: two type
 // parameters with one constraint.
 pub func Total[A Sink, B Sink](a A, b B) int64 {
-    return a.count() + b.count()
+    return a.count() +% b.count()
 }
 
 // Tally counts the words put into it, and keeps none. Its methods are
@@ -43,7 +43,7 @@ pub func NewTally() Tally {
 
 // put counts word.
 func (mut t Tally) put(word string) error {
-    t.n++
+    t.n +%= 1
     return noerror
 }
 
@@ -62,3 +62,8 @@ pub func Tallied(words ...string) int64 {
     }
     return t.count()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

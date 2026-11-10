@@ -564,7 +564,8 @@ whole program, Tack code included, which no Tack proof can catch.
   comment say, for every argument the Tack side can pass, and returns the
   declared results. The Tack side sees the result as a value nothing is
   known about: a proof about an argument says nothing about the result.
-- **Integer semantics.** Tack's `+`, `-` and `*` wrap and its division is
+- **Integer semantics.** Tack's `+`, `-` and `*` are proven not to
+  overflow, or checked, and its `+%`, `-%` and `*%` wrap; its division is
   proved safe; C's signed overflow, and its division by zero or of the
   smallest value by -1, are undefined. A C body that does arithmetic either
   wraps it itself, through unsigned types as `point_sum` below does, or
@@ -735,7 +736,7 @@ type Point struct {
 // count returns how many bytes of s are c.
 extern func count(s string, c uint8) int64
 
-// sum returns p.x + p.y, wrapping as Tack's + does. It is defined in C as
+// sum returns p.x + p.y, wrapping as Tack's +% does. It is defined in C as
 // point_sum.
 extern("point_sum") func sum(p Point) int64
 

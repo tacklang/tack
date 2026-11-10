@@ -16,7 +16,7 @@ const crlfProgram = "package main\n" +
 	"func count(n int64) int64 {\n" +
 	"    mut sum := 0\n" +
 	"    for i := range n {\n" +
-	"        sum += i\n" +
+	"        sum +%= i\n" +
 	"    }\n" +
 	"    return sum\n" +
 	"}\n" +

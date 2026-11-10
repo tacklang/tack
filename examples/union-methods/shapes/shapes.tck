@@ -47,7 +47,7 @@ pub func (t Tile) len() int64 {
     if t == Tile.blank {
         return 0
     }
-    return 2 * t.side() + 2
+    return 2 *% t.side() +% 2
 }
 
 // describe names the case t holds: a pub method, which with len lets
@@ -93,3 +93,8 @@ pub func IsTall(t Tile) bool {
 pub func LargerTile(a Tile, b Tile) int64 {
     return Larger(a, b)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

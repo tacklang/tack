@@ -93,7 +93,7 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"updated across calls",
-		"package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\n" +
+		"package main\n\nmut count int64\n\nfunc bump() {\n    count = count +% 1\n}\n\n" +
 			"func main() {\n    bump()\n    bump()\n    bump()\n    code, fits := int32(count)\n    if fits { exit(code) }\n}\n", "", 3,
 	},
 	{
@@ -124,7 +124,7 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"global and local together",
-		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total + n\n}\n\n" +
+		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total +% n\n}\n\n" +
 			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n", "", 15,
 	},
 }

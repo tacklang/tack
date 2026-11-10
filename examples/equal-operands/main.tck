@@ -14,7 +14,7 @@ mut trace int64
 
 // f records x in trace and returns it.
 func f(x int64) int64 {
-    trace = trace * 10 + x
+    trace = trace *% 10 +% x
     return x
 }
 
@@ -23,13 +23,13 @@ mut moved S
 
 // bump records x, moves moved's a by 10 and returns x.
 func bump(x int64) int64 {
-    moved.a = moved.a + 10
+    moved.a = moved.a +% 10
     return f(x)
 }
 
 // set records x, sets s's a to x plus 10 and returns x.
 func set(mut s S, x int64) int64 {
-    s.a = x + 10
+    s.a = x +% 10
     return f(x)
 }
 
@@ -111,3 +111,8 @@ func main() {
     check(which(S{a: 5, b: 6}) == 0, 1234, 18)
     exit(23)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -1,0 +1,13 @@
+a wrapping product of known globals ok
+uint8(200) +% 100 ok
+int64(200) +% 100 ok
+v, ok := x + 1, x = v when ok ok
+a - b after a >= b ok
+-a after a > min ok
+i-- in a loop under i > 0 ok
+x-- after x > 0 ok
+a + b after bounds on both ok
+x +%= b ok
+-%int64(5) ok
+a[u +% 1] proven by u's type ok
+x -= b after x >= b ok

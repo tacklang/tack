@@ -12,15 +12,16 @@ type integer interface {
 }
 
 // nativeOp applies op to a and b as Go does on T, whose rules Tack's
-// integers follow: wrapping, the smallest signed value divided by -1 being
-// itself, and shifts past the width shifting every bit out.
+// wrapping operators follow, as do + - and * wherever they fit: wrapping,
+// the smallest signed value divided by -1 being itself, and shifts past
+// the width shifting every bit out.
 func nativeOp[T integer](op string, a, b T, n uint64) T {
 	switch op {
-	case "+":
+	case "+", "+%":
 		return a + b
-	case "-":
+	case "-", "-%":
 		return a - b
-	case "*":
+	case "*", "*%":
 		return a * b
 	case "/":
 		return a / b
@@ -88,7 +89,7 @@ func interesting(r *rand.Rand, t *IntType) uint64 {
 // range and at random.
 func TestArithMatchesGo(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // not crypto
-	ops := []string{"+", "-", "*", "/", "%", "&", "|", "^", "&^"}
+	ops := []string{"+", "-", "*", "+%", "-%", "*%", "/", "%", "&", "|", "^", "&^"}
 	for range 20000 {
 		it := intTypes[r.IntN(len(intTypes))]
 		a, b := interesting(r, it), interesting(r, it)

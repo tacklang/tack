@@ -2293,6 +2293,9 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return g.divisionValues(bin)
 	}
+	if src, ok, diags := g.arithValues(value); ok {
+		return src, diags
+	}
 	if ix, ok := value.(*ast.Index); ok {
 		return g.indexValues(ix)
 	}
@@ -2353,7 +2356,7 @@ func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 // call in either always runs.
 func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
 	if bin.Const != nil {
-		return g.constantDivisionValues(bin)
+		return g.constantValues(bin)
 	}
 	a, diags := g.expr(bin.X, types.Invalid)
 	if len(diags) > 0 {
@@ -2379,11 +2382,94 @@ func (g *generator) divisionValues(bin *ast.Binary) (multiSource, []diag.Diagnos
 	}, nil
 }
 
-// constantDivisionValues lowers a checked division of two constants, whose
-// value the checker has computed, its divisor not being zero: the value,
+// arithValues lowers v, ok := a + b, a - b, a * b or -a on integers, and
+// reports whether value is one of those. Each operand is evaluated once,
+// left first, into a temporary of the operation's type, whatever the
+// result, so a call in either always runs. ok is clang's overflow builtin
+// on them, which computes the exact result and says whether it is a value
+// of the type the result is stored in, never overflowing in C. The value
+// is the operation wrapped at the width, which is the exact result when
+// ok is true, or 0 when it is not. A constant's is its value and true.
+func (g *generator) arithValues(value ast.Expr) (multiSource, bool, []diag.Diagnostic) {
+	var operands []ast.Expr
+	var op ast.BinaryOp
+	typ := ast.TypeOf(value)
+	switch x := value.(type) {
+	case *ast.Binary:
+		if x.Op != ast.Add && x.Op != ast.Sub && x.Op != ast.Mul {
+			return multiSource{}, false, nil
+		}
+		operands, op = []ast.Expr{x.X, x.Y}, x.Op
+	case *ast.Unary:
+		if x.Op != ast.Neg {
+			return multiSource{}, false, nil
+		}
+		operands, op = []ast.Expr{x.X}, ast.Sub
+	default:
+		return multiSource{}, false, nil
+	}
+	if !types.IsInteger(typ) {
+		return multiSource{}, false, nil
+	}
+	if constValueOf(value) {
+		src, diags := g.constantValues(value)
+		return src, true, diags
+	}
+	t := g.cType(typ)
+	var temps []multiTemp
+	for _, x := range operands {
+		v, diags := g.expr(x, types.Invalid)
+		if len(diags) > 0 {
+			return multiSource{}, true, diags
+		}
+		temps = append(temps, multiTemp{typ: t, init: v})
+	}
+	builtins := map[ast.BinaryOp]string{
+		ast.Add: "__builtin_add_overflow", ast.Sub: "__builtin_sub_overflow", ast.Mul: "__builtin_mul_overflow",
+	}
+	// The flag is a temporary of its own, so the builtin runs once.
+	temps = append(temps, multiTemp{typ: "bool", initFrom: func(prev []string) string {
+		l, r := "("+t+")0", prev[0]
+		if len(prev) == 2 {
+			l, r = prev[0], prev[1]
+		}
+		return fmt.Sprintf("!%s(%s, %s, &(%s){0})", builtins[op], l, r, t)
+	}})
+	return multiSource{
+		temps: temps,
+		field: func(tmps []string, i int) string {
+			fits := tmps[len(tmps)-1]
+			if i == 1 {
+				return fits
+			}
+			l, r := "0", tmps[0]
+			if len(tmps) == 3 {
+				l, r = tmps[0], tmps[1]
+			}
+			return fmt.Sprintf("(%s ? %s : 0)", fits, arith(op, typ, l, r))
+		},
+	}, true, nil
+}
+
+// constValueOf reports whether value, an operation, is a constant whose
+// value the checker computed.
+func constValueOf(value ast.Expr) bool {
+	switch x := value.(type) {
+	case *ast.Binary:
+		return x.Const != nil
+	case *ast.Unary:
+		return x.Const != nil
+	default:
+		return false
+	}
+}
+
+// constantValues lowers a checked division, or checked arithmetic, of
+// constants, whose value the checker has computed, its divisor not being
+// zero and its result fitting its type: the value,
 // written as a constant with no temporary, since evaluating it does
 // nothing, and true.
-func (g *generator) constantDivisionValues(bin *ast.Binary) (multiSource, []diag.Diagnostic) {
+func (g *generator) constantValues(bin ast.Expr) (multiSource, []diag.Diagnostic) {
 	v, diags := g.expr(bin, types.Invalid)
 	if len(diags) > 0 {
 		return multiSource{}, diags
@@ -2929,9 +3015,13 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 // type, which handles the smallest value divided by -1, the one overflow
 // division has, and so do << and >>, which handle a count at or past the
 // width (see emitShift). & | ^ and &^ are done on uint64_t too, which keeps
-// every bit a signed value's two's complement form has. Each operand
-// appears once, so neither is evaluated twice.
+// every bit a signed value's two's complement form has. The wrapping
+// operators +% -% and *% are + - and * done the same way, which is what
+// they mean; plain + - and * are proven not to overflow, so wrapping them
+// changes nothing. Each operand appears once, so neither is evaluated
+// twice.
 func arith(op ast.BinaryOp, typ types.Type, l, r string) string {
+	op = op.Unwrapped()
 	if types.IsFloat(typ) {
 		// + - * and / on floats are IEEE 754's, which C defines for every
 		// operand, a zero divisor included.
@@ -2957,13 +3047,14 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	switch u.Op {
-	case ast.Neg:
+	case ast.Neg, ast.NegWrap:
 		if types.IsFloat(u.Type) {
 			// A float's negation flips its sign, -0 included.
 			return "(-" + x + ")", nil
 		}
 		// -x is 0 - x, done on uint64_t so that negating the smallest value
-		// wraps to itself instead of being undefined.
+		// wraps to itself instead of being undefined, as -%x means it to;
+		// a plain -x is proven not to be that value.
 		return fmt.Sprintf("((%s)(0 - (uint64_t)%s))", g.cType(u.Type), x), nil
 	case ast.Complement:
 		// ^x flips every bit, done on uint64_t, as & is, and converted back,

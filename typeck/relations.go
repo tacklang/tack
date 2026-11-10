@@ -286,15 +286,31 @@ func diffFact(x, y linTerm, w constant.Int, conds []noWrap) fact {
 // value, or a plain assignment to a variable, of an integer type, whose
 // value linear reads as another node plus an offset, relates the variable
 // to that node both ways. A value computed from the variable itself, as
-// in k = k - 1, gives none, nor does a known value.
+// in k = k - 1, gives none. A known value stored in a mutable variable,
+// mut n := 0, a declaration with none, which stores its zero value, or n
+// = 5, puts the variable at that value; an immutable variable holding a
+// known value is already one.
 func (c *Checker) storedFacts(stmt ast.Stmt) (*guard, []fact) {
+	if v, ok := stmt.(*ast.Var); ok && v.Value == nil && v.Mutable && types.IsInteger(v.Type) &&
+		c.canHoldFact(v) {
+		return &guard{span: stmt.Spanned(), kind: guardValue}, []fact{bound(declKey(v), ast.Eq, constant.Int{})}
+	}
+	if g, facts := c.steppedFacts(stmt); g != nil {
+		return g, facts
+	}
 	target, value, ok := c.storedTarget(stmt)
 	if !ok {
 		return nil, nil
 	}
+	if k, known := c.knownValue(value); known {
+		if v, isVar := stmt.(*ast.Var); isVar && !v.Mutable {
+			return nil, nil
+		}
+		return &guard{span: stmt.Spanned(), kind: guardValue}, []fact{bound(target.node, ast.Eq, k)}
+	}
 	t, ok := c.linear(value)
 	if !ok || t.node.isZero() || t.node.decl == target.node.decl {
-		return nil, nil
+		return c.rangeStored(stmt, target.node, value, value.Spanned().End)
 	}
 	negOff, ok := t.off.Neg()
 	if !ok {
@@ -305,6 +321,57 @@ func (c *Checker) storedFacts(stmt ast.Stmt) (*guard, []fact) {
 		diffFact(target, t, t.off, t.conds),
 		diffFact(t, target, negOff, t.conds),
 	}
+}
+
+// steppedFacts returns the fact an increment, a decrement or a compound
+// assignment by + - or * of an integer subject gives the statements after
+// it: the bounds of the value it stores (see rangeStored).
+func (c *Checker) steppedFacts(stmt ast.Stmt) (*guard, []fact) {
+	var bin *ast.Binary
+	switch s := stmt.(type) {
+	case *ast.IncDec:
+		one := &ast.IntLit{Value: constant.FromInt64(1), Span: s.Target.Spanned()}
+		bin = &ast.Binary{X: s.Target, Y: one, Op: ast.Add, Span: s.Span}
+		if s.Dec {
+			bin.Op = ast.Sub
+		}
+	case *ast.Assign:
+		if s.Op != ast.Add && s.Op != ast.Sub && s.Op != ast.Mul {
+			return nil, nil
+		}
+		bin = &ast.Binary{X: s.Target, Y: s.Value, Op: s.Op, Span: s.Span}
+	default:
+		return nil, nil
+	}
+	bin.Type = ast.TypeOf(bin.X)
+	k, ok := c.keyOf(bin.X)
+	if !ok || !types.IsInteger(bin.Type) {
+		return nil, nil
+	}
+	return c.rangeStored(stmt, k, bin, bin.Y.Spanned().End)
+}
+
+// rangeStored returns the fact that stmt, storing value in the integer
+// subject k, gives the statements after it: k lies within the bounds of
+// the value where it was computed, at, before stmt stored it (see
+// operandBounds), when those are narrower than k's type's. The value was
+// proven to fit, or the program is rejected, so the value is the one
+// stored.
+func (c *Checker) rangeStored(stmt ast.Stmt, k factKey, value ast.Expr, at int) (*guard, []fact) {
+	outer := c.at
+	c.at = at
+	known := c.operandBounds(value)
+	if bin, ok := value.(*ast.Binary); ok && isPlainArith(bin) {
+		known = c.exactRange(bin)
+	}
+	c.at = outer
+	whole := typeInterval(value)
+	if !known.hasLo || !known.hasHi || known.lo.Cmp(whole.lo) <= 0 && known.hi.Cmp(whole.hi) >= 0 {
+		return nil, nil
+	}
+	known = known.within(whole)
+	f := fact{about: k, lo: known.lo, hi: known.hi, hasLo: true, hasHi: true}
+	return &guard{span: stmt.Spanned(), kind: guardValue}, []fact{f}
 }
 
 // storedTarget returns the variable stmt stores to, as a term, and the

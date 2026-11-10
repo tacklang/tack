@@ -28,29 +28,29 @@ var sliceProofCases = []struct{ name, src string }{
 		"every form of a known string",
 		slicing(
 			`t := "hello"`,
-			"code, fits := int32(h(t[1:3]) + h(t[:2]) + h(t[3:]) + h(t[:]) + h(t[5:]) + h(t[0:0]))",
+			"code, fits := int32(h(t[1:3]) +% h(t[:2]) +% h(t[3:]) +% h(t[:]) +% h(t[5:]) +% h(t[0:0]))",
 			"if fits { exit(code) }",
 		),
 	},
 	{
 		"every form of an array",
 		slicing(
-			"code, fits := int32(g(a[1:3]) + g(a[:2]) + g(a[3:]) + g(a[:]) + g(a[5:5]))",
+			"code, fits := int32(g(a[1:3]) +% g(a[:2]) +% g(a[3:]) +% g(a[:]) +% g(a[5:5]))",
 			"if fits { exit(code) }",
 		),
 	},
 	{
 		"omitted bounds need nothing",
-		slicing("code, fits := int32(h(s[:]) + g(v[:]))", "if fits { exit(code) }"),
+		slicing("code, fits := int32(h(s[:]) +% g(v[:]))", "if fits { exit(code) }"),
 	},
 	{
 		"zero bounds of any string",
-		slicing("code, fits := int32(h(s[0:0]) + h(s[:0]) + g(v[0:0]))", "if fits { exit(code) }"),
+		slicing("code, fits := int32(h(s[0:0]) +% h(s[:0]) +% g(v[0:0]))", "if fits { exit(code) }"),
 	},
 	{
 		"len of the string",
 		slicing(
-			"code, fits := int32(h(s[len(s):]) + h(s[:len(s)]) + h(s[0:len(s)]))",
+			"code, fits := int32(h(s[len(s):]) +% h(s[:len(s)]) +% h(s[0:len(s)]))",
 			"if fits { exit(code) }",
 		),
 	},
@@ -113,7 +113,7 @@ var sliceProofCases = []struct{ name, src string }{
 		"unsafe_size_t bound",
 		slicing(
 			"if z <= len(v) {",
-			"    code, fits := int32(g(v[:z]) + g(v[z:]))",
+			"    code, fits := int32(g(v[:z]) +% g(v[z:]))",
 			"    if fits { exit(code) }",
 			"}",
 		),
@@ -151,7 +151,7 @@ var sliceProofCases = []struct{ name, src string }{
 		"array bound by its len",
 		slicing(
 			"if 0 <= i && i <= len(a) {",
-			"    code, fits := int32(g(a[i:]) + g(a[:i]))",
+			"    code, fits := int32(g(a[i:]) +% g(a[:i]))",
 			"    if fits { exit(code) }",
 			"}",
 		),
@@ -160,7 +160,7 @@ var sliceProofCases = []struct{ name, src string }{
 		"length bound proves a constant",
 		slicing(
 			"if len(s) >= 2 {",
-			"    code, fits := int32(h(s[2:]) + h(s[1:2]))",
+			"    code, fits := int32(h(s[2:]) +% h(s[1:2]))",
 			"    if fits { exit(code) }",
 			"}",
 		),
@@ -169,7 +169,7 @@ var sliceProofCases = []struct{ name, src string }{
 		"counting loop",
 		slicing(
 			"for mut n := 0; n < len(s); n++ {",
-			"    code, fits := int32(h(s[n:]) + h(s[:n]))",
+			"    code, fits := int32(h(s[n:]) +% h(s[:n]))",
 			"    if fits { exit(code) }",
 			"}",
 		),
@@ -178,18 +178,18 @@ var sliceProofCases = []struct{ name, src string }{
 		"range loop",
 		slicing(
 			"for n := range v {",
-			"    code, fits := int32(g(v[n:]) + g(v[:n]))",
+			"    code, fits := int32(g(v[n:]) +% g(v[:n]))",
 			"    if fits { exit(code) }",
 			"}",
 		),
 	},
 	{
 		"slice of a slice",
-		slicing("code, fits := int32(g(a[1:][1:3]) + g(a[:4][2:]))", "if fits { exit(code) }"),
+		slicing("code, fits := int32(g(a[1:][1:3]) +% g(a[:4][2:]))", "if fits { exit(code) }"),
 	},
 	{
 		"len of a view slice",
-		slicing("code, fits := int32(len(a[1:]) + len(v[:]))", "if fits { exit(code) }"),
+		slicing("code, fits := int32(len(a[1:]) +% len(v[:]))", "if fits { exit(code) }"),
 	},
 	{
 		"checked form needs no proof",
@@ -309,7 +309,7 @@ var sliceErrorCases = []struct{ name, src, want string }{
 		"slice bound 2 may be out of range; check len(s) >= 2 first, or use v, ok := ...[2:]",
 	},
 	{
-		"not a name", slicing("code, fits := int32(h(s[i - 1:]))", "if fits { exit(code) }"),
+		"not a name", slicing("code, fits := int32(h(s[i -% 1:]))", "if fits { exit(code) }"),
 		"slice bound ... may be out of range; use v, ok := ...[...:]",
 	},
 	{
@@ -447,7 +447,7 @@ func TestRejectsSliceMisuse(t *testing.T) {
 func TestRecordsSliceTypes(t *testing.T) {
 	file, diags := checkTree(
 		t,
-		slicing("code, fits := int32(h(s[:]) + g(a[1:]) + g(v[:]))", "if fits { exit(code) }"),
+		slicing("code, fits := int32(h(s[:]) +% g(a[1:]) +% g(v[:]))", "if fits { exit(code) }"),
 	)
 	if len(diags) > 0 {
 		t.Fatalf("got %v", diags)
@@ -482,7 +482,7 @@ func TestKnownSliceValues(t *testing.T) {
 		"mut x [len(a[1:4])]int64",
 		"w[2] = 1",
 		"x[2] = 1",
-		"code, fits := int32(w[2] + x[2] + 10 / (len(t) - 2))",
+		"code, fits := int32(w[2] +% x[2] +% 10 / (len(t) - 2))",
 		"if fits { exit(code) }",
 	)
 	if _, diags := checkTree(t, src); len(diags) > 0 {
@@ -502,7 +502,7 @@ func TestKnownSliceValues(t *testing.T) {
 // scope prove about it, as an index's does.
 func TestSliceNotes(t *testing.T) {
 	src := "package main\n\nfunc f(s string, n int64) string {\n    mut i := n\n" +
-		"    if 0 <= i && i <= len(s) {\n        i++\n        return s[i:]\n    }\n    return s\n}\n\n" +
+		"    if 0 <= i && i <= len(s) {\n        i +%= 1\n        return s[i:]\n    }\n    return s\n}\n\n" +
 		"func main() {\n}\n"
 	expectNotes(
 		t,

@@ -31,9 +31,6 @@ package bytes
 // 0xff included, is compared and counted as it is, and an index is a
 // byte's.
 
-// max_int64 is the largest int64, 9223372036854775807.
-var max_int64 int64 = 9223372036854775807
-
 // hex_digits holds the lowercase hexadecimal digits, digit d at index d.
 var hex_digits = "0123456789abcdef"
 
@@ -63,11 +60,12 @@ func match_at(s []uint8, sub []uint8, i int64) bool {
     if i < 0 || i > len(s) || len(sub) > len(s) - i {
         return false
     }
-    // Only a name is proven as an index, and i + j is not one, so it is
-    // read in the checked form; the guard above keeps it in range.
+    // The guard above keeps i + j within s, which the checker does not
+    // prove, so the sum and the index are both in the checked form.
     for j, x := range sub {
-        y, ok := s[i + j]
-        if !ok || x != y {
+        k, fits := i + j
+        y, ok := s[k]
+        if !fits || !ok || x != y {
             return false
         }
     }
@@ -82,7 +80,13 @@ pub func index(s []uint8, sub []uint8) int64 {
     if len(sub) > len(s) {
         return -1
     }
-    for i := range len(s) - len(sub) + 1 {
+    // The count is at most len(s) + 1, which fits unless s is as long as
+    // an int64 can count; then no index is tried.
+    starts, ok := len(s) - len(sub) + 1
+    if !ok {
+        return -1
+    }
+    for i := range starts {
         if match_at(s, sub, i) {
             return i
         }
@@ -124,16 +128,21 @@ pub func has_suffix(s []uint8, suffix []uint8) bool {
 // longer than s occurs 0 times.
 pub func count(s []uint8, sub []uint8) int64 {
     if len(sub) == 0 {
-        return len(s) + 1
+        // A length is bounded by memory, far below the largest int64, so
+        // len(s) + 1 never wraps; +% is there because nothing proves it.
+        return len(s) +% 1
     }
+    // n counts matches and i moves through s, so neither passes len(s),
+    // which the checker does not prove: they step with +%, which never
+    // wraps here.
     mut n int64 = 0
     mut i int64 = 0
     for i <= len(s) - len(sub) {
         if match_at(s, sub, i) {
-            n++
-            i += len(sub)
+            n +%= 1
+            i +%= len(sub)
         } else {
-            i++
+            i +%= 1
         }
     }
     return n
@@ -218,7 +227,11 @@ pub func append_int(mut b list[uint8], v int64) error {
     if !ok {
         return error{code: 2, msg: "internal error"}
     }
-    return append_digits(mut b, m + 1, 10, true)
+    magnitude, fits := m + 1
+    if !fits {
+        return error{code: 2, msg: "internal error"}
+    }
+    return append_digits(mut b, magnitude, 10, true)
 }
 
 // append_hex appends v to b in lowercase hexadecimal, with no 0x prefix
@@ -250,10 +263,11 @@ pub func repeat(s []uint8, n int64, alloc Allocator) (list[uint8], error) {
     if size == 0 || n == 0 {
         return out, noerror
     }
-    if n > max_int64 / size {
+    total, fits := size * n
+    if !fits {
         return out, error{code: 1, msg: "out of memory"}
     }
-    err := reserve(mut out, size * n)
+    err := reserve(mut out, total)
     if err.code != 0 {
         return out, err
     }

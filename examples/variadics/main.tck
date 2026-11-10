@@ -36,7 +36,7 @@ func sum(label string, nums ...int64) int64 {
     }
     mut total int64 = 0
     for _, x := range nums {
-        total += x
+        total +%= x
     }
     return total
 }
@@ -51,14 +51,14 @@ func count(nums ...int64) int64 {
 func total(v []int64) int64 {
     mut n int64 = 0
     for mut i int64 = 0; i < len(v); i++ {
-        n += v[i]
+        n +%= v[i]
     }
     return n
 }
 
 // passOn passes its variadic on, with a spread, and to a view parameter.
 func passOn(nums ...int64) int64 {
-    return sum("on", nums...) + total(nums)
+    return sum("on", nums...) +% total(nums)
 }
 
 // rest passes on every value of nums but the first.
@@ -74,7 +74,7 @@ func sumRec(nums ...int64) int64 {
     if len(nums) < 1 {
         return 0
     }
-    return nums[0] + sumRec(nums[1:]...)
+    return nums[0] +% sumRec(nums[1:]...)
 }
 
 // at returns nums[i], or -1 when i is out of range, through the checked
@@ -92,14 +92,14 @@ func firstTwo(nums ...int64) int64 {
     if len(nums) < 2 {
         return -1
     }
-    return nums[0] + nums[1]
+    return nums[0] +% nums[1]
 }
 
 // weighted adds each value times its index, with both range variables.
 func weighted(nums ...int64) int64 {
     mut n int64 = 0
     for i, x := range nums {
-        n += i * x
+        n +%= i *% x
     }
     return n
 }
@@ -108,7 +108,7 @@ func weighted(nums ...int64) int64 {
 func lengths(words ...string) int64 {
     mut n int64 = 0
     for _, w := range words {
-        n += len(w)
+        n +%= len(w)
     }
     return n
 }
@@ -117,7 +117,7 @@ func lengths(words ...string) int64 {
 func sumPoints(pts ...Point) int64 {
     mut n int64 = 0
     for _, p := range pts {
-        n += p.x + p.y
+        n +%= p.x +% p.y
     }
     return n
 }
@@ -126,7 +126,7 @@ func sumPoints(pts ...Point) int64 {
 func cells(rows ...[2]int64) int64 {
     mut n int64 = 0
     for _, row := range rows {
-        n += row[0] + row[1]
+        n +%= row[0] +% row[1]
     }
     return n
 }
@@ -136,7 +136,7 @@ func trues(flags ...bool) int64 {
     mut n int64 = 0
     for _, f := range flags {
         if f {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -147,17 +147,17 @@ func countByte(c uint8, b ...uint8) int64 {
     mut n int64 = 0
     for _, x := range b {
         if x == c {
-            n++
+            n +%= 1
         }
     }
     return n
 }
 
-// unsigned adds uint64 values, wrapping.
+// unsigned adds uint64 values with +%, wrapping.
 func unsigned(nums ...uint64) uint64 {
     mut n uint64 = 0
     for _, x := range nums {
-        n += x
+        n +%= x
     }
     return n
 }
@@ -179,7 +179,7 @@ func minMax(first int64, rest ...int64) (int64, int64) {
 
 // step appends d to trace, so the order of calls shows, and returns d.
 func step(d int64) int64 {
-    trace = trace * 10 + d
+    trace = trace *% 10 +% d
     return d
 }
 
@@ -187,7 +187,7 @@ func step(d int64) int64 {
 func digits(a int64, rest ...int64) int64 {
     mut n := a
     for _, x := range rest {
-        n = n * 10 + x
+        n = n *% 10 +% x
     }
     return n
 }
@@ -195,7 +195,7 @@ func digits(a int64, rest ...int64) int64 {
 // bumpThenRead adds one to n, then returns the sum of vals, which the
 // caller passed n's value to: each value is a copy taken at the call.
 func bumpThenRead(mut n int64, vals ...int64) int64 {
-    n++
+    n +%= 1
     return total(vals)
 }
 
@@ -308,3 +308,8 @@ func main() {
     }
     check(i == 3, "in a loop condition")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

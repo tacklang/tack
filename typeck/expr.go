@@ -520,6 +520,8 @@ func (c *Checker) binary(bin *ast.Binary) types.Type {
 		return types.Bool
 	case bin.Op.IsShift():
 		return c.shift(bin, x, y)
+	case bin.Op.IsWrapping():
+		return c.wrapping(bin, x, y)
 	default:
 		return c.arithmetic(bin, x, y)
 	}
@@ -571,6 +573,9 @@ func (c *Checker) intArithmetic(bin *ast.Binary, x, y types.Type) types.Type {
 	}
 	if c.knownOverflow(bin, typ) {
 		return types.Invalid
+	}
+	if isPlainArith(bin) {
+		c.requireNoOverflow(bin, typ)
 	}
 	return typ
 }
@@ -1078,6 +1083,8 @@ func (c *Checker) unary(u *ast.Unary) types.Type {
 		return types.Invalid
 	case ast.Complement:
 		return c.complement(u, x)
+	case ast.NegWrap:
+		return c.wrapNegation(u, x)
 	}
 	return c.negation(u, x)
 }
@@ -1117,6 +1124,7 @@ func (c *Checker) negation(u *ast.Unary, x types.Type) types.Type {
 func (c *Checker) knownNegation(u *ast.Unary, typ types.Type) types.Type {
 	v, known := c.knownValue(u.X)
 	if !known {
+		c.requireNoOverflow(u, typ)
 		return typ
 	}
 	if _, fits := fitting(v.Neg())(typ); fits {

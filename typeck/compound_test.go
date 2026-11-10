@@ -10,7 +10,7 @@ func TestAcceptsCompoundAssignment(t *testing.T) {
 			"mut x = 1",
 			"x += 2",
 			"x -= 1",
-			"x *= 3",
+			"x *%= 3",
 			"x /= 2",
 			"x %= 5",
 			"code, fits := int32(x)",
@@ -23,7 +23,7 @@ func TestAcceptsCompoundAssignment(t *testing.T) {
 			"if fits { exit(code) }",
 		),
 		"package main\n\nfunc two() int64 {\n    return 2\n}\n\nfunc main() {\n    mut x = 1\n    x *= two()\n    code, fits := int32(x)\n    if fits { exit(code) }\n}\n",
-		"package main\n\nmut total int64\n\nfunc main() {\n    total += 5\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nmut total int64\n\nfunc main() {\n    total +%= 5\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
 	}
 
 	for _, src := range tests {
@@ -52,7 +52,7 @@ var invalidCompoundCases = []struct {
 	},
 	{
 		"parameter",
-		"package main\n\nfunc f(n int64) {\n    n += 1\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"package main\n\nfunc f(n int64) {\n    n +%= 1\n}\n\nfunc main() {\n    f(1)\n}\n",
 		[]spanned{{"cannot assign to parameter n", "n"}},
 	},
 	{

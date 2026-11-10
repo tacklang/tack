@@ -19,128 +19,128 @@ func check(cond bool, name string) {
 }
 
 func inc(v int64) int64 {
-    return v + 1
+    return v +% 1
 }
 
 func sub(a int64, b int64) int64 {
-    return a - b
+    return a -% b
 }
 
 func tick(mut c int64) int64 {
-    c += 1
+    c +%= 1
     return c
 }
 
 func add_int8(x int8) int8 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_int8(x int8) int8 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_int8(x int8) int8 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_int16(x int16) int16 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_int16(x int16) int16 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_int16(x int16) int16 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_int32(x int32) int32 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_int32(x int32) int32 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_int32(x int32) int32 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_int64(x int64) int64 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_int64(x int64) int64 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_int64(x int64) int64 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func right_int64(x int64) int64 {
-    return x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x)))))))))))))))))))
+    return x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x)))))))))))))))))))
 }
 
 func add_uint8(x uint8) uint8 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_uint8(x uint8) uint8 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_uint8(x uint8) uint8 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_uint16(x uint16) uint16 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_uint16(x uint16) uint16 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_uint16(x uint16) uint16 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_uint32(x uint32) uint32 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_uint32(x uint32) uint32 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_uint32(x uint32) uint32 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func add_uint64(x uint64) uint64 {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x
 }
 
 func minus_uint64(x uint64) uint64 {
-    return x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func times_uint64(x uint64) uint64 {
-    return x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x * x
+    return x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x *% x
 }
 
 func right_uint64(x uint64) uint64 {
-    return x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x + (x)))))))))))))))))))
+    return x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x +% (x)))))))))))))))))))
 }
 
 func mixed(x int64) int64 {
-    return (((((((((((((((((((((((((((((((((((((((x + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2) % 1000003) + 7) * 3) - 11) / 2)
+    return (((((((((((((((((((((((((((((((((((((((x +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2) % 1000003) +% 7) *% 3) -% 11) / 2)
 }
 
 func mixed_right(x int64) int64 {
-    return x * (x - (x + (x * (x - (x + (x * (x - (x + (x * (x - (x + (x * (x - (x + (x * (x - (x + (x * (x)))))))))))))))))))
+    return x *% (x -% (x +% (x *% (x -% (x +% (x *% (x -% (x +% (x *% (x -% (x +% (x *% (x -% (x +% (x *% (x -% (x +% (x *% (x)))))))))))))))))))
 }
 
 func calls(x int64) int64 {
@@ -152,22 +152,22 @@ func calls_right(x int64) int64 {
 }
 
 func negated(x int64) int64 {
-    return -(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(-(x))))))))))))))))))))))))))))))))))))
+    return -%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(-%(x))))))))))))))))))))))))))))))))))))
 }
 
 func order_left() int64 {
     mut c int64 = 0
-    return c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c)
+    return c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c)
 }
 
 func order_right() int64 {
     mut c int64 = 0
-    return c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c) + (c + (tick(mut c))))))))))))))))))))))))))))))))))))))))
+    return c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c) +% (c +% (tick(mut c))))))))))))))))))))))))))))))))))))))))
 }
 
 func guarded(run bool) int64 {
     mut c int64 = 0
-    if run && c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) + c + tick(mut c) > 0 {
+    if run && c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) +% c +% tick(mut c) > 0 {
         return c
     }
     return c
@@ -176,7 +176,7 @@ func guarded(run bool) int64 {
 func ands(x int64) int64 {
     mut c int64 = 0
     if x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && tick(mut c) > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 && x > 0 {
-        return c + 10
+        return c +% 10
     }
     return c
 }
@@ -184,15 +184,15 @@ func ands(x int64) int64 {
 func ors(x int64) int64 {
     mut c int64 = 0
     if x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || tick(mut c) < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 || x < 0 {
-        return c + 10
+        return c +% 10
     }
     return c
 }
 
 func looped(x int64) int64 {
     mut i int64 = 0
-    for x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + i < 64 {
-        i += 1
+    for x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% i < 64 {
+        i +%= 1
     }
     return i
 }
@@ -200,25 +200,25 @@ func looped(x int64) int64 {
 func ticked(x int64) int64 {
     mut c int64 = 0
     mut n int64 = 0
-    for tick(mut c) + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x < 65 {
-        n += 1
+    for tick(mut c) +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x < 65 {
+        n +%= 1
     }
-    return n * 100 + c
+    return n *% 100 +% c
 }
 
 func deferred(x int64) int64 {
     defer {
-        check(x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x == 60, "a deep defer")
+        check(x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x == 60, "a deep defer")
     }
     return x
 }
 
 func two(x int64) (int64, int64) {
-    return x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x, x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x - x
+    return x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x, x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x -% x
 }
 
 func paired(x int64) Pair {
-    return Pair{a: x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x, b: x * x * x}
+    return Pair{a: x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x, b: x *% x *% x}
 }
 
 func indexed(x uint8) int64 {
@@ -226,13 +226,13 @@ func indexed(x uint8) int64 {
     for i := range a {
         a[i] = i * 2
     }
-    a[x] = a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x] + a[x]
+    a[x] = a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x] +% a[x]
     return a[x]
 }
 
 func checked(x int64) (int64, bool) {
     a := [4]int64{10, 20, 30, 40}
-    v, ok := a[x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x - 58]
+    v, ok := a[x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x +% x -% 58]
     return v, ok
 }
 

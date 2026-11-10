@@ -45,8 +45,9 @@ The integer types and their values are:
 | `uint64` | 0 to 18446744073709551615                          |
 
 A signed integer is held in two's complement, which the bitwise
-operators and the wrapping of arithmetic show (see [Constants and
-arithmetic](03-arithmetic.md)). An integer constant that nothing gives a
+operators and the wrapping operators `+%`, `-%` and `*%` show (see
+[Integer overflow](03-arithmetic.md#integer-overflow)); plain `+`, `-`
+and `*` never wrap. An integer constant that nothing gives a
 type is an `int64`, and a character literal is a `uint8`.
 
 ## Target-width integers
@@ -56,8 +57,9 @@ for crossing to C (see [Extern C](14-extern.md)). Each is an unsigned
 integer as wide as the target makes it, from 32 to 64 bits, and the two
 are not necessarily as wide as each other. The `unsafe_` prefix is their
 only marker: they may be used anywhere any other integer type can, and
-have every operation an unsigned integer has, arithmetic wrapping at
-their real width.
+have every operation an unsigned integer has, the wrapping operators
+wrapping at their real width; plain arithmetic on them must be proven
+to fit on every target (see [Integer overflow](03-arithmetic.md#integer-overflow)).
 
 Their rules hold at every width, so a program valid on a 64-bit target is
 valid on a 32-bit one. A constant of either is a value of it only from 0
@@ -364,10 +366,7 @@ func main() {
     n = n + 1
     f = f + 1.0
     b = !b
-    p.x = p.x + 1
-    a[0] = a[1] + 1
-    e.code = e.code + 1
-    if n != 1 || f != 1.0 || !b || p.x != 1 || p.s != "" || a[0] != 1 || e.code != 1 {
+    if n != 1 || f != 1.0 || !b || p.x != 0 || p.s != "" || a[1] != 0 || e.code != 0 {
         exit(1)
     }
     exit(0)
@@ -495,7 +494,7 @@ integers widens to one of wider integers.
 package main
 
 func total(a int64, b uint64) uint64 {
-    if a < 0 {
+    if a < 0 || b > 9223372036854775807 {
         return b
     }
     return b + uint64(a)

@@ -75,7 +75,7 @@ func add(mut l Lexer, kind int64, sub int64, start int64, end int64, ends bool) 
 // ok := l.toks[l.n - 1], which would compile but copies all of toks on
 // every call.
 func addSemi(mut l Lexer, pos int64) {
-    mut last := l.n - 1
+    mut last := l.n -% 1
     for last >= 0 && last < len(l.toks) && l.toks[last].kind == KindComment {
         last--
     }
@@ -89,7 +89,7 @@ func addSemi(mut l Lexer, pos int64) {
 func fail(mut l Lexer, start int64, end int64, msg string) {
     n := l.nerr
     if n < 0 || n >= len(l.errs) {
-        l.dropped++
+        l.dropped +%= 1
         return
     }
     l.errs[n] = Error{start: start, end: end, msg: msg}
@@ -112,7 +112,7 @@ func byteAt(src string, i int64) uint8 {
 // spanIs reports whether src[start:end] is word, comparing byte by byte,
 // since there is no substring to compare with ==.
 func spanIs(src string, start int64, end int64, word string) bool {
-    if end - start != len(word) {
+    if end -% start != len(word) {
         return false
     }
     return hasPrefixAt(src, start, word)
@@ -121,7 +121,7 @@ func spanIs(src string, start int64, end int64, word string) bool {
 // hasPrefixAt reports whether src holds word starting at pos.
 func hasPrefixAt(src string, pos int64, word string) bool {
     for i := range len(word) {
-        c, ok := src[pos + i]
+        c, ok := src[pos +% i]
         if !ok || c != word[i] {
             return false
         }
@@ -139,7 +139,7 @@ func newlineAt(src string, i int64) int64 {
     if c == '\n' {
         return 1
     }
-    if c == '\r' && byteAt(src, i + 1) == '\n' {
+    if c == '\r' && byteAt(src, i +% 1) == '\n' {
         return 2
     }
     return 0
@@ -159,3 +159,8 @@ func isDigit(c uint8) bool {
 func isHex(c uint8) bool {
     return isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

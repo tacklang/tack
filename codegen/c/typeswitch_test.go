@@ -253,7 +253,7 @@ const typeSwitchDefers = `package main
 mut seen int64
 
 func note(n int64) {
-    seen = seen * 10 + n
+    seen = seen *% 10 +% n
 }
 
 func f(a any, xs ...any) int64 {

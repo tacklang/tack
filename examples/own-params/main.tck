@@ -79,7 +79,7 @@ func sum(own l list[int64], stop int64) int64 {
         if i == stop {
             return s
         }
-        s += x
+        s +%= x
     }
     return s
 }
@@ -120,7 +120,7 @@ func grown(own l list[int64], x int64) (list[int64], error) {
 func borrows(own l list[int64]) (int64, list[int64]) {
     a := count(l)
     b := len(l[0:])
-    return a + b, l
+    return a +% b, l
 }
 
 // count returns len(l), borrowing it.
@@ -169,7 +169,7 @@ func fill[S Sink](mut s S) int64 {
         l := numbers(i + 1)
         err := mut s.take(own l)
         if err.code != 0 {
-            failed += 1
+            failed +%= 1
         }
     }
     return failed
@@ -218,7 +218,7 @@ func callee_paths() {
     mut sums := 0
     for stop := range 4 {
         n := numbers(3)
-        sums += sum(own n, stop)
+        sums +%= sum(own n, stop)
     }
     check(sums == -1 + 1 + 3 + 6, "freed at every exit")
 
@@ -234,7 +234,7 @@ func callee_paths() {
     mut both := 0
     for _, cond := range [2]bool{true, false} {
         r := numbers(2)
-        both += maybe_pass(own r, cond)
+        both +%= maybe_pass(own r, cond)
     }
     check(both == 4, "maybe moved on")
 
@@ -257,7 +257,7 @@ func caller_flow() {
     mut l := numbers(1)
     mut total := 0
     for range 3 {
-        total += consume(own l)
+        total +%= consume(own l)
         l = numbers(2)
     }
     check(total == 5, "moved in a loop, assigned again")
@@ -348,3 +348,8 @@ func main() {
     starved()
     check(live() == 0, "nothing leaks when an allocation fails")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -18,7 +18,7 @@ pub func New(n int64) Counter {
 // Add adds k to c, and counts the call through a private method.
 pub func (mut c Counter) Add(k int64) {
     mut c.touch()
-    c.n += k
+    c.n +%= k
 }
 
 // Value returns what c holds.
@@ -34,7 +34,7 @@ lib func (c Counter) Hits() int64 {
 
 // touch counts one call of Add; private to strs.
 func (mut c Counter) touch() {
-    c.hits++
+    c.hits +%= 1
 }
 
 // Bytes owns a list of bytes, which another package grows only through
@@ -79,3 +79,8 @@ pub func (h hidden) Peek() int64 {
 pub func Peeked(v int64) int64 {
     return hidden{v: v}.Peek()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

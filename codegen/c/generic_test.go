@@ -36,7 +36,7 @@ type Counter struct {
 }
 
 func (mut c Counter) write(b []uint8) error {
-    c.n += len(b)
+    c.n +%= len(b)
     return noerror
 }
 
@@ -66,7 +66,7 @@ func (mut b Buffer) next() (uint8, error) {
     if !ok {
         return 0, error{code: 1, msg: "end"}
     }
-    b.read++
+    b.read +%= 1
     return v, noerror
 }
 
@@ -114,7 +114,7 @@ func sum[S Source](mut s S) int64 {
         if err.code != 0 {
             return total
         }
-        total += v
+        total +%= v
     }
 }
 
@@ -124,7 +124,7 @@ func joined[P Parts](mut p P, parts ...string) error {
 
 func alternate[A Sizer, B Sizer](a A, b B, n int64) int64 {
     if n <= 0 {
-        return a.size() - b.size()
+        return a.size() -% b.size()
     }
     return alternate(b, a, n - 1)
 }

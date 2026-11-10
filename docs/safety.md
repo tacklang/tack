@@ -56,6 +56,8 @@ and diagnostic to check that the two still agree.
 | `x[i:j]`, a slice of a string, an array, a view or a list | `i < 0`, `j < i` or `j > len(x)` | `0 <= i`, `i <= j` and `j <= len(x)` are proven                                                         | `t, ok := s[i:j]`, a string's only |
 | `x[i:j] = v`                                              | always an error                  | never: a slice is not a place                                                                           | none                               |
 | `T(x)`, integer conversion                                | `x` is not a value of `T`        | `x` is a constant or known value that fits `T`, its type widens to `T`, or `x` is proven in `T`'s range | `v, ok := T(x)`                    |
+| `a + b`, `a - b`, `a * b`, `-a` on integers              | the exact result is not a value of the type | the operands' bounds, or the relations in force, keep the result in the type | `v, ok := a + b`                   |
+| `x++`, `x--`, `x += v`, `x -= v`, `x *= v`                | as above                         | as above                                                                                                | none                               |
 
 A write to an element covers every way of writing one: `a[i] = v`,
 `a[i] += v`, `a[i]++`, and targets that mix fields and indexes, such as
@@ -83,6 +85,7 @@ assignment of exactly two names:
 
 ```tack
 q, ok := a / b      // or a % b
+v, ok := a + b      // or a - b, a * b, or -a, on integers
 v, ok := a[i]       // an array element
 v, ok := s[i]       // a string's byte
 x, ok := v[i]       // a view's element
@@ -130,10 +133,10 @@ The details:
   and <!-- error: slice-checked-mismatch -->`assignment mismatch: 3 variables but a slice gives 2 values`.
 - **The operation must be the whole value.** Parentheses around it are fine,
   `q, ok := (a / b)`,
-  but <!-- case: safety-checked-not-whole -->`q, ok := a / b + 1` is not a
+  but <!-- case: safety-checked-not-whole -->`q, ok := a / b & 1` is not a
   checked division. It is one
   error, <!-- error: safety-checked-not-whole -->
-  `the checked form must be the whole value: q, ok := a / b, then compute q + 1`,
+  `the checked form must be the whole value: q, ok := a / b, then compute q & 1`,
   covering the whole value, which names the first division, remainder or
   index in it outside a call, and the rest of the value computed from the
   first name. That operation needs no proof of its own; any other in the
@@ -205,9 +208,9 @@ or `p.a[k]` with `k` immutable, or **arithmetic** on those, `+`, `-` and
 `*` on two integers and unary `-` on one (see [Arithmetic](#arithmetic)).
 Anything else, such as a call, `i / 2`, `i << 1`, or a field of a mutable
 variable or a `mut` parameter, is proven only when it is a known value.
-Arithmetic that could wrap is not proven:
+Arithmetic that could overflow is not proven, and is an error itself:
 <!-- case: conversion-fact-expression -->`uint64(-v)` under `v < 0` is
-not, since `-v` wraps for the least `int64`.
+not, since `-v` overflows for the least `int64`.
 
 ### Known values
 
@@ -230,12 +233,13 @@ knows the value of:
 - arithmetic on known values, such as `len(a) - 1`.
 
 A target-width type, `unsafe_size_t` or `unsafe_uintptr_t`, is as wide as
-the target makes it, from 32 to 64 bits, so where it wraps above
+the target makes it, from 32 to 64 bits, so where it overflows above
 4294967295 depends on the target. A value of one is known only up to
 4294967295: after `s := unsafe_size_t(4294967295)`, `s + 1` is not a
-known value, and is computed at run time. Below 0 every target wraps, so
-after `z := unsafe_size_t(0)`, `z - 1` is an error, as it is for any
-unsigned type.
+known value, and needs a proof as any unknown value does, which nothing
+gives it on a 32-bit target, so it is an error, and `s +% 1` is
+computed at run time. Below 0 every target overflows, so after `z :=
+unsafe_size_t(0)`, `z - 1` is an error, as it is for any unsigned type.
 
 A mutable variable, a parameter and a call never have a known value, and
 neither does `len` of a mutable string variable, even one initialized with
@@ -336,8 +340,8 @@ starts from. A loop counts when
   `i--` or `i -= k`, with `k` a known value above zero;
 - its condition bounds the variable on the side it moves towards, above
   when counting up (`i < n`, `i <= n`, `n > i`, `i < len(s)`), below when
-  counting down (`i >= 0`), and the step from that bound cannot wrap past
-  the end of the variable's type;
+  counting down (`i >= 0`), and the step from that bound stays within the
+  variable's type;
 - its body never assigns the variable, as for any fact, and neither does
   its condition, which runs again before every pass.
 
@@ -350,7 +354,7 @@ counting down, along with what the condition says:
 func total(a [3]int64) int64 {
     mut sum int64 = 0
     for mut i := 0; i < len(a); i++ {
-        sum += a[i]
+        sum +%= a[i]
     }
     return sum
 }
@@ -358,7 +362,7 @@ func total(a [3]int64) int64 {
 func reversed(a [3]int64) int64 {
     mut digits int64 = 0
     for mut i := len(a) - 1; i >= 0; i-- {
-        digits = digits * 10 + a[i]
+        digits = digits *% 10 +% a[i]
     }
     return digits
 }
@@ -370,13 +374,16 @@ a condition that assigns the variable anywhere, even after the use, gets
 no fact from the start about it, and
 in <!-- case: safety-counting-loop-assigns -->`for mut i := 0; i < 3; i++ { sum += a[i]; i++ }`
 `a[i]` needs a proof that `i >= 0`, though the condition, tried again
-before every pass, still proves `i < 3`. Nor does a step that could wrap: an `int8` at 2
-plus 126 is -128, which is below 3 again,
+before every pass, still proves `i < 3`, and its post, `i++`, is an
+error too, since the body's write ends the condition's proof of it. Nor
+does a step that could leave the type count: an `int8` at 2 plus 126
+overflows,
 so <!-- case: safety-counting-loop-may-wrap -->`for mut i int8 = 2; i < 3; i += 126 { sum += a[i] }`
-proves nothing about `i`. A target-width variable could wrap past
-4294967295 on a 32-bit target, so its step must stay at or below that:
+proves nothing about `i`, and its post is an error. A target-width
+variable must stay at or below 4294967295, the most a 32-bit target
+holds, so
 <!-- case: unsafe-counting-loop-may-wrap -->`for mut i unsafe_size_t = 1; i <= 4294967295; i++ { q += 10 / i }`
-proves nothing about `i` either. An unsigned variable is never negative, so its
+proves nothing about `i` either, and its post is an error too. An unsigned variable is never negative, so its
 condition alone bounds it from both sides.
 
 A loop also keeps a bound on a variable declared before it that it
@@ -401,10 +408,10 @@ each write. A loop keeps a bound when
   body, in an inner loop or in deferred code, is `i++`, `i--`, `i += e`,
   `i -= e` or `i = e`, and the value it stores is proven within the
   bound by the facts in force at the write, together with the bound
-  itself, with no step of it wrapping. So `i += 1` keeps `i >= 0` only
-  where something bounds `i` above, such as the condition `i < len(s)`
-  not yet ended by an earlier write, since the largest `int64` plus one
-  wraps to the least. A call passing the variable as `mut`, an assignment
+  itself. So `i += 1` keeps `i >= 0` only where something bounds `i`
+  above, such as the condition `i < len(s)` not yet ended by an earlier
+  write, which `i += 1` needs to compile anyway, and an `i +%= 1`, which
+  wraps the largest `int64` to the least, keeps nothing. A call passing the variable as `mut`, an assignment
   of several values and any other operator keep nothing;
 - nothing in the loop writes the other value of a difference, nor the
   string, view or list whose length it is.
@@ -425,7 +432,7 @@ func countUp(s string) int64 {
     mut i := 0
     for i < len(s) {
         if s[i] == 'a' {
-            n++
+            n +%= 1
         }
         i += 1
     }
@@ -441,7 +448,7 @@ func countDown(s string) int64 {
     mut j := len(s) - 1
     for j >= 0 {
         if s[j] == 'a' {
-            n++
+            n +%= 1
         }
         j--
     }
@@ -454,9 +461,9 @@ result at or above that bound:
 <!-- case: loop-invariant-step-down -->`for i < len(s) { b = s[i]; i += 1; if c { i -= 2 } }`
 reports `s[i]`, since nothing at `i -= 2` keeps `i - 2` at or above 0,
 while the same step under `if c && i >= 2` keeps `i >= 0`, and the loop
-then proves `s[i]`. Nor does a step that may wrap keep a bound:
+then proves `s[i]`. Nor does a wrapping step keep a bound:
 <!-- case: loop-invariant-int8-wraps -->`mut i int8 = 0` stepped by
-`i++` with nothing bounding it above reaches 127 and then -128, and
+`i +%= 1` with nothing bounding it above reaches 127 and then -128, and
 <!-- case: loop-invariant-second-step -->`i++` written twice in a row
 leaves the second step with no bound once the first has ended the
 condition's. A loop whose post statement steps the counter keeps no
@@ -522,22 +529,23 @@ func chain(a []int64, i int64, n int64) int64 {
 func back(a []int64, j int64) int64 {
     if 0 < j && j < len(a) {
         k := j - 1
-        return a[k] + a[j]
+        return a[k] +% a[j]
     }
     return -1
 }
 ```
 
-Arithmetic wraps, so `x + c` is `x` plus `c` only where the sum stays
-within `x`'s type, and a relation through it holds only where the other
-facts in force prove that it does. `i + 1 < len(a)` holds for the largest
-`int64`, whose `i + 1` is the smallest, so on its own it relates nothing:
+`x + c` is `x` plus `c` only where the sum stays within `x`'s type, so
+a relation through it holds only where the other facts in force prove
+that it does, which the sum itself needs to compile. On its own, `i + 1
+< len(a)` proves nothing, and its `i + 1` overflows for the largest
+`int64`:
 <!-- case: relation-overflow -->`if 0 <= i && i + 1 < len(a) { a[i] }`
-is reported, with
+is reported, at the sum and at the index, with
 the note <!-- note: relation-overflow -->
-`a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too`.
-`i < len(a)` alongside it, before or after, rules the wrap out for an
-`int64`, since no length is past the largest `int64`:
+`a relation through + or - here holds only where its step cannot overflow; check i < 9223372036854775807 too`.
+`i < len(a)` before it rules the overflow out for an `int64`, since no
+length is past the largest `int64`:
 
 <!-- example: relations -->
 
@@ -545,19 +553,19 @@ the note <!-- note: relation-overflow -->
 func next(a []int64, i int64) int64 {
     if 0 <= i && i < len(a) && i + 1 < len(a) {
         j := i + 1
-        return a[i] + a[j]
+        return a[i] +% a[j]
     }
     return -1
 }
 ```
 
-A narrower type wraps sooner. For an `int8` `i`, `i < len(a)` keeps
-nothing from wrapping, since a length may be past 127,
+A narrower type overflows sooner. For an `int8` `i`, `i < len(a)` keeps
+nothing from overflowing, since a length may be past 127,
 so <!-- case: relation-int8-wrap -->`if 0 <= i && i < len(a) && i + 1 < len(a) { j := i + 1; a[j] }`
-is reported, and `i < 100` would rule the wrap out. An unsigned `j - 1`
-wraps at 0, so `0 < j` must hold for `k := j - 1` to be one less than `j`
+is reported, and `i < 100` would rule the overflow out. An unsigned `j -
+1` goes below 0 at 0, so `0 < j` must hold for `k := j - 1` to be one less than `j`
 (<!-- case: relation-uint-wrap -->`if j < len(a) { k := j - 1; a[k] }`
-is reported for a `uint64` `j`). `len(a) - c` never wraps, since a length
+is reported for a `uint64` `j`). `len(a) - c` never overflows, since a length
 is never negative, so `i < len(a) - 1` needs nothing more.
 
 A relation is a value less another, so a product is none: the heap's
@@ -573,7 +581,7 @@ restate them in its condition, as a binary search over `lo` and `hi` does:
 
 ```tack
     for 0 <= lo && lo < hi && hi <= len(a) {
-        mid := lo + (hi - lo) / 2
+        mid := lo +% (hi - lo) / 2
         if lo <= mid && mid < hi {
 ```
 
@@ -637,22 +645,24 @@ func over(x int64) int64 {
 }
 ```
 
-Arithmetic wraps at its type's width, so the bound counts only where the
-operation cannot wrap: when any values its operands' bounds allow give a
-result outside its type, the operation has no bound at all, and nor
-does any arithmetic holding it. Under `v >= 0`,
+An operation counts only where its result cannot leave its type: when
+any values its operands' bounds allow give a result outside its type,
+the operation has no bound at all, and nor does any arithmetic holding
+it. Such an operation is an error of its own as well, since plain
+arithmetic must be proven not to overflow (see [Arithmetic
+overflow](#arithmetic-overflow)). Under `v >= 0`,
 <!-- case: arith-range-int64-add-wraps -->`uint64(v + 1)` is not proven,
-since `v + 1` wraps for the largest `int64`; for a `uint8` `u`,
+since `v + 1` overflows for the largest `int64`; for a `uint8` `u`,
 <!-- case: arith-range-uint8-add-wraps-top -->`100 / (u + 1)` is not,
-since `u + 1` wraps to 0 at 255; and for an `int8` `b` from 1 to 64,
+since `u + 1` overflows at 255; and for an `int8` `b` from 1 to 64,
 <!-- case: arith-range-int8-mul-wraps-inside -->`uint8(b * 2 - 1)` is
-not, though `- 1` would wrap `b * 2` back into range, since `b * 2`
-wraps on its way there. An operation of a target-width type counts only
-where it cannot wrap on a 32-bit target, so for an `unsafe_size_t` `n`
+not, though `- 1` would bring `b * 2` back into range, since `b * 2`
+overflows on its way there. An operation of a target-width type counts
+only where it fits a 32-bit target, so for an `unsafe_size_t` `n`
 <!-- case: arith-range-size-past-portable -->`uint32(n + 1)` under
 `n <= 4294967295` is not proven. An operation whose bound does not prove
-the use can still be one whose type keeps every value in range, wrapped
-or not: a `uint8` `u + 1` indexes a `[256]T`, as `u` does.
+the use can still be one whose type keeps every value in range: a
+`uint8` `u +% 1` indexes a `[256]T`, as `u` does.
 
 Each operand is bounded on its own, so the same name read twice is two
 values each anywhere in its bound: under `0 <= x && x < 3`,
@@ -665,7 +675,7 @@ bound, and nor does the arithmetic holding it: a call,
 <!-- case: arith-range-call-inside -->`a[i + one()]`, a conversion,
 `/`, <!-- case: arith-range-division-inside -->`a[i / 1 + 1]`, `%`, a
 shift and a bitwise operator. The facts are the ones a name's proof
-uses, ended by the same writes: <!-- case: arith-range-write-ends-fact -->`j = 5`
+uses, ended by the same writes: <!-- case: arith-range-write-ends-fact -->`j = i`
 before `a[j + 1]`, or <!-- case: arith-range-mut-ends-fact -->`bump(mut j)`,
 ends the guard's bound on `j`, and a field of a mutable variable has
 none (<!-- case: arith-range-mutable-field -->`a[p.n + 1]`).
@@ -673,7 +683,7 @@ none (<!-- case: arith-range-mutable-field -->`a[p.n + 1]`).
 Arithmetic that adds a known amount to one value, `i + 1`, `len(a) - 1`
 or `i - 2 + 5`, is that value plus an offset, and the relations in force
 bound it as they bound a name (see [Relations](#relations)), where each
-step of it cannot wrap: its own bound proves that, or else the
+step of it stays within its type: its own bound proves that, or else the
 relations in force do. So `0 <= i && i < len(a) - 1` proves `a[i + 1]`
 of a view, `len(s) > 0` proves `s[len(s) - 1]`, and under
 `0 <= i && i < len(s)`, `s[i : i + 1]` is proven, `i` being at most
@@ -691,13 +701,13 @@ func one(s string, i int64) string {
 ```
 
 <!-- case: arith-range-relation-may-wrap -->`if 0 <= i && i + 1 < len(a) { a[i + 1] }`
-is not proven, as `i + 1` may wrap. A product is no value plus an
+is not proven, as `i + 1` may overflow, which is an error too. A product is no value plus an
 offset, so it is never related to another value, only bounded.
 
 An unproven operand that is arithmetic gets the error of an operand that
 is not a name, as in <!-- error: arith-range-sum-reaches-end -->`index may be out of range; use v, ok := ...[...]`,
 and a guard that bounds one of its names is pointed at by
-<!-- note: arith-range-sum-reaches-end -->`this guard bounds i, not i + j; the bounds of its operands do not prove i + j, or let a step of it wrap, so copy i + j into a variable and check it`.
+<!-- note: arith-range-sum-reaches-end -->`this guard bounds i, not i + j; the bounds of its operands do not prove i + j, or let a step of it overflow, so copy i + j into a variable and check it`.
 An operand the checker does not read through, as one holding a call, a
 `/` or a `^`, gets
 <!-- note: arith-range-call-inside -->`this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i + one() into a variable and check it`.
@@ -716,7 +726,7 @@ fact there:
 mut d int64 = 2
 mut x int64 = 0
 if d != 0 {
-    d--
+    d = half(d)
     x = 10 / d      // error: d is assigned before the use
 }
 ```
@@ -921,9 +931,9 @@ reports <!-- error: safety-defer-assigned-after -->`divisor b may be zero; check
 |-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
 | <!-- case: safety-no-proof-field -->`if p.d != 0 { n / p.d }` with `p` a `mut` parameter or variable            | a field of a mutable variable or a `mut` parameter never carries a fact; copy it into a variable first |
 | <!-- case: safety-no-proof-not-a-name -->`a[i + 1]` on a `[3]T` after `if 0 <= i && i < 3`                      | the guard allows `i == 2`, so `i + 1` may be 3                                                         |
-| <!-- case: conversion-fact-expression -->`uint64(-v)` after `if v < 0`                                          | `-v` wraps for the least `int64`, so it has no bound                                                   |
+| <!-- case: conversion-fact-expression -->`uint64(-v)` after `if v < 0`                                          | `-v` overflows for the least `int64`, so it has no bound, and is an error itself                       |
 | <!-- case: arith-range-self-difference -->`a[x - x]` after `if 0 <= x && x < 3`                                 | each read of `x` is bounded on its own, so `x - x` lies from -2 to 2                                   |
-| <!-- case: arith-range-relation-may-wrap -->`a[i + 1]` after `if 0 <= i && i + 1 < len(a)`                      | `i + 1` may wrap, so the relation holds of nothing                                                     |
+| <!-- case: arith-range-relation-may-wrap -->`a[i + 1]` after `if 0 <= i && i + 1 < len(a)`                      | `i + 1` may overflow, so the relation holds of nothing, and is an error itself                        |
 | <!-- case: field-fact-mutable-index -->`if p.a[j] != 0 { n / p.a[j] }` with `j` mutable                         | an element in a path is proven only at a known index or an immutable name's                            |
 | <!-- case: safety-no-proof-unknown-bound -->`if 0 <= i && i < n` with `n` not known                             | a comparison with a variable that is not a known value only relates the two; nothing relates `n` to 3  |
 | <!-- case: safety-no-proof-variable-comparison -->`if b > c { a / b }`                                          | a divisor is proven by its own facts only, never by a relation                                         |
@@ -953,17 +963,29 @@ code it is about, so its text never repeats a position:
   `i == 3` for a `[3]T`, or that it bounds the index only above.
 - a chain of relations missing one link between two values says what
   holds and which check would complete it; one through `+` or `-` that
-  could wrap names the check that rules the wrap out; and one past the
+  could overflow names the check that rules the overflow out; and one
+  past the
   64 values a query follows says so.
 
-For `for i < 3 { i++; sum += a[i] }` the error is followed
+For `for i < 3 { i++; sum +%= a[i] }` the error is followed
 by <!-- note: safety-no-proof-loop-assigns -->`this guard proves i < 3`,
 under `i < 3`,
 then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the proof ends`,
 under the `i` of `i++`. No note says `i` may be negative: `i` starts at
 0 and only steps up below 3, so the loop keeps `i >= 0`. With `i <= 3`
-for its condition, a third note says what the condition would have
-allowed: <!-- note: note-would-allow -->`this guard would allow i == 3, and a has 3 elements`.
+for its condition, and `i +%= 1` for its step, which keeps no bound, so
+that `i` may be negative, which a note says, one more says what the
+condition would have allowed: <!-- note: note-would-allow -->`this guard would allow i == 3, and a has 3 elements`.
+A variable a statement stored a value in gets no note on what the facts
+allow it while the fact that store gives holds, whatever the value: a
+known one, `mut i int64 = 5`; one of known bounds, `i++` or `n = q * 1`;
+or one related to another variable, `mut k int64 = j` or `k := j - 1`.
+Notes do not describe such facts, so a claim that left one out could be
+untrue: under `mut i int64 = 70`,
+<!-- case: note-value-fact-upper -->`if i < 50 { return a[i] }` reports
+the index alone, and so does `mut k int64 = j; if k < 50 { a[k] }`. The
+`i++` above is why the case uses `i +%= 1`. The notes on which guard's
+proof a write ended stay.
 An operation no guard mentions keeps its error alone. A guard whose fact
 a write ends, but whose bound a loop keeps anyway, gets no note, since
 what it proved still holds: in
@@ -983,12 +1005,13 @@ and under `if v < 100` alone, for an `int32` `v`, by
 An unsigned index is never negative, so no note explains a lower bound on
 it: not that a guard bounds it only above, and not that a lower bound it
 was given does not hold. For
-<!-- case: unsafe-index-loop-unbounded -->`for mut i unsafe_size_t = 2; i <= n; i++ { total += a[i] }`
-the error stands alone, though the loop's step could wrap `i` on a 32-bit
-target, because what is missing is a bound below `len(a)`.
+<!-- case: unsafe-index-loop-unbounded -->`for mut i unsafe_size_t = 2; i <= n; i++ { total += a[i] }`,
+with a `uint16` `n`, which keeps the post's `i++` within a 32-bit
+target, the error stands alone, because what is missing is a bound below
+`len(a)`.
 
-Other notes point at a counting loop's step that could
-wrap; at a guard on a field of a mutable variable, or on the length of
+Other notes point at a counting loop's step that could leave its
+variable's type; at a guard on a field of a mutable variable, or on the length of
 one, <!-- note: note-field-len-guard -->
 `this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy l.src into a variable first`,
 or on a variable used inside a larger divisor or index; and, in `v, ok := m[i][j]`, at the element whose outer index
@@ -1218,15 +1241,17 @@ func at(s string, u uint64) uint8 {
 So does a target-width one, `unsafe_size_t` or `unsafe_uintptr_t`, whose
 values the compiler bounds by its widest, 64 bits, whatever the target's
 width. A counting loop over one proves its index by its condition, here
-`i < len(str)`, even though its step is not sure not to wrap on a 32-bit
-target, since the condition is tested on every entry to the body:
+`i < len(str)`, since the condition is tested on every entry to the body.
+Its step, `i++`, must fit a 32-bit target, which `i < len(str)` alone
+does not show, so the condition also keeps `i` below 4294967295; the
+total, which the checker does not bound, is wrapping:
 
 <!-- example: unsafe-sizes -->
 
 ```tack
 mut bytes int64 = 0
-for mut i unsafe_size_t = 0; i < len(str); i++ {
-    bytes += str[i]
+for mut i unsafe_size_t = 0; i < len(str) && i < 4294967295; i++ {
+    bytes +%= str[i]
 }
 ```
 
@@ -1290,7 +1315,7 @@ func guarded(v []int64, i int64) int64 {
 
 ```tack
 for mut i int64 = 0; i < len(v); i++ {
-    total += v[i]
+    total +%= v[i]
 }
 ```
 
@@ -1298,7 +1323,7 @@ for mut i int64 = 0; i < len(v); i++ {
 
 ```tack
 for i := range v {
-    total += v[i]
+    total +%= v[i]
 }
 ```
 
@@ -1314,7 +1339,7 @@ func firstTwo(v []int64) int64 {
     if len(v) < 2 {
         return -1
     }
-    return v[0] + v[1]
+    return v[0] +% v[1]
 }
 ```
 
@@ -1367,7 +1392,7 @@ func firstTwo(nums ...int64) int64 {
     if len(nums) < 2 {
         return -1
     }
-    return nums[0] + nums[1]
+    return nums[0] +% nums[1]
 }
 ```
 
@@ -1429,7 +1454,7 @@ func between(s string, i int64, j int64) string {
 
 ```tack
 for mut i := 0; i < len(v); i++ {
-    total += sum(v[:i])
+    total +%= sum(v[:i])
 }
 ```
 
@@ -1437,7 +1462,7 @@ for mut i := 0; i < len(v); i++ {
 
 ```tack
 for i := range v {
-    total += sum(v[i:])
+    total +%= sum(v[i:])
 }
 ```
 
@@ -1458,6 +1483,27 @@ so it cannot be bound with ok:
 <!-- error: slice-view-checked -->`a[1:] is a view, []int64, which cannot be bound with ok; prove its bounds instead`.
 A slice is never a place:
 assigning one is <!-- error: slice-assign -->`cannot assign to s[0:1]: a slice is not a place`.
+
+### Arithmetic overflow
+
+Plain `+`, `-` and `*` on integers, unary `-`, and `x++`, `x--`, `x +=
+v`, `x -= v` and `x *= v` must be proven to give a value of their type,
+below 0 included for an unsigned one, which [Arithmetic](#arithmetic)
+says how. Each error names what fixes it: the check that proves it,
+where its operands are names, the checked form, and the wrapping
+operator, which wraps at the type's width instead and needs no proof:
+<!-- error: overflow-add -->`a + b may overflow int64; bound a and b first, or use v, ok := a + b, or a +% b to wrap`,
+<!-- error: overflow-unsigned-sub -->`a - b may go below 0 in uint64; check a >= b first, or use v, ok := a - b, or a -% b to wrap`,
+<!-- error: overflow-negate -->`-a may overflow int64; check a > -9223372036854775808 first, or use v, ok := -a, or -%a to wrap`,
+and, for a step, which has no checked form of its own,
+<!-- error: overflow-increment -->`x++ may overflow int64; use x +%= 1 to wrap, or v, ok := x + 1 and x = v when ok`.
+A loop's post statement is proven with its condition in force, except
+about what the body writes, so `for mut i := 0; i < len(s); i++` needs
+nothing more, while <!-- case: overflow-counting-loop-post -->`for mut i
+int8 = 0; i <= 127; i++` is an error. In the checked form only the
+outermost operation is checked: in
+<!-- case: overflow-checked-inner-operand -->`v, ok := a + b * b`, `b *
+b` needs its own proof.
 
 ### Conversions
 
@@ -1586,7 +1632,7 @@ func double(s string) (int64, error) {
     if err.code != 0 {
         return 0, err
     }
-    return v * 2, noerror
+    return v *% 2, noerror
 }
 ```
 
@@ -2139,7 +2185,7 @@ func testLoops() {
     mut sum := 0
     for i := range 10 {
         v = Value.items(listOf(i))
-        sum += total(v)
+        sum +%= total(v)
     }
 ```
 
@@ -2387,6 +2433,8 @@ failure it can see from known values:
 | globals of more than 2^30 bytes together  | three `[536870912]uint8` globals                                                   | <!-- error: size-globals-cap -->`global c makes this program's globals hold 1610612736 bytes, more than the 2^30 a program's globals may hold`                                                                                                                           |
 | nesting deeper than 1000 levels           | 1001 parentheses, or a mix of blocks, calls, literals and types that adds up to it | <!-- error: nesting-too-deep -->`expression nested too deeply: more than 1000 levels`                                                                                                                                                                                    |
 
-Arithmetic on values the compiler does not know wraps at runtime instead:
-for a `mut` `int8` `m` holding `-128`, `m / -1` is `-128` and `m % -1` is
-`0`.
+Arithmetic on values the compiler does not know is proven not to
+overflow, or written to wrap, `+%`, `-%`, `*%` and `-%x`, or checked
+(see [Arithmetic overflow](#arithmetic-overflow)). A division is the one
+operation that wraps unasked: for a `mut` `int8` `m` holding `-128`, `m /
+-1` is `-128` and `m % -1` is `0`.

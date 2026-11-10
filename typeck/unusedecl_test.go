@@ -163,7 +163,7 @@ func loop(n int64) int64 {
     if n == 0 {
         return 0
     }
-    return loop(n - 1)
+    return loop(n -% 1)
 }
 
 func main() {
@@ -229,7 +229,7 @@ type Node struct {
 }
 
 func (n Node) count() Node {
-    return Node{n: n.n + 1}
+    return Node{n: n.n +% 1}
 }
 
 func main() {
@@ -283,7 +283,7 @@ func (t T) used() int64 {
 }
 
 func (t T) spare() int64 {
-    return t.x + 1
+    return t.x +% 1
 }
 
 func main() {

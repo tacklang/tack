@@ -1912,9 +1912,9 @@ section remains the description of the language.
   where the loop starts, by a fact or by the known value the variable was
   last given (`mut i := 0`, `i = 0`), and every write to it in the loop is
   `i++`, `i--`, `i += e`, `i -= e` or `i = e` storing a value the facts
-  at that write, with the bound, prove within it, no step wrapping. So
-  `mut i := 0` then `for i < len(s) { use(s[i]); i++ }` proves `s[i]`:
-  `i < len(s)` keeps `i++` from wrapping, so `i` stays at or above 0. The
+  at that write, with the bound, prove within it. So `mut i := 0` then
+  `for i < len(s) { use(s[i]); i++ }` proves `s[i]`: `i < len(s)` keeps
+  `i++` from overflowing, so `i` stays at or above 0. The
   bound is not in force after the loop; see [docs/safety.md](docs/safety.md).
 - Three-clause loops, `for init; cond; post { ... }`, as in Go. `init` runs
   once and may be any simple statement: a declaration, an assignment,
@@ -1925,14 +1925,19 @@ section remains the description of the language.
   A counting loop proves its variable in its body: when `init` declares it
   with a known value `c`, `post` steps it by a known amount (`i++`,
   `i += k`, or `i--`, `i -= k`, with `k` above zero), the condition bounds
-  it on the side it moves towards without the step wrapping past its
-  type, and the body never assigns it, the body knows `i >= c` counting
+  it on the side it moves towards without the step leaving its type, and
+  the body never assigns it, the body knows `i >= c` counting
   up, or `i <= c` counting down. So `for mut i := 0; i < len(a); i++`
-  proves `a[i]`; see [docs/safety.md](docs/safety.md).
+  proves `a[i]`. The post is proven not to overflow with the condition
+  in force, less what the body writes, so that loop's `i++` needs
+  nothing more, while `for mut i int8 = 0; i <= 127; i++` is an error;
+  see [docs/safety.md](docs/safety.md).
 - Range over an integer. `for i := range n { ... }` runs once for each `i`
   from `0` to `n - 1`, and not at all when `n` is zero or less; `for range n`
   does the same without a variable. `n` is an integer of any type, a
-  constant being an `int64`, evaluated once, before the first iteration.
+  constant being an `int64`, evaluated once, before the first iteration;
+  over a variable `n` the body knows `i < n` while it does not assign
+  `n`.
   `i` is a fresh immutable variable of `n`'s type each iteration.
 - Range over an array or a string. `for i, x := range a { ... }` runs once
   for each element of the array `a`, in order, with `i` its index, an
@@ -2471,38 +2476,56 @@ section remains the description of the language.
 - Expressions are literals, parameter and variable names, functions'
   names as values, calls, a call's `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix
-  operators `+ - * / %`, `& | ^ &^ << >>`, `== != < <= > >=` and `&& ||`,
-  and the prefix `!`, `-` and `^`, with Go's precedence: the prefix
-  operators bind tightest, then `* / % << >> & &^`, then `+ - | ^`, then
+  operators `+ - * / %`, `+% -% *%`, `& | ^ &^ << >>`, `== != < <= > >=`
+  and `&& ||`, and the prefix `!`, `-`, `-%` and `^`, with Go's
+  precedence: the prefix operators bind tightest, then `* / % *% << >> &
+  &^`, then `+ - +% -% | ^`, then
   comparisons, then `&&`, then `||`, each level left-associative, so
   `1 + 2 << 3` is 17 and `6 & 3 * 2` is 4.
   Arithmetic takes two integers and gives their common type: the type of
   both, or the wider when one widens to the other, as `int8 + int64` is an
   `int64`; `int8 + uint8` and `uint64 + int64` have no common type and are
   errors, and so are `unsafe_size_t + int64` and
-  `unsafe_size_t + unsafe_uintptr_t` (see target-width integers). `-x` means `0 - x` and takes a signed integer; on an unsigned one it
-  is an error, and `0 - x` says the wrapping is meant. At runtime,
-  arithmetic that overflows wraps around at its type's width, as in Go: the
-  largest value plus one is the smallest, negating the smallest signed value
-  gives itself, and the smallest signed value divided by -1 is itself, with
-  remainder 0. Only a value the compiler does not know wraps: arithmetic
-  whose operands are all known values (a constant, a character literal, an
-  immutable variable holding one, `len` of an array or of a known string,
-  a field or element of an immutable global, or arithmetic on those; see
-  division) must give a value of its type at every step, in
-  a function as at package level, or it is an error,
-  `constant expression overflows uint8`, covering the step that overflowed.
-  A target-width type is the exception above 4294967295, where it may or
-  may not wrap depending on the target: there, arithmetic on known values
-  is an error only in a constant expression (see target-width integers),
-  and anywhere else is not a known value, and is computed at run time.
-  So `x := 'a' * 3` is an error, and so are `-m`, `m - 1` and `m / -1`
-  after `var m int8 = -128`, while `x++`, `x += 1` and arithmetic on a `mut`
-  variable or a parameter wrap. This is intended, and it means changing
-  `var` to `mut` can turn a compile error into wrapping at run time: after
-  `var m int8 = 127`, `m + 1` is an error, while after `mut m int8 = 127`
-  the same `m + 1` is `-128`, since a mutable variable's value is never
-  known.
+  `unsafe_size_t + unsafe_uintptr_t` (see target-width integers). `-x`
+  means `0 - x` and takes a signed integer; on an unsigned one it is an
+  error, and `-%x` says the wrapping is meant. `+ - *` and `-x` on
+  integers never wrap: each, and `x++`, `x--`, `x += v`, `x -= v` and `x
+  *= v`, compiles only where the checker proves the exact result a value
+  of its type, below 0 included for an unsigned one, from the operands'
+  known values, the facts in force, or the relations in force (see
+  division); a target-width type's must fit a 32-bit target. Anything
+  else is an error that suggests the fixes, `a + b may overflow int64;
+  bound a and b first, or use v, ok := a + b, or a +% b to wrap`, `a - b
+  may go below 0 in uint64; check a >= b first, ...`, `x++ may overflow
+  int64; use x +%= 1 to wrap, or v, ok := x + 1 and x = v when ok`. The
+  checked form `v, ok := a + b` (also `a - b`, `a * b` and `-a`, the
+  outermost operation only, with `=` too) gives the result and `true`, or
+  0 and `false` when it does not fit, both operands evaluated, left
+  first; a float's has none, `adding floats cannot fail, so it has no
+  checked form; use a + b`, nor a step's, `v, ok := x++` being a parse
+  error. The wrapping operators `+% -% *%`, `+%= -%= *%=` and `-%x`, on
+  integers only, compute in two's complement at the type's width and need
+  no proof: the largest value `+% 1` is the smallest, `-%` of the
+  smallest signed value is itself, and an unsigned `0 -% 1` is the
+  largest; two untyped constants are an error, `200 +% 100 wraps at its
+  type's width, but both operands are untyped constants; give one a type,
+  as in int64(200) +% 100`. The smallest signed value divided by -1 is
+  itself at run time, with remainder 0. Arithmetic whose operands are all
+  known values (a constant, a character literal, an immutable variable
+  holding one, `len` of an array or of a known string, a field or element
+  of an immutable global, or arithmetic on those; see division) is
+  computed at compile time: plain arithmetic must give a value of its
+  type at every step, in a function as at package level, or it is an
+  error, `constant expression overflows uint8`, covering the step that
+  overflowed, while a wrapping operator wraps, so `var seed uint64 = a *%
+  b` is a constant for known `a` and `b`. A target-width type is the
+  exception above 4294967295: there, arithmetic on known values is an
+  error only in a constant expression (see target-width integers), and
+  anywhere else is not a known value, and a wrapping operator on one is
+  never known. So `x := 'a' * 3` is an error, and so are `-m`, `m - 1`
+  and `m / -1` after `var m int8 = -128`, while after `mut m int8 = 127`,
+  `m + 1` needs a proof, which a fact from the declaration, `m == 127`,
+  rules out, and `m +% 1` is -128.
   The bitwise operators `& | ^ &^` (and, or, exclusive or, and and-not,
   `a &^ b` clearing in `a` every bit set in `b`) take two integers under
   the same rules as arithmetic, giving their common type, so
@@ -2519,8 +2542,9 @@ section remains the description of the language.
   shifts every bit out: `x << n` is 0, and `x >> n` is 0, or -1 when `x`
   is negative, as in Go, never C's undefined behavior. `>>` of a signed
   value is arithmetic, copying the sign bit in, and of an unsigned one
-  logical, and `<<` wraps at the width as `+` does, so `int8(64) << 1`
-  at run time is -128. Untyped constants are computed exactly, as Go's
+  logical, and `<<` of a value not known keeps the bits that fit the
+  width, as `+%` does, needing no proof, so after `mut x int8 = 64`, `x
+  << 1` is -128. Untyped constants are computed exactly, as Go's
   are, on their infinitely wide two's complement form: `^5` is -6, `-8 >> 1`
   is -4, and `1 << 64` is `constant expression is out of range`; on
   known values a shift that loses a set bit is `constant expression
@@ -2667,7 +2691,7 @@ section remains the description of the language.
   prove, the error comes with notes pointing at the guard and what it
   proves, at the assignment or `mut` argument that ended that proof, or at what the guard
   allows that the operation does not, such as `i == 3` for a `[3]T`, and
-  at a counting loop's step that could wrap, or
+  at a counting loop's step that could leave its type, or
   a guard on a field of a mutable variable. A mutable global's error suggests only the two-value
   form, with a note at its declaration, since no check proves it. [docs/safety.md](docs/safety.md) gathers these rules, the
   two-value form and every operation they apply to in one place, and
@@ -2796,7 +2820,8 @@ section remains the description of the language.
   and not necessarily as wide as each other. The `unsafe_` prefix is the
   only marker; they may be used anywhere any other integer type can,
   `pub` and `lib` signatures included, and have every operation an
-  unsigned integer has, arithmetic wrapping at their real width. Their
+  unsigned integer has, the wrapping operators wrapping at their real
+  width, and plain arithmetic proven to fit a 32-bit target. Their
   rules hold at every width, so a program valid on a 64-bit target stays
   valid on a 32-bit one. `uint8`, `uint16` and `uint32` widen into either
   of them, and either widens into `uint64`; nothing else widens into or
@@ -2893,12 +2918,15 @@ section remains the description of the language.
   A declaration or a plain assignment of such a value relates what it
   stores to it for the rest of its block, so `k := j - 1` is one less
   than `j` and `n := len(a)` is `len(a)`, until a write to either can
-  reach the use. Arithmetic wraps, so a relation through `x + c` or
-  `x - c` counts only where the other facts in force keep it from
-  wrapping in `x`'s type: `0 <= i && i + 1 < len(a)` proves nothing, as
-  `i + 1` wraps for the largest `int64`, while `i < len(a) && i + 1 <
+  reach the use. A statement storing a known value in a mutable
+  variable, `mut n := 0` or `n = 5`, or a value of known bounds, `n++`
+  included, puts the variable within them for the rest of its block. A
+  relation through `x + c` or `x - c` counts only where the other facts
+  in force keep the step within `x`'s type, which the step needs to
+  compile anyway: in `0 <= i && i + 1 < len(a)`, `i + 1` is an error, as
+  it overflows for the largest `int64`, while `i < len(a) && i + 1 <
   len(a)` relates `i + 1` to `len(a)`; for an `int8` `i`, it takes a
-  bound like `i < 100`. `len(a) - c` never wraps. `||` keeps no
+  bound like `i < 100`. `len(a) - c` never overflows. `||` keeps no
   relation, a product such as `2 * i + 1` is none, and a query follows
   at most 64 related values. Arithmetic is proven too: an index, a
   divisor, a slice's bound or a conversion's operand that is `+`, `-` or
@@ -2907,16 +2935,16 @@ section remains the description of the language.
   string, view or list variable, or such arithmetic itself, is bounded
   by its operands' bounds, worked out exactly: under `0 <= i && i < 4 &&
   0 <= j && j < 4`, `a[i + j]` of a `[7]T` and `a[2*i + 1]` of an `[8]T`
-  compile. Arithmetic wraps, so an operation that could wrap in its
-  type, for some values its operands' bounds allow, gives no bound, nor
-  does any arithmetic holding it: under `v >= 0`, `v + 1` has none, as
-  it wraps for the largest `int64`, and an operation of a target-width
-  type counts only where it cannot wrap at 32 bits. Each operand is
+  compile. An operation that could leave its type, for some values its
+  operands' bounds allow, gives no bound, nor does any arithmetic holding
+  it, and is an error itself: under `v >= 0`, `v + 1` overflows for the
+  largest `int64`, and an operation of a target-width type counts only
+  where it fits at 32 bits. Each operand is
   bounded on its own, so `x - x` is not known to be 0. Any other
   operand, a call, a conversion, `/`, `%`, a shift or a bitwise
   operator, gives no bound. Arithmetic that adds a known amount to one
   value, as `i + 1` or `len(a) - 1`, is related to other values too,
-  where the facts keep it from wrapping: `0 <= i && i < len(a) - 1`
+  where the facts keep it within its type: `0 <= i && i < len(a) - 1`
   proves `a[i + 1]` of a view, and `len(s) > 0` proves `s[len(s) - 1]`.
   See [docs/safety.md](docs/safety.md) for every proof and diagnostic.
 - Indexing a string. `s[i]` is the byte of `s` at `i`, a `uint8`, under
@@ -3021,8 +3049,8 @@ section remains the description of the language.
   early exits, loops, cases, contracts and relations as an index's, and
   the same writes end them; a field of a mutable variable has none.
   Arithmetic is bounded as an index's is, so `uint64(-(v + 1))` is
-  proven under `v < 0`, while `uint64(-v)` is not, as `-v` wraps for the
-  least `int64`. Unproven, `T(x)` of a
+  proven under `v < 0`, while `uint64(-v)` is not, as `-v` overflows for
+  the least `int64`, an error of its own. Unproven, `T(x)` of a
   name is `converting int64 to uint64 can fail; check v >= 0 first, or
   use v, ok := uint64(...)`. A constant or known
   value that is not a value of `T` is an error, as `uint8(x)` after
@@ -3183,8 +3211,8 @@ section remains the description of the language.
   known value for proofs, conversions and array lengths, and may appear in a
   package-level initializer. Arithmetic on it, being on known values, must
   stay a value of its type at every step, wherever it is written:
-  `'a' * 3` overflows `uint8` and is an error, while `c * 3` wraps at
-  runtime for a `mut` variable `c`. A character literal is exactly one byte, so `''`, `'ab'` and a
+  `'a' * 3` overflows `uint8` and is an error, while for a `mut` variable
+  `c`, `c * 3` needs a proof, and `c *% 3` wraps at runtime. A character literal is exactly one byte, so `''`, `'ab'` and a
   character longer than one byte in UTF-8, such as `'é'`, are errors.
 
 ### Extern C

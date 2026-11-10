@@ -13,13 +13,13 @@ mut valueCalls int64
 
 // tag returns n, counting the call.
 func tag(n int64) int64 {
-    tagCalls++
+    tagCalls +%= 1
     return n
 }
 
 // value returns n, counting the call.
 func value(n int64) int64 {
-    valueCalls++
+    valueCalls +%= 1
     return n
 }
 
@@ -99,7 +99,7 @@ func grid(a int64, b int64) int64 {
 func firstOver(limit int64) int64 {
     mut n := 0
     for {
-        n++
+        n +%= 1
         switch {
         case n > limit:
             break
@@ -125,7 +125,7 @@ func pick(a [4]int64, i int64) int64 {
     case i < 0, i >= 4:
         return -1
     case i == 0:
-        return a[i] + 100
+        return a[i] +% 100
     default:
         return a[i]
     }
@@ -267,7 +267,7 @@ func main() {
         case i == 6:
             break
         }
-        sum += i
+        sum +%= i
     }
     if sum != 13 {
         exit(14)
@@ -281,7 +281,7 @@ func main() {
         case 5:
             break
         }
-        sum++
+        sum +%= 1
     }
     if n != 5 || sum != 16 {
         exit(15)
@@ -301,11 +301,11 @@ func main() {
     for _, w := range words {
         switch word(w) {
         case 1:
-            total += 1
+            total +%= 1
         case 2:
-            total += 10
+            total +%= 10
         case -1:
-            total += 100
+            total +%= 100
         }
     }
     if total != 122 {
@@ -339,7 +339,7 @@ func main() {
     case 11:
     default:
         x := 2
-        sum += x
+        sum +%= x
     }
     if sum != 17 {
         exit(24)
@@ -359,24 +359,24 @@ func main() {
     case [2]int64{2, 1}:
         exit(26)
     case [2]int64{1, 2}:
-        hit++
+        hit +%= 1
     }
     c := "tack"[1]
     switch c {
     case 'a':
-        hit++
+        hit +%= 1
     case 98:
         exit(27)
     }
     var small int8 = -128
     switch 0 - 128 {
     case small:
-        hit++
+        hit +%= 1
     }
     var big uint8 = 255
     switch big {
     case 255:
-        hit++
+        hit +%= 1
     }
     if hit != 16 {
         exit(28)
@@ -384,3 +384,8 @@ func main() {
 
     exit(42)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

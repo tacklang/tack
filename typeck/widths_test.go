@@ -8,8 +8,10 @@ import (
 )
 
 // sized declares a variable of every integer type, each read once so none
-// is unused, for the programs below to combine. Each is mutable, so its
-// value is not known and a conversion of it is checked by its type alone.
+// is unused, for the programs below to combine. Each is mutable, and then
+// written by ^= 0, which leaves its value as it was but ends the fact its
+// declaration gave, so its value is not known and a conversion of it is
+// checked by its type alone.
 var sized = []string{
 	"mut i8 int8 = 1",
 	"mut i16 int16 = 1",
@@ -19,6 +21,7 @@ var sized = []string{
 	"mut u16 uint16 = 1",
 	"mut u32 uint32 = 1",
 	"mut u64 uint64 = 1",
+	"i8 ^= 0", "i16 ^= 0", "i32 ^= 0", "i64 ^= 0", "u8 ^= 0", "u16 ^= 0", "u32 ^= 0", "u64 ^= 0",
 	"if i8 == 0 || i16 == 0 || i32 == 0 || i64 == 0 || u8 == 0 || u16 == 0 || u32 == 0 || u64 == 0 {",
 	"}",
 }
@@ -55,24 +58,24 @@ var integerWidthCases = []struct{ name, src string }{
 	{"negative intermediate", mainLines("var a uint8 = 10 - 20 + 265", "if a > 0 {", "}")},
 	{
 		"signed widens",
-		withSized("var a int64 = i8", "var b int32 = i16", "if a + b > 0 {", "}"),
+		withSized("var a int64 = i8", "var b int32 = i16", "if a +% b > 0 {", "}"),
 	},
 	{
 		"unsigned widens",
-		withSized("var a uint64 = u8", "var b uint32 = u16", "if a + b > 0 {", "}"),
+		withSized("var a uint64 = u8", "var b uint32 = u16", "if a +% b > 0 {", "}"),
 	},
 	{
 		"unsigned widens to wider signed",
-		withSized("var a int16 = u8", "var b int64 = u32", "if a + b > 0 {", "}"),
+		withSized("var a int16 = u8", "var b int64 = u32", "if a +% b > 0 {", "}"),
 	},
 	{
 		"mixed arithmetic widens",
-		withSized("var a int64 = i8 + i64", "var b uint16 = u8 * u16", "if a + b > 0 {", "}"),
+		withSized("var a int64 = i8 +% i64", "var b uint16 = u8 *% u16", "if a +% b > 0 {", "}"),
 	},
 	{"mixed comparison widens", withSized("if i8 < i32 && u8 == u64 && u16 < i32 {", "}")},
 	{
 		"constant takes the other operand's type",
-		withSized("var a uint8 = u8 + 200", "if a > 0 {", "}"),
+		withSized("var a uint8 = u8 +% 200", "if a > 0 {", "}"),
 	},
 	{
 		"compound with a narrower value",
@@ -88,9 +91,9 @@ var integerWidthCases = []struct{ name, src string }{
 		"increment any width",
 		withSized(
 			"mut a uint8 = 255",
-			"a++",
+			"a +%= 1",
 			"mut b int8 = -128",
-			"b--",
+			"b -%= 1",
 			"if a == 0 && b == 127 {",
 			"}",
 		),
@@ -100,10 +103,10 @@ var integerWidthCases = []struct{ name, src string }{
 		withSized("exit(i8)", "exit(i16)", "exit(i32)", "exit(u8)", "exit(u16)"),
 	},
 	{"range over a sized count", withSized("for i := range u8 {", "    exit(i)", "}")},
-	{"negate a signed value", withSized("var a int8 = -i8", "if a < 0 {", "}")},
+	{"negate a signed value", withSized("if i8 > -128 {", "    var a int8 = -i8", "    if a < 0 {", "    }", "}")},
 	{
 		"conversion that widens",
-		withSized("a := int64(u8)", "b := uint16(u8)", "if a + b > 0 {", "}"),
+		withSized("a := int64(u8)", "b := uint16(u8)", "if a +% b > 0 {", "}"),
 	},
 	{
 		"constant conversion",
@@ -339,7 +342,7 @@ var widthErrorCases = []struct {
 			"mut a int8 = 0",
 			"mut ok := 0",
 			"a, ok = int8(i64)",
-			"code, fits := int32(a + ok)",
+			"code, fits := int32(a +% ok)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use bool as int64 in assignment to ok", "ok"}},
@@ -386,7 +389,7 @@ func TestRecordsIntegerTypes(t *testing.T) {
 		"b := 5",
 		"mut c int16 = 300",
 		"d := a + c",
-		"e := a + 1",
+		"e := a +% 1",
 		"f, ok := int8(c)",
 		"for i := range a {",
 		"    exit(i)",

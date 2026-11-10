@@ -41,7 +41,7 @@ var provenStringIndexCases = []struct{ name, src string }{
 		stringing(
 			"for x := range len(s) {",
 			"    for y := range len(t) {",
-			"        return s[x] + t[y]",
+			"        return s[x] +% t[y]",
 			"    }",
 			"}",
 		),
@@ -62,7 +62,7 @@ var provenStringIndexCases = []struct{ name, src string }{
 	{"length at least one", stringing("if len(s) >= 1 {", "    return s[0]", "}")},
 	{"length not zero", stringing("if len(s) != 0 {", "    return s[0]", "}")},
 	{"zero below length", stringing("if 0 < len(s) {", "    return s[0]", "}")},
-	{"length above a larger constant", stringing("if len(s) > 3 {", "    return s[3] + s[2]", "}")},
+	{"length above a larger constant", stringing("if len(s) > 3 {", "    return s[3] +% s[2]", "}")},
 	{"length equal", stringing("if len(s) == 2 {", "    return s[1]", "}")},
 	{"empty string ruled out", stringing("if len(s) == 0 {", "    return 0", "}", "return s[0]")},
 	{

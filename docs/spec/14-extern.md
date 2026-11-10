@@ -483,9 +483,11 @@ whole program, Tack code included, which no Tack proof catches.
   for every argument the Tack side can pass, and returns the declared
   results. Tack knows nothing about a result: a proof about an argument
   says nothing about it.
-- **Integer semantics.** Tack's `+`, `-` and `*` wrap; C's signed
-  overflow, and its division by zero or of the smallest value by -1,
-  are undefined. A C body that does arithmetic wraps it itself, or
+- **Integer semantics.** Tack's `+`, `-` and `*` are proven not to
+  overflow, or written in the checked form, and `+%`, `-%` and `*%`
+  wrap (see [Integer overflow](03-arithmetic.md#integer-overflow)); C's
+  signed overflow, and its division by zero or of the smallest value by
+  -1, are undefined. A C body that does arithmetic wraps it itself, or
   states the range it accepts, which its Tack callers then keep.
 - **Bounds.** C reads a string's bytes only below `len`, and an array's
   elements only below its length. A string's bytes do not end in a

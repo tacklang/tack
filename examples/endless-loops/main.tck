@@ -24,7 +24,7 @@ func zero() int64 {
 
 // clause never ends: n is set back below 4 on every pass.
 func clause() {
-    for mut n := 0; n < 4; n++ {
+    for mut n := 0; n < 4; n +%= 1 {
         n = -5
     }
 }
@@ -32,7 +32,7 @@ func clause() {
 // clauseContinue never ends: a continue runs the post statement, n++,
 // before the condition, and n never reaches 4.
 func clauseContinue() {
-    for mut n := 0; n < 4; n++ {
+    for mut n := 0; n < 4; n +%= 1 {
         if n >= 0 {
             n = -5
             continue
@@ -133,7 +133,7 @@ func rangeMap() {
         exit(2)
     }
     for k, v := range m {
-        mut j := k + v
+        mut j := k +% v
         for j >= 0 {
             j = 1
         }
@@ -142,8 +142,8 @@ func rangeMap() {
 
 // nestedInner never ends: the inner loop of two never does.
 func nestedInner() {
-    for mut a := 0; a < 2; a++ {
-        for mut b := 0; b < 2; b++ {
+    for mut a := 0; a < 2; a +%= 1 {
+        for mut b := 0; b < 2; b +%= 1 {
             b = -1
         }
     }
@@ -152,10 +152,10 @@ func nestedInner() {
 // nestedOuter never ends: the inner loop ends every time, and the outer
 // one sets a back below 2.
 func nestedOuter() {
-    for mut a := 0; a < 2; a++ {
+    for mut a := 0; a < 2; a +%= 1 {
         mut c := 0
-        for mut b := 0; b < 2; b++ {
-            c += b
+        for mut b := 0; b < 2; b +%= 1 {
+            c +%= b
         }
         a = -1 - c
     }
@@ -164,7 +164,7 @@ func nestedOuter() {
 // inDefer never ends: the loop runs in a defer, as the function returns.
 func inDefer() {
     defer {
-        for mut n := 0; n < 4; n++ {
+        for mut n := 0; n < 4; n +%= 1 {
             n = -5
         }
     }
@@ -215,7 +215,7 @@ func (b Box) size() int64 {
 // generic never ends, in its instance for Box: n starts at s's size and
 // is set back below 4 on every pass.
 func generic[S Sizer](s S) {
-    for mut n := s.size(); n < 4; n++ {
+    for mut n := s.size(); n < 4; n +%= 1 {
         n = -5
     }
 }
@@ -284,9 +284,9 @@ func run(name text.Text, far int64) {
     case name.equal([]uint8("global")):
         global()
     case name.equal([]uint8("exit-inside")):
-        exitInside(far - far)
+        exitInside(far -% far)
     case name.equal([]uint8("exit-before")):
-        exitBefore(far - far)
+        exitBefore(far -% far)
     case name.equal([]uint8("generic")):
         generic(Box{n: 0})
     case name.equal([]uint8("guarded")):
@@ -311,3 +311,8 @@ func main() {
     print("the loop ended\n")
     exit(1)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

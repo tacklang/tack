@@ -46,8 +46,8 @@ func widenOut(s unsafe_size_t, p unsafe_uintptr_t) bool {
 // commonTypes adds a uint32 to an unsafe_size_t, in unsafe_size_t, and
 // an unsafe_size_t to a uint64, in uint64, and compares across widths.
 func commonTypes(c uint32, s unsafe_size_t, w uint64) bool {
-    var sum unsafe_size_t = c + s
-    var wide uint64 = s + w
+    var sum unsafe_size_t = c +% s
+    var wide uint64 = s +% w
     return sum == 3 && wide == 12 && c < s && s < w && w > c
 }
 
@@ -72,14 +72,14 @@ func convertFails(n int64, big uint64) bool {
     return !ok && v == 0 && okS && !okU && u == 0 && okI && i == 5000000000
 }
 
-// wraps checks arithmetic wraps at the type's real width: 0 - 1 is the
-// largest value, which plus one is 0 again.
+// wraps checks wrapping arithmetic wraps at the type's real width: 0 -% 1
+// is the largest value, which +% 1 is 0 again.
 func wraps(zero unsafe_size_t, one unsafe_uintptr_t) bool {
-    m := zero - 1
-    p := one - 2
+    m := zero -% 1
+    p := one -% 2
     var wide uint64 = m
-    return m + 1 == 0 && m * m == 1 && m > 4294967295 &&
-        wide == 18446744073709551615 && p + 1 == 0
+    return m +% 1 == 0 && m *% m == 1 && m > 4294967295 &&
+        wide == 18446744073709551615 && p +% 1 == 0
 }
 
 // knownPast32Bits does arithmetic on known values past every 32-bit
@@ -88,7 +88,7 @@ func wraps(zero unsafe_size_t, one unsafe_uintptr_t) bool {
 // the checked form.
 func knownPast32Bits() bool {
     s := unsafe_size_t(4294967295)
-    t := s + 1
+    t := s +% 1
     var wide uint64 = t
     x := uint64(5000000000)
     v, ok := unsafe_size_t(x)
@@ -107,13 +107,13 @@ func divides(n unsafe_size_t, d unsafe_size_t) bool {
 
 // grow adds n bytes to size, through a mut parameter.
 func grow(mut size unsafe_size_t, n uint32) {
-    size += n
-    grown += n
+    size +%= n
+    grown +%= n
 }
 
 // sizes returns both its arguments, as two results.
 func sizes(s unsafe_size_t, p unsafe_uintptr_t) (unsafe_size_t, unsafe_uintptr_t) {
-    return s + 1, p + 1
+    return s +% 1, p +% 1
 }
 
 // classify switches on an unsafe_size_t.
@@ -138,20 +138,22 @@ func indexByGuard(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_u
 }
 
 // indexByLoop sums a string's bytes and a view's elements counting up
-// with unsafe_size_t, whose condition proves each index, and an array's
-// counting down with unsafe_uintptr_t, whose start proves each index.
+// with unsafe_size_t, whose condition proves each index and, by keeping i
+// below the largest value a 32-bit target holds, that i++ fits, and an
+// array's counting down with unsafe_uintptr_t, whose start proves each
+// index.
 func indexByLoop(a [4]int64, str string, v []int64) bool {
     mut bytes int64 = 0
-    for mut i unsafe_size_t = 0; i < len(str); i++ {
-        bytes += str[i]
+    for mut i unsafe_size_t = 0; i < len(str) && i < 4294967295; i++ {
+        bytes +%= str[i]
     }
     mut elems int64 = 0
-    for mut i unsafe_size_t = 0; i < len(v); i++ {
-        elems += v[i]
+    for mut i unsafe_size_t = 0; i < len(v) && i < 4294967295; i++ {
+        elems +%= v[i]
     }
     mut backwards int64 = 0
     for mut i unsafe_uintptr_t = 3; i >= 1; i-- {
-        backwards = backwards * 10 + a[i]
+        backwards = backwards *% 10 +% a[i]
     }
     return bytes == 294 && elems == 1000 && backwards == 40 * 100 + 30 * 10 + 20
 }
@@ -180,7 +182,7 @@ func indexChecked(
     wide unsafe_uintptr_t,
     big uint64,
 ) bool {
-    top := zero - 1
+    top := zero -% 1
     past, okPast := unsafe_size_t(big)
     var p unsafe_uintptr_t = 2
 
@@ -222,13 +224,13 @@ func main() {
     a := [3]unsafe_size_t{1, 2, 3}
     mut sum unsafe_size_t = 0
     for _, x := range a {
-        sum += x
+        sum +%= x
     }
     check(sum == 6 && a == [3]unsafe_size_t{1, 2, 3}, "arrays")
 
     mut count unsafe_uintptr_t = 0
     for i := range fromSmall {
-        count += i
+        count +%= i
     }
     check(count == 21 && limit == 4294967295, "globals and a range count")
 
@@ -246,3 +248,8 @@ func main() {
     check(indexByKnown(nums, "abc"), "known index")
     check(indexChecked(nums, "abc", hundreds, 0, 4, 4294967295, 5000000000), "checked index")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -125,7 +125,7 @@ func TestExternNamedLikeGeneratedCode(t *testing.T) {
 		"extern func str0() int64\n" +
 		"extern func print2(x int64) int64\n" +
 		"extern func v_x() int64\n\n" +
-		"func main() {\n    print(\"hi\")\n    code, fits := int32(str0() + print2(1) + v_x())\n    if fits { exit(code) }\n}\n"
+		"func main() {\n    print(\"hi\")\n    code, fits := int32(str0() +% print2(1) +% v_x())\n    if fits { exit(code) }\n}\n"
 	csrc := "int64_t str0(void) { return 40; }\n" +
 		"int64_t print2(int64_t x) { return x; }\n" +
 		"int64_t v_x(void) { return 1; }\n"

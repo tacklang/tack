@@ -44,11 +44,11 @@ func check(cond bool, name string) {
 }
 
 func double(x int64) int64 {
-    return x * 2
+    return x *% 2
 }
 
 func square(x int64) int64 {
-    return x * x
+    return x *% x
 }
 
 func reassign(mut g func(int64) int64) int64 {
@@ -59,12 +59,12 @@ func reassign(mut g func(int64) int64) int64 {
 mut order int64
 
 func mark(d int64) int64 {
-    order = order * 10 + d
+    order = order *% 10 +% d
     return d
 }
 
 func add(a int64, b int64) int64 {
-    return a + b
+    return a +% b
 }
 
 func main() {

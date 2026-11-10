@@ -55,14 +55,14 @@ func textOf(s string) text.Text {
 func total(l []int64) int64 {
     mut n := 0
     for _, x := range l {
-        n += x
+        n +%= x
     }
     return n
 }
 
 // double doubles x where it is.
 func double(mut x int64) {
-    x = x * 2
+    x = x *% 2
 }
 
 // Bag holds a list and a tag.
@@ -89,7 +89,7 @@ func plain() {
     mut got := 0
     if has(m, k) {
         got = m[k]
-        m[k] = m[k] + 5
+        m[k] = m[k] +% 5
         double(mut m[k])
     }
     v, hasV := m[2]
@@ -105,7 +105,7 @@ func plain() {
     if !has(m, one) {
         return
     }
-    m[one] += 1
+    m[one] +%= 1
     x, hasX := m[1]
     check(hasX && x == 12 && order(m) == 12, "an early exit, and the order kept")
 }
@@ -115,7 +115,7 @@ func plain() {
 func order(m map[int64]int64) int64 {
     mut n := 0
     for k := range m {
-        n = n * 10 + k
+        n = n *% 10 +% k
     }
     return n
 }
@@ -165,7 +165,7 @@ func bags() {
     if has(m, "x") {
         e2 := mut m["x"].add(5)
         e3 := append(mut m["x"].items, 6)
-        m["x"].tag = m["x"].tag + 1
+        m["x"].tag = m["x"].tag +% 1
         check(e2.code == 0 && e3.code == 0 && len(m["x"].items) == 3 && m["x"].tag == 4,
             "a mut method and fields")
     }
@@ -244,7 +244,7 @@ func places() {
     mut sum := 0
     for _, im := range outer {
         if has(im, 7) {
-            sum += im[7]
+            sum +%= im[7]
         }
     }
     check(e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 && field(ix, "a") == 4 &&
@@ -264,7 +264,7 @@ func again() {
         }
         k := i % 3
         if has(m, k) {
-            sum += m[k]
+            sum +%= m[k]
         }
     }
     check(sum == 45 && len(m) == 3, "a proof in every pass of a loop")
@@ -283,7 +283,7 @@ func failing(n int64) bool {
         for i := range 40 {
             before := len(m[k])
             err := append(mut m[k], i)
-            ok = ok && (err.code == 0 && len(m[k]) == before + 1 || err.code == 1 && len(m[k]) == before)
+            ok = ok && (err.code == 0 && len(m[k]) == before +% 1 || err.code == 1 && len(m[k]) == before)
         }
         m[k] = count(3)
         ok = ok && len(m[k]) <= 3
@@ -312,3 +312,8 @@ func main() {
     }
     check(all, "an append under has that cannot grow changes nothing")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -62,10 +62,11 @@
 //
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence (from loosest: ||, &&, the
-// comparisons, + - | and ^, then * / % << >> & and &^); every binary
-// operator is left-associative. The prefix operators ! - and ^ apply to the
+// comparisons, + - +% -% | and ^, then * / % *% << >> & and &^); every
+// binary operator is left-associative. The prefix operators ! - -% and ^
+// apply to the
 // operand right after them, so they bind tighter than any binary operator. A - right before
-// an integer literal is part of the literal instead, which is how the
+// an integer literal, though not a -%, is part of the literal instead, which is how the
 // smallest int64 is written; before a float literal it is a Unary, negated
 // exactly as a constant. A float literal is decoded into an ast.FloatLit by
 // constant.ParseFloat, and one too large or too precise to hold exactly is

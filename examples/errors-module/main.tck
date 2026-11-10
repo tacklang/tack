@@ -23,7 +23,7 @@ func sum(a string, b string) (int64, error) {
     if errY.code != 0 {
         return 0, errY
     }
-    return x + y, noerror
+    return x +% y, noerror
 }
 
 func main() {
@@ -45,3 +45,8 @@ func main() {
 
     check(num.Positive(1) == noerror && num.Positive(0).msg == "not positive", "error alone")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

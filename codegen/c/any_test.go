@@ -17,7 +17,7 @@ func anyProgram(lines ...string) string {
 	return "package main\n\nextern func one(a any)\n\nextern func many(xs ...any)\n\n" +
 		"extern func both(mut x int64, a any)\n\n" +
 		"mut g int64\n\nvar k = \"k\"\n\n" +
-		"func get() int64 {\n    g++\n    return g\n}\n\n" +
+		"func get() int64 {\n    g +%= 1\n    return g\n}\n\n" +
 		"func on(a any, xs ...any) {\n    one(a)\n    many(xs...)\n    many(a, a)\n}\n\n" +
 		"func useK() {\n    one(k)\n}\n\n" +
 		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"

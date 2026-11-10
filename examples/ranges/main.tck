@@ -5,13 +5,13 @@ mut calls int64
 // numbers counts how often it runs, so a range over it shows the ranged
 // expression is evaluated once.
 func numbers() [4]int64 {
-    calls++
+    calls +%= 1
     return [4]int64{3, 1, 4, 1}
 }
 
 // word counts how often it runs, as numbers does.
 func word() string {
-    calls++
+    calls +%= 1
     return "tack"
 }
 
@@ -20,7 +20,7 @@ func count(s string, c uint8) int64 {
     mut n := 0
     for i := range s {
         if s[i] == c {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -48,7 +48,7 @@ func main() {
     a := [5]int64{2, 7, 1, 8, 2}
     mut sum := 0
     for _, x := range a {
-        sum += x
+        sum +%= x
     }
     if sum != 20 {
         exit(1)
@@ -56,7 +56,7 @@ func main() {
 
     mut doubled [5]int64
     for i := range a {
-        doubled[i] = a[i] * 2
+        doubled[i] = a[i] *% 2
     }
     if doubled != [5]int64{4, 14, 2, 16, 4} {
         exit(2)
@@ -68,7 +68,7 @@ func main() {
         m[2] = 100
         m = [3]int64{50, 60, 70}
         m[i] = -1
-        seen = seen * 10 + x
+        seen = seen *% 10 +% x
     }
     if seen != 123 || m != [3]int64{50, 60, -1} {
         exit(3)
@@ -76,11 +76,11 @@ func main() {
 
     mut total := 0
     for _, x := range numbers() {
-        total += x
+        total +%= x
     }
     for i, b := range word() {
         if b == 'k' {
-            total += i
+            total +%= i
         }
     }
     if calls != 2 || total != 12 {
@@ -91,7 +91,7 @@ func main() {
     mut bytes := 0
     for i, b := range s {
         s = "xyz"
-        bytes = bytes * 1000 + int64(b) + i
+        bytes = bytes *% 1000 +% int64(b) +% i
     }
     if bytes != 97099 || len(s) != 3 {
         exit(5)
@@ -121,7 +121,7 @@ func main() {
             if v == 6 {
                 break
             }
-            cells += v
+            cells +%= v
         }
     }
     if cells != 8 {
@@ -130,12 +130,12 @@ func main() {
 
     mut ticks := 0
     for range a {
-        ticks++
+        ticks +%= 1
     }
     mut quotient := 0
     for _, x := range a {
         if x != 0 {
-            quotient += 56 / x
+            quotient +%= 56 / x
         }
     }
     if ticks != 5 || quotient != 28 + 8 + 56 + 7 + 28 {
@@ -145,16 +145,21 @@ func main() {
     mut upper := 0
     for _, b := range "Hello, World" {
         if b >= 'A' && b <= 'Z' {
-            upper++
+            upper +%= 1
         }
     }
     if upper != 2 {
         exit(11)
     }
 
-    code, fits := int32(firstOver(a, 7) + firstOver(a, 8) + 40)
+    code, fits := int32(firstOver(a, 7) +% firstOver(a, 8) +% 40)
     if !fits {
         exit(12)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

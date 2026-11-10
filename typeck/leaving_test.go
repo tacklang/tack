@@ -114,7 +114,7 @@ func continuingElseIfs(n int) []string {
 	}
 	lines = append(lines, "} else {", "j = 0", "continue", "}", "}", "return 0", "}")
 	for range 10 {
-		lines = append(lines, "t += a[j]")
+		lines = append(lines, "t +%= a[j]")
 	}
 	return append(lines, "return t")
 }
@@ -141,7 +141,7 @@ func continuingLevels(n int) []string {
 	}
 	lines = append(lines, "return 0", "}")
 	for range 10 {
-		lines = append(lines, "t += a[j]")
+		lines = append(lines, "t +%= a[j]")
 	}
 	return append(lines, "return t")
 }
@@ -165,7 +165,7 @@ func guardedUses(n int) []string {
 	}
 	lines = append(lines, "} else {", "j = 0", "continue", "}", "}", "return 0", "}")
 	for range n / 10 {
-		lines = append(lines, "t += a[j]")
+		lines = append(lines, "t +%= a[j]")
 	}
 	return append(lines, "return t")
 }

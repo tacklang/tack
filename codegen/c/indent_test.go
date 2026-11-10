@@ -151,7 +151,7 @@ func branches(x int64) int64 {
         if x == 3 {
             n = 30
         }
-        n = n + 1
+        n = n +% 1
     }
     return n
 }

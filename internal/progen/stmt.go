@@ -212,8 +212,9 @@ func (g *Gen) assignStmt() Stmt {
 	return simple(func(f *frame) { f.set(v, ee(f)) }, v.Name+" = "+e.Text)
 }
 
-// compoundOps are the compound assignments of an integer by a value.
-var compoundOps = []string{"+", "-", "*", "&", "|", "^", "&^"}
+// compoundOps are the compound assignments of an integer by a value: the
+// wrapping +%= -%= and *%=, which need no proof, and the bitwise ones.
+var compoundOps = []string{"+%", "-%", "*%", "&", "|", "^", "&^"}
 
 // compoundStmt changes a writable integer variable with a compound
 // assignment, a shift's by a count.
@@ -246,15 +247,17 @@ func (g *Gen) compoundStmt() Stmt {
 	}, v.Name+" "+op+"= "+e.Text)
 }
 
-// incStmt increments or decrements a writable integer variable.
+// incStmt increments or decrements a writable integer variable, by +%= 1
+// or -%= 1, which wrap: ++ and -- need a proof that the step fits, which
+// nothing here gives.
 func (g *Gen) incStmt() Stmt {
 	v := g.choose(g.visible(func(v *Var) bool { return g.writable(v) && v.T.Kind == KInt }))
 	if v == nil {
 		return g.declStmt()
 	}
-	op, aop := "++", "+"
+	op, aop := " +%= 1", "+"
 	if g.pick(2) == 0 {
-		op, aop = "--", "-"
+		op, aop = " -%= 1", "-"
 	}
 	it := v.T.Int
 	return simple(func(f *frame) {

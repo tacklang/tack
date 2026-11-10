@@ -10,7 +10,7 @@ import (
 // takes two values, and a struct whose mut method passes a list on as
 // mut.
 const proofPrelude = condWritePrelude + `func two(a int64, b int64) int64 {
-    return a + b
+    return a +% b
 }
 
 func shrunk(mut l list[int64]) int64 {
@@ -34,7 +34,7 @@ func (mut b Box) drain(mut l list[int64]) bool {
 }
 
 func (mut b Box) bump() bool {
-    b.n = b.n + 1
+    b.n = b.n +% 1
     return true
 }
 
@@ -117,7 +117,7 @@ var endedProofs = []struct{ name, src, msg string }{
 			"if len(l) > 0 {",
 			"    x := pop(mut l)",
 			"    y := pop(mut l)",
-			"    use(x + y)",
+			"    use(x +% y)",
 			"}",
 		),
 		popEmpty,
@@ -154,7 +154,7 @@ var endedProofs = []struct{ name, src, msg string }{
 			"if 0 <= i && i < 3 {",
 			"    for range 2 {",
 			"        use(a[i])",
-			"        i++",
+			"        i +%= 1",
 			"    }",
 			"}",
 		),
@@ -216,7 +216,7 @@ var endedProofs = []struct{ name, src, msg string }{
 			"    defer {",
 			"        x := pop(mut l)",
 			"        y := pop(mut l)",
-			"        use(x + y)",
+			"        use(x +% y)",
 			"    }",
 			"}",
 		),
@@ -482,7 +482,7 @@ func TestWritesAfterTheUseKeepAProof(t *testing.T) {
 		{"a method's own mut receiver", proofProgram("mut l list[int64], mut b Box",
 			"if len(l) > 0 && mut b.bump() {", "    x := pop(mut l)", "    use(x)", "}")},
 		{"a successful append", proofProgram("mut l list[int64]",
-			"err := append(mut l, 1, 2)", "if err.code != 0 {", "    return", "}", "use(l[1] + 10 / len(l))")},
+			"err := append(mut l, 1, 2)", "if err.code != 0 {", "    return", "}", "use(l[1] +% 10 / len(l))")},
 		{"a successful append checked in a branch", proofProgram("mut l list[int64]",
 			"err := append(mut l, 1)", "if err.code == 0 {", "    x := pop(mut l)", "    use(x)", "}")},
 		{"a successful append of an array", proofProgram("mut l list[int64]",
@@ -518,7 +518,7 @@ func TestWritesAfterTheUseKeepAProof(t *testing.T) {
 func TestAssignmentsKeepAProofOfTheirTarget(t *testing.T) {
 	for _, tt := range []struct{ name, src string }{
 		{"a value's mut argument of another variable", proofProgram("mut l list[int64], mut i int64, mut j int64",
-			"if 0 <= i && i < len(l) {", "    l[i] = five(mut j)", "    l[i] += five(mut j)", "}")},
+			"if 0 <= i && i < len(l) {", "    l[i] = five(mut j)", "    l[i] +%= five(mut j)", "}")},
 		{"a value computed before the target is proven", proofProgram("mut l list[int64], mut i int64",
 			"v := five(mut i)", "if 0 <= i && i < len(l) {", "    l[i] = v", "}")},
 		{"a target of several that writes no index", assignProgram("mut l list[int64], i int64, mut x int64",

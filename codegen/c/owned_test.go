@@ -71,7 +71,7 @@ func main() {
     mut sum := 0
     for _, w := range l {
         for _, x := range w {
-            sum += x
+            sum +%= x
         }
     }
     check(sum == 9, "summed in place")

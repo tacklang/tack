@@ -61,12 +61,12 @@ func error_of(code int32) error {
 func ints(s string, base int64, bits int64, want int64, code int32) {
     v, e := conv.parse_int([]uint8(s), base, bits)
     if e != error_of(code) {
-        fails++
+        fails +%= 1
         fmt.printf("parse_int(\"%s\", %d, %d) gave error %d %s, want %d\n", s, base, bits, e.code, e.msg, code)
         return
     }
     if e.code == 0 && v != want {
-        fails++
+        fails +%= 1
         fmt.printf("parse_int(\"%s\", %d, %d) gave %d, want %d\n", s, base, bits, v, want)
     }
 }
@@ -77,12 +77,12 @@ func ints(s string, base int64, bits int64, want int64, code int32) {
 func uints(s string, base int64, bits int64, want uint64, code int32) {
     v, e := conv.parse_uint([]uint8(s), base, bits)
     if e != error_of(code) {
-        fails++
+        fails +%= 1
         fmt.printf("parse_uint(\"%s\", %d, %d) gave error %d %s, want %d\n", s, base, bits, e.code, e.msg, code)
         return
     }
     if e.code == 0 && v != want {
-        fails++
+        fails +%= 1
         fmt.printf("parse_uint(\"%s\", %d, %d) gave %d, want %d\n", s, base, bits, v, want)
     }
 }
@@ -125,7 +125,7 @@ func twice(b []uint8) int64 {
     if e.code != 0 {
         return 0
     }
-    return v * 2
+    return v *% 2
 }
 
 // sums adds parsed values, checking each error first, as a program
@@ -139,7 +139,7 @@ func sums() {
             check(false, "sum")
             return
         }
-        sum = sum + v
+        sum = sum +% v
     }
     check(sum == 10 + 16 + 2 + 8, "a sum of parsed values")
     m, e := conv.parse_uint([]uint8("18446744073709551615"), 10, 64)
@@ -147,7 +147,7 @@ func sums() {
         check(false, "max")
         return
     }
-    check(m + 1 == 0, "the largest uint64 wraps when one is added")
+    check(m +% 1 == 0, "the largest uint64 wraps when one is added")
 }
 
 // go_parse_uint64 is Go's parseUint64Tests: parse_uint in base 10, bit sizes 64 and 0.
@@ -1932,3 +1932,8 @@ func main() {
     sums()
     check(fails == 0, "every case")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

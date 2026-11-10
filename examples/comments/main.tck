@@ -12,7 +12,7 @@ func pair(a int64, // after a parameter
     b int64) (int64, // after the first result type
     int64) {
     // first thing in a body
-    calls++ // after an increment
+    calls +%= 1 // after an increment
     return a, // after the first returned value
         b
 }
@@ -20,7 +20,7 @@ func pair(a int64, // after a parameter
 func sum(xs [4]int64) int64 { // after an opening brace
     mut total := 0 // after a short declaration
     for _, x := range xs { // after a range header
-        total += x // after a compound assignment
+        total +%= x // after a compound assignment
     } // after a closing brace
     return total // after a return
 }
@@ -41,7 +41,7 @@ func main() {
     a, b := pair( // after an opening parenthesis
         10, // after an argument
         20)
-    if a + b != 30 || calls != 1 {
+    if a +% b != 30 || calls != 1 {
         exit(2)
     }
 
@@ -65,7 +65,7 @@ func main() {
         } else if i == 4 { // after else if
             break // after break
         } else { // after else
-            n++
+            n +%= 1
         }
     }
     if n != 6 {
@@ -74,7 +74,7 @@ func main() {
 
     mut loops = 0
     for { // after an infinite loop header
-        loops++
+        loops +%= 1
         if loops == 3 &&
             // inside a condition that spans lines
             n == 6 {
@@ -88,10 +88,14 @@ func main() {
         exit(5)
     }
 
-    code, ok := int32(x + a + b - n + 6) // 7 + 10 + 20 - 6 + 6 = 37
+    code, ok := int32(x +% a +% b -% n +% 6) // 7 + 10 + 20 - 6 + 6 = 37
     if !ok {
         exit(6)
     }
     exit(code)
 }
 // A comment at the end of the file, with no newline after it.
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

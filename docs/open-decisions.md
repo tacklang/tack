@@ -63,7 +63,7 @@ These points about it were settled by the implementation:
   proven`, with `len` of one alone listed too for a divisor and a
   slice's bound, which prove such a length on its own, or, for such
   arithmetic, that the bounds of its operands do not prove it, or let a
-  step of it wrap.
+  step of it overflow.
 
 ## Mut parameters
 

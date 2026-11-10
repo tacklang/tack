@@ -11,7 +11,7 @@ type Point struct {
 // count returns how many bytes of s are c.
 extern func count(s string, c uint8) int64
 
-// sum returns p.x + p.y, wrapping as Tack's + does. It is defined in C as
+// sum returns p.x + p.y, wrapping as Tack's +% does. It is defined in C as
 // point_sum.
 extern("point_sum") func sum(p Point) int64
 

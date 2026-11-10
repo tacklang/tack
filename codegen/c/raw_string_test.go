@@ -39,9 +39,9 @@ func TestRawStringHoldsEveryByteAtRuntime(t *testing.T) {
 		"    if !ok || int64(v) != b {",
 		"        exit(2)",
 		"    }",
-		"    j++",
+		"    j +%= 1",
 		"}",
-		"code, fits := int32(j - 200)",
+		"code, fits := int32(j -% 200)",
 		"if fits { exit(code) }",
 	)
 	if out, status := runSanitized(t, src); out != "" || status != 54 {

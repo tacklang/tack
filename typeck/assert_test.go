@@ -35,7 +35,7 @@ var assertAcceptedCases = []struct{ name, src string }{
 	{"every type in a switch", anyFunc(
 		"switch v := a.(type) {",
 		"case int8, int16, int32:", "    one(v)",
-		"case int64:", "    one(v + 1)",
+		"case int64:", "    one(v +% 1)",
 		"case uint8, uint16, uint32, uint64, unsafe_size_t, unsafe_uintptr_t:", "    one(v)",
 		"case bool:", "    one(!v)",
 		"case string:", "    one(len(v))",
@@ -147,10 +147,17 @@ var assertErrorCases = []struct {
 	},
 	{
 		"not the whole value",
-		anyFunc("v, ok := a.(int64) + 1", "one(v)", "one(ok)"),
+		anyFunc("v, ok := a.(int64) << 1", "one(v)", "one(ok)"),
 		[]string{
-			"the checked form must be the whole value: v, ok := a.(int64), then compute v + 1",
+			"the checked form must be the whole value: v, ok := a.(int64), then compute v << 1",
 		},
+	},
+	{
+		// The outermost + is the checked form of the addition, so the
+		// assertion inside it is a plain one, which needs two results.
+		"inside a checked addition",
+		anyFunc("v, ok := a.(int64) + 1", "one(v)", "one(ok)"),
+		[]string{"a type assertion needs two results; write v, ok := a.(int64)"},
 	},
 	{
 		"three names",

@@ -1033,7 +1033,10 @@ func checkProgram(t *testing.T, p convProgram) convVerdict {
 	_, diags := checkTree(t, src)
 	v := convVerdict{checked: true, accepted: true}
 	for _, d := range diags {
-		if d.Span.Start != at || !strings.HasPrefix(d.Message, "converting ") {
+		// Arithmetic in the guard that may overflow rejects the program
+		// too: one accepted has no operation that wraps.
+		overflow := strings.Contains(d.Message, " may overflow ") || strings.Contains(d.Message, " may go below 0 in ")
+		if !overflow && (d.Span.Start != at || !strings.HasPrefix(d.Message, "converting ")) {
 			return convVerdict{}
 		}
 		v.accepted = false

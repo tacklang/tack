@@ -68,16 +68,18 @@ func fits(t *IntType, bits uint64, to *IntType) bool {
 }
 
 // arith applies the arithmetic or bitwise operator op to a and b, values
-// of t, as Tack does at run time: wrapping at t's width, the smallest
-// signed value divided by -1 being itself, remainder 0. Division by zero
-// is never asked for; the generator proves or checks every divisor.
+// of t, as Tack does at run time: + - and * and their wrapping forms +%
+// -% and *% wrapping at t's width, which a plain one, proven not to
+// overflow, never does, the smallest signed value divided by -1 being
+// itself, remainder 0. Division by zero is never asked for; the generator
+// proves or checks every divisor.
 func arith(t *IntType, op string, a, b uint64) uint64 {
 	switch op {
-	case "+":
+	case "+", "+%":
 		return norm(t, a+b)
-	case "-":
+	case "-", "-%":
 		return norm(t, a-b)
-	case "*":
+	case "*", "*%":
 		return norm(t, a*b)
 	case "&":
 		return a & b

@@ -15,7 +15,7 @@ func converting(lines ...string) string {
 	return "package main\n\nvar k int64 = 200\nvar big uint64 = 18446744073709551615\n" +
 		"mut g int64 = 1\n\n" +
 		"func f(x int64) uint8 {\n    a := [3]int64{1, 2, 3}\n" + body +
-		"    code, fits := int32(a[0] + g + k)\n    if fits { exit(code) }\n    if big > 0 {\n        return 0\n    }\n    return 0\n}\n\n" +
+		"    code, fits := int32(a[0] +% g +% k)\n    if fits { exit(code) }\n    if big > 0 {\n        return 0\n    }\n    return 0\n}\n\n" +
 		"func main() {\n    exit(f(1))\n}\n"
 }
 
@@ -125,7 +125,7 @@ var rejectedConversionCases = []struct {
 	},
 	{
 		"mutable local",
-		converting("mut n int64 = 5", "return uint8(n)"),
+		converting("mut n int64 = 5", "n = x", "return uint8(n)"),
 		spanned{
 			"converting int64 to uint8 can fail; check 0 <= n && n <= 255 first, or use v, ok := uint8(...)",
 			"uint8(n)",

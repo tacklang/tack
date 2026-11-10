@@ -36,7 +36,7 @@ var listAcceptCases = []struct{ name, src string }{
 	{"checked form", listing("x, ok := l[i]", "if ok {", "    use(x)", "}")},
 	{
 		"element writes keep the length fact",
-		listing("if len(m) > 1 {", "    m[0] = 1", "    m[1]++", "    m[0] += m[1]", "}"),
+		listing("if len(m) > 1 {", "    m[0] = 1", "    m[1] +%= 1", "    m[0] +%= m[1]", "}"),
 	},
 	{
 		"write through a mut parameter at a range index",
@@ -103,7 +103,7 @@ var listAcceptCases = []struct{ name, src string }{
 	{"view of a list", listing("return g(l)")},
 	{"view of a slice of a list", listing("if len(l) > 1 {", "    return g(l[1:])", "}")},
 	{"len of a slice", listing("return len(m[:])")},
-	{"borrowed", listing("return h(l) + h(m) + h(s.items)")},
+	{"borrowed", listing("return h(l) +% h(m) +% h(s.items)")},
 	{"move into a local", listing("x := make2()", "y := x", "return len(y)")},
 	{
 		"conditional move, then a new value",
@@ -153,7 +153,7 @@ var listAcceptCases = []struct{ name, src string }{
 	},
 	{
 		"range over a field may write elements",
-		listing("for j := range s.items {", "    s.n += j", "}"),
+		listing("for j := range s.items {", "    s.n +%= j", "}"),
 	},
 	{
 		"allocator parameter",
@@ -176,13 +176,13 @@ var listAcceptCases = []struct{ name, src string }{
 		listing(
 			"if len(m) > 0 {",
 			"    m[0] = j(mut s, l)",
-			"    m[0] += k(mut s.items, l)",
+			"    m[0] +%= k(mut s.items, l)",
 			"}",
 		) + listingHelpers,
 	},
 	{
 		"two results with a list",
-		"package main\n\nfunc f() (list[int64], int64) {\n    return make(list[int64], c_allocator), 1\n}\n\nfunc use(n int64) {\n}\n\nfunc main() {\n    l, n := f()\n    use((len(l) + n))\n}\n",
+		"package main\n\nfunc f() (list[int64], int64) {\n    return make(list[int64], c_allocator), 1\n}\n\nfunc use(n int64) {\n}\n\nfunc main() {\n    l, n := f()\n    use((len(l) +% n))\n}\n",
 	},
 }
 
@@ -226,7 +226,7 @@ var listErrorCases = []struct{ name, src, want string }{
 	},
 	{
 		"use after move",
-		listing("x := make2()", "y := x", "return len(x) + len(y)"),
+		listing("x := make2()", "y := x", "return len(x) +% len(y)"),
 		"x is used after it was moved",
 	},
 	{
@@ -278,7 +278,7 @@ var listErrorCases = []struct{ name, src, want string }{
 	},
 	{
 		"add to an element alongside mut of its list",
-		listing("if len(m) > 0 {", "    m[0] += k(mut m, l)", "}"),
+		listing("if len(m) > 0 {", "    m[0] +%= k(mut m, l)", "}"),
 		"cannot assign to m[0] alongside mut m in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach m during its call",
 	},
 	{
@@ -469,7 +469,7 @@ func TestMarksMoves(t *testing.T) {
 		"func h(l list[int64], v []int64) int64 {\n    return 0\n}\n\n" +
 		"func use(n int64) {\n}\n\n" +
 		"func f() list[int64] {\n    a := make(list[int64], c_allocator)\n" +
-		"    n := h(a, a) + len(a)\n    mut b := a\n    err := append(mut b, n)\n" +
+		"    n := h(a, a) +% len(a)\n    mut b := a\n    err := append(mut b, n)\n" +
 		"    if err.code != 0 {\n        return b\n    }\n    c := S{items: b}\n" +
 		"    mut d := make(list[int64], c_allocator)\n    d = make(list[int64], c_allocator)\n" +
 		"    e := c\n    use(len(e.items))\n    return d\n}\n\nfunc main() {\n}\n"

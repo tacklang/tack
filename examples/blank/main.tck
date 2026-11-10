@@ -10,10 +10,15 @@ func divmod(a int64, b int64) (int64, int64) {
 func main() {
     _, r := divmod(17, 5)
     mut q := 0
-    q, _ = divmod(r * 10, 3)
-    code, ok := int32(q * 10 + r)
+    q, _ = divmod(r *% 10, 3)
+    code, ok := int32(q *% 10 +% r)
     if !ok {
         exit(1)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

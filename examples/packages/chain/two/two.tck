@@ -3,5 +3,10 @@ package two
 import three from "calc/chain/three"
 
 pub func Depth() int64 {
-    return 1 + three.Depth()
+    return 1 +% three.Depth()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

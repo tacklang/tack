@@ -62,18 +62,18 @@ signature written before it:
 package main
 
 func double(p Pair) int32 {
-    return (p.a + p.b) * scale
+    return p.a * scale + p.b
 }
 
 type Pair struct {
-    a int32
-    b int32
+    a int8
+    b int8
 }
 
 var scale int32 = 2
 
 func main() {
-    exit(double(Pair{a: 1, b: 4}))
+    exit(double(Pair{a: 3, b: 4}))
 }
 ```
 
@@ -320,14 +320,13 @@ A literal of a struct type names every field:
 package main
 
 type Point struct {
-    x int64
-    y int64
+    x int16
+    y int16
 }
 
 func main() {
     p := Point{x: 1, y: 2}
-    code, fits := int32(p.x + p.y)
-    if fits { exit(code) }
+    exit(int32(p.x) + int32(p.y))
 }
 ```
 
@@ -349,12 +348,12 @@ cannot hold itself, even through a list`.
 package main
 
 type Token union {
-    number int32
+    number int8
     plus
     eof
 }
 
-func weight(t Token) int32 {
+func weight(t Token) int8 {
     switch t {
     case number(n):
         return n
@@ -366,7 +365,7 @@ func weight(t Token) int32 {
 }
 
 func main() {
-    exit(weight(Token.number(3)) + weight(Token.plus))
+    exit(int32(weight(Token.number(3))) + int32(weight(Token.plus)))
 }
 ```
 
@@ -438,7 +437,7 @@ A function's name is unique among its package's package-level names,
 main()`, with no parameters and no result ([Packages, modules and
 programs](12-packages.md)).
 
-```tack run exit=5
+```tack run exit=6
 package main
 
 func divmod(a int32, b int32) (int32, int32) {
@@ -449,14 +448,17 @@ func divmod(a int32, b int32) (int32, int32) {
 }
 
 func scale(mut n int32, k int32) {
-    n = n * k
+    v, ok := n * k
+    if ok {
+        n = v
+    }
 }
 
 func main() {
     q, r := divmod(17, 5)
     mut total := q
     scale(mut total, r)
-    exit(total - 1)
+    exit(total)
 }
 ```
 
@@ -518,7 +520,10 @@ func (c Counter) get() int32 {
 }
 
 func (mut c Counter) add(k int32) {
-    c.n = c.n + k
+    v, ok := c.n + k
+    if ok {
+        c.n = v
+    }
 }
 
 func main() {

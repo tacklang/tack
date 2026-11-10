@@ -94,7 +94,7 @@ func TestNothingLiveAtProcessEndOnEveryPath(t *testing.T) {
 		{"return from main", "    l := numbers(9)\n    if len(l) != 9 || live() != 1 {\n" +
 			"        exit(1)\n    }\n", 0},
 		{"exit from main", "    a := numbers(3)\n    b := numbers(40)\n" +
-			"    if len(a) + len(b) == 43 && live() == 2 {\n        exit(7)\n    }\n", 7},
+			"    if len(a) +% len(b) == 43 && live() == 2 {\n        exit(7)\n    }\n", 7},
 		{"exit with nothing allocated", "    exit(0)\n", 0},
 		{"exit after every list is freed", "    if made(5) == 5 && live() == 0 {\n" +
 			"        exit(4)\n    }\n", 4},
@@ -144,12 +144,12 @@ func TestExitEndsFunctionsWithResults(t *testing.T) {
 			"an if returning and exiting", "func f(k bool) list[int64] {\n" +
 				"    if k {\n        return numbers(2)\n    } else {\n        l := numbers(4)\n" +
 				"        if len(l) == 4 {\n            exit(4)\n        }\n        exit(1)\n    }\n}\n",
-			"    a := f(true)\n    b := f(false)\n    if len(a) + len(b) > 0 {\n        exit(1)\n    }\n", 0, 4,
+			"    a := f(true)\n    b := f(false)\n    if len(a) +% len(b) > 0 {\n        exit(1)\n    }\n", 0, 4,
 		},
 		{
 			"a switch whose default exits", "func f(d int32) int32 {\n    switch d {\n" +
 				"    case 1:\n        return 10\n    default:\n        exit(d)\n    }\n}\n",
-			"    exit(f(1) + f(9))\n", 0, 9,
+			"    exit(f(1) +% f(9))\n", 0, 9,
 		},
 		{
 			"a move in a branch that exits", "func take(own l list[int64]) int64 {\n    return len(l)\n}\n\n" +
@@ -161,7 +161,7 @@ func TestExitEndsFunctionsWithResults(t *testing.T) {
 		{
 			"an exit in a loop with no condition", "func f() int32 {\n    mut i int64 = 0\n" +
 				"    for {\n        l := numbers(i)\n        defer {\n            print(\"deferred\\n\")\n" +
-				"        }\n        if len(l) == 3 {\n            exit(2)\n        }\n        i++\n    }\n}\n",
+				"        }\n        if len(l) == 3 {\n            exit(2)\n        }\n        i +%= 1\n    }\n}\n",
 			"    exit(f())\n", 3, 2,
 		},
 	} {

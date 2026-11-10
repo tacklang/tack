@@ -612,7 +612,7 @@ func TestFibTypechecks(t *testing.T) {
 	src := "package main\n\n" +
 		"func fib(n int64) int64 {\n" +
 		"    if n < 2 {\n        return n\n    }\n" +
-		"    return fib(n - 1) + fib(n - 2)\n" +
+		"    return fib(n - 1) +% fib(n - 2)\n" +
 		"}\n\n" +
 		"func main() {\n    code, fits := int32(fib(10))\n    if fits { exit(code) }\n}\n"
 

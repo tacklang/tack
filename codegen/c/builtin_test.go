@@ -40,7 +40,7 @@ func main() {
         p.a = 2
     }
     for i, v := range arr {
-        arr[i] = v * g
+        arr[i] = v *% g
     }
     q, even := two(arr[0])
     s := "hello"
@@ -49,13 +49,13 @@ func main() {
     }
     switch len(s) {
     case 5:
-        p.a++
+        p.a +%= 1
     }
     b, ok := s[1]
     if ok && b == 'e' {
-        p.a--
+        p.a -%= 1
     }
-    pass(g, s, p.a, q + 1, true)
+    pass(g, s, p.a, q +% 1, true)
 }
 `
 

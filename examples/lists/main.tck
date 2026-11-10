@@ -58,7 +58,7 @@ func freed(name string) {
 func sum(v []int64) int64 {
     mut total int64 = 0
     for _, x := range v {
-        total += x
+        total +%= x
     }
     return total
 }
@@ -67,7 +67,7 @@ func sum(v []int64) int64 {
 func sumAll(base int64, xs ...int64) int64 {
     mut t := base
     for _, x := range xs {
-        t += x
+        t +%= x
     }
     return t
 }
@@ -76,7 +76,7 @@ func sumAll(base int64, xs ...int64) int64 {
 func total(l list[int64]) int64 {
     mut t int64 = 0
     for i := range l {
-        t += l[i]
+        t +%= l[i]
     }
     return t
 }
@@ -96,7 +96,7 @@ func fill(mut l list[int64], n int64) error {
 // double doubles every element of l in place.
 func double(mut l list[int64]) {
     for i := range l {
-        l[i] = l[i] * 2
+        l[i] = l[i] *% 2
     }
 }
 
@@ -117,7 +117,7 @@ func build(n int64) (list[int64], error) {
 func squares(n int64) list[int64] {
     mut l := make(list[int64], c_allocator)
     for i := range n {
-        err := append(mut l, i * i)
+        err := append(mut l, i *% i)
         if err.code != 0 {
             return make(list[int64], c_allocator)
         }
@@ -162,7 +162,7 @@ func growth() {
     check(len(l) == 10000, "len after growth")
     mut good := true
     for i, x := range l {
-        if x != i * 3 {
+        if x != i *% 3 {
             good = false
         }
     }
@@ -177,8 +177,8 @@ func writes() {
     check(err.code == 0, "fill")
     if len(l) > 4 {
         l[4] = 40
-        l[0] += 7
-        l[1]++
+        l[0] +%= 7
+        l[1] +%= 1
     }
     check(total(l) == 7 + 2 + 2 + 3 + 40, "element writes")
     double(mut l)
@@ -218,21 +218,21 @@ func ranges() {
     mut n int64 = 0
     mut s int64 = 0
     for i, x := range l {
-        n++
-        s += x * 10 + i
+        n +%= 1
+        s +%= x *% 10 +% i
     }
     check(n == 4 && s == (0 + 10 + 20 + 30) + (0 + 1 + 2 + 3), "range index and element")
     mut k int64 = 0
     for range l {
-        k++
+        k +%= 1
     }
     check(k == 4, "range with no variables")
     for i := range l {
-        l[i] = l[i] + 100
+        l[i] = l[i] +% 100
     }
     mut seen int64 = 0
     for _, x := range l {
-        seen += x
+        seen +%= x
     }
     check(seen == 400 + 6, "range sees element writes")
 }
@@ -372,7 +372,7 @@ func loops() {
     mut j int64 = 0
     for j < 3 {
         l := squares(j + 1)
-        j += len(l)
+        j +%= len(l)
     }
 }
 
@@ -387,7 +387,7 @@ func early(at int64) int64 {
     for i := range 4 {
         inner := squares(3)
         if i == at {
-            return total(inner) + i
+            return total(inner) +% i
         }
     }
     return 0
@@ -419,7 +419,7 @@ func failing() {
     check(okF && first == 1 && okL && (n == 1 || last == n - 2), "elements kept after a failure")
     failAfter(-1)
     e2 := append(mut l, 7)
-    check(e2.code == 0 && len(l) == n + 1, "appends again")
+    check(e2.code == 0 && len(l) == n +% 1, "appends again")
     b, errB := build(3)
     check(errB.code == 0, "build after failures")
     if errB.code == 0 {
@@ -464,7 +464,7 @@ func order() {
 
 // next adds one to n and returns it.
 func next(mut n int64) int64 {
-    n++
+    n +%= 1
     return n
 }
 
@@ -509,3 +509,8 @@ func main() {
     order()
     freed("order freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

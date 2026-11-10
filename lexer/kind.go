@@ -26,12 +26,16 @@ const (
 	Char
 	Str
 
-	// Add through Mod are arithmetic operators.
-	Add // +
-	Sub // -
-	Mul // *
-	Div // /
-	Mod // %
+	// Add through MulWrap are arithmetic operators. AddWrap, SubWrap and
+	// MulWrap are the wrapping ones, which wrap at their type's width.
+	Add     // +
+	Sub     // -
+	Mul     // *
+	Div     // /
+	Mod     // %
+	AddWrap // +%
+	SubWrap // -%
+	MulWrap // *%
 
 	// BitAnd through ShiftRight are bitwise operators.
 	BitAnd     // &
@@ -50,6 +54,10 @@ const (
 	MulAssign // *=
 	DivAssign // /=
 	ModAssign // %=
+
+	AddWrapAssign // +%=
+	SubWrapAssign // -%=
+	MulWrapAssign // *%=
 
 	BitAndAssign     // &=
 	BitOrAssign      // |=
@@ -113,6 +121,10 @@ var tokenNames = map[TokenKind]string{
 	Div: "/",
 	Mod: "%",
 
+	AddWrap: "+%",
+	SubWrap: "-%",
+	MulWrap: "*%",
+
 	BitAnd:     "&",
 	BitOr:      "|",
 	BitXor:     "^",
@@ -128,6 +140,10 @@ var tokenNames = map[TokenKind]string{
 	MulAssign: "*=",
 	DivAssign: "/=",
 	ModAssign: "%=",
+
+	AddWrapAssign: "+%=",
+	SubWrapAssign: "-%=",
+	MulWrapAssign: "*%=",
 
 	BitAndAssign:     "&=",
 	BitOrAssign:      "|=",

@@ -56,9 +56,13 @@ var multipleResultCases = []struct {
 }{
 	{
 		"bind both",
-		withMulti("q, r := divmod(7, 2)", "code, fits := int32(q + r)", "if fits { exit(code) }"),
+		withMulti("q, r := divmod(7, 2)", "code, fits := int32(q +% r)", "if fits { exit(code) }"),
 	},
 	{"discard all as a statement", withMulti("divmod(7, 2)")},
+	{
+		"checked addition of constants",
+		withMulti("a, ok := 1 + 2", "code, fits := int32(a)", "if ok && fits {", "    exit(code)", "}"),
+	},
 	{
 		"mixed types",
 		withMulti(
@@ -74,7 +78,7 @@ var multipleResultCases = []struct {
 		"mutable one",
 		withMulti(
 			"q, mut r := divmod(7, 2)",
-			"r += q",
+			"r +%= q",
 			"code, fits := int32(r)",
 			"if fits { exit(code) }",
 		),
@@ -93,18 +97,18 @@ var multipleResultCases = []struct {
 		withMulti(
 			"q, r := divmod(7, 2)",
 			"a, b := divmod(q, r)",
-			"code, fits := int32(a + b)",
+			"code, fits := int32(a +% b)",
 			"if fits { exit(code) }",
 		),
 	},
 	{
 		"recursive",
 		"package main\n\nfunc fib(n int64) (int64, int64) {\n    if n == 0 {\n        return 0, 1\n    }\n" +
-			"    a, b := fib(n - 1)\n    return b, a + b\n}\n\nfunc main() {\n    x, y := fib(10)\n    code, fits := int32(x + y)\n    if fits { exit(code) }\n}\n",
+			"    a, b := fib(n -% 1)\n    return b, a +% b\n}\n\nfunc main() {\n    x, y := fib(10)\n    code, fits := int32(x +% y)\n    if fits { exit(code) }\n}\n",
 	},
 	{
 		"declared after its caller",
-		"package main\n\nfunc main() {\n    a, b := later()\n    code, fits := int32(a + b)\n    if fits { exit(code) }\n}\n\n" +
+		"package main\n\nfunc main() {\n    a, b := later()\n    code, fits := int32(a +% b)\n    if fits { exit(code) }\n}\n\n" +
 			"func later() (int64, int64) {\n    return 1, 2\n}\n",
 	},
 	{
@@ -139,14 +143,14 @@ var multipleResultMisuseCases = []struct {
 }{
 	{
 		"too few variables",
-		withMulti("a, b := three()", "exit(a + b)"),
+		withMulti("a, b := three()", "exit(a +% b)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but three returns 3 values", "a, b := three()"},
 		},
 	},
 	{
 		"too many variables",
-		withMulti("a, b, c := divmod(1, 2)", "exit(a + b + c)"),
+		withMulti("a, b, c := divmod(1, 2)", "exit(a +% b + c)"),
 		[]spanned{
 			{
 				"assignment mismatch: 3 variables but divmod returns 2 values",
@@ -156,34 +160,34 @@ var multipleResultMisuseCases = []struct {
 	},
 	{
 		"one result",
-		withMulti("a, b := one()", "exit(a + b)"),
+		withMulti("a, b := one()", "exit(a +% b)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but one returns 1 value", "a, b := one()"},
 		},
 	},
 	{
 		"no result",
-		withMulti("a, b := none()", "exit(a + b)"),
+		withMulti("a, b := none()", "exit(a +% b)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but none returns no value", "a, b := none()"},
 		},
 	},
 	{
 		"builtin",
-		withMulti("a, b := exit(1)", "exit(a + b)"),
+		withMulti("a, b := exit(1)", "exit(a +% b)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but exit returns no value", "a, b := exit(1)"},
 		},
 	},
 	{
 		"not a call",
-		withMulti("a, b := 1", "exit(a + b)"),
+		withMulti("a, b := 1", "exit(a +% b)"),
 		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b := 1"}},
 	},
 	{
 		"not a call, an expression",
-		withMulti("a, b := 1 + 2", "exit(a + b)"),
-		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b := 1 + 2"}},
+		withMulti("a, b := 1 << 2", "exit(a +% b)"),
+		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b := 1 << 2"}},
 	},
 	{
 		"several results as one value",
@@ -199,7 +203,7 @@ var multipleResultMisuseCases = []struct {
 		"several results as a nested argument",
 		withMulti(
 			"q, r := divmod(divmod(1, 2), 3)",
-			"code, fits := int32(q + r)",
+			"code, fits := int32(q +% r)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{{"divmod returns 2 values", "divmod(1, 2)"}},
@@ -208,7 +212,7 @@ var multipleResultMisuseCases = []struct {
 		"bad argument to the call",
 		withMulti(
 			"q, r := divmod(\"x\", 3)",
-			"code, fits := int32(q + r)",
+			"code, fits := int32(q +% r)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot use string as int64 in argument to divmod", "\"x\""}},
@@ -249,7 +253,7 @@ var multipleResultMisuseCases = []struct {
 	},
 	{
 		"mismatched variables are not reported again",
-		withMulti("a, b := one()", "exit(a + b)", "print(a)"),
+		withMulti("a, b := one()", "exit(a +% b)", "print(a)"),
 		[]spanned{
 			{"assignment mismatch: 2 variables but one returns 1 value", "a, b := one()"},
 		},
@@ -390,7 +394,7 @@ var multiAssignCases = []struct {
 		withMulti(
 			"mut q, mut r := divmod(7, 2)",
 			"q, r = divmod(q, r)",
-			"code, fits := int32(q + r)",
+			"code, fits := int32(q +% r)",
 			"if fits { exit(code) }",
 		),
 		nil,
@@ -407,7 +411,7 @@ var multiAssignCases = []struct {
 	},
 	{
 		"mutable global",
-		"package main\n\nmut g int64\n\n" + multiFuncs + mainLines("mut r := 0", "g, r = divmod(7, 2)", "code, fits := int32(g + r)", "if fits { exit(code) }")[len("package main\n\n"):],
+		"package main\n\nmut g int64\n\n" + multiFuncs + mainLines("mut r := 0", "g, r = divmod(7, 2)", "code, fits := int32(g +% r)", "if fits { exit(code) }")[len("package main\n\n"):],
 		nil,
 	},
 	{
@@ -415,7 +419,7 @@ var multiAssignCases = []struct {
 		withMulti(
 			"q, mut r := divmod(7, 2)",
 			"q, r = divmod(1, 1)",
-			"code, fits := int32(q + r)",
+			"code, fits := int32(q +% r)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{{"cannot assign to immutable variable q", "q"}},
@@ -432,7 +436,7 @@ var multiAssignCases = []struct {
 			"mut b := true",
 			"mut n := 0",
 			"s, b, n = three()",
-			"code, fits := int32(s + n)",
+			"code, fits := int32(s +% n)",
 			"if fits { exit(code) }",
 			"if b {",
 			"}",
@@ -455,7 +459,7 @@ var multiAssignCases = []struct {
 			"mut a := 0",
 			"mut b := 0",
 			"a, b = three()",
-			"code, fits := int32(a + b)",
+			"code, fits := int32(a +% b)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{
@@ -468,7 +472,7 @@ var multiAssignCases = []struct {
 			"a := 0",
 			"mut b := 0",
 			"a, b = one()",
-			"code, fits := int32(a + b)",
+			"code, fits := int32(a +% b)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{
@@ -482,7 +486,7 @@ var multiAssignCases = []struct {
 			"mut a := 0",
 			"mut b := 0",
 			"a, b = 5",
-			"code, fits := int32(a + b)",
+			"code, fits := int32(a +% b)",
 			"if fits { exit(code) }",
 		),
 		[]spanned{{"assignment mismatch: 2 variables but 1 value", "a, b = 5"}},

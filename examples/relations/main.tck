@@ -5,14 +5,15 @@ package main
 // they are, i - n <= -1, and the checker chains such relations: i < n and
 // n <= len(a) together prove i < len(a). A declaration or an assignment
 // relates what it stores to what it was computed from, so k := j - 1 is
-// one less than j, and n := len(a) equals len(a). Arithmetic wraps, so a
-// relation through x + c or x - c holds only where other facts keep it
-// from wrapping: i + 1 < len(a) says nothing until i < len(a) does too.
+// one less than j, and n := len(a) equals len(a). A relation through x +
+// c or x - c holds only where other facts keep it from overflowing, which
+// plain arithmetic must be proven not to do anyway: i + 1 < len(a) is
+// written after i < len(a), which proves it.
 //
 // Every check prints its name and "ok", or "FAIL", and runs each function
 // at the edges: the first and last index, one past them, empty views,
 // and int64's and uint64's extremes, where a relation that ignored
-// wrapping would read out of range.
+// overflow would read out of range.
 
 // check prints name and whether cond held.
 func check(cond bool, name string) {
@@ -42,7 +43,7 @@ func chain(a []int64, i int64, n int64) int64 {
 // three reads a[i] and a[j] through i < j < k <= len(a).
 func three(a []int64, i int64, j int64, k int64) int64 {
     if 0 <= i && i < j && j < k && k <= len(a) {
-        return a[i] + a[j]
+        return a[i] +% a[j]
     }
     return -1
 }
@@ -64,32 +65,33 @@ func equal(a []int64, i int64, j int64) int64 {
 }
 
 // next reads a[i] and a[i + 1], i + 1 copied into j: i < len(a) keeps
-// i + 1 from wrapping, so i + 1 < len(a) relates i to len(a), and j is
+// i + 1 from overflowing, so i + 1 < len(a) relates i to len(a), and j is
 // one more than i.
 func next(a []int64, i int64) int64 {
     if 0 <= i && i < len(a) && i + 1 < len(a) {
         j := i + 1
-        return a[i] + a[j]
+        return a[i] +% a[j]
     }
     return -1
 }
 
-// nextFirst is next with the comparisons the other way round: what
-// keeps i + 1 from wrapping may come after it.
+// nextFirst is next with what bounds i below written after i + 1: i <
+// 100 keeps i + 1 from overflowing where it is written, i + 1 < len(a)
+// relates it to the length, and 0 <= i, after both, keeps it at or above
+// 0, which the index needs.
 func nextFirst(a []int64, i int64) int64 {
-    if i + 1 < len(a) && 0 <= i && i < len(a) {
-        j := i + 1
-        return a[j]
+    if i < 100 && i + 1 < len(a) && 0 <= i {
+        return a[i + 1]
     }
     return -1
 }
 
 // lenMinus reads a[i] and a[i + 1] after i < len(a) - 1, which never
-// wraps, since len(a) is never negative.
+// overflows, since len(a) is never negative.
 func lenMinus(a []int64, i int64) int64 {
     if 0 <= i && i < len(a) - 1 {
         j := i + 1
-        return a[i] + a[j]
+        return a[i] +% a[j]
     }
     return -1
 }
@@ -107,27 +109,27 @@ func before(a []int64, i int64) int64 {
 func back(a []int64, j int64) int64 {
     if 0 < j && j < len(a) {
         k := j - 1
-        return a[k] + a[j]
+        return a[k] +% a[j]
     }
     return -1
 }
 
-// backUnsigned is back for a uint64 j, whose j - 1 wraps at 0, which
-// 0 < j rules out.
+// backUnsigned is back for a uint64 j, whose j - 1 would go below 0 at
+// 0, which 0 < j rules out.
 func backUnsigned(a []int64, j uint64) int64 {
     if 0 < j && j < len(a) {
         k := j - 1
-        return a[k] + a[j]
+        return a[k] +% a[j]
     }
     return -1
 }
 
-// nextNarrow is next for an int8 i, whose i + 1 wraps at 127: i < 100
-// keeps it from wrapping, which i < len(a) would not for a long a.
+// nextNarrow is next for an int8 i, whose i + 1 overflows at 127: i <
+// 100 keeps it from overflowing, which i < len(a) would not for a long a.
 func nextNarrow(a []int64, i int8) int64 {
     if 0 <= i && i < 100 && i + 1 < len(a) {
         j := i + 1
-        return a[i] + a[j]
+        return a[i] +% a[j]
     }
     return -1
 }
@@ -190,7 +192,7 @@ func find(a []int64, x int64) int64 {
     mut lo int64 = 0
     mut hi := len(a)
     for 0 <= lo && lo < hi && hi <= len(a) {
-        mid := lo + (hi - lo) / 2
+        mid := lo +% (hi - lo) / 2
         if lo <= mid && mid < hi {
             if a[mid] < x {
                 lo = mid + 1
@@ -214,7 +216,7 @@ func palindrome(a []int64) bool {
             return false
         }
         i++
-        j--
+        j -%= 1
     }
     return true
 }
@@ -226,7 +228,7 @@ func mutBack(a []int64, j int64) int64 {
         mut k := j - 1
         t := a[k]
         k = 0
-        return t + k
+        return t +% k
     }
     return -1
 }
@@ -239,7 +241,7 @@ func reassigned(a []int64, j int64) int64 {
         k = j - 1
         return a[k]
     }
-    return k - 1
+    return k -% 1
 }
 
 // flip swaps l[i] and l[i + 1], i + 1 copied into j.
@@ -323,3 +325,8 @@ func main() {
     check(reassigned(arr[:], 2) == 20 && reassigned(arr[:], 4) == -1, "reassigned")
     check(lists(), "lists")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

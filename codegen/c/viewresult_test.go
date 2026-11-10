@@ -91,12 +91,12 @@ type Text struct {
 }
 
 func (t Text) bytes() []uint8 {
-    calls++
+    calls +%= 1
     return t.b
 }
 
 func rest(v []uint8) []uint8 {
-    calls++
+    calls +%= 1
     if len(v) == 0 {
         return v
     }
@@ -122,7 +122,7 @@ func first(v []uint8, mut a [3]uint8) []uint8 {
 func sum(v []uint8) int64 {
     mut n := 0
     for _, c := range v {
-        n += c
+        n +%= c
     }
     return n
 }
@@ -147,7 +147,7 @@ func main() {
     check(!ok2 && c2 == 0 && calls == 4, "checked index past the end")
     mut n := 0
     for _, x := range rest(t.bytes()) {
-        n += x
+        n +%= x
     }
     check(n == 5 && calls == 6, "range calls once")
     check(sum(t.bytes()[:]) == 6 && calls == 7, "slice calls once")
@@ -156,7 +156,7 @@ func main() {
     check(err2.code == 0 && sum(row(rows, t.bytes())) == 9 && calls == 8, "array element of a list")
     mut m := 0
     for _, x := range all(1, 2, 3) {
-        m += x
+        m +%= x
     }
     check(m == 6 && sum(all()) == 0, "packed values ranged over")
     mut a := [3]uint8{1, 2, 3}

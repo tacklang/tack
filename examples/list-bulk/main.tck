@@ -97,7 +97,7 @@ func addVals(mut l list[int64], vs ...int64) error {
 
 // next adds one to n and returns it.
 func next(mut n int64) int64 {
-    n++
+    n +%= 1
     return n
 }
 
@@ -241,7 +241,7 @@ func amortized() {
             return
         }
         if capOf(mut l) != last {
-            moves++
+            moves +%= 1
             last = capOf(mut l)
         }
         ea := append(mut l, i)
@@ -379,3 +379,8 @@ func main() {
     check(deferred() == 2, "deferred result")
     freed("deferred freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

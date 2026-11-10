@@ -59,7 +59,7 @@ var unionCases = []struct{ name, src string }{
 		"switch f() {", "case int(n):", "    use(n)", "default:", "}")},
 	{"switch on a field and an element", withTypes(unionDecls,
 		"s := S{e: E.int(1), k: 2}", "es := [2]E{E.eof, s.e}", "switch s.e {",
-		"case int(n):", "    use(n + s.k)", "default:", "}", "switch es[1] {", "case int(n):",
+		"case int(n):", "    use(n +% s.k)", "default:", "}", "switch es[1] {", "case int(n):",
 		"    use(n)", "default:", "}")},
 	{
 		"a clause binding nothing may assign",
@@ -81,7 +81,7 @@ var unionCases = []struct{ name, src string }{
 		"    default:", "    }", "default:", "}")},
 	{"owned union moved and freed", withTypes(unionDecls,
 		"mut v := V.items(make(list[int64], c_allocator))", "use(size(v))", "w := v",
-		"v = V.none", "use(size(v) + size(w))")},
+		"v = V.none", "use(size(v) +% size(w))")},
 	{"binding of a list borrowed", withTypes(unionDecls,
 		"v := V.items(make(list[int64], c_allocator))", "switch v {", "case items(l):",
 		"    for _, x := range l {", "        use(x)", "    }", "default:", "}")},

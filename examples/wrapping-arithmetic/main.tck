@@ -1,0 +1,195 @@
+package main
+
+// Wrapping integer arithmetic. a +% b, a -% b and a *% b, their compound
+// forms +%= -%= *%=, and the prefix -%x compute in two's complement at
+// their type's width and wrap around it, so they need no proof: the
+// largest value +% 1 is the smallest, the smallest -% 1 the largest,
+// -% of the smallest signed value is itself, and an unsigned 0 -% 1 is
+// its largest value. They are defined on integers alone. Each check
+// prints its name and "ok", or "FAIL".
+//
+// The operands are mut variables, whose values are never known, so each
+// operation is computed at run time.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// signed checks every signed width at its bounds.
+func signed() {
+    mut max8 int8 = 127
+    mut min8 int8 = -128
+    mut one8 int8 = 1
+    mut neg8 int8 = -1
+    check(max8 +% one8 == -128 && min8 -% one8 == 127 && min8 *% neg8 == -128 && -%min8 == -128,
+        "int8 max +% 1, min -% 1, min *% -1, -%min")
+    check(max8 *% 2 == -2 && max8 *% max8 == 1 && min8 *% min8 == 0 && min8 +% min8 == 0 &&
+        max8 +% max8 == -2 && -%max8 == -127 && max8 -% min8 == -1 && min8 -% max8 == 1,
+        "int8 more edges")
+
+    mut max16 int16 = 32767
+    mut min16 int16 = -32768
+    check(max16 +% 1 == -32768 && min16 -% 1 == 32767 && min16 *% -1 == -32768 && -%min16 == -32768 &&
+        max16 *% max16 == 1 && min16 *% min16 == 0, "int16 edges")
+
+    mut max32 int32 = 2147483647
+    mut min32 int32 = -2147483648
+    check(max32 +% 1 == -2147483648 && min32 -% 1 == 2147483647 && min32 *% -1 == -2147483648 &&
+        -%min32 == -2147483648 && max32 *% max32 == 1 && min32 *% min32 == 0 && max32 *% 2 == -2,
+        "int32 edges")
+    mut f32 int32 = 65536
+    check(f32 *% 32768 == -2147483648 && f32 *% 65536 == 0, "int32 products past the width")
+
+    mut max64 int64 = 9223372036854775807
+    mut min64 int64 = -9223372036854775808
+    check(max64 +% 1 == -9223372036854775808 && min64 -% 1 == 9223372036854775807 &&
+        min64 *% -1 == -9223372036854775808 && -%min64 == -9223372036854775808,
+        "int64 max +% 1, min -% 1, min *% -1, -%min")
+    check(max64 *% max64 == 1 && min64 *% min64 == 0 && max64 *% 2 == -2 && max64 +% max64 == -2 &&
+        -%max64 == -9223372036854775807, "int64 more edges")
+    mut p64 int64 = 4294967296
+    check(p64 *% p64 == 0 && p64 *% 2147483648 == -9223372036854775808, "int64 products past the width")
+}
+
+// unsigned checks every unsigned width at 0 and its largest value.
+func unsigned() {
+    mut max8 uint8 = 255
+    mut zero8 uint8 = 0
+    check(max8 +% 1 == 0 && zero8 -% 1 == 255 && max8 *% max8 == 1 && max8 *% 2 == 254 &&
+        zero8 -% max8 == 1 && max8 +% max8 == 254, "uint8 edges")
+
+    mut max16 uint16 = 65535
+    mut zero16 uint16 = 0
+    check(max16 +% 1 == 0 && zero16 -% 1 == 65535 && max16 *% max16 == 1 && max16 *% 2 == 65534,
+        "uint16 edges")
+
+    mut max32 uint32 = 4294967295
+    mut zero32 uint32 = 0
+    check(max32 +% 1 == 0 && zero32 -% 1 == 4294967295 && max32 *% max32 == 1 && max32 *% 2 == 4294967294,
+        "uint32 edges")
+
+    mut max64 uint64 = 18446744073709551615
+    mut zero64 uint64 = 0
+    check(max64 +% 1 == 0 && zero64 -% 1 == 18446744073709551615 && max64 *% max64 == 1 &&
+        max64 *% 2 == 18446744073709551614 && zero64 -% max64 == 1, "uint64 edges")
+    mut p64 uint64 = 4294967296
+    check(p64 *% p64 == 0 && p64 *% 4294967295 == 18446744069414584320, "uint64 products past the width")
+
+    // Assumption: -%x is defined on an unsigned value, as 0 -% x, though
+    // plain -x is not.
+    mut one8 uint8 = 1
+    check(-%one8 == 255 && -%zero8 == 0 && -%max64 == 1, "-% on unsigned values")
+}
+
+// compound checks +%= -%= and *%=, each at the edge it wraps over.
+func compound() {
+    mut a int8 = 127
+    a +%= 1
+    mut b int8 = -128
+    b -%= 1
+    mut c int8 = -128
+    c *%= -1
+    mut d uint8 = 0
+    d -%= 1
+    mut e uint64 = 18446744073709551615
+    e +%= 1
+    mut f int64 = 9223372036854775807
+    f *%= 3
+    check(a == -128 && b == 127 && c == -128 && d == 255 && e == 0 && f == 9223372036854775805,
+        "compound forms wrap")
+
+    // Counting past the top wraps, as many times as asked.
+    mut g uint8 = 250
+    for range 10 {
+        g +%= 1
+    }
+    check(g == 4, "a uint8 counted past 255")
+}
+
+// every_int8 checks every pair of int8 values: the wrapped result has the
+// low 8 bits of the exact one, computed on int64, where it cannot wrap.
+func every_int8() {
+    mut all := true
+    for x := range 256 {
+        a, fa := int8(x - 128)
+        for y := range 256 {
+            b, fb := int8(y - 128)
+            wa := int64(a)
+            wb := int64(b)
+            all = all && fa && fb
+            all = all && int64(a +% b) & 255 == (wa +% wb) & 255
+            all = all && int64(a -% b) & 255 == (wa -% wb) & 255
+            all = all && int64(a *% b) & 255 == (wa *% wb) & 255
+        }
+        wn := int64(a)
+        all = all && int64(-%a) & 255 == (-%wn) & 255
+    }
+    check(all, "every int8 pair, low bits of the exact result")
+}
+
+// every_uint8 does what every_int8 does for every pair of uint8 values,
+// where the wrapped result is the exact one modulo 256.
+func every_uint8() {
+    mut all := true
+    for x := range 256 {
+        a, fa := uint8(x)
+        for y := range 256 {
+            b, fb := uint8(y)
+            wa := int64(a)
+            wb := int64(b)
+            all = all && fa && fb
+            all = all && int64(a +% b) == (wa +% wb) & 255
+            all = all && int64(a -% b) == (wa -% wb) & 255
+            all = all && int64(a *% b) == (wa *% wb) & 255
+        }
+    }
+    check(all, "every uint8 pair, the exact result modulo 256")
+}
+
+// identities checks that wrapping undoes itself across the boundary.
+func identities() {
+    mut a int64 = 9223372036854775000
+    mut b int64 = 5000
+    check((a +% b) -% b == a && (a -% -%b) == a +% b, "+% then -% gives back the start")
+    mut u uint64 = 3
+    mut v uint64 = 18446744073709551615
+    check((u -% v) +% v == u && u +% v == 2, "unsigned, across 0")
+}
+
+// shapes checks how the operators parse and combine.
+func shapes() {
+    mut two int8 = 2
+    mut three int8 = 3
+    mut four int8 = 4
+    // Assumption: +% and -% bind as + and - do, and *% as * does.
+    check(two +% three *% four == 14 && two *% three +% four == 10 && two -% three -% four == -5,
+        "precedence and left association, as + - *")
+    check(two+%three == 5 && two-%three == -1 && two*%three == 6 && -%-%two == 2, "no spaces")
+    check(three %2 == 1 && two % 3 == 2, "% alone is still the remainder")
+    // Mixed widths take the common type, as arithmetic does: an int8 and an
+    // int64 wrap as an int64.
+    mut wide int64 = 1
+    mut top int8 = 127
+    check(top +% wide == 128 && top *% wide == 127, "int8 and int64 wrap as int64")
+    // Assumption: on a known value a wrapping operator wraps, where plain
+    // + is a constant overflow error.
+    var m int8 = 127
+    var n uint8 = 0
+    check(m +% 1 == -128 && n -% 1 == 255 && -%(m +% 1) == -128, "on known values")
+}
+
+func main() {
+    signed()
+    unsigned()
+    compound()
+    every_int8()
+    every_uint8()
+    identities()
+    shapes()
+}

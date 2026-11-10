@@ -258,7 +258,9 @@ func (c *Checker) checkOkDropped(value ast.Expr, blank []bool, spans []ast.Span)
 func (c *Checker) isCheckedForm(value ast.Expr) bool {
 	switch x := value.(type) {
 	case *ast.Binary:
-		return x.Op == ast.Div || x.Op == ast.Rem
+		return x.Op == ast.Div || x.Op == ast.Rem || isPlainArith(x)
+	case *ast.Unary:
+		return isPlainArith(x)
 	case *ast.Index, *ast.Slice, *ast.TypeAssert:
 		return true
 	case *ast.Call:

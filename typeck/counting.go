@@ -89,7 +89,7 @@ func wrapDrop(loop *ast.For, f fact) *drop {
 	return &drop{
 		kind: dropWraps,
 		at:   loop.Post.Spanned(),
-		text: prefix + "this step could wrap " + v.Name + " past " + past.String() +
+		text: prefix + "this step could take " + v.Name + " past " + past.String() +
 			", so the loop does not keep " + v.Name + " at or " + side + " " + start.String(),
 	}
 }

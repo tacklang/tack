@@ -76,11 +76,11 @@ func rest_rest(v []uint8) []uint8 {
 // count in ran: a view returned through the defers of two blocks.
 func deferred_rest(v []uint8, mut ran int64) []uint8 {
     defer {
-        ran++
+        ran +%= 1
     }
     if len(v) > 0 {
         defer {
-            ran += 10
+            ran +%= 10
         }
         return rest(v)
     }
@@ -97,7 +97,7 @@ func text_rest(t text.Text) []uint8 {
 func sum(v []uint8) int64 {
     mut n := 0
     for _, c := range v {
-        n += c
+        n +%= c
     }
     return n
 }
@@ -214,7 +214,7 @@ func methods() {
     check(!ok3 && c3 == 0, "checked negative index")
     mut n := 0
     for i, b := range t.bytes() {
-        n += i * b
+        n +%= i *% b
     }
     check(n == 0 * 104 + 1 * 101 + 2 * 108 + 3 * 108 + 4 * 111, "range over a method's view")
     check(count(t.bytes()...) == 5, "spread into a variadic")
@@ -265,7 +265,7 @@ func empties() {
     check(len(t.bytes()) == 0, "len of an empty list's view")
     mut n := 0
     for range t.bytes() {
-        n++
+        n +%= 1
     }
     check(n == 0, "range over an empty list's view")
     c, ok := t.bytes()[0]
@@ -331,3 +331,8 @@ func main() {
     deferred()
     freed("deferred freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

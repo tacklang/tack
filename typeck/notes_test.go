@@ -146,7 +146,7 @@ var droppedFactCases = []noteCase{
 			"func main() {",
 			"    mut d int64 = 4",
 			"    if d != 0 {",
-			"        d--",
+			"        d -%= 1",
 			"        code, fits := int32(8 / d)",
 			"        if fits { exit(code) }",
 			"    }",
@@ -238,8 +238,8 @@ var droppedFactCases = []noteCase{
 			"func main() {",
 			"    mut d int64 = 2",
 			"    if d != 0 {",
-			"        d++",
-			"        d--",
+			"        d +%= 1",
+			"        d -%= 1",
 			"        code, fits := int32(10 / d)",
 			"        if fits { exit(code) }",
 			"    }",
@@ -260,7 +260,7 @@ var droppedFactCases = []noteCase{
 			"    mut d int64 = 2",
 			"    if d != 0 {",
 			"        if d > 0 {",
-			"            d = 1",
+			"            d = d -% 1",
 			"            code, fits := int32(10 / d)",
 			"            if fits { exit(code) }",
 			"        }",
@@ -308,7 +308,7 @@ var droppedFactCases = []noteCase{
 			"    if d == 0 {",
 			"        exit(1)",
 			"    } else {",
-			"        d--",
+			"        d -%= 1",
 			"        exit(10 / d)",
 			"    }",
 			"}",
@@ -493,13 +493,14 @@ var droppedFactCases = []noteCase{
 			"    a := [3]int64{10, 20, 30}",
 			"    mut i int64 = first()",
 			"    mut sum int64 = 0",
-			"    for i < 3 { i++; sum += a[i] }",
+			"    for i < 3 { i +%= 1; sum += a[i] }",
 			"    code, fits := int32(sum)",
 			"    if fits { exit(code) }",
 			"}",
 			"",
 			"// first starts i at a value no fact bounds, so the loop keeps no",
-			"// bound on i, and nothing keeps i from being negative.",
+			"// bound on i, and nothing keeps i from being negative; i +%= 1",
+			"// gives i no bounds of its own, which a note would have to count.",
 			"func first() int64 { return 0 }",
 		),
 		noteIndexI,
@@ -670,43 +671,61 @@ func TestNoNoteWithoutAGuard(t *testing.T) {
 // error never proves anything, through each query a proof makes: the
 // interval of a divisor and of an index, the least length of a string, and
 // a bound by a string's length. Each program would compile if the dropped
-// fact counted.
+// fact counted, but for a counting loop's post, which the write that
+// drops its fact leaves unproven too, and is reported after the missing
+// proof (posts says how many such).
 func TestDroppedFactsProveNothing(t *testing.T) {
-	for _, tt := range []struct{ name, src string }{
-		{"divisor", inMain("mut d int64 = 2\n    if d != 0 {\n        d = 1\n        code, fits := int32(8 / d)\n        if fits { exit(code) }\n    }")},
+	for _, tt := range []struct {
+		name, src string
+		posts     int
+	}{
+		{"divisor", inMain("mut d int64 = 2\n    if d != 0 {\n        d = d -% 1\n        code, fits := int32(8 / d)\n        if fits { exit(code) }\n    }"), 0},
 		{
 			"compound divisor",
-			inMain("mut d int64 = 2\n    mut x int64 = 8\n    if d != 0 {\n        d = 1\n        x /= d\n    }\n    code, fits := int32(x)\n    if fits { exit(code) }"),
+			inMain("mut d int64 = 2\n    mut x int64 = 8\n    if d != 0 {\n        d = d -% 1\n        x /= d\n    }\n    code, fits := int32(x)\n    if fits { exit(code) }"),
+			0,
 		},
 		{
 			"array index",
-			inF2("a [3]int64, n int64", "mut i := n", "if 0 <= i && i < 3 {", "    i = 0", "    return a[i]", "}"),
+			inF2("a [3]int64, n int64", "mut i := n", "if 0 <= i && i < 3 {", "    i = n", "    return a[i]", "}"),
+			0,
 		},
 		{
 			"array write",
-			inF2("n int64", "mut a [3]int64", "mut i := n", "if 0 <= i && i < 3 {", "    i = 0", "    a[i] = 1", "}", "return a[0]"),
+			inF2("n int64", "mut a [3]int64", "mut i := n", "if 0 <= i && i < 3 {", "    i = n", "    a[i] = 1", "}", "return a[0]"),
+			0,
 		},
 		{
 			"least length",
 			inF8("t string", "mut s := t", "if len(s) > 0 {", "    s = \"x\"", "    return s[0]", "}"),
+			0,
 		},
 		{
 			"length bound",
 			inF8("t string, i int64", "mut s := t", "if 0 <= i && i < len(s) {", "    s = \"x\"", "    return s[i]", "}"),
+			0,
 		},
 		{
 			"length bound by a range",
 			inF8("t string", "mut s := t", "for i := range s {", "    s = \"x\"", "    return s[i]", "}"),
+			0,
 		},
 		{
 			"lower bound by a counting loop",
 			inF2("a [3]int64", "for mut i := 0; i < 3; i++ {", "    i += 0", "    return a[i]", "}"),
+			1,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			diags := check(t, tt.src)
-			if len(diags) != 1 {
-				t.Fatalf("got %v, want the one missing proof", diags)
+			if len(diags) != 1+tt.posts || !strings.HasPrefix(diags[0].Message, "index ") &&
+				!strings.HasPrefix(diags[0].Message, "divisor ") {
+				t.Fatalf("got %v, want the one missing proof and %d posts", diags, tt.posts)
+			}
+			for _, d := range diags[1:] {
+				if !strings.HasPrefix(d.Message, "i++ may overflow ") {
+					t.Errorf("got %v after the missing proof, want only a post", d)
+				}
 			}
 		})
 	}
@@ -721,7 +740,7 @@ func TestExplainingLeavesTheFactsAlone(t *testing.T) {
 		"if 0 <= i && i < 3 {",
 		"    i = n",
 		"    mut s := a[i]",
-		"    s += a[i]",
+		"    s +%= a[i]",
 		"    return s",
 		"}",
 		"return a[i]",
@@ -774,7 +793,7 @@ var otherCauseCases = []noteCase{
 		),
 		noteIndexI,
 		[]wantNote{{
-			"this step could wrap i past 127, so the loop does not keep i at or above 2",
+			"this step could take i past 127, so the loop does not keep i at or above 2",
 			"i += 126", 5, 32,
 		}},
 	},
@@ -783,7 +802,7 @@ var otherCauseCases = []noteCase{
 		inF2("a int64", "for mut i int8 = -2; i > -3; i -= 127 {", "    return a / i", "}"),
 		"divisor i may be zero; check i != 0 first, or use q, ok := ... / i",
 		[]wantNote{{
-			"this step could wrap i past -128, so the loop does not keep i at or below -2",
+			"this step could take i past -128, so the loop does not keep i at or below -2",
 			"i -= 127", 4, 34,
 		}},
 	},
@@ -895,7 +914,7 @@ var otherCauseCases = []noteCase{
 		[]wantNote{
 			{
 				"this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, " +
-					"or let a step of it wrap, so copy i + 1 into a variable and check it",
+					"or let a step of it overflow, so copy i + 1 into a variable and check it",
 				"0 <= i && i < 3",
 				4,
 				8,
@@ -909,7 +928,7 @@ var otherCauseCases = []noteCase{
 		[]wantNote{
 			{
 				"this guard bounds i, not i + k; the bounds of its operands do not prove i + k, " +
-					"or let a step of it wrap, so copy i + k into a variable and check it",
+					"or let a step of it overflow, so copy i + k into a variable and check it",
 				"0 <= i && i < 3",
 				5,
 				8,
@@ -923,7 +942,7 @@ var otherCauseCases = []noteCase{
 		[]wantNote{
 			{
 				"this guard bounds b, not b - 1; the bounds of its operands do not prove b - 1, " +
-					"or let a step of it wrap, so copy b - 1 into a variable and check it",
+					"or let a step of it overflow, so copy b - 1 into a variable and check it",
 				"b > 0",
 				4,
 				8,
@@ -959,7 +978,7 @@ var otherCauseCases = []noteCase{
 		[]wantNote{
 			{
 				"this guard bounds i, not i + 1; the bounds of its operands do not prove i + 1, " +
-					"or let a step of it wrap, so copy i + 1 into a variable and check it",
+					"or let a step of it overflow, so copy i + 1 into a variable and check it",
 				"0 <= i && i < 3",
 				5,
 				8,
@@ -1030,8 +1049,8 @@ func TestMixedComparisonsProveOnlyWhatTheyBound(t *testing.T) {
 // not a name, that no guard mentions keeps its error alone.
 func TestNoOtherNoteWithoutAGuard(t *testing.T) {
 	for _, src := range []string{
-		inF2("a [3]int64, i int64", "return a[i + 1]"),
-		inF2("a int64, b int64, c int64", "if c > 1 {", "    return a / (b - 1)", "}"),
+		inF2("a [3]int64, i int64", "return a[i +% 1]"),
+		inF2("a int64, b int64, c int64", "if c > 1 {", "    return a / (b -% 1)", "}"),
 		"package main\n\ntype P struct {\n    d int64\n}\n\n" +
 			"func f(n int64, p P, q P) int64 {\n    if q.d != 0 { return n / p.d }\n    return 0\n}\n\n" +
 			"func main() {\n}\n",
@@ -1153,13 +1172,16 @@ func TestUnprovenLengthsGetNoNote(t *testing.T) {
 
 // TestPhantomFactsProveNothing checks that a fact that would hold but for
 // how its region is written, in a counting loop whose step could wrap,
-// proves nothing.
+// proves nothing: the index is reported, and so is the step, which is not
+// proven not to overflow.
 func TestPhantomFactsProveNothing(t *testing.T) {
 	for _, src := range []string{
 		inF2("a [3]int64", "for mut i int8 = 2; i < 3; i += 126 {", "    return a[i]", "}"),
 	} {
-		if diags := check(t, src); len(diags) != 1 {
-			t.Errorf("%q: got %v, want the one missing proof", src, diags)
+		diags := check(t, src)
+		if len(diags) != 2 || !strings.HasPrefix(diags[0].Message, "index i ") ||
+			!strings.HasPrefix(diags[1].Message, "i += 126 may overflow int8") {
+			t.Errorf("%q: got %v, want the one missing proof and the step", src, diags)
 		}
 	}
 }
@@ -1272,7 +1294,7 @@ func TestSignedIndexLowerBoundNotes(t *testing.T) {
 			noteIndexI,
 			[]wantNote{
 				{
-					"this step could wrap i past 9223372036854775807, so the loop does not keep i at or above 2",
+					"this step could take i past 9223372036854775807, so the loop does not keep i at or above 2",
 					"i++",
 					5,
 					34,

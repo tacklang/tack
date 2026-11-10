@@ -5,9 +5,14 @@ import lexer from "calc/lexer"
 
 // A second main package of the module, sharing its libraries.
 func main() {
-    code, ok := int32(one.Depth() * 10 + lexer.MaxTokens)
+    code, ok := int32(one.Depth() *% 10 +% lexer.MaxTokens)
     if !ok {
         exit(1)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

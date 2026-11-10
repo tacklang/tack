@@ -221,10 +221,12 @@ punctuation:
 /    <<   /=   <<=  ++   =    :=   ,    ;
 %    >>   %=   >>=  --   !    ...  .    :
      &^        &^=                 ~
++%   -%   *%   +%=  -%=  *%=
 ```
 
 At each position the longest sequence that is a token is taken, so
-`a<<=b` is `a`, `<<=` and `b`, and `x---y` is `x`, `--`, `-` and `y`. A
+`a<<=b` is `a`, `<<=` and `b`, `x---y` is `x`, `--`, `-` and `y`, and
+`a+%=b` is `a`, `+%=` and `b`. A
 period followed by a decimal digit starts a float literal, not a period.
 Every token above is lexed; which of them the grammar uses, and where,
 is in [Expressions](06-expressions.md) and [Statements](07-statements.md),

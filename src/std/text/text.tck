@@ -73,12 +73,11 @@ pub func (t Text) equal(s []uint8) bool {
 // 0x100000001b3, the multiplication wrapping at 64 bits. No bytes hash to
 // the offset basis, "a" to 0xaf63dc4c8601ec8c and "foobar" to
 // 0x85944171f73967e8. Equal Texts hash alike, however they were built.
-// The multiplication wraps because h is mut, whose value the compiler
-// never knows.
+// The multiplication is *%, which wraps at 64 bits.
 pub func (t Text) hash() uint64 {
     mut h := fnv_offset
     for _, c := range t.b {
-        h = (h ^ uint64(c)) * fnv_prime
+        h = (h ^ uint64(c)) *% fnv_prime
     }
     return h
 }

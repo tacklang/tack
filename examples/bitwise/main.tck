@@ -4,7 +4,7 @@ package main
 // one, and << >> by an unsigned count. A count at or past the width
 // shifts every bit out: << gives 0, and >> gives 0, or -1 for a negative
 // signed value, whose >> copies the sign bit in. << wraps at the width, as
-// + does. Every operand goes through a function, so each check runs at
+// +% does. Every operand goes through a function, so each check runs at
 // run time, and the compound forms are checked beside the operators.
 //
 // Every check prints its name and "ok", or "FAIL".
@@ -129,7 +129,7 @@ func fnv(s string) uint64 {
     mut h uint64 = 14695981039346656037
     for _, c := range s {
         h ^= uint64(c)
-        h *= 1099511628211
+        h *%= 1099511628211
     }
     return h
 }

@@ -138,7 +138,7 @@ func held() {
     }
     mut total := 0
     for _, f := range fs {
-        total = total + f.detail.len()
+        total = total +% f.detail.len()
     }
     check(len(fs) == 3 && total == 6, "a list of Failures")
     last, ok := pop(mut fs)
@@ -153,7 +153,7 @@ func held() {
     mut paths := 0
     for _, f := range m {
         if f.detail.equal([]uint8("/c")) || f.detail.equal([]uint8("/b")) {
-            paths++
+            paths +%= 1
         }
     }
     check(paths == 2, "a replaced Failure freed, the new one held")
@@ -219,3 +219,8 @@ func main() {
     failures()
     check(live() == 0, "nothing left after failures")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

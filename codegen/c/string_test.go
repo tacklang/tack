@@ -42,8 +42,8 @@ func TestStringComparisonsMatchGo(t *testing.T) {
 		"func bit(b bool, n int64) int64 {\n    if b {\n        return n\n    }\n    return 0\n}\n\n",
 	)
 	src.WriteString("func compareBits(a string, b string) int64 {\n")
-	src.WriteString("    return bit(a == b, 1) + bit(a != b, 2) + bit(a < b, 4) +\n")
-	src.WriteString("        bit(a <= b, 8) + bit(a > b, 16) + bit(a >= b, 32)\n}\n\n")
+	src.WriteString("    return bit(a == b, 1) | bit(a != b, 2) | bit(a < b, 4) |\n")
+	src.WriteString("        bit(a <= b, 8) | bit(a > b, 16) | bit(a >= b, 32)\n}\n\n")
 	src.WriteString("func main() {\n")
 	pair := 0
 	for _, a := range comparedStrings {
@@ -143,7 +143,7 @@ var stringCompareCases = []struct {
 			"mut w := \"apple\"",
 			"mut n := 0",
 			"for w < \"b\" {",
-			"    n++",
+			"    n +%= 1",
 			"    if n == 1 {",
 			"        w = \"apricot\"",
 			"    } else {",

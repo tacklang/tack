@@ -24,12 +24,12 @@ const (
 	revDecl = `func rev[T Any](mut l list[T]) {
     mut i := 0
     mut j := len(l) - 1
-    for i < j {
-        if 0 <= i && i < len(l) && 0 <= j && j < len(l) {
-            swap(mut l, i, j)
-        }
-        i += 1
-        j -= 1
+    for 0 <= i && i < j && j < len(l) {
+        swap(mut l, i, j)
+        next := i + 1
+        prev := j - 1
+        i = next
+        j = prev
     }
 }
 `

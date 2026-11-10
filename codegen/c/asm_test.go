@@ -17,11 +17,11 @@ type Twice struct {
 }
 
 func (t Twice) asm() int64 {
-    return t.n * 2
+    return t.n *% 2
 }
 
 func inc(asm int64) int64 {
-    return asm + 1
+    return asm +% 1
 }
 
 func check(cond bool, name string) {
@@ -49,7 +49,7 @@ func main() {
 const asmFuncProgram = `package main
 
 func asm(n int64) int64 {
-    return n * 3
+    return n *% 3
 }
 
 func main() {

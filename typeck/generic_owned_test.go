@@ -32,7 +32,7 @@ func TestAcceptsOwnedTypeParams(t *testing.T) {
 			"err := move(mut a, mut b)", "if err.code != 0 {", "}")},
 		{"a view of T and a function of T", ownedProgram(
 			"func count[T Any](v []T, f func(T) bool) int64 {\n    mut n := 0\n    for _, x := range v {\n"+
-				"        if f(x) {\n            n += 1\n        }\n    }\n    return n\n}\n\n"+
+				"        if f(x) {\n            n +%= 1\n        }\n    }\n    return n\n}\n\n"+
 				"func big(b Box) bool {\n    return b.size() > 1\n}",
 			"l := make(list[Box], c_allocator)", "if count(l, big) > 0 {", "}")},
 		{"a result of T made by a function value", ownedProgram(
@@ -52,11 +52,11 @@ func TestAcceptsOwnedTypeParams(t *testing.T) {
 			"mut l := make(list[Box], c_allocator)", "drain(mut l)")},
 		{"type arguments that are no struct", ownedProgram(
 			"func turn[T Any](mut l list[T]) {\n    if len(l) > 1 {\n        swap(mut l, 0, 1)\n    }\n}\n\n"+
-				"func one[E Any](e E) int64 {\n    return 1\n}\n\nfunc twice(x int64) int64 {\n    return x * 2\n}",
+				"func one[E Any](e E) int64 {\n    return 1\n}\n\nfunc twice(x int64) int64 {\n    return x *% 2\n}",
 			"mut a := make(list[int64], c_allocator)", "mut b := make(list[list[int64]], c_allocator)",
 			"mut c := make(list[func(int64) int64], c_allocator)", "mut d := make(list[map[string]Box], c_allocator)",
 			"turn(mut a)", "turn(mut b)", "turn(mut c)", "turn(mut d)",
-			"if one(noerror) + one(twice) + one(c_allocator) > 0 {", "}")},
+			"if one(noerror) +% one(twice) +% one(c_allocator) > 0 {", "}")},
 		{"a type parameter passed on whole", ownedProgram(
 			"func inner[U Any](mut l list[U]) int64 {\n    return len(l)\n}\n\n"+
 				"func outer[T Any](mut l list[T]) int64 {\n    return inner(mut l)\n}",
@@ -65,7 +65,7 @@ func TestAcceptsOwnedTypeParams(t *testing.T) {
 			"func split[T Any](mut l list[T], mk func() T) (T, int64) {\n    if len(l) > 0 {\n"+
 				"        return pop(mut l), len(l)\n    }\n    return mk(), 0\n}\n\n"+
 				"func box() Box {\n    return Box{items: make(list[int64], c_allocator)}\n}",
-			"mut l := make(list[Box], c_allocator)", "b, n := split(mut l, box)", "if b.size() + n > 0 {", "}")},
+			"mut l := make(list[Box], c_allocator)", "b, n := split(mut l, box)", "if b.size() +% n > 0 {", "}")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if diags := check(t, tt.src); len(diags) > 0 {

@@ -31,11 +31,11 @@ type Handler union {
 }
 
 func double(x int64) int64 {
-    return x * 2
+    return x *% 2
 }
 
 func bump(mut n int64) {
-    n = n + 1
+    n = n +% 1
 }
 
 func total(v []int64) int64 {
@@ -75,7 +75,7 @@ func higher(g func(int64) int64, x int64) int64 {
 func TestAcceptsFuncValues(t *testing.T) {
 	for _, tt := range []struct{ name, src string }{
 		{"a local and a parameter", funcProgram("g func(int64) int64",
-			"h := double", "if g(1) + h(2) > 0 {", "}")},
+			"h := double", "if g(1) +% h(2) > 0 {", "}")},
 		{"a mut parameter reassigned", funcProgram("mut g func(int64) int64",
 			"g = double", "if g(1) > 0 {", "}")},
 		{"mut arguments and views", funcProgram("mut l list[int64]",
@@ -83,7 +83,7 @@ func TestAcceptsFuncValues(t *testing.T) {
 			"err := push(mut l, n)", "if err.code != 0 || sum(l) > 0 {", "}")},
 		{"owned results, several, with their error checked", funcProgram("",
 			"mk := fresh", "l := mk()", "two := pair", "m, err := two()", "if err.code != 0 {", "    return", "}",
-			"if len(l) + len(m) > 0 {", "}")},
+			"if len(l) +% len(m) > 0 {", "}")},
 		{"a borrowed owned argument", funcProgram("b Bag", "size := sizeOf", "if size(b) > 0 {", "}")},
 		{"a struct holding a function of itself", funcProgram("",
 			"n := Node{n: 1, visit: visitor}", "v := n.visit", "if v(n) > 0 {", "}")},
@@ -92,9 +92,9 @@ func TestAcceptsFuncValues(t *testing.T) {
 		{"an array, a list and a map", funcProgram("",
 			"a := [2]func(int64) int64{double, double}", "mut l := make(list[func(int64) int64], c_allocator)",
 			"e1 := append(mut l, double)", "mut m := make(map[string]func(int64) int64, c_allocator)",
-			"e2 := put(mut m, \"d\", double)", "mut n := 0", "for _, g := range l {", "    n += g(1)", "}",
-			"if has(m, \"d\") {", "    g := m[\"d\"]", "    n += g(1)", "}",
-			"g := a[1]", "if e1.code != 0 || e2.code != 0 || n + g(1) > 0 {", "}")},
+			"e2 := put(mut m, \"d\", double)", "mut n := 0", "for _, g := range l {", "    n +%= g(1)", "}",
+			"if has(m, \"d\") {", "    g := m[\"d\"]", "    n +%= g(1)", "}",
+			"g := a[1]", "if e1.code != 0 || e2.code != 0 || n +% g(1) > 0 {", "}")},
 		{"a union's payload", funcProgram("h Handler",
 			"switch h {", "case call(g):", "    if g(1) > 0 {", "    }", "case none:", "}")},
 		{"a checked pop, its value read once ok is", funcProgram("mut l list[func(int64) int64]",
@@ -106,7 +106,7 @@ func TestAcceptsFuncValues(t *testing.T) {
 		{"a value passed to a generic function", "package main\n\ntype Sizer interface {\n    size() int64\n}\n\n" +
 			"type Box struct {\n    n int64\n    scale func(int64) int64\n}\n\nfunc (b Box) size() int64 {\n" +
 			"    s := b.scale\n    return s(b.n)\n}\n\nfunc measure[S Sizer](s S, g func(int64) int64) int64 {\n" +
-			"    return g(s.size())\n}\n\nfunc double(x int64) int64 {\n    return x * 2\n}\n\n" +
+			"    return g(s.size())\n}\n\nfunc double(x int64) int64 {\n    return x *% 2\n}\n\n" +
 			"func main() {\n    if measure(Box{n: 1, scale: double}, double) > 0 {\n    }\n}\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestRejectsFuncValues(t *testing.T) {
 		{"a string where a byte view is", "package main\n\nfunc count(b []uint8) int64 {\n    return len(b)\n}\n\n" +
 			"func main() {\n    c := count\n    if c(\"ab\") > 0 {\n    }\n}\n", "cannot use string as []uint8 in argument to c; view its bytes with []uint8(\"ab\")"},
 		{"a function value as a type argument", "package main\n\ntype Sizer interface {\n    size() int64\n}\n\n" +
-			"func measure[S Sizer](s S) int64 {\n    return s.size()\n}\n\nfunc double(x int64) int64 {\n    return x * 2\n}\n\n" +
+			"func measure[S Sizer](s S) int64 {\n    return s.size()\n}\n\nfunc double(x int64) int64 {\n    return x *% 2\n}\n\n" +
 			"func main() {\n    if measure(double) > 0 {\n    }\n}\n", "func(int64) int64 does not satisfy Sizer: func(int64) int64 has no method size"},
 		{"a conversion", funcProgram("", "g := double", "n := int64(g)", "if n > 0 {", "}"), "cannot convert func(int64) int64 to int64"},
 		{"an operator", funcProgram("", "g := double", "h := double", "if g != h {", "}"), "operator != is not defined on func(int64) int64"},

@@ -22,13 +22,13 @@ var greeting = "hi"
 
 // bump adds one to counter and returns it.
 func bump() int64 {
-    counter++
+    counter +%= 1
     return counter
 }
 
 // twice returns n doubled.
 func twice(n int64) int64 {
-    return n * 2
+    return n *% 2
 }
 
 // show prints format with args, a format the compiler does not know, so
@@ -64,7 +64,7 @@ func depth(n int64, a any) {
         fmt.printf("bottom %v\n", a)
         return
     }
-    depth(n - 1, a)
+    depth(n -% 1, a)
 }
 
 // firstOf prints the first of args, an element of the view passed on,
@@ -156,3 +156,8 @@ func main() {
     fmt.printf("\n")
     show("%v %x\n", size, -1)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

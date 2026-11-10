@@ -1,0 +1,25 @@
+int8 max +% 1, min -% 1, min *% -1, -%min ok
+int8 more edges ok
+int16 edges ok
+int32 edges ok
+int32 products past the width ok
+int64 max +% 1, min -% 1, min *% -1, -%min ok
+int64 more edges ok
+int64 products past the width ok
+uint8 edges ok
+uint16 edges ok
+uint32 edges ok
+uint64 edges ok
+uint64 products past the width ok
+-% on unsigned values ok
+compound forms wrap ok
+a uint8 counted past 255 ok
+every int8 pair, low bits of the exact result ok
+every uint8 pair, the exact result modulo 256 ok
++% then -% gives back the start ok
+unsigned, across 0 ok
+precedence and left association, as + - * ok
+no spaces ok
+% alone is still the remainder ok
+int8 and int64 wrap as int64 ok
+on known values ok

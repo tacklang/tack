@@ -100,7 +100,7 @@ func sumThenDrain(mut l list[int64]) int64 {
         if top < 0 || top >= len(l) {
             break
         }
-        sum += l[top] + l[0]
+        sum +%= l[top] +% l[0]
         pop(mut l)
     }
     return sum
@@ -114,7 +114,7 @@ func appended(mut l list[int64]) int64 {
     if err.code != 0 {
         return -1
     }
-    return l[1] * 100 + 10 % len(l)
+    return l[1] *% 100 +% 10 % len(l)
 }
 
 // spread appends a three-element array to an empty list and returns its
@@ -140,9 +140,9 @@ func dropped() int64 {
     mut empty := make(list[int64], c_allocator)
     pop(mut empty)
     remove(mut empty, 0)
-    mut joined := len(empty) * 1000
+    mut joined := len(empty) *% 1000
     for _, x := range l {
-        joined = joined * 10 + x
+        joined = joined *% 10 +% x
     }
     return joined
 }
@@ -188,7 +188,7 @@ func moved(mut i int64) int64 {
 
 // next moves i on by one and returns 7.
 func next(mut i int64) int64 {
-    i += 1
+    i +%= 1
     return 7
 }
 
@@ -225,7 +225,7 @@ func assigned() bool {
     }
     mut k := 0
     if 0 <= i && i < len(l) {
-        l[i] += moved(mut k)
+        l[i] +%= moved(mut k)
     }
     mut a := [3]int64{0, 0, 0}
     mut grid := [2][3]int64{[3]int64{0, 0, 0}, [3]int64{0, 0, 0}}
@@ -250,7 +250,7 @@ func assigned() bool {
     }
     mut tags := 0
     for _, sp := range spots {
-        tags = tags * 10 + sp.tag
+        tags = tags *% 10 +% sp.tag
     }
     want := [3]int64{0, 8, 2}
     mut same := len(l) == 3
@@ -298,3 +298,8 @@ func main() {
     check(assigned(), "each value that writes an index computed before it is proven")
     check(live() == before, "every assigned list freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

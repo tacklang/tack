@@ -13,7 +13,7 @@ var banner = `raw
 func sum(s string) int64 {
     mut n := 0
     for _, b := range s {
-        n += int64(b)
+        n +%= int64(b)
     }
     return n
 }
@@ -64,9 +64,14 @@ b`
     }
 
     print(banner)
-    code, ok := int32(sum(`\t`) - sum("\\"))
+    code, ok := int32(sum(`\t`) -% sum("\\"))
     if !ok {
         exit(10)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

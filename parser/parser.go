@@ -1351,6 +1351,9 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.MulAssign,
 		lexer.DivAssign,
 		lexer.ModAssign,
+		lexer.AddWrapAssign,
+		lexer.SubWrapAssign,
+		lexer.MulWrapAssign,
 		lexer.BitAndAssign,
 		lexer.BitOrAssign,
 		lexer.BitXorAssign,
@@ -2162,6 +2165,10 @@ var compoundOps = map[lexer.TokenKind]ast.BinaryOp{
 	lexer.DivAssign: ast.Div,
 	lexer.ModAssign: ast.Rem,
 
+	lexer.AddWrapAssign: ast.AddWrap,
+	lexer.SubWrapAssign: ast.SubWrap,
+	lexer.MulWrapAssign: ast.MulWrap,
+
 	lexer.BitAndAssign:     ast.BitAnd,
 	lexer.BitOrAssign:      ast.BitOr,
 	lexer.BitXorAssign:     ast.BitXor,
@@ -2952,10 +2959,10 @@ func (p *Parser) parseReturn() (*ast.Return, []diag.Diagnostic) {
 // is not one. Higher binds tighter, following Go's ordering.
 func precedence(kind lexer.TokenKind) int {
 	switch kind {
-	case lexer.Mul, lexer.Div, lexer.Mod,
+	case lexer.Mul, lexer.Div, lexer.Mod, lexer.MulWrap,
 		lexer.ShiftLeft, lexer.ShiftRight, lexer.BitAnd, lexer.BitAndNot:
 		return 5
-	case lexer.Add, lexer.Sub, lexer.BitOr, lexer.BitXor:
+	case lexer.Add, lexer.Sub, lexer.AddWrap, lexer.SubWrap, lexer.BitOr, lexer.BitXor:
 		return 4
 	case lexer.Equal,
 		lexer.NotEqual,
@@ -2979,6 +2986,9 @@ var binaryOps = map[lexer.TokenKind]ast.BinaryOp{
 	lexer.Mul:          ast.Mul,
 	lexer.Div:          ast.Div,
 	lexer.Mod:          ast.Rem,
+	lexer.AddWrap:      ast.AddWrap,
+	lexer.SubWrap:      ast.SubWrap,
+	lexer.MulWrap:      ast.MulWrap,
 	lexer.Equal:        ast.Eq,
 	lexer.NotEqual:     ast.Ne,
 	lexer.Less:         ast.Lt,
@@ -3042,6 +3052,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseUnary(ast.Not)
 	case tk.Kind() == lexer.Sub:
 		return p.parseUnary(ast.Neg)
+	case tk.Kind() == lexer.SubWrap:
+		return p.parseUnary(ast.NegWrap)
 	case tk.Kind() == lexer.BitXor:
 		return p.parseUnary(ast.Complement)
 	case isKeyword(tk, lexer.Mut):

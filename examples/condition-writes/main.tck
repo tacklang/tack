@@ -95,7 +95,7 @@ func loopDivisor() int64 {
     mut d int64 = 8
     mut sum int64 = 0
     for halve(mut d) && d != 0 {
-        sum += 64 / d
+        sum +%= 64 / d
     }
     return sum
 }
@@ -110,3 +110,8 @@ func main() {
     check(inLeavingCase(3) == 1, "case that leaves taken")
     check(loopDivisor() == 16 + 32 + 64, "loop condition writes then proves")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

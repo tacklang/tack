@@ -40,7 +40,7 @@ func check(cond bool, name string) {
 func sum(v []int64) int64 {
     mut total int64 = 0
     for mut i int64 = 0; i < len(v); i++ {
-        total += v[i]
+        total +%= v[i]
     }
     return total
 }
@@ -49,7 +49,7 @@ func sum(v []int64) int64 {
 func sumRange(v []int64) int64 {
     mut total int64 = 0
     for _, x := range v {
-        total += x
+        total +%= x
     }
     return total
 }
@@ -59,7 +59,7 @@ func sumRange(v []int64) int64 {
 func sumByIndex(v []int64) int64 {
     mut total int64 = 0
     for i := range v {
-        total += v[i]
+        total +%= v[i]
     }
     return total
 }
@@ -68,7 +68,7 @@ func sumByIndex(v []int64) int64 {
 func countRange(v []int64) int64 {
     mut n int64 = 0
     for range v {
-        n++
+        n +%= 1
     }
     return n
 }
@@ -83,7 +83,7 @@ func count(b []uint8, c uint8) int64 {
     mut n int64 = 0
     for i, x := range b {
         if x == c && b[i] == c {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -104,7 +104,7 @@ func firstTwo(v []int64) int64 {
     if len(v) < 2 {
         return -1
     }
-    return v[0] + v[1]
+    return v[0] +% v[1]
 }
 
 // guarded returns v[i] when the guard proves it, and -1 otherwise.
@@ -119,7 +119,7 @@ func guarded(v []int64, i int64) int64 {
 func sumXs(v []Point) int64 {
     mut total int64 = 0
     for i := range v {
-        total += v[i].x
+        total +%= v[i].x
     }
     return total
 }
@@ -129,10 +129,10 @@ func sumXs(v []Point) int64 {
 func gridSum(rows [][3]int64) int64 {
     mut total int64 = 0
     for i := range rows {
-        total += sum(rows[i])
+        total +%= sum(rows[i])
     }
     for _, row := range rows {
-        total += sumRange(row)
+        total +%= sumRange(row)
     }
     return total / 2
 }
@@ -181,7 +181,7 @@ func firstPlus(v []int64, n int64) int64 {
     if !ok {
         return n
     }
-    return x + n
+    return x +% n
 }
 
 // changeTable changes the global table, then reads v, which the caller
@@ -208,7 +208,7 @@ func bools(v []bool) int64 {
     mut n int64 = 0
     for _, b := range v {
         if b {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -218,7 +218,7 @@ func bools(v []bool) int64 {
 func joined(v []string) int64 {
     mut n int64 = 0
     for _, s := range v {
-        n += len(s)
+        n +%= len(s)
     }
     return n
 }
@@ -232,7 +232,7 @@ func sizes(v []unsafe_size_t) int64 {
         if !ok {
             return -1
         }
-        n += k
+        n +%= k
     }
     return n
 }
@@ -292,3 +292,8 @@ func main() {
     ns := [2]unsafe_size_t{4, 5}
     check(sizes(ns) == 9, "view of unsafe_size_t")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

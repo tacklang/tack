@@ -38,7 +38,7 @@ var hidden int64 = 4
 
 pub func First() Token {
     c := cursor{at: hidden}
-    return Token{kind: KindNumber, start: c.at, end: c.at + 1}
+    return Token{kind: KindNumber, start: c.at, end: c.at +% 1}
 }
 
 lib func Line(p Pos) int64 {
@@ -67,7 +67,7 @@ func main() {
     if w != t || z == t || t.start != 4 || z.kind != 0 {
         exit(1)
     }
-    code, fits := int32(t.kind + lexer.Limit + lexer.Line(p) + lexer.Line(lexer.Origin) + p.line)
+    code, fits := int32(t.kind +% lexer.Limit +% lexer.Line(p) +% lexer.Line(lexer.Origin) +% p.line)
     if fits { exit(code) }
 }
 `)},
@@ -128,7 +128,7 @@ import lexer from "calc/lexer"
 
 func main() {
     var p lexer.Pos
-    exit(lexer.Line(p) + lexer.Limit + lexer.First().kind)
+    exit(lexer.Line(p) +% lexer.Limit +% lexer.First().kind)
 }
 `)
 	got := messages(resolver.New(res.Program, stdtest.MustBuiltins()).Resolve())
@@ -155,7 +155,7 @@ func main() {
     mut t lexer.Token
     t.start = 1
     u := lexer.Token{kind: 1, start: 0, end: 0}
-    exit(t.kind + t.start + u.kind)
+    exit(t.kind +% t.start +% u.kind)
 }
 `)
 	if diags := resolver.New(res.Program, stdtest.MustBuiltins()).Resolve(); len(diags) > 0 {

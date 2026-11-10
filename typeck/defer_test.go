@@ -25,11 +25,11 @@ var acceptedDefers = []struct {
 			"mut b := a",
 			"mut p := P{x: 1}",
 			"defer { b[0] = 2 }",
-			"defer { p.x++ }",
-			"return b[1] + p.x",
+			"defer { p.x +%= 1 }",
+			"return b[1] +% p.x",
 		),
 	},
-	{"multi-assign", inF("mut x := 1", "mut y := 2", "defer { x, y = pair() }", "return x + y")},
+	{"multi-assign", inF("mut x := 1", "mut y := 2", "defer { x, y = pair() }", "return x +% y")},
 	{"empty block", inF("defer {", "}", "return 0")},
 	{
 		"every statement in a block",
@@ -115,7 +115,7 @@ var acceptedDefers = []struct {
 	},
 	{
 		"reads a mutable variable at exit",
-		inF("mut x := 1", "defer { report() }", "defer { x = x + n }", "return x"),
+		inF("mut x := 1", "defer { report() }", "defer { x = x +% n }", "return x"),
 	},
 	{
 		"the defer changes the divisor after dividing by it",
@@ -302,7 +302,7 @@ var rejectedDefers = []struct {
 			"mut e := d",
 			"if e != 0 {",
 			"    defer {",
-			"        e--",
+			"        e -%= 1",
 			"        e = n / e",
 			"    }",
 			"}",

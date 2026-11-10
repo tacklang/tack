@@ -24,7 +24,7 @@ func pair() (int64, int64) {
 
 func main() {
     a, b := pair()
-    code, fits := int32(a + b + origin.x)
+    code, fits := int32(a +% b + origin.x)
     if fits { exit(code) }
 }
 `)

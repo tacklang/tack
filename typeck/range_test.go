@@ -16,7 +16,7 @@ var invalidRangeCases = []struct {
 }{
 	{
 		"two names over a count",
-		inMain("for i, x := range 3 {\n        exit(i + x)\n    }"),
+		inMain("for i, x := range 3 {\n        exit(i +% x)\n    }"),
 		[]spanned{
 			{
 				"assignment mismatch: 2 variables but range over int64 gives 1 value",
@@ -36,12 +36,12 @@ var invalidRangeCases = []struct {
 	},
 	{
 		"two names over a bool",
-		inMain("for i, x := range true {\n        exit(i + x)\n    }"),
+		inMain("for i, x := range true {\n        exit(i +% x)\n    }"),
 		[]spanned{{"cannot range over bool", "true"}},
 	},
 	{
 		"several results",
-		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range two() {\n        exit(i + x)\n    }\n}\n",
+		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range two() {\n        exit(i +% x)\n    }\n}\n",
 		[]spanned{{"two returns 2 values", "two()"}},
 	},
 	{
@@ -71,13 +71,13 @@ var invalidRangeCases = []struct {
 	{
 		"array index assigned",
 		inMain(
-			"for i, x := range [2]int64{1, 2} {\n        i = 1\n        code, fits := int32(i + x)\n        if fits { exit(code) }\n    }",
+			"for i, x := range [2]int64{1, 2} {\n        i = 1\n        code, fits := int32(i +% x)\n        if fits { exit(code) }\n    }",
 		),
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
 		"index assigned with several",
-		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range \"ab\" {\n        mut y := 0\n        y, i = two()\n        code, fits := int32(i + x + y)\n        if fits { exit(code) }\n    }\n}\n",
+		"package main\n\nfunc two() (int64, int64) {\n    return 1, 2\n}\n\nfunc main() {\n    for i, x := range \"ab\" {\n        mut y := 0\n        y, i = two()\n        code, fits := int32(i +% x +% y)\n        if fits { exit(code) }\n    }\n}\n",
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
 	{
@@ -103,7 +103,7 @@ var invalidRangeCases = []struct {
 	{
 		"assigned",
 		inMain(
-			"for i := range 3 {\n        i++\n        code, fits := int32(i)\n        if fits { exit(code) }\n    }",
+			"for i := range 3 {\n        i +%= 1\n        code, fits := int32(i)\n        if fits { exit(code) }\n    }",
 		),
 		[]spanned{{"cannot assign to immutable variable i", "i"}},
 	},
@@ -122,7 +122,7 @@ var invalidRangeCases = []struct {
 // TestRangeLoops checks the count is an int, the variable an immutable int,
 // and the body a loop body.
 func TestRangeLoops(t *testing.T) {
-	src := "package main\n\nfunc main() {\n    for i := range 3 {\n        if i == 1 {\n            continue\n        }\n        code, fits := int32(i + 1)\n        if fits { exit(code) }\n    }\n}\n"
+	src := "package main\n\nfunc main() {\n    for i := range 3 {\n        if i == 1 {\n            continue\n        }\n        code, fits := int32(i +% 1)\n        if fits { exit(code) }\n    }\n}\n"
 	file, diags := checkTree(t, src)
 	if len(diags) > 0 {
 		t.Fatalf("got %v, want no diagnostics", diags)
@@ -166,13 +166,13 @@ var rangeTypeCases = []struct {
 }{
 	{
 		"array",
-		"a := [3]int64{1, 2, 3}\n    for i, x := range a {\n        code, fits := int32(i + x)\n        if fits { exit(code) }\n    }",
+		"a := [3]int64{1, 2, 3}\n    for i, x := range a {\n        code, fits := int32(i +% x)\n        if fits { exit(code) }\n    }",
 		"int64",
 		"int64",
 	},
 	{
 		"array of bytes",
-		"for i, x := range [2]uint8{1, 2} {\n        code, fits := int32(i + x)\n        if fits { exit(code) }\n    }",
+		"for i, x := range [2]uint8{1, 2} {\n        code, fits := int32(i +% x)\n        if fits { exit(code) }\n    }",
 		"int64",
 		"uint8",
 	},
@@ -202,7 +202,7 @@ var rangeTypeCases = []struct {
 	},
 	{
 		"empty array",
-		"for i, x := range [0]int64{} {\n        code, fits := int32(i + x)\n        if fits { exit(code) }\n    }",
+		"for i, x := range [0]int64{} {\n        code, fits := int32(i +% x)\n        if fits { exit(code) }\n    }",
 		"int64",
 		"int64",
 	},

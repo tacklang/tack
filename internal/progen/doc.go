@@ -22,9 +22,12 @@
 // union, a few functions, methods among them, and run, and main calls
 // setup, then run, then checks live is 0, printing "leak" and exiting 3
 // when it is not, and prints a checksum: every value the program observes,
-// through obs, obsu or obsb, folded into h as h = h * 31 + v.
+// through obs, obsu or obsb, folded into h as h = h *% 31 +% v, which
+// wraps at 64 bits.
 //
-// What it writes: integers of every fixed width, with wrapping arithmetic,
+// What it writes: integers of every fixed width, with the wrapping
+// operators +% -% *% and -%x, their compound forms, and +%= 1 and -%= 1 for
+// steps, since plain arithmetic needs a proof that it fits,
 // bitwise operators and shifts, comparisons across types, bools, strings,
 // arrays, structs, unions with switches, lists and maps with every builtin
 // on them (make, append, pop, put, delete, has, swap, len and range),
@@ -60,7 +63,8 @@
 //
 // The generator builds the interpreter's run of a program as it writes it:
 // each expression and statement carries, beside its text, a Go closure
-// that computes it as Tack does, integers wrapping at their width, the
+// that computes it as Tack does, the wrapping operators wrapping at their
+// width, the
 // smallest signed value divided by -1 being itself, a shift past the
 // width shifting every bit out, maps iterating in insertion order, defers
 // running when their block is left, the last first. Program.Expect runs

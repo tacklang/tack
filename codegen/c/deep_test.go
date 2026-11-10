@@ -123,8 +123,8 @@ func (d *deepWriter) check(cond, name string) {
 
 // deepProgram returns a program that computes, and checks, expressions
 // nested as deeply as s says, in every shape and place that keeps an
-// expression's parts in one C expression: chains of + - and * of every
-// sized integer type, wrapping, left and right nested; mixed operators
+// expression's parts in one C expression: chains of the wrapping +% -%
+// and *% of every sized integer type, left and right nested; mixed operators
 // with division; nested calls and unary minuses; chains whose parts run
 // in order around calls that change what other parts read; && and ||
 // chains, and a chain inside the right side of && that must not run when
@@ -140,9 +140,9 @@ func deepProgram(s deepSizes) string {
 	d.decl("type Pair struct {\n    a int64\n    b int64\n}")
 	d.decl("func check(cond bool, name string) {\n    print(name)\n    if cond {\n" +
 		"        print(\" ok\\n\")\n    } else {\n        print(\" FAIL\\n\")\n    }\n}")
-	d.decl("func inc(v int64) int64 {\n    return v + 1\n}")
-	d.decl("func sub(a int64, b int64) int64 {\n    return a - b\n}")
-	d.decl("func tick(mut c int64) int64 {\n    c += 1\n    return c\n}")
+	d.decl("func inc(v int64) int64 {\n    return v +%% 1\n}")
+	d.decl("func sub(a int64, b int64) int64 {\n    return a -%% b\n}")
+	d.decl("func tick(mut c int64) int64 {\n    c +%%= 1\n    return c\n}")
 	for _, t := range intTypes {
 		d.chains(t)
 	}
@@ -160,21 +160,21 @@ func deepProgram(s deepSizes) string {
 	return d.b.String()
 }
 
-// chains writes chains of + - and * of type t, left nested, each of
+// chains writes chains of +% -% and *% of type t, left nested, each of
 // s.chain terms, and checks each wraps as t does; for a 64-bit t, also
-// one of +, right nested. The chains of + and - add 100 each time, and
-// of * multiply by 3, so even short ones wrap the narrow types.
+// one of +%, right nested. The chains of +% and -% add 100 each time,
+// and of *% multiply by 3, so even short ones wrap the narrow types.
 func (d *deepWriter) chains(t intType) {
 	n := d.s.chain
 	bodies := []struct{ name, body string }{
-		{"add", joined("x", "+", n)},
-		{"minus", joined("x", "-", n)},
-		{"times", joined("x", "*", n)},
+		{"add", joined("x", "+%", n)},
+		{"minus", joined("x", "-%", n)},
+		{"times", joined("x", "*%", n)},
 	}
 	if t.bits == 64 {
 		bodies = append(
 			bodies,
-			struct{ name, body string }{"right", rightNested("x", "+", d.s.nest)},
+			struct{ name, body string }{"right", rightNested("x", "+%", d.s.nest)},
 		)
 	}
 	for _, f := range bodies {
@@ -206,9 +206,9 @@ var mixedSteps = []struct {
 	do   func(int64) int64
 	tack string
 }{
-	{func(v int64) int64 { return v + 7 }, "+ 7"},
-	{func(v int64) int64 { return v * 3 }, "* 3"},
-	{func(v int64) int64 { return v - 11 }, "- 11"},
+	{func(v int64) int64 { return v + 7 }, "+% 7"},
+	{func(v int64) int64 { return v * 3 }, "*% 3"},
+	{func(v int64) int64 { return v - 11 }, "-% 11"},
 	{func(v int64) int64 { return v / 2 }, "/ 2"},
 	{func(v int64) int64 { return v % 1000003 }, "% 1000003"},
 }
@@ -227,17 +227,17 @@ func (d *deepWriter) mixed() {
 	d.check(fmt.Sprintf("mixed(5) == %d", v), fmt.Sprintf("%d mixed operators", 2*d.s.nest))
 }
 
-// mixedRight writes x * (x - (x + (x * ...))), right nested.
+// mixedRight writes x *% (x -% (x +% (x *% ...))), right nested.
 func (d *deepWriter) mixedRight() {
 	expr, v := "x", int64(2)
 	for i := d.s.nest - 2; i >= 0; i-- {
 		switch i % 3 {
 		case 0:
-			expr, v = "x * ("+expr+")", 2*v
+			expr, v = "x *% ("+expr+")", 2*v
 		case 1:
-			expr, v = "x - ("+expr+")", 2-v
+			expr, v = "x -% ("+expr+")", 2-v
 		default:
-			expr, v = "x + ("+expr+")", 2+v
+			expr, v = "x +% ("+expr+")", 2+v
 		}
 	}
 	d.decl("func mixed_right(x int64) int64 {\n    return %s\n}", expr)
@@ -248,7 +248,7 @@ func (d *deepWriter) mixedRight() {
 }
 
 // calls writes calls nested through the first argument and through the
-// second, and minuses nested.
+// second, and wrapping minuses, -%, nested.
 func (d *deepWriter) calls() {
 	n := d.s.calls
 	d.decl(
@@ -272,7 +272,7 @@ func (d *deepWriter) calls() {
 		neg = -9
 	}
 	d.decl("func negated(x int64) int64 {\n    return %s\n}",
-		strings.Repeat("-(", d.s.unary)+"x"+strings.Repeat(")", d.s.unary))
+		strings.Repeat("-%(", d.s.unary)+"x"+strings.Repeat(")", d.s.unary))
 	d.check(fmt.Sprintf("negated(9) == %d", neg), fmt.Sprintf("%d nested minuses", d.s.unary))
 }
 
@@ -298,9 +298,9 @@ func orderParts(n int) (parts []string, sum, c int64) {
 // of &&, which runs only when the left side is true.
 func (d *deepWriter) order() {
 	parts, sum, c := orderParts(d.s.chain)
-	left := strings.Join(parts, " + ")
+	left := strings.Join(parts, " +% ")
 	rparts, rsum, _ := orderParts(d.s.nest)
-	right := strings.Join(rparts, " + (") + strings.Repeat(")", len(rparts)-1)
+	right := strings.Join(rparts, " +% (") + strings.Repeat(")", len(rparts)-1)
 	d.decl("func order_left() int64 {\n    mut c int64 = 0\n    return %s\n}", left)
 	d.decl("func order_right() int64 {\n    mut c int64 = 0\n    return %s\n}", right)
 	d.decl("func guarded(run bool) int64 {\n    mut c int64 = 0\n    if run && %s > 0 {\n"+
@@ -332,11 +332,11 @@ func (d *deepWriter) logic() {
 	)
 	ors := joined("x < 0", "||", half) + " || tick(mut c) < 0 || " + joined("x < 0", "||", n-half-1)
 	d.decl(
-		"func ands(x int64) int64 {\n    mut c int64 = 0\n    if %s {\n        return c + 10\n    }\n    return c\n}",
+		"func ands(x int64) int64 {\n    mut c int64 = 0\n    if %s {\n        return c +%% 10\n    }\n    return c\n}",
 		ands,
 	)
 	d.decl(
-		"func ors(x int64) int64 {\n    mut c int64 = 0\n    if %s {\n        return c + 10\n    }\n    return c\n}",
+		"func ors(x int64) int64 {\n    mut c int64 = 0\n    if %s {\n        return c +%% 10\n    }\n    return c\n}",
 		ors,
 	)
 	d.check("ands(1) == 11", fmt.Sprintf("%d terms of && hold", n))
@@ -350,16 +350,16 @@ func (d *deepWriter) logic() {
 // element assigned and a checked index, in range and out of it.
 func (d *deepWriter) places() {
 	n := int64(d.s.chain)
-	chain := joined("x", "+", d.s.chain)
+	chain := joined("x", "+%", d.s.chain)
 	d.decl(
-		"func looped(x int64) int64 {\n    mut i int64 = 0\n    for %s + i < %d {\n        i += 1\n    }\n"+
+		"func looped(x int64) int64 {\n    mut i int64 = 0\n    for %s +%% i < %d {\n        i +%%= 1\n    }\n"+
 			"    return i\n}",
 		chain,
 		3*n+4,
 	)
 	d.decl(
-		"func ticked(x int64) int64 {\n    mut c int64 = 0\n    mut n int64 = 0\n    for tick(mut c) + %s < %d {\n"+
-			"        n += 1\n    }\n    return n * 100 + c\n}",
+		"func ticked(x int64) int64 {\n    mut c int64 = 0\n    mut n int64 = 0\n    for tick(mut c) +%% %s < %d {\n"+
+			"        n +%%= 1\n    }\n    return n *%% 100 +%% c\n}",
 		chain,
 		3*n+5,
 	)
@@ -372,20 +372,20 @@ func (d *deepWriter) places() {
 	d.decl(
 		"func two(x int64) (int64, int64) {\n    return %s, %s\n}",
 		chain,
-		joined("x", "-", d.s.chain),
+		joined("x", "-%", d.s.chain),
 	)
 	d.decl(
 		"func paired(x int64) Pair {\n    return Pair{a: %s, b: %s}\n}",
 		chain,
-		joined("x", "*", 3),
+		joined("x", "*%", 3),
 	)
 	d.decl(
 		"func indexed(x uint8) int64 {\n    mut a [256]int64\n    for i := range a {\n        a[i] = i * 2\n    }\n"+
 			"    a[x] = %s\n    return a[x]\n}",
-		joined("a[x]", "+", d.s.chain),
+		joined("a[x]", "+%", d.s.chain),
 	)
 	d.decl(
-		"func checked(x int64) (int64, bool) {\n    a := [4]int64{10, 20, 30, 40}\n    v, ok := a[%s - %d]\n"+
+		"func checked(x int64) (int64, bool) {\n    a := [4]int64{10, 20, 30, 40}\n    v, ok := a[%s -%% %d]\n"+
 			"    return v, ok\n}",
 		chain,
 		3*n-2,

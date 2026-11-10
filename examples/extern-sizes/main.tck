@@ -42,7 +42,7 @@ func main() {
     check(size == 16, "size_t result")
 
     p := marker()
-    check(isMarker(p) && !isMarker(p + 1), "uintptr_t round trip")
+    check(isMarker(p) && !isMarker(p +% 1), "uintptr_t round trip")
 
     s := span(24)
     check(s.len == 24 && s.addr == p, "struct of both types")
@@ -56,5 +56,10 @@ func main() {
 
     max := largest()
     var wide uint64 = max
-    check(max + 1 == 0 && wide == 18446744073709551615, "SIZE_MAX")
+    check(max +% 1 == 0 && wide == 18446744073709551615, "SIZE_MAX")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

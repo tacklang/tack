@@ -49,7 +49,7 @@ var acceptedSwitches = []struct {
 	{"bools", inF("switch n > 0 {", "case true:", "case n < 9:", "}", "return 0")},
 	{"arrays", inF("switch a {", "case [4]int64{1, 2, 3, 4}, a:", "}", "return 0")},
 	{"structs", inF("switch (P{x: 1}) {", "case P{x: n}:", "}", "return 0")},
-	{"calls as values", inF("switch n {", "case f(1, 2, 3, s, a), n + 1:", "}", "return 0")},
+	{"calls as values", inF("switch n {", "case f(1, 2, 3, s, a), n +% 1:", "}", "return 0")},
 	{"tagless conditions", inF("switch {", "case n > 0, s == \"\", true:", "}", "return 0")},
 	{
 		"break in a loop",
@@ -98,7 +98,7 @@ var acceptedSwitches = []struct {
 			"case d == 0, n == 0:",
 			"    return 0",
 			"default:",
-			"    return n / d + 1 / n",
+			"    return n / d +% 1 / n",
 			"}",
 		),
 	},

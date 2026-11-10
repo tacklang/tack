@@ -52,7 +52,7 @@ func depth(n int64, a any) {
         fmt.printf("bottom %s\n", a)
         return
     }
-    depth(n - 1, a)
+    depth(n -% 1, a)
 }
 
 // describe names what a holds, binding each view case's v as that view:
@@ -68,7 +68,7 @@ func describe(a any) string {
         mut n := 0
         for _, c := range v {
             if c == first {
-                n++
+                n +%= 1
             }
         }
         last, ok := v[len(v) - 1]
@@ -82,7 +82,7 @@ func describe(a any) string {
     case []int64:
         mut sum := 0
         for _, x := range v {
-            sum = sum + x
+            sum = sum +% x
         }
         fmt.printf("int64s %d sum %d\n", len(v), sum)
         return "int64s"
@@ -201,3 +201,8 @@ func main() {
     mixed()
     copies()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -91,6 +91,9 @@ var keywords = [...]spelling{
 // token has its index here as its sub. Closing brackets, ++ and -- end a
 // statement.
 var operators = [...]spelling{
+    {text: "+%=", ends: false},
+    {text: "-%=", ends: false},
+    {text: "*%=", ends: false},
     {text: "&^=", ends: false},
     {text: "<<=", ends: false},
     {text: ">>=", ends: false},
@@ -116,6 +119,9 @@ var operators = [...]spelling{
     {text: "==", ends: false},
     {text: "!=", ends: false},
     {text: ":=", ends: false},
+    {text: "+%", ends: false},
+    {text: "-%", ends: false},
+    {text: "*%", ends: false},
     {text: "+", ends: false},
     {text: "-", ends: false},
     {text: "*", ends: false},

@@ -61,9 +61,9 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 	},
 	{
 		"common type with a narrower operand",
-		targetWidth("var a unsafe_size_t = u32 + s", "if a > u8 {", "}"),
+		targetWidth("var a unsafe_size_t = u32 +% s", "if a > u8 {", "}"),
 	},
-	{"common type with uint64", targetWidth("var a uint64 = s * u64", "if a > s {", "}")},
+	{"common type with uint64", targetWidth("var a uint64 = s *% u64", "if a > s {", "}")},
 	{
 		"largest portable constant",
 		targetWidth("var a unsafe_size_t = 4294967295", "if a > s && p < 4294967295 {", "}"),
@@ -72,8 +72,8 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		"constant arithmetic in range",
 		targetWidth("a := unsafe_size_t(4294967294) + 1", "if a > s {", "}"),
 	},
-	{"known value past 32 bits is not known", targetWidth(
-		"a := unsafe_size_t(4294967295)", "b := a + 1", "if b > s {", "}")},
+	{"known value wrapped past 32 bits is not known", targetWidth(
+		"a := unsafe_size_t(4294967295)", "b := a +% 1", "if b > s {", "}")},
 	{
 		"known value converts",
 		targetWidth("a := unsafe_size_t(300)", "b := uint16(a)", "if b > u8 {", "}"),
@@ -101,7 +101,7 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		targetWidth(
 			"mut t unsafe_size_t = 0",
 			"for i := range s {",
-			"    t += i",
+			"    t +%= i",
 			"}",
 			"if t == 0 {",
 			"}",
@@ -114,7 +114,7 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 	{"guarded division", targetWidth("if s != 0 {", "    if u32 / s == 0 {", "    }", "}")},
 	{
 		"compound with a narrower value",
-		targetWidth("mut a unsafe_size_t = s", "a += u32", "a *= u8", "if a == 0 {", "}"),
+		targetWidth("mut a unsafe_size_t = s", "a +%= u32", "a *%= u8", "if a == 0 {", "}"),
 	},
 	{
 		"array length from a known value",
@@ -131,7 +131,7 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 			"a := [2]int64{1, 2}",
 			"str := \"tack\"",
 			"if s < len(a) && p < len(str) {",
-			"    code, fits := int32(a[s] + str[p])",
+			"    code, fits := int32(a[s] +% str[p])",
 			"    if fits { exit(code) }",
 			"}",
 		),
@@ -164,7 +164,7 @@ var acceptedTargetWidthCases = []struct{ name, src string }{
 		"checked index with uintptr",
 		targetWidth(
 			"a := [2]int64{1, 2}",
-			"v, ok := a[p - 1]",
+			"v, ok := a[p -% 1]",
 			"if ok {",
 			"    code, fits := int32(v)",
 			"    if fits { exit(code) }",
@@ -219,13 +219,18 @@ var rejectedTargetWidthCases = []struct {
 	},
 	{
 		"common type is size, not uint32",
-		targetWidth("var a uint32 = u32 + s", "if a == u32 {", "}"),
-		spanned{"cannot use unsafe_size_t as uint32 in declaration of a", "u32 + s"},
+		targetWidth("var a uint32 = u32 +% s", "if a == u32 {", "}"),
+		spanned{"cannot use unsafe_size_t as uint32 in declaration of a", "u32 +% s"},
 	},
 	{
 		"common type is uint64, not size",
-		targetWidth("var a unsafe_size_t = s + u64", "if a == s {", "}"),
-		spanned{"cannot use uint64 as unsafe_size_t in declaration of a", "s + u64"},
+		targetWidth("var a unsafe_size_t = s +% u64", "if a == s {", "}"),
+		spanned{"cannot use uint64 as unsafe_size_t in declaration of a", "s +% u64"},
+	},
+	{
+		"known value past 32 bits may overflow on a 32-bit target",
+		targetWidth("a := unsafe_size_t(4294967295)", "b := a + 1", "if b > s {", "}"),
+		spanned{"a + 1 may overflow unsafe_size_t; use v, ok := a + 1, or a +% 1 to wrap", "a + 1"},
 	},
 	{
 		"size and int64 in arithmetic", targetWidth("if s + i64 == 0 {", "}"),
@@ -338,14 +343,14 @@ var rejectedTargetWidthCases = []struct {
 		"known value past 32 bits converted",
 		targetWidth(
 			"a := unsafe_size_t(4294967295)",
-			"b := uint64(a + 1)",
-			"c := uint32(a + 1)",
+			"b := uint64(a +% 1)",
+			"c := uint32(a +% 1)",
 			"if b == u64 && c == u32 {",
 			"}",
 		),
 		spanned{
 			"converting unsafe_size_t to uint32 can fail; use v, ok := uint32(...)",
-			"uint32(a + 1)",
+			"uint32(a +% 1)",
 		},
 	},
 	{

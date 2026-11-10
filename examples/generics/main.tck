@@ -63,7 +63,7 @@ type Counter struct {
 
 // write counts b's bytes.
 func (mut c Counter) write(b []uint8) error {
-    c.n += len(b)
+    c.n +%= len(b)
     return noerror
 }
 
@@ -110,10 +110,10 @@ type Limited struct {
 
 // write counts b's bytes, or fails, counting none, when there is no room.
 func (mut l Limited) write(b []uint8) error {
-    if l.n + len(b) > l.max {
-        return error{code: 7, msg: "full"}
-    }
-    l.n += len(b)
+    // A count past what an int64 holds is past l.max too.
+    total, fits := l.n + len(b)
+    if !fits || total > l.max { return error{code: 7, msg: "full"} }
+    l.n = total
     return noerror
 }
 
@@ -132,7 +132,7 @@ type Words struct {
 
 // put counts word and keeps it as the last.
 func (mut w Words) put(word string) error {
-    w.n++
+    w.n +%= 1
     w.last = word
     return noerror
 }
@@ -211,7 +211,7 @@ func both[W Writer](mut a W, mut b W, s string) error {
 // two type arguments in both orders.
 func alternate[A Sizer, B Sizer](a A, b B, n int64) int64 {
     if n <= 0 {
-        return a.size() - b.size()
+        return a.size() -% b.size()
     }
     return alternate(b, a, n - 1)
 }
@@ -267,7 +267,7 @@ func counters() {
     mut box := Box{inner: Counter{n: 1}}
     n2, err2 := render(mut box.inner, "ab")
     check(err2.code == 0 && n2 == 3 && box.inner.n == 3, "a field passed as mut")
-    check(one(c) + one(box) == 2, "a constraint with no methods")
+    check(one(c) +% one(box) == 2, "a constraint with no methods")
 }
 
 // buffers runs generic functions on a type holding a list, which is
@@ -337,3 +337,8 @@ func packages() {
     check(sink.Tallied("x", "y") == 2, "a generic call inside another package")
 }
 
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -292,6 +292,8 @@ func (c *Checker) knownUnary(u *ast.Unary) (constant.Int, bool) {
 		return constant.Int{}, false
 	case u.Op == ast.Neg:
 		return fitting(v.Neg())(u.Type)
+	case u.Op == ast.NegWrap:
+		return wrapStep(ast.SubWrap, constant.Int{}, v, u.Type)
 	case u.Op != ast.Complement || types.TargetWidth(u.Type):
 		return constant.Int{}, false
 	case types.IsUnsigned(u.Type):
@@ -490,6 +492,8 @@ func knownStep(op ast.BinaryOp, a, b constant.Int, typ types.Type) (constant.Int
 		return fitting(bitwiseStep(op, a, b))(typ)
 	case op.IsShift():
 		return fitting(shiftStep(op, a, b))(typ)
+	case op.IsWrapping():
+		return wrapStep(op, a, b, typ)
 	}
 	if b.IsZero() {
 		return constant.Int{}, false

@@ -29,6 +29,30 @@ type Checker struct {
 	// which needs no proof that its divisor is not zero.
 	checkedDivision *ast.Binary
 
+	// checkedArith is the arithmetic, + - * or unary - on integers, whose
+	// value is being bound with ok, which needs no proof that it does not
+	// overflow.
+	checkedArith ast.Expr
+
+	// deferredOverflow, while a loop's post statement is checked, collects
+	// the operations in it not proven not to overflow, for recheckPost to
+	// try again with the loop's condition in force; it is nil otherwise.
+	deferredOverflow *[]overflowCheck
+
+	// arithMemo remembers, for each arithmetic operation proven or not
+	// while the statement being checked, the bounds operandBounds gives it
+	// and whether it was proven, so that an operation above it does not
+	// work its operands out again (see memoFor). stmtGen counts the
+	// statements checked, and a memo is used only in the statement, and
+	// with the facts, it was made under.
+	arithMemo map[ast.Expr]arithMemo
+	stmtGen   int
+
+	// typedRelations, while set, has a query's graph count the bounds of
+	// each variable's type as relations (see graphBuilder.typeRange), which
+	// the proofs that arithmetic does not overflow ask for.
+	typedRelations bool
+
 	// checkedIndex is the element whose value is being bound with ok, which
 	// needs no proof that its index is in range.
 	checkedIndex *ast.Index
@@ -338,6 +362,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		knownVars:     make(map[*ast.Var]knownResult),
 		knownBinaries: make(map[*ast.Binary]knownBinary),
+		arithMemo:     make(map[ast.Expr]arithMemo),
 		holders:       make(map[*ast.Var]string),
 
 		declPkg:   declPackages(prog),
@@ -540,6 +565,7 @@ func (c *Checker) checkBody(fn *ast.Func) {
 // c.at at the statement's end for whatever it checks outside an
 // expression (see checkStmtAt).
 func (c *Checker) checkStmt(stmt ast.Stmt, fn *ast.Func) {
+	c.stmtGen++
 	outer := c.at
 	c.at = stmt.Spanned().End
 	c.checkStmtAt(stmt, fn)
@@ -602,7 +628,9 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 		c.invariantWrite(s)
 	case *ast.IncDec:
 		c.readHeld(s.Target)
-		c.checkIntTarget(s.Target, s.Op())
+		if typ, ok := c.checkIntTarget(s.Target, s.Op()); ok {
+			c.requireStepNoOverflow(s, typ)
+		}
 		c.checkErrorAssign(s, s.Target)
 		c.invariantWrite(s)
 	case *ast.MultiVar:
@@ -738,6 +766,9 @@ func (c *Checker) multiResults(
 ) ([]types.Type, bool) {
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
+	}
+	if results, ok, isChecked := c.arithResults(value, want, span); isChecked {
+		return results, ok
 	}
 	if results, ok, isChecked := c.checkedResults(value, want, span); isChecked {
 		return results, ok
@@ -1004,15 +1035,22 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Cond != nil {
 		c.checkCond(loop.Cond)
 	}
+	var pending []overflowCheck
 	if loop.Post != nil {
+		outer := c.deferredOverflow
+		c.deferredOverflow = &pending
 		c.checkSimpleStmt(loop.Post)
+		c.deferredOverflow = outer
 	}
+	body := c.mark()
 	if loop.Cond != nil {
 		c.assumeLoop(loop)
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
 	c.loops--
+	c.release(body)
+	c.recheckPost(loop, pending)
 	leave()
 	c.release(m)
 }
@@ -1126,7 +1164,10 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // only while the body never assigns s, anywhere; s then still holds the string the
 // loop copied. Over a view, whose length is never known, the index is
 // below len(v), which holds for the whole call, and over a list below
-// len(l), which the body can never change (see move.go).
+// len(l), which the body can never change (see move.go). A count that is
+// an integer subject n, neither known nor a length, puts the index below
+// n, which checkForRange keeps only while the body never assigns n: the
+// loop counts to the value n had when it began.
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	if loop.Var == nil || loop.Var.Name == ast.Blank || c.table.IsMap(got) {
 		return nil
@@ -1137,6 +1178,8 @@ func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	case types.IsInteger(got):
 		if n, ok := c.knownValue(loop.X); ok {
 			f.hi, f.hasHi = n.Sub(one)
+		} else if k, ok := c.keyOf(loop.X); ok {
+			f.atMost, f.strict = k, true
 		}
 		f.lenOf, _ = c.stringLen(loop.X)
 	case c.table.IsArray(got):
@@ -1994,6 +2037,9 @@ func (c *Checker) checkCompound(a *ast.Assign, got types.Type) {
 		usable := c.use(a.Value, got, typ, "in "+op)
 		if usable && (a.Op == ast.Div || a.Op == ast.Rem) && !types.IsFloat(typ) {
 			c.requireNonzero(a.Value, false)
+		}
+		if usable && (a.Op == ast.Add || a.Op == ast.Sub || a.Op == ast.Mul) {
+			c.requireStepNoOverflow(a, typ)
 		}
 	}
 }

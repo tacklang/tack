@@ -89,10 +89,6 @@ func TestWritesAfterAFactInItsConditionEndIt(t *testing.T) {
 			"if d != 0 && zero(mut d) {", "    use(10 / d)", "}"), condDivisor},
 		{"loop condition", condWriteProgram("mut l list[int64]",
 			"for len(l) > 5 && shrink(mut l) {", "    use(l[5])", "}"), condIndex5},
-		{"counting loop condition after the bound", condWriteProgram("a [3]int64",
-			"for mut i := 0; i < 3 && neg(mut i); i++ {", "    use(a[i])", "}"), condIndexI},
-		{"counting loop condition before the bound", condWriteProgram("a [3]int64",
-			"for mut i := 0; neg(mut i) && i < 3; i++ {", "    use(a[i])", "}"), condIndexI},
 		{"then branch falling through past an early exit", condWriteProgram("mut l list[int64]",
 			"if len(l) > 5 {", "    shrink(mut l)", "} else {", "    return", "}", "use(l[5])"), condIndex5},
 		{"else branch falling through past an early exit", condWriteProgram("mut l list[int64]",
@@ -118,6 +114,38 @@ func TestWritesAfterAFactInItsConditionEndIt(t *testing.T) {
 			diags := check(t, tt.src)
 			if len(diags) != 1 || diags[0].Message != tt.msg {
 				t.Fatalf("got %v, want only %q", diags, tt.msg)
+			}
+		})
+	}
+}
+
+// TestCountingLoopConditionWritesEndIt checks that a counting loop whose
+// condition passes its counter as mut, after or before the bound, proves
+// no index with it: the write ends the bound. With the write after the
+// bound, nor is its post, i++, proven not to overflow, since the write
+// may have changed i after the bound was tested, and it is reported after
+// the index; with the write before it, the bound tested last proves the
+// post.
+func TestCountingLoopConditionWritesEndIt(t *testing.T) {
+	post := "i++ may overflow int64; use i +%= 1 to wrap, or v, ok := i + 1 and i = v when ok"
+	for _, tt := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"after the bound", condWriteProgram("a [3]int64",
+			"for mut i := 0; i < 3 && neg(mut i); i++ {", "    use(a[i])", "}"), []string{condIndexI, post}},
+		{"before the bound", condWriteProgram("a [3]int64",
+			"for mut i := 0; neg(mut i) && i < 3; i++ {", "    use(a[i])", "}"), []string{condIndexI}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			diags := check(t, tt.src)
+			if len(diags) != len(tt.want) {
+				t.Fatalf("got %v, want %q", diags, tt.want)
+			}
+			for i, d := range diags {
+				if d.Message != tt.want[i] {
+					t.Errorf("message %d = %q, want %q", i, d.Message, tt.want[i])
+				}
 			}
 		})
 	}

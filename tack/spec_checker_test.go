@@ -128,8 +128,8 @@ var specWrongChapters = []struct {
 	},
 	{
 		"an error example with its notes swapped",
-		"'''tack error\npackage main\n\nfunc main() {\n    mut d int64 = 4\n" +
-			"    if d != 0 {\n        d--\n        code, fits := int32(8 / d)\n" +
+		"'''tack error\npackage main\n\nfunc main() {\n    mut d := len(make(list[int64], c_allocator))\n" +
+			"    if d != 0 {\n        d -%= 1\n        code, fits := int32(8 / d)\n" +
 			"        if fits { exit(code) }\n    }\n}\n'''\n\n'''diagnostics\n" +
 			"main.tck:7:33: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d\n" +
 			"main.tck:6:9: note: but d is assigned here, so the proof ends\n" +
@@ -173,8 +173,8 @@ var specRightChapters = []struct {
 	},
 	{
 		"an error example with a note",
-		"'''tack error\npackage main\n\nfunc main() {\n    mut d int64 = 4\n" +
-			"    if d != 0 {\n        d--\n        code, fits := int32(8 / d)\n" +
+		"'''tack error\npackage main\n\nfunc main() {\n    mut d := len(make(list[int64], c_allocator))\n" +
+			"    if d != 0 {\n        d -%= 1\n        code, fits := int32(8 / d)\n" +
 			"        if fits { exit(code) }\n    }\n}\n'''\n\n'''diagnostics\n" +
 			"main.tck:7:33: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d\n" +
 			"main.tck:5:8: note: this guard proves d != 0\n" +

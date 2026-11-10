@@ -59,9 +59,9 @@ type Shape union {
 func (s Shape) len() int64 {
     switch s {
     case circle(r):
-        return 6 * r
+        return 6 *% r
     case square(a):
-        return 4 * a
+        return 4 *% a
     case dot:
         return 0
     }
@@ -98,9 +98,9 @@ func (mut s Shape) grow(by int64) {
     mut next := s
     switch s {
     case circle(r):
-        next = Shape.circle(r + by)
+        next = Shape.circle(r +% by)
     case square(a):
-        next = Shape.square(a + by)
+        next = Shape.square(a +% by)
     case dot:
         s = Shape.circle(by)
         return
@@ -239,7 +239,7 @@ func label[S Sized](x S) string {
 // sum returns a's and b's lengths added: two type parameters, which may be
 // a union and a struct.
 func sum[A Sized, B Sized](a A, b B) int64 {
-    return a.len() + b.len()
+    return a.len() +% b.len()
 }
 
 // wipe resets r and returns its length before: a mut method through a
@@ -366,3 +366,8 @@ func main() {
     testPackages()
     freed("packages freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

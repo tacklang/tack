@@ -16,7 +16,7 @@ pub func Parse(s string) (int64, error) {
         if c < '0' || c > '9' {
             return 0, error{code: 3, msg: "not a digit"}
         }
-        n = n * 10 + (c - '0')
+        n = n *% 10 +% (c - '0')
     }
     return n, noerror
 }
@@ -28,3 +28,8 @@ pub func Positive(n int64) error {
     }
     return noerror
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

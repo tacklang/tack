@@ -25,7 +25,7 @@ func TestAcceptsReplace(t *testing.T) {
 			"mut l := replace(mut s.frames, make(list[int64], c_allocator))",
 			"err := append(mut l, 1)", "e := replace(mut s.frames, l)", "use(e)", "if err.code != 0 {", "}")},
 		{"a mutable local", replaceProgram("", "mut x := 1", "old := replace(mut x, 2)", "if old == x {", "}")},
-		{"a value read from the old one", replaceProgram("mut x int64", "old := replace(mut x, x * 2)",
+		{"a value read from the old one", replaceProgram("mut x int64", "old := replace(mut x, x *% 2)",
 			"if old == x {", "}")},
 		{"a widened constant", replaceProgram("mut x uint8", "old := replace(mut x, 255)", "if old == x {", "}")},
 		{"an owned list element", replaceProgram("mut ll list[list[int64]]", "if len(ll) > 0 {",

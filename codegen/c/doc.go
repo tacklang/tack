@@ -639,10 +639,17 @@
 // whatever C's own precedence would have made of it. An if whose condition is
 // one gets no second pair, which would make clang warn on an equality test.
 //
-// Arithmetic wraps on overflow at its type's width, where C leaves signed
-// overflow undefined, and promotes a narrow type to int, where it can
-// overflow too: + - * and unary - are done on uint64_t, which C defines to
-// wrap, and converted to the expression's type, and so are & | ^ &^ and
+// The wrapping operators +% -% *% and -%x wrap at their type's width,
+// where C leaves signed overflow undefined, and promotes a narrow type to
+// int, where it can overflow too: they are done on uint64_t, which C
+// defines to wrap, and converted to the expression's type, and so are
+// plain + - * and unary -, which the checker proved do not overflow, so
+// that wrapping them changes nothing. The checked form v, ok := a + b
+// holds each operand in a temporary, left first, and its ok in another,
+// from clang's __builtin_add_overflow, __builtin_sub_overflow or
+// __builtin_mul_overflow into a compound literal of the type, which
+// computes the exact result and never overflows in C; v is the wrapping
+// operation when ok, or 0 (arithValues). So are & | ^ &^ and
 // unary ^, on the two's complement bits a conversion to uint64_t keeps. /
 // and % call a helper per operator and type, such as tack_div_int8, emitted
 // only when used, which gives the smallest signed value divided by -1 as

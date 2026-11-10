@@ -110,7 +110,7 @@ func loops() {
         if d == 0 {
             exit(8)
         }
-        total += 12 / d
+        total +%= 12 / d
         if i == 4 {
             break
         }
@@ -148,3 +148,8 @@ func main() {
     check(cases(4) == 25 && cases(200) == 0, "a case ending in exit")
     check(fail() == 0, "unreachable")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -82,7 +82,7 @@ func compareFunc(x, y string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "func c_%s_%s(a %s, b %s) int64 {\n    mut r := 0\n", x, y, x, y)
 	for _, op := range comparisonOps {
-		fmt.Fprintf(&b, "    if a %s b {\n        r += %d\n    }\n", op.op, op.bit)
+		fmt.Fprintf(&b, "    if a %s b {\n        r |= %d\n    }\n", op.op, op.bit)
 	}
 	b.WriteString("    return r\n}\n\n")
 	return b.String()

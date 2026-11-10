@@ -933,7 +933,7 @@ func render(body []lStmt, style lStyle) *lText {
 		"func two() (int64, int64) {\n    return 1, 2\n}\n\n" +
 		"func f(mut i int64, mut q uint64, a []int64, k int64, z bool, u U) ensures 0 <= i && i < len(a) {\n")
 	if style.bound {
-		t.src.WriteString("    fv := two\n    x, y := fv()\n    use(x + y)\n")
+		t.src.WriteString("    fv := two\n    x, y := fv()\n    use(x +% y)\n")
 	}
 	t.src.WriteString("    if i < 0 || i >= len(a) || q > 3 {\n        exit(1)\n    }\n" +
 		"    mut s := \"abcd\"\n    use(len(s))\n    ")
@@ -1361,9 +1361,24 @@ func checkLeaving(t *testing.T, name string, body []lStmt) (checks, accepted int
 	return checks, accepted
 }
 
+// counterStepError reports whether msg is the error for a loop counter's
+// post, n0++ say, not proven not to overflow: a body that assigns its
+// counter, as the generator's may, leaves the post no bound. It is about
+// no check, and the checks are judged without it.
+func counterStepError(msg string) bool {
+	name, rest, ok := strings.Cut(msg, "++ may overflow ")
+	if !ok || len(name) < 2 || name[0] != 'n' || rest == "" {
+		return false
+	}
+	_, err := strconv.Atoi(name[1:])
+	return err == nil
+}
+
 // rejectedChecks returns the checks of text that diags report an error
 // at, failing t on an error at no check, or on any error but an index or
-// a contract not proven, which a program the generator got wrong gives.
+// a contract not proven, which a program the generator got wrong gives,
+// or a loop counter's post not proven not to overflow (see
+// counterStepError), which it skips.
 func rejectedChecks(t *testing.T, text *lText, diags []diag.Diagnostic, src string) map[int]bool {
 	t.Helper()
 	byOffset := map[int]int{}
@@ -1372,6 +1387,9 @@ func rejectedChecks(t *testing.T, text *lText, diags []diag.Diagnostic, src stri
 	}
 	rejected := map[int]bool{}
 	for _, d := range diags {
+		if counterStepError(d.Message) {
+			continue
+		}
 		id, ok := byOffset[d.Span.Start]
 		proof := strings.HasPrefix(d.Message, "index ") ||
 			strings.HasPrefix(d.Message, "converting ") ||

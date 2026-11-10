@@ -33,7 +33,7 @@ func parse(s string) (int64, error) {
         if c < '0' || c > '9' {
             return 0, error{code: 3, msg: "not a digit"}
         }
-        n = n * 10 + (c - '0')
+        n = n *% 10 +% (c - '0')
     }
     return n, noerror
 }
@@ -208,7 +208,7 @@ type Counter struct {
 
 // write counts b's bytes.
 func (mut c Counter) write(b []uint8) error {
-    c.n += len(b)
+    c.n +%= len(b)
     return noerror
 }
 
@@ -244,7 +244,7 @@ mut tally int64 = 0
 // that changes nothing the clause names.
 func deferring(d int64) ensures d != 0 {
     defer {
-        tally += 1
+        tally +%= 1
     }
     if d == 0 {
         exit(11)
@@ -260,13 +260,13 @@ func errors() {
 
     m, errM := parse("7")
     one := checked(errM)
-    check(m + one == 8, "checked as a value")
+    check(m +% one == 8, "checked as a value")
 
     mut total int64 = 0
     for _, s := range [3]string{"1", "20", "300"} {
         v, e := parse(s)
         handle(e)
-        total += v
+        total +%= v
     }
     check(total == 321, "handle in a loop")
 }
@@ -323,7 +323,7 @@ func indexes() {
     mut x int64 = 1
     room(x, l)
     y := x + 1
-    check(l[x] + l[y] == 5, "room, chained through y := x + 1")
+    check(l[x] +% l[y] == 5, "room, chained through y := x + 1")
 }
 
 // lists reads a list a call has grown.
@@ -403,3 +403,8 @@ func main() {
     maps()
     others()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

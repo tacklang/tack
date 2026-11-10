@@ -181,26 +181,28 @@ func TestRejectsKnownOverflowInFunctions(t *testing.T) {
 }
 
 // validRuntimeArithmetic are function bodies whose typed arithmetic either
-// fits its type exactly, at the boundaries, or works on a value the
-// checker does not know, which wraps at run time and is not an error.
+// fits its type exactly, at the boundaries, or wraps, written with a
+// wrapping operator, on a value the checker does not know, or knows and
+// computes wrapped.
 var validRuntimeArithmetic = []struct{ name, src string }{
-	{"mutable local", mainLines("mut c = 'a'", "x := c * 3", "exit(x)")},
-	{"compound on a mutable local", mainLines("mut c = 'a'", "c *= 3", "exit(c)")},
-	{"increment past the largest", mainLines("mut b int8 = 127", "b++", "exit(b)")},
-	{"decrement below zero", mainLines("mut u uint8 = 0", "u--", "exit(u)")},
+	{"mutable local", mainLines("mut c = 'a'", "x := c *% 3", "exit(x)")},
+	{"compound on a mutable local", mainLines("mut c = 'a'", "c *%= 3", "exit(c)")},
+	{"increment past the largest", mainLines("mut b int8 = 127", "b +%= 1", "exit(b)")},
+	{"decrement below zero", mainLines("mut u uint8 = 0", "u -%= 1", "exit(u)")},
 	{
 		"immutable local of a mutable one",
-		mainLines("mut m = 'a'", "c := m", "x := c * 3", "exit(x)"),
+		mainLines("mut m = 'a'", "c := m", "x := c *% 3", "exit(x)"),
 	},
 	{
 		"parameter",
-		"package main\n\nfunc f(c uint8) uint8 {\n    return c * 3\n}\n\nfunc main() {\n    exit(f('a'))\n}\n",
+		"package main\n\nfunc f(c uint8) uint8 {\n    return c *% 3\n}\n\nfunc main() {\n    exit(f('a'))\n}\n",
 	},
 	{
 		"mutable global",
-		"package main\n\nmut g uint8 = 200\n\nfunc main() {\n    exit(g + g)\n}\n",
+		"package main\n\nmut g uint8 = 200\n\nfunc main() {\n    exit(g +% g)\n}\n",
 	},
-	{"element of an immutable array", mainLines("a := [2]uint8{200, 200}", "exit(a[0] + a[1])")},
+	{"element of an immutable array", mainLines("a := [2]uint8{200, 200}", "exit(a[0] +% a[1])")},
+	{"known values wrapped", mainLines("var m int8 = 127", "x := m +% 1", "exit(int32(x) +% 128)")},
 	{"largest uint8", mainLines("exit('a' + 158)")},
 	{"zero uint8", mainLines("exit('a' - 'a' + 0)")},
 	{
@@ -228,6 +230,72 @@ func TestAcceptsRuntimeArithmetic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, diags := checkTree(t, tt.src); len(diags) > 0 {
 				t.Errorf("got %v, want no diagnostics", diags)
+			}
+		})
+	}
+}
+
+// unprovenRuntimeArithmetic are the plain forms of the wrapping operations
+// in validRuntimeArithmetic, on values the checker cannot bound within the
+// type, or bounds past it, each one error saying it may overflow,
+// covering the operation.
+var unprovenRuntimeArithmetic = []struct {
+	name string
+	src  string
+	want spanned
+}{
+	{
+		"mutable local", mainLines("mut c = 'a'", "x := c * 3", "exit(x)"),
+		spanned{"c * 3 may overflow uint8; bound c first, or use v, ok := c * 3, or c *% 3 to wrap", "c * 3"},
+	},
+	{
+		"compound on a mutable local", mainLines("mut c = 'a'", "c *= 3", "exit(c)"),
+		spanned{"c *= 3 may overflow uint8; use c *%= 3 to wrap, or v, ok := c * 3 and c = v when ok", "c *= 3"},
+	},
+	{
+		"increment past the largest", mainLines("mut b int8 = 127", "b++", "exit(b)"),
+		spanned{"b++ may overflow int8; use b +%= 1 to wrap, or v, ok := b + 1 and b = v when ok", "b++"},
+	},
+	{
+		"decrement below zero", mainLines("mut u uint8 = 0", "u--", "exit(u)"),
+		spanned{
+			"u-- may go below 0 in uint8; check u > 0 first, use u -%= 1 to wrap, or v, ok := u - 1 and u = v when ok",
+			"u--",
+		},
+	},
+	{
+		"parameter",
+		"package main\n\nfunc f(c uint8) uint8 {\n    return c * 3\n}\n\nfunc main() {\n    exit(f('a'))\n}\n",
+		spanned{"c * 3 may overflow uint8; bound c first, or use v, ok := c * 3, or c *% 3 to wrap", "c * 3"},
+	},
+	{
+		"mutable global",
+		"package main\n\nmut g uint8 = 200\n\nfunc main() {\n    exit(g + g)\n}\n",
+		spanned{"g + g may overflow uint8; use v, ok := g + g, or g +% g to wrap", "g + g"},
+	},
+	{
+		"element of an immutable array", mainLines("a := [2]uint8{200, 200}", "exit(a[0] + a[1])"),
+		spanned{
+			"a[0] + a[1] may overflow uint8; bound a[0] and a[1] first, or use v, ok := a[0] + a[1], or a[0] +% a[1] to wrap",
+			"a[0] + a[1]",
+		},
+	},
+}
+
+// TestRejectsUnprovenRuntimeArithmetic checks each of
+// unprovenRuntimeArithmetic is one error, covering the operation.
+func TestRejectsUnprovenRuntimeArithmetic(t *testing.T) {
+	for _, tt := range unprovenRuntimeArithmetic {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkTree(t, tt.src)
+			if len(diags) != 1 {
+				t.Fatalf("got %v, want only %q", diags, tt.want.msg)
+			}
+			if diags[0].Message != tt.want.msg {
+				t.Errorf("message = %q, want %q", diags[0].Message, tt.want.msg)
+			}
+			if got := tt.src[diags[0].Span.Start:diags[0].Span.End]; got != tt.want.at {
+				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
 			}
 		})
 	}
@@ -289,13 +357,13 @@ func longExpressions(n int) string {
 	var b strings.Builder
 	b.WriteString("package main\n\n")
 	for _, typ := range []string{"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"} {
-		left := strings.Repeat("x + ", n-1) + "x"
-		segment := strings.Repeat("x * (", 998) + "x" + strings.Repeat(")", 998)
-		right := strings.Join(slices.Repeat([]string{segment}, n/1000), " + ")
+		left := strings.Repeat("x +% ", n-1) + "x"
+		segment := strings.Repeat("x *% (", 998) + "x" + strings.Repeat(")", 998)
+		right := strings.Join(slices.Repeat([]string{segment}, n/1000), " +% ")
 		known := strings.Repeat("k + ", n-1) + "k"
 		b.WriteString("func f_" + typ + "(x " + typ + ") " + typ + " {\n" +
 			"    k := " + typ + "(0)\n" +
-			"    return " + left + " + " + right + " + (" + known + ")\n}\n\n")
+			"    return " + left + " +% " + right + " +% (" + known + ")\n}\n\n")
 	}
 	b.WriteString("func main() {\n}\n")
 	return b.String()

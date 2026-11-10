@@ -18,7 +18,7 @@ func errorProgram(lines ...string) string {
 		"func divide(a int64, b int64) (int64, int64, error) {\n    if b == 0 {\n" +
 		"        return 0, 0, error{code: 2, msg: \"zero\"}\n    }\n    return a / b, a % b, noerror\n}\n\n" +
 		"func ready() error {\n    return noerror\n}\n\n" +
-		"func bump(mut n int64) {\n    n++\n}\n\n" +
+		"func bump(mut n int64) {\n    n +%= 1\n}\n\n" +
 		"func use(n int64) {\n}\n\n" +
 		"func main() {\n    " + strings.Join(lines, "\n    ") + "\n}\n"
 }
@@ -146,7 +146,7 @@ var errorAcceptedCases = []struct{ name, src string }{
 			"if err.code != 0 {",
 			"    return",
 			"}",
-			"use(q + r)",
+			"use(q +% r)",
 		),
 	},
 	{
@@ -181,7 +181,7 @@ var errorAcceptedCases = []struct{ name, src string }{
 			"mut e error",
 			"e = error{code: 3, msg: \"three\"}",
 			"e.code = 4",
-			"e.code++",
+			"e.code +%= 1",
 			"print(e.msg)",
 		),
 	},
@@ -293,12 +293,12 @@ var errorRejectedCases = []struct{ name, src, want string }{
 	},
 	{
 		"compound",
-		errorProgram(`mut v, err := parse("1")`, "v += 1", "if err.code == 0 {", "    use(v)", "}"),
+		errorProgram(`mut v, err := parse("1")`, "v +%= 1", "if err.code == 0 {", "    use(v)", "}"),
 		readBeforeCheck,
 	},
 	{
-		"increment",
-		errorProgram(`mut v, err := parse("1")`, "v--", "if err.code == 0 {", "    use(v)", "}"),
+		"decrement by -%=",
+		errorProgram(`mut v, err := parse("1")`, "v -%= 1", "if err.code == 0 {", "    use(v)", "}"),
 		readBeforeCheck,
 	},
 	{
@@ -308,7 +308,7 @@ var errorRejectedCases = []struct{ name, src, want string }{
 	},
 	{
 		"in arithmetic",
-		errorProgram(`v, err := parse("1")`, "print(err.msg)", "x := v + 1", "use(x)"),
+		errorProgram(`v, err := parse("1")`, "print(err.msg)", "x := v +% 1", "use(x)"),
 		readBeforeCheck,
 	},
 	{
@@ -369,10 +369,10 @@ var errorRejectedCases = []struct{ name, src, want string }{
 		heldAlone,
 	},
 	{
-		"field incremented",
+		"field stepped",
 		errorProgram(
 			`v, mut err := parse("1")`,
-			"err.code++",
+			"err.code +%= 1",
 			"if err.code == 0 {",
 			"    use(v)",
 			"}",
@@ -386,7 +386,7 @@ var errorRejectedCases = []struct{ name, src, want string }{
 			"mut w int64 = 0",
 			`w, err = parse("2")`,
 			"if err.code == 0 {",
-			"    use(v + w)",
+			"    use(v +% w)",
 			"}",
 		),
 		heldAlone,

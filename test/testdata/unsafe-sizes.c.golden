@@ -217,7 +217,7 @@ static bool tack_4_main11_indexByLoop(tack_array_21 p_a, tack_string p_str, tack
     {
         size_t v_i = 0;
         for (;; v_i = ((size_t)((uint64_t)v_i + (uint64_t)1))) {
-            if (!((p_str).len >= 0 && (uint64_t)(p_str).len > (uint64_t)v_i)) {
+            if (!(((p_str).len >= 0 && (uint64_t)(p_str).len > (uint64_t)v_i) && (v_i < 4294967295))) {
                 break;
             }
             v_bytes = ((int64_t)((uint64_t)v_bytes + (uint64_t)p_str.ptr[v_i]));
@@ -227,7 +227,7 @@ static bool tack_4_main11_indexByLoop(tack_array_21 p_a, tack_string p_str, tack
     {
         size_t v_i = 0;
         for (;; v_i = ((size_t)((uint64_t)v_i + (uint64_t)1))) {
-            if (!((p_v).len >= 0 && (uint64_t)(p_v).len > (uint64_t)v_i)) {
+            if (!(((p_v).len >= 0 && (uint64_t)(p_v).len > (uint64_t)v_i) && (v_i < 4294967295))) {
                 break;
             }
             v_elems = ((int64_t)((uint64_t)v_elems + (uint64_t)p_v.ptr[v_i]));

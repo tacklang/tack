@@ -31,7 +31,7 @@ type Writer interface {
 
 // write counts b's bytes.
 func (mut c Counter) write(b []uint8) error {
-    c.n += len(b)
+    c.n +%= len(b)
     return noerror
 }
 
@@ -47,7 +47,7 @@ type Tally struct {
 
 // write counts one write.
 func (mut t Tally) write(b []uint8) error {
-    t.writes++
+    t.writes +%= 1
     return noerror
 }
 
@@ -64,7 +64,7 @@ type Rect struct {
 
 // area returns the rectangle's area.
 func (r Rect) area() int64 {
-    return r.w * r.h
+    return r.w *% r.h
 }
 
 // emit writes s to w, whatever Writer w is.
@@ -79,7 +79,7 @@ func both(mut a Writer, mut b Writer, s string) int64 {
     if ea.code != 0 || eb.code != 0 {
         return -1
     }
-    return a.size() + b.size()
+    return a.size() +% b.size()
 }
 
 // area returns the area of a shape of another package's interface.
@@ -90,7 +90,7 @@ func area(s shapes.Shape) int64 {
 // sum adds the areas of two shapes, of different types, and an explicit
 // type parameter's.
 func sum[T shapes.Shape](a shapes.Shape, b T, c shapes.Shape) int64 {
-    return a.area() + b.area() + c.area()
+    return a.area() +% b.area() +% c.area()
 }
 
 // Bag is a Shape that owns a list: its area is how many items it holds.
@@ -127,3 +127,8 @@ func main() {
     bag := Bag{items: items}
     check(err.code == 0 && keep(own bag) == 3, "an own interface parameter")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

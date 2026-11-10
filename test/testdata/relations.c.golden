@@ -158,9 +158,8 @@ static int64_t tack_4_main4_next(tack_view_21 p_a, int64_t p_i) {
 }
 
 static int64_t tack_4_main9_nextFirst(tack_view_21 p_a, int64_t p_i) {
-    if (((((int64_t)((uint64_t)p_i + (uint64_t)1)) < (p_a).len) && (0 <= p_i)) && (p_i < (p_a).len)) {
-        const int64_t v_j = ((int64_t)((uint64_t)p_i + (uint64_t)1));
-        return p_a.ptr[v_j];
+    if (((p_i < 100) && (((int64_t)((uint64_t)p_i + (uint64_t)1)) < (p_a).len)) && (0 <= p_i)) {
+        return p_a.ptr[((int64_t)((uint64_t)p_i + (uint64_t)1))];
     }
     return (-1);
 }

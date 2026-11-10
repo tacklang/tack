@@ -29,7 +29,7 @@ var stddefCases = []struct {
 	},
 	{
 		"unsafe_uintptr_t only",
-		"package main\n\nfunc f(p unsafe_uintptr_t) unsafe_uintptr_t {\n    return p + 1\n}\n\n" +
+		"package main\n\nfunc f(p unsafe_uintptr_t) unsafe_uintptr_t {\n    return p +% 1\n}\n\n" +
 			"func main() {\n    var w uint64 = f(1)\n    if w == 2 {\n        exit(1)\n    }\n}\n",
 		false,
 	},
@@ -319,7 +319,7 @@ func TestTargetWidthIndexesRunStrictly(t *testing.T) {
 		"func main() {\n" +
 		"    a := [3]int64{4, 5, 6}\n" +
 		"    mut s unsafe_size_t = 0\n" +
-		"    s--\n" +
+		"    s -%= 1\n" +
 		"    if at(\"abc\", 2, 3, 1, s) && s > len(a) {\n" +
 		"        s = 2\n" +
 		"    }\n" +

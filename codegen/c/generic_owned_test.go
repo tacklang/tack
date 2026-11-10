@@ -97,7 +97,7 @@ func one[E Any](e E) int64 {
 }
 
 func twice(x int64) int64 {
-    return x * 2
+    return x *% 2
 }
 
 func box(n int64) Box {
@@ -130,7 +130,7 @@ func main() {
     check(e3.code == 0 && outer(mut l) == 2 && len(l) == 2 && l[0].size() == 5, "a type parameter passed on")
     mut ms := make(list[map[string]int64], c_allocator)
     e4 := append(mut ms, make(map[string]int64, c_allocator))
-    check(e4.code == 0 && one(noerror) + one(twice) + one(c_allocator) + inner(mut ms) == 4,
+    check(e4.code == 0 && one(noerror) +% one(twice) +% one(c_allocator) +% inner(mut ms) == 4,
         "type arguments that are no struct")
 }
 `

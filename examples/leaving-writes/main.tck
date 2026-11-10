@@ -18,7 +18,7 @@ func check(cond bool, name string) {
 
 // bump adds one to i.
 func bump(mut i int64) {
-    i++
+    i +%= 1
 }
 
 // percents appends every % byte of fmt to out, skipping the others with a
@@ -48,7 +48,7 @@ func untilNegative(a []int64) int64 {
             i = -1
             break
         }
-        total += a[i]
+        total +%= a[i]
         i++
     }
     return total
@@ -94,7 +94,7 @@ func elseLeaves(a []int64, at int64, keep bool) int64 {
         i = 99
         return -3
     }
-    return first + a[i]
+    return first +% a[i]
 }
 
 // nested reads a at at, past an if that writes the index only in an inner
@@ -112,7 +112,7 @@ func nested(a []int64, at int64, outer bool, inner bool) int64 {
         }
         extra = 100
     }
-    return extra + a[i]
+    return extra +% a[i]
 }
 
 // tagless reads a at at, past a tagless switch whose cases write the index
@@ -148,7 +148,7 @@ func digits(s []uint8) int64 {
             break
         }
         if s[i] >= '0' && s[i] <= '9' {
-            n++
+            n +%= 1
         }
         i++
     }
@@ -199,7 +199,7 @@ func breaksLoop(a []int64, at int64) int64 {
             i = -5
             break
         }
-        total += a[i]
+        total +%= a[i]
     }
     return total
 }
@@ -214,7 +214,7 @@ func beforeBreak(a []int64, at int64) int64 {
     }
     mut total int64 = 0
     for n := range 3 {
-        total += a[i]
+        total +%= a[i]
         if n == 1 {
             i = 99
             break
@@ -238,7 +238,7 @@ func returnsInLoop(a []int64, at int64, k int64) int64 {
             i = 99
             return -10
         }
-        total += a[i]
+        total +%= a[i]
     }
     return total
 }
@@ -389,7 +389,7 @@ func continueInBreak(a []int64, at int64, k int64, z bool) int64 {
                 }
                 break
             }
-            total += a[i]
+            total +%= a[i]
         }
         return total
     }
@@ -523,3 +523,8 @@ func main() {
     check(defaultFirst(a, 0, 1, false) == 10 && defaultFirst(a, 0, 1, true) == 1, "a use past a branch ending in a switch with its default first")
     check(exits(a, 0, true) == 0, "unreachable")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

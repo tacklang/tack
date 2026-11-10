@@ -4,7 +4,9 @@ import (
 	"math"
 	"slices"
 
+	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
+	"github.com/tacklang/tack/types"
 )
 
 // This file holds the graph a query of the relations in force builds (see
@@ -56,7 +58,10 @@ func (c *Checker) relationIndex() *relIndex {
 	idx := &relIndex{gen: c.factGen, adj: make(map[factKey][]int), isLen: make(map[factKey]bool)}
 	for i, f := range c.active {
 		c.work.indexed++
-		if f.inMap.isZero() {
+		// A stored value's bounds (see guardValue) stay out of the
+		// graph: they prove what they prove through the variable's own
+		// interval, and a note on a missing link would name them.
+		if f.inMap.isZero() && (f.guard == nil || f.guard.kind != guardValue) {
 			idx.addFact(i, f)
 		}
 	}
@@ -181,7 +186,7 @@ func (c *Checker) relationGraph(x, y factKey, xLen, yLen bool) *relGraph {
 		g:     &relGraph{index: make(map[factKey]int, relationCap), steps: &c.work.relations},
 		holds: make(map[int]bool, 4*relationCap), used: make(map[int]bool, 4*relationCap),
 		ranged: make(map[factKey]bool), lens: idx.lens, x: x, y: y, xLen: xLen, yLen: yLen,
-		edges: make([]relEdge, 0, 4*relationCap),
+		edges: make([]relEdge, 0, 4*relationCap), typed: c.typedRelations,
 	}
 	for _, q := range []factKey{x, y} {
 		if b.isLen(q) && !idx.isLen[q] {
@@ -213,6 +218,10 @@ type graphBuilder struct {
 	edges  []relEdge
 	xLen   bool
 	yLen   bool
+
+	// typed says the graph counts each variable's type's bounds as edges
+	// to 0 (see typeRange).
+	typed bool
 }
 
 // isLen reports whether k is a length: one the facts use as one, or a
@@ -250,6 +259,41 @@ func (b *graphBuilder) expand(u factKey) {
 	case b.isLen(u):
 		if b.visit(factKey{}) {
 			b.lengthRange(u)
+		}
+	case b.typed:
+		if b.visit(factKey{}) {
+			b.typeRange(u)
+		}
+	}
+}
+
+// typeRange takes the bounds of the type of u, a variable or a parameter
+// with no path below it, once, as edges to and from 0: every value it
+// holds lies within them, so they always hold. An end past what an edge's
+// weight holds is left out, which only proves less.
+func (b *graphBuilder) typeRange(u factKey) {
+	if b.ranged[u] || u.path != "" {
+		return
+	}
+	b.ranged[u] = true
+	var typ types.Type
+	switch d := u.decl.(type) {
+	case *ast.Var:
+		typ = d.Type
+	case *ast.Param:
+		typ = d.Type
+	}
+	if !types.IsInteger(typ) || typ == types.UntypedInt {
+		return
+	}
+	lo, hi := typeBounds(typ)
+	zero := factKey{}
+	if w, ok := weight(hi); ok {
+		b.edges = append(b.edges, relEdge{from: u, to: zero, w: w, fact: -1})
+	}
+	if neg, ok := lo.Neg(); ok {
+		if w, ok := weight(neg); ok {
+			b.edges = append(b.edges, relEdge{from: zero, to: u, w: w, fact: -1})
 		}
 	}
 }

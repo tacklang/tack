@@ -28,21 +28,21 @@ mut h uint8 = 3
 
 // bump moves g and h on by one and returns 9.
 func bump() int64 {
-    g++
-    h++
+    g +%= 1
+    h +%= 1
     return 9
 }
 
 // bump8 is bump for a uint8 element.
 func bump8() uint8 {
-    g++
-    h++
+    g +%= 1
+    h +%= 1
     return 9
 }
 
 // next moves b on by one and returns 7.
 func next(mut b uint8) int64 {
-    b++
+    b +%= 1
     return 7
 }
 
@@ -68,7 +68,7 @@ func compound() {
     mut a [256]int64
     a[1] = 5
     a[2] = 100
-    a[g] += bump()
+    a[g] +%= bump()
     check(a[1] == 14 && a[2] == 100 && g == 2, "a compound assignment's index read before the value")
 }
 
@@ -87,7 +87,7 @@ func localCompound() {
     mut a [256]int64
     a[4] = 5
     mut b uint8 = 4
-    a[b] += next(mut b)
+    a[b] +%= next(mut b)
     check(a[4] == 12 && a[5] == 0 && b == 5, "a compound assignment's local index read before a mut argument moves it")
 }
 
@@ -130,3 +130,8 @@ func main() {
     field()
     post()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -12,10 +12,10 @@ pub func Lex(mut l Lexer, src string) {
     l.dropped = 0
     for l.pos < len(l.src) && !l.overflow {
         c := byteAt(l.src, l.pos)
-        next := byteAt(l.src, l.pos + 1)
+        next := byteAt(l.src, l.pos +% 1)
         switch {
         case c == ' ' || c == '\t':
-            l.pos++
+            l.pos +%= 1
         case newlineAt(l.src, l.pos) > 0:
             newlines(mut l)
         case isIdentStart(c):
@@ -35,8 +35,8 @@ pub func Lex(mut l Lexer, src string) {
         case operator(mut l):
             // operator added the token and moved past it.
         default:
-            fail(mut l, l.pos, l.pos + 1, "invalid character")
-            l.pos++
+            fail(mut l, l.pos, l.pos +% 1, "invalid character")
+            l.pos +%= 1
         }
     }
     addSemi(mut l, l.pos)
@@ -48,7 +48,7 @@ pub func Lex(mut l Lexer, src string) {
 func newlines(mut l Lexer) {
     first := l.pos
     for mut n := newlineAt(l.src, l.pos); n > 0; n = newlineAt(l.src, l.pos) {
-        l.pos += n
+        l.pos +%= n
     }
     addSemi(mut l, first)
 }
@@ -57,7 +57,7 @@ func newlines(mut l Lexer) {
 func ident(mut l Lexer) {
     start := l.pos
     for l.pos < len(l.src) && (isIdentStart(byteAt(l.src, l.pos)) || isDigit(byteAt(l.src, l.pos))) {
-        l.pos++
+        l.pos +%= 1
     }
     k := keyword(l.src, start, l.pos)
     w, isKeyword := keywords[k]
@@ -92,16 +92,16 @@ func number(mut l Lexer) {
     start := l.pos
     base := prefixBase(l.src, l.pos)
     if base != 0 {
-        l.pos += 2
+        l.pos +%= 2
         for l.pos < len(l.src) && (isIdentStart(byteAt(l.src, l.pos)) || isDigit(byteAt(l.src, l.pos))) {
-            l.pos++
+            l.pos +%= 1
         }
         mut digits := 0
         mut bad := -1
-        for mut i := start + 2; i < l.pos; i++ {
+        for mut i := start +% 2; i < l.pos; i +%= 1 {
             c := byteAt(l.src, i)
             if c != '_' {
-                digits++
+                digits +%= 1
                 if bad < 0 && digitValue(c) >= base {
                     bad = i
                 }
@@ -110,8 +110,8 @@ func number(mut l Lexer) {
         if digits == 0 {
             fail(mut l, start, l.pos, "integer literal has no digits")
         } else if bad >= 0 {
-            fail(mut l, bad, bad + 1, "invalid digit in integer literal")
-        } else if !separated(l.src, start, l.pos, start + 2) {
+            fail(mut l, bad, bad +% 1, "invalid digit in integer literal")
+        } else if !separated(l.src, start, l.pos, start +% 2) {
             fail(mut l, start, l.pos, "_ must separate successive digits")
         }
         add(mut l, KindInt, 0, start, l.pos, true)
@@ -123,21 +123,21 @@ func number(mut l Lexer) {
         if byteAt(l.src, l.pos) == '.' {
             isFloat = true
         }
-        l.pos++
+        l.pos +%= 1
     }
     mut expDigits := true
     if byteAt(l.src, l.pos) == 'e' || byteAt(l.src, l.pos) == 'E' {
         isFloat = true
         expDigits = false
-        l.pos++
+        l.pos +%= 1
         if byteAt(l.src, l.pos) == '+' || byteAt(l.src, l.pos) == '-' {
-            l.pos++
+            l.pos +%= 1
         }
         for l.pos < len(l.src) && (isDigit(byteAt(l.src, l.pos)) || byteAt(l.src, l.pos) == '_') {
             if isDigit(byteAt(l.src, l.pos)) {
                 expDigits = true
             }
-            l.pos++
+            l.pos +%= 1
         }
     }
     if !expDigits {
@@ -148,7 +148,7 @@ func number(mut l Lexer) {
         }
     } else if !separated(l.src, start, l.pos, start) {
         fail(mut l, start, l.pos, "_ must separate successive digits")
-    } else if l.pos - start > 1 && byteAt(l.src, start) == '0' {
+    } else if l.pos -% start > 1 && byteAt(l.src, start) == '0' {
         fail(mut l, start, l.pos, "integer literal has a leading zero")
     }
     if isFloat {
@@ -162,7 +162,7 @@ func number(mut l Lexer) {
 // literal, stands between two digits.
 func floatSeparated(src string, start int64, end int64) bool {
     for mut i := start; i < end; i++ {
-        if byteAt(src, i) == '_' && (i == start || !isDigit(byteAt(src, i - 1)) || i + 1 == end ||
+        if byteAt(src, i) == '_' && (i == start || !isDigit(byteAt(src, i -% 1)) || i + 1 == end ||
             !isDigit(byteAt(src, i + 1))) {
             return false
         }
@@ -176,7 +176,7 @@ func prefixBase(src string, pos int64) int64 {
     if byteAt(src, pos) != '0' {
         return 0
     }
-    switch byteAt(src, pos + 1) {
+    switch byteAt(src, pos +% 1) {
     case 'x', 'X':
         return 16
     case 'b', 'B':
@@ -191,7 +191,7 @@ func prefixBase(src string, pos int64) int64 {
 // when it is none.
 func digitValue(c uint8) int64 {
     if isDigit(c) {
-        return c - '0'
+        return c -% '0'
     }
     if c >= 'a' && c <= 'f' {
         return c - 'a' + 10
@@ -210,7 +210,7 @@ func separated(src string, start int64, end int64, first int64) bool {
         if byteAt(src, i) != '_' {
             continue
         }
-        before := i > first && byteAt(src, i - 1) != '_' || i == first && first == start + 2
+        before := i > first && byteAt(src, i -% 1) != '_' || i == first && first == start +% 2
         after := i + 1 < end && byteAt(src, i + 1) != '_'
         if !before || !after {
             return false
@@ -224,8 +224,8 @@ func separated(src string, start int64, end int64, first int64) bool {
 func operator(mut l Lexer) bool {
     for i, op := range operators {
         if hasPrefixAt(l.src, l.pos, op.text) {
-            add(mut l, KindOp, i, l.pos, l.pos + len(op.text), op.ends)
-            l.pos += len(op.text)
+            add(mut l, KindOp, i, l.pos, l.pos +% len(op.text), op.ends)
+            l.pos +%= len(op.text)
             return true
         }
     }
@@ -239,21 +239,21 @@ func operator(mut l Lexer) bool {
 // end a statement.
 func comment(mut l Lexer) {
     start := l.pos
-    l.pos += 2
+    l.pos +%= 2
     for l.pos < len(l.src) {
         n := newlineAt(l.src, l.pos)
         if n == 0 {
-            l.pos++
+            l.pos +%= 1
             continue
         }
-        mut next := l.pos + n
+        mut next := l.pos +% n
         for byteAt(l.src, next) == ' ' || byteAt(l.src, next) == '\t' {
-            next++
+            next +%= 1
         }
         if !hasPrefixAt(l.src, next, "//") {
             break
         }
-        l.pos = next + 2
+        l.pos = next +% 2
     }
     addSemi(mut l, start)
     add(mut l, KindComment, 0, start, l.pos, false)
@@ -267,23 +267,23 @@ func comment(mut l Lexer) {
 // error.
 func blockComment(mut l Lexer) {
     start := l.pos
-    l.pos += 2
+    l.pos +%= 2
     mut depth := 1
     mut lines := false
     for l.pos < len(l.src) && depth > 0 {
         n := newlineAt(l.src, l.pos)
         switch {
         case hasPrefixAt(l.src, l.pos, "/*"):
-            depth++
-            l.pos += 2
+            depth +%= 1
+            l.pos +%= 2
         case hasPrefixAt(l.src, l.pos, "*/"):
-            depth--
-            l.pos += 2
+            depth -%= 1
+            l.pos +%= 2
         case n > 0:
             lines = true
-            l.pos += n
+            l.pos +%= n
         default:
-            l.pos++
+            l.pos +%= 1
         }
     }
     if lines {
@@ -294,3 +294,8 @@ func blockComment(mut l Lexer) {
         fail(mut l, start, l.pos, "block comment not terminated")
     }
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

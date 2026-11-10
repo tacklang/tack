@@ -6,7 +6,7 @@ func count(s string, c uint8) int64 {
     mut n := 0
     for i := range len(s) {
         if s[i] == c {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -52,9 +52,14 @@ func main() {
     if "tack"[1] != 'a' || at(word, 4) != 0 || at(word, -1) != 0 || first(word) != 't' {
         exit(4)
     }
-    code, fits := int32(count("banana", 'a') + at(word, 2) - 'a')
+    code, fits := int32(count("banana", 'a') +% at(word, 2) -% 'a')
     if !fits {
         exit(6)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

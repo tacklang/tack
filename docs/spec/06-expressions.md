@@ -103,14 +103,14 @@ or another literal it needs none.
 package main
 
 type Point struct {
-    x int32
-    y int32
+    x int8
+    y int8
 }
 
 func main() {
     ps := [...]Point{{x: 1, y: 2}, {y: 4, x: 3}}
     if ps[1] == (Point{x: 3, y: 4}) {
-        exit(ps[0].x + ps[0].y + ps[1].x + ps[1].y)
+        exit(int32(ps[0].x) + int32(ps[0].y) + int32(ps[1].x) + int32(ps[1].y))
     }
 }
 ```
@@ -339,8 +339,8 @@ holds, and that it has no zero value and no `==`, is described in
 ```tack run exit=8
 package main
 
-func double(n int32) int32 {
-    return n * 2
+func half(n int32) int32 {
+    return n / 2
 }
 
 func twice(f func(int32) int32, n int32) int32 {
@@ -348,8 +348,8 @@ func twice(f func(int32) int32, n int32) int32 {
 }
 
 func main() {
-    g := double
-    exit(twice(g, 2))
+    g := half
+    exit(twice(g, 32))
 }
 ```
 
@@ -359,8 +359,9 @@ Tack has these operators:
 
 | Kind       | Operators                               |
 |------------|-----------------------------------------|
-| prefix     | `!` `-` `^`                             |
+| prefix     | `!` `-` `^` `-%`                        |
 | arithmetic | `+` `-` `*` `/` `%`                     |
+| wrapping   | `+%` `-%` `*%`                          |
 | bitwise    | `&` `\|` `^` `&^` `<<` `>>`             |
 | comparison | `==` `!=` `<` `<=` `>` `>=`             |
 | logical    | `&&` `\|\|`                             |
@@ -368,24 +369,29 @@ Tack has these operators:
 The prefix operators bind tightest. The binary operators have five
 levels of precedence, from tightest to loosest:
 
-| Precedence | Operators                       |
-|------------|---------------------------------|
-| 5          | `*` `/` `%` `<<` `>>` `&` `&^`  |
-| 4          | `+` `-` `\|` `^`                |
-| 3          | `==` `!=` `<` `<=` `>` `>=`     |
-| 2          | `&&`                            |
-| 1          | `\|\|`                          |
+| Precedence | Operators                           |
+|------------|-------------------------------------|
+| 5          | `*` `/` `%` `*%` `<<` `>>` `&` `&^` |
+| 4          | `+` `-` `+%` `-%` `\|` `^`          |
+| 3          | `==` `!=` `<` `<=` `>` `>=`         |
+| 2          | `&&`                                |
+| 1          | `\|\|`                              |
 
 Binary operators of one level associate to the left, so `1 + 2 << 3` is
 17, `6 & 3 * 2` is 4 and `a - b - c` is `(a - b) - c`. Parentheses group
 explicitly.
 
-`-x` negates a signed integer or a float, and `^x` flips every bit of
-an integer; `!x` is described below. The arithmetic and bitwise
-operators take two integers, or for `+ - * /` two floats, and give
-their common type; what each computes, which operand types it accepts,
-and the shifts' rules for their count are described in [Constants and
-arithmetic](03-arithmetic.md). A comparison gives a `bool`. Two
+`-x` negates a signed integer or a float, `-%x` negates an integer of
+any type, wrapping, and `^x` flips every bit of an integer; `!x` is
+described below. The arithmetic, wrapping and bitwise operators take two
+integers, or for `+ - * /` two floats, and give their common type; what
+each computes, which operand types it accepts, and the shifts' rules for
+their count are described in [Constants and
+arithmetic](03-arithmetic.md). `+`, `-`, `*` and `-x` on integers must
+be proven not to overflow, or be written in their checked form, `v, ok
+:= a + b`; `+%`, `-%`, `*%` and `-%x` wrap at the type's width instead
+(see [Integer overflow](03-arithmetic.md#integer-overflow)). `+%` and
+`-%` bind as `+` and `-` do, `*%` as `*`, and `-%x` as `-x`. A comparison gives a `bool`. Two
 integers of any types compare by their values, as [Constants and
 arithmetic](03-arithmetic.md) describes, as do two floats of one type;
 which other types compare, and what `==` computes on them, is described
@@ -418,10 +424,8 @@ proofs](10-safety.md).
 ```tack run exit=4
 package main
 
-mut calls int32 = 0
-
 func touch() bool {
-    calls = calls + 1
+    print("touched\n")
     return true
 }
 
@@ -430,9 +434,13 @@ func main() {
     b := true || touch()
     c := true && touch()
     if !a && b && c {
-        exit(calls + 3)
+        exit(4)
     }
 }
+```
+
+```output
+touched
 ```
 
 ## Type assertions
@@ -465,7 +473,10 @@ func small(a any) int32 {
 
 func main() {
     var x int8 = 6
-    exit(small(x) + small(5))
+    if small(5) != 0 {
+        exit(1)
+    }
+    exit(small(x))
 }
 ```
 
@@ -493,14 +504,16 @@ begins, after every argument has been evaluated.
 ```tack run exit=3
 package main
 
-func next(mut k int32) int32 {
-    k = k + 1
+func next(mut k int8) int8 {
+    if k < 9 {
+        k++
+    }
     return k
 }
 
-func three(a int32, b int32, c int32) int32 {
+func three(a int8, b int8, c int8) int32 {
     print("called\n")
-    return a * 100 + b * 10 + c
+    return int32(a) * 100 + int32(b) * 10 + int32(c)
 }
 
 func say(s string, v int32) int32 {
@@ -509,11 +522,11 @@ func say(s string, v int32) int32 {
 }
 
 func main() {
-    mut k int32 = 0
+    mut k int8 = 0
     n := three(next(mut k), k, next(mut k))
-    m := say("left\n", 1) + say("right\n", 2)
-    if n == 112 {
-        exit(m)
+    m := say("left\n", 1) < say("right\n", 2)
+    if n == 112 && m {
+        exit(3)
     }
 }
 ```

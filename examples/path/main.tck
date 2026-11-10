@@ -141,7 +141,7 @@ func failures() {
         if e.code == 0 {
             break
         }
-        failed++
+        failed +%= 1
         if e.code != 1 || live() != 0 {
             ok = false
         }
@@ -265,3 +265,8 @@ func joins() {
     check(joinIs("/", "..", "/"), "join(/, ..)")
     check(joinIs("a//", "//b//", "a/b"), "join(a//, //b//)")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

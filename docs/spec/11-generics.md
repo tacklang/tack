@@ -224,19 +224,19 @@ function:
 package main
 
 type Sizer interface {
-    size() int64
+    size() int32
 }
 
 type Box struct {
-    n int64
+    n int32
 }
 
-func (b Box) size() int64 {
+func (b Box) size() int32 {
     return b.n
 }
 
 func total[S Sizer](a S, b S) int64 {
-    return a.size() + b.size()
+    return int64(a.size()) + int64(b.size())
 }
 
 func main() {
@@ -276,28 +276,28 @@ as in [Interface declarations](#interface-declarations).
 package main
 
 type Sizer interface {
-    size() int64
+    size() int32
 }
 
 type Box struct {
-    n int64
+    n int32
 }
 
-func (b Box) size() int64 {
+func (b Box) size() int32 {
     return b.n
 }
 
 type Line struct {
-    a int64
-    b int64
+    a int16
+    b int16
 }
 
-func (l Line) size() int64 {
-    return l.b - l.a
+func (l Line) size() int32 {
+    return int32(l.b) - int32(l.a)
 }
 
 func both(x Sizer, y Sizer) int64 {
-    return x.size() + y.size()
+    return int64(x.size()) + int64(y.size())
 }
 
 func main() {

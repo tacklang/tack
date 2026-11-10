@@ -41,7 +41,7 @@ func count(n int64) list[int64] {
 func sum(v []int64) int64 {
     mut s := 0
     for _, x := range v {
-        s += x
+        s +%= x
     }
     return s
 }
@@ -64,7 +64,7 @@ func (mut s Stack) grow(n int64) int64 {
     }
     s.depth = len(frames)
     empty := replace(mut s.frames, frames)
-    return len(s.frames) + len(empty)
+    return len(s.frames) +% len(empty)
 }
 
 // fieldOutAndBack checks a list taken out of a struct and put back.
@@ -96,7 +96,7 @@ func copyable() {
     mut x := 7
     old := replace(mut x, 9)
     check(old == 7 && x == 9, "a copyable local")
-    old2 := replace(mut x, x * 2)
+    old2 := replace(mut x, x *% 2)
     check(old2 == 9 && x == 18, "a value read from the old one")
     mut a := [3]int64{1, 2, 3}
     o := replace(mut a[2], 30)
@@ -134,3 +134,8 @@ func main() {
     nested()
     check(live() == 0, "nothing left after nested lists")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

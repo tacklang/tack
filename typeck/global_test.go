@@ -221,7 +221,7 @@ var invalidGlobalPrograms = []struct {
 	},
 	{
 		"an element of a global already reported",
-		withGlobal("var t = [1]string{1}\n\nvar x = len(t[0]) + 1"),
+		withGlobal("var t = [1]string{1}\n\nvar x = len(t[0]) +% 1"),
 		[]string{"cannot use int64 as string in array literal"},
 	},
 	{
@@ -320,7 +320,7 @@ func TestGlobalTypeIsKnownInEarlierFunctions(t *testing.T) {
 
 // A mutable global can be assigned from any function.
 func TestMutableGlobalIsAssignable(t *testing.T) {
-	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count + 1\n}\n\nfunc main() {\n    bump()\n    code, fits := int32(count)\n    if fits { exit(code) }\n}\n"
+	src := "package main\n\nmut count int64\n\nfunc bump() {\n    count = count +% 1\n}\n\nfunc main() {\n    bump()\n    code, fits := int32(count)\n    if fits { exit(code) }\n}\n"
 	if _, diags := checkTree(t, src); len(diags) > 0 {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}

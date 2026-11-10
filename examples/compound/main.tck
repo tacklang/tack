@@ -3,26 +3,26 @@ package main
 mut calls int64
 
 func sumTo(n int64) int64 {
-    calls += 1
+    calls +%= 1
     mut i = 0
     mut sum = 0
     for i < n {
         i += 1
-        sum += i
+        sum +%= i
     }
     return sum
 }
 
 func main() {
     mut x = sumTo(10)
-    x -= 13
-    x *= 2
+    x -%= 13
+    x *%= 2
     x /= 7
     x %= 100
-    x += calls
-    x++
-    x++
-    x--
+    x +%= calls
+    x +%= 1
+    x +%= 1
+    x -%= 1
     code, ok := int32(x)
     if !ok {
         exit(1)

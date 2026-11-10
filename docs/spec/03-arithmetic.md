@@ -3,7 +3,8 @@
 This chapter describes values of the numeric and boolean kinds and what
 the operators compute on them: constant expressions and how they are
 evaluated at compile time, the type a constant takes, integer overflow,
-division and remainder, shifts and bitwise operators, what comparing two
+wrapping arithmetic, division and remainder, shifts and bitwise
+operators, what comparing two
 integers or two floats computes, conversions `T(x)` from one numeric
 type to another (integer to integer, integer to float, float to integer
 and float to float) and what each computes, and float semantics. It
@@ -79,10 +80,10 @@ It is one built only from:
 - `len` of a constant expression, and `len` of any array, a mutable one
   included, when computing it calls nothing;
 - a conversion `T(x)` of a constant expression to an integer type;
-- the arithmetic, bitwise and shift operators, the comparisons, and
-  `&&`, `||` and `!`, on constant expressions, with one exception: `^x`
-  of a target-width type is not a constant expression, since its value
-  depends on the target.
+- the arithmetic, wrapping, bitwise and shift operators, the
+  comparisons, and `&&`, `||` and `!`, on constant expressions, with one
+  exception: `^x`, and a wrapping operator, of a target-width type is
+  not a constant expression, since its value depends on the target.
 
 A value of a float type is constant only as an untyped float constant
 given that type, a name of an immutable package-level variable, or a
@@ -198,45 +199,129 @@ widening](04-types.md#implicit-widening)), so `int8 + int64` is an
 `int64`. Two operands with no common type, such as an `int8` and a
 `uint8`, or a `uint64` and an `int64`, are an error, `mismatched types
 int8 and uint8 in +`. Unary `-x` means `0 - x` and takes a signed
-integer only; on an unsigned one it is an error, and `0 - x` is written
-when the wrapping is meant.
+integer only; on an unsigned one it is an error, `operator - is not
+defined on uint8`, and `-%x` is written when the wrapping is meant.
 
-Arithmetic on values the compiler does not know wraps around at its
-type's width, on the two's complement form of a signed type: the
-largest value plus one is the smallest, negating the smallest signed
-value gives itself, and the smallest signed value divided by -1 is
-itself, with remainder 0. `x++`, `x--` and every compound assignment
-wrap in the same way.
+`+`, `-`, `*` and unary `-` on integers never wrap. Each computes the
+exact result, and the program compiles only where that result is proven
+a value of the operation's type, a result below 0 being outside an
+unsigned type: by the operands' known values, or by the facts in force
+where the operation is written (see [Safety and
+proofs](10-safety.md#arithmetic)). `x++`, `x--`, `x += v`, `x -= v` and
+`x *= v` compute `x + 1`, `x - 1`, `x + v`, `x - v` and `x * v` and
+need the same proof. Anything else is an error that names the operation
+and what fixes it: `a + b may overflow int64; bound a and b first, or
+use v, ok := a + b, or a +% b to wrap`, `a - b may go below 0 in
+uint64; check a >= b first, or use v, ok := a - b, or a -% b to wrap`,
+`x++ may overflow int64; use x +%= 1 to wrap, or v, ok := x + 1 and x =
+v when ok`.
 
 ```tack run exit=0
 package main
 
 func next(x int8) int8 {
-    return x + 1
+    if x < 127 {
+        return x + 1
+    }
+    return x
 }
 
-func negate(x int64) int64 {
-    return -x
+func distance(a uint64, b uint64) uint64 {
+    if a >= b {
+        return a - b
+    }
+    return b - a
 }
 
 func main() {
-    if next(127) != -128 {
+    if next(126) != 127 || next(127) != 127 {
         exit(1)
     }
-    if negate(-9223372036854775808) != -9223372036854775808 {
+    if distance(3, 10) != 7 || distance(10, 3) != 7 {
         exit(2)
     }
     exit(0)
 }
 ```
 
-Arithmetic whose operands are all known values never wraps. It must
-give a value of its type at every step, in a function as at package
-level, or it is an error, `constant expression overflows int8`, at the
-step that overflowed. A mutable variable's value is never known, so
-changing `var` to `mut` can turn this error into wrapping at run time:
-after `var m int8 = 127`, `m + 1` is an error, while after `mut m int8 =
-127` the same `m + 1` is -128.
+Without the guards, neither compiles:
+
+```tack error
+package main
+
+func add(a int64, b int64) int64 {
+    return a + b
+}
+
+func down(x uint8) uint8 {
+    mut y := x
+    y--
+    return y
+}
+
+func main() {
+    exit(0)
+}
+```
+
+```diagnostics
+main.tck:4:12: error: a + b may overflow int64; bound a and b first, or use v, ok := a + b, or a +% b to wrap
+main.tck:9:5: error: y-- may go below 0 in uint8; check y > 0 first, use y -%= 1 to wrap, or v, ok := y - 1 and y = v when ok
+```
+
+The checked form, `v, ok := a + b`, also `a - b`, `a * b` and `-a`,
+computes the operation whether or not it fits: `ok` reports whether the
+exact result is a value of the type, and `v` is that result, or 0 when
+it is not. Only the outermost operation is checked, so in `v, ok := a +
+b * c` the product needs its own proof. It is described with the other
+checked forms in [Safety and proofs](10-safety.md#the-checked-form).
+
+The wrapping operators `+%`, `-%` and `*%`, their compound forms `+%=`,
+`-%=` and `*%=`, and unary `-%x` compute in two's complement at their
+type's width and wrap around it: the largest value `+% 1` is the
+smallest, the smallest signed value `-% 1` is the largest, `-%` of the
+smallest signed value is itself, and, on an unsigned type, `0 -% 1` is
+its largest value and `-%x` is `0 -% x`. They need no proof. They take
+integers only, combined as `+` `-` and `*` combine them, so `int8 +%
+uint8` is `mismatched types int8 and uint8 in +%`, and a float is
+`operator +% is not defined on float64`. Two untyped constants have no
+width to wrap at, and are an error that names a conversion of one, `200
++% 100 wraps at its type's width, but both operands are untyped
+constants; give one a type, as in int64(200) +% 100`. They bind as `+`
+`-` and `*` do, and `-%x` as `-x`.
+
+```tack run exit=0
+package main
+
+func wrap8(x int8) int8 {
+    return x +% 1
+}
+
+func main() {
+    if wrap8(127) != -128 {
+        exit(1)
+    }
+    mut u uint8 = 0
+    u -%= 1
+    if u != 255 || -%u != 1 {
+        exit(2)
+    }
+    mut m int64 = -9223372036854775808
+    if -%m != m || m *% -1 != m {
+        exit(3)
+    }
+    exit(0)
+}
+```
+
+Arithmetic whose operands are all known values is computed at compile
+time. Plain `+`, `-` and `*` must give a value of its type at every
+step, in a function as at package level, or it is an error, `constant
+expression overflows int8`, at the step that overflowed; so must `-x`.
+The wrapping operators wrap there as at run time, so with `var m int8 =
+127`, `m + 1` is an error and `m +% 1` is -128, and a package-level
+variable may be initialized with one, as in `var seed uint64 = a *% b`
+with `a` and `b` known.
 
 ```tack error
 package main
@@ -255,11 +340,18 @@ main.tck:6:10: error: constant expression overflows uint8
 ```
 
 A target-width type is the exception above 4294967295, where whether
-arithmetic wraps depends on the target. A step of a constant expression
+arithmetic overflows depends on the target. A step of a constant expression
 of a target-width type must lie between 0 and 4294967295, as a constant
 of the type must. Elsewhere a known value of a target-width type past
-4294967295 is not an error, but it is not known either: it is computed
-at run time, as `s + 1` is after `s := unsafe_size_t(4294967295)`.
+4294967295 is not an error, but it is not known either: after `s :=
+unsafe_size_t(4294967295)`, `s + 1` needs a proof as any unknown value
+does, which nothing gives it, since it overflows a 32-bit target, and
+`s +% 1` is computed at run time. A wrapping operator on a target-width
+type is never a known value, and so never a constant expression, as
+`^x` is not, since its width depends on the target. A plain operation of
+a target-width type is proven only where it fits a 32-bit target, unless
+its result is no larger than an operand, as `a - b` with `b` at least 0
+is.
 
 ## Division and remainder
 
@@ -272,7 +364,8 @@ takes the dividend's sign. At run time, the smallest value of a signed
 type divided by -1 is itself, and its remainder by -1 is 0 (see [Integer
 overflow](#integer-overflow)). On known values the same division
 overflows its type and is an error, `constant expression overflows
-int64`, while the remainder is 0.
+int64`, while the remainder is 0. A division is the one arithmetic
+operation that wraps without being written to, at that one quotient.
 
 ```tack run exit=0
 package main
@@ -362,8 +455,10 @@ bool`.
 is an unsigned integer of any width, or an untyped constant that is not
 negative; a count of a signed type is an error, `shift count must be an
 unsigned integer, got int64`, and a negative constant count `shift count
-must not be negative, got -1`. The result has `x`'s type. `<<` wraps at
-the type's width as `+` does, so `int8(64) << 1`, at run time, is -128.
+must not be negative, got -1`. The result has `x`'s type. `<<` of a value
+not known keeps the bits that fit the type's width, as `+%` does, and
+needs no proof, so `shl(64, 1)` below is -128; on known values a shift
+that loses a set bit is an error (see below).
 `>>` of a signed value is arithmetic, copying the sign bit in, and of an
 unsigned value logical. A count at or past `x`'s width shifts every bit
 out: `x << n` is 0, and `x >> n` is 0, or -1 when `x` is negative.

@@ -12,6 +12,17 @@ package conv
 // A float's sign, exponent and mantissa are found, and a float made from
 // them, by scaling with powers of two, which is exact, rather than by
 // reading its bits, which Tack has no way to do.
+//
+// Most arithmetic here is on a decimal's digit count and point, on a
+// float's exponent, and on the constants info gives, all of which stay
+// within a few thousand of 0 for any input, by bounds the checker cannot
+// follow through a struct's fields and across calls: a decimal holds at
+// most 800 digits, and its point stays within 2000 of 0 (see decimal); a
+// float's exponent within 1100 (see decompose and float_bits); info's
+// values are its constants. That arithmetic is written with +% -% and *%,
+// which never wrap there, and each names the bound it rests on. What the
+// input can drive past an int64, a precision or an exponent's digits, is
+// in the checked form, and fails as the function already fails.
 
 // decimal is a nonnegative number in decimal, and a sign: d[:nd] are its
 // digits, ASCII '0' to '9', with no trailing zero, and the point is dp
@@ -19,6 +30,12 @@ package conv
 // trunc says nonzero digits past the 800 d holds were dropped, which
 // rounding half to even counts as more than half. Every float64 has at
 // most 767 significant digits, so a float's value is always held exactly.
+//
+// Every decimal holds 0 to 800 digits, which every write of nd keeps to,
+// and has dp within 2000 of 0: read_float may give any dp, but float_bits
+// takes only one within 330 of 0 any further, and append_float's come from
+// a float's exponent, within 1100, through shift, which moves dp by at
+// most 19 places for each 60 bits, and rounding, which moves it by 1.
 type decimal struct {
     d [800]uint8
     nd int64
@@ -54,23 +71,31 @@ func set_dig(mut a decimal, i int64, c uint8) {
 
 // ascii returns the ASCII digit of v, 0 to 9, or '0' for any other v.
 func ascii(v uint64) uint8 {
+    if v > 9 {
+        return '0'
+    }
     c, ok := uint8(v + '0')
-    if !ok || v > 9 {
+    if !ok {
         return '0'
     }
     return c
 }
 
-// value returns the value of the ASCII digit c.
+// value returns the value of the ASCII digit c. Every caller passes a
+// digit, so c -% '0' never wraps.
 func value(c uint8) uint64 {
-    return uint64(c - '0')
+    return uint64(c -% '0')
 }
 
 // trim drops a's trailing zeros, and makes its point 0 when no digit is
 // left.
 func trim(mut a decimal) {
-    for a.nd > 0 && dig(mut a, a.nd - 1) == '0' {
-        a.nd--
+    for {
+        n := a.nd
+        if n <= 0 || dig(mut a, n - 1) != '0' {
+            break
+        }
+        a.nd = n - 1
     }
     if a.nd == 0 {
         a.dp = 0
@@ -86,9 +111,8 @@ func assign(mut a decimal, v uint64) {
         if x == 0 {
             break
         }
-        q := x / 10
-        buf[at] = ascii(x - 10 * q)
-        x = q
+        buf[at] = ascii(x % 10)
+        x = x / 10
         first = at
     }
     a.nd = 0
@@ -96,7 +120,8 @@ func assign(mut a decimal, v uint64) {
     for i, c := range buf {
         if i >= first {
             set_dig(mut a, a.nd, c)
-            a.nd++
+            // At most 24 digits, one for each byte of buf.
+            a.nd +%= 1
         }
     }
     a.dp = a.nd
@@ -108,6 +133,10 @@ func assign(mut a decimal, v uint64) {
 // digit for each digit read, carrying the remainder, and finally the
 // remainder's digits, as many as fit, setting trunc for a nonzero one
 // that does not.
+//
+// k at most 60 keeps n below 2^60 before each n * 10, and so below 2^64
+// after it; r and w stay within 19 places of nd, at most 800 (see
+// decimal).
 func right_shift(mut a decimal, k uint64) {
     mut r := 0
     mut w := 0
@@ -119,22 +148,22 @@ func right_shift(mut a decimal, k uint64) {
                 return
             }
             for n >> k == 0 {
-                n = n * 10
-                r++
+                n = n *% 10
+                r +%= 1
             }
             break
         }
-        n = n * 10 + value(dig(mut a, r))
-        r++
+        n = n *% 10 +% value(dig(mut a, r))
+        r +%= 1
     }
-    a.dp = a.dp - (r - 1)
-    mask := (uint64(1) << k) - 1
+    a.dp = a.dp -% (r -% 1)
+    mask := (uint64(1) << k) -% 1
     for r < a.nd {
         c := dig(mut a, r)
         set_dig(mut a, w, ascii(n >> k))
-        w++
-        n = (n & mask) * 10 + value(c)
-        r++
+        w +%= 1
+        n = (n & mask) *% 10 +% value(c)
+        r +%= 1
     }
     for n > 0 {
         q := n >> k
@@ -145,7 +174,7 @@ func right_shift(mut a decimal, k uint64) {
         } else if q > 0 {
             a.trunc = true
         }
-        n = n * 10
+        n = n *% 10
     }
     a.nd = w
     trim(mut a)
@@ -155,28 +184,30 @@ func right_shift(mut a decimal, k uint64) {
 // into a second buffer long enough for the at most 19 digits the product
 // gains, then copies back as many digits as fit, setting trunc for a
 // nonzero one that does not.
+//
+// k at most 60 keeps n below 2^60 after each n / 10, so n plus a digit
+// times 2^k stays below 10 * 2^60, within 64 bits; w stays within 820
+// places below 820, one for each digit, at most 800, and 20 more.
 func left_shift(mut a decimal, k uint64) {
     mut tmp [820]uint8
     mut w := 820
     mut n := uint64(0)
-    for mut r := a.nd - 1; r >= 0; r-- {
-        n = n + (value(dig(mut a, r)) << k)
-        q := n / 10
-        w--
+    for mut r := a.nd -% 1; r >= 0; r-- {
+        n = n +% (value(dig(mut a, r)) << k)
+        w -%= 1
         if w >= 0 && w < 820 {
-            tmp[w] = ascii(n - 10 * q)
+            tmp[w] = ascii(n % 10)
         }
-        n = q
+        n = n / 10
     }
     for n > 0 {
-        q := n / 10
-        w--
+        w -%= 1
         if w >= 0 && w < 820 {
-            tmp[w] = ascii(n - 10 * q)
+            tmp[w] = ascii(n % 10)
         }
-        n = q
+        n = n / 10
     }
-    a.dp = a.dp + (820 - w) - a.nd
+    a.dp = a.dp +% (820 -% w) -% a.nd
     mut nd := 0
     for i, c := range tmp {
         if i < w {
@@ -213,7 +244,8 @@ func shift(mut a decimal, k int64) {
         if ok {
             left_shift(mut a, u)
         }
-    } else if s < 0 {
+    } else if s < 0 && s >= -60 {
+        // The loop above leaves s at -60 or more, as this tests too.
         u, ok := uint64(0 - s)
         if ok {
             right_shift(mut a, u)
@@ -226,11 +258,12 @@ func shift(mut a decimal, k int64) {
 // digit after it, which rounds up past dropped digits and otherwise to
 // even.
 func should_round_up(mut a decimal, nd int64) bool {
-    if nd < 0 || nd >= a.nd {
+    count := a.nd
+    if nd < 0 || nd >= count {
         return false
     }
     c := dig(mut a, nd)
-    if c == '5' && nd + 1 == a.nd {
+    if c == '5' && nd + 1 == count {
         if a.trunc {
             return true
         }
@@ -266,37 +299,44 @@ func round_up(mut a decimal, nd int64) {
     if nd < 0 || nd >= a.nd {
         return
     }
+    // i is below nd, which is below a.nd, at most 800, and the point
+    // moves by 1 (see decimal).
     for mut i := nd - 1; i >= 0; i-- {
         c := dig(mut a, i)
         if c < '9' {
             set_dig(mut a, i, c + 1)
-            a.nd = i + 1
+            a.nd = i +% 1
             return
         }
     }
     set_dig(mut a, 0, '1')
     a.nd = 1
-    a.dp++
+    a.dp +%= 1
 }
 
 // rounded_integer returns a rounded to the nearest integer, half to even,
 // or the largest uint64 for an a past 20 integer digits.
+//
+// float_bits, its one caller, gives it a decimal below 2^54, of at most
+// 17 integer digits, so n * 10 and n + 1 stay below 10^18, within 64
+// bits.
 func rounded_integer(mut a decimal) uint64 {
-    if a.dp > 20 {
+    dp := a.dp
+    if dp > 20 {
         return 18446744073709551615
     }
     mut i := 0
     mut n := uint64(0)
-    for i < a.dp && i < a.nd {
-        n = n * 10 + value(dig(mut a, i))
+    for i < dp && i < a.nd {
+        n = n *% 10 +% value(dig(mut a, i))
         i++
     }
-    for i < a.dp {
-        n = n * 10
+    for i < dp {
+        n = n *% 10
         i++
     }
-    if should_round_up(mut a, a.dp) {
-        n++
+    if should_round_up(mut a, dp) {
+        n +%= 1
     }
     return n
 }
@@ -326,32 +366,34 @@ func infinity(neg bool) float64 {
 // float whose values have mantbits mantissa bits and exponent bias bias,
 // as Go's ftoa takes them from its bits: v is mant * 2^(exp - mantbits),
 // mant holding its leading 1 for a normal v, and exp being bias + 1 for a
-// subnormal one. Each step scales by a power of two, which is exact.
+// subnormal one. Each step scales by a power of two, which is exact. v
+// is a finite float64, so e stays within 1100 of 0, and mantbits and bias
+// are info's.
 func decompose(v float64, mantbits int64, bias int64) (uint64, int64) {
     mut x := v
     mut e := 0
     for x >= 18446744073709551616.0 {
         x = x / 18446744073709551616.0
-        e = e + 64
+        e = e +% 64
     }
     for x >= 2.0 {
         x = x / 2.0
-        e++
+        e +%= 1
     }
     for x < 5.42101086242752217003726400434970855712890625e-20 {
         x = x * 18446744073709551616.0
-        e = e - 64
+        e = e -% 64
     }
     for x < 1.0 {
         x = x * 2.0
-        e--
+        e -%= 1
     }
     // Now 1 <= x < 2, and v is x * 2^e.
     mut k := mantbits
     mut exp := e
-    if e < bias + 1 {
-        k = mantbits + e - (bias + 1)
-        exp = bias + 1
+    if e < bias +% 1 {
+        k = mantbits +% e -% (bias +% 1)
+        exp = bias +% 1
     }
     for k > 0 {
         x = x * 2.0
@@ -369,9 +411,12 @@ func decompose(v float64, mantbits int64, bias int64) (uint64, int64) {
 // float type they describe, scaling by powers of two, each step exact:
 // every value on the way is at least as large as the result, so it keeps
 // every bit the result has.
+//
+// exp is within 100000 of 0, as float_bits and hex_bits give it, and
+// mantbits is info's.
 func compose(mant uint64, exp int64, mantbits int64) float64 {
     mut x := float64(mant)
-    mut k := exp - mantbits
+    mut k := exp -% mantbits
     for k >= 64 {
         x = x * 18446744073709551616.0
         k = k - 64
@@ -395,9 +440,13 @@ func compose(mant uint64, exp int64, mantbits int64) float64 {
 // exponent bias bias and largest stored exponent top, as Go's floatBits
 // does, and returns its mantissa and exponent as compose takes them, and
 // whether d is past the largest float, which is an infinity.
+//
+// Past the checks on d.dp, which is then within 330 of 0, each shift is
+// of at most 27 places, so exp stays within 1200 of 0; mantbits, umant,
+// bias and top are info's.
 func float_bits(mut d decimal, mantbits int64, umant uint64, bias int64, top int64) (uint64, int64, bool) {
     if d.nd == 0 || d.dp < -330 {
-        return 0, bias + 1, false
+        return 0, bias +% 1, false
     }
     if d.dp > 310 {
         return 0, 0, true
@@ -409,34 +458,34 @@ func float_bits(mut d decimal, mantbits int64, umant uint64, bias int64, top int
         if k >= 0 && k < 9 {
             n = powtab[k]
         }
-        shift(mut d, 0 - n)
-        exp = exp + n
+        shift(mut d, 0 -% n)
+        exp = exp +% n
     }
     for d.dp < 0 || d.dp == 0 && dig(mut d, 0) < '5' {
         mut n := 27
-        k := 0 - d.dp
+        k := 0 -% d.dp
         if k >= 0 && k < 9 {
             n = powtab[k]
         }
         shift(mut d, n)
-        exp = exp - n
+        exp = exp -% n
     }
     // d is now in [0.5, 1); a float's leading digit is worth 1.
-    exp--
-    if exp < bias + 1 {
-        n := bias + 1 - exp
-        shift(mut d, 0 - n)
-        exp = exp + n
+    exp -%= 1
+    if exp < bias +% 1 {
+        n := bias +% 1 -% exp
+        shift(mut d, 0 -% n)
+        exp = exp +% n
     }
-    if exp - bias >= top {
+    if exp -% bias >= top {
         return 0, 0, true
     }
-    shift(mut d, mantbits + 1)
+    shift(mut d, mantbits +% 1)
     mut mant := rounded_integer(mut d)
     if mant == uint64(2) << umant {
         mant = mant >> 1
-        exp++
-        if exp - bias >= top {
+        exp +%= 1
+        if exp -% bias >= top {
             return 0, 0, true
         }
     }
@@ -448,35 +497,47 @@ func float_bits(mut d decimal, mantbits int64, umant uint64, bias int64, top int
 // for float_bits, as Go's atofHex does, keeping two bits past the
 // mantissa and a sticky bit to round with, half to even, and returns what
 // float_bits does.
+//
+// An exp more than 100000 from 0 is far past every float's: the value is
+// an infinity above and rounds to 0 below, as it does for any exponent
+// past top or below the subnormals, and that is returned at once, which
+// keeps e within 100200 of 0 below, so its steps never wrap; m stays
+// within umant + 3 bits, and mantbits, umant, bias and top are info's.
 func hex_bits(mant uint64, exp int64, trunc bool, mantbits int64, umant uint64, bias int64, top int64) (uint64, int64, bool) {
-    max_exp := top + bias - 1
-    min_exp := bias + 1
+    if mant != 0 && exp > 100000 {
+        return 0, 0, true
+    }
+    if mant == 0 || exp < -100000 {
+        return 0, bias +% 1, false
+    }
+    max_exp := top +% bias -% 1
+    min_exp := bias +% 1
     mut m := mant
-    mut e := exp + mantbits
-    for m != 0 && m >> (umant + 2) == 0 {
+    mut e := exp +% mantbits
+    for m != 0 && m >> (umant +% 2) == 0 {
         m = m << 1
-        e--
+        e -%= 1
     }
     if trunc {
         m = m | 1
     }
-    for m >> (umant + 3) != 0 {
+    for m >> (umant +% 3) != 0 {
         m = m >> 1 | m & 1
-        e++
+        e +%= 1
     }
-    for m > 1 && e < min_exp - 2 {
+    for m > 1 && e < min_exp -% 2 {
         m = m >> 1 | m & 1
-        e++
+        e +%= 1
     }
     mut r := m & 3
     m = m >> 2
     r = r | m & 1
-    e = e + 2
+    e = e +% 2
     if r == 3 {
         m++
-        if m == uint64(1) << (umant + 1) {
+        if m == uint64(1) << (umant +% 1) {
             m = m >> 1
-            e++
+            e +%= 1
         }
     }
     if e > max_exp {
@@ -486,14 +547,15 @@ func hex_bits(mant uint64, exp int64, trunc bool, mantbits int64, umant uint64, 
 }
 
 // prefix_len returns how many bytes of s, from start, match word, ASCII
-// letters in either case.
+// letters in either case. Its callers pass a start of 0 or 1 and a word
+// of at most 8 bytes, so start +% i and n never wrap.
 func prefix_len(s []uint8, start int64, word string) int64 {
     mut n := 0
     for i, w := range word {
-        if lower(at(s, start + i)) != w {
+        if lower(at(s, start +% i)) != w {
             return n
         }
-        n++
+        n +%= 1
     }
     return n
 }
@@ -520,7 +582,8 @@ func special(s []uint8) (float64, int64, bool) {
             n = 3
         }
         if n == 3 || n == 8 {
-            return infinity(neg), start + n, true
+            // start is 0 or 1 and n 3 or 8.
+            return infinity(neg), start +% n, true
         }
         return 0.0, 0, false
     }
@@ -572,10 +635,11 @@ func read_float(s []uint8, mut d decimal) scan {
     mut base := uint64(10)
     mut max_mant := 19
     mut exp_char := 'e'
-    if i + 2 < len(s) && at(s, i) == '0' && lower(at(s, i + 1)) == 'x' {
+    // i is 0 or 1 here.
+    if i +% 2 < len(s) && at(s, i) == '0' && lower(at(s, i +% 1)) == 'x' {
         base = 16
         max_mant = 16
-        i = i + 2
+        i = i +% 2
         exp_char = 'p'
         sc.hex = true
     }
@@ -606,20 +670,23 @@ func read_float(s []uint8, mut d decimal) scan {
         if c >= '0' && c <= '9' {
             v = value(c)
         } else if sc.hex && lc >= 'a' && lc <= 'f' {
-            v = value(lc) - 39
+            v = uint64(lc - 'a') + 10
         } else {
             break
         }
         sawdigits = true
         i++
+        // nd and dp change by one for each byte of s read, so they stay
+        // within len(s) of 0; mant has at most max_mant digits, 19
+        // decimal or 16 hexadecimal ones, within 64 bits.
         if c == '0' && nd == 0 {
             // A leading zero moves the point instead.
-            dp--
+            dp -%= 1
             continue
         }
-        nd++
+        nd +%= 1
         if nd_mant < max_mant {
-            sc.mant = sc.mant * base + v
+            sc.mant = sc.mant *% base +% v
             nd_mant++
         } else if c != '0' {
             sc.trunc = true
@@ -627,7 +694,7 @@ func read_float(s []uint8, mut d decimal) scan {
         if !sc.hex {
             if d.nd < 800 {
                 set_dig(mut d, d.nd, c)
-                d.nd++
+                d.nd +%= 1
             } else if c != '0' {
                 d.trunc = true
             }
@@ -641,8 +708,15 @@ func read_float(s []uint8, mut d decimal) scan {
         dp = nd
     }
     if sc.hex {
-        dp = dp * 4
-        nd_mant = nd_mant * 4
+        // nd_mant is at most 16; dp, within len(s) of 0, may not fit four
+        // times over, and a float that long is no float read_float takes.
+        hex_dp, fits := dp * 4
+        if !fits {
+            sc.n = i
+            return sc
+        }
+        dp = hex_dp
+        nd_mant = nd_mant *% 4
     }
     if i < len(s) && lower(at(s, i)) == exp_char {
         i++
@@ -651,10 +725,12 @@ func read_float(s []uint8, mut d decimal) scan {
             return sc
         }
         mut esign := 1
+        // i is below len(s) here, which the checker does not follow into
+        // the else, past the first branch's step.
         if at(s, i) == '+' {
             i++
         } else if at(s, i) == '-' {
-            i++
+            i +%= 1
             esign = -1
         }
         if i >= len(s) || at(s, i) < '0' || at(s, i) > '9' {
@@ -667,11 +743,21 @@ func read_float(s []uint8, mut d decimal) scan {
             if c == '_' {
                 underscores = true
             } else if e < 10000 {
-                e = e * 10 + int64(c - '0')
+                // e is below 10000 and c a digit, which the loop's
+                // condition tested.
+                e = e *% 10 +% int64(c -% '0')
             }
             i++
         }
-        dp = dp + e * esign
+        // e is below 100000; dp may be anything within len(s) of 0, and
+        // a float whose point does not fit an int64 is no float
+        // read_float takes.
+        moved, fits := dp + e *% esign
+        if !fits {
+            sc.n = i
+            return sc
+        }
+        dp = moved
     } else if sc.hex {
         sc.n = i
         return sc
@@ -680,7 +766,12 @@ func read_float(s []uint8, mut d decimal) scan {
     sc.underscores = underscores
     if sc.hex {
         if sc.mant != 0 {
-            sc.exp = dp - nd_mant
+            // nd_mant is at most 64, but dp may be anywhere an int64 is.
+            exp, fits := dp - nd_mant
+            if !fits {
+                return sc
+            }
+            sc.exp = exp
         }
     } else {
         d.dp = dp
@@ -748,32 +839,37 @@ func round_shortest(mut d decimal, mant uint64, exp int64, mantbits int64, umant
         d.nd = 0
         return
     }
-    minexp := bias + 1
-    if exp > minexp && 332 * (d.dp - d.nd) >= 100 * (exp - mantbits) {
+    // mant and exp are decompose's: mant is below 2^54 and exp within
+    // 1100 of 0, and mantbits, umant and bias are info's. The digit
+    // places below stay within the 2000 of 0 every decimal's point and
+    // digits are, three of them added at most, and ui passes no more of
+    // them (see decimal).
+    minexp := bias +% 1
+    if exp > minexp && 332 *% (d.dp -% d.nd) >= 100 *% (exp -% mantbits) {
         // d is already as short as it can be.
         return
     }
     mut upper decimal
-    assign(mut upper, mant * 2 + 1)
-    shift(mut upper, exp - mantbits - 1)
+    assign(mut upper, mant *% 2 +% 1)
+    shift(mut upper, exp -% mantbits -% 1)
     mut mantlo := mant - 1
     mut explo := exp
     if mant <= uint64(1) << umant && exp != minexp {
-        mantlo = mant * 2 - 1
-        explo = exp - 1
+        mantlo = mant *% 2 -% 1
+        explo = exp -% 1
     }
     mut lower decimal
-    assign(mut lower, mantlo * 2 + 1)
-    shift(mut lower, explo - mantbits - 1)
+    assign(mut lower, mantlo *% 2 +% 1)
+    shift(mut lower, explo -% mantbits -% 1)
     inclusive := mant % 2 == 0
     mut upperdelta := 0
     mut ui := 0
     for {
-        mi := ui - upper.dp + d.dp
+        mi := ui -% upper.dp +% d.dp
         if mi >= d.nd {
             break
         }
-        li := ui - upper.dp + lower.dp
+        li := ui -% upper.dp +% lower.dp
         mut l := '0'
         if li >= 0 && li < lower.nd {
             l = dig(mut lower, li)
@@ -786,28 +882,29 @@ func round_shortest(mut d decimal, mant uint64, exp int64, mantbits int64, umant
         if ui < upper.nd {
             u = dig(mut upper, ui)
         }
-        okdown := l != m || inclusive && li + 1 == lower.nd
-        if upperdelta == 0 && m + 1 < u {
+        // m is a digit, as dig gives one.
+        okdown := l != m || inclusive && li +% 1 == lower.nd
+        if upperdelta == 0 && m +% 1 < u {
             upperdelta = 2
         } else if upperdelta == 0 && m != u {
             upperdelta = 1
         } else if upperdelta == 1 && (m != '9' || u != '0') {
             upperdelta = 2
         }
-        okup := upperdelta > 0 && (inclusive || upperdelta > 1 || ui + 1 < upper.nd)
+        okup := upperdelta > 0 && (inclusive || upperdelta > 1 || ui +% 1 < upper.nd)
         if okdown && okup {
-            round(mut d, mi + 1)
+            round(mut d, mi +% 1)
             return
         }
         if okdown {
-            round_down(mut d, mi + 1)
+            round_down(mut d, mi +% 1)
             return
         }
         if okup {
-            round_up(mut d, mi + 1)
+            round_up(mut d, mi +% 1)
             return
         }
-        ui++
+        ui +%= 1
     }
 }
 
@@ -866,23 +963,32 @@ func put_e(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8,
     }
     out_byte(mut b, first, mut failed)
     if prec > 0 {
+        // The digits would number more than an int64 counts, more than
+        // any list holds, so b cannot grow to hold them.
+        digits, fits := prec + 1
+        if !fits {
+            failed = true
+            return
+        }
         out_byte(mut b, '.', mut failed)
         mut i := 1
-        m := least(d.nd, prec + 1)
+        m := least(d.nd, digits)
         for i < m {
             out_byte(mut b, dig(mut d, i), mut failed)
             i++
         }
-        out_zeros(mut b, prec + 1 - i, mut failed)
+        // i is from 1 to m, which is at most digits.
+        out_zeros(mut b, digits -% i, mut failed)
     }
     out_byte(mut b, format, mut failed)
-    mut exp := d.dp - 1
+    // The point is within 2000 of 0 (see decimal).
+    mut exp := d.dp -% 1
     if d.nd == 0 {
         exp = 0
     }
     if exp < 0 {
         out_byte(mut b, '-', mut failed)
-        exp = 0 - exp
+        exp = 0 -% exp
     } else {
         out_byte(mut b, '+', mut failed)
     }
@@ -903,25 +1009,27 @@ func put_f(mut b list[uint8], mut d decimal, neg bool, prec int64, mut failed bo
     if neg {
         out_byte(mut b, '-', mut failed)
     }
+    // d's point and digit count are within 2000 of 0 (see decimal), lz
+    // is from 0 to prec, and m from 0 to prec - lz.
     if d.dp > 0 {
         m := least(d.nd, d.dp)
         for mut i := 0; i < m && !failed; i++ {
             out_byte(mut b, dig(mut d, i), mut failed)
         }
-        out_zeros(mut b, d.dp - m, mut failed)
+        out_zeros(mut b, d.dp -% m, mut failed)
     } else {
         out_byte(mut b, '0', mut failed)
     }
     if prec > 0 {
         out_byte(mut b, '.', mut failed)
-        lz := least(prec, most(0, 0 - d.dp))
-        off := d.dp + lz
-        m := least(prec - lz, most(0, d.nd - off))
+        lz := least(prec, most(0, 0 -% d.dp))
+        off := d.dp +% lz
+        m := least(prec -% lz, most(0, d.nd -% off))
         out_zeros(mut b, lz, mut failed)
         for mut i := 0; i < m && !failed; i++ {
-            out_byte(mut b, dig(mut d, off + i), mut failed)
+            out_byte(mut b, dig(mut d, off +% i), mut failed)
         }
-        out_zeros(mut b, most(0, prec - lz - m), mut failed)
+        out_zeros(mut b, most(0, prec -% lz -% m), mut failed)
     }
 }
 
@@ -940,21 +1048,25 @@ func put_digits(mut b list[uint8], mut d decimal, neg bool, prec int64, format u
         if shortest {
             eprec = 6
         }
-        exp := d.dp - 1
+        // The point is within 2000 of 0 (see decimal), and p is 0 or
+        // more: put_float, the one caller, passes no negative one.
+        exp := d.dp -% 1
         if exp < -4 || exp >= eprec {
             if p > d.nd {
                 p = d.nd
             }
-            p--
+            p -%= 1
             f = 'e'
             if format == 'G' {
                 f = 'E'
             }
         } else {
+            // p is now at most the larger of the point and the digit
+            // count, both within 2000 of 0.
             if p > d.dp {
                 p = d.nd
             }
-            p = most(p - d.dp, 0)
+            p = most(p -% d.dp, 0)
             f = 'f'
         }
     }
@@ -1020,25 +1132,39 @@ func put_float(mut b list[uint8], f float64, format uint8, prec int64, bit_size 
     if a != 0.0 {
         mant, exp := decompose(a, mantbits, bias)
         assign(mut d, mant)
-        shift(mut d, exp - mantbits)
+        // exp is decompose's, within 1100 of 0, and mantbits info's.
+        shift(mut d, exp -% mantbits)
         if prec < 0 {
             round_shortest(mut d, mant, exp, mantbits, umant, bias)
         }
     }
     shortest := prec < 0
     mut p := prec
+    // The digit count and the point are within 2000 of 0 (see decimal);
+    // prec is the caller's, and a place past what an int64 counts is past
+    // what any list holds, so b cannot grow to hold the digits.
     if shortest {
         if format == 'e' || format == 'E' {
-            p = most(d.nd - 1, 0)
+            p = most(d.nd -% 1, 0)
         } else if format == 'f' {
-            p = most(d.nd - d.dp, 0)
+            p = most(d.nd -% d.dp, 0)
         } else {
             p = d.nd
         }
     } else if format == 'e' || format == 'E' {
-        round(mut d, p + 1)
+        places, fits := p + 1
+        if !fits {
+            failed = true
+            return
+        }
+        round(mut d, places)
     } else if format == 'f' {
-        round(mut d, d.dp + p)
+        places, fits := d.dp + p
+        if !fits {
+            failed = true
+            return
+        }
+        round(mut d, places)
     } else if format == 'g' || format == 'G' {
         if p == 0 {
             p = 1

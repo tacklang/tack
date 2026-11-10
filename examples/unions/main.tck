@@ -64,17 +64,17 @@ func eval(nodes []Expr, i int64, x int64) int64 {
     case name:
         return x
     case neg(c):
-        return 0 - eval(nodes, c, x)
+        return 0 -% eval(nodes, c, x)
     case binary(b):
         l := eval(nodes, b.lhs, x)
         r := eval(nodes, b.rhs, x)
         switch b.op {
         case '+':
-            return l + r
+            return l +% r
         case '*':
-            return l * r
+            return l *% r
         default:
-            return l - r
+            return l -% r
         }
     case eof:
         return 0
@@ -97,14 +97,14 @@ func depth(nodes []Expr, i int64) int64 {
     }
     switch nodes[i] {
     case neg(c):
-        return 1 + depth(nodes, c)
+        return 1 +% depth(nodes, c)
     case binary(b):
         l := depth(nodes, b.lhs)
         r := depth(nodes, b.rhs)
         if l > r {
-            return 1 + l
+            return 1 +% l
         }
-        return 1 + r
+        return 1 +% r
     default:
         return 1
     }
@@ -165,7 +165,7 @@ func testTokens() {
     mut words := 0
     for _, t := range toks {
         if t != Token.eof {
-            words++
+            words +%= 1
         }
     }
     check(words == 3, "a range over an array of unions")
@@ -209,7 +209,7 @@ func testClauses() {
     for _, t := range toks {
         switch t {
         case num(n):
-            sum += n
+            sum +%= n
         case plus:
             continue
         case eof:
@@ -222,9 +222,9 @@ func testClauses() {
     for _, t := range toks {
         switch t {
         case num:
-            words += 10
+            words +%= 10
         default:
-            words++
+            words +%= 1
         }
     }
     check(words == 32, "a payload case named without binding it")
@@ -302,11 +302,11 @@ func total(v Value) int64 {
     case items(l):
         mut s := 0
         for _, x := range l {
-            s += x
+            s +%= x
         }
         return s
     case bag(b):
-        return b.tag + len(b.items)
+        return b.tag +% len(b.items)
     case none:
         return 0
     }
@@ -343,12 +343,12 @@ func testLoops() {
     mut sum := 0
     for i := range 10 {
         v = Value.items(listOf(i))
-        sum += total(v)
+        sum +%= total(v)
     }
     check(sum == 120, "reassigned every iteration")
     for i := range 5 {
         inner := Value.items(listOf(i))
-        sum += total(inner)
+        sum +%= total(inner)
         if i == 3 {
             continue
         }
@@ -367,7 +367,7 @@ func conditionalMove(move bool) int64 {
     v := Value.items(listOf(4))
     if move {
         h := Holder{v: v, n: 1}
-        return total(h.v) + h.n
+        return total(h.v) +% h.n
     }
     return 0
 }
@@ -464,3 +464,8 @@ func main() {
     freed("nested unions freed")
     testPackages()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

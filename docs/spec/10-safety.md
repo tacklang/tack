@@ -68,7 +68,13 @@ them:
 - an integer conversion, `T(x)`, when `x` is not a value of `T`, and a
   conversion of a float to an integer, when the float is NaN, an
   infinity, or its truncation is not a value of the integer type;
-- a type assertion, `a.(T)`, when the `any` `a` does not hold a `T`.
+- a type assertion, `a.(T)`, when the `any` `a` does not hold a `T`;
+- `+`, `-` and `*` on two integers and unary `-` on one, and `x++`,
+  `x--`, `x += v`, `x -= v` and `x *= v` on an integer, when the exact
+  result is not a value of the type, below 0 included for an unsigned
+  one (see [Constants and arithmetic](03-arithmetic.md#integer-overflow)).
+  The wrapping operators, `+%`, `-%`, `*%`, their compound forms and
+  `-%x`, never fail, and need no proof.
 
 Each is allowed in one of two ways. Under [the guard rule](#the-guard-rule),
 the compiler proves where the operation is written that it cannot fail,
@@ -220,7 +226,7 @@ A fact is in force in these places:
 A three-clause loop counts when its init declares the variable with a
 known value, its post steps it by a known amount above zero, up or down,
 its condition bounds the variable on the side it moves towards, the step
-from that bound cannot wrap past the end of the variable's type, and
+from that bound stays within the variable's type, and
 neither its body nor its condition assigns the variable.
 
 A loop keeps a bound on a variable it writes, a local or a parameter of
@@ -232,7 +238,7 @@ an integer type declared before the loop, when:
   write that can reach the loop in between. The bound is a known value
   the variable is at or above, or at or below, or a difference with
   another value a fact in force there relates it to, with no condition
-  that it not wrap;
+  that its step stay within its type;
 - the loop's init does not write the variable: the init runs after the
   loop's start, and a loop whose init writes the variable keeps no bound
   on it;
@@ -240,7 +246,7 @@ an integer type declared before the loop, when:
   inner loops and deferred code included, is `x++`, `x--`, `x += e`, `x
   -= e` or `x = e`, and the facts in force at the write, with the bound
   itself, prove
-  the value it stores within the bound, no step of it wrapping. A write
+  the value it stores within the bound. A write
   of any other form, a `mut` argument or an assignment of several values
   keeps no bound;
 - nothing in the loop writes the other value of a difference, or the
@@ -255,12 +261,12 @@ on a variable it writes, keeps none.
 ```tack run exit=3
 package main
 
-func count(s string) int64 {
-    mut n int64 = 0
+func last(s string) int64 {
+    mut n int64 = -1
     mut i := 0
     for i < len(s) && s[i] != '.' {
         if s[i] == 'a' {
-            n++
+            n = i
         }
         i++
     }
@@ -268,7 +274,7 @@ func count(s string) int64 {
 }
 
 func main() {
-    if count("banana.aa") == 3 && count("") == 0 {
+    if last("banana.aa") == 5 && last("") == -1 {
         exit(3)
     }
     exit(1)
@@ -280,6 +286,64 @@ as a divisor too: where `len(l) > 0` holds, `10 / len(l)` needs nothing
 more.
 
 ### Arithmetic
+
+Plain `+`, `-` and `*` on integers, and unary `-`, never wrap in a
+program that compiles: each is proven to give a value of its type, or
+written in its checked form, or the program is rejected. An operation is
+proven when the bounds of its exact result, worked out from its
+operands' bounds as below, lie within its type on every target, which
+for a target-width type is a 32-bit one's, or when its result is no
+larger than an operand: `a - b` with `b` at least 0, `a + b` with one
+operand at most 0. Each operand's bounds are its known value, a subject's
+from its type and the facts in force, a length's, arithmetic's own, a
+conversion's operand's, within the conversion's type, and, for `a / b`,
+`a % b`, `a & b` and `a >> k`, what their operands give them: a quotient
+is never larger in size than `a`, and by a known positive `k` its bounds
+are `a`'s divided; a remainder lies between 0 and `a` and is smaller in
+size than a known `b`; `a & b` lies from 0 to the operand that is never
+negative; `a >> k` has `a`'s bounds shifted. Any other operand, a call,
+a wrapping operator, `<<`, is anywhere in its type. Where those bounds
+fall short, the relations in force may still prove it: a known amount
+added to a subject or a length, `i + 1` under `i < n`, `n`'s type
+keeping it at most the largest `int64`, and `a - b` under `b <= a`,
+which is at least 0. A statement storing a known value in a mutable
+variable, `mut n := 0`, `mut n int64` or `n = 5`, puts the variable at
+that value, and one storing arithmetic, or stepping the variable, `n++`
+or `n += k`, within the bounds of what it stored, for the rest of its
+block up to the next write to it. A three-clause loop's post statement
+runs after a pass of the body, so it is proven with what the loop's
+condition says in force too, except about what the body writes.
+
+```tack run exit=0
+package main
+
+func steps(s string) int64 {
+    mut n := 0
+    n++
+    n += 2
+    for mut i := 0; i < len(s); i++ {
+        n = i + 1
+    }
+    return n
+}
+
+func half(a int64, b int64) int64 {
+    if a >= 0 && b >= 0 {
+        return a / 2 + b / 2
+    }
+    return 0
+}
+
+func main() {
+    if steps("abc") != 3 || steps("") != 3 {
+        exit(1)
+    }
+    if half(9223372036854775807, 9223372036854775807) != 9223372036854775806 {
+        exit(2)
+    }
+    exit(0)
+}
+```
 
 A divisor, an index, a slice's bound or a converted value may be
 arithmetic: `+`, `-` or `*` on two integers, or unary `-` on one, each
@@ -296,16 +360,16 @@ values the facts keep from zero, and a negation of one, is not zero
 either. So under `0 <= i && i < 4 && 0 <= j && j < 4`, `i + j` lies from
 0 to 6, and under `x > 5`, `x - 5` is never zero.
 
-Arithmetic wraps (see [Constants and arithmetic](03-arithmetic.md)), so
-an operation is bounded only when every value its operands' bounds allow
-gives a result within its type; otherwise it has no bound, and nor does
-any arithmetic holding it. An operation of a target-width type is bounded
+An operation is bounded for such a use only when every value its
+operands' bounds allow gives a result within its type; otherwise it has
+no bound, and nor does any arithmetic holding it, though the operation
+itself is then also an error unless something else proves it. An operation of a target-width type is bounded
 only when its result is within the type on a 32-bit target. Each operand
 is bounded on its own, so the same subject read twice is two values,
 each anywhere in its bound: `x - x` is not known to be 0. Any other
 operand, a call, a conversion, `/`, `%`, a shift or a bitwise operator,
 gives no bound to the arithmetic holding it. Arithmetic with no bound of
-its own still lies within its type's range, wrapped or not, which proves
+its own still lies within its type's range, which proves
 what that range proves, as a `uint8`'s does for a `[256]T`.
 
 ```tack run exit=7
@@ -374,22 +438,22 @@ func main() {
 }
 ```
 
-Arithmetic wraps, so a relation through `x + c` or `x - c` holds only
-where the other facts in force keep it from wrapping in `x`'s type: `0 <=
-i && i + 1 < len(a)` relates nothing, since `i + 1` wraps for the largest
-`int64`, while `i < len(a) && i + 1 < len(a)` relates `i + 1` to
-`len(a)`. `len(x) - c` never wraps. A product is no relation, `||` keeps
+A relation through `x + c` or `x - c` holds only where the other facts
+in force keep the step within `x`'s type: in `0 <= i && i + 1 < len(a)`,
+`i + 1` is an error, since it overflows for the largest `int64`, while
+`i < len(a) && i + 1 < len(a)` proves it and relates `i + 1` to
+`len(a)`. `len(x) - c` never leaves an `int64`. A product is no relation, `||` keeps
 none, and a query follows at most 64 related values from the two it is
 about.
 
 Arithmetic that adds or subtracts known amounts to one subject or
 length, `i + 1` or `len(a) - 1`, is that value plus an offset, and the
 relations in force bound it as they bound the value itself, where none
-of its steps can wrap: its own bound (see [Arithmetic](#arithmetic))
+of its steps can leave its type: its own bound (see [Arithmetic](#arithmetic))
 shows that, or else the relations in force do. So `0 <= i && i < len(a) -
 1` proves `a[i + 1]`, `len(s) > 0` proves `s[len(s) - 1]`, and `0 <= i &&
-i < len(s)` proves `s[i : i + 1]`, while `0 <= i && i + 1 < len(a)`
-proves no `a[i + 1]`, since `i + 1` may wrap.
+i < len(s)` proves `s[i : i + 1]`, while under `0 <= i && i + 1 < len(a)`
+the `i + 1` itself is not proven.
 
 ## Where a fact holds
 
@@ -435,7 +499,7 @@ package main
 func f(d int64) int64 {
     mut x = d
     if x != 0 {
-        x--
+        x = x / 2
         return 10 / x
     }
     return 0
@@ -463,8 +527,8 @@ and starts the next pass, where the condition proves it again:
 ```tack run exit=3
 package main
 
-func count(s string) int64 {
-    mut n int64 = 0
+func last(s string) int64 {
+    mut n int64 = -1
     mut i int64 = 0
     for 0 <= i && i < len(s) {
         if s[i] == ' ' {
@@ -472,7 +536,7 @@ func count(s string) int64 {
             continue
         }
         if s[i] == 'a' {
-            n++
+            n = i
         }
         i++
     }
@@ -480,7 +544,7 @@ func count(s string) int64 {
 }
 
 func main() {
-    if count("a ba na") == 3 {
+    if last("a ba na") == 6 {
         exit(3)
     }
     exit(1)
@@ -506,7 +570,9 @@ The rule has these exceptions:
   `exit` itself does.
 - What a counting loop's start or a range loop's bound proves is not
   proven again before the next pass, so a write to the subject anywhere
-  in the loop's body ends it, in a branch that leaves too.
+  in the loop's body ends it, in a branch that leaves too. Such a write
+  ends what the condition proves for the loop's post statement as well,
+  so its step needs a proof of its own.
 
 ```tack error
 package main
@@ -518,7 +584,7 @@ func sum(a [4]int64, k int64) int64 {
             i = 5
             continue
         }
-        s += a[i]
+        s = a[i]
     }
     return s
 }
@@ -528,7 +594,8 @@ func main() {
 ```
 
 ```diagnostics
-main.tck:10:16: error: index i may be out of range; check 0 <= i && i < 4 first, or use v, ok := ...[i]
+main.tck:5:33: error: i++ may overflow int64; use i +%= 1 to wrap, or v, ok := i + 1 and i = v when ok
+main.tck:10:15: error: index i may be out of range; check 0 <= i && i < 4 first, or use v, ok := ...[i]
 main.tck:5:9: note: counting from this start proves i >= 0
 main.tck:7:13: note: but i is assigned here, so the proof ends
 ```
@@ -551,9 +618,9 @@ None of these proves anything:
 - a guard on an operand that is neither a subject nor arithmetic on
   subjects, such as `a[i / 2]` after `if 0 <= i && i < 4`;
 - a guard whose bounds let arithmetic reach past what its use allows,
-  such as `a[i + 1]` on a `[3]T` after `if 0 <= i && i < 3`, or let a step
-  of it wrap, such as `uint64(-v)` after `if v < 0`, whose `-v` wraps for
-  the smallest `int64`;
+  such as `a[i + 1]` on a `[3]T` after `if 0 <= i && i < 3`, or past its
+  type, such as `uint64(-v)` after `if v < 0`, whose `-v` overflows for
+  the smallest `int64`, an error of its own;
 - two reads of one subject taken as one value: `a[x - x]` after `if 0 <=
   x && x < 3` is not proven, since `x - x` is bounded from -2 to 2;
 - an element in a path at an index that is not known and not an
@@ -571,7 +638,8 @@ None of these proves anything:
   -2147483648 <= v && v <= 2147483648`;
 - `||` where only one side says anything about the subject;
 - a call to a function that calls `exit`, standing in for an early exit;
-- a counting loop whose step could wrap, for what its start would prove;
+- a counting loop whose step could leave its variable's type, for what
+  its start would prove; the step is an error of its own;
 - a comparison of a whole error, `err == noerror`, for the results beside
   it.
 
@@ -662,6 +730,7 @@ The checked form is the operation, alone, as the value of a declaration
 or an assignment of exactly two names:
 
 - `q, ok := a / b`, and `a % b`;
+- `v, ok := a + b`, `a - b`, `a * b` and `-a`, on integers;
 - `v, ok := a[i]`, `s[i]`, `v[i]` and `l[i]`;
 - `t, ok := s[i:j]`, a string's slice only;
 - `v, ok := m[k]`;
@@ -676,8 +745,10 @@ array of zero values. For a type with no zero value, the checked index and
 lookup are errors, and the value `pop`, `remove` or `delete`
 gives cannot be read until `ok` is checked true. The second value, `ok`,
 is a `bool`, `true` when the operation succeeded. For a division, `ok`
-says only that the divisor was not zero. Both operands of a checked
-division are always evaluated.
+says only that the divisor was not zero. For arithmetic, `ok` says
+whether the exact result is a value of the type, and the first value is
+that result, or 0. Both operands of a checked division, and of checked
+arithmetic, are always evaluated, the left first.
 
 ```tack run exit=3
 package main
@@ -703,10 +774,11 @@ The rules of the form:
 - `=` works too, `q, ok = a / b`, under the rules for assigning several
   results.
 - The operation is the whole value; parentheses around it are allowed.
-  `q, ok := a / b + 1` is `the checked form must be the whole value: q,
-  ok := a / b, then compute q + 1`.
+  `q, ok := a / b & 1` is `the checked form must be the whole value: q,
+  ok := a / b, then compute q & 1`.
 - Only the outermost operation is checked: in `v, ok := m[i][j]`, the
-  inner `m[i]` needs its own proof.
+  inner `m[i]` needs its own proof, and `q, ok := a / b + 1` is a checked
+  addition whose `a / b` needs one.
 - One name is the plain form, which needs its proof; three or more are
   `assignment mismatch: 3 variables but a division gives 2 values`.
 - An operation that always fails is still an error, the checked form
@@ -762,7 +834,11 @@ proven, and their errors suggest only the check:
   bound with `ok`: `a[1:] is a view, []int64, which cannot be bound with
   ok; prove its bounds instead`;
 - assigning `m[k]`, for which `put(mut m, k, v)` is the unproven way;
-- `swap(mut l, i, j)`.
+- `swap(mut l, i, j)`;
+- `x++`, `x--`, `x += v`, `x -= v` and `x *= v`, which are statements,
+  so `v, ok := x++` does not parse; `w, ok := x + v`, then `x = w` when
+  `ok`, is the checked way, and the wrapping compound assignment, `x +%=
+  v`, the wrapping one.
 
 Some operations have only the checked form. An index of a view a call
 returns is never proven, since no fact is about a call, so it is read
@@ -772,7 +848,10 @@ bounds are 0 and the view's own length, as in `[:]`, `[0:]`, `[:0]` and
 assertion needs two results; write v, ok := a.(int64)`. A conversion of a
 float to an integer has no plain form either, since a float carries no
 facts: `converting float64 to int64 can fail; use v, ok := int64(...)`.
-A float division cannot fail, so it has no checked form.
+A float division cannot fail, so it has no checked form, and nor does
+float arithmetic, `adding floats cannot fail, so it has no checked form;
+use a + b`, nor a wrapping operator, `a +% b wraps and cannot fail, so it
+has no checked form; use a +% b, or v, ok := a + b`.
 
 ## Per operation
 

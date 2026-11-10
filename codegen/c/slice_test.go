@@ -181,9 +181,9 @@ func checkedSliceWant(lo, hi *big.Int) (bool, int64) {
 // adding even 0 to a null pointer.
 func TestNullSlicesAreSanitizerClean(t *testing.T) {
 	src := "package main\n\ntype T struct {\n    s string\n}\n\n" +
-		"func n(b []uint8) int64 {\n    return len(b[0:0]) + len(b[:]) + len(b[len(b):])\n}\n\n" +
+		"func n(b []uint8) int64 {\n    return len(b[0:0]) + len(b[:]) +% len(b[len(b):])\n}\n\n" +
 		"func main() {\n    mut z T\n    a := z.s[0:]\n    c := z.s[:0]\n    d, ok := z.s[0:0]\n" +
-		"    if len(a) + len(c) + len(d) + n([]uint8(z.s)) != 0 || !ok {\n        exit(1)\n    }\n}\n"
+		"    if len(a) +% len(c) +% len(d) +% n([]uint8(z.s)) != 0 || !ok {\n        exit(1)\n    }\n}\n"
 	bin := buildWith(t, src, "-O0", "-fsanitize=undefined", "-fno-sanitize-recover=all")
 	if out, err := exec.Command(bin).CombinedOutput(); err != nil {
 		t.Fatalf("null slices failed: %v\n%s", err, out)

@@ -50,7 +50,7 @@ extern("pg_setup") func setup()
 mut h int64 = 0
 
 func obs(x int64) {
-    h = h * 31 + x
+    h = h *% 31 +% x
 }
 
 func obsu(x uint64) {
@@ -136,8 +136,8 @@ func (p *Program) Trace(budget int) (string, []int64) {
 		defer func() { _ = recover() }()
 		call(m, p.run, nil, nil)
 	}()
-	src := strings.Replace(p.Source, "    h = h * 31 + x\n",
-		"    h = h * 31 + x\n    fmt.printf(\"%d\\n\", x)\n", 1)
+	src := strings.Replace(p.Source, "    h = h *% 31 +% x\n",
+		"    h = h *% 31 +% x\n    fmt.printf(\"%d\\n\", x)\n", 1)
 	return src, m.trace
 }
 

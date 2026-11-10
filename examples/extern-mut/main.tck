@@ -22,8 +22,8 @@ extern("order_pair") func order(mut a int64, mut b int64)
 
 // twice passes its own mut parameter on to C, twice.
 func twice(mut n int64) {
-    fill(mut n, n * 2)
-    fill(mut n, n * 2)
+    fill(mut n, n *% 2)
+    fill(mut n, n *% 2)
 }
 
 // check prints name and whether cond held.
@@ -67,3 +67,8 @@ func main() {
     twice(mut t)
     check(t == 20, "passed on to C")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

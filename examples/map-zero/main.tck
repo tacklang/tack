@@ -46,7 +46,7 @@ func count(n int64) list[int64] {
 func squares(n int64) map[int64]int64 {
     mut m := make(map[int64]int64, c_allocator)
     for i := range n {
-        err := put(mut m, i, i * i)
+        err := put(mut m, i, i *% i)
         if err.code != 0 {
             return m
         }
@@ -93,7 +93,7 @@ func returned() {
     ls := lists(4)
     mut n := 0
     for _, l := range ls {
-        n += len(l)
+        n +%= len(l)
     }
     check(len(m) == 4 && hasV && v == 9 && len(ls) == 4 && n == 0 + 1 + 2 + 3, "a map built in a local and returned")
     two := pick(true)
@@ -116,7 +116,7 @@ func popped() {
     c, ok3 := pop(mut l)
     mut sizes := 0
     if ok1 && ok2 {
-        sizes = len(a) * 10 + len(b)
+        sizes = len(a) *% 10 +% len(b)
     }
     if ok3 {
         sizes = len(c)
@@ -204,3 +204,8 @@ func main() {
     }
     check(clean, "nothing left after every allocation refused in turn")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

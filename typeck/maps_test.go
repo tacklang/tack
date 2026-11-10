@@ -31,10 +31,10 @@ func TestAcceptsMaps(t *testing.T) {
 			"mut m := make(map[int64]Bag, c_allocator)", "err := put(mut m, 1, Bag{items: make(list[int64], c_allocator)})",
 			"b, ok := delete(mut m, 1)", "if err.code != 0 || ok && len(b.items) > 0 {", "}", "delete(mut m, 2)")},
 		{"every range form", mapProgram("m map[int64]list[int64]",
-			"mut n := 0", "for k, v := range m {", "    n += k + len(v)", "}", "for k := range m {", "    n += k", "}",
-			"for _, v := range m {", "    n += len(v)", "}", "if n > 0 {", "}")},
+			"mut n := 0", "for k, v := range m {", "    n +%= k +% len(v)", "}", "for k := range m {", "    n +%= k", "}",
+			"for _, v := range m {", "    n +%= len(v)", "}", "if n > 0 {", "}")},
 		{"owned keys in place", mapProgram("m map[list[int64]]int64",
-			"mut n := 0", "for k, v := range m {", "    n += len(k) + v", "}", "if n > 0 {", "}")},
+			"mut n := 0", "for k, v := range m {", "    n +%= len(k) +% v", "}", "if n > 0 {", "}")},
 		{"composite keys", mapProgram("m map[[2]int64]bool, n map[Bag]int64",
 			"v, ok := m[[2]int64{1, 2}]", "if ok && v && len(n) == 0 {", "}")},
 		{"maps nested", mapProgram("",
@@ -137,13 +137,13 @@ func TestMapTypes(t *testing.T) {
 func TestAcceptsHas(t *testing.T) {
 	for _, tt := range []struct{ name, src string }{
 		{"an if", mapProgram("mut m map[int64]int64, k int64",
-			"if has(m, k) {", "    m[k] = m[k] + 1", "    m[k] += 1", "}")},
+			"if has(m, k) {", "    m[k] = m[k] +% 1", "    m[k] +%= 1", "}")},
 		{"an early exit", mapProgram("m map[int64]Bag, k int64",
 			"if !has(m, k) {", "    return", "}", "if len(m[k].items) > 0 {", "}")},
 		{"&& and ||", mapProgram("m map[string]int64, k string",
 			"if has(m, k) && m[k] > 0 || !has(m, k) || m[k] < 0 {", "}")},
 		{"a loop's condition", mapProgram("mut m map[int64]int64, k int64",
-			"for has(m, k) {", "    m[k] -= 1", "    delete(mut m, k)", "}")},
+			"for has(m, k) {", "    m[k] -%= 1", "    delete(mut m, k)", "}")},
 		{"owned values in place", mapProgram("mut m map[int64]list[int64], k int64",
 			"if has(m, k) {", "    err := append(mut m[k], 1)", "    old := replace(mut m[k], make(list[int64], c_allocator))",
 			"    m[k] = old", "    if err.code != 0 || len(m[k]) > 0 {", "    }", "}")},
@@ -156,7 +156,7 @@ func TestAcceptsHas(t *testing.T) {
 		{"another key's value written", mapProgram("mut m map[int64]int64, k int64, j int64",
 			"if has(m, k) && has(m, j) {", "    m[j] = 1", "    m[k] = 2", "}")},
 		{"a proof again after a put", mapProgram("mut m map[int64]int64, k int64",
-			"err := put(mut m, k, 1)", "if err.code == 0 && has(m, k) {", "    m[k] += 1", "}")},
+			"err := put(mut m, k, 1)", "if err.code == 0 && has(m, k) {", "    m[k] +%= 1", "}")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			src := strings.Replace(tt.src, "func main()", hasHelpers+"func main()", 1)

@@ -35,7 +35,7 @@ func check(cond bool, name string) {
 func order(m map[int64]int64) int64 {
     mut n := 0
     for k := range m {
-        n = n * 10 + k
+        n = n *% 10 +% k
     }
     return n
 }
@@ -65,10 +65,10 @@ func basics() {
     delete(mut m, 7)
     mut sum := 0
     for k, val := range m {
-        sum += k * val
+        sum +%= k *% val
     }
     for _, val := range m {
-        sum += val
+        sum +%= val
     }
     check(order(m) == 21 && sum == 2 * 22 + 1 * 11 + 22 + 11, "a bare delete and every range form")
 }
@@ -84,7 +84,7 @@ func stringKeys() {
         if seen {
             n = had
         }
-        err := put(mut m, w, n + 1)
+        err := put(mut m, w, n +% 1)
         if err.code != 0 {
             return
         }
@@ -119,7 +119,7 @@ func ownedKeys() {
     v, ok := m[ab]
     mut lens := 0
     for k := range m {
-        lens = lens * 10 + k.len()
+        lens = lens *% 10 +% k.len()
     }
     _, had := delete(mut m, cd)
     check(ok && v == 3 && len(m) == 1 && lens == 22 && had, "owned keys")
@@ -156,7 +156,7 @@ func ownedValues() {
     }
     mut lens := 0
     for _, l := range m {
-        lens = lens * 10 + len(l)
+        lens = lens *% 10 +% len(l)
     }
     taken, ok := delete(mut m, 2)
     check(lens == 54 && ok && len(taken) == 4 && len(m) == 1, "list values")
@@ -167,7 +167,7 @@ func ownedValues() {
     }
     mut tags := 0
     for k, b := range bags {
-        tags += b.tag + len(b.items) + len(k)
+        tags +%= b.tag +% len(b.items) +% len(k)
     }
     delete(mut bags, "x")
     check(tags == 7 + 2 + 1 && len(bags) == 0, "struct values holding lists")
@@ -197,7 +197,7 @@ func nested() {
     mut total := 0
     for _, im := range outer {
         for k, v := range im {
-            total += k + v
+            total +%= k +% v
         }
     }
     mut ms := make(list[map[int64]int64], c_allocator)
@@ -211,7 +211,7 @@ func nested() {
     switch slot {
     case table(t):
         for _, l := range t {
-            held += len(l)
+            held +%= len(l)
         }
     case empty:
     }
@@ -237,7 +237,7 @@ func many() {
     mut good := len(m) == 50000
     mut prev := -1
     for k, v := range m {
-        good = good && k % 2 == 1 && v == k * 2 && k > prev
+        good = good && k % 2 == 1 && v == k *% 2 && k > prev
         prev = k
     }
     for i := range 1000 {
@@ -258,7 +258,7 @@ func failing(n int64) bool {
     for i := range 20 {
         before := len(m)
         err := put(mut m, i, count(2))
-        ok = ok && (err.code == 0 && len(m) == before + 1 || err.code == 1 && len(m) == before)
+        ok = ok && (err.code == 0 && len(m) == before +% 1 || err.code == 1 && len(m) == before)
         t := textOf("k")
         mut key := text.new(c_allocator)
         e1 := mut key.append(t.bytes())
@@ -267,7 +267,7 @@ func failing(n int64) bool {
         if fits && e1.code == 0 && e2.code == 0 {
             had := len(byText)
             err2 := put(mut byText, key, count(1))
-            ok = ok && (err2.code == 0 && len(byText) == had + 1 || err2.code == 1 && len(byText) == had)
+            ok = ok && (err2.code == 0 && len(byText) == had +% 1 || err2.code == 1 && len(byText) == had)
         }
     }
     fail_after(-1)
@@ -294,3 +294,8 @@ func main() {
     }
     check(all, "a put that cannot grow changes nothing and frees what it was given")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

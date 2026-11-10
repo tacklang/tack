@@ -20,7 +20,7 @@ func check(name string, cond bool) {
 }
 
 func count(n int64) int64 {
-    calls++
+    calls +%= 1
     return n
 }
 
@@ -124,7 +124,7 @@ func knownString() {
 func total(a [3]int64) int64 {
     mut sum int64 = 0
     for mut i := 0; i < len(a); i++ {
-        sum += a[i]
+        sum +%= a[i]
     }
     return sum
 }
@@ -132,7 +132,7 @@ func total(a [3]int64) int64 {
 func reversed(a [3]int64) int64 {
     mut digits int64 = 0
     for mut i := len(a) - 1; i >= 0; i-- {
-        digits = digits * 10 + a[i]
+        digits = digits *% 10 +% a[i]
     }
     return digits
 }
@@ -215,7 +215,7 @@ func unneededOk() {
     mut all := true
     for i := range len(a) {
         w, proven := a[i]
-        sum += w
+        sum +%= w
         all = all && proven
     }
     mut t uint8 = 0
@@ -245,3 +245,8 @@ func main() {
     forms()
     unneededOk()
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

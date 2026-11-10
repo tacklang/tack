@@ -13,7 +13,7 @@ func divide(lines ...string) string {
 	}
 	return "package main\n\nvar k = 3\n\nmut g int64 = 1\n\n" +
 		"func f(a int64, b int64, x bool) int64 {\n" + body + "    return 0\n}\n\n" +
-		"func main() {\n    code, fits := int32(f(1, 2, true) + k + g)\n    if fits { exit(code) }\n}\n"
+		"func main() {\n    code, fits := int32(f(1, 2, true) +% k +% g)\n    if fits { exit(code) }\n}\n"
 }
 
 // provenDivisorCases are divisions whose divisor the checker can prove is
@@ -93,7 +93,7 @@ var provenDivisorCases = []struct{ name, src string }{
 	{"compound guarded", divide("mut c := a", "if b != 0 {", "    c /= b", "}", "return c")},
 	{"narrow divisor", divide("var n int8 = 5", "if n != 0 {", "    return a / n", "}")},
 	{"checked division", divide("q, ok := a / b", "if ok {", "    return q", "}")},
-	{"checked remainder", divide("r, ok := a % (b + 1)", "if ok {", "    return r", "}")},
+	{"checked remainder", divide("r, ok := a % (b +% 1)", "if ok {", "    return r", "}")},
 	{
 		"checked division assigned",
 		divide(
@@ -168,8 +168,8 @@ var unprovenDivisorCases = []struct {
 	},
 	{
 		"an expression",
-		divide("return a / (b + 1)"),
-		spanned{"divisor may be zero; use q, ok := ... / ...", "b + 1"},
+		divide("return a / (b +% 1)"),
+		spanned{"divisor may be zero; use q, ok := ... / ...", "b +% 1"},
 	},
 	{
 		"a call",
@@ -226,7 +226,7 @@ var unprovenDivisorCases = []struct {
 	},
 	{
 		"assigned inside the guard before the use",
-		divide("mut d := b", "if d != 0 {", "    d--", "    c := a / d", "    return c + d", "}"),
+		divide("mut d := b", "if d != 0 {", "    d -%= 1", "    c := a / d", "    return c +% d", "}"),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{
@@ -236,15 +236,15 @@ var unprovenDivisorCases = []struct {
 			"if d == 0 {",
 			"    return 0",
 			"}",
-			"d--",
+			"d -%= 1",
 			"c := a / d",
-			"return c + d",
+			"return c +% d",
 		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{
 		"loop body that changes the divisor before the use",
-		divide("mut d := b", "for d != 0 {", "    print(\"\")", "    d--", "    return a / d", "}"),
+		divide("mut d := b", "for d != 0 {", "    print(\"\")", "    d -%= 1", "    return a / d", "}"),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
 	},
 	{

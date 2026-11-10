@@ -128,7 +128,11 @@ package main
 func total(own l list[int64]) int64 {
     mut sum int64 = 0
     for _, x := range l {
-        sum += x
+        s, ok := sum + x
+        if !ok {
+            return 0
+        }
+        sum = s
     }
     return sum
 }
@@ -207,8 +211,12 @@ type Point struct {
 }
 
 func scale(mut p Point, k int64) {
-    p.x *= k
-    p.y *= k
+    x, okX := p.x * k
+    y, okY := p.y * k
+    if okX && okY {
+        p.x = x
+        p.y = y
+    }
 }
 
 func main() {
@@ -352,10 +360,11 @@ parameter: `[]uint8(...) can only be passed to a []uint8 parameter`.
 package main
 
 func count(v []uint8, c uint8) int64 {
+    // n is at most len(v), so +%= never wraps.
     mut n int64 = 0
     for _, b := range v {
         if b == c {
-            n++
+            n +%= 1
         }
     }
     return n
@@ -422,7 +431,11 @@ func (b Bag) all() []int64 {
 func sum(v []int64) int64 {
     mut n int64 = 0
     for _, x := range v {
-        n += x
+        s, ok := n + x
+        if !ok {
+            return 0
+        }
+        n = s
     }
     return n
 }

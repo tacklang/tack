@@ -65,7 +65,7 @@ var unneededOkCases = []struct{ name, src string }{
 			"for i := range a {",
 			"    v, ok := a[i]",
 			"    if ok {",
-			"        sum += v",
+			"        sum +%= v",
 			"    }",
 			"}",
 			"code, fits := int32(sum)",

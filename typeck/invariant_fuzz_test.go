@@ -36,22 +36,24 @@ import (
 // value or by p, set it to a known value, an if whose condition compares
 // i or p with a known value, holding more of them and perhaps ending in
 // continue or break, or an inner loop of two passes holding more of
-// them, whose continue and break act on it, with s += a[i] once anywhere
-// among them. n bounds every run to N passes, and n++ comes first, so a
-// continue cannot skip it.
+// them, whose continue and break act on it, with s +%= a[i] once anywhere
+// among them, which needs no bound on s. n bounds every run to N passes,
+// and n++ comes first, so a continue cannot skip it.
 //
 // The oracle is exact because the program has only p for input, and T
-// only 256 values: it runs f for each of them, computing every step as
-// Tack does, wrapped to T's width, and a run that reads a[i] with i
+// only 256 values: it runs f for each of them, computing every step
+// wrapped to T's width, as +% would, and a run that reads a[i] with i
 // outside 0 to L - 1 is a counterexample. The checker must reject every
 // program that has one. It may reject one that has none, which is
-// conservatism.
+// conservatism. A step of i it does not prove keeps within T is an error
+// of its own, which rejects the program too, so in a program it accepts
+// no step wraps and the oracle's values are its exact ones.
 
 // loopKind is what a statement of a loop's body does.
 type loopKind int
 
 const (
-	loopUse   loopKind = iota // s += a[i]
+	loopUse   loopKind = iota // s +%= a[i]
 	loopInc                   // i++
 	loopDec                   // i--
 	loopAdd                   // i += k
@@ -274,7 +276,7 @@ func writeLoopStmts(b *strings.Builder, stmts []loopStmt, indent string) {
 func (s loopStmt) text() string {
 	switch s.kind {
 	case loopUse:
-		return "s += a[i]"
+		return "s +%= a[i]"
 	case loopInc:
 		return "i++"
 	case loopDec:
@@ -433,8 +435,22 @@ type loopVerdict struct {
 	checked, accepted bool
 }
 
+// stepOverflows reports whether msg is the error for a step of i not
+// proven to stay within its type.
+func stepOverflows(msg string) bool {
+	for _, step := range []string{"i++ ", "i-- ", "i += ", "i -= "} {
+		if strings.HasPrefix(msg, step) &&
+			(strings.Contains(msg, " may overflow ") || strings.Contains(msg, " may go below 0 in ")) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkLoop checks the program p and fails t when the checker accepts
-// its use although the oracle finds a counterexample.
+// its use although the oracle finds a counterexample. A step of i not
+// proven to stay within its type rejects the program as an unproven use
+// does.
 func checkLoop(t *testing.T, p loopProgram) loopVerdict {
 	t.Helper()
 	src := p.source()
@@ -442,6 +458,10 @@ func checkLoop(t *testing.T, p loopProgram) loopVerdict {
 	at := strings.Index(src, "a[i]")
 	v := loopVerdict{checked: true, accepted: true}
 	for _, d := range diags {
+		if stepOverflows(d.Message) {
+			v.accepted = false
+			continue
+		}
 		if d.Span.Start < at || d.Span.End > at+len("a[i]") ||
 			!strings.HasPrefix(d.Message, "index ") {
 			t.Logf("unexpected %s:\n%s", d.Message, src)

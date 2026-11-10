@@ -46,7 +46,7 @@ mut order int64
 
 // step records d in order and returns it.
 func step(d int64) int64 {
-    order = order * 10 + d
+    order = order *% 10 +% d
     return d
 }
 
@@ -108,8 +108,13 @@ func main() {
     order = 0
     check(sumSigned(step(1), order, step(2), order) == 1 + 1 + 2 + 12 && order == 12, "evaluation order")
     mut i int64 = 0
-    for holdsInt64(i + 1) && sumSigned(i * 2, step(3)) < 10 {
-        i++
+    for holdsInt64(i +% 1) && sumSigned(i *% 2, step(3)) < 10 {
+        i +%= 1
     }
     check(i == 4, "in a loop condition")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

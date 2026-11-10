@@ -5,7 +5,7 @@ mut log int64
 
 // mark appends the digit d to log.
 func mark(d int64) {
-    log = log * 10 + d
+    log = log *% 10 +% d
 }
 
 // expect exits with code unless log is want, then clears log.
@@ -73,7 +73,7 @@ func deep() {
 // its own.
 func loopInDefer() {
     defer {
-        for mut i := 1; ; i++ {
+        for mut i := 1; ; i +%= 1 {
             if i == 2 {
                 continue
             }
@@ -92,9 +92,9 @@ func loopInDefer() {
 func counted() int64 {
     mut n := 0
     for i := range 3 {
-        defer { n *= 10 }
-        defer { n++ }
-        defer { n += i }
+        defer { n *%= 10 }
+        defer { n +%= 1 }
+        defer { n +%= i }
     }
     return n
 }
@@ -194,3 +194,8 @@ func main() {
     expect(4030201, 6)
     exit(42)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

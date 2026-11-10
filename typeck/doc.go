@@ -513,7 +513,8 @@
 // working its operation out exactly on its operands' bounds, each from
 // its type and the facts in force (intervalOf) or, for a length, from
 // minLen to maxLen, or the largest int64 when the facts give no upper
-// bound (rangeOf). Arithmetic wraps at run time, so
+// bound (rangeOf). An operation proven not to overflow gives its exact
+// result, and one not proven is reported, but rangeOf asks for itself, so
 // an operation whose exact bound leaves its type's range on some target
 // (portableBounds: a target-width type's top is types.PortableMax) has no
 // bound, nor has arithmetic holding it, and any other operand, a call, a
@@ -541,8 +542,12 @@
 // bounds of a comparison of two values, each a node plus or minus a known
 // amount (linearFacts), or of a declaration or a plain assignment storing
 // one (storedFacts, put in force by checkBlock for the rest of the block).
-// Arithmetic wraps, so a bound through x + c carries the condition that
-// x lies where the sum stays in its type (stepBounds' bounds, so a
+// A statement storing a known value in a mutable variable, or a value of
+// known bounds, a step included, puts the variable within them for the
+// rest of the block (rangeStored); those facts, guardValue's, stay out of
+// the graph and out of notes.
+// A bound through x + c carries the condition that x lies where the sum
+// stays in its type, which the overflow proof asks of the sum anyway (stepBounds' bounds, so a
 // target-width type's top is types.PortableMax), and counts only once the
 // other bounds prove it. A query (relates) builds a graph of the bounds
 // that hold at c.at from an index of the facts by node, rebuilt when the
@@ -661,9 +666,24 @@
 //     type, a shift that drops a set bit not doing so, or the step that does not
 //     is reported as overflowing it, here as at package level; so is - on
 //     a known smallest value of a signed type. The expression is then
-//     Invalid, so nothing around it is reported again. Arithmetic on a
-//     value not known, a mutable variable's or a parameter's, wraps at run
-//     time and is not checked;
+//     Invalid, so nothing around it is reported again. The wrapping
+//     operators +% -% *% and -%x fold on known values by wrapping at the
+//     type's width, and a target-width type's are never known (wrapStep);
+//   - plain + - * on integers and unary - on a value not known, and ++ --
+//     += -= *= on an integer target, are proven to give a value of their
+//     type, below 0 included for an unsigned one, or reported with the
+//     check that would prove them, the checked form and the wrapping
+//     operator (overflow.go). The proof works the exact result out from
+//     the operands' bounds (exactRange, operandBounds), a target-width
+//     type's on a 32-bit target, or from the relations in force with each
+//     variable's type's bounds counted (linearProven, orderedSub). An
+//     operation whose own operand was reported is not reported again. A
+//     loop's post is tried again after its body, with its condition in
+//     force less what the body writes (recheckPost). v, ok := a + b, a -
+//     b, a * b or -a is the checked form of the outermost operation
+//     (arithResults); a float's, and a wrapping operator's, is reported;
+//   - the wrapping operators take integers only, with a common type, and
+//     two untyped constants are reported, naming a conversion of one;
 //   - two integer operands of a comparison, of any types, compare by their
 //     values with all six operators, once an untyped constant has settled
 //     to the other operand's type, which it must fit, so int8(-1) < uint64(0)
@@ -689,7 +709,8 @@
 //     force (factsFit, convfacts.go), or arithmetic on those whose bound
 //     keeps it so (arith.go). The facts are an index's, from the same
 //     places and ended by the same writes; uint64(-(v + 1)) is proven
-//     under v < 0, and uint64(-v) is not, -v wrapping at the least int64.
+//     under v < 0, and uint64(-v) is not, -v overflowing at the least
+//     int64.
 //     A constant or known value that does not fit T is reported as
 //     overflowing it. Any other conversion is reported, with the check
 //     that would prove a subject, as an index's is, and notes on the facts
@@ -709,7 +730,8 @@
 //     usable as its result's type, and a wrong count is one error; an error
 //     is only ever the last result declared;
 //   - two names bound to a value that holds a division, a remainder, an
-//     index or a slice outside any call, but is more than it, as in q, ok := a / b + 1,
+//     index or a slice outside any call, but is more than it and is not
+//     checked arithmetic itself, as in q, ok := a / b & 1,
 //     are one error saying the checked form must be the whole value, which
 //     names the first such operation and what to compute from its result;
 //     that operation is then checked as bound with ok;

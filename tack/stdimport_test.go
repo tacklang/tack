@@ -79,12 +79,12 @@ func utilStd() map[string]string {
 		"util/util.tck": "package util\n\n" +
 			"extern(\"std_util_add\") func add(a int64, b int64) int64\n\n" +
 			"pub func Sum(a int64, b int64) int64 {\n    return add(a, b)\n}\n\n" +
-			"lib func secret() int64 {\n    return 6 + hidden()\n}\n\n" +
+			"lib func secret() int64 {\n    return 6 +% hidden()\n}\n\n" +
 			"func hidden() int64 {\n    return 1\n}\n",
 		"util/util.c": "#include \"tack.h\"\n\n" +
 			"int64_t std_util_add(int64_t a, int64_t b) {\n    return a + b;\n}\n",
 		"text/text.tck": "package text\n\nimport util from \"std/util\"\n\n" +
-			"pub func Total() int64 {\n    return util.Sum(30, util.secret()) + hidden()\n}\n\n" +
+			"pub func Total() int64 {\n    return util.Sum(30, util.secret()) +% hidden()\n}\n\n" +
 			"func hidden() int64 {\n    return 5\n}\n",
 	}
 }
@@ -94,7 +94,7 @@ func utilStd() map[string]string {
 // instead when it is not empty.
 func usesUtil(body string) string {
 	if body == "" {
-		body = "    code, fits := int32(text.Total() + util.Sum(0, 0))\n    if fits { exit(code) }\n"
+		body = "    code, fits := int32(text.Total() +% util.Sum(0, 0))\n    if fits { exit(code) }\n"
 	}
 	return "package main\n\nimport text from \"std/text\"\nimport util from \"std/util\"\n\n" +
 		"func main() {\n" + body + "}\n"

@@ -40,7 +40,7 @@ var negateRuntimeCases = []struct {
 	{"negated sum", "package main\n\nfunc main() {\n    exit(-(1 - 12))\n}\n", 11},
 	{
 		"negated call",
-		"package main\n\nfunc f() int64 {\n    return -12\n}\n\nfunc main() {\n    code, fits := int32(-f())\n    if fits { exit(code) }\n}\n",
+		"package main\n\nfunc f() int64 {\n    return -12\n}\n\nfunc main() {\n    code, fits := int32(-%f())\n    if fits { exit(code) }\n}\n",
 		12,
 	},
 	{

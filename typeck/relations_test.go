@@ -31,14 +31,11 @@ var acceptedRelationCases = []struct{ name, src string }{
 	{"chain reversed", relating("if i >= 0 && n > i && len(a) >= n {", "    return a[i]", "}")},
 	{
 		"chain of three",
-		relating("if 0 <= i && i < j && j < n && n <= len(a) {", "    return a[i] + a[j]", "}"),
+		relating("if 0 <= i && i < j && j < n && n <= len(a) {", "    return a[i] +% a[j]", "}"),
 	},
 	{"equality", relating("if 0 <= j && j < len(a) && i == j {", "    return a[i]", "}")},
 	{"plus one, bounded first", relating(
 		"if 0 <= i && i < len(a) && i + 1 < len(a) {", "    k := i + 1", "    return a[k]", "}",
-	)},
-	{"plus one, bounded after", relating(
-		"if i + 1 < len(a) && 0 <= i && i < len(a) {", "    k := i + 1", "    return a[k]", "}",
 	)},
 	{"plus zero needs no bound", relating("if 0 <= i && i + 0 < len(a) {", "    return a[i]", "}")},
 	{
@@ -71,7 +68,7 @@ var acceptedRelationCases = []struct{ name, src string }{
 			"if 1 < j && j <= len(a) {",
 			"    k := j - 1",
 			"    m := k - 1",
-			"    return a[m] + a[k]",
+			"    return a[m] +% a[k]",
 			"}",
 		),
 	},
@@ -175,9 +172,9 @@ var acceptedRelationCases = []struct{ name, src string }{
 			"mut hi := len(a)",
 			"mut t int64 = 0",
 			"for 0 <= lo && lo < hi && hi <= len(a) {",
-			"    mid := lo + (hi - lo) / 2",
+			"    mid := lo +% (hi - lo) / 2",
 			"    if lo <= mid && mid < hi {",
-			"        t += a[mid]",
+			"        t +%= a[mid]",
 			"        lo = mid + 1",
 			"    } else {",
 			"        return t",
@@ -192,7 +189,7 @@ var acceptedRelationCases = []struct{ name, src string }{
 			"mut t int64 = 0",
 			"for 0 < k && k < len(a) {",
 			"    m := k - 1",
-			"    t += a[m]",
+			"    t +%= a[m]",
 			"    k++",
 			"}",
 			"if t < 0 {",
@@ -225,6 +222,14 @@ var rejectedRelationCases = []struct {
 	src  string
 	want spanned
 }{
+	{
+		// What keeps i + 1 from overflowing must hold where it is: a bound
+		// after it in the condition comes too late.
+		"plus one, bounded after", relating(
+			"if i + 1 < len(a) && 0 <= i && i < len(a) {", "    k := i + 1", "    return a[k]", "}",
+		),
+		spanned{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"},
+	},
 	{
 		"plus one alone wraps",
 		relating("if 0 <= i && i + 1 < len(a) {", "    return a[i]", "}"),
@@ -289,7 +294,7 @@ var rejectedRelationCases = []struct {
 		},
 	},
 	{"a link ends at a write", relating(
-		"mut m := n", "if 0 <= i && i < m && m <= len(a) {", "    m++", "    return a[i]", "}",
+		"mut m := n", "if 0 <= i && i < m && m <= len(a) {", "    m +%= 1", "    return a[i]", "}",
 	), spanned{"index i may be out of range; check 0 <= i && i < len(a) first, or use v, ok := ...[i]", "i"}},
 	{
 		"a link ends at a mut call",
@@ -336,8 +341,8 @@ var rejectedRelationCases = []struct {
 			"mut t int64 = 0",
 			"if 0 <= i && i < m && m <= len(a) {",
 			"    for k := range 3 {",
-			"        t += a[i] + k",
-			"        m++",
+			"        t +%= a[i] +% k",
+			"        m +%= 1",
 			"    }",
 			"}",
 			"if t < 0 {",
@@ -363,9 +368,9 @@ var rejectedRelationCases = []struct {
 			"mut lo int64 = 0",
 			"mut hi := len(a)",
 			"for lo < hi {",
-			"    mid := lo + (hi - lo) / 2",
+			"    mid := lo +% (hi -% lo) / 2",
 			"    if a[mid] < n {",
-			"        lo = mid + 1",
+			"        lo = mid +% 1",
 			"    } else {",
 			"        hi = mid",
 			"    }",
@@ -380,7 +385,7 @@ var rejectedRelationCases = []struct {
 		"a multiply",
 		relating(
 			"if 0 <= i && i < n && n <= len(a) {",
-			"    k := 2 * i + 1",
+			"    k := 2 *% i +% 1",
 			"    if k < n {",
 			"        return a[k]",
 			"    }",
@@ -407,21 +412,50 @@ var rejectedRelationCases = []struct {
 	},
 }
 
+// rejectedRelationOverflows holds, for each of rejectedRelationCases
+// whose relation is through arithmetic that may overflow, the errors for
+// that arithmetic, reported before the case's own: a relation through
+// x + c that could wrap is itself an error now, at x + c, whether in the
+// condition or the use.
+var rejectedRelationOverflows = map[string][]spanned{
+	"plus one alone wraps":                 {{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}},
+	"plus one alone, copied":               {{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}, {"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}},
+	"int8 plus one under a length":         {{"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}, {"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}},
+	"uint8 plus one at its top":            {{"c + 1 may overflow uint8; bound c first, or use v, ok := c + 1, or c +% 1 to wrap", "c + 1"}, {"c + 1 may overflow uint8; bound c first, or use v, ok := c + 1, or c +% 1 to wrap", "c + 1"}},
+	"target width past the portable bound": {{"z + 1 may overflow unsafe_size_t; bound z first, or use v, ok := z + 1, or z +% 1 to wrap", "z + 1"}, {"z + 1 may overflow unsafe_size_t; bound z first, or use v, ok := z + 1, or z +% 1 to wrap", "z + 1"}},
+	"unsigned minus one at zero": {
+		{"u - 1 may go below 0 in uint64; check u >= 1 first, or use v, ok := u - 1, or u -% 1 to wrap", "u - 1"},
+	},
+	"minus one without a lower bound": {
+		{"j - 1 may overflow int64; bound j first, or use v, ok := j - 1, or j -% 1 to wrap", "j - 1"},
+	},
+	"a large step needs a tight bound": {{
+		"i + 9223372036854775807 may overflow int64; bound i first, or use v, ok := i + 9223372036854775807, " +
+			"or i +% 9223372036854775807 to wrap",
+		"i + 9223372036854775807",
+	}},
+	"an index that is no name and may wrap": {{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}, {"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}},
+}
+
 // TestRejectsRelations checks that each of rejectedRelationCases gives its
-// one error, whatever notes come with it.
+// one error, after the errors for arithmetic in it that may overflow (see
+// rejectedRelationOverflows), whatever notes come with them.
 func TestRejectsRelations(t *testing.T) {
 	for _, tt := range rejectedRelationCases {
 		t.Run(tt.name, func(t *testing.T) {
 			_, diags := checkTree(t, tt.src)
 			errs := errorsOf(diags)
-			if len(errs) != 1 {
-				t.Fatalf("got %v, want only %q", diags, tt.want.msg)
+			want := append(slices.Clone(rejectedRelationOverflows[tt.name]), tt.want)
+			if len(errs) != len(want) {
+				t.Fatalf("got %v, want %v", diags, want)
 			}
-			if errs[0].Message != tt.want.msg {
-				t.Errorf("message = %q, want %q", errs[0].Message, tt.want.msg)
-			}
-			if got := tt.src[errs[0].Span.Start:errs[0].Span.End]; got != tt.want.at {
-				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
+			for i, w := range want {
+				if errs[i].Message != w.msg {
+					t.Errorf("message %d = %q, want %q", i, errs[i].Message, w.msg)
+				}
+				if got := tt.src[errs[i].Span.Start:errs[i].Span.End]; got != w.at {
+					t.Errorf("diagnostic %d covers %q, want %q", i, got, w.at)
+				}
 			}
 		})
 	}
@@ -489,17 +523,17 @@ var relationNoteCases = []struct {
 	{
 		"a step that may wrap",
 		relating("if 0 <= i && i + 1 < len(a) {", "    return a[i]", "}"),
-		"a relation through + or - here holds only where it cannot wrap; check i < 9223372036854775807 too",
+		"a relation through + or - here holds only where its step cannot overflow; check i < 9223372036854775807 too",
 	},
 	{
 		"an unsigned step that may wrap",
 		relating("if u < len(a) {", "    k := u - 1", "    return a[k]", "}"),
-		"a relation through + or - here holds only where it cannot wrap; check 1 <= u too",
+		"a relation through + or - here holds only where its step cannot overflow; check 1 <= u too",
 	},
 	{
 		"an int8 step that may wrap",
 		relating("if 0 <= b && b + 1 < len(a) {", "    k := b + 1", "    return a[k]", "}"),
-		"a relation through + or - here holds only where it cannot wrap; check b < 127 too",
+		"a relation through + or - here holds only where its step cannot overflow; check b < 127 too",
 	},
 	{
 		"a slice order link",
@@ -561,7 +595,7 @@ func chainSource(n int) string {
 		if k > 0 {
 			terms = append(terms, fmt.Sprintf("v%d < v%d", k-1, k))
 		}
-		reads = append(reads, fmt.Sprintf("        t += a[v%d]", k))
+		reads = append(reads, fmt.Sprintf("        t +%%= a[v%d]", k))
 	}
 	terms = append(terms, fmt.Sprintf("v%d < len(a)", n-1))
 	return "package main\n\nfunc f(a []int64, " + strings.Join(params, ", ") + ") int64 {\n" +

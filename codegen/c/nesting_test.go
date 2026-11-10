@@ -51,13 +51,13 @@ func limitFuncs(n int) []struct{ name, sig, body string } {
 	return []struct{ name, sig, body string }{
 		{"parens", "(x int64) int64", ret("(", "x", ")")},
 		{"nots", "(b bool) bool", ret("!", "b", "")},
-		{"minuses", "(x int64) int64", ret("- ", "x", "")},
+		{"minuses", "(x int64) int64", ret("-% ", "x", "")},
 		{"calls", "(x int64) int64", ret("f(", "x", ")")},
 		{"indexes", "() int64", ret("t[", "0", "]")},
 		{"ands", "(b bool) bool", ret("b && (", "b", ")")},
 		{"ors", "(b bool) bool", ret("b || (", "b", ")")},
 		{"ifs", "(x int64) int64", blocks("    if x > 0 {\n", "    r = x\n")},
-		{"fors", "() int64", blocks("    for range 1 {\n", "    r++\n")},
+		{"fors", "() int64", blocks("    for range 1 {\n", "    r +%= 1\n")},
 		{"switches", "(x int64) int64", blocks("    switch x {\n    case 1:\n", "    r = 7\n")},
 		{
 			"array_type",

@@ -17,7 +17,7 @@ import (
 var libModule = map[string]string{
 	"tack.mod": "module calc\n",
 	"geom/geom.tck": "package geom\n\n" +
-		"pub func Area(w int64, h int64) int64 {\n    return w * h\n}\n",
+		"pub func Area(w int64, h int64) int64 {\n    return w *% h\n}\n",
 	"geom/round/round.tck": "package round\n\n" +
 		"pub func Half(n int64) int64 {\n    return n / 2\n}\n",
 	"shapes/shapes.tck": "package shapes\n\n" +
@@ -213,7 +213,7 @@ func TestCheckMainWithoutFunc(t *testing.T) {
 // rejected for having no main package.
 func TestCheckSingleLibraryFile(t *testing.T) {
 	file := writeSource(t, []byte(
-		"package geom\n\npub func Area(w int64, h int64) int64 {\n    return w * h\n}\n"))
+		"package geom\n\npub func Area(w int64, h int64) int64 {\n    return w *% h\n}\n"))
 	assertCheckClean(t, runTack(t, "--check", file))
 	r := runTack(t, "--emit", file)
 	assertDiagnostics(t, r)
@@ -665,7 +665,7 @@ func TestCheckLibraryWithSyntaxError(t *testing.T) {
 			root := writeDir(t, withFiles(libModule, map[string]string{
 				"geom/geom.tck": "package geom\n\n" +
 					"pub func Area(w int64, h int64) int64 {\n" + tc.line +
-					"    return w * h\n}\n\n" +
+					"    return w *% h\n}\n\n" +
 					"pub func Wrong() int64 {\n    return \"w\"\n}\n",
 			}))
 			t.Chdir(root)
@@ -711,7 +711,7 @@ func TestCheckPackagesNamedBuiltinAndStd(t *testing.T) {
 	root := writeDir(t, map[string]string{
 		"tack.mod": "module calc\n",
 		"builtin/b.tck": "package builtin\n\n" +
-			"pub func Twice(n int64) int64 {\n    print(\"twice\\n\")\n    return helper(n) * 2\n}\n\n" +
+			"pub func Twice(n int64) int64 {\n    print(\"twice\\n\")\n    return helper(n) *% 2\n}\n\n" +
 			"func helper(n int64) int64 {\n    return n + len(\"\")\n}\n",
 		"std/s.tck": "package std\n\npub func Three() int64 {\n    return 3\n}\n",
 		"main.tck": "package main\n\n" +

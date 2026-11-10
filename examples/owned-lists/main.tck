@@ -78,7 +78,7 @@ func write_all(words []list[uint8]) {
 func total_len(words []list[uint8]) int64 {
     mut n := 0
     for i := range len(words) {
-        n += len(words[i])
+        n +%= len(words[i])
     }
     return n
 }
@@ -114,7 +114,7 @@ func test_words() {
     mut firsts := 0
     for _, w := range words {
         if len(w) > 0 {
-            firsts += int64(w[0])
+            firsts +%= int64(w[0])
         }
     }
     check(firsts == int64('o') + int64('l') + int64('w'), "range binds each word in place")
@@ -136,7 +136,7 @@ func new_bag(name string) Bag {
 func (b Bag) total() int64 {
     mut t := 0
     for _, x := range b.items {
-        t += x
+        t +%= x
     }
     return t
 }
@@ -245,15 +245,15 @@ func test_vals() {
     for i := range len(vals) {
         switch vals[i] {
         case num(n):
-            sum += n
+            sum +%= n
         case items(xs):
             for _, x := range xs {
-                sum += x
+                sum +%= x
             }
         case bag(g):
-            sum += g.total()
+            sum +%= g.total()
         case none:
-            sum += 1000
+            sum +%= 1000
         }
     }
     check(sum == 3 + 10 + 40 + 1000, "matched in place by index")
@@ -261,9 +261,9 @@ func test_vals() {
     for _, v := range vals {
         switch v {
         case items(xs):
-            lens += len(xs)
+            lens +%= len(xs)
         case bag(g):
-            lens += len(g.items)
+            lens +%= len(g.items)
         default:
         }
     }
@@ -332,7 +332,7 @@ func test_pop_owned() {
     none, okNone := pop(mut words)
     check(okOnly && !okNone && len(words) == 0, "popping an emptied list fails")
     if okOnly && okNone {
-        check(len(only) + len(none) < 0, "popped from an empty list")
+        check(len(only) +% len(none) < 0, "popped from an empty list")
     }
     check(live() == 5, "nothing freed for a failed pop")
 }
@@ -397,7 +397,7 @@ func test_nested() {
     for _, p := range cube {
         for _, r := range p {
             for _, x := range r {
-                sum += x
+                sum +%= x
             }
         }
     }
@@ -409,7 +409,7 @@ func test_nested() {
     mut bumped := 0
     for _, p := range cube {
         for _, r := range p {
-            bumped += len(r)
+            bumped +%= len(r)
         }
     }
     check(!failed && bumped == 18, "the innermost grown through mut")
@@ -574,20 +574,20 @@ func test_index_borrows() {
     check(ok && x == 2 && len(p.right) == 65, "an index changes another field")
     y, ok2 := p.left[last_index(p.left)]
     check(ok2 && y == 3, "an index reads the list it indexes")
-    z, ok3 := view_of(p.left)[grown(mut p.right) + 1]
+    z, ok3 := view_of(p.left)[grown(mut p.right) +% 1]
     check(ok3 && z == 3 && len(p.right) == 129, "a view's index changes another list")
     mut l := fresh(1)
     mut other := fresh(0)
     if len(l) > 0 {
-        l[0] = grown(mut other) + 40
-        l[0] += grown(mut other)
+        l[0] = grown(mut other) +% 40
+        l[0] +%= grown(mut other)
     }
     check(len(l) > 0 && l[0] == 42 && len(other) == 129, "an element assigned while another list grows")
     mut ll := make(list[list[int64]], c_allocator)
     e2 := append(mut ll, fresh(5))
     check(e2.code == 0, "a list of lists")
     if len(ll) > 0 {
-        ll[0] = fresh(grown(mut ll[0]) + 6)
+        ll[0] = fresh(grown(mut ll[0]) +% 6)
         w, ok4 := ll[0][0]
         check(ok4 && w == 7 && len(ll[0]) == 1, "an element replaced by a value that grew it")
     }
@@ -622,3 +622,8 @@ func main() {
     test_index_borrows()
     freed("index borrows freed")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

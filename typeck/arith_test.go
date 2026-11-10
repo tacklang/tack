@@ -2,6 +2,7 @@ package typeck_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -61,10 +62,6 @@ var provenArithmeticCases = []struct{ name, src string }{
 	},
 	{"uint64 u - 1", arith("u uint64", "a := [4]int64{1, 2, 3, 4}", "if 0 < u && u <= 4 {",
 		"    return a[u - 1]", "}")},
-	{"a wrapped uint8 index into 256 elements", arith("u uint8", "a := "+zeros(256),
-		"return a[u + 1]")},
-	{"a wrapped uint8 bound into 256 elements", arith("u uint8", "a := "+zeros(256),
-		"return a[u - 1]")},
 	{"x * 0 as an index", arith("x int64", "a := [1]int64{7}", "return a[x * 0]")},
 	{"mixed signs", arith("i int64, j int64", "a := "+zeros(19),
 		"if -3 <= i && i <= 3 && -3 <= j && j <= 3 {", "    return a[i * j + 9]", "}")},
@@ -210,9 +207,10 @@ func TestAcceptsProvenArithmetic(t *testing.T) {
 	}
 }
 
-// unprovenArithmeticCases are uses of arithmetic that could wrap, or
-// whose bound does not prove the use, with the one error each gives and
-// the text it covers.
+// unprovenArithmeticCases are uses of arithmetic that could overflow, or
+// whose bound does not prove the use, with the error each gives for the
+// use and the text it covers; an overflow is reported as well, before it
+// (see unprovenArithmeticOverflows).
 var unprovenArithmeticCases = []struct {
 	name string
 	src  string
@@ -551,17 +549,94 @@ var unprovenArithmeticCases = []struct {
 	},
 }
 
+// unprovenArithmeticOverflows holds, for each of unprovenArithmeticCases
+// whose arithmetic may overflow, the errors reported for that arithmetic
+// before the one the case is for: a plain operation that could wrap is
+// itself an error now, which the case's use, not proven either, follows.
+var unprovenArithmeticOverflows = map[string][]spanned{
+	"int64 v + 1 wraps at the largest":                        {{"v + 1 may overflow int64; bound v first, or use v, ok := v + 1, or v +% 1 to wrap", "v + 1"}},
+	"int64 v * 2 + 1 one past the edge":                       {{"v * 2 may overflow int64; bound v first, or use v, ok := v * 2, or v *% 2 to wrap", "v * 2"}},
+	"int64 negation of the least":                             {{"-v may overflow int64; check v > -9223372036854775808 first, or use v, ok := -v, or -%v to wrap", "-v"}},
+	"int32 x * 2 + 1 one past the edge":                       {{"x * 2 may overflow int32; bound x first, or use v, ok := x * 2, or x *% 2 to wrap", "x * 2"}},
+	"int32 x * 50000 wraps":                                   {{"x * 50000 may overflow int32; bound x first, or use v, ok := x * 50000, or x *% 50000 to wrap", "x * 50000"}},
+	"int8 negation of the least":                              {{"-b may overflow int8; check b > -128 first, or use v, ok := -b, or -%b to wrap", "-b"}},
+	"int8 0 - b at the least":                                 {{"0 - b may overflow int8; bound b first, or use v, ok := 0 - b, or 0 -% b to wrap", "0 - b"}},
+	"uint8 u * 2 wraps":                                       {{"u * 2 may overflow uint8; bound u first, or use v, ok := u * 2, or u *% 2 to wrap", "u * 2"}},
+	"uint8 u + 1 wraps at the top only":                       {{"u + 1 may overflow uint8; bound u first, or use v, ok := u + 1, or u +% 1 to wrap", "u + 1"}},
+	"uint64 u - 1 wraps at 0":                                 {{"u - 1 may go below 0 in uint64; check u >= 1 first, or use v, ok := u - 1, or u -% 1 to wrap", "u - 1"}},
+	"uint64 u * 2 wraps to 0":                                 {{"u * 2 may overflow uint64; bound u first, or use v, ok := u * 2, or u *% 2 to wrap", "u * 2"}},
+	"int64 x + 1 wraps at the top only":                       {{"x + 1 may overflow int64; bound x first, or use v, ok := x + 1, or x +% 1 to wrap", "x + 1"}},
+	"mixed signs past int64":                                  {{"i * j may overflow int64; bound i and j first, or use v, ok := i * j, or i *% j to wrap", "i * j"}},
+	"int8 b * 2 wraps before - 1":                             {{"b * 2 may overflow int8; bound b first, or use v, ok := b * 2, or b *% 2 to wrap", "b * 2"}},
+	"two reads of one value are bounded apart":                {{"u * 3 - u * 2 may go below 0 in uint64; use v, ok := u * 3 - u * 2, or u * 3 -% u * 2 to wrap", "u * 3 - u * 2"}},
+	"a fact ended by a mut argument":                          {{"j + 1 may overflow int64; bound j first, or use v, ok := j + 1, or j +% 1 to wrap", "j + 1"}},
+	"a field of a mutable variable":                           {{"p.n + 1 may overflow int64; use v, ok := p.n + 1, or p.n +% 1 to wrap", "p.n + 1"}},
+	"a mutable global":                                        {{"g + 1 may overflow int64; use v, ok := g + 1, or g +% 1 to wrap", "g + 1"}},
+	"a relation through i + 1 that may wrap":                  {{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}, {"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}},
+	"an int8 relation through b + 1 that may wrap":            {{"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}, {"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}},
+	"a slice from i + 1 past the end":                         {{"i + 1 may overflow int64; bound i first, or use v, ok := i + 1, or i +% 1 to wrap", "i + 1"}},
+	"an unsafe_size_t sum past the portable largest":          {{"n + 1 may overflow unsafe_size_t; bound n first, or use v, ok := n + 1, or n +% 1 to wrap", "n + 1"}},
+	"a call inside":                                           {{"i + one() may overflow int64; bound i first, or use v, ok := i + one(), or i +% one() to wrap", "i + one()"}},
+	"a length plus one may wrap":                              {{"len(s) + 1 may overflow int64; use v, ok := len(s) + 1, or len(s) +% 1 to wrap", "len(s) + 1"}},
+	"an int8 chain through b + 1 that may wrap":               {{"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}},
+	"an int8 relation through b + 1 that may wrap, converted": {{"b + 1 may overflow int8; bound b first, or use v, ok := b + 1, or b +% 1 to wrap", "b + 1"}},
+}
+
 // TestRejectsUnprovenArithmetic checks each unproven use is one error,
-// covering the use.
+// covering the use, after the errors for any arithmetic in or before it
+// that may overflow (see unprovenArithmeticOverflows), which are reported
+// as that arithmetic is checked, before the use around it.
 func TestRejectsUnprovenArithmetic(t *testing.T) {
 	for _, tt := range unprovenArithmeticCases {
 		t.Run(tt.name, func(t *testing.T) {
 			_, diags := checkTree(t, tt.src)
-			if len(diags) != 1 {
-				t.Fatalf("got %v, want only %q", diags, tt.want.msg)
+			want := append(slices.Clone(unprovenArithmeticOverflows[tt.name]), tt.want)
+			if len(diags) != len(want) {
+				t.Fatalf("got %v, want %v", diags, want)
 			}
-			if diags[0].Message != tt.want.msg {
-				t.Errorf("message = %q, want %q", diags[0].Message, tt.want.msg)
+			for i, w := range want {
+				if diags[i].Message != w.msg {
+					t.Errorf("message %d = %q, want %q", i, diags[i].Message, w.msg)
+				}
+				if got := tt.src[diags[i].Span.Start:diags[i].Span.End]; got != w.at {
+					t.Errorf("diagnostic %d covers %q, want %q", i, got, w.at)
+				}
+			}
+		})
+	}
+}
+
+// overflowOnlyCases are uses of arithmetic that may overflow, whose use
+// is in range whatever the value: a uint8 index into 256 elements. The
+// arithmetic is the one error, covering it.
+var overflowOnlyCases = []struct {
+	name string
+	src  string
+	want spanned
+}{
+	{
+		"a uint8 index past its largest into 256 elements",
+		arith("u uint8", "a := "+zeros(256), "return a[u + 1]"),
+		spanned{"u + 1 may overflow uint8; bound u first, or use v, ok := u + 1, or u +% 1 to wrap", "u + 1"},
+	},
+	{
+		"a uint8 index below 0 into 256 elements",
+		arith("u uint8", "a := "+zeros(256), "return a[u - 1]"),
+		spanned{
+			"u - 1 may go below 0 in uint8; check u >= 1 first, or use v, ok := u - 1, or u -% 1 to wrap",
+			"u - 1",
+		},
+	},
+}
+
+// TestOverflowStandsAlone checks each of overflowOnlyCases is one error,
+// covering the arithmetic.
+func TestOverflowStandsAlone(t *testing.T) {
+	for _, tt := range overflowOnlyCases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := checkTree(t, tt.src)
+			if len(diags) != 1 || diags[0].Message != tt.want.msg {
+				t.Fatalf("got %v, want only %q", diags, tt.want.msg)
 			}
 			if got := tt.src[diags[0].Span.Start:diags[0].Span.End]; got != tt.want.at {
 				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
@@ -572,7 +647,8 @@ func TestRejectsUnprovenArithmetic(t *testing.T) {
 
 // deepArithmetic returns f indexing a with i plus 1 less 1, n times
 // over, under 0 <= i && i < 3, then with i negated 2n times, and dividing
-// by the first plus 1, so that every bound reads at least n operators.
+// by the first plus 1, so that every bound reads at least n operators;
+// the elements and the quotient are summed with +%, which needs no bound.
 func deepArithmetic(n int) string {
 	sum, neg := "i", "i"
 	for range n {
@@ -580,7 +656,7 @@ func deepArithmetic(n int) string {
 		neg = "-(-(" + neg + "))"
 	}
 	return arith("i int64", "a := "+zeros(3), "if 0 <= i && i < 3 {",
-		fmt.Sprintf("    return a[%s] + a[%s] + 6 / (%s + 1)", sum, neg, sum), "}")
+		fmt.Sprintf("    return a[%s] +%% a[%s] +%% 6 / (%s + 1)", sum, neg, sum), "}")
 }
 
 // TestDeepArithmeticBoundsQuickly checks that bounding arithmetic nested

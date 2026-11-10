@@ -47,7 +47,7 @@ func (b B) len() int64 {
 
 func (mut b B) append(x int64) error {
     defer {
-        b.n++
+        b.n +%= 1
     }
     return append(mut b.buf, x)
 }
@@ -79,16 +79,16 @@ func (p P) fact(n int64) int64 {
     if n <= 1 {
         return 1
     }
-    return n * p.fact(n - 1)
+    return n *% p.fact(n - 1)
 }
 
 func (p P) digits(a int64, b int64) int64 {
-    return p.x * 100 + a * 10 + b
+    return p.x *% 100 +% a *% 10 +% b
 }
 
 func next(mut n int64) int64 {
     old := n
-    n++
+    n +%= 1
     return old
 }
 

@@ -36,7 +36,7 @@ func deepLiteralProgram(n int) string {
 	var b strings.Builder
 	b.WriteString("package main\n\n")
 	b.WriteString("mut counter int64\n\n")
-	b.WriteString("func tick() int64 {\n    counter++\n    return counter\n}\n\n")
+	b.WriteString("func tick() int64 {\n    counter +%= 1\n    return counter\n}\n\n")
 	b.WriteString("func check(cond bool, name string) {\n    print(name)\n    if cond {\n" +
 		"        print(\" ok\\n\")\n    } else {\n        print(\" FAIL\\n\")\n    }\n}\n\n")
 	writeDeepTypes(&b, n)

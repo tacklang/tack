@@ -25,9 +25,14 @@ func main() {
     half := 7 / 2
     mut steps int64 = 100
     steps /= half
-    code, fits := int32(q * 10 + r + average(steps, 3) + w)
+    code, fits := int32(q *% 10 +% r +% average(steps, 3) +% w)
     if !fits {
         exit(2)
     }
     exit(code)
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

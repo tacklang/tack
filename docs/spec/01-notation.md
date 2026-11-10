@@ -127,8 +127,8 @@ exceptions:
   `unsafe_uintptr_t`, are as wide as the target makes C's `size_t` and
   `uintptr_t`, from 32 to 64 bits. Their rules are written to hold at
   every width, so a program valid for a 64-bit target is valid for a
-  32-bit one; the value an operation on them gives, wrapping included,
-  depends on the width. [Types](04-types.md) describes them.
+  32-bit one; the value a wrapping operation on them gives depends on
+  the width (see [Integer overflow](03-arithmetic.md#integer-overflow)). [Types](04-types.md) describes them.
 - The sizes of values, against which the compiler checks the size
   limits, are those of the 64-bit targets the compiler builds for,
   arm64 and x86-64.

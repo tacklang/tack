@@ -183,7 +183,7 @@ func TestVariableCopiesItsValue(t *testing.T) {
 		"mut a := 1",
 		"b := a",
 		"a = 2",
-		"code, fits := int32(b * 10 + a)",
+		"code, fits := int32(b *% 10 +% a)",
 		"if fits { exit(code) }",
 	)
 	if _, status := run(t, src); status != 12 {
@@ -194,8 +194,8 @@ func TestVariableCopiesItsValue(t *testing.T) {
 // Variables work alongside parameters and calls.
 func TestVariablesWithParametersAndCalls(t *testing.T) {
 	src := "package main\n\n" +
-		"func square(n int64) int64 {\n    r := n * n\n    return r\n}\n\n" +
-		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total + square(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n"
+		"func square(n int64) int64 {\n    r := n *% n\n    return r\n}\n\n" +
+		"func main() {\n    mut total := 0\n    total = total + square(3)\n    total = total +% square(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n"
 	if _, status := run(t, src); status != 25 {
 		t.Errorf("status = %d, want 25", status)
 	}

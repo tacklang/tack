@@ -103,7 +103,7 @@ var stringIndexCases = []struct {
 	{
 		"sum by range",
 		"package main\n\nfunc sum(s string) int64 {\n    mut n := 0\n    for i := range len(s) {\n" +
-			"        n += s[i]\n    }\n    return n\n}\n\n" +
+			"        n +%= s[i]\n    }\n    return n\n}\n\n" +
 			"func main() {\n    if sum(\"\") == 0 && sum(\"abc\") == 294 {\n        code, fits := int32(sum(\"\\n\\n\"))\n        if fits { exit(code) }\n    }\n}\n",
 		"",
 		20,
@@ -118,7 +118,7 @@ var stringIndexCases = []struct {
 			"}",
 			"s = \"pq\"",
 			"if len(s) > 1 {",
-			"    total += s[1] - 'q'",
+			"    total +%= s[1] -% 'q'",
 			"}",
 			"s = \"\"",
 			"if len(s) > 0 {",
@@ -147,10 +147,10 @@ var stringIndexCases = []struct {
 			"mut ok := true",
 			"mut n := 0",
 			"for ; ok; v, ok = s[i] {",
-			"    n += v",
-			"    i++",
+			"    n +%= v",
+			"    i +%= 1",
 			"}",
-			"code, fits := int32(n - 300)",
+			"code, fits := int32(n -% 300)",
 			"if fits { exit(code) }",
 		),
 		// The first pass adds the 'a' v starts at, and the post reads from
@@ -227,7 +227,7 @@ func TestCheckedUint64IndexIsWarningFree(t *testing.T) {
 		"        status += 1\n" +
 		"    }\n" +
 		"    if inView(a, 2, 3, 18446744073709551615) {\n" +
-		"        status += 2\n" +
+		"        status +%= 2\n" +
 		"    }\n" +
 		"    exit(status)\n" +
 		"}\n"

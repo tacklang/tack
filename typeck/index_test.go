@@ -15,8 +15,8 @@ func indexing(lines ...string) string {
 	}
 	return "package main\n\nmut g int64 = 1\n\n" +
 		"func f(i int64, u uint8, s int8, n int64) int64 {\n" +
-		"    a := [3]int64{1, 2, 3}\n    mut m [3]int64\n" + body + "    return a[0] + m[0]\n}\n\n" +
-		"func main() {\n    code, fits := int32(f(1, 2, 3, 4) + g)\n    if fits { exit(code) }\n}\n"
+		"    a := [3]int64{1, 2, 3}\n    mut m [3]int64\n" + body + "    return a[0] +% m[0]\n}\n\n" +
+		"func main() {\n    code, fits := int32(f(1, 2, 3, 4) +% g)\n    if fits { exit(code) }\n}\n"
 }
 
 // provenIndexCases are indexes the checker can prove in range, each by one
@@ -58,7 +58,7 @@ var provenIndexCases = []struct{ name, src string }{
 	},
 	{
 		"guarded write",
-		indexing("if 0 <= i && i < 3 {", "    m[i] = 5", "    m[i] += 1", "    m[i]++", "}"),
+		indexing("if 0 <= i && i < 3 {", "    m[i] = 5", "    m[i] +%= 1", "    m[i] -%= 1", "}"),
 	},
 	{"loop condition", indexing("mut k := i", "for k >= 0 && k < 3 {", "    return a[k]", "}")},
 	{"checked read", indexing("v, ok := a[i]", "if ok {", "    return v", "}")},
@@ -122,7 +122,7 @@ var unprovenIndexCases = []struct {
 	},
 	{
 		"unguarded compound",
-		indexing("m[i] += 1"),
+		indexing("m[i] +%= 1"),
 		spanned{"index i may be out of range; check 0 <= i && i < 3 first", "i"},
 	},
 	{

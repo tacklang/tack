@@ -10,15 +10,16 @@ import (
 
 // This file holds the notes an error for a missing proof carries about
 // the relations in force (see relations.go): that a chain lacks one link,
-// that a relation through + or - holds only where it cannot wrap, or that
-// a query left relations out past its cap.
+// that a relation through + or - holds only where its step cannot
+// overflow, or that a query left relations out past its cap.
 
 // relationNotes returns the note that explains why the relations in
 // force do not prove x - y <= w, at span, the use: that the graph left
 // relations out past its cap; that a relation through + or - would prove
 // it but for its condition (see wrapping); or that one link is missing
 // from a chain that would prove it (see linkNote). It returns none when
-// nothing is so.
+// nothing is so. Each says what holds and what to check, which a stored
+// value's fact, left out of the graph, cannot make untrue.
 func (c *Checker) relationNotes(x, y linTerm, w constant.Int, span ast.Span) []diag.Diagnostic {
 	g, w, ok := c.query(x, y, w)
 	if !ok || g == nil || g.proves(x.node, y.node, w) {
@@ -35,7 +36,7 @@ func (c *Checker) relationNotes(x, y linTerm, w constant.Int, span ast.Span) []d
 		return []diag.Diagnostic{
 			note(
 				span,
-				"a relation through + or - here holds only where it cannot wrap; check "+cond+" too",
+				"a relation through + or - here holds only where its step cannot overflow; check "+cond+" too",
 			),
 		}
 	}

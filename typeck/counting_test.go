@@ -1,6 +1,7 @@
 package typeck_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -57,14 +58,14 @@ var countingLoopCases = []struct{ name, src string }{
 	},
 	{
 		"divisor counted from one",
-		indexing("mut x := 0", "for mut d := 1; d < 10; d++ {", "    x += 12 / d", "}", "return x"),
+		indexing("mut x := 0", "for mut d := 1; d < 10; d++ {", "    x +%= 12 / d", "}", "return x"),
 	},
 	{
 		"int8 up to one below its maximum",
 		indexing(
 			"mut x := 0",
 			"for mut d int8 = 1; d <= 126; d++ {",
-			"    x += 100 / d",
+			"    x +%= 100 / d",
 			"}",
 			"return x",
 		),
@@ -74,7 +75,7 @@ var countingLoopCases = []struct{ name, src string }{
 		indexing(
 			"mut x := 0",
 			"for mut d int8 = 1; d < 28; d += 100 {",
-			"    x += 100 / d",
+			"    x +%= 100 / d",
 			"}",
 			"return x",
 		),
@@ -127,16 +128,23 @@ var notCountingLoopCases = []struct {
 	name string
 	src  string
 	want spanned
+	// post holds the steps reported after want, as not proven not to
+	// overflow: a post the loop's condition does not keep within its
+	// type, once the body may have changed the variable, or the condition
+	// gives no bound on the side the step moves towards.
+	post []spanned
 }{
 	{
 		"body assigns the variable",
 		indexing("for mut j := 0; j < 3; j++ {", "    m[0] = a[j]", "    j = 0", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"body increments the variable",
 		indexing("for mut j := 0; j < 3; j++ {", "    m[0] = a[j]", "    j++", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"deferred code assigns the variable",
@@ -149,6 +157,7 @@ var notCountingLoopCases = []struct {
 			"}",
 		),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"inner loop's post steps the variable",
@@ -161,6 +170,7 @@ var notCountingLoopCases = []struct {
 			"}",
 		),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64"), stepOverflow("j++", "int64")},
 	},
 	{
 		"inner loop's init assigns the variable",
@@ -172,96 +182,112 @@ var notCountingLoopCases = []struct {
 			"}",
 		),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
-	{"post counts down", indexing("for mut j := 0; j < 3; j-- {", "    m[0] = a[j]", "}"), indexJ},
+	{"post counts down", indexing("for mut j := 0; j < 3; j-- {", "    m[0] = a[j]", "}"), indexJ, []spanned{stepOverflow("j--", "int64")}},
 	{
 		"post steps by an unknown value",
 		indexing("for mut j := 0; j < 3; j += n {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j += n", "int64")},
 	},
 	{
 		"post steps by a mutable variable",
 		indexing("mut step := 1", "for mut j := 0; j < 3; j += step {", "    m[0] = a[j]", "}"),
 		indexJ,
+		nil,
 	},
 	{
 		"post steps by zero",
 		indexing("for mut j := 0; j < 3; j += 0 {", "    m[0] = a[j]", "}"),
 		indexJ,
+		nil,
 	},
 	{
 		"post steps by a negative value",
 		indexing("for mut j := 0; j < 3; j += -1 {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j += -1", "int64")},
 	},
 	{
 		"post multiplies",
 		indexing("for mut j := 0; j < 3; j *= 2 {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j *= 2", "int64")},
 	},
 	{
 		"post counts another variable",
 		indexing("mut l := 0", "for mut j := 0; j < 3; l++ {", "    m[0] = a[j]", "}", "return l"),
 		indexJ,
+		[]spanned{stepOverflow("l++", "int64")},
 	},
-	{"start unknown", indexing("for mut j := n; j < 3; j++ {", "    m[0] = a[j]", "}"), indexJ},
+	{"start unknown", indexing("for mut j := n; j < 3; j++ {", "    m[0] = a[j]", "}"), indexJ, nil},
 	{
 		"start from a mutable variable",
 		indexing("mut first := 0", "for mut j := first; j < 3; j++ {", "    m[0] = a[j]", "}"),
 		indexJ,
+		nil,
 	},
-	{"start negative", indexing("for mut j := -1; j < 3; j++ {", "    m[0] = a[j]", "}"), indexJ},
+	{"start negative", indexing("for mut j := -1; j < 3; j++ {", "    m[0] = a[j]", "}"), indexJ, nil},
 	{
 		"counter declared before the loop",
 		indexing("mut j := 0", "for j = 0; j < 3; j++ {", "    m[0] = a[j]", "}"),
 		indexJ,
+		nil,
 	},
 	{
 		"no condition",
 		indexing("for mut j := 0; ; j++ {", "    m[0] = a[j]", "    break", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"condition with no upper bound",
 		indexing("for mut j := 0; j != 3; j++ {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"or in the condition",
 		indexing("for mut j := 0; j < 3 || n > 0; j++ {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j++", "int64")},
 	},
 	{
 		"bound by an unknown value",
 		indexing("for mut j := 0; j < n; j++ {", "    m[0] = a[j]", "}"),
 		indexJ,
+		nil,
 	},
 	{
 		"step that wraps past the maximum",
 		indexing("for mut j int8 = 2; j < 3; j += 126 {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j += 126", "int8")},
 	},
 	{
 		"int8 up to its maximum",
 		indexing(
 			"mut x := 0",
 			"for mut d int8 = 1; d <= 127; d++ {",
-			"    x += 100 / d",
+			"    x +%= 100 / d",
 			"}",
 			"return x",
 		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
+		[]spanned{stepOverflow("d++", "int8")},
 	},
 	{
 		"int8 step past its maximum",
 		indexing(
 			"mut x := 0",
 			"for mut d int8 = 1; d < 29; d += 100 {",
-			"    x += 100 / d",
+			"    x +%= 100 / d",
 			"}",
 			"return x",
 		),
 		spanned{"divisor d may be zero; check d != 0 first, or use q, ok := ... / d", "d"},
+		[]spanned{stepOverflow("d += 100", "int8")},
 	},
 	{
 		"int8 up to a string's length",
@@ -270,38 +296,67 @@ var notCountingLoopCases = []struct {
 			"index j may be out of range; check 0 <= j && j < len(s) first, or use v, ok := ...[j]",
 			"j",
 		},
+		[]spanned{stepOverflow("j++", "int8")},
 	},
 	{
 		"unsigned down past zero",
 		indexing("for mut j uint8 = 2; j >= 0; j-- {", "    m[0] = a[j]", "}"),
 		spanned{"index j may be out of range; check j < 3 first, or use v, ok := ...[j]", "j"},
+		[]spanned{{"j-- may go below 0 in uint8; check j > 0 first, use j -%= 1 to wrap, or v, ok := j - 1 and j = v when ok", "j--"}},
 	},
 	{
 		"down with no lower bound",
 		indexing("for mut j := 2; j < 3; j-- {", "    m[0] = a[j]", "}"),
 		indexJ,
+		[]spanned{stepOverflow("j--", "int64")},
 	},
 	{
 		"used in the condition",
 		indexing("for mut j := 0; j < 3 && a[j] > 0; j++ {", "}"),
 		indexJ,
+		nil,
 	},
 }
 
+// stepOverflow is the error for stmt, an increment, a decrement or a
+// compound assignment by + - or * of a target of the type typ, not proven
+// not to overflow it, covering stmt.
+func stepOverflow(stmt, typ string) spanned {
+	var target, op, amount string
+	switch {
+	case strings.HasSuffix(stmt, "++"):
+		target, op, amount = strings.TrimSuffix(stmt, "++"), "+", "1"
+	case strings.HasSuffix(stmt, "--"):
+		target, op, amount = strings.TrimSuffix(stmt, "--"), "-", "1"
+	default:
+		parts := strings.SplitN(stmt, " ", 3)
+		target, op, amount = parts[0], strings.TrimSuffix(parts[1], "="), parts[2]
+	}
+	return spanned{
+		stmt + " may overflow " + typ + "; use " + target + " " + op + "%= " + amount +
+			" to wrap, or v, ok := " + target + " " + op + " " + amount + " and " + target + " = v when ok",
+		stmt,
+	}
+}
+
 // TestRejectsLoopsThatDoNotCount checks each of notCountingLoopCases is one
-// error, covering the right source.
+// error, covering the right source, followed by the steps it says are not
+// proven.
 func TestRejectsLoopsThatDoNotCount(t *testing.T) {
 	for _, tt := range notCountingLoopCases {
 		t.Run(tt.name, func(t *testing.T) {
 			_, diags := checkTree(t, tt.src)
-			if len(diags) != 1 {
-				t.Fatalf("got %v, want only %q", diags, tt.want.msg)
+			want := append([]spanned{tt.want}, tt.post...)
+			if len(diags) != len(want) {
+				t.Fatalf("got %v, want %v", diags, want)
 			}
-			if diags[0].Message != tt.want.msg {
-				t.Errorf("message = %q, want %q", diags[0].Message, tt.want.msg)
-			}
-			if got := tt.src[diags[0].Span.Start:diags[0].Span.End]; got != tt.want.at {
-				t.Errorf("diagnostic covers %q, want %q", got, tt.want.at)
+			for i, w := range want {
+				if diags[i].Message != w.msg {
+					t.Errorf("message %d = %q, want %q", i, diags[i].Message, w.msg)
+				}
+				if got := tt.src[diags[i].Span.Start:diags[i].Span.End]; got != w.at {
+					t.Errorf("diagnostic %d covers %q, want %q", i, got, w.at)
+				}
 			}
 		})
 	}

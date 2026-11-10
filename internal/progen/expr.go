@@ -141,9 +141,10 @@ func common(a, b *IntType) (*IntType, bool) {
 	return nil, false
 }
 
-// arithOps are the arithmetic and bitwise operators an expression uses;
+// arithOps are the arithmetic and bitwise operators an expression uses:
+// the wrapping +% -% and *%, which need no proof, and the bitwise ones;
 // division is made only where its divisor is proven (see stmt.go).
-var arithOps = []string{"+", "-", "*", "&", "|", "^", "&^"}
+var arithOps = []string{"+%", "-%", "*%", "&", "|", "^", "&^"}
 
 // arithExpr returns l op r, of a type that widens to t, with at least one
 // operand no constant, so the compiler never computes it, and a constant
@@ -200,7 +201,8 @@ func (g *Gen) binary(l, r Expr, op string) Expr {
 	}
 }
 
-// unaryExpr returns -x, of a signed x, or ^x, x no constant.
+// unaryExpr returns -%x, of a signed x, which wraps for the smallest
+// value, or ^x, x no constant.
 func (g *Gen) unaryExpr(t *IntType, d int) Expr {
 	x, ok := g.nonConst(g.narrowerOrSame(t))
 	if !ok {
@@ -210,7 +212,7 @@ func (g *Gen) unaryExpr(t *IntType, d int) Expr {
 	it := x.T.Int
 	xe := x.Eval
 	if it.Signed && g.pick(2) == 0 {
-		return Expr{Text: "(-" + x.Text + ")", T: x.T, Eval: func(f *frame) Value {
+		return Expr{Text: "(-%" + x.Text + ")", T: x.T, Eval: func(f *frame) Value {
 			return Value{Bits: arith(it, "-", 0, xe(f).Bits)}
 		}}
 	}

@@ -133,7 +133,11 @@ extern("tack_os_wait") func c_wait(pid int64) int64
 extern("tack_os_eintr") func c_eintr() int64
 
 // c_error returns the error for the errno e: out of memory for ENOMEM,
-// and code 3 with strerror's message otherwise.
+// and code 3 with strerror's message otherwise. The C functions here fail
+// with -errno, which -%r turns back into errno, and a result is compared
+// with c_eintr() as -%n. Errno values are small positive numbers, so the
+// negation never wraps; it is -% rather than - because C's contract, not
+// a proof, is what bounds it.
 extern("tack_os_error") func c_error(e int64) error
 
 // has_nul reports whether s holds a 0 byte.
@@ -161,7 +165,7 @@ pub func args(alloc Allocator) (list[text.Text], error) {
         mut b := make(list[uint8], alloc)
         r := c_arg(i, mut b)
         if r < 0 {
-            return empty, c_error(-r)
+            return empty, c_error(-%r)
         }
         t, e := text.from_bytes(b, alloc)
         if e.code != 0 {
@@ -188,7 +192,7 @@ pub func env(name []uint8, alloc Allocator) (text.Text, bool, error) {
     mut v := make(list[uint8], alloc)
     r := c_env(name, mut v)
     if r < 0 {
-        return text.new(alloc), false, c_error(-r)
+        return text.new(alloc), false, c_error(-%r)
     }
     if r == 0 {
         return text.new(alloc), false, noerror
@@ -212,7 +216,7 @@ pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {
     }
     r := c_open(path, 0)
     if r < 0 {
-        return empty, c_error(-r)
+        return empty, c_error(-%r)
     }
     fd, fits := int32(r)
     if !fits {
@@ -233,8 +237,8 @@ pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {
         if n == 0 {
             return data, noerror
         }
-        if n < 0 && -n != c_eintr() {
-            return empty, c_error(-n)
+        if n < 0 && -%n != c_eintr() {
+            return empty, c_error(-%n)
         }
     }
 }
@@ -252,7 +256,7 @@ pub func write_file(path []uint8, data []uint8) error {
     }
     r := c_open(path, 1)
     if r < 0 {
-        return c_error(-r)
+        return c_error(-%r)
     }
     fd, fits := int32(r)
     if !fits {
@@ -261,19 +265,22 @@ pub func write_file(path []uint8, data []uint8) error {
     mut at int64 = 0
     for at < len(data) {
         n := c_write(fd, part(data, at, len(data)))
-        if n <= 0 && -n != c_eintr() {
+        if n <= 0 && -%n != c_eintr() {
             c_close(fd)
             // A write of something that writes nothing has no errno; 0
             // is none, so it is "unknown OS error".
-            return c_error(-n)
+            return c_error(-%n)
         }
         if n > 0 {
-            at += n
+            // C's write contract bounds n by the bytes it was given, what
+            // is left of data, so at stays at most len(data) and never
+            // wraps; +% is there because only that contract bounds it.
+            at +%= n
         }
     }
     c := c_close(fd)
     if c < 0 {
-        return c_error(-c)
+        return c_error(-%c)
     }
     return noerror
 }
@@ -288,7 +295,7 @@ pub func remove_path(path []uint8) error {
     }
     r := c_remove(path)
     if r < 0 {
-        return c_error(-r)
+        return c_error(-%r)
     }
     return noerror
 }
@@ -303,7 +310,7 @@ pub func make_dir(path []uint8) error {
     }
     r := c_make_dir(path)
     if r < 0 {
-        return c_error(-r)
+        return c_error(-%r)
     }
     return noerror
 }
@@ -356,6 +363,10 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
             return src, e
         }
     }
+    // lo + width and mid + width may pass an int64 for an n past half of
+    // one, and so may width * 2; each is then past n, which is what the
+    // code after it does with a value past n: mid and hi stop at n, and
+    // the doubling ends the loop.
     mut width int64 = 1
     for width < n {
         mut dst := make(list[int64], alloc)
@@ -365,12 +376,12 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
         }
         mut lo int64 = 0
         for lo < n {
-            mut mid := lo + width
-            if mid > n {
+            mut mid, fits := lo + width
+            if !fits || mid > n {
                 mid = n
             }
-            mut hi := mid + width
-            if hi > n {
+            mut hi, fits2 := mid + width
+            if !fits2 || hi > n {
                 hi = n
             }
             mut i := lo
@@ -384,18 +395,20 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
                 // The left run's name goes first unless the right's sorts
                 // strictly before it, which keeps equal names in order.
                 left := j >= hi || i < mid && !less(name_at(buf, starts, ends, b), name_at(buf, starts, ends, a))
+                // i steps only while below mid and j only while within
+                // src, so neither passes n, and +% never wraps.
                 if left && hasA {
                     e := append(mut dst, a)
                     if e.code != 0 {
                         return dst, e
                     }
-                    i++
+                    i +%= 1
                 } else if hasB {
                     e := append(mut dst, b)
                     if e.code != 0 {
                         return dst, e
                     }
-                    j++
+                    j +%= 1
                 } else {
                     break
                 }
@@ -403,7 +416,11 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
             lo = hi
         }
         src = dst
-        width *= 2
+        twice, fits := width * 2
+        if !fits {
+            break
+        }
+        width = twice
     }
     return src, noerror
 }
@@ -421,7 +438,7 @@ pub func list_dir(path []uint8, alloc Allocator) (list[text.Text], error) {
     mut buf := make(list[uint8], alloc)
     r := c_list_dir(path, mut buf)
     if r < 0 {
-        return empty, c_error(-r)
+        return empty, c_error(-%r)
     }
     mut starts := make(list[int64], alloc)
     mut ends := make(list[int64], alloc)
@@ -505,7 +522,7 @@ pub func make_temp_dir(alloc Allocator) (text.Text, error) {
     }
     r := c_make_temp_dir(mut tmpl)
     if r < 0 {
-        return text.new(alloc), c_error(-r)
+        return text.new(alloc), c_error(-%r)
     }
     t, e3 := text.from_bytes(part(tmpl, 0, len(tmpl) - 1), alloc)
     if e3.code != 0 {
@@ -525,8 +542,8 @@ func drain(mut fd int32, mut l list[uint8]) error {
         fd = -1
         return noerror
     }
-    if n < 0 && -n != c_eintr() {
-        return c_error(-n)
+    if n < 0 && -%n != c_eintr() {
+        return c_error(-%n)
     }
     return noerror
 }
@@ -536,7 +553,7 @@ func drain(mut fd int32, mut l list[uint8]) error {
 func wait_for(pid int64) int64 {
     for {
         s := c_wait(pid)
-        if s >= 0 || -s != c_eintr() {
+        if s >= 0 || -%s != c_eintr() {
             return s
         }
     }
@@ -597,14 +614,14 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], all
     mut stdout_pipe [2]int32
     r0 := c_pipe(mut stdout_pipe)
     if r0 < 0 {
-        return -1, c_error(-r0)
+        return -1, c_error(-%r0)
     }
     mut stderr_pipe [2]int32
     r1 := c_pipe(mut stderr_pipe)
     if r1 < 0 {
         c_close(stdout_pipe[0])
         c_close(stdout_pipe[1])
-        return -1, c_error(-r1)
+        return -1, c_error(-%r1)
     }
     pid := c_spawn(flat, len(argv), stdout_pipe[1], stderr_pipe[1])
     // The child has its own copies of the write ends, if it started; run
@@ -617,7 +634,7 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], all
     if pid < 0 {
         c_close(a)
         c_close(b)
-        return -1, c_error(-pid)
+        return -1, c_error(-%pid)
     }
     mut got_out := make(list[uint8], alloc)
     mut got_err := make(list[uint8], alloc)
@@ -625,10 +642,10 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], all
     for a >= 0 || b >= 0 {
         m := c_poll2(a, b)
         if m < 0 {
-            if -m == c_eintr() {
+            if -%m == c_eintr() {
                 continue
             }
-            failure = c_error(-m)
+            failure = c_error(-%m)
             break
         }
         if m % 2 == 1 {
@@ -655,7 +672,7 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], all
         return -1, failure
     }
     if status < 0 {
-        return -1, c_error(-status)
+        return -1, c_error(-%status)
     }
     if status >= 256 {
         return -1, error{code: 5, msg: "child killed by a signal"}

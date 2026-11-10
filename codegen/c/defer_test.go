@@ -53,7 +53,7 @@ var deferRuntimeCases = []struct {
 			"if true {",
 			"    defer { a, b = two() }",
 			"}",
-			"code, fits := int32(a + b)",
+			"code, fits := int32(a +% b)",
 			"if fits { exit(code) }",
 		),
 		"",
@@ -81,7 +81,7 @@ var deferRuntimeCases = []struct {
 		inMainProgram("type P struct {\n    x int64\n}\n"+
 			"func f() ([2]int64, P) {\n    mut a := [2]int64{1, 2}\n    mut q := P{x: 3}\n"+
 			"    defer {\n        a[0] = 9\n        q.x = 9\n    }\n    return a, q\n}\n",
-			"a, q := f()", "code, fits := int32(a[0] + a[1] + q.x + 2)", "if fits { exit(code) }"),
+			"a, q := f()", "code, fits := int32(a[0] +% a[1] +% q.x +% 2)", "if fits { exit(code) }"),
 		"", 8,
 	},
 	{
@@ -99,7 +99,7 @@ var deferRuntimeCases = []struct {
 		"a closed block's defers are not run again",
 		inMainProgram(
 			"func f() int64 {\n    if true {\n        defer { print(\"a\") }\n    }\n    return 1\n}\n",
-			"code, fits := int32(f() + 9)",
+			"code, fits := int32(f() +% 9)",
 			"if fits { exit(code) }",
 		),
 		"a",
@@ -108,7 +108,7 @@ var deferRuntimeCases = []struct {
 	{
 		"continue runs defers before a multi-assign post",
 		inMainProgram(
-			printer+"func two(a int64, b int64) (int64, int64) {\n    return a + 1, b + 2\n}\n",
+			printer+"func two(a int64, b int64) (int64, int64) {\n    return a +% 1, b +% 2\n}\n",
 			"mut i := 0",
 			"mut j := 0",
 			"for ; i < 3; i, j = two(i, j) {",
@@ -118,7 +118,7 @@ var deferRuntimeCases = []struct {
 			"    }",
 			"    defer { p(j) }",
 			"}",
-			"code, fits := int32(i + j)",
+			"code, fits := int32(i +% j)",
 			"if fits { exit(code) }",
 		),
 		"00142",
@@ -196,14 +196,14 @@ var deferRuntimeCases = []struct {
 		"returns from both branches of a final if",
 		inMainProgram(printer+
 			"func f(n int64) int64 {\n    defer { p(1) }\n    if n > 0 {\n        defer { p(2) }\n        return n\n"+
-			"    } else {\n        return 0 - n\n    }\n}\n",
-			"code, fits := int32(f(3) + f(0 - 4))", "if fits { exit(code) }"),
+			"    } else {\n        return 0 -% n\n    }\n}\n",
+			"code, fits := int32(f(3) +% f(0 - 4))", "if fits { exit(code) }"),
 		"211", 7,
 	},
 	{
 		"a return from an endless loop through two blocks",
 		inMainProgram(printer+
-			"func f() int64 {\n    mut i := 0\n    for {\n        defer { p(i) }\n        i++\n"+
+			"func f() int64 {\n    mut i := 0\n    for {\n        defer { p(i) }\n        i +%= 1\n"+
 			"        if i == 3 {\n            defer { p(9) }\n            return i * 10\n        }\n    }\n}\n",
 			"code, fits := int32(f())", "if fits { exit(code) }"),
 		"1293", 30,
@@ -211,15 +211,15 @@ var deferRuntimeCases = []struct {
 	{
 		"a return from an inner block when the body has no defer",
 		inMainProgram(printer+
-			"func f(n int64) int64 {\n    if n > 0 {\n        defer { p(n) }\n        return n + 1\n    }\n    return 0\n}\n",
-			"code, fits := int32(f(4) + f(0))", "if fits { exit(code) }"),
+			"func f(n int64) int64 {\n    if n > 0 {\n        defer { p(n) }\n        return n +% 1\n    }\n    return 0\n}\n",
+			"code, fits := int32(f(4) +% f(0))", "if fits { exit(code) }"),
 		"4", 5,
 	},
 	{
 		"an exit skips a later variable only a later defer reads",
 		inMainProgram(printer+
 			"func f(n int64) {\n    defer { p(n) }\n    if n == 1 {\n        return\n    }\n"+
-			"    x := n + 1\n    defer { p(x) }\n    if n == 2 {\n        return\n    }\n    p(0)\n}\n",
+			"    x := n +% 1\n    defer { p(x) }\n    if n == 2 {\n        return\n    }\n    p(0)\n}\n",
 			"f(1)", "f(2)", "f(3)", "exit(16)"),
 		"132043", 16,
 	},

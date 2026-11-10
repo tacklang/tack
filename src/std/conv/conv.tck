@@ -108,7 +108,7 @@ func lower(c uint8) uint8 {
 // bit size error, and the largest value bit_size holds for a range
 // error.
 func unsigned(s []uint8, start int64, base int64, bit_size int64) (uint64, int32) {
-    if len(s) - start <= 0 {
+    if start < 0 || start >= len(s) {
         return 0, syntax_code
     }
     base0 := base == 0
@@ -117,22 +117,25 @@ func unsigned(s []uint8, start int64, base int64, bit_size int64) (uint64, int32
     if base0 {
         // Look for an octal, hex or binary prefix; a prefix needs a
         // byte after it, so "0x" is octal's 0 followed by an x.
+        // i is still start, which is below len(s), so start + 1 fits;
+        // long keeps start + 2 within s too, which the checker does not
+        // carry through a bool, so it is +%, which never wraps here.
         b = 10
-        if at(s, i) == '0' {
-            long := len(s) - i >= 3
-            p := lower(at(s, i + 1))
+        if at(s, start) == '0' {
+            long := len(s) - start >= 3
+            p := lower(at(s, start + 1))
             if long && p == 'b' {
                 b = 2
-                i = i + 2
+                i = start +% 2
             } else if long && p == 'o' {
                 b = 8
-                i = i + 2
+                i = start +% 2
             } else if long && p == 'x' {
                 b = 16
-                i = i + 2
+                i = start +% 2
             } else {
                 b = 8
-                i = i + 1
+                i = start + 1
             }
         }
     } else if base < 2 || base > 36 {
@@ -153,11 +156,9 @@ func unsigned(s []uint8, start int64, base int64, bit_size int64) (uint64, int32
     if !ok2 {
         return 0, bit_size_code
     }
-    // cutoff is the smallest n for which n * b overflows a uint64.
-    cutoff := 18446744073709551615 / ub + 1
     // max_val is the largest value bits holds: a shift by 64 is 0, and 0
-    // less 1 wraps to the largest uint64.
-    max_val := (uint64(1) << ubits) - 1
+    // -% 1 wraps to the largest uint64.
+    max_val := (uint64(1) << ubits) -% 1
     mut underscores := false
     mut n := uint64(0)
     for j, c := range s {
@@ -180,14 +181,13 @@ func unsigned(s []uint8, start int64, base int64, bit_size int64) (uint64, int32
         if d >= b {
             return 0, syntax_code
         }
-        if n >= cutoff {
-            // n * b overflows.
+        times, fits := n * ub
+        if !fits {
             return max_val, range_code
         }
-        n = n * ub
-        n1 := n + d
-        if n1 < n || n1 > max_val {
-            // n + d overflows, or passes bits.
+        n1, fits2 := times + d
+        if !fits2 || n1 > max_val {
+            // n * b + d overflows, or passes bits.
             return max_val, range_code
         }
         n = n1
@@ -212,16 +212,18 @@ var saw_other int64 = 3
 // unsigned calls it only on bytes that are all digits and underscores,
 // so the sign is never there.
 func underscores_ok(s []uint8, start int64) bool {
+    // Every caller passes a start of 0 or 1, so i is at most 4 here, and
+    // its steps and look-aheads with +% and -% never wrap.
     mut saw := saw_start
     mut i := start
     if at(s, i) == '-' || at(s, i) == '+' {
-        i++
+        i +%= 1
     }
     mut hex := false
-    p := lower(at(s, i + 1))
-    if len(s) - i >= 2 && at(s, i) == '0' && (p == 'b' || p == 'o' || p == 'x') {
+    p := lower(at(s, i +% 1))
+    if len(s) -% i >= 2 && at(s, i) == '0' && (p == 'b' || p == 'o' || p == 'x') {
         // A base prefix counts as a digit for the underscore after it.
-        i = i + 2
+        i = i +% 2
         saw = saw_digit
         hex = p == 'x'
     }
@@ -295,26 +297,31 @@ pub func parse_int(s []uint8, base int64, bit_size int64) (int64, error) {
     if bits == 0 {
         bits = 64
     }
-    shift, ok := uint64(bits - 1)
-    if !ok {
+    below, ok0 := bits - 1
+    shift, ok := uint64(below)
+    if !ok0 || !ok {
         return 0, bad_bit_size
     }
     // cutoff is the magnitude of the smallest value bits holds, 2^(bits-1);
     // the largest is cutoff - 1, which fits an int64.
     cutoff := uint64(1) << shift
-    largest, ok2 := int64(cutoff - 1)
-    if !ok2 {
+    top, ok1 := cutoff - 1
+    largest, ok2 := int64(top)
+    if !ok1 || !ok2 {
         return 0, out_of_range
     }
+    // ^x is -x - 1, which fits for every int64 x, so ^largest is the
+    // smallest value bits holds.
     if !neg && un >= cutoff {
         return largest, out_of_range
     }
     if neg && un > cutoff {
-        return 0 - largest - 1, out_of_range
+        return ^largest, out_of_range
     }
     if neg {
         // un is 1 to cutoff here, or 0, so un - 1 fits an int64 and
-        // 0 - (un - 1) - 1 is -un without converting cutoff itself.
+        // ^(un - 1), which is -un, is computed without converting cutoff
+        // itself.
         if un == 0 {
             return 0, noerror
         }
@@ -322,7 +329,7 @@ pub func parse_int(s []uint8, base int64, bit_size int64) (int64, error) {
         if !ok3 {
             return 0, out_of_range
         }
-        return 0 - m - 1, noerror
+        return ^m, noerror
     }
     v, ok4 := int64(un)
     if !ok4 {

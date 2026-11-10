@@ -36,7 +36,7 @@ func TestReadErrorsAndOksAreChecked(t *testing.T) {
 		}
 	}
 
-	src := "package main\n\nfunc twice(n int64) int64 {\n    return n * 2\n}\n\n" +
+	src := "package main\n\nfunc twice(n int64) int64 {\n    return n *% 2\n}\n\n" +
 		"func main() {\n    twice := twice(2)\n    if twice(3) == 6 {\n        print(\"x\")\n    }\n}\n"
 	_, diags := checkTreeAll(t, src)
 	if len(diags) != 1 || diags[0].Severity != diag.Warning ||

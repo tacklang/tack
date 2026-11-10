@@ -41,7 +41,7 @@ func (mut e E) bump() {
     mut next := e
     switch e {
     case int(n):
-        next = E.int(n + 1)
+        next = E.int(n +% 1)
     case eof:
         e = E.int(0)
         return
@@ -125,7 +125,7 @@ func main() {
     err := mut v.push(4)
     err2 := mut v.push(5)
     check(err.code == 0 && err2.code == 0 && v.size() == 2, "mut method replacing a list")
-    check(measure(e) + measure(v) + measure(P{x: 3}) == 6, "unions and a struct through one instance each")
+    check(measure(e) +% measure(v) +% measure(P{x: 3}) == 6, "unions and a struct through one instance each")
     check(wipe(mut v) == 2 && v.size() == 0, "list freed through a generic mut method")
     check(wipe(mut e) == 1 && e == E.eof, "union reset through a generic mut method")
 }

@@ -56,7 +56,7 @@ func element(n int64, p P, k int64) int64 {
     }
     q := n / p.a[1]
     if 0 <= k && k < 3 && p.a[k] != 0 {
-        return q + n / p.a[k]
+        return q +% n / p.a[k]
     }
     return q
 }
@@ -74,11 +74,11 @@ func first(p P) uint8 {
 func sum(p P) int64 {
     mut total int64 = 0
     for i := range p.s {
-        total += int64(p.s[i])
+        total +%= int64(p.s[i])
     }
     for i := range 10 {
         if i < len(p.s) {
-            total -= int64(p.s[i])
+            total -%= int64(p.s[i])
         }
     }
     return total
@@ -165,3 +165,8 @@ func main() {
     swapHalves(mut halves, Pair{i: 0, j: 3})
     check(halves == [4]int64{4, 2, 3, 1}, "mut elements apart by field facts")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

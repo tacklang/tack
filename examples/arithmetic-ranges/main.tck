@@ -5,15 +5,15 @@ package main
 // operand a known value, a variable or a path below an immutable one,
 // the length of a string, view or list, or such arithmetic itself. The
 // bound proves an index, a slice's bound, a divisor or a conversion, as
-// a variable's own bounds do. Arithmetic wraps at its type's width, so
-// an operation that could wrap, given what its operands may hold, has no
-// bound at all. An expression that adds a known amount to one value,
-// i + 1 or len(a) - 1, is related to other values by the relations in
-// force too, where they keep it from wrapping.
+// a variable's own bounds do. Plain arithmetic must be proven not to
+// overflow, so an operation that could, given what its operands may
+// hold, is an error, and has no bound at all. An expression that adds a
+// known amount to one value, i + 1 or len(a) - 1, is related to other
+// values by the relations in force too, where they keep it in range.
 //
 // Every check prints its name and "ok", or "FAIL", and runs each function
 // at the edges of what the facts allow and just past them, where a bound
-// that ignored wrapping would read out of range or divide by zero.
+// that ignored overflow would read out of range or divide by zero.
 
 // check prints name and whether cond held.
 func check(cond bool, name string) {
@@ -34,7 +34,7 @@ type Span struct {
 
 // negated converts -(v + 1) to uint64 when v is negative: v + 1 lies
 // from the least int64 plus one to 0, so its negation lies from 0 to the
-// largest int64, and neither step wraps.
+// largest int64, and neither step overflows.
 func negated(v int64) uint64 {
     if v < 0 {
         return uint64(-(v + 1))
@@ -52,8 +52,8 @@ func after(i int64) int64 {
 }
 
 // following reads a[i + 1] of a view when i < len(a) - 1, which relates
-// i + 1 to len(a): len(a) - 1 never wraps, and i below it keeps i + 1
-// from wrapping.
+// i + 1 to len(a): len(a) - 1 never overflows, and i below it keeps
+// i + 1 from overflowing.
 func following(a []int64, i int64) int64 {
     if 0 <= i && i < len(a) - 1 {
         return a[i + 1]
@@ -65,7 +65,7 @@ func following(a []int64, i int64) int64 {
 func doubled(i int64) int64 {
     a := [8]int64{1, 2, 3, 4, 5, 6, 7, 8}
     if 0 <= i && i < 4 {
-        return a[2*i] * 10 + a[2*i + 1]
+        return a[2*i] *% 10 +% a[2*i + 1]
     }
     return -1
 }
@@ -115,7 +115,7 @@ func spanned(a [5]int64, p Span) int64 {
 }
 
 // down reads a[u - 1] for a uint64 u from 1 to 4, where u - 1 cannot
-// wrap at 0.
+// go below 0.
 func down(u uint64) int64 {
     a := [4]int64{10, 20, 30, 40}
     if 0 < u && u <= 4 {
@@ -223,3 +223,8 @@ func main() {
     check(upto("") == "" && upto("x") == "a" && upto("xyz") == "abc" && upto("wxyz") == "-",
         "\"abc\"[:len(w)] under len(w) <= 3")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

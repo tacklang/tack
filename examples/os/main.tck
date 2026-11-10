@@ -510,7 +510,7 @@ func processFailures() {
             ok = ok && s == 0 && bytes.equal(out, []uint8("keep0123456789")) && bytes.equal(errOut, []uint8("thisabc"))
             break
         }
-        failed++
+        failed +%= 1
         ok = ok && oom(e) && bytes.equal(out, []uint8("keep")) && bytes.equal(errOut, []uint8("this")) && live() == base
     }
     check(ok && failed > 2, "run failing for want of memory at each allocation leaves the outputs as they were")
@@ -596,3 +596,8 @@ func main() {
     check(live() == 1, "child descriptors freed")
     cleanup(d.bytes())
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

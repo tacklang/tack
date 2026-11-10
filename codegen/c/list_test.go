@@ -141,7 +141,7 @@ func f(mut l list[int64], v int64) error {
 
 func grown(l list[int64]) list[int64] {
     mut m := make(list[int64], c_allocator)
-    for i := range len(l) + 1 {
+    for i := range len(l) +% 1 {
         err := append(mut m, i)
         if err.code != 0 {
             break
@@ -257,7 +257,7 @@ func g(n int64) int64 {
             return -1
         }
         if i == 5 {
-            return len(l) + len(inner) - 1
+            return len(l) +% len(inner) -% 1
         }
     }
     return 0
@@ -512,7 +512,7 @@ func TestListsCompileFor32Bits(t *testing.T) {
 const bulkCText = `package main
 
 func next(mut n int64) int64 {
-    n++
+    n +%= 1
     return n
 }
 
@@ -524,7 +524,7 @@ func main() {
     a := [2]int64{7, 8}
     e3 := append(mut l, a[1:]...)
     e4 := reserve(mut l, 4)
-    e5 := reserve(mut l, n - 4)
+    e5 := reserve(mut l, n -% 4)
     ok := e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 && e5.code == 2
     if ok && len(l) == 4 && l[0] == 1 && l[1] == 2 && l[2] == 3 && l[3] == 8 {
         print("bulk ok\n")
@@ -562,7 +562,7 @@ func TestBulkAppendLowering(t *testing.T) {
 	runChecks(t, buildWith(t, bulkCText, "-O1", "-fsanitize=address,undefined",
 		"-fno-sanitize-recover=all"), 1)
 
-	constOnly := strings.Replace(bulkCText, "reserve(mut l, n - 4)", "reserve(mut l, 0)", 1)
+	constOnly := strings.Replace(bulkCText, "reserve(mut l, n -% 4)", "reserve(mut l, 0)", 1)
 	constOnly = strings.Replace(constOnly, "e5.code == 2", "e5.code == 0", 1)
 	if got := generate(t, constOnly); strings.Contains(got, " < 0 ? (tack_error){2") ||
 		strings.Contains(got, "{110, 101, 103, 97, 116, 105, 118, 101") {

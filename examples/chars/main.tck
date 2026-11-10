@@ -6,13 +6,13 @@ var last = 'a' + 25
 var ordered = 'a' < 'b'
 
 func next(c uint8) uint8 {
-    return c + 1
+    return c +% 1
 }
 
 func main() {
     c := 'a'
     mut tripled = c
-    tripled *= 3
+    tripled *%= 3
     var wide int64 = 'a'
     d := next(c)
     mut seen [256]bool

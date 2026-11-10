@@ -41,7 +41,7 @@ func check(cond bool, name string) {
 // next returns the next value of a 64-bit LCG, Knuth's MMIX constants,
 // reduced to 0 up to m - 1 for a positive m.
 func next(m int64) int64 {
-    seed = seed * 6364136223846793005 + 1442695040888963407
+    seed = seed *% 6364136223846793005 +% 1442695040888963407
     v, ok := int64(seed >> 33)
     if !ok || m <= 0 {
         return 0
@@ -81,7 +81,7 @@ func coin(a int64, b int64) bool {
 
 // flip alternates true and false, whatever it is asked.
 func flip(a int64, b int64) bool {
-    flips++
+    flips +%= 1
     return (flips % 2 == 0) != (a < b && b < a)
 }
 
@@ -129,7 +129,7 @@ func counts(v []int64) (map[int64]int64, bool) {
         c, had := m[x]
         mut n := 1
         if had {
-            n = c + 1
+            n = c +% 1
         }
         e := put(mut m, x, n)
         if e.code != 0 {
@@ -271,12 +271,12 @@ func owned() {
             check(false, "append a list")
             return
         }
-        total = total + n
+        total = total +% n
     }
     sort.by(mut ls, shorter)
     mut sum := 0
     for _, l := range ls {
-        sum = sum + len(l)
+        sum = sum +% len(l)
     }
     check(sort.is_sorted(ls, shorter) && len(ls) == 200 && sum == total, "a list of lists by length")
     mut ts := make(list[text.Text], c_allocator)
@@ -307,7 +307,7 @@ func structs() {
     mut ks := make(list[Keyed], c_allocator)
     for i := range 500 {
         k := next(50)
-        e := append(mut ks, Keyed{key: k, tag: k * 1000 + i})
+        e := append(mut ks, Keyed{key: k, tag: k *% 1000 +% i})
         if e.code != 0 {
             check(false, "append a Keyed")
             return
@@ -331,3 +331,8 @@ func main() {
     structs()
     check(live() == 0, "nothing left after structs")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

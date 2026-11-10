@@ -3,7 +3,7 @@ package main
 // Every extern func below is written in C, in helpers.c, which the driver
 // compiles and links with this file because it is in the same directory.
 
-// add returns a + b, wrapping as Tack's own + does.
+// add returns a + b, wrapping as Tack's own +% does.
 extern func add(a int64, b int64) int64
 
 // flip returns !b.

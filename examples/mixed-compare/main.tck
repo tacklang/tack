@@ -35,13 +35,13 @@ func check(cond bool, name string) {
 
 // signed records d in trace and returns v.
 func signed(d int64, v int64) int64 {
-    trace = trace * 10 + d
+    trace = trace *% 10 +% d
     return v
 }
 
 // unsigned records d in trace and returns v.
 func unsigned(d int64, v uint64) uint64 {
-    trace = trace * 10 + d
+    trace = trace *% 10 +% d
     return v
 }
 
@@ -52,19 +52,19 @@ func i64u64(a int64, b uint64) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -76,19 +76,19 @@ func u64i64(a uint64, b int64) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -100,19 +100,19 @@ func i8u8(a int8, b uint8) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -124,19 +124,19 @@ func u32i32(a uint32, b int32) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -148,19 +148,19 @@ func i16u64(a int16, b uint64) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -173,19 +173,19 @@ func u8i32(a uint8, b int32) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -197,19 +197,19 @@ func sizeI64(a unsafe_size_t, b int64) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -221,19 +221,19 @@ func i8ptr(a int8, b unsafe_uintptr_t) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -246,19 +246,19 @@ func sizePtr(a unsafe_size_t, b unsafe_uintptr_t) int64 {
         r += eq
     }
     if a != b {
-        r += ne
+        r +%= ne
     }
     if a < b {
-        r += lt
+        r +%= lt
     }
     if a <= b {
-        r += le
+        r +%= le
     }
     if a > b {
-        r += gt
+        r +%= gt
     }
     if a >= b {
-        r += ge
+        r +%= ge
     }
     return r
 }
@@ -299,7 +299,7 @@ func targetWidths() bool {
     more := ne + gt + ge
     same := eq + le + ge
     mut m unsafe_size_t = 0
-    m -= 1
+    m -%= 1
     return sizeI64(0, -1) == more && sizeI64(m, -1) == more &&
         sizeI64(m, -9223372036854775808) == more && sizeI64(4294967295, 4294967295) == same &&
         sizeI64(0, 9223372036854775807) == less && i8ptr(-128, 0) == less && i8ptr(5, 5) == same &&
@@ -429,3 +429,8 @@ func main() {
     check(facts(), "facts")
     check(switches(), "switches")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

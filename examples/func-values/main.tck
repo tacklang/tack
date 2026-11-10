@@ -34,22 +34,22 @@ func check(cond bool, name string) {
 
 // double returns twice x.
 func double(x int64) int64 {
-    return x * 2
+    return x *% 2
 }
 
 // square returns x times x.
 func square(x int64) int64 {
-    return x * x
+    return x *% x
 }
 
 // add returns a plus b.
 func add(a int64, b int64) int64 {
-    return a + b
+    return a +% b
 }
 
 // sub returns a minus b.
 func sub(a int64, b int64) int64 {
-    return a - b
+    return a -% b
 }
 
 // apply calls f on x.
@@ -89,7 +89,7 @@ func passing() {
 
 // bump adds by to n where it is.
 func bump(mut n int64, by int64) {
-    n = n + by
+    n = n +% by
 }
 
 // grow appends x to l, and returns the error append gives.
@@ -113,7 +113,7 @@ func count(n int64) list[int64] {
 func total(v []int64) int64 {
     mut n := 0
     for _, x := range v {
-        n += x
+        n +%= x
     }
     return n
 }
@@ -210,7 +210,7 @@ type Node struct {
 
 // depth returns n's own number plus one.
 func depth(n Node) int64 {
-    return n.n + 1
+    return n.n +% 1
 }
 
 // visits calls a function held by a struct on that struct, and through a
@@ -226,7 +226,7 @@ func visits() {
 
 // none returns 0, whatever n holds.
 func none(n Node) int64 {
-    return n.n - n.n
+    return n.n -% n.n
 }
 
 // reset gives n a function that returns 0.
@@ -271,7 +271,7 @@ type Rect struct {
 // area returns r's area, scaled.
 func (r Rect) area() int64 {
     s := r.scale
-    return s(r.w * r.h)
+    return s(r.w *% r.h)
 }
 
 // measure returns a's area passed through f.
@@ -291,7 +291,7 @@ mut log int64
 
 // mark appends the digit d to log.
 func mark(d int64) {
-    log = log * 10 + d
+    log = log *% 10 +% d
 }
 
 // deferring calls function values from deferred code, which reads the
@@ -319,7 +319,7 @@ func down(n int64, next func(int64) int64) int64 {
     if n <= 0 {
         return 0
     }
-    return 1 + next(n - 1)
+    return 1 +% next(n - 1)
 }
 
 // divmod returns a divided by b and the remainder, or 0 and 0 for a b of
@@ -422,3 +422,8 @@ func main() {
     }
     check(all, "appending functions that cannot grow changes nothing")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

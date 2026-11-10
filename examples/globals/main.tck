@@ -7,7 +7,7 @@ var limit int64 = 6 * 7
 mut calls int64
 
 func count() {
-    calls = calls + 1
+    calls = calls +% 1
 }
 
 func main() {
@@ -19,3 +19,8 @@ func main() {
         exit(int32(limit))
     }
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

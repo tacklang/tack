@@ -474,6 +474,18 @@ const (
 	Shl
 	// Shr is >>.
 	Shr
+
+	// The wrapping operators take two integers and yield their common
+	// type, as + - and * do, but wrap around at the type's width, on the
+	// two's complement form of a signed type, instead of needing a proof
+	// that the result fits.
+
+	// AddWrap is +%.
+	AddWrap
+	// SubWrap is -%.
+	SubWrap
+	// MulWrap is *%.
+	MulWrap
 )
 
 var binaryOpNames = map[BinaryOp]string{
@@ -481,6 +493,7 @@ var binaryOpNames = map[BinaryOp]string{
 	Eq: "==", Ne: "!=", Lt: "<", Le: "<=", Gt: ">", Ge: ">=",
 	And: "&&", Or: "||",
 	BitAnd: "&", BitOr: "|", BitXor: "^", AndNot: "&^", Shl: "<<", Shr: ">>",
+	AddWrap: "+%", SubWrap: "-%", MulWrap: "*%",
 }
 
 // String returns the operator as it is written in source.
@@ -510,9 +523,30 @@ func (o BinaryOp) IsBitwise() bool { return o >= BitAnd && o <= AndNot }
 // by an unsigned count and yield the integer's type.
 func (o BinaryOp) IsShift() bool { return o == Shl || o == Shr }
 
+// IsWrapping reports whether the operator is one of +% -% *%, which wrap
+// at their type's width.
+func (o BinaryOp) IsWrapping() bool { return o >= AddWrap && o <= MulWrap }
+
+// Unwrapped returns the operator a wrapping one wraps: + for +%, - for -%
+// and * for *%. Any other operator is returned as it is.
+func (o BinaryOp) Unwrapped() BinaryOp {
+	switch o {
+	case AddWrap:
+		return Add
+	case SubWrap:
+		return Sub
+	case MulWrap:
+		return Mul
+	default:
+		return o
+	}
+}
+
 // IsInteger reports whether the operator works on integers and yields one:
-// an arithmetic, a bitwise or a shift operator.
-func (o BinaryOp) IsInteger() bool { return o.IsArithmetic() || o.IsBitwise() || o.IsShift() }
+// an arithmetic, a bitwise, a shift or a wrapping operator.
+func (o BinaryOp) IsInteger() bool {
+	return o.IsArithmetic() || o.IsBitwise() || o.IsShift() || o.IsWrapping()
+}
 
 // Binary is an infix operation, X Op Y.
 type Binary struct {
@@ -555,6 +589,9 @@ const (
 	// Complement is ^, which flips every bit of an int: ^x means x ^ m,
 	// with m all ones for an unsigned type and -1 for a signed one.
 	Complement
+	// NegWrap is -%, which negates an int wrapping at its type's width:
+	// -%x means 0 -% x, on a signed type or an unsigned one.
+	NegWrap
 )
 
 // String returns the operator as it is written in source.
@@ -566,6 +603,8 @@ func (o UnaryOp) String() string {
 		return "-"
 	case Complement:
 		return "^"
+	case NegWrap:
+		return "-%"
 	default:
 		return "invalid operator"
 	}

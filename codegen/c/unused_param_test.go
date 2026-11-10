@@ -61,7 +61,7 @@ func later(x int64, y int64) int64 {
     defer {
         n = x
     }
-    return n + 5
+    return n +% 5
 }
 
 func width(a [3]int64) int64 {

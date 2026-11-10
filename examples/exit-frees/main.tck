@@ -75,8 +75,8 @@ type Val union {
 // it ends the process with status 3. The lists of every frame above it
 // are still live when it does.
 func down(depth int64) {
-    l, err := numbers(depth + 1)
-    if err.code != 0 || len(l) != depth + 1 {
+    l, err := numbers(depth +% 1)
+    if err.code != 0 || len(l) != depth +% 1 {
         check(false, "a list for each frame")
         return
     }
@@ -87,7 +87,7 @@ func down(depth int64) {
         fail_after(0)
         exit(3)
     }
-    down(depth - 1)
+    down(depth -% 1)
 }
 
 func main() {
@@ -157,3 +157,8 @@ func main() {
     down(10)
     check(false, "exit returned")
 }
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

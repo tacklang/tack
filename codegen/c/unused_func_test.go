@@ -109,7 +109,7 @@ func alone[T Any](x int64, s string, v []int64, t T) int64 {
     if len(s) < 1 || len(v) < 1 {
         return 0
     }
-    return x / 3 + x % 5 + (x << 2) + (x >> 1) + len(s[1:]) + len(s[0:1]) + len(v[1:]) + len(v[0:1])
+    return x / 3 +% x % 5 +% (x << 2) +% (x >> 1) +% len(s[1:]) +% len(s[0:1]) +% len(v[1:]) +% len(v[0:1])
 }
 
 func quot(a int64, b int64) int64 {
@@ -120,7 +120,7 @@ func quot(a int64, b int64) int64 {
 }
 
 func never(m map[string]list[P], n map[int64]U, q list[list[int64]], r list[U]) int64 {
-    return len(m) + len(n) + len(q) + len(r)
+    return len(m) +% len(n) +% len(q) +% len(r)
 }
 
 func main() {
