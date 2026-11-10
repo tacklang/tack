@@ -28384,6 +28384,1046 @@ method-error-unchecked-loop/main.tck:20:17: error: x cannot be read before err i
    |	                ^
 21 |	        }
 
+-- method-expr-any-param/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+// show takes an any, which no function type's parameter can be.
+func (b Box) show(v any) bool {
+    return b.n == 0
+}
+
+func main() {
+    f := Box.show
+    if f(Box{n: 0}, 1) {
+        print("zero")
+    }
+}
+-- method-expr-any-param/expected --
+stage: typeck
+---
+
+method-expr-any-param/main.tck:13:10: error: cannot use Box.show as a value: its parameter v is an any, which no function type's can be
+12 |	func main() {
+13 |	    f := Box.show
+   |	         ^~~~~~~~
+14 |	    if f(Box{n: 0}, 1) {
+
+-- method-expr-assign/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func other(b Box) int64 {
+    return 0
+}
+
+// A method expression is a value, not a place: the type it is named
+// through cannot be assigned.
+func main() {
+    Box.size = other
+}
+-- method-expr-assign/expected --
+stage: resolve
+---
+
+method-expr-assign/main.tck:18:5: error: cannot assign to Box; it is a type
+17 |	func main() {
+18 |	    Box.size = other
+   |	    ^~~
+19 |	}
+
+-- method-expr-blank-binding/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) both() (int64, int64) {
+    return b.n, b.n
+}
+
+func main() {
+    _, _ := Box.both(Box{n: 1})
+}
+-- method-expr-blank-binding/expected --
+stage: typeck
+---
+
+method-expr-blank-binding/main.tck:12:5: error: every name is _, so nothing is bound; make the call on its own
+11 |	func main() {
+12 |	    _, _ := Box.both(Box{n: 1})
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	}
+
+-- method-expr-builtin-field/main.tck --
+package main
+
+// A field of a builtin type named through the type is no method either.
+func main() {
+    f := error.code
+    if f == 0 {
+        print("zero")
+    }
+}
+-- method-expr-builtin-field/expected --
+stage: typeck
+---
+
+method-expr-builtin-field/main.tck:5:16: error: code is a field of error, not a method; only a method can be named through its type
+04 |	func main() {
+05 |	    f := error.code
+   |	               ^~~~
+06 |	    if f == 0 {
+
+-- method-expr-builtin-type/main.tck --
+package main
+
+// Assumption: a builtin type has no methods to name, so int64.abs is
+// reported as a missing method of int64, not as a type used as a value.
+func main() {
+    f := int64.abs
+    if f(-1) == 1 {
+        print("one")
+    }
+}
+-- method-expr-builtin-type/expected --
+stage: typeck
+---
+
+method-expr-builtin-type/main.tck:6:16: error: int64 has no method abs
+05 |	func main() {
+06 |	    f := int64.abs
+   |	               ^~~
+07 |	    if f(-1) == 1 {
+
+-- method-expr-builtin-type-string/main.tck --
+package main
+
+// Assumption: builtins stay functions, so string.len names no method.
+func main() {
+    f := string.len
+    if f("ab") == 2 {
+        print("two")
+    }
+}
+-- method-expr-builtin-type-string/expected --
+stage: typeck
+---
+
+method-expr-builtin-type-string/main.tck:5:17: error: string has no method len
+04 |	func main() {
+05 |	    f := string.len
+   |	                ^~~
+06 |	    if f("ab") == 2 {
+
+-- method-expr-call-builtin-type/main.tck --
+package main
+
+func main() {
+    if int64.abs(-1) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-builtin-type/expected --
+stage: typeck
+---
+
+method-expr-call-builtin-type/main.tck:4:14: error: int64 has no method abs
+03 |	func main() {
+04 |	    if int64.abs(-1) == 1 {
+   |	             ^~~
+05 |	        print("one")
+
+-- method-expr-call-dropped-error/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) valid() error {
+    if b.n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+func main() {
+    Box.valid(Box{n: 1})
+}
+-- method-expr-call-dropped-error/expected --
+stage: typeck
+---
+
+method-expr-call-dropped-error/main.tck:15:5: error: the error Box.valid returns cannot be dropped; bind it, as in err := Box.valid(...)
+14 |	func main() {
+15 |	    Box.valid(Box{n: 1})
+   |	    ^~~~~~~~~~~~~~~~~~~~
+16 |	}
+
+-- method-expr-call-field/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    if Box.n(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-field/expected --
+stage: typeck
+---
+
+method-expr-call-field/main.tck:12:12: error: n is a field of Box, not a method; only a method can be named through its type
+11 |	func main() {
+12 |	    if Box.n(Box{n: 1}) == 1 {
+   |	           ^
+13 |	        print("one")
+
+-- method-expr-call-interface/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    if Sizer.size(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-interface/expected --
+stage: typeck
+---
+
+method-expr-call-interface/main.tck:16:8: error: cannot call Sizer.size: Sizer is an interface; only a struct or union type's methods can be called through their type
+15 |	func main() {
+16 |	    if Sizer.size(Box{n: 1}) == 1 {
+   |	       ^~~~~~~~~~
+17 |	        print("one")
+
+-- method-expr-call-missing-mut/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) set(x int64) {
+    b.n = x
+}
+
+func main() {
+    mut b := Box{n: 0}
+    Box.set(b, 1)
+    if b.n == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-missing-mut/expected --
+stage: typeck
+---
+
+method-expr-call-missing-mut/main.tck:13:13: error: Box.set takes b as mut; pass mut b
+12 |	    mut b := Box{n: 0}
+13 |	    Box.set(b, 1)
+   |	            ^
+14 |	    if b.n == 1 {
+
+-- method-expr-call-mut-twice/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) swap(mut o Box) {
+    t := b.n
+    b.n = o.n
+    o.n = t
+}
+
+func main() {
+    mut b := Box{n: 0}
+    Box.swap(mut b, mut b)
+}
+-- method-expr-call-mut-twice/expected --
+stage: typeck
+---
+
+method-expr-call-mut-twice/main.tck:15:21: error: b is passed as mut twice in this call; a mut argument must be the only way to reach b during the call
+14 |	    mut b := Box{n: 0}
+15 |	    Box.swap(mut b, mut b)
+   |	                    ^~~~~
+16 |	}
+method-expr-call-mut-twice/main.tck:15:14: note: first passed as mut here
+14 |	    mut b := Box{n: 0}
+15 |	    Box.swap(mut b, mut b)
+   |	             ^~~~~
+16 |	}
+
+-- method-expr-call-no-method/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    if Box.nope(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-no-method/expected --
+stage: typeck
+---
+
+method-expr-call-no-method/main.tck:12:12: error: Box has no method nope
+11 |	func main() {
+12 |	    if Box.nope(Box{n: 1}) == 1 {
+   |	           ^~~~
+13 |	        print("one")
+
+-- method-expr-call-plain-mut/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    mut b := Box{n: 1}
+    if Box.size(mut b) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-plain-mut/expected --
+stage: typeck
+---
+
+method-expr-call-plain-mut/main.tck:13:17: error: Box.size does not take b as mut; pass b
+12 |	    mut b := Box{n: 1}
+13 |	    if Box.size(mut b) == 1 {
+   |	                ^~~~~
+14 |	        print("one")
+
+-- method-expr-call-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+// A type parameter's method is called on a value of it, w.size(), not
+// through the type parameter.
+func measure[W Sizer](w W) int64 {
+    return W.size(w)
+}
+
+func main() {
+    if measure(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-type-param/expected --
+stage: typeck
+---
+
+method-expr-call-type-param/main.tck:18:12: error: cannot call W.size through its type: W is a type parameter, and a type parameter's methods can only be called on a value of it
+17 |	func measure[W Sizer](w W) int64 {
+18 |	    return W.size(w)
+   |	           ^~~~~~
+19 |	}
+
+-- method-expr-call-wrong-type/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+type Bag struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    if Box.size(Bag{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-wrong-type/expected --
+stage: typeck
+---
+
+method-expr-call-wrong-type/main.tck:16:17: error: cannot use Bag as Box in argument to Box.size
+15 |	func main() {
+16 |	    if Box.size(Bag{n: 1}) == 1 {
+   |	                ^~~~~~~~~
+17 |	        print("one")
+
+-- method-expr-compare/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    f := Box.size
+    g := Box.size
+    if f == g {
+        print("same")
+    }
+}
+-- method-expr-compare/expected --
+stage: typeck
+---
+
+method-expr-compare/main.tck:14:8: error: operator == is not defined on func(Box) int64
+13 |	    g := Box.size
+14 |	    if f == g {
+   |	       ^~~~~~
+15 |	        print("same")
+
+-- method-expr-dropped-error/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) valid() error {
+    if b.n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+func main() {
+    f := Box.valid
+    f(Box{n: 1})
+}
+-- method-expr-dropped-error/expected --
+stage: typeck
+---
+
+method-expr-dropped-error/main.tck:16:5: error: the error f returns cannot be dropped; bind it, as in err := f(...)
+15 |	    f := Box.valid
+16 |	    f(Box{n: 1})
+   |	    ^~~~~~~~~~~~
+17 |	}
+
+-- method-expr-field/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+// Assumption: a field named through its type is no method expression, and
+// is reported as a field, not as a missing method.
+func main() {
+    f := Box.n
+    if f(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-field/expected --
+stage: typeck
+---
+
+method-expr-field/main.tck:14:14: error: n is a field of Box, not a method; only a method can be named through its type
+13 |	func main() {
+14 |	    f := Box.n
+   |	             ^
+15 |	    if f(Box{n: 1}) == 1 {
+
+-- method-expr-generic-mismatch/main.tck --
+package main
+
+type Anything interface {
+}
+
+type Box struct {
+    n int64
+}
+
+type Bag struct {
+    n int64
+}
+
+func (b Box) has(x int64) bool {
+    return b.n == x
+}
+
+func holds[T Anything](v T, x int64, f func(T, int64) bool) bool {
+    return f(v, x)
+}
+
+// The receiver's type is the function value's first parameter's, so it
+// must be the type the other arguments give the type parameter.
+func main() {
+    if holds(Bag{n: 1}, 1, Box.has) {
+        print("one")
+    }
+}
+-- method-expr-generic-mismatch/expected --
+stage: typeck
+---
+
+method-expr-generic-mismatch/main.tck:25:28: error: cannot use func(Box, int64) bool as func(Bag, int64) bool in argument to holds
+24 |	func main() {
+25 |	    if holds(Bag{n: 1}, 1, Box.has) {
+   |	                           ^~~~~~~
+26 |	        print("one")
+
+-- method-expr-global/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+var f func(Box) int64 = Box.size
+
+func main() {
+    if f(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-global/expected --
+stage: typeck
+---
+
+method-expr-global/main.tck:11:5: error: package-level variable f cannot hold a function value
+10 |	
+11 |	var f func(Box) int64 = Box.size
+   |	    ^
+12 |	
+
+-- method-expr-interface/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+// Assumption: only a struct or union type's methods are values; an
+// interface's method named through the interface is an error.
+func main() {
+    f := Sizer.size
+    if f(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-interface/expected --
+stage: typeck
+---
+
+method-expr-interface/main.tck:18:10: error: cannot use Sizer.size as a value: Sizer is an interface; only a struct or union type's methods are values
+17 |	func main() {
+18 |	    f := Sizer.size
+   |	         ^~~~~~~~~~
+19 |	    if f(Box{n: 1}) == 1 {
+
+-- method-expr-missing-mut/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) set(x int64) {
+    b.n = x
+}
+
+func main() {
+    f := Box.set
+    mut b := Box{n: 0}
+    f(b, 1)
+    if b.n == 1 {
+        print("one")
+    }
+}
+-- method-expr-missing-mut/expected --
+stage: typeck
+---
+
+method-expr-missing-mut/main.tck:14:7: error: f takes argument 1 as mut; pass mut b
+13 |	    mut b := Box{n: 0}
+14 |	    f(b, 1)
+   |	      ^
+15 |	    if b.n == 1 {
+
+-- method-expr-mut-arg/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func other(b Box) int64 {
+    return 0
+}
+
+func change(mut f func(Box) int64) {
+    f = other
+}
+
+// A method expression is a value, not a place to pass as mut.
+func main() {
+    change(mut Box.size)
+}
+-- method-expr-mut-arg/expected --
+stage: typeck
+---
+
+method-expr-mut-arg/main.tck:21:12: error: only a variable, a field or an element can be passed as mut
+20 |	func main() {
+21 |	    change(mut Box.size)
+   |	           ^~~~~~~~~~~~
+22 |	}
+
+-- method-expr-mut-immutable/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) set(x int64) {
+    b.n = x
+}
+
+func main() {
+    f := Box.set
+    b := Box{n: 0}
+    f(mut b, 1)
+    if b.n == 1 {
+        print("one")
+    }
+}
+-- method-expr-mut-immutable/expected --
+stage: typeck
+---
+
+method-expr-mut-immutable/main.tck:14:7: error: cannot pass mut b: b is immutable; declare it with mut
+13 |	    b := Box{n: 0}
+14 |	    f(mut b, 1)
+   |	      ^~~~~
+15 |	    if b.n == 1 {
+
+-- method-expr-mut-to-plain/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) set(x int64) {
+    b.n = x
+}
+
+func main() {
+    var g func(Box, int64) = Box.set
+    g(Box{n: 0}, 1)
+}
+-- method-expr-mut-to-plain/expected --
+stage: typeck
+---
+
+method-expr-mut-to-plain/main.tck:12:30: error: cannot use func(mut Box, int64) as func(Box, int64) in declaration of g
+11 |	func main() {
+12 |	    var g func(Box, int64) = Box.set
+   |	                             ^~~~~~~
+13 |	    g(Box{n: 0}, 1)
+
+-- method-expr-no-method/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    f := Box.nope
+    if f(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-no-method/expected --
+stage: typeck
+---
+
+method-expr-no-method/main.tck:12:14: error: Box has no method nope
+11 |	func main() {
+12 |	    f := Box.nope
+   |	             ^~~~
+13 |	    if f(Box{n: 1}) == 1 {
+
+-- method-expr-own-arg/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) items() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func keep(own l list[int64]) {
+}
+
+func main() {
+    keep(own Box.items)
+}
+-- method-expr-own-arg/expected --
+stage: typeck
+---
+
+method-expr-own-arg/main.tck:15:10: error: cannot pass own Box.items: only a variable can be passed as own
+14 |	func main() {
+15 |	    keep(own Box.items)
+   |	         ^~~~~~~~~~~~~
+16 |	}
+
+-- method-expr-plain-to-mut/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    var g func(mut Box) int64 = Box.size
+    mut b := Box{n: 1}
+    if g(mut b) == 1 {
+        print("one")
+    }
+}
+-- method-expr-plain-to-mut/expected --
+stage: typeck
+---
+
+method-expr-plain-to-mut/main.tck:12:33: error: cannot use func(Box) int64 as func(mut Box) int64 in declaration of g
+11 |	func main() {
+12 |	    var g func(mut Box) int64 = Box.size
+   |	                                ^~~~~~~~
+13 |	    mut b := Box{n: 1}
+
+-- method-expr-switch/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func main() {
+    f := Box.size
+    switch f {
+    case Box.size:
+        print("size")
+    }
+}
+-- method-expr-switch/expected --
+stage: typeck
+---
+
+method-expr-switch/main.tck:13:12: error: operator == is not defined on func(Box) int64
+12 |	    f := Box.size
+13 |	    switch f {
+   |	           ^
+14 |	    case Box.size:
+
+-- method-expr-type-param/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+// Method expressions on type parameters are not part of the language yet.
+func measure[W Sizer](w W) int64 {
+    f := W.size
+    return f(w)
+}
+
+func main() {
+    if measure(Box{n: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-type-param/expected --
+stage: typeck
+---
+
+method-expr-type-param/main.tck:17:10: error: cannot use W.size as a value: W is a type parameter, and a type parameter's methods can only be called on a value of it
+16 |	func measure[W Sizer](w W) int64 {
+17 |	    f := W.size
+   |	         ^~~~~~
+18 |	    return f(w)
+
+-- method-expr-undefined-type/main.tck --
+package main
+
+func main() {
+    f := Nope.size
+    if f(1) == 1 {
+        print("one")
+    }
+}
+-- method-expr-undefined-type/expected --
+stage: resolve
+---
+
+method-expr-undefined-type/main.tck:4:10: error: undefined: Nope
+03 |	func main() {
+04 |	    f := Nope.size
+   |	         ^~~~
+05 |	    if f(1) == 1 {
+
+-- method-expr-union-no-method/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 0
+}
+
+// Assumption: a name through a union type that is neither a case nor a
+// method is reported as missing from both.
+func main() {
+    f := Expr.nope
+    if f(Expr.eof) == 0 {
+        print("zero")
+    }
+}
+-- method-expr-union-no-method/expected --
+stage: typeck
+---
+
+method-expr-union-no-method/main.tck:15:15: error: Expr has no case or method nope
+14 |	func main() {
+15 |	    f := Expr.nope
+   |	              ^~~~
+16 |	    if f(Expr.eof) == 0 {
+
+-- method-expr-value-no-contract/main.tck --
+package main
+
+type Pair struct {
+    a int64
+    b int64
+}
+
+func (p Pair) within(i int64) ensures 0 <= i && i < 2 {
+    if i < 0 || i >= 2 {
+        exit(1)
+    }
+}
+
+// A function type states no contract: called through a value, the
+// method's ensures does not hold after the call, as it does after
+// Pair.within(p, i) and p.within(i).
+func pick(p Pair, i int64) int64 {
+    f := Pair.within
+    f(p, i)
+    both := [2]int64{p.a, p.b}
+    return both[i]
+}
+
+func main() {
+    if pick(Pair{a: 1, b: 2}, 1) == 2 {
+        print("two")
+    }
+}
+-- method-expr-value-no-contract/expected --
+stage: typeck
+---
+
+method-expr-value-no-contract/main.tck:21:17: error: index i may be out of range; check 0 <= i && i < 2 first, or use v, ok := ...[i]
+20 |	    both := [2]int64{p.a, p.b}
+21 |	    return both[i]
+   |	                ^
+22 |	}
+
+-- method-expr-variadic/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) all(xs ...int64) bool {
+    return b.n == 0
+}
+
+func main() {
+    f := Box.all
+    if f(Box{n: 0}, 1) {
+        print("zero")
+    }
+}
+-- method-expr-variadic/expected --
+stage: typeck
+---
+
+method-expr-variadic/main.tck:12:10: error: cannot use Box.all as a value: its parameter xs is variadic, which no function type's can be
+11 |	func main() {
+12 |	    f := Box.all
+   |	         ^~~~~~~
+13 |	    if f(Box{n: 0}, 1) {
+
+-- method-expr-view-result/main.tck --
+package main
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+func main() {
+    f := Text.bytes
+    t := Text{b: make(list[uint8], c_allocator)}
+    if len(f(t)) == 0 {
+        print("empty")
+    }
+}
+-- method-expr-view-result/expected --
+stage: typeck
+---
+
+method-expr-view-result/main.tck:12:10: error: cannot use Text.bytes as a value: it returns a view, which no function type can
+11 |	func main() {
+12 |	    f := Text.bytes
+   |	         ^~~~~~~~~~
+13 |	    t := Text{b: make(list[uint8], c_allocator)}
+
+-- method-expr-wrong-arity/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (b Box) has(x int64) bool {
+    return b.n == x
+}
+
+func main() {
+    f := Box.has
+    if f(1) {
+        print("one")
+    }
+}
+-- method-expr-wrong-arity/expected --
+stage: typeck
+---
+
+method-expr-wrong-arity/main.tck:13:8: error: f expects 2 argument(s), got 1
+12 |	    f := Box.has
+13 |	    if f(1) {
+   |	       ^~~~
+14 |	        print("one")
+
 -- method-expression/main.tck --
 package main
 
@@ -28398,19 +29438,20 @@ func (p P) norm() int64 {
 func use(n int64) {
 }
 
+// A method expression called directly passes its receiver as its first
+// argument: leaving it out is a call of the wrong arity.
 func main() {
-    p := P{x: 1}
-    use(P.norm(p))
+    use(P.norm())
 }
 -- method-expression/expected --
-stage: resolve
+stage: typeck
 ---
 
-method-expression/main.tck:16:9: error: cannot use P as a value; it is a type
-15 |	    p := P{x: 1}
-16 |	    use(P.norm(p))
-   |	        ^
-17 |	}
+method-expression/main.tck:17:9: error: P.norm expects 1 argument(s), got 0
+16 |	func main() {
+17 |	    use(P.norm())
+   |	        ^~~~~~~~
+18 |	}
 
 -- method-extern/main.tck --
 package main
@@ -29743,6 +30784,67 @@ method-value/main.tck:16:12: error: norm is a method of P, not a field; a method
 16 |	    f := p.norm
    |	           ^~~~
 17 |	    use(f)
+
+-- method-value-mut-arg/main.tck --
+package main
+
+type Box struct {
+    n int64
+}
+
+func (mut b Box) set(x int64) {
+    b.n = x
+}
+
+func apply(f func(mut Box, int64), mut b Box) {
+    f(mut b, 1)
+}
+
+// A bound method value, b.set, is not part of the language: only the
+// method expression Box.set is a value.
+func main() {
+    mut b := Box{n: 0}
+    apply(b.set, mut b)
+}
+-- method-value-mut-arg/expected --
+stage: typeck
+---
+
+method-value-mut-arg/main.tck:19:13: error: set is a method of Box, not a field; a method can only be called
+18 |	    mut b := Box{n: 0}
+19 |	    apply(b.set, mut b)
+   |	            ^~~
+20 |	}
+
+-- method-value-union/main.tck --
+package main
+
+type Expr union {
+    int int64
+    eof
+}
+
+func (e Expr) pos() int64 {
+    return 0
+}
+
+// A bound method value of a union, e.pos, is not part of the language.
+func main() {
+    e := Expr.eof
+    f := e.pos
+    if f() == 0 {
+        print("zero")
+    }
+}
+-- method-value-union/expected --
+stage: typeck
+---
+
+method-value-union/main.tck:15:12: error: pos is a method of Expr, not a field; a method can only be called
+14 |	    e := Expr.eof
+15 |	    f := e.pos
+   |	           ^~~
+16 |	    if f() == 0 {
 
 -- method-variadic-receiver/main.tck --
 package main
@@ -48013,13 +49115,13 @@ func main() {
 stage: typeck
 ---
 
-union-build-no-case/main.tck:8:12: error: U has no case nope
+union-build-no-case/main.tck:8:12: error: U has no case or method nope
 07 |	func main() {
 08 |	    u := U.nope(1)
    |	           ^~~~
 09 |	    v := U.none
 
-union-build-no-case/main.tck:9:12: error: U has no case none
+union-build-no-case/main.tck:9:12: error: U has no case or method none
 08 |	    u := U.nope(1)
 09 |	    v := U.none
    |	           ^~~~
@@ -48641,16 +49743,10 @@ func main() {
 stage: typeck
 ---
 
-union-method-expression/main.tck:14:13: error: Expr has no case pos
-13 |	    e := Expr.int(1)
-14 |	    if Expr.pos(e) == 0 {
-   |	            ^~~
-15 |	    }
-
-union-method-expression/main.tck:16:13: error: Expr has no case pos
+union-method-expression/main.tck:16:8: error: mismatched types func(Expr) int64 and Expr in ==
 15 |	    }
 16 |	    if Expr.pos == e {
-   |	            ^~~
+   |	       ^~~~~~~~~~~~~
 17 |	    }
 
 -- union-method-extern/main.tck --

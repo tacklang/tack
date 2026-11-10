@@ -37,11 +37,12 @@ func (g *Gen) funcValueStmt() Stmt {
 	if v := g.choose(g.visible(func(v *Var) bool {
 		return v.T.Kind == KFunc && g.writable(v) && sameType(v.T, t)
 	})); v != nil && g.pick(2) == 0 {
-		return simple(func(f *frame) { f.set(v, val) }, v.Name+" = "+fn.Name)
+		return simple(func(f *frame) { f.set(v, val) }, v.Name+" = "+funcValueName(fn))
 	}
 	v := &Var{Name: g.name("fv"), T: t, Mut: true}
 	g.declare(v)
-	return simple(func(f *frame) { f.set(v, val) }, "mut "+v.Name+" "+t.String()+" = "+fn.Name)
+	return simple(func(f *frame) { f.set(v, val) },
+		"mut "+v.Name+" "+t.String()+" = "+funcValueName(fn))
 }
 
 // deferStmt returns defer { ... }, which runs when the block holding it is

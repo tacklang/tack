@@ -141,10 +141,11 @@
 // payload unless the case ends after its name; union {} has none.
 // Visibility on a case, which takes its union's, and a value given to
 // one, eof = 1, which would be a tag, are reported. A union's
-// construction, Expr.int(5) or Expr.eof, parses as a method call or a
-// field selection does, and a switch's case values as any values do,
-// int(n) a call: which of them build or match a union is found from types
-// later. Other named types, anonymous struct and union types and embedded
+// construction, Expr.int(5) or Expr.eof, and a method expression,
+// Pair.first or Pair.first(p), parse as a field selection or a method
+// call does, and a switch's case values as any values do, int(n) a
+// call: which of them build or match a union, or name a method, is found
+// from names and types later. Other named types, anonymous struct and union types and embedded
 // fields are each reported here, as is a type declared inside a function. A field may
 // start with pub or lib, and so may a package-level function, variable
 // (var or mut) or type declaration, whose span then starts at the keyword;

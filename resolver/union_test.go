@@ -25,13 +25,12 @@ var unionScopeCases = []struct {
 	want []string
 }{
 	{"construction", inUnionFunc("x := E.int(1)", "y := E.eof", "g(x, y)"), []string{}},
+	// A struct type's name selected is a method expression, whose method
+	// only the type checker looks up.
 	{
-		"construction of a struct type",
+		"selection through a struct type is the type checker's",
 		inUnionFunc("x := Point.x", "y := Point.f(1)", "g(x, y)"),
-		[]string{
-			"cannot use Point as a value; it is a type",
-			"cannot use Point as a value; it is a type",
-		},
+		nil,
 	},
 	{"construction of no case is the type checker's", inUnionFunc("x := E.nope", "g(x)"), nil},
 	{

@@ -38,8 +38,10 @@ import (
 // parameter, no any parameter and no view result. In a generic function
 // it may be made of the function's type parameters, func(T, T) bool,
 // which each instance has as the type made of its type arguments. A
-// function whose signature has any of those, a generic function, a method
-// and an extern func is not a value (funcValue).
+// function whose signature has any of those, a generic function and an
+// extern func is not a value (funcValue). A method is a value only named
+// through its type, Pair.first, whose first parameter is its receiver
+// (see methodexpr.go).
 //
 // The call graph is no longer fixed by the source: a call through a
 // value calls whichever function the value names when it runs. Nothing
@@ -132,6 +134,15 @@ func (c *Checker) funcValue(id *ast.Ident, fn *ast.Func) types.Type {
 		c.errorf(id.Span, "cannot use %s as a value: %s", id.Qualified(), why)
 		return types.Invalid
 	}
+	return c.signatureValue(fn)
+}
+
+// signatureValue returns the function type of fn's signature, every
+// parameter's type, each mut, own and scope where it is, a method's
+// receiver first, and its results, which it records on fn (see
+// Func.Value), or types.Invalid when a type in it was reported. fn is one
+// notValue allows.
+func (c *Checker) signatureValue(fn *ast.Func) types.Type {
 	if fn.Value != types.Invalid {
 		return fn.Value
 	}
@@ -359,7 +370,8 @@ func (c *Checker) noGlobalFunc(v *ast.Var) {
 }
 
 // namesFunc reports whether e names a function as a value anywhere in
-// it: a name bound to a declared function, outside a call's callee.
+// it: a name bound to a declared function, or a method named through its
+// type (see namesMethod), outside a call's callee.
 func namesFunc(e ast.Expr) bool {
 	found := false
 	ast.Walk(e, func(n ast.Node) bool {
@@ -372,6 +384,8 @@ func namesFunc(e ast.Expr) bool {
 				found = found || namesFunc(sel.X)
 			}
 			return false
+		case *ast.Selector:
+			found = found || namesMethod(x)
 		case *ast.Ident:
 			if fn, ok := x.Def.(*ast.Func); ok && fn != nil {
 				found = true
@@ -394,4 +408,17 @@ func (c *Checker) funcParts(typ types.Type) []types.Type {
 		parts = append(parts, p.Type)
 	}
 	return append(parts, c.table.FuncResults(typ)...)
+}
+
+// namesMethod reports whether sel is a method expression naming a method
+// its type declares, Pair.first, whatever the method's signature: a
+// value, or a method that cannot be one, which is all a global's value
+// could hold of it.
+func namesMethod(sel *ast.Selector) bool {
+	if _, ok := ast.MethodExpr(sel); !ok {
+		return false
+	}
+	id, _ := sel.X.(*ast.Ident)
+	td, isDecl := id.Def.(*ast.TypeDecl)
+	return isDecl && td.Method(sel.Name) != nil
 }

@@ -79,7 +79,9 @@ main.tck:8:7: error: Sizer is an interface; it can only constrain a type paramet
 No method can be declared on an interface, `cannot declare a method on
 Writer: only a struct or union type declared in this package can have
 methods`, and an interface cannot be called, `cannot call Writer; it is
-a type`. Nothing of an interface exists at run time.
+a type`, nor its methods named through it, `cannot use Sizer.size as a
+value: Sizer is an interface; only a struct or union type's methods are
+values`. Nothing of an interface exists at run time.
 
 ## Satisfying an interface
 
@@ -350,7 +352,12 @@ A value of a type parameter has its constraint's methods, called as a
 struct's are, `w.size()` and `mut w.write(b)`, under every rule of a
 method call: `W.write takes its receiver as mut; call mut w.write(b)`,
 `W has no method nope`. A constraint's method named without a call is
-`size is a method of W, not a field; a method can only be called`.
+`size is a method of W, not a field; a method can only be called`, and
+one named through the type parameter, a method expression, is `cannot
+use W.size as a value: W is a type parameter, and a type parameter's
+methods can only be called on a value of it`, or, called, `cannot call W.size through its
+type: W is a type parameter, and a type parameter's methods can only be
+called on a value of it`.
 
 It has nothing else:
 

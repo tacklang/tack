@@ -307,7 +307,7 @@ func callsFunc(e ast.Expr) bool {
 // Tack function, a method, a function value, whichever function it
 // names, or a builtin that changes a list, as callsFunc counts them.
 func callsItself(call *ast.Call) bool {
-	if call.Receiver() != nil || call.Dynamic != nil {
+	if call.Receiver() != nil || call.Method != nil || call.Dynamic != nil {
 		return true
 	}
 	id, isName := call.Fn.(*ast.Ident)

@@ -645,9 +645,9 @@ there, rather than decided, and could go another way:
 - A method named without a call is `write is a method of Builder, not a
   field; a method can only be called`, and a field called is `n is a
   field of Builder, not a method; a field cannot be called`. A method
-  expression, `Builder.write(b, s)`, gets no message of its own: it is
+  expression, `Builder.write(b, s)`, got no message of its own: it was
   `cannot use Builder as a value; it is a type`, as any type name used
-  as a value is.
+  as a value is, until method expressions made it a call of the method.
 - `mut` before a method call in parentheses, `mut (b.f())`, covers the
   whole call, not its receiver, and is reported as a mut argument that is
   not a place. A statement may start with a call whose result a method is
@@ -820,7 +820,8 @@ rules already there, rather than decided, and could go another way:
   wrong form of a case is `Expr.eof has no payload; write Expr.eof` and
   `Expr.int needs its int64 payload, as in Expr.int(...)`; a case the
   union lacks is `Expr has no case nope`, in a construction and in a
-  switch. A union built as a statement is `Expr.int(5) is not used`: no
+  switch (a construction's since `Expr has no case or method nope`, a
+  name through a union that is no case being a method expression). A union built as a statement is `Expr.int(5) is not used`: no
   wording for a value left unused existed. A conversion or `len` written
   as a statement now takes the same wording; see the next section.
 - A payload case named alone, `case int:`, binds nothing, as a clause
@@ -902,10 +903,12 @@ the rules already there, rather than decided, and could go another way:
   build a case, and `e.m()`, through a value, always calls a method.
 - A case reached through a value gets no wording of its own: `e.int(5)`
   is `Expr has no method int`, and `e.int` stays `Expr has no field
-  int`. A method named through the type, `Expr.pos(e)` or `Expr.pos`, is
-  a construction of a case the union lacks, `Expr has no case pos`,
-  where a struct's method expression is `cannot use Builder as a value;
-  it is a type`.
+  int`. A method named through the type, `Expr.pos(e)` or `Expr.pos`,
+  was a construction of a case the union lacks, `Expr has no case pos`,
+  where a struct's method expression was `cannot use Builder as a value;
+  it is a type`; method expressions have since made both a method
+  expression, and a name that is neither a case nor a method `Expr has
+  no case or method nope`.
 - The rejection of other receivers now reads `cannot declare a method on
   X: only a struct or union type declared in this package can have
   methods`, and of other type arguments `cannot use T as S in argument

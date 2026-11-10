@@ -23,6 +23,8 @@ An operand is one of:
   variable, which gives its value;
 - the name of a function, which gives the function as a value
   ([Function values](#function-values));
+- a method named through its type, `Pair.first`, which gives the method
+  as a value ([Method expressions](#method-expressions));
 - a qualified name ([Qualified names](#qualified-names));
 - a composite literal ([Composite literals](#composite-literals));
 - an expression in parentheses, `(x)`, whose value is `x`'s.
@@ -30,8 +32,8 @@ An operand is one of:
 What a name refers to is decided by the scope rules of [Declarations and
 scope](05-declarations.md). A name that refers to nothing is `undefined:
 z`. A type's name is not an operand, `cannot use Point as a value; it is
-a type`, outside a conversion `T(x)` and a union's construction
-`Expr.int(5)`; an import's name is not one either, `fmt is a package,
+a type`, outside a conversion `T(x)`, a union's construction
+`Expr.int(5)` and a method expression `Pair.first`; an import's name is not one either, `fmt is a package,
 not a value`, outside a qualified name. `_` is not an operand.
 
 There is no unary `+`: `+x` is a syntax error.
@@ -123,7 +125,10 @@ takes the type, a narrower integer widens to it, and exactly one payload
 is given. A case with no payload is named without parentheses:
 `Expr.eof()` is `Expr.eof has no payload; write Expr.eof`. A case with
 one is not named alone, `Expr.int needs its int64 payload, as in
-Expr.int(...)`, and a case the union lacks is `Expr has no case nope`.
+Expr.int(...)`, and a name the union has as neither a case nor a method
+is `Expr has no case or method nope`. A case and a method of one union
+never share a name, so any other name written through a union is a
+method expression ([Method expressions](#method-expressions)).
 Nothing makes a union of a payload implicitly. A union of another
 package is built through its qualified name, `ast.Expr.int(5)`.
 
@@ -153,10 +158,10 @@ a `mut` argument of the call, under every rule of one, below. Leaving
 mut; call mut b.write(s)`, and writing it for a plain receiver is
 `Builder.len does not take its receiver as mut; call b.len()`.
 
-There are no method values and no method expressions: `b.write` without
-a call is `write is a method of Builder, not a field; a method can only
-be called`, and `Builder.write(b, s)` is `cannot use Builder as a value;
-it is a type`. A field called as a method is `n is a field of Builder,
+A method is named as a value only through its type, `Builder.write`
+([Method expressions](#method-expressions)). There are no bound method
+values: `b.write` without a call is `write is a method of Builder, not a
+field; a method can only be called`. A field called as a method is `n is a field of Builder,
 not a method; a field cannot be called`, and a field holding a function
 value is called through a local, `run is a field of Op holding a
 function value, not a method; call it through a local, as in f :=
@@ -316,8 +321,9 @@ of one signature have one type; nothing else is assignable to it. A
 function value is called through a local or a parameter holding it,
 `f(x)`, under every rule a call by name has for its arguments.
 
-A generic function, an extern func, a method and a builtin are not
-values: `cannot use measure as a value: it is generic, and a generic
+A method is a value named through its type ([Method
+expressions](#method-expressions)). A generic function, an extern func
+and a builtin are not values: `cannot use measure as a value: it is generic, and a generic
 function is only called, its type arguments inferred from the call`,
 `cannot use now as a value: it is an extern func, and a function value
 does not cross to C`, `cannot use the builtin len as a value; only a
@@ -350,6 +356,113 @@ func main() {
     g := half
     exit(twice(g, 32))
 }
+```
+
+## Method expressions
+
+A method named through its type, `T.m`, or through its package and its
+type, `pkg.T.m`, is a method expression: the method as a function value
+whose first parameter is its receiver. `func (p Pair) has(x int64) bool`
+gives a `func(Pair, int64) bool`; a `mut` receiver gives a `mut` first
+parameter, `func (mut b Builder) write(s string) error` a `func(mut
+Builder, string) error`; and every other parameter keeps its marks,
+`scope` included. A method and a function of one signature are values of
+one type, and a method expression is used wherever a function value is
+([Function values](#function-values)): assigned, passed, to a `scope`
+parameter too, returned, held by a field or an element, and called
+through a local or a parameter under every rule of a call through a
+value. It has no `==`, and is no place: `mut Pair.first` is `only a
+variable, a field or an element can be passed as mut`, and `Pair.first =
+f` is `cannot assign to Pair; it is a type`.
+
+Called directly, `Pair.has(p, 3)` or `Builder.write(mut b, s)`, a method
+expression calls the method with its receiver passed first, as
+`p.has(3)` does, under every rule of a call by name: `Box.set takes b as
+mut; pass mut b`, `Box.size does not take b as mut; pass b`, `P.norm
+expects 1 argument(s), got 0`, and the method's contract holds after
+the call ([Declarations](05-declarations.md)). A call through a value
+holding the method gives no contract, as a function type states none.
+
+The type is a struct or a union type. A name it has no method of is
+`Box has no method nope`, a union's `Expr has no case or method nope`,
+and a field named through its type is `n is a field of Box, not a
+method; only a method can be named through its type`. A builtin type has
+no methods, `int64 has no method abs`. An interface's methods are not
+values, `cannot use Sizer.size as a value: Sizer is an interface; only a
+struct or union type's methods are values`, nor a type parameter's,
+which are only called on a value of it, `cannot use W.size as a value: W
+is a type parameter, and a type parameter's methods can only be called on a value of it`.
+A method whose signature no function type can have is no value, as for
+a function: `cannot use Box.all as a value: its parameter xs is
+variadic, which no function type's can be`.
+
+Naming a method of another package's type follows the method's
+visibility, capped by its type's: `hidden is not pub in lexer.Token`,
+`Sum is lib in module std and cannot be used from module calc`; a type
+the package cannot see is not named at all, `secret is not pub in
+package calc/lexer`. The rule is on the name, not on the value: a `pub`
+function may return a private method's value to another package.
+
+```tack run exit=7
+package main
+
+type Pair struct {
+    a int32
+    b int32
+}
+
+func (p Pair) first() int32 {
+    return p.a
+}
+
+func (mut p Pair) swap() {
+    t := p.a
+    p.a = p.b
+    p.b = t
+}
+
+func second(p Pair) int32 {
+    return p.b
+}
+
+func main() {
+    mut p := Pair{a: 3, b: 7}
+    mut get := Pair.first
+    sw := Pair.swap
+    sw(mut p)
+    if get(p) == 7 && Pair.first(p) == 7 {
+        get = second
+        exit(get(p) +% 4)
+    }
+}
+```
+
+A method expression is checked as any call or function value is:
+
+```tack error
+package main
+
+type Box struct {
+    n int32
+}
+
+func (mut b Box) set(x int32) {
+    b.n = x
+}
+
+func main() {
+    mut b := Box{n: 0}
+    f := Box.set
+    f(b, 1)
+    Box.set(b, 2)
+    exit(Box.nope(b))
+}
+```
+
+```diagnostics
+main.tck:14:7: error: f takes argument 1 as mut; pass mut b
+main.tck:15:13: error: Box.set takes b as mut; pass mut b
+main.tck:16:14: error: Box has no method nope
 ```
 
 ## Function literals

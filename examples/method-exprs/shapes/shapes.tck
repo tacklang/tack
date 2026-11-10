@@ -1,0 +1,81 @@
+package shapes
+
+// Package shapes declares a struct and a union with pub, lib and private
+// methods, for the main package of examples/method-exprs to name through
+// the package and the type, shapes.Box.Wide, as function values.
+
+// Box is a rectangle w across and h high.
+pub type Box struct {
+    pub w int64
+    pub h int64
+}
+
+// Wide reports whether b is wider than it is high.
+pub func (b Box) Wide() bool {
+    return b.w > b.h
+}
+
+// Turn exchanges b's width and height: a mut receiver, so Box.Turn is a
+// func(mut Box).
+pub func (mut b Box) Turn() {
+    t := b.w
+    b.w = b.h
+    b.h = t
+}
+
+// Fit reports whether b fits in a w by h space, and an error when either
+// is negative: a result beside an error, so Box.Fit is a func(Box, int64,
+// int64) (bool, error).
+pub func (b Box) Fit(w int64, h int64) (bool, error) {
+    if w < 0 || h < 0 {
+        return false, error{code: 3, msg: "negative space"}
+    }
+    return b.w <= w && b.h <= h, noerror
+}
+
+// Width returns b's width: lib, so a package of module method-exprs may
+// name it as a value.
+lib func (b Box) Width() int64 {
+    return b.w
+}
+
+// height is private: only shapes may name it, Box.height.
+func (b Box) height() int64 {
+    return b.h
+}
+
+// Heighter returns Box.height, a private method's value, to another
+// package: what is checked is the name, so a value made where the method
+// is visible may be used anywhere.
+//
+// Assumption: visibility governs naming the method, not the value it
+// gives, as for a private function's value returned from a pub one.
+pub func Heighter() func(Box) int64 {
+    return Box.height
+}
+
+// Turner returns Box.Turn, named inside its own package.
+pub func Turner() func(mut Box) {
+    return Box.Turn
+}
+
+// Dir is a direction, left or right.
+pub type Dir union {
+    left
+    right
+}
+
+// Flip returns the other direction.
+pub func (d Dir) Flip() Dir {
+    switch d {
+    case left:
+        return Dir.right
+    case right:
+        return Dir.left
+    }
+}
+
+// IsLeft reports whether d is left.
+pub func (d Dir) IsLeft() bool {
+    return d == Dir.left
+}

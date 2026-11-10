@@ -3,13 +3,15 @@ package progen
 import "strconv"
 
 // target is what a call can call: a function generated so far, a method
-// of one on a receiver variable, or a variable or parameter of a function
-// type, whose cost is the most any function it can hold costs.
+// of one on a receiver variable, called on it or through its type, or a
+// variable or parameter of a function type, whose cost is the most any
+// function it can hold costs.
 type target struct {
-	fn   *Func // the function or method; nil for a call through fv
-	recv *Var  // a method's receiver
-	fv   *Var  // a function value called through
-	cost int
+	fn    *Func // the function or method; nil for a call through fv
+	recv  *Var  // a method's receiver
+	fv    *Var  // a function value called through
+	cost  int
+	typed bool // a method called through its type, S.m(recv, args), recv any value of S when nil
 }
 
 // result returns the type a call of tg gives, nil for none.
@@ -20,8 +22,12 @@ func (tg target) result() *Type {
 	return tg.fn.Result
 }
 
-// params returns the types and kinds of tg's parameters.
+// params returns the types and kinds of tg's parameters: for a method
+// called through its type on no receiver variable, its receiver's first.
 func (tg target) params() []*Var {
+	if tg.typed && tg.recv == nil {
+		return append([]*Var{{T: tg.fn.Recv.T}}, tg.fn.Params...)
+	}
 	if tg.fv != nil {
 		ps := make([]*Var, len(tg.fv.T.Params))
 		for i, t := range tg.fv.T.Params {
@@ -40,7 +46,9 @@ func (g *Gen) affordable(cost int) bool {
 
 // targets returns every target that keep allows and the code being
 // generated can afford: functions and methods generated so far, each
-// method on each variable that can be its receiver, and function values.
+// method on each variable that can be its receiver, called on it and
+// through its type, each method with a plain receiver called through its
+// type on any value of it, and function values.
 func (g *Gen) targets(keep func(target) bool) []target {
 	var out []target
 	add := func(tg target) {
@@ -53,9 +61,13 @@ func (g *Gen) targets(keep func(target) bool) []target {
 			add(target{fn: fn, cost: fn.Cost})
 			continue
 		}
+		if !fn.Recv.Mut {
+			add(target{fn: fn, cost: fn.Cost, typed: true})
+		}
 		for _, v := range g.visible(func(v *Var) bool { return sameType(v.T, fn.Recv.T) }) {
 			if !fn.Recv.Mut || g.writable(v) {
 				add(target{fn: fn, recv: v, cost: fn.Cost})
+				add(target{fn: fn, recv: v, cost: fn.Cost, typed: true})
 			}
 		}
 	}
@@ -200,6 +212,15 @@ func (g *Gen) callText(tg target, args []Expr) string {
 	case tg.fv != nil:
 		tg.fv.Used = true
 		return tg.fv.Name + "(" + joinArgs(args) + ")"
+	case tg.typed && tg.recv == nil:
+		return funcValueName(tg.fn) + "(" + joinArgs(args) + ")"
+	case tg.typed:
+		tg.recv.Used = true
+		recv := tg.recv.Name
+		if tg.fn.Recv.Mut {
+			recv = "mut " + recv
+		}
+		return funcValueName(tg.fn) + "(" + joinArgs(append([]Expr{{Text: recv}}, args...)) + ")"
 	case tg.recv != nil:
 		tg.recv.Used = true
 		text := tg.recv.Name + "." + tg.fn.Name + "(" + joinArgs(args) + ")"
@@ -212,7 +233,9 @@ func (g *Gen) callText(tg target, args []Expr) string {
 }
 
 // callEval returns how the interpreter runs tg called with args: the
-// receiver first, then the arguments, left to right.
+// receiver first, then the arguments, left to right. A method held by a
+// function value, or called through its type on no receiver variable,
+// takes its receiver as the first argument.
 func (g *Gen) callEval(tg target, args []Expr) func(*frame) (Value, Value) {
 	return func(f *frame) (Value, Value) {
 		fn := tg.fn
@@ -226,6 +249,9 @@ func (g *Gen) callEval(tg target, args []Expr) func(*frame) (Value, Value) {
 		vals := make([]Value, len(args))
 		for i, a := range args {
 			vals[i] = a.Eval(f)
+		}
+		if tg.fv != nil && fn.Recv != nil || tg.typed && tg.recv == nil {
+			recv, vals = &vals[0], vals[1:]
 		}
 		return call(f.m, fn, recv, vals)
 	}
@@ -366,14 +392,26 @@ func (g *Gen) funcArg(t *Type, callee int) Expr {
 		}
 	}
 	fn := opts[g.pick(len(opts))]
-	return Expr{Text: fn.Name, T: t, Eval: func(*frame) Value { return Value{Fn: fn, Valid: true} }}
+	return Expr{Text: funcValueName(fn), T: t, Eval: func(*frame) Value {
+		return Value{Fn: fn, Valid: true}
+	}}
+}
+
+// funcValueName returns how fn is named as a value: a function by its
+// name, and a method through its struct, S.m, a method expression.
+func funcValueName(fn *Func) string {
+	if fn.Recv != nil {
+		return fn.Recv.T.Struct.Name + "." + fn.Name
+	}
+	return fn.Name
 }
 
 // valueFunc reports whether fn can be a value the generator passes and
-// calls: a function, not a method, of integer and bool parameters, giving
-// one integer or bool.
+// calls: a function, or a method with a plain receiver, named through
+// its struct, whose receiver is the value's first parameter, of integer
+// and bool parameters, giving one integer or bool.
 func valueFunc(fn *Func) bool {
-	if fn.Recv != nil || fn.ErrResult || fn.Result == nil {
+	if fn.Recv != nil && fn.Recv.Mut || fn.ErrResult || fn.Result == nil {
 		return false
 	}
 	for _, p := range fn.Params {
@@ -384,9 +422,13 @@ func valueFunc(fn *Func) bool {
 	return true
 }
 
-// funcType returns the function type of fn.
+// funcType returns the function type of fn, a method's receiver its
+// first parameter.
 func funcType(fn *Func) *Type {
 	t := &Type{Kind: KFunc, Result: fn.Result}
+	if fn.Recv != nil {
+		t.Params = append(t.Params, fn.Recv.T)
+	}
 	for _, p := range fn.Params {
 		t.Params = append(t.Params, p.T)
 	}

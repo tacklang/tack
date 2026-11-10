@@ -194,7 +194,10 @@ func caseFacts(table *types.Table, e, v types.Type) []tableFact {
 // matching a union names the union, as the code being checked names it.
 func TestUnionMessagesNameTheUnion(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
-		{withTypes(unionDecls, "e := E.nope", "use(len(\"\"))", "if e == e {", "}"), "E has no case nope"},
+		{
+			withTypes(unionDecls, "e := E.nope", "use(len(\"\"))", "if e == e {", "}"),
+			"E has no case or method nope",
+		},
 		{
 			withTypes(unionDecls, "e := E.int(\"x\")", "if e == e {", "}"),
 			"cannot use string as int64 in argument to E.int",

@@ -58,9 +58,12 @@ func (d *TypeDecl) Union() *UnionType {
 // without parentheses, Expr.eof. e is either a call whose callee is that
 // selector, Expr.int(5), or the selector alone. The selector's operand,
 // a name, plain or qualified, is bound to the union's TypeDecl by the
-// resolver, which binds a name written there to nothing but a union. A
-// call holding anything but one argument, Expr.eof() or Expr.int(1, 2),
-// is a construction too, with a nil payload; the type checker reports it.
+// resolver, as a name of any type written there is, and the selector
+// names one of the union's cases: any other name written through a type
+// is a method expression (see MethodExpr), a case and a method of one
+// union never sharing a name. A call holding anything but one argument,
+// Expr.eof() or Expr.int(1, 2), is a construction too, with a nil
+// payload; the type checker reports it.
 func Construction(e Expr) (td *TypeDecl, sel *Selector, payload Expr, ok bool) {
 	var call *Call
 	switch x := e.(type) {
@@ -78,7 +81,10 @@ func Construction(e Expr) (td *TypeDecl, sel *Selector, payload Expr, ok bool) {
 		return nil, nil, nil, false
 	}
 	td, isType := id.Def.(*TypeDecl)
-	if !isType || td == nil {
+	if !isType || td == nil || td.Union() == nil {
+		return nil, nil, nil, false
+	}
+	if c, _ := td.Union().Case(sel.Name); c == nil {
 		return nil, nil, nil, false
 	}
 	if call != nil && len(call.Args) == 1 {

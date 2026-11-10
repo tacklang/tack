@@ -2676,6 +2676,474 @@ method-exposes/lexer/lexer.tck:26:24: error: lib method Mid.Get exposes hidden, 
    |	                       ^~~~~~
 27 |	    return hidden{n: m.n}
 
+-- method-expr-call-lib-other-module/tack.mod --
+module calc
+-- method-expr-call-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+// Sum is lib: only std's packages may call it, through its type too.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+-- method-expr-call-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    if util.Pair.Sum(util.Pair{a: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-lib-other-module/expected --
+stage: typeck
+---
+
+method-expr-call-lib-other-module/main.tck:6:18: error: Sum is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    if util.Pair.Sum(util.Pair{a: 1}) == 1 {
+   |	                 ^~~
+07 |	        print("one")
+
+-- method-expr-call-private/tack.mod --
+module calc
+-- method-expr-call-private/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// hidden is private to lexer, called through its type or not.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// Kind calls hidden.
+pub func (t Token) Kind() int64 {
+    return t.hidden()
+}
+-- method-expr-call-private/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    if lexer.Token.hidden(lexer.Token{kind: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-private/expected --
+stage: typeck
+---
+
+method-expr-call-private/main.tck:6:20: error: hidden is not pub in lexer.Token
+05 |	func main() {
+06 |	    if lexer.Token.hidden(lexer.Token{kind: 1}) == 1 {
+   |	                   ^~~~~~
+07 |	        print("one")
+
+-- method-expr-lib-other-module/tack.mod --
+module calc
+-- method-expr-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+// Sum is lib: only std's packages may name it.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+-- method-expr-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    f := util.Pair.Sum
+    if f(util.Pair{a: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-lib-other-module/expected --
+stage: typeck
+---
+
+method-expr-lib-other-module/main.tck:6:20: error: Sum is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    f := util.Pair.Sum
+   |	                   ^~~
+07 |	    if f(util.Pair{a: 1}) == 1 {
+
+-- method-expr-private/tack.mod --
+module calc
+-- method-expr-private/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-private/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Token.hidden
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-private/expected --
+stage: typeck
+---
+
+method-expr-private/main.tck:6:22: error: hidden is not pub in lexer.Token
+05 |	func main() {
+06 |	    f := lexer.Token.hidden
+   |	                     ^~~~~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-private-type/tack.mod --
+module calc
+-- method-expr-private-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-private-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+// Assumption: a pub method of a private type cannot be named from another
+// package, which cannot name the type.
+func main() {
+    f := lexer.secret.Peek
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-private-type/expected --
+stage: resolve
+---
+
+method-expr-private-type/main.tck:8:10: error: secret is not pub in package calc/lexer
+07 |	func main() {
+08 |	    f := lexer.secret.Peek
+   |	         ^~~~~~~~~~~~
+09 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-interface/tack.mod --
+module calc
+-- method-expr-qualified-interface/lexer/lexer.tck --
+package lexer
+
+// Sizer is a constraint, whose methods are no values.
+pub type Sizer interface {
+    Size() int64
+}
+-- method-expr-qualified-interface/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Sizer.Size
+}
+-- method-expr-qualified-interface/expected --
+stage: typeck
+---
+
+method-expr-qualified-interface/main.tck:6:5: warning: declared and not used: f
+05 |	func main() {
+06 |	    f := lexer.Sizer.Size
+   |	    ^
+07 |	}
+
+method-expr-qualified-interface/main.tck:6:10: error: cannot use lexer.Sizer.Size as a value: lexer.Sizer is an interface; only a struct or union type's methods are values
+05 |	func main() {
+06 |	    f := lexer.Sizer.Size
+   |	         ^~~~~~~~~~~~~~~~
+07 |	}
+
+-- method-expr-qualified-no-method/tack.mod --
+module calc
+-- method-expr-qualified-no-method/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-method/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Token.Knd
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-method/expected --
+stage: typeck
+---
+
+method-expr-qualified-no-method/main.tck:6:22: error: lexer.Token has no method Knd
+05 |	func main() {
+06 |	    f := lexer.Token.Knd
+   |	                     ^~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-no-package/tack.mod --
+module calc
+-- method-expr-qualified-no-package/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-package/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Make()
+    f := lexr.Token.Kind
+    if f(t) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-package/expected --
+stage: resolve
+---
+
+method-expr-qualified-no-package/main.tck:7:10: error: undefined: lexr
+06 |	    t := lexer.Make()
+07 |	    f := lexr.Token.Kind
+   |	         ^~~~
+08 |	    if f(t) == 1 {
+
+-- method-expr-qualified-no-type/tack.mod --
+module calc
+-- method-expr-qualified-no-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Tokn.Kind
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-type/expected --
+stage: resolve
+---
+
+method-expr-qualified-no-type/main.tck:6:10: error: undefined: lexer.Tokn
+05 |	func main() {
+06 |	    f := lexer.Tokn.Kind
+   |	         ^~~~~~~~~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-value/tack.mod --
+module calc
+-- method-expr-qualified-value/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-value/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+// A bound method value of another package's type, t.Kind, is not part
+// of the language: only lexer.Token.Kind is a value.
+func main() {
+    t := lexer.Make()
+    f := t.Kind
+    if f() == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-value/expected --
+stage: typeck
+---
+
+method-expr-qualified-value/main.tck:9:12: error: Kind is a method of lexer.Token, not a field; a method can only be called
+08 |	    t := lexer.Make()
+09 |	    f := t.Kind
+   |	           ^~~~
+10 |	    if f() == 1 {
+
 -- method-expression-qualified/tack.mod --
 module calc
 -- method-expression-qualified/lexer/lexer.tck --
@@ -2696,19 +3164,20 @@ import lexer from "calc/lexer"
 func use(n int64) {
 }
 
+// A method expression of another package's type called directly takes
+// its receiver as its first argument, a lexer.Token.
 func main() {
-    t := lexer.Token{kind: 1}
-    use(lexer.Token.Kind(t))
+    use(lexer.Token.Kind(1))
 }
 -- method-expression-qualified/expected --
-stage: resolve
+stage: typeck
 ---
 
-method-expression-qualified/main.tck:10:9: error: cannot use lexer.Token as a value; it is a type
-09 |	    t := lexer.Token{kind: 1}
-10 |	    use(lexer.Token.Kind(t))
-   |	        ^~~~~~~~~~~
-11 |	}
+method-expression-qualified/main.tck:11:26: error: cannot use int64 as lexer.Token in argument to lexer.Token.Kind
+10 |	func main() {
+11 |	    use(lexer.Token.Kind(1))
+   |	                         ^
+12 |	}
 
 -- method-lib-other-module/tack.mod --
 module calc
@@ -4547,7 +5016,7 @@ union-other-package-switch/main.tck:11:10: error: ast.Expr has no case nope
    |	         ^~~~
 12 |	    }
 
-union-other-package-switch/main.tck:13:19: error: ast.Expr has no case nope
+union-other-package-switch/main.tck:13:19: error: ast.Expr has no case or method nope
 12 |	    }
 13 |	    x := ast.Expr.nope
    |	                  ^~~~

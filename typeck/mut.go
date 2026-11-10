@@ -153,10 +153,12 @@ func (c *Checker) argExpr(arg ast.Expr) {
 // place checks e, the place the mut argument m names, or part of it, and
 // returns its type: a mutable local or a mut parameter, a field of a
 // place, or an element of a place whose index is proven in range. Anything
-// else, a slice or a union built in place, Expr.eof, written as a field is,
-// included, is reported, and gives types.Invalid.
+// else, a slice, a union built in place, Expr.eof, or a method named
+// through its type, Pair.first, each written as a field is, included, is
+// reported, and gives types.Invalid.
 func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
-	if _, _, _, built := ast.Construction(e); built {
+	_, isMethodExpr := ast.MethodExpr(e)
+	if _, _, _, built := ast.Construction(e); built || isMethodExpr {
 		if c.expr(e) != types.Invalid {
 			c.errorf(m.Span, "only a variable, a field or an element can be passed as mut")
 		}

@@ -128,10 +128,15 @@ func (c *Checker) ownArg(arg ast.Expr, p param, callee string) (ast.Expr, bool) 
 // which only its variable's value is checked, and reports whether it can
 // be: what follows own must be the name of a variable or a parameter, of
 // a type that owns something, since a value that owns nothing is copied.
-// A field, an element and any other value are reported, after checking
-// them for errors of their own.
+// A field, an element, a method named through its type and any other
+// value are reported, after checking them for errors of their own.
 func (c *Checker) ownName(o *ast.OwnArg) bool {
 	text := c.text(o.Span)
+	if _, isMethodExpr := ast.MethodExpr(o.X); isMethodExpr {
+		c.expr(o.X)
+		c.errorf(o.Span, "cannot pass %s: only a variable can be passed as own", text)
+		return false
+	}
 	switch x := o.X.(type) {
 	case *ast.Ident:
 		switch x.Def.(type) {

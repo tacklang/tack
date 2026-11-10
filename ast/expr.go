@@ -108,11 +108,13 @@ func (c *Call) Spanned() Span { return c.Span }
 
 // Receiver returns what a method call is called on: x in x.m(...), or the
 // *MutArg mut x in mut x.m(...). It returns nil for a call that is not a
-// method call, a union's construction, Expr.int(5), among them, whose
-// selector's operand names a type (see Construction).
+// method call, a union's construction, Expr.int(5), and a call of a
+// method expression, Pair.first(p), among them, whose selector's operand
+// names a type (see TypeOperand): such a call passes its receiver as the
+// first of its Args.
 func (c *Call) Receiver() Expr {
 	if sel, ok := c.Fn.(*Selector); ok {
-		if _, _, _, built := Construction(c); built {
+		if TypeOperand(sel.X) {
 			return nil
 		}
 		return sel.X
@@ -1076,15 +1078,26 @@ type Field struct {
 // method of X's type instead, whose receiver X is (see Call), and has no
 // Type of its own. When X names a union type, Expr.eof, or Expr.int as a
 // Call's Fn, it names one of the union's cases, and builds a value of it
-// (see Construction); Type is then the union's.
+// (see Construction); Type is then the union's. When X names a type and
+// Name is no case of it, Pair.first or lexer.Token.Kind, the selector is
+// a method expression (see MethodExpr): the method as a function value,
+// whose Type is its function type and Method the method, or, as a Call's
+// Fn, the method called with its receiver as the first argument.
 type Selector struct {
 	X        Expr
 	Name     string
 	NameSpan Span // just the field name
 	Span     Span // the start of X through the field name
 
-	// Type is the field's type, set by the type checker.
+	// Type is the field's type, set by the type checker, or a method
+	// expression's function type.
 	Type types.Type
+
+	// Method is the method a method expression names, Pair.first used as
+	// a value (see MethodExpr), set by the type checker; it is nil for any
+	// other selector, and for a method expression it reported. It is left
+	// out of the JSON dump, as Call.Method is.
+	Method *Func `json:"-"`
 }
 
 var _ Expr = (*Selector)(nil)

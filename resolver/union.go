@@ -49,28 +49,35 @@ func (r *pkgResolver) resolveUnions() []diag.Diagnostic {
 	return diags
 }
 
-// bindUnionName binds x, the operand of a selector, when it names a union
-// type, plain or qualified, as Expr in Expr.int(5) or ast.Expr in
-// ast.Expr.eof, which name one of its cases (see ast.Construction): it
-// binds the name to the union's declaration, marks the import of a
-// qualified one used, and reports whether it did, with any problem with
-// the qualified name, a union another package cannot see among them. Any
-// other operand, a struct type's name included, is resolved as a value
-// by the caller, which reports a type there.
-func (r *pkgResolver) bindUnionName(x ast.Expr, sc *scope) (bool, []diag.Diagnostic) {
+// bindTypeOperand binds x, the operand of a selector, when it names a
+// type, plain or qualified: a union, as Expr in Expr.int(5) or ast.Expr
+// in ast.Expr.eof, which name one of its cases (see ast.Construction), or
+// any type, as Pair in Pair.first or lexer.Token in lexer.Token.Kind,
+// which name a method of it as a value, or called (see ast.MethodExpr).
+// It binds the name to the type's declaration, or a type parameter's,
+// leaves a basic type's name, which nothing declares, bound to nothing,
+// marks the import of a qualified one used, and reports whether x names
+// a type, with any problem with the qualified name, a type another
+// package cannot see among them. Whether the type has a case or a method
+// of the name is the type checker's to say. Any other operand is
+// resolved as a value by the caller.
+func (r *pkgResolver) bindTypeOperand(x ast.Expr, sc *scope) (bool, []diag.Diagnostic) {
 	id, ok := x.(*ast.Ident)
 	if !ok {
 		return false, nil
 	}
 	if id.Pkg == "" {
+		if _, isBasic := types.Lookup(id.Name); isBasic {
+			return true, nil
+		}
 		decl, visible := sc.lookup(id.Name)
-		if td, isType := decl.(*ast.TypeDecl); visible && isType && td.Union() != nil {
-			id.Def = td
+		if visible && isTypeName(decl) {
+			id.Def = decl
 			return true, nil
 		}
 		return false, nil
 	}
-	if !r.qualifiedUnion(id, sc) {
+	if !r.qualifiedType(id, sc) {
 		return false, nil
 	}
 	decl, diags := r.qualified(id, sc)
@@ -80,10 +87,10 @@ func (r *pkgResolver) bindUnionName(x ast.Expr, sc *scope) (bool, []diag.Diagnos
 	return true, r.settle(id, diags, sc)
 }
 
-// qualifiedUnion reports whether the qualified name id names a union type
-// of the package its import stands for, whether or not this package may
-// use it, without reporting anything or marking the import used.
-func (r *pkgResolver) qualifiedUnion(id *ast.Ident, sc *scope) bool {
+// qualifiedType reports whether the qualified name id names a type of the
+// package its import stands for, whether or not this package may use it,
+// without reporting anything or marking the import used.
+func (r *pkgResolver) qualifiedType(id *ast.Ident, sc *scope) bool {
 	decl, visible := sc.lookup(id.Pkg)
 	imp, isImport := decl.(*ast.Import)
 	if !visible || !isImport {
@@ -94,8 +101,8 @@ func (r *pkgResolver) qualifiedUnion(id *ast.Ident, sc *scope) bool {
 		return false
 	}
 	member, ok := target.member(id.Name)
-	td, isType := member.(*ast.TypeDecl)
-	return ok && isType && td.Union() != nil
+	_, isType := member.(*ast.TypeDecl)
+	return ok && isType
 }
 
 // Patterns. A value of a case of an expression switch, written as a name,

@@ -289,11 +289,11 @@ func (c *Checker) displayName(fn *ast.Func) string {
 }
 
 // calleeName names what call calls, in a diagnostic: a function or a
-// builtin by its name as written, and a method as displayName does. It
-// returns false for a method call whose method was not found, which has
-// been reported.
+// builtin by its name as written, and a method, called on a receiver or
+// through its type, as displayName does. It returns false for a method
+// call whose method was not found, which has been reported.
 func (c *Checker) calleeName(call *ast.Call) (string, bool) {
-	if call.Receiver() != nil {
+	if _, isMethodExpr := ast.MethodExpr(call.Fn); isMethodExpr || call.Receiver() != nil {
 		if call.Method == nil {
 			return "", false
 		}
@@ -321,11 +321,12 @@ func (c *Checker) callText(call *ast.Call) string {
 }
 
 // hasMethodBinding reports whether fn's body binds the results of a
-// method call, a, b := x.m(), or of a call through a function value, a, b
-// := f(), at any depth: which method the one calls, and what the other's
-// value returns, and so whether either returns an error that holds what
-// the binding binds beside it, is known only once the receiver or the
-// value is checked (see checkBody).
+// method call, a, b := x.m(), of a call of a method expression, a, b :=
+// Pair.both(p), or of a call through a function value, a, b := f(), at
+// any depth: which method the first two call, and what the other's value
+// returns, and so whether any returns an error that holds what the
+// binding binds beside it, is known only once the receiver, the method
+// expression or the value is checked (see checkBody).
 func hasMethodBinding(fn *ast.Func) bool {
 	found := false
 	for _, stmt := range fn.Body {
@@ -337,7 +338,8 @@ func hasMethodBinding(fn *ast.Func) bool {
 			case *ast.MultiAssign:
 				value = s.Value
 			}
-			if call, ok := value.(*ast.Call); ok && (call.Receiver() != nil || isValueCall(call)) {
+			if call, ok := value.(*ast.Call); ok && (call.Receiver() != nil || isValueCall(call) ||
+				isMethodExprCall(call)) {
 				found = true
 			}
 			return !found
@@ -346,16 +348,17 @@ func hasMethodBinding(fn *ast.Func) bool {
 	return found
 }
 
-// nothingBound reports a binding at span of value, a method call or a
-// call through a function value whose results checked as valid, that
-// binds nothing, every name, blank says, _, when the callee returns no
-// error: the call can be made on its own. The resolver reports such a
-// binding of a function's call; which method a method call calls, and
-// what a function value's type returns, is known only here. One that
-// drops an error was reported as dropping it.
+// nothingBound reports a binding at span of value, a method call, a call
+// of a method expression or a call through a function value whose
+// results checked as valid, that binds nothing, every name, blank says,
+// _, when the callee returns no error: the call can be made on its own.
+// The resolver reports such a binding of a function's call; which method
+// a method call or a method expression calls, and what a function
+// value's type returns, is known only here. One that drops an error was
+// reported as dropping it.
 func (c *Checker) nothingBound(value ast.Expr, blank []bool, span ast.Span) {
 	call, ok := value.(*ast.Call)
-	if !ok || call.Receiver() == nil && call.Dynamic == nil {
+	if !ok || call.Receiver() == nil && call.Dynamic == nil && !isMethodExprCall(call) {
 		return
 	}
 	for _, b := range blank {
@@ -367,4 +370,11 @@ func (c *Checker) nothingBound(value ast.Expr, blank []bool, span ast.Span) {
 		return
 	}
 	c.errorf(span, "every name is _, so nothing is bound; make the call on its own")
+}
+
+// isMethodExprCall reports whether call calls a method expression,
+// Pair.first(p) (see checkMethodExprCall).
+func isMethodExprCall(call *ast.Call) bool {
+	_, ok := ast.MethodExpr(call.Fn)
+	return ok
 }

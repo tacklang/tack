@@ -33,7 +33,9 @@
 // with no tag, whose cases may end in fallthrough, lists and maps with
 // every builtin on them (make, append, pop, put, delete, has, swap, len and range),
 // views, function values and parameters of function types, methods with
-// plain and mut receivers, mut and own parameters, functions returning an
+// plain and mut receivers, called on a receiver or through their struct,
+// S.m(r, args), and those with a plain receiver named as values, S.m,
+// mut and own parameters, functions returning an
 // error, a ? on a call of one, or on append or put, in a function that
 // returns one, as a statement, a binding or a value in an expression,
 // block-scoped defers, loops of a constant number of trips, if,

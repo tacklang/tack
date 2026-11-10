@@ -380,8 +380,20 @@
 // follow, as for a function, and the receiver is one of the call's mut
 // arguments for exclusivity, and of its operands for list borrows and for
 // the moves of move.go, a plain receiver borrowing what it is. A method
-// named without a call, b.write, is reported, as there are no method
-// values. Whether a binding of a call's results ties them to an error is
+// named without a call, b.write, is reported, as there are no bound
+// method values. A method named through its type, Pair.first, is a
+// method expression, checked in methodexpr.go: a function value of the
+// method's signature, the receiver its first parameter, recorded on the
+// selector (Selector.Method and Selector.Type), or, called,
+// Pair.first(p), a call of the method by name, recorded in Call.Method,
+// whose arguments are checked against every parameter, the receiver
+// first, with no receiver of its own (ast.Call.Receiver). The type must
+// be a struct or a union, not a basic type, an interface or a type
+// parameter, with a method of that name the package may see; a name
+// through a union that is no case is a method expression, and one that
+// is neither is reported as missing from both. A method expression is no
+// place, and a method used only as one is used, its parameters exempt
+// from the unused warning as a function value's are. Whether a binding of a call's results ties them to an error is
 // collected before a body is checked (errors.go), but a method call's
 // method is known only once its receiver is, and what a function value
 // returns only once the value is, so a body binding the results of
@@ -882,10 +894,10 @@
 // and value, in place when owned (rangeBindings), and locks the map as a
 // list's range does, and len(m) is never known. A function type,
 // func(A, mut B) R, checked in funcvalue.go, is the type of a value
-// naming a function: a function's name used as a value, its type
-// recorded in Func.Value, unless the function is generic, an extern
-// func, or has a variadic or any parameter or a view result, which no
-// function type can say. A call through a variable or a parameter holding
+// naming a function: a function's name used as a value, or a method
+// named through its type, its type recorded in Func.Value, unless the
+// function is generic, an extern func, or has a variadic or any parameter
+// or a view result, which no function type can say. A call through a variable or a parameter holding
 // one is checked against a stand-in function of its type (Call.Dynamic),
 // as a call by name is against its function's signature, so every rule
 // for arguments, proofs, borrows, moves and results holds for it. A

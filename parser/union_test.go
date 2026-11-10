@@ -280,7 +280,9 @@ func TestCasePattern(t *testing.T) {
 }
 
 // unionSeeds are programs FuzzParseUnions starts from: union declarations
-// of every shape, constructions, and switches whose values are patterns.
+// of every shape, constructions, switches whose values are patterns, and
+// method expressions, which are written through a type as a construction
+// is.
 var unionSeeds = []string{
 	"package main\ntype E union {\n    int int64\n    name string\n    eof\n}\n" +
 		"func main() {\n    e := E.int(5)\n    switch e {\n    case int(n):\n        print(\"x\")\n" +
@@ -292,6 +294,9 @@ var unionSeeds = []string{
 	"package main\nimport a from \"m/a\"\nfunc f() {\n    x := a.T.c(a.T.b)\n}\n",
 	"package main\ntype T union {\n    pub a int64\n    b = 2\n}\n",
 	"package main\ntype S struct { u union { a } }\n",
+	"package main\nfunc f(p P) {\n    g := P.m\n    x := P.m(p)\n    y := lexer.Token.Kind\n" +
+		"    z := E.pos(E.eof)\n    w := int64.abs\n    mut P.put(mut p, 1)\n}\n",
+	"package main\nvar f func(P, mut Q) bool = P.m\nfunc g() func(mut P) {\n    return P.set\n}\n",
 }
 
 // FuzzParseUnions parses random programs starting from union declarations,

@@ -857,16 +857,19 @@ func (r *pkgResolver) resolveMultiAssign(m *ast.MultiAssign, sc *scope) []diag.D
 // result is written error, the builtin type, whose name nothing can
 // declare. Binding nothing but _ from such a call drops its error, which
 // the type checker reports instead, since making the call on its own
-// would drop it too. A method call is left to the type checker too.
+// would drop it too. A method call, and a call of a method expression,
+// Pair.other(p, 5), are left to the type checker too.
 func returnsError(value ast.Expr) bool {
 	call, ok := value.(*ast.Call)
 	if !ok {
 		return false
 	}
-	if call.Receiver() != nil {
+	if _, isMethodExpr := ast.MethodExpr(call.Fn); isMethodExpr || call.Receiver() != nil {
 		// Which method a method call calls is known only from its
-		// receiver's type, so the type checker reports a binding of
-		// nothing but _ instead, as it reports a dropped error.
+		// receiver's type, and whether a type has the method a method
+		// expression names only to the type checker, which reports a
+		// binding of nothing but _ instead, as it reports a dropped
+		// error.
 		return true
 	}
 	id, ok := call.Fn.(*ast.Ident)
@@ -1343,11 +1346,11 @@ func (r *pkgResolver) litParamClash(param *ast.Param, params *scope) []diag.Diag
 
 // resolveOperand resolves the operand of e, a prefix operator, a mut
 // argument or a field selection, as a value, except that a selection
-// whose operand names a union type, Expr.eof, binds it to the union (see
-// bindUnionName).
+// whose operand names a type, Expr.eof or Pair.first, binds it to the
+// type (see bindTypeOperand).
 func (r *pkgResolver) resolveOperand(e ast.Expr, sc *scope) []diag.Diagnostic {
 	if sel, ok := e.(*ast.Selector); ok {
-		if isUnion, diags := r.bindUnionName(sel.X, sc); isUnion {
+		if isType, diags := r.bindTypeOperand(sel.X, sc); isType {
 			return diags
 		}
 	}
@@ -1517,7 +1520,9 @@ func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 // conversion to a view type, []uint8(s), has its type's names bound, and
 // the type checker records the type it converts to. A method call has its
 // receiver resolved as a value, or as a mut argument; the method itself is
-// found by the type checker, from the receiver's type.
+// found by the type checker, from the receiver's type. A callee written
+// through a type, Expr.int(5) or Pair.first(p), has the type bound (see
+// bindTypeOperand); the case or the method is the type checker's to find.
 func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	switch fn := call.Fn.(type) {
@@ -1533,8 +1538,8 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	case *ast.ViewType:
 		diags = r.resolveType(fn, sc)
 	case *ast.Selector:
-		if isUnion, unionDiags := r.bindUnionName(fn.X, sc); isUnion {
-			diags = unionDiags
+		if isType, typeDiags := r.bindTypeOperand(fn.X, sc); isType {
+			diags = typeDiags
 		} else {
 			diags = r.resolveExpr(fn.X, sc)
 		}

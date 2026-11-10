@@ -250,6 +250,7 @@ var genericSeeds = []string{
 	"package main\nfunc f[A",
 	"package main\nfunc f[A I,,] () {}\n",
 	"package main\ntype W interface { f(x ...int64) (int64, error); mut g() }\n",
+	"package main\nfunc f[T I](t T) bool { g := W.size\nreturn h(t, T.less, Pair.first) && T.m(t) }\n",
 }
 
 // FuzzParseGenerics parses arbitrary source, seeded with generic

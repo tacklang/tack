@@ -326,8 +326,9 @@ type's parameters have no names; none is variadic, `any`, or a `mut`
 view; and it has no view result.
 
 A value of a function type is a declared function of that signature,
-named anywhere but as a call's callee; a generic function, an extern
-func, a method and a builtin are not values (see
+named anywhere but as a call's callee, or a method named through its
+type, `Pair.first`, whose receiver is the first parameter; a generic
+function, an extern func and a builtin are not values (see
 [Expressions](06-expressions.md)). A function
 value is copyable and owns nothing. It has no `==`, no order and no
 conversion, and cannot be passed as `any`, held by a package-level

@@ -171,12 +171,9 @@ var structNameErrors = []struct {
 		[]string{"cannot assign to P; it is a type"},
 	},
 	{"a type called", "type P struct {}", "    P()", []string{"cannot call P; it is a type"}},
-	{
-		"a field of a type",
-		"type P struct { x int64 }",
-		"    exit(P.x)",
-		[]string{"cannot use P as a value; it is a type"},
-	},
+	// A name selected through a type is a method expression, or a case
+	// built, whose name only the type checker looks up.
+	{"a field of a type", "type P struct { x int64 }", "    exit(P.x)", nil},
 	{
 		"a variable as a type",
 		"",

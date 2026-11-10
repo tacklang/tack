@@ -212,7 +212,8 @@ func notOneValue(fn *ast.Func, name string) string {
 }
 
 // checkCall checks a call to a function, a builtin, a method (see
-// checkMethodCall) or a function value (see dynamicCall): its argument count,
+// checkMethodCall, and checkMethodExprCall for one called through its
+// type) or a function value (see dynamicCall): its argument count,
 // that each argument can be passed to the parameter in its position (see
 // checkArg), or to a variadic one (see checkVariadicCall), that no two of
 // its mut arguments overlap (see checkExclusive), that none reads a list
@@ -222,6 +223,10 @@ func notOneValue(fn *ast.Func, name string) string {
 func (c *Checker) checkCall(call *ast.Call) {
 	if call.Receiver() != nil {
 		c.checkMethodCall(call)
+		return
+	}
+	if sel, isMethodExpr := ast.MethodExpr(call.Fn); isMethodExpr {
+		c.checkMethodExprCall(call, sel)
 		return
 	}
 	id, ok := call.Fn.(*ast.Ident)

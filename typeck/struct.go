@@ -246,10 +246,14 @@ func (c *Checker) reportCycle(typ types.Type, path []cycleEdge) {
 }
 
 // selector checks a field read as a value, x.f, and returns its type, or
-// a union built from a case with no payload, Expr.eof (see construction).
+// a union built from a case with no payload, Expr.eof (see construction),
+// or a method named through its type, Pair.first (see methodExpr).
 func (c *Checker) selector(sel *ast.Selector) types.Type {
 	if _, _, _, built := ast.Construction(sel); built {
 		return c.construction(sel)
+	}
+	if _, isMethodExpr := ast.MethodExpr(sel); isMethodExpr {
+		return c.methodExpr(sel)
 	}
 	sel.Type = c.field(sel, c.valueOf(sel.X, c.expr(sel.X)))
 	return sel.Type

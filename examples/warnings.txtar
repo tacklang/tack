@@ -154,6 +154,51 @@ unused-method/main.tck:11:12: warning: declared and not used: T.spare
    |	           ^~~~~
 12 |	    return t.x *% by
 
+-- unused-method-expr/main.tck --
+package main
+
+type T struct {
+    x int64
+}
+
+// get is used only as a value, T.get, so it is used, and its unused
+// parameter is not warned of: the value's type must match its signature.
+func (t T) get(by int64) int64 {
+    return t.x
+}
+
+// size is used only called through its type, T.size(t), which is a call
+// like any other: its unused parameter is warned of.
+func (t T) size(by int64) int64 {
+    return t.x
+}
+
+// spare is named nowhere.
+func (t T) spare() int64 {
+    return t.x
+}
+
+func main() {
+    f := T.get
+    t := T{x: 1}
+    if f(t, 2) == 1 && T.size(t, 3) == 1 {
+        print("ok\n")
+    }
+}
+-- unused-method-expr/expected --
+
+unused-method-expr/main.tck:15:17: warning: declared and not used: by
+14 |	// like any other: its unused parameter is warned of.
+15 |	func (t T) size(by int64) int64 {
+   |	                ^~
+16 |	    return t.x
+
+unused-method-expr/main.tck:20:12: warning: declared and not used: T.spare
+19 |	// spare is named nowhere.
+20 |	func (t T) spare() int64 {
+   |	           ^~~~~
+21 |	    return t.x
+
 -- unused-param/main.tck --
 package main
 

@@ -10,7 +10,7 @@ import "github.com/tacklang/tack/ast"
 //
 // A function is used when a name outside its own body names it, called
 // or as a value. A method is used when a call outside its own body calls
-// it, or when an instance of a generic function binds its type to a type
+// it, or a method expression outside it names it, Pair.first, or when an instance of a generic function binds its type to a type
 // parameter whose constraint asks for a method of its name (see
 // bindInstances): the instance calls it. A type is used when a name
 // outside its own declaration and its methods names it, in a signature,
@@ -22,8 +22,9 @@ import "github.com/tacklang/tack/ast"
 // of package main; and a parameter of a function whose signature is not
 // its own to change: an extern func's, whose body is C, a pub or lib
 // function's or method's, another package's to call, a function used as
-// a value, whose type the value's must match, and a method a constraint
-// asks for, whose signature the interface's must match. A method's
+// a value, a method by a method expression included, whose type the
+// value's must match, and a method a constraint asks for, whose
+// signature the interface's must match. A method's
 // receiver is never warned of. The parameters of a function that is
 // itself unused are not warned of apart from it.
 
@@ -81,6 +82,8 @@ func (u *usage) walkDecl(decl ast.Decl) {
 			u.call(x, ownFunc)
 		case *ast.Ident:
 			u.ident(x, ownFunc, ownType)
+		case *ast.Selector:
+			u.methodValue(x, ownFunc)
 		}
 		return true
 	}
@@ -101,6 +104,20 @@ func (u *usage) call(call *ast.Call, ownFunc *ast.Func) {
 	if m := call.Method; m != nil && m.Interface == nil && m != ownFunc {
 		u.used[m] = true
 	}
+}
+
+// methodValue records the method sel names as a value, Pair.first, when
+// it is one, as used, unless it is ownFunc, the method sel is in, and as
+// used as a value, whose type the value's must match.
+func (u *usage) methodValue(sel *ast.Selector, ownFunc *ast.Func) {
+	m := sel.Method
+	if m == nil {
+		return
+	}
+	if m != ownFunc {
+		u.used[m] = true
+	}
+	u.value[m] = true
 }
 
 // ident records what id names as used, unless it is ownFunc or ownType,

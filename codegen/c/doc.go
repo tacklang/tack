@@ -221,7 +221,13 @@
 // function with the receiver as its first argument (see lowered), so the
 // receiver is evaluated first, a mut one as the address of its place,
 // then the arguments, under every rule of a call's order and of the
-// copies and views an argument may need.
+// copies and views an argument may need. A call of a method expression,
+// Pair.first(p), already passes its receiver first, and is the same call.
+// A method expression used as a value, Pair.first, is that C function as
+// a function pointer, which a function value of its type calls as it
+// would any function's, since it takes the receiver as the type's first
+// parameter, a mut one as a pointer; one of several results is a thunk,
+// as a function's is (see funcvalue.go). No other code is needed.
 //
 // A generic function is never emitted itself: each of its instances the
 // type checker recorded in Program.Instances is, once, as a function of

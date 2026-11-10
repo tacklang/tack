@@ -336,10 +336,22 @@ func keyName(kv *ast.KeyValue, isKV bool) (*ast.Ident, bool) {
 // selectorExpr renders a field read, x.f_name. x is parenthesized unless it
 // is a name, an element, a field or a call, which C's postfix operators
 // already bind. A union built of a case with no payload, Expr.eof, is a
-// compound literal of the union (see constructionValue).
+// compound literal of the union (see constructionValue), and a method
+// named through its type, Pair.first, the method's function as a value
+// (see funcValueRef), which takes the receiver first.
 func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) {
 	if _, _, _, built := ast.Construction(sel); built {
 		return g.constructionValue(sel)
+	}
+	if _, isMethodExpr := ast.MethodExpr(sel); isMethodExpr {
+		if sel.Method == nil {
+			return "", []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message:  "a method expression must be checked before code is generated for it",
+				Span:     sel.Span,
+			}}
+		}
+		return g.funcValueRef(sel.Method), nil
 	}
 	base, diags := g.expr(sel.X, types.Invalid)
 	if len(diags) > 0 {

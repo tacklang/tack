@@ -1854,9 +1854,11 @@ section remains the description of the language.
   returns no view, so a function whose signature has
   one, a generic function, `cannot use measure as a value: it is generic,
   and a generic function is only called, its type arguments inferred from
-  the call`, an extern func and a method are no values; neither is a
+  the call`, and an extern func are no values; neither is a
   builtin, `cannot use the builtin len as a value; only a declared
-  function can be one`. A function literal is a closure, which goes only
+  function can be one`. A method is a value named through its type, a
+  method expression (see methods), `Pair.first` or `lexer.Token.Kind`,
+  whose first parameter is its receiver. A function literal is a closure, which goes only
   to a scope parameter (see closures). Nothing holding a function value crosses to C,
   `parameter f of extern func take cannot be func(): a function value does
   not cross to C`, and no package-level variable holds one,
@@ -2289,7 +2291,8 @@ section remains the description of the language.
   struct literal's field. A case with no payload is named without
   parentheses, `Expr.eof`; `Expr.eof()` is `Expr.eof has no payload;
   write Expr.eof`, `Expr.int` alone `Expr.int needs its int64 payload, as
-  in Expr.int(...)`, and a case the union lacks `Expr has no case nope`.
+  in Expr.int(...)`, and a name the union has neither as a case nor as a
+  method `Expr has no case or method nope`.
   From another package it is `ast.Expr.int(5)`, its cases exactly as
   visible as the union, `Expr is not pub in package calc/ast`. Nothing
   makes a union of a payload implicitly. A union built as a statement is
@@ -2297,8 +2300,8 @@ section remains the description of the language.
   written as a literal; only arrays and structs can`, no field, `Expr has
   no field int`, and is no function, `cannot call Expr; it is a type`. A
   case is no method: `e.int(5)` on a value `e` is `Expr has no method
-  int`, and a method named through the type, `Expr.pos(e)`, is `Expr has
-  no case pos`. It
+  int`, and a method named through the type, `Expr.pos(e)` or
+  `Expr.pos`, is a method expression (see methods). It
   is a value, copied when assigned, passed or returned, unless it holds a
   list (below), and changed only whole, `e = Expr.int(3)`. A
   package-level union is a constant expression when its payload is, `var
@@ -2420,13 +2423,47 @@ section remains the description of the language.
   builtin; it may not share one with a field of its struct, `len is
   already declared as a field of Builder`, a case of its union, `int is
   already declared as a case of Expr`, so `Expr.int(5)` always builds a
-  case and `e.m()` always calls a method, or with another method of it,
+  case, `Expr.pos` always names a method, and `e.m()` always calls one,
+  or with another method of it,
   `Builder.len is already declared`, and it follows a field's naming
-  rule. There are no method values or method expressions: `b.write`
+  rule. A method named through its type, `Builder.write` or
+  `lexer.Token.Kind`, is a method expression: a function value whose
+  first parameter is the receiver, so `func (p Pair) has(x int64) bool`
+  gives a `func(Pair, int64) bool`, a `mut` receiver a `mut` first
+  parameter, `func (mut b Builder) write(s string) error` giving a
+  `func(mut Builder, string) error`, and a `scope` parameter keeps its
+  mark, `func(Pair, scope func(int64) bool) bool`. A method and a
+  function of one signature are values of one type. It is used wherever
+  a function value is (see function values): assigned, passed, to a
+  `scope` parameter too, returned, and held by a field, an array, a list,
+  a map or a union, and called through a local, `f(mut p, 9)`, under every
+  rule of a call through a value; it has no `==`. Called directly,
+  `Pair.first(p)` or `Builder.write(mut b, s)`, it is a call of the method
+  with the receiver passed first, as `p.first()` is, under every rule of a
+  call by name, `Box.set takes b as mut; pass mut b`, with the method's
+  contract in force after it; called through a value, no contract holds,
+  since a function type states none. Naming one follows the method's
+  visibility, capped by its type's, `hidden is not pub in lexer.Token`,
+  `Sum is lib in module std and cannot be used from module calc`, and a
+  type another package cannot see cannot be named, `secret is not pub in
+  package calc/lexer`; the value goes anywhere, so a pub function may
+  return a private method's. A name its type has no method of is
+  `Builder has no method nope`, a field is `n is a field of Builder, not a
+  method; only a method can be named through its type`, and a basic type
+  has none, `int64 has no method abs`. A method whose signature no
+  function type can say is no value, `cannot use Box.all as a value: its
+  parameter xs is variadic, which no function type's can be`, as for a
+  function. An interface is only a constraint, `cannot use Sizer.size as
+  a value: Sizer is an interface; only a struct or union type's methods
+  are values`, and a type parameter's methods are only called on a value
+  of it, `cannot use W.size as a value: W is a type parameter, and a type
+  parameter's methods can only be called on a value of it`. A method expression is a
+  value, not a place: `Box.size = f` is `cannot assign to Box; it is a
+  type`, and `mut Box.size` is `only a variable, a field or an element
+  can be passed as mut`. There are no bound method values: `b.write`
   without a call is `write is a method of Builder, not a field; a method
-  can only be called`, and `Builder.write(b, s)` is `cannot use Builder
-  as a value; it is a type`; a field called as a method is `n is a field
-  of Builder, not a method; a field cannot be called`. Inside a method
+  can only be called`; a field called as a method is `n is a field of
+  Builder, not a method; a field cannot be called`. Inside a method
   the receiver is an ordinary parameter: fields are reached as `b.x`, with
   no implicit receiver, and methods call each other, and themselves,
   whatever the order of their declarations. A method follows every rule
@@ -2442,7 +2479,9 @@ section remains the description of the language.
   stay functions: there is no `l.len()`. In C a method is a function of
   its own, named from its package's path, its type's name and its own,
   taking the receiver first, a `mut` one as a pointer, as a `mut`
-  parameter is. A union's methods are a struct's in every way: `func (e
+  parameter is; a method expression is that function as a function
+  pointer, or, for several results, its thunk, and called directly it
+  calls the function. A union's methods are a struct's in every way: `func (e
   Expr) pos() int64` may switch on its receiver, and a `mut` one may
   reassign it, `e = Expr.eof`, under the rule for a switched place, so a
   clause binding a payload of the receiver cannot assign it or pass it
@@ -2538,7 +2577,9 @@ section remains the description of the language.
   call passes. A value of a type parameter has its constraint's methods,
   called as a struct's are, `w.size()` and `mut w.write(b)`, under every
   rule of a method call, `W.write takes its receiver as mut; call mut
-  w.write(b)`, `W has no method nope`, and nothing else: `W has no field
+  w.write(b)`, `W has no method nope`, but not named through the type
+  parameter, `cannot use W.size as a value: W is a type parameter, and a
+  type parameter's methods can only be called on a value of it`, and nothing else: `W has no field
   n: a type parameter has only its constraint's methods`, `operator == is
   not defined on W`, `cannot pass W as any: only the builtin types and
   views of them can be passed as any for now`, `W cannot be written as a literal; only arrays

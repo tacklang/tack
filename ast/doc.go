@@ -26,10 +26,17 @@
 // a case through its type, Expr.int(5), a Call whose Fn is a Selector, or
 // Expr.eof, a Selector, whose operand the resolver binds to the union's
 // TypeDecl; Construction reads either, and Call.Receiver gives such a call
-// none. A switch on a union matches its cases: its case values are
-// patterns, CasePattern reads one, a name, eof, or a name and a binding,
-// int(n), and a clause naming one case binds its payload to its
-// CaseClause's Var, which the resolver declares; the type checker sets
+// none. Any other name selected through a type, Pair.first or
+// lexer.Token.Kind, whose operand the resolver binds to the type's
+// TypeDecl or TypeParam, or, for a basic type, to nothing (TypeOperand),
+// is a method expression, which MethodExpr reads: the method as a
+// function value, which the type checker records in Selector.Method with
+// its type in Selector.Type, or, as a Call's Fn, a call of the method
+// whose receiver is the first of its Args, recorded in Call.Method.
+// A switch on a union matches its cases: its case values are patterns,
+// CasePattern reads one, a name, eof, or a name and a binding, int(n),
+// and a clause naming one case binds its payload to its CaseClause's Var,
+// which the resolver declares; the type checker sets
 // Switch.Exhaustive when the clauses name every case. A package-level
 // union's computed value is a UnionConst.
 // A Func, a package-level Var, a TypeDecl and a Field carry a Visibility,

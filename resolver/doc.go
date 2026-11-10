@@ -102,13 +102,18 @@
 //
 // A union's cases are resolved with the structs' fields: each payload's
 // type, and each case's name, which follows a field's rule, reserved
-// names excluded, once per union. A selector whose operand names a union
-// type, plain or qualified, Expr.int(5) or ast.Expr.eof, builds a value
-// of it: the operand is bound to the union's TypeDecl, the qualified one
-// only if this package may see it, and the case's name is left to the
-// type checker, which finds it in the union. A struct type's name there
-// is reported as a type used as a value, as before. A union type of the
-// package may have methods, as a struct type may (below).
+// names excluded, once per union. A selector whose operand names a type,
+// plain or qualified, builds a union's case, Expr.int(5) or ast.Expr.eof,
+// or names a method of the type, a method expression, Pair.first or
+// lexer.Token.Kind, used as a value or called (see ast.MethodExpr): the
+// operand is bound to the type's TypeDecl, a struct's, a union's or an
+// interface's, the qualified one only if this package may see it, or to
+// the type parameter it names, and a basic type's name, int64.abs, which
+// nothing declares, is left bound to nothing; the case's or the method's
+// name is left to the type checker, which finds it in the type and
+// reports a type with neither. A call through a type has no receiver
+// (ast.Call.Receiver). A union type of the package may have methods, as a
+// struct type may (below).
 //
 // The values of an expression switch's cases may be a union's patterns,
 // which the resolver cannot tell from values, since that depends on the

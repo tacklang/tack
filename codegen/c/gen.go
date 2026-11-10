@@ -2098,7 +2098,7 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 		}}
 	}
 
-	if call.Receiver() != nil {
+	if call.Receiver() != nil || call.Method != nil {
 		return g.generateCall("", call)
 	}
 	if isBuiltin(call, "pop") || isBuiltin(call, "remove") {
@@ -2797,7 +2797,9 @@ func (g *generator) generateCall(name string, call *ast.Call) ([]string, []diag.
 //
 // A method call is lowered as the call of its method's C function with
 // the receiver as the first argument (see lowered), so the receiver is
-// the first operand evaluated, a mut one as the address of its place.
+// the first operand evaluated, a mut one as the address of its place. A
+// call of a method expression, Pair.first(p), already passes its receiver
+// first, and calls the method's C function directly.
 func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagnostic) {
 	if call.Receiver() != nil && call.Method == nil {
 		return "", []diag.Diagnostic{{
@@ -3152,9 +3154,10 @@ func (g *generator) unaryExpr(u *ast.Unary) (string, []diag.Diagnostic) {
 }
 
 // callValue renders a call used where a value is wanted, rejecting a callee
-// that is neither a plain name nor a method and a builtin, which has no
-// value to give. A union's construction, Expr.int(5), is a compound
-// literal of the union (see constructionValue).
+// that is neither a plain name nor a method, called on a receiver or
+// through its type, and a builtin, which has no value to give. A union's
+// construction, Expr.int(5), is a compound literal of the union (see
+// constructionValue).
 func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if _, _, _, built := ast.Construction(call); built {
 		return g.constructionValue(call)
@@ -3162,7 +3165,7 @@ func (g *generator) callValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if call.Conv != types.Invalid {
 		return g.conversionValue(call)
 	}
-	if call.Receiver() != nil {
+	if call.Receiver() != nil || call.Method != nil {
 		return g.callExpr("", call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
@@ -3448,7 +3451,9 @@ func methodCName(typeName, name string) string {
 // argument, m(x, args) or m(mut x, args), which is how the method's C
 // function takes it, so every rule for a call's arguments, their order,
 // the address of a mut one, the view and the copies an argument may need,
-// holds for the receiver too. Any other call is returned as it is.
+// holds for the receiver too. A call of a method expression,
+// Pair.first(p), whose receiver is already its first argument, becomes
+// m(p). Any other call is returned as it is.
 func lowered(call *ast.Call) *ast.Call {
 	sel, ok := call.Fn.(*ast.Selector)
 	if !ok || call.Method == nil {

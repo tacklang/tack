@@ -296,7 +296,9 @@ A type's name shares one namespace with the package's functions and
 package-level variables and with the builtins: it cannot be declared
 again as any of them, nor as a local, a parameter or a binding. A
 type's name is not a value: it cannot be assigned, called or used as an
-operand, `cannot use Point as a value; it is a type`. A name that is
+operand, `cannot use Point as a value; it is a type`, but before a
+selector, where `Point.norm` names a method of the type and `Expr.int(5)`
+builds a union's case ([Expressions](06-expressions.md)). A name that is
 not a type cannot be written as one.
 
 ### Struct types
@@ -521,7 +523,8 @@ it cannot be extern, `a method cannot be extern; declare an extern
 func and call it from the method`, nor be declared without one, `method
 Builder.write has no body`. In every other way a method is a function:
 its parameters, results and body follow the rules above. How a method
-is called is described in [Expressions](06-expressions.md).
+is called, and named as a value through its type, `Builder.write`, is
+described in [Expressions](06-expressions.md#method-expressions).
 
 ```tack run exit=9
 package main
@@ -790,7 +793,7 @@ holding an error that is never read is described in
 
 A function is used when a name outside its own body names it, called or
 as a value. A method is used when a call outside its own body calls it,
-or when a generic call binds its type to a type parameter whose
+or a method expression outside it names it, `T.spare`, or when a generic call binds its type to a type parameter whose
 constraint asks for it. A type is used when a name outside its
 declaration and its methods names it: a field of another type, a
 literal, a signature or a constraint among them. Uses are not followed
@@ -799,8 +802,8 @@ further, so a function that only an unused function calls is used.
 These are never reported: a `pub` or `lib` declaration; `func main`; a
 method's receiver; a struct's field; the parameters of a function whose
 signature is not its own to change, an extern func's, a `pub` or `lib`
-function's or method's, a function used as a value's, and a method's
-that a constraint asks for; and the parameters of an unused function,
+function's or method's, a function's or a method's used as a value,
+and a method's that a constraint asks for; and the parameters of an unused function,
 apart from the function itself. A parameter cannot be named `_`, so a
 parameter a function ignores on purpose is reported.
 
