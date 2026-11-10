@@ -67,6 +67,17 @@ the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
 
+## A note ignores a bound that comes through a relation
+
+A note about what a guard allows names the guard's own bound and misses
+a tighter one that reaches the variable through a relation to another
+variable with a known value. `mut k int64 = 1; if d >= k && d < 100 {
+return x / d }` notes `this guard allows d == 0`, though `d >= 1`, and
+`mut lo int64 = 0; if lo <= i && i < 50 { return a[i] }` notes that `i`
+may be negative. Under `mut n int64 = 2; if 0 <= i && i < 50 && i < n {
+return a[i] }`, with `a` a `[3]int64`, the note `this guard allows i ==
+49` is false and the index is rejected, though `i <= 1` makes it safe.
+
 ## A note says a copied index may be negative when it is not
 
 A guard on a variable copied from another one can get a note that says
