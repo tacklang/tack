@@ -25,9 +25,11 @@ import (
 // been moved, on every
 // path that reaches the point being checked or on some of them, and where.
 // Control flow is structured: an if and a switch join what their branches
-// leave, a branch that returns, breaks, continues or calls exit, which
-// never returns, leaving nothing to join; a loop's body is followed twice, the second time from what the
-// first pass left joined with what it started from, so a move late in the
+// leave, a switch's cases followed in the order they are tried, the
+// default last wherever it is written, as it runs, a branch that
+// returns, breaks, continues or calls exit, which never returns, leaving
+// nothing to join; a loop's body is followed twice, the second time from
+// what the first pass left joined with what it started from, so a move late in the
 // body is seen by a use early in it, and only the second pass reports.
 // Using a variable that may have been moved is an error: reading it,
 // passing it as mut, moving it, or assigning one of its fields or
@@ -1065,13 +1067,16 @@ func (m *mover) literal(lit *ast.CompositeLit, ctx useCtx, cur *flow) {
 	m.temporary(lit, ctx)
 }
 
-// switchStmt follows a switch from cur: its tag, then each case's values,
-// which a type switch's are types, and a union switch's patterns, and so
-// read nothing, and body, every body starting from what is known after
-// the tag, and returns their join, with cur when no default, or every
-// case of a union, runs a body. A clause of a switch on a union that
-// binds a payload of a place, in place, is followed with the place being
-// matched (see rangeChange).
+// switchStmt follows a switch from cur: its tag, then each case in the
+// order it is tried, the default last wherever it is written (see
+// tryOrder), its values, which a type switch's are types, and a union
+// switch's patterns, and so read nothing, and then its body, from what is
+// known after those values. A body runs only after every value tried
+// before its case, so the default's sees every case's values, a move in a
+// value written after it included. It returns the bodies' join, with cur
+// when no default, or every case of a union, runs a body. A clause of a
+// switch on a union that binds a payload of a place, in place, is followed
+// with the place being matched (see rangeChange).
 func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 	union := false
 	if s.Tag != nil {
@@ -1079,7 +1084,7 @@ func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 		union = m.c.table.IsUnion(ast.TypeOf(s.Tag)) && !s.IsTypeSwitch()
 	}
 	out := dead()
-	for _, cl := range s.Cases {
+	for _, cl := range tryOrder(s) {
 		for _, v := range cl.Values {
 			if !s.IsTypeSwitch() && !union {
 				m.expr(v, readCtx, &cur)

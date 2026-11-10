@@ -67,6 +67,10 @@ after it may have been moved`. A move in a loop's body that the next
 iteration would reach again is reported in the same way, with the note
 `l is moved here, in an earlier iteration of the loop`, unless the body
 assigns the variable a new value before the move.
+Moves are followed in the order code runs: a `switch`'s `default` runs
+after every case's values are tried, wherever it is written, so a case
+value written after the default that moves a variable moves it before
+the default's body, which cannot use it.
 
 ```tack error
 package main

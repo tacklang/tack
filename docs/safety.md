@@ -1898,6 +1898,14 @@ moved on some paths only is unusable after them,
 <!-- error: move-conditional-then-use -->`l is used after it may have been moved`.
 A move in a loop's body is seen by the next iteration, unless the body
 assigns the variable first: <!-- note: move-in-loop -->`l is moved here, in an earlier iteration of the loop`.
+Moves are followed in the order code runs, not the order it is written
+in: a `switch`'s `default` runs after every case's values are tried,
+wherever it is written, so a value written below it that moves a list
+moves it before the default's body runs,
+<!-- case: move-switch-early-default -->`switch n { default: return len(l); case take(own l): return 2 }`
+reports <!-- error: move-switch-early-default -->`l is used after it was moved`
+at `len(l)`, with <!-- note: move-switch-early-default -->`l is moved here`
+at the value.
 A parameter borrows its list, and a `mut` parameter refers to its
 caller's, so neither is moved, <!-- error: move-borrowed-param -->
 `cannot move l: it is a parameter, which borrows its caller's value`,

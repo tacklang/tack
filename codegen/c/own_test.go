@@ -12,8 +12,10 @@ import (
 // it prints passed: values moved into functions by own parameters are
 // returned, stored in lists and maps, moved on, rebound as mut, borrowed,
 // read by a defer and freed at every exit, through generic functions, an
-// interface's method and function values, with every allocation refused
-// in turn, and c_allocator holds nothing after each group.
+// interface's method and function values, and through the case values
+// of switches whose default is written first or last, with every
+// allocation refused in turn, and c_allocator holds nothing after each
+// group.
 func TestOwnParamsExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "own-params", "live.c")
 	for _, flags := range [][]string{
@@ -22,7 +24,7 @@ func TestOwnParamsExampleIsSanitizerClean(t *testing.T) {
 		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
-			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 28)
+			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 31)
 		})
 	}
 }

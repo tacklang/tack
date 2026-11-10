@@ -300,6 +300,46 @@ func values() {
     check(f(own k) == 3, "a function value called")
 }
 
+// tried moves l in its switch's second case value. The first case's
+// body runs before that value is tried, so it may read l; the default,
+// written last and tried last, runs after it, so it does not.
+func tried(n int64) int64 {
+    l := numbers(3)
+    switch n {
+    case 0:
+        return len(l)
+    case consume(own l):
+        return 10
+    default:
+        return 20
+    }
+}
+
+// early_default writes its default first, though it is tried last: it
+// reads l, which no case value moves, while k, which one does, it leaves
+// alone. A case's body may move l, since no value after it is tried once
+// it matches.
+func early_default(n int64) int64 {
+    l := numbers(2)
+    k := numbers(4)
+    switch n {
+    default:
+        return len(l)
+    case 0:
+        return consume(own l)
+    case consume(own k):
+        return len(l) +% 10
+    }
+}
+
+// switches checks lists moved through the case values of switches, on
+// every path each switch takes.
+func switches() {
+    check(tried(0) == 3 && tried(3) == 10 && tried(5) == 20, "moved in a case value")
+    e := early_default(9) == 2 && early_default(0) == 2 && early_default(4) == 12
+    check(e, "a default written first, a later value moving another list")
+}
+
 // starved runs every allocating step of own calls with c_allocator
 // refusing each request in turn: whatever fails, the callee frees what
 // it was given, and the caller frees nothing twice.
@@ -345,6 +385,8 @@ func main() {
     check(live() == 0, "generics free once")
     values()
     check(live() == 0, "function values free once")
+    switches()
+    check(live() == 0, "switches free once")
     starved()
     check(live() == 0, "nothing leaks when an allocation fails")
 }
