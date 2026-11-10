@@ -630,6 +630,32 @@
 // user extern func's C name may, and the generated C's own tack_ names
 // never start tack_builtin_.
 //
+// A ?, f(...)?, lowers to a GNU C statement expression (question.go),
+// which clang takes and which may stand wherever an expression may, a
+// loop's condition and post included: it calls f into a temporary of its
+// result's C type, the error or f's results struct, and when the error's
+// code is not 0 frees what the call gave beside it that is owned, then
+// every owned value the expression around it made and has not yet given
+// to what takes it, last first, and returns as a return written there
+// would, its value the function's results struct with the error last and
+// every other result zeroed, or the error alone: a goto into the cleanup
+// chain of the blocks it leaves, or C's return when none has a cleanup
+// (see defer.go). A goto out of a statement expression is GNU C's, and
+// jumps forward only, to the end of a block around it. When the code is
+// 0, the expression gives the call's one other result, its results
+// struct for a, b := f()?, which is read field by field as a call's, or
+// nothing, as a statement. A zeroed result is never read by a caller,
+// which reads a result beside an error only once its code is proven 0,
+// and frees safely: a list or a map zeroed holds no buffer, and a union
+// its first case's zeroed payload. An owned value an operand made before
+// an operand holding a ?, a call's result for an own parameter, append's
+// or put's value, a struct literal's field or a return's value, is
+// copied, as it is evaluated, into a temporary of its own, tack_p and a
+// number, or, in a deep expression, is the step's temporary that holds
+// it, which the ?'s failure frees; the order of evaluation (order.go)
+// has it evaluated before every operand after it, since it calls a
+// function or moves a variable.
+//
 // An unreachable statement, which the type checker has proven no run
 // reaches, lowers to TACK_UNREACHABLE("file:line"); (see unreachable.go),
 // the file and line the checker recorded on it, as a C string literal

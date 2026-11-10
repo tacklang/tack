@@ -430,34 +430,68 @@ func (m *mover) value(e ast.Expr, ctx useCtx, cur *flow) {
 	m.expr(e, ctx, cur)
 }
 
-// binding follows the value of a binding of several results, a call,
-// whose results the binding takes, owned ones included.
+// binding follows the value of a binding of several results, a call or a
+// ? after one, whose results the binding takes, owned ones included.
 func (m *mover) binding(value ast.Expr, cur *flow) {
-	if call, ok := value.(*ast.Call); ok {
-		m.call(call, moveCtx, cur)
+	switch x := value.(type) {
+	case *ast.Call:
+		m.call(x, moveCtx, cur)
+	case *ast.Question:
+		m.question(x, moveCtx, cur)
+	default:
+		m.expr(value, readCtx, cur)
+	}
+}
+
+// question follows q, a ? used in ctx: the call it follows, whose results
+// its value is, and then, for a value of an owned type, that the value has
+// an owner, as a call's must. A ? on anything but a call was reported.
+func (m *mover) question(q *ast.Question, ctx useCtx, cur *flow) {
+	call := ast.Questioned(q)
+	if call == nil {
+		m.expr(q.X, readCtx, cur)
 		return
 	}
-	m.expr(value, readCtx, cur)
+	m.call(call, moveCtx, cur)
+	m.temporary(q, ctx)
+}
+
+// givenResults names what value, a call or a ? after one bound by several
+// names or written as a statement, gives, as a diagnostic about dropping
+// one of its results names it, and returns those results: the callee's
+// name and all its results for a call, and the call as written with the ?
+// and the results before its error for a ?. It returns false when they
+// are not known.
+func (m *mover) givenResults(value ast.Expr) (string, []types.Type, bool) {
+	if q, ok := value.(*ast.Question); ok {
+		if ast.Questioned(q) == nil {
+			return "", nil, false
+		}
+		return m.c.text(q.Span) + " gives", q.Results, true
+	}
+	call, ok := value.(*ast.Call)
+	if !ok {
+		return "", nil, false
+	}
+	name, named := m.c.calleeName(call)
+	if ast.Callee(call) == nil || !named {
+		return "", nil, false
+	}
+	return name + " returns", ast.CallResults(call), true
 }
 
 // droppedResults reports each result of value, a call bound by several
 // names, blank saying which are _ and spans where each is written, that is
 // owned and bound to _, which would drop it.
 func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
-	call, ok := value.(*ast.Call)
-	if !ok {
-		return
-	}
-	fn := ast.Callee(call)
-	name, named := m.c.calleeName(call)
-	results := ast.CallResults(call)
-	if fn == nil || !named || len(results) != len(blank) {
+	gives, results, ok := m.givenResults(value)
+	if !ok || len(results) != len(blank) {
 		return
 	}
 	for i, typ := range results {
 		if blank[i] && m.c.table.Owned(typ) {
-			m.errorNotes(spans[i], nil, "%s returns %s; bind it to a variable instead of _",
-				name, m.c.droppedName(typ))
+			m.errorNotes(spans[i], nil, "%s %s; bind it to a variable instead of _",
+				gives, m.c.droppedName(typ))
 		}
 	}
 }
@@ -486,6 +520,10 @@ func (c *Checker) droppedName(typ types.Type) string {
 // remove and replace written as a statement free the value they drop, so
 // theirs is not.
 func (m *mover) exprStmt(e ast.Expr, cur *flow) {
+	if q, ok := e.(*ast.Question); ok {
+		m.questionStmt(q, cur)
+		return
+	}
 	call, ok := e.(*ast.Call)
 	if !ok {
 		m.expr(e, readCtx, cur)
@@ -511,6 +549,23 @@ func (m *mover) exprStmt(e ast.Expr, cur *flow) {
 		if m.c.table.Owned(typ) {
 			m.errorNotes(call.Spanned(), nil, "%s returns %s; bind it to a variable",
 				name, m.c.droppedName(typ))
+			return
+		}
+	}
+}
+
+// questionStmt follows q, a ? written as a statement, which drops every
+// result it gives: the first of an owned type, which nothing would free,
+// is reported, as a call statement's is.
+func (m *mover) questionStmt(q *ast.Question, cur *flow) {
+	m.question(q, moveCtx, cur)
+	gives, results, ok := m.givenResults(q)
+	if !ok {
+		return
+	}
+	for _, typ := range results {
+		if m.c.table.Owned(typ) {
+			m.errorNotes(q.Span, nil, "%s %s; bind it to a variable", gives, m.c.droppedName(typ))
 			return
 		}
 	}
@@ -561,6 +616,8 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 		m.part(x, ctx, cur)
 	case *ast.Call:
 		m.call(x, ctx, cur)
+	case *ast.Question:
+		m.question(x, ctx, cur)
 	case *ast.CompositeLit:
 		m.literal(x, ctx, cur)
 	case *ast.MutArg, *ast.OwnArg:

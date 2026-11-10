@@ -218,6 +218,8 @@ func placePath(place ast.Expr) (ast.Decl, []string) {
 func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	params := paramsOf(fn)
 	args := make([]string, len(call.Args))
+	guard := g.guardOwned(call.Args)
+	defer guard.done()
 	for i, a := range call.Args {
 		var (
 			expr  string
@@ -233,7 +235,7 @@ func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Dia
 		if len(diags) > 0 {
 			return nil, diags
 		}
-		args[i] = expr
+		args[i] = guard.hold(i, expr)
 	}
 	return args, nil
 }

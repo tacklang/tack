@@ -1222,11 +1222,12 @@ func (p *Parser) parseStmt() (ast.Stmt, []diag.Diagnostic) {
 }
 
 // atSimpleStmt reports whether the next statement is a simple one: a
-// declaration starting with var or mut, or anything starting with a name.
+// declaration starting with var or mut, anything starting with a name, or
+// a call or a ? on one starting with a parenthesis.
 func (p *Parser) atSimpleStmt() bool {
 	tk := p.peek()
 	switch tk.Kind() {
-	case lexer.Ident:
+	case lexer.Ident, lexer.LParen:
 		return true
 	case lexer.Keyword:
 		return tk.Value() == lexer.Var || tk.Value() == lexer.Mut
@@ -1237,7 +1238,8 @@ func (p *Parser) atSimpleStmt() bool {
 
 // parseSimpleStmt parses a simple statement, without the semicolon that ends
 // it: a declaration, an assignment, an increment or decrement, or a call,
-// a method call included, mut x.m() among them.
+// a method call included, mut x.m() among them, written in parentheses or
+// not, (f()), and perhaps with a ? after it.
 // These are the statements a three-clause loop's init and post may be, so
 // the loop can end them with its own separators. On an error the statement
 // is an untyped nil, as in parseStmt.
@@ -1255,6 +1257,8 @@ func (p *Parser) parseSimpleStmt() (ast.Stmt, []diag.Diagnostic) {
 		stmt, diags = p.parseIdentStmt(tk)
 	case p.atMutCall():
 		stmt, diags = p.parseCallStmt(tk)
+	case tk.Kind() == lexer.LParen:
+		stmt, diags = p.parseParenStmt(tk)
 	case p.atSimpleStmt():
 		stmt, diags = p.parseVarDecl()
 	default:
@@ -1367,12 +1371,60 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		return p.parseCallLike(tk, n, postfixed)
 	case lexer.Inc, lexer.Dec:
 		return p.parseIncDec()
+	case lexer.Question:
+		return p.parseQuestionStmt(tk)
 	default:
 		if postfixed {
 			return nil, p.badTarget(tk)
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// parseQuestionStmt parses a statement that starts with the name tk and
+// is a ? after it, or after an element or a field of it, err? or a[i]?,
+// without the semicolon that ends it. Only a call can take a ?, which the
+// type checker reports, so the statement is kept for it to. Anything else
+// the ? starts, f?.x, is not a statement, and is reported at tk.
+func (p *Parser) parseQuestionStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	return p.callStmt(tk, x)
+}
+
+// callStmt makes a statement of x, which starts with tk, and spans its
+// extent, its parentheses included: a call, or a ? after one or, but for
+// a statement starting with a parenthesis, after anything else, which
+// the type checker judges. It reports anything else at tk, a field or an
+// element of what a call or a ? gives, or a parenthesized value that is
+// no call, (x) or (x)?, which is not a statement.
+func (p *Parser) callStmt(tk *lexer.Token, x ast.Expr) (ast.Stmt, []diag.Diagnostic) {
+	if !p.isCallStmt(tk, x) {
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+	return &ast.ExprStmt{X: x, Span: p.extent(x)}, nil
+}
+
+// isCallStmt reports whether x, an expression starting with tk, can be a
+// statement: a call, or a ? after one or, unless tk is a parenthesis,
+// after anything, which the type checker judges, err? included.
+func (p *Parser) isCallStmt(tk *lexer.Token, x ast.Expr) bool {
+	q, isQuestion := x.(*ast.Question)
+	if !isQuestion {
+		_, isCall := x.(*ast.Call)
+		return isCall
+	}
+	if tk.Kind() != lexer.LParen {
+		return true
+	}
+	for isQuestion {
+		x = q.X
+		q, isQuestion = x.(*ast.Question)
+	}
+	_, isCall := x.(*ast.Call)
+	return isCall
 }
 
 // parseCallLike parses a statement that starts with the name tk, which
@@ -1453,13 +1505,18 @@ func (p *Parser) afterTarget(n int) *lexer.Token {
 // atMethodCall reports whether the name n places ahead, and every index,
 // field selection, call and type assertion after it, end in a method
 // call: a field's name and its parenthesized arguments, x.m(), a[i].f.m(),
-// f().m() or x.m().n(), which is a call statement. The brackets and
+// f().m() or x.m().n(), which is a call statement, each perhaps followed by
+// a ?, x.m()? or f()?.m()?. The brackets and
 // parentheses are matched, so an index or an argument may hold its own,
 // and each token is looked at once.
 func (p *Parser) atMethodCall(n int) bool {
 	k, method := n+1, false
 	for {
 		switch tk := p.peekAt(k); tk.Kind() {
+		case lexer.Question:
+			// x.m()? is still the method call x.m() as a statement, and
+			// f()?.m() a method call on what f()? gives.
+			k++
 		case lexer.LBrack:
 			k, method = p.afterGroup(k, lexer.LBrack, lexer.RBrack), false
 		case lexer.LParen:
@@ -1499,20 +1556,33 @@ func (p *Parser) atMutCall() bool {
 		p.atMethodCall(1)
 }
 
+// parseParenStmt parses a statement that starts with tk, an opening
+// parenthesis: a call written in parentheses, (f()), or a ? on one,
+// (check(n))? or (check(n)?), without the semicolon that ends it.
+// Anything else, a malformed operand among it, is no statement, and is
+// reported at tk alone, the parse moved back to tk, as a statement
+// starting with a token no statement starts with is, so recovery skips
+// the same tokens it would have.
+func (p *Parser) parseParenStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
+	start := p.index
+	x, _ := p.parseOperand()
+	if x == nil || !p.isCallStmt(tk, x) {
+		p.index = start
+		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
+	}
+	return &ast.ExprStmt{X: x, Span: p.extent(x)}, nil
+}
+
 // parseCallStmt parses a statement that starts with tk and is a method
-// call, x.m(args) or mut x.m(args), without the semicolon that ends it.
-// What follows the call, an index or a field of its result, is not a
-// statement, and is reported at tk.
+// call, x.m(args) or mut x.m(args), or a ? after one, x.m(args)?, without
+// the semicolon that ends it. What follows the call, an index or a field
+// of its result, is not a statement, and is reported at tk.
 func (p *Parser) parseCallStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	x, diags := p.parseOperand()
 	if x == nil {
 		return nil, diags
 	}
-	call, ok := x.(*ast.Call)
-	if !ok {
-		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
-	}
-	return &ast.ExprStmt{X: call, Span: call.Span}, nil
+	return p.callStmt(tk, x)
 }
 
 // afterGroup returns how many places ahead the token after the group that
@@ -2191,15 +2261,24 @@ func (p *Parser) endStmt(span *ast.Span) []diag.Diagnostic {
 	return nil
 }
 
-// parseFuncCall parses a call used as a statement, without the semicolon
-// that ends it.
-func (p *Parser) parseFuncCall() (*ast.ExprStmt, []diag.Diagnostic) {
+// parseFuncCall parses a call used as a statement, or a ? after one,
+// f(args)?, without the semicolon that ends it. What follows the ?, an
+// index or a field of what it gives, is not a statement, and is reported
+// at the call's start.
+func (p *Parser) parseFuncCall() (ast.Stmt, []diag.Diagnostic) {
+	tk := p.peek()
 	call, callDiags := p.parseCall()
 	if call == nil {
 		return nil, callDiags
 	}
-
-	return &ast.ExprStmt{X: call, Span: call.Span}, nil
+	if p.peek().Kind() != lexer.Question {
+		return &ast.ExprStmt{X: call, Span: call.Span}, nil
+	}
+	x, diags := p.parsePostfix(call)
+	if x == nil {
+		return nil, diags
+	}
+	return p.callStmt(tk, x)
 }
 
 // parseCall parses a call as an expression, without the statement terminator.
@@ -2825,8 +2904,10 @@ func rangeVars(loop *ast.ForRange, names []multiItem) []diag.Diagnostic {
 // parseForHeader parses what comes between for and the body's opening brace
 // into loop. A header that starts with a semicolon, a declaration, an
 // assignment, or an increment or decrement has three clauses. One that starts with an expression is
-// a condition, unless a semicolon follows it, in which case it was a call
-// used as the init statement.
+// a condition, unless a semicolon follows it, in which case it was a call,
+// or a ? on one, used as the init statement (see isCallStmt); one in
+// parentheses that is neither is reported at the parenthesis, as such a
+// statement is anywhere.
 func (p *Parser) parseForHeader(loop *ast.For) []diag.Diagnostic {
 	switch {
 	case p.peek().Kind() == lexer.Semi:
@@ -2840,13 +2921,27 @@ func (p *Parser) parseForHeader(loop *ast.For) []diag.Diagnostic {
 		return p.parseForClauses(loop)
 	}
 
+	start, at := p.peek(), p.index
 	cond, diags := p.parseExpr(1)
 	if cond == nil {
+		if start.Kind() == lexer.LParen {
+			// Recovery starts from the parenthesis, as for a statement
+			// that starts with one.
+			p.index = at
+		}
 		return diags
 	}
-	if call, ok := cond.(*ast.Call); ok && p.peek().Kind() == lexer.Semi {
-		loop.Init = &ast.ExprStmt{X: call, Span: call.Span}
-		return p.parseForClauses(loop)
+	if p.peek().Kind() == lexer.Semi {
+		if p.isCallStmt(start, cond) {
+			loop.Init = &ast.ExprStmt{X: cond, Span: p.extent(cond)}
+			return p.parseForClauses(loop)
+		}
+		if start.Kind() == lexer.LParen {
+			// An init statement in parentheses that is no call, as a
+			// statement anywhere is reported (see parseParenStmt).
+			p.index = at
+			return []diag.Diagnostic{p.diagInvalidToken("statement", start)}
+		}
 	}
 	loop.Cond = cond
 	return nil
@@ -3089,7 +3184,9 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 // receiver: mut then covers the receiver, what comes before the last
 // .m(, so mut w.out.write(s) passes w.out as mut. A call written in
 // parentheses, mut (x.m()), is not one: mut covers the whole call, which
-// is not a place.
+// is not a place. A ? after the method call, mut x.m()?, leaves it one,
+// the ? applying to the call of the mut receiver, so each ? written after
+// it, none in parentheses, spans from mut too.
 func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
 	if diags := p.nest(p.peek()); diags != nil {
 		return nil, diags
@@ -3100,7 +3197,17 @@ func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
 	if x == nil {
 		return nil, diags
 	}
-	if call, ok := x.(*ast.Call); ok && x.Spanned() == p.extent(x) {
+	inner := x
+	var questions []*ast.Question
+	for {
+		q, ok := inner.(*ast.Question)
+		if !ok || q.Spanned() != p.extent(q) {
+			break
+		}
+		questions = append(questions, q)
+		inner = q.X
+	}
+	if call, ok := inner.(*ast.Call); ok && inner.Spanned() == p.extent(inner) {
 		if sel, isMethod := call.Fn.(*ast.Selector); isMethod {
 			if _, already := sel.X.(*ast.MutArg); !already {
 				sel.X = &ast.MutArg{
@@ -3112,7 +3219,10 @@ func (p *Parser) parseMutArg() (ast.Expr, []diag.Diagnostic) {
 					},
 				}
 				sel.Span.Start, call.Span.Start = kw.OffsetStart(), kw.OffsetStart()
-				return call, nil
+				for _, q := range questions {
+					q.Span.Start = kw.OffsetStart()
+				}
+				return x, nil
 			}
 		}
 	}
@@ -3208,14 +3318,19 @@ func (p *Parser) parseStructLit() (ast.Expr, []diag.Diagnostic) {
 	return lit, nil
 }
 
-// parsePostfix parses any number of indexes, slices, field selections and
-// type assertions after x, x[i].f[j][k:], each an element, a slice, a field
-// of what comes before it, or a question about which type it holds,
-// x.(T) or x.(type).
+// parsePostfix parses any number of indexes, slices, field selections,
+// type assertions and ?s after x, x[i].f[j][k:], each an element, a slice,
+// a field of what comes before it, a question about which type it holds,
+// x.(T) or x.(type), or the error of the call before it passed on, f()?.
+// A ? binds as tightly as the others, so f()?.b is a field of what f()?
+// gives. Whether what a ? follows is a call is the type checker's to
+// judge, so x? and f()?? parse.
 func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	for {
 		var diags []diag.Diagnostic
 		switch p.peek().Kind() {
+		case lexer.Question:
+			x = p.parseQuestion(x)
 		case lexer.LBrack:
 			x, diags = p.parseIndex(x)
 		case lexer.Period:
@@ -3230,6 +3345,16 @@ func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		if diags != nil {
 			return nil, diags
 		}
+	}
+}
+
+// parseQuestion parses the ? after x, which spans from the start of x,
+// its parentheses included, through the ?.
+func (p *Parser) parseQuestion(x ast.Expr) ast.Expr {
+	mark := p.next()
+	return &ast.Question{
+		X:    x,
+		Span: ast.Span{File: p.fileID, Start: p.extent(x).Start, End: mark.OffsetEnd()},
 	}
 }
 

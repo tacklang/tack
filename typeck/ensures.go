@@ -338,6 +338,17 @@ func (c *Checker) baseOf(leaf ast.Expr, k factKey) (interval, bool) {
 // reported for each operand of the clause's &&. Code that never runs, after a
 // statement that leaves its block or ends in exit, is not asked about.
 func (c *Checker) proveContract(fn *ast.Func, span ast.Span, at *ast.Return) {
+	where := "at this return"
+	if at == nil {
+		where = "at the end of its body"
+	}
+	c.proveContractWhere(fn, span, at, where)
+}
+
+// proveContractWhere is proveContract for a place fn returns from that
+// where names, "at this return", "at the end of its body", or "at this
+// ?" for a ? at span, whose at is nil.
+func (c *Checker) proveContractWhere(fn *ast.Func, span ast.Span, at *ast.Return, where string) {
 	k := c.contracts[fn]
 	if k == nil || c.dead > 0 || c.deferred > 0 {
 		return
@@ -355,10 +366,6 @@ func (c *Checker) proveContract(fn *ast.Func, span ast.Span, at *ast.Return) {
 		}
 		reported = append(reported, cf.leaf)
 		notes = append(notes, note(cf.leaf.Spanned(), "ensured here"))
-		where := "at this return"
-		if at == nil {
-			where = "at the end of its body"
-		}
 		c.errorNotes(span, notes, "%s ensures %s, which may not hold %s",
 			c.displayName(fn), c.text(cf.leaf.Spanned()), where)
 	}

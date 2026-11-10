@@ -73,6 +73,11 @@ type Checker struct {
 	// value, if any, is dropped.
 	droppedCall *ast.Call
 
+	// fn is the function whose body is being checked, which a ? returns
+	// from, or nil outside every body, as in a package-level variable's
+	// value.
+	fn *ast.Func
+
 	// viewSlice is the slice about to be checked where a view may be: an
 	// argument to a view parameter, len's argument, or what another slice
 	// slices. A slice of an array or a view anywhere else is reported.
@@ -545,6 +550,9 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 // then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
 	c.body = fn.Body
+	outerFn := c.fn
+	c.fn = fn
+	defer func() { c.fn = outerFn }()
 	c.firstPasses(fn)
 	c.writesByDecl = make(map[ast.Decl][]funcWrite)
 	c.collectHolds(fn)
@@ -627,6 +635,10 @@ func (c *Checker) checkStmtAt(stmt ast.Stmt, fn *ast.Func) {
 func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
+		if q, ok := s.X.(*ast.Question); ok {
+			c.checkQuestion(q)
+			return
+		}
 		if onlyValue(s.X) {
 			c.unusedValue(s.X)
 			return
@@ -767,7 +779,8 @@ func (c *Checker) checkMultiTarget(
 // multiResults checks the value of a MultiVar or MultiAssign, which binds
 // want names as b says, and returns the type of each value it gives, in
 // order, and whether it gives exactly want of them. It must be a call to a
-// function with that many results, or a division, an index, a slice, a
+// function with that many results, a ? after a call with that many before
+// its error, or a division, an index, a slice, a
 // conversion or a type assertion, which gives two.
 // Any other value is reported as one error covering span, the whole
 // statement, unless it binds two names and holds a division, a remainder,
@@ -778,6 +791,9 @@ func (c *Checker) multiResults(
 	span ast.Span,
 	b binding,
 ) ([]types.Type, bool) {
+	if q, ok := value.(*ast.Question); ok {
+		return c.questionResults(q, want, span)
+	}
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return c.divisionResults(bin, want, span)
 	}
@@ -1336,6 +1352,11 @@ func (c *Checker) checkVar(v *ast.Var) {
 // no signatures yet. A global without a value takes its type's zero
 // value.
 func (c *Checker) checkGlobal(v *ast.Var) {
+	if v.Value != nil {
+		for _, q := range questionsIn(v.Value) {
+			c.errorf(q.Mark(), "cannot use ? outside a function")
+		}
+	}
 	if c.globalFuncValue(v) {
 		return
 	}

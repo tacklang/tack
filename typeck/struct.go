@@ -449,7 +449,11 @@ func (c *Checker) ensureGlobal(v *ast.Var, at ast.Span) {
 	c.globalState[v] = checking
 	c.initStack = append(c.initStack, v)
 	restore := c.enter(v)
+	// A global's value is in no function, whichever body needed it first.
+	outerFn := c.fn
+	c.fn = nil
 	c.checkGlobal(v)
+	c.fn = outerFn
 	restore()
 	c.initStack = c.initStack[:len(c.initStack)-1]
 	c.globalState[v] = checked

@@ -1,0 +1,64 @@
+nothing live at the start ok
+success ok
+the first ? returns ok
+the second ? returns ok
+a ? statement ok
+a ? statement returns ok
+a function returning an error alone ok
+an error alone, passed on ok
+two results bound by a ? ok
+three results, two left empty ok
+four calls deep ok
+the error unwrapped, four calls up ok
+recursion ok
+a ? in every frame, every defer run ok
+defers after a ? that passes ok
+defers reached before a ? that returns ok
+defers of every block left ok
+defers of every block, no ? ok
+the error computed before defers ok
+a defer reads a value a ? gave ok
+a defer after a failing ? never runs ok
+a list beside a ? that passes ok
+total freed ok
+a list made before a ? that returns ok
+a list freed by a ? ok
+an append refused, passed on by a ? ok
+a list beside a failed error freed by a ? ok
+a list in every pass ok
+a ? in a loop holding lists ok
+lists of a loop and its function freed by a ? ok
+a struct holding a list ok
+a struct's list made before a ? that returns ok
+a ? on a call taking what a ? gave ok
+a struct's list freed ok
+a list result left empty ok
+the empty list result holds no buffer ok
+an empty list result freed ok
+an own parameter ok
+an own parameter's function returns by a ? ok
+an own parameter freed by a ? ok
+a list a ? gave, moved into an argument ok
+a ? after a list argument returns ok
+a list argument made before a failing ? freed ok
+a list a ? gave, lent to an argument ok
+a ? after a lent list returns ok
+a lent list freed ok
+owned values freed ok
+arguments left to right ok
+no argument after the failing ? is made ok
+the first argument fails ok
+operands left to right ok
+the left operand made, the right not ok
+a ? on the right of && not evaluated ok
+a ? on the right of && returns ok
+a ? in a condition and a tag ok
+a ? in a loop ok
+a ? stops the loop at the first failure ok
+a range over what a ? gave ok
+a ? on a mut method and a plain one ok
+a mut method's ? returns ok
+a plain method's ? returns ok
+a ? on a function value parameter ok
+a ? on a local and an array element ok
+nothing live at the end ok

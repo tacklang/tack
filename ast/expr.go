@@ -690,9 +690,9 @@ func orUntyped(recorded, untyped types.Type) types.Type {
 
 // recordedType returns the type the type checker recorded on an operator
 // expression, a composite literal, an element, a slice, a field or a type
-// assertion, the type it asserts, the type of the place a mut argument
-// names or of the variable an own argument names, or Invalid for any
-// other expression.
+// assertion, the type it asserts, the one value a ? gives, the type of
+// the place a mut argument names or of the variable an own argument
+// names, or Invalid for any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -710,6 +710,8 @@ func recordedType(expr Expr) types.Type {
 	case *MutArg, *OwnArg:
 		return TypeOf(ArgOperand(e))
 	case *TypeAssert:
+		return e.Type
+	case *Question:
 		return e.Type
 	default:
 		return types.Invalid
@@ -1094,6 +1096,53 @@ func (s *Selector) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the start of X through the field
 // name.
 func (s *Selector) Spanned() Span { return s.Span }
+
+// Question is the postfix ? operator, X?, which passes X's error on. X
+// is the call, written in parentheses or not, the parser found before the
+// ?; the type checker reports any X that is not a call whose last result
+// is an error, or a ? outside a function whose last result is one. When
+// the call's error is set, its code not 0, the function holding the ?
+// returns it, unwrapped, as a return there would; otherwise the ? gives
+// the call's other results: one is its value, Type, none leave it a
+// statement, and several are bound together, a, b := f()?. Results gives
+// them all, whatever their count.
+type Question struct {
+	X    Expr
+	Span Span // the start of X through the ?
+
+	// Type is the type of the value X? gives, set by the type checker:
+	// the call's one result before its error, or Invalid when the call
+	// has no other result, or several.
+	Type types.Type
+
+	// Results are the call's results before its error, in order, set by
+	// the type checker, a generic callee's with its type arguments in
+	// place; nil until it has checked the ?, and when it gives none.
+	Results []types.Type `json:",omitempty"`
+}
+
+var _ Expr = (*Question)(nil)
+
+// exprKey marks Question as an Expr, sealing Expr to this package's types.
+func (q *Question) exprKey() exprKey { return _exprKey }
+
+// astNode marks Question as a Node, sealing Node to this package's types.
+func (q *Question) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the start of X through the ?.
+func (q *Question) Spanned() Span { return q.Span }
+
+// Mark returns where the ? itself is written, the last byte of its span.
+func (q *Question) Mark() Span {
+	return Span{File: q.Span.File, Start: q.Span.End - 1, End: q.Span.End}
+}
+
+// Questioned returns the call X? passes the error of, when X is one, or
+// nil.
+func Questioned(q *Question) *Call {
+	call, _ := q.X.(*Call)
+	return call
+}
 
 // KeyValue is an element of a composite literal written with a key,
 // Key: Value. In a struct literal the key is an *Ident naming a field,

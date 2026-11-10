@@ -1803,6 +1803,36 @@ place <!-- error: error-dropped-blank -->
 A function's error is its last
 result: <!-- error: error-not-last -->`error must be the last result of f`.
 
+The postfix `?` passes an error on without a variable to check:
+
+<!-- example: question -->
+
+```tack
+func sum(a string, b string) (int64, error) {
+    x := parse(a)?
+    y := parse(b)?
+    return x +% y, noerror
+}
+```
+
+`x` is read at once, with no check: `parse(a)?` gives a value only when
+`parse`'s error is no error, and returns from `sum` otherwise, so no
+error holds `x`. The other results `sum` returns beside that error are
+empty values, a list with no buffer, a function value that is a null
+pointer, a union holding its first case's empty payload. No caller can
+read them, since every caller reads a result beside an error only where
+the facts prove its code 0, and the error a `?` returns has a code that
+is not 0; `return v, err` passes them on unread. A failing `?` frees
+what the function holds as a return does, the list its call returned
+beside the error included, and a value an operand before it made for
+the expression, a list on its way to an `own` parameter, so a `?` leaks
+nothing and frees nothing twice. It is written only where it can
+return:
+<!-- error: question-in-main -->`cannot use ? in main, which returns no error`,
+<!-- error: question-in-defer -->`cannot return from a defer with ?`,
+and only on a call whose last result is an error, never on an error
+already stored, <!-- error: question-on-stored-err -->`cannot use ? on err, which is not a call`.
+
 ## Lists
 
 A list, `list[T]`, owns memory: its buffer, which its allocator gives
@@ -2390,6 +2420,9 @@ prove each fact from the facts in force there, under every rule of
 <!-- error: ensures-unproven -->`f ensures d != 0, which may not hold at this return`
 and
 <!-- error: ensures-unproven -->`f ensures d != 0, which may not hold at the end of its body`.
+A `?` returns too, when its call's error is set, so the facts must hold
+at each one, with the call's own writes counted:
+<!-- error: question-contract -->`f ensures n > 0, which may not hold at this ?`.
 A branch ending in `exit` leaves, as it does for every fact, so `if d ==
 0 { exit(1) }` proves `d != 0` where the function returns. Code after a statement that leaves its block, or ends in
 `exit`, never

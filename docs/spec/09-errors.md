@@ -6,7 +6,8 @@ last among several results, the rule that an error must be checked
 before the values beside it are used and may not be dropped, what drops
 one (`_` where it goes, and a variable holding it that is never read,
 which is reported as a drop, not as an unused name), checking it in
-`if`, `switch` and loops, propagation, comparing two errors with `==`
+`if`, `switch` and loops, propagation, by a return or the postfix `?`,
+comparing two errors with `==`
 and `!=`, sentinel errors, and errors in fields and arrays. The `error`
 type's place among the types belongs in [Types](04-types.md); the other
 unused-name rules belong in [Declarations and
@@ -242,6 +243,79 @@ func main() {
         exit(7)
     }
 }
+```
+
+The postfix `?` propagates without the check written out: `x :=
+parse(s)?` returns `parse`'s error from the function it is in when the
+error is set, unwrapped, and gives `parse`'s other result when it is
+not ([Expressions](06-expressions.md#the--operator)). It applies only to
+a call, whose last result is an error, in a function whose last result
+is one, outside deferred code. The values it gives come with no error,
+so no variable holds them and none needs checking: `x` is read at once.
+A call returning an error alone takes one as a statement, `check(n)?`;
+one with several results before its error is bound whole, `q, r :=
+divide(a, b)?`. When it returns, the function's other results are left
+empty, as no caller can read them beside a set error, and everything
+the function holds is freed as at any return, the list the call
+returned beside its error among it. A contract's facts must hold at
+every `?`, as at every return: `f ensures n > 0, which may not hold at
+this ?`.
+
+```tack run exit=1
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+func positive(n int64) error {
+    if n <= 0 {
+        return error{code: 2, msg: "not positive"}
+    }
+    return noerror
+}
+
+func double(s string) (int64, error) {
+    n := parse(s)?
+    positive(n)?
+    return n *% 2, noerror
+}
+
+func main() {
+    v, err := double("x")
+    if err.code != 0 || v != 14 {
+        exit(9)
+    }
+    _, e := double("")
+    exit(e.code)
+}
+```
+
+A `?` in a function that returns no error has nothing to return it as:
+
+```tack error
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+func main() {
+    v := parse("x")?
+    if v > 0 {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:11:20: error: cannot use ? in main, which returns no error
 ```
 
 ## Sentinel errors

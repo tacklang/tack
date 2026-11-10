@@ -202,6 +202,11 @@ type generator struct {
 
 	// deferring is whether a deferred body is being lowered; see defer.go.
 	deferring bool
+
+	// pending holds the owned values the expression being rendered has
+	// made and not yet given to what takes them, which a ? that returns
+	// frees (see question.go).
+	pending []pendingFree
 }
 
 // generate lowers the program to its C translation unit. It first rejects
@@ -1285,6 +1290,8 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 	}
 
 	values := make([]string, len(ret.Values))
+	guard := g.guardOwned(ret.Values)
+	defer guard.done()
 	for i, v := range ret.Values {
 		var (
 			value string
@@ -1298,7 +1305,7 @@ func (g *generator) returnValue(ret *ast.Return, fn *ast.Func) (string, []diag.D
 		if len(diags) > 0 {
 			return "", diags
 		}
-		values[i] = value
+		values[i] = guard.hold(i, value)
 	}
 
 	if len(values) == 1 {
@@ -2037,6 +2044,9 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 // (see dropReplace); or an expression that only gives a value, which the
 // type checker warns about (see droppedValue).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
+	if q, ok := stmt.X.(*ast.Question); ok {
+		return g.questionStmt(q)
+	}
 	if onlyValue(stmt.X) {
 		return g.droppedValue(stmt.X)
 	}
@@ -2291,12 +2301,15 @@ func (t multiTemp) decl(qual, name string) string {
 
 // multiValues lowers the source of a MultiVar or MultiAssign: a call to a
 // function with several results, held as its results struct and read field
-// by field; a conversion that can fail, held as the value converted and
+// by field, or a ? after one (see questionValues); a conversion that can fail, held as the value converted and
 // read as the converted value, or 0 when it does not fit, and whether it
 // fit; a division, held as its two operands and read as
 // the result, or 0 when the divisor is zero, and whether it was not; an
 // index or a slice; or a type assertion (see assertValues).
 func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic) {
+	if q, ok := value.(*ast.Question); ok {
+		return g.questionValues(q)
+	}
 	if bin, ok := value.(*ast.Binary); ok && (bin.Op == ast.Div || bin.Op == ast.Rem) {
 		return g.divisionValues(bin)
 	}
@@ -2874,6 +2887,9 @@ func (g *generator) exprNode(e ast.Expr) (string, []diag.Diagnostic) {
 		return g.selectorExpr(x)
 	case *ast.MutArg, *ast.OwnArg:
 		return g.argument(x)
+	case *ast.Question:
+		x2, _, diags := g.questionExpr(x, true)
+		return x2, diags
 	default:
 		return "", []diag.Diagnostic{{
 			Severity: diag.Error,

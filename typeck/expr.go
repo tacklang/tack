@@ -43,6 +43,8 @@ func (c *Checker) exprAt(e ast.Expr) types.Type {
 	case *ast.Unary:
 		x.Type = c.unary(x)
 		return x.Type
+	case *ast.Question:
+		return c.question(x)
 	default:
 		return c.compositeExpr(e)
 	}

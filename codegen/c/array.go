@@ -82,12 +82,14 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 		return fmt.Sprintf("(%s){}", g.arrayName(lit.Type)), nil
 	}
 	elems := make([]string, len(lit.Elems))
+	guard := g.guardOwned(lit.Elems)
+	defer guard.done()
 	for i, e := range lit.Elems {
 		v, diags := g.expr(e, types.Invalid)
 		if len(diags) > 0 {
 			return "", diags
 		}
-		elems[i] = v
+		elems[i] = guard.hold(i, v)
 	}
 	return g.sequencedLit(lit.Elems, elems, func(ops []string) string {
 		return fmt.Sprintf("(%s){{%s}}", g.arrayName(lit.Type), strings.Join(ops, ", "))

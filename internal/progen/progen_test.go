@@ -146,6 +146,7 @@ func TestFeatureCoverage(t *testing.T) {
 		"iface generic": `\]\(x T\)`, "array slice": `[a-z][0-9]+\[[0-9]+:[0-9]+\]`,
 		"string order": `[a-z][0-9]+ (<|<=|>|>=) "`, "has proof": `if has\(`,
 		"index proof": `0 <= [a-z][0-9]+ && `, "unreachable": `\n *unreachable\n`,
+		"question": `\)\?`, "question value": `\)\?[ )]`,
 	} {
 		marks[name] = regexp.MustCompile(re)
 	}

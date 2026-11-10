@@ -293,6 +293,13 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 	values := make([]ast.Expr, len(lit.Elems))
 	fields := make([]string, len(lit.Elems))
 	for i, e := range lit.Elems {
+		if kv, isKV := e.(*ast.KeyValue); isKV {
+			values[i] = kv.Value
+		}
+	}
+	guard := g.guardOwned(values)
+	defer guard.done()
+	for i, e := range lit.Elems {
 		kv, isKV := e.(*ast.KeyValue)
 		key, isName := keyName(kv, isKV)
 		if !isName {
@@ -306,7 +313,7 @@ func (g *generator) structLit(lit *ast.CompositeLit) (string, []diag.Diagnostic)
 		if len(diags) > 0 {
 			return "", diags
 		}
-		values[i], fields[i], inits[i] = kv.Value, memberName(lit.Type, key.Name), v
+		values[i], fields[i], inits[i] = kv.Value, memberName(lit.Type, key.Name), guard.hold(i, v)
 	}
 	return g.sequencedLit(values, inits, func(ops []string) string {
 		for i, v := range ops {

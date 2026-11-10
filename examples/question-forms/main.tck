@@ -1,0 +1,260 @@
+package main
+
+// Forms of the postfix ? the rulings on it name. Each function here holds
+// one form, and its comment says which ruling it follows: ? on the
+// builtins that return an error, a ? statement that leaves
+// a copyable value unused, the value a ? gives used at once as a
+// receiver, a struct or an array, the empty result of a type with no zero
+// value, ? in and on a generic function, and ? in a three-clause loop's
+// clauses.
+//
+// Every check that makes a list or a map runs in a function of its own,
+// and main asserts after it that c_allocator's count of live buffers is
+// back to zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("qforms_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("qforms_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// bad is the error fallible fails with.
+var bad = error{code: 7, msg: "bad"}
+
+// fallible gives n, or bad when n is negative.
+func fallible(n int64) (int64, error) {
+    if n < 0 {
+        return 0, bad
+    }
+    return n, noerror
+}
+
+// Ruled: a ? applies to a call whose last result is an error, the
+// builtins append, reserve and put among them, as to a function.
+func builtins(n int64) (int64, error) {
+    mut l := make(list[int64], c_allocator)
+    reserve(mut l, 2)?
+    for i := range n {
+        append(mut l, i)?
+    }
+    mut m := make(map[int64]int64, c_allocator)
+    put(mut m, 1, len(l))?
+    return len(l), noerror
+}
+
+// Ruled: a ? statement may drop a copyable result, under a call
+// statement's rules; a list or an owned value still cannot be dropped.
+func discard(n int64) error {
+    fallible(n)?
+    return noerror
+}
+
+// Pair is two numbers.
+type Pair struct {
+    a int64
+    b int64
+}
+
+// Box holds a number, with a method that fails.
+type Box struct {
+    n int64
+}
+
+// get gives b.n, or bad when it is negative.
+func (b Box) get() (int64, error) {
+    return fallible(b.n)?, noerror
+}
+
+// pair gives a Pair of n and n + 1, or bad when n is negative.
+func pair(n int64) (Pair, error) {
+    v := fallible(n)?
+    return Pair{a: v, b: v +% 1}, noerror
+}
+
+// triple gives an array of n, n + 1 and n + 2, or bad when n is negative.
+func triple(n int64) ([3]int64, error) {
+    v := fallible(n)?
+    return [3]int64{v, v +% 1, v +% 2}, noerror
+}
+
+// box gives a Box of n, or bad when n is negative.
+func box(n int64) (Box, error) {
+    v := fallible(n)?
+    return Box{n: v}, noerror
+}
+
+// Ruled: ? binds at selector, index and call precedence, so f()?.a,
+// f()?[i] and the chain f()?.m()? apply to the value the ? gave; (f())?
+// and f() ? are f()? too.
+func postfix(n int64) (int64, error) {
+    return pair(n)?.b +% triple(n)?[2] +% box(n)?.get()?, noerror
+}
+
+// Shape is a union holding a list in one of its cases.
+type Shape union {
+    dot
+    path list[int64]
+}
+
+// Ruled: the other results a failing ? leaves have an empty
+// representation that is never observable unsafely: a union's owns no
+// buffer.
+func shape(n int64) (Shape, error) {
+    mut l := make(list[int64], c_allocator)
+    if append(mut l, 1, 2, 3).code != 0 {
+        return Shape.dot, error{code: 1, msg: "out of memory"}
+    }
+    fallible(n)?
+    return Shape.path(l), noerror
+}
+
+// double gives twice x.
+func double(x int64) int64 {
+    return x *% 2
+}
+
+// Ruled: a function value a failing ? leaves empty is never called, as
+// no caller reads it beside a set error.
+func pick(n int64) (func(int64) int64, error) {
+    fallible(n)?
+    return double, noerror
+}
+
+// Ruled: a map a failing ? leaves empty holds no buffer.
+func table(n int64) (map[int64]int64, error) {
+    mut m := make(map[int64]int64, c_allocator)
+    put(mut m, 1, 2)?
+    fallible(n)?
+    return m, noerror
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// Ruled: a ? applies to any call whose last result is an error, in any
+// function whose last result is one, a generic function and a call of
+// one included.
+func firstOr[T Any](l list[T], n int64) (int64, error) {
+    v := fallible(n)?
+    return v +% len(l), noerror
+}
+
+// generic calls firstOr with a ?.
+func generic(n int64) (int64, error) {
+    mut l := make(list[int64], c_allocator)
+    if append(mut l, 5).code != 0 {
+        return 0, error{code: 1, msg: "out of memory"}
+    }
+    return firstOr(l, n)?, noerror
+}
+
+// Ruled: a ? may be nested in any expression, a three-clause loop's
+// condition among them, and a ? on a call may be its init and post
+// statements, as a call may.
+func clauses(start int64, limit int64) (int64, error) {
+    mut t int64 = 0
+    for mut i := fallible(start)?; i < fallible(limit)?; i +%= fallible(1)? {
+        t +%= i
+    }
+    return t, noerror
+}
+
+// testBuiltins checks a ? on append, reserve and put, passing and
+// refused by the allocator.
+func testBuiltins() {
+    n, err := builtins(5)
+    if err.code == 0 {
+        check(n == 5, "a ? on the builtins")
+    } else {
+        check(false, "a ? on the builtins")
+    }
+    freed("builtins freed")
+    fail_after(1)
+    _, e := builtins(5)
+    fail_after(-1)
+    check(e.code == 1, "a builtin's refusal returned by a ?")
+    freed("a refused builtin's list freed")
+}
+
+// testResults checks the results a failing ? leaves empty hold nothing.
+func testResults() {
+    s, errS := shape(-1)
+    if errS.code == 0 {
+        check(false, "a union left empty")
+    } else {
+        check(errS == bad && live() == 0, "a union left empty")
+    }
+    if errS.code == 0 {
+        switch s {
+        case dot:
+            check(false, "the empty union read")
+        case path(l):
+            check(len(l) == 3, "the empty union read")
+        }
+    }
+    f, errF := pick(-1)
+    g, errG := pick(2)
+    if errG.code == 0 {
+        check(g(4) == 8 && errF == bad, "a function value left empty")
+    } else {
+        check(false, "a function value left empty")
+    }
+    if errF.code == 0 {
+        check(f(1) == 2, "the empty function value")
+    }
+    m, errM := table(-1)
+    if errM.code == 0 {
+        check(len(m) < 0, "a map left empty")
+    } else {
+        check(errM == bad && live() == 0, "a map left empty")
+    }
+}
+
+func main() {
+    freed("nothing live at the start")
+    testBuiltins()
+    check(discard(1) == noerror && discard(-1) == bad, "a ? statement leaves a value unused")
+    p, errP := postfix(1)
+    _, eP := postfix(-1)
+    if errP.code == 0 {
+        check(p == 2 + 3 + 1 && eP == bad, "a ? before a selector, an index and a method")
+    } else {
+        check(false, "a ? before a selector, an index and a method")
+    }
+    testResults()
+    freed("empty results freed")
+    v, errV := generic(3)
+    _, eV := generic(-3)
+    if errV.code == 0 {
+        check(v == 4 && eV == bad, "a ? in and on a generic function")
+    } else {
+        check(false, "a ? in and on a generic function")
+    }
+    freed("generic freed")
+    c, errC := clauses(1, 4)
+    _, eC1 := clauses(-1, 4)
+    _, eC2 := clauses(1, -4)
+    if errC.code == 0 {
+        check(c == 6 && eC1 == bad && eC2 == bad, "a ? in a loop's clauses")
+    } else {
+        check(false, "a ? in a loop's clauses")
+    }
+    freed("nothing live at the end")
+}

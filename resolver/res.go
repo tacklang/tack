@@ -1258,7 +1258,7 @@ func (r *pkgResolver) resolveSimpleStmt(stmt ast.Stmt, sc *scope) []diag.Diagnos
 
 // resolveExpr binds a call's callee to its declaration and an identifier to
 // the parameter or variable it names, marking a variable as read, recursing so that a call nested in an argument is
-// bound like any other.
+// bound like any other, a call a ? follows among them.
 func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 	switch x := e.(type) {
 	case *ast.Call:
@@ -1267,6 +1267,8 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return append(r.resolveExpr(x.X, sc), r.resolveExpr(x.Y, sc)...)
 	case *ast.Unary, *ast.MutArg, *ast.OwnArg, *ast.Selector:
 		return r.resolveOperand(x, sc)
+	case *ast.Question:
+		return r.resolveExpr(x.X, sc)
 	case *ast.Ident:
 		return r.resolveIdent(x, sc)
 	case *ast.Index, *ast.Slice:

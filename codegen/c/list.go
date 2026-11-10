@@ -235,7 +235,9 @@ func (g *generator) appendOperands(
 	}
 	rendered, ctypes := []string{place}, []string{g.operandType(m)}
 	elem := g.prog.Types.Elem(ast.TypeOf(m.X))
-	for _, arg := range call.Args[1:] {
+	guard := g.guardOwned(call.Args)
+	defer guard.done()
+	for i, arg := range call.Args[1:] {
 		var v, ctype string
 		if call.Spread {
 			view := g.prog.Types.View(elem)
@@ -248,7 +250,7 @@ func (g *generator) appendOperands(
 		if len(diags) > 0 {
 			return nil, nil, diags
 		}
-		rendered, ctypes = append(rendered, v), append(ctypes, ctype)
+		rendered, ctypes = append(rendered, guard.hold(i+1, v)), append(ctypes, ctype)
 	}
 	return rendered, ctypes, nil
 }

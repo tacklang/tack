@@ -28,9 +28,14 @@
 //
 // Semicolons are inserted automatically, following Go's rule: at a newline,
 // before a comment, and at the end of input, a Semi token is added if the
-// preceding token is an identifier, a literal, ++ or --, a closing bracket, or
-// one of the keywords break, continue, return, unreachable, true, false,
-// noerror and c_allocator. An inserted Semi covers no bytes. The token stream always ends with an EOF token.
+// preceding token is an identifier, a literal, ++ or --, the postfix ?, a
+// closing bracket, or one of the keywords break, continue, return,
+// unreachable, true, false, noerror and c_allocator, so a line may end
+// in f()?. An inserted Semi covers no bytes. The token stream always ends
+// with an EOF token.
+//
+// ? is a token of its own, Question, the postfix operator that passes a
+// call's error on; it starts no longer token.
 //
 // Each token records whether it starts a line, no token before it on its
 // line (Token.StartsLine), which the parser's error recovery uses to find

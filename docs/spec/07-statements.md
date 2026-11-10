@@ -56,6 +56,35 @@ a list and cannot be dropped; bind it to a variable`, `make` among them.
 A call returning a view, as a statement, makes the call and drops the
 view.
 
+A call with a `?` after it may stand alone too, `check(n)?`, passing
+the call's error on ([Expressions](06-expressions.md#the--operator)).
+It drops what the `?` gives under the same rules: nothing, for a call
+returning an error alone, or the call's other results, which a value
+holding a list or a map cannot be, `numbers()? gives list[int64], which
+cannot be dropped; bind it to a variable`. A `mut` receiver is written
+as for any call, `mut c.bump(n)?`.
+
+A call, or a `?` on one, may be written in parentheses as a statement,
+and as a loop's init or post statement: `(f())`, `(check(n))?`,
+`(check(n)?)` and `for check(n)?; i < 3; (check(i))? { ... }`.
+Parentheses group and change nothing else. A statement starting with a
+parenthesis that is anything else, `(x)`, `(a + b)` or `(x)?`, is
+`expected 'statement' found '('`, as is any expression that is no call:
+
+```tack error
+package main
+
+func main() {
+    x := 1
+    (x)
+    exit(0)
+}
+```
+
+```diagnostics
+main.tck:5:5: error: expected 'statement' found '('
+```
+
 A call that only gives a value, a conversion, `len`, or a union's
 construction with a payload, is warned of, `int8(5) is not used`,
 `len(s) is not used` or `Expr.int(5) is not used`, even when an
@@ -200,7 +229,10 @@ q, r = divmod(7, 2)
 The order in which the targets are stored is not yet specified.
 
 The value is exactly one call, with exactly as many results as there
-are names: `assignment mismatch: 2 variables but one returns 1 value`.
+are names: `assignment mismatch: 2 variables but one returns 1 value`;
+or a call with a `?` after it, with as many results before its error,
+`q, r := divide(a, b)?`, which binds no error: `v, err := parse(s)?` is
+`assignment mismatch: 2 variables but parse(s)? gives 1 value`.
 `_` discards the result in its position ([Declarations and
 scope](05-declarations.md)), and a binding whose every name is `_` is an
 error. A checked form, `v, ok := a[i]`, is bound with the same
@@ -660,7 +692,10 @@ whole, `return two()`.
 The values are evaluated left to right, then the function's pending
 defers run ([Defer statements](#defer-statements)), then it returns. So
 a defer that changes a variable named in `return x` does not change
-what is returned. A `return` in deferred code is an error.
+what is returned. A `return` in deferred code is an error. A `?` whose
+call's error is set returns from the function the same way, its error
+computed before the defers run
+([Expressions](06-expressions.md#the--operator)).
 
 ## Unreachable statements
 
@@ -752,7 +787,7 @@ is evaluated when it runs, not when the defer is reached: it reads every
 variable as it is then. It sees the names declared before the `defer`,
 not those after it. The block may hold anything but a way out of it or
 another defer: a `return` anywhere in deferred code is `cannot return
-from a defer`, a `break` or `continue` aimed at a loop outside it is
+from a defer`, a `?` `cannot return from a defer with ?`, a `break` or `continue` aimed at a loop outside it is
 `cannot break out of a defer` or `cannot continue out of a defer`, and a
 `defer` at any depth in it is `cannot defer inside a defer`, of which
 only the outermost is reported. A loop inside the block
@@ -817,7 +852,8 @@ A function that declares a result must end in a terminating statement,
 or it is an error, `sign must end in a return`. The rule is syntactic: a
 call to a function that never returns, one that calls `exit` included,
 does not satisfy it, and neither does a `for` with a condition that is
-always true. A function with no result may fall off the end of its body,
+always true, nor a statement with a `?`, which returns only when its
+call fails. A function with no result may fall off the end of its body,
 which returns.
 
 ```tack run exit=7

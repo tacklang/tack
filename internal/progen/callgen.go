@@ -95,11 +95,13 @@ func (tg target) plain() bool {
 }
 
 // callExpr returns a call, as a value of t, of a target that can be an
-// expression.
+// expression: a plain one, or, in a function that returns an error,
+// outside deferred code, one that returns an error with a ? after it
+// (see question).
 func (g *Gen) callExpr(t *Type, d int) (Expr, bool) {
 	tgs := g.targets(func(tg target) bool {
 		r := tg.result()
-		return tg.plain() && r != nil && returnsAs(r, t)
+		return (tg.plain() || g.canQuestion() && tg.questionable()) && r != nil && returnsAs(r, t)
 	})
 	if len(tgs) == 0 {
 		return Expr{}, false
@@ -109,10 +111,49 @@ func (g *Gen) callExpr(t *Type, d int) (Expr, bool) {
 	if !ok {
 		return Expr{}, false
 	}
+	if tg.fn != nil && tg.fn.ErrResult {
+		return question(text, tg.result(), eval), true
+	}
 	return Expr{Text: text, T: tg.result(), Eval: func(f *frame) Value {
 		r, _ := eval(f)
 		return r
 	}}, true
+}
+
+// canQuestion reports whether a ? may be written where generation is: in
+// a function that returns an error, outside deferred code, which cannot
+// return.
+func (g *Gen) canQuestion() bool {
+	return g.fn != nil && g.fn.ErrResult && !g.inDefer
+}
+
+// questionable reports whether a call of tg can be an expression with a
+// ? after it: it returns an error after its one result, and takes nothing
+// as mut or own, nor has a mut receiver, as a plain call does.
+func (tg target) questionable() bool {
+	if tg.fv != nil || !tg.fn.ErrResult || tg.recv != nil && tg.fn.Recv.Mut {
+		return false
+	}
+	for _, p := range tg.fn.Params {
+		if p.Mut || p.Own {
+			return false
+		}
+	}
+	return true
+}
+
+// question returns text, a call that eval runs, giving a result of type
+// t and an error, with a ? after it: its value is the result when the
+// error's code is 0, and otherwise the interpreter returns the error
+// from the function running it, unwrapped (see questionExit).
+func question(text string, t *Type, eval func(*frame) (Value, Value)) Expr {
+	return Expr{Text: text + "?", T: t, Eval: func(f *frame) Value {
+		r, err := eval(f)
+		if err.Bits != 0 {
+			panic(questionExit{err: err})
+		}
+		return r
+	}}
 }
 
 // returnsAs reports whether a result of type r can be used as a t.
@@ -354,7 +395,8 @@ func funcType(fn *Func) *Type {
 
 // callStmt calls a target as a statement: one that gives no value, or one
 // that takes something as mut or own, has a mut receiver or returns an
-// error, whose results are observed.
+// error, whose results are observed, or, in a function that returns an
+// error, passed on with a ? (see questionStmt).
 func (g *Gen) callStmt() Stmt {
 	tgs := g.targets(func(tg target) bool { return !tg.plain() || tg.result() == nil })
 	if len(tgs) == 0 {
@@ -366,6 +408,8 @@ func (g *Gen) callStmt() Stmt {
 		return g.obsStmt()
 	}
 	switch {
+	case tg.fn != nil && tg.fn.ErrResult && g.canQuestion() && g.pick(2) == 0:
+		return g.questionStmt(tg.fn.Result, text, eval)
 	case tg.fn != nil && tg.fn.ErrResult:
 		return g.errCall(tg.fn.Result, text, eval)
 	case tg.result() != nil:
@@ -402,6 +446,20 @@ func (g *Gen) errCall(t *Type, text string, eval func(*frame) (Value, Value)) St
 	read := Expr{Text: v.Name, T: t, Eval: func(f *frame) Value { return f.get(v) }}
 	check := ifOf(cond, []Stmt{g.observe(code)}, []Stmt{g.observe(read)}, true)
 	return seq([]Stmt{bind, check})
+}
+
+// questionStmt returns v := call?, or now and then call? alone, which
+// drops the result, of a function returning a result of type t and an
+// error, in a function that returns an error: the ? returns the call's
+// error when it is set.
+func (g *Gen) questionStmt(t *Type, text string, eval func(*frame) (Value, Value)) Stmt {
+	q := question(text, t, eval)
+	if g.pick(3) == 0 {
+		return simple(func(f *frame) { q.Eval(f) }, q.Text)
+	}
+	v := &Var{Name: g.name("q"), T: t}
+	g.declare(v)
+	return simple(func(f *frame) { f.set(v, q.Eval(f)) }, v.Name+" := "+q.Text)
 }
 
 // errReturn returns from a function returning an error with a failure:

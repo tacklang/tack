@@ -36405,6 +36405,1261 @@ proof-ends-on-back-edge/main.tck:7:22: note: but l is passed as mut to pop here,
    |	                     ^~~~~
 08 |	            if x > 0 {
 
+-- question-alone/main.tck --
+package main
+
+// A ? with nothing before it is malformed.
+func f() error {
+    ?
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-alone/expected --
+stage: parse
+---
+
+question-alone/main.tck:5:5: error: expected 'statement' found '?'
+04 |	func f() error {
+05 |	    ?
+   |	    ^
+06 |	    return noerror
+
+-- question-binds-error/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// f(...)? gives parse's int64 alone; its error is not a result to bind.
+func f() (int64, error) {
+    v, err := parse("x")?
+    return v, err
+}
+
+func main() {
+    v, err := f()
+    if err.code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-binds-error/expected --
+stage: typeck
+---
+
+question-binds-error/main.tck:12:5: error: assignment mismatch: 2 variables but parse("x")? gives 1 value
+11 |	func f() (int64, error) {
+12 |	    v, err := parse("x")?
+   |	    ^~~~~~~~~~~~~~~~~~~~~
+13 |	    return v, err
+
+-- question-binds-nothing/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// check(n)? gives no value, so there is nothing to bind two names to.
+func f(n int64) error {
+    a, b := check(n)?
+    if a == b {
+        return noerror
+    }
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-binds-nothing/expected --
+stage: typeck
+---
+
+question-binds-nothing/main.tck:12:5: error: assignment mismatch: 2 variables but check(n)? gives no value
+11 |	func f(n int64) error {
+12 |	    a, b := check(n)?
+   |	    ^~~~~~~~~~~~~~~~~
+13 |	    if a == b {
+
+-- question-blank-list/main.tck --
+package main
+
+func numbers() (list[int64], int64, error) {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return l, 0, err
+    }
+    return l, 1, noerror
+}
+
+// _ cannot take the list numbers()? gives, which cannot be dropped, as it
+// cannot take a call's.
+func f() (int64, error) {
+    _, n := numbers()?
+    return n, noerror
+}
+
+func main() {
+    n, err := f()
+    if err.code == 0 {
+        if n > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-blank-list/expected --
+stage: typeck
+---
+
+question-blank-list/main.tck:15:5: error: numbers()? gives list[int64], which cannot be dropped; bind it to a variable instead of _
+14 |	func f() (int64, error) {
+15 |	    _, n := numbers()?
+   |	    ^
+16 |	    return n, noerror
+
+-- question-callee-last-not-error/main.tck --
+package main
+
+func lookup(k int64) (int64, bool) {
+    return k, k > 0
+}
+
+// ? needs a call whose last result is error; lookup's is bool.
+func f() (int64, error) {
+    v := lookup(1)?
+    return v, noerror
+}
+
+func main() {
+    v, err := f()
+    if err.code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-callee-last-not-error/expected --
+stage: typeck
+---
+
+question-callee-last-not-error/main.tck:9:19: error: cannot use ? on a call to lookup, whose last result is bool, not error
+08 |	func f() (int64, error) {
+09 |	    v := lookup(1)?
+   |	                  ^
+10 |	    return v, noerror
+
+-- question-callee-no-results/main.tck --
+package main
+
+func nothing() {
+}
+
+// ? needs a call whose last result is error; nothing has no result.
+func f() error {
+    nothing()?
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-callee-no-results/expected --
+stage: typeck
+---
+
+question-callee-no-results/main.tck:8:14: error: cannot use ? on a call to nothing, which returns no error
+07 |	func f() error {
+08 |	    nothing()?
+   |	             ^
+09 |	    return noerror
+
+-- question-contract/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// A ? returns from f, so what f ensures must hold at it, as at a return:
+// n is not yet 1 there.
+func f(mut n int64) error ensures n > 0 {
+    check(n)?
+    n = 1
+    return noerror
+}
+
+func main() {
+    mut n int64 = 0
+    err := f(mut n)
+    exit(err.code)
+}
+-- question-contract/expected --
+stage: typeck
+---
+
+question-contract/main.tck:13:13: error: f ensures n > 0, which may not hold at this ?
+12 |	func f(mut n int64) error ensures n > 0 {
+13 |	    check(n)?
+   |	            ^
+14 |	    n = 1
+question-contract/main.tck:12:35: note: ensured here
+11 |	// n is not yet 1 there.
+12 |	func f(mut n int64) error ensures n > 0 {
+   |	                                  ^~~~~
+13 |	    check(n)?
+
+-- question-error-alone-as-value/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// check(n)? leaves no value, so it is a statement, never a value.
+func f(n int64) error {
+    x := check(n)?
+    return x
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-error-alone-as-value/expected --
+stage: typeck
+---
+
+question-error-alone-as-value/main.tck:12:10: error: check(n)? gives no value
+11 |	func f(n int64) error {
+12 |	    x := check(n)?
+   |	         ^~~~~~~~~
+13 |	    return x
+
+-- question-error-array-result/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// f's last result is an array of errors, an ordinary value, not error.
+func f() (int64, [1]error) {
+    v := parse("x")?
+    return v, [1]error{noerror}
+}
+
+func main() {
+    v, errs := f()
+    if errs[0].code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-error-array-result/expected --
+stage: typeck
+---
+
+question-error-array-result/main.tck:12:20: error: cannot use ? in f, whose last result is [1]error, not error
+11 |	func f() (int64, [1]error) {
+12 |	    v := parse("x")?
+   |	                   ^
+13 |	    return v, [1]error{noerror}
+
+-- question-error-not-last/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// f's error result is not last, which is an error of its own; the ?
+// inside it is reported too, since f's last result is not error.
+func f() (error, int64) {
+    v := parse("x")?
+    return noerror, v
+}
+
+func main() {
+}
+-- question-error-not-last/expected --
+stage: typeck
+---
+
+question-error-not-last/main.tck:12:11: error: error must be the last result of f
+11 |	// inside it is reported too, since f's last result is not error.
+12 |	func f() (error, int64) {
+   |	          ^~~~~
+13 |	    v := parse("x")?
+
+question-error-not-last/main.tck:13:20: error: cannot use ? in f, whose last result is int64, not error
+12 |	func f() (error, int64) {
+13 |	    v := parse("x")?
+   |	                   ^
+14 |	    return noerror, v
+
+-- question-field-statement/main.tck --
+package main
+
+type Pair struct {
+    a int64
+}
+
+func pair() (Pair, error) {
+    return Pair{a: 1}, noerror
+}
+
+// A field of what a ? gives is a value, not a statement.
+func f() error {
+    pair()?.a
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-field-statement/expected --
+stage: parse
+---
+
+question-field-statement/main.tck:13:5: error: expected 'statement' found 'pair'
+12 |	func f() error {
+13 |	    pair()?.a
+   |	    ^
+14 |	    return noerror
+
+-- question-for-init-not-call/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// A ? may be a loop's init statement, but only on a call, as anywhere:
+// err is a stored error.
+func f(n int64) error {
+    err := check(n)
+    for err?; n < 0; {
+        return noerror
+    }
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-for-init-not-call/expected --
+stage: typeck
+---
+
+question-for-init-not-call/main.tck:14:12: error: cannot use ? on err, which is not a call
+13 |	    err := check(n)
+14 |	    for err?; n < 0; {
+   |	           ^
+15 |	        return noerror
+
+-- question-in-defer/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// Ruled: a ? in deferred code is an error, as a return there is, since
+// it would return from inside a defer.
+func f(n int64) error {
+    defer {
+        check(n)?
+    }
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-in-defer/expected --
+stage: typeck
+---
+
+question-in-defer/main.tck:14:17: error: cannot return from a defer with ?
+13 |	    defer {
+14 |	        check(n)?
+   |	                ^
+15 |	    }
+
+-- question-in-global/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// A global's value is in no function, so there is nothing for ? to
+// return from. A call is no constant expression either, which is
+// reported already.
+var x = parse("x")?
+
+func main() {
+    if x > 0 {
+        exit(1)
+    }
+}
+-- question-in-global/expected --
+stage: typeck
+---
+
+question-in-global/main.tck:13:9: error: x must be initialized with a constant expression
+12 |	// reported already.
+13 |	var x = parse("x")?
+   |	        ^~~~~~~~~~~
+14 |	
+
+question-in-global/main.tck:13:19: error: cannot use ? outside a function
+12 |	// reported already.
+13 |	var x = parse("x")?
+   |	                  ^
+14 |	
+
+-- question-in-main/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// main returns nothing, so it has no error to return.
+func main() {
+    v := parse("x")?
+    if v > 0 {
+        exit(1)
+    }
+}
+-- question-in-main/expected --
+stage: typeck
+---
+
+question-in-main/main.tck:12:20: error: cannot use ? in main, which returns no error
+11 |	func main() {
+12 |	    v := parse("x")?
+   |	                   ^
+13 |	    if v > 0 {
+
+-- question-in-main-nested/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// A ? deep in main's blocks is still in main.
+func main() {
+    for i := range 2 {
+        if i > 0 {
+            if parse("x")? > 0 {
+                exit(1)
+            }
+        }
+    }
+}
+-- question-in-main-nested/expected --
+stage: typeck
+---
+
+question-in-main-nested/main.tck:14:26: error: cannot use ? in main, which returns no error
+13 |	        if i > 0 {
+14 |	            if parse("x")? > 0 {
+   |	                         ^
+15 |	                exit(1)
+
+-- question-list-dropped/main.tck --
+package main
+
+func numbers() (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return l, err
+    }
+    return l, noerror
+}
+
+// numbers()? as a statement would drop the list it gives, which cannot
+// be dropped, as a call statement returning a list cannot.
+func f() error {
+    numbers()?
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-list-dropped/expected --
+stage: typeck
+---
+
+question-list-dropped/main.tck:15:5: error: numbers()? gives list[int64], which cannot be dropped; bind it to a variable
+14 |	func f() error {
+15 |	    numbers()?
+   |	    ^~~~~~~~~~
+16 |	    return noerror
+
+-- question-mut-receiver/main.tck --
+package main
+
+type Counter struct {
+    n int64
+}
+
+func (mut c Counter) bump(by int64) error {
+    if by <= 0 {
+        return error{code: 4, msg: "not positive"}
+    }
+    c.n = by
+    return noerror
+}
+
+// A ? does not change how a mut receiver is passed: mut c.bump(1)?.
+func f(mut c Counter) error {
+    c.bump(1)?
+    return noerror
+}
+
+func main() {
+    mut c := Counter{n: 0}
+    err := f(mut c)
+    exit(err.code)
+}
+-- question-mut-receiver/expected --
+stage: typeck
+---
+
+question-mut-receiver/main.tck:17:5: error: Counter.bump takes its receiver as mut; call mut c.bump(1)
+16 |	func f(mut c Counter) error {
+17 |	    c.bump(1)?
+   |	    ^
+18 |	    return noerror
+
+-- question-next-line/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// A line ends the call before it, so a ? on the next line follows
+// nothing.
+func f(n int64) error {
+    check(n)
+    ?
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-next-line/expected --
+stage: parse+typeck
+---
+
+question-next-line/main.tck:13:5: error: the error check returns cannot be dropped; bind it, as in err := check(...)
+12 |	func f(n int64) error {
+13 |	    check(n)
+   |	    ^~~~~~~~
+14 |	    ?
+
+question-next-line/main.tck:14:5: error: expected 'statement' found '?'
+13 |	    check(n)
+14 |	    ?
+   |	    ^
+15 |	    return noerror
+
+-- question-no-error-result/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// f returns an int64 alone, so it has no error to return.
+func f() int64 {
+    return parse("x")?
+}
+
+func main() {
+    if f() > 0 {
+        exit(1)
+    }
+}
+-- question-no-error-result/expected --
+stage: typeck
+---
+
+question-no-error-result/main.tck:12:22: error: cannot use ? in f, whose last result is int64, not error
+11 |	func f() int64 {
+12 |	    return parse("x")?
+   |	                     ^
+13 |	}
+
+-- question-no-results/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// f returns nothing, so it has no error to return.
+func f() {
+    check(1)?
+}
+
+func main() {
+    f()
+}
+-- question-no-results/expected --
+stage: typeck
+---
+
+question-no-results/main.tck:12:13: error: cannot use ? in f, which returns no error
+11 |	func f() {
+12 |	    check(1)?
+   |	            ^
+13 |	}
+
+-- question-on-conversion/main.tck --
+package main
+
+// A conversion is not a call, though it is written like one.
+func f(x int32) (int64, error) {
+    y := int64(x)?
+    return y, noerror
+}
+
+func main() {
+    y, err := f(1)
+    if err.code == 0 {
+        if y > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-on-conversion/expected --
+stage: typeck
+---
+
+question-on-conversion/main.tck:5:18: error: cannot use ? on int64(x), which is not a call
+04 |	func f(x int32) (int64, error) {
+05 |	    y := int64(x)?
+   |	                 ^
+06 |	    return y, noerror
+
+-- question-on-len/main.tck --
+package main
+
+// len returns an int64, not an error.
+func f(s string) (int64, error) {
+    n := len(s)?
+    return n, noerror
+}
+
+func main() {
+    n, err := f("ab")
+    if err.code == 0 {
+        if n > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-on-len/expected --
+stage: typeck
+---
+
+question-on-len/main.tck:5:16: error: cannot use ? on a call to len, whose last result is int64, not error
+04 |	func f(s string) (int64, error) {
+05 |	    n := len(s)?
+   |	               ^
+06 |	    return n, noerror
+
+-- question-on-literal/main.tck --
+package main
+
+// noerror is a value, not a call.
+func f() error {
+    e := noerror?
+    return e
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-on-literal/expected --
+stage: typeck
+---
+
+question-on-literal/main.tck:5:17: error: cannot use ? on noerror, which is not a call
+04 |	func f() error {
+05 |	    e := noerror?
+   |	                ^
+06 |	    return e
+
+-- question-on-name/main.tck --
+package main
+
+// x is a variable, not a call.
+func f(x int64) (int64, error) {
+    y := x?
+    return y, noerror
+}
+
+func main() {
+    y, err := f(1)
+    if err.code == 0 {
+        if y > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-on-name/expected --
+stage: typeck
+---
+
+question-on-name/main.tck:5:11: error: cannot use ? on x, which is not a call
+04 |	func f(x int64) (int64, error) {
+05 |	    y := x?
+   |	          ^
+06 |	    return y, noerror
+
+-- question-on-pop/main.tck --
+package main
+
+// pop's one result is the element, not an error.
+func f() (int64, error) {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0, err
+    }
+    x := pop(mut l)?
+    return x, noerror
+}
+
+func main() {
+    x, err := f()
+    if err.code == 0 {
+        if x > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-on-pop/expected --
+stage: typeck
+---
+
+question-on-pop/main.tck:10:20: error: cannot use ? on a call to pop, whose last result is int64, not error
+09 |	    }
+10 |	    x := pop(mut l)?
+   |	                   ^
+11 |	    return x, noerror
+
+-- question-on-print/main.tck --
+package main
+
+// print returns nothing, so there is no error to pass on.
+func f() error {
+    print("x")?
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-on-print/expected --
+stage: typeck
+---
+
+question-on-print/main.tck:5:15: error: cannot use ? on a call to print, which returns no error
+04 |	func f() error {
+05 |	    print("x")?
+   |	              ^
+06 |	    return noerror
+
+-- question-on-stored-err/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// ? is only on a call, never on an error already stored in a variable,
+// which the type checker reports: err? parses as a statement.
+func f(n int64) error {
+    err := check(n)
+    err?
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-on-stored-err/expected --
+stage: typeck
+---
+
+question-on-stored-err/main.tck:14:8: error: cannot use ? on err, which is not a call
+13 |	    err := check(n)
+14 |	    err?
+   |	       ^
+15 |	    return noerror
+
+-- question-on-stored-err-value/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// The error bound beside v is a stored error, not a call, so a ? on it
+// is an error wherever it is written, a return's value included.
+func f(s string) (int64, error) {
+    v, err := parse(s)
+    if err.code != 0 {
+        return 0, err?
+    }
+    return v, noerror
+}
+
+func main() {
+    v, err := f("1")
+    if err.code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-on-stored-err-value/expected --
+stage: typeck
+---
+
+question-on-stored-err-value/main.tck:15:22: error: cannot use ? on err, which is not a call
+14 |	    if err.code != 0 {
+15 |	        return 0, err?
+   |	                     ^
+16 |	    }
+
+-- question-on-swap/main.tck --
+package main
+
+// swap returns nothing, so there is no error to pass on.
+func f() error {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1, 2)
+    if err.code != 0 {
+        return err
+    }
+    swap(mut l, 0, 1)?
+    return noerror
+}
+
+func main() {
+    err := f()
+    exit(err.code)
+}
+-- question-on-swap/expected --
+stage: typeck
+---
+
+question-on-swap/main.tck:10:22: error: cannot use ? on a call to swap, which returns no error
+09 |	    }
+10 |	    swap(mut l, 0, 1)?
+   |	                     ^
+11 |	    return noerror
+
+-- question-on-union/main.tck --
+package main
+
+type Shape union {
+    dot
+    size int64
+}
+
+// Building a union is not a call, though it is written like one.
+func f() (Shape, error) {
+    s := Shape.size(2)?
+    return s, noerror
+}
+
+func main() {
+    s, err := f()
+    if err.code == 0 {
+        if s == Shape.dot {
+            exit(1)
+        }
+    }
+}
+-- question-on-union/expected --
+stage: typeck
+---
+
+question-on-union/main.tck:10:23: error: cannot use ? on Shape.size(2), which is not a call
+09 |	func f() (Shape, error) {
+10 |	    s := Shape.size(2)?
+   |	                      ^
+11 |	    return s, noerror
+
+-- question-paren-value/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// A statement may start with a parenthesis only when it is a call, or a
+// ? on one: (n), (n + 1) and (n)? are values, not statements.
+func f(n int64) error {
+    (n)
+    (n + 1)
+    (n)?
+    (check(n))?
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-paren-value/expected --
+stage: parse
+---
+
+question-paren-value/main.tck:13:5: error: expected 'statement' found '('
+12 |	func f(n int64) error {
+13 |	    (n)
+   |	    ^
+14 |	    (n + 1)
+
+question-paren-value/main.tck:14:5: error: expected 'statement' found '('
+13 |	    (n)
+14 |	    (n + 1)
+   |	    ^
+15 |	    (n)?
+
+question-paren-value/main.tck:15:5: error: expected 'statement' found '('
+14 |	    (n + 1)
+15 |	    (n)?
+   |	    ^
+16 |	    (check(n))?
+
+-- question-paren-value-init/main.tck --
+package main
+
+// A loop's init statement may start with a parenthesis only when it is a
+// call, or a ? on one: (n)? is a value, not a statement.
+func f(n int64) error {
+    for (n)?; n < 3; n++ {
+    }
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-paren-value-init/expected --
+stage: parse
+---
+
+question-paren-value-init/main.tck:6:9: error: expected 'statement' found '('
+05 |	func f(n int64) error {
+06 |	    for (n)?; n < 3; n++ {
+   |	        ^
+07 |	    }
+
+-- question-paren-value-post/main.tck --
+package main
+
+func g() (int64, error) {
+    return 1, noerror
+}
+
+// A loop's post statement may start with a parenthesis only when it is a
+// call, or a ? on one: (g())?.x is a field of what the ? gives.
+func f(n int64) error {
+    for mut i := 0; i < n; (g())?.x {
+    }
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-paren-value-post/expected --
+stage: parse
+---
+
+question-paren-value-post/main.tck:10:28: error: expected 'statement' found '('
+09 |	func f(n int64) error {
+10 |	    for mut i := 0; i < n; (g())?.x {
+   |	                           ^
+11 |	    }
+
+-- question-prefix/main.tck --
+package main
+
+func check(n int64) error {
+    if n < 0 {
+        return error{code: 1, msg: "negative"}
+    }
+    return noerror
+}
+
+// ? is postfix; written before the call it is malformed.
+func f(n int64) error {
+    ?check(n)
+    return noerror
+}
+
+func main() {
+    err := f(1)
+    exit(err.code)
+}
+-- question-prefix/expected --
+stage: parse
+---
+
+question-prefix/main.tck:12:5: error: expected 'statement' found '?'
+11 |	func f(n int64) error {
+12 |	    ?check(n)
+   |	    ^
+13 |	    return noerror
+
+-- question-several-as-argument/main.tck --
+package main
+
+func divide(a int64, b int64) (int64, int64, error) {
+    if b == 0 {
+        return 0, 0, error{code: 5, msg: "division by zero"}
+    }
+    if b == -1 {
+        return -%a, 0, noerror
+    }
+    return a / b, a % b, noerror
+}
+
+func add(a int64, b int64) int64 {
+    return a +% b
+}
+
+// divide(7, 2)? gives two values, which cannot be passed straight to
+// another call, as a call with several results cannot.
+func f() (int64, error) {
+    return add(divide(7, 2)?), noerror
+}
+
+func main() {
+    v, err := f()
+    if err.code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-several-as-argument/expected --
+stage: typeck
+---
+
+question-several-as-argument/main.tck:20:12: error: add expects 2 argument(s), got 1
+19 |	func f() (int64, error) {
+20 |	    return add(divide(7, 2)?), noerror
+   |	           ^~~~~~~~~~~~~~~~~~
+21 |	}
+
+question-several-as-argument/main.tck:20:16: error: divide(7, 2)? gives 2 values
+19 |	func f() (int64, error) {
+20 |	    return add(divide(7, 2)?), noerror
+   |	               ^~~~~~~~~~~~~
+21 |	}
+
+-- question-several-as-value/main.tck --
+package main
+
+func divide(a int64, b int64) (int64, int64, error) {
+    if b == 0 {
+        return 0, 0, error{code: 5, msg: "division by zero"}
+    }
+    if b == -1 {
+        return -%a, 0, noerror
+    }
+    return a / b, a % b, noerror
+}
+
+// divide(7, 2)? gives two values, bound to one name.
+func f() (int64, error) {
+    q := divide(7, 2)?
+    return q, noerror
+}
+
+func main() {
+    q, err := f()
+    if err.code == 0 {
+        if q > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-several-as-value/expected --
+stage: typeck
+---
+
+question-several-as-value/main.tck:15:10: error: divide(7, 2)? gives 2 values
+14 |	func f() (int64, error) {
+15 |	    q := divide(7, 2)?
+   |	         ^~~~~~~~~~~~~
+16 |	    return q, noerror
+
+-- question-temporary-lent/main.tck --
+package main
+
+func numbers() (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return l, err
+    }
+    return l, noerror
+}
+
+func size(l list[int64]) int64 {
+    return len(l)
+}
+
+// The list numbers()? gives is held by no variable, so it cannot be lent
+// to a plain parameter, as a call's cannot.
+func f() (int64, error) {
+    return size(numbers()?), noerror
+}
+
+func main() {
+    n, err := f()
+    if err.code == 0 {
+        if n > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-temporary-lent/expected --
+stage: typeck
+---
+
+question-temporary-lent/main.tck:19:17: error: cannot use a temporary list[int64] here; store it in a variable first
+18 |	func f() (int64, error) {
+19 |	    return size(numbers()?), noerror
+   |	                ^~~~~~~~~~
+20 |	}
+
+-- question-twice/main.tck --
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 7, noerror
+}
+
+// The first ? gives parse's int64, which is not a call, so a second ?
+// has nothing to apply to.
+func f() (int64, error) {
+    v := parse("x")??
+    return v, noerror
+}
+
+func main() {
+    v, err := f()
+    if err.code == 0 {
+        if v > 0 {
+            exit(1)
+        }
+    }
+}
+-- question-twice/expected --
+stage: typeck
+---
+
+question-twice/main.tck:13:21: error: cannot use ? on parse("x")?, which is not a call
+12 |	func f() (int64, error) {
+13 |	    v := parse("x")??
+   |	                    ^
+14 |	    return v, noerror
+
 -- quote-at-eof/main.tck --
 package main
 

@@ -1,0 +1,754 @@
+package main
+
+// The postfix ? operator. f(...)? calls f, whose last result is an
+// error, inside a function whose last result is an error too. When the
+// call's error is not noerror, its code not 0, the enclosing function
+// returns that same error, unwrapped, running its defers and freeing
+// every owned value it holds, as any return does, with an empty value
+// for each of its other results. When the code is 0, f(...)? is the
+// call's other results: one gives a value, none makes it a statement,
+// and several are bound together, a, b := f()?. A ? may sit anywhere in
+// an expression; the expression is evaluated left to right, and a ? that
+// returns stops it there, so no call to its right is made.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("question_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("question_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// log records the order things run in, one decimal digit per step.
+mut log int64
+
+// mark appends the digit d to log.
+func mark(d int64) {
+    log = log *% 10 +% d
+}
+
+// marked appends the digit d to log and returns d, for use inside an
+// expression.
+func marked(d int64) int64 {
+    mark(d)
+    return d
+}
+
+// logged reports whether log is want, and clears it.
+func logged(want int64) bool {
+    got := log
+    log = 0
+    return got == want
+}
+
+// bad is the error step and flag fail with.
+var bad = error{code: 7, msg: "bad"}
+
+// step marks d, then fails with bad when fail is set, and gives d
+// otherwise.
+func step(d int64, fail bool) (int64, error) {
+    mark(d)
+    if fail {
+        return 0, bad
+    }
+    return d, noerror
+}
+
+// flag marks d, then fails with bad when fail is set, and gives true
+// otherwise.
+func flag(d int64, fail bool) (bool, error) {
+    mark(d)
+    if fail {
+        return false, bad
+    }
+    return true, noerror
+}
+
+// parse reads s as a decimal number: error 1 when s is empty, error 3
+// when it holds a byte that is not a digit.
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    mut n int64 = 0
+    for i := range s {
+        c := s[i]
+        if c < '0' || c > '9' {
+            return 0, error{code: 3, msg: "not a digit"}
+        }
+        n = n *% 10 +% (c - '0')
+    }
+    return n, noerror
+}
+
+// positive returns only an error: error 4 unless n is above 0.
+func positive(n int64) error {
+    if n <= 0 {
+        return error{code: 4, msg: "not positive"}
+    }
+    return noerror
+}
+
+// divide gives the quotient and remainder, and error 5 for a zero
+// divisor.
+func divide(a int64, b int64) (int64, int64, error) {
+    if b == 0 {
+        return 0, 0, error{code: 5, msg: "division by zero"}
+    }
+    if b == -1 {
+        return -%a, 0, noerror
+    }
+    return a / b, a % b, noerror
+}
+
+// sum parses two words and adds them, a ? on each: one result beside the
+// error gives a value.
+func sum(a string, b string) (int64, error) {
+    x := parse(a)?
+    y := parse(b)?
+    return x +% y, noerror
+}
+
+// bothPositive checks a and b with a ? statement each: a call returning
+// an error alone leaves nothing, so its ? is a statement.
+func bothPositive(a int64, b int64) error {
+    positive(a)?
+    positive(b)?
+    return noerror
+}
+
+// atMost parses s, in a function returning an error alone, and fails with
+// error 6 above limit.
+func atMost(s string, limit int64) error {
+    n := parse(s)?
+    if n > limit {
+        return error{code: 6, msg: "too big"}
+    }
+    return noerror
+}
+
+// divsum binds the two results divide gives beside its error with one ?.
+func divsum(a int64, b int64) (int64, error) {
+    q, r := divide(a, b)?
+    return q +% r, noerror
+}
+
+// swapped passes divide's failure on from a function with three results,
+// two of them left empty when it does.
+func swapped(a int64, b int64) (int64, int64, error) {
+    q, r := divide(a, b)?
+    return r, q, noerror
+}
+
+// level1 to level4 pass parse's error up four calls, each with a ? inside
+// its return, so the error reaching the top is parse's own.
+func level1(s string) (int64, error) {
+    return parse(s)? +% 1, noerror
+}
+
+// level2 is level1 plus one.
+func level2(s string) (int64, error) {
+    return level1(s)? +% 1, noerror
+}
+
+// level3 is level2 plus one.
+func level3(s string) (int64, error) {
+    return level2(s)? +% 1, noerror
+}
+
+// level4 is level3 plus one.
+func level4(s string) (int64, error) {
+    return level3(s)? +% 1, noerror
+}
+
+// unwound counts the frames of down whose defer ran.
+mut unwound int64
+
+// down recurses n deep, a defer in every frame, and fails at the bottom
+// when fail is set, so the ? of every frame above returns in turn.
+func down(n int64, fail bool) (int64, error) {
+    defer {
+        unwound +%= 1
+    }
+    if n == 0 {
+        if fail {
+            return 0, bad
+        }
+        return 0, noerror
+    }
+    return down(n -% 1, fail)? +% 1, noerror
+}
+
+// deferred registers two defers before its ? and one after it: a failing
+// ? runs the two reached, last first, and not the third.
+func deferred(fail bool) (int64, error) {
+    defer { mark(1) }
+    defer { mark(2) }
+    v := step(3, fail)?
+    defer { mark(4) }
+    return v, noerror
+}
+
+// nestedDefers fails from inside an if inside a loop when i reaches n,
+// running every reached defer of every block it leaves, innermost first.
+func nestedDefers(n int64) error {
+    defer { mark(1) }
+    for i := range 3 {
+        defer { mark(2) }
+        if i == n {
+            defer { mark(3) }
+            positive(-1)?
+        }
+        mark(5)
+    }
+    return noerror
+}
+
+// lastSeen is a global error keepsError's defer writes.
+mut lastSeen error
+
+// keepsError fails through step, then its defer writes lastSeen: the
+// error returned is the one the call gave, computed before the defer
+// runs.
+func keepsError() (int64, error) {
+    defer {
+        lastSeen = error{code: 9, msg: "deferred"}
+    }
+    v := step(1, true)?
+    return v, noerror
+}
+
+// deferReads reads, in a defer, a value a ? gave, and writes out from it;
+// a failing ? never reaches the defer or the write after it.
+func deferReads(mut out int64, s string) error {
+    v := parse(s)?
+    defer {
+        out = v *% 2
+    }
+    out = 1
+    return noerror
+}
+
+// numbers returns a list of n numbers, 1 to n, beside the error of making
+// it; a failed append returns the list as far as it got with that error.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// total makes a list with a ?, then parses s with another: when the
+// second fails, the list the first gave is freed.
+func total(n int64, s string) (int64, error) {
+    l := numbers(n)?
+    mut t := parse(s)?
+    for _, x := range l {
+        t +%= x
+    }
+    return t, noerror
+}
+
+// loopLists makes a list in every pass of a loop, and fails in the pass
+// failAt, after making that pass's list.
+func loopLists(n int64, failAt int64) (int64, error) {
+    mut t int64 = 0
+    outer := numbers(2)?
+    for i := range n {
+        l := numbers(i + 1)?
+        if i == failAt {
+            positive(-1)?
+        }
+        t +%= len(l)
+    }
+    return t +% len(outer), noerror
+}
+
+// Bag is a name and a list of numbers, a struct holding a list.
+type Bag struct {
+    name  string
+    items list[int64]
+}
+
+// bag fills a Bag, failing after its list is made when s does not parse,
+// which leaves its Bag result empty.
+func bag(s string) (Bag, error) {
+    items := numbers(3)?
+    positive(parse(s)?)?
+    return Bag{name: "bag", items: items}, noerror
+}
+
+// listOrFail returns a list, failing after the list is made when s does
+// not parse, which leaves its list result empty.
+func listOrFail(n int64, s string) (list[int64], error) {
+    mut l := numbers(n)?
+    k := parse(s)?
+    err := append(mut l, k)
+    if err.code != 0 {
+        return l, err
+    }
+    return l, noerror
+}
+
+// consume takes l, which it owns, and parses s with a ?: a failing ?
+// frees l, as any return does.
+func consume(own l list[int64], s string) (int64, error) {
+    v := parse(s)?
+    return len(l) +% v, noerror
+}
+
+// measure takes l, which it owns, and adds k to its length.
+func measure(own l list[int64], k int64) (int64, error) {
+    return len(l) +% k, noerror
+}
+
+// temps passes a list a ? gave straight to an own parameter, then fails
+// on the next argument: the list, already made and held by no variable,
+// is freed.
+func temps(s string) (int64, error) {
+    return measure(numbers(4)?, parse(s)?)?, noerror
+}
+
+// size returns how many numbers l holds, borrowing it.
+func size(l list[int64]) int64 {
+    return len(l)
+}
+
+// borrowed lends a list a ? gave to a plain parameter, then fails on the
+// next operand: the list is freed either way. A list held by no variable
+// cannot be lent, as a call's cannot (see question-temporary-lent in
+// invalid.txtar), so it is bound first.
+func borrowed(s string) (int64, error) {
+    l := numbers(3)?
+    return size(l) +% parse(s)?, noerror
+}
+
+// add3 adds three numbers.
+func add3(a int64, b int64, c int64) int64 {
+    return a +% b +% c
+}
+
+// arguments puts a ? on each of three arguments, made left to right: the
+// one that fails is the last step called.
+func arguments(failAt int64) (int64, error) {
+    return add3(step(1, failAt == 1)?, step(2, failAt == 2)?, step(3, failAt == 3)?), noerror
+}
+
+// operands puts a ? between two calls of a binary expression: the left is
+// made before the ? and the right only if it does not return.
+func operands(fail bool) (int64, error) {
+    return marked(1) +% step(2, fail)? *% marked(3), noerror
+}
+
+// shortCircuit puts a ? on the right of &&, which is not evaluated, so
+// does not return, when the left is false.
+func shortCircuit(left bool, fail bool) (bool, error) {
+    return left && flag(2, fail)?, noerror
+}
+
+// conditions puts a ? in an if's condition and in a switch's tag.
+func conditions(s string) (int64, error) {
+    if parse(s)? > 9 {
+        return 2, noerror
+    }
+    switch parse(s)? {
+    case 0:
+        return 0, noerror
+    }
+    return 1, noerror
+}
+
+// parsed counts the calls of counted.
+mut parsed int64
+
+// counted counts a call, then parses s.
+func counted(s string) (int64, error) {
+    parsed +%= 1
+    v, err := parse(s)
+    return v, err
+}
+
+// sumWords adds every word with a ? in a compound assignment in a loop,
+// which stops the loop at the first word that does not parse.
+func sumWords(words [4]string) (int64, error) {
+    mut t int64 = 0
+    for _, w := range words {
+        t +%= counted(w)?
+    }
+    return t, noerror
+}
+
+// upTo ranges over what a ? gave.
+func upTo(s string) (int64, error) {
+    mut t int64 = 0
+    for i := range parse(s)? {
+        t +%= i
+    }
+    return t, noerror
+}
+
+// Counter counts up to n, a struct with methods that fail.
+type Counter struct {
+    n int64
+}
+
+// at returns i when it is below c.n, and error 8 otherwise.
+func (c Counter) at(i int64) (int64, error) {
+    if i < 0 || i >= c.n {
+        return 0, error{code: 8, msg: "out of range"}
+    }
+    return i, noerror
+}
+
+// bump adds by to c.n, and fails with error 4 unless by is above 0.
+func (mut c Counter) bump(by int64) error {
+    positive(by)?
+    c.n +%= by
+    return noerror
+}
+
+// methods calls a plain method and a mut one, a ? on each.
+func methods(mut c Counter, by int64, i int64) (int64, error) {
+    mut c.bump(by)?
+    return c.at(i)?, noerror
+}
+
+// viaValue calls f, a function value parameter, with a ?.
+func viaValue(f func(string) (int64, error), s string) (int64, error) {
+    return f(s)? +% 1, noerror
+}
+
+// viaLocal calls a function held in a local, and each function held in
+// an array, with a ?.
+func viaLocal(s string) (int64, error) {
+    g := parse
+    mut t := g(s)?
+    fs := [2]func(string) (int64, error){parse, level1}
+    for _, f := range fs {
+        t +%= f(s)?
+    }
+    return t, noerror
+}
+
+// testBasics checks the success and failure of a ? with each count of
+// results beside the error.
+func testBasics() {
+    s, err := sum("12", "30")
+    if err.code == 0 {
+        check(s == 42, "success")
+    } else {
+        check(false, "success")
+    }
+    _, e1 := sum("", "30")
+    check(e1 == error{code: 1, msg: "empty"}, "the first ? returns")
+    _, e2 := sum("1", "x")
+    check(e2.code == 3 && e2.msg == "not a digit", "the second ? returns")
+
+    check(bothPositive(1, 2) == noerror, "a ? statement")
+    check(bothPositive(-1, 2).code == 4 && bothPositive(1, 0).code == 4, "a ? statement returns")
+    check(atMost("5", 9) == noerror && atMost("50", 9).code == 6, "a function returning an error alone")
+    check(atMost("", 9) == error{code: 1, msg: "empty"}, "an error alone, passed on")
+
+    d, errD := divsum(7, 2)
+    _, errZ := divsum(7, 0)
+    if errD.code == 0 {
+        check(d == 4 && errZ.code == 5 && errZ.msg == "division by zero", "two results bound by a ?")
+    } else {
+        check(false, "two results bound by a ?")
+    }
+    r, q, errS := swapped(9, 4)
+    _, _, errS0 := swapped(9, 0)
+    if errS.code == 0 {
+        check(r == 1 && q == 2 && errS0.code == 5, "three results, two left empty")
+    } else {
+        check(false, "three results, two left empty")
+    }
+}
+
+// testChains checks an error passed up through several functions and
+// through recursion.
+func testChains() {
+    v, err := level4("6")
+    if err.code == 0 {
+        check(v == 10, "four calls deep")
+    } else {
+        check(false, "four calls deep")
+    }
+    _, e := level4("6y")
+    check(e == error{code: 3, msg: "not a digit"}, "the error unwrapped, four calls up")
+
+    unwound = 0
+    n, errN := down(100, false)
+    if errN.code == 0 {
+        check(n == 100 && unwound == 101, "recursion")
+    } else {
+        check(false, "recursion")
+    }
+    unwound = 0
+    _, errF := down(100, true)
+    check(errF == bad && unwound == 101, "a ? in every frame, every defer run")
+}
+
+// testDefers checks the defers run on a ? that returns, and on one that
+// does not.
+func testDefers() {
+    v, err := deferred(false)
+    if err.code == 0 {
+        check(v == 3 && logged(3421), "defers after a ? that passes")
+    } else {
+        check(false, "defers after a ? that passes")
+    }
+    _, e := deferred(true)
+    check(e == bad && logged(321), "defers reached before a ? that returns")
+
+    check(nestedDefers(1).code == 4 && logged(52321), "defers of every block left")
+    check(nestedDefers(7) == noerror && logged(5252521), "defers of every block, no ?")
+
+    lastSeen = noerror
+    _, k := keepsError()
+    check(k == bad && lastSeen.code == 9 && logged(1), "the error computed before defers")
+
+    mut out int64 = 0
+    check(deferReads(mut out, "8") == noerror && out == 16, "a defer reads a value a ? gave")
+    out = 0
+    check(deferReads(mut out, "z").code == 3 && out == 0, "a defer after a failing ? never runs")
+}
+
+// testBag checks a struct holding a list, made with a ? that passes and
+// ones that return.
+func testBag() {
+    b, errB := bag("5")
+    if errB.code == 0 {
+        check(b.name == "bag" && len(b.items) == 3, "a struct holding a list")
+    } else {
+        check(false, "a struct holding a list")
+    }
+    empty, eB := bag("")
+    if eB.code == 0 {
+        check(len(empty.items) == 99, "a struct's list made before a ? that returns")
+    } else {
+        check(eB.code == 1, "a struct's list made before a ? that returns")
+    }
+    zero, eP := bag("0")
+    if eP.code == 0 {
+        check(len(zero.items) == 99, "a ? on a call taking what a ? gave")
+    } else {
+        check(eP.code == 4, "a ? on a call taking what a ? gave")
+    }
+}
+
+// testEmptyResult checks the list result a failing ? leaves.
+func testEmptyResult() {
+    l, eE := listOrFail(3, "q")
+    if eE.code == 0 {
+        check(len(l) == 99, "a list result left empty")
+    } else {
+        check(eE.code == 3, "a list result left empty")
+    }
+    // Ruled: the empty list a failing ? leaves as the result is a list
+    // with no buffer, so nothing is live while the caller holds it.
+    check(live() == 0, "the empty list result holds no buffer")
+}
+
+// testOwned checks that a ? that returns frees every list its function
+// holds, and that the empty result it leaves holds none.
+func testOwned() {
+    t, err := total(3, "4")
+    if err.code == 0 {
+        check(t == 10, "a list beside a ? that passes")
+    } else {
+        check(false, "a list beside a ? that passes")
+    }
+    freed("total freed")
+    _, e := total(3, "x")
+    check(e.code == 3, "a list made before a ? that returns")
+    freed("a list freed by a ?")
+
+    fail_after(2)
+    _, ef := total(100, "1")
+    fail_after(-1)
+    check(ef.code == 1, "an append refused, passed on by a ?")
+    freed("a list beside a failed error freed by a ?")
+
+    n, errL := loopLists(3, 9)
+    if errL.code == 0 {
+        check(n == 8, "a list in every pass")
+    } else {
+        check(false, "a list in every pass")
+    }
+    _, eL := loopLists(3, 1)
+    check(eL.code == 4, "a ? in a loop holding lists")
+    freed("lists of a loop and its function freed by a ?")
+
+    testBag()
+    freed("a struct's list freed")
+    testEmptyResult()
+    freed("an empty list result freed")
+
+    mut l := make(list[int64], c_allocator)
+    if append(mut l, 1, 2).code != 0 {
+        check(false, "an own parameter")
+        return
+    }
+    c, errC := consume(own l, "3")
+    if errC.code == 0 {
+        check(c == 5, "an own parameter")
+    } else {
+        check(false, "an own parameter")
+    }
+    mut m := make(list[int64], c_allocator)
+    if append(mut m, 1).code != 0 {
+        check(false, "an own parameter freed by a ?")
+        return
+    }
+    _, eC := consume(own m, "")
+    check(eC.code == 1, "an own parameter's function returns by a ?")
+    freed("an own parameter freed by a ?")
+
+    p, errT := temps("5")
+    if errT.code == 0 {
+        check(p == 9, "a list a ? gave, moved into an argument")
+    } else {
+        check(false, "a list a ? gave, moved into an argument")
+    }
+    _, eT := temps("-")
+    check(eT.code == 3, "a ? after a list argument returns")
+    freed("a list argument made before a failing ? freed")
+
+    z, errZ := borrowed("2")
+    if errZ.code == 0 {
+        check(z == 5, "a list a ? gave, lent to an argument")
+    } else {
+        check(false, "a list a ? gave, lent to an argument")
+    }
+    _, eZ := borrowed("")
+    check(eZ.code == 1, "a ? after a lent list returns")
+    freed("a lent list freed")
+}
+
+// testOrder checks a ? in nested expressions is evaluated left to right,
+// and stops the expression where it returns.
+func testOrder() {
+    log = 0
+    a, err := arguments(0)
+    if err.code == 0 {
+        check(a == 6 && logged(123), "arguments left to right")
+    } else {
+        check(false, "arguments left to right")
+    }
+    _, e2 := arguments(2)
+    check(e2 == bad && logged(12), "no argument after the failing ? is made")
+    _, e1 := arguments(1)
+    check(e1 == bad && logged(1), "the first argument fails")
+
+    o, errO := operands(false)
+    if errO.code == 0 {
+        check(o == 7 && logged(123), "operands left to right")
+    } else {
+        check(false, "operands left to right")
+    }
+    _, eO := operands(true)
+    check(eO == bad && logged(12), "the left operand made, the right not")
+
+    s, errS := shortCircuit(false, true)
+    if errS.code == 0 {
+        check(!s && logged(0), "a ? on the right of && not evaluated")
+    } else {
+        check(false, "a ? on the right of && not evaluated")
+    }
+    _, eS := shortCircuit(true, true)
+    check(eS == bad && logged(2), "a ? on the right of && returns")
+
+    c, errC := conditions("12")
+    c0, errC0 := conditions("0")
+    c1, errC1 := conditions("3")
+    _, eC := conditions("")
+    if errC.code == 0 && errC0.code == 0 && errC1.code == 0 {
+        check(c == 2 && c0 == 0 && c1 == 1 && eC.code == 1, "a ? in a condition and a tag")
+    } else {
+        check(false, "a ? in a condition and a tag")
+    }
+
+    parsed = 0
+    w, errW := sumWords([4]string{"1", "20", "300", "4000"})
+    if errW.code == 0 {
+        check(w == 4321 && parsed == 4, "a ? in a loop")
+    } else {
+        check(false, "a ? in a loop")
+    }
+    parsed = 0
+    _, eW := sumWords([4]string{"1", "x", "300", ""})
+    check(eW.code == 3 && parsed == 2, "a ? stops the loop at the first failure")
+
+    u, errU := upTo("4")
+    _, eU := upTo("")
+    if errU.code == 0 {
+        check(u == 6 && eU.code == 1, "a range over what a ? gave")
+    } else {
+        check(false, "a range over what a ? gave")
+    }
+}
+
+// testCallees checks a ? on methods and on function values.
+func testCallees() {
+    mut c := Counter{n: 2}
+    v, err := methods(mut c, 3, 4)
+    if err.code == 0 {
+        check(v == 4 && c.n == 5, "a ? on a mut method and a plain one")
+    } else {
+        check(false, "a ? on a mut method and a plain one")
+    }
+    _, eBump := methods(mut c, 0, 1)
+    check(eBump.code == 4 && c.n == 5, "a mut method's ? returns")
+    _, eAt := methods(mut c, 1, 9)
+    check(eAt.code == 8 && c.n == 6, "a plain method's ? returns")
+
+    f, errF := viaValue(parse, "41")
+    _, eF := viaValue(level1, "")
+    if errF.code == 0 {
+        check(f == 42 && eF.code == 1, "a ? on a function value parameter")
+    } else {
+        check(false, "a ? on a function value parameter")
+    }
+    g, errG := viaLocal("5")
+    _, eG := viaLocal("5.")
+    if errG.code == 0 {
+        check(g == 16 && eG.code == 3, "a ? on a local and an array element")
+    } else {
+        check(false, "a ? on a local and an array element")
+    }
+}
+
+func main() {
+    freed("nothing live at the start")
+    testBasics()
+    testChains()
+    testDefers()
+    testOwned()
+    freed("owned values freed")
+    testOrder()
+    testCallees()
+    freed("nothing live at the end")
+}

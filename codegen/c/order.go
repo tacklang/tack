@@ -148,14 +148,21 @@ func (g *generator) pure(e ast.Expr) bool {
 
 // traits is what evaluating an expression can do that its order shows:
 // call a function (see callsFunc), move a variable's value (see moves),
-// or read a variable a call can change (see changeable).
+// or read a variable a call can change (see changeable); and whether it
+// holds a ?, which can return from the function before the rest of the
+// expression runs (see question.go).
 type traits struct {
-	calls, moves, changeable bool
+	calls, moves, changeable, question bool
 }
 
 // or returns what either t or u can do.
 func (t traits) or(u traits) traits {
-	return traits{t.calls || u.calls, t.moves || u.moves, t.changeable || u.changeable}
+	return traits{
+		t.calls || u.calls,
+		t.moves || u.moves,
+		t.changeable || u.changeable,
+		t.question || u.question,
+	}
 }
 
 // traitsOf returns what evaluating e can do, anywhere in it. Within a
@@ -190,13 +197,16 @@ func (g *generator) traitsOf(e ast.Expr) traits {
 }
 
 // ownTraits returns what n does itself, not counting its parts: a call
-// calls, and a name may move its variable or read one a call can change.
+// calls, a name may move its variable or read one a call can change, and
+// a ? may return.
 func (g *generator) ownTraits(n ast.Node) traits {
 	switch x := n.(type) {
 	case *ast.Call:
 		return traits{calls: callsItself(x)}
 	case *ast.Ident:
 		return traits{moves: x.Move, changeable: g.changeable(x)}
+	case *ast.Question:
+		return traits{question: true}
 	default:
 		return traits{}
 	}

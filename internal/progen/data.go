@@ -209,7 +209,8 @@ func (g *Gen) failed(e *Var) Stmt {
 }
 
 // appendStmt appends one or two values to a writable list, and returns
-// when the append fails.
+// when the append fails: through a check of its error, or, in a function
+// that returns an error, now and then through a ?.
 func (g *Gen) appendStmt() Stmt {
 	l := g.choose(g.visible(func(v *Var) bool { return v.T.Kind == KList && g.writable(v) }))
 	if l == nil {
@@ -223,17 +224,23 @@ func (g *Gen) appendStmt() Stmt {
 		vals = append(vals, g.intOperand(Int64, 1))
 	}
 	g.noLists = savedLists
-	e := &Var{Name: g.name("e"), T: errType, Used: true}
-	g.declare(e)
-	app := simple(func(f *frame) {
+	exec := func(f *frame) {
 		vs := make([]Value, len(vals))
 		for i, x := range vals {
 			vs[i] = x.Eval(f)
 		}
 		lst := f.get(l).List
 		*lst = append(*lst, vs...)
-	}, e.Name+" := append(mut "+l.Name+", "+joinArgs(vals)+")")
-	return seq([]Stmt{app, g.failed(e)})
+	}
+	call := "append(mut " + l.Name + ", " + joinArgs(vals) + ")"
+	if g.canQuestion() && g.pick(2) == 0 {
+		// The ? returns the error only when an allocation fails, which
+		// no run the interpreter checks makes.
+		return simple(exec, call+"?")
+	}
+	e := &Var{Name: g.name("e"), T: errType, Used: true}
+	g.declare(e)
+	return seq([]Stmt{simple(exec, e.Name+" := "+call), g.failed(e)})
 }
 
 // errType is the type of error, which the interpreter never looks into.
@@ -280,7 +287,7 @@ func (g *Gen) mapVar(write bool) *Var {
 }
 
 // putStmt puts a value under a key of a writable map, and returns when
-// the put fails.
+// the put fails, through a check of its error or a ?, as appendStmt does.
 func (g *Gen) putStmt() Stmt {
 	m := g.mapVar(true)
 	if m == nil {
@@ -291,15 +298,20 @@ func (g *Gen) putStmt() Stmt {
 	g.noLists = true
 	k, val := g.mapKey(), g.intOperand(Int64, 1)
 	g.noLists = savedLists
-	e := &Var{Name: g.name("e"), T: errType, Used: true}
-	g.declare(e)
 	ke, ve := k.Eval, val.Eval
-	put := simple(func(f *frame) {
+	exec := func(f *frame) {
 		kb := ke(f).Bits
 		vb := ve(f)
 		f.get(m).Map.put(kb, vb)
-	}, e.Name+" := put(mut "+m.Name+", "+k.Text+", "+val.Text+")")
-	return seq([]Stmt{put, g.failed(e)})
+	}
+	call := "put(mut " + m.Name + ", " + k.Text + ", " + val.Text + ")"
+	if g.canQuestion() && g.pick(2) == 0 {
+		// As for append's ?, only a failed allocation returns.
+		return simple(exec, call+"?")
+	}
+	e := &Var{Name: g.name("e"), T: errType, Used: true}
+	g.declare(e)
+	return seq([]Stmt{simple(exec, e.Name+" := "+call), g.failed(e)})
 }
 
 // mapKey returns a key: most often a small constant, so keys repeat.

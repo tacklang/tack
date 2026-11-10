@@ -33,7 +33,9 @@
 // on them (make, append, pop, put, delete, has, swap, len and range),
 // views, function values and parameters of function types, methods with
 // plain and mut receivers, mut and own parameters, functions returning an
-// error, block-scoped defers, loops of a constant number of trips, if,
+// error, a ? on a call of one, or on append or put, in a function that
+// returns one, as a statement, a binding or a value in an expression,
+// block-scoped defers, loops of a constant number of trips, if,
 // break, continue and early returns, the checked forms of division,
 // conversion, indexing, pop and map reads, std/bytes and std/sort, and a
 // generic function, rev, reversing a list with swap.
@@ -68,7 +70,9 @@
 // width, the
 // smallest signed value divided by -1 being itself, a shift past the
 // width shifting every bit out, maps iterating in insertion order, defers
-// running when their block is left, the last first. Program.Expect runs
+// running when their block is left, the last first, and a ? whose call
+// failed stopping its statement where it is and returning the call's
+// error from the function, through every block's defers. Program.Expect runs
 // it, within a budget of steps, and returns what the program must print.
 // Program.Trace gives the program changed to print every value it
 // observes, and the interpreter's list of them, for finding where a

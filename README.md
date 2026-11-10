@@ -1404,6 +1404,49 @@ section remains the description of the language.
     variable bound beside two errors needs both checked.
   - The error is the last result, as above.
 
+  The postfix `?` passes an error on: `x := parse(s)?` calls `parse`
+  and, when its error's code is not 0, returns that error, unwrapped,
+  from the function it is written in, which must itself return an error
+  last; when the code is 0 it gives the call's other results. One result
+  beside the error makes `?` a value, usable anywhere a value is,
+  `return parse(s)? + 1, noerror` with the overflow proofs any `+`
+  needs; none makes it a statement, `check(n)?`; and several are bound
+  together, `q, r := divide(a, b)?`, but are not one value, `divide(a,
+  b)? gives 2 values`. The results it gives come with no error, so
+  nothing holds them and they need no check. A return through `?` runs
+  the defers reached and frees every owned value the function holds, as
+  a `return` there would, the list the call returned beside its error
+  among them, and the other results of the function are empty values
+  its caller can never read, since the error beside them is set. It
+  applies to a call of a function, a method, `mut c.bump(n)?` included,
+  a function value, or append, reserve and put; on anything else,
+  `err?` or `noerror?`, it is `cannot use ? on err, which is not a
+  call`, and on a call whose last result is not an error `cannot use ?
+  on a call to lookup, whose last result is bool, not error`. It binds as
+  tightly as a field or an index after it, so `pair(n)?.b`,
+  `triple(n)?[2]` and a method call on what it gives, `box(n)?.get()?`,
+  work, though a call's parentheses cannot follow it directly,
+  `fv()?("x")`, as they cannot follow a call. `(f())?` and `f() ?` are
+  the same as `f()?`, and a statement may start with a parenthesis when
+  it is a call or a `?` on one, `(f())`, `(check(n))?` or `(check(n)?)`,
+  as a loop's init or post statement too, `for check(n)?; i < 3; i++ {`;
+  any other, `(x)` or `(a + b)`, is `expected 'statement' found '('`. An expression holding `?`s is evaluated left
+  to right and stops at the first that returns: in `g(f()?, h()?)`, `h`
+  is not called when `f` fails, and a value already made for an earlier
+  operand, a list for an `own` parameter, is freed. In `main`, or in any
+  function whose last result is not an error, `?` is `cannot use ? in
+  main, which returns no error`, or `... whose last result is int64, not
+  error`; in deferred code `cannot return from a defer with ?`; in a
+  package-level variable's value `cannot use ? outside a function`. A
+  `?` statement drops what it gives under a call statement's rules: a
+  copyable value is dropped, a list is `numbers()? gives list[int64],
+  which cannot be dropped; bind it to a variable`. A list a `?` gives is
+  a temporary like a call's: it may be moved into a variable, a field or
+  an `own` parameter, but not lent to a plain one, `cannot use a
+  temporary list[int64] here; store it in a variable first`. Every fact
+  the function's contract ensures must hold at each `?`, as at a return,
+  `f ensures n > 0, which may not hold at this ?`.
+
   The rules are the compiler's: an error is a plain value at run time,
   in C a `tack_error` passed by value (see extern C).
 - Lists. `list[T]` is an owned, growable list of elements of type `T`,

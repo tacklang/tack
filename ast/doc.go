@@ -45,7 +45,9 @@
 // x.(type), and each CaseClause has a Var of its own under that name,
 // which the type checker gives the case's type, recording the types a
 // case names in CaseClause.Types. A type assertion, x.(T), is a
-// TypeAssert too, whose Type the checker sets to T.
+// TypeAssert too, whose Type the checker sets to T. A postfix ?, f()?,
+// is a Question around what it follows, whose Type and Results the
+// checker sets to the call's results before its error.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A BadDecl or a BadStmt stands for a declaration or a statement the

@@ -359,6 +359,7 @@ Tack has these operators:
 
 | Kind       | Operators                               |
 |------------|-----------------------------------------|
+| postfix    | `?`                                     |
 | prefix     | `!` `-` `^` `-%`                        |
 | arithmetic | `+` `-` `*` `/` `%`                     |
 | wrapping   | `+%` `-%` `*%`                          |
@@ -366,7 +367,13 @@ Tack has these operators:
 | comparison | `==` `!=` `<` `<=` `>` `>=`             |
 | logical    | `&&` `\|\|`                             |
 
-The prefix operators bind tightest. The binary operators have five
+The postfix `?` binds tightest, as tightly as a selector or an index
+written after it, so `f()?.b` is the field `b` of what `f()?` gives,
+`f()?[2]` its element, `f()?.m()?` a `?` on a method call of it, and
+`-f()?` negates it (see [The ? operator](#the--operator)). A call's
+parentheses cannot follow a `?` directly, `fv()?("x")`, as they cannot
+follow a call, `g()("x")`.
+The prefix operators bind next. The binary operators have five
 levels of precedence, from tightest to loosest:
 
 | Precedence | Operators                           |
@@ -481,6 +488,75 @@ func main() {
 }
 ```
 
+## The ? operator
+
+`f(...)?` calls `f`, whose last result must be an error, and passes that
+error on: when its code is not 0, the function the `?` is written in
+returns it, unwrapped, as a `return` written there would, running the
+defers reached and freeing every owned value the function holds; when
+the code is 0, `f(...)?` gives the call's other results. With one, it is
+a value of that result's type, usable wherever a value is; with none,
+it is a statement only; with several, they are bound together,
+`q, r := divide(a, b)?` ([Statements](07-statements.md#several-results)),
+and are not one value, `divide(a, b)? gives 2 values`. The error is not
+among them, so nothing holds the values and they need no check before
+they are read ([Errors](09-errors.md#propagation)).
+
+What `?` follows must be a call of a function, a method, a function
+value, or `append`, `reserve` or `put`, written in parentheses or not:
+`(f())?` and `f() ?` are `f()?`. Anything else, a variable, a stored
+error, a literal, a conversion, a union's construction or another `?`,
+is `cannot use ? on err, which is not a call`, and a call whose last
+result is not an error `cannot use ? on a call to lookup, whose last
+result is bool, not error`, or, returning nothing, `... which returns no
+error`. The function the `?` is in must return an error last: in `main`
+or any function that does not, it is `cannot use ? in main, which
+returns no error`, or `cannot use ? in f, whose last result is int64,
+not error`. In deferred code, which cannot return, it is `cannot return
+from a defer with ?`, and in a package-level variable's value `cannot
+use ? outside a function`. The other results of the function it returns
+from are left empty, which its caller never reads, since the error
+beside them is set.
+
+A `?` may sit anywhere in an expression. The expression is evaluated in
+order (see [Order of evaluation](#order-of-evaluation)), and a `?` that
+returns stops it there: no operand to its right is evaluated, and a
+value an operand to its left made that nothing holds yet, a list made
+for an `own` parameter, is freed.
+
+```tack run exit=7
+package main
+
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 7, msg: "empty"}
+    }
+    return len(s), noerror
+}
+
+func add(a int64, b int64) int64 {
+    print("add\n")
+    return a +% b
+}
+
+func both(a string, b string) (int64, error) {
+    return add(parse(a)?, parse(b)?), noerror
+}
+
+func main() {
+    n, err := both("ab", "c")
+    if err.code != 0 || n != 3 {
+        exit(1)
+    }
+    _, e := both("", "c")
+    exit(e.code)
+}
+```
+
+```output
+add
+```
+
 ## Order of evaluation
 
 Wherever Tack evaluates several operands, it evaluates them left to
@@ -492,7 +568,8 @@ values, in the order they are written; an indexed value before its
 index; a sliced value before its low bound, and the low bound before the
 high; and a switch's tag before its case values. The statements that
 evaluate several operands, and the order an assignment follows, are
-described in [Statements](07-statements.md).
+described in [Statements](07-statements.md). A `?` that returns ends the
+evaluation where it is ([The ? operator](#the--operator)).
 
 The order shows only through calls, which can print, exit, assign a
 mutable global that another operand reads, or change a variable that

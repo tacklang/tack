@@ -429,7 +429,8 @@ func (p *Parser) stmtGoesOn(semi *lexer.Token) bool {
 
 // continuesLine reports whether a line that starts with a token of kind k
 // carries on the line before it: k is an operator other than ! or an
-// assignment's, ) or ], or a comma, a period, a colon or an ellipsis.
+// assignment's, the postfix ?, ) or ], or a comma, a period, a colon or an
+// ellipsis.
 func continuesLine(k lexer.TokenKind) bool {
 	switch {
 	case k >= lexer.Add && k <= lexer.ShiftRightAssign,
@@ -437,8 +438,8 @@ func continuesLine(k lexer.TokenKind) bool {
 		return true
 	}
 	switch k {
-	case lexer.LogicalAnd, lexer.LogicalOr, lexer.Inc, lexer.Dec, lexer.RParen, lexer.RBrack,
-		lexer.Comma, lexer.Period, lexer.Colon, lexer.Ellipsis:
+	case lexer.LogicalAnd, lexer.LogicalOr, lexer.Inc, lexer.Dec, lexer.Question, lexer.RParen,
+		lexer.RBrack, lexer.Comma, lexer.Period, lexer.Colon, lexer.Ellipsis:
 		return true
 	default:
 		return false

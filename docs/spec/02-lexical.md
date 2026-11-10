@@ -126,7 +126,7 @@ is
 - an integer, float, string, raw string or character literal;
 - one of the keywords `break`, `continue`, `return`, `unreachable`,
   `true`, `false`, `noerror` and `c_allocator`;
-- one of the operators `++` and `--`; or
+- one of the operators `++`, `--` and `?`; or
 - one of the closing brackets `)`, `]` and `}`.
 
 An inserted semicolon covers no bytes of the source. So a line that ends
@@ -222,7 +222,7 @@ punctuation:
 /    <<   /=   <<=  ++   =    :=   ,    ;
 %    >>   %=   >>=  --   !    ...  .    :
      &^        &^=                 ~
-+%   -%   *%   +%=  -%=  *%=
++%   -%   *%   +%=  -%=  *%=  ?
 ```
 
 At each position the longest sequence that is a token is taken, so

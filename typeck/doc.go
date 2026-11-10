@@ -500,6 +500,20 @@
 // it, a mut argument included, is reported, with a note at the binding
 // that tied them.
 //
+// A ?, checked in question.go, follows a call whose last result is an
+// error, of a function, a method, a function value, append, reserve or
+// put, and is written in the body of a function whose last result is an
+// error, outside deferred code; anything else before it, a stored error
+// among them, and a ? anywhere else, a package-level variable's value
+// included, are reported. It records on the Question the call's results
+// before its error, which it gives: one is its type as a value, none
+// make it a statement only, and several are bound by a, b := f()?. None
+// is held by an error, so none needs a check. The call is checked where
+// it ends, as an operand is, and the function's contract must hold at
+// the ?, as at a return, the call's writes counted. move.go follows the
+// ? as the call: what it gives must have an owner, as a call's value
+// must, and a ? statement drops nothing owned.
+//
 // A function's contract, func f(d int64) ensures d != 0, checked in
 // ensures.go, is facts about its parameters, the receiver included, that
 // hold whenever it returns. The clause is checked with the signature, so
@@ -773,6 +787,8 @@
 //     with several results is never used as one value; a binding of a call
 //     that returns an error puts no _ where the error goes, and the
 //     variables beside it are read only once it is checked (errors.go);
+//     a, b := f()? binds the results before f's error the same way, and
+//     holds nothing to check (question.go);
 //   - an if or loop condition is a bool, and a loop's init and post
 //     statements are checked like any other statement;
 //   - a switch on a union matches its cases, each value a pattern naming

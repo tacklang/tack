@@ -284,6 +284,10 @@ func messages(diags []diag.Diagnostic) []string {
 // bytes, and recovery paths that move the position by hand.
 var adversarialInputs = []string{
 	"",
+	"?",
+	"??\n?",
+	"f()?\n",
+	"f() ?.x?[0]?",
 	"\n",
 	"\n\n\n",
 	" \t ",
@@ -492,6 +496,13 @@ var tokenKindCases = []struct {
 	{"wrapping compound beats increment", "x +%= 1", "ident +%= int <semi> EOF"},
 	{"minus then wrap", "a - -%b", "ident - -% ident <semi> EOF"},
 	{"ellipsis then period", "....", "... . EOF"},
+	{"question after a call", "f(x)?", "ident ( ident ) ? <semi> EOF"},
+	{"question spaced and doubled", "f() ? ?", "ident ( ) ? ? <semi> EOF"},
+	{"question before a selector", "f()?.b[2]", "ident ( ) ? . ident [ int ] <semi> EOF"},
+	{"question at a line's end gets a semicolon", "f()?\ng()", "ident ( ) ? <semi> ident ( ) <semi> EOF"},
+	{"question before a comment gets a semicolon", "f()? // c\n", "ident ( ) ? <semi> comment EOF"},
+	{"question alone", "?", "? <semi> EOF"},
+	{"question before a call", "?f()", "? ident ( ) <semi> EOF"},
 	{"define", "x := 1", "ident := int <semi> EOF"},
 	{"arrow", "<-", "<- EOF"},
 	{"digits in ident", "a1b2", "ident <semi> EOF"},
@@ -858,8 +869,8 @@ var diagnosticCases = []struct {
 	want []string
 }{
 	{"invalid character", "@", []string{"invalid character @"}},
-	{"every invalid character", "@ $ ?", []string{
-		"invalid character @", "invalid character $", "invalid character ?",
+	{"every invalid character", "@ $ #", []string{
+		"invalid character @", "invalid character $", "invalid character #",
 	}},
 	{"unterminated string at EOF", `"abc`, []string{"unterminated string"}},
 	{"unterminated string at newline", "\"abc\nx", []string{"unterminated string"}},

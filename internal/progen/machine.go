@@ -80,6 +80,32 @@ func (f *frame) set(v *Var, val Value) {
 	f.vars[v] = &val
 }
 
+// questionExit is what the interpreter panics with when a ? finds its
+// call's error set, err: the statement running it stops there, wherever
+// in its expressions the ? is, and returns err from the function, its
+// result the zero value (see execStmt).
+type questionExit struct {
+	err Value
+}
+
+// execStmt runs s, one statement of a block, and returns how it ended: as
+// a return, when a ? in it returned, which sets the frame's result to the
+// zero value and its error to the ?'s.
+func execStmt(f *frame, s Stmt) (c ctrl) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		q, ok := r.(questionExit)
+		if !ok {
+			panic(r)
+		}
+		f.ret, f.retErr, c = Value{}, q.err, cReturn
+	}()
+	return s.Exec(f)
+}
+
 // execBlock runs stmts, a block, in order, stopping at the first that does
 // not end normally, then the deferred code its defers registered, the
 // last first, as Tack runs a block's defers when it is left by any path,
@@ -90,7 +116,7 @@ func execBlock(f *frame, stmts []Stmt) ctrl {
 	c := cNormal
 	for _, s := range stmts {
 		f.m.step()
-		if c = s.Exec(f); c != cNormal {
+		if c = execStmt(f, s); c != cNormal {
 			break
 		}
 	}

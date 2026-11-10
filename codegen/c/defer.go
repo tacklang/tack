@@ -113,6 +113,9 @@ type deferFrame struct {
 	// its body, frees, until that block takes them; see block.
 	owner *ast.Func
 
+	// fn is the function whose body this is, which a ? returns from.
+	fn *ast.Func
+
 	next  string   // the next variable, named when first needed
 	ret   string   // the function's ret variable, likewise
 	temps []string // declarations of the temporaries sequenced holds operands in
@@ -324,7 +327,7 @@ func (g *generator) deferred(d *ast.Defer, fn *ast.Func) ([]string, []diag.Diagn
 // exit (see addParamFrees).
 func (g *generator) funcFrame(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	outer := g.frame
-	g.frame = &deferFrame{mutated: mutated(fn.Body), read: caseVarsRead(fn.Body), owner: fn}
+	g.frame = &deferFrame{mutated: mutated(fn.Body), read: caseVarsRead(fn.Body), owner: fn, fn: fn}
 	defer func() { g.frame = outer }()
 
 	body, diags := g.generateBlock(fn.Body, fn)

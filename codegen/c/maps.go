@@ -454,10 +454,13 @@ func (g *generator) putValue(call *ast.Call) (string, []diag.Diagnostic) {
 	}
 	typ := ast.TypeOf(m.X)
 	table := g.prog.Types
+	guard := g.guardOwned(call.Args)
+	defer guard.done()
 	key, diags := g.expr(call.Args[1], table.Key(typ))
 	if len(diags) > 0 {
 		return "", diags
 	}
+	key = guard.hold(1, key)
 	val, diags := g.expr(call.Args[2], table.Elem(typ))
 	if len(diags) > 0 {
 		return "", diags

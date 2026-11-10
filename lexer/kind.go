@@ -102,6 +102,9 @@ const (
 
 	// Tilde is ~.
 	Tilde // ~
+
+	// Question is the postfix ?, which passes a call's error on.
+	Question // ?
 )
 
 var tokenNames = map[TokenKind]string{
@@ -181,6 +184,8 @@ var tokenNames = map[TokenKind]string{
 	Ellipsis: "...",
 
 	Tilde: "~",
+
+	Question: "?",
 }
 
 // String returns the token's spelling for operators, or a lowercase name for

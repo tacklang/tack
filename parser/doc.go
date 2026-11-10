@@ -78,6 +78,28 @@
 // CAllocatorLit, the Allocator that is C's malloc, so none of the four can
 // start a statement or be declared as a name.
 //
+// The postfix ? is an ast.Question around the operand before it, parsed
+// with the indexes, fields, method calls and type assertions after an
+// operand, so it binds as tightly as they do, tighter than every prefix
+// operator, though, as after a call, no call's parentheses may follow it,
+// fv()?("x"):
+// f()?.b is a field of what f()? gives, f()?.m()? a ? on a method call of
+// it, and -f()? a negation of it. It spans from the start of the operand,
+// its parentheses included, through the ?, so (f())? and f() ? parse as
+// f()? does. A ? may follow anything, x? and f()?? among them; only a
+// call takes one, which is the type checker's to judge. A call with ?s
+// after it is a statement, f()?, x.m()?, mut x.m()? or f()?.m()?, the mut
+// covering the receiver as without the ?; so is a ? after a name or a
+// field or element of one, err?, kept for the checker to report; anything
+// else after a ?, f()?.x, is not a statement and is reported at its
+// start. A statement may start with a parenthesis when it is a call or a
+// ? on one, (f()), (check(n))? or (check(n)?), as a loop's init and post
+// statements may; any other, (x), (a + b) or (x)?, is reported at the
+// parenthesis, the parse moved back to it, as for any token no statement
+// starts with. A loop's header that starts with a call or a ? on one, and
+// a semicolon after it, has it as its init statement. A ? starting a line follows nothing, since a semicolon is
+// inserted after the line before it, and is reported where it is.
+//
 // A type is a name, an array type, [n]T, a view type, []T, a list type,
 // list[T], list being a keyword, a map type, map[K]V, map being one, or a
 // function type, func(A, mut B, own C) R, an ast.FuncType: its parameters'

@@ -89,8 +89,8 @@ var keywords = [...]spelling{
 
 // operators are every operator and punctuation token, longest first, so
 // the first one the source starts with is the longest match. An operator's
-// token has its index here as its sub. Closing brackets, ++ and -- end a
-// statement.
+// token has its index here as its sub. Closing brackets, ++, -- and the
+// postfix ? end a statement.
 var operators = [...]spelling{
     {text: "+%=", ends: false},
     {text: "-%=", ends: false},
@@ -146,6 +146,7 @@ var operators = [...]spelling{
     {text: ":", ends: false},
     {text: ";", ends: false},
     {text: "~", ends: false},
+    {text: "?", ends: true},
 }
 
 // Name returns the name the Go lexer's --lex dump gives t's kind: an
