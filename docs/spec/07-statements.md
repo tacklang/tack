@@ -6,7 +6,7 @@ blocks, expression statements, assignments and compound assignments,
 switches on `any`, switches on a union's cases, the loop forms (`for
 cond`, three-clause loops, `range` over integers, arrays, strings,
 views, lists and maps), `break` and `continue`, `return`, `defer` and
-its block scope, and terminating statements: which statements
+its block scope, `unreachable`, and terminating statements: which statements
 terminate, a call to `exit` among them, and that a function with
 results must end in one. It also names which statements cannot stand
 alone. Declarations inside a body belong in [Declarations and
@@ -662,6 +662,67 @@ defers run ([Defer statements](#defer-statements)), then it returns. So
 a defer that changes a variable named in `return x` does not change
 what is returned. A `return` in deferred code is an error.
 
+## Unreachable statements
+
+`unreachable` marks a place no run reaches. It is a statement of its own,
+the keyword alone, with no value and no parentheses, and the keyword is
+reserved everywhere ([Lexical elements](02-lexical.md)). The compiler
+must prove the place unreachable, by the rules of [Safety and
+proofs](10-safety.md#unreachable-places), and rejects a program it
+cannot prove. It is a terminating statement, so a function with results
+may end in it; statements may follow it, as they may follow a `return`.
+It may be written in deferred code. Should the proof ever be wrong, it
+ends the process: it writes `tack: unreachable reached at main.tck:12
+(compiler bug)`, naming its file and line, to stderr and aborts, running
+no defers.
+
+```tack run exit=0
+package main
+
+func sign(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    if x < 0 {
+        return -1
+    }
+    if x == 0 {
+        return 0
+    }
+    unreachable
+}
+
+func main() {
+    if sign(-7) != -1 {
+        exit(1)
+    }
+    exit(0)
+}
+```
+
+Without the guard for `x < 0` and `x == 0`, the place is reached:
+
+```tack error
+package main
+
+func sign(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if sign(1) != 1 {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:7:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+```
+
 ## Defer statements
 
 ```text
@@ -738,7 +799,8 @@ first
 A terminating statement is one of:
 
 1. a `return` statement;
-2. a call to the builtin `exit`, as a statement;
+2. a call to the builtin `exit`, as a statement, or an `unreachable`
+   statement;
 3. an `if` statement with an `else`, whose first block and `else` both
    end in a terminating statement, an `else if` counting as a block
    that ends in itself;

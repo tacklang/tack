@@ -1223,6 +1223,9 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.Continue:
 		return g.generateJump("continue;"), nil
 
+	case *ast.Unreachable:
+		return []string{"TACK_UNREACHABLE(" + cStringLiteral(x.Where) + ");"}, nil
+
 	default:
 		return g.generateSimpleStmt(stmt)
 	}

@@ -33,20 +33,6 @@ of a name. A `mut` receiver written without `mut`, `Expr.eof.set()`,
 already says `only a variable, a field or an element can be passed as
 mut` instead; the parameter's wording should too.
 
-## A function must end in a return even when no path reaches its end
-
-A function with a result must end in a `return`, even when every path
-before its end already returns. `func sign(x int64) int64` whose body is
-`if x > 0 { return 1 }`, `if x < 0 { return -1 }` and `if x == 0 { return
-0 }` is `sign must end in a return`, though the three conditions cover
-every value. Tack has no way to say a place is unreachable, and a
-`panic("unreachable")`, as Go writes it, would break the no-panic
-guarantee. Today such a function ends in a `return` that never runs, as
-`append_digits` in `std/bytes` does, or covers the last case with `else`.
-The fix is to prove more paths end, or an `unreachable` statement the
-compiler must prove unreachable, rejecting it otherwise; both wait for a
-stronger prover.
-
 ## A statement and a case on one line after a clause header fails to parse
 
 A clause whose header ends its line cannot have a statement followed by the

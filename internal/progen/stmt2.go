@@ -1,5 +1,7 @@
 package progen
 
+import "strconv"
+
 // divStmt divides: in the checked form, q, ok := a / b, or with the
 // divisor, a variable, proven not zero by an if around the division, and,
 // for a signed /, not -1, so the division is never the smallest value
@@ -135,6 +137,11 @@ func (g *Gen) convStmt() Stmt {
 // controlStmt returns if cond { break }, or continue, inside a loop, or
 // if cond { return ... } anywhere a return may be.
 func (g *Gen) controlStmt() Stmt {
+	if g.rare(4) {
+		if s, ok := g.unreachableStmt(); ok {
+			return s
+		}
+	}
 	cond := g.boolExpr(0)
 	if g.loops > 0 && !g.inSwitch && !g.inDefer && g.pick(2) == 0 {
 		word, c := "break", cBreak
@@ -212,4 +219,38 @@ func (g *Gen) fixStmt(d *Var) Stmt {
 			v.Bits = 1
 		}
 	}, name+"(mut "+d.Name+")")
+}
+
+// unreachableStmt returns an unreachable the compiler must prove, behind
+// guards on an integer variable v that contradict, in one of three
+// shapes: if v < k { if v >= k { unreachable } }, if v < k && v > k {
+// unreachable }, and if v == k { if v < k || v > k { unreachable } },
+// each side of whose true || contradicts v == k. k is from 1 to 100, a
+// value of every integer type. The guards only read v, so the
+// interpreter runs the whole statement as nothing; should the compiled
+// program reach the unreachable, it aborts, which the oracles that run it
+// catch. It reports false when no integer variable is in scope.
+func (g *Gen) unreachableStmt() (Stmt, bool) {
+	v := g.choose(g.visible(func(v *Var) bool { return v.T.Kind == KInt }))
+	if v == nil {
+		return Stmt{}, false
+	}
+	e := varExpr(v)
+	k := strconv.Itoa(1 + g.pick(100))
+	never := Stmt{Lines: []string{"unreachable"}}
+	none := func(*frame) ctrl { return cNormal }
+	inner := [][]string{
+		indent("if "+e.Text+" >= "+k+" {", []Stmt{never}),
+		indent("if "+e.Text+" < "+k+" || "+e.Text+" > "+k+" {", []Stmt{never}),
+	}
+	var lines []string
+	switch g.pick(3) {
+	case 0:
+		lines = indent("if "+e.Text+" < "+k+" {", []Stmt{{Lines: inner[0]}})
+	case 1:
+		lines = indent("if "+e.Text+" < "+k+" && "+e.Text+" > "+k+" {", []Stmt{never})
+	default:
+		lines = indent("if "+e.Text+" == "+k+" {", []Stmt{{Lines: inner[1]}})
+	}
+	return Stmt{Lines: lines, Exec: none}, true
 }

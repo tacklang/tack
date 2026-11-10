@@ -628,7 +628,19 @@
 // a program that calls neither compiles with -ffreestanding. A target
 // without a C library swaps those files. Their names start tack_, which no
 // user extern func's C name may, and the generated C's own tack_ names
-// never start tack_builtin_. print's body is a length-bounded fwrite of its
+// never start tack_builtin_.
+//
+// An unreachable statement, which the type checker has proven no run
+// reaches, lowers to TACK_UNREACHABLE("file:line"); (see unreachable.go),
+// the file and line the checker recorded on it, as a C string literal
+// whose every byte outside printable ASCII is an octal escape. The macro,
+// in <tack/tack.h>, builds "tack: unreachable reached at file:line
+// (compiler bug)" and a newline and calls tack_unreachable_, the
+// runtime's unreachable.c, declared _Noreturn, which writes it to stderr,
+// has every allocator free what it holds, as exit does, and aborts, so a
+// function with a result may end in it. It is never C's
+// __builtin_unreachable or unreachable(), which would make reaching it
+// undefined rather than a reported compiler bug. print's body is a length-bounded fwrite of its
 // argument to stdout with nothing added. exit's status is an int32, an
 // int32_t in C, which its body passes to C's exit as its int: on every
 // target Tack builds for int32_t is int, and the type checker has already

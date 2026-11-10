@@ -224,6 +224,14 @@
 // or continue in a deferred block leaves it, and a defer inside one, are
 // the type checker's to report.
 //
+// break, continue and unreachable are each the keyword alone, followed by
+// the semicolon that ends the statement or the closing brace of its
+// block: there are no labels, and unreachable takes no value, so
+// unreachable(), and unreachable := 1, are reported at the token after
+// the keyword. unreachable is a keyword, never a name, so writing it where
+// a name or a value goes is reported as any keyword there is. Whether it
+// is proven unreachable is the type checker's to judge.
+//
 // After a syntax error the parser records it and recovers (see
 // recover.go): it skips the rest of the statement, to the semicolon at
 // its own depth of braces or the brace that closes its block, or the rest

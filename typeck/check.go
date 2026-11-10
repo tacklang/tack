@@ -176,6 +176,11 @@ type Checker struct {
 	active []fact
 	guards []*guard
 
+	// proven holds the facts where checking has reached kept apart from
+	// active, which only the proof of an unreachable place asks about
+	// (see proofOnly).
+	proven []proofOnly
+
 	// factsBy indexes the facts in force by their subject, when many are:
 	// the positions in active of each subject's facts, in increasing
 	// order, as they were at factsGen (see factindex.go).
@@ -305,6 +310,12 @@ type Checker struct {
 	// left before it, by a return, a break, a continue or a call to exit,
 	// so that it never runs (see ensures.go).
 	dead int
+
+	// inCoveredDefault counts the defaults around the statement being
+	// checked that are reported as never running, since full coverage of a
+	// union already forbids them, where an unreachable is not reported
+	// again (see checkUnreachable).
+	inCoveredDefault int
 
 	// inRejectedDefer is whether the statement being checked is inside a
 	// defer already reported as a defer inside a defer, where a further
@@ -602,6 +613,9 @@ func (c *Checker) checkStmtAt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.Continue:
 		c.checkInLoop(s.Span, "continue")
+
+	case *ast.Unreachable:
+		c.checkUnreachable(s)
 
 	default:
 		c.checkSimpleStmt(stmt)
@@ -1225,6 +1239,7 @@ func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
 		if g, facts := c.contractFacts(stmt); g != nil {
 			c.assume(g, facts, stmtNodes(body[i+1:]))
 		}
+		c.chainFacts(stmt, body[i+1:])
 		if c.dead == dead && (leaves(body[i:i+1]) || terminates(stmt)) {
 			c.dead++
 		}
@@ -2130,14 +2145,15 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 }
 
 // terminates reports whether control cannot fall out of the bottom of stmt.
-// A return terminates, and so does a call to exit, which never returns. An
+// A return terminates, and so does a call to exit, which never returns,
+// and an unreachable, which the checker proves is never reached. An
 // if only terminates when it has an else and both branches do, since
 // otherwise the condition being false falls through, and a switch likewise
 // only when it has a default and every case does. A loop only terminates
 // when it has no condition and no break leaves it, following Go.
 func terminates(stmt ast.Stmt) bool {
 	switch s := stmt.(type) {
-	case *ast.Return:
+	case *ast.Return, *ast.Unreachable:
 		return true
 	case *ast.ExprStmt:
 		return isExitStmt(s)

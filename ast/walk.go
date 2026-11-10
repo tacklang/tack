@@ -84,7 +84,7 @@ func walkStmt(s Stmt, v Visitor) {
 		walkSwitch(s, v)
 	case *Defer:
 		walkAll(s.Body, v)
-	case *Break, *Continue, *BadStmt:
+	case *Break, *Continue, *Unreachable, *BadStmt:
 		// leaves
 	default:
 		walkSimpleStmt(s, v)

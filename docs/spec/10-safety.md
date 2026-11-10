@@ -10,7 +10,8 @@ and what gives them, relations between variables, where a fact holds
 and what ends it, contracts (`ensures`), the checked forms
 `v, ok := ...` the language has, which turn a failure into a value, the
 rule that an `ok` may not be dropped or left unread, and the operations
-that have no checked form, what the prover does not accept, and the
+that have no checked form, what the prover does not accept, what proves
+an `unreachable` place, and the
 depth of the stack, which no rule bounds yet. It also lists the known
 violations of the guarantees that are parked, as
 [guarantees.md](../guarantees.md) does. Leak and use-after-free freedom
@@ -1021,6 +1022,49 @@ main.tck:4:12: error: converting int64 to uint8 can fail; check 0 <= x && x <= 2
 The values bound beside an error are read only where the facts in force
 prove the error's code is 0; that rule, and the rule that an error is
 never dropped, are in [Errors](09-errors.md).
+
+## Unreachable places
+
+An `unreachable` statement ([Statements](07-statements.md#unreachable-statements))
+must be proven unreachable, or the program is an error, `unreachable may
+be reached; check a condition that rules this place out first, or handle
+the case here`. It is proven when a statement before it in a block
+around it leaves the block or terminates; when the facts in force there,
+with each variable's type bounds, leave some variable no value, its
+bounds crossing or every value between them ruled out by `!=`, a false
+`==` or the cases of a `switch`, together with what the early exits of
+an `else if` chain, or the cases of a `switch` with no `default` whose
+every case leaves, give the code after it; when every side of a true
+`||` or a false `&&` on the path to it, each taken alone, leaves some
+variable no value with the facts there, those arriving after the
+condition included; or when the relations in force contradict. The
+values ruled out, the sides of such a condition, and the facts an
+else-if chain or such a switch gives count only for this proof. Each fact counts only where it holds:
+a write that can reach the place ends it.
+
+```tack run exit=0
+package main
+
+func band(c int64) int64 {
+    if c < 3 {
+        return 0
+    }
+    if c > 5 {
+        return 2
+    }
+    if 3 <= c && c <= 5 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if band(4) != 1 {
+        exit(1)
+    }
+    exit(0)
+}
+```
 
 ## Stack depth
 

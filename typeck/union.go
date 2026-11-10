@@ -188,11 +188,16 @@ func (c *Checker) checkUnionSwitch(s *ast.Switch, typ types.Type, fn *ast.Func) 
 	seen := make(map[string]ast.Expr)
 	for _, cl := range tryOrder(s) {
 		c.checkPatterns(typ, cl, seen, s.Tag)
-		if cl.Default && covered {
+		rejected := cl.Default && covered
+		if rejected {
 			c.errorf(cl.Span, "every case of %s is already covered, so this default never runs",
 				c.typeName(typ))
+			c.inCoveredDefault++
 		}
 		c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
+		if rejected {
+			c.inCoveredDefault--
+		}
 		if cl.Var != nil && cl.Var.Type != types.Invalid && !reads(cl.Body, cl.Var) {
 			c.unusedf(cl.Var.NameSpan, "declared and not used: %s", cl.Var.Name)
 			cl.Var.Unused = true

@@ -3065,6 +3065,71 @@ func TestBuiltSwitchExits42(t *testing.T) {
 	}
 }
 
+// The unreachable example uses unreachable in every place it is proven:
+// after contradictory guards, nested and from && and ||, closing sign-like
+// functions whose ifs, else-if chains and switches cover every value of an
+// int64, an int8, a uint64, a bool and a bounded int, inside loops, in a
+// function of two results, in methods of a struct and of a union, and in
+// generic functions compiled for two types. Each function is checked on
+// every side of its guards and at its type's extremes, each failure
+// exiting with its own status.
+func TestBuiltUnreachableExits42(t *testing.T) {
+	bin := buildWithClang(t, "unreachable")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("unreachable exited with %v, want status 42", err)
+	}
+}
+
+// The unreachable-assumed example holds the uses of unreachable whose
+// acceptance the ruling left open, each marked in the program with the
+// assumption it encodes: a contradiction through a relation, through each
+// side of a true || against facts in force before it and after it, and of
+// a false &&, after a terminating union switch, after exit, in deferred
+// code, followed by more code, and from a bool tested both ways.
+func TestBuiltUnreachableAssumedExits42(t *testing.T) {
+	bin := buildWithClang(t, "unreachable-assumed")
+	err := exec.CommandContext(t.Context(), bin).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("unreachable-assumed exited with %v, want status 42", err)
+	}
+}
+
+// TestEmitUnreachableAborts checks how unreachable is lowered to C, since
+// no program can make it run: it aborts with the ruled message, which
+// may live in the generated code or in the runtime header, and is never
+// __builtin_unreachable or C23's unreachable macro, either of which would
+// make reaching it undefined rather than a reported compiler bug.
+func TestEmitUnreachableAborts(t *testing.T) {
+	r := runTack(t, "--emit", example("unreachable"))
+	if r.code != exitOK || r.stderr != "" {
+		t.Fatalf("--emit: exit %d, stderr %q", r.code, r.stderr)
+	}
+	header, err := os.ReadFile(filepath.Join(stdtest.IncludeDir(), "tack", "tack.h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	both := r.stdout + string(header)
+	for _, want := range []string{"tack: unreachable reached at ", " (compiler bug)"} {
+		if !strings.Contains(both, want) {
+			t.Errorf("neither the emitted C nor tack.h holds %q", want)
+		}
+	}
+	if strings.Contains(both, "__builtin_unreachable") {
+		t.Errorf("unreachable is lowered to __builtin_unreachable")
+	}
+	if strings.Contains(r.stdout, "unreachable()") {
+		t.Errorf("the emitted C calls unreachable(), C23's undefined-behavior macro")
+	}
+	// Assumption: the generated code names the source file the abort
+	// reports, so each abort's file:line is fixed when the C is generated.
+	if !strings.Contains(r.stdout, "main.tck") {
+		t.Errorf("the emitted C never names main.tck for an abort's file:line")
+	}
+}
+
 // The defer example runs defers last first when their block ends, an inner
 // block's before the rest of the outer one, through early returns from
 // several blocks, never one not reached, each reading variables as they

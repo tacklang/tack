@@ -88,6 +88,11 @@ const (
 	// function makes true about its parameters whenever it returns. It
 	// comes after Own for the same reason Own comes after Union.
 	Ensures
+
+	// Unreachable is a statement marking a place the compiler proves no
+	// run reaches. It comes after Ensures for the same reason Ensures
+	// comes after Own.
+	Unreachable
 )
 
 var keywordNames = map[KeywordType]string{
@@ -140,6 +145,8 @@ var keywordNames = map[KeywordType]string{
 	Own: "own",
 
 	Ensures: "ensures",
+
+	Unreachable: "unreachable",
 }
 
 // String returns the keyword as written in source.

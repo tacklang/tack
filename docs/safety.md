@@ -2448,6 +2448,68 @@ call gives, so `return fix(mut d)` proves `ensures d != 0`. `examples/ensures` a
 `examples/ensures-module` run every kind of contract, across packages,
 in generic functions and methods, and through recursion.
 
+## Unreachable places
+
+`unreachable` marks a place the compiler must prove no run reaches, by
+the facts of [The guard rule](#the-guard-rule), and a place it cannot
+prove is
+<!-- error: unreachable-unproven -->`unreachable may be reached; check a condition that rules this place out first, or handle the case here`.
+Since no run reaches a proven one, it is a terminating statement, and a
+branch ending in it leaves. A place is proven when:
+
+- a statement before it in a block around it leaves the block or
+  terminates: a `return`, a `break`, a `continue`, a call to `exit`,
+  another `unreachable`, or an `if` or a `switch` that terminates, such
+  as a switch on a union naming every case, each returning;
+- the facts there, with the bounds of each variable's type, leave some
+  variable no value: its bounds cross, as inside `if x > 5 && x < 3`,
+  or every value between them is ruled out, by `!=`, by an `==` that was
+  false, or by the cases of a `switch`, so a `switch` on `d` known to be
+  0, 1 or 2 that names all three leaves its `default` no value, and one
+  on a `bool` naming `true` and `false` does too, while
+  <!-- case: unreachable-switch-missing-value -->one on `d` from 0 to 3
+  naming only 0, 1 and 2 does not. What the early exits of an `else if`
+  chain give the code after the chain counts too, and so does what a
+  `switch` with no `default` whose every case leaves gives the code
+  after it, reached only when no case matched, and a `bool` tested
+  with `if b` and `if !b` holds 1 and 0;
+- every side of a true `||` or a false `&&` on the path to it, each taken
+  alone, leaves some variable no value with the other facts there,
+  those that arrive after the condition included: under `i` from 0 to 4,
+  the body of `if i < 0 || i > 4` is unreachable, and so is `if x == 2`
+  inside `if x == 1 || x == 3`, though the range the two sides span, 1 to
+  3, holds 2. <!-- case: unreachable-or-true-one-side -->`i < 0 || i > 3`
+  under the same range does not, since `i == 4` is left, and
+  <!-- case: unreachable-or-true-call -->`i < 0 || ready()` does not
+  either, since a call gives no fact;
+- the relations there contradict, as `a < b && b < a` does.
+
+The values ruled out, the sides of a `||` or an `&&`, and what an else-if
+chain or such a switch gives after it count only for this proof: no other operation's
+proof reads them, and the facts in force are as before. Each fact counts
+only where it holds, as for every proof, so a write that can reach the
+place ends it: in
+<!-- case: unreachable-or-true-written -->`if i < 0 || i > 4 { i = 2; unreachable }`
+the write ends both sides' facts and the range. Where a write ended a
+fact that would have proven the place, notes name the guard and the
+write,
+<!-- note: unreachable-after-assign -->`but x is assigned here, so the proof ends`.
+A field of a mutable variable never carries a fact, nor does a mutable
+global, and notes say so,
+<!-- note: unreachable-mutable-global -->`g is a mutable global, so no check proves it; copy it into a local first`.
+A call to a function that calls `exit` does not leave. A union switch's
+`default` that full coverage already forbids stays
+<!-- error: unreachable-union-default-covered -->`every case of Dir is already covered, so this default never runs`,
+even when it holds only `unreachable`, which is then not reported
+again. In deferred code the facts in force at the `defer` prove it, up to
+a write that runs before the deferred code, after the `defer`.
+
+A proven `unreachable` lowers to an abort that writes `tack: unreachable
+reached at <file>:<line> (compiler bug)` to stderr: reaching one means
+the proof was wrong, a compiler bug, never undefined behavior.
+`examples/unreachable` and `examples/unreachable-assumed` run every way
+of proving one.
+
 ## Compile-time errors
 
 The compiler reports, rather than proves or checks, an operation whose

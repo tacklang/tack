@@ -23,7 +23,8 @@ type stdObject struct {
 // linkStd compiles the C files of the runtime built into the compiler,
 // which writeRuntime wrote out, into dir and returns the
 // objects among them the program needs, in the order of their files'
-// names: those defining a builtin the program calls, those defining the
+// names: those defining a builtin the program calls, the one defining
+// the abort of an unreachable when the program holds one, those defining the
 // list functions its generated C calls when it uses lists
 // (builtin.ListSymbols), those defining a symbol starting tack_ that one
 // of progObjs, the objects of the program's own C files, leaves undefined,
@@ -44,18 +45,19 @@ type stdObject struct {
 func (b *builder) linkStd(dir string, progObjs []cObject) ([]cObject, error) {
 	used := b.std.builtinSet().Used(b.res.Program)
 	lists := builtin.UsesLists(b.res.Program)
+	unreachable := builtin.UsesUnreachable(b.res.Program)
 	progNeed, err := stdSymbolsNeeded(progObjs)
 	if err != nil {
 		return nil, err
 	}
-	if len(used) == 0 && !lists && len(progNeed) == 0 {
+	if len(used) == 0 && !lists && !unreachable && len(progNeed) == 0 {
 		return nil, nil
 	}
 	objs, definer, err := b.compileStd(dir)
 	if err != nil {
 		return nil, err
 	}
-	need, err := b.stdRoots(used, lists, definer)
+	need, err := b.stdRoots(used, lists, unreachable, definer)
 	if err != nil {
 		return nil, err
 	}
@@ -63,22 +65,30 @@ func (b *builder) linkStd(dir string, progObjs []cObject) ([]cObject, error) {
 }
 
 // stdRoots returns the symbols a program needs std to define whatever
-// else it calls: the C name of each builtin of used, those it calls, and,
-// when it has lists, the list functions its generated C calls. A builtin,
-// or a list function, that no std object defines, as definer says, is an
-// error.
+// else it calls: the C name of each builtin of used, those it calls,
+// when it holds an unreachable, the abort its generated C calls
+// (builtin.UnreachableSymbol), and, when it has lists, the list functions
+// its generated C calls. A builtin, the abort, or a list function, that
+// no std object defines, as definer says, is an error.
 func (b *builder) stdRoots(
 	used []builtin.Func,
-	lists bool,
+	lists, unreachable bool,
 	definer map[string]int,
 ) ([]string, error) {
-	need := make([]string, 0, len(used)+len(builtin.ListSymbols))
+	need := make([]string, 0, len(used)+len(builtin.ListSymbols)+1)
 	for _, fn := range used {
 		if _, ok := definer[fn.CName]; !ok {
 			return nil, fmt.Errorf("builtin %s has no C definition: the runtime defines no %s",
 				fn.Name, fn.CName)
 		}
 		need = append(need, fn.CName)
+	}
+	if unreachable {
+		if _, ok := definer[builtin.UnreachableSymbol]; !ok {
+			return nil, fmt.Errorf("unreachable has no C definition: the runtime defines no %s",
+				builtin.UnreachableSymbol)
+		}
+		need = append(need, builtin.UnreachableSymbol)
 	}
 	if !lists {
 		return need, nil

@@ -155,6 +155,31 @@ func (c *Continue) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the 'continue' keyword.
 func (c *Continue) Spanned() Span { return c.Span }
 
+// Unreachable marks a place no run reaches, which the checker must prove.
+// It is a terminating statement, as a return is, and lowers to an abort
+// that reports a compiler bug should the proof ever be wrong.
+type Unreachable struct {
+	Span Span // the 'unreachable' keyword
+
+	// Where is the file and line of the keyword, file:line, the file
+	// named as diagnostics name it, which the abort reports. The type
+	// checker fills it in, since it holds the source; it is empty before.
+	Where string `json:"-"`
+}
+
+var _ Stmt = (*Unreachable)(nil)
+
+// stmtKey marks Unreachable as a Stmt, sealing Stmt to this package's
+// types.
+func (u *Unreachable) stmtKey() stmtKey { return _stmtKey }
+
+// astNode marks Unreachable as a Node, sealing Node to this package's
+// types.
+func (u *Unreachable) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the 'unreachable' keyword.
+func (u *Unreachable) Spanned() Span { return u.Span }
+
 // IncDec adds one to a variable (Target++) or, when Dec is set, subtracts one
 // (Target--). It is a statement, never a value.
 type IncDec struct {

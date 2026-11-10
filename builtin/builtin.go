@@ -160,6 +160,27 @@ func Types() []string { return types.Names() }
 // linked whether or not it calls a builtin.
 var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}
 
+// UnreachableSymbol is the C function of the runtime that the abort an
+// unreachable statement lowers to calls, through tack.h's
+// TACK_UNREACHABLE. No builtin declares it, so a program holding an
+// unreachable needs the runtime object that defines it linked whether or
+// not it calls a builtin.
+const UnreachableSymbol = "tack_unreachable_"
+
+// UsesUnreachable reports whether prog holds an unreachable statement
+// anywhere, whose abort its generated C calls through UnreachableSymbol.
+func UsesUnreachable(prog *ast.Program) bool {
+	found := false
+	for _, f := range prog.Files() {
+		ast.Walk(f, func(n ast.Node) bool {
+			_, ok := n.(*ast.Unreachable)
+			found = found || ok
+			return !found
+		})
+	}
+	return found
+}
+
 // UsesLists reports whether prog, which must have been type-checked, has
 // a list or a map type anywhere, whose values its generated C grows and
 // frees through ListSymbols: a map's entries and slots are buffers as a

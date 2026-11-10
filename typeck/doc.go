@@ -283,7 +283,27 @@
 // could wrap would count from. A branch, a block or a case ending in a
 // call to the builtin exit leaves, as one ending in return, break or
 // continue does, since exit never returns (leaves), so an early exit may
-// end in one. Other notes need no fact: a guard in scope
+// end in one, and so does one ending in an unreachable statement, which
+// is proven never reached.
+//
+// An unreachable statement must be proven unreachable (unreachable.go): a
+// block around it has already left or terminated (c.dead), the facts in
+// force there with each subject's type bounds leave some subject no value,
+// every side of a true || or a false && on the path to it, taken alone,
+// does so with the facts there, or the relations in force hold a cycle of
+// negative weight. Three kinds of fact count for that proof alone, kept
+// apart from the facts in force so no other proof changes (proofOnly): a
+// value ruled out, b != k for any k, which a switch's cases and an if
+// chain's false == give and only coverage asks about; the sides of a true
+// || or a false &&, beside the hull of them union gives; and what the
+// early exits of an else-if chain, or the cases of a switch with no
+// default whose every case leaves, give the code after it. Each is
+// put in force with its region as any fact is, and the writes that could
+// end it are found only when an unreachable asks. A failed proof gets
+// notes on a guard comparing a field of a mutable variable or a mutable
+// global, and on the guard and the write of a fact a write ended that
+// would have proven it alone; no other note. The checker records each
+// unreachable's file and line on it, for the abort it lowers to. Other notes need no fact: a guard in scope
 // comparing a field of a mutable variable, or bounding a variable used in a larger operand; the
 // element whose outer index alone v, ok := covers; the declaration of a
 // mutable global, whose error suggests only the checked form, since no
@@ -780,8 +800,9 @@
 //     return, an if with an else whose branches both terminate, a switch
 //     with a default whose cases all terminate, a loop with no condition
 //     and no break that leaves it (a break in a nested loop leaves only that
-//     one, and one in a switch leaves the loop around it), or a call to
-//     the builtin exit, which never returns. The rule is syntactic, as in
+//     one, and one in a switch leaves the loop around it), a call to
+//     the builtin exit, which never returns, or an unreachable, which is
+//     proven never reached. The rule is syntactic, as in
 //     Go, so a call to a function that never comes back, one that calls
 //     exit included, does not satisfy it.
 //

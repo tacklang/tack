@@ -31,9 +31,10 @@
 //
 // # The runtime
 //
-// RuntimeCFiles are the runtime's C files: exit.c, list.c and print.c, the
-// bodies of print and exit, ordinary non-static functions under their C
-// names, and the allocators and the grow and free functions of lists,
+// RuntimeCFiles are the runtime's C files: exit.c, list.c, print.c and
+// unreachable.c, the bodies of print and exit, ordinary non-static
+// functions under their C names, the abort an unreachable statement
+// lowers to (UnreachableSymbol), and the allocators and the grow and free functions of lists,
 // ListSymbols among them. RuntimeHeader is <tack/tack.h>, which every C
 // file of a program and of std includes. The driver writes them to each
 // build's own temporary directory and compiles against that copy, linking

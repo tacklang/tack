@@ -45562,6 +45562,1403 @@ unknown-param-type/main.tck:3:10: error: unknown type: nosuchtype
    |	         ^~~~~~~~~~
 04 |	}
 
+-- unreachable-after-assign/main.tck --
+package main
+
+// next returns n, which the checker cannot see through.
+func next(n int64) int64 {
+    return n
+}
+
+// The assignment ends the fact x > 0, so x < 0 is no longer contradicted.
+func f(n int64) int64 {
+    mut x := n
+    if x > 0 {
+        x = next(x)
+        if x < 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-after-assign/expected --
+stage: typeck
+---
+
+unreachable-after-assign/main.tck:14:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	        if x < 0 {
+14 |	            unreachable
+   |	            ^~~~~~~~~~~
+15 |	        }
+unreachable-after-assign/main.tck:11:8: note: this guard proves x >= 1
+10 |	    mut x := n
+11 |	    if x > 0 {
+   |	       ^~~~~
+12 |	        x = next(x)
+unreachable-after-assign/main.tck:12:9: note: but x is assigned here, so the proof ends
+11 |	    if x > 0 {
+12 |	        x = next(x)
+   |	        ^
+13 |	        if x < 0 {
+
+-- unreachable-after-mut-call/main.tck --
+package main
+
+// reset sets n to zero.
+func reset(mut n int64) {
+    n = 0
+}
+
+// Passing x as mut may assign it, which ends the fact x > 0.
+func f(n int64) int64 {
+    mut x := n
+    if x > 0 {
+        reset(mut x)
+        if x <= 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f(1) != 0 {
+        exit(1)
+    }
+}
+-- unreachable-after-mut-call/expected --
+stage: typeck
+---
+
+unreachable-after-mut-call/main.tck:14:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	        if x <= 0 {
+14 |	            unreachable
+   |	            ^~~~~~~~~~~
+15 |	        }
+unreachable-after-mut-call/main.tck:11:8: note: this guard proves x >= 1
+10 |	    mut x := n
+11 |	    if x > 0 {
+   |	       ^~~~~
+12 |	        reset(mut x)
+unreachable-after-mut-call/main.tck:12:15: note: but x is passed as mut to reset here, so the proof ends
+11 |	    if x > 0 {
+12 |	        reset(mut x)
+   |	              ^~~~~
+13 |	        if x <= 0 {
+
+-- unreachable-and-false-call/main.tck --
+package main
+
+// ready says whether to go on.
+func ready() bool {
+    return true
+}
+
+// A false && is i < 0, or i >= 0 with ready() false, which gives no
+// fact, so that side never contradicts i in [0, 4].
+func f(n int64) int64 {
+    i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i >= 0 && ready() {
+        return i
+    } else {
+        unreachable
+    }
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-and-false-call/expected --
+stage: typeck
+---
+
+unreachable-and-false-call/main.tck:18:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+17 |	    } else {
+18 |	        unreachable
+   |	        ^~~~~~~~~~~
+19 |	    }
+
+-- unreachable-and-false-one-side/main.tck --
+package main
+
+// A false i >= 0 && i <= 3 leaves i < 0 or i > 3, and i in [0, 4] allows
+// i == 4.
+func f(n int64) int64 {
+    i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i >= 0 && i <= 3 {
+        return i
+    } else {
+        unreachable
+    }
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-and-false-one-side/expected --
+stage: typeck
+---
+
+unreachable-and-false-one-side/main.tck:13:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+12 |	    } else {
+13 |	        unreachable
+   |	        ^~~~~~~~~~~
+14 |	    }
+
+-- unreachable-and-false-written/main.tck --
+package main
+
+// Each side of the false && contradicts i in [0, 4], but the write to i
+// before unreachable ends both sides' facts and the range.
+func f(n int64) int64 {
+    mut i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i >= 0 && i <= 4 {
+        return i
+    } else {
+        i = 2
+        unreachable
+    }
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-and-false-written/expected --
+stage: typeck
+---
+
+unreachable-and-false-written/main.tck:14:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	        i = 2
+14 |	        unreachable
+   |	        ^~~~~~~~~~~
+15 |	    }
+
+-- unreachable-as-argument/main.tck --
+package main
+
+// use takes a value.
+func use(x int64) {
+    if x > 0 {
+        print("")
+    }
+}
+
+func main() {
+    use(unreachable)
+}
+-- unreachable-as-argument/expected --
+stage: parse
+---
+
+unreachable-as-argument/main.tck:11:9: error: expected 'value' found 'unreachable'
+10 |	func main() {
+11 |	    use(unreachable)
+   |	        ^
+12 |	}
+
+-- unreachable-as-call/main.tck --
+package main
+
+// unreachable is a statement, not a function, so it takes no parentheses.
+func main() {
+    unreachable()
+}
+-- unreachable-as-call/expected --
+stage: parse
+---
+
+unreachable-as-call/main.tck:5:16: error: expected ';' found '('
+04 |	func main() {
+05 |	    unreachable()
+   |	               ^
+06 |	}
+
+-- unreachable-as-field/main.tck --
+package main
+
+type Path struct {
+    unreachable bool
+}
+
+func main() {
+}
+-- unreachable-as-field/expected --
+stage: parse
+---
+
+unreachable-as-field/main.tck:4:5: error: expected 'field name' found 'unreachable'
+03 |	type Path struct {
+04 |	    unreachable bool
+   |	    ^
+05 |	}
+
+-- unreachable-as-func/main.tck --
+package main
+
+func unreachable() {
+}
+
+func main() {
+}
+-- unreachable-as-func/expected --
+stage: parse
+---
+
+unreachable-as-func/main.tck:3:6: error: expected 'function name' found 'unreachable'
+02 |	
+03 |	func unreachable() {
+   |	     ^
+04 |	}
+
+-- unreachable-as-global/main.tck --
+package main
+
+var unreachable int64 = 1
+
+func main() {
+}
+-- unreachable-as-global/expected --
+stage: parse
+---
+
+unreachable-as-global/main.tck:3:5: error: expected 'variable name' found 'unreachable'
+02 |	
+03 |	var unreachable int64 = 1
+   |	    ^
+04 |	
+
+-- unreachable-as-local/main.tck --
+package main
+
+// Assumption: unreachable starts a statement, so the parser reads the
+// keyword and then reports the := after it.
+func main() {
+    unreachable := 1
+}
+-- unreachable-as-local/expected --
+stage: parse
+---
+
+unreachable-as-local/main.tck:6:17: error: expected ';' found ':='
+05 |	func main() {
+06 |	    unreachable := 1
+   |	                ^
+07 |	}
+
+-- unreachable-as-param/main.tck --
+package main
+
+func f(unreachable int64) int64 {
+    return 0
+}
+
+func main() {
+}
+-- unreachable-as-param/expected --
+stage: parse
+---
+
+unreachable-as-param/main.tck:3:8: error: expected 'parameter name' found 'unreachable'
+02 |	
+03 |	func f(unreachable int64) int64 {
+   |	       ^
+04 |	    return 0
+
+-- unreachable-as-return-value/main.tck --
+package main
+
+func f() int64 {
+    return unreachable
+}
+
+func main() {
+}
+-- unreachable-as-return-value/expected --
+stage: parse
+---
+
+unreachable-as-return-value/main.tck:4:12: error: expected 'value' found 'unreachable'
+03 |	func f() int64 {
+04 |	    return unreachable
+   |	           ^
+05 |	}
+
+-- unreachable-as-type/main.tck --
+package main
+
+type unreachable struct {
+}
+
+func main() {
+}
+-- unreachable-as-type/expected --
+stage: parse
+---
+
+unreachable-as-type/main.tck:3:6: error: expected 'type name' found 'unreachable'
+02 |	
+03 |	type unreachable struct {
+   |	     ^
+04 |	}
+
+-- unreachable-as-value/main.tck --
+package main
+
+func main() {
+    x := unreachable
+}
+-- unreachable-as-value/expected --
+stage: parse
+---
+
+unreachable-as-value/main.tck:4:10: error: expected 'value' found 'unreachable'
+03 |	func main() {
+04 |	    x := unreachable
+   |	         ^
+05 |	}
+
+-- unreachable-bool-uncovered/main.tck --
+package main
+
+// Only true has a case, so the default runs for false.
+func f(b bool) int64 {
+    switch b {
+    case true:
+        return 1
+    default:
+        unreachable
+    }
+}
+
+func main() {
+    if f(true) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-bool-uncovered/expected --
+stage: typeck
+---
+
+unreachable-bool-uncovered/main.tck:9:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+08 |	    default:
+09 |	        unreachable
+   |	        ^~~~~~~~~~~
+10 |	    }
+
+-- unreachable-break-out/main.tck --
+package main
+
+// The loop is left by break when x > 0, so the place after it is reached.
+func f(x int64) int64 {
+    for {
+        if x > 0 {
+            break
+        }
+        return 0
+    }
+    unreachable
+}
+
+func main() {
+    if f(0) != 0 {
+        exit(1)
+    }
+}
+-- unreachable-break-out/expected --
+stage: typeck
+---
+
+unreachable-break-out/main.tck:11:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+10 |	    }
+11 |	    unreachable
+   |	    ^~~~~~~~~~~
+12 |	}
+
+-- unreachable-case-ruled-out-written/main.tck --
+package main
+
+// The default rules out 0 and 1, but m = 0 in it ends that.
+func f(x int64) int64 {
+    mut m := x
+    if m < 0 || m > 1 {
+        return 2
+    }
+    switch m {
+    case 0:
+        return 0
+    case 1:
+        return 1
+    default:
+        m = 0
+        if m == 0 {
+            unreachable
+        }
+    }
+    return m
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-case-ruled-out-written/expected --
+stage: typeck
+---
+
+unreachable-case-ruled-out-written/main.tck:17:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+16 |	        if m == 0 {
+17 |	            unreachable
+   |	            ^~~~~~~~~~~
+18 |	        }
+unreachable-case-ruled-out-written/main.tck:6:5: note: this early exit proves 0 <= m && m < 2 after it
+05 |	    mut m := x
+06 |	    if m < 0 || m > 1 {
+   |	    ^~~~~~~~~~~~~~~~~
+07 |	        return 2
+unreachable-case-ruled-out-written/main.tck:10:5: note: this case proves m != 0 in the cases after it
+09 |	    switch m {
+10 |	    case 0:
+   |	    ^~~~~~
+11 |	        return 0
+unreachable-case-ruled-out-written/main.tck:15:9: note: but m is assigned here, so the proof ends
+14 |	    default:
+15 |	        m = 0
+   |	        ^
+16 |	        if m == 0 {
+
+-- unreachable-chain-written/main.tck --
+package main
+
+// The else-if chain leaves no int64 past it, until v = 5 ends its facts.
+func f(x int64) int64 {
+    mut v := x
+    if v < 0 {
+        return -1
+    } else if v == 0 {
+        return 0
+    } else if v > 0 {
+        return 1
+    }
+    v = 5
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-chain-written/expected --
+stage: typeck
+---
+
+unreachable-chain-written/main.tck:14:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	    v = 5
+14 |	    unreachable
+   |	    ^~~~~~~~~~~
+15 |	}
+
+-- unreachable-defer-assigned-after/main.tck --
+package main
+
+// The deferred code runs when main's block is left, after b = 0, so the
+// fact b != 0 the early exit gives does not hold there.
+func main() {
+    mut b int64 = 3
+    if b == 0 {
+        return
+    }
+    defer {
+        if b == 0 {
+            unreachable
+        }
+    }
+    b = 0
+}
+-- unreachable-defer-assigned-after/expected --
+stage: typeck
+---
+
+unreachable-defer-assigned-after/main.tck:12:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+11 |	        if b == 0 {
+12 |	            unreachable
+   |	            ^~~~~~~~~~~
+13 |	        }
+unreachable-defer-assigned-after/main.tck:7:5: note: this early exit proves b != 0 after it
+06 |	    mut b int64 = 3
+07 |	    if b == 0 {
+   |	    ^~~~~~~~~
+08 |	        return
+unreachable-defer-assigned-after/main.tck:15:5: note: but b is assigned here, so the proof ends
+14 |	    }
+15 |	    b = 0
+   |	    ^
+16 |	}
+
+-- unreachable-defer-unproven/main.tck --
+package main
+
+func main() {
+    defer {
+        unreachable
+    }
+}
+-- unreachable-defer-unproven/expected --
+stage: typeck
+---
+
+unreachable-defer-unproven/main.tck:5:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+04 |	    defer {
+05 |	        unreachable
+   |	        ^~~~~~~~~~~
+06 |	    }
+
+-- unreachable-exit-in-callee/main.tck --
+package main
+
+// die ends the process, but a call to it does not leave a block: only a
+// call to exit itself does.
+func die() {
+    exit(3)
+}
+
+func f(x int64) int64 {
+    if x == 0 {
+        die()
+    }
+    if x == 0 {
+        unreachable
+    }
+    return x
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-exit-in-callee/expected --
+stage: typeck
+---
+
+unreachable-exit-in-callee/main.tck:14:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	    if x == 0 {
+14 |	        unreachable
+   |	        ^~~~~~~~~~~
+15 |	    }
+
+-- unreachable-int8-max-uncovered/main.tck --
+package main
+
+// Below 127 returns, which leaves 127 itself.
+func f(x int8) int64 {
+    if x < 127 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-int8-max-uncovered/expected --
+stage: typeck
+---
+
+unreachable-int8-max-uncovered/main.tck:8:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+07 |	    }
+08 |	    unreachable
+   |	    ^~~~~~~~~~~
+09 |	}
+
+-- unreachable-int8-min-uncovered/main.tck --
+package main
+
+// Above -128 returns, which leaves -128 itself.
+func f(x int8) int64 {
+    if x > -128 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-int8-min-uncovered/expected --
+stage: typeck
+---
+
+unreachable-int8-min-uncovered/main.tck:8:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+07 |	    }
+08 |	    unreachable
+   |	    ^~~~~~~~~~~
+09 |	}
+
+-- unreachable-loop-assign-before/main.tck --
+package main
+
+// next returns n, which the checker cannot see through.
+func next(n int64) int64 {
+    return n
+}
+
+// The body assigns v before the guard, which ends the loop condition's
+// fact v > 0.
+func f(x int64) int64 {
+    mut v := x
+    for v > 0 {
+        v = next(v)
+        if v <= 0 {
+            unreachable
+        }
+    }
+    return 1
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-loop-assign-before/expected --
+stage: typeck
+---
+
+unreachable-loop-assign-before/main.tck:15:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+14 |	        if v <= 0 {
+15 |	            unreachable
+   |	            ^~~~~~~~~~~
+16 |	        }
+unreachable-loop-assign-before/main.tck:12:9: note: this guard proves v >= 1
+11 |	    mut v := x
+12 |	    for v > 0 {
+   |	        ^~~~~
+13 |	        v = next(v)
+unreachable-loop-assign-before/main.tck:13:9: note: but v is assigned here, so the proof ends
+12 |	    for v > 0 {
+13 |	        v = next(v)
+   |	        ^
+14 |	        if v <= 0 {
+
+-- unreachable-main-top/main.tck --
+package main
+
+func main() {
+    unreachable
+}
+-- unreachable-main-top/expected --
+stage: typeck
+---
+
+unreachable-main-top/main.tck:4:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+03 |	func main() {
+04 |	    unreachable
+   |	    ^~~~~~~~~~~
+05 |	}
+
+-- unreachable-mutable-field/main.tck --
+package main
+
+// Gauge holds a level.
+type Gauge struct {
+    level int64
+}
+
+// A field of a mutable variable never carries a fact.
+func f(n int64) int64 {
+    mut g := Gauge{level: n}
+    if g.level > 0 {
+        if g.level < 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-mutable-field/expected --
+stage: typeck
+---
+
+unreachable-mutable-field/main.tck:13:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+12 |	        if g.level < 0 {
+13 |	            unreachable
+   |	            ^~~~~~~~~~~
+14 |	        }
+unreachable-mutable-field/main.tck:11:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy g.level into a variable first
+10 |	    mut g := Gauge{level: n}
+11 |	    if g.level > 0 {
+   |	       ^~~~~~~~~~~
+12 |	        if g.level < 0 {
+unreachable-mutable-field/main.tck:12:12: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy g.level into a variable first
+11 |	    if g.level > 0 {
+12 |	        if g.level < 0 {
+   |	           ^~~~~~~~~~~
+13 |	            unreachable
+
+-- unreachable-mutable-global/main.tck --
+package main
+
+mut g int64 = 1
+
+// A mutable global never has a fact, since any call can change it.
+func f() int64 {
+    if g > 0 {
+        if g < 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f() != 1 {
+        exit(1)
+    }
+}
+-- unreachable-mutable-global/expected --
+stage: typeck
+---
+
+unreachable-mutable-global/main.tck:9:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+08 |	        if g < 0 {
+09 |	            unreachable
+   |	            ^~~~~~~~~~~
+10 |	        }
+unreachable-mutable-global/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut g int64 = 1
+   |	    ^
+04 |	
+
+-- unreachable-or-true-call/main.tck --
+package main
+
+// ready says whether to go on.
+func ready() bool {
+    return true
+}
+
+// A true || is i < 0, or i >= 0 with ready() true, which gives no fact,
+// so that side never contradicts i in [0, 4].
+func f(n int64) int64 {
+    i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i < 0 || ready() {
+        unreachable
+    }
+    return i
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-or-true-call/expected --
+stage: typeck
+---
+
+unreachable-or-true-call/main.tck:16:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+15 |	    if i < 0 || ready() {
+16 |	        unreachable
+   |	        ^~~~~~~~~~~
+17 |	    }
+
+-- unreachable-or-true-one-side/main.tck --
+package main
+
+// A true i < 0 || i > 3 allows i == 4, which i in [0, 4] does too.
+func f(n int64) int64 {
+    i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i < 0 || i > 3 {
+        unreachable
+    }
+    return i
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-or-true-one-side/expected --
+stage: typeck
+---
+
+unreachable-or-true-one-side/main.tck:10:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+09 |	    if i < 0 || i > 3 {
+10 |	        unreachable
+   |	        ^~~~~~~~~~~
+11 |	    }
+
+-- unreachable-or-true-written/main.tck --
+package main
+
+// Each side of the true || contradicts i in [0, 4], but the write to i
+// before unreachable ends both sides' facts and the range.
+func f(n int64) int64 {
+    mut i := n
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i < 0 || i > 4 {
+        i = 2
+        unreachable
+    }
+    return i
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-or-true-written/expected --
+stage: typeck
+---
+
+unreachable-or-true-written/main.tck:12:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+11 |	        i = 2
+12 |	        unreachable
+   |	        ^~~~~~~~~~~
+13 |	    }
+
+-- unreachable-ruled-out-written/main.tck --
+package main
+
+// m != 1 rules out 1, but m = 1 ends that, so m == 1 is no contradiction.
+func f(x int64) int64 {
+    mut m := x
+    if m != 1 {
+        m = 1
+        unreachable
+    }
+    return m
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-ruled-out-written/expected --
+stage: typeck
+---
+
+unreachable-ruled-out-written/main.tck:8:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+07 |	        m = 1
+08 |	        unreachable
+   |	        ^~~~~~~~~~~
+09 |	    }
+
+-- unreachable-sign-gap-minus-one/main.tck --
+package main
+
+// x < -1 leaves -1 uncovered: an off-by-one in a sign function.
+func f(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    if x < -1 {
+        return -1
+    }
+    if x == 0 {
+        return 0
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-sign-gap-minus-one/expected --
+stage: typeck
+---
+
+unreachable-sign-gap-minus-one/main.tck:14:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+13 |	    }
+14 |	    unreachable
+   |	    ^~~~~~~~~~~
+15 |	}
+
+-- unreachable-sign-gap-zero/main.tck --
+package main
+
+// x >= 1 and x <= -1 leave 0 uncovered.
+func f(x int64) int64 {
+    if x >= 1 {
+        return 1
+    }
+    if x <= -1 {
+        return -1
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-sign-gap-zero/expected --
+stage: typeck
+---
+
+unreachable-sign-gap-zero/main.tck:11:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+10 |	    }
+11 |	    unreachable
+   |	    ^~~~~~~~~~~
+12 |	}
+
+-- unreachable-switch-after-falls-out/main.tck --
+package main
+
+// Case 1 falls out of the switch when d <= 5, so the code after it is
+// reached with d == 1.
+func f(d int64) int32 {
+    if d < 0 || d > 2 {
+        return 9
+    }
+    switch d {
+    case 0:
+        return 1
+    case 1:
+        if d > 5 {
+            return 7
+        }
+    case 2:
+        return 3
+    }
+    unreachable
+}
+
+func main() {
+    if f(0) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-switch-after-falls-out/expected --
+stage: typeck
+---
+
+unreachable-switch-after-falls-out/main.tck:19:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+18 |	    }
+19 |	    unreachable
+   |	    ^~~~~~~~~~~
+20 |	}
+
+-- unreachable-switch-after-uncovered/main.tck --
+package main
+
+// d is between 0 and 3, and the cases name only 0, 1 and 2, so the code
+// after the switch is reached for 3.
+func f(d int64) int32 {
+    if d < 0 || d > 3 {
+        return 9
+    }
+    switch d {
+    case 0:
+        return 1
+    case 1:
+        return 2
+    case 2:
+        return 3
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 2 {
+        exit(1)
+    }
+}
+-- unreachable-switch-after-uncovered/expected --
+stage: typeck
+---
+
+unreachable-switch-after-uncovered/main.tck:17:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+16 |	    }
+17 |	    unreachable
+   |	    ^~~~~~~~~~~
+18 |	}
+
+-- unreachable-switch-after-written/main.tck --
+package main
+
+// The cases cover every value d has, but d = 1 after the switch ends what
+// they ruled out.
+func f(n int64) int32 {
+    mut d := n
+    if d < 0 || d > 2 {
+        return 9
+    }
+    switch d {
+    case 0:
+        return 1
+    case 1:
+        return 2
+    case 2:
+        return 3
+    }
+    d = 1
+    unreachable
+}
+
+func main() {
+    if f(1) != 2 {
+        exit(1)
+    }
+}
+-- unreachable-switch-after-written/expected --
+stage: typeck
+---
+
+unreachable-switch-after-written/main.tck:19:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+18 |	    d = 1
+19 |	    unreachable
+   |	    ^~~~~~~~~~~
+20 |	}
+
+-- unreachable-switch-missing-value/main.tck --
+package main
+
+// d is between 0 and 3, and the cases name only 0, 1 and 2, so the
+// default runs for 3.
+func f(d int64) int64 {
+    if d < 0 || d > 3 {
+        return -1
+    }
+    switch d {
+    case 0:
+        return 10
+    case 1:
+        return 11
+    case 2:
+        return 12
+    default:
+        unreachable
+    }
+}
+
+func main() {
+    if f(1) != 11 {
+        exit(1)
+    }
+}
+-- unreachable-switch-missing-value/expected --
+stage: typeck
+---
+
+unreachable-switch-missing-value/main.tck:17:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+16 |	    default:
+17 |	        unreachable
+   |	        ^~~~~~~~~~~
+18 |	    }
+
+-- unreachable-tagless-missing-zero/main.tck --
+package main
+
+// x < 0 and x > 0 leave 0 to the default.
+func f(x int64) int64 {
+    switch {
+    case x < 0:
+        return -1
+    case x > 0:
+        return 1
+    default:
+        unreachable
+    }
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-tagless-missing-zero/expected --
+stage: typeck
+---
+
+unreachable-tagless-missing-zero/main.tck:11:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+10 |	    default:
+11 |	        unreachable
+   |	        ^~~~~~~~~~~
+12 |	    }
+
+-- unreachable-then-statement/main.tck --
+package main
+
+// Assumption: a statement after unreachable is not an error, as one after
+// return is not, but the function then ends in that statement, which does
+// not terminate.
+func f(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    if x <= 0 {
+        return 0
+    }
+    unreachable
+    print("")
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-then-statement/expected --
+stage: typeck
+---
+
+unreachable-then-statement/main.tck:6:6: error: f must end in a return
+05 |	// not terminate.
+06 |	func f(x int64) int64 {
+   |	     ^
+07 |	    if x > 0 {
+
+-- unreachable-top-of-func/main.tck --
+package main
+
+func f(x int64) int64 {
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-top-of-func/expected --
+stage: typeck
+---
+
+unreachable-top-of-func/main.tck:4:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+03 |	func f(x int64) int64 {
+04 |	    unreachable
+   |	    ^~~~~~~~~~~
+05 |	}
+
+-- unreachable-uint-zero-uncovered/main.tck --
+package main
+
+// Above 0 returns, which leaves 0: an unsigned value is never negative,
+// but it can be zero.
+func f(u uint64) int64 {
+    if u > 0 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-uint-zero-uncovered/expected --
+stage: typeck
+---
+
+unreachable-uint-zero-uncovered/main.tck:9:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+08 |	    }
+09 |	    unreachable
+   |	    ^~~~~~~~~~~
+10 |	}
+
+-- unreachable-union-default-covered/main.tck --
+package main
+
+// Dir is a union with no payloads.
+type Dir union {
+    north
+    south
+}
+
+// Assumption: a default in a switch that covers every case of a union
+// stays an error even when it holds only unreachable, since it can never
+// run; only that error is reported.
+func f(d Dir) int64 {
+    switch d {
+    case north:
+        return 0
+    case south:
+        return 1
+    default:
+        unreachable
+    }
+}
+
+func main() {
+    if f(Dir.north) != 0 {
+        exit(1)
+    }
+}
+-- unreachable-union-default-covered/expected --
+stage: typeck
+---
+
+unreachable-union-default-covered/main.tck:18:5: error: every case of Dir is already covered, so this default never runs
+17 |	        return 1
+18 |	    default:
+   |	    ^~~~~~~~
+19 |	        unreachable
+
+-- unreachable-union-default-misses/main.tck --
+package main
+
+// Dir is a union with no payloads.
+type Dir union {
+    north
+    south
+    east
+    west
+}
+
+// The cases miss east and west, so the default runs for them: a switch on
+// a union gives no facts, and only its cases cover values.
+func f(d Dir) int64 {
+    switch d {
+    case north:
+        return 0
+    case south:
+        return 1
+    default:
+        unreachable
+    }
+}
+
+func main() {
+    if f(Dir.north) != 0 {
+        exit(1)
+    }
+}
+-- unreachable-union-default-misses/expected --
+stage: typeck
+---
+
+unreachable-union-default-misses/main.tck:20:9: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+19 |	    default:
+20 |	        unreachable
+   |	        ^~~~~~~~~~~
+21 |	    }
+
+-- unreachable-unproven/main.tck --
+package main
+
+// Only x > 0 returns, so the end is reached for every other x.
+func f(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    unreachable
+}
+
+func main() {
+    if f(1) != 1 {
+        exit(1)
+    }
+}
+-- unreachable-unproven/expected --
+stage: typeck
+---
+
+unreachable-unproven/main.tck:8:5: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+07 |	    }
+08 |	    unreachable
+   |	    ^~~~~~~~~~~
+09 |	}
+
+-- unreachable-write-in-condition/main.tck --
+package main
+
+// bump sets n to zero and says it did.
+func bump(mut n int64) bool {
+    n = 0
+    return true
+}
+
+// The call on the right of && runs after x > 0 is tested, and may assign
+// x, so the then branch knows nothing of x.
+func f(n int64) int64 {
+    mut x := n
+    if x > 0 && bump(mut x) {
+        if x <= 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    if f(1) != 0 {
+        exit(1)
+    }
+}
+-- unreachable-write-in-condition/expected --
+stage: typeck
+---
+
+unreachable-write-in-condition/main.tck:15:13: error: unreachable may be reached; check a condition that rules this place out first, or handle the case here
+14 |	        if x <= 0 {
+15 |	            unreachable
+   |	            ^~~~~~~~~~~
+16 |	        }
+unreachable-write-in-condition/main.tck:13:8: note: this guard proves x >= 1
+12 |	    mut x := n
+13 |	    if x > 0 && bump(mut x) {
+   |	       ^~~~~
+14 |	        if x <= 0 {
+unreachable-write-in-condition/main.tck:13:22: note: but x is passed as mut to bump here, so the proof ends
+12 |	    mut x := n
+13 |	    if x > 0 && bump(mut x) {
+   |	                     ^~~~~
+14 |	        if x <= 0 {
+
 -- unsafe-checked-conversion-negative/main.tck --
 package main
 

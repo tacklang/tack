@@ -103,7 +103,7 @@ func parseLimited(src string, limit int) ([]lexer.Token, *ast.File, []diag.Diagn
 var insertions = []string{
 	")", "(", "{", "}", "]", "[", ",", ";", "+", "=", ":=", "func", "x", "1",
 	"if", "for", "return", "var", "type", ".", "\n", "pub", "import", "case",
-	"switch", "mut", "defer", "else", "...", "*", "!", "x :=", "} else {",
+	"switch", "mut", "defer", "else", "...", "*", "!", "x :=", "} else {", "unreachable",
 }
 
 // editTokens returns the indexes of f's tokens that cover bytes, the ones

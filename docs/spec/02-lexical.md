@@ -124,8 +124,8 @@ is
 
 - an identifier;
 - an integer, float, string, raw string or character literal;
-- one of the keywords `break`, `continue`, `return`, `true`, `false`,
-  `noerror` and `c_allocator`;
+- one of the keywords `break`, `continue`, `return`, `unreachable`,
+  `true`, `false`, `noerror` and `c_allocator`;
 - one of the operators `++` and `--`; or
 - one of the closing brackets `)`, `]` and `}`.
 
@@ -165,16 +165,17 @@ it may stand for is in [Declarations and scope](05-declarations.md).
 
 ## Keywords and reserved names
 
-The following 36 keywords are reserved and may not be used as
+The following 37 keywords are reserved and may not be used as
 identifiers:
 
 ```text
-async        default      for          interface    own          struct
-break        defer        from         lib          package      switch
-c_allocator  else         func         list         pub          true
-case         ensures      goto         map          range        type
-const        extern       if           mut          return       union
-continue     false        import       noerror      select       var
+async        defer        func         map          return       unreachable
+break        else         goto         mut          select       var
+c_allocator  ensures      if           noerror      struct
+case         extern       import       own          switch
+const        false        interface    package      true
+continue     for          lib          pub          type
+default      from         list         range        union
 ```
 
 Each is reserved everywhere, whether or not the grammar uses it at the

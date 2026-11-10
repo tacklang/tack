@@ -1,7 +1,8 @@
 // The C every Tack program shares: the string type and the macros that
 // build strings, the error type and the macros that build errors,
 // any, its type ids and the helpers that read one, and the allocator
-// handle and the macros that read and grow a list,
+// handle and the macros that read and grow a list, and the abort an
+// unreachable statement lowers to,
 // defined here once for the generated source, the C files of the standard
 // library and a program's own C files alike. Each
 // includes it as <tack/tack.h>, and the driver compiles each with this
@@ -360,6 +361,21 @@ void tack_list_free_(void *ptr, int64_t cap, size_t elem, size_t align, tack_all
 // though exit runs no defers; nothing else may, since every list still
 // holding one of those buffers is left pointing at freed memory.
 void tack_allocators_release_all_(void);
+
+// TACK_UNREACHABLE(at) ends the process at an unreachable statement, at
+// being where it is written as a string literal, file:line: it writes
+// "tack: unreachable reached at <at> (compiler bug)" and a newline to
+// stderr and aborts, through tack_unreachable_. The checker proves no run
+// reaches such a statement, so reaching one is a bug in that proof. The
+// generated source writes it in place of each unreachable; nothing else
+// may.
+#define TACK_UNREACHABLE(at) \
+    tack_unreachable_("tack: unreachable reached at " at " (compiler bug)\n")
+
+// tack_unreachable_ writes msg to stderr, makes every allocator free
+// every buffer it still holds, as exit does, and aborts. Only
+// TACK_UNREACHABLE calls it.
+_Noreturn void tack_unreachable_(const char *msg);
 
 // tack_c_allocator_live_ returns how many buffers c_allocator has given
 // out and not had back, for tests that check every list is freed.

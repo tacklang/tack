@@ -5,6 +5,8 @@
 // own is a keyword like mut, reserved everywhere, though only a parameter
 // and a call's argument use it. ensures is one too, reserved everywhere,
 // though only a function's contract, after its results, uses it.
+// unreachable is a keyword that is a statement of its own, so it is never
+// a name.
 //
 // The lexer works on bytes, not runes. Identifiers are ASCII letters, digits
 // and underscores; any other byte outside a literal or comment is reported as
@@ -27,8 +29,8 @@
 // Semicolons are inserted automatically, following Go's rule: at a newline,
 // before a comment, and at the end of input, a Semi token is added if the
 // preceding token is an identifier, a literal, ++ or --, a closing bracket, or
-// one of the keywords break, continue, return, true, false, noerror and
-// c_allocator. An inserted Semi covers no bytes. The token stream always ends with an EOF token.
+// one of the keywords break, continue, return, unreachable, true, false,
+// noerror and c_allocator. An inserted Semi covers no bytes. The token stream always ends with an EOF token.
 //
 // Each token records whether it starts a line, no token before it on its
 // line (Token.StartsLine), which the parser's error recovery uses to find

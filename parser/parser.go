@@ -1300,6 +1300,8 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		return p.parseJump(&ast.Break{Span: p.span(tk)})
 	case lexer.Continue:
 		return p.parseJump(&ast.Continue{Span: p.span(tk)})
+	case lexer.Unreachable:
+		return p.parseJump(&ast.Unreachable{Span: p.span(tk)})
 	case lexer.Type:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -2908,8 +2910,9 @@ func (p *Parser) parseForClauses(loop *ast.For) []diag.Diagnostic {
 	return nil
 }
 
-// parseJump parses break or continue, whose node the caller has built from
-// the keyword. Nothing may follow the keyword: there are no labels.
+// parseJump parses break, continue or unreachable, whose node the caller
+// has built from the keyword. Nothing may follow the keyword: there are no
+// labels, and unreachable takes no value.
 func (p *Parser) parseJump(stmt ast.Stmt) (ast.Stmt, []diag.Diagnostic) {
 	p.next() // the keyword
 

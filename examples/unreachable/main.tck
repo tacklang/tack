@@ -1,0 +1,547 @@
+package main
+
+// unreachable marks a place the checker proves no run reaches: the facts
+// on the path to it contradict, or the cases before it cover every value.
+// It is a terminating statement, so a function may end with it instead of
+// a return. Each function below uses it in one place it is accepted, and
+// main checks every function on every side of each guard, the boundaries
+// and the extremes of each type included, exiting with its own status on
+// a wrong answer and with 42 when every answer is right.
+
+// Gauge is a struct whose methods prove their places by the receiver's
+// field.
+type Gauge struct {
+    level int64
+}
+
+// Leveled is what a generic function below asks of its type argument.
+type Leveled interface {
+    level() int64
+}
+
+// Probe is one type argument of the generic functions.
+type Probe struct {
+    n int64
+}
+
+// Sample is another, so the generic functions are compiled twice.
+type Sample struct {
+    v int64
+}
+
+// Dir is a union with no payloads, as an enum is.
+type Dir union {
+    north
+    south
+    east
+    west
+}
+
+// level returns p's n.
+func (p Probe) level() int64 {
+    return p.n
+}
+
+// level returns s's v.
+func (s Sample) level() int64 {
+    return s.v
+}
+
+// sign is the known bug's function: three ifs that cover every int64,
+// each returning, and unreachable where no return was possible before.
+// After x > 0 and x < 0 return, x is 0, and after x == 0 returns, the
+// facts contradict.
+func sign(x int64) int64 {
+    if x > 0 {
+        return 1
+    }
+    if x < 0 {
+        return -1
+    }
+    if x == 0 {
+        return 0
+    }
+    unreachable
+}
+
+// signChain covers every int64 with an else-if chain whose branches all
+// return, with no final else, and ends after it.
+func signChain(x int64) int64 {
+    if x < 0 {
+        return -1
+    } else if x == 0 {
+        return 0
+    } else if x > 0 {
+        return 1
+    }
+    unreachable
+}
+
+// signElse puts unreachable in the final else of a chain whose earlier
+// conditions cover every int64: there, x >= 0 is false and x < 0 is too.
+func signElse(x int64) int64 {
+    if x < 0 {
+        return -1
+    } else if x >= 0 {
+        return 1
+    } else {
+        unreachable
+    }
+}
+
+// nested reaches unreachable through contradictory nested guards: inside
+// x > 0, x < 0 never holds.
+func nested(x int64) int64 {
+    if x > 0 {
+        if x < 0 {
+            unreachable
+        }
+        return 1
+    }
+    return 0
+}
+
+// deep nests three guards before the one that contradicts them.
+func deep(x int64) int64 {
+    if x >= 10 {
+        if x <= 20 {
+            if x != 15 {
+                if x == 5 {
+                    unreachable
+                }
+                return 2
+            }
+            return 1
+        }
+    }
+    return 0
+}
+
+// both reads two facts from one && and finds them contradict.
+func both(x int64) int64 {
+    if x > 5 && x < 3 {
+        unreachable
+    }
+    return x
+}
+
+// neither leaves when x < 0 || x > 0, so after it x is 0, and a guard
+// claiming otherwise is unreachable.
+func neither(x int64) int64 {
+    if x < 0 || x > 0 {
+        return 1
+    }
+    if x != 0 {
+        unreachable
+    }
+    return 0
+}
+
+// either knows 1 <= x <= 2 from a true ||, which rules out x == 0.
+func either(x int64) int64 {
+    if x == 1 || x == 2 {
+        if x == 0 {
+            unreachable
+        }
+        return x
+    }
+    return 0
+}
+
+// negated proves through !, which swaps a condition's true and false.
+func negated(x int64) int64 {
+    if !(x >= 0) {
+        if x >= 0 {
+            unreachable
+        }
+        return -1
+    }
+    return 1
+}
+
+// afterExit leaves by exit when x is 0, so x == 0 cannot hold after it.
+func afterExit(x int64) int64 {
+    if x == 0 {
+        exit(9)
+    }
+    if x == 0 {
+        unreachable
+    }
+    return x
+}
+
+// narrow proves by an int8's own bounds: nothing is above 127 or below
+// -128, and the extremes and both signs between them cover the rest.
+func narrow(x int8) int64 {
+    if x > 127 {
+        unreachable
+    }
+    if x < -128 {
+        unreachable
+    }
+    if x == -128 {
+        return -1
+    }
+    if x == 127 {
+        return 1
+    }
+    if x < 0 {
+        return 0
+    }
+    if x >= 0 {
+        return 0
+    }
+    unreachable
+}
+
+// unsigned covers a uint64 with two cases, since it is never negative.
+func unsigned(u uint64) int64 {
+    if u == 0 {
+        return 0
+    }
+    if u > 0 {
+        return 1
+    }
+    unreachable
+}
+
+// tagless ends a tagless switch whose cases cover every int64 with an
+// unreachable default.
+func tagless(x int64) int64 {
+    switch {
+    case x < 0:
+        return -1
+    case x == 0:
+        return 0
+    case x > 0:
+        return 1
+    default:
+        unreachable
+    }
+}
+
+// bounded switches on a value already known to be 0, 1 or 2, naming each,
+// so the default sees no value left.
+func bounded(d int64) int64 {
+    if d < 0 || d > 2 {
+        return -1
+    }
+    switch d {
+    case 0:
+        return 10
+    case 1:
+        return 11
+    case 2:
+        return 12
+    default:
+        unreachable
+    }
+}
+
+// flag switches on a bool, naming both values, so the default is
+// unreachable and the switch terminates.
+func flag(b bool) int64 {
+    switch b {
+    case true:
+        return 1
+    case false:
+        return 0
+    default:
+        unreachable
+    }
+}
+
+// afterSwitch ends in unreachable after a switch with no default whose
+// cases, each returning, name every value d has left, 0, 1 and 2, so the
+// code after it is reached only when no case matched.
+func afterSwitch(d int64) int32 {
+    if d < 0 || d > 2 {
+        return 9
+    }
+    switch d {
+    case 0:
+        return 1
+    case 1:
+        return 2
+    case 2:
+        return 3
+    }
+    unreachable
+}
+
+// afterBool ends in unreachable after a switch on a bool whose cases,
+// each returning, name both values.
+func afterBool(b bool) int32 {
+    switch b {
+    case true:
+        return 1
+    case false:
+        return 2
+    }
+    unreachable
+}
+
+// afterTagless ends in unreachable after a tagless switch whose cases,
+// each returning, cover every int64.
+func afterTagless(x int64) int64 {
+    switch {
+    case x < 0:
+        return -1
+    case x == 0:
+        return 0
+    case x > 0:
+        return 1
+    }
+    unreachable
+}
+
+// inCase proves a case body's place by the case itself: inside case 1, 2,
+// the tag is never above 2.
+func inCase(x int64) int64 {
+    switch x {
+    case 1, 2:
+        if x > 2 {
+            unreachable
+        }
+        return x
+    }
+    return 0
+}
+
+// counted proves places inside loops: a range index is never negative nor
+// past its count less one, and a counting loop's variable never below its
+// start. The counting loop's condition bounds j by a known value, which
+// is what keeps its step from wrapping past the end of an int64; a bound
+// by n alone is a relation, which the counting rule does not read. It
+// returns the last index of each loop, or -1 for one that never ran, with
+// no arithmetic but the loops' own steps.
+func counted(n int64) (int64, int64) {
+    mut last := -1
+    for i := range 5 {
+        if i < 0 {
+            unreachable
+        }
+        if i > 4 {
+            unreachable
+        }
+        last = i
+    }
+    mut final := -1
+    for mut j := 0; j < 100 && j < n; j++ {
+        if j < 0 {
+            unreachable
+        }
+        final = j
+    }
+    return last, final
+}
+
+// halve proves by a loop's condition, which runs again before every pass,
+// so a write later in the body does not end the fact for the next one. It
+// returns the last value v held inside the loop, or x when the loop never
+// ran.
+func halve(x int64) int64 {
+    mut v := x
+    mut seen := x
+    for v > 0 {
+        if v <= 0 {
+            unreachable
+        }
+        seen = v
+        v = v / 2
+    }
+    return seen
+}
+
+// spin is a for with no condition that only returns, guarded inside.
+func spin(x int64) int64 {
+    mut v := x
+    for {
+        if v >= 3 {
+            return v
+        }
+        if v >= 3 {
+            unreachable
+        }
+        v++
+    }
+}
+
+// pair has two results and ends in unreachable after covering every
+// int64.
+func pair(x int64) (int64, int64) {
+    if x > 0 {
+        return x, 1
+    }
+    if x < 0 {
+        return x, -1
+    }
+    if x == 0 {
+        return 0, 0
+    }
+    unreachable
+}
+
+// band is a method that proves by its receiver's field, which nothing
+// changes while the method runs.
+func (g Gauge) band() int64 {
+    if g.level < 0 {
+        return -1
+    }
+    if g.level >= 0 {
+        return 1
+    }
+    unreachable
+}
+
+// heading is a method of a union, which ends in unreachable after a
+// switch whose clauses cover a contradicted guard.
+func (d Dir) heading(x int64) int64 {
+    switch d {
+    case north, south:
+        if x > 0 {
+            return 1
+        }
+        if x <= 0 {
+            return 0
+        }
+        unreachable
+    case east, west:
+        return 2
+    }
+}
+
+// classify is generic: its body is checked once, against Leveled, and
+// ends in unreachable after covering every level.
+func classify[T Leveled](t T) int64 {
+    n := t.level()
+    if n > 0 {
+        return 1
+    }
+    if n <= 0 {
+        return 0
+    }
+    unreachable
+}
+
+// clampedLevel is generic too, and contradicts a guard nested in another.
+func clampedLevel[T Leveled](t T) int64 {
+    n := t.level()
+    if n >= 0 {
+        if n < 0 {
+            unreachable
+        }
+        return n
+    }
+    return 0
+}
+
+func main() {
+    if sign(5) != 1 || sign(-5) != -1 || sign(0) != 0 {
+        exit(1)
+    }
+    if sign(1) != 1 || sign(-1) != -1 {
+        exit(2)
+    }
+    if sign(9223372036854775807) != 1 || sign(-9223372036854775808) != -1 {
+        exit(3)
+    }
+    if signChain(-1) != -1 || signChain(0) != 0 || signChain(1) != 1 {
+        exit(4)
+    }
+    if signChain(-9223372036854775808) != -1 || signChain(9223372036854775807) != 1 {
+        exit(5)
+    }
+    if signElse(-1) != -1 || signElse(0) != 1 || signElse(-9223372036854775808) != -1 {
+        exit(6)
+    }
+    if nested(1) != 1 || nested(0) != 0 || nested(-1) != 0 {
+        exit(7)
+    }
+    if deep(10) != 2 || deep(15) != 1 || deep(20) != 2 || deep(21) != 0 || deep(9) != 0 || deep(5) != 0 {
+        exit(8)
+    }
+    if both(4) != 4 || both(6) != 6 || both(-9223372036854775808) != -9223372036854775808 {
+        exit(9)
+    }
+    if neither(0) != 0 || neither(1) != 1 || neither(-1) != 1 {
+        exit(10)
+    }
+    if either(1) != 1 || either(2) != 2 || either(0) != 0 || either(3) != 0 {
+        exit(11)
+    }
+    if negated(-1) != -1 || negated(0) != 1 || negated(9223372036854775807) != 1 {
+        exit(12)
+    }
+    if afterExit(3) != 3 || afterExit(-3) != -3 {
+        exit(13)
+    }
+    if narrow(-128) != -1 || narrow(127) != 1 || narrow(0) != 0 || narrow(-127) != 0 || narrow(126) != 0 {
+        exit(14)
+    }
+    if unsigned(0) != 0 || unsigned(1) != 1 || unsigned(18446744073709551615) != 1 {
+        exit(15)
+    }
+    if tagless(-7) != -1 || tagless(0) != 0 || tagless(7) != 1 {
+        exit(16)
+    }
+    if bounded(0) != 10 || bounded(1) != 11 || bounded(2) != 12 || bounded(3) != -1 || bounded(-1) != -1 {
+        exit(17)
+    }
+    if flag(true) != 1 || flag(false) != 0 {
+        exit(18)
+    }
+    if afterSwitch(0) != 1 || afterSwitch(1) != 2 || afterSwitch(2) != 3 || afterSwitch(3) != 9 || afterSwitch(-1) != 9 {
+        exit(29)
+    }
+    if afterBool(true) != 1 || afterBool(false) != 2 {
+        exit(30)
+    }
+    if afterTagless(-9223372036854775808) != -1 || afterTagless(0) != 0 || afterTagless(9223372036854775807) != 1 {
+        exit(31)
+    }
+    if inCase(1) != 1 || inCase(2) != 2 || inCase(3) != 0 || inCase(0) != 0 {
+        exit(19)
+    }
+    l0, f0 := counted(0)
+    l3, f3 := counted(3)
+    lm, fm := counted(-4)
+    if l0 != 4 || f0 != -1 || l3 != 4 || f3 != 2 || lm != 4 || fm != -1 {
+        exit(20)
+    }
+    if halve(0) != 0 || halve(1) != 1 || halve(8) != 1 || halve(9) != 1 || halve(-8) != -8 {
+        exit(21)
+    }
+    if spin(0) != 3 || spin(7) != 7 {
+        exit(22)
+    }
+    a, b := pair(4)
+    c, d := pair(-4)
+    e, f := pair(0)
+    if a != 4 || b != 1 || c != -4 || d != -1 || e != 0 || f != 0 {
+        exit(23)
+    }
+    low := Gauge{level: -1}
+    zero := Gauge{level: 0}
+    if low.band() != -1 || zero.band() != 1 {
+        exit(24)
+    }
+    up := Dir.north
+    down := Dir.south
+    right := Dir.east
+    left := Dir.west
+    if up.heading(1) != 1 || down.heading(0) != 0 || right.heading(1) != 2 || left.heading(-1) != 2 {
+        exit(25)
+    }
+    if classify(Probe{n: 3}) != 1 || classify(Probe{n: 0}) != 0 || classify(Sample{v: -1}) != 0 {
+        exit(26)
+    }
+    if classify(Sample{v: 1}) != 1 {
+        exit(27)
+    }
+    if clampedLevel(Probe{n: 5}) != 5 || clampedLevel(Probe{n: -5}) != 0 || clampedLevel(Sample{v: 7}) != 7 {
+        exit(28)
+    }
+
+    exit(42)
+}

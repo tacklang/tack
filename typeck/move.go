@@ -274,6 +274,10 @@ func (m *mover) stmt(stmt ast.Stmt, cur flow) flow {
 		return cur
 	case *ast.Break, *ast.Continue:
 		return m.jump(s, cur)
+	case *ast.Unreachable:
+		// No run reaches it, so nothing is known after it, as after a
+		// return.
+		return dead()
 	default:
 		return m.simpleFlow(stmt, cur)
 	}

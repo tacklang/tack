@@ -361,7 +361,8 @@ nothing. `make install-std` writes a read-only copy to
 
 The driver compiles the runtime's C files, or takes their objects from the
 build cache, and links only those that define a builtin the program calls,
-the list functions when it has a list type, a function one of its C files
+the list functions when it has a list type, the abort of an `unreachable`
+when it holds one, `unreachable.c`, a function one of its C files
 calls, and those that define what those objects need in turn, as a linker
 takes an archive's members; `exit` needs `list.c` too, since it has every
 allocator free what it still holds. So the generated C includes only
@@ -1822,7 +1823,7 @@ section remains the description of the language.
   a value is a thunk that returns them in its function type's results
   struct.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `switch`, `for`, `break`, `continue`, `defer`, a variable declaration, a
+  `else if`), `switch`, `for`, `break`, `continue`, `defer`, `unreachable`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A call
   statement should do something: one that only gives a value, a
   conversion or `len`, as a union built does, is warned of, `int8(5) is
@@ -1836,10 +1837,49 @@ section remains the description of the language.
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
   terminate, a `for` with no condition that no
-  `break` leaves, or a call to `exit`, which never returns: `func fail()
-  int64 { exit(7) }` needs no `return`. The rule is syntactic, so a call
+  `break` leaves, a call to `exit`, which never returns: `func fail()
+  int64 { exit(7) }` needs no `return`, or an `unreachable`. The rule is syntactic, so a call
   to a function that never comes back, one that calls `exit` included,
   does not satisfy it.
+- Unreachable. `unreachable` is a statement, and a keyword reserved
+  everywhere, so no local, parameter, field, function, type or global may
+  be named by it; it takes no value and no parentheses. It marks a place
+  the compiler must prove no run reaches, and a program it cannot prove
+  is rejected: `unreachable may be reached; check a condition that rules
+  this place out first, or handle the case here`. A place is proven when
+  a statement before it in a block around it leaves or terminates, a
+  `return`, `break`, `continue`, `exit`, another `unreachable`, or a
+  `switch` on a union naming every case, each returning; when the facts
+  in force there (see division) leave some variable no value, as inside
+  `if x > 0 { if x < 0 { ... } }`, after `if x > 0 { return 1 }`, `if x <
+  0 { return -1 }` and `if x == 0 { return 0 }`, or after an `else if`
+  chain or a `switch` whose cases, with the variable's type and the
+  bounds in force, cover every value: a `switch` on `d` in `[0, 2]` naming
+  0, 1 and 2, or on a `bool` naming `true` and `false`, leaves its
+  `default` no value, and, with no `default` and every case leaving, the
+  code after it, which is reached only when no case matched; when every side of a true `||` or a false `&&` on
+  the path to it, each taken alone, contradicts the facts there, those
+  that arrive after the condition included: under `i` in `[0, 4]`, the
+  body of `if i < 0 || i > 4` is unreachable, and so is `if x == 2`
+  inside `if x == 1 || x == 3`; when a `bool` tested both ways, `if b`
+  and `if !b`, leaves; and when relations contradict, `a < b && b < a`.
+  As for every proof, a write that can reach the place ends a fact, so
+  `if x > 0 { x = next(x); if x < 0 { unreachable } }` is rejected, with
+  notes on the guard and the write. A field of a mutable variable and a
+  mutable global never carry facts, and a call to a function that
+  exits does not leave. It is a terminating statement, so a function
+  with a result may end in it instead of a `return`, and a branch ending
+  in it leaves, as one ending in `exit` does, so what got past it holds
+  after it; statements after it are allowed, as after a `return`. It may
+  be written in deferred code, proven by the facts in force at the
+  `defer`. A union switch's `default` that full coverage forbids stays
+  forbidden, even when it holds only `unreachable`. It lowers to
+  `TACK_UNREACHABLE("main.tck:12")`, a macro of `<tack/tack.h>` calling
+  the runtime's `tack_unreachable_`, in `unreachable.c`, which writes
+  `tack: unreachable reached at main.tck:12 (compiler bug)` to stderr,
+  frees what every allocator holds, as `exit` does, and aborts: reaching
+  one means the compiler's proof was wrong. It is never C's
+  `__builtin_unreachable`, which would make that undefined behavior.
 - Switches. `switch x { case 1, 2: ... case y: ... default: ... }` compares
   the tag `x` with each case's values using `==`, under its rules: an
   untyped constant takes the tag's type, which it must fit, an integer
@@ -2614,7 +2654,7 @@ section remains the description of the language.
   - inside `if c { ... }` when `c` being true rules out zero, and in its
     `else` when `c` being false does;
   - in the statements after an `if` whose branch ends in `return`, `break`,
-    `continue` or a call to `exit`, by what got past it, as in `if b == 0 {
+    `continue`, a call to `exit` or a proven `unreachable`, by what got past it, as in `if b == 0 {
     return 0 }` or `if b == 0 { exit(1) }`;
   - in a loop's body, by its condition, in a counting loop's body by
     the value its variable starts from (see three-clause loops), and in a

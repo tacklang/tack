@@ -102,6 +102,12 @@ import (
 // a path below an immutable one (see subject.go). For a string subject,
 // the fact can be about its length instead, which about then names.
 //
+// out says ne is a value the fact rules out, which every b != k sets,
+// whatever k, and which, for a fact that holds nothing else, only the
+// proof of an unreachable place counts (see proofOnly). either carries
+// the sides of a true || or a false && on a fact that holds nothing
+// else, which only that proof counts too (see eitherFacts).
+//
 // A fact also records where it came from, for the notes that explain a
 // missing proof: src, the comparison, or the && or || whose sides it
 // unites, that gave it, when there is one, and guard, the condition, loop,
@@ -129,6 +135,8 @@ type fact struct {
 	hasNe        bool
 	nonzero      bool
 	strict       bool
+	out          bool
+	either       *eitherFacts
 }
 
 // holds reports whether f is in force where checking has reached, c.at,
@@ -598,14 +606,16 @@ func (c *Checker) factsFrom(cond ast.Expr, holds bool) []fact {
 // value is holds, as factsFrom does: a comparison's, both sides' of an &&
 // that holds or an || that does not, the left side's dropped where the
 // right side assigns their variables, or what either side's allow, of an
-// && that does not hold or an || that does.
+// && that does not hold or an || that does, followed by a fact carrying
+// each side's own, for the proof of an unreachable place (see eitherFact).
 func (c *Checker) binaryFacts(x *ast.Binary, holds bool) []fact {
 	switch {
 	case x.Op == ast.And && holds, x.Op == ast.Or && !holds:
 		left := c.dropAssigned(c.factsFrom(x.X, holds), []ast.Node{x.Y})
 		return append(left, c.factsFrom(x.Y, holds)...)
 	case x.Op == ast.And, x.Op == ast.Or:
-		return from(union(c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)), x)
+		left, right := c.factsFrom(x.X, holds), c.factsFrom(x.Y, holds)
+		return append(from(union(left, right), x), eitherFact(left, right))
 	case x.Op.IsComparison():
 		return c.comparisonFact(x, holds)
 	}
@@ -700,7 +710,7 @@ func union(a, b []fact) []fact {
 	var out []fact
 	seen := make(map[factKey]bool)
 	for _, f := range a {
-		if seen[f.about] || f.relational() || f.drop != nil {
+		if seen[f.about] || f.relational() || f.drop != nil || f.either != nil {
 			continue
 		}
 		seen[f.about] = true
@@ -720,7 +730,7 @@ func sideInterval(facts []fact, k factKey) (interval, bool) {
 	var known interval
 	found := false
 	for _, f := range facts {
-		if f.about == k && !f.relational() && f.drop == nil {
+		if f.about == k && !f.relational() && f.drop == nil && f.either == nil {
 			known, found = known.narrow(f), true
 		}
 	}
@@ -778,6 +788,9 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 	if !holds {
 		op = negate(op)
 	}
+	if f, ok := c.boolRuledOut(cmp.X, op, cmp.Y); ok {
+		return from([]fact{f}, cmp)
+	}
 	if f, ok := c.orientedFact(cmp.X, op, cmp.Y); ok {
 		return from([]fact{f}, cmp)
 	}
@@ -785,6 +798,33 @@ func (c *Checker) comparisonFact(cmp *ast.Binary, holds bool) []fact {
 		return from([]fact{f}, cmp)
 	}
 	return from(c.linearFacts(cmp.X, op, cmp.Y), cmp)
+}
+
+// boolRuledOut returns the fact a comparison of a bool subject with true
+// or false gives, either side being the literal, when it holds with op
+// != : that the subject is not the literal's value, 1 for true and 0 for
+// false, as boolFact holds a bool. Such a fact is only a value ruled out
+// (see ruledOut), which only the proof of an unreachable place counts, so
+// a switch on a bool naming both values leaves its default no value. A
+// comparison that holds with == gives nothing.
+func (c *Checker) boolRuledOut(x ast.Expr, op ast.BinaryOp, y ast.Expr) (fact, bool) {
+	lit, ok := y.(*ast.BoolLit)
+	if !ok {
+		lit, ok = x.(*ast.BoolLit)
+		x = y
+	}
+	if !ok || op != ast.Ne || ast.TypeOf(x) != types.Bool {
+		return fact{}, false
+	}
+	about, ok := c.keyOf(x)
+	if !ok {
+		return fact{}, false
+	}
+	v := constant.FromInt64(0)
+	if lit.Value {
+		v = constant.FromInt64(1)
+	}
+	return fact{about: about, ne: v, out: true}, true
 }
 
 // orientedFact returns the fact that left op right gives about left: a
@@ -872,7 +912,7 @@ func bound(about factKey, op ast.BinaryOp, k constant.Int) fact {
 		f.lo, f.hi, f.hasLo, f.hasHi = k, k, true, true
 	case ast.Ne:
 		f.nonzero = k.IsZero()
-		f.ne, f.hasNe = k, divisionEdge(k)
+		f.ne, f.hasNe, f.out = k, divisionEdge(k), true
 	case ast.Lt:
 		f.hi, f.hasHi = k.Sub(one)
 	case ast.Le:
@@ -958,7 +998,9 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 // everywhere else, so it proves nothing there but can explain an error. A
 // fact that says nothing, such as the one b != 3 gives, is left out
 // before the region is searched, which a long chain of cases or ifs
-// would otherwise do once per link. g itself is put in scope too.
+// would otherwise do once per link; one that carries a value ruled out
+// or the sides of a condition is kept apart instead, for the proof of an
+// unreachable place alone (see keepApart). g itself is put in scope too.
 // Everything assume puts in force stays until a release to a mark taken
 // before it.
 //
@@ -979,6 +1021,7 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 	var idx writeIndex
 	for _, f := range facts {
 		if f.empty() {
+			c.keepApart(g, f, region)
 			continue
 		}
 		f.guard = g
@@ -995,23 +1038,29 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 // mark records how many facts and guards are in force, and how many
 // known values the probe remembers (see recordStart), for release.
 type mark struct {
-	facts, guards, starts int
+	facts, guards, starts, proven int
 }
 
 // mark returns how many facts and guards are in force now, and how many
 // known values the probe remembers.
 func (c *Checker) mark() mark {
-	return mark{len(c.active), len(c.guards), len(c.starts)}
+	return mark{len(c.active), len(c.guards), len(c.starts), len(c.proven)}
 }
 
 // dropAssigned returns facts with every one that region assigns the
 // variable of, as writeIndex.assigned says, marked dropped by that
-// assignment. A fact already dropped keeps its drop. The region is walked
+// assignment, a value ruled out included, and each side's facts of one
+// carrying the sides of a condition. A fact already dropped keeps its
+// drop. The region is walked
 // once for all the facts, not once for each (see writeIndex).
 func (c *Checker) dropAssigned(facts []fact, region []ast.Node) []fact {
 	var idx writeIndex
 	for i := range facts {
-		if facts[i].drop == nil && !facts[i].empty() {
+		if facts[i].either != nil {
+			facts[i].either = c.dropSides(facts[i].either, region)
+			continue
+		}
+		if facts[i].drop == nil && (!facts[i].empty() || facts[i].out) {
 			if idx == nil {
 				idx = c.indexWrites(region)
 			}
@@ -1040,6 +1089,7 @@ func (c *Checker) release(m mark) {
 	c.active = c.active[:m.facts]
 	c.guards = c.guards[:m.guards]
 	c.starts = c.starts[:m.starts]
+	c.proven = c.proven[:m.proven]
 }
 
 // assigned returns why the region idx indexes drops f: the first write
@@ -1688,8 +1738,9 @@ func (c *Checker) throughList(target ast.Expr) bool {
 }
 
 // leaves reports whether a block always leaves the code around it before
-// its end: its last statement is a return, a break, a continue or a call
-// to exit, which never returns, an if whose branches both leave, or a
+// its end: its last statement is a return, a break, a continue, a call
+// to exit, which never returns, an unreachable, which is proven never
+// reached, an if whose branches both leave, or a
 // switch with a default, or on a union with every case named, whose cases
 // all leave. Like the terminating rule, it is syntactic.
 func leaves(body []ast.Stmt) bool {
@@ -1697,7 +1748,7 @@ func leaves(body []ast.Stmt) bool {
 		return false
 	}
 	switch s := body[len(body)-1].(type) {
-	case *ast.Return, *ast.Break, *ast.Continue:
+	case *ast.Return, *ast.Break, *ast.Continue, *ast.Unreachable:
 		return true
 	case *ast.If:
 		return leaves(s.Then) && leaves(s.Else)
