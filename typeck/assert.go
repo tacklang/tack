@@ -149,7 +149,9 @@ func (c *Checker) checkTypeSwitch(s *ast.Switch, fn *ast.Func) {
 		if cl.Var != nil {
 			cl.Var.Type = caseVarType(cl, isAny)
 		}
-		c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
+		c.inClause(cl, typeSwitch, func() {
+			c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
+		})
 	}
 }
 

@@ -2,7 +2,8 @@
 
 This chapter describes every statement, its syntax and how it runs:
 blocks, expression statements, assignments and compound assignments,
-`++` and `--`, binding several results, `if` and `else`, `switch`, type
+`++` and `--`, binding several results, `if` and `else`, `switch` and
+`fallthrough`, type
 switches on `any`, switches on a union's cases, the loop forms (`for
 cond`, three-clause loops, `range` over integers, arrays, strings,
 views, lists and maps), `break` and `continue`, `return`, `defer` and
@@ -327,8 +328,8 @@ switch, below. A tag of a union type makes the switch a union switch,
 below.
 
 `default` is selected when no case is, and is tried last wherever it is
-written; a switch has at most one. Only the selected case's body runs:
-there is no fallthrough, and `fallthrough` is not a keyword. Each case's
+written; a switch has at most one. Only the selected case's body runs,
+unless it ends in a `fallthrough` statement (below). Each case's
 body is a block of its own and may be empty, and so may the switch.
 `break` and `continue` in a case act on the loop around the switch, not
 on the switch; outside a loop they are the usual error. In a switch
@@ -376,6 +377,68 @@ func main() {
 }
 ```
 
+## Fallthrough statements
+
+```text
+switch tag { case v1: ...; fallthrough; case v2: ... }
+```
+
+`fallthrough`, as the last statement of a case's body in an expression
+switch, tagged or with no tag, ends that body and goes on into the body
+of the case written next in the source, without evaluating that case's
+values. The case written next is entered whatever order the cases are
+tried in: a `default` written between cases is entered from the case
+written before it, and enters the case written after it. The body left
+is a block: its pending defers run, last first, and its locals are
+freed, before the next case's body starts; a name it declares is not in
+scope in the next case. The next case's body may end in `fallthrough`
+in turn. A case ending in `fallthrough` adds no path to the statements
+after the switch: control reaches them, from that case, only through the
+cases it falls into.
+
+It is an error anywhere else, each the first of these that applies,
+reported at the keyword:
+
+- outside any case's body, `fallthrough is not in a switch`;
+- inside a `defer` in a case, `cannot fall through out of a defer`;
+- in a type switch, `cannot fall through in a type switch`;
+- in a union switch, `cannot fall through in a switch on a union`;
+- anywhere in a case but its last statement, inside an `if` or a loop in
+  it included, `fallthrough must be the last statement of a case`;
+- at the end of the last case of a switch, `cannot fall through from the
+  last case of a switch`.
+
+`fallthrough` is a keyword, so a name spelled so is a syntax error, and
+it takes no value. What a body entered by a fallthrough proves is
+described in [Safety and proofs](10-safety.md).
+
+```tack run exit=42
+package main
+
+func steps(n int64) int64 {
+    mut r := 0
+    switch n {
+    case 1:
+        r += 1
+        fallthrough
+    default:
+        r += 10
+        fallthrough
+    case 2:
+        r += 100
+    case 3:
+        r = 3
+    }
+    return r
+}
+
+func main() {
+    if steps(1) == 111 && steps(9) == 110 && steps(2) == 100 && steps(3) == 3 {
+        exit(42)
+    }
+}
+```
+
 ## Type switches
 
 ```text
@@ -405,7 +468,8 @@ a.(type)` binds nothing.
 
 Otherwise a type switch is a switch: `a` is evaluated once, the cases
 are tried top to bottom and the default last, there is no fallthrough,
-and `break` and `continue` act on the loop around it. `.(type)` anywhere
+`cannot fall through in a type switch`, and `break` and `continue` act
+on the loop around it. `.(type)` anywhere
 but a switch's tag is `.(type) can only be the tag of a switch`. A type
 switch gives no facts.
 
@@ -469,8 +533,9 @@ default never runs`. A switch on `union {}` needs no clause.
 
 Otherwise a union switch is a switch: the tag is evaluated once, the
 clauses are tried in order with the default last, there is no
-fallthrough, and `break` and `continue` act on the loop around it. The
-tag may be any value of a union type, a call's result included, but one
+fallthrough, `cannot fall through in a switch on a union`, and `break`
+and `continue` act on the loop around it. The tag may be any value of a
+union type, a call's result included, but one
 holding a list must be a place, `cannot use a temporary Value here;
 store it in a variable first`. A union switch gives no facts. There is
 no other test of a union's case. A switch's values are patterns only
@@ -840,7 +905,9 @@ A terminating statement is one of:
    end in a terminating statement, an `else if` counting as a block
    that ends in itself;
 4. an expression switch or a type switch with a `default`, whose every
-   case's body, the default's included, ends in a terminating statement;
+   case's body, the default's included, ends in a terminating statement
+   or, as in Go, a `fallthrough` statement, which the last case's may
+   not;
 5. a union switch that names every case of its union, or has a
    `default`, whose every clause's body ends in a terminating statement;
 6. a `for` loop with no condition, `for { ... }` or a three-clause loop

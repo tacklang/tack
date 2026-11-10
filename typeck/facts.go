@@ -724,6 +724,41 @@ func union(a, b []fact) []fact {
 	return out
 }
 
+// joinFacts returns what union does for a and b, the facts at two
+// points control reaches one place from, looking each side's facts up by
+// subject once rather than once for each subject: both sides may hold a
+// fact for each case tried before them in a switch of thousands.
+func joinFacts(a, b []fact) []fact {
+	order, mine := factIntervals(a)
+	_, other := factIntervals(b)
+	var out []fact
+	for _, k := range order {
+		if theirs, ok := other[k]; ok {
+			out = append(out, mine[k].hull(theirs).fact(k))
+		}
+	}
+	return out
+}
+
+// factIntervals returns what facts say about each subject they are about,
+// as sideInterval gives it, and the subjects in the order facts first
+// name them.
+func factIntervals(facts []fact) ([]factKey, map[factKey]interval) {
+	var order []factKey
+	known := make(map[factKey]interval)
+	for _, f := range facts {
+		if f.relational() || f.drop != nil || f.either != nil {
+			continue
+		}
+		v, seen := known[f.about]
+		if !seen {
+			order = append(order, f.about)
+		}
+		known[f.about] = v.narrow(f)
+	}
+	return order, known
+}
+
 // sideInterval returns what the facts in force of one side say about the
 // subject k, and whether any of them is about it.
 func sideInterval(facts []fact, k factKey) (interval, bool) {
@@ -1166,15 +1201,17 @@ func (k *keep) link(parent *keep, work *int) {
 // branches or cases that leaves in pending, under the branch's first
 // statement; the walk pushes the keep when it reaches that statement,
 // and pops it once past the branch's end. leaves and jumps remember what
-// each if, switch and defer in the region gives, so a chain of else ifs,
-// each the last statement of the one before, is looked at once in all,
-// not once for every link. work counts each statement looked at to find
-// them (see proverWork).
+// each if, switch and defer in the region gives, and fallen what each
+// case a fallthrough enters gives, so a chain of else ifs, each the last
+// statement of the one before, or of cases each falling into the next,
+// is looked at once in all, not once for every link. work counts each
+// statement looked at to find them (see proverWork).
 type keepWalk struct {
 	top     *keep
 	pending map[ast.Stmt]keep
 	leaves  map[ast.Stmt]bool
 	jumps   map[ast.Stmt]jumpsOut
+	fallen  map[*ast.CaseClause]jumpsOut
 	work    *int
 }
 
@@ -1193,6 +1230,7 @@ func newKeepWalk(work *int) *keepWalk {
 		pending: make(map[ast.Stmt]keep),
 		leaves:  make(map[ast.Stmt]bool),
 		jumps:   make(map[ast.Stmt]jumpsOut),
+		fallen:  make(map[*ast.CaseClause]jumpsOut),
 		work:    work,
 	}
 }
@@ -1251,14 +1289,15 @@ func (w *keepWalk) record(n ast.Stmt, body []ast.Stmt, loops []ast.Span) {
 // checkBody), so asking would make whether a program compiles depend on
 // that. Without a default, a switch is taken to fall out of the bottom,
 // which only ever counts a write as reaching more code than it can, so it
-// rejects programs but accepts none it should not.
+// rejects programs but accepts none it should not. A body ending in a
+// fallthrough leaves as the body it enters does, asked the same way.
 func (w *keepWalk) leavesBody(body []ast.Stmt) bool {
 	if len(body) == 0 {
 		return false
 	}
 	last := body[len(body)-1]
 	switch last.(type) {
-	case *ast.If, *ast.Switch:
+	case *ast.If, *ast.Switch, *ast.Fallthrough:
 	default:
 		return leaves(body)
 	}
@@ -1272,6 +1311,8 @@ func (w *keepWalk) leavesBody(body []ast.Stmt) bool {
 		v = w.leavesBody(s.Then) && w.leavesBody(s.Else)
 	case *ast.Switch:
 		v = chainLeavesBy(tryOrder(s), w.leavesBody)
+	case *ast.Fallthrough:
+		v = s.Next != nil && w.leavesBody(s.Next.Body)
 	}
 	w.leaves[last] = v
 	return v
@@ -1282,12 +1323,16 @@ func (w *keepWalk) leavesBody(body []ast.Stmt) bool {
 // first: math.MaxInt when no loop in the region holds body, or no break
 // or continue leaves body; the end of the outermost loop when every one
 // that does is a break and that loop is the only one; and its start
-// otherwise.
+// otherwise. A case ending in a fallthrough leaves through the cases it
+// falls into, so a break or continue in any of them counts.
 func (w *keepWalk) resumeFrom(body []ast.Stmt, loops []ast.Span) int {
 	if len(loops) == 0 {
 		return math.MaxInt
 	}
 	j := w.jumpsIn(body)
+	if next := ast.FallsInto(body); next != nil {
+		j = j.or(w.fallenJumps(next))
+	}
 	switch {
 	case j.continues || j.breaks && len(loops) > 1:
 		return loops[0].Start
@@ -1296,6 +1341,22 @@ func (w *keepWalk) resumeFrom(body []ast.Stmt, loops []ast.Span) int {
 	default:
 		return math.MaxInt
 	}
+}
+
+// fallenJumps returns the jumpsOut of the body of cl, a case a
+// fallthrough enters, together with those of every case it falls into in
+// turn, remembering each case's, so a long chain of fallthroughs is
+// looked at once in all.
+func (w *keepWalk) fallenJumps(cl *ast.CaseClause) jumpsOut {
+	if j, ok := w.fallen[cl]; ok {
+		return j
+	}
+	j := w.jumpsIn(cl.Body)
+	if next := ast.FallsInto(cl.Body); next != nil {
+		j = j.or(w.fallenJumps(next))
+	}
+	w.fallen[cl] = j
+	return j
 }
 
 // or returns the jumpsOut of two statements together.
@@ -1633,7 +1694,8 @@ func isLoop(n ast.Node) bool {
 // proved again: c.at is in deferred code, which runs when its block is
 // left, by a return too, and e is outside it; or c.at is in a switch's
 // default written before cases whose values are tried before it runs,
-// and e is in that switch outside the default (see lateDefault); or c.at
+// or in a case that default falls into, and e is in that switch outside
+// that case (see lateDefault); or c.at
 // is in the targets of an assignment and e is anywhere in that
 // assignment, its value or its targets (see storing); or else e takes
 // effect before c.at, or is in a loop inside the region that c.at is in
@@ -1655,8 +1717,9 @@ func (c *Checker) reaches(e ending) bool {
 }
 
 // beforeLateDefault reports whether e is in a switch whose default,
-// written before some of its cases, is being checked, and outside that
-// default: every case's values are tried before the default runs.
+// written before some of its cases, or a case that default falls into, is
+// being checked, and outside that case: every case's values are tried
+// before the default runs, and so before any case it falls into.
 func (c *Checker) beforeLateDefault(e ending) bool {
 	for _, d := range c.lateDefaults {
 		if inSpan(e.at, d.whole) && !inSpan(e.at, d.body) {
@@ -1740,9 +1803,11 @@ func (c *Checker) throughList(target ast.Expr) bool {
 // leaves reports whether a block always leaves the code around it before
 // its end: its last statement is a return, a break, a continue, a call
 // to exit, which never returns, an unreachable, which is proven never
-// reached, an if whose branches both leave, or a
+// reached, an if whose branches both leave, a
 // switch with a default, or on a union with every case named, whose cases
-// all leave. Like the terminating rule, it is syntactic.
+// all leave, or a fallthrough into a case whose body leaves, which is
+// where the fallthrough goes on to. Like the terminating rule, it is
+// syntactic.
 func leaves(body []ast.Stmt) bool {
 	if len(body) == 0 {
 		return false
@@ -1750,6 +1815,8 @@ func leaves(body []ast.Stmt) bool {
 	switch s := body[len(body)-1].(type) {
 	case *ast.Return, *ast.Break, *ast.Continue, *ast.Unreachable:
 		return true
+	case *ast.Fallthrough:
+		return s.Next != nil && leaves(s.Next.Body)
 	case *ast.If:
 		return leaves(s.Then) && leaves(s.Else)
 	case *ast.Switch:

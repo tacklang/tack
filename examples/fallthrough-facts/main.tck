@@ -1,0 +1,88 @@
+package main
+
+// What the checker may still prove around a fallthrough. The case a
+// fallthrough enters gets no facts from its own values or from the
+// earlier cases not matching, since neither was tested on that path, but
+// a fact that holds on every path into it still holds. main exits with a
+// status of its own at the first failure, and with 42 when all hold.
+
+// before divides in a case entered by a fallthrough, proven by an early
+// return before the switch, which holds on both paths into the case: d
+// is above 0, so neither 0 nor -1.
+func before(n int64, d int64) int64 {
+    if d <= 0 {
+        return 0
+    }
+    switch {
+    case n > 0:
+        fallthrough
+    case n < -5:
+        return n / d
+    }
+    return -1
+}
+
+// both divides in a case whose condition proves d > 0, so neither 0 nor
+// -1, entered too from a case whose condition proves it.
+//
+// Assumption: the facts that hold where a fallthrough leaves a case, and
+// that the next case's own values prove, are joined, so what both prove
+// holds in the next case's body.
+func both(n int64, d int64) int64 {
+    switch {
+    case d > 0 && n > 0:
+        fallthrough
+    case d > 0:
+        return n / d
+    }
+    return 0
+}
+
+// after divides after a switch whose fallthrough enters a case that
+// returns, so only the paths where no case matched reach the division.
+//
+// Assumption: a case ending in fallthrough does not reach the end of the
+// switch, so it adds no path to the code after it.
+func after(n int64, d int64) int64 {
+    switch {
+    case d <= 0:
+        fallthrough
+    case n < 0:
+        return 0
+    }
+    return n / d
+}
+
+// kind ends in a switch with a default whose every case returns or falls
+// through, so it needs no return after the switch.
+//
+// Assumption: as in Go, a case ending in fallthrough counts as
+// terminating when the switch decides whether it terminates.
+func kind(n int64) int64 {
+    switch n {
+    case 0:
+        fallthrough
+    case 1:
+        return 10
+    case 2:
+        fallthrough
+    default:
+        return 20
+    }
+}
+
+func main() {
+    if before(6, 3) != 2 || before(-9, 3) != -3 || before(-1, 3) != -1 || before(6, 0) != 0 {
+        exit(1)
+    }
+    if both(6, 2) != 3 || both(-6, 2) != -3 || both(6, 0) != 0 || both(-6, 0) != 0 {
+        exit(2)
+    }
+    if after(5, 0) != 0 || after(-5, 1) != 0 || after(6, 3) != 2 || after(-5, 0) != 0 {
+        exit(3)
+    }
+    if kind(0) != 10 || kind(1) != 10 || kind(2) != 20 || kind(7) != 20 || kind(-1) != 20 {
+        exit(4)
+    }
+    exit(42)
+}

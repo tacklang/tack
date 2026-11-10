@@ -2,6 +2,7 @@ package c
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tacklang/tack/ast"
@@ -53,6 +54,9 @@ import (
 //	        body
 //	    }
 //	}
+//
+// A switch with a case ending in fallthrough is lowered by fallChain
+// instead, its tag held the same way.
 //
 // A switch on a union is lowered by generateUnionSwitch.
 func (g *generator) generateSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
@@ -106,6 +110,9 @@ func (g *generator) caseChain(
 	tagRef string,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
+	if hasFallthrough(s) {
+		return g.fallChain(s, tagRef, fn)
+	}
 	var lines []string
 	for _, cl := range s.Cases {
 		if cl.Default {
@@ -143,6 +150,84 @@ func (g *generator) caseChain(
 	}
 	lines = append(append(lines, open), indent(body)...)
 	return append(lines, "}"), nil
+}
+
+// hasFallthrough reports whether a case of s ends in a fallthrough into
+// the next case.
+func hasFallthrough(s *ast.Switch) bool {
+	for _, cl := range s.Cases {
+		if ast.FallsInto(cl.Body) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// fallChain lowers the cases of s, a switch with a case ending in
+// fallthrough, as gotos to their bodies: first a test of each case with
+// values, in source order, each jumping to its case's label when it
+// matches, then a jump to the default's label, or past every body when
+// there is none; then each body, in source order, in a C block of its own
+// after its label, so it runs its defers and frees its locals as it ends.
+// A body that ends in fallthrough then falls into the next one's label,
+// and any other jumps past the rest, to a label after the last, which is
+// written only when some jump goes to it. Every goto jumps forward, to a
+// label of the chain itself, never into a block, so it skips no
+// declaration a body makes. In an expression switch, tagRef names the
+// temporary holding the tag:
+//
+//	if (tack_s0 == 1) goto tack_case1;
+//	goto tack_case2;
+//	tack_case1: ;
+//	{
+//	    body
+//	}
+//	tack_case2: ;
+//	{
+//	    default body
+//	}
+func (g *generator) fallChain(
+	s *ast.Switch,
+	tagRef string,
+	fn *ast.Func,
+) ([]string, []diag.Diagnostic) {
+	labels := make([]string, len(s.Cases))
+	for i := range s.Cases {
+		labels[i] = g.temp("case")
+	}
+	end := g.temp("end")
+	endUsed := false
+	var lines []string
+	for i, cl := range s.Cases {
+		if cl.Default {
+			continue
+		}
+		test, diags := g.caseTest(s, tagRef, cl)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		lines = append(lines, fmt.Sprintf("if (%s) goto %s;", test, labels[i]))
+	}
+	if i := slices.IndexFunc(s.Cases, func(cl *ast.CaseClause) bool { return cl.Default }); i >= 0 {
+		lines = append(lines, "goto "+labels[i]+";")
+	} else {
+		lines, endUsed = append(lines, "goto "+end+";"), true
+	}
+	for i, cl := range s.Cases {
+		body, diags := g.caseBody(cl, tagRef, fn)
+		if len(diags) > 0 {
+			return nil, diags
+		}
+		lines = append(lines, labels[i]+": ;", "{")
+		lines = append(append(lines, indent(body)...), "}")
+		if i < len(s.Cases)-1 && ast.FallsInto(cl.Body) == nil {
+			lines, endUsed = append(lines, "goto "+end+";"), true
+		}
+	}
+	if endUsed {
+		lines = append(lines, end+": ;")
+	}
+	return lines, nil
 }
 
 // caseBody lowers the body of cl, a case of a switch whose tag tagRef

@@ -222,6 +222,18 @@ A fact is in force in these places:
   its body what `tag == v1 || tag == v2 ...` proves when true, and every
   later case and the default see the earlier values not matching; a type
   switch proves nothing;
+- a case's body that a `fallthrough` enters, which is reached both by
+  matching and by the fallthrough: only what both give, joined as for a
+  true `||`, each side's range per subject widened to hold the other's.
+  Matching gives what held where the switch began, the case's own values
+  matching and the cases tried before it not matching; the fallthrough
+  gives what holds at it, once the falling case's defers have run, a
+  fact about a variable one of them writes ending there. Neither the
+  case's values nor the earlier cases not matching prove anything on
+  the fallthrough's path, where none was tested, and a value ruled out,
+  and the sides of a condition, are not carried through the join. So
+  after `switch d { case 0: fallthrough; case 1, 2: ... }` the second
+  case's body knows only that `d` is between 0 and 2;
 - deferred code, with the facts in force where the `defer` is written;
 - the statements after a call whose callee's contract ensures the fact
   (see [Contracts](#contracts));
@@ -487,7 +499,11 @@ A write reaches the use when it can run before it:
 - a write anywhere in the rest of a defer's block, for deferred code,
   which runs when the block is left;
 - a write in a value of a switch's case written below a `default`, for
-  the `default`, which runs after every value is tried.
+  the `default`, which runs after every value is tried, and for every
+  case the `default` falls into, directly or down a chain of
+  `fallthrough`s, which runs after it;
+- a write in a case whose body ends in `fallthrough`, for the cases it
+  falls into, as for any code after it.
 
 A write that runs only after the use does not end the fact. A call
 assigns its `mut` arguments only once they are all evaluated, and an
@@ -528,7 +544,10 @@ main.tck:6:9: note: but x is assigned here, so the proof ends
 A write in a branch or a case that leaves, by `return`, `break`,
 `continue` or `exit`, or by a `switch` with a `default` whose every case
 leaves, never reaches code outside its `if` or `switch`, after it or
-before it, since only the paths that did not take it run there. So a
+before it, since only the paths that did not take it run there. A case
+ending in `fallthrough` leaves exactly when the case it falls into
+does, and the `break` or `continue` that case leaves by counts as the
+falling case's own. So a
 loop's condition still proves `s[i]` below a branch that moves `i` on
 and starts the next pass, where the condition proves it again:
 
@@ -1034,7 +1053,8 @@ with each variable's type bounds, leave some variable no value, its
 bounds crossing or every value between them ruled out by `!=`, a false
 `==` or the cases of a `switch`, together with what the early exits of
 an `else if` chain, or the cases of a `switch` with no `default` whose
-every case leaves, give the code after it; when every side of a true
+every case leaves, one ending in `fallthrough` leaving when the case it
+falls into does, give the code after it; when every side of a true
 `||` or a false `&&` on the path to it, each taken alone, leaves some
 variable no value with the facts there, those arriving after the
 condition included; or when the relations in force contradict. The

@@ -194,7 +194,9 @@ func (c *Checker) checkUnionSwitch(s *ast.Switch, typ types.Type, fn *ast.Func) 
 				c.typeName(typ))
 			c.inCoveredDefault++
 		}
-		c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
+		c.inClause(cl, unionSwitch, func() {
+			c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, nil, fn)
+		})
 		if rejected {
 			c.inCoveredDefault--
 		}

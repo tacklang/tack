@@ -280,6 +280,10 @@ func (m *mover) stmt(stmt ast.Stmt, cur flow) flow {
 		// No run reaches it, so nothing is known after it, as after a
 		// return.
 		return dead()
+	case *ast.Fallthrough:
+		// It ends its case's body, which is left as at its end, and what
+		// is known there goes on into the next case's (see switchStmt).
+		return cur
 	default:
 		return m.simpleFlow(stmt, cur)
 	}
@@ -1067,30 +1071,44 @@ func (m *mover) literal(lit *ast.CompositeLit, ctx useCtx, cur *flow) {
 	m.temporary(lit, ctx)
 }
 
-// switchStmt follows a switch from cur: its tag, then each case in the
-// order it is tried, the default last wherever it is written (see
-// tryOrder), its values, which a type switch's are types, and a union
-// switch's patterns, and so read nothing, and then its body, from what is
-// known after those values. A body runs only after every value tried
-// before its case, so the default's sees every case's values, a move in a
-// value written after it included. It returns the bodies' join, with cur
-// when no default, or every case of a union, runs a body. A clause of a
-// switch on a union that binds a payload of a place, in place, is followed
-// with the place being matched (see rangeChange).
+// switchStmt follows a switch from cur: its tag, then each case's values
+// in the order they are tried, the default last wherever it is written
+// (see tryOrder), which a type switch's are types, and a union switch's
+// patterns, and so read nothing, and then each body, in source order. A
+// body runs only after every value tried before its case, so it starts
+// from what is known after those values: the default's from what is known
+// after every case's, a move in a value written after it included. A body
+// a fallthrough enters starts from that joined with what the case before
+// it, in source order, left at its fallthrough, so a case a default falls
+// into sees every case's values too; following the bodies in source order
+// follows that case before the one it falls into. A case ending in a
+// fallthrough adds nothing to the join after the switch. It returns the
+// bodies' join, with cur when no default, or every case of a union, runs a
+// body. A clause of a switch on a union that binds a payload of a place,
+// in place, is followed with the place being matched (see rangeChange).
 func (m *mover) switchStmt(s *ast.Switch, cur flow) flow {
 	union := false
 	if s.Tag != nil {
 		m.expr(s.Tag, readCtx, &cur)
 		union = m.c.table.IsUnion(ast.TypeOf(s.Tag)) && !s.IsTypeSwitch()
 	}
-	out := dead()
+	matchedIn := make(map[*ast.CaseClause]flow, len(s.Cases))
 	for _, cl := range tryOrder(s) {
 		for _, v := range cl.Values {
 			if !s.IsTypeSwitch() && !union {
 				m.expr(v, readCtx, &cur)
 			}
 		}
-		out = join(out, m.clause(s, cl, union, cur.clone()))
+		matchedIn[cl] = cur.clone()
+	}
+	out, fell := dead(), dead()
+	for _, cl := range s.Cases {
+		left := m.clause(s, cl, union, join(matchedIn[cl], fell))
+		if ast.FallsInto(cl.Body) != nil {
+			fell = left
+			continue
+		}
+		out, fell = join(out, left), dead()
 	}
 	if s.Default() == nil && !s.Exhaustive {
 		out = join(out, cur)

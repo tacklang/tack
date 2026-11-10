@@ -85,9 +85,18 @@ var switchScopeCases = []struct {
 		[]string{"undefined: y"},
 	},
 	{
-		"fallthrough is a name",
-		inMainOf("switch {", "case fallthrough:", "}"),
-		[]string{"undefined: fallthrough"},
+		"a fallthrough carries no name into the next case",
+		inMainOf(
+			"switch {",
+			"case true:",
+			"    x := 1",
+			"    exit(x)",
+			"    fallthrough",
+			"default:",
+			"    exit(x)",
+			"}",
+		),
+		[]string{"undefined: x"},
 	},
 }
 

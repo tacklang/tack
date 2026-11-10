@@ -464,7 +464,7 @@ func (c *Checker) droppedNotes() []diag.Diagnostic {
 	byKey := make(map[factKey][]int)
 	for i, f := range c.active {
 		if f.relational() || f.hasNe || f.guard == nil ||
-			f.guard.kind == guardValue || f.guard.kind == guardInvariant ||
+			f.guard.silent() || f.guard.kind == guardInvariant ||
 			!types.IsInteger(keyType(f.about)) || c.dropOf(f) == nil {
 			continue
 		}

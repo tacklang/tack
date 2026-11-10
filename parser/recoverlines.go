@@ -425,7 +425,7 @@ func (p *Parser) stmtStartsAt(i int) bool {
 	case tk.Kind() == lexer.Keyword:
 		switch tk.Value() {
 		case lexer.For, lexer.If, lexer.Return, lexer.Switch, lexer.Defer, lexer.Break,
-			lexer.Continue, lexer.Unreachable, lexer.Else:
+			lexer.Continue, lexer.Unreachable, lexer.Fallthrough, lexer.Else:
 			return true
 		}
 	}

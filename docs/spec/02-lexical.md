@@ -125,7 +125,7 @@ is
 - an identifier;
 - an integer, float, string, raw string or character literal;
 - one of the keywords `break`, `continue`, `return`, `unreachable`,
-  `true`, `false`, `noerror` and `c_allocator`;
+  `fallthrough`, `true`, `false`, `noerror` and `c_allocator`;
 - one of the operators `++`, `--` and `?`; or
 - one of the closing brackets `)`, `]` and `}`.
 
@@ -165,22 +165,22 @@ it may stand for is in [Declarations and scope](05-declarations.md).
 
 ## Keywords and reserved names
 
-The following 37 keywords are reserved and may not be used as
+The following 38 keywords are reserved and may not be used as
 identifiers:
 
 ```text
-async        defer        func         map          return       unreachable
-break        else         goto         mut          select       var
-c_allocator  ensures      if           noerror      struct
-case         extern       import       own          switch
-const        false        interface    package      true
-continue     for          lib          pub          type
-default      from         list         range        union
+async        defer        from         list         range        union
+break        else         func         map          return       unreachable
+c_allocator  ensures      goto         mut          select       var
+case         extern       if           noerror      struct
+const        fallthrough  import       own          switch
+continue     false        interface    package      true
+default      for          lib          pub          type
 ```
 
 Each is reserved everywhere, whether or not the grammar uses it at the
 place it is written, and some keywords are reserved though no construct
-of the language uses them yet. `asm` and `fallthrough` are not keywords.
+of the language uses them yet. `asm` is not a keyword.
 
 The names of the builtin types are not keywords but identifiers, and
 are reserved: none may be declared, read or assigned as a name, nor used

@@ -46,7 +46,8 @@ type spelling struct {
 
 // keywords are every reserved word of the Go lexer, in its order. A
 // keyword's token has its index here as its sub. Break, continue, return,
-// true, false, noerror, c_allocator and unreachable end a statement.
+// true, false, noerror, c_allocator, unreachable and fallthrough end a
+// statement.
 var keywords = [...]spelling{
     {text: "lib", ends: false},
     {text: "pub", ends: false},
@@ -85,6 +86,7 @@ var keywords = [...]spelling{
     {text: "own", ends: false},
     {text: "ensures", ends: false},
     {text: "unreachable", ends: true},
+    {text: "fallthrough", ends: true},
 }
 
 // operators are every operator and punctuation token, longest first, so

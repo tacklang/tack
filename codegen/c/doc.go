@@ -426,8 +426,9 @@
 // written, and no flag records whether a defer was reached. A return holds
 // its value in a variable declared at the top of the function before the
 // defers run, and a continue runs them before a three-clause loop's post
-// statement. Gotos only jump forward to the end of an enclosing block, and
-// deferred code reads no variable a goto can skip the initialization of.
+// statement. These gotos only jump forward to the end of an enclosing
+// block, and deferred code reads no variable a goto can skip the
+// initialization of.
 // Each deferred block is lowered as a C block. The backend relies on the
 // checker having rejected a defer inside deferred code, so a deferred
 // block's only chains free its own lists, whose exits route through an int
@@ -770,7 +771,15 @@
 // values are evaluated left to right and no further than the first match;
 // the default is the final else. A tag that no case tests is evaluated,
 // cast to void. A switch on a string, an array or a struct counts as
-// comparing that type when deciding which helpers to emit.
+// comparing that type when deciding which helpers to emit. A switch with
+// a case ending in fallthrough lowers instead to its tests, each a goto
+// to its case's label when it matches, in source order, then a goto to
+// the default's label, or past the bodies, and then every body in source
+// order, a C block after its label: a body ending in fallthrough, which
+// emits nothing, ends its block, running its defers and freeing its
+// locals, and runs into the next label, and any other jumps past the
+// rest (fallChain). These gotos too only jump forward, to labels of the
+// switch's own at the level of its tests, never into a block.
 //
 // Tack evaluates operands left to right everywhere it evaluates several,
 // and C leaves the order of a call's arguments, an operator's operands and

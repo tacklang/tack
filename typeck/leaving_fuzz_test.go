@@ -23,7 +23,11 @@ import (
 // branch, defers, exit in deferred code, chains of else ifs, switches on
 // an integer, on a union with and without a default, on an index, and
 // with no tag, cases with several values, indexes in conditions and in
-// switch tags, uses before and after writes, early exits inside loops
+// switch tags, conditions of cases that write, a default written before
+// them that falls into later cases, cases ending in fallthrough, whose
+// writes reach the code
+// the cases they fall into reach, uses before and after writes, early
+// exits inside loops
 // that prove the index again, loops whose condition proves it again, and
 // the two kinds of loop whose facts any write in them ends: a counting
 // loop over len(a), whose variable a branch may set, and a range over a
@@ -159,6 +163,7 @@ const (
 	condVar                    // v == c
 	condVarK                   // v == k
 	condIndex                  // a[i] == c, a check
+	condWrite                  // gb(mut i), which puts i out of range and is false
 )
 
 // lCond is a generated condition of kind kind about c, v, or, for
@@ -182,12 +187,15 @@ const (
 )
 
 // lCase is a case of a generated switch: its values, or its conditions
-// for a switch with no tag, or the default when def.
+// for a switch with no tag, or the default when def; its body; and
+// whether the body ends in a fallthrough into the next case, which body
+// then ends with.
 type lCase struct {
 	vals  []string
 	conds []lCond
 	body  []lStmt
 	def   bool
+	falls bool
 }
 
 // lLink is one link of a chain of ifs: its condition and its body.
@@ -441,21 +449,36 @@ func (g *lGen) switchStmt(depth int, sc lScope) lStmt {
 	} else {
 		s.cases, def = g.valueCases(depth, sc, s.tag == tagU)
 	}
-	if !def {
+	if def {
+		at := g.rng.IntN(len(s.cases) + 1)
+		s.cases = slices.Insert(s.cases, at, lCase{def: true, body: g.branch(depth, sc)})
+	}
+	if s.tag == tagU {
 		return s
 	}
-	at := g.rng.IntN(len(s.cases) + 1)
-	s.cases = slices.Insert(s.cases, at, lCase{def: true, body: g.branch(depth, sc)})
+	for n := range s.cases[:len(s.cases)-1] {
+		if g.chance(0.3) {
+			c := &s.cases[n]
+			c.falls = true
+			c.body = append(c.body, lStmt{kind: lRaw, write: "fallthrough"})
+		}
+	}
 	return s
 }
 
 // condCases returns the cases of a switch with no tag, each with one
-// condition or two, and whether it gets a default.
+// condition or two, and whether it gets a default. A condition is
+// sometimes one that writes, gb(mut i), so a default written before it,
+// and every case that default falls into, runs after the write.
 func (g *lGen) condCases(depth int, sc lScope) ([]lCase, bool) {
 	cases := make([]lCase, 0, 3)
 	for range 1 + g.rng.IntN(3) {
 		c := lCase{body: g.branch(depth, sc)}
 		for range 1 + g.rng.IntN(2) {
+			if g.chance(0.2) {
+				c.conds = append(c.conds, lCond{kind: condWrite})
+				continue
+			}
 			c.conds = append(c.conds, g.cond(sc))
 		}
 		cases = append(cases, c)
@@ -621,6 +644,9 @@ func (r *lRun) holds(c lCond) (holds, ok bool) {
 		return r.env[c.v] == c.c, true
 	case condVarK:
 		return r.env[c.v] == r.k, true
+	case condWrite:
+		r.iOK = false
+		return false, true
 	default:
 		if !r.iOK {
 			r.bad[c.id] = true
@@ -757,13 +783,14 @@ func (r *lRun) ifStmt(s lStmt) lFlow {
 }
 
 // switchStmt runs the case of s that matches, trying its cases in order
-// and the default last, as Tack does.
+// and the default last, as Tack does, and then, while the body run ends
+// in a fallthrough, the body of the case written after it.
 func (r *lRun) switchStmt(s lStmt) lFlow {
 	tag, ok := r.switchTag(s)
 	if !ok {
 		return flowStop
 	}
-	for _, c := range s.cases {
+	for n, c := range s.cases {
 		if c.def {
 			continue
 		}
@@ -772,12 +799,23 @@ func (r *lRun) switchStmt(s lStmt) lFlow {
 			return flowStop
 		}
 		if hit {
-			return r.block(c.body)
+			return r.fall(s.cases[n:])
 		}
 	}
-	for _, c := range s.cases {
+	for n, c := range s.cases {
 		if c.def {
-			return r.block(c.body)
+			return r.fall(s.cases[n:])
+		}
+	}
+	return flowNormal
+}
+
+// fall runs the body of the first of cases, and of each after it while
+// the one before ends normally, in its fallthrough.
+func (r *lRun) fall(cases []lCase) lFlow {
+	for _, c := range cases {
+		if f := r.block(c.body); f != flowNormal || !c.falls {
+			return f
 		}
 	}
 	return flowNormal
@@ -930,6 +968,7 @@ func render(body []lStmt, style lStyle) *lText {
 	t.src.WriteString("package main\n\ntype U union {\n    p\n    q\n    r\n}\n\n" +
 		"func use(v int64) {\n}\n\nfunc useU(v uint64) {\n}\n\nfunc useI8(v int8) {\n}\n\n" +
 		"func g(mut i int64) {\n    i = -1\n}\n\nfunc h(mut q uint64) {\n    q = 200\n}\n\n" +
+		"func gb(mut i int64) bool {\n    i = -1\n    return false\n}\n\n" +
 		"func two() (int64, int64) {\n    return 1, 2\n}\n\n" +
 		"func f(mut i int64, mut q uint64, a []int64, k int64, z bool, u U) ensures 0 <= i && i < len(a) {\n")
 	if style.bound {
@@ -1003,6 +1042,8 @@ func (t *lText) cond(c lCond) {
 		t.src.WriteString(c.v + " == " + strconv.Itoa(c.c))
 	case condVarK:
 		t.src.WriteString(c.v + " == k")
+	case condWrite:
+		t.src.WriteString("gb(mut i)")
 	default:
 		t.index("a", "i", c.id)
 		t.src.WriteString(" == " + strconv.Itoa(c.c))

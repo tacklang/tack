@@ -29,8 +29,9 @@
 // operators +% -% *% and -%x, their compound forms, and +%= 1 and -%= 1 for
 // steps, since plain arithmetic needs a proof that it fits,
 // bitwise operators and shifts, comparisons across types, bools, strings,
-// arrays, structs, unions with switches, lists and maps with every builtin
-// on them (make, append, pop, put, delete, has, swap, len and range),
+// arrays, structs, unions with switches, expression switches, tagged and
+// with no tag, whose cases may end in fallthrough, lists and maps with
+// every builtin on them (make, append, pop, put, delete, has, swap, len and range),
 // views, function values and parameters of function types, methods with
 // plain and mut receivers, mut and own parameters, functions returning an
 // error, a ? on a call of one, or on append or put, in a function that

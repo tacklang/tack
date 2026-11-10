@@ -1,0 +1,193 @@
+package main
+
+// Owned values and ? in the cases of a switch joined by fallthrough. A
+// case's body is a block of its own, so a fallthrough leaves it as its
+// end would: its lists are freed and its defers run before the next
+// case's body starts. A ? that fails in a case before its fallthrough,
+// or in the case a fallthrough entered, returns as a return there would,
+// freeing what the blocks it leaves hold. A list moved in a case and
+// given a new value before its fallthrough is owned again in the next
+// case. Each check runs in a function of its own, then asserts that
+// c_allocator's count of live buffers is back to zero, so a leak or a
+// double free shows. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("ftowned_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// bad is the error fallible and numbers fail with.
+var bad = error{code: 7, msg: "bad"}
+
+// fallible gives n, or bad when n is negative.
+func fallible(n int64) (int64, error) {
+    if n < 0 {
+        return 0, bad
+    }
+    return n, noerror
+}
+
+// numbers gives a list of n numbers, 1 to n, or bad when n is negative.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    if n < 0 {
+        return l, bad
+    }
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// take takes l, which it owns, and gives its length.
+func take(own l list[int64]) int64 {
+    return len(l)
+}
+
+// mut seen records what the defers in the cases below ran, and how many
+// buffers were live when each did.
+mut seen int64
+
+// leftFirst falls through from a case holding a list of 2 into one that
+// makes a list of 3, and gives how many buffers are live in the second
+// case's body, times 10, plus its list's length: only its own list is
+// live there, the first's having been freed as its body was left, after
+// the first case's defer, which runs while that list is still live.
+func leftFirst(n int64) (int64, error) {
+    mut inNext int64 = -1
+    switch n {
+    case 0:
+        a := numbers(2)?
+        defer { seen = live() }
+        print("")
+        if len(a) != 2 {
+            return 0, bad
+        }
+        fallthrough
+    case 1:
+        b := numbers(3)?
+        inNext = live() *% 10 +% len(b)
+    }
+    return inNext, noerror
+}
+
+// failBefore fails at a ? in the case that falls through, before its
+// fallthrough, when k is negative, with a list of its own and one of the
+// function's live.
+func failBefore(k int64) (int64, error) {
+    outer := numbers(1)?
+    mut r int64 = 0
+    switch {
+    case k != 5:
+        a := numbers(2)?
+        r = len(a) +% fallible(k)?
+        fallthrough
+    default:
+        b := numbers(4)?
+        r = r *% 10 +% len(b) +% len(outer)
+    }
+    return r, noerror
+}
+
+// failAfter fails at a ? in the case a fallthrough entered, when k is
+// negative, after the case before it was left and its list freed.
+func failAfter(k int64) (int64, error) {
+    mut r int64 = 0
+    switch k {
+    case 9:
+        r = 1
+    default:
+        a := numbers(2)?
+        r = len(a)
+        fallthrough
+    case 3:
+        b := numbers(3)?
+        r = r *% 10 +% len(b) +% fallible(k)?
+    }
+    return r, noerror
+}
+
+// moved moves its list in the case that falls through and gives it a new
+// one there, so the next case reads a list it owns, and so does the code
+// after the switch, on every path.
+func moved(n int64) (int64, error) {
+    mut l := numbers(2)?
+    mut r int64 = 0
+    switch n {
+    case 0:
+        r = take(own l)
+        l = numbers(5)?
+        fallthrough
+    case 1:
+        r = r *% 10 +% len(l)
+    }
+    return r *% 10 +% len(l), noerror
+}
+
+func main() {
+    freed("nothing live at the start")
+
+    v, errV := leftFirst(0)
+    if errV.code == 0 {
+        check(v == 13 && seen == 1, "a fallthrough frees its case's list before the next case")
+    } else {
+        check(false, "a fallthrough frees its case's list before the next case")
+    }
+    freed("lists freed after a fallthrough")
+    w, errW := leftFirst(1)
+    if errW.code == 0 {
+        check(w == 13, "the next case matched alone")
+    } else {
+        check(false, "the next case matched alone")
+    }
+    freed("lists freed after the next case alone")
+
+    p, errP := failBefore(3)
+    _, eP := failBefore(-1)
+    if errP.code == 0 {
+        check(p == 55 && eP == bad, "a ? before a fallthrough")
+    } else {
+        check(false, "a ? before a fallthrough")
+    }
+    freed("lists freed by a ? before a fallthrough")
+
+    q, errQ := failAfter(3)
+    _, eQ := failAfter(-1)
+    if errQ.code == 0 {
+        check(q == 6 && eQ == bad, "a ? in the case a fallthrough entered")
+    } else {
+        check(false, "a ? in the case a fallthrough entered")
+    }
+    a, errA := failAfter(4)
+    if errA.code == 0 {
+        check(a == 27, "a default falling into the case after it")
+    } else {
+        check(false, "a default falling into the case after it")
+    }
+    freed("lists freed by a ? after a fallthrough")
+
+    m, errM := moved(0)
+    k, errK := moved(1)
+    if errM.code == 0 && errK.code == 0 {
+        check(m == 255 && k == 22, "a list moved and given anew before a fallthrough")
+    } else {
+        check(false, "a list moved and given anew before a fallthrough")
+    }
+    freed("nothing live at the end")
+}

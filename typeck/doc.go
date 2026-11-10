@@ -210,9 +210,11 @@
 // target, so l[i] = bump(mut i) and i, l[i] = two() end the proof of i
 // (see storing). A write in a branch or a case in the region that leaves
 // (one ending in a switch only when the switch has a default, whatever
-// the order checking runs in; see leavesBody) reaches no use outside its
+// the order checking runs in, and a case ending in a fallthrough when
+// the case it enters leaves; see leavesBody) reaches no use outside its
 // if or switch, but for one its break or
-// continue can reach from the loop in the region that it lands in, and
+// continue, or that of a case it falls into, can reach from the loop in
+// the region that it lands in, and
 // for deferred code, which a return still runs (see keep and
 // leftBefore). Every write in the region is kept with the
 // fact, and judged at c.at, where checking has reached (see reaches). A
@@ -256,7 +258,25 @@
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
 // ..., in an expression switch, the default the final else, so a case with
-// several values proves the union of what each does. Deferred code
+// several values proves the union of what each does. A case's body a
+// fallthrough enters is reached by matching and by the fallthrough, and
+// gets what both give, joined as || joins its sides (joinFacts): matching
+// gives the facts in force where the switch starts, its values' and the
+// earlier cases' not matching, and the fallthrough the facts in force at
+// it, less those a defer of the falling case writes the variable of,
+// since its defers run before the next body. A default written before
+// other cases, and every case it falls into, runs after every case's
+// values, so each is checked as a late default is, a write in any value
+// reaching it (lateBodies). Such bodies are checked
+// after every case's values, in source order, each after the case that
+// falls into it (checkFallenInto), with none of the facts of the cases
+// tried before them not matching in force, the proof-only ones included,
+// and their facts are a join no note describes (guardFallthrough). A
+// fallthrough must be the last statement of a case of an expression
+// switch other than its last, outside any defer in the case
+// (checkFallthrough). A case ending in one leaves when the case it enters
+// does (leaves), so it adds no path to the code after the switch, and,
+// as in Go, counts as terminating there (terminates). Deferred code
 // is checked where the defer is written, with the facts in force there,
 // which still hold when it runs, at the end of the defer's block (defer.go).
 // An error for a missing proof carries notes when a guard in scope says
@@ -297,7 +317,8 @@
 // chain's false == give and only coverage asks about; the sides of a true
 // || or a false &&, beside the hull of them union gives; and what the
 // early exits of an else-if chain, or the cases of a switch with no
-// default whose every case leaves, give the code after it. Each is
+// default whose every case leaves, one ending in a fallthrough leaving as
+// the case it enters does, give the code after it. Each is
 // put in force with its region as any fact is, and the writes that could
 // end it are found only when an unreachable asks. A failed proof gets
 // notes on a guard comparing a field of a mutable variable or a mutable
@@ -812,9 +833,13 @@
 //     deferred code, since nothing may leave it, and neither is a defer, at
 //     any depth, reported at its keyword, but only the outermost: a defer
 //     inside one already reported is not reported again;
+//   - a fallthrough is the last statement of a case of an expression
+//     switch other than its last, and not in a defer inside the case, a
+//     type switch or a switch on a union (switch.go);
 //   - a function that declares a result ends in a terminating statement: a
 //     return, an if with an else whose branches both terminate, a switch
-//     with a default whose cases all terminate, a loop with no condition
+//     with a default whose cases all terminate, a case ending in a
+//     fallthrough counting as one, a loop with no condition
 //     and no break that leaves it (a break in a nested loop leaves only that
 //     one, and one in a switch leaves the loop around it), a call to
 //     the builtin exit, which never returns, or an unreachable, which is

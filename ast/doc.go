@@ -48,6 +48,9 @@
 // TypeAssert too, whose Type the checker sets to T. A postfix ?, f()?,
 // is a Question around what it follows, whose Type and Results the
 // checker sets to the call's results before its error.
+// A Fallthrough ending a case's body links, by Next, to the clause of
+// the same switch written after that case, which the parser sets; Walk
+// does not follow the link.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A BadDecl or a BadStmt stands for a declaration or a statement the

@@ -70,7 +70,8 @@ assigns the variable a new value before the move.
 Moves are followed in the order code runs: a `switch`'s `default` runs
 after every case's values are tried, wherever it is written, so a case
 value written after the default that moves a variable moves it before
-the default's body, which cannot use it.
+the default's body, which cannot use it, nor can any case the default
+falls into by `fallthrough`.
 
 ```tack error
 package main

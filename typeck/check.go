@@ -154,9 +154,18 @@ type Checker struct {
 
 	// deferSpan is the defer whose code is being checked, if any, and
 	// lateDefaults each switch whose default, written before some of its
-	// cases, is being checked, innermost last (see reaches).
+	// cases, or a case that default falls into, is being checked,
+	// innermost last (see lateBodies and reaches).
 	deferSpan    *ast.Span
 	lateDefaults []lateDefault
+
+	// clauses holds each switch case whose body is being checked,
+	// innermost last, which a fallthrough is judged against (see
+	// checkFallthrough), and fellFacts the facts in force at each
+	// fallthrough checked whose case the next case's body has yet to
+	// take, for that body to join (see checkFallenInto).
+	clauses   []clauseAt
+	fellFacts map[*ast.Fallthrough][]fact
 
 	// storing is the assignment whose targets are being checked, if any.
 	// A proof a target needs is held to the whole statement, a check kept
@@ -624,6 +633,9 @@ func (c *Checker) checkStmtAt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.Unreachable:
 		c.checkUnreachable(s)
+
+	case *ast.Fallthrough:
+		c.checkFallthrough(s)
 
 	default:
 		c.checkSimpleStmt(stmt)
@@ -2167,7 +2179,9 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 
 // terminates reports whether control cannot fall out of the bottom of stmt.
 // A return terminates, and so does a call to exit, which never returns,
-// and an unreachable, which the checker proves is never reached. An
+// an unreachable, which the checker proves is never reached, and, as in
+// Go, a fallthrough that ends a case other than its switch's last, which
+// goes on into the next case's body (see switchTerminates). An
 // if only terminates when it has an else and both branches do, since
 // otherwise the condition being false falls through, and a switch likewise
 // only when it has a default and every case does. A loop only terminates
@@ -2176,6 +2190,8 @@ func terminates(stmt ast.Stmt) bool {
 	switch s := stmt.(type) {
 	case *ast.Return, *ast.Unreachable:
 		return true
+	case *ast.Fallthrough:
+		return s.Next != nil
 	case *ast.ExprStmt:
 		return isExitStmt(s)
 	case *ast.If:

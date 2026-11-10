@@ -1306,6 +1306,8 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 		return p.parseJump(&ast.Continue{Span: p.span(tk)})
 	case lexer.Unreachable:
 		return p.parseJump(&ast.Unreachable{Span: p.span(tk)})
+	case lexer.Fallthrough:
+		return p.parseJump(&ast.Fallthrough{Span: p.span(tk)})
 	case lexer.Type:
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
@@ -2604,7 +2606,23 @@ func (p *Parser) parseCaseList(stmt *ast.Switch) []diag.Diagnostic {
 	if ok, diags := p.expect(lexer.RCurl); !ok {
 		return diags
 	}
+	linkFallthroughs(stmt)
 	return nil
+}
+
+// linkFallthroughs sets the Next of each fallthrough that is the last
+// statement of a case of s other than its last to the case written after
+// it, the one it enters. A fallthrough anywhere else keeps a nil Next,
+// for the type checker to report.
+func linkFallthroughs(s *ast.Switch) {
+	for i, cl := range s.Cases[:max(len(s.Cases)-1, 0)] {
+		if len(cl.Body) == 0 {
+			continue
+		}
+		if f, ok := cl.Body[len(cl.Body)-1].(*ast.Fallthrough); ok {
+			f.Next = s.Cases[i+1]
+		}
+	}
 }
 
 // parseClauseOrBad parses one clause of a switch, as parseCaseClause
@@ -3005,9 +3023,10 @@ func (p *Parser) parseForClauses(loop *ast.For) []diag.Diagnostic {
 	return nil
 }
 
-// parseJump parses break, continue or unreachable, whose node the caller
-// has built from the keyword. Nothing may follow the keyword: there are no
-// labels, and unreachable takes no value.
+// parseJump parses break, continue, unreachable or fallthrough, whose
+// node the caller has built from the keyword. Nothing may follow the
+// keyword: there are no labels, and neither unreachable nor fallthrough
+// takes a value.
 func (p *Parser) parseJump(stmt ast.Stmt) (ast.Stmt, []diag.Diagnostic) {
 	p.next() // the keyword
 

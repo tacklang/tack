@@ -6,7 +6,7 @@
 // and a call's argument use it. ensures is one too, reserved everywhere,
 // though only a function's contract, after its results, uses it.
 // unreachable is a keyword that is a statement of its own, so it is never
-// a name.
+// a name, and so is fallthrough.
 //
 // The lexer works on bytes, not runes. Identifiers are ASCII letters, digits
 // and underscores; any other byte outside a literal or comment is reported as
@@ -30,8 +30,8 @@
 // before a comment, and at the end of input, a Semi token is added if the
 // preceding token is an identifier, a literal, ++ or --, the postfix ?, a
 // closing bracket, or one of the keywords break, continue, return,
-// unreachable, true, false, noerror and c_allocator, so a line may end
-// in f()?. An inserted Semi covers no bytes. The token stream always ends
+// unreachable, fallthrough, true, false, noerror and c_allocator, so a
+// line may end in f()?. An inserted Semi covers no bytes. The token stream always ends
 // with an EOF token.
 //
 // ? is a token of its own, Question, the postfix operator that passes a

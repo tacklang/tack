@@ -1043,8 +1043,9 @@ section remains the description of the language.
   `cannot return a view of v: v is a local variable; ...`, and `v[0] = 1`
   is `cannot assign to element of immutable variable v`. Otherwise it is a switch: `a` is evaluated once, the cases are
   tried top to bottom and the default last, wherever it is written, there
-  is no fallthrough, and `break` and `continue` act on the loop around
-  it. It gives no facts, since what `a` holds is never known at compile
+  is no fallthrough, `cannot fall through in a type switch`, and `break`
+  and `continue` act on the loop around it. It gives no facts, since what
+  `a` holds is never known at compile
   time. `.(type)` anywhere but a switch's tag is `.(type) can only be the
   tag of a switch`. A switch on a union matches its cases with the same
   shape of switch, each case naming one, and binds a payload in a
@@ -1866,7 +1867,7 @@ section remains the description of the language.
   a value is a thunk that returns them in its function type's results
   struct.
 - The statements are a call, a `return`, `if`/`else` (which chains with
-  `else if`), `switch`, `for`, `break`, `continue`, `defer`, `unreachable`, a variable declaration, a
+  `else if`), `switch`, `fallthrough`, `for`, `break`, `continue`, `defer`, `unreachable`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A call
   statement should do something: one that only gives a value, a
   conversion or `len`, as a union built does, is warned of, `int8(5) is
@@ -1879,7 +1880,8 @@ section remains the description of the language.
   dropped; bind it to a variable`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
-  terminate, a `for` with no condition that no
+  terminate, a case ending in `fallthrough` counting as one, as in Go, a
+  `for` with no condition that no
   `break` leaves, a call to `exit`, which never returns: `func fail()
   int64 { exit(7) }` needs no `return`, or an `unreachable`. The rule is syntactic, so a call
   to a function that never comes back, one that calls `exit` included,
@@ -1937,7 +1939,7 @@ section remains the description of the language.
   match wins: the values after it are not evaluated. Values need not be
   constants. `default` runs when nothing matches, and is tried last
   wherever it is written; there is at most one. Only the matching case's
-  body runs: there is no fallthrough, and `fallthrough` is not a keyword.
+  body runs, unless it ends in `fallthrough` (below).
   `break` and `continue` in a case act on the loop around the switch, not
   on the switch, unlike Go; outside a loop they are the usual error. Each
   case's body is a block of its own and may be empty, and so may the
@@ -1955,6 +1957,44 @@ section remains the description of the language.
   values not matching. A case with several values proves what their `||`
   does inside its body: `case 1, 2:` proves the tag is between 1 and 2,
   and so not zero.
+- Fallthrough. `fallthrough`, a keyword reserved everywhere, as the last
+  statement of a case's body, goes on into the body of the case written
+  next, as in Go, without testing that case's values, which are not
+  evaluated: `switch n { case 1: print("1"); fallthrough; case 2:
+  print("2") }` prints `12` for 1 and `2` for 2. The case written next is
+  entered whatever the order cases are tried in, so a `default` written
+  between cases is entered from the case before it, and enters the case
+  after it. The case's body is a block, so it is left first: its defers
+  run, and its locals are freed, before the next case's body starts, and
+  a name it declared is not in scope there, `undefined: s`. Out of place
+  it is an error: anywhere but the end of a case, `fallthrough must be
+  the last statement of a case`, which covers one inside an `if` or a
+  loop in a case; at the end of a switch's last case, `cannot fall
+  through from the last case of a switch`; inside a `defer`, `cannot
+  fall through out of a defer`; in a type switch, `cannot fall through in
+  a type switch`; on a union, `cannot fall through in a switch on a
+  union`; and anywhere outside a switch, `fallthrough is not in a
+  switch`. A case's body that a fallthrough enters is reached two ways,
+  by matching and by the fallthrough, and proves only what both give:
+  what was known where the switch began, its own values matching and
+  the cases tried before it not matching, joined with what is known at
+  the fallthrough, after the falling case's defers, as `||` joins its
+  sides. So in `switch { case d > 0 && n > 0: fallthrough; case d > 0:
+  return n / d }` the second case proves `d > 0`, but in `switch d {
+  case 0: fallthrough; case 1, 2: r = 10 / d }` it proves only that `d`
+  is between 0 and 2, and the division is rejected, with no note, since
+  what a join proves has no single cause to point at. A case ending in
+  `fallthrough` adds no path to the code after the switch: it leaves when
+  the case it enters does, so `switch { case d <= 0: fallthrough; case n
+  < 0: return 0 }` proves `d > 0` after it, and a write in it reaches what
+  the case it enters reaches. A `default` written before other cases runs
+  after every case's values, and so does every case it falls into, so a
+  write or a move in a value written after the `default` reaches them all. In C a switch with a `fallthrough` is a
+  list of tests, each a `goto` to its case's label, in source order with
+  the default's last, and then the cases' bodies in source order, each a
+  C block after its label, one ending in `fallthrough` running into the
+  next label, and any other jumping past the rest; every `goto` jumps
+  forward, never into a block.
 - Defers, block-scoped as in Zig rather than function-scoped as in Go.
   `defer { f(x) }` registers its block when execution reaches it, and the
   block runs when the block holding the defer is left, by any path:
@@ -2218,8 +2258,9 @@ section remains the description of the language.
   never runs`. A switch covering every case terminates when its every
   clause does, as one with a default does. Otherwise it is a switch: the
   tag is evaluated once, the clauses are tried in order with the default
-  last, there is no fallthrough, and `break` and `continue` act on the
-  loop around it. It gives no facts, since which case a union holds is
+  last, there is no fallthrough, `cannot fall through in a switch on a
+  union`, and `break` and `continue` act on the loop around it. It gives
+  no facts, since which case a union holds is
   known only at run time. The tag may be any union, a call's result
   included, but one holding a list must be a place, `cannot use a
   temporary Value here; store it in a variable first`. There is no other

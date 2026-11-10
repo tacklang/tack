@@ -180,6 +180,49 @@ func (u *Unreachable) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range of the 'unreachable' keyword.
 func (u *Unreachable) Spanned() Span { return u.Span }
 
+// Fallthrough ends the body of a switch's case and enters the body of the
+// case written next, in source order, without testing that case's values:
+// a default written next is entered too, wherever the switch tries it.
+// The case's body is left as a block is, its defers run first. It is
+// allowed only as the last statement of a case that is not the last of
+// its switch, and not in a type switch or a switch on a union, which the
+// type checker reports.
+type Fallthrough struct {
+	Span Span // the 'fallthrough' keyword
+
+	// Next is the case it enters, set by the parser when the fallthrough
+	// is the last statement of a case's body and that case is not the
+	// last of its switch, and nil anywhere else. It is a link to a clause
+	// of the same switch, never walked, and left out of the JSON form,
+	// which holds that clause already.
+	Next *CaseClause `json:"-"`
+}
+
+var _ Stmt = (*Fallthrough)(nil)
+
+// stmtKey marks Fallthrough as a Stmt, sealing Stmt to this package's
+// types.
+func (f *Fallthrough) stmtKey() stmtKey { return _stmtKey }
+
+// astNode marks Fallthrough as a Node, sealing Node to this package's
+// types.
+func (f *Fallthrough) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range of the 'fallthrough' keyword.
+func (f *Fallthrough) Spanned() Span { return f.Span }
+
+// FallsInto returns the case body ends in a fallthrough into, its Next,
+// or nil when body does not end in one that enters a case.
+func FallsInto(body []Stmt) *CaseClause {
+	if len(body) == 0 {
+		return nil
+	}
+	if f, ok := body[len(body)-1].(*Fallthrough); ok {
+		return f.Next
+	}
+	return nil
+}
+
 // IncDec adds one to a variable (Target++) or, when Dec is set, subtracts one
 // (Target--). It is a statement, never a value.
 type IncDec struct {
@@ -288,7 +331,8 @@ func (f *ForRange) Spanned() Span { return f.Span }
 // values within a case left to right, until one matches, and the values
 // after it are not evaluated; the default case, if there is one, is tried
 // last wherever it is written. The matching case's body runs, and then
-// the statement after the switch: there is no fallthrough. A break or
+// the statement after the switch, unless the body ends in a Fallthrough,
+// which goes on to the body of the case written next. A break or
 // continue in a body acts on the loop enclosing the switch, not on the
 // switch.
 //

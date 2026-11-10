@@ -71,7 +71,19 @@ const (
 	// one holds about gets no note on what the facts allow, such as that
 	// it may be negative (see heldValue).
 	guardValue
+	// guardFallthrough is a case a fallthrough enters, for its body: what
+	// matching it and the fallthrough both give (see checkFallenInto).
+	// Its facts are a join no note can point at a single cause of, so
+	// notes treat them as a stored value's (see silent).
+	guardFallthrough
 )
+
+// silent reports whether g's facts are ones no note describes, and that
+// keep a subject they hold about from a note on what the facts allow: a
+// stored value's, and a join's at a case a fallthrough enters.
+func (g *guard) silent() bool {
+	return g != nil && (g.kind == guardValue || g.kind == guardFallthrough)
+}
 
 // subject returns how a note names g.
 func (g *guard) subject() string {
@@ -191,8 +203,7 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 	for f := range c.factsAbout(p.about) {
 		// A value ruled out, b != -1, takes part in no proof a note
 		// explains, so no note describes it.
-		if f.relational() && !p.relations || f.diff != nil || f.hasNe ||
-			f.guard != nil && f.guard.kind == guardValue {
+		if f.relational() && !p.relations || f.diff != nil || f.hasNe || f.guard.silent() {
 			continue
 		}
 		f.drop = c.dropOf(f)
@@ -273,11 +284,12 @@ func relevantDrops(dropped []fact, relevant func(f fact) bool) []fact {
 
 // heldValue reports whether a fact a stored value gives, its bounds (see
 // guardValue) or its relation to what it was computed from (guardStore),
-// holds about k where checking has reached: a note on what the facts
-// allow k, which counts neither, is then left out.
+// or a join's at a case a fallthrough enters (guardFallthrough), holds
+// about k where checking has reached: a note on what the facts allow k,
+// which counts none of them, is then left out.
 func (c *Checker) heldValue(k factKey) bool {
 	for f := range c.factsAbout(k) {
-		if f.guard != nil && (f.guard.kind == guardValue || f.guard.kind == guardStore) && c.holds(f) {
+		if f.guard != nil && (f.guard.silent() || f.guard.kind == guardStore) && c.holds(f) {
 			return true
 		}
 	}
@@ -291,9 +303,10 @@ func (c *Checker) supposing(proven func() bool) bool {
 	saved := c.active
 	c.active = slices.Clone(saved)
 	for i := range c.active {
-		// A stored value's bounds stay as they are: notes never name
-		// them, so a note must not rest on one held where it is not.
-		if g := c.active[i].guard; g == nil || g.kind != guardValue {
+		// A stored value's bounds, and a join's, stay as they are: notes
+		// never name them, so a note must not rest on one held where it
+		// is not.
+		if g := c.active[i].guard; !g.silent() {
 			c.active[i].drop, c.active[i].ends = nil, nil
 		}
 	}
@@ -779,7 +792,7 @@ func (c *Checker) operandNotes(operand ast.Expr, lenAlone bool) []diag.Diagnosti
 			c.active,
 			func(f fact) bool {
 				return f.about == declKey(id.Def) && c.holds(f) && !f.relational() &&
-					(f.guard == nil || f.guard.kind != guardValue)
+					!f.guard.silent()
 			},
 		)
 		if bounded {

@@ -151,11 +151,9 @@ var malformedSwitches = []struct {
 	},
 	{"case 1:", "expected 'statement' found 'case'"},
 	{"default:", "expected 'statement' found 'default'"},
-	{"fallthrough", "expected 'statement' found 'fallthrough'"},
-	{
-		"switch x {\n    case 1:\n        fallthrough\n    }",
-		"expected 'statement' found 'fallthrough'",
-	},
+	{"fallthrough 1", "expected ';' found '1'"},
+	{"fallthrough()", "expected ';' found '('"},
+	{"fallthrough := 1", "expected ';' found ':='"},
 }
 
 // TestRejectsMalformedSwitches checks every malformed or truncated switch,

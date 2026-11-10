@@ -12,9 +12,13 @@ import (
 // run reaches it. They build a function f(x int64, b int8, u uint64, z
 // bool) int64, with a mutable local m that starts as x, from a tree of
 // statements: ifs with and without an else, early returns, switches on
-// x, b, u, m and z with cases of one or two values and a default, or,
-// with no default, every case ending in a return, so that the code after
-// the switch is reached only when no case matched, loops
+// x, b, u, m and z with cases of one or two values, some of which set m
+// as they are tried, pin(mut m, k), and a default,
+// written last or among the cases, or, with no default, every case
+// ending in a return or a fallthrough, so that the code after the switch
+// is reached only when no case matched, cases but the last ending in
+// fallthrough, which enters the next case's body without testing it,
+// loops
 // over 2 with break and continue, defers, writes to m, and unreachable
 // statements, under conditions that compare x, b, u and m with small
 // constants, test z, and combine those with &&, || and !. When the
@@ -71,10 +75,14 @@ type uCond struct {
 }
 
 // uCase is a case of a generated switch: its values, or none for the
-// default, and its body.
+// default, its body, and whether the body ends in a fallthrough. A value
+// pins says is written pin(mut m, k), which sets m to k as it is tried,
+// and gives k.
 type uCase struct {
 	values []int64
+	pins   []bool
 	body   []*uStmt
+	falls  bool
 }
 
 // uStmt is a generated statement of kind kind: its condition, its
@@ -177,7 +185,10 @@ func (g *uGen) stmt(depth, loops int, deferred bool) *uStmt {
 }
 
 // cases returns the cases of a switch on v: up to three with values,
-// each value named once, then a default or none.
+// each value named once, and a default or none, written last or, one
+// time in two, among them. Each case but the last may end in a
+// fallthrough, which, in a switch whose every case leaves, takes the
+// place of its return.
 func (g *uGen) cases(v, depth, loops int, deferred bool) []uCase {
 	pool := []int64{0, 1}
 	if v != uZ {
@@ -206,14 +217,28 @@ func (g *uGen) cases(v, depth, loops int, deferred bool) []uCase {
 			values = append(values, pool[i])
 			pool = append(pool[:i:i], pool[i+1:]...)
 		}
-		body := g.block(depth-1, loops, deferred)
-		if leave {
-			body = append(body, &uStmt{kind: uReturn})
+		// A value that writes m, on a tag that is not a bool, so that a
+		// default written before it, and every case that default falls
+		// into, runs after the write.
+		pins := make([]bool, len(values))
+		for j := range pins {
+			pins[j] = v != uZ && g.next(4) == 0
 		}
-		cases = append(cases, uCase{values: values, body: body})
+		cases = append(cases, uCase{values: values, pins: pins, body: g.block(depth-1, loops, deferred)})
 	}
 	if !leave && g.next(2) == 0 {
-		cases = append(cases, uCase{body: g.block(depth-1, loops, deferred)})
+		def := uCase{body: g.block(depth-1, loops, deferred)}
+		at := len(cases)
+		if g.next(2) == 0 {
+			at = g.next(len(cases) + 1)
+		}
+		cases = append(cases[:at:at], append([]uCase{def}, cases[at:]...)...)
+	}
+	for i := range cases {
+		cases[i].falls = i < len(cases)-1 && g.next(3) == 0
+		if leave && !cases[i].falls {
+			cases[i].body = append(cases[i].body, &uStmt{kind: uReturn})
+		}
 	}
 	return cases
 }
@@ -261,12 +286,19 @@ func (s *uStmt) write(b *strings.Builder, in string) {
 				b.WriteString(in + "default:\n")
 			} else {
 				var vs []string
-				for _, k := range cl.values {
+				for j, k := range cl.values {
+					if cl.pins[j] {
+						vs = append(vs, "pin(mut m, "+strconv.FormatInt(k, 10)+")")
+						continue
+					}
 					vs = append(vs, caseText(s.v, k))
 				}
 				b.WriteString(in + "case " + strings.Join(vs, ", ") + ":\n")
 			}
 			writeAll(b, cl.body, in+"    ")
+			if cl.falls {
+				b.WriteString(in + "    fallthrough\n")
+			}
 		}
 		b.WriteString(in + "}\n")
 	case uLoop:
@@ -306,6 +338,7 @@ func uSource(body []*uStmt) string {
 		"    mut m := x\n")
 	writeAll(&b, body, "    ")
 	b.WriteString("    return m\n}\n\nfunc main() {\n    if f(1, 1, 1, true) == 0 {\n        exit(1)\n    }\n}\n")
+	b.WriteString("\n// pin sets m to k and gives k.\nfunc pin(mut m int64, k int64) int64 {\n    m = k\n    return k\n}\n")
 	return b.String()
 }
 
@@ -446,19 +479,35 @@ func (r *uRun) stmt(s *uStmt) uCtrl {
 	return uNormal
 }
 
-// cases runs the case of s that matches its tag, or its default, or none.
+// cases runs the case of s that matches its tag, or its default, or none,
+// and then, while the body run ends in a fallthrough, the body of the case
+// written after it.
 func (r *uRun) cases(s *uStmt) uCtrl {
 	tag := r.value(s.v)
-	for _, cl := range s.cases {
-		for _, k := range cl.values {
+	for i, cl := range s.cases {
+		for j, k := range cl.values {
+			if cl.pins[j] {
+				r.m = k
+			}
 			if tag == k {
-				return r.block(cl.body)
+				return r.fall(s.cases[i:])
 			}
 		}
 	}
-	for _, cl := range s.cases {
+	for i, cl := range s.cases {
 		if cl.values == nil {
-			return r.block(cl.body)
+			return r.fall(s.cases[i:])
+		}
+	}
+	return uNormal
+}
+
+// fall runs the body of the first of cases, and of each after it while
+// the one before ends normally in a fallthrough.
+func (r *uRun) fall(cases []uCase) uCtrl {
+	for _, cl := range cases {
+		if ctrl := r.block(cl.body); ctrl != uNormal || !cl.falls {
+			return ctrl
 		}
 	}
 	return uNormal
@@ -501,21 +550,39 @@ func hasUnreachable(body []*uStmt) bool {
 	return false
 }
 
+// hasFallthrough reports whether body holds a case ending in fallthrough
+// anywhere.
+func hasFallthrough(body []*uStmt) bool {
+	for _, s := range body {
+		if hasFallthrough(s.then) || hasFallthrough(s.els) {
+			return true
+		}
+		for _, cl := range s.cases {
+			if cl.falls || hasFallthrough(cl.body) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // checkUnreachableSound checks the function the choices next makes: when
 // the checker accepts it, no run may reach an unreachable. It reports
-// whether the checker accepted a function holding one.
-func checkUnreachableSound(t *testing.T, next func(n int) int) bool {
+// whether the checker accepted a function holding one, and whether that
+// function holds a fallthrough too.
+func checkUnreachableSound(t *testing.T, next func(n int) int) (accepted, fell bool) {
 	t.Helper()
 	g := &uGen{next: next}
 	body := g.block(3, 0, false)
 	src := uSource(body)
 	if _, diags := checkTree(t, src); len(diags) > 0 {
-		return false
+		return false, false
 	}
 	if reachesUnreachable(body) {
 		t.Fatalf("accepted, but a run reaches an unreachable:\n%s", src)
 	}
-	return hasUnreachable(body)
+	accepted = hasUnreachable(body)
+	return accepted, accepted && hasFallthrough(body)
 }
 
 // bytesChoice returns a source of choices that reads data a byte at a
@@ -554,18 +621,52 @@ func FuzzUnreachableIsSound(f *testing.F) {
 // TestUnreachableIsSound runs the oracle of FuzzUnreachableIsSound on
 // functions built from a fixed sequence of random choices, so every run
 // of the tests tries them, and checks that the checker accepts some
-// function holding an unreachable among them, so the oracle is not
-// vacuous.
+// function holding an unreachable among them, and some holding a
+// fallthrough as well, so the oracle is not vacuous.
 func TestUnreachableIsSound(t *testing.T) {
 	rng := rand.New(rand.NewPCG(11, 29))
-	accepted := 0
+	accepted, fell := 0, 0
 	for range 3000 {
-		if checkUnreachableSound(t, func(n int) int { return rng.IntN(n) }) {
+		a, f := checkUnreachableSound(t, func(n int) int { return rng.IntN(n) })
+		if a {
 			accepted++
 		}
+		if f {
+			fell++
+		}
 	}
-	if accepted == 0 {
-		t.Fatal("the checker accepted no generated function holding an unreachable")
+	if accepted == 0 || fell == 0 {
+		t.Fatalf("the checker accepted %d generated functions holding an unreachable, %d of them "+
+			"with a fallthrough, want some of each", accepted, fell)
 	}
-	t.Logf("%d accepted functions hold an unreachable", accepted)
+	t.Logf("%d accepted functions hold an unreachable, %d of them a fallthrough too", accepted, fell)
+}
+
+// TestUnreachableAfterLateValueIsSound puts through the oracle of
+// FuzzUnreachableIsSound a switch whose default, written first, falls
+// into a case holding an unreachable that a fact from before the switch,
+// m >= 2, would prove, while a case written after both sets m to 0 as its
+// value is tried. The default runs only after that value, and so does the
+// case it falls into, where m is then 0: the checker must not accept it.
+func TestUnreachableAfterLateValueIsSound(t *testing.T) {
+	sw := &uStmt{kind: uSwitch, v: uX, cases: []uCase{
+		{falls: true},
+		{
+			values: []int64{1}, pins: []bool{false},
+			body: []*uStmt{{
+				kind: uIf,
+				cond: &uCond{op: "<", v: uM, k: 2},
+				then: []*uStmt{{kind: uUnreachable}},
+			}},
+		},
+		{values: []int64{0}, pins: []bool{true}, body: []*uStmt{{kind: uReturn}}},
+	}}
+	body := []*uStmt{{kind: uIf, cond: &uCond{op: ">=", v: uM, k: 2}, then: []*uStmt{sw}}}
+	src := uSource(body)
+	if !reachesUnreachable(body) {
+		t.Fatalf("no run reaches the unreachable, so the test proves nothing:\n%s", src)
+	}
+	if _, diags := checkTree(t, src); len(diags) == 0 {
+		t.Fatalf("accepted, but a run reaches an unreachable:\n%s", src)
+	}
 }

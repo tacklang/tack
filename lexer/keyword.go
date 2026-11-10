@@ -93,6 +93,12 @@ const (
 	// run reaches. It comes after Ensures for the same reason Ensures
 	// comes after Own.
 	Unreachable
+
+	// Fallthrough is a statement that ends a switch case's body and
+	// enters the next case's body without testing its values. It comes
+	// after Unreachable for the same reason Unreachable comes after
+	// Ensures.
+	Fallthrough
 )
 
 var keywordNames = map[KeywordType]string{
@@ -147,6 +153,8 @@ var keywordNames = map[KeywordType]string{
 	Ensures: "ensures",
 
 	Unreachable: "unreachable",
+
+	Fallthrough: "fallthrough",
 }
 
 // String returns the keyword as written in source.

@@ -1231,6 +1231,11 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 	case *ast.Unreachable:
 		return []string{"TACK_UNREACHABLE(" + cStringLiteral(x.Where) + ");"}, nil
 
+	case *ast.Fallthrough:
+		// The case's block ends here, running its defers, and the next
+		// case's label follows it (see fallChain).
+		return nil, nil
+
 	default:
 		return g.generateSimpleStmt(stmt)
 	}

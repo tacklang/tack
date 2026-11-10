@@ -230,8 +230,11 @@
 // statements up to the next case, default or closing brace. A struct
 // literal in the tag must be in parentheses, as in an if header. A second
 // default is reported here, with a note at the first. There is no init
-// statement, since an if has none, and fallthrough is not a keyword: it is
-// an ordinary name. A type switch has x.(type) as its tag, and its case
+// statement, since an if has none. A fallthrough that is the last
+// statement of a case other than the switch's last is linked, by its
+// Next, to the case written after it, which it enters; one anywhere else,
+// out of place, keeps no link, and is the type checker's to report, as
+// is one in a type switch or a switch on a union. A type switch has x.(type) as its tag, and its case
 // values are types, parsed as types are; a name and := after the keyword,
 // switch v := x.(type), bind its value, recorded as the Switch's Bind,
 // and the parser gives each case a variable of its own under that name.
@@ -246,13 +249,15 @@
 // or continue in a deferred block leaves it, and a defer inside one, are
 // the type checker's to report.
 //
-// break, continue and unreachable are each the keyword alone, followed by
-// the semicolon that ends the statement or the closing brace of its
-// block: there are no labels, and unreachable takes no value, so
-// unreachable(), and unreachable := 1, are reported at the token after
-// the keyword. unreachable is a keyword, never a name, so writing it where
-// a name or a value goes is reported as any keyword there is. Whether it
-// is proven unreachable is the type checker's to judge.
+// break, continue, unreachable and fallthrough are each the keyword
+// alone, followed by the semicolon that ends the statement or the closing
+// brace of its block: there are no labels, and neither unreachable nor
+// fallthrough takes a value, so unreachable(), and unreachable := 1, are
+// reported at the token after the keyword. unreachable and fallthrough
+// are keywords, never names, so writing either where a name or a value
+// goes is reported as any keyword there is. Whether an unreachable is
+// proven unreachable, and whether a fallthrough is in a place it may be,
+// are the type checker's to judge.
 //
 // After a syntax error the parser records it and recovers (see
 // recover.go): it skips the rest of the statement, to the semicolon at

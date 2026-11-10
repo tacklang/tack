@@ -61,7 +61,7 @@ func (c *Checker) relationIndex() *relIndex {
 		// A stored value's bounds (see guardValue) stay out of the
 		// graph: they prove what they prove through the variable's own
 		// interval, and a note on a missing link would name them.
-		if f.inMap.isZero() && (f.guard == nil || f.guard.kind != guardValue) {
+		if f.inMap.isZero() && !f.guard.silent() {
 			idx.addFact(i, f)
 		}
 	}

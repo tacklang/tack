@@ -331,6 +331,7 @@ A fact holds in these places:
 | the right side of `&&`, by the left being true                                                     | `b != 0 && a / b > 1`                                                   |
 | the right side of `\|\|`, by the left being false                                                  | `b == 0 \|\| a / b > 1`                                                 |
 | a `switch` case, as in the chain of ifs it stands for                                              | `switch b { case 0: return 0 }` then `a / b`                            |
+| a case a `fallthrough` enters, by what matching it and the fallthrough both prove                  | `switch { case b > 1: fallthrough; case b > 0: a / b }`                 |
 | deferred code, with the facts in force at its `defer`                                              | `if b == 0 { return 0 }` then `defer { 12 / b }`                        |
 
 A range loop's index is at least 0 and at most its count less one, when the
@@ -489,6 +490,42 @@ values not matching. A type switch, `switch v := a.(type)`, proves
 nothing, since what an `any` holds is never known at compile time; a
 case's `v` is a variable like any other, so a check on it inside the case
 proves what that check proves.
+
+A case's body that a `fallthrough` enters is reached two ways: by
+matching, and by the case before it falling through, on which path
+neither its values nor the earlier cases' were tested. It proves only
+what both ways give, joined as the sides of a true `||` are: for each
+subject both ways bound, the range that holds both. Matching gives what
+held where the switch began, the case's values matching and the cases
+tried before it not matching; the fallthrough gives what holds at it,
+once the falling case's defers have run. So
+<!-- case: fallthrough-next-case-fact -->`switch d { case 0: fallthrough; case 1, 2: r = 10 / d }`
+reports the division, since `d` may be 0 there, and
+<!-- case: fallthrough-skipped-case-unreachable -->`switch n { case 3: fallthrough; case 4: if n == 3 { unreachable } }`
+reports the `unreachable`, while
+`switch { case d > 0 && n > 0: fallthrough; case d > 0: return n / d }`
+compiles, both ways proving `d > 0`. On the matching way the tag and
+every value tried before the case's body run first, so a write in them
+ends what held where the switch began:
+<!-- case: fallthrough-tag-writes -->`switch set(mut d) { case 1: ...; fallthrough; case 2: return 10 / d }`
+and <!-- case: fallthrough-value-writes -->`case zero(mut d): return 10 / d`
+entered from a case that proves `d != 0` both report the division. A
+`default` written before other cases runs only after every case's
+values, and so does every case it falls into, so a write in a value
+written after the `default` reaches them all:
+<!-- case: fallthrough-default-late-chain -->`default: fallthrough; case 2: fallthrough; case 3: return 100 / d; case bump(mut d):`
+reports the division, and
+<!-- case: fallthrough-default-late-moved -->`default: fallthrough; case 2: return len(l); case take(own l) +% 9:`
+reads `l` after the move. A
+defer in the falling case runs
+before the next case's body, so a write in it ends what the case proved:
+<!-- case: fallthrough-defer-assigns -->`case 1: defer { d = 0 }; if d == 0 { return 0 }; fallthrough`
+then `case 2: return 10 / d` reports the division. A bound a loop keeps
+must survive the fallthrough too:
+<!-- case: fallthrough-loop-bound -->`case r == 9: fallthrough; case i > 1: i -= 2`
+keeps no lower bound on `i`, since the first case may enter the
+second's body with `i` at 1. What the join proves has no single cause, so no note
+describes it.
 
 <!-- example: safety -->
 
@@ -854,7 +891,12 @@ A write in any other branch or case in the region that leaves, by
 `default` whose every case leaves, never reaches code outside its
 `if` or `switch` either, after it or before it, since only the paths that
 did not take it run there, short of where a `break` or `continue` in it
-lands (below). So the loop's condition still proves `fmt[i]` below a branch that
+lands (below). A case ending in `fallthrough` leaves when the case it
+falls into does, by that case's way out:
+<!-- case: fallthrough-write-reaches-after -->`case c == 1: d = 0; fallthrough; case c == 2: print("")`
+lets the write reach the division after the switch, and
+<!-- case: fallthrough-continue-reaches-loop -->`case c == 1: d = 0; fallthrough; case c == 2: continue`
+lets it reach the next pass of the loop. So the loop's condition still proves `fmt[i]` below a branch that
 moves `i` on and starts the next pass, which proves it again:
 
 <!-- example: leaving-writes -->
@@ -1905,7 +1947,8 @@ moves it before the default's body runs,
 <!-- case: move-switch-early-default -->`switch n { default: return len(l); case take(own l): return 2 }`
 reports <!-- error: move-switch-early-default -->`l is used after it was moved`
 at `len(l)`, with <!-- note: move-switch-early-default -->`l is moved here`
-at the value.
+at the value. A case the `default` falls into runs after it, so it
+cannot use `l` either.
 A parameter borrows its list, and a `mut` parameter refers to its
 caller's, so neither is moved, <!-- error: move-borrowed-param -->
 `cannot move l: it is a parameter, which borrows its caller's value`,
@@ -2512,7 +2555,10 @@ branch ending in it leaves. A place is proven when:
   naming only 0, 1 and 2 does not. What the early exits of an `else if`
   chain give the code after the chain counts too, and so does what a
   `switch` with no `default` whose every case leaves gives the code
-  after it, reached only when no case matched, and a `bool` tested
+  after it, reached only when no case matched, a case ending in
+  `fallthrough` leaving when the case it falls into does, so
+  <!-- case: fallthrough-covering-falls-out -->one whose fallthrough
+  enters a case that does not leave gives nothing, and a `bool` tested
   with `if b` and `if !b` holds 1 and 0;
 - every side of a true `||` or a false `&&` on the path to it, each taken
   alone, leaves some variable no value with the other facts there,

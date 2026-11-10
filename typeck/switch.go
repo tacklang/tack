@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/tacklang/tack/ast"
@@ -27,6 +28,16 @@ import (
 // give them. Facts about the tag come from the comparisons it stands in,
 // so they exist only where the same comparison written in an if would
 // give one, as when the tag is a variable.
+//
+// A case whose body ends in a fallthrough goes on into the body of the
+// case written after it, which is then reached two ways: by matching, with
+// the facts above, or by the fallthrough, with the facts in force where it
+// is, after the falling case's defers have run, and none from the entered
+// case's values, which are not tested on that path. Its body gets what
+// both ways agree on, as || joins its sides (see joinFacts). The bodies
+// entered by a fallthrough are checked once every case's values are, in
+// source order, each after the case that falls into it, since a default
+// written before other cases, tried last, may fall into one of them.
 
 // checkSwitch checks a switch in fn: its tag, then each case, its values and
 // its body, in the order they are tried, the default last. A type switch
@@ -66,40 +77,258 @@ func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
 	}
 
 	seen := make(map[caseKey]ast.Expr)
+	entered := fallenInto(s)
+	late := lateBodies(s)
+	// earlier holds the facts of every case tried so far not matching,
+	// kept only when some body is entered by a fallthrough, for the facts
+	// matching gives that body (see checkFallenInto).
+	var earlier, atSwitch []fact
+	if len(entered) > 0 {
+		atSwitch = c.factsAtSwitch(s)
+	}
+	matched := make(map[*ast.CaseClause][]fact)
 	m := c.mark()
 	for i, cl := range order {
 		c.checkCaseValues(s, tagType, cl, seen)
 		span := caseSpan(cl)
-		c.checkCaseBody(s, cl, c.caseFacts(s, cl, true), fn)
-		c.assume(
-			&guard{span: span, kind: guardLaterCase},
-			c.caseFacts(s, cl, false),
-			later[rest[i]:],
-		)
+		if entered[cl] {
+			matched[cl] = slices.Concat(atSwitch, c.caseFacts(s, cl, true), earlier)
+		} else {
+			g := &guard{span: span, kind: guardCase}
+			c.checkCaseBody(s, cl, late[cl], g, c.caseFacts(s, cl, true), fn)
+		}
+		notMatched := c.caseFacts(s, cl, false)
+		c.assume(&guard{span: span, kind: guardLaterCase}, notMatched, later[rest[i]:])
+		if len(entered) > 0 {
+			earlier = append(earlier, notMatched...)
+		}
 	}
 	c.release(m)
+	for i, cl := range s.Cases {
+		if entered[cl] {
+			from, _ := lastFallthrough(s.Cases[i-1].Body)
+			c.checkFallenInto(s, cl, from, late[cl], matched[cl], fn)
+		}
+	}
+}
+
+// lateBodies returns the cases of s whose body may run after every case's
+// values are tried: a default written before another case, which runs
+// only once every value has failed to match, and each case it falls into,
+// directly or down a chain of fallthroughs, which then runs later still.
+// It is nil when the default is written last, or there is none.
+func lateBodies(s *ast.Switch) map[*ast.CaseClause]bool {
+	i := slices.IndexFunc(s.Cases, func(cl *ast.CaseClause) bool { return cl.Default })
+	if i < 0 || i == len(s.Cases)-1 {
+		return nil
+	}
+	late := map[*ast.CaseClause]bool{s.Cases[i]: true}
+	for next := ast.FallsInto(s.Cases[i].Body); next != nil; next = ast.FallsInto(next.Body) {
+		late[next] = true
+	}
+	return late
+}
+
+// fallenInto returns the cases of s whose body a fallthrough enters: each
+// written after a case whose body ends in one.
+func fallenInto(s *ast.Switch) map[*ast.CaseClause]bool {
+	var entered map[*ast.CaseClause]bool
+	for _, cl := range s.Cases {
+		if next := ast.FallsInto(cl.Body); next != nil {
+			if entered == nil {
+				entered = make(map[*ast.CaseClause]bool)
+			}
+			entered[next] = true
+		}
+	}
+	return entered
+}
+
+// checkFallenInto checks the body of cl, a case of the expression switch
+// s that the fallthrough from enters, in fn, with the facts both ways into
+// it agree on in force: matched, which matching it gives, the facts in
+// force where s starts, its values' and those of the cases tried before
+// it not matching, and the facts in force at from (see checkFallthrough).
+// The facts in force where s starts still hold in the body on their own,
+// up to the first write that can reach it, as anywhere in s, which, for a
+// body late says runs after every case's values, a case a default
+// written before others falls into, is any write in a value of s too (see
+// lateBodies). Every value
+// of s is tried before cl's body runs, on the path that matches, so a
+// fact about a variable one of them assigns is left out of matched; most
+// switches have no such value (see tagWriteOf). The facts are those of a
+// join, which no note describes.
+func (c *Checker) checkFallenInto(
+	s *ast.Switch,
+	cl *ast.CaseClause,
+	from *ast.Fallthrough,
+	late bool,
+	matched []fact,
+	fn *ast.Func,
+) {
+	if w := c.tagWriteOf(s); w.first < len(w.pos) {
+		var values []ast.Node
+		for _, other := range s.Cases {
+			values = append(values, valueNodes(other.Values)...)
+		}
+		matched = c.dropAssigned(matched, values)
+	}
+	fell := c.fellFacts[from]
+	delete(c.fellFacts, from)
+	g := &guard{span: caseSpan(cl), kind: guardFallthrough}
+	c.checkCaseBody(s, cl, late, g, joinFacts(fell, matched), fn)
+}
+
+// lastFallthrough returns the fallthrough body ends in, if it ends in one.
+func lastFallthrough(body []ast.Stmt) (*ast.Fallthrough, bool) {
+	if len(body) == 0 {
+		return nil, false
+	}
+	f, ok := body[len(body)-1].(*ast.Fallthrough)
+	return f, ok
 }
 
 // checkCaseBody checks the body of cl, a case of the expression switch s,
-// in fn, with facts, which its condition being true gives, in force. A
-// default written before another case runs after every case's values are
-// tried, which c.lateDefaults records while it is checked (see reaches).
-func (c *Checker) checkCaseBody(s *ast.Switch, cl *ast.CaseClause, facts []fact, fn *ast.Func) {
-	late := cl.Default && cl != s.Cases[len(s.Cases)-1]
+// in fn, with facts, which g gives, in force: those of its condition
+// being true, or, for a body a fallthrough enters, what that and the
+// fallthrough agree on. A body late says may run after every case's
+// values are tried, a default written before another case or a case it
+// falls into (see lateBodies), is checked with c.lateDefaults recording it,
+// so a write in any of those values reaches it (see reaches).
+func (c *Checker) checkCaseBody(
+	s *ast.Switch,
+	cl *ast.CaseClause,
+	late bool,
+	g *guard,
+	facts []fact,
+	fn *ast.Func,
+) {
 	if late {
 		c.lateDefaults = append(c.lateDefaults, lateDefault{whole: s.Span, body: clauseSpan(cl)})
 	}
-	c.checkGuarded(cl.Body, &guard{span: caseSpan(cl), kind: guardCase}, facts, fn)
+	c.inClause(cl, plainSwitch, func() { c.checkGuarded(cl.Body, g, facts, fn) })
 	if late {
 		c.lateDefaults = c.lateDefaults[:len(c.lateDefaults)-1]
 	}
 }
 
-// lateDefault is a switch's default written before some of its cases,
-// whose body runs only after every case's values have been tried: whole
-// is the switch, and body the default, its keyword through its last
-// statement. A write in the switch outside the default may run before
-// the default's body although it is written after it (see reaches).
+// switchKind is what kind of switch a case belongs to, which decides
+// whether a fallthrough may end it.
+type switchKind int
+
+const (
+	// plainSwitch is an expression switch, tagged or with no tag, whose
+	// cases a fallthrough may end.
+	plainSwitch switchKind = iota
+	// typeSwitch is a type switch, switch x.(type).
+	typeSwitch
+	// unionSwitch is a switch on a union, which matches its cases.
+	unionSwitch
+)
+
+// clauseAt is a switch case whose body is being checked: cl, of a switch
+// of kind kind, with deferred defers around it (see Checker.deferred).
+type clauseAt struct {
+	cl       *ast.CaseClause
+	kind     switchKind
+	deferred int
+}
+
+// inClause runs check, which checks the body of cl, a case of a switch of
+// kind kind, with cl recorded as the innermost case being checked.
+func (c *Checker) inClause(cl *ast.CaseClause, kind switchKind, check func()) {
+	c.clauses = append(c.clauses, clauseAt{cl: cl, kind: kind, deferred: c.deferred})
+	check()
+	c.clauses = c.clauses[:len(c.clauses)-1]
+}
+
+// checkFallthrough checks f, which must be the last statement of the
+// body of a case of an expression switch that is not the switch's last
+// case, outside any defer inside that case, and records the facts in
+// force there for the next case's body (see checkFallenInto). Those
+// facts hold once the case's body is left, but for any its defers, which
+// run then, assign the variable of.
+func (c *Checker) checkFallthrough(f *ast.Fallthrough) {
+	if len(c.clauses) == 0 {
+		c.errorf(f.Span, "fallthrough is not in a switch")
+		return
+	}
+	in := c.clauses[len(c.clauses)-1]
+	last, isLast := lastFallthrough(in.cl.Body)
+	switch {
+	case c.deferred > in.deferred:
+		c.errorf(f.Span, "cannot fall through out of a defer")
+	case in.kind == typeSwitch:
+		c.errorf(f.Span, "cannot fall through in a type switch")
+	case in.kind == unionSwitch:
+		c.errorf(f.Span, "cannot fall through in a switch on a union")
+	case !isLast || last != f:
+		c.errorf(f.Span, "fallthrough must be the last statement of a case")
+	case f.Next == nil:
+		c.errorf(f.Span, "cannot fall through from the last case of a switch")
+	default:
+		if c.fellFacts == nil {
+			c.fellFacts = make(map[*ast.Fallthrough][]fact)
+		}
+		c.fellFacts[f] = c.factsAtFallthrough(in.cl.Body)
+	}
+}
+
+// factsAtFallthrough returns the facts in force where checking has
+// reached, a fallthrough ending body (see factsHere), with each whose
+// variable a defer of body assigns marked dropped: the defers run as body
+// is left, before the next case's body.
+func (c *Checker) factsAtFallthrough(body []ast.Stmt) []fact {
+	facts := c.factsHere()
+	var defers []ast.Node
+	for _, stmt := range body {
+		if d, ok := stmt.(*ast.Defer); ok {
+			defers = append(defers, d)
+		}
+	}
+	if len(defers) > 0 {
+		facts = c.dropAssigned(facts, defers)
+	}
+	return facts
+}
+
+// factsAtSwitch returns the facts in force where s starts, once its tag
+// is evaluated and before any value is tried (see factsHere): just past
+// the tag, so a write the tag makes, which takes effect at its end, ends
+// what it writes.
+func (c *Checker) factsAtSwitch(s *ast.Switch) []fact {
+	outer := c.at
+	c.at = s.Span.Start + len("switch")
+	if s.Tag != nil {
+		c.at = s.Tag.Spanned().End + 1
+	}
+	facts := c.factsHere()
+	c.at = outer
+	return facts
+}
+
+// factsHere returns a copy of every fact in force that holds where
+// checking has reached, c.at, but those that hold nothing a join can
+// carry: a relation, and the sides of a condition. Each copy holds
+// without a write to end it, for the code that joins it.
+func (c *Checker) factsHere() []fact {
+	var facts []fact
+	for _, f := range c.active {
+		if f.empty() || f.relational() || f.either != nil || !c.holds(f) {
+			continue
+		}
+		f.ends = nil
+		facts = append(facts, f)
+	}
+	return facts
+}
+
+// lateDefault is a body of a switch that runs only after every case's
+// values have been tried: a default written before some of its cases, or
+// a case it falls into (see lateBodies). whole is the switch, and body the
+// case, its keyword through its last statement. A write in the switch
+// outside the case may run before its body although it is written after
+// it (see reaches).
 type lateDefault struct {
 	whole, body ast.Span
 }
@@ -447,7 +676,9 @@ func chainLeavesBy(order []*ast.CaseClause, bodyLeaves func([]ast.Stmt) bool) bo
 // switchTerminates reports whether a switch is a terminating statement: it
 // has a default, or is a switch on a union whose clauses name every case,
 // and every case's body ends in a terminating statement, as an if must
-// have an else and both branches terminate.
+// have an else and both branches terminate. A fallthrough into the next
+// case counts as one, as in Go: the last case, which none may end, must
+// terminate itself.
 func switchTerminates(s *ast.Switch) bool {
 	if s.Default() == nil && !s.Exhaustive {
 		return false
